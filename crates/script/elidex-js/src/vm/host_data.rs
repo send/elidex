@@ -110,6 +110,12 @@ mod engine_feature {
         /// Bounded by the number of distinct documents a VM observes
         /// (typically 1 — at most a handful).
         pub(crate) document_methods_installed: HashSet<Entity>,
+        /// Monotonic bind-cycle counter — incremented on every
+        /// `unbind()`.  Used by `StaticRange.isValid()` to detect
+        /// retained instances whose captured `Entity` bits became
+        /// stale across rebind (a fresh `EcsDom` can reuse the
+        /// same slot for a different entity).  Copilot R9.
+        pub(crate) bind_epoch: u32,
         pub(crate) listener_store: HashMap<ListenerId, ObjectId>,
         pub(crate) wrapper_cache: HashMap<u64, ObjectId>,
         /// Currently focused Element entity (WHATWG HTML §6.6.3).
@@ -215,6 +221,92 @@ mod engine_feature {
         /// localStorage persistence install a real
         /// `WebStorageManager`.
         pub(crate) fallback_local_storage: SessionStorageState,
+        // -------------------------------------------------------------
+        // D-8 PR-A2: Range / TreeWalker / NodeIterator live state
+        // -------------------------------------------------------------
+        /// HostData-side `LiveRangeRegistry` (WHATWG DOM §4.4 +
+        /// §5.5).  Shares the `Arc<Mutex<HashMap<RangeId, Range>>>`
+        /// hash with the `MutationBridge` installed via
+        /// `EcsDom::set_mutation_hook` at `Vm::bind`.  Hook fires
+        /// from engine-side mutations (insert / remove / text-change /
+        /// replace-data / split-text / normalize-merge) apply
+        /// boundary adjustments synchronously through the shared
+        /// `Arc`.  See `crates/dom/elidex-dom-api/src/range/live.rs`
+        /// for the consumer-side machinery and
+        /// `crates/dom/elidex-dom-api/src/mutation_bridge.rs` for
+        /// the multi-consumer wrapper that pairs with this field.
+        ///
+        /// **Persisted across unbind cycles?**  No — cleared by
+        /// `clear` on `Vm::unbind` (range identity does not span
+        /// rebinds; the JS-side Range wrappers re-register via
+        /// `document.createRange()` after rebind).
+        pub(crate) live_range_registry: elidex_dom_api::LiveRangeRegistry,
+        /// Shared `Arc<Mutex<HashMap<NodeIteratorId, NodeIteratorState>>>`
+        /// held jointly with the `MutationBridge` installed on
+        /// `EcsDom`.  The shared half lets the bridge's
+        /// `after_remove_with_descendants` callback apply WHATWG
+        /// §6.1 pre-removing-steps to every registered iterator
+        /// synchronously inside the engine fire site.
+        ///
+        /// **Lock ordering** (plan-v4 §A-NI-1 Round 2 IMP-3): the
+        /// bridge acquires `live_range_registry`'s inner `ranges`
+        /// lock FIRST, releases, then acquires this map's lock —
+        /// **no nested locking**.  Enforced syntactically by
+        /// disjoint-block scoping inside
+        /// `MutationBridge::after_remove_with_descendants`.
+        pub(crate) node_iterator_states_shared:
+            std::sync::Arc<std::sync::Mutex<HashMap<u64, elidex_dom_api::NodeIteratorState>>>,
+        /// Per-iterator wrapper `ObjectId` cache.  Mirrors the
+        /// `mutation_observer_instances` pattern — keyed by the
+        /// monotonic `iterator_id: u64` carried inline in
+        /// `ObjectKind::NodeIterator { iterator_id }`.  Sweep tail
+        /// prunes dead entries (`unregister`s the iterator from
+        /// `node_iterator_states_shared`).
+        pub(crate) node_iterator_instances: HashMap<u64, ObjectId>,
+        /// Monotonic counter for `NodeIterator` IDs.  Per lesson
+        /// #217 (post-unbind static sentinel stability): does NOT
+        /// reset on `Vm::unbind` — retained references to a
+        /// `NodeIterator` re-bind across DOM swaps without
+        /// collision.
+        pub(crate) next_node_iterator_id: u64,
+        /// VM-local `TreeWalker` state map.  NOT shared with the
+        /// bridge — WHATWG DOM §6.4 has **no** pre-removing-steps
+        /// for `TreeWalker` (only §6.1 NodeIterator does); the
+        /// walker's `currentNode` is allowed to go stale and
+        /// recovers lazily on the next traversal call.  See plan
+        /// v4 §A-NI-1 Round 2 IMP-2 verification.
+        pub(crate) tree_walker_states: HashMap<u64, TreeWalkerState>,
+        /// Per-walker wrapper `ObjectId` cache.  Sweep tail prunes
+        /// dead entries.
+        pub(crate) tree_walker_instances: HashMap<u64, ObjectId>,
+        /// Monotonic counter for `TreeWalker` IDs (lesson #217 —
+        /// does NOT reset on `Vm::unbind`).
+        pub(crate) next_tree_walker_id: u64,
+        /// Per-Range wrapper `ObjectId` cache.  Keyed by the inner
+        /// `RangeId` bits.  Sweep tail prunes dead entries +
+        /// unregisters the Range from
+        /// `live_range_registry.ranges`.
+        pub(crate) range_instances: HashMap<u64, ObjectId>,
+    }
+
+    /// VM-local TreeWalker state.  WHATWG DOM §6.4.
+    ///
+    /// Holds NodeFilter callback as opaque `Option<u64>` (ObjectId
+    /// bits) per the engine-indep layering precedent in
+    /// `NodeIteratorState` (Round 2 IMP-2).
+    #[derive(Debug, Clone)]
+    pub struct TreeWalkerState {
+        /// `root` per spec §6.4 — never mutates after construction.
+        pub root: Entity,
+        /// `whatToShow` bitmask per spec §6.3.
+        pub what_to_show: u32,
+        /// VM-side filter callback `ObjectId` bits.  `None` for
+        /// "no filter" (every node ACCEPTed without callback).
+        pub filter_object_id: Option<u64>,
+        /// `currentNode` per spec §6.4.
+        pub current: Entity,
+        /// Active-flag for filter re-entrancy detection (§6.3 step 2).
+        pub active: bool,
     }
 
     /// Returns `true` when two raw pointers share their base
@@ -235,12 +327,24 @@ mod engine_feature {
 
     impl HostData {
         pub fn new() -> Self {
+            // D-8 PR-A2: create the shared `Arc<Mutex<HashMap>>` that
+            // binds HostData to the future `MutationBridge` via the
+            // canonical pair-construction in `Vm::bind`.  Held empty
+            // here; populated by VM-side NodeIterator ctor +
+            // adjusted by the bridge's
+            // `after_remove_with_descendants` hook.  The
+            // `LiveRangeRegistry` factory below produces the half
+            // owned by HostData; `Vm::bind` swaps it for the
+            // multi-consumer pair when wiring the hook.
+            let (live_range_registry, _initial_bridge_unused) =
+                elidex_dom_api::LiveRangeRegistry::new_pair();
             Self {
                 session_ptr: std::ptr::null_mut(),
                 dom_ptr: std::ptr::null_mut(),
                 document_entity: None,
                 window_entity: None,
                 document_methods_installed: HashSet::new(),
+                bind_epoch: 0,
                 listener_store: HashMap::new(),
                 wrapper_cache: HashMap::new(),
                 focused_entity: None,
@@ -252,7 +356,55 @@ mod engine_feature {
                 session_storage: SessionStorageState::new(),
                 opaque_origin_sentinel: next_opaque_origin_id(),
                 fallback_local_storage: SessionStorageState::new(),
+                live_range_registry,
+                node_iterator_states_shared: std::sync::Arc::new(std::sync::Mutex::new(
+                    HashMap::new(),
+                )),
+                node_iterator_instances: HashMap::new(),
+                next_node_iterator_id: 0,
+                tree_walker_states: HashMap::new(),
+                tree_walker_instances: HashMap::new(),
+                next_tree_walker_id: 0,
+                range_instances: HashMap::new(),
             }
+        }
+
+        /// Borrow `EcsDom` (shared) and `LiveRangeRegistry`
+        /// (exclusive) simultaneously via disjoint field projection.
+        ///
+        /// Mirrors [`Self::split_dom_and_observers`] (line 577) —
+        /// VM-side Range accessors that need both `finalize_pending`
+        /// AND a `Range` read/mutate in one call cannot get
+        /// `&EcsDom` and `&mut LiveRangeRegistry` through separate
+        /// `dom_shared` / `live_range_registry_mut` accessors
+        /// without conflicting borrows on `&mut self`.
+        ///
+        /// # Safety
+        ///
+        /// Same `dom_ptr` aliasing contract as
+        /// [`Self::dom_shared`]: callers MUST NOT invoke any
+        /// sibling `host()` / `host().dom()` path while either of
+        /// the returned references is live.  The `EcsDom`
+        /// allocation is disjoint from the `HostData`'s
+        /// `live_range_registry` storage by `bind`'s "disjoint
+        /// allocations" contract, so the `&EcsDom` and `&mut
+        /// LiveRangeRegistry` cannot alias.
+        ///
+        /// Plan-v4 §A6 Round 1 Arch CRIT-2 — doc-comment carries
+        /// the same caller-contract as `split_dom_and_observers`.
+        #[allow(unsafe_code)]
+        pub(crate) fn split_dom_and_live_ranges(
+            &mut self,
+        ) -> (&elidex_ecs::EcsDom, &mut elidex_dom_api::LiveRangeRegistry) {
+            assert!(self.is_bound(), "HostData accessed while unbound");
+            // SAFETY: see method-level safety comment.  `dom_ptr`
+            // is the bound `&mut EcsDom` supplied by the most
+            // recent `bind()`; we only synthesise a shared ref here,
+            // and the returned `&mut LiveRangeRegistry` projects a
+            // disjoint owned field (live_range_registry lives
+            // inside `HostData` itself, not behind `dom_ptr`).
+            let dom = unsafe { &*self.dom_ptr };
+            (dom, &mut self.live_range_registry)
         }
 
         /// Install the shell-owned `WebStorageManager` (idempotent
@@ -415,6 +567,19 @@ mod engine_feature {
             self.session_ptr = std::ptr::null_mut();
             self.dom_ptr = std::ptr::null_mut();
             self.document_entity = None;
+            // Copilot R9: bump bind epoch so retained `StaticRange`
+            // wrappers (which captured the prior epoch) invalidate
+            // on `isValid()` even if their stored `Entity` bits
+            // collide with a new slot in a rebound `EcsDom`.
+            self.bind_epoch = self.bind_epoch.wrapping_add(1);
+        }
+
+        /// Current bind epoch — incremented on every `Vm::unbind` so
+        /// retained `StaticRange` wrappers can detect stale entity
+        /// bits after a rebind.  See [`Self::unbind`].
+        #[inline]
+        pub fn bind_epoch(&self) -> u32 {
+            self.bind_epoch
         }
 
         /// Returns `true` only when **both** `session_ptr` and
@@ -766,12 +931,40 @@ mod engine_feature {
         }
 
         pub fn gc_root_object_ids(&self) -> impl Iterator<Item = ObjectId> + '_ {
+            // Copilot R8: `TreeWalker` / `NodeIterator` filters are
+            // NOT rooted here — doing so created a leak cycle when
+            // the filter closure captured the wrapper (filter root →
+            // closure trace → wrapper marked → state table entry
+            // preserved → filter stays rooted → ...).  Filters are
+            // instead reached via per-wrapper trace fan-out (see
+            // `trace_work_list`'s `TreeWalker` / `NodeIterator`
+            // arms), so an unreachable wrapper drops its filter
+            // root naturally on the same sweep.
             self.listener_store
                 .values()
                 .copied()
                 .chain(self.wrapper_cache.values().copied())
                 .chain(self.mutation_observer_callbacks.values().copied())
                 .chain(self.mutation_observer_instances.values().copied())
+        }
+
+        /// GC trace fan-out accessor for `TreeWalker.filter_object_id`
+        /// lookup.  Copilot R8 — filter is reached only when the
+        /// wrapper itself is reachable via this state table.
+        pub(crate) fn tree_walker_states_ref(&self) -> &HashMap<u64, TreeWalkerState> {
+            &self.tree_walker_states
+        }
+        pub(crate) fn tree_walker_instances_ref(&self) -> &HashMap<u64, ObjectId> {
+            &self.tree_walker_instances
+        }
+        pub(crate) fn node_iterator_states_shared_ref(
+            &self,
+        ) -> &std::sync::Arc<std::sync::Mutex<HashMap<u64, elidex_dom_api::NodeIteratorState>>>
+        {
+            &self.node_iterator_states_shared
+        }
+        pub(crate) fn node_iterator_instances_ref(&self) -> &HashMap<u64, ObjectId> {
+            &self.node_iterator_instances
         }
     }
 
@@ -887,3 +1080,5 @@ mod engine_feature {
 pub use engine_feature::HostData;
 #[cfg(feature = "engine")]
 pub use engine_feature::PrototypeKind;
+#[cfg(feature = "engine")]
+pub use engine_feature::TreeWalkerState;

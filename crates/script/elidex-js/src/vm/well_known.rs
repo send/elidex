@@ -706,6 +706,7 @@ define_well_known_strings! {
         dom_exc_invalid_character_error => "InvalidCharacterError",
         dom_exc_in_use_attribute_error => "InUseAttributeError",
         dom_exc_not_supported_error => "NotSupportedError",
+        dom_exc_invalid_node_type_error => "InvalidNodeTypeError",
     }
 
     "Headers (WHATWG Fetch §5.2)" {
@@ -1074,6 +1075,84 @@ define_well_known_strings! {
         // `checkValidity()` / `reportValidity()` when constraint
         // validation rejects a candidate control.
         invalid_event => "invalid",
+    }
+
+    "Range / StaticRange / Traversal (slot #11-traversal-and-range-pr-a2-bindings)" {
+        // Constructor globals (WHATWG DOM §4.4 / §4.5 / §6.1 / §6.3 / §6.4).
+        range_global => "Range",
+        static_range_global => "StaticRange",
+        tree_walker_global => "TreeWalker",
+        node_iterator_global => "NodeIterator",
+        node_filter_global => "NodeFilter",
+        // Accessor / method names.  `cancel` / `close` / `start` are
+        // pre-interned in earlier sections and reused.
+        start_container => "startContainer",
+        start_offset => "startOffset",
+        end_container => "endContainer",
+        end_offset => "endOffset",
+        common_ancestor_container => "commonAncestorContainer",
+        collapsed_attr => "collapsed",
+        set_start_method => "setStart",
+        set_end_method => "setEnd",
+        set_start_before_method => "setStartBefore",
+        set_start_after_method => "setStartAfter",
+        set_end_before_method => "setEndBefore",
+        set_end_after_method => "setEndAfter",
+        select_node_method => "selectNode",
+        select_node_contents_method => "selectNodeContents",
+        collapse_method => "collapse",
+        clone_range_method => "cloneRange",
+        clone_contents_method => "cloneContents",
+        extract_contents_method => "extractContents",
+        delete_contents_method => "deleteContents",
+        insert_node_method => "insertNode",
+        surround_contents_method => "surroundContents",
+        compare_boundary_points_method => "compareBoundaryPoints",
+        compare_point_method => "comparePoint",
+        is_point_in_range_method => "isPointInRange",
+        intersects_node_method => "intersectsNode",
+        detach_method => "detach",
+        create_contextual_fragment_method => "createContextualFragment",
+        // Range compareBoundaryPoints constants.
+        start_to_start => "START_TO_START",
+        start_to_end => "START_TO_END",
+        end_to_end => "END_TO_END",
+        end_to_start => "END_TO_START",
+        // Traversal (§6.1 / §6.4) accessors + methods.
+        what_to_show => "whatToShow",
+        filter_attr => "filter",
+        current_node => "currentNode",
+        reference_node => "referenceNode",
+        pointer_before_reference_node => "pointerBeforeReferenceNode",
+        parent_node_method => "parentNode",
+        first_child_method => "firstChild",
+        last_child_method => "lastChild",
+        next_sibling_method => "nextSibling",
+        previous_sibling_method => "previousSibling",
+        next_node_method => "nextNode",
+        previous_node_method => "previousNode",
+        accept_node_method => "acceptNode",
+        // NodeFilter constants (WHATWG DOM §6.3).
+        filter_accept => "FILTER_ACCEPT",
+        filter_reject => "FILTER_REJECT",
+        filter_skip => "FILTER_SKIP",
+        show_all_const => "SHOW_ALL",
+        show_element_const => "SHOW_ELEMENT",
+        show_attribute_const => "SHOW_ATTRIBUTE",
+        show_text_const => "SHOW_TEXT",
+        show_cdata_section_const => "SHOW_CDATA_SECTION",
+        show_entity_reference_const => "SHOW_ENTITY_REFERENCE",
+        show_entity_const => "SHOW_ENTITY",
+        show_processing_instruction_const => "SHOW_PROCESSING_INSTRUCTION",
+        show_comment_const => "SHOW_COMMENT",
+        show_document_const => "SHOW_DOCUMENT",
+        show_document_type_const => "SHOW_DOCUMENT_TYPE",
+        show_document_fragment_const => "SHOW_DOCUMENT_FRAGMENT",
+        show_notation_const => "SHOW_NOTATION",
+        // document.createRange / createTreeWalker / createNodeIterator.
+        create_range_method => "createRange",
+        create_tree_walker_method => "createTreeWalker",
+        create_node_iterator_method => "createNodeIterator",
     }
 
     "ReadableStream (WHATWG Streams §4)" {

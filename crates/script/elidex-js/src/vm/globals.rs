@@ -404,6 +404,25 @@ impl VmInner {
             // before the Window splice, since the constructor is a
             // top-level global and has no Window dependency.
             self.register_mutation_observer_global();
+            // Range — WHATWG DOM §4.4.  Chains directly to
+            // Object.prototype; no Node-prototype dependency since
+            // boundary containers are stored as Entity refs (wrapped
+            // lazily on accessor reads).  Must run before the Window
+            // splice; ordering relative to MutationObserver does not
+            // matter.
+            self.register_range_global();
+            // StaticRange — WHATWG DOM §4.5.  Eager / immutable
+            // AbstractRange holder, NOT registered in
+            // LiveRangeRegistry (spec deliberately omits live tracking).
+            self.register_static_range_global();
+            // TreeWalker / NodeIterator / NodeFilter — WHATWG DOM §6.
+            // Constructor-less interfaces (TreeWalker / NodeIterator
+            // ctors throw); instances via document.createTreeWalker /
+            // createNodeIterator.  NodeFilter is a constant-namespace
+            // object with 13 SHOW_* + 3 FILTER_* constants.
+            self.register_tree_walker_global();
+            self.register_node_iterator_global();
+            self.register_node_filter_namespace();
             // Storage — chains directly to Object.prototype.
             // Constructor is a stub (`Storage()` throws) but the
             // `Storage` global must exist before

@@ -5,48 +5,107 @@ use elidex_ecs::{EcsDom, Entity};
 use super::{child_index, compare_points, node_length, Range};
 use super::{END_TO_END, END_TO_START, START_TO_END, START_TO_START};
 
+/// Error returned by [`Range::compare_point`] / [`Range::is_point_in_range`]
+/// for spec-defined exception cases.  The VM-side wrapper maps each
+/// variant to the WebIDL DOMException with the matching name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RangePointError {
+    /// WHATWG DOM §4.4 step 1 — `node`'s root is not the range's root.
+    WrongDocument,
+    /// WHATWG DOM §4.4 step 2 — `node` is a `DocumentType`.
+    InvalidNodeType,
+    /// WHATWG DOM §4.4 step 3 — `offset` exceeds `node`'s length.
+    IndexSize,
+}
+
+/// `true` when `node` is a `DocumentType` per WHATWG §4.4 step 2.
+/// Probes both the inferred kind (modern path) and the legacy
+/// `DocTypeData` component (back-compat for legacy entity layouts).
+fn is_doctype(node: Entity, dom: &EcsDom) -> bool {
+    use elidex_ecs::{DocTypeData, NodeKind};
+    matches!(dom.node_kind_inferred(node), Some(NodeKind::DocumentType))
+        || dom.world().get::<&DocTypeData>(node).is_ok()
+}
+
 impl Range {
-    /// Set the start boundary.
+    /// Set the start boundary WITHOUT spec collapse-on-cross-root /
+    /// after-end logic.  Engine-indep primitive used by in-crate
+    /// callers (live-range hooks, tests).  VM-side spec algorithm
+    /// uses [`Self::set_start_to_boundary`] instead.
     pub fn set_start(&mut self, node: Entity, offset: usize) {
         self.start_container = node;
         self.start_offset = offset;
     }
 
-    /// Set the end boundary.
+    /// Set the end boundary WITHOUT spec collapse-on-cross-root /
+    /// before-start logic.  See [`Self::set_start`] for rationale.
     pub fn set_end(&mut self, node: Entity, offset: usize) {
         self.end_container = node;
         self.end_offset = offset;
     }
 
-    /// Set start to just before `node`.
+    /// WHATWG §4.4 "set the start of a Range to a boundary point"
+    /// step 4-5: if the new start is after end OR in a different root,
+    /// collapse end to (node, offset); then write start.  Assumes
+    /// caller has run spec steps 1-2 (DocumentType / IndexSize
+    /// validation).
+    pub fn set_start_to_boundary(&mut self, node: Entity, offset: usize, dom: &EcsDom) {
+        let new_root = dom.find_tree_root(node);
+        let after_end = dom.find_tree_root(self.end_container) != new_root
+            || compare_points(node, offset, self.end_container, self.end_offset, dom) > 0;
+        if after_end {
+            self.end_container = node;
+            self.end_offset = offset;
+        }
+        self.start_container = node;
+        self.start_offset = offset;
+    }
+
+    /// WHATWG §4.4 "set the end of a Range to a boundary point"
+    /// step 4-5: mirror of [`Self::set_start_to_boundary`].
+    pub fn set_end_to_boundary(&mut self, node: Entity, offset: usize, dom: &EcsDom) {
+        let new_root = dom.find_tree_root(node);
+        let before_start = dom.find_tree_root(self.start_container) != new_root
+            || compare_points(node, offset, self.start_container, self.start_offset, dom) < 0;
+        if before_start {
+            self.start_container = node;
+            self.start_offset = offset;
+        }
+        self.end_container = node;
+        self.end_offset = offset;
+    }
+
+    /// Set start to just before `node`.  Per WHATWG §4.4
+    /// `setStartBefore`, runs the spec set-start algorithm including
+    /// the collapse-on-cross-root branch.
     pub fn set_start_before(&mut self, node: Entity, dom: &EcsDom) {
         if let Some(parent) = dom.get_parent(node) {
             let offset = child_index(parent, node, dom);
-            self.set_start(parent, offset);
+            self.set_start_to_boundary(parent, offset, dom);
         }
     }
 
-    /// Set start to just after `node`.
+    /// Set start to just after `node`.  See [`Self::set_start_before`].
     pub fn set_start_after(&mut self, node: Entity, dom: &EcsDom) {
         if let Some(parent) = dom.get_parent(node) {
             let offset = child_index(parent, node, dom) + 1;
-            self.set_start(parent, offset);
+            self.set_start_to_boundary(parent, offset, dom);
         }
     }
 
-    /// Set end to just before `node`.
+    /// Set end to just before `node`.  See [`Self::set_start_before`].
     pub fn set_end_before(&mut self, node: Entity, dom: &EcsDom) {
         if let Some(parent) = dom.get_parent(node) {
             let offset = child_index(parent, node, dom);
-            self.set_end(parent, offset);
+            self.set_end_to_boundary(parent, offset, dom);
         }
     }
 
-    /// Set end to just after `node`.
+    /// Set end to just after `node`.  See [`Self::set_start_before`].
     pub fn set_end_after(&mut self, node: Entity, dom: &EcsDom) {
         if let Some(parent) = dom.get_parent(node) {
             let offset = child_index(parent, node, dom) + 1;
-            self.set_end(parent, offset);
+            self.set_end_to_boundary(parent, offset, dom);
         }
     }
 
@@ -79,6 +138,120 @@ impl Range {
     #[must_use]
     pub fn clone_range(&self) -> Self {
         self.clone()
+    }
+
+    /// WHATWG DOM §4.4 `isPointInRange(node, offset)` algorithm.
+    ///
+    /// Returns:
+    /// - `Ok(true)` if `(node, offset)` lies within `[start, end]` (inclusive).
+    /// - `Ok(false)` if the point is outside the range OR `node`'s root
+    ///   differs from this range's root (spec step 1 returns false).
+    /// - `Err(InvalidNodeType)` if `node` is a `DocumentType`
+    ///   (spec step 2 throws `InvalidNodeTypeError`).
+    /// - `Err(IndexSize)` if `offset > length(node)`
+    ///   (spec step 3 throws `IndexSizeError`).
+    ///
+    /// Copilot R4: spec step ORDER is root → doctype → offset.  Root
+    /// check returns false BEFORE doctype rejection so a cross-tree
+    /// DocumentType yields `false` rather than throw.
+    pub fn is_point_in_range(
+        &self,
+        node: Entity,
+        offset: usize,
+        dom: &EcsDom,
+    ) -> Result<bool, RangePointError> {
+        // Step 1: roots must match — short-circuit to false BEFORE any
+        // other spec step (incl. doctype rejection in step 2).
+        if dom.find_tree_root(node) != dom.find_tree_root(self.start_container) {
+            return Ok(false);
+        }
+        // Step 2: DocumentType rejection.
+        if is_doctype(node, dom) {
+            return Err(RangePointError::InvalidNodeType);
+        }
+        // Step 3: offset bounds.
+        if offset > node_length(node, dom) {
+            return Err(RangePointError::IndexSize);
+        }
+        // Spec step 4: if (node, offset) is before start or after end, false.
+        if compare_points(node, offset, self.start_container, self.start_offset, dom) < 0 {
+            return Ok(false);
+        }
+        if compare_points(node, offset, self.end_container, self.end_offset, dom) > 0 {
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
+    /// WHATWG DOM §4.4 `comparePoint(node, offset)` algorithm.
+    ///
+    /// Returns -1 / 0 / 1 when the point precedes / equals / follows
+    /// this range's start (or follows its end).  Per spec:
+    /// - `-1` if `(node, offset)` is before the range start.
+    /// - `0` if the point lies in `[start, end]`.
+    /// - `1` if it is after the range end.
+    /// - `Err(WrongDocument)` if `node`'s root differs from the range's root.
+    /// - `Err(InvalidNodeType)` if `node` is a `DocumentType`.
+    /// - `Err(IndexSize)` if `offset > length(node)`.
+    ///
+    /// Copilot R4: spec step ORDER is root → doctype → offset.  Root
+    /// mismatch throws `WrongDocumentError` before doctype rejection
+    /// (unlike `isPointInRange` where root mismatch returns false).
+    pub fn compare_point(
+        &self,
+        node: Entity,
+        offset: usize,
+        dom: &EcsDom,
+    ) -> Result<i8, RangePointError> {
+        if dom.find_tree_root(node) != dom.find_tree_root(self.start_container) {
+            return Err(RangePointError::WrongDocument);
+        }
+        if is_doctype(node, dom) {
+            return Err(RangePointError::InvalidNodeType);
+        }
+        if offset > node_length(node, dom) {
+            return Err(RangePointError::IndexSize);
+        }
+        if compare_points(node, offset, self.start_container, self.start_offset, dom) < 0 {
+            return Ok(-1);
+        }
+        if compare_points(node, offset, self.end_container, self.end_offset, dom) > 0 {
+            return Ok(1);
+        }
+        Ok(0)
+    }
+
+    /// WHATWG DOM §4.4 `intersectsNode(node)` algorithm.
+    ///
+    /// Returns true when `node` overlaps any part of this range:
+    /// - If `node`'s root differs from the range's root → false.
+    /// - If `node` has no parent → true (root-of-tree case per spec
+    ///   step 2 — a Range whose root contains `node` always intersects
+    ///   when `node` is the root itself).
+    /// - Otherwise compare `(parent, child_index)` and
+    ///   `(parent, child_index + 1)` against the range boundaries.
+    #[must_use]
+    pub fn intersects_node(&self, node: Entity, dom: &EcsDom) -> bool {
+        if dom.find_tree_root(node) != dom.find_tree_root(self.start_container) {
+            return false;
+        }
+        let Some(parent) = dom.get_parent(node) else {
+            // Spec step 2: if `node`'s parent is null, return true.
+            return true;
+        };
+        let offset = child_index(parent, node, dom);
+        // Spec step 5: (parent, offset) before range end AND
+        // (parent, offset + 1) after range start.
+        let before_end =
+            compare_points(parent, offset, self.end_container, self.end_offset, dom) < 0;
+        let after_start = compare_points(
+            parent,
+            offset + 1,
+            self.start_container,
+            self.start_offset,
+            dom,
+        ) > 0;
+        before_end && after_start
     }
 
     /// Compare boundary points.

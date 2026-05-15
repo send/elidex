@@ -886,6 +886,77 @@ pub enum ObjectKind {
     /// whose key was collected.
     #[cfg(feature = "engine")]
     TouchList,
+    /// `Range` instance (WHATWG DOM §4.4).  Live range whose
+    /// boundaries (`startContainer`/`startOffset` /
+    /// `endContainer`/`endOffset` / `owner_document`) live in the
+    /// engine-indep `LiveRangeRegistry` (registered at
+    /// `document.createRange()` / `new Range()`; unregistered at
+    /// GC sweep).  Carries only the monotonic registry ID inline.
+    ///
+    /// GC contract: payload-free in trace terms.  The Range struct
+    /// holds Entity refs (start/end containers + owner_document)
+    /// which are ECS-managed; the dangling-collapse fallback in
+    /// `LiveRangeRegistry::finalize_pending` handles post-destroy
+    /// consistency.  Sweep tail unregisters the RangeId from
+    /// `LiveRangeRegistry` so the registry doesn't leak.
+    #[cfg(feature = "engine")]
+    Range { range_id: u64 },
+    /// `StaticRange` instance (WHATWG DOM §4.5).  Eager / immutable
+    /// boundary holder — NOT registered in `LiveRangeRegistry`,
+    /// boundaries are captured at construction time and may become
+    /// invalid as the tree mutates (`isValid()` validates lazily).
+    ///
+    /// GC contract: payload-free in trace terms.  Entity bits for
+    /// `start_container` / `end_container` are ECS-managed; no
+    /// rooting.  Stale entity bits return `isValid() == false`.
+    #[cfg(feature = "engine")]
+    StaticRange {
+        start_container_bits: u64,
+        start_offset: u32,
+        end_container_bits: u64,
+        end_offset: u32,
+        /// Copilot R9: `HostData::bind_epoch` snapshot at ctor.
+        /// `isValid()` rejects when the current epoch differs —
+        /// detects retained instances across `Vm::unbind`/rebind
+        /// even when the new `EcsDom` happens to reuse the same
+        /// `Entity` slots.
+        bind_epoch: u32,
+    },
+    /// `TreeWalker` instance (WHATWG DOM §6.4).  Stateful walker
+    /// over a DOM subtree filtered by `whatToShow` + optional
+    /// NodeFilter callback.  State (root / current node / filter
+    /// callback ObjectId / active flag) lives in
+    /// `HostData::tree_walker_states`.  Carries only the monotonic
+    /// state-table ID inline.
+    ///
+    /// GC contract (Copilot R8): filter callback `ObjectId`s are
+    /// reached via per-wrapper trace fan-out in `vm/gc/trace.rs`
+    /// (looking up `filter_object_id` from
+    /// `HostData::tree_walker_states[walker_id]` when the wrapper
+    /// itself is being marked).  `HostData::gc_root_object_ids`
+    /// explicitly does NOT root these filters — earlier rounds
+    /// (R4-R7) used unconditional rooting and Copilot flagged the
+    /// leak cycle where a filter closure capturing the wrapper
+    /// would survive forever.  Wrapper unreachability now drops
+    /// the filter naturally; sweep tail in `vm/gc/collect.rs`
+    /// prunes the state-table entry alongside.
+    #[cfg(feature = "engine")]
+    TreeWalker { walker_id: u64 },
+    /// `NodeIterator` instance (WHATWG DOM §6.1).  Stateful pre-
+    /// order iterator with WHATWG §6.1 pre-removing-steps
+    /// adjustment on DOM mutation.  State lives in
+    /// `HostData::node_iterator_states_shared` (`Arc<Mutex<...>>`
+    /// shared with `MutationBridge` so hook-fire path can adjust
+    /// reference on `after_remove_with_descendants`).  Carries
+    /// only the monotonic state-table ID inline.
+    ///
+    /// GC contract (Copilot R8): same per-wrapper trace fan-out as
+    /// `TreeWalker` — filter `ObjectId` reached only when the
+    /// wrapper is marked (avoids the filter-captures-wrapper leak
+    /// cycle).  Sweep tail prunes `node_iterator_instances` + the
+    /// shared `node_iterator_states_shared` map under the mutex.
+    #[cfg(feature = "engine")]
+    NodeIterator { iterator_id: u64 },
 }
 
 impl ObjectKind {

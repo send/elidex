@@ -973,6 +973,7 @@ impl MutationHook for DescendantSnapshotHook {
         _parent: Entity,
         _removed_index: usize,
         descendants: &[Entity],
+        _dom: &crate::EcsDom,
     ) {
         self.snapshot
             .lock()

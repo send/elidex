@@ -100,7 +100,7 @@ pub(crate) fn index_size_error(message: &str) -> DomApiError {
 /// WHATWG DOM uses UTF-16 code unit counts for `CharacterData.length` and all
 /// offset/count parameters (§11.1). Surrogate pairs (characters outside BMP)
 /// count as 2 code units.
-pub(crate) fn utf16_len(s: &str) -> usize {
+pub fn utf16_len(s: &str) -> usize {
     s.encode_utf16().count()
 }
 
@@ -110,9 +110,9 @@ pub(crate) fn utf16_len(s: &str) -> usize {
 ///
 /// Currently used by [`Range`](crate::Range) for boundary-point math
 /// where a `None` result is tolerated via `.unwrap_or(s.len())`. The
-/// CharacterData splice methods use [`splice_utf16`] instead because
-/// they must accept mid-surrogate offsets per WHATWG §11.2.
-pub(crate) fn utf16_to_byte_offset(s: &str, utf16_offset: usize) -> Option<usize> {
+/// CharacterData splice methods use `splice_utf16` (crate-private)
+/// instead because they must accept mid-surrogate offsets per WHATWG §11.2.
+pub fn utf16_to_byte_offset(s: &str, utf16_offset: usize) -> Option<usize> {
     let mut utf16_pos = 0;
     for (byte_pos, ch) in s.char_indices() {
         if utf16_pos == utf16_offset {

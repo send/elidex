@@ -307,6 +307,14 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         ObjectKind::DataTransferItemList { .. } => CloneKind::Unclonable("DataTransferItemList"),
         ObjectKind::Touch => CloneKind::Unclonable("Touch"),
         ObjectKind::TouchList => CloneKind::Unclonable("TouchList"),
+        // D-8 PR-A2 — Range / StaticRange / TreeWalker /
+        // NodeIterator are not structured-cloneable per WHATWG
+        // DOM §4.4 / §4.5 / §6.1 / §6.4 (no [Serializable] /
+        // [Transferable] IDL extended attributes).
+        ObjectKind::Range { .. } => CloneKind::Unclonable("Range"),
+        ObjectKind::StaticRange { .. } => CloneKind::Unclonable("StaticRange"),
+        ObjectKind::TreeWalker { .. } => CloneKind::Unclonable("TreeWalker"),
+        ObjectKind::NodeIterator { .. } => CloneKind::Unclonable("NodeIterator"),
     }
 }
 

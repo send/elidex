@@ -8,6 +8,8 @@
 //! `None` placeholders are easier to scan top-to-bottom in one
 //! place than across a `fn collect_proto_roots(&self)` indirection.
 
+#[cfg(feature = "engine")]
+use super::super::value::ObjectId;
 use super::super::VmInner;
 
 #[cfg(feature = "engine")]
@@ -746,6 +748,34 @@ impl VmInner {
                 self.data_transfer_item_list_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // M4-12 slot #11-traversal-and-range-pr-a2-bindings:
+                // Range / StaticRange / TreeWalker / NodeIterator
+                // prototypes.  Each chains to `Object.prototype`.
+                // Without these entries, `delete globalThis.Range`
+                // (etc.) can let the prototype be swept while
+                // `VmInner::range_prototype` (etc.) retains a stale
+                // id — the next `cloneRange()` /
+                // `document.createTreeWalker()` would bind its
+                // wrapper to a recycled slot of an unrelated type.
+                // Copilot R14: NodeFilter is a constants-namespace
+                // object, not a constructable interface, so no
+                // matching `node_filter_prototype` field exists.
+                #[cfg(feature = "engine")]
+                self.range_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.static_range_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.tree_walker_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.node_iterator_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,
@@ -853,6 +883,40 @@ impl VmInner {
             &mut self.gc_work_list,
         );
 
+        // Copilot R8: empty fallbacks when HostData is absent — the
+        // TreeWalker / NodeIterator trace fan-out arms can never
+        // fire in that case (instances are stored only in HostData),
+        // so the empty maps are observably dead.
+        #[cfg(feature = "engine")]
+        let empty_tree_walker_states = std::collections::HashMap::new();
+        #[cfg(feature = "engine")]
+        let empty_walker_instances: std::collections::HashMap<u64, ObjectId> =
+            std::collections::HashMap::new();
+        #[cfg(feature = "engine")]
+        let empty_iter_shared: std::sync::Arc<
+            std::sync::Mutex<std::collections::HashMap<u64, elidex_dom_api::NodeIteratorState>>,
+        > = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+        #[cfg(feature = "engine")]
+        let empty_iter_instances: std::collections::HashMap<u64, ObjectId> =
+            std::collections::HashMap::new();
+
+        #[cfg(feature = "engine")]
+        let (tw_states, tw_instances, iter_shared, iter_instances) = match self.host_data.as_deref()
+        {
+            Some(hd) => (
+                hd.tree_walker_states_ref(),
+                hd.tree_walker_instances_ref(),
+                hd.node_iterator_states_shared_ref(),
+                hd.node_iterator_instances_ref(),
+            ),
+            None => (
+                &empty_tree_walker_states,
+                &empty_walker_instances,
+                &empty_iter_shared,
+                &empty_iter_instances,
+            ),
+        };
+
         trace_work_list(
             roots.objects,
             roots.upvalues,
@@ -880,6 +944,14 @@ impl VmInner {
             roots.touch_states,
             #[cfg(feature = "engine")]
             roots.touch_list_states,
+            #[cfg(feature = "engine")]
+            tw_states,
+            #[cfg(feature = "engine")]
+            tw_instances,
+            #[cfg(feature = "engine")]
+            iter_shared,
+            #[cfg(feature = "engine")]
+            iter_instances,
             &mut self.gc_object_marks,
             &mut self.gc_upvalue_marks,
             &mut self.gc_work_list,
@@ -1163,6 +1235,86 @@ impl VmInner {
             // are removed explicitly at settlement / abort fan-out.
             self.fetch_signal_back_refs
                 .retain(|_, signal_id| bit_get(marks, signal_id.0));
+
+            // D-8 PR-A2 — Range / TreeWalker / NodeIterator instance
+            // side-tables.  `range_instances` keys are `RangeId` bits
+            // (NOT ObjectIds) so the prune predicate inspects the
+            // VALUE wrapper's mark bit; for each dead wrapper, also
+            // unregister the corresponding RangeId from
+            // `LiveRangeRegistry` to release the engine-side Range.
+            // TreeWalker / NodeIterator follow the same pattern but
+            // additionally drop the state-table entry (no separate
+            // engine-side registry).
+            //
+            // `mutation_observer_callbacks` / `_instances` use the
+            // same per-observer-id pattern but the callback ObjectId
+            // is unconditionally rooted via `gc_root_object_ids`,
+            // making this prune the only place where the side-table
+            // can shed entries.  TreeWalker / NodeIterator filter
+            // ObjectIds (Copilot R8) are NOT rooted via
+            // `gc_root_object_ids` — they reach GC only via the
+            // per-wrapper trace fan-out in `vm/gc/trace.rs`.  This
+            // sweep prunes the state-table entry once the wrapper
+            // ObjectId itself is unmarked, mirroring the
+            // mutation_observer pattern except for the rooting side.
+            if let Some(hd) = self.host_data.as_deref_mut() {
+                // Range — collect dead range_ids first to avoid
+                // double-borrowing `host_data` (we need both
+                // `range_instances` for filtering AND
+                // `live_range_registry` for unregister).
+                let dead_range_ids: Vec<u64> = hd
+                    .range_instances
+                    .iter()
+                    .filter_map(|(range_id, obj_id)| {
+                        if bit_get(marks, obj_id.0) {
+                            None
+                        } else {
+                            Some(*range_id)
+                        }
+                    })
+                    .collect();
+                for rid in &dead_range_ids {
+                    hd.range_instances.remove(rid);
+                    hd.live_range_registry
+                        .unregister(elidex_dom_api::RangeId(*rid));
+                }
+                // TreeWalker — prune instances + states by dead wrapper.
+                let dead_walker_ids: Vec<u64> = hd
+                    .tree_walker_instances
+                    .iter()
+                    .filter_map(|(wid, oid)| {
+                        if bit_get(marks, oid.0) {
+                            None
+                        } else {
+                            Some(*wid)
+                        }
+                    })
+                    .collect();
+                for wid in &dead_walker_ids {
+                    hd.tree_walker_instances.remove(wid);
+                    hd.tree_walker_states.remove(wid);
+                }
+                // NodeIterator — same pattern; `node_iterator_states_shared`
+                // is the shared `Arc<Mutex<HashMap>>` (held jointly with
+                // the bridge), so take the lock briefly.
+                let dead_iter_ids: Vec<u64> = hd
+                    .node_iterator_instances
+                    .iter()
+                    .filter_map(|(iid, oid)| {
+                        if bit_get(marks, oid.0) {
+                            None
+                        } else {
+                            Some(*iid)
+                        }
+                    })
+                    .collect();
+                for iid in &dead_iter_ids {
+                    hd.node_iterator_instances.remove(iid);
+                    if let Ok(mut guard) = hd.node_iterator_states_shared.lock() {
+                        guard.remove(iid);
+                    }
+                }
+            }
         }
 
         // 5. IC invalidation.

@@ -459,6 +459,555 @@ pub fn step_with_filter<F: FilterAction>(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Filter-aware direction-specific traversal (WHATWG DOM §6.4)
+// ---------------------------------------------------------------------------
+
+/// Internal `Skip` / `Reject` result that respects the spec's
+/// "filter callback applied AFTER whatToShow filter" ordering (§6.4
+/// "traverse children" steps 1.2-1.3 / "traverse siblings" 1.2-1.3 /
+/// "parentNode" 2.2-2.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FilterDecision {
+    Accept,
+    /// Equivalent to spec FILTER_SKIP — visit descendants but not
+    /// this node.
+    Skip,
+    /// Equivalent to spec FILTER_REJECT — do not visit this node OR
+    /// any descendant.  Sibling-only walks treat Reject like Skip
+    /// (no subtree available to prune), but tree walks must prune.
+    Reject,
+}
+
+/// Apply `whatToShow` THEN `filter` to `node` and return the merged
+/// decision per WHATWG §6.4 "filter" algorithm.
+fn classify<F: FilterAction>(
+    node: Entity,
+    what_to_show: u32,
+    dom: &EcsDom,
+    filter: &mut F,
+) -> Result<FilterDecision, FilterError> {
+    if !accepts(node, what_to_show, dom) {
+        return Ok(FilterDecision::Skip);
+    }
+    Ok(match filter.accept(node)? {
+        NodeFilterResult::Accept => FilterDecision::Accept,
+        NodeFilterResult::Skip => FilterDecision::Skip,
+        NodeFilterResult::Reject => FilterDecision::Reject,
+    })
+}
+
+/// WHATWG §6.4 "traverseChildren" algorithm — apply filter to
+/// first/last child and walk per spec.
+///
+/// On Accept: moves `walker.current_node` and returns the node.
+/// On Reject: skips that subtree, tries siblings.
+/// On Skip: descends into children.
+pub fn step_with_filter_first_child<F: FilterAction>(
+    walker: &mut TreeWalker,
+    dom: &EcsDom,
+    filter: &mut F,
+) -> Result<Option<Entity>, FilterError> {
+    traverse_children_filtered(walker, dom, filter, true)
+}
+
+/// Mirror of [`step_with_filter_first_child`] in the reverse direction.
+pub fn step_with_filter_last_child<F: FilterAction>(
+    walker: &mut TreeWalker,
+    dom: &EcsDom,
+    filter: &mut F,
+) -> Result<Option<Entity>, FilterError> {
+    traverse_children_filtered(walker, dom, filter, false)
+}
+
+fn traverse_children_filtered<F: FilterAction>(
+    walker: &mut TreeWalker,
+    dom: &EcsDom,
+    filter: &mut F,
+    first: bool,
+) -> Result<Option<Entity>, FilterError> {
+    let entry = if first {
+        dom.get_first_child(walker.current_node)
+    } else {
+        dom.get_last_child(walker.current_node)
+    };
+    let Some(mut node) = entry else {
+        return Ok(None);
+    };
+    loop {
+        match classify(node, walker.what_to_show, dom, filter)? {
+            FilterDecision::Accept => {
+                walker.current_node = node;
+                return Ok(Some(node));
+            }
+            FilterDecision::Skip => {
+                // Descend into children.
+                let descend = if first {
+                    dom.get_first_child(node)
+                } else {
+                    dom.get_last_child(node)
+                };
+                if let Some(child) = descend {
+                    node = child;
+                    continue;
+                }
+                // No descendant; fall through to sibling walk.
+            }
+            FilterDecision::Reject => {
+                // Skip this subtree entirely — go to sibling.
+            }
+        }
+        // Sibling / ancestor-sibling walk back to the next candidate.
+        loop {
+            let sib = if first {
+                dom.get_next_sibling(node)
+            } else {
+                dom.get_prev_sibling(node)
+            };
+            if let Some(s) = sib {
+                node = s;
+                break;
+            }
+            let parent = dom.get_parent(node);
+            match parent {
+                Some(p) if p != walker.current_node => node = p,
+                _ => return Ok(None),
+            }
+        }
+    }
+}
+
+/// WHATWG §6.4 "traverseSiblings" — apply filter to next/prev sibling.
+pub fn step_with_filter_next_sibling<F: FilterAction>(
+    walker: &mut TreeWalker,
+    dom: &EcsDom,
+    filter: &mut F,
+) -> Result<Option<Entity>, FilterError> {
+    traverse_siblings_filtered(walker, dom, filter, true)
+}
+
+/// Mirror of [`step_with_filter_next_sibling`] in the reverse direction.
+pub fn step_with_filter_previous_sibling<F: FilterAction>(
+    walker: &mut TreeWalker,
+    dom: &EcsDom,
+    filter: &mut F,
+) -> Result<Option<Entity>, FilterError> {
+    traverse_siblings_filtered(walker, dom, filter, false)
+}
+
+fn traverse_siblings_filtered<F: FilterAction>(
+    walker: &mut TreeWalker,
+    dom: &EcsDom,
+    filter: &mut F,
+    next: bool,
+) -> Result<Option<Entity>, FilterError> {
+    // WHATWG §6.4 "traverseSiblings" step 2: if node is root, return
+    // null.  Without this early-out, `get_next_sibling` /
+    // `get_prev_sibling` on the root would walk OUT of the walker's
+    // subtree — the inner loop's `parent != walker.root` check below
+    // only catches the walk-up fallback, not the initial direct
+    // sibling lookup (Copilot R15).
+    if walker.current_node == walker.root {
+        return Ok(None);
+    }
+    let mut node = walker.current_node;
+    loop {
+        let sib = if next {
+            dom.get_next_sibling(node)
+        } else {
+            dom.get_prev_sibling(node)
+        };
+        let Some(mut candidate) = sib else {
+            // Walk up.
+            let parent = dom.get_parent(node);
+            match parent {
+                Some(p) if p != walker.root => {
+                    node = p;
+                    continue;
+                }
+                _ => return Ok(None),
+            }
+        };
+        // Inner loop: descend through Skip-decision nodes into their
+        // first/last child, but treat Reject like "no descent, try
+        // next sibling".
+        loop {
+            match classify(candidate, walker.what_to_show, dom, filter)? {
+                FilterDecision::Accept => {
+                    walker.current_node = candidate;
+                    return Ok(Some(candidate));
+                }
+                FilterDecision::Skip => {
+                    let descend = if next {
+                        dom.get_first_child(candidate)
+                    } else {
+                        dom.get_last_child(candidate)
+                    };
+                    if let Some(child) = descend {
+                        candidate = child;
+                        continue;
+                    }
+                    // Skip with no child — try sibling of this candidate.
+                    node = candidate;
+                    break;
+                }
+                FilterDecision::Reject => {
+                    // Reject prunes subtree — try sibling of this candidate.
+                    node = candidate;
+                    break;
+                }
+            }
+        }
+    }
+}
+
+/// WHATWG §6.4 "parentNode" — walk ancestors and apply filter.
+/// Per spec, parentNode treats Reject as Skip (no subtree pruning in
+/// ancestor walks; the rejected ancestor has no descendant of
+/// `currentNode` that we'd avoid by pruning).
+pub fn step_with_filter_parent_node<F: FilterAction>(
+    walker: &mut TreeWalker,
+    dom: &EcsDom,
+    filter: &mut F,
+) -> Result<Option<Entity>, FilterError> {
+    let mut node = walker.current_node;
+    while node != walker.root {
+        let Some(parent) = dom.get_parent(node) else {
+            return Ok(None);
+        };
+        // Copilot R19: WHATWG §6.4 parentNode steps 2-3 — after
+        // ascending to `parent`, filter it FIRST.  The walker's
+        // root is in-scope: if it passes whatToShow + filter, it
+        // is a valid return value.  The loop's `node != root`
+        // guard then prevents the next iteration from ascending
+        // above root.  Earlier (R7) impl short-circuited on
+        // `parent == root` BEFORE filtering, which was a spec
+        // violation (browsers DO return the root from
+        // `parentNode()` when the root passes the filter).
+        //
+        // Reject ≡ Skip in ancestor walks per spec §6.4.4.
+        if accepts(parent, walker.what_to_show, dom) {
+            match filter.accept(parent)? {
+                NodeFilterResult::Accept => {
+                    walker.current_node = parent;
+                    return Ok(Some(parent));
+                }
+                NodeFilterResult::Reject | NodeFilterResult::Skip => {}
+            }
+        }
+        node = parent;
+    }
+    Ok(None)
+}
+
+/// WHATWG §6.4 "previousNode" — reverse pre-order with filter.
+/// Implements the spec algorithm: for each prev-sibling chain, classify
+/// the candidate; if Accept, return; if not Reject AND it has a child,
+/// descend to last child and reclassify; loop.  If sibling chain
+/// exhausts, walk to parent (which is also classified).  Per spec
+/// `previousNode`, Reject on a candidate prunes its subtree (do NOT
+/// descend), while Skip allows descent.
+pub fn step_with_filter_previous_node<F: FilterAction>(
+    walker: &mut TreeWalker,
+    dom: &EcsDom,
+    filter: &mut F,
+) -> Result<Option<Entity>, FilterError> {
+    let mut node = walker.current_node;
+    loop {
+        if node == walker.root {
+            return Ok(None);
+        }
+        // Walk prev-siblings of `node` (and descend into each through
+        // its filtered-last-descendant chain) per spec §6.4
+        // previousNode steps 2-3.
+        let mut maybe_sibling = dom.get_prev_sibling(node);
+        while let Some(mut candidate) = maybe_sibling {
+            // Classify candidate.  Reject prunes the subtree (do not
+            // descend); Skip permits descent; Accept returns.
+            let mut decision = classify(candidate, walker.what_to_show, dom, filter)?;
+            while decision != FilterDecision::Reject {
+                if let Some(child) = dom.get_last_child(candidate) {
+                    candidate = child;
+                    decision = classify(candidate, walker.what_to_show, dom, filter)?;
+                } else {
+                    break;
+                }
+            }
+            if decision == FilterDecision::Accept {
+                walker.current_node = candidate;
+                return Ok(Some(candidate));
+            }
+            // Reject / Skip with no further descent — try the
+            // candidate's prev-sibling.
+            maybe_sibling = dom.get_prev_sibling(candidate);
+            // Update outer `node` so the parent-walk below can
+            // ascend from the deepest visited node.
+            node = candidate;
+        }
+        // No more siblings — ascend to parent.
+        let Some(parent) = dom.get_parent(node) else {
+            return Ok(None);
+        };
+        // Copilot R7: per WHATWG §6.4 previousNode steps 4-5, when
+        // the ancestor walk reaches the walker's root the traversal
+        // terminates without yielding the root itself.  Stop here
+        // before classifying.
+        if parent == walker.root {
+            return Ok(None);
+        }
+        match classify(parent, walker.what_to_show, dom, filter)? {
+            FilterDecision::Accept => {
+                walker.current_node = parent;
+                return Ok(Some(parent));
+            }
+            _ => node = parent,
+        }
+    }
+}
+
+/// NodeIterator forward step with filter (WHATWG §6.1 "traverse").
+///
+/// Applies `pointer_before` discipline + filter, mutating
+/// `state.reference` / `state.pointer_before` per spec.
+pub fn step_with_filter_node_iterator_next<F: FilterAction>(
+    state: &mut crate::mutation_bridge::NodeIteratorState,
+    dom: &EcsDom,
+    filter: &mut F,
+) -> Result<Option<Entity>, FilterError> {
+    traverse_node_iterator_filtered(state, dom, filter, true)
+}
+
+/// Mirror of [`step_with_filter_node_iterator_next`] in the reverse
+/// direction.
+pub fn step_with_filter_node_iterator_previous<F: FilterAction>(
+    state: &mut crate::mutation_bridge::NodeIteratorState,
+    dom: &EcsDom,
+    filter: &mut F,
+) -> Result<Option<Entity>, FilterError> {
+    traverse_node_iterator_filtered(state, dom, filter, false)
+}
+
+fn traverse_node_iterator_filtered<F: FilterAction>(
+    state: &mut crate::mutation_bridge::NodeIteratorState,
+    dom: &EcsDom,
+    filter: &mut F,
+    next: bool,
+) -> Result<Option<Entity>, FilterError> {
+    let mut node = state.reference;
+    let mut before = state.pointer_before;
+    loop {
+        // Spec §6.1 step 5/6: if direction matches pointer side,
+        // move pointer first; otherwise candidate is current node.
+        let candidate = if next {
+            if before {
+                before = false;
+                node
+            } else {
+                let Some(n) = next_in_preorder(node, state.root, dom) else {
+                    return Ok(None);
+                };
+                node = n;
+                node
+            }
+        } else if before {
+            let Some(n) = prev_in_preorder(node, state.root, dom) else {
+                return Ok(None);
+            };
+            if n == state.root {
+                // root reached — still process it, then None next.
+                node = n;
+                node
+            } else {
+                node = n;
+                node
+            }
+        } else {
+            before = true;
+            node
+        };
+        match classify(candidate, state.what_to_show, dom, filter)? {
+            FilterDecision::Accept => {
+                state.reference = candidate;
+                state.pointer_before = before;
+                return Ok(Some(candidate));
+            }
+            // NodeIterator §6.1 has no subtree pruning — Reject ≡ Skip
+            // (the algorithm is a flat pre-order walk).
+            FilterDecision::Skip | FilterDecision::Reject => {
+                // Loop continues with `node` already advanced.
+            }
+        }
+    }
+}
+
+// ===========================================================================
+// NodeIterator pre-removing-steps adjustment (WHATWG DOM §6.1 step 1)
+// ===========================================================================
+
+/// Apply WHATWG DOM §6.1 "NodeIterator pre-removing steps" to a
+/// single registered iterator state, called by
+/// `crate::mutation_bridge::MutationBridge` (its
+/// `after_remove_with_descendants` impl).
+///
+/// **Spec recap (current WHATWG §6.1, 2-branch algorithm):**
+///
+/// - Branch (a) — `removed` is an inclusive ancestor of
+///   `state.reference`: walk forward in tree order past `removed`'s
+///   subtree boundary (skip all `descendants`).  Set
+///   `state.reference` to the first node found, or fall back to
+///   the last node preceding `removed`, or collapse to `state.root`
+///   if neither exists.  Update `pointer_before` per spec.
+/// - Branch (b) — `removed` is NOT an inclusive ancestor of
+///   `state.reference`: no-op.
+///
+/// The "inclusive ancestor" test reduces to `state.reference ==
+/// removed || descendants.contains(&state.reference)` per the
+/// pre-snapshotted `descendants` slice (which is **inclusive** of
+/// `removed` per `EcsDom::collect_inclusive_descendants`).
+///
+/// **Post-detach invariant (Copilot R3 doc-correction)**: at fire
+/// time the engine has ALREADY detached `removed` from `parent`
+/// (`EcsDom::remove_child` / `detach_with_hook` / `replace_child`
+/// run `detach()` first, then fire).  So `parent.children` no
+/// longer contains `removed`; the slot at `removed_index` is the
+/// FIRST FOLLOWER of `removed` in tree order (or `None` past the
+/// end).  The `descendants` snapshot (taken pre-detach) is the
+/// only handle on the removed subtree at fire time.
+///
+pub fn adjust_node_iterator_for_removal(
+    state: &mut crate::mutation_bridge::NodeIteratorState,
+    removed: Entity,
+    parent: Entity,
+    removed_index: usize,
+    descendants: &[Entity],
+    dom: &EcsDom,
+) {
+    // Spec edge case: when the node being removed IS the iterator's
+    // root, the iterator remains anchored at that root — do not run
+    // the descendant adjustment (otherwise the fallback path falls
+    // through to `parent`, which lives outside the iterator's root
+    // subtree).  Copilot R1.
+    if removed == state.root {
+        return;
+    }
+    // Copilot R18: when an ANCESTOR of the iterator's root is
+    // removed, `state.root` is itself inside the `descendants`
+    // snapshot.  Running the §6.1 fallback would pick candidates
+    // from `parent`'s siblings (all OUTSIDE the iterator's subtree),
+    // so subsequent `nextNode` / `previousNode` would escape the
+    // configured root.  Leave the iterator's reference unchanged —
+    // it's still a valid entity inside the detached subtree, and
+    // walking the detached tree is the closest match to spec
+    // behaviour on an orphaned iterator.
+    if descendants.contains(&state.root) {
+        return;
+    }
+    // Branch (b): `removed` is NOT an inclusive ancestor of
+    // `state.reference` — no-op.
+    if !descendants.contains(&state.reference) {
+        return;
+    }
+
+    // Branch (a): adjust per WHATWG §6.1 pre-removing steps.
+    //
+    // Post-detach invariant (Copilot R3): `fire_after_remove_with_
+    // descendants` runs AFTER the engine has detached `removed`
+    // from `parent` (see `EcsDom::remove_child` / `detach_with_hook`
+    // / `replace_child`), so `parent.children` no longer contains
+    // `removed`.  The slot at `removed_index` is therefore already
+    // the FIRST FOLLOWER of `removed` in tree order (or `None` if
+    // the subtree was the last child).
+    //
+    // The spec branches on `pointer_before`:
+    // - `pointer_before == true` (next-side anchor): select the first
+    //   following node (the slot at `removed_index`, or its
+    //   pre-order successor if that slot itself was inside
+    //   `descendants`), keeping `pointer_before = true`.  If none
+    //   exists, fall back to the last preceding node and flip
+    //   `pointer_before` to `false`.
+    // - `pointer_before == false` (prev-side anchor): select the
+    //   last preceding node (the slot at `removed_index - 1`, or
+    //   `parent` when `removed_index == 0`), keeping
+    //   `pointer_before = false`.  If none exists, fall back to the
+    //   first following node and flip to `true`.
+    let follower_seed = dom.children_iter(parent).nth(removed_index);
+    let preceding_seed = if removed_index == 0 {
+        Some(parent)
+    } else {
+        dom.children_iter(parent).nth(removed_index - 1)
+    };
+
+    let try_follower = |state: &mut crate::mutation_bridge::NodeIteratorState| -> bool {
+        let Some(seed) = follower_seed else {
+            return false;
+        };
+        let mut node = Some(seed);
+        while let Some(n) = node {
+            if !descendants.contains(&n) {
+                state.reference = n;
+                state.pointer_before = true;
+                return true;
+            }
+            node = next_in_preorder(n, state.root, dom);
+        }
+        false
+    };
+    let try_preceding = |state: &mut crate::mutation_bridge::NodeIteratorState| -> bool {
+        let Some(seed) = preceding_seed else {
+            return false;
+        };
+        // Copilot R7: when the previous-side seed is a sibling of the
+        // removed subtree (not `parent` itself when `removed_index ==
+        // 0`), WHATWG §6.1 pre-removing steps choose that sibling's
+        // LAST INCLUSIVE DESCENDANT — `previousNode()` resumes from
+        // the deepest in-tree position before the removed subtree.
+        // Descend through `last_child` to reach that node, skipping
+        // any descendant that is itself in `descendants` (defensive
+        // — should not happen because `preceding_seed` is the slot
+        // BEFORE the removed subtree, but a degenerate caller could
+        // pass a snapshot containing more entities than expected).
+        let mut current = seed;
+        if seed != parent {
+            while let Some(last) = dom.get_last_child(current) {
+                if descendants.contains(&last) {
+                    break;
+                }
+                current = last;
+            }
+        }
+        let mut node = Some(current);
+        while let Some(n) = node {
+            if !descendants.contains(&n) {
+                state.reference = n;
+                state.pointer_before = false;
+                return true;
+            }
+            node = prev_in_preorder(n, state.root, dom);
+        }
+        false
+    };
+
+    if state.pointer_before {
+        if try_follower(state) {
+            return;
+        }
+        if try_preceding(state) {
+            return;
+        }
+    } else {
+        if try_preceding(state) {
+            return;
+        }
+        if try_follower(state) {
+            return;
+        }
+    }
+
+    // Neither side has a candidate — collapse to root.
+    state.reference = state.root;
+    state.pointer_before = true;
+}
+
 // ===========================================================================
 // NodeIterator
 // ===========================================================================

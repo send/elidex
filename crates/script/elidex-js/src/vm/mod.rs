@@ -462,6 +462,27 @@ pub(crate) struct VmInner {
     /// `register_globals()`.
     #[cfg(feature = "engine")]
     pub(crate) mutation_observer_prototype: Option<ObjectId>,
+    /// `Range.prototype` (WHATWG DOM §4.4).  Chains to
+    /// `Object.prototype`.  Carries the 23 Range surface members +
+    /// 4 boundary-compare constants.  `None` until
+    /// `register_range_global()` runs.
+    #[cfg(feature = "engine")]
+    pub(crate) range_prototype: Option<ObjectId>,
+    /// `StaticRange.prototype` (WHATWG DOM §4.5).  Chains to
+    /// `Object.prototype`.  Carries the 5 AbstractRange-derived
+    /// readonly props + `collapsed` + `isValid()`.
+    #[cfg(feature = "engine")]
+    pub(crate) static_range_prototype: Option<ObjectId>,
+    /// `TreeWalker.prototype` (WHATWG DOM §6.4).  Chains to
+    /// `Object.prototype`.  Carries `root` / `whatToShow` / `filter` /
+    /// `currentNode` accessors + 7 traversal methods.
+    #[cfg(feature = "engine")]
+    pub(crate) tree_walker_prototype: Option<ObjectId>,
+    /// `NodeIterator.prototype` (WHATWG DOM §6.1).  Chains to
+    /// `Object.prototype`.  Carries 5 readonly props + `nextNode` /
+    /// `previousNode` / `detach`.
+    #[cfg(feature = "engine")]
+    pub(crate) node_iterator_prototype: Option<ObjectId>,
     /// `Storage.prototype` (WHATWG HTML §11.2).  Chains to
     /// `Object.prototype` and carries `getItem` / `setItem` /
     /// `removeItem` / `clear` / `key` / `length`.  `None` until

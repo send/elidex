@@ -209,6 +209,41 @@ impl Vm {
             if hd.get_cached_wrapper(we).is_none() {
                 hd.cache_wrapper(we, global_id);
             }
+            // D-8 PR-A2 — install `MutationBridge` on `EcsDom` so
+            // engine-side mutations adjust live Range boundaries
+            // and NodeIterator pre-removing-steps synchronously.
+            //
+            // Install order (plan-v4 §A-NI-1):
+            // 1. Take the existing (initial) `LiveRangeRegistry`
+            //    out of HostData via `mem::take` (it was created
+            //    empty in `HostData::new` and is being replaced by
+            //    the bridge-paired registry).
+            // 2. Pair a fresh `LiveRangeRegistry` with
+            //    `MutationBridge` using HostData's shared
+            //    `node_iterator_states_shared` `Arc<Mutex<>>` so
+            //    bridge's hook-fire can access the iterator map.
+            // 3. Install the bridge on `EcsDom` via
+            //    `set_mutation_hook`.  Round 1 Arch CRIT-1: the
+            //    displaced previous hook MUST be `None` (single-
+            //    hook constraint per `#11-mutation-hook-multiplexer`
+            //    defer slot).
+            let iter_shared = hd.node_iterator_states_shared.clone();
+            // Copilot R6: preserve the monotonic `next_id` across
+            // bind cycles.  Retained `Range` JS wrappers carry their
+            // old `range_id` in `ObjectKind::Range`; resetting the
+            // counter to 0 would collide with their stale IDs on
+            // the next `register` call.  `unregister`-then-recycle
+            // is explicitly forbidden by [`RangeId`] doc.
+            let prev_next_id = hd.live_range_registry.next_id_marker();
+            let (mut registry, bridge) = elidex_dom_api::MutationBridge::new_pair(iter_shared);
+            registry.restore_next_id_marker(prev_next_id);
+            hd.live_range_registry = registry;
+            let displaced = hd.dom().set_mutation_hook(Box::new(bridge));
+            debug_assert!(
+                displaced.is_none(),
+                "Vm::bind: EcsDom already had a MutationHook installed — \
+                 bind/unbind paired-teardown invariant violated"
+            );
             we
             // `hd` drops here so the subsequent
             // `self.inner.get_object_mut` does not conflict.
@@ -284,6 +319,39 @@ impl Vm {
     /// Clear host pointers after JS execution.  No-op if unbound.
     pub fn unbind(&mut self) {
         if let Some(hd) = self.inner.host_data.as_deref_mut() {
+            // D-8 PR-A2 — clear the `MutationBridge` from `EcsDom`
+            // BEFORE HostData::unbind (which null-zeros `dom_ptr`).
+            // Order: bridge drop releases its Arc<Mutex<>> halves
+            // (ranges + node_iterators) so HostData becomes sole
+            // owner; subsequent `live_range_registry.clear()` +
+            // `node_iterator_states_shared.lock().clear()` then
+            // run on uniquely-owned state.
+            //
+            // Plan-v4 §A-NI-1 Round 1 IMP-1: post-clear invariant
+            // is `Arc::strong_count(&node_iterator_states_shared)
+            // == 1` (HostData's clone is the sole owner).
+            // Skip cleanup if HostData was never bound (e.g. test
+            // path that constructed but never bound the VM).
+            if hd.is_bound() {
+                // `clear_mutation_hook` returns the displaced hook
+                // (currently `()`); we don't read the result — Drop
+                // on the boxed bridge handles cleanup.
+                hd.dom().clear_mutation_hook();
+                hd.live_range_registry.clear();
+                hd.node_iterator_states_shared
+                    .lock()
+                    .expect("NodeIterator state mutex poisoned")
+                    .clear();
+                hd.tree_walker_states.clear();
+                hd.range_instances.clear();
+                hd.tree_walker_instances.clear();
+                hd.node_iterator_instances.clear();
+                debug_assert_eq!(
+                    std::sync::Arc::strong_count(&hd.node_iterator_states_shared),
+                    1,
+                    "Vm::unbind: lingering Bridge-side Arc reference after clear_mutation_hook"
+                );
+            }
             hd.unbind();
         }
         // Reset the `globalThis` `HostObject`'s `entity_bits` to the
@@ -382,6 +450,13 @@ impl Vm {
             self.inner.data_transfer_item_wrapper_cache.clear();
             self.inner.touch_states.clear();
             self.inner.touch_list_states.clear();
+            // D-8 PR-A2 — Range / TreeWalker / NodeIterator state
+            // clearing on unbind.  These live on `HostData` (not
+            // `VmInner`) because the bridge pair-install happens
+            // there; the `clear` happens via `HostData::unbind` in
+            // the block below alongside `dom.clear_mutation_hook()`
+            // and the bridge teardown.  See plan-v4 §A-NI-1 Vm::unbind
+            // install-order recap.
             // `mutation_observers.clear_all_targets()` drains every
             // observer's target list + record queue so a post-rebind
             // `notify` cannot match a `target` Entity that happens to

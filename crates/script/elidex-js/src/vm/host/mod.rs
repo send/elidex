@@ -185,6 +185,8 @@ pub(super) mod html_progress_proto;
 pub(super) mod html_template_proto;
 
 #[cfg(feature = "engine")]
+pub(super) mod document_traversal;
+#[cfg(feature = "engine")]
 pub(super) mod form_state_sync;
 #[cfg(feature = "engine")]
 pub(super) mod html_input_proto;
@@ -230,6 +232,12 @@ pub(super) mod named_node_map;
 pub(super) mod named_property_exotic;
 pub(super) mod navigation;
 pub(super) mod navigator;
+#[cfg(feature = "engine")]
+pub(super) mod node_filter_dispatch;
+#[cfg(feature = "engine")]
+pub(super) mod node_filter_namespace;
+#[cfg(feature = "engine")]
+pub(super) mod node_iterator_proto;
 pub(super) mod node_methods_extras;
 pub(super) mod node_proto;
 pub(super) mod parentnode;
@@ -237,11 +245,17 @@ pub(super) mod parentnode;
 pub(crate) mod pending_tasks;
 pub(super) mod performance;
 #[cfg(feature = "engine")]
+pub(super) mod range_proto;
+#[cfg(feature = "engine")]
+pub(super) mod range_proto_mutation;
+#[cfg(feature = "engine")]
 pub(crate) mod readable_stream;
 #[cfg(feature = "engine")]
 pub(crate) mod request_response;
 #[cfg(feature = "engine")]
 pub(super) mod selection_api;
+#[cfg(feature = "engine")]
+pub(super) mod static_range_proto;
 #[cfg(feature = "engine")]
 pub(super) mod storage;
 #[cfg(feature = "engine")]
@@ -251,6 +265,8 @@ pub(super) mod structured_clone;
 #[cfg(feature = "engine")]
 pub(crate) mod text_encoding;
 pub(super) mod text_proto;
+#[cfg(feature = "engine")]
+pub(super) mod tree_walker_proto;
 #[cfg(feature = "engine")]
 pub(crate) mod typed_array;
 #[cfg(feature = "engine")]
