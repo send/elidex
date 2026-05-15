@@ -106,7 +106,14 @@ fn tree_walker_first_child_descends_into_first() {
 }
 
 #[test]
-fn tree_walker_parent_stops_at_root() {
+fn tree_walker_parent_returns_root_when_filter_accepts() {
+    // Copilot R19: WHATWG §6.4 parentNode allows the walker's
+    // root to be returned when it passes whatToShow + filter.
+    // Browsers (Chrome / Firefox) return the root in this case.
+    // The earlier (R7) implementation short-circuited on
+    // `parent == root` before filtering, returning null
+    // incorrectly.  Per spec, only an attempt to ascend ABOVE
+    // root yields null.
     let (mut vm, mut session, mut dom, doc) = setup();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
     build_simple_tree(&mut vm);
@@ -116,10 +123,34 @@ fn tree_walker_parent_stops_at_root() {
          w.currentNode = p;",
     )
     .unwrap();
+    // p → section (Element, accepted).
     assert_eq!(eval_str(&mut vm, "w.parentNode().tagName"), "SECTION");
-    // Copilot R7: WHATWG §6.4 parentNode must NOT return the walker's
-    // root.  Next call from SECTION ascends to DIV (root) and returns
-    // null without yielding root itself.
+    // section → root (DIV, Element, accepted) — returns root.
+    assert_eq!(eval_str(&mut vm, "w.parentNode().tagName"), "DIV");
+    // From root itself, parentNode returns null (would ascend above root).
+    let v = vm.eval("w.parentNode()").unwrap();
+    assert!(matches!(v, super::super::value::JsValue::Null));
+    vm.unbind();
+}
+
+#[test]
+fn tree_walker_parent_skips_root_when_filter_rejects() {
+    // Copilot R19: when the root does NOT pass whatToShow, the
+    // ascent from a descendant must skip over the root and end
+    // with null (the loop's `node != root` guard then exits the
+    // loop).
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    build_simple_tree(&mut vm);
+    // SHOW_TEXT alone — root (DIV element) does NOT match.
+    vm.eval(
+        "globalThis.w = document.createTreeWalker(\
+             root, NodeFilter.SHOW_TEXT);\
+         w.currentNode = p;",
+    )
+    .unwrap();
+    // p → ascends to section (skip, not Text), then root (skip),
+    // exits loop without setting current — null.
     let v = vm.eval("w.parentNode()").unwrap();
     assert!(matches!(v, super::super::value::JsValue::Null));
     vm.unbind();

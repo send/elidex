@@ -675,13 +675,16 @@ pub fn step_with_filter_parent_node<F: FilterAction>(
         let Some(parent) = dom.get_parent(node) else {
             return Ok(None);
         };
-        // Copilot R7: per WHATWG §6.4 parentNode steps 2-3, the
-        // walk terminates when the ancestor IS the root — `null`
-        // is returned without filtering `root` itself.  Stop here
-        // before classifying.
-        if parent == walker.root {
-            return Ok(None);
-        }
+        // Copilot R19: WHATWG §6.4 parentNode steps 2-3 — after
+        // ascending to `parent`, filter it FIRST.  The walker's
+        // root is in-scope: if it passes whatToShow + filter, it
+        // is a valid return value.  The loop's `node != root`
+        // guard then prevents the next iteration from ascending
+        // above root.  Earlier (R7) impl short-circuited on
+        // `parent == root` BEFORE filtering, which was a spec
+        // violation (browsers DO return the root from
+        // `parentNode()` when the root passes the filter).
+        //
         // Reject ≡ Skip in ancestor walks per spec §6.4.4.
         if accepts(parent, walker.what_to_show, dom) {
             match filter.accept(parent)? {
