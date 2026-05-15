@@ -19,47 +19,84 @@ pub enum RangePointError {
 }
 
 impl Range {
-    /// Set the start boundary.
+    /// Set the start boundary WITHOUT spec collapse-on-cross-root /
+    /// after-end logic.  Engine-indep primitive used by in-crate
+    /// callers (live-range hooks, tests).  VM-side spec algorithm
+    /// uses [`Self::set_start_to_boundary`] instead.
     pub fn set_start(&mut self, node: Entity, offset: usize) {
         self.start_container = node;
         self.start_offset = offset;
     }
 
-    /// Set the end boundary.
+    /// Set the end boundary WITHOUT spec collapse-on-cross-root /
+    /// before-start logic.  See [`Self::set_start`] for rationale.
     pub fn set_end(&mut self, node: Entity, offset: usize) {
         self.end_container = node;
         self.end_offset = offset;
     }
 
-    /// Set start to just before `node`.
+    /// WHATWG §4.4 "set the start of a Range to a boundary point"
+    /// step 4-5: if the new start is after end OR in a different root,
+    /// collapse end to (node, offset); then write start.  Assumes
+    /// caller has run spec steps 1-2 (DocumentType / IndexSize
+    /// validation).
+    pub fn set_start_to_boundary(&mut self, node: Entity, offset: usize, dom: &EcsDom) {
+        let new_root = dom.find_tree_root(node);
+        let after_end = dom.find_tree_root(self.end_container) != new_root
+            || compare_points(node, offset, self.end_container, self.end_offset, dom) > 0;
+        if after_end {
+            self.end_container = node;
+            self.end_offset = offset;
+        }
+        self.start_container = node;
+        self.start_offset = offset;
+    }
+
+    /// WHATWG §4.4 "set the end of a Range to a boundary point"
+    /// step 4-5: mirror of [`Self::set_start_to_boundary`].
+    pub fn set_end_to_boundary(&mut self, node: Entity, offset: usize, dom: &EcsDom) {
+        let new_root = dom.find_tree_root(node);
+        let before_start = dom.find_tree_root(self.start_container) != new_root
+            || compare_points(node, offset, self.start_container, self.start_offset, dom) < 0;
+        if before_start {
+            self.start_container = node;
+            self.start_offset = offset;
+        }
+        self.end_container = node;
+        self.end_offset = offset;
+    }
+
+    /// Set start to just before `node`.  Per WHATWG §4.4
+    /// `setStartBefore`, runs the spec set-start algorithm including
+    /// the collapse-on-cross-root branch.
     pub fn set_start_before(&mut self, node: Entity, dom: &EcsDom) {
         if let Some(parent) = dom.get_parent(node) {
             let offset = child_index(parent, node, dom);
-            self.set_start(parent, offset);
+            self.set_start_to_boundary(parent, offset, dom);
         }
     }
 
-    /// Set start to just after `node`.
+    /// Set start to just after `node`.  See [`Self::set_start_before`].
     pub fn set_start_after(&mut self, node: Entity, dom: &EcsDom) {
         if let Some(parent) = dom.get_parent(node) {
             let offset = child_index(parent, node, dom) + 1;
-            self.set_start(parent, offset);
+            self.set_start_to_boundary(parent, offset, dom);
         }
     }
 
-    /// Set end to just before `node`.
+    /// Set end to just before `node`.  See [`Self::set_start_before`].
     pub fn set_end_before(&mut self, node: Entity, dom: &EcsDom) {
         if let Some(parent) = dom.get_parent(node) {
             let offset = child_index(parent, node, dom);
-            self.set_end(parent, offset);
+            self.set_end_to_boundary(parent, offset, dom);
         }
     }
 
-    /// Set end to just after `node`.
+    /// Set end to just after `node`.  See [`Self::set_start_before`].
     pub fn set_end_after(&mut self, node: Entity, dom: &EcsDom) {
         if let Some(parent) = dom.get_parent(node) {
             let offset = child_index(parent, node, dom) + 1;
-            self.set_end(parent, offset);
+            self.set_end_to_boundary(parent, offset, dom);
         }
     }
 

@@ -255,6 +255,54 @@ fn detach_brand_check_throws_on_non_range() {
 }
 
 #[test]
+fn set_start_after_end_collapses_end() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    // Copilot R2 — WHATWG §4.4 setStart step 4: if new start is
+    // after end, collapse end to (node, offset).
+    vm.eval(&format!(
+        "{TREE_SETUP}\
+         globalThis.r = new Range(); r.setStart(t, 1); r.setEnd(t, 2);\
+         r.setStart(t, 4);"
+    ))
+    .unwrap();
+    assert_eq!(eval_num(&mut vm, "r.startOffset"), 4.0);
+    assert_eq!(eval_num(&mut vm, "r.endOffset"), 4.0);
+    assert_eq!(eval_str(&mut vm, "r.collapsed ? 'yes' : 'no'"), "yes");
+    vm.unbind();
+}
+
+#[test]
+fn set_end_before_start_collapses_start() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    // WHATWG §4.4 setEnd step 4 mirror.
+    vm.eval(&format!(
+        "{TREE_SETUP}\
+         globalThis.r = new Range(); r.setStart(t, 3); r.setEnd(t, 5);\
+         r.setEnd(t, 1);"
+    ))
+    .unwrap();
+    assert_eq!(eval_num(&mut vm, "r.startOffset"), 1.0);
+    assert_eq!(eval_num(&mut vm, "r.endOffset"), 1.0);
+    vm.unbind();
+}
+
+#[test]
+fn document_create_range_brand_check_throws_on_non_document() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    // Copilot R2 — `document.createRange.call({})` must throw
+    // TypeError because `this` is not a Document.
+    let res = vm.eval("document.createRange.call(document.createElement('div'));");
+    assert!(
+        res.is_err(),
+        "createRange.call(non-Document) must throw TypeError"
+    );
+    vm.unbind();
+}
+
+#[test]
 fn delete_contents_collapses_range() {
     let (mut vm, mut session, mut dom, doc) = setup();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };

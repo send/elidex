@@ -80,7 +80,7 @@ use elidex_ecs::{Entity, NodeKind};
 /// - `Err(TypeError)`: HostObject `this` whose kind is NOT
 ///   `Document` (e.g. `docMethod.call(element)`).  WebIDL
 ///   "Illegal invocation" brand check.
-fn document_receiver(
+pub(super) fn document_receiver(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     method: &str,

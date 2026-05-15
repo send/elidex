@@ -328,6 +328,17 @@ fn native_static_range_is_valid(
 ) -> Result<JsValue, VmError> {
     let f = require_static_range_receiver(ctx, this, "isValid")?;
     let dom = ctx.host().dom();
+    // Copilot R2: a stored Entity may have been despawned since
+    // construction.  WHATWG §4.5 doesn't formalise "the container
+    // was destroyed", but a destroyed entity reuses-its-slot via
+    // `Entity::from_bits` returning a value that no longer points
+    // to anything ECS-tracked — `dom.contains` is the canonical
+    // liveness check.  Reject either-side-stale up-front so the
+    // root + offset checks below don't false-positive on entities
+    // whose payload was lost.
+    if !dom.contains(f.start_container) || !dom.contains(f.end_container) {
+        return Ok(JsValue::Boolean(false));
+    }
     // Clause (a): both containers must share a root.  Detached
     // containers (no longer in the tree) return false because
     // `find_tree_root` returns the entity itself for orphans, so two

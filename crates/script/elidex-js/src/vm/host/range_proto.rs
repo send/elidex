@@ -500,7 +500,10 @@ fn native_range_set_start(
     let node = arg_node(ctx, args.first().copied(), "setStart")?;
     let offset = arg_offset(ctx, args.get(1).copied())?;
     validate_boundary_node_and_offset(ctx, node, offset, "setStart")?;
-    write_range(ctx, id, "setStart", |r, _dom| r.set_start(node, offset))?;
+    // Copilot R2: spec step 4 collapse-on-cross-root / after-end.
+    write_range(ctx, id, "setStart", |r, dom| {
+        r.set_start_to_boundary(node, offset, dom);
+    })?;
     Ok(JsValue::Undefined)
 }
 
@@ -513,7 +516,9 @@ fn native_range_set_end(
     let node = arg_node(ctx, args.first().copied(), "setEnd")?;
     let offset = arg_offset(ctx, args.get(1).copied())?;
     validate_boundary_node_and_offset(ctx, node, offset, "setEnd")?;
-    write_range(ctx, id, "setEnd", |r, _dom| r.set_end(node, offset))?;
+    write_range(ctx, id, "setEnd", |r, dom| {
+        r.set_end_to_boundary(node, offset, dom);
+    })?;
     Ok(JsValue::Undefined)
 }
 

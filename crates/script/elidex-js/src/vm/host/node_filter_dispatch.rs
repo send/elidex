@@ -67,9 +67,21 @@ impl FilterAction for JsFilter<'_, '_> {
 
         // Try `acceptNode` member if filter is an object with that
         // method; otherwise treat the filter itself as callable.
-        let Some(callable) = pick_callable(self.ctx.vm, filter_obj) else {
-            self.pending_error = Some(VmError::type_error("NodeFilter callback is not callable."));
-            return Err(FilterError::Throw);
+        // Copilot R2: route through `get_property_value` so accessor
+        // getters on `acceptNode` resolve per WebIDL §3.10 `Get`
+        // semantics (rather than treating accessor descriptors as
+        // non-callable).
+        let callable = match pick_callable(self.ctx.vm, filter_obj) {
+            Ok(Some(c)) => c,
+            Err(e) => {
+                self.pending_error = Some(e);
+                return Err(FilterError::Throw);
+            }
+            Ok(None) => {
+                self.pending_error =
+                    Some(VmError::type_error("NodeFilter callback is not callable."));
+                return Err(FilterError::Throw);
+            }
         };
 
         let result_val = match self
@@ -96,29 +108,24 @@ impl FilterAction for JsFilter<'_, '_> {
 /// itself (if a Function) or its `acceptNode` member.
 ///
 /// Per WHATWG §6.3 the NodeFilter callback interface accepts either
-/// shape; browsers tolerate `function-instance` filters directly.
-/// Property lookup goes through [`super::super::coerce::get_property`]
-/// at the data-property level only — accessor getters on `acceptNode`
-/// are unusual enough that we don't invoke them here (the spec
-/// callbackForArg algorithm performs a `Get(obj, "acceptNode")` which
-/// resolves accessors; the simplification matches browser behaviour
-/// for the common case + avoids re-entrant `&mut VmInner` complexity).
-fn pick_callable(vm: &VmInner, filter_obj: ObjectId) -> Option<ObjectId> {
-    let kind = &vm.get_object(filter_obj).kind;
-    if kind.is_callable() {
-        return Some(filter_obj);
+/// shape; browsers tolerate function-instance filters directly.  Copilot
+/// R2 fix: lookup goes through `get_property_value` so accessor
+/// getters on `acceptNode` resolve per WebIDL §3.10 `Get` semantics.
+/// Returns `Err` if the getter itself threw; `Ok(None)` if the lookup
+/// yielded a non-callable value (or filter is a non-callable plain
+/// object); `Ok(Some(callable))` otherwise.
+fn pick_callable(vm: &mut VmInner, filter_obj: ObjectId) -> Result<Option<ObjectId>, VmError> {
+    if vm.get_object(filter_obj).kind.is_callable() {
+        return Ok(Some(filter_obj));
     }
     let key = PropertyKey::String(vm.well_known.accept_node_method);
-    let slot = super::super::coerce::get_property(vm, filter_obj, key)?;
-    let super::super::coerce::PropertyResult::Data(value) = slot else {
-        return None;
-    };
+    let value = vm.get_property_value(filter_obj, key)?;
     let JsValue::Object(method_id) = value else {
-        return None;
+        return Ok(None);
     };
     if vm.get_object(method_id).kind.is_callable() {
-        Some(method_id)
+        Ok(Some(method_id))
     } else {
-        None
+        Ok(None)
     }
 }

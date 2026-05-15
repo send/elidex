@@ -30,17 +30,18 @@ use super::super::value::{JsValue, NativeContext, Object, ObjectKind, PropertySt
 
 /// `document.createRange()` — WHATWG DOM §4.4 step 3.
 ///
-/// Returns a new live Range collapsed at `(document, 0)` with
-/// `owner_document = document`.
+/// Returns a new live Range collapsed at `(receiver document, 0)` with
+/// `owner_document = receiver document`.  WebIDL brand check rejects
+/// non-Document receivers (Copilot R2): `document.createRange.call({})`
+/// throws `TypeError`.
 pub(super) fn native_document_create_range(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() {
+    let Some(doc) = super::document::document_receiver(ctx, this, "createRange")? else {
         return Ok(JsValue::Null);
-    }
-    let doc = ctx.host().document();
+    };
     let range = Range::new_with_owner(doc, doc);
     let range_id = ctx.host().live_range_registry.register(range);
     let proto = ctx
@@ -60,13 +61,14 @@ pub(super) fn native_document_create_range(
 }
 
 /// `document.createTreeWalker(root, whatToShow = SHOW_ALL, filter = null)`
-/// — WHATWG DOM §6.4 createTreeWalker step.
+/// — WHATWG DOM §6.4 createTreeWalker step.  WebIDL brand check
+/// rejects non-Document receivers (Copilot R2).
 pub(super) fn native_document_create_tree_walker(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() {
+    if super::document::document_receiver(ctx, this, "createTreeWalker")?.is_none() {
         return Ok(JsValue::Null);
     }
     let root_val = args.first().copied().unwrap_or(JsValue::Undefined);
@@ -110,13 +112,14 @@ pub(super) fn native_document_create_tree_walker(
 }
 
 /// `document.createNodeIterator(root, whatToShow = SHOW_ALL, filter = null)`
-/// — WHATWG DOM §6.1 createNodeIterator step.
+/// — WHATWG DOM §6.1 createNodeIterator step.  WebIDL brand check
+/// rejects non-Document receivers (Copilot R2).
 pub(super) fn native_document_create_node_iterator(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if ctx.host_if_bound().is_none() {
+    if super::document::document_receiver(ctx, this, "createNodeIterator")?.is_none() {
         return Ok(JsValue::Null);
     }
     let root_val = args.first().copied().unwrap_or(JsValue::Undefined);

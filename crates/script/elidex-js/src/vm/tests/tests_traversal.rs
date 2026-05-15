@@ -279,6 +279,26 @@ fn node_iterator_detach_is_noop() {
 }
 
 #[test]
+fn tree_walker_filter_with_accessor_accept_node() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    build_simple_tree(&mut vm);
+    // Copilot R2 — accessor (getter-defined) `acceptNode` on the
+    // filter object must resolve via WebIDL `Get` semantics rather
+    // than being treated as non-callable.
+    vm.eval(
+        "globalThis.filterObj = Object.defineProperty({}, 'acceptNode', {\
+            get: function() { return function(n) { return NodeFilter.FILTER_ACCEPT; }; }\
+         });\
+         globalThis.w = document.createTreeWalker(\
+             root, NodeFilter.SHOW_ELEMENT, filterObj);",
+    )
+    .unwrap();
+    assert_eq!(eval_str(&mut vm, "w.nextNode().tagName"), "SECTION");
+    vm.unbind();
+}
+
+#[test]
 fn node_iterator_detach_brand_check_throws_on_non_iterator() {
     let (mut vm, mut session, mut dom, doc) = setup();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
