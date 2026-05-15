@@ -666,6 +666,13 @@ pub fn step_with_filter_parent_node<F: FilterAction>(
         let Some(parent) = dom.get_parent(node) else {
             return Ok(None);
         };
+        // Copilot R7: per WHATWG §6.4 parentNode steps 2-3, the
+        // walk terminates when the ancestor IS the root — `null`
+        // is returned without filtering `root` itself.  Stop here
+        // before classifying.
+        if parent == walker.root {
+            return Ok(None);
+        }
         // Reject ≡ Skip in ancestor walks per spec §6.4.4.
         if accepts(parent, walker.what_to_show, dom) {
             match filter.accept(parent)? {
@@ -729,15 +736,12 @@ pub fn step_with_filter_previous_node<F: FilterAction>(
         let Some(parent) = dom.get_parent(node) else {
             return Ok(None);
         };
+        // Copilot R7: per WHATWG §6.4 previousNode steps 4-5, when
+        // the ancestor walk reaches the walker's root the traversal
+        // terminates without yielding the root itself.  Stop here
+        // before classifying.
         if parent == walker.root {
-            // Per spec, root participates only if it passes filter.
-            match classify(parent, walker.what_to_show, dom, filter)? {
-                FilterDecision::Accept => {
-                    walker.current_node = parent;
-                    return Ok(Some(parent));
-                }
-                _ => return Ok(None),
-            }
+            return Ok(None);
         }
         match classify(parent, walker.what_to_show, dom, filter)? {
             FilterDecision::Accept => {
@@ -928,7 +932,26 @@ pub fn adjust_node_iterator_for_removal(
         let Some(seed) = preceding_seed else {
             return false;
         };
-        let mut node = Some(seed);
+        // Copilot R7: when the previous-side seed is a sibling of the
+        // removed subtree (not `parent` itself when `removed_index ==
+        // 0`), WHATWG §6.1 pre-removing steps choose that sibling's
+        // LAST INCLUSIVE DESCENDANT — `previousNode()` resumes from
+        // the deepest in-tree position before the removed subtree.
+        // Descend through `last_child` to reach that node, skipping
+        // any descendant that is itself in `descendants` (defensive
+        // — should not happen because `preceding_seed` is the slot
+        // BEFORE the removed subtree, but a degenerate caller could
+        // pass a snapshot containing more entities than expected).
+        let mut current = seed;
+        if seed != parent {
+            while let Some(last) = dom.get_last_child(current) {
+                if descendants.contains(&last) {
+                    break;
+                }
+                current = last;
+            }
+        }
+        let mut node = Some(current);
         while let Some(n) = node {
             if !descendants.contains(&n) {
                 state.reference = n;

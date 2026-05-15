@@ -345,6 +345,22 @@ fn static_range_requires_start_offset_member() {
 }
 
 #[test]
+fn clone_range_after_unbind_throws_not_panics() {
+    // Copilot R7: cloneRange / compareBoundaryPoints called
+    // `split_dom_and_live_ranges` outside `read_range`'s gate;
+    // retained Range refs across `Vm::unbind()` must throw, not panic.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval("globalThis.r = new Range();").unwrap();
+    vm.unbind();
+    let res = vm.eval("r.cloneRange();");
+    assert!(res.is_err(), "cloneRange after unbind must throw");
+}
+
+#[test]
 fn document_create_range_brand_check_throws_on_non_document() {
     let (mut vm, mut session, mut dom, doc) = setup();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };

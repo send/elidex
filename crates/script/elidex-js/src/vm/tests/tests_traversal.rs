@@ -117,7 +117,9 @@ fn tree_walker_parent_stops_at_root() {
     )
     .unwrap();
     assert_eq!(eval_str(&mut vm, "w.parentNode().tagName"), "SECTION");
-    assert_eq!(eval_str(&mut vm, "w.parentNode().tagName"), "DIV");
+    // Copilot R7: WHATWG §6.4 parentNode must NOT return the walker's
+    // root.  Next call from SECTION ascends to DIV (root) and returns
+    // null without yielding root itself.
     let v = vm.eval("w.parentNode()").unwrap();
     assert!(matches!(v, super::super::value::JsValue::Null));
     vm.unbind();

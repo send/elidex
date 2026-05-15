@@ -684,17 +684,18 @@ fn native_range_compare_boundary_points(
     }
     let other_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let other_id = require_range_arg(ctx, other_arg, "compareBoundaryPoints")?;
+    // Copilot R7: gate on `host_if_bound` BEFORE
+    // `split_dom_and_live_ranges` — the latter asserts on unbound
+    // `dom_ptr` and would panic for retained Range refs across
+    // `Vm::unbind()`.
+    if ctx.host_if_bound().is_none() {
+        return Err(detached_range_error(ctx, "compareBoundaryPoints"));
+    }
     let host = ctx.host();
     let (dom, registry) = host.split_dom_and_live_ranges();
     let other_range = registry
         .with_range(other_id, dom, |r, _| r.clone())
-        .ok_or_else(|| {
-            VmError::dom_exception(
-                ctx.vm.well_known.dom_exc_invalid_state_error,
-                "Failed to execute 'compareBoundaryPoints' on 'Range': \
-                 the source Range has been detached",
-            )
-        })?;
+        .ok_or_else(|| detached_range_error(ctx, "compareBoundaryPoints"))?;
     let result = read_range(ctx, id, "compareBoundaryPoints", |ctx, r| {
         let dom = ctx.host().dom();
         // WHATWG §4.4 step 2 — `WrongDocumentError` when the two
@@ -827,18 +828,17 @@ fn native_range_clone_range(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_range_receiver(ctx, this, "cloneRange")?;
+    // Copilot R7: gate on `host_if_bound` BEFORE
+    // `split_dom_and_live_ranges` (same fix as `compareBoundaryPoints`).
+    if ctx.host_if_bound().is_none() {
+        return Err(detached_range_error(ctx, "cloneRange"));
+    }
     let cloned = {
         let host = ctx.host();
         let (dom, registry) = host.split_dom_and_live_ranges();
         registry
             .with_range(id, dom, |r, _| r.clone())
-            .ok_or_else(|| {
-                VmError::dom_exception(
-                    ctx.vm.well_known.dom_exc_invalid_state_error,
-                    "Failed to execute 'cloneRange' on 'Range': \
-                     the Range has been detached",
-                )
-            })?
+            .ok_or_else(|| detached_range_error(ctx, "cloneRange"))?
     };
     let new_id = ctx.host().live_range_registry.register(cloned);
     let proto = ctx.vm.range_prototype.expect("range_prototype installed");
