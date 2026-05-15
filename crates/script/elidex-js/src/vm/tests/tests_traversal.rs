@@ -408,3 +408,46 @@ fn tree_walker_current_node_setter_throws_when_detached() {
         "currentNode setter on retained walker after unbind must throw, not panic"
     );
 }
+
+#[test]
+fn tree_walker_siblings_at_root_return_null() {
+    // Copilot R15: WHATWG §6.4 traverseSiblings step 2 — when
+    // `currentNode === root`, both `nextSibling()` and
+    // `previousSibling()` must return null without escaping the
+    // walker's subtree.  Without the early-out, `get_next_sibling`
+    // on the root would walk OUT of the walker's view and return
+    // a node that is technically a sibling of root in the wider
+    // document.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(
+        "globalThis.outer = document.createElement('div');\
+         globalThis.root = document.createElement('section');\
+         globalThis.outerSib = document.createElement('aside');\
+         /* outer's children: [root, outerSib].  If the walker's
+            root looked beyond its subtree, nextSibling() would
+            return `outerSib`. */\
+         outer.appendChild(root);\
+         outer.appendChild(outerSib);\
+         /* Inner children so descend paths exist but shouldn't fire. */\
+         root.appendChild(document.createElement('p'));\
+         globalThis.w = document.createTreeWalker(\
+             root, 0xFFFFFFFF, null);\
+         /* currentNode is root by default. */",
+    )
+    .unwrap();
+    assert_eq!(
+        eval_str(&mut vm, "w.nextSibling() === null ? 'null' : 'non'"),
+        "null"
+    );
+    assert_eq!(
+        eval_str(&mut vm, "w.previousSibling() === null ? 'null' : 'non'"),
+        "null"
+    );
+    // currentNode unchanged after the rejected step.
+    assert_eq!(
+        eval_str(&mut vm, "w.currentNode === root ? 'root' : 'moved'"),
+        "root"
+    );
+    vm.unbind();
+}

@@ -601,6 +601,15 @@ fn traverse_siblings_filtered<F: FilterAction>(
     filter: &mut F,
     next: bool,
 ) -> Result<Option<Entity>, FilterError> {
+    // WHATWG §6.4 "traverseSiblings" step 2: if node is root, return
+    // null.  Without this early-out, `get_next_sibling` /
+    // `get_prev_sibling` on the root would walk OUT of the walker's
+    // subtree — the inner loop's `parent != walker.root` check below
+    // only catches the walk-up fallback, not the initial direct
+    // sibling lookup (Copilot R15).
+    if walker.current_node == walker.root {
+        return Ok(None);
+    }
     let mut node = walker.current_node;
     loop {
         let sib = if next {
