@@ -132,32 +132,67 @@ pub(super) fn native_range_insert_node(
     if ctx.host_if_bound().is_none() {
         return Err(detached_range_error(ctx, "insertNode"));
     }
-    let mut range = {
+    // Copilot R13 (#2): read only the fields needed for the
+    // engine-indep call; the snapshot+commit pattern is unsafe for
+    // `insertNode` because the DOM ops fire `after_split_text` /
+    // `after_insert` hooks that adjust the **registered** range, and
+    // a clone-and-commit would overwrite those adjustments.
+    let snapshot = {
         let host = ctx.host();
         let (dom, registry) = host.split_dom_and_live_ranges();
         registry
-            .with_range(id, dom, |r, _| r.clone())
+            .with_range(id, dom, |r, _| {
+                (r.start_container, r.start_offset, r.collapsed())
+            })
             .ok_or_else(|| detached_range_error(ctx, "insertNode"))?
     };
+    let (start_container, start_offset, was_collapsed) = snapshot;
+
+    // Build a transient `Range` purely as the argument carrier — the
+    // engine-indep `insert_node` takes `&self` and reads only
+    // `start_container` / `start_offset` from it.
+    let mut transient = Range::new(start_container);
+    transient.set_start(start_container, start_offset);
+    transient.set_end(start_container, start_offset);
+
     let host = ctx.host();
     let dom = host.dom();
-    let inserted = range.insert_node(dom, node);
-    if !inserted {
-        // Copilot R12: engine-indep `insert_before` / `append_child`
-        // returns false on invalid insertions (cycle, missing ref,
-        // orphan parent) — surface as `HierarchyRequestError` per
-        // WHATWG DOM `pre-insert` step 2 / `insert` rejection paths.
-        // Range boundaries stay untouched in the engine-indep helper
-        // when `inserted == false`, so no commit-back is needed.
-        return Err(VmError::dom_exception(
-            ctx.vm.well_known.dom_exc_hierarchy_request_error,
-            "Failed to execute 'insertNode' on 'Range': \
-             the node could not be inserted at the start boundary \
-             (cycle, missing reference node, or orphan parent).",
-        ));
+    let outcome = transient.insert_node(dom, node);
+
+    match outcome {
+        None => {
+            // WHATWG §4.4 step 6 (pre-insertion validity) failed
+            // (cycle / orphan parent) — surface as
+            // `HierarchyRequestError`.  No DOM mutation happened
+            // (Copilot R13 #1: validity check runs before split).
+            Err(VmError::dom_exception(
+                ctx.vm.well_known.dom_exc_hierarchy_request_error,
+                "Failed to execute 'insertNode' on 'Range': \
+                 the node could not be inserted at the start boundary \
+                 (cycle, missing reference node, or orphan parent).",
+            ))
+        }
+        Some((parent, new_offset)) => {
+            // WHATWG §4.4 step 13: when the range was collapsed,
+            // set the end to (parent, newOffset).  Apply directly
+            // to the registered range so the §5.10/§4.2.3 hook
+            // adjustments to start remain intact.  Non-collapsed
+            // ranges need no explicit commit: hooks already
+            // migrated both boundaries.
+            if was_collapsed {
+                let host = ctx.host();
+                let (dom, registry) = host.split_dom_and_live_ranges();
+                let applied = registry.with_range_mut(id, dom, |r, _| {
+                    r.end_container = parent;
+                    r.end_offset = new_offset;
+                });
+                if applied.is_none() {
+                    return Err(detached_range_error(ctx, "insertNode"));
+                }
+            }
+            Ok(JsValue::Undefined)
+        }
     }
-    commit_range_after_mutation(ctx, id, "insertNode", &range)?;
-    Ok(JsValue::Undefined)
 }
 
 // ---------------------------------------------------------------------------

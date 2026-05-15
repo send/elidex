@@ -559,8 +559,13 @@ fn range_insert_node() {
     range.set_end(t1, 2);
 
     let new_elem = dom.create_element("b", Attributes::default());
-    let inserted = range.insert_node(&mut dom, new_elem);
-    assert!(inserted, "insert_node into attached text node must succeed");
+    let outcome = range.insert_node(&mut dom, new_elem);
+    let (parent, new_offset) = outcome.expect("insert_node into attached text node must succeed");
+    assert_eq!(parent, root);
+    // root pre-call: [t1].  After split: [head, tail].  After insert
+    // before tail: [head, new_elem, tail].  Spec step 10-11 newOffset
+    // = tail's post-insert index (= 2) per `Range::insert_node` doc.
+    assert_eq!(new_offset, 2);
 
     // t1 should be "He", then <b>, then "llo".
     let children: Vec<_> = dom.children_iter(root).collect();

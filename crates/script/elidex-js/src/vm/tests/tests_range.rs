@@ -675,3 +675,58 @@ fn insert_node_failure_leaves_range_untouched() {
     assert_eq!(eval_num(&mut vm, "r.endOffset"), 0.0);
     vm.unbind();
 }
+
+#[test]
+fn insert_node_rejection_does_not_split_text() {
+    // Copilot R13 (#1): rejection of `insertNode` (cycle / orphan
+    // parent) must run BEFORE the text-node split, so a failed
+    // call leaves the DOM untouched (no dangling tail Text node).
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(
+        "globalThis.root = document.createElement('div');\
+         globalThis.t = document.createTextNode('hello');\
+         root.appendChild(t);\
+         globalThis.r = new Range();\
+         r.setStart(t, 2); r.setEnd(t, 2);\
+         /* Insert root (an ancestor of t) into the range — cycle. */",
+    )
+    .unwrap();
+    assert_eq!(eval_num(&mut vm, "root.childNodes.length"), 1.0);
+    let res = vm.eval("r.insertNode(root);");
+    assert!(res.is_err(), "cycle insertNode must throw");
+    // Text node still has its original data; no split happened.
+    assert_eq!(eval_str(&mut vm, "t.data"), "hello");
+    assert_eq!(eval_num(&mut vm, "root.childNodes.length"), 1.0);
+    vm.unbind();
+}
+
+#[test]
+fn insert_node_non_collapsed_preserves_hook_adjustments() {
+    // Copilot R13 (#2): for a non-collapsed range, `insertNode`
+    // must NOT commit a stale snapshot over the hook-adjusted
+    // live-range entry.  WHATWG §5.10 splitText migrates the
+    // boundaries past the split offset to the new tail node; if
+    // VM-side commit-back overwrote that, the end would point
+    // back at the now-truncated head Text node.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(
+        "globalThis.root = document.createElement('div');\
+         globalThis.t = document.createTextNode('hello');\
+         root.appendChild(t);\
+         globalThis.r = new Range();\
+         /* Non-collapsed: start at offset 1, end at offset 4. */\
+         r.setStart(t, 1); r.setEnd(t, 4);\
+         globalThis.elem = document.createElement('b');\
+         r.insertNode(elem);",
+    )
+    .unwrap();
+    // After insertNode at start (1): t splits into head='h' (length 1) and
+    // tail='ello' (length 4). §5.10 migrates the boundary at (t, 4) — past
+    // the split — to (tail, 3).  The start at (t, 1) is == split offset
+    // so it stays at (t, 1) on the truncated head (length 1).
+    assert_eq!(eval_str(&mut vm, "r.endContainer.data"), "ello");
+    assert_eq!(eval_num(&mut vm, "r.endOffset"), 3.0);
+    vm.unbind();
+}

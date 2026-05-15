@@ -268,88 +268,93 @@ impl Range {
         frag
     }
 
-    /// Insert a node at the start boundary.
+    /// WHATWG DOM §4.4 `Range.insertNode` core (steps 2-12).
     ///
-    /// If start container is a text node, splits it at the offset
-    /// first via [`crate::char_data::split_text::split_text_at_offset`]
-    /// which fires the spec-correct `after_split_text` hook so live
-    /// ranges anchored AFTER the split offset migrate to the new
-    /// tail node rather than getting clamp-truncated (Copilot R10).
+    /// On success returns `Some((parent, new_offset))` matching
+    /// WHATWG §4.4 step 10-11 (referenceNode's index after step 12's
+    /// pre-insert, or parent's length when referenceNode is null) so
+    /// the caller can apply step 13 to the registered live range
+    /// when it was collapsed pre-call.  On rejection (cycle, orphan
+    /// parent) returns `None` and the DOM is NOT mutated.
     ///
-    /// Copilot R11: for a COLLAPSED range (start == end), WHATWG §4.4
-    /// `insertNode` step 6 sets end to the boundary AFTER the
-    /// inserted node so the range now brackets it.  Without that
-    /// update, the snapshot+commit pattern in VM-side
-    /// `native_range_insert_node` would clobber any hook-applied
-    /// expansion with the pre-insert (still-collapsed) state.
-    /// Returns `true` if the DOM insertion succeeded.  Copilot R12: callers
-    /// must check the return value — when `insert_before` / `append_child`
-    /// rejects the insertion (cycle, missing ref, etc.) the Range boundaries
-    /// stay untouched and a DOM-level exception should propagate.
-    pub fn insert_node(&mut self, dom: &mut EcsDom, node: Entity) -> bool {
-        let was_collapsed = self.collapsed();
-        let inserted = if dom.node_kind(self.start_container) == Some(NodeKind::Text) {
-            let parent = dom.get_parent(self.start_container);
-            if let Some(parent) = parent {
-                // Copilot R10: split via canonical helper so
-                // `after_split_text` fires + live-range boundaries
-                // past the split point migrate to the new tail.
-                let tail_node = crate::char_data::split_text::split_text_at_offset(
-                    self.start_container,
-                    self.start_offset,
-                    dom,
-                )
-                .ok();
-                if let Some(tail_node) = tail_node {
-                    dom.insert_before(parent, node, tail_node)
-                } else {
-                    // Split failed (orphan, missing TextContent,
-                    // etc.) — fall back to plain insert at the
-                    // start_container's slot.
-                    dom.insert_before(parent, node, self.start_container)
-                }
-            } else {
-                false
-            }
+    /// Copilot R13 (#1): the pre-insertion validity check (cycle)
+    /// runs BEFORE the text-node split — the previous impl split
+    /// first and rejected later, leaving a dangling tail in the DOM
+    /// on insertion failure.
+    ///
+    /// Copilot R13 (#2): `&self`, not `&mut self`.  Earlier impls
+    /// drove a snapshot+commit pattern in VM-side
+    /// `native_range_insert_node` that committed stale boundary
+    /// deltas over hook-adjusted live-range entries, losing the
+    /// §5.10 splitText migration and §4.2.3 insert adjustments.
+    /// The caller is responsible for applying step 13 to the
+    /// **registered** range (not a clone) when the pre-call range
+    /// was collapsed; start and end migrations are handled by the
+    /// engine's `after_split_text` / `after_insert` mutation hooks.
+    pub fn insert_node(&self, dom: &mut EcsDom, node: Entity) -> Option<(Entity, usize)> {
+        let start_container = self.start_container;
+        let start_offset = self.start_offset;
+        let is_text = dom.node_kind(start_container) == Some(NodeKind::Text);
+
+        // Spec step 2-5: compute referenceNode + parent.
+        let (mut reference_node, parent) = if is_text {
+            let parent = dom.get_parent(start_container)?;
+            (Some(start_container), parent)
         } else {
-            // Non-text container: insert at offset.
-            let children: Vec<_> = dom.children_iter(self.start_container).collect();
-            if self.start_offset < children.len() {
-                dom.insert_before(self.start_container, node, children[self.start_offset])
-            } else {
-                dom.append_child(self.start_container, node)
-            }
+            let children: Vec<_> = dom.children_iter(start_container).collect();
+            let r = children.get(start_offset).copied();
+            (r, start_container)
         };
 
-        // Copilot R11: WHATWG §4.4 insertNode step 13 — if the range
-        // was collapsed pre-insert, set `end` to (parent, newOffset)
-        // so the range brackets the inserted node.  `start` is NOT
-        // modified per spec.  Non-text path: parent === start_container,
-        // newOffset === start_offset + 1.  Text path: parent ===
-        // start_container's parent; the engine-indep helper split the
-        // text node and inserted `node` BEFORE the new tail, so the
-        // inserted node sits at (start_container.index + 1) in parent;
-        // newOffset = start_container.index + 2 (past the inserted node).
-        //
-        // Copilot R12: only apply when the DOM insertion succeeded.
-        // Otherwise (cycle, missing ref, orphan parent) the Range must
-        // remain untouched so JS observes the pre-call boundaries.
-        if inserted && was_collapsed {
-            if dom.node_kind(self.start_container) == Some(NodeKind::Text) {
-                if let Some(parent) = dom.get_parent(self.start_container) {
-                    if let Some(idx) = dom
-                        .children_iter(parent)
-                        .position(|c| c == self.start_container)
-                    {
-                        self.end_container = parent;
-                        self.end_offset = idx + 2;
-                    }
-                }
-            } else {
-                self.end_offset = self.start_offset + 1;
+        // Spec step 6: pre-insertion validity (cycle / self-as-parent).
+        // `is_ancestor_or_self(node, parent)` rejects both `node == parent`
+        // and `node` is ancestor of `parent` in one check.  Run BEFORE
+        // step 7's split so a rejected insertion never leaves a tail
+        // node hanging off `parent`.
+        if dom.is_ancestor_or_self(node, parent) {
+            return None;
+        }
+
+        // Spec step 7: split if start is Text.  Safe to mutate DOM now —
+        // all rejection paths above have returned.  If split fails
+        // (orphan / missing TextContent), keep reference_node at
+        // start_container so the insert lands at the original slot.
+        if is_text {
+            if let Ok(tail) = crate::char_data::split_text::split_text_at_offset(
+                start_container,
+                start_offset,
+                dom,
+            ) {
+                reference_node = Some(tail);
             }
         }
-        inserted
+
+        // Spec step 8: if node == referenceNode, advance to its next sibling.
+        if reference_node == Some(node) {
+            reference_node = dom.get_next_sibling(node);
+        }
+
+        // Spec step 10-11: newOffset = referenceNode's pre-step-12
+        // index (or parent.length if null), then +1 (single-node
+        // insert; DocumentFragment fan-out tracked at `#11-range-full-impl`).
+        // After step 12 referenceNode shifts to ref_idx_pre + 1, so
+        // new_offset = ref_idx_post = ref_idx_pre + 1.  When
+        // referenceNode is null the append lands at index
+        // pre.length, so new_offset = post.length = pre.length + 1.
+        let new_offset = match reference_node {
+            Some(rn) => dom.children_iter(parent).position(|c| c == rn).unwrap_or(0),
+            None => dom.children_iter(parent).count(),
+        } + 1;
+
+        // Spec step 12: pre-insert.
+        let inserted = match reference_node {
+            Some(rn) => dom.insert_before(parent, node, rn),
+            None => dom.append_child(parent, node),
+        };
+        if !inserted {
+            return None;
+        }
+        Some((parent, new_offset))
     }
 
     /// Clone the contents of this range into a document fragment.
