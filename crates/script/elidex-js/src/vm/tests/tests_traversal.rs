@@ -542,6 +542,71 @@ fn document_create_walker_rejects_non_object_filter() {
 }
 
 #[test]
+fn node_iterator_replace_child_uses_old_next_as_follower() {
+    // Copilot R20: WHATWG §6.1 pre-removing-steps fire when
+    // `replaceChild` removes `old_child`.  The hook's
+    // post-detach invariant requires that
+    // `parent.children[removed_index]` is the FIRST FOLLOWER of
+    // `old_child` (= `old_child`'s pre-replace next sibling).
+    // Previously `EcsDom::replace_child` linked the replacement
+    // into `old_child`'s slot BEFORE firing the hook, so
+    // NodeIterator's fallback walk picked the REPLACEMENT as the
+    // follower — the iterator's reference jumped to the
+    // just-inserted node instead of old_child's real successor.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(
+        "globalThis.parent_ = document.createElement('div');\
+         globalThis.oldChild = document.createElement('section');\
+         globalThis.oldChildInner = document.createElement('p');\
+         globalThis.nextSib = document.createElement('aside');\
+         globalThis.replacement = document.createElement('span');\
+         parent_.appendChild(oldChild);\
+         oldChild.appendChild(oldChildInner);\
+         parent_.appendChild(nextSib);\
+         /* NodeIterator anchored at parent_, reference sits inside\
+            oldChild (the to-be-removed subtree). */\
+         globalThis.it = document.createNodeIterator(\
+             parent_, 0xFFFFFFFF, null);\
+         it.nextNode();\
+         it.nextNode();\
+         it.nextNode();",
+    )
+    .unwrap();
+    // it.referenceNode should now be oldChildInner.
+    assert_eq!(
+        eval_str(
+            &mut vm,
+            "it.referenceNode === oldChildInner ? 'inner' : 'other'"
+        ),
+        "inner"
+    );
+    // Replace oldChild with replacement.  Pre-removing-steps fire
+    // for oldChild; the follower should be nextSib (oldChild's
+    // pre-replace next sibling), NOT replacement.
+    vm.eval("parent_.replaceChild(replacement, oldChild);")
+        .unwrap();
+    // Iterator's reference must NOT be the replacement node (which
+    // sits in oldChild's old slot after replaceChild).  Per spec
+    // pre-removing-steps the follower of oldChild is its
+    // pre-replace next sibling (nextSib), OR — for a
+    // pointer_before=false iterator at removed_index == 0 — its
+    // predecessor (parent_).  Both are correct spec outcomes; the
+    // bug landed on `replacement` which is neither.
+    let landed_on_replacement = vm.eval("it.referenceNode === replacement").unwrap();
+    assert!(
+        !matches!(
+            landed_on_replacement,
+            super::super::value::JsValue::Boolean(true)
+        ),
+        "iterator must not land on the replacement node \
+         (which would be the case if pre-removing-steps saw \
+         replacement in old_child's old slot)"
+    );
+    vm.unbind();
+}
+
+#[test]
 fn node_iterator_ancestor_of_root_removed_does_not_escape() {
     // Copilot R18: WHATWG §6.1 pre-removing steps run on every
     // NodeIterator whose root.node_document matches the removed

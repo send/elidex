@@ -689,10 +689,20 @@ fn native_range_compare_boundary_points(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_range_receiver(ctx, this, "compareBoundaryPoints")?;
+    // Copilot R20: WebIDL §3.7.6 mandates argument conversion in
+    // declared order, so brand-check + coerce BOTH args BEFORE
+    // running the DOM `how`-validation step.  The previous order
+    // (validate `how` → coerce `sourceRange`) made
+    // `compareBoundaryPoints(999, {})` throw NotSupportedError when
+    // browsers throw TypeError ("Failed to execute ... parameter 2
+    // is not of type 'Range'").
     let how_val = args.first().copied().unwrap_or(JsValue::Undefined);
     let how = super::super::coerce::to_uint16(ctx.vm, how_val)?;
+    let other_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+    let other_id = require_range_arg(ctx, other_arg, "compareBoundaryPoints")?;
     // WebIDL §3.10.7 — `how` must be one of the 4 spec constants;
-    // any other value throws NotSupportedError per spec.
+    // any other value throws NotSupportedError per spec.  Runs AFTER
+    // both arg conversions per the precedence above.
     if !matches!(
         how,
         START_TO_START | START_TO_END | END_TO_END | END_TO_START
@@ -703,8 +713,6 @@ fn native_range_compare_boundary_points(
              The value provided is not a valid 'how' constant.",
         ));
     }
-    let other_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    let other_id = require_range_arg(ctx, other_arg, "compareBoundaryPoints")?;
     // Copilot R7: gate on `host_if_bound` BEFORE
     // `split_dom_and_live_ranges` — the latter asserts on unbound
     // `dom_ptr` and would panic for retained Range refs across

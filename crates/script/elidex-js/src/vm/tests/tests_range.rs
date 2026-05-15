@@ -786,6 +786,27 @@ fn insert_node_empty_document_fragment_no_offset_bump() {
 }
 
 #[test]
+fn compare_boundary_points_arg_conversion_order() {
+    // Copilot R20: WebIDL §3.7.6 mandates argument conversion in
+    // declared order — `how` is converted first, then
+    // `sourceRange`.  If the second argument is not a Range,
+    // the WebIDL Range brand-check (TypeError) must fire BEFORE
+    // the DOM `how`-validation step (NotSupportedError).
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval("globalThis.r = new Range();").unwrap();
+    // `how = 999` is invalid AND second arg is not a Range — the
+    // Range brand check on arg #2 must throw first.
+    let err = vm.eval("r.compareBoundaryPoints(999, {});").unwrap_err();
+    let msg = err.message;
+    assert!(
+        msg.contains("Range") || msg.contains("Illegal"),
+        "expected Range brand-check TypeError (precedence), got: {msg}"
+    );
+    vm.unbind();
+}
+
+#[test]
 fn insert_node_fragment_into_itself_throws() {
     // Copilot R16: inserting a DocumentFragment into a Range whose
     // start container is that same fragment must trigger the

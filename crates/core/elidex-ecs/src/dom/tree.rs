@@ -140,15 +140,26 @@ impl EcsDom {
         let (old_prev, old_next) =
             self.read_rel(old_child, |rel| (rel.prev_sibling, rel.next_sibling));
 
-        // Place new_child in old_child's position.
-        self.link_node(parent, new_child, old_prev, old_next);
-
-        // Clear old_child's tree links.
-        self.clear_rel(old_child);
-        self.rev_version(parent);
+        // Copilot R20: fully detach `old_child` from parent's sibling chain
+        // BEFORE firing the after_remove hook + linking the replacement.
+        // The mutation-hook post-detach invariant promises that, at fire
+        // time, `parent.children[removed_index]` is the first follower of
+        // the removed node — earlier impl linked `new_child` into that
+        // slot first, so `LiveRangeRegistry` / `MutationBridge` consumers
+        // (NodeIterator pre-removing-steps especially) would pick the
+        // replacement as the follower instead of `old_child`'s real next
+        // sibling.
+        self.detach(old_child);
 
         if let Some(idx) = old_index {
             self.fire_after_remove(old_child, parent, idx);
+        }
+
+        // Now link `new_child` into the slot `old_child` used to occupy.
+        self.link_node(parent, new_child, old_prev, old_next);
+        self.rev_version(parent);
+
+        if let Some(idx) = old_index {
             self.fire_after_insert(new_child, parent, idx);
         }
 
