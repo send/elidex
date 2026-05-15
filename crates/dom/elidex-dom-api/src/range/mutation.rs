@@ -361,17 +361,6 @@ impl Range {
             reference_node = dom.get_next_sibling(node);
         }
 
-        // Spec step 10-11: newOffset = referenceNode's pre-step-12
-        // index (or parent.length if null), then increase by
-        // `nodes.len()` (= 1 for a plain node, = fragment child
-        // count for a DocumentFragment, = 0 for an empty fragment).
-        // After step 12 referenceNode shifts to ref_idx_pre +
-        // nodes.len(), so new_offset = ref_idx_post.
-        let new_offset = match reference_node {
-            Some(rn) => dom.children_iter(parent).position(|c| c == rn).unwrap_or(0),
-            None => dom.children_iter(parent).count(),
-        } + nodes.len();
-
         // Spec step 12: pre-insert each member in tree order before
         // `reference_node` (or append when null).  Inserting in
         // order before the same referenceNode preserves fragment
@@ -389,6 +378,25 @@ impl Range {
                 return None;
             }
         }
+
+        // Spec step 10-11: newOffset = referenceNode's pre-step-12
+        // index + nodes.len() (= spec's pre-bump value + step-11
+        // bump).  Read AFTER step 12 so the result is correct even
+        // when the inserted node (or a fragment child) was already
+        // an earlier sibling of `reference_node` in the same parent
+        // — `insert_before` implicitly removes such siblings via
+        // `detach_with_hook`, which would have shifted
+        // `reference_node` left by one before insertion.  Computing
+        // pre-step-12 + nodes.len() over-counts by exactly that
+        // shift (Copilot R21).  Post-step-12 refNode.position is
+        // unambiguous regardless of same-parent moves: it equals
+        // ref_idx_pre_step_9 + nodes.len() - (same-parent-move
+        // count), which matches spec's step-10/11 numbering.
+        let new_offset = match reference_node {
+            Some(rn) => dom.children_iter(parent).position(|c| c == rn).unwrap_or(0),
+            None => dom.children_iter(parent).count(),
+        };
+
         Some((parent, new_offset))
     }
 

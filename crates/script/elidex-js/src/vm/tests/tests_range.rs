@@ -786,6 +786,43 @@ fn insert_node_empty_document_fragment_no_offset_bump() {
 }
 
 #[test]
+fn insert_node_same_parent_move_offset_corrected() {
+    // Copilot R21: when the inserted node is already an earlier
+    // sibling in the same parent, `insert_before` implicitly
+    // detaches it (WHATWG §4.2.3 step 9 "If node has a parent,
+    // then remove node"), shifting `reference_node` left by one
+    // before the actual insertion.  Computing newOffset BEFORE
+    // step 12 missed this shift, so a collapsed Range's end
+    // boundary was set one past the inserted node.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(
+        "globalThis.parent_ = document.createElement('div');\
+         globalThis.a = document.createElement('a');\
+         globalThis.b = document.createElement('b');\
+         globalThis.c = document.createElement('c');\
+         parent_.appendChild(a);\
+         parent_.appendChild(b);\
+         parent_.appendChild(c);\
+         /* Collapsed range at (parent_, 2) — the slot before c. */\
+         globalThis.r = new Range();\
+         r.setStart(parent_, 2); r.setEnd(parent_, 2);\
+         /* Insert `b` (an earlier sibling) at the range's start. */\
+         r.insertNode(b);",
+    )
+    .unwrap();
+    // After the move: parent_ = [a, b, c].  b is at index 1, c at 2.
+    // Spec §4.4 step 13: end = (parent_, newOffset) where newOffset
+    // is c's post-insert index = 2.
+    assert_eq!(eval_num(&mut vm, "parent_.childNodes.length"), 3.0);
+    assert_eq!(eval_str(&mut vm, "parent_.childNodes[1].tagName"), "B");
+    assert_eq!(eval_str(&mut vm, "parent_.childNodes[2].tagName"), "C");
+    // end_offset = 2 (NOT 3 — pre-R21 bug would have been 3).
+    assert_eq!(eval_num(&mut vm, "r.endOffset"), 2.0);
+    vm.unbind();
+}
+
+#[test]
 fn compare_boundary_points_arg_conversion_order() {
     // Copilot R20: WebIDL §3.7.6 mandates argument conversion in
     // declared order — `how` is converted first, then
