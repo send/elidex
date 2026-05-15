@@ -196,7 +196,9 @@ fn native_node_iterator_get_what_to_show(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_node_iterator_receiver(ctx, this, "whatToShow")?;
-    let mask = read_state(ctx, id, |s| s.what_to_show).unwrap_or(0);
+    // Copilot R10: surface detached state instead of defaulting
+    // to 0 (which a JS caller can mistake for "filter disabled").
+    let mask = read_state(ctx, id, |s| s.what_to_show).ok_or_else(|| detached("whatToShow"))?;
     Ok(JsValue::Number(f64::from(mask)))
 }
 
@@ -206,7 +208,9 @@ fn native_node_iterator_get_filter(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_node_iterator_receiver(ctx, this, "filter")?;
-    let filter = read_state(ctx, id, |s| s.filter_object_id).flatten();
+    // Copilot R10: detached state surfaces an error rather than
+    // silently returning null.
+    let filter = read_state(ctx, id, |s| s.filter_object_id).ok_or_else(|| detached("filter"))?;
     Ok(match filter {
         Some(bits) => JsValue::Object(ObjectId(bits as u32)),
         None => JsValue::Null,
@@ -229,7 +233,9 @@ fn native_node_iterator_get_pointer_before(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_node_iterator_receiver(ctx, this, "pointerBeforeReferenceNode")?;
-    let before = read_state(ctx, id, |s| s.pointer_before).unwrap_or(true);
+    // Copilot R10 — same detached-state surface as `whatToShow`.
+    let before = read_state(ctx, id, |s| s.pointer_before)
+        .ok_or_else(|| detached("pointerBeforeReferenceNode"))?;
     Ok(JsValue::Boolean(before))
 }
 

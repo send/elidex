@@ -270,35 +270,33 @@ impl Range {
 
     /// Insert a node at the start boundary.
     ///
-    /// If start container is a text node, splits it at the offset first.
+    /// If start container is a text node, splits it at the offset
+    /// first via [`crate::char_data::split_text::split_text_at_offset`]
+    /// which fires the spec-correct `after_split_text` hook so live
+    /// ranges anchored AFTER the split offset migrate to the new
+    /// tail node rather than getting clamp-truncated (Copilot R10).
     pub fn insert_node(&mut self, dom: &mut EcsDom, node: Entity) {
         if dom.node_kind(self.start_container) == Some(NodeKind::Text) {
-            // Read text and parent first, then do mutations.
-            let text = dom
-                .world()
-                .get::<&TextContent>(self.start_container)
-                .map(|tc| tc.0.clone())
-                .unwrap_or_default();
             let parent = dom.get_parent(self.start_container);
-            let next_sib = dom.get_next_sibling(self.start_container);
-
             if let Some(parent) = parent {
-                let byte_offset = utf16_offset_to_byte_clamped(&text, self.start_offset);
-                let tail = text[byte_offset..].to_string();
-
-                let _ = dom.set_text_data(self.start_container, &text[..byte_offset]);
-
-                let tail_node = dom.create_text(&tail);
-
-                // Insert tail after start_container.
-                if let Some(next) = next_sib {
-                    let _ = dom.insert_before(parent, tail_node, next);
+                // Copilot R10: split via canonical helper so
+                // `after_split_text` fires + live-range boundaries
+                // past the split point migrate to the new tail.
+                let tail_node = crate::char_data::split_text::split_text_at_offset(
+                    self.start_container,
+                    self.start_offset,
+                    dom,
+                )
+                .ok();
+                if let Some(tail_node) = tail_node {
+                    // Insert node before the new tail.
+                    let _ = dom.insert_before(parent, node, tail_node);
                 } else {
-                    let _ = dom.append_child(parent, tail_node);
+                    // Split failed (orphan, missing TextContent,
+                    // etc.) — fall back to plain insert at the
+                    // start_container's slot.
+                    let _ = dom.insert_before(parent, node, self.start_container);
                 }
-
-                // Insert node before tail.
-                let _ = dom.insert_before(parent, node, tail_node);
             }
         } else {
             // Non-text container: insert at offset.

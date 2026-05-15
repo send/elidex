@@ -223,12 +223,18 @@ fn native_tree_walker_get_what_to_show(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let walker_id = require_tree_walker_receiver(ctx, this, "whatToShow")?;
+    // Copilot R10: a missing state-table entry signals a detached
+    // wrapper (post-`Vm::unbind()` / cleared state).  Return the
+    // same detached error as `root` / `currentNode` rather than
+    // pretending whatToShow is 0 (which a JS caller can mistake
+    // for "filter disabled" rather than "iterator is dead").
     let mask = ctx
         .host()
         .tree_walker_states
         .get(&walker_id)
-        .map(|s| s.what_to_show);
-    Ok(mask.map_or(JsValue::Number(0.0), |m| JsValue::Number(f64::from(m))))
+        .map(|s| s.what_to_show)
+        .ok_or_else(|| walker_detached_error("whatToShow"))?;
+    Ok(JsValue::Number(f64::from(mask)))
 }
 
 fn native_tree_walker_get_filter(
@@ -237,12 +243,13 @@ fn native_tree_walker_get_filter(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let walker_id = require_tree_walker_receiver(ctx, this, "filter")?;
-    let filter = ctx
+    // Copilot R10: same detached-wrapper handling as whatToShow.
+    let state = ctx
         .host()
         .tree_walker_states
         .get(&walker_id)
-        .and_then(|s| s.filter_object_id);
-    Ok(match filter {
+        .ok_or_else(|| walker_detached_error("filter"))?;
+    Ok(match state.filter_object_id {
         Some(bits) => JsValue::Object(ObjectId(bits as u32)),
         None => JsValue::Null,
     })
