@@ -1163,6 +1163,83 @@ impl VmInner {
             // are removed explicitly at settlement / abort fan-out.
             self.fetch_signal_back_refs
                 .retain(|_, signal_id| bit_get(marks, signal_id.0));
+
+            // D-8 PR-A2 — Range / TreeWalker / NodeIterator instance
+            // side-tables.  `range_instances` keys are `RangeId` bits
+            // (NOT ObjectIds) so the prune predicate inspects the
+            // VALUE wrapper's mark bit; for each dead wrapper, also
+            // unregister the corresponding RangeId from
+            // `LiveRangeRegistry` to release the engine-side Range.
+            // TreeWalker / NodeIterator follow the same pattern but
+            // additionally drop the state-table entry (no separate
+            // engine-side registry).
+            //
+            // `mutation_observer_callbacks` / `_instances` use the
+            // same per-observer-id pattern but the callback ObjectId
+            // is unconditionally rooted via `gc_root_object_ids`,
+            // making this prune the only place where the side-table
+            // can shed entries.  TreeWalker / NodeIterator filter
+            // ObjectIds are likewise rooted via the chain extension
+            // in `gc_root_object_ids`; pruning the state table here
+            // is what eventually de-roots them.
+            if let Some(hd) = self.host_data.as_deref_mut() {
+                // Range — collect dead range_ids first to avoid
+                // double-borrowing `host_data` (we need both
+                // `range_instances` for filtering AND
+                // `live_range_registry` for unregister).
+                let dead_range_ids: Vec<u64> = hd
+                    .range_instances
+                    .iter()
+                    .filter_map(|(range_id, obj_id)| {
+                        if bit_get(marks, obj_id.0) {
+                            None
+                        } else {
+                            Some(*range_id)
+                        }
+                    })
+                    .collect();
+                for rid in &dead_range_ids {
+                    hd.range_instances.remove(rid);
+                    hd.live_range_registry
+                        .unregister(elidex_dom_api::RangeId(*rid));
+                }
+                // TreeWalker — prune instances + states by dead wrapper.
+                let dead_walker_ids: Vec<u64> = hd
+                    .tree_walker_instances
+                    .iter()
+                    .filter_map(|(wid, oid)| {
+                        if bit_get(marks, oid.0) {
+                            None
+                        } else {
+                            Some(*wid)
+                        }
+                    })
+                    .collect();
+                for wid in &dead_walker_ids {
+                    hd.tree_walker_instances.remove(wid);
+                    hd.tree_walker_states.remove(wid);
+                }
+                // NodeIterator — same pattern; `node_iterator_states_shared`
+                // is the shared `Arc<Mutex<HashMap>>` (held jointly with
+                // the bridge), so take the lock briefly.
+                let dead_iter_ids: Vec<u64> = hd
+                    .node_iterator_instances
+                    .iter()
+                    .filter_map(|(iid, oid)| {
+                        if bit_get(marks, oid.0) {
+                            None
+                        } else {
+                            Some(*iid)
+                        }
+                    })
+                    .collect();
+                for iid in &dead_iter_ids {
+                    hd.node_iterator_instances.remove(iid);
+                    if let Ok(mut guard) = hd.node_iterator_states_shared.lock() {
+                        guard.remove(iid);
+                    }
+                }
+            }
         }
 
         // 5. IC invalidation.

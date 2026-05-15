@@ -161,6 +161,14 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 mutation_observer_prototype: None,
                 #[cfg(feature = "engine")]
+                range_prototype: None,
+                #[cfg(feature = "engine")]
+                static_range_prototype: None,
+                #[cfg(feature = "engine")]
+                tree_walker_prototype: None,
+                #[cfg(feature = "engine")]
+                node_iterator_prototype: None,
+                #[cfg(feature = "engine")]
                 storage_prototype: None,
                 #[cfg(feature = "engine")]
                 storage_event_prototype: None,

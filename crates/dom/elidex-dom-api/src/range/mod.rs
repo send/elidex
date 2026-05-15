@@ -7,7 +7,8 @@ mod boundary;
 pub mod live;
 mod mutation;
 
-pub use live::{Bridge, LiveRangeRegistry, RangeId};
+pub use boundary::RangePointError;
+pub use live::{LiveRangeBridge, LiveRangeRegistry, RangeId};
 
 use elidex_ecs::{EcsDom, Entity, TextContent};
 
@@ -458,7 +459,7 @@ fn child_index(parent: Entity, child: Entity, dom: &EcsDom) -> usize {
 /// Get the "length" of a node (UTF-16 code unit count for text, child count otherwise).
 ///
 /// Per WHATWG DOM §5, text node lengths are measured in UTF-16 code units.
-fn node_length(node: Entity, dom: &EcsDom) -> usize {
+pub fn node_length(node: Entity, dom: &EcsDom) -> usize {
     if let Ok(tc) = dom.world().get::<&TextContent>(node) {
         return utf16_len(&tc.0);
     }
@@ -467,7 +468,7 @@ fn node_length(node: Entity, dom: &EcsDom) -> usize {
 
 /// Compare two boundary points per DOM spec §5.2.
 /// Returns -1 (a before b), 0 (equal), or 1 (a after b).
-fn compare_points(
+pub(crate) fn compare_points(
     a_container: Entity,
     a_offset: usize,
     b_container: Entity,

@@ -1,0 +1,448 @@
+//! Integration tests for `Range` / `StaticRange` (WHATWG DOM §4.4 / §4.5).
+//!
+//! Slot `#11-traversal-and-range-pr-a2-bindings`.
+
+#![cfg(feature = "engine")]
+#![allow(unsafe_code)]
+
+use elidex_ecs::EcsDom;
+use elidex_script_session::SessionCore;
+
+use super::super::test_helpers::{bind_vm, eval_num, eval_str};
+use super::super::value::JsValue;
+use super::super::Vm;
+
+fn setup() -> (Vm, SessionCore, EcsDom, elidex_ecs::Entity) {
+    let vm = Vm::new();
+    let session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    (vm, session, dom, doc)
+}
+
+#[allow(unsafe_code)]
+unsafe fn bind(vm: &mut Vm, session: &mut SessionCore, dom: &mut EcsDom, doc: elidex_ecs::Entity) {
+    unsafe { bind_vm(vm, session, dom, doc) };
+}
+
+const TREE_SETUP: &str = "globalThis.root = document.createElement('div');\
+     globalThis.t = document.createTextNode('hello');\
+     root.appendChild(t);";
+
+// ---------------------------------------------------------------------------
+// Constructor + identity
+// ---------------------------------------------------------------------------
+
+#[test]
+fn new_range_collapsed_at_document() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval("globalThis.r = new Range();").unwrap();
+    assert_eq!(eval_num(&mut vm, "r.startOffset"), 0.0);
+    assert_eq!(eval_num(&mut vm, "r.endOffset"), 0.0);
+    assert_eq!(eval_str(&mut vm, "r.collapsed ? 'yes' : 'no'"), "yes");
+    vm.unbind();
+}
+
+#[test]
+fn range_constructor_requires_new() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    let res = vm.eval("Range();");
+    assert!(res.is_err(), "calling Range without new must throw");
+    vm.unbind();
+}
+
+#[test]
+fn range_prototype_constants_live_on_ctor_and_prototype() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    assert_eq!(eval_num(&mut vm, "Range.START_TO_START"), 0.0);
+    assert_eq!(eval_num(&mut vm, "Range.START_TO_END"), 1.0);
+    assert_eq!(eval_num(&mut vm, "Range.END_TO_END"), 2.0);
+    assert_eq!(eval_num(&mut vm, "Range.END_TO_START"), 3.0);
+    assert_eq!(eval_num(&mut vm, "Range.prototype.START_TO_START"), 0.0);
+    vm.unbind();
+}
+
+// ---------------------------------------------------------------------------
+// Boundary setters
+// ---------------------------------------------------------------------------
+
+#[test]
+fn set_start_and_end_round_trip() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(&format!(
+        "{TREE_SETUP}\
+         globalThis.r = new Range(); r.setStart(t, 1); r.setEnd(t, 4);"
+    ))
+    .unwrap();
+    assert_eq!(eval_num(&mut vm, "r.startOffset"), 1.0);
+    assert_eq!(eval_num(&mut vm, "r.endOffset"), 4.0);
+    assert_eq!(eval_str(&mut vm, "r.collapsed ? 'yes' : 'no'"), "no");
+    vm.unbind();
+}
+
+#[test]
+fn select_node_contents_spans_text() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(&format!(
+        "{TREE_SETUP}\
+         globalThis.r = new Range(); r.selectNodeContents(t);"
+    ))
+    .unwrap();
+    assert_eq!(eval_num(&mut vm, "r.startOffset"), 0.0);
+    assert_eq!(eval_num(&mut vm, "r.endOffset"), 5.0);
+    vm.unbind();
+}
+
+#[test]
+fn collapse_to_start_and_end() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(&format!(
+        "{TREE_SETUP}\
+         globalThis.r = new Range(); r.setStart(t, 1); r.setEnd(t, 4); r.collapse();"
+    ))
+    .unwrap();
+    assert_eq!(eval_num(&mut vm, "r.startOffset"), 4.0);
+    assert_eq!(eval_num(&mut vm, "r.endOffset"), 4.0);
+    vm.eval("r.setStart(t, 1); r.setEnd(t, 4); r.collapse(true);")
+        .unwrap();
+    assert_eq!(eval_num(&mut vm, "r.startOffset"), 1.0);
+    assert_eq!(eval_num(&mut vm, "r.endOffset"), 1.0);
+    vm.unbind();
+}
+
+#[test]
+fn clone_range_independent_copy() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(&format!(
+        "{TREE_SETUP}\
+         globalThis.r = new Range(); r.setStart(t, 1); r.setEnd(t, 4);\
+         globalThis.c = r.cloneRange();"
+    ))
+    .unwrap();
+    assert_eq!(eval_num(&mut vm, "c.startOffset"), 1.0);
+    vm.eval("r.setStart(t, 2);").unwrap();
+    assert_eq!(eval_num(&mut vm, "c.startOffset"), 1.0);
+    assert_eq!(eval_num(&mut vm, "r.startOffset"), 2.0);
+    vm.unbind();
+}
+
+// ---------------------------------------------------------------------------
+// Live-range mutation tracking
+// ---------------------------------------------------------------------------
+
+#[test]
+fn range_boundary_clamps_on_text_truncate() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(&format!(
+        "{TREE_SETUP}\
+         globalThis.r = new Range(); r.setStart(t, 2); r.setEnd(t, 5);"
+    ))
+    .unwrap();
+    vm.eval("t.data = 'hey';").unwrap();
+    assert_eq!(eval_num(&mut vm, "r.startOffset"), 2.0);
+    assert_eq!(eval_num(&mut vm, "r.endOffset"), 3.0);
+    vm.unbind();
+}
+
+#[test]
+fn range_boundary_increments_on_insert_before() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(
+        "globalThis.p = document.createElement('p');\
+         globalThis.a = document.createElement('a');\
+         globalThis.b = document.createElement('b');\
+         p.appendChild(a); p.appendChild(b);\
+         globalThis.r = new Range(); r.setStart(p, 1); r.setEnd(p, 2);\
+         globalThis.c = document.createElement('c');\
+         p.insertBefore(c, a);",
+    )
+    .unwrap();
+    assert_eq!(eval_num(&mut vm, "r.startOffset"), 2.0);
+    assert_eq!(eval_num(&mut vm, "r.endOffset"), 3.0);
+    vm.unbind();
+}
+
+// ---------------------------------------------------------------------------
+// Boundary compare + point query
+// ---------------------------------------------------------------------------
+
+#[test]
+fn compare_boundary_points_basic() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(&format!(
+        "{TREE_SETUP}\
+         globalThis.a = new Range(); a.setStart(t, 1); a.setEnd(t, 3);\
+         globalThis.b = new Range(); b.setStart(t, 2); b.setEnd(t, 4);"
+    ))
+    .unwrap();
+    assert_eq!(eval_num(&mut vm, "a.compareBoundaryPoints(0, b)"), -1.0);
+    assert_eq!(eval_num(&mut vm, "a.compareBoundaryPoints(2, b)"), -1.0);
+    vm.unbind();
+}
+
+#[test]
+fn is_point_in_range_basic() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(&format!(
+        "{TREE_SETUP}\
+         globalThis.r = new Range(); r.setStart(t, 1); r.setEnd(t, 4);"
+    ))
+    .unwrap();
+    assert_eq!(
+        eval_str(&mut vm, "r.isPointInRange(t, 2) ? 'in' : 'out'"),
+        "in"
+    );
+    assert_eq!(
+        eval_str(&mut vm, "r.isPointInRange(t, 0) ? 'in' : 'out'"),
+        "out"
+    );
+    assert_eq!(
+        eval_str(&mut vm, "r.isPointInRange(t, 5) ? 'in' : 'out'"),
+        "out"
+    );
+    vm.unbind();
+}
+
+#[test]
+fn compare_point_returns_neg1_zero_pos1() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(&format!(
+        "{TREE_SETUP}\
+         globalThis.r = new Range(); r.setStart(t, 1); r.setEnd(t, 4);"
+    ))
+    .unwrap();
+    assert_eq!(eval_num(&mut vm, "r.comparePoint(t, 0)"), -1.0);
+    assert_eq!(eval_num(&mut vm, "r.comparePoint(t, 2)"), 0.0);
+    assert_eq!(eval_num(&mut vm, "r.comparePoint(t, 5)"), 1.0);
+    vm.unbind();
+}
+
+#[test]
+fn detach_is_noop() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval("globalThis.r = new Range();").unwrap();
+    let v = vm.eval("r.detach()").unwrap();
+    assert!(matches!(v, JsValue::Undefined));
+    assert_eq!(eval_num(&mut vm, "r.startOffset"), 0.0);
+    vm.unbind();
+}
+
+#[test]
+fn to_string_concatenates_text() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(
+        "globalThis.root = document.createElement('div');\
+         globalThis.t = document.createTextNode('hello world');\
+         root.appendChild(t);\
+         globalThis.r = new Range(); r.setStart(t, 0); r.setEnd(t, 5);",
+    )
+    .unwrap();
+    assert_eq!(eval_str(&mut vm, "r.toString()"), "hello");
+    vm.unbind();
+}
+
+// ---------------------------------------------------------------------------
+// Stubs throw NotSupportedError
+// ---------------------------------------------------------------------------
+
+#[test]
+fn clone_contents_throws_not_supported() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval("globalThis.r = new Range();").unwrap();
+    let res = vm.eval("r.cloneContents();");
+    assert!(
+        res.is_err(),
+        "cloneContents must throw NotSupportedError as a Phase-A stub"
+    );
+    vm.unbind();
+}
+
+#[test]
+fn create_contextual_fragment_throws_not_supported() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval("globalThis.r = new Range();").unwrap();
+    let res = vm.eval("r.createContextualFragment('<b>x</b>');");
+    assert!(res.is_err());
+    vm.unbind();
+}
+
+// ---------------------------------------------------------------------------
+// document.createRange
+// ---------------------------------------------------------------------------
+
+#[test]
+fn document_create_range_returns_live_range() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval("globalThis.r = document.createRange();").unwrap();
+    assert_eq!(eval_str(&mut vm, "r.collapsed ? 'yes' : 'no'"), "yes");
+    assert_eq!(
+        eval_str(&mut vm, "(r instanceof Range) ? 'yes' : 'no'"),
+        "yes"
+    );
+    vm.unbind();
+}
+
+// ---------------------------------------------------------------------------
+// StaticRange — eager validation + lazy isValid
+// ---------------------------------------------------------------------------
+
+#[test]
+fn static_range_holds_fields() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(&format!(
+        "{TREE_SETUP}\
+         globalThis.sr = new StaticRange({{\
+            startContainer: t, startOffset: 1, \
+            endContainer: t, endOffset: 4\
+         }});"
+    ))
+    .unwrap();
+    assert_eq!(eval_num(&mut vm, "sr.startOffset"), 1.0);
+    assert_eq!(eval_num(&mut vm, "sr.endOffset"), 4.0);
+    assert_eq!(eval_str(&mut vm, "sr.collapsed ? 'yes' : 'no'"), "no");
+    assert_eq!(eval_str(&mut vm, "sr.isValid() ? 'yes' : 'no'"), "yes");
+    vm.unbind();
+}
+
+#[test]
+fn static_range_is_valid_returns_false_when_offset_overflows() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(&format!(
+        "{TREE_SETUP}\
+         globalThis.sr = new StaticRange({{\
+            startContainer: t, startOffset: 0, \
+            endContainer: t, endOffset: 99\
+         }});"
+    ))
+    .unwrap();
+    assert_eq!(eval_str(&mut vm, "sr.isValid() ? 'yes' : 'no'"), "no");
+    vm.unbind();
+}
+
+#[test]
+fn static_range_does_not_track_mutations() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(&format!(
+        "{TREE_SETUP}\
+         globalThis.sr = new StaticRange({{\
+            startContainer: t, startOffset: 2, \
+            endContainer: t, endOffset: 5\
+         }});"
+    ))
+    .unwrap();
+    vm.eval("t.data = 'he';").unwrap();
+    assert_eq!(eval_num(&mut vm, "sr.startOffset"), 2.0);
+    assert_eq!(eval_num(&mut vm, "sr.endOffset"), 5.0);
+    assert_eq!(eval_str(&mut vm, "sr.isValid() ? 'yes' : 'no'"), "no");
+    vm.unbind();
+}
+
+// ---------------------------------------------------------------------------
+// Spec-mandated input validation throws
+// ---------------------------------------------------------------------------
+
+#[test]
+fn set_start_throws_on_oversize_offset() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(&format!(
+        "{TREE_SETUP}\
+         globalThis.r = new Range();"
+    ))
+    .unwrap();
+    // WHATWG §4.4 step 2 — offset > length must throw IndexSizeError.
+    // Text 'hello' length is 5; offset 99 must throw.
+    let res = vm.eval("r.setStart(t, 99);");
+    assert!(res.is_err(), "setStart(t, 99) must throw IndexSizeError");
+    vm.unbind();
+}
+
+#[test]
+fn select_node_throws_on_parentless() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    // Standalone node, never appended.
+    vm.eval("globalThis.orphan = document.createElement('p'); globalThis.r = new Range();")
+        .unwrap();
+    let res = vm.eval("r.selectNode(orphan);");
+    assert!(
+        res.is_err(),
+        "selectNode on parentless node must throw InvalidNodeTypeError"
+    );
+    vm.unbind();
+}
+
+#[test]
+fn set_start_before_throws_on_parentless() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval("globalThis.orphan = document.createElement('p'); globalThis.r = new Range();")
+        .unwrap();
+    let res = vm.eval("r.setStartBefore(orphan);");
+    assert!(res.is_err());
+    vm.unbind();
+}
+
+#[test]
+fn compare_boundary_points_throws_on_invalid_how() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(&format!(
+        "{TREE_SETUP}\
+         globalThis.a = new Range(); a.setStart(t, 0); a.setEnd(t, 5);\
+         globalThis.b = new Range(); b.setStart(t, 0); b.setEnd(t, 5);"
+    ))
+    .unwrap();
+    // `how` = 99 is not one of the 4 spec constants — NotSupportedError.
+    let res = vm.eval("a.compareBoundaryPoints(99, b);");
+    assert!(res.is_err());
+    vm.unbind();
+}
+
+// ---------------------------------------------------------------------------
+// WebIDL coercion
+// ---------------------------------------------------------------------------
+
+#[test]
+fn set_start_offset_coerces_via_to_uint32() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(
+        "globalThis.root = document.createElement('div');\
+         globalThis.t = document.createTextNode('hello');\
+         root.appendChild(t);\
+         globalThis.r = new Range();\
+         /* Fractional offset 2.7 truncates to 2 (in bounds). */\
+         r.setStart(t, 2.7);",
+    )
+    .unwrap();
+    assert_eq!(eval_num(&mut vm, "r.startOffset"), 2.0);
+    // Negative offset wraps to 2^32 - 1 via ToUint32, which then
+    // exceeds the length-5 text → spec mandates IndexSizeError.
+    let res = vm.eval("r.setStart(t, -1);");
+    assert!(
+        res.is_err(),
+        "ToUint32(-1) = 4294967295 > 5 must throw IndexSizeError"
+    );
+    vm.unbind();
+}

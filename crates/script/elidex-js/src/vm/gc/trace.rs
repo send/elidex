@@ -635,6 +635,31 @@ pub(super) fn trace_work_list(
                     }
                 }
             }
+            // D-8 PR-A2 — `Range` carries only the registry ID
+            // inline.  Range struct fields (start/end containers,
+            // owner_document) are Entity bits (ECS-managed, NOT
+            // GC-rooted — dangling-collapse handles post-destroy
+            // semantics).  No filter callback → no trace fan-out.
+            #[cfg(feature = "engine")]
+            ObjectKind::Range { .. } => {}
+            // `StaticRange` boundaries are eagerly captured entity
+            // bits; no filter / no ObjectId payload.  Stale entity
+            // bits return `isValid() == false`.
+            #[cfg(feature = "engine")]
+            ObjectKind::StaticRange { .. } => {}
+            // `TreeWalker` / `NodeIterator` hold NodeFilter callback
+            // `ObjectId` bits in their state-table entries
+            // (`HostData::tree_walker_states` /
+            // `node_iterator_states_shared`).  Filter ObjectIds are
+            // rooted unconditionally via
+            // `HostData::gc_root_object_ids` (which chains
+            // `walker_filters` / `iter_filters` collected from the
+            // state tables).  Sweep tail prunes those state-table
+            // entries when the wrapper itself becomes unreachable
+            // (`vm/gc/collect.rs`), so the filter de-roots on the
+            // following GC.  Trace fan-out here is a no-op.
+            #[cfg(feature = "engine")]
+            ObjectKind::TreeWalker { .. } | ObjectKind::NodeIterator { .. } => {}
         }
     }
 }

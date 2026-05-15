@@ -11,7 +11,7 @@ pub use attr::{
     CreateAttribute, GetAttrName, GetAttrSpecified, GetAttrValue, GetAttributeNode,
     GetOwnerElement, RemoveAttributeNode, SetAttrValue, SetAttributeNode,
 };
-pub(crate) use char_data_handlers::{utf16_len, utf16_to_byte_offset};
+pub use char_data_handlers::{utf16_len, utf16_to_byte_offset};
 pub use char_data_handlers::{
     AppendData, DeleteData, GetData, GetLength, InsertData, ReplaceData, SetData, SplitText,
     SubstringData,

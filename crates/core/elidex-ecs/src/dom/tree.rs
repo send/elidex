@@ -3,6 +3,7 @@
 use crate::components::{Attributes, ShadowRoot, TagType, TreeRelation};
 use hecs::Entity;
 
+use super::mutation_hook::MutationHook;
 use super::{EcsDom, MAX_ANCESTOR_DEPTH};
 
 impl EcsDom {
@@ -421,14 +422,61 @@ impl EcsDom {
         // set BEFORE the caller orphans children / despawns the
         // subtree (the `destroy_entity` path clears descendant parent
         // links after this fire). The hook consumer (e.g.
-        // `LiveRangeRegistry`) uses this snapshot to collapse Range
-        // boundaries on any inclusive descendant per WHATWG §5.5
-        // remove step 4 — `is_ancestor_or_self` walking up from the
-        // boundary container would miss orphaned descendants whose
-        // parent link is about to be cleared.
+        // `LiveRangeBridge` / `MutationBridge`) uses this snapshot
+        // to collapse Range boundaries on any inclusive descendant
+        // per WHATWG §5.5 remove step 4 — `is_ancestor_or_self`
+        // walking up from the boundary container would miss orphaned
+        // descendants whose parent link is about to be cleared.
         let descendants = self.collect_inclusive_descendants(node);
-        if let Some(hook) = self.mutation_hook.as_mut() {
-            hook.after_remove_with_descendants(node, parent, index, &descendants);
+        // PR-A2 plan-v4 §A-NI-1: take-and-restore pattern so the
+        // hook callback receives `&EcsDom` (read-only DOM access for
+        // WHATWG §6.1 NodeIterator pre-removing-steps walk).  The
+        // straight `if let Some(hook) = self.mutation_hook.as_mut()`
+        // pattern mut-borrows `self.mutation_hook`, blocking any
+        // concurrent `&*self` — `take()` moves the hook out of
+        // `self`, frees the field, lets us pass `&*self` to the
+        // callback, then restores the hook on the post-call
+        // restore (with `Drop`-guard panic safety).
+        if self.mutation_hook.is_some() {
+            // SAFETY: `target_ptr` aliases `self.mutation_hook`
+            // exclusively because we have `&mut self` here and
+            // immediately move the hook out via `take()`.  No other
+            // borrow of `self.mutation_hook` is live for the
+            // duration of `guard` (the `&*self` borrow we hand to
+            // the callback specifically excludes the now-empty
+            // field).  `Drop` writes the hook back atomically on
+            // both normal return and panic-unwind.
+            struct RestoreHook {
+                target_ptr: *mut Option<Box<dyn MutationHook + Send + Sync>>,
+                pending: Option<Box<dyn MutationHook + Send + Sync>>,
+            }
+            impl Drop for RestoreHook {
+                fn drop(&mut self) {
+                    // SAFETY: target_ptr was &mut self.mutation_hook
+                    // at construction; we took the hook out before
+                    // forming the pointer, so the field is empty
+                    // and not aliased by any reference during the
+                    // hook callback.  Writing the pending value
+                    // back is a single field assignment.
+                    #[allow(unsafe_code)]
+                    unsafe {
+                        *self.target_ptr = self.pending.take();
+                    }
+                }
+            }
+            let target_ptr: *mut Option<Box<dyn MutationHook + Send + Sync>> =
+                &raw mut self.mutation_hook;
+            // Take the hook out of self.mutation_hook so the field
+            // is empty and `&*self` is unaliased.
+            let mut guard = RestoreHook {
+                target_ptr,
+                pending: self.mutation_hook.take(),
+            };
+            if let Some(hook) = guard.pending.as_mut() {
+                hook.after_remove_with_descendants(node, parent, index, &descendants, &*self);
+            }
+            // guard drops here -> restores self.mutation_hook
+            drop(guard);
         }
     }
 

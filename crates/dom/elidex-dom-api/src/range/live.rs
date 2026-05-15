@@ -13,7 +13,7 @@
 //!   through it. [`LiveRangeRegistry::finalize_pending`] runs a
 //!   dangling-collapse fallback pass on every read-path access for
 //!   the orphan-then-destroy corner case where no hook fires.
-//! - [`Bridge`] (`EcsDom.mutation_hook` consumer) is a small struct
+//! - [`LiveRangeBridge`] (`EcsDom.mutation_hook` consumer) is a small struct
 //!   that implements [`elidex_ecs::MutationHook`] by forwarding all
 //!   six hook callbacks into the shared `ranges`
 //!   `Arc<Mutex<HashMap<RangeId, Range>>>` and applying boundary
@@ -77,7 +77,7 @@ use super::{
 pub struct RangeId(pub u64);
 
 // ---------------------------------------------------------------------------
-// Bridge
+// LiveRangeBridge
 // ---------------------------------------------------------------------------
 
 /// `EcsDom.mutation_hook`-side adapter. Forwards [`MutationHook`]
@@ -96,17 +96,18 @@ pub struct RangeId(pub u64);
 ///
 /// `Send + Sync` because the only field is `Arc<Mutex<HashMap<...>>>`
 /// over `Send` data — `Range` contains only `Entity` and `usize`.
-pub struct Bridge {
+pub struct LiveRangeBridge {
     ranges: Arc<Mutex<HashMap<RangeId, Range>>>,
 }
 
-impl MutationHook for Bridge {
+impl MutationHook for LiveRangeBridge {
     fn after_remove_with_descendants(
         &mut self,
         _node: Entity,
         parent: Entity,
         removed_index: usize,
         descendants: &[Entity],
+        _dom: &EcsDom,
     ) {
         // PR186 R2 #3 fix: the engine pre-snapshots descendants
         // before any `destroy_entity` orphaning runs, so we apply the
@@ -165,7 +166,7 @@ impl MutationHook for Bridge {
         parent: Option<Entity>,
         node_index: Option<usize>,
     ) {
-        // Bridge runs AFTER the `insert_before` / `append_child` hook
+        // LiveRangeBridge runs AFTER the `insert_before` / `append_child` hook
         // (`after_insert`) has already fired with the new node's
         // post-insert index (`node_index + 1`). `after_insert` shifted
         // every parent-side boundary with `off > node_index + 1` by
@@ -214,7 +215,7 @@ impl MutationHook for Bridge {
         parent: Option<Entity>,
         merged_child_index: Option<usize>,
     ) {
-        // Bridge fires BEFORE the `Normalize` handler's `remove_child`
+        // LiveRangeBridge fires BEFORE the `Normalize` handler's `remove_child`
         // (which itself fires `after_remove` shifting parent-side
         // boundaries with `off > merged_child_index` by `-= 1`). Spec
         // §4.5 step 6.4 wants the parent-side boundary at exactly
@@ -228,7 +229,7 @@ impl MutationHook for Bridge {
         // `(merged_child, off)` → `(prev, prev_old_len + off)`)
         // applies regardless of parent; we call the helper with null
         // parent args so it does not re-walk the parent-side rules
-        // that this Bridge inlines.
+        // that this LiveRangeBridge inlines.
         let mut guard = self.ranges.lock().expect("ranges mutex poisoned");
         if let (Some(parent), Some(idx)) = (parent, merged_child_index) {
             for range in guard.values_mut() {
@@ -263,7 +264,7 @@ impl MutationHook for Bridge {
 /// live-tracking.
 ///
 /// Owns the Range hash + the RangeId monotonic counter, sharing the
-/// `ranges` `Arc<Mutex<>>` with the EcsDom-side [`Bridge`]. Hook
+/// `ranges` `Arc<Mutex<>>` with the EcsDom-side [`LiveRangeBridge`]. Hook
 /// callbacks apply boundary adjustments synchronously (PR186 R2 #3
 /// fix: descendants snapshot eliminates the prior queue); the
 /// remaining read-path concern is the orphan-then-destroy case where
@@ -279,13 +280,13 @@ impl LiveRangeRegistry {
     /// `Arc<Mutex<>>` handle. The bridge is intended for
     /// [`EcsDom::set_mutation_hook`] at `Vm::bind` time.
     #[must_use]
-    pub fn new_pair() -> (Self, Bridge) {
+    pub fn new_pair() -> (Self, LiveRangeBridge) {
         let ranges = Arc::new(Mutex::new(HashMap::new()));
         let registry = Self {
             ranges: Arc::clone(&ranges),
             next_id: 0,
         };
-        let bridge = Bridge { ranges };
+        let bridge = LiveRangeBridge { ranges };
         (registry, bridge)
     }
 
@@ -572,7 +573,7 @@ mod tests {
         // Spec §4.10 step 7.2 requires the parent boundary at exactly
         // `node_idx + 1` to shift. The `after_insert` hook fired by
         // the prior `insert_before` only shifts boundaries with
-        // `off > node_idx + 1`, so the Bridge tops up the equality
+        // `off > node_idx + 1`, so the LiveRangeBridge tops up the equality
         // case. Boundary at `parent + node_idx` (= the slot BEFORE the
         // original node) must stay unchanged because the node is not
         // re-inserted there.
@@ -670,7 +671,7 @@ mod tests {
     fn bridge_after_normalize_merge_parent_boundary_at_idx_migrates_to_splice_point() {
         // Spec §4.5 step 6.4: boundary on `parent` at exactly
         // `merged_child_index` migrates to `(prev, prev_old_len)` — the
-        // merge splice point. The Bridge applies ONLY the equality
+        // merge splice point. The LiveRangeBridge applies ONLY the equality
         // case; boundaries at `off > merged_child_index` are handled by
         // the subsequent `after_remove` hook fired from the Normalize
         // handler's `remove_child(parent, merged_child)`.
@@ -738,7 +739,7 @@ mod tests {
         // Apply after_remove synchronously with the snapshot. Since
         // the snapshot includes `child` + `grandchild`, the boundary
         // on `grandchild` collapses to (parent, 0) per §5.5 step 4.
-        bridge.after_remove_with_descendants(child, parent, 0, &[child, grandchild]);
+        bridge.after_remove_with_descendants(child, parent, 0, &[child, grandchild], &dom);
 
         reg.with_range(id, &dom, |range, _| {
             assert_eq!(range.start_container, parent);
@@ -908,7 +909,7 @@ mod tests {
         let _ = dom.append_child(parent, child);
 
         let _id = reg.register(Range::new(parent));
-        bridge.after_remove_with_descendants(child, parent, 0, &[child]);
+        bridge.after_remove_with_descendants(child, parent, 0, &[child], &dom);
 
         assert_eq!(reg.len(), 1);
         reg.clear();
@@ -920,12 +921,12 @@ mod tests {
 
     #[test]
     fn bridge_send_sync_marker() {
-        // Compile-time check: Bridge must be Send + Sync per the
+        // Compile-time check: LiveRangeBridge must be Send + Sync per the
         // `MutationHook: Send + Sync` supertrait. If a future field
         // breaks this (e.g. switching to Rc<RefCell<>>), this fails
         // to compile.
         fn assert_send_sync<T: Send + Sync>() {}
-        assert_send_sync::<Bridge>();
+        assert_send_sync::<LiveRangeBridge>();
         assert_send_sync::<LiveRangeRegistry>();
     }
 }

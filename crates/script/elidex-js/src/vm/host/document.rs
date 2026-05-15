@@ -878,6 +878,10 @@ impl super::super::VmInner {
             return;
         }
         self.install_methods(doc_wrapper, DOCUMENT_METHODS);
+        // WHATWG DOM §4.4 / §6.1 / §6.4 traversal factories.  Slot
+        // `#11-traversal-and-range-pr-a2-bindings`.  Installed
+        // separately to keep `DOCUMENT_METHODS` stable.
+        self.install_methods(doc_wrapper, super::document_traversal::FACTORIES);
         self.install_ro_accessors(doc_wrapper, DOCUMENT_RO_ACCESSORS);
         self.install_rw_accessors(doc_wrapper, DOCUMENT_RW_ACCESSORS);
         // ParentNode mixin (WHATWG §5.2.4) shared with

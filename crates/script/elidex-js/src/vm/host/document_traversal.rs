@@ -1,0 +1,197 @@
+// boa skip: VM-only surface; the legacy boa runtime
+// (`crates/script/elidex-js-boa/`) is on the deletion path per
+// `m4-12-platform-gap-roadmap.md` §E-2 Round 20 PR7.  See
+// `memory/project_boa_runtime_deletion.md`.
+
+//! `document.createRange` / `createTreeWalker` / `createNodeIterator`
+//! factory methods (WHATWG DOM §4.4 / §6.4 / §6.1).
+//!
+//! ## Layering
+//!
+//! Each factory:
+//!
+//! 1. Brand-checks `this` as Document (handled by call-site of
+//!    `DOCUMENT_METHODS` table — `native_*` entries already see a
+//!    `document_receiver`-validated entity).
+//! 2. Coerces args via WebIDL `to_uint32` / `require_node_arg`.
+//! 3. Allocates engine-side state (`Range` / `TreeWalkerState` /
+//!    `NodeIteratorState`) + a fresh wrapper, populates side tables.
+//! 4. Returns the wrapper.
+//!
+//! No traversal algorithm here — those live in
+//! [`elidex_dom_api::traversal`].
+
+#![cfg(feature = "engine")]
+
+use elidex_dom_api::{NodeIteratorState, Range};
+
+use super::super::shape;
+use super::super::value::{JsValue, NativeContext, Object, ObjectKind, PropertyStorage, VmError};
+
+/// `document.createRange()` — WHATWG DOM §4.4 step 3.
+///
+/// Returns a new live Range collapsed at `(document, 0)` with
+/// `owner_document = document`.
+pub(super) fn native_document_create_range(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
+    let doc = ctx.host().document();
+    let range = Range::new_with_owner(doc, doc);
+    let range_id = ctx.host().live_range_registry.register(range);
+    let proto = ctx
+        .vm
+        .range_prototype
+        .expect("Range.prototype installed during register_globals");
+    let wrapper = ctx.vm.alloc_object(Object {
+        kind: ObjectKind::Range {
+            range_id: range_id.0,
+        },
+        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+        prototype: Some(proto),
+        extensible: true,
+    });
+    ctx.host().range_instances.insert(range_id.0, wrapper);
+    Ok(JsValue::Object(wrapper))
+}
+
+/// `document.createTreeWalker(root, whatToShow = SHOW_ALL, filter = null)`
+/// — WHATWG DOM §6.4 createTreeWalker step.
+pub(super) fn native_document_create_tree_walker(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
+    let root_val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let root = super::node_proto::require_node_arg(ctx, root_val, "createTreeWalker")?;
+    let what_to_show = parse_what_to_show(ctx, args.get(1).copied())?;
+    let filter_id = parse_filter(args.get(2).copied());
+
+    let proto = ctx
+        .vm
+        .tree_walker_prototype
+        .expect("TreeWalker.prototype installed during register_globals");
+
+    let walker_id = {
+        let host = ctx.host();
+        let id = host.next_tree_walker_id;
+        host.next_tree_walker_id = host
+            .next_tree_walker_id
+            .checked_add(1)
+            .expect("TreeWalker ID overflow");
+        host.tree_walker_states.insert(
+            id,
+            crate::vm::host_data::TreeWalkerState {
+                root,
+                what_to_show,
+                filter_object_id: filter_id,
+                current: root,
+                active: false,
+            },
+        );
+        id
+    };
+
+    let wrapper = ctx.vm.alloc_object(Object {
+        kind: ObjectKind::TreeWalker { walker_id },
+        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+        prototype: Some(proto),
+        extensible: true,
+    });
+    ctx.host().tree_walker_instances.insert(walker_id, wrapper);
+    Ok(JsValue::Object(wrapper))
+}
+
+/// `document.createNodeIterator(root, whatToShow = SHOW_ALL, filter = null)`
+/// — WHATWG DOM §6.1 createNodeIterator step.
+pub(super) fn native_document_create_node_iterator(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Null);
+    }
+    let root_val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let root = super::node_proto::require_node_arg(ctx, root_val, "createNodeIterator")?;
+    let what_to_show = parse_what_to_show(ctx, args.get(1).copied())?;
+    let filter_id = parse_filter(args.get(2).copied());
+
+    let proto = ctx
+        .vm
+        .node_iterator_prototype
+        .expect("NodeIterator.prototype installed during register_globals");
+
+    let iterator_id = {
+        let host = ctx.host();
+        let id = host.next_node_iterator_id;
+        host.next_node_iterator_id = host
+            .next_node_iterator_id
+            .checked_add(1)
+            .expect("NodeIterator ID overflow");
+        let state = NodeIteratorState {
+            root,
+            what_to_show,
+            filter_object_id: filter_id,
+            reference: root,
+            pointer_before: true,
+            active: false,
+        };
+        host.node_iterator_states_shared
+            .lock()
+            .expect("NodeIterator state mutex poisoned")
+            .insert(id, state);
+        id
+    };
+
+    let wrapper = ctx.vm.alloc_object(Object {
+        kind: ObjectKind::NodeIterator { iterator_id },
+        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+        prototype: Some(proto),
+        extensible: true,
+    });
+    ctx.host()
+        .node_iterator_instances
+        .insert(iterator_id, wrapper);
+    Ok(JsValue::Object(wrapper))
+}
+
+/// Parse the `whatToShow` arg with WebIDL `unsigned long` coercion +
+/// default `SHOW_ALL` when absent.
+fn parse_what_to_show(ctx: &mut NativeContext<'_>, arg: Option<JsValue>) -> Result<u32, VmError> {
+    match arg {
+        None | Some(JsValue::Undefined) => Ok(elidex_dom_api::traversal::SHOW_ALL),
+        Some(v) => super::super::coerce::to_uint32(ctx.vm, v),
+    }
+}
+
+/// Parse the `filter` arg.  `null` / `undefined` → no filter.  Any
+/// other object is captured as opaque ObjectId bits regardless of
+/// whether it is a function — `acceptNode` lookup happens lazily at
+/// dispatch time per `node_filter_dispatch::pick_callable`.
+fn parse_filter(arg: Option<JsValue>) -> Option<u64> {
+    // Spec rejects non-callable primitives at the createTreeWalker
+    // call site, but Chrome / Firefox tolerate them as `null`.  We
+    // match the lax behaviour: only an Object filter is captured;
+    // every other shape (null / undefined / primitive) becomes None.
+    match arg {
+        Some(JsValue::Object(id)) => Some(u64::from(id.0)),
+        _ => None,
+    }
+}
+
+/// Wrapper helpers — these are wired into the `DOCUMENT_METHODS`
+/// table in `document.rs` so call routing happens through the
+/// existing `document_receiver` brand check.
+pub(super) const FACTORIES: &[(&str, super::super::NativeFn)] = &[
+    ("createRange", native_document_create_range),
+    ("createTreeWalker", native_document_create_tree_walker),
+    ("createNodeIterator", native_document_create_node_iterator),
+];

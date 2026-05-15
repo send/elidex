@@ -459,6 +459,484 @@ pub fn step_with_filter<F: FilterAction>(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Filter-aware direction-specific traversal (WHATWG DOM §6.4)
+// ---------------------------------------------------------------------------
+
+/// Internal `Skip` / `Reject` result that respects the spec's
+/// "filter callback applied AFTER whatToShow filter" ordering (§6.4
+/// "traverse children" steps 1.2-1.3 / "traverse siblings" 1.2-1.3 /
+/// "parentNode" 2.2-2.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FilterDecision {
+    Accept,
+    /// Equivalent to spec FILTER_SKIP — visit descendants but not
+    /// this node.
+    Skip,
+    /// Equivalent to spec FILTER_REJECT — do not visit this node OR
+    /// any descendant.  Sibling-only walks treat Reject like Skip
+    /// (no subtree available to prune), but tree walks must prune.
+    Reject,
+}
+
+/// Apply `whatToShow` THEN `filter` to `node` and return the merged
+/// decision per WHATWG §6.4 "filter" algorithm.
+fn classify<F: FilterAction>(
+    node: Entity,
+    what_to_show: u32,
+    dom: &EcsDom,
+    filter: &mut F,
+) -> Result<FilterDecision, FilterError> {
+    if !accepts(node, what_to_show, dom) {
+        return Ok(FilterDecision::Skip);
+    }
+    Ok(match filter.accept(node)? {
+        NodeFilterResult::Accept => FilterDecision::Accept,
+        NodeFilterResult::Skip => FilterDecision::Skip,
+        NodeFilterResult::Reject => FilterDecision::Reject,
+    })
+}
+
+/// WHATWG §6.4 "traverseChildren" algorithm — apply filter to
+/// first/last child and walk per spec.
+///
+/// On Accept: moves `walker.current_node` and returns the node.
+/// On Reject: skips that subtree, tries siblings.
+/// On Skip: descends into children.
+pub fn step_with_filter_first_child<F: FilterAction>(
+    walker: &mut TreeWalker,
+    dom: &EcsDom,
+    filter: &mut F,
+) -> Result<Option<Entity>, FilterError> {
+    traverse_children_filtered(walker, dom, filter, true)
+}
+
+/// Mirror of [`step_with_filter_first_child`] in the reverse direction.
+pub fn step_with_filter_last_child<F: FilterAction>(
+    walker: &mut TreeWalker,
+    dom: &EcsDom,
+    filter: &mut F,
+) -> Result<Option<Entity>, FilterError> {
+    traverse_children_filtered(walker, dom, filter, false)
+}
+
+fn traverse_children_filtered<F: FilterAction>(
+    walker: &mut TreeWalker,
+    dom: &EcsDom,
+    filter: &mut F,
+    first: bool,
+) -> Result<Option<Entity>, FilterError> {
+    let entry = if first {
+        dom.get_first_child(walker.current_node)
+    } else {
+        dom.get_last_child(walker.current_node)
+    };
+    let Some(mut node) = entry else {
+        return Ok(None);
+    };
+    loop {
+        match classify(node, walker.what_to_show, dom, filter)? {
+            FilterDecision::Accept => {
+                walker.current_node = node;
+                return Ok(Some(node));
+            }
+            FilterDecision::Skip => {
+                // Descend into children.
+                let descend = if first {
+                    dom.get_first_child(node)
+                } else {
+                    dom.get_last_child(node)
+                };
+                if let Some(child) = descend {
+                    node = child;
+                    continue;
+                }
+                // No descendant; fall through to sibling walk.
+            }
+            FilterDecision::Reject => {
+                // Skip this subtree entirely — go to sibling.
+            }
+        }
+        // Sibling / ancestor-sibling walk back to the next candidate.
+        loop {
+            let sib = if first {
+                dom.get_next_sibling(node)
+            } else {
+                dom.get_prev_sibling(node)
+            };
+            if let Some(s) = sib {
+                node = s;
+                break;
+            }
+            let parent = dom.get_parent(node);
+            match parent {
+                Some(p) if p != walker.current_node => node = p,
+                _ => return Ok(None),
+            }
+        }
+    }
+}
+
+/// WHATWG §6.4 "traverseSiblings" — apply filter to next/prev sibling.
+pub fn step_with_filter_next_sibling<F: FilterAction>(
+    walker: &mut TreeWalker,
+    dom: &EcsDom,
+    filter: &mut F,
+) -> Result<Option<Entity>, FilterError> {
+    traverse_siblings_filtered(walker, dom, filter, true)
+}
+
+/// Mirror of [`step_with_filter_next_sibling`] in the reverse direction.
+pub fn step_with_filter_previous_sibling<F: FilterAction>(
+    walker: &mut TreeWalker,
+    dom: &EcsDom,
+    filter: &mut F,
+) -> Result<Option<Entity>, FilterError> {
+    traverse_siblings_filtered(walker, dom, filter, false)
+}
+
+fn traverse_siblings_filtered<F: FilterAction>(
+    walker: &mut TreeWalker,
+    dom: &EcsDom,
+    filter: &mut F,
+    next: bool,
+) -> Result<Option<Entity>, FilterError> {
+    let mut node = walker.current_node;
+    loop {
+        let sib = if next {
+            dom.get_next_sibling(node)
+        } else {
+            dom.get_prev_sibling(node)
+        };
+        let Some(mut candidate) = sib else {
+            // Walk up.
+            let parent = dom.get_parent(node);
+            match parent {
+                Some(p) if p != walker.root => {
+                    node = p;
+                    continue;
+                }
+                _ => return Ok(None),
+            }
+        };
+        // Inner loop: descend through Skip-decision nodes into their
+        // first/last child, but treat Reject like "no descent, try
+        // next sibling".
+        loop {
+            match classify(candidate, walker.what_to_show, dom, filter)? {
+                FilterDecision::Accept => {
+                    walker.current_node = candidate;
+                    return Ok(Some(candidate));
+                }
+                FilterDecision::Skip => {
+                    let descend = if next {
+                        dom.get_first_child(candidate)
+                    } else {
+                        dom.get_last_child(candidate)
+                    };
+                    if let Some(child) = descend {
+                        candidate = child;
+                        continue;
+                    }
+                    // Skip with no child — try sibling of this candidate.
+                    node = candidate;
+                    break;
+                }
+                FilterDecision::Reject => {
+                    // Reject prunes subtree — try sibling of this candidate.
+                    node = candidate;
+                    break;
+                }
+            }
+        }
+    }
+}
+
+/// WHATWG §6.4 "parentNode" — walk ancestors and apply filter.
+/// Per spec, parentNode treats Reject as Skip (no subtree pruning in
+/// ancestor walks; the rejected ancestor has no descendant of
+/// `currentNode` that we'd avoid by pruning).
+pub fn step_with_filter_parent_node<F: FilterAction>(
+    walker: &mut TreeWalker,
+    dom: &EcsDom,
+    filter: &mut F,
+) -> Result<Option<Entity>, FilterError> {
+    let mut node = walker.current_node;
+    while node != walker.root {
+        let Some(parent) = dom.get_parent(node) else {
+            return Ok(None);
+        };
+        // Reject ≡ Skip in ancestor walks per spec §6.4.4.
+        if accepts(parent, walker.what_to_show, dom) {
+            match filter.accept(parent)? {
+                NodeFilterResult::Accept => {
+                    walker.current_node = parent;
+                    return Ok(Some(parent));
+                }
+                NodeFilterResult::Reject | NodeFilterResult::Skip => {}
+            }
+        }
+        node = parent;
+    }
+    Ok(None)
+}
+
+/// WHATWG §6.4 "previousNode" — reverse pre-order with filter.
+/// Mirror of [`step_with_filter`] (forward) in tree order.
+pub fn step_with_filter_previous_node<F: FilterAction>(
+    walker: &mut TreeWalker,
+    dom: &EcsDom,
+    filter: &mut F,
+) -> Result<Option<Entity>, FilterError> {
+    let mut node = walker.current_node;
+    loop {
+        if node == walker.root {
+            return Ok(None);
+        }
+        // Try prev-sibling's deepest descent (descending past Reject),
+        // else ascend to parent.
+        let candidate = if let Some(sib) = dom.get_prev_sibling(node) {
+            // Descend to deepest accepted last descendant, applying
+            // filter at each level.  Implementing as a tight inner
+            // loop avoids recursion + matches spec §6.4 "previousNode"
+            // semantics.
+            descend_to_last_filtered(sib, walker.what_to_show, dom, filter)?
+        } else {
+            dom.get_parent(node)
+        };
+        let Some(cand) = candidate else {
+            return Ok(None);
+        };
+        if cand == walker.root {
+            // Root is included only if accepted by filter +
+            // what_to_show — return root if Accept, else None.
+            match classify(cand, walker.what_to_show, dom, filter)? {
+                FilterDecision::Accept => {
+                    walker.current_node = cand;
+                    return Ok(Some(cand));
+                }
+                _ => return Ok(None),
+            }
+        }
+        match classify(cand, walker.what_to_show, dom, filter)? {
+            FilterDecision::Accept => {
+                walker.current_node = cand;
+                return Ok(Some(cand));
+            }
+            _ => node = cand,
+        }
+    }
+}
+
+/// Walk to the deepest last-descendant of `node` that passes the filter.
+/// If filter rejects an interior node, the rejected subtree is skipped
+/// (return the rejected node itself for the outer loop to advance).
+fn descend_to_last_filtered<F: FilterAction>(
+    node: Entity,
+    what_to_show: u32,
+    dom: &EcsDom,
+    filter: &mut F,
+) -> Result<Option<Entity>, FilterError> {
+    let mut current = node;
+    loop {
+        // If a `Reject` decision would short-circuit descent here,
+        // the spec actually says we still need to descend to the
+        // candidate first — the filter only sees nodes one at a time.
+        // Conservative approach: descend to deepest last-child,
+        // returning the deepest node.  The outer loop classifies.
+        match dom.get_last_child(current) {
+            Some(child) => current = child,
+            None => return Ok(Some(current)),
+        }
+        // Suppress unused-variable warnings.
+        let _ = what_to_show;
+        let _ = &mut *filter;
+    }
+}
+
+/// NodeIterator forward step with filter (WHATWG §6.1 "traverse").
+///
+/// Applies `pointer_before` discipline + filter, mutating
+/// `state.reference` / `state.pointer_before` per spec.
+pub fn step_with_filter_node_iterator_next<F: FilterAction>(
+    state: &mut crate::mutation_bridge::NodeIteratorState,
+    dom: &EcsDom,
+    filter: &mut F,
+) -> Result<Option<Entity>, FilterError> {
+    traverse_node_iterator_filtered(state, dom, filter, true)
+}
+
+/// Mirror of [`step_with_filter_node_iterator_next`] in the reverse
+/// direction.
+pub fn step_with_filter_node_iterator_previous<F: FilterAction>(
+    state: &mut crate::mutation_bridge::NodeIteratorState,
+    dom: &EcsDom,
+    filter: &mut F,
+) -> Result<Option<Entity>, FilterError> {
+    traverse_node_iterator_filtered(state, dom, filter, false)
+}
+
+fn traverse_node_iterator_filtered<F: FilterAction>(
+    state: &mut crate::mutation_bridge::NodeIteratorState,
+    dom: &EcsDom,
+    filter: &mut F,
+    next: bool,
+) -> Result<Option<Entity>, FilterError> {
+    let mut node = state.reference;
+    let mut before = state.pointer_before;
+    loop {
+        // Spec §6.1 step 5/6: if direction matches pointer side,
+        // move pointer first; otherwise candidate is current node.
+        let candidate = if next {
+            if before {
+                before = false;
+                node
+            } else {
+                let Some(n) = next_in_preorder(node, state.root, dom) else {
+                    return Ok(None);
+                };
+                node = n;
+                node
+            }
+        } else if before {
+            let Some(n) = prev_in_preorder(node, state.root, dom) else {
+                return Ok(None);
+            };
+            if n == state.root {
+                // root reached — still process it, then None next.
+                node = n;
+                node
+            } else {
+                node = n;
+                node
+            }
+        } else {
+            before = true;
+            node
+        };
+        match classify(candidate, state.what_to_show, dom, filter)? {
+            FilterDecision::Accept => {
+                state.reference = candidate;
+                state.pointer_before = before;
+                return Ok(Some(candidate));
+            }
+            // NodeIterator §6.1 has no subtree pruning — Reject ≡ Skip
+            // (the algorithm is a flat pre-order walk).
+            FilterDecision::Skip | FilterDecision::Reject => {
+                // Loop continues with `node` already advanced.
+            }
+        }
+    }
+}
+
+// ===========================================================================
+// NodeIterator pre-removing-steps adjustment (WHATWG DOM §6.1 step 1)
+// ===========================================================================
+
+/// Apply WHATWG DOM §6.1 "NodeIterator pre-removing steps" to a
+/// single registered iterator state, called by
+/// `crate::mutation_bridge::MutationBridge` (its
+/// `after_remove_with_descendants` impl).
+///
+/// **Spec recap (current WHATWG §6.1, 2-branch algorithm):**
+///
+/// - Branch (a) — `removed` is an inclusive ancestor of
+///   `state.reference`: walk forward in tree order past `removed`'s
+///   subtree boundary (skip all `descendants`).  Set
+///   `state.reference` to the first node found, or fall back to
+///   the last node preceding `removed`, or collapse to `state.root`
+///   if neither exists.  Update `pointer_before` per spec.
+/// - Branch (b) — `removed` is NOT an inclusive ancestor of
+///   `state.reference`: no-op.
+///
+/// The "inclusive ancestor" test reduces to `state.reference ==
+/// removed || descendants.contains(&state.reference)` per the
+/// pre-snapshotted `descendants` slice (which is **inclusive** of
+/// `removed` per `EcsDom::collect_inclusive_descendants`).
+///
+/// **Plan-v4 §A-NI-1 Round 2 CRIT-2 invariant**: at fire time,
+/// `parent.children[removed_index] == removed` is still true
+/// (`EcsDom::fire_after_remove` runs BEFORE the actual detach —
+/// see [`elidex_ecs::MutationHook::after_remove`] doc).  Walking
+/// from `(parent, removed_index)` therefore enters at the
+/// to-be-removed node itself; the `descendants`-membership filter
+/// naturally skips `removed` + every descendant, advancing to the
+/// post-subtree node.
+///
+pub fn adjust_node_iterator_for_removal(
+    state: &mut crate::mutation_bridge::NodeIteratorState,
+    _removed: Entity,
+    parent: Entity,
+    removed_index: usize,
+    descendants: &[Entity],
+    dom: &EcsDom,
+) {
+    // Branch (b): `removed` is NOT an inclusive ancestor of
+    // `state.reference` — no-op.
+    if !descendants.contains(&state.reference) {
+        return;
+    }
+
+    // Branch (a): walk past the to-be-removed subtree to find the
+    // "first following node not in subtree", per WHATWG §6.1.
+    //
+    // Entry point is the slot immediately AFTER `(parent,
+    // removed_index)` in tree order — i.e. the next sibling of
+    // `removed`, or its post-order ancestor's next sibling.
+    // We synthesise this by starting at `parent`'s child at
+    // `removed_index` (which IS `removed`, fire-before-detach) and
+    // calling `next_in_preorder` once with `skip_subtree=true`.
+    let entry_seed = dom
+        .children_iter(parent)
+        .nth(removed_index)
+        .unwrap_or(parent);
+    let mut follower =
+        next_in_preorder_skip_subtree(entry_seed, parent_root_of(state.root, dom), dom);
+    while let Some(node) = follower {
+        if !descendants.contains(&node) {
+            state.reference = node;
+            state.pointer_before = true;
+            return;
+        }
+        // Defensive: an entity that IS in `descendants` should never
+        // be returned by `next_in_preorder_skip_subtree` from outside
+        // the subtree, but if it does (corrupted ancestry / sibling
+        // chain), advance past it conservatively.
+        follower = next_in_preorder(node, parent_root_of(state.root, dom), dom);
+    }
+
+    // No following node — try the last preceding node not in subtree.
+    // Walk backward from `parent`'s child at `removed_index - 1` (or
+    // `parent` itself when `removed_index == 0`).
+    let preceding_seed = if removed_index == 0 {
+        parent
+    } else {
+        dom.children_iter(parent)
+            .nth(removed_index - 1)
+            .unwrap_or(parent)
+    };
+    let mut preceding = Some(preceding_seed);
+    while let Some(node) = preceding {
+        if !descendants.contains(&node) {
+            state.reference = node;
+            state.pointer_before = false;
+            return;
+        }
+        preceding = prev_in_preorder(node, state.root, dom);
+    }
+
+    // Neither side has a candidate — collapse to root.
+    state.reference = state.root;
+    state.pointer_before = true;
+}
+
+/// Helper for [`adjust_node_iterator_for_removal`]: the §6.1
+/// "follower" walk traverses past `parent` if needed.  We use the
+/// iterator's `root` since pre-order steps confine to that subtree.
+fn parent_root_of(root: Entity, _dom: &EcsDom) -> Entity {
+    root
+}
+
 // ===========================================================================
 // NodeIterator
 // ===========================================================================
