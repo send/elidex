@@ -109,7 +109,7 @@ pub(super) fn native_document_create_tree_walker(
     let root_val = args.first().copied().unwrap_or(JsValue::Undefined);
     let root = super::node_proto::require_node_arg(ctx, root_val, "createTreeWalker")?;
     let what_to_show = parse_what_to_show(ctx, args.get(1).copied())?;
-    let filter_id = parse_filter(args.get(2).copied());
+    let filter_id = parse_filter(args.get(2).copied(), "createTreeWalker")?;
 
     let proto = ctx
         .vm
@@ -160,7 +160,7 @@ pub(super) fn native_document_create_node_iterator(
     let root_val = args.first().copied().unwrap_or(JsValue::Undefined);
     let root = super::node_proto::require_node_arg(ctx, root_val, "createNodeIterator")?;
     let what_to_show = parse_what_to_show(ctx, args.get(1).copied())?;
-    let filter_id = parse_filter(args.get(2).copied());
+    let filter_id = parse_filter(args.get(2).copied(), "createNodeIterator")?;
 
     let proto = ctx
         .vm
@@ -210,18 +210,27 @@ fn parse_what_to_show(ctx: &mut NativeContext<'_>, arg: Option<JsValue>) -> Resu
     }
 }
 
-/// Parse the `filter` arg.  `null` / `undefined` → no filter.  Any
-/// other object is captured as opaque ObjectId bits regardless of
-/// whether it is a function — `acceptNode` lookup happens lazily at
-/// dispatch time per `node_filter_dispatch::pick_callable`.
-fn parse_filter(arg: Option<JsValue>) -> Option<u64> {
-    // Spec rejects non-callable primitives at the createTreeWalker
-    // call site, but Chrome / Firefox tolerate them as `null`.  We
-    // match the lax behaviour: only an Object filter is captured;
-    // every other shape (null / undefined / primitive) becomes None.
+/// Parse the `filter` arg per WebIDL `NodeFilter?` (nullable callback
+/// interface).  Acceptable shapes:
+/// - missing / `undefined` / `null` → `None` (no filter)
+/// - Object → captured as opaque ObjectId bits; `acceptNode` lookup
+///   happens lazily at dispatch time per
+///   `node_filter_dispatch::pick_callable`
+/// - any non-nullish primitive (Boolean / Number / BigInt / String /
+///   Symbol) → `TypeError` per WebIDL §3.10 callback interface
+///   conversion ("If Type(V) is not Object, then throw a TypeError")
+///
+/// Copilot R17: the previous impl swallowed primitives as `None`,
+/// silently creating an unfiltered walker for `createTreeWalker(root,
+/// SHOW_ALL, 42)` instead of throwing.
+fn parse_filter(arg: Option<JsValue>, method: &str) -> Result<Option<u64>, VmError> {
     match arg {
-        Some(JsValue::Object(id)) => Some(u64::from(id.0)),
-        _ => None,
+        None | Some(JsValue::Undefined | JsValue::Null) => Ok(None),
+        Some(JsValue::Object(id)) => Ok(Some(u64::from(id.0))),
+        Some(_) => Err(VmError::type_error(format!(
+            "Failed to execute '{method}' on 'Document': \
+             parameter 3 is not of type 'NodeFilter'."
+        ))),
     }
 }
 

@@ -476,3 +476,36 @@ fn document_factory_call_on_plain_object_throws() {
     assert!(res4.is_err(), "createRange.call(42) must throw");
     vm.unbind();
 }
+
+#[test]
+fn document_create_walker_rejects_non_object_filter() {
+    // Copilot R17: WebIDL `NodeFilter?` callback interface
+    // conversion (§3.10) — null/undefined → null, Object →
+    // callback, anything else → TypeError.  Prior to R17,
+    // primitives silently became null and created an unfiltered
+    // walker / iterator.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval("globalThis.root = document.createElement('div');")
+        .unwrap();
+    // Number primitive — must throw.
+    let r1 = vm.eval("document.createTreeWalker(root, NodeFilter.SHOW_ALL, 42);");
+    assert!(r1.is_err(), "createTreeWalker(.., .., 42) must throw");
+    let r2 = vm.eval("document.createNodeIterator(root, NodeFilter.SHOW_ALL, 42);");
+    assert!(r2.is_err(), "createNodeIterator(.., .., 42) must throw");
+    // String primitive — must throw.
+    let r3 = vm.eval("document.createTreeWalker(root, NodeFilter.SHOW_ALL, 'x');");
+    assert!(r3.is_err(), "createTreeWalker(.., .., 'x') must throw");
+    // Boolean primitive — must throw.
+    let r4 = vm.eval("document.createTreeWalker(root, NodeFilter.SHOW_ALL, true);");
+    assert!(r4.is_err(), "createTreeWalker(.., .., true) must throw");
+    // null / undefined still accepted as "no filter".
+    vm.eval("document.createTreeWalker(root, NodeFilter.SHOW_ALL, null);")
+        .unwrap();
+    vm.eval("document.createTreeWalker(root, NodeFilter.SHOW_ALL, undefined);")
+        .unwrap();
+    // Plain object accepted (lazy acceptNode lookup at dispatch).
+    vm.eval("document.createTreeWalker(root, NodeFilter.SHOW_ALL, {});")
+        .unwrap();
+    vm.unbind();
+}
