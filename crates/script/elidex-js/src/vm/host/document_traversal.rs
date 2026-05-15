@@ -24,9 +24,44 @@
 #![cfg(feature = "engine")]
 
 use elidex_dom_api::{NodeIteratorState, Range};
+use elidex_ecs::Entity;
 
 use super::super::shape;
 use super::super::value::{JsValue, NativeContext, Object, ObjectKind, PropertyStorage, VmError};
+
+/// Strict WebIDL brand check for the document factory methods.
+/// Copilot R16: `document_receiver` returns `Ok(None)` for any
+/// non-HostObject receiver (so it can also cover the retained-
+/// HostObject-after-`Vm::unbind` case), but WebIDL §3.7 mandates a
+/// `TypeError` "Illegal invocation" for `document.createRange.call({})`
+/// and similar misuse on a plain Object / primitive.  Pre-filter
+/// those cases before deferring to the standard `document_receiver`
+/// (which still handles the kind mismatch + unbound paths).
+fn require_document_factory_receiver(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    method: &str,
+) -> Result<Option<Entity>, VmError> {
+    let illegal = || {
+        VmError::type_error(format!(
+            "Failed to execute '{method}' on 'Document': Illegal invocation"
+        ))
+    };
+    match this {
+        JsValue::Object(id) => {
+            if !matches!(ctx.vm.get_object(id).kind, ObjectKind::HostObject { .. }) {
+                return Err(illegal());
+            }
+        }
+        _ => return Err(illegal()),
+    }
+    // Unbound retained-HostObject case: `document_receiver` would
+    // panic on `ctx.host().dom()`; gate before calling.
+    if ctx.host_if_bound().is_none() {
+        return Ok(None);
+    }
+    super::document::document_receiver(ctx, this, method)
+}
 
 /// `document.createRange()` — WHATWG DOM §4.4 step 3.
 ///
@@ -39,7 +74,7 @@ pub(super) fn native_document_create_range(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(doc) = super::document::document_receiver(ctx, this, "createRange")? else {
+    let Some(doc) = require_document_factory_receiver(ctx, this, "createRange")? else {
         return Ok(JsValue::Null);
     };
     let range = Range::new_with_owner(doc, doc);
@@ -68,7 +103,7 @@ pub(super) fn native_document_create_tree_walker(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if super::document::document_receiver(ctx, this, "createTreeWalker")?.is_none() {
+    if require_document_factory_receiver(ctx, this, "createTreeWalker")?.is_none() {
         return Ok(JsValue::Null);
     }
     let root_val = args.first().copied().unwrap_or(JsValue::Undefined);
@@ -119,7 +154,7 @@ pub(super) fn native_document_create_node_iterator(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if super::document::document_receiver(ctx, this, "createNodeIterator")?.is_none() {
+    if require_document_factory_receiver(ctx, this, "createNodeIterator")?.is_none() {
         return Ok(JsValue::Null);
     }
     let root_val = args.first().copied().unwrap_or(JsValue::Undefined);

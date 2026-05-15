@@ -786,6 +786,39 @@ fn insert_node_empty_document_fragment_no_offset_bump() {
 }
 
 #[test]
+fn insert_node_fragment_into_itself_throws() {
+    // Copilot R16: inserting a DocumentFragment into a Range whose
+    // start container is that same fragment must trigger the
+    // host-including-inclusive-ancestor check on the ORIGINAL
+    // `node` argument — not just on its fanned-out children.
+    // An empty fragment would otherwise pass with `nodes == []`
+    // and silently succeed as a no-op.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(
+        "globalThis.frag = document.createDocumentFragment();\
+         globalThis.r = new Range();\
+         r.setStart(frag, 0); r.setEnd(frag, 0);",
+    )
+    .unwrap();
+    // Empty fragment into itself — must throw HierarchyRequestError.
+    let res = vm.eval("r.insertNode(frag);");
+    assert!(
+        res.is_err(),
+        "insertNode of fragment into itself must throw (cycle)"
+    );
+    // Fragment-with-children into itself — must also throw.
+    vm.eval("frag.appendChild(document.createElement('x'));")
+        .unwrap();
+    let res2 = vm.eval("r.insertNode(frag);");
+    assert!(
+        res2.is_err(),
+        "insertNode of non-empty fragment into itself must throw"
+    );
+    vm.unbind();
+}
+
+#[test]
 fn prototypes_survive_gc_after_global_removal() {
     // Copilot R14 (#1): even after `delete globalThis.{Range,
     // StaticRange, TreeWalker, NodeIterator}`, `VmInner::*_prototype`

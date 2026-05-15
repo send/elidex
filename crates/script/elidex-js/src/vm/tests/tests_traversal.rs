@@ -451,3 +451,28 @@ fn tree_walker_siblings_at_root_return_null() {
     );
     vm.unbind();
 }
+
+#[test]
+fn document_factory_call_on_plain_object_throws() {
+    // Copilot R16: `document.createRange.call({})` (and the
+    // sibling traversal factories) must throw a `TypeError`
+    // "Illegal invocation" because the WebIDL brand check
+    // requires `this` to be a Document instance.  Prior to R16
+    // the factories swallowed the non-HostObject receiver as the
+    // unbound-VM silent-null fallback.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    let res1 = vm.eval("document.createRange.call({});");
+    assert!(res1.is_err(), "createRange.call({{}}) must throw");
+    let res2 = vm.eval("document.createTreeWalker.call({}, document.body, 0xFFFFFFFF, null);");
+    assert!(res2.is_err(), "createTreeWalker.call({{}}, ...) must throw");
+    let res3 = vm.eval("document.createNodeIterator.call({}, document.body, 0xFFFFFFFF, null);");
+    assert!(
+        res3.is_err(),
+        "createNodeIterator.call({{}}, ...) must throw"
+    );
+    // Primitive `this` should also throw.
+    let res4 = vm.eval("document.createRange.call(42);");
+    assert!(res4.is_err(), "createRange.call(42) must throw");
+    vm.unbind();
+}

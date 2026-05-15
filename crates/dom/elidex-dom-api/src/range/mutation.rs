@@ -321,8 +321,16 @@ impl Range {
 
         // Spec step 6: pre-insertion validity (cycle / self-as-parent).
         // Per WHATWG §4.2.3 the host-including-inclusive-ancestor
-        // check runs per member of `nodes`.  Run BEFORE step 7's
-        // split so a rejection never leaves a dangling tail node.
+        // check runs against the ORIGINAL `node` argument too — not
+        // just the fanned-out child list.  Without this, an empty
+        // DocumentFragment inserted into itself (or a fragment whose
+        // children don't reach back up to the parent) would bypass
+        // the cycle check and silently succeed as a no-op (Copilot
+        // R16).  Run BEFORE step 7's split so a rejection never
+        // leaves a dangling tail node.
+        if dom.is_ancestor_or_self(node, parent) {
+            return None;
+        }
         for &n in &nodes {
             if dom.is_ancestor_or_self(n, parent) {
                 return None;
