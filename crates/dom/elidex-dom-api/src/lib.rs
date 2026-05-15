@@ -87,7 +87,10 @@ pub use node_methods::{
     CloneNode, CompareDocumentPosition, Contains, GetRootNode, GetTextContentNodeKind, IsConnected,
     IsEqualNode, IsSameNode, Normalize, OwnerDocument, SetNodeValue, SetTextContentNodeKind,
 };
-pub use range::{adjust_ranges_for_removal, adjust_ranges_for_text_change, Range};
+pub use range::{
+    adjust_ranges_for_removal, adjust_ranges_for_text_change, Bridge as RangeMutationBridge,
+    LiveRangeRegistry, Range, RangeId,
+};
 // `adjust_ranges_for_insertion` is intentionally NOT re-exported yet —
 // it is a forward-stub for D-8 PR-A's `LiveRangeRegistry` (an in-crate
 // consumer reachable via `crate::range::adjust_ranges_for_insertion`).

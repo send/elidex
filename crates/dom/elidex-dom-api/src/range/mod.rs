@@ -4,7 +4,10 @@
 //! manipulating the range boundaries and extracting/deleting content.
 
 mod boundary;
+pub mod live;
 mod mutation;
+
+pub use live::{Bridge, LiveRangeRegistry, RangeId};
 
 use elidex_ecs::{EcsDom, Entity, TextContent};
 
@@ -35,10 +38,28 @@ pub struct Range {
     pub end_container: Entity,
     /// The offset within the end container.
     pub end_offset: usize,
+    /// WHATWG DOM §4.4 — Range has a fixed associated document, set at
+    /// construction. Used by `LiveRangeRegistry` as the dangling-collapse
+    /// fallback target when both boundary containers become unreachable
+    /// post-destroy (e.g. the entire boundary subtree was destroyed in a
+    /// single mutation).
+    ///
+    /// Legacy two-arg [`Range::new`] sets `owner_document = node` for
+    /// back-compat with tests that pre-date this field — callers that
+    /// know which Document the range belongs to should prefer the new
+    /// [`Range::new_with_owner`] / `Range::with_owner` factories.
+    pub owner_document: Entity,
 }
 
 impl Range {
     /// Create a new range with both endpoints at offset 0 of the given node.
+    ///
+    /// Initialises `owner_document` to `node` — this is a back-compat
+    /// shape used by in-crate tests / non-VM callers that do not have a
+    /// distinct Document entity available. VM-side `document.createRange`
+    /// and `new Range()` use [`Range::new_with_owner`] with the active
+    /// document instead so dangling-collapse falls back to the real
+    /// document.
     #[must_use]
     pub fn new(node: Entity) -> Self {
         Self {
@@ -46,6 +67,21 @@ impl Range {
             start_offset: 0,
             end_container: node,
             end_offset: 0,
+            owner_document: node,
+        }
+    }
+
+    /// Create a new range with both endpoints at `(node, 0)` and an
+    /// explicit `owner_document` (WHATWG DOM §4.4 "node document" of the
+    /// Range).
+    #[must_use]
+    pub fn new_with_owner(node: Entity, owner_document: Entity) -> Self {
+        Self {
+            start_container: node,
+            start_offset: 0,
+            end_container: node,
+            end_offset: 0,
+            owner_document,
         }
     }
 
@@ -140,6 +176,48 @@ pub fn adjust_ranges_for_removal(
     }
 }
 
+/// Snapshot-driven removal adjustment per WHATWG DOM §5.5 remove
+/// step 4-6, identical semantics to [`adjust_ranges_for_removal`] but
+/// driven by a caller-provided `descendants` set instead of an
+/// `EcsDom` ancestor walk.
+///
+/// PR186 R2 #3: `destroy_entity` orphans children BEFORE firing
+/// `after_remove`, so an `is_ancestor_or_self`-based descendant walk
+/// at the consumer side would miss already-orphaned descendants. The
+/// engine pre-snapshots the light-tree inclusive-descendant set
+/// before orphaning and hands it to the hook; the consumer
+/// (`LiveRangeRegistry::Bridge`) uses this snapshot membership check
+/// instead of a tree walk.
+///
+/// `descendants` MUST include `node` itself (inclusive descendants) —
+/// the engine's `collect_inclusive_descendants` helper guarantees
+/// this.
+///
+/// `pub(crate)` because the only driver is the in-crate
+/// `LiveRangeRegistry::Bridge`.
+pub(crate) fn adjust_ranges_for_removal_snapshot(
+    ranges: &mut [Range],
+    descendants: &[Entity],
+    parent: Entity,
+    index: usize,
+) {
+    for range in ranges.iter_mut() {
+        if descendants.contains(&range.start_container) {
+            range.start_container = parent;
+            range.start_offset = index;
+        } else if range.start_container == parent && range.start_offset > index {
+            range.start_offset -= 1;
+        }
+
+        if descendants.contains(&range.end_container) {
+            range.end_container = parent;
+            range.end_offset = index;
+        } else if range.end_container == parent && range.end_offset > index {
+            range.end_offset -= 1;
+        }
+    }
+}
+
 /// Adjust all live ranges when a child is inserted at `index` in `parent`.
 ///
 /// Per WHATWG DOM §5.5 "insert a node" steps, Range boundaries at
@@ -148,12 +226,11 @@ pub fn adjust_ranges_for_removal(
 /// stay where they are so a Range collapsed at the insertion point
 /// continues to bracket the inserted node from the start).
 ///
-/// Dead helper in this prereq PR — used by D-8 PR-A's in-crate
-/// `LiveRangeRegistry` when wiring the `after_insert` hook. Kept
-/// `pub(crate)` so it stays out of `elidex-dom-api`'s public API
-/// surface until that consumer lands; `#[allow(dead_code)]` because
-/// only the `#[cfg(test)]` block currently exercises it.
-#[allow(dead_code)]
+/// Live consumer (`LiveRangeRegistry` in `range/live.rs`) of the
+/// `after_insert` hook. `pub(crate)` because the only external entry
+/// point is the [`crate::range::live::LiveRangeRegistry`] consumer; no
+/// other crate is expected to drive Range adjustment directly.
+#[allow(dead_code)] // wired up by range::live::LiveRangeRegistry below in the same PR
 pub(crate) fn adjust_ranges_for_insertion(ranges: &mut [Range], parent: Entity, index: usize) {
     for range in ranges.iter_mut() {
         if range.start_container == parent && range.start_offset > index {
@@ -176,6 +253,182 @@ pub fn adjust_ranges_for_text_change(ranges: &mut [Range], node: Entity, new_utf
         }
         if range.end_container == node && range.end_offset > new_utf16_len {
             range.end_offset = new_utf16_len;
+        }
+    }
+}
+
+/// Adjust all live ranges when a `CharacterData` middle-splice
+/// (`appendData` / `insertData` / `deleteData` / `replaceData`) mutates
+/// `node`'s data (WHATWG DOM §4.10 "replace data" steps 8-11).
+///
+/// For each boundary whose container is `node`:
+/// - If `off ∈ [offset, offset + count]` → collapse boundary to `offset`
+///   (boundary fell inside the spliced region; clamp to splice start).
+/// - If `off > offset + count` → `off += new_data_len - count` (boundary
+///   past the spliced region; shift by net length delta).
+/// - Otherwise: boundary lies before the splice region; unchanged.
+///
+/// Boundaries on other containers are unaffected.
+///
+/// `pub(crate)` per the same rationale as
+/// [`adjust_ranges_for_insertion`] — `LiveRangeRegistry` is the only
+/// driver.
+#[allow(dead_code)] // wired up by range::live::LiveRangeRegistry below in the same PR
+pub(crate) fn adjust_ranges_for_replace_data(
+    ranges: &mut [Range],
+    node: Entity,
+    offset: usize,
+    count: usize,
+    new_data_len: usize,
+) {
+    let end = offset.saturating_add(count);
+    let adjust = |container: Entity, off: usize| -> usize {
+        if container != node {
+            return off;
+        }
+        if off >= offset && off <= end {
+            offset
+        } else if off > end {
+            // Spec §4.10 step 9-11: pure arithmetic `off += new_data_len -
+            // count`, no clamp. Split into grow / shrink branches to use
+            // saturating ops on `usize`. Precondition `off > offset +
+            // count` guarantees the shrink arm cannot underflow past
+            // `offset + new_data_len`, so saturating_sub returning 0
+            // would require `offset + count < count - new_data_len` i.e.
+            // `offset < -new_data_len` which is impossible for unsigned
+            // offsets — no clamp is needed to preserve the
+            // past-the-spliced-region invariant.
+            if new_data_len >= count {
+                off.saturating_add(new_data_len - count)
+            } else {
+                off.saturating_sub(count - new_data_len)
+            }
+        } else {
+            off
+        }
+    };
+    for range in ranges.iter_mut() {
+        range.start_offset = adjust(range.start_container, range.start_offset);
+        range.end_offset = adjust(range.end_container, range.end_offset);
+    }
+}
+
+/// Adjust all live ranges when a `Text.splitText(offset)` splits `node`
+/// into `node` (head `[..offset]`) and `new_node` (tail `[offset..]`)
+/// per WHATWG DOM §4.10 "split a Text node" step 8.
+///
+/// **Ordering invariant** (mirrors
+/// [`elidex_ecs::MutationHook::after_split_text`] doc): MUST run BEFORE
+/// the caller's subsequent `set_text_data(node, head)` fires
+/// `after_text_change` — otherwise the truncate-clamp on `node`
+/// destroys boundary offsets needed for migration to `new_node`.
+///
+/// For each boundary:
+/// - On `node` at `off > offset` → migrate to `(new_node, off - offset)`.
+/// - On parent of `node` (i.e. `node`'s parent in the tree) at idx `≥
+///   node_idx + 1` → `idx += 1` (parent now has one extra child between
+///   `node` and `node_idx + 1`).
+///
+/// `node_index` is the pre-split index of `node` in its parent — caller
+/// computes it via [`elidex_ecs::EcsDom::index_in_parent`] (or omits
+/// the parent-side adjustment if `node` has no parent: orphan split
+/// cannot affect a parent boundary).
+#[allow(dead_code)] // wired up by range::live::LiveRangeRegistry below in the same PR
+pub(crate) fn adjust_ranges_for_split_text(
+    ranges: &mut [Range],
+    node: Entity,
+    new_node: Entity,
+    offset: usize,
+    parent: Option<Entity>,
+    node_index: Option<usize>,
+) {
+    for range in ranges.iter_mut() {
+        // WHATWG §4.10 step 7.2 / 7.3: strict `off > offset` migrates to
+        // `(new_node, off - offset)`. The equality case (`off == offset`)
+        // stays on `node` at its new end — a Range collapsed at the
+        // split point is preserved on the original node, NOT migrated to
+        // `(new_node, 0)`. This matches Chrome / Firefox observable
+        // behaviour and the spec text as of 2026-05-14.
+        if range.start_container == node && range.start_offset > offset {
+            range.start_container = new_node;
+            range.start_offset -= offset;
+        }
+        if range.end_container == node && range.end_offset > offset {
+            range.end_container = new_node;
+            range.end_offset -= offset;
+        }
+        if let (Some(parent), Some(node_idx)) = (parent, node_index) {
+            if range.start_container == parent && range.start_offset > node_idx {
+                range.start_offset += 1;
+            }
+            if range.end_container == parent && range.end_offset > node_idx {
+                range.end_offset += 1;
+            }
+        }
+    }
+}
+
+/// Adjust all live ranges when `Node.normalize()` merges `merged_child`
+/// into `prev` (WHATWG DOM §4.5 "normalize" step 6.4).
+///
+/// **Ordering invariant** (mirrors
+/// [`elidex_ecs::MutationHook::after_normalize_merge`] doc): MUST run
+/// BEFORE the caller's subsequent `remove_child(parent, merged_child)`
+/// fires `after_remove` — otherwise the boundary on `merged_child` is
+/// collapsed to `(parent, child_idx)` by remove-step semantics and the
+/// migration to `(prev, prev_old_len + off)` is lost.
+///
+/// `prev_old_len` is the UTF-16 length of `prev` BEFORE absorbing
+/// `merged_child`'s data; `merged_child_index` is the pre-removal index
+/// of `merged_child` in its parent (used to migrate boundaries on the
+/// parent that point at `merged_child`'s slot).
+///
+/// For each boundary:
+/// - On `merged_child` at `off` → migrate to
+///   `(prev, prev_old_len + off)`.
+/// - On parent of `merged_child` at `idx == merged_child_index` →
+///   migrate to `(prev, prev_old_len)` (the merge splice point).
+/// - On parent at `idx > merged_child_index` → `idx -= 1` (parent loses
+///   one child).
+#[allow(dead_code)] // wired up by range::live::LiveRangeRegistry below in the same PR
+pub(crate) fn adjust_ranges_for_normalize_merge(
+    ranges: &mut [Range],
+    merged_child: Entity,
+    prev: Entity,
+    prev_old_len: usize,
+    parent: Option<Entity>,
+    merged_child_index: Option<usize>,
+) {
+    for range in ranges.iter_mut() {
+        if range.start_container == merged_child {
+            range.start_container = prev;
+            range.start_offset += prev_old_len;
+        }
+        if range.end_container == merged_child {
+            range.end_container = prev;
+            range.end_offset += prev_old_len;
+        }
+        if let (Some(parent), Some(idx)) = (parent, merged_child_index) {
+            if range.start_container == parent {
+                match range.start_offset.cmp(&idx) {
+                    std::cmp::Ordering::Equal => {
+                        range.start_container = prev;
+                        range.start_offset = prev_old_len;
+                    }
+                    std::cmp::Ordering::Greater => range.start_offset -= 1,
+                    std::cmp::Ordering::Less => {}
+                }
+            }
+            if range.end_container == parent {
+                match range.end_offset.cmp(&idx) {
+                    std::cmp::Ordering::Equal => {
+                        range.end_container = prev;
+                        range.end_offset = prev_old_len;
+                    }
+                    std::cmp::Ordering::Greater => range.end_offset -= 1,
+                    std::cmp::Ordering::Less => {}
+                }
+            }
         }
     }
 }
@@ -292,410 +545,5 @@ fn next_in_preorder_global(current: Entity, dom: &EcsDom) -> Option<Entity> {
     }
 }
 
-// ===========================================================================
-// Tests
-// ===========================================================================
-
 #[cfg(test)]
-#[allow(unused_must_use)]
-mod tests {
-    use super::*;
-    use elidex_ecs::{Attributes, EcsDom, TextContent};
-
-    fn build_range_tree() -> (EcsDom, Entity, Entity, Entity, Entity) {
-        let mut dom = EcsDom::new();
-        let root = dom.create_element("div", Attributes::default());
-        let t1 = dom.create_text("Hello");
-        let span = dom.create_element("span", Attributes::default());
-        let t2 = dom.create_text(" World");
-
-        dom.append_child(root, t1);
-        dom.append_child(root, span);
-        dom.append_child(span, t2);
-
-        (dom, root, t1, span, t2)
-    }
-
-    #[test]
-    fn range_defaults_collapsed() {
-        let (dom, root, _, _, _) = build_range_tree();
-        let range = Range::new(root);
-        assert!(range.collapsed());
-        assert_eq!(range.common_ancestor_container(&dom), root);
-    }
-
-    #[test]
-    fn range_set_start_end() {
-        let (dom, _root, t1, _span, t2) = build_range_tree();
-        let mut range = Range::new(t1);
-        range.set_start(t1, 2);
-        range.set_end(t2, 3);
-        assert!(!range.collapsed());
-        assert_eq!(range.start_offset, 2);
-        assert_eq!(range.end_offset, 3);
-        // Common ancestor should be root (div).
-        let _ca = range.common_ancestor_container(&dom);
-    }
-
-    #[test]
-    fn range_collapsed() {
-        let (_dom, root, _, _, _) = build_range_tree();
-        let mut range = Range::new(root);
-        range.set_start(root, 0);
-        range.set_end(root, 0);
-        assert!(range.collapsed());
-    }
-
-    #[test]
-    fn range_common_ancestor() {
-        let (dom, root, t1, _span, t2) = build_range_tree();
-        let mut range = Range::new(t1);
-        range.set_start(t1, 0);
-        range.set_end(t2, 3);
-        assert_eq!(range.common_ancestor_container(&dom), root);
-    }
-
-    #[test]
-    fn range_select_node_contents() {
-        let (dom, _root, t1, _, _) = build_range_tree();
-        let mut range = Range::new(t1);
-        range.select_node_contents(t1, &dom);
-        assert_eq!(range.start_offset, 0);
-        assert_eq!(range.end_offset, 5); // "Hello" length
-    }
-
-    #[test]
-    fn range_clone() {
-        let (_dom, root, _, _, _) = build_range_tree();
-        let mut range = Range::new(root);
-        range.set_start(root, 1);
-        range.set_end(root, 2);
-        let cloned = range.clone_range();
-        assert_eq!(cloned.start_offset, 1);
-        assert_eq!(cloned.end_offset, 2);
-    }
-
-    #[test]
-    fn range_compare_boundary_points() {
-        let (dom, root, _t1, _span, _t2) = build_range_tree();
-        let mut r1 = Range::new(root);
-        r1.set_start(root, 0);
-        r1.set_end(root, 2);
-
-        let mut r2 = Range::new(root);
-        r2.set_start(root, 1);
-        r2.set_end(root, 3);
-
-        assert_eq!(r1.compare_boundary_points(START_TO_START, &r2, &dom), -1);
-    }
-
-    #[test]
-    fn range_to_string_same_text_node() {
-        let (dom, _root, t1, _, _) = build_range_tree();
-        let mut range = Range::new(t1);
-        range.set_start(t1, 1);
-        range.set_end(t1, 4);
-        assert_eq!(range.to_string(&dom), "ell");
-    }
-
-    #[test]
-    fn range_delete_contents_same_text() {
-        let (mut dom, _root, t1, _, _) = build_range_tree();
-        let mut range = Range::new(t1);
-        range.set_start(t1, 1);
-        range.set_end(t1, 4);
-        range.delete_contents(&mut dom);
-
-        let tc = dom.world().get::<&TextContent>(t1).unwrap();
-        assert_eq!(tc.0, "Ho");
-        assert!(range.collapsed());
-    }
-
-    #[test]
-    fn range_delete_contents_splits_text() {
-        let (mut dom, _root, t1, _, _) = build_range_tree();
-        let mut range = Range::new(t1);
-        range.set_start(t1, 2);
-        range.set_end(t1, 4);
-        range.delete_contents(&mut dom);
-
-        let tc = dom.world().get::<&TextContent>(t1).unwrap();
-        assert_eq!(tc.0, "Heo");
-    }
-
-    #[test]
-    fn range_extract_contents() {
-        let (mut dom, _root, t1, _, _) = build_range_tree();
-        let mut range = Range::new(t1);
-        range.set_start(t1, 1);
-        range.set_end(t1, 4);
-        let frag = range.extract_contents(&mut dom);
-
-        // Fragment should contain "ell".
-        let children: Vec<_> = dom.children_iter(frag).collect();
-        assert_eq!(children.len(), 1);
-        let tc = dom.world().get::<&TextContent>(children[0]).unwrap();
-        assert_eq!(tc.0, "ell");
-
-        // Original text should be "Ho".
-        let tc = dom.world().get::<&TextContent>(t1).unwrap();
-        assert_eq!(tc.0, "Ho");
-    }
-
-    #[test]
-    fn range_to_string_utf16_offsets() {
-        // Test that Range offsets are treated as UTF-16 code units.
-        // U+1F600 is 4 bytes in UTF-8 but 2 UTF-16 code units.
-        let mut dom = EcsDom::new();
-        let root = dom.create_element("div", Attributes::default());
-        let t = dom.create_text("A\u{1F600}B"); // "A<emoji>B" = 3 chars, 4 UTF-16 units
-        dom.append_child(root, t);
-
-        let mut range = Range::new(t);
-        // UTF-16: A(1) + surrogate pair(2) + B(1) = 4 units
-        // offset 1..3 should extract the emoji (surrogate pair)
-        range.set_start(t, 1);
-        range.set_end(t, 3);
-        assert_eq!(range.to_string(&dom), "\u{1F600}");
-
-        // offset 3..4 should extract "B"
-        range.set_start(t, 3);
-        range.set_end(t, 4);
-        assert_eq!(range.to_string(&dom), "B");
-    }
-
-    #[test]
-    fn range_delete_utf16_offsets() {
-        let mut dom = EcsDom::new();
-        let root = dom.create_element("div", Attributes::default());
-        let t = dom.create_text("A\u{1F600}B");
-        dom.append_child(root, t);
-
-        let mut range = Range::new(t);
-        range.set_start(t, 1);
-        range.set_end(t, 3);
-        range.delete_contents(&mut dom);
-
-        let tc = dom.world().get::<&TextContent>(t).unwrap();
-        assert_eq!(tc.0, "AB");
-    }
-
-    #[test]
-    fn range_select_node_contents_utf16() {
-        let mut dom = EcsDom::new();
-        let root = dom.create_element("div", Attributes::default());
-        let t = dom.create_text("A\u{1F600}B");
-        dom.append_child(root, t);
-
-        let mut range = Range::new(t);
-        range.select_node_contents(t, &dom);
-        assert_eq!(range.start_offset, 0);
-        // UTF-16 length: A(1) + surrogate(2) + B(1) = 4
-        assert_eq!(range.end_offset, 4);
-    }
-
-    #[test]
-    fn adjust_ranges_for_removal_basic() {
-        let mut dom = EcsDom::new();
-        let parent = dom.create_element("div", Attributes::default());
-        let c0 = dom.create_element("a", Attributes::default());
-        let c1 = dom.create_element("b", Attributes::default());
-        let c2 = dom.create_element("c", Attributes::default());
-        dom.append_child(parent, c0);
-        dom.append_child(parent, c1);
-        dom.append_child(parent, c2);
-
-        let mut r = Range::new(parent);
-        r.set_start(parent, 1);
-        r.set_end(parent, 3);
-
-        let mut ranges = [r];
-        // Remove child at index 1 (c1).
-        super::adjust_ranges_for_removal(&mut ranges, c1, parent, 1, &dom);
-
-        // start_offset was 1 (== index), not > index, so unchanged.
-        assert_eq!(ranges[0].start_offset, 1);
-        // end_offset was 3 (> index 1), so decremented to 2.
-        assert_eq!(ranges[0].end_offset, 2);
-    }
-
-    #[test]
-    fn adjust_ranges_for_removal_container_is_removed() {
-        let mut dom = EcsDom::new();
-        let parent = dom.create_element("div", Attributes::default());
-        let child = dom.create_text("hello");
-        dom.append_child(parent, child);
-
-        let mut r = Range::new(child);
-        r.set_start(child, 2);
-        r.set_end(child, 4);
-
-        let mut ranges = [r];
-        super::adjust_ranges_for_removal(&mut ranges, child, parent, 0, &dom);
-
-        // Both boundaries should collapse to (parent, 0).
-        assert_eq!(ranges[0].start_container, parent);
-        assert_eq!(ranges[0].start_offset, 0);
-        assert_eq!(ranges[0].end_container, parent);
-        assert_eq!(ranges[0].end_offset, 0);
-    }
-
-    #[test]
-    fn adjust_ranges_for_removal_descendant_container_collapses() {
-        // WHATWG DOM §5.5 "remove a node" steps 4-6: boundaries whose
-        // container is an inclusive descendant of the removed node must
-        // collapse to (parent, index), not just direct-equality containers.
-        let mut dom = EcsDom::new();
-        let parent = dom.create_element("div", Attributes::default());
-        let section = dom.create_element("section", Attributes::default());
-        let p = dom.create_element("p", Attributes::default());
-        let inner_text = dom.create_text("hello");
-        dom.append_child(parent, section);
-        dom.append_child(section, p);
-        dom.append_child(p, inner_text);
-
-        // Range boundaries sit on inner_text (a descendant of `section`).
-        let mut r = Range::new(inner_text);
-        r.set_start(inner_text, 2);
-        r.set_end(inner_text, 4);
-
-        let mut ranges = [r];
-        super::adjust_ranges_for_removal(&mut ranges, section, parent, 0, &dom);
-
-        // Both boundaries must collapse to (parent, 0).
-        assert_eq!(ranges[0].start_container, parent);
-        assert_eq!(ranges[0].start_offset, 0);
-        assert_eq!(ranges[0].end_container, parent);
-        assert_eq!(ranges[0].end_offset, 0);
-    }
-
-    #[test]
-    fn adjust_ranges_for_insertion_increments_strict_greater() {
-        let mut dom = EcsDom::new();
-        let parent = dom.create_element("div", Attributes::default());
-        let c0 = dom.create_element("a", Attributes::default());
-        let c1 = dom.create_element("b", Attributes::default());
-        dom.append_child(parent, c0);
-        dom.append_child(parent, c1);
-
-        // Boundaries at offset 1 and 2 in `parent`. Inserting at index 1
-        // shifts only the offset > 1, leaving offset == 1 in place.
-        let mut r = Range::new(parent);
-        r.set_start(parent, 1);
-        r.set_end(parent, 2);
-        let mut ranges = [r];
-        super::adjust_ranges_for_insertion(&mut ranges, parent, 1);
-
-        assert_eq!(ranges[0].start_offset, 1);
-        assert_eq!(ranges[0].end_offset, 3);
-    }
-
-    #[test]
-    fn adjust_ranges_for_insertion_leaves_other_containers_alone() {
-        let mut dom = EcsDom::new();
-        let parent = dom.create_element("div", Attributes::default());
-        let other = dom.create_element("section", Attributes::default());
-        let mut r = Range::new(parent);
-        r.set_start(other, 0);
-        r.set_end(other, 5);
-
-        let mut ranges = [r];
-        super::adjust_ranges_for_insertion(&mut ranges, parent, 0);
-
-        assert_eq!(ranges[0].start_container, other);
-        assert_eq!(ranges[0].start_offset, 0);
-        assert_eq!(ranges[0].end_container, other);
-        assert_eq!(ranges[0].end_offset, 5);
-    }
-
-    #[test]
-    fn adjust_ranges_for_text_change() {
-        let mut dom = EcsDom::new();
-        let root = dom.create_element("div", Attributes::default());
-        let t = dom.create_text("hello");
-        dom.append_child(root, t);
-
-        let mut r = Range::new(t);
-        r.set_start(t, 2);
-        r.set_end(t, 5);
-
-        let mut ranges = [r];
-        // Shorten text to 3 UTF-16 units.
-        super::adjust_ranges_for_text_change(&mut ranges, t, 3);
-
-        assert_eq!(ranges[0].start_offset, 2); // still valid
-        assert_eq!(ranges[0].end_offset, 3); // clamped from 5 to 3
-    }
-
-    #[test]
-    fn range_insert_node() {
-        let (mut dom, root, t1, _, _) = build_range_tree();
-        let mut range = Range::new(t1);
-        range.set_start(t1, 2);
-        range.set_end(t1, 2);
-
-        let new_elem = dom.create_element("b", Attributes::default());
-        range.insert_node(&mut dom, new_elem);
-
-        // t1 should be "He", then <b>, then "llo".
-        let children: Vec<_> = dom.children_iter(root).collect();
-        assert!(children.len() >= 3);
-        let tc = dom.world().get::<&TextContent>(children[0]).unwrap();
-        assert_eq!(tc.0, "He");
-        assert_eq!(children[1], new_elem);
-    }
-
-    #[test]
-    fn range_extract_contents_element_children() {
-        // Test extracting element nodes (not just text).
-        let mut dom = EcsDom::new();
-        let div = dom.create_element("div", Attributes::default());
-        let a = dom.create_element("a", Attributes::default());
-        let b = dom.create_element("b", Attributes::default());
-        let c = dom.create_element("c", Attributes::default());
-        dom.append_child(div, a);
-        dom.append_child(div, b);
-        dom.append_child(div, c);
-
-        // Range: div children [1..2] -> should extract <b>.
-        let mut range = Range::new(div);
-        range.set_start(div, 1);
-        range.set_end(div, 2);
-        let frag = range.extract_contents(&mut dom);
-
-        // Fragment should contain <b>.
-        let frag_children: Vec<_> = dom.children_iter(frag).collect();
-        assert_eq!(frag_children.len(), 1);
-        assert_eq!(frag_children[0], b);
-
-        // Original div should have <a> and <c>.
-        let div_children: Vec<_> = dom.children_iter(div).collect();
-        assert_eq!(div_children.len(), 2);
-        assert_eq!(div_children[0], a);
-        assert_eq!(div_children[1], c);
-    }
-
-    #[test]
-    fn range_extract_contents_cross_container() {
-        // Range spanning from text node t1 to text node t2 across containers.
-        let (mut dom, _root, t1, _span, t2) = build_range_tree();
-        // Tree: root -> [t1("Hello"), span -> [t2(" World")]]
-
-        let mut range = Range::new(t1);
-        range.set_start(t1, 3); // "Hel|lo" -> extract "lo"
-        range.set_end(t2, 3); // " Wo|rld" -> extract " Wo"
-        let frag = range.extract_contents(&mut dom);
-
-        // t1 should be "Hel".
-        let tc1 = dom.world().get::<&TextContent>(t1).unwrap();
-        assert_eq!(tc1.0, "Hel");
-
-        // t2 should be "rld".
-        let tc2 = dom.world().get::<&TextContent>(t2).unwrap();
-        assert_eq!(tc2.0, "rld");
-
-        // Fragment should contain extracted text nodes.
-        let frag_children: Vec<_> = dom.children_iter(frag).collect();
-        assert!(frag_children.len() >= 2);
-    }
-}
+mod tests;

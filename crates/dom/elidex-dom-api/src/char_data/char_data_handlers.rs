@@ -6,6 +6,7 @@ use elidex_script_session::{
     ComponentKind, DomApiError, DomApiErrorKind, DomApiHandler, SessionCore,
 };
 
+use crate::char_data::split_text::{split_text_at_offset, SplitTextError};
 use crate::util::{not_found_error, require_string_arg};
 
 // ===========================================================================
@@ -124,6 +125,40 @@ pub(crate) fn utf16_to_byte_offset(s: &str, utf16_offset: usize) -> Option<usize
     } else {
         None
     }
+}
+
+/// Splice `entity`'s CharacterData per WHATWG DOM §4.10 "replace
+/// data". Routes Text / CDATASection writes through the
+/// [`elidex_ecs::EcsDom::replace_text_data`] chokepoint so the
+/// installed `MutationHook` (e.g. `LiveRangeRegistry`) sees the
+/// middle-splice as `after_replace_data` rather than a whole-string
+/// `after_text_change` — boundary-adjustment math differs (§4.10
+/// steps 8-11 vs §5.5 clamp).
+///
+/// Comment writes do not fire Range live-tracking per WHATWG §5.5,
+/// so the Comment branch keeps the legacy "compute spliced string +
+/// set_char_data" path. Caller is responsible for validating
+/// `offset > utf16_len` and raising `IndexSizeError` BEFORE invoking
+/// this helper (the engine-side `replace_text_data` only
+/// `debug_assert!`s the bound).
+pub(crate) fn splice_char_data(
+    entity: Entity,
+    dom: &mut EcsDom,
+    offset: usize,
+    count: usize,
+    replacement: &str,
+) -> Result<(), DomApiError> {
+    if dom
+        .replace_text_data(entity, offset, count, replacement)
+        .is_some()
+    {
+        return Ok(());
+    }
+    // Comment fallback: read original, splice, write back via the
+    // CommentData path (no Range hook fires for Comment per §5.5).
+    let original = get_char_data(entity, dom)?;
+    let new = splice_utf16(&original, offset, count, Some(replacement));
+    set_char_data(entity, dom, &new)
 }
 
 /// Splice a UTF-16 view of `original` and return the result as a Rust
@@ -294,9 +329,16 @@ impl DomApiHandler for AppendData {
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let append_str = require_string_arg(args, 0)?;
-        let mut existing = get_char_data(this, dom)?;
-        existing.push_str(&append_str);
-        set_char_data(this, dom, &existing)?;
+        let len = utf16_len(&get_char_data(this, dom)?);
+        // `appendData(s)` is the WHATWG-defined shorthand for
+        // `replaceData(length, 0, s)` (§11.2 step 6 default). Route
+        // through the splice chokepoint so `after_replace_data`
+        // fires with the canonical `(offset=length, count=0,
+        // new_data_len)` shape — Range live-tracking treats this as
+        // a pure tail insertion (no boundary collapse, only
+        // `off > length` boundaries shift; in practice none on a
+        // CharacterData node).
+        splice_char_data(this, dom, len, 0, &append_str)?;
         Ok(JsValue::Undefined)
     }
 }
@@ -322,8 +364,8 @@ impl DomApiHandler for InsertData {
         if offset > utf16_len(&data) {
             return Err(index_size_error("offset exceeds data length"));
         }
-        let result = splice_utf16(&data, offset, 0, Some(&insert_str));
-        set_char_data(this, dom, &result)?;
+        // `insertData(offset, s)` == `replaceData(offset, 0, s)`.
+        splice_char_data(this, dom, offset, 0, &insert_str)?;
         Ok(JsValue::Undefined)
     }
 }
@@ -349,8 +391,8 @@ impl DomApiHandler for DeleteData {
         if offset > utf16_len(&data) {
             return Err(index_size_error("offset exceeds data length"));
         }
-        let result = splice_utf16(&data, offset, count, None);
-        set_char_data(this, dom, &result)?;
+        // `deleteData(offset, count)` == `replaceData(offset, count, "")`.
+        splice_char_data(this, dom, offset, count, "")?;
         Ok(JsValue::Undefined)
     }
 }
@@ -377,22 +419,20 @@ impl DomApiHandler for ReplaceData {
         if offset > utf16_len(&data) {
             return Err(index_size_error("offset exceeds data length"));
         }
-        let result = splice_utf16(&data, offset, count, Some(&replace_str));
-        set_char_data(this, dom, &result)?;
+        splice_char_data(this, dom, offset, count, &replace_str)?;
         Ok(JsValue::Undefined)
     }
 }
 
 /// `text.splitText(offset)` — splits a Text node at the given offset.
 ///
-/// Creates a new text node containing the data from `offset` onward, truncates
-/// this node's data to `[0, offset)`, and inserts the new node after this one.
-/// Returns the new node as an `ObjectRef`.
-///
-// TODO(D-8 PR-A): WHATWG DOM §5.5 "Split text steps" requires Range
-// boundary re-targeting from `this` to the new text node for boundaries
-// at offset > split_offset. `LiveRangeRegistry` handles this inline within
-// this method when installed; no `MutationHook` trait method covers it.
+/// Delegates to the engine-independent [`split_text_at_offset`] which
+/// owns the canonical WHATWG DOM §4.10 "split a Text node" algorithm:
+/// `insert new_node → fire_after_split_text → set_text_data(head)`.
+/// Range live-tracking via the `MutationHook` falls out of the
+/// ordering — boundaries on the original node at off > split_offset
+/// migrate to (new_node, off - offset) BEFORE the head-truncate
+/// would clamp them down.
 pub struct SplitText;
 
 impl DomApiHandler for SplitText {
@@ -407,7 +447,10 @@ impl DomApiHandler for SplitText {
         session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        // Verify this is a text node.
+        // Verify this is a text node (mirrors the legacy NodeKind brand
+        // check; engine-indep `split_text_at_offset` does its own check
+        // via `node_kind_inferred`, but matching this error variant
+        // keeps the DomApiHandler error shape stable for boa).
         let nk = dom
             .world()
             .get::<&NodeKind>(this)
@@ -421,34 +464,23 @@ impl DomApiHandler for SplitText {
         drop(nk);
 
         let offset = require_usize_arg(args, 0)?;
-        let data = get_char_data(this, dom)?;
-        if offset > utf16_len(&data) {
-            return Err(index_size_error("offset exceeds data length"));
-        }
-        let byte_off = utf16_to_byte_offset(&data, offset)
-            .ok_or_else(|| index_size_error("offset not on character boundary"))?;
-
-        let head = data[..byte_off].to_string();
-        let tail = data[byte_off..].to_string();
-
-        // Update this node's data.
-        set_char_data(this, dom, &head)?;
-
-        // Create new text node with the tail.
-        let new_node = dom.create_text(&tail);
-
-        // Insert new node after this node in the parent's children.
-        if let Some(parent) = dom.get_parent(this) {
-            if let Some(next) = dom.get_next_sibling(this) {
-                let ok = dom.insert_before(parent, new_node, next);
-                debug_assert!(ok, "insert_before: parent/sibling verified");
-            } else {
-                let ok = dom.append_child(parent, new_node);
-                debug_assert!(ok, "append_child: parent verified via get_parent");
+        let new_node = split_text_at_offset(this, offset, dom).map_err(|e| match e {
+            SplitTextError::NotTextNode => DomApiError {
+                kind: DomApiErrorKind::InvalidStateError,
+                message: "splitText: not a Text node".into(),
+            },
+            SplitTextError::MissingTextContent => DomApiError {
+                kind: DomApiErrorKind::InvalidStateError,
+                message: "splitText: missing TextContent payload".into(),
+            },
+            SplitTextError::OffsetOutOfBounds { offset, len } => {
+                index_size_error(&format!("offset {offset} exceeds data length {len}"))
             }
-        }
-
-        dom.rev_version(this);
+            SplitTextError::InsertFailed | SplitTextError::InternalInvariant => DomApiError {
+                kind: DomApiErrorKind::InvalidStateError,
+                message: "splitText: internal invariant violation".into(),
+            },
+        })?;
         let obj_ref = session.get_or_create_wrapper(new_node, ComponentKind::TextNode);
         Ok(JsValue::ObjectRef(obj_ref.to_raw()))
     }

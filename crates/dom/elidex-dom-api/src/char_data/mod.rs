@@ -5,6 +5,7 @@ mod attr;
 mod char_data_handlers;
 mod doctype;
 mod document_props;
+pub mod split_text;
 
 pub use attr::{
     CreateAttribute, GetAttrName, GetAttrSpecified, GetAttrValue, GetAttributeNode,

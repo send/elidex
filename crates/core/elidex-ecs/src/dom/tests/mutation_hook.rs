@@ -27,6 +27,26 @@ enum MockEvent {
         node: Entity,
         new_utf16_len: usize,
     },
+    ReplaceData {
+        node: Entity,
+        offset: usize,
+        count: usize,
+        new_data_len: usize,
+    },
+    SplitText {
+        node: Entity,
+        new_node: Entity,
+        offset: usize,
+        parent: Option<Entity>,
+        node_index: Option<usize>,
+    },
+    NormalizeMerge {
+        merged_child: Entity,
+        prev: Entity,
+        prev_old_len: usize,
+        parent: Option<Entity>,
+        merged_child_index: Option<usize>,
+    },
 }
 
 #[derive(Default, Clone)]
@@ -36,6 +56,18 @@ struct MockHook {
 
 impl MutationHook for MockHook {
     fn after_remove(&mut self, node: Entity, parent: Entity, removed_index: usize) {
+        // General-purpose tests don't assert on the descendants
+        // snapshot. The dedicated
+        // `destroy_entity_passes_inclusive_descendants_snapshot` test
+        // uses a separate `DescendantSnapshotHook` to override
+        // `after_remove_with_descendants` and pin the snapshot shape
+        // + order.
+        //
+        // MockHook only overrides the basic `after_remove` method;
+        // the default impl of `after_remove_with_descendants`
+        // delegates here, so MockHook captures the same event shape
+        // it always has — additive-trait migration is transparent
+        // for this consumer (PR186 R4 #1).
         self.events.lock().unwrap().push(MockEvent::Remove {
             node,
             parent,
@@ -53,6 +85,52 @@ impl MutationHook for MockHook {
         self.events.lock().unwrap().push(MockEvent::TextChange {
             node,
             new_utf16_len,
+        });
+    }
+    fn after_replace_data(
+        &mut self,
+        node: Entity,
+        offset_utf16: usize,
+        count_utf16: usize,
+        new_data_len_utf16: usize,
+    ) {
+        self.events.lock().unwrap().push(MockEvent::ReplaceData {
+            node,
+            offset: offset_utf16,
+            count: count_utf16,
+            new_data_len: new_data_len_utf16,
+        });
+    }
+    fn after_split_text(
+        &mut self,
+        node: Entity,
+        new_node: Entity,
+        offset_utf16: usize,
+        parent: Option<Entity>,
+        node_index: Option<usize>,
+    ) {
+        self.events.lock().unwrap().push(MockEvent::SplitText {
+            node,
+            new_node,
+            offset: offset_utf16,
+            parent,
+            node_index,
+        });
+    }
+    fn after_normalize_merge(
+        &mut self,
+        merged_child: Entity,
+        prev: Entity,
+        prev_old_len_utf16: usize,
+        parent: Option<Entity>,
+        merged_child_index: Option<usize>,
+    ) {
+        self.events.lock().unwrap().push(MockEvent::NormalizeMerge {
+            merged_child,
+            prev,
+            prev_old_len: prev_old_len_utf16,
+            parent,
+            merged_child_index,
         });
     }
 }
@@ -693,6 +771,169 @@ fn append_child_after_attach_shadow_reports_light_tree_index() {
 }
 
 #[test]
+fn replace_text_data_fires_after_replace_data_with_offset_count_replacement_len() {
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "p");
+    let text = dom.create_text("hello");
+    assert!(dom.append_child(parent, text));
+
+    let events = install_mock(&mut dom);
+    // Replace "ell" (offset=1, count=3) with "XYZ" (replacement_len=3) →
+    // "hXYZo" (new total length 5).
+    assert_eq!(dom.replace_text_data(text, 1, 3, "XYZ"), Some(5));
+
+    let log = events.lock().unwrap().clone();
+    assert_eq!(
+        log,
+        vec![MockEvent::ReplaceData {
+            node: text,
+            offset: 1,
+            count: 3,
+            new_data_len: 3,
+        }]
+    );
+    let tc = dom.world().get::<&TextContent>(text).expect("TextContent");
+    assert_eq!(tc.0, "hXYZo");
+}
+
+#[test]
+fn replace_text_data_clamps_count_silently() {
+    // WHATWG §11.2 step 6: "if offset + count is greater than length,
+    // end at length". `replace_text_data` is the engine primitive, so
+    // it applies the clamp internally; bounds-validation (IndexSizeError
+    // for offset > len) is the caller's responsibility.
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "p");
+    let text = dom.create_text("abcde");
+    assert!(dom.append_child(parent, text));
+
+    let events = install_mock(&mut dom);
+    // count=99 past end → clamped to 4 ("bcde"). "abcde" with
+    // offset=1 + delete "bcde" + insert "Z" → "aZ" (length 2). Hook
+    // reports the CLAMPED count (4), per WHATWG §11.2 step 6 — Range
+    // live-tracking math depends on the actual spliced span, not the
+    // caller's possibly-overflowing argument (PR186 R3 #1).
+    assert_eq!(dom.replace_text_data(text, 1, 99, "Z"), Some(2));
+
+    let log = events.lock().unwrap().clone();
+    assert_eq!(
+        log,
+        vec![MockEvent::ReplaceData {
+            node: text,
+            offset: 1,
+            count: 4,
+            new_data_len: 1,
+        }]
+    );
+    let tc = dom.world().get::<&TextContent>(text).expect("TextContent");
+    assert_eq!(tc.0, "aZ");
+}
+
+#[test]
+fn replace_text_data_on_non_text_entity_returns_none_and_does_not_fire() {
+    let mut dom = EcsDom::new();
+    let element = elem(&mut dom, "div");
+
+    let events = install_mock(&mut dom);
+    assert_eq!(dom.replace_text_data(element, 0, 0, "x"), None);
+
+    assert!(events.lock().unwrap().is_empty());
+}
+
+#[test]
+fn replace_text_data_bumps_inclusive_descendants_version() {
+    // Mirrors `set_text_data_bumps_inclusive_descendants_version`: the
+    // splice primitive must self-bump rev_version so callers don't
+    // need a redundant call.
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let parent = elem(&mut dom, "p");
+    let text = dom.create_text("hello");
+    assert!(dom.append_child(doc, parent));
+    assert!(dom.append_child(parent, text));
+
+    let before_doc = dom.inclusive_descendants_version(doc);
+    let before_text = dom.inclusive_descendants_version(text);
+
+    dom.replace_text_data(text, 1, 2, "X");
+
+    assert!(
+        dom.inclusive_descendants_version(text) > before_text,
+        "text node version did not advance after replace_text_data"
+    );
+    assert!(
+        dom.inclusive_descendants_version(doc) > before_doc,
+        "doc-root version did not advance — live collections rooted at \
+         document would miss the splice"
+    );
+}
+
+#[test]
+fn fire_after_split_text_helper_routes_to_hook() {
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "p");
+    let text = dom.create_text("hello world");
+    let new_text = dom.create_text("");
+    assert!(dom.append_child(parent, text));
+    assert!(dom.append_child(parent, new_text));
+
+    let events = install_mock(&mut dom);
+    dom.fire_after_split_text(text, new_text, 5, Some(parent), Some(0));
+
+    let log = events.lock().unwrap().clone();
+    assert_eq!(
+        log,
+        vec![MockEvent::SplitText {
+            node: text,
+            new_node: new_text,
+            offset: 5,
+            parent: Some(parent),
+            node_index: Some(0),
+        }]
+    );
+}
+
+#[test]
+fn fire_after_normalize_merge_helper_routes_to_hook() {
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "p");
+    let prev = dom.create_text("hello");
+    let merged_child = dom.create_text("world");
+    assert!(dom.append_child(parent, prev));
+    assert!(dom.append_child(parent, merged_child));
+
+    let events = install_mock(&mut dom);
+    // prev_old_len = 5 (len of "hello" before absorbing "world").
+    dom.fire_after_normalize_merge(merged_child, prev, 5, Some(parent), Some(1));
+
+    let log = events.lock().unwrap().clone();
+    assert_eq!(
+        log,
+        vec![MockEvent::NormalizeMerge {
+            merged_child,
+            prev,
+            prev_old_len: 5,
+            parent: Some(parent),
+            merged_child_index: Some(1),
+        }]
+    );
+}
+
+#[test]
+fn fire_helpers_silent_when_no_hook_installed() {
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "p");
+    let text = dom.create_text("hi");
+    let new_text = dom.create_text("");
+    assert!(dom.append_child(parent, text));
+    assert!(dom.append_child(parent, new_text));
+
+    // No hook installed — helpers must be no-ops, not panic.
+    dom.fire_after_split_text(text, new_text, 1, Some(parent), Some(0));
+    dom.fire_after_normalize_merge(new_text, text, 2, Some(parent), Some(1));
+}
+
+#[test]
 fn append_child_orphan_does_not_fire_after_remove() {
     // Sanity: an orphan child (no old parent) generates only the
     // after_insert callback; there is no implicit removal to report.
@@ -712,4 +953,98 @@ fn append_child_orphan_does_not_fire_after_remove() {
             index: 0
         }]
     );
+}
+
+// ---------------------------------------------------------------------------
+// after_remove descendants snapshot (PR186 R2 #3 regression)
+// ---------------------------------------------------------------------------
+
+type DescendantSnapshotLog = Vec<(Entity, Vec<Entity>)>;
+
+#[derive(Default, Clone)]
+struct DescendantSnapshotHook {
+    snapshot: Arc<Mutex<DescendantSnapshotLog>>,
+}
+
+impl MutationHook for DescendantSnapshotHook {
+    fn after_remove_with_descendants(
+        &mut self,
+        node: Entity,
+        _parent: Entity,
+        _removed_index: usize,
+        descendants: &[Entity],
+    ) {
+        self.snapshot
+            .lock()
+            .unwrap()
+            .push((node, descendants.to_vec()));
+    }
+}
+
+#[test]
+fn destroy_entity_passes_inclusive_descendants_snapshot() {
+    // PR186 R2 #3: `destroy_entity` MUST snapshot the light-tree
+    // inclusive-descendant set BEFORE orphaning children, so a Range
+    // boundary consumer can collapse boundaries on still-live
+    // descendants without depending on intact parent links.
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    let target = elem(&mut dom, "section");
+    let child_a = elem(&mut dom, "p");
+    let grandchild = dom.create_text("inner");
+    let child_b = elem(&mut dom, "span");
+    assert!(dom.append_child(parent, target));
+    assert!(dom.append_child(target, child_a));
+    assert!(dom.append_child(child_a, grandchild));
+    assert!(dom.append_child(target, child_b));
+
+    let hook = DescendantSnapshotHook::default();
+    let snapshot_handle = hook.snapshot.clone();
+    dom.set_mutation_hook(Box::new(hook));
+
+    assert!(dom.destroy_entity(target));
+
+    let log = snapshot_handle.lock().unwrap().clone();
+    assert_eq!(log.len(), 1, "exactly one after_remove fires for target");
+    let (recorded_node, descendants) = &log[0];
+    assert_eq!(*recorded_node, target);
+    // Snapshot must include target + every light-tree descendant.
+    // Order within the snapshot is implementation-defined (DFS via
+    // children_iter / explicit stack), but the SET is fixed.
+    let mut sorted = descendants.clone();
+    sorted.sort();
+    let mut expected = vec![target, child_a, grandchild, child_b];
+    expected.sort();
+    assert_eq!(
+        sorted, expected,
+        "snapshot includes target + child_a + grandchild + child_b"
+    );
+}
+
+#[test]
+fn remove_child_passes_inclusive_descendants_snapshot() {
+    // Sanity: plain `remove_child` also passes the snapshot, in case
+    // a hook consumer relies on it uniformly across remove paths.
+    let mut dom = EcsDom::new();
+    let parent = elem(&mut dom, "div");
+    let target = elem(&mut dom, "section");
+    let child = elem(&mut dom, "p");
+    assert!(dom.append_child(parent, target));
+    assert!(dom.append_child(target, child));
+
+    let hook = DescendantSnapshotHook::default();
+    let snapshot_handle = hook.snapshot.clone();
+    dom.set_mutation_hook(Box::new(hook));
+
+    assert!(dom.remove_child(parent, target));
+
+    let log = snapshot_handle.lock().unwrap().clone();
+    assert_eq!(log.len(), 1);
+    let (recorded_node, descendants) = &log[0];
+    assert_eq!(*recorded_node, target);
+    let mut sorted = descendants.clone();
+    sorted.sort();
+    let mut expected = vec![target, child];
+    expected.sort();
+    assert_eq!(sorted, expected);
 }

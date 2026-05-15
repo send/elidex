@@ -212,23 +212,35 @@ impl EcsDom {
 
         self.detach(entity);
 
-        // Orphan all children: clear their parent and sibling links so they
-        // do not hold dangling references to the destroyed entity.
+        // Fire BEFORE orphaning children + despawn so:
+        //  - the shadow-root suppression check inside `fire_after_remove`
+        //    (which inspects `entity`'s `ShadowRoot` component) still
+        //    sees the live entity, AND
+        //  - descendant walks rooted at children's `parent` chain still
+        //    reach `entity` — `LiveRangeRegistry::finalize_pending`
+        //    uses [`EcsDom::is_ancestor_or_self`] which walks UPWARD
+        //    from a Range boundary container through `get_parent`; that
+        //    walk only finds `entity` while children still hold their
+        //    parent link.
+        //
+        // Without this ordering, a Range boundary on a still-live
+        // descendant of `entity` would silently miss the
+        // `(parent, removed_index)` collapse required by WHATWG §5.5
+        // remove step 4 (Copilot PR186 R2 #3).
+        if let (Some(p), Some(idx)) = (parent, removed_index) {
+            self.fire_after_remove(entity, p, idx);
+        }
+
+        // Orphan all children: clear their parent and sibling links so
+        // they do not hold dangling references to the destroyed entity.
+        // Runs AFTER the hook fire so the descendant walk above sees
+        // intact parent chains.
         let first_child = self.read_rel(entity, |rel| rel.first_child);
         let mut child = first_child;
         while let Some(c) = child {
             let next = self.read_rel(c, |rel| rel.next_sibling);
             self.clear_rel(c);
             child = next;
-        }
-
-        // Fire BEFORE despawn so the shadow-root suppression check
-        // inside `fire_after_remove` (which inspects `entity`'s
-        // `ShadowRoot` component) still sees the live entity. Consumers
-        // observing during the callback may still inspect the entity
-        // (e.g. `is_shadow_root`); the next instruction despawns it.
-        if let (Some(p), Some(idx)) = (parent, removed_index) {
-            self.fire_after_remove(entity, p, idx);
         }
 
         let _ = self.world.despawn(entity);
@@ -405,9 +417,37 @@ impl EcsDom {
         if self.is_shadow_root(node) || self.is_shadow_root(parent) {
             return;
         }
+        // PR186 R2 #3: snapshot the light-tree inclusive-descendant
+        // set BEFORE the caller orphans children / despawns the
+        // subtree (the `destroy_entity` path clears descendant parent
+        // links after this fire). The hook consumer (e.g.
+        // `LiveRangeRegistry`) uses this snapshot to collapse Range
+        // boundaries on any inclusive descendant per WHATWG §5.5
+        // remove step 4 — `is_ancestor_or_self` walking up from the
+        // boundary container would miss orphaned descendants whose
+        // parent link is about to be cleared.
+        let descendants = self.collect_inclusive_descendants(node);
         if let Some(hook) = self.mutation_hook.as_mut() {
-            hook.after_remove(node, parent, index);
+            hook.after_remove_with_descendants(node, parent, index, &descendants);
         }
+    }
+
+    /// Light-tree inclusive-descendant walker — collects `node` plus
+    /// every descendant reachable via [`Self::children_iter`] (which
+    /// suppresses shadow roots). Used by [`Self::fire_after_remove`]
+    /// to snapshot the subtree pre-orphan so `MutationHook` consumers
+    /// can apply boundary adjustments without depending on intact
+    /// parent links.
+    fn collect_inclusive_descendants(&self, node: Entity) -> Vec<Entity> {
+        let mut out = Vec::new();
+        let mut stack = vec![node];
+        while let Some(n) = stack.pop() {
+            out.push(n);
+            for child in self.children_iter(n) {
+                stack.push(child);
+            }
+        }
+        out
     }
 
     /// Detach `child` from its current parent and fire `after_remove` on

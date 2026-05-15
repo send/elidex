@@ -13,12 +13,41 @@ use elidex_ecs::{EcsDom, Entity, NodeKind};
 pub const SHOW_ALL: u32 = 0xFFFF_FFFF;
 /// Show only Element nodes.
 pub const SHOW_ELEMENT: u32 = 0x1;
+/// Show only Attr nodes (legacy; Attr is not a Node in modern DOM but
+/// the constant is preserved for spec-conformance).
+pub const SHOW_ATTRIBUTE: u32 = 0x2;
 /// Show only Text nodes.
 pub const SHOW_TEXT: u32 = 0x4;
+/// Show only CDATASection nodes.
+pub const SHOW_CDATA_SECTION: u32 = 0x8;
+/// Show only EntityReference nodes (legacy; never emitted by modern
+/// HTML parsers but the constant is preserved per WHATWG §7.1).
+pub const SHOW_ENTITY_REFERENCE: u32 = 0x10;
+/// Show only Entity nodes (legacy).
+pub const SHOW_ENTITY: u32 = 0x20;
+/// Show only ProcessingInstruction nodes.
+pub const SHOW_PROCESSING_INSTRUCTION: u32 = 0x40;
 /// Show only Comment nodes.
 pub const SHOW_COMMENT: u32 = 0x80;
 /// Show only Document nodes.
 pub const SHOW_DOCUMENT: u32 = 0x100;
+/// Show only DocumentType nodes.
+pub const SHOW_DOCUMENT_TYPE: u32 = 0x200;
+/// Show only DocumentFragment nodes.
+pub const SHOW_DOCUMENT_FRAGMENT: u32 = 0x400;
+/// Show only Notation nodes (legacy).
+pub const SHOW_NOTATION: u32 = 0x800;
+
+// ---------------------------------------------------------------------------
+// NodeFilter result constants (WHATWG DOM §7.3)
+// ---------------------------------------------------------------------------
+
+/// `NodeFilter.FILTER_ACCEPT` — accept the node, return it.
+pub const FILTER_ACCEPT: u16 = 1;
+/// `NodeFilter.FILTER_REJECT` — reject the node AND skip its descendants.
+pub const FILTER_REJECT: u16 = 2;
+/// `NodeFilter.FILTER_SKIP` — skip the node but descend into its children.
+pub const FILTER_SKIP: u16 = 3;
 
 /// Map a `NodeKind` to its `whatToShow` bitmask bit.
 fn node_kind_bit(kind: NodeKind) -> u32 {
@@ -60,6 +89,24 @@ fn next_in_preorder(current: Entity, root: Entity, dom: &EcsDom) -> Option<Entit
         return Some(child);
     }
     // Walk up to find next sibling.
+    let mut node = current;
+    loop {
+        if node == root {
+            return None;
+        }
+        if let Some(sib) = dom.get_next_sibling(node) {
+            return Some(sib);
+        }
+        node = dom.get_parent(node)?;
+    }
+}
+
+/// Return the next node in pre-order traversal but skip `current`'s
+/// subtree entirely (WHATWG DOM §6.2 `TreeWalker` filter Reject:
+/// rejected nodes have their descendants pruned from the walk).
+/// Walks to `current`'s next sibling, falling back to the nearest
+/// ancestor's next sibling. Confined within `root`.
+fn next_in_preorder_skip_subtree(current: Entity, root: Entity, dom: &EcsDom) -> Option<Entity> {
     let mut node = current;
     loop {
         if node == root {
@@ -263,6 +310,151 @@ impl TreeWalker {
                 return None;
             }
             node = parent;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// FilterAction trait + step_with_filter (engine-indep algorithm hoist)
+// ---------------------------------------------------------------------------
+
+/// Outcome of a `NodeFilter` callback per WHATWG DOM §7.3.
+///
+/// Distinct from raw `u16` so VM-side callers `(1 | 2 | _)` → enum
+/// coercion happens at the marshalling boundary (`vm/host/node_filter_dispatch.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeFilterResult {
+    /// Accept this node; return it from the traversal.
+    Accept,
+    /// Reject this node AND skip its descendants. Per WHATWG DOM §7.3:
+    /// pre-order traversal ([`step_with_filter`]) walks past the
+    /// rejected subtree to the rejected node's next sibling / ancestor
+    /// sibling; sibling-only walks (`nextSibling` / `previousSibling`)
+    /// skip the rejected node entirely without descending — both rules
+    /// reach the same observable result of "no descendant of a
+    /// rejected node is visited", but the implementation of
+    /// `step_with_filter` ALWAYS prunes descendants regardless of which
+    /// walk kicked it off.
+    Reject,
+    /// Skip this node but descend into its descendants.
+    Skip,
+}
+
+impl NodeFilterResult {
+    /// Map an `unsigned short` ([WebIDL] coercion) NodeFilter return
+    /// value to [`NodeFilterResult`]. Per spec §6.3, only `1` (Accept)
+    /// and `2` (Reject) are special; every other value (incl. `0`,
+    /// `-1`/`65535`, `3`, `4`+, `NaN`-clamped) maps to Skip.
+    ///
+    /// ## VM-side coercion contract
+    ///
+    /// The caller (VM-side `node_filter_dispatch.rs` in PR-A2) MUST
+    /// apply WebIDL `unsigned short` coercion (see [WebIDL]) BEFORE
+    /// invoking this helper: `ToUint16` per ES2020 §7.1.7 wraps negative numbers
+    /// (`-1` → `65535`), `NaN` / `Infinity` → `0`, fractions truncate
+    /// toward zero. Values outside the `{1, 2}` accept/reject set map
+    /// to `Skip` regardless of the source bit pattern — this function
+    /// only parses the post-coercion `u16` and does NOT itself perform
+    /// coercion. If the VM-side dispatch bypasses coercion (e.g. passes
+    /// the raw `JsValue::Number`), the result enum could be wrong;
+    /// covered by VM-side `tests_traversal::node_filter_coercion_*` in
+    /// the follow-up bindings PR.
+    ///
+    /// [WebIDL]: https://webidl.spec.whatwg.org/
+    #[must_use]
+    pub fn from_unsigned_short(value: u16) -> Self {
+        match value {
+            1 => Self::Accept,
+            2 => Self::Reject,
+            _ => Self::Skip,
+        }
+    }
+}
+
+/// Errors that a [`FilterAction::accept`] callback can surface.
+/// VM-side bindings map this to `VmError`; engine-indep callers
+/// surface it via `Result`.
+#[derive(Debug)]
+pub enum FilterError {
+    /// The JS callback was already running for this traversal —
+    /// per WHATWG §7.2 "TreeWalker filter is active flag", re-entrant
+    /// invocation throws `InvalidStateError`.
+    AlreadyActive,
+    /// The JS callback threw — propagated up the traversal step.
+    Throw,
+}
+
+/// Callback dispatch trait for filtered traversal.
+///
+/// VM-side bindings (`vm/host/tree_walker_proto.rs` /
+/// `node_iterator_proto.rs`) implement this with a closure that
+/// resolves the JS `NodeFilter` callback, sets the active-flag,
+/// invokes it, parses the return value via
+/// [`NodeFilterResult::from_unsigned_short`], and clears the
+/// active-flag on drop. WHATWG DOM §7.3 defines the `NodeFilter`
+/// callback interface — `acceptNode(node)` returning a
+/// `FILTER_ACCEPT` / `FILTER_REJECT` / `FILTER_SKIP` constant.
+pub trait FilterAction {
+    /// Invoke the filter for `node`. Returns the parsed result or a
+    /// re-entrancy / propagated-throw error.
+    fn accept(&mut self, node: Entity) -> Result<NodeFilterResult, FilterError>;
+}
+
+/// Step a [`TreeWalker`] forward in pre-order with `filter` applied
+/// (algorithm hoist per PR-A plan v3 §A8).
+///
+/// On `Accept`: moves `walker.current_node` to the matched node and
+/// returns it. On `Reject` / `Skip`: continues to the next candidate
+/// (Reject is equivalent to Skip for pre-order forward; for
+/// `next_sibling`-style walks Reject would also skip the subtree,
+/// but `next_node` already only visits subtree-walked nodes once).
+///
+/// Returns `None` when traversal exits the subtree rooted at
+/// `walker.root` without finding an accepted node.
+///
+/// `vm/host/tree_walker_proto.rs::native_tree_walker_next_node`
+/// wraps this with a `FilterAction` impl that drives the JS
+/// callback.
+pub fn step_with_filter<F: FilterAction>(
+    walker: &mut TreeWalker,
+    dom: &EcsDom,
+    filter: &mut F,
+) -> Result<Option<Entity>, FilterError> {
+    let mut node = walker.current_node;
+    let mut skip_subtree = false;
+    loop {
+        let next = if skip_subtree {
+            next_in_preorder_skip_subtree(node, walker.root, dom)
+        } else {
+            next_in_preorder(node, walker.root, dom)
+        };
+        let Some(next) = next else {
+            return Ok(None);
+        };
+        if accepts(next, walker.what_to_show, dom) {
+            match filter.accept(next)? {
+                NodeFilterResult::Accept => {
+                    walker.current_node = next;
+                    return Ok(Some(next));
+                }
+                NodeFilterResult::Reject => {
+                    // Spec §6.2: Reject prunes the subtree. Next
+                    // iteration must skip `next`'s descendants.
+                    node = next;
+                    skip_subtree = true;
+                }
+                NodeFilterResult::Skip => {
+                    // Skip the node but still descend into its
+                    // children on the next iteration.
+                    node = next;
+                    skip_subtree = false;
+                }
+            }
+        } else {
+            // The `whatToShow` mask rejected the node; spec §6.2 treats
+            // this as Skip (descend into children).
+            node = next;
+            skip_subtree = false;
         }
     }
 }
@@ -517,6 +709,105 @@ mod tests {
         let next = ni.next_node(&dom);
         // After reset, pointer_before_reference is true, so returns root first.
         assert_eq!(next, Some(root));
+    }
+
+    // --- step_with_filter / FilterAction tests ---
+
+    /// Mock FilterAction that records visited nodes + returns a
+    /// fixed sequence of results indexed by visit count.
+    struct RecordingFilter {
+        results: Vec<NodeFilterResult>,
+        visited: Vec<Entity>,
+        cursor: usize,
+    }
+
+    impl RecordingFilter {
+        fn new(results: Vec<NodeFilterResult>) -> Self {
+            Self {
+                results,
+                visited: Vec::new(),
+                cursor: 0,
+            }
+        }
+    }
+
+    impl FilterAction for RecordingFilter {
+        fn accept(&mut self, node: Entity) -> Result<NodeFilterResult, FilterError> {
+            self.visited.push(node);
+            let r = self.results[self.cursor];
+            self.cursor += 1;
+            Ok(r)
+        }
+    }
+
+    /// FILTER_REJECT must prune descendants; FILTER_SKIP must descend.
+    /// Tree: div -> [section -> [p, em], aside]
+    /// Filter rejects `section`. Walker MUST jump to `aside` next,
+    /// skipping `p` / `em` (descendants of rejected node).
+    #[test]
+    fn step_with_filter_reject_prunes_subtree() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_element("div", Attributes::default());
+        let section = dom.create_element("section", Attributes::default());
+        let p = dom.create_element("p", Attributes::default());
+        let em = dom.create_element("em", Attributes::default());
+        let aside = dom.create_element("aside", Attributes::default());
+        dom.append_child(root, section);
+        dom.append_child(section, p);
+        dom.append_child(section, em);
+        dom.append_child(root, aside);
+
+        let mut walker = TreeWalker::new(root, SHOW_ELEMENT);
+        // Filter: Reject section, Accept aside.
+        let mut filter =
+            RecordingFilter::new(vec![NodeFilterResult::Reject, NodeFilterResult::Accept]);
+
+        let next = step_with_filter(&mut walker, &dom, &mut filter).expect("step ok");
+
+        assert_eq!(next, Some(aside), "Reject must prune `section`'s subtree");
+        assert_eq!(
+            filter.visited,
+            vec![section, aside],
+            "filter must NOT visit p / em (descendants of rejected node)"
+        );
+    }
+
+    /// FILTER_SKIP descends into children (opposite of Reject).
+    /// Same tree; filter skips `section`. Walker MUST visit `p`.
+    #[test]
+    fn step_with_filter_skip_descends_into_subtree() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_element("div", Attributes::default());
+        let section = dom.create_element("section", Attributes::default());
+        let p = dom.create_element("p", Attributes::default());
+        dom.append_child(root, section);
+        dom.append_child(section, p);
+
+        let mut walker = TreeWalker::new(root, SHOW_ELEMENT);
+        let mut filter =
+            RecordingFilter::new(vec![NodeFilterResult::Skip, NodeFilterResult::Accept]);
+
+        let next = step_with_filter(&mut walker, &dom, &mut filter).expect("step ok");
+
+        assert_eq!(next, Some(p), "Skip must descend into `section`");
+        assert_eq!(filter.visited, vec![section, p]);
+    }
+
+    /// FILTER_ACCEPT returns the first matching node and stops.
+    #[test]
+    fn step_with_filter_accept_returns_immediately() {
+        let mut dom = EcsDom::new();
+        let root = dom.create_element("div", Attributes::default());
+        let span = dom.create_element("span", Attributes::default());
+        dom.append_child(root, span);
+
+        let mut walker = TreeWalker::new(root, SHOW_ELEMENT);
+        let mut filter = RecordingFilter::new(vec![NodeFilterResult::Accept]);
+
+        let next = step_with_filter(&mut walker, &dom, &mut filter).expect("step ok");
+
+        assert_eq!(next, Some(span));
+        assert_eq!(walker.current_node, span, "Accept must move walker.current");
     }
 
     // --- Normalize full-tree test ---
