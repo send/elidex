@@ -492,6 +492,13 @@ fn validate_boundary_node_and_offset(
     offset: usize,
     method: &'static str,
 ) -> Result<(), VmError> {
+    // Copilot R11: gate on `host_if_bound` BEFORE `ctx.host().dom()`
+    // call — a retained Range method reaches here via the receiver
+    // brand check (which only requires HostData installed, not
+    // bound).  Surface as detached-range InvalidStateError.
+    if ctx.host_if_bound().is_none() {
+        return Err(detached_range_error(ctx, method));
+    }
     reject_doctype(ctx, node, method)?;
     let len = elidex_dom_api::range::node_length(node, ctx.host().dom());
     if offset > len {
@@ -515,6 +522,11 @@ fn require_attached_node(
     node: Entity,
     method: &'static str,
 ) -> Result<(), VmError> {
+    // Copilot R11: same `host_if_bound` gate as
+    // `validate_boundary_node_and_offset`.
+    if ctx.host_if_bound().is_none() {
+        return Err(detached_range_error(ctx, method));
+    }
     if ctx.host().dom().get_parent(node).is_none() {
         return Err(VmError::dom_exception(
             ctx.vm.well_known.dom_exc_invalid_node_type_error,
@@ -772,6 +784,10 @@ fn reject_doctype(
     method: &'static str,
 ) -> Result<(), VmError> {
     use elidex_ecs::{DocTypeData, NodeKind};
+    // Copilot R11: ctx.host().dom() panics post-unbind.  Gate first.
+    if ctx.host_if_bound().is_none() {
+        return Err(detached_range_error(ctx, method));
+    }
     let dom = ctx.host().dom();
     let is_doctype = matches!(dom.node_kind_inferred(node), Some(NodeKind::DocumentType))
         || dom.world().get::<&DocTypeData>(node).is_ok();

@@ -275,7 +275,15 @@ impl Range {
     /// which fires the spec-correct `after_split_text` hook so live
     /// ranges anchored AFTER the split offset migrate to the new
     /// tail node rather than getting clamp-truncated (Copilot R10).
+    ///
+    /// Copilot R11: for a COLLAPSED range (start == end), WHATWG §4.4
+    /// `insertNode` step 6 sets end to the boundary AFTER the
+    /// inserted node so the range now brackets it.  Without that
+    /// update, the snapshot+commit pattern in VM-side
+    /// `native_range_insert_node` would clobber any hook-applied
+    /// expansion with the pre-insert (still-collapsed) state.
     pub fn insert_node(&mut self, dom: &mut EcsDom, node: Entity) {
+        let was_collapsed = self.collapsed();
         if dom.node_kind(self.start_container) == Some(NodeKind::Text) {
             let parent = dom.get_parent(self.start_container);
             if let Some(parent) = parent {
@@ -305,6 +313,31 @@ impl Range {
                 let _ = dom.insert_before(self.start_container, node, children[self.start_offset]);
             } else {
                 let _ = dom.append_child(self.start_container, node);
+            }
+        }
+
+        // Copilot R11: WHATWG §4.4 insertNode step 13 — if the range
+        // was collapsed pre-insert, set `end` to (parent, newOffset)
+        // so the range brackets the inserted node.  `start` is NOT
+        // modified per spec.  Non-text path: parent === start_container,
+        // newOffset === start_offset + 1.  Text path: parent ===
+        // start_container's parent; the engine-indep helper split the
+        // text node and inserted `node` BEFORE the new tail, so the
+        // inserted node sits at (start_container.index + 1) in parent;
+        // newOffset = start_container.index + 2 (past the inserted node).
+        if was_collapsed {
+            if dom.node_kind(self.start_container) == Some(NodeKind::Text) {
+                if let Some(parent) = dom.get_parent(self.start_container) {
+                    if let Some(idx) = dom
+                        .children_iter(parent)
+                        .position(|c| c == self.start_container)
+                    {
+                        self.end_container = parent;
+                        self.end_offset = idx + 2;
+                    }
+                }
+            } else {
+                self.end_offset = self.start_offset + 1;
             }
         }
     }
