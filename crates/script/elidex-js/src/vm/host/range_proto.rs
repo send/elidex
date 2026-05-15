@@ -108,20 +108,23 @@ impl VmInner {
             (self.well_known.clone_range_method, native_range_clone_range),
             (
                 self.well_known.clone_contents_method,
-                native_range_clone_contents,
+                super::range_proto_mutation::native_range_clone_contents,
             ),
             (
                 self.well_known.extract_contents_method,
-                native_range_extract_contents,
+                super::range_proto_mutation::native_range_extract_contents,
             ),
             (
                 self.well_known.delete_contents_method,
-                native_range_delete_contents,
+                super::range_proto_mutation::native_range_delete_contents,
             ),
-            (self.well_known.insert_node_method, native_range_insert_node),
+            (
+                self.well_known.insert_node_method,
+                super::range_proto_mutation::native_range_insert_node,
+            ),
             (
                 self.well_known.surround_contents_method,
-                native_range_surround_contents,
+                super::range_proto_mutation::native_range_surround_contents,
             ),
             (self.well_known.detach_method, native_range_detach),
             (
@@ -139,7 +142,7 @@ impl VmInner {
             (self.well_known.to_string_method, native_range_to_string),
             (
                 self.well_known.create_contextual_fragment_method,
-                native_range_create_contextual_fragment,
+                super::range_proto_mutation::native_range_create_contextual_fragment,
             ),
         ];
         for (name_sid, func) in methods {
@@ -219,8 +222,9 @@ fn install_boundary_constants(vm: &mut VmInner, target: ObjectId) {
 // ---------------------------------------------------------------------------
 
 /// Recover the [`RangeId`] from `this`, returning `TypeError` if `this`
-/// is not a `Range` instance.
-fn require_range_receiver(
+/// is not a `Range` instance.  Shared with sibling
+/// [`super::range_proto_mutation`] mutating natives.
+pub(super) fn require_range_receiver(
     ctx: &NativeContext<'_>,
     this: JsValue,
     method: &'static str,
@@ -424,13 +428,25 @@ fn native_range_get_common_ancestor(
 // Boundary setters
 // ---------------------------------------------------------------------------
 
-fn arg_offset(ctx: &mut NativeContext<'_>, arg: Option<JsValue>) -> Result<usize, VmError> {
-    let val = arg.unwrap_or(JsValue::Undefined);
+/// Coerce a required `offset: unsigned long` argument per WebIDL.
+/// Copilot R3: a MISSING arg must throw `TypeError`, not silently
+/// default to 0 — `Range.prototype.setStart(node)` (no second arg)
+/// is `Range.prototype.setStart.length === 2`.
+fn arg_offset_required(
+    ctx: &mut NativeContext<'_>,
+    arg: Option<JsValue>,
+    method: &'static str,
+) -> Result<usize, VmError> {
+    let Some(val) = arg else {
+        return Err(VmError::type_error(format!(
+            "Failed to execute '{method}' on 'Range': 2 arguments required"
+        )));
+    };
     let n = super::super::coerce::to_uint32(ctx.vm, val)?;
     Ok(n as usize)
 }
 
-fn arg_node(
+pub(super) fn arg_node(
     ctx: &mut NativeContext<'_>,
     arg: Option<JsValue>,
     method: &'static str,
@@ -498,7 +514,7 @@ fn native_range_set_start(
 ) -> Result<JsValue, VmError> {
     let id = require_range_receiver(ctx, this, "setStart")?;
     let node = arg_node(ctx, args.first().copied(), "setStart")?;
-    let offset = arg_offset(ctx, args.get(1).copied())?;
+    let offset = arg_offset_required(ctx, args.get(1).copied(), "setStart")?;
     validate_boundary_node_and_offset(ctx, node, offset, "setStart")?;
     // Copilot R2: spec step 4 collapse-on-cross-root / after-end.
     write_range(ctx, id, "setStart", |r, dom| {
@@ -514,7 +530,7 @@ fn native_range_set_end(
 ) -> Result<JsValue, VmError> {
     let id = require_range_receiver(ctx, this, "setEnd")?;
     let node = arg_node(ctx, args.first().copied(), "setEnd")?;
-    let offset = arg_offset(ctx, args.get(1).copied())?;
+    let offset = arg_offset_required(ctx, args.get(1).copied(), "setEnd")?;
     validate_boundary_node_and_offset(ctx, node, offset, "setEnd")?;
     write_range(ctx, id, "setEnd", |r, dom| {
         r.set_end_to_boundary(node, offset, dom);
@@ -683,7 +699,7 @@ fn native_range_is_point_in_range(
 ) -> Result<JsValue, VmError> {
     let id = require_range_receiver(ctx, this, "isPointInRange")?;
     let node = arg_node(ctx, args.first().copied(), "isPointInRange")?;
-    let offset = arg_offset(ctx, args.get(1).copied())?;
+    let offset = arg_offset_required(ctx, args.get(1).copied(), "isPointInRange")?;
     reject_doctype(ctx, node, "isPointInRange")?;
     let result = read_range(ctx, id, "isPointInRange", |ctx, r| {
         let dom = ctx.host().dom();
@@ -700,7 +716,7 @@ fn native_range_compare_point(
 ) -> Result<JsValue, VmError> {
     let id = require_range_receiver(ctx, this, "comparePoint")?;
     let node = arg_node(ctx, args.first().copied(), "comparePoint")?;
-    let offset = arg_offset(ctx, args.get(1).copied())?;
+    let offset = arg_offset_required(ctx, args.get(1).copied(), "comparePoint")?;
     reject_doctype(ctx, node, "comparePoint")?;
     let result = read_range(ctx, id, "comparePoint", |ctx, r| {
         let dom = ctx.host().dom();
@@ -837,181 +853,6 @@ fn native_range_to_string(
     Ok(JsValue::String(sid))
 }
 
-// ---------------------------------------------------------------------------
-// Mutating methods
-// ---------------------------------------------------------------------------
-
-/// Snapshot the registered Range, then commit `mutated` back over it.
-/// Copilot R1: `deleteContents` / `extractContents` / `insertNode`
-/// engine-indep impls perform boundary updates (notably the
-/// post-delete collapse to the start point per WHATWG §4.4
-/// `deleteContents` step 3) that are NOT recoverable from the
-/// mutation hooks alone — `set_text_data` hooks only clamp offsets to
-/// the new length, missing the spec-required collapse.  Persist the
-/// post-op boundary state explicitly.
-fn commit_range_after_mutation(
-    ctx: &mut NativeContext<'_>,
-    id: RangeId,
-    method: &'static str,
-    mutated: &Range,
-) -> Result<(), VmError> {
-    let host = ctx.host();
-    let (dom, registry) = host.split_dom_and_live_ranges();
-    let applied = registry.with_range_mut(id, dom, |r, _| {
-        r.start_container = mutated.start_container;
-        r.start_offset = mutated.start_offset;
-        r.end_container = mutated.end_container;
-        r.end_offset = mutated.end_offset;
-    });
-    if applied.is_none() {
-        return Err(VmError::dom_exception(
-            ctx.vm.well_known.dom_exc_invalid_state_error,
-            format!(
-                "Failed to execute '{method}' on 'Range': \
-                 the Range has been detached"
-            ),
-        ));
-    }
-    Ok(())
-}
-
-fn native_range_delete_contents(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let id = require_range_receiver(ctx, this, "deleteContents")?;
-    // Mutating Range methods need `&mut EcsDom` + `&mut LiveRangeRegistry`
-    // — the with_range_mut split gives `&EcsDom` only.  Snapshot the
-    // Range, run the deletion through `&mut EcsDom`, then commit the
-    // post-op boundary state back to the registry (Copilot R1).
-    let mut range = {
-        let host = ctx.host();
-        let (dom, registry) = host.split_dom_and_live_ranges();
-        registry
-            .with_range(id, dom, |r, _| r.clone())
-            .ok_or_else(|| {
-                VmError::dom_exception(
-                    ctx.vm.well_known.dom_exc_invalid_state_error,
-                    "Failed to execute 'deleteContents' on 'Range': \
-                     the Range has been detached",
-                )
-            })?
-    };
-    let host = ctx.host();
-    let dom = host.dom();
-    range.delete_contents(dom);
-    commit_range_after_mutation(ctx, id, "deleteContents", &range)?;
-    Ok(JsValue::Undefined)
-}
-
-fn native_range_extract_contents(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let id = require_range_receiver(ctx, this, "extractContents")?;
-    let mut range = {
-        let host = ctx.host();
-        let (dom, registry) = host.split_dom_and_live_ranges();
-        registry
-            .with_range(id, dom, |r, _| r.clone())
-            .ok_or_else(|| {
-                VmError::dom_exception(
-                    ctx.vm.well_known.dom_exc_invalid_state_error,
-                    "Failed to execute 'extractContents' on 'Range': \
-                     the Range has been detached",
-                )
-            })?
-    };
-    let host = ctx.host();
-    let dom = host.dom();
-    let fragment = range.extract_contents(dom);
-    commit_range_after_mutation(ctx, id, "extractContents", &range)?;
-    Ok(JsValue::Object(ctx.vm.create_element_wrapper(fragment)))
-}
-
-fn native_range_insert_node(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let id = require_range_receiver(ctx, this, "insertNode")?;
-    let node = arg_node(ctx, args.first().copied(), "insertNode")?;
-    let mut range = {
-        let host = ctx.host();
-        let (dom, registry) = host.split_dom_and_live_ranges();
-        registry
-            .with_range(id, dom, |r, _| r.clone())
-            .ok_or_else(|| {
-                VmError::dom_exception(
-                    ctx.vm.well_known.dom_exc_invalid_state_error,
-                    "Failed to execute 'insertNode' on 'Range': \
-                     the Range has been detached",
-                )
-            })?
-    };
-    let host = ctx.host();
-    let dom = host.dom();
-    range.insert_node(dom, node);
-    commit_range_after_mutation(ctx, id, "insertNode", &range)?;
-    Ok(JsValue::Undefined)
-}
-
-// ---------------------------------------------------------------------------
-// Stubs: cloneContents / surroundContents / createContextualFragment
-// ---------------------------------------------------------------------------
-
-/// elidex-specific `NotSupportedError` placeholder pending deep-clone
-/// infrastructure; spec returns a `DocumentFragment` per WHATWG §4.4.
-/// Full impl tracked at `#11-range-full-impl`.
-fn native_range_clone_contents(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let _ = require_range_receiver(ctx, this, "cloneContents")?;
-    Err(VmError::dom_exception(
-        ctx.vm.well_known.dom_exc_not_supported_error,
-        "Failed to execute 'cloneContents' on 'Range': \
-         deep-clone of Range contents is not yet implemented.",
-    ))
-}
-
-/// elidex-specific `NotSupportedError` placeholder pending deep-clone
-/// infrastructure; spec wraps the contents in `newParent` per WHATWG §4.4.
-/// Full impl tracked at `#11-range-full-impl`.
-fn native_range_surround_contents(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let _ = require_range_receiver(ctx, this, "surroundContents")?;
-    // Validate new_parent shape per spec step 2 (Element / Text / Comment /
-    // ProcessingInstruction allowed; Document / DocumentType /
-    // DocumentFragment rejected).  Currently unimplemented past brand
-    // check.
-    let _ = arg_node(ctx, args.first().copied(), "surroundContents")?;
-    Err(VmError::dom_exception(
-        ctx.vm.well_known.dom_exc_not_supported_error,
-        "Failed to execute 'surroundContents' on 'Range': \
-         surround-with-parent is not yet implemented.",
-    ))
-}
-
-/// elidex-specific `NotSupportedError` placeholder pending parser
-/// wiring; spec returns a `DocumentFragment` per WHATWG §3.2 step 7.
-/// Full impl tracked at `#11-range-full-impl`.
-fn native_range_create_contextual_fragment(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let _ = require_range_receiver(ctx, this, "createContextualFragment")?;
-    let _ = args.first().copied().unwrap_or(JsValue::Undefined);
-    Err(VmError::dom_exception(
-        ctx.vm.well_known.dom_exc_not_supported_error,
-        "Failed to execute 'createContextualFragment' on 'Range': \
-         HTML-parser wiring for fragment parsing is not yet implemented.",
-    ))
-}
+// Mutating methods + Phase-A stubs live in sibling
+// [`super::range_proto_mutation`] — split out to keep this module
+// under the ~1000-line convention (Copilot R3 MIN).

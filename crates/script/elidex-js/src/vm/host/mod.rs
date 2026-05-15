@@ -247,6 +247,8 @@ pub(super) mod performance;
 #[cfg(feature = "engine")]
 pub(super) mod range_proto;
 #[cfg(feature = "engine")]
+pub(super) mod range_proto_mutation;
+#[cfg(feature = "engine")]
 pub(crate) mod readable_stream;
 #[cfg(feature = "engine")]
 pub(crate) mod request_response;

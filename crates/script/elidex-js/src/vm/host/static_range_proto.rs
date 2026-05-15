@@ -217,6 +217,27 @@ fn native_static_range_constructor(
     let end_container_val = ctx.vm.get_property_val(init_jsval, end_container_sid)?;
     let end_offset_val = ctx.vm.get_property_val(init_jsval, end_offset_sid)?;
 
+    // Copilot R3: WebIDL `AbstractRangeInit` dictionary lists all 4
+    // members (startContainer / startOffset / endContainer /
+    // endOffset) as `required`.  Missing members yield `undefined`
+    // from `get_property_val`; per WebIDL §3.10.7 step 4 a missing
+    // required member must throw `TypeError`.  `require_node_arg`
+    // already rejects undefined containers; offsets need an explicit
+    // check before `to_uint32` (which would silently truncate
+    // `undefined` to `0`).
+    if matches!(start_offset_val, JsValue::Undefined) {
+        return Err(VmError::type_error(
+            "Failed to construct 'StaticRange': required member \
+             'startOffset' is undefined.",
+        ));
+    }
+    if matches!(end_offset_val, JsValue::Undefined) {
+        return Err(VmError::type_error(
+            "Failed to construct 'StaticRange': required member \
+             'endOffset' is undefined.",
+        ));
+    }
+
     let start_container =
         super::node_proto::require_node_arg(ctx, start_container_val, "StaticRange")?;
     let end_container = super::node_proto::require_node_arg(ctx, end_container_val, "StaticRange")?;

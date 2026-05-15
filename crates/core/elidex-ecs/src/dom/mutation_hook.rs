@@ -107,10 +107,32 @@ pub trait MutationHook: Send + Sync {
     /// §A-NI-1) gives the consumer read-only DOM access during
     /// the hook fire — needed by NodeIterator pre-removing-steps
     /// (WHATWG DOM §6.1 step 1) to walk forward past the
-    /// about-to-be-removed subtree.  The reference still points
-    /// at the live (pre-despawn) tree — lesson #238 fire-before-
-    /// orphan invariant.  Engine fire site uses a take-and-restore
-    /// pattern (see `EcsDom::fire_after_remove`) to release the
+    /// about-to-be-removed subtree.
+    ///
+    /// ## Tree shape at fire time (Copilot R3 doc-correction)
+    ///
+    /// The hook fires AFTER the engine has detached `node` from
+    /// `parent` (`remove_child` / `detach_with_hook` /
+    /// `replace_child` all run `detach()` first, then fire).
+    /// Concretely:
+    ///
+    /// - `parent.children` NO LONGER contains `node` — the slot
+    ///   at `removed_index` is the FIRST FOLLOWER of `node`
+    ///   (or beyond the last child if `node` was last).
+    /// - `node`'s OWN parent / sibling links have been cleared,
+    ///   but its `first_child` / `last_child` and all descendant
+    ///   parent-pointers remain intact (lesson #238 fire-before-
+    ///   despawn invariant — only ECS despawn happens later).
+    /// - `dom` reflects this post-detach, pre-despawn shape.
+    ///
+    /// Consumers walking from `parent` use `removed_index` as
+    /// the FOLLOWER slot directly; consumers walking the removed
+    /// subtree use the `descendants` snapshot (which IS inclusive
+    /// of `node` per `collect_inclusive_descendants`) since the
+    /// detached subtree is no longer reachable from `parent`.
+    ///
+    /// Engine fire site uses a take-and-restore pattern (see
+    /// `EcsDom::fire_after_remove`) to release the
     /// `&mut self.mutation_hook` borrow before passing `&*self`.
     ///
     /// **Backward compatibility**: this is a non-overrider-

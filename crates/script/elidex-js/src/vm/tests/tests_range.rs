@@ -289,6 +289,40 @@ fn set_end_before_start_collapses_start() {
 }
 
 #[test]
+fn set_start_without_offset_throws() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    // Copilot R3 — WebIDL `unsigned long offset` is REQUIRED; a
+    // missing arg must throw TypeError, not silently default to 0.
+    vm.eval(&format!(
+        "{TREE_SETUP}\
+         globalThis.r = new Range();"
+    ))
+    .unwrap();
+    let res = vm.eval("r.setStart(t);");
+    assert!(
+        res.is_err(),
+        "setStart(node) without offset must throw TypeError"
+    );
+    vm.unbind();
+}
+
+#[test]
+fn static_range_requires_start_offset_member() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    // Copilot R3 — `StaticRangeInit.startOffset` / `.endOffset` are
+    // REQUIRED dictionary members; missing must throw TypeError.
+    vm.eval(TREE_SETUP).unwrap();
+    let res = vm.eval("new StaticRange({ startContainer: t, endContainer: t });");
+    assert!(
+        res.is_err(),
+        "missing startOffset/endOffset must throw TypeError"
+    );
+    vm.unbind();
+}
+
+#[test]
 fn document_create_range_brand_check_throws_on_non_document() {
     let (mut vm, mut session, mut dom, doc) = setup();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };

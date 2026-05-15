@@ -849,14 +849,14 @@ fn traverse_node_iterator_filtered<F: FilterAction>(
 /// pre-snapshotted `descendants` slice (which is **inclusive** of
 /// `removed` per `EcsDom::collect_inclusive_descendants`).
 ///
-/// **Plan-v4 §A-NI-1 Round 2 CRIT-2 invariant**: at fire time,
-/// `parent.children[removed_index] == removed` is still true
-/// (`EcsDom::fire_after_remove` runs BEFORE the actual detach —
-/// see [`elidex_ecs::MutationHook::after_remove`] doc).  Walking
-/// from `(parent, removed_index)` therefore enters at the
-/// to-be-removed node itself; the `descendants`-membership filter
-/// naturally skips `removed` + every descendant, advancing to the
-/// post-subtree node.
+/// **Post-detach invariant (Copilot R3 doc-correction)**: at fire
+/// time the engine has ALREADY detached `removed` from `parent`
+/// (`EcsDom::remove_child` / `detach_with_hook` / `replace_child`
+/// run `detach()` first, then fire).  So `parent.children` no
+/// longer contains `removed`; the slot at `removed_index` is the
+/// FIRST FOLLOWER of `removed` in tree order (or `None` past the
+/// end).  The `descendants` snapshot (taken pre-detach) is the
+/// only handle on the removed subtree at fire time.
 ///
 pub fn adjust_node_iterator_for_removal(
     state: &mut crate::mutation_bridge::NodeIteratorState,
@@ -880,64 +880,85 @@ pub fn adjust_node_iterator_for_removal(
         return;
     }
 
-    // Branch (a): walk past the to-be-removed subtree to find the
-    // "first following node not in subtree", per WHATWG §6.1.
+    // Branch (a): adjust per WHATWG §6.1 pre-removing steps.
     //
-    // Entry point is the slot immediately AFTER `(parent,
-    // removed_index)` in tree order — i.e. the next sibling of
-    // `removed`, or its post-order ancestor's next sibling.
-    // We synthesise this by starting at `parent`'s child at
-    // `removed_index` (which IS `removed`, fire-before-detach) and
-    // calling `next_in_preorder` once with `skip_subtree=true`.
-    let entry_seed = dom
-        .children_iter(parent)
-        .nth(removed_index)
-        .unwrap_or(parent);
-    let mut follower =
-        next_in_preorder_skip_subtree(entry_seed, parent_root_of(state.root, dom), dom);
-    while let Some(node) = follower {
-        if !descendants.contains(&node) {
-            state.reference = node;
-            state.pointer_before = true;
-            return;
-        }
-        // Defensive: an entity that IS in `descendants` should never
-        // be returned by `next_in_preorder_skip_subtree` from outside
-        // the subtree, but if it does (corrupted ancestry / sibling
-        // chain), advance past it conservatively.
-        follower = next_in_preorder(node, parent_root_of(state.root, dom), dom);
-    }
-
-    // No following node — try the last preceding node not in subtree.
-    // Walk backward from `parent`'s child at `removed_index - 1` (or
-    // `parent` itself when `removed_index == 0`).
+    // Post-detach invariant (Copilot R3): `fire_after_remove_with_
+    // descendants` runs AFTER the engine has detached `removed`
+    // from `parent` (see `EcsDom::remove_child` / `detach_with_hook`
+    // / `replace_child`), so `parent.children` no longer contains
+    // `removed`.  The slot at `removed_index` is therefore already
+    // the FIRST FOLLOWER of `removed` in tree order (or `None` if
+    // the subtree was the last child).
+    //
+    // The spec branches on `pointer_before`:
+    // - `pointer_before == true` (next-side anchor): select the first
+    //   following node (the slot at `removed_index`, or its
+    //   pre-order successor if that slot itself was inside
+    //   `descendants`), keeping `pointer_before = true`.  If none
+    //   exists, fall back to the last preceding node and flip
+    //   `pointer_before` to `false`.
+    // - `pointer_before == false` (prev-side anchor): select the
+    //   last preceding node (the slot at `removed_index - 1`, or
+    //   `parent` when `removed_index == 0`), keeping
+    //   `pointer_before = false`.  If none exists, fall back to the
+    //   first following node and flip to `true`.
+    let follower_seed = dom.children_iter(parent).nth(removed_index);
     let preceding_seed = if removed_index == 0 {
-        parent
+        Some(parent)
     } else {
-        dom.children_iter(parent)
-            .nth(removed_index - 1)
-            .unwrap_or(parent)
+        dom.children_iter(parent).nth(removed_index - 1)
     };
-    let mut preceding = Some(preceding_seed);
-    while let Some(node) = preceding {
-        if !descendants.contains(&node) {
-            state.reference = node;
-            state.pointer_before = false;
+
+    let try_follower = |state: &mut crate::mutation_bridge::NodeIteratorState| -> bool {
+        let Some(seed) = follower_seed else {
+            return false;
+        };
+        let mut node = Some(seed);
+        while let Some(n) = node {
+            if !descendants.contains(&n) {
+                state.reference = n;
+                state.pointer_before = true;
+                return true;
+            }
+            node = next_in_preorder(n, state.root, dom);
+        }
+        false
+    };
+    let try_preceding = |state: &mut crate::mutation_bridge::NodeIteratorState| -> bool {
+        let Some(seed) = preceding_seed else {
+            return false;
+        };
+        let mut node = Some(seed);
+        while let Some(n) = node {
+            if !descendants.contains(&n) {
+                state.reference = n;
+                state.pointer_before = false;
+                return true;
+            }
+            node = prev_in_preorder(n, state.root, dom);
+        }
+        false
+    };
+
+    if state.pointer_before {
+        if try_follower(state) {
             return;
         }
-        preceding = prev_in_preorder(node, state.root, dom);
+        if try_preceding(state) {
+            return;
+        }
+    } else {
+        if try_preceding(state) {
+            return;
+        }
+        if try_follower(state) {
+            return;
+        }
     }
 
     // Neither side has a candidate — collapse to root.
     state.reference = state.root;
     state.pointer_before = true;
-}
-
-/// Helper for [`adjust_node_iterator_for_removal`]: the §6.1
-/// "follower" walk traverses past `parent` if needed.  We use the
-/// iterator's `root` since pre-order steps confine to that subtree.
-fn parent_root_of(root: Entity, _dom: &EcsDom) -> Entity {
-    root
 }
 
 // ===========================================================================
