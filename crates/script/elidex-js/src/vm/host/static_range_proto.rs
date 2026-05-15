@@ -194,7 +194,12 @@ fn native_static_range_constructor(
     let JsValue::Object(this_id) = this else {
         unreachable!("constructor `this` is always an Object after `do_new`");
     };
-    if ctx.host_opt().is_none() {
+    // Copilot R6: `host_opt()` is true after `unbind()` (HostData
+    // still installed, but `dom_ptr` is null).  Use `host_if_bound`
+    // so post-unbind construction returns a JS error before the
+    // subsequent `dom()` access (in `require_node_arg` /
+    // `reject_invalid_container`) panics.
+    if ctx.host_if_bound().is_none() {
         return Err(VmError::type_error(
             "Failed to construct 'StaticRange': host environment is not initialised",
         ));

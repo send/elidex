@@ -26,7 +26,7 @@ use elidex_dom_api::{Range, RangeId};
 
 use super::super::value::{JsValue, NativeContext, VmError};
 
-use super::range_proto::{arg_node, require_range_receiver};
+use super::range_proto::{arg_node, detached_range_error, require_range_receiver};
 
 /// Snapshot the registered Range, then commit `mutated` back over it.
 /// Copilot R1: `deleteContents` / `extractContents` / `insertNode`
@@ -42,6 +42,14 @@ fn commit_range_after_mutation(
     method: &'static str,
     mutated: &Range,
 ) -> Result<(), VmError> {
+    // Caller has already gated entry on `host_if_bound`, but the
+    // engine-indep mutation (`delete_contents` / etc.) routes
+    // through `dom.remove_child` etc. which is a no-op if the VM
+    // got unbound mid-operation (no realistic concurrent path).
+    // Re-gate defensively.
+    if ctx.host_if_bound().is_none() {
+        return Err(detached_range_error(ctx, method));
+    }
     let host = ctx.host();
     let (dom, registry) = host.split_dom_and_live_ranges();
     let applied = registry.with_range_mut(id, dom, |r, _| {
@@ -72,18 +80,17 @@ pub(super) fn native_range_delete_contents(
     // — the with_range_mut split gives `&EcsDom` only.  Snapshot the
     // Range, run the deletion through `&mut EcsDom`, then commit the
     // post-op boundary state back to the registry (Copilot R1).
+    // Copilot R6: post-`Vm::unbind()` `split_dom_and_live_ranges`
+    // asserts on null `dom_ptr`; gate on `host_if_bound`.
+    if ctx.host_if_bound().is_none() {
+        return Err(detached_range_error(ctx, "deleteContents"));
+    }
     let mut range = {
         let host = ctx.host();
         let (dom, registry) = host.split_dom_and_live_ranges();
         registry
             .with_range(id, dom, |r, _| r.clone())
-            .ok_or_else(|| {
-                VmError::dom_exception(
-                    ctx.vm.well_known.dom_exc_invalid_state_error,
-                    "Failed to execute 'deleteContents' on 'Range': \
-                     the Range has been detached",
-                )
-            })?
+            .ok_or_else(|| detached_range_error(ctx, "deleteContents"))?
     };
     let host = ctx.host();
     let dom = host.dom();
@@ -98,18 +105,15 @@ pub(super) fn native_range_extract_contents(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_range_receiver(ctx, this, "extractContents")?;
+    if ctx.host_if_bound().is_none() {
+        return Err(detached_range_error(ctx, "extractContents"));
+    }
     let mut range = {
         let host = ctx.host();
         let (dom, registry) = host.split_dom_and_live_ranges();
         registry
             .with_range(id, dom, |r, _| r.clone())
-            .ok_or_else(|| {
-                VmError::dom_exception(
-                    ctx.vm.well_known.dom_exc_invalid_state_error,
-                    "Failed to execute 'extractContents' on 'Range': \
-                     the Range has been detached",
-                )
-            })?
+            .ok_or_else(|| detached_range_error(ctx, "extractContents"))?
     };
     let host = ctx.host();
     let dom = host.dom();
@@ -125,18 +129,15 @@ pub(super) fn native_range_insert_node(
 ) -> Result<JsValue, VmError> {
     let id = require_range_receiver(ctx, this, "insertNode")?;
     let node = arg_node(ctx, args.first().copied(), "insertNode")?;
+    if ctx.host_if_bound().is_none() {
+        return Err(detached_range_error(ctx, "insertNode"));
+    }
     let mut range = {
         let host = ctx.host();
         let (dom, registry) = host.split_dom_and_live_ranges();
         registry
             .with_range(id, dom, |r, _| r.clone())
-            .ok_or_else(|| {
-                VmError::dom_exception(
-                    ctx.vm.well_known.dom_exc_invalid_state_error,
-                    "Failed to execute 'insertNode' on 'Range': \
-                     the Range has been detached",
-                )
-            })?
+            .ok_or_else(|| detached_range_error(ctx, "insertNode"))?
     };
     let host = ctx.host();
     let dom = host.dom();

@@ -306,6 +306,31 @@ impl LiveRangeRegistry {
         id
     }
 
+    /// Current `next_id` value — the ID that will be assigned by the
+    /// NEXT [`Self::register`] call.  Used by `Vm::bind` to preserve
+    /// the monotonic counter across rebind cycles (Copilot R6):
+    /// reset-to-zero would collide with retained `Range` wrappers
+    /// from the previous bind.
+    #[must_use]
+    pub fn next_id_marker(&self) -> u64 {
+        self.next_id
+    }
+
+    /// Reset `next_id` to `marker` — used by `Vm::bind` after
+    /// replacing the registry with a fresh pair.  Caller MUST have
+    /// captured `marker` from the previous registry's
+    /// [`Self::next_id_marker`].  Panics if `marker` is LESS than
+    /// the current `next_id` (would recycle).
+    pub fn restore_next_id_marker(&mut self, marker: u64) {
+        assert!(
+            marker >= self.next_id,
+            "restore_next_id_marker: would recycle ID {} (current {})",
+            marker,
+            self.next_id,
+        );
+        self.next_id = marker;
+    }
+
     /// Drop the registration for `id` from the live set. Returns the
     /// stored [`Range`] if it was registered, `None` otherwise.
     ///

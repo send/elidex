@@ -284,7 +284,11 @@ fn native_range_constructor(
     let JsValue::Object(this_id) = this else {
         unreachable!("constructor `this` is always an Object after `do_new`");
     };
-    if ctx.host_opt().is_none() {
+    // Copilot R6: `host_opt()` is true post-`unbind()` (HostData still
+    // installed, but `dom_ptr` is null).  Use `host_if_bound()` so
+    // post-unbind construction surfaces a JS TypeError rather than
+    // panicking on the subsequent `ctx.host().document()` call.
+    if ctx.host_if_bound().is_none() {
         return Err(VmError::type_error(
             "Failed to construct 'Range': host environment is not initialised",
         ));
@@ -302,6 +306,16 @@ fn native_range_constructor(
 // ---------------------------------------------------------------------------
 // `read_range` helper — borrow split (Round 1 Arch CRIT-2)
 // ---------------------------------------------------------------------------
+
+/// Build the "Range has been detached" `InvalidStateError` per
+/// WHATWG §4.4 + the local registry-cleared semantics on
+/// `Vm::unbind()`.  Shared with sibling [`super::range_proto_mutation`].
+pub(super) fn detached_range_error(ctx: &NativeContext<'_>, method: &'static str) -> VmError {
+    VmError::dom_exception(
+        ctx.vm.well_known.dom_exc_invalid_state_error,
+        format!("Failed to execute '{method}' on 'Range': the Range has been detached"),
+    )
+}
 
 /// Run `f` with a shared [`Range`] borrow + `&EcsDom`, returning
 /// `Ok(value)` when the range is still registered.  Throws
@@ -321,20 +335,25 @@ fn read_range<F, R>(
 where
     F: FnOnce(&mut NativeContext<'_>, &Range) -> Result<R, VmError>,
 {
+    // Copilot R6: retained `Range` wrappers across `Vm::unbind()`
+    // would otherwise panic in `split_dom_and_live_ranges` (which
+    // asserts `is_bound()`).  Surface as the documented detached
+    // semantics — `InvalidStateError` — so JS code can recover.
+    if ctx.host_if_bound().is_none() {
+        return Err(detached_range_error(ctx, method));
+    }
     let host = ctx.host();
     let (dom, registry) = host.split_dom_and_live_ranges();
     let captured = registry.with_range(id, dom, |range, _dom| range.clone());
     let Some(range) = captured else {
-        return Err(VmError::dom_exception(
-            ctx.vm.well_known.dom_exc_invalid_state_error,
-            format!("Failed to execute '{method}' on 'Range': the Range has been detached"),
-        ));
+        return Err(detached_range_error(ctx, method));
     };
     f(ctx, &range)
 }
 
 /// Apply a mutation `f` to the registered [`Range`].  Throws
-/// `InvalidStateError` if the Range was unregistered.
+/// `InvalidStateError` if the Range was unregistered or the VM is
+/// unbound (Copilot R6).
 fn write_range<F, R>(
     ctx: &mut NativeContext<'_>,
     id: RangeId,
@@ -344,15 +363,16 @@ fn write_range<F, R>(
 where
     F: FnOnce(&mut Range, &elidex_ecs::EcsDom) -> R,
 {
+    if ctx.host_if_bound().is_none() {
+        return Err(detached_range_error(ctx, method));
+    }
     let host = ctx.host();
     let (dom, registry) = host.split_dom_and_live_ranges();
     let result = registry.with_range_mut(id, dom, f);
-    result.ok_or_else(|| {
-        VmError::dom_exception(
-            ctx.vm.well_known.dom_exc_invalid_state_error,
-            format!("Failed to execute '{method}' on 'Range': the Range has been detached"),
-        )
-    })
+    match result {
+        Some(v) => Ok(v),
+        None => Err(detached_range_error(ctx, method)),
+    }
 }
 
 // ---------------------------------------------------------------------------

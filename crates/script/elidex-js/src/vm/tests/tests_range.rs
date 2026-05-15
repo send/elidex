@@ -359,6 +359,24 @@ fn document_create_range_brand_check_throws_on_non_document() {
 }
 
 #[test]
+fn retained_range_after_unbind_throws_not_panics() {
+    // Copilot R6: retained `Range` wrapper across `Vm::unbind()`
+    // must surface `InvalidStateError` rather than panic on
+    // `dom_ptr` null assertion.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval("globalThis.r = new Range();").unwrap();
+    vm.unbind();
+    // r is retained as a JS-side global, but the registry has
+    // been cleared.  Accessing it must throw, not panic.
+    let res = vm.eval("r.startOffset");
+    assert!(res.is_err(), "retained Range read after unbind must throw");
+}
+
+#[test]
 fn delete_contents_collapses_range() {
     let (mut vm, mut session, mut dom, doc) = setup();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };

@@ -228,7 +228,15 @@ impl Vm {
             //    hook constraint per `#11-mutation-hook-multiplexer`
             //    defer slot).
             let iter_shared = hd.node_iterator_states_shared.clone();
-            let (registry, bridge) = elidex_dom_api::MutationBridge::new_pair(iter_shared);
+            // Copilot R6: preserve the monotonic `next_id` across
+            // bind cycles.  Retained `Range` JS wrappers carry their
+            // old `range_id` in `ObjectKind::Range`; resetting the
+            // counter to 0 would collide with their stale IDs on
+            // the next `register` call.  `unregister`-then-recycle
+            // is explicitly forbidden by [`RangeId`] doc.
+            let prev_next_id = hd.live_range_registry.next_id_marker();
+            let (mut registry, bridge) = elidex_dom_api::MutationBridge::new_pair(iter_shared);
+            registry.restore_next_id_marker(prev_next_id);
             hd.live_range_registry = registry;
             let displaced = hd.dom().set_mutation_hook(Box::new(bridge));
             debug_assert!(
