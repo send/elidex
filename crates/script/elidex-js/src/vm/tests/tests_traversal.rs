@@ -509,3 +509,50 @@ fn document_create_walker_rejects_non_object_filter() {
         .unwrap();
     vm.unbind();
 }
+
+#[test]
+fn node_iterator_ancestor_of_root_removed_does_not_escape() {
+    // Copilot R18: WHATWG §6.1 pre-removing steps run on every
+    // NodeIterator whose root.node_document matches the removed
+    // subtree's document.  When an ANCESTOR of the iterator's
+    // root is removed, the `descendants` snapshot includes
+    // `state.root` itself.  The previous impl ran the fallback
+    // candidate path which selected from parent's siblings —
+    // OUTSIDE the iterator's configured subtree.  Subsequent
+    // `nextNode` / `previousNode` would then walk OUT of the
+    // iterator's intended view.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(
+        "globalThis.holder = document.createElement('main');\
+         globalThis.outer = document.createElement('div');\
+         globalThis.iterRoot = document.createElement('section');\
+         globalThis.child = document.createElement('p');\
+         globalThis.outerSib = document.createElement('aside');\
+         holder.appendChild(outer);\
+         holder.appendChild(outerSib);\
+         outer.appendChild(iterRoot);\
+         iterRoot.appendChild(child);\
+         globalThis.it = document.createNodeIterator(\
+             iterRoot, 0xFFFFFFFF, null);\
+         /* Advance into the subtree so reference != root. */\
+         it.nextNode();\
+         it.nextNode();",
+    )
+    .unwrap();
+    // Remove `outer` — an ancestor of `iterRoot`.  descendants
+    // snapshot = [outer, iterRoot, child] (inclusive).  The
+    // iterator's reference (`child`) and root (`iterRoot`) are
+    // both in descendants.  Without the R18 guard, the fallback
+    // would select `outerSib` (outer's sibling) as a follower.
+    vm.eval("holder.removeChild(outer);").unwrap();
+    // The iterator's referenceNode should NOT have moved to
+    // `outerSib` — it should remain inside the (now-detached)
+    // iterRoot subtree.
+    let escaped = vm.eval("it.referenceNode === outerSib").unwrap();
+    assert!(
+        !matches!(escaped, super::super::value::JsValue::Boolean(true)),
+        "iterator must not escape its configured root subtree"
+    );
+    vm.unbind();
+}

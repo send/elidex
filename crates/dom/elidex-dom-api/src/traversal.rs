@@ -887,6 +887,18 @@ pub fn adjust_node_iterator_for_removal(
     if removed == state.root {
         return;
     }
+    // Copilot R18: when an ANCESTOR of the iterator's root is
+    // removed, `state.root` is itself inside the `descendants`
+    // snapshot.  Running the §6.1 fallback would pick candidates
+    // from `parent`'s siblings (all OUTSIDE the iterator's subtree),
+    // so subsequent `nextNode` / `previousNode` would escape the
+    // configured root.  Leave the iterator's reference unchanged —
+    // it's still a valid entity inside the detached subtree, and
+    // walking the detached tree is the closest match to spec
+    // behaviour on an orphaned iterator.
+    if descendants.contains(&state.root) {
+        return;
+    }
     // Branch (b): `removed` is NOT an inclusive ancestor of
     // `state.reference` — no-op.
     if !descendants.contains(&state.reference) {
