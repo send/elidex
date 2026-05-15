@@ -71,6 +71,19 @@ pub(super) fn trace_work_list(
         ObjectId,
         super::super::host::events_modern::TouchListState,
     >,
+    // Copilot R8: TreeWalker / NodeIterator filter ObjectIds traced
+    // per-wrapper from the state tables so unreachable wrappers
+    // drop their filter root (avoids the leak cycle when a filter
+    // closure captures the wrapper).
+    #[cfg(feature = "engine")] tree_walker_states: &std::collections::HashMap<
+        u64,
+        super::super::host_data::TreeWalkerState,
+    >,
+    #[cfg(feature = "engine")] tree_walker_instances: &std::collections::HashMap<u64, ObjectId>,
+    #[cfg(feature = "engine")] node_iterator_states_shared: &std::sync::Arc<
+        std::sync::Mutex<std::collections::HashMap<u64, elidex_dom_api::NodeIteratorState>>,
+    >,
+    #[cfg(feature = "engine")] node_iterator_instances: &std::collections::HashMap<u64, ObjectId>,
     obj_marks: &mut [u64],
     uv_marks: &mut [u64],
     work: &mut Vec<u32>,
@@ -647,19 +660,44 @@ pub(super) fn trace_work_list(
             // bits return `isValid() == false`.
             #[cfg(feature = "engine")]
             ObjectKind::StaticRange { .. } => {}
-            // `TreeWalker` / `NodeIterator` hold NodeFilter callback
-            // `ObjectId` bits in their state-table entries
-            // (`HostData::tree_walker_states` /
-            // `node_iterator_states_shared`).  Filter ObjectIds are
-            // rooted unconditionally via
-            // `HostData::gc_root_object_ids` (which chains
-            // `walker_filters` / `iter_filters` collected from the
-            // state tables).  Sweep tail prunes those state-table
-            // entries when the wrapper itself becomes unreachable
-            // (`vm/gc/collect.rs`), so the filter de-roots on the
-            // following GC.  Trace fan-out here is a no-op.
+            // Copilot R8: trace fan-out marks the filter ObjectId
+            // ONLY when the wrapper itself is reachable (via the
+            // wrapper → state-table → filter chain).  Previously,
+            // `HostData::gc_root_object_ids` rooted filters
+            // unconditionally, which leaked the wrapper when the
+            // filter closure captured it (cycle: filter root → wrapper
+            // mark → state-table preserved → filter still rooted).
+            // Wrapper unreachability now correctly drops the filter.
             #[cfg(feature = "engine")]
-            ObjectKind::TreeWalker { .. } | ObjectKind::NodeIterator { .. } => {}
+            ObjectKind::TreeWalker { walker_id } => {
+                // Reverse-look-up the walker_id from the instance
+                // map; if its wrapper ObjectId matches the current
+                // object we're tracing, mark the filter.  (The
+                // tree_walker_instances map's value IS this
+                // ObjectId, so the lookup-by-key gives the canonical
+                // filter ObjectId.)
+                if tree_walker_instances.get(walker_id) == Some(&ObjectId(obj_idx)) {
+                    if let Some(state) = tree_walker_states.get(walker_id) {
+                        if let Some(bits) = state.filter_object_id {
+                            #[allow(clippy::cast_possible_truncation)]
+                            mark_object(ObjectId(bits as u32), obj_marks, work);
+                        }
+                    }
+                }
+            }
+            #[cfg(feature = "engine")]
+            ObjectKind::NodeIterator { iterator_id } => {
+                if node_iterator_instances.get(iterator_id) == Some(&ObjectId(obj_idx)) {
+                    if let Ok(guard) = node_iterator_states_shared.lock() {
+                        if let Some(state) = guard.get(iterator_id) {
+                            if let Some(bits) = state.filter_object_id {
+                                #[allow(clippy::cast_possible_truncation)]
+                                mark_object(ObjectId(bits as u32), obj_marks, work);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

@@ -8,6 +8,8 @@
 //! `None` placeholders are easier to scan top-to-bottom in one
 //! place than across a `fn collect_proto_roots(&self)` indirection.
 
+#[cfg(feature = "engine")]
+use super::super::value::ObjectId;
 use super::super::VmInner;
 
 #[cfg(feature = "engine")]
@@ -853,6 +855,40 @@ impl VmInner {
             &mut self.gc_work_list,
         );
 
+        // Copilot R8: empty fallbacks when HostData is absent — the
+        // TreeWalker / NodeIterator trace fan-out arms can never
+        // fire in that case (instances are stored only in HostData),
+        // so the empty maps are observably dead.
+        #[cfg(feature = "engine")]
+        let empty_tree_walker_states = std::collections::HashMap::new();
+        #[cfg(feature = "engine")]
+        let empty_walker_instances: std::collections::HashMap<u64, ObjectId> =
+            std::collections::HashMap::new();
+        #[cfg(feature = "engine")]
+        let empty_iter_shared: std::sync::Arc<
+            std::sync::Mutex<std::collections::HashMap<u64, elidex_dom_api::NodeIteratorState>>,
+        > = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+        #[cfg(feature = "engine")]
+        let empty_iter_instances: std::collections::HashMap<u64, ObjectId> =
+            std::collections::HashMap::new();
+
+        #[cfg(feature = "engine")]
+        let (tw_states, tw_instances, iter_shared, iter_instances) = match self.host_data.as_deref()
+        {
+            Some(hd) => (
+                hd.tree_walker_states_ref(),
+                hd.tree_walker_instances_ref(),
+                hd.node_iterator_states_shared_ref(),
+                hd.node_iterator_instances_ref(),
+            ),
+            None => (
+                &empty_tree_walker_states,
+                &empty_walker_instances,
+                &empty_iter_shared,
+                &empty_iter_instances,
+            ),
+        };
+
         trace_work_list(
             roots.objects,
             roots.upvalues,
@@ -880,6 +916,14 @@ impl VmInner {
             roots.touch_states,
             #[cfg(feature = "engine")]
             roots.touch_list_states,
+            #[cfg(feature = "engine")]
+            tw_states,
+            #[cfg(feature = "engine")]
+            tw_instances,
+            #[cfg(feature = "engine")]
+            iter_shared,
+            #[cfg(feature = "engine")]
+            iter_instances,
             &mut self.gc_object_marks,
             &mut self.gc_upvalue_marks,
             &mut self.gc_work_list,

@@ -65,28 +65,29 @@ impl Range {
     /// Delete the contents of this range.
     ///
     /// Simplified implementation: removes fully-contained nodes, splits
-    /// text nodes at boundaries.
+    /// text nodes at boundaries.  Copilot R8: text-node truncations
+    /// route through [`EcsDom::replace_text_data`] (which fires
+    /// `after_replace_data` for live-range adjust) rather than
+    /// `set_text_data` (which only fires the truncate-clamp hook).
+    /// The replace-data hook is required so OTHER live ranges
+    /// anchored in the same text node collapse their boundaries to
+    /// the deletion start per WHATWG §5.5 replaceData rule, not
+    /// merely clamp to the new length.
     pub fn delete_contents(&mut self, dom: &mut EcsDom) {
         if self.collapsed() {
             return;
         }
 
-        // Same container, text node: just delete the substring.
+        // Same container, text node: splice [start_offset..end_offset]
+        // → empty via replace_text_data (fires after_replace_data).
         if self.start_container == self.end_container {
-            // Build the spliced new_text from borrowed slices of `tc.0`,
-            // dropping the immutable borrow before the `set_text_data`
-            // mutable call. Avoids an intermediate full-string clone.
-            let new_text = dom
+            let is_text = dom
                 .world()
                 .get::<&TextContent>(self.start_container)
-                .ok()
-                .map(|tc| {
-                    let start = utf16_offset_to_byte_clamped(&tc.0, self.start_offset);
-                    let end = utf16_offset_to_byte_clamped(&tc.0, self.end_offset);
-                    format!("{}{}", &tc.0[..start], &tc.0[end..])
-                });
-            if let Some(new_text) = new_text {
-                let _ = dom.set_text_data(self.start_container, &new_text);
+                .is_ok();
+            if is_text {
+                let count = self.end_offset.saturating_sub(self.start_offset);
+                let _ = dom.replace_text_data(self.start_container, self.start_offset, count, "");
                 self.end_offset = self.start_offset;
                 return;
             }
@@ -101,34 +102,28 @@ impl Range {
         }
 
         // Different containers: simplified approach.
-        // 1. Truncate start text node — keep only the leading slice
-        //    `[..start]`. Build the new String inside a short scope so
-        //    the immutable `TextContent` borrow is released before the
-        //    `set_text_data` mutable call, avoiding the full clone.
-        let start_head = dom
+        // 1. Truncate start text node — splice [start_offset..] → empty
+        //    via replace_text_data so live ranges in start_container
+        //    get the right adjustment.
+        let start_len = dom
             .world()
             .get::<&TextContent>(self.start_container)
             .ok()
-            .map(|tc| {
-                let start = utf16_offset_to_byte_clamped(&tc.0, self.start_offset);
-                tc.0[..start].to_owned()
-            });
-        if let Some(head) = start_head {
-            let _ = dom.set_text_data(self.start_container, &head);
+            .map(|tc| crate::char_data::utf16_len(&tc.0));
+        if let Some(len) = start_len {
+            let count = len.saturating_sub(self.start_offset);
+            let _ = dom.replace_text_data(self.start_container, self.start_offset, count, "");
         }
 
-        // 2. Truncate end text node — keep only the trailing slice
-        //    `[end..]`.
-        let end_tail = dom
+        // 2. Truncate end text node — splice [..end_offset] → empty
+        //    via replace_text_data.
+        let end_len = dom
             .world()
             .get::<&TextContent>(self.end_container)
             .ok()
-            .map(|tc| {
-                let end = utf16_offset_to_byte_clamped(&tc.0, self.end_offset);
-                tc.0[end..].to_owned()
-            });
-        if let Some(tail) = end_tail {
-            let _ = dom.set_text_data(self.end_container, &tail);
+            .map(|_| self.end_offset);
+        if let Some(end_off) = end_len {
+            let _ = dom.replace_text_data(self.end_container, 0, end_off, "");
         }
 
         // 3. Remove fully-contained nodes between start and end.
@@ -169,7 +164,9 @@ impl Range {
         // Case 1: Same container.
         if self.start_container == self.end_container {
             if dom.node_kind(self.start_container) == Some(NodeKind::Text) {
-                // Text node: extract substring.
+                // Text node: extract substring + splice via
+                // replace_text_data so live ranges in this node
+                // get the correct boundary adjustment (Copilot R8).
                 let text = dom
                     .world()
                     .get::<&TextContent>(self.start_container)
@@ -178,8 +175,8 @@ impl Range {
                 let start_byte = utf16_offset_to_byte_clamped(&text, self.start_offset);
                 let end_byte = utf16_offset_to_byte_clamped(&text, self.end_offset);
                 let extracted = text[start_byte..end_byte].to_string();
-                let remaining = format!("{}{}", &text[..start_byte], &text[end_byte..]);
-                let _ = dom.set_text_data(self.start_container, &remaining);
+                let count = self.end_offset.saturating_sub(self.start_offset);
+                let _ = dom.replace_text_data(self.start_container, self.start_offset, count, "");
                 if !extracted.is_empty() {
                     let text_node = dom.create_text(&extracted);
                     let _ = dom.append_child(frag, text_node);
@@ -201,7 +198,9 @@ impl Range {
         }
 
         // Case 2: Different containers.
-        // 2a. Split start text node: extract tail portion.
+        // 2a. Split start text node: extract tail portion via
+        //     replace_text_data so live-range boundaries inside it
+        //     collapse to start_offset (Copilot R8).
         if dom.node_kind(self.start_container) == Some(NodeKind::Text) {
             let text = dom
                 .world()
@@ -210,7 +209,9 @@ impl Range {
                 .unwrap_or_default();
             let start_byte = utf16_offset_to_byte_clamped(&text, self.start_offset);
             let tail = text[start_byte..].to_string();
-            let _ = dom.set_text_data(self.start_container, &text[..start_byte]);
+            let total = crate::char_data::utf16_len(&text);
+            let count = total.saturating_sub(self.start_offset);
+            let _ = dom.replace_text_data(self.start_container, self.start_offset, count, "");
             if !tail.is_empty() {
                 let text_node = dom.create_text(&tail);
                 let _ = dom.append_child(frag, text_node);
@@ -244,7 +245,8 @@ impl Range {
             let _ = dom.append_child(frag, node);
         }
 
-        // 2c. Split end text node: extract head portion.
+        // 2c. Split end text node: extract head portion via
+        //     replace_text_data (Copilot R8 — same rationale as 2a).
         if dom.node_kind(self.end_container) == Some(NodeKind::Text) {
             let text = dom
                 .world()
@@ -253,7 +255,7 @@ impl Range {
                 .unwrap_or_default();
             let end_byte = utf16_offset_to_byte_clamped(&text, self.end_offset);
             let head = text[..end_byte].to_string();
-            let _ = dom.set_text_data(self.end_container, &text[end_byte..]);
+            let _ = dom.replace_text_data(self.end_container, 0, self.end_offset, "");
             if !head.is_empty() {
                 let text_node = dom.create_text(&head);
                 let _ = dom.append_child(frag, text_node);

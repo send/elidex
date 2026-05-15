@@ -911,34 +911,40 @@ mod engine_feature {
         }
 
         pub fn gc_root_object_ids(&self) -> impl Iterator<Item = ObjectId> + '_ {
-            // D-8 PR-A2 — `TreeWalker` / `NodeIterator` filter
-            // callbacks are rooted unconditionally while the
-            // state-table entry exists.  Sweep tail prunes entries
-            // for dead instance wrappers (`tree_walker_instances` /
-            // `node_iterator_instances`); the filter ObjectId
-            // de-roots automatically on the next GC.  Matches the
-            // `mutation_observer_callbacks` policy (per-callback
-            // root for the observer's lifetime).
-            let walker_filters: Vec<ObjectId> = self
-                .tree_walker_states
-                .values()
-                .filter_map(|s| s.filter_object_id.map(|bits| ObjectId(bits as u32)))
-                .collect();
-            let iter_filters: Vec<ObjectId> = match self.node_iterator_states_shared.lock() {
-                Ok(guard) => guard
-                    .values()
-                    .filter_map(|s| s.filter_object_id.map(|bits| ObjectId(bits as u32)))
-                    .collect(),
-                Err(_) => Vec::new(),
-            };
+            // Copilot R8: `TreeWalker` / `NodeIterator` filters are
+            // NOT rooted here — doing so created a leak cycle when
+            // the filter closure captured the wrapper (filter root →
+            // closure trace → wrapper marked → state table entry
+            // preserved → filter stays rooted → ...).  Filters are
+            // instead reached via per-wrapper trace fan-out (see
+            // `trace_work_list`'s `TreeWalker` / `NodeIterator`
+            // arms), so an unreachable wrapper drops its filter
+            // root naturally on the same sweep.
             self.listener_store
                 .values()
                 .copied()
                 .chain(self.wrapper_cache.values().copied())
                 .chain(self.mutation_observer_callbacks.values().copied())
                 .chain(self.mutation_observer_instances.values().copied())
-                .chain(walker_filters)
-                .chain(iter_filters)
+        }
+
+        /// GC trace fan-out accessor for `TreeWalker.filter_object_id`
+        /// lookup.  Copilot R8 — filter is reached only when the
+        /// wrapper itself is reachable via this state table.
+        pub(crate) fn tree_walker_states_ref(&self) -> &HashMap<u64, TreeWalkerState> {
+            &self.tree_walker_states
+        }
+        pub(crate) fn tree_walker_instances_ref(&self) -> &HashMap<u64, ObjectId> {
+            &self.tree_walker_instances
+        }
+        pub(crate) fn node_iterator_states_shared_ref(
+            &self,
+        ) -> &std::sync::Arc<std::sync::Mutex<HashMap<u64, elidex_dom_api::NodeIteratorState>>>
+        {
+            &self.node_iterator_states_shared
+        }
+        pub(crate) fn node_iterator_instances_ref(&self) -> &HashMap<u64, ObjectId> {
+            &self.node_iterator_instances
         }
     }
 
