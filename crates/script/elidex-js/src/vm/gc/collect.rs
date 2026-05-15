@@ -748,6 +748,34 @@ impl VmInner {
                 self.data_transfer_item_list_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // M4-12 slot #11-traversal-and-range-pr-a2-bindings:
+                // Range / StaticRange / TreeWalker / NodeIterator
+                // prototypes.  Each chains to `Object.prototype`.
+                // Without these entries, `delete globalThis.Range`
+                // (etc.) can let the prototype be swept while
+                // `VmInner::range_prototype` (etc.) retains a stale
+                // id — the next `cloneRange()` /
+                // `document.createTreeWalker()` would bind its
+                // wrapper to a recycled slot of an unrelated type.
+                // Copilot R14: NodeFilter is a constants-namespace
+                // object, not a constructable interface, so no
+                // matching `node_filter_prototype` field exists.
+                #[cfg(feature = "engine")]
+                self.range_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.static_range_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.tree_walker_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.node_iterator_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,

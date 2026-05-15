@@ -306,13 +306,27 @@ impl Range {
             (r, start_container)
         };
 
+        // Copilot R14: WHATWG §4.4 step 11 — "node's length" for a
+        // DocumentFragment is its child count; for any other node it
+        // is 1.  WHATWG §4.2.3 `insert` fans the fragment's children
+        // out into `parent` and empties the fragment, so materialise
+        // the children list up front and treat it as the canonical
+        // pre-insert node list for steps 6, 10-11, and 12.
+        let is_fragment = dom.node_kind(node) == Some(NodeKind::DocumentFragment);
+        let nodes: Vec<Entity> = if is_fragment {
+            dom.children_iter(node).collect()
+        } else {
+            vec![node]
+        };
+
         // Spec step 6: pre-insertion validity (cycle / self-as-parent).
-        // `is_ancestor_or_self(node, parent)` rejects both `node == parent`
-        // and `node` is ancestor of `parent` in one check.  Run BEFORE
-        // step 7's split so a rejected insertion never leaves a tail
-        // node hanging off `parent`.
-        if dom.is_ancestor_or_self(node, parent) {
-            return None;
+        // Per WHATWG §4.2.3 the host-including-inclusive-ancestor
+        // check runs per member of `nodes`.  Run BEFORE step 7's
+        // split so a rejection never leaves a dangling tail node.
+        for &n in &nodes {
+            if dom.is_ancestor_or_self(n, parent) {
+                return None;
+            }
         }
 
         // Spec step 7: split if start is Text.  Safe to mutate DOM now —
@@ -329,30 +343,43 @@ impl Range {
             }
         }
 
-        // Spec step 8: if node == referenceNode, advance to its next sibling.
-        if reference_node == Some(node) {
+        // Spec step 8: if node == referenceNode, advance to its next
+        // sibling.  Step 8 references the original argument `node`
+        // (not a fragment member); a DocumentFragment cannot itself
+        // be a child of `parent` (would already be a cycle, rejected
+        // above), so the comparison is only meaningful for the
+        // single-node case.
+        if !is_fragment && reference_node == Some(node) {
             reference_node = dom.get_next_sibling(node);
         }
 
         // Spec step 10-11: newOffset = referenceNode's pre-step-12
-        // index (or parent.length if null), then +1 (single-node
-        // insert; DocumentFragment fan-out tracked at `#11-range-full-impl`).
-        // After step 12 referenceNode shifts to ref_idx_pre + 1, so
-        // new_offset = ref_idx_post = ref_idx_pre + 1.  When
-        // referenceNode is null the append lands at index
-        // pre.length, so new_offset = post.length = pre.length + 1.
+        // index (or parent.length if null), then increase by
+        // `nodes.len()` (= 1 for a plain node, = fragment child
+        // count for a DocumentFragment, = 0 for an empty fragment).
+        // After step 12 referenceNode shifts to ref_idx_pre +
+        // nodes.len(), so new_offset = ref_idx_post.
         let new_offset = match reference_node {
             Some(rn) => dom.children_iter(parent).position(|c| c == rn).unwrap_or(0),
             None => dom.children_iter(parent).count(),
-        } + 1;
+        } + nodes.len();
 
-        // Spec step 12: pre-insert.
-        let inserted = match reference_node {
-            Some(rn) => dom.insert_before(parent, node, rn),
-            None => dom.append_child(parent, node),
-        };
-        if !inserted {
-            return None;
+        // Spec step 12: pre-insert each member in tree order before
+        // `reference_node` (or append when null).  Inserting in
+        // order before the same referenceNode preserves fragment
+        // order: ref shifts +1 per insert so each successive sibling
+        // lands directly before it.  Pre-insertion validity above
+        // covers the common rejection paths; if a member still fails
+        // mid-loop the DOM ends up partially mutated — accepted
+        // failure mode under WHATWG §4.2.3.
+        for &n in &nodes {
+            let ok = match reference_node {
+                Some(rn) => dom.insert_before(parent, n, rn),
+                None => dom.append_child(parent, n),
+            };
+            if !ok {
+                return None;
+            }
         }
         Some((parent, new_offset))
     }

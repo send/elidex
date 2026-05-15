@@ -730,3 +730,99 @@ fn insert_node_non_collapsed_preserves_hook_adjustments() {
     assert_eq!(eval_num(&mut vm, "r.endOffset"), 3.0);
     vm.unbind();
 }
+
+#[test]
+fn insert_node_document_fragment_fans_out_children() {
+    // Copilot R14 (#2): WHATWG §4.4 step 11 — for a DocumentFragment
+    // `node`, newOffset advances by the fragment's child count (not
+    // by 1).  The §4.2.3 `insert` algorithm pre-inserts each child
+    // and empties the fragment.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(
+        "globalThis.root = document.createElement('div');\
+         globalThis.r = new Range();\
+         /* Collapsed at (root, 0). */\
+         r.setStart(root, 0); r.setEnd(root, 0);\
+         globalThis.frag = document.createDocumentFragment();\
+         frag.appendChild(document.createElement('a'));\
+         frag.appendChild(document.createElement('b'));\
+         frag.appendChild(document.createElement('c'));\
+         r.insertNode(frag);",
+    )
+    .unwrap();
+    assert_eq!(eval_num(&mut vm, "root.childNodes.length"), 3.0);
+    assert_eq!(eval_num(&mut vm, "frag.childNodes.length"), 0.0);
+    assert_eq!(eval_str(&mut vm, "root.childNodes[0].tagName"), "A");
+    assert_eq!(eval_str(&mut vm, "root.childNodes[1].tagName"), "B");
+    assert_eq!(eval_str(&mut vm, "root.childNodes[2].tagName"), "C");
+    // Collapsed pre-call → step 13 sets end = (root, fragment.length = 3).
+    assert_eq!(eval_num(&mut vm, "r.startOffset"), 0.0);
+    assert_eq!(eval_num(&mut vm, "r.endOffset"), 3.0);
+    vm.unbind();
+}
+
+#[test]
+fn insert_node_empty_document_fragment_no_offset_bump() {
+    // Copilot R14 (#2): an empty DocumentFragment must produce a +0
+    // newOffset increment (spec: "node's length" = 0 for an empty
+    // fragment).
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(
+        "globalThis.root = document.createElement('div');\
+         root.appendChild(document.createElement('x'));\
+         root.appendChild(document.createElement('y'));\
+         globalThis.r = new Range();\
+         r.setStart(root, 1); r.setEnd(root, 1);\
+         globalThis.frag = document.createDocumentFragment();\
+         r.insertNode(frag);",
+    )
+    .unwrap();
+    assert_eq!(eval_num(&mut vm, "root.childNodes.length"), 2.0);
+    assert_eq!(eval_num(&mut vm, "r.startOffset"), 1.0);
+    assert_eq!(eval_num(&mut vm, "r.endOffset"), 1.0);
+    vm.unbind();
+}
+
+#[test]
+fn prototypes_survive_gc_after_global_removal() {
+    // Copilot R14 (#1): even after `delete globalThis.{Range,
+    // StaticRange, TreeWalker, NodeIterator}`, `VmInner::*_prototype`
+    // must keep the intrinsic alive across a forced GC, so the
+    // next document factory call binds its wrapper to the live
+    // prototype slot instead of a recycled `ObjectId` of an
+    // unrelated type.  Without rooting the prototype here, the
+    // post-GC `document.createRange()` would see a stale wrapper
+    // whose `prototype: Some(<recycled>)` no longer matches the
+    // expected interface chain.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(
+        "delete globalThis.Range;\
+         delete globalThis.StaticRange;\
+         delete globalThis.TreeWalker;\
+         delete globalThis.NodeIterator;",
+    )
+    .unwrap();
+    vm.inner.collect_garbage();
+    // Newly-allocated wrappers should still get the well-formed
+    // prototype chain.  cloneRange / createTreeWalker construct
+    // through the VM-stashed prototype IDs, so a swept prototype
+    // would surface as a non-Object prototype or a missing method.
+    vm.eval(
+        "globalThis.root = document.createElement('div');\
+         globalThis.r = document.createRange();\
+         globalThis.r2 = r.cloneRange();\
+         globalThis.w = document.createTreeWalker(\
+             root, 0xFFFFFFFF, null);\
+         globalThis.it = document.createNodeIterator(\
+             root, 0xFFFFFFFF, null);",
+    )
+    .unwrap();
+    // Method dispatch via the prototype chain must succeed.
+    let _ = vm.eval("r.cloneRange();").unwrap();
+    let _ = vm.eval("w.firstChild();").unwrap();
+    let _ = vm.eval("it.nextNode();").unwrap();
+    vm.unbind();
+}
