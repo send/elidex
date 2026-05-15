@@ -559,7 +559,8 @@ fn range_insert_node() {
     range.set_end(t1, 2);
 
     let new_elem = dom.create_element("b", Attributes::default());
-    range.insert_node(&mut dom, new_elem);
+    let inserted = range.insert_node(&mut dom, new_elem);
+    assert!(inserted, "insert_node into attached text node must succeed");
 
     // t1 should be "He", then <b>, then "llo".
     let children: Vec<_> = dom.children_iter(root).collect();

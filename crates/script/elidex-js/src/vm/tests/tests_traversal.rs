@@ -380,3 +380,31 @@ fn filter_return_value_coerces_via_to_uint16() {
     assert_eq!(eval_str(&mut vm, "w.nextNode().tagName"), "P");
     vm.unbind();
 }
+
+#[test]
+fn tree_walker_current_node_setter_throws_when_detached() {
+    // Copilot R12: setter must (a) consult walker state BEFORE
+    // coercing the node argument so it cannot panic on
+    // `ctx.host().dom()` after `Vm::unbind()`, and (b) surface the
+    // same detached-walker error as the getter / traversal methods
+    // for cross-method consistency.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(
+        "globalThis.root = document.createElement('div');\
+         globalThis.alt = document.createElement('span');\
+         globalThis.w = document.createTreeWalker(root, 0xFFFFFFFF, null);",
+    )
+    .unwrap();
+    vm.unbind();
+    // Retained walker + retained node: setter must throw rather
+    // than panic on `host().dom()` access during node coercion.
+    let res = vm.eval("w.currentNode = alt;");
+    assert!(
+        res.is_err(),
+        "currentNode setter on retained walker after unbind must throw, not panic"
+    );
+}

@@ -278,6 +278,16 @@ fn native_tree_walker_set_current_node(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let walker_id = require_tree_walker_receiver(ctx, this, "currentNode")?;
+    // Copilot R12: detached-state check BEFORE node coercion.
+    //   1. `require_node_arg` dereferences `ctx.host().dom()`, which
+    //      panics if the wrapper is retained across `Vm::unbind()`.
+    //   2. Consistency with the getter + traversal methods, which all
+    //      surface `walker_detached_error` when the state entry is
+    //      missing.  Without this gate the setter silently swallows the
+    //      assignment instead.
+    if ctx.host_if_bound().is_none() || !ctx.host().tree_walker_states.contains_key(&walker_id) {
+        return Err(walker_detached_error("currentNode"));
+    }
     let value = args.first().copied().unwrap_or(JsValue::Undefined);
     let entity = super::node_proto::require_node_arg(ctx, value, "currentNode")?;
     let host = ctx.host();

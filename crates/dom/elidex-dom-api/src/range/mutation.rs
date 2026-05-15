@@ -282,9 +282,13 @@ impl Range {
     /// update, the snapshot+commit pattern in VM-side
     /// `native_range_insert_node` would clobber any hook-applied
     /// expansion with the pre-insert (still-collapsed) state.
-    pub fn insert_node(&mut self, dom: &mut EcsDom, node: Entity) {
+    /// Returns `true` if the DOM insertion succeeded.  Copilot R12: callers
+    /// must check the return value — when `insert_before` / `append_child`
+    /// rejects the insertion (cycle, missing ref, etc.) the Range boundaries
+    /// stay untouched and a DOM-level exception should propagate.
+    pub fn insert_node(&mut self, dom: &mut EcsDom, node: Entity) -> bool {
         let was_collapsed = self.collapsed();
-        if dom.node_kind(self.start_container) == Some(NodeKind::Text) {
+        let inserted = if dom.node_kind(self.start_container) == Some(NodeKind::Text) {
             let parent = dom.get_parent(self.start_container);
             if let Some(parent) = parent {
                 // Copilot R10: split via canonical helper so
@@ -297,24 +301,25 @@ impl Range {
                 )
                 .ok();
                 if let Some(tail_node) = tail_node {
-                    // Insert node before the new tail.
-                    let _ = dom.insert_before(parent, node, tail_node);
+                    dom.insert_before(parent, node, tail_node)
                 } else {
                     // Split failed (orphan, missing TextContent,
                     // etc.) — fall back to plain insert at the
                     // start_container's slot.
-                    let _ = dom.insert_before(parent, node, self.start_container);
+                    dom.insert_before(parent, node, self.start_container)
                 }
+            } else {
+                false
             }
         } else {
             // Non-text container: insert at offset.
             let children: Vec<_> = dom.children_iter(self.start_container).collect();
             if self.start_offset < children.len() {
-                let _ = dom.insert_before(self.start_container, node, children[self.start_offset]);
+                dom.insert_before(self.start_container, node, children[self.start_offset])
             } else {
-                let _ = dom.append_child(self.start_container, node);
+                dom.append_child(self.start_container, node)
             }
-        }
+        };
 
         // Copilot R11: WHATWG §4.4 insertNode step 13 — if the range
         // was collapsed pre-insert, set `end` to (parent, newOffset)
@@ -325,7 +330,11 @@ impl Range {
         // text node and inserted `node` BEFORE the new tail, so the
         // inserted node sits at (start_container.index + 1) in parent;
         // newOffset = start_container.index + 2 (past the inserted node).
-        if was_collapsed {
+        //
+        // Copilot R12: only apply when the DOM insertion succeeded.
+        // Otherwise (cycle, missing ref, orphan parent) the Range must
+        // remain untouched so JS observes the pre-call boundaries.
+        if inserted && was_collapsed {
             if dom.node_kind(self.start_container) == Some(NodeKind::Text) {
                 if let Some(parent) = dom.get_parent(self.start_container) {
                     if let Some(idx) = dom
@@ -340,6 +349,7 @@ impl Range {
                 self.end_offset = self.start_offset + 1;
             }
         }
+        inserted
     }
 
     /// Clone the contents of this range into a document fragment.

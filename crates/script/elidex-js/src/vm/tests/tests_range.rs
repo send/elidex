@@ -615,3 +615,63 @@ fn set_start_offset_coerces_via_to_uint32() {
     );
     vm.unbind();
 }
+
+#[test]
+fn arg_node_after_unbind_throws_not_panics() {
+    // Copilot R12: `arg_node` → `require_node_arg` dereferences
+    // `ctx.host().dom()` for brand check; a retained Range wrapper
+    // across `Vm::unbind()` must surface the detached-range error
+    // instead of panicking on any node-taking method.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(
+        "globalThis.r = new Range();\
+         globalThis.t = document.createTextNode('hello');",
+    )
+    .unwrap();
+    vm.unbind();
+    let res = vm.eval("r.setStart(t, 0);");
+    assert!(
+        res.is_err(),
+        "setStart on retained Range after unbind must throw, not panic"
+    );
+}
+
+#[test]
+fn insert_node_failure_leaves_range_untouched() {
+    // Copilot R12: when DOM insertion fails (e.g. cycle —
+    // inserting an ancestor into a descendant), the Range
+    // boundaries must remain at the pre-call values and the
+    // method must throw a HierarchyRequestError instead of
+    // committing the would-be collapsed-range expansion.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(
+        "globalThis.root = document.createElement('div');\
+         globalThis.child = document.createElement('span');\
+         root.appendChild(child);\
+         globalThis.r = new Range();\
+         r.setStart(child, 0); r.setEnd(child, 0);",
+    )
+    .unwrap();
+    // Inserting `root` (an ancestor of `child`) into `child` would
+    // create a cycle — `is_ancestor_or_self` short-circuits the
+    // pre-insert check; no `document.body` attachment needed.
+    let res = vm.eval("r.insertNode(root);");
+    assert!(res.is_err(), "insertNode(ancestor) must throw");
+    // Boundaries unchanged.
+    assert_eq!(
+        eval_str(&mut vm, "r.startContainer === child ? 'yes' : 'no'"),
+        "yes"
+    );
+    assert_eq!(eval_num(&mut vm, "r.startOffset"), 0.0);
+    assert_eq!(
+        eval_str(&mut vm, "r.endContainer === child ? 'yes' : 'no'"),
+        "yes"
+    );
+    assert_eq!(eval_num(&mut vm, "r.endOffset"), 0.0);
+    vm.unbind();
+}

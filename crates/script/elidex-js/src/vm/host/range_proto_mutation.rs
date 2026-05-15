@@ -141,7 +141,21 @@ pub(super) fn native_range_insert_node(
     };
     let host = ctx.host();
     let dom = host.dom();
-    range.insert_node(dom, node);
+    let inserted = range.insert_node(dom, node);
+    if !inserted {
+        // Copilot R12: engine-indep `insert_before` / `append_child`
+        // returns false on invalid insertions (cycle, missing ref,
+        // orphan parent) — surface as `HierarchyRequestError` per
+        // WHATWG DOM `pre-insert` step 2 / `insert` rejection paths.
+        // Range boundaries stay untouched in the engine-indep helper
+        // when `inserted == false`, so no commit-back is needed.
+        return Err(VmError::dom_exception(
+            ctx.vm.well_known.dom_exc_hierarchy_request_error,
+            "Failed to execute 'insertNode' on 'Range': \
+             the node could not be inserted at the start boundary \
+             (cycle, missing reference node, or orphan parent).",
+        ));
+    }
     commit_range_after_mutation(ctx, id, "insertNode", &range)?;
     Ok(JsValue::Undefined)
 }

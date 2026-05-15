@@ -476,6 +476,15 @@ pub(super) fn arg_node(
             "Failed to execute '{method}' on 'Range': 1 argument required"
         ))
     })?;
+    // Copilot R12: `require_node_arg` dereferences `ctx.host().dom()`
+    // for the brand check.  A retained Range wrapper across
+    // `Vm::unbind()` can still pass `ObjectKind::Range`, so any
+    // node-taking Range method (`setStart`, `insertNode`, `surroundContents`,
+    // etc.) would panic instead of surfacing `InvalidStateError` here.
+    // Gate on `host_if_bound` BEFORE the dom-touching helper.
+    if ctx.host_if_bound().is_none() {
+        return Err(detached_range_error(ctx, method));
+    }
     super::node_proto::require_node_arg(ctx, value, method)
 }
 
