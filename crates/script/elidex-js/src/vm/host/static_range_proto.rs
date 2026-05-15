@@ -131,6 +131,7 @@ struct StaticRangeFields {
     start_offset: u32,
     end_container: Entity,
     end_offset: u32,
+    bind_epoch: u32,
 }
 
 fn require_static_range_receiver(
@@ -148,6 +149,7 @@ fn require_static_range_receiver(
         start_offset,
         end_container_bits,
         end_offset,
+        bind_epoch,
     } = ctx.vm.get_object(id).kind
     else {
         return Err(VmError::type_error(format!(
@@ -169,6 +171,7 @@ fn require_static_range_receiver(
         start_offset,
         end_container,
         end_offset,
+        bind_epoch,
     })
 }
 
@@ -215,33 +218,18 @@ fn native_static_range_constructor(
     let start_offset_sid = ctx.vm.well_known.start_offset;
     let end_container_sid = ctx.vm.well_known.end_container;
     let end_offset_sid = ctx.vm.well_known.end_offset;
-    let init_jsval = JsValue::Object(init_id);
-
-    let start_container_val = ctx.vm.get_property_val(init_jsval, start_container_sid)?;
-    let start_offset_val = ctx.vm.get_property_val(init_jsval, start_offset_sid)?;
-    let end_container_val = ctx.vm.get_property_val(init_jsval, end_container_sid)?;
-    let end_offset_val = ctx.vm.get_property_val(init_jsval, end_offset_sid)?;
 
     // Copilot R3: WebIDL `AbstractRangeInit` dictionary lists all 4
-    // members (startContainer / startOffset / endContainer /
-    // endOffset) as `required`.  Missing members yield `undefined`
-    // from `get_property_val`; per WebIDL §3.10.7 step 4 a missing
-    // required member must throw `TypeError`.  `require_node_arg`
-    // already rejects undefined containers; offsets need an explicit
-    // check before `to_uint32` (which would silently truncate
-    // `undefined` to `0`).
-    if matches!(start_offset_val, JsValue::Undefined) {
-        return Err(VmError::type_error(
-            "Failed to construct 'StaticRange': required member \
-             'startOffset' is undefined.",
-        ));
-    }
-    if matches!(end_offset_val, JsValue::Undefined) {
-        return Err(VmError::type_error(
-            "Failed to construct 'StaticRange': required member \
-             'endOffset' is undefined.",
-        ));
-    }
+    // members as `required`.  Per WebIDL §3.10.7 step 4, the
+    // required check is by PRESENCE (HasProperty), not by value —
+    // an explicit `startOffset: undefined` is "present" and goes
+    // through ToUint32 → 0 normally.  Copilot R9 corrects R3:
+    // distinguish absent (throw) from present-but-undefined (coerce).
+    let start_container_val =
+        require_dict_member(ctx, init_id, start_container_sid, "startContainer")?;
+    let start_offset_val = require_dict_member(ctx, init_id, start_offset_sid, "startOffset")?;
+    let end_container_val = require_dict_member(ctx, init_id, end_container_sid, "endContainer")?;
+    let end_offset_val = require_dict_member(ctx, init_id, end_offset_sid, "endOffset")?;
 
     let start_container =
         super::node_proto::require_node_arg(ctx, start_container_val, "StaticRange")?;
@@ -252,13 +240,36 @@ fn native_static_range_constructor(
     reject_invalid_container(ctx, start_container)?;
     reject_invalid_container(ctx, end_container)?;
 
+    // Copilot R9: capture current bind epoch so retained instances
+    // across `Vm::unbind`/rebind invalidate via `isValid()`.
+    let bind_epoch = ctx.host().bind_epoch();
     ctx.vm.get_object_mut(this_id).kind = ObjectKind::StaticRange {
         start_container_bits: start_container.to_bits().into(),
         start_offset,
         end_container_bits: end_container.to_bits().into(),
         end_offset,
+        bind_epoch,
     };
     Ok(JsValue::Object(this_id))
+}
+
+/// WebIDL §3.10.7 step 4 — required-dictionary-member lookup.
+/// `HasProperty` check precedes `Get`: a member explicitly set to
+/// `undefined` IS "present" (proceeds through type conversion); a
+/// missing key throws TypeError.  Copilot R9 fix.
+fn require_dict_member(
+    ctx: &mut NativeContext<'_>,
+    obj_id: super::super::value::ObjectId,
+    key_sid: super::super::value::StringId,
+    member_name: &'static str,
+) -> Result<JsValue, VmError> {
+    let key = PropertyKey::String(key_sid);
+    match ctx.try_get_property_value(obj_id, key)? {
+        Some(v) => Ok(v),
+        None => Err(VmError::type_error(format!(
+            "Failed to construct 'StaticRange': required member '{member_name}' is missing."
+        ))),
+    }
 }
 
 /// Spec §4.5 step 1 — reject `DocumentType` / `Attr` container.
@@ -353,15 +364,24 @@ fn native_static_range_is_valid(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let f = require_static_range_receiver(ctx, this, "isValid")?;
+    // Copilot R9: a `Vm::unbind`/rebind cycle invalidates ALL
+    // retained StaticRange instances because the stored
+    // `Entity` bits may now resolve to an unrelated entity in
+    // the fresh `EcsDom`.  Reject if the captured epoch differs
+    // from the current bind epoch — even if `dom.contains`
+    // happens to succeed against a recycled slot.
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::Boolean(false));
+    }
+    if f.bind_epoch != ctx.host().bind_epoch() {
+        return Ok(JsValue::Boolean(false));
+    }
     let dom = ctx.host().dom();
     // Copilot R2: a stored Entity may have been despawned since
-    // construction.  WHATWG §4.5 doesn't formalise "the container
-    // was destroyed", but a destroyed entity reuses-its-slot via
-    // `Entity::from_bits` returning a value that no longer points
-    // to anything ECS-tracked — `dom.contains` is the canonical
-    // liveness check.  Reject either-side-stale up-front so the
-    // root + offset checks below don't false-positive on entities
-    // whose payload was lost.
+    // construction.  `dom.contains` is the canonical liveness
+    // check — combined with the bind-epoch guard above, this
+    // rejects both cross-rebind stale entities and same-bind
+    // despawned ones.
     if !dom.contains(f.start_container) || !dom.contains(f.end_container) {
         return Ok(JsValue::Boolean(false));
     }

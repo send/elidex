@@ -915,6 +915,12 @@ pub enum ObjectKind {
         start_offset: u32,
         end_container_bits: u64,
         end_offset: u32,
+        /// Copilot R9: `HostData::bind_epoch` snapshot at ctor.
+        /// `isValid()` rejects when the current epoch differs —
+        /// detects retained instances across `Vm::unbind`/rebind
+        /// even when the new `EcsDom` happens to reuse the same
+        /// `Entity` slots.
+        bind_epoch: u32,
     },
     /// `TreeWalker` instance (WHATWG DOM §6.4).  Stateful walker
     /// over a DOM subtree filtered by `whatToShow` + optional
@@ -923,14 +929,17 @@ pub enum ObjectKind {
     /// `HostData::tree_walker_states`.  Carries only the monotonic
     /// state-table ID inline.
     ///
-    /// GC contract (Copilot R4): trace fan-out is a no-op — filter
-    /// callback `ObjectId`s are rooted via
-    /// `HostData::gc_root_object_ids` (which collects
-    /// `tree_walker_states.values().filter_object_id` into the root
-    /// set).  Sweep tail in `vm/gc/collect.rs` prunes dead
-    /// `tree_walker_instances` / `tree_walker_states` entries by
-    /// wrapper ObjectId; the filter ObjectId de-roots on the next GC
-    /// after the state-table entry is pruned.
+    /// GC contract (Copilot R8): filter callback `ObjectId`s are
+    /// reached via per-wrapper trace fan-out in `vm/gc/trace.rs`
+    /// (looking up `filter_object_id` from
+    /// `HostData::tree_walker_states[walker_id]` when the wrapper
+    /// itself is being marked).  `HostData::gc_root_object_ids`
+    /// explicitly does NOT root these filters — earlier rounds
+    /// (R4-R7) used unconditional rooting and Copilot flagged the
+    /// leak cycle where a filter closure capturing the wrapper
+    /// would survive forever.  Wrapper unreachability now drops
+    /// the filter naturally; sweep tail in `vm/gc/collect.rs`
+    /// prunes the state-table entry alongside.
     #[cfg(feature = "engine")]
     TreeWalker { walker_id: u64 },
     /// `NodeIterator` instance (WHATWG DOM §6.1).  Stateful pre-
@@ -941,10 +950,11 @@ pub enum ObjectKind {
     /// reference on `after_remove_with_descendants`).  Carries
     /// only the monotonic state-table ID inline.
     ///
-    /// GC contract (Copilot R4): same rooted-via-`gc_root_object_ids`
-    /// model as `TreeWalker` — trace fan-out is a no-op.  Sweep tail
-    /// prunes `node_iterator_instances` + the shared
-    /// `node_iterator_states_shared` map under the mutex lock.
+    /// GC contract (Copilot R8): same per-wrapper trace fan-out as
+    /// `TreeWalker` — filter `ObjectId` reached only when the
+    /// wrapper is marked (avoids the filter-captures-wrapper leak
+    /// cycle).  Sweep tail prunes `node_iterator_instances` + the
+    /// shared `node_iterator_states_shared` map under the mutex.
     #[cfg(feature = "engine")]
     NodeIterator { iterator_id: u64 },
 }

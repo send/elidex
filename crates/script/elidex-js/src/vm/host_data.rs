@@ -110,6 +110,12 @@ mod engine_feature {
         /// Bounded by the number of distinct documents a VM observes
         /// (typically 1 — at most a handful).
         pub(crate) document_methods_installed: HashSet<Entity>,
+        /// Monotonic bind-cycle counter — incremented on every
+        /// `unbind()`.  Used by `StaticRange.isValid()` to detect
+        /// retained instances whose captured `Entity` bits became
+        /// stale across rebind (a fresh `EcsDom` can reuse the
+        /// same slot for a different entity).  Copilot R9.
+        pub(crate) bind_epoch: u32,
         pub(crate) listener_store: HashMap<ListenerId, ObjectId>,
         pub(crate) wrapper_cache: HashMap<u64, ObjectId>,
         /// Currently focused Element entity (WHATWG HTML §6.6.3).
@@ -338,6 +344,7 @@ mod engine_feature {
                 document_entity: None,
                 window_entity: None,
                 document_methods_installed: HashSet::new(),
+                bind_epoch: 0,
                 listener_store: HashMap::new(),
                 wrapper_cache: HashMap::new(),
                 focused_entity: None,
@@ -560,6 +567,19 @@ mod engine_feature {
             self.session_ptr = std::ptr::null_mut();
             self.dom_ptr = std::ptr::null_mut();
             self.document_entity = None;
+            // Copilot R9: bump bind epoch so retained `StaticRange`
+            // wrappers (which captured the prior epoch) invalidate
+            // on `isValid()` even if their stored `Entity` bits
+            // collide with a new slot in a rebound `EcsDom`.
+            self.bind_epoch = self.bind_epoch.wrapping_add(1);
+        }
+
+        /// Current bind epoch — incremented on every `Vm::unbind` so
+        /// retained `StaticRange` wrappers can detect stale entity
+        /// bits after a rebind.  See [`Self::unbind`].
+        #[inline]
+        pub fn bind_epoch(&self) -> u32 {
+            self.bind_epoch
         }
 
         /// Returns `true` only when **both** `session_ptr` and

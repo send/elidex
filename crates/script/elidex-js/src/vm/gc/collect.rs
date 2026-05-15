@@ -1223,9 +1223,12 @@ impl VmInner {
             // is unconditionally rooted via `gc_root_object_ids`,
             // making this prune the only place where the side-table
             // can shed entries.  TreeWalker / NodeIterator filter
-            // ObjectIds are likewise rooted via the chain extension
-            // in `gc_root_object_ids`; pruning the state table here
-            // is what eventually de-roots them.
+            // ObjectIds (Copilot R8) are NOT rooted via
+            // `gc_root_object_ids` — they reach GC only via the
+            // per-wrapper trace fan-out in `vm/gc/trace.rs`.  This
+            // sweep prunes the state-table entry once the wrapper
+            // ObjectId itself is unmarked, mirroring the
+            // mutation_observer pattern except for the rooting side.
             if let Some(hd) = self.host_data.as_deref_mut() {
                 // Range — collect dead range_ids first to avoid
                 // double-borrowing `host_data` (we need both
