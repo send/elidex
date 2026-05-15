@@ -923,9 +923,14 @@ pub enum ObjectKind {
     /// `HostData::tree_walker_states`.  Carries only the monotonic
     /// state-table ID inline.
     ///
-    /// GC contract: trace marks the filter callback `ObjectId`
-    /// from the state-table entry (if Some).  Sweep tail prunes
-    /// dead instance-table entries by ObjectId.
+    /// GC contract (Copilot R4): trace fan-out is a no-op — filter
+    /// callback `ObjectId`s are rooted via
+    /// `HostData::gc_root_object_ids` (which collects
+    /// `tree_walker_states.values().filter_object_id` into the root
+    /// set).  Sweep tail in `vm/gc/collect.rs` prunes dead
+    /// `tree_walker_instances` / `tree_walker_states` entries by
+    /// wrapper ObjectId; the filter ObjectId de-roots on the next GC
+    /// after the state-table entry is pruned.
     #[cfg(feature = "engine")]
     TreeWalker { walker_id: u64 },
     /// `NodeIterator` instance (WHATWG DOM §6.1).  Stateful pre-
@@ -936,9 +941,10 @@ pub enum ObjectKind {
     /// reference on `after_remove_with_descendants`).  Carries
     /// only the monotonic state-table ID inline.
     ///
-    /// GC contract: trace acquires the shared mutex, marks the
-    /// filter callback `ObjectId` (if Some).  Sweep tail prunes
-    /// dead instance-table entries by ObjectId.
+    /// GC contract (Copilot R4): same rooted-via-`gc_root_object_ids`
+    /// model as `TreeWalker` — trace fan-out is a no-op.  Sweep tail
+    /// prunes `node_iterator_instances` + the shared
+    /// `node_iterator_states_shared` map under the mutex lock.
     #[cfg(feature = "engine")]
     NodeIterator { iterator_id: u64 },
 }

@@ -700,7 +700,10 @@ fn native_range_is_point_in_range(
     let id = require_range_receiver(ctx, this, "isPointInRange")?;
     let node = arg_node(ctx, args.first().copied(), "isPointInRange")?;
     let offset = arg_offset_required(ctx, args.get(1).copied(), "isPointInRange")?;
-    reject_doctype(ctx, node, "isPointInRange")?;
+    // Copilot R4: doctype check moved into engine-indep
+    // `Range::is_point_in_range` so spec step ORDER (root → doctype
+    // → offset) is enforced — cross-root DocumentType now returns
+    // `false` per spec step 1 instead of throwing.
     let result = read_range(ctx, id, "isPointInRange", |ctx, r| {
         let dom = ctx.host().dom();
         r.is_point_in_range(node, offset, dom)
@@ -717,7 +720,9 @@ fn native_range_compare_point(
     let id = require_range_receiver(ctx, this, "comparePoint")?;
     let node = arg_node(ctx, args.first().copied(), "comparePoint")?;
     let offset = arg_offset_required(ctx, args.get(1).copied(), "comparePoint")?;
-    reject_doctype(ctx, node, "comparePoint")?;
+    // Copilot R4: doctype check moved into engine-indep
+    // `Range::compare_point` so spec step ORDER (root → doctype
+    // → offset) is enforced via `WrongDocumentError` precedence.
     let result = read_range(ctx, id, "comparePoint", |ctx, r| {
         let dom = ctx.host().dom();
         r.compare_point(node, offset, dom)

@@ -215,6 +215,28 @@ fn is_point_in_range_basic() {
 }
 
 #[test]
+fn is_point_in_range_cross_root_returns_false_not_throw() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    // Copilot R4 — WHATWG §4.4 step ORDER: root check (step 1)
+    // precedes doctype rejection (step 2).  A cross-tree node, even
+    // if it were a doctype, must return false rather than throw.
+    // Here we use a regular element from a DETACHED tree.
+    vm.eval(&format!(
+        "{TREE_SETUP}\
+         globalThis.r = new Range(); r.setStart(t, 1); r.setEnd(t, 4);\
+         globalThis.detached = document.createElement('section');"
+    ))
+    .unwrap();
+    let result = eval_str(&mut vm, "r.isPointInRange(detached, 0) ? 'in' : 'out'");
+    assert_eq!(
+        result, "out",
+        "cross-root point must return false, not throw"
+    );
+    vm.unbind();
+}
+
+#[test]
 fn compare_point_returns_neg1_zero_pos1() {
     let (mut vm, mut session, mut dom, doc) = setup();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };

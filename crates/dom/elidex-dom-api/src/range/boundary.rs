@@ -18,6 +18,15 @@ pub enum RangePointError {
     IndexSize,
 }
 
+/// `true` when `node` is a `DocumentType` per WHATWG §4.4 step 2.
+/// Probes both the inferred kind (modern path) and the legacy
+/// `DocTypeData` component (back-compat for legacy entity layouts).
+fn is_doctype(node: Entity, dom: &EcsDom) -> bool {
+    use elidex_ecs::{DocTypeData, NodeKind};
+    matches!(dom.node_kind_inferred(node), Some(NodeKind::DocumentType))
+        || dom.world().get::<&DocTypeData>(node).is_ok()
+}
+
 impl Range {
     /// Set the start boundary WITHOUT spec collapse-on-cross-root /
     /// after-end logic.  Engine-indep primitive used by in-crate
@@ -141,21 +150,26 @@ impl Range {
     ///   (spec step 2 throws `InvalidNodeTypeError`).
     /// - `Err(IndexSize)` if `offset > length(node)`
     ///   (spec step 3 throws `IndexSizeError`).
+    ///
+    /// Copilot R4: spec step ORDER is root → doctype → offset.  Root
+    /// check returns false BEFORE doctype rejection so a cross-tree
+    /// DocumentType yields `false` rather than throw.
     pub fn is_point_in_range(
         &self,
         node: Entity,
         offset: usize,
         dom: &EcsDom,
     ) -> Result<bool, RangePointError> {
-        // Step 1: roots must match.  Use start_container as the range's
-        // root anchor; both boundaries share a root by construction.
+        // Step 1: roots must match — short-circuit to false BEFORE any
+        // other spec step (incl. doctype rejection in step 2).
         if dom.find_tree_root(node) != dom.find_tree_root(self.start_container) {
             return Ok(false);
         }
-        // Step 2: DocumentType rejection delegated to caller via node-kind
-        // probe — boundary.rs has no NodeKind access, so the VM-side
-        // performs the eager type check before calling.  We still
-        // validate offset here for defence-in-depth.
+        // Step 2: DocumentType rejection.
+        if is_doctype(node, dom) {
+            return Err(RangePointError::InvalidNodeType);
+        }
+        // Step 3: offset bounds.
         if offset > node_length(node, dom) {
             return Err(RangePointError::IndexSize);
         }
@@ -177,8 +191,12 @@ impl Range {
     /// - `0` if the point lies in `[start, end]`.
     /// - `1` if it is after the range end.
     /// - `Err(WrongDocument)` if `node`'s root differs from the range's root.
-    /// - `Err(InvalidNodeType)` if `node` is a `DocumentType` (VM-side check).
+    /// - `Err(InvalidNodeType)` if `node` is a `DocumentType`.
     /// - `Err(IndexSize)` if `offset > length(node)`.
+    ///
+    /// Copilot R4: spec step ORDER is root → doctype → offset.  Root
+    /// mismatch throws `WrongDocumentError` before doctype rejection
+    /// (unlike `isPointInRange` where root mismatch returns false).
     pub fn compare_point(
         &self,
         node: Entity,
@@ -187,6 +205,9 @@ impl Range {
     ) -> Result<i8, RangePointError> {
         if dom.find_tree_root(node) != dom.find_tree_root(self.start_container) {
             return Err(RangePointError::WrongDocument);
+        }
+        if is_doctype(node, dom) {
+            return Err(RangePointError::InvalidNodeType);
         }
         if offset > node_length(node, dom) {
             return Err(RangePointError::IndexSize);
