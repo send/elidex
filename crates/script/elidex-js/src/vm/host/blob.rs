@@ -165,14 +165,6 @@ impl VmInner {
 // Brand check + helpers
 // ---------------------------------------------------------------------------
 
-fn require_blob_this(
-    ctx: &NativeContext<'_>,
-    this: JsValue,
-    method: &str,
-) -> Result<ObjectId, VmError> {
-    require_blob_or_file_this(ctx, this, method)
-}
-
 /// Brand check that accepts both `Blob` and `File` instances.  Slot
 /// `#11-file-api`: File IS-A Blob per FileAPI §4, and both store
 /// bytes / type in [`VmInner::blob_data`] keyed by the instance's own
@@ -617,7 +609,7 @@ fn native_blob_get_size(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = require_blob_this(ctx, this, "size")?;
+    let id = require_blob_or_file_this(ctx, this, "size")?;
     #[allow(clippy::cast_precision_loss)]
     let size = blob_byte_length(ctx.vm, id) as f64;
     Ok(JsValue::Number(size))
@@ -628,7 +620,7 @@ fn native_blob_get_type(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = require_blob_this(ctx, this, "type")?;
+    let id = require_blob_or_file_this(ctx, this, "type")?;
     Ok(JsValue::String(blob_type(ctx.vm, id)))
 }
 
@@ -642,7 +634,7 @@ fn native_blob_slice(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = require_blob_this(ctx, this, "slice")?;
+    let id = require_blob_or_file_this(ctx, this, "slice")?;
     let len = blob_byte_length(ctx.vm, id);
     #[allow(clippy::cast_precision_loss)]
     let len_f = len as f64;
@@ -697,7 +689,7 @@ fn native_blob_text(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = require_blob_this(ctx, this, "text")?;
+    let id = require_blob_or_file_this(ctx, this, "text")?;
     let promise = super::super::natives_promise::create_promise(ctx.vm);
     // Keep `promise` rooted across the subsequent StringPool
     // intern — `alloc_object` inside intern() could otherwise
@@ -722,7 +714,7 @@ fn native_blob_stream(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = require_blob_this(ctx, this, "stream")?;
+    let id = require_blob_or_file_this(ctx, this, "stream")?;
     let bytes = blob_bytes(ctx.vm, id).to_vec();
     let stream_id = super::readable_stream::create_body_backed_stream(ctx.vm, bytes);
     Ok(JsValue::Object(stream_id))
@@ -735,7 +727,7 @@ fn native_blob_array_buffer(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let id = require_blob_this(ctx, this, "arrayBuffer")?;
+    let id = require_blob_or_file_this(ctx, this, "arrayBuffer")?;
     let promise = super::super::natives_promise::create_promise(ctx.vm);
     // Root `promise` across the subsequent `ArrayBuffer` alloc
     // (see `native_blob_text` for rationale).  The Blob instance

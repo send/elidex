@@ -522,7 +522,7 @@ fn read_as_common(
 
     // Fire `loadstart` synchronously (before queueing the task) per
     // FileAPI §6.5.
-    fire_progress_event(ctx, id, EventKind::Loadstart);
+    fire_progress_event(ctx, id, EventKind::Loadstart, None);
 
     // Queue the actual read for drain.
     ctx.vm
@@ -596,14 +596,30 @@ fn native_fr_abort(
     if !was_loading {
         return Ok(JsValue::Undefined);
     }
+    // Capture blob size BEFORE clearing target_blob so abort + loadend
+    // can fire with meaningful `loaded` / `total` (this implementation
+    // reads synchronously, so on abort the blob's full byte length is
+    // the conceptual "processed" amount).  Without this snapshot,
+    // `fire_progress_event` would see target_blob = None and emit
+    // loaded = total = 0 — observer-side regression.
+    let blob_size_for_abort = ctx
+        .vm
+        .file_reader_data
+        .get(&id)
+        .and_then(|d| d.target_blob)
+        .map_or(0.0, |b_id| {
+            #[allow(clippy::cast_precision_loss)]
+            let n = super::blob::blob_byte_length(ctx.vm, b_id) as f64;
+            n
+        });
     if let Some(d) = ctx.vm.file_reader_data.get_mut(&id) {
         d.state = ReadyState::Done;
         d.result = ReaderResult::None;
         d.abort_seq = d.abort_seq.wrapping_add(1);
         d.target_blob = None;
     }
-    fire_progress_event(ctx, id, EventKind::Abort);
-    fire_progress_event(ctx, id, EventKind::Loadend);
+    fire_progress_event(ctx, id, EventKind::Abort, Some(blob_size_for_abort));
+    fire_progress_event(ctx, id, EventKind::Loadend, Some(blob_size_for_abort));
     Ok(JsValue::Undefined)
 }
 
@@ -681,9 +697,9 @@ pub(crate) fn dispatch_file_read_task(
         d.result = result;
         d.error = None;
     }
-    fire_progress_event(&mut ctx, reader_id, EventKind::Progress);
-    fire_progress_event(&mut ctx, reader_id, EventKind::Load);
-    fire_progress_event(&mut ctx, reader_id, EventKind::Loadend);
+    fire_progress_event(&mut ctx, reader_id, EventKind::Progress, None);
+    fire_progress_event(&mut ctx, reader_id, EventKind::Load, None);
+    fire_progress_event(&mut ctx, reader_id, EventKind::Loadend, None);
     // Clear target_blob post-events so subsequent `readAs*` calls
     // don't observe a stale blob reference.  Result + error remain
     // populated for retained `r.result` / `r.error` reads.
@@ -705,7 +721,12 @@ enum EventKind {
     Abort,
 }
 
-fn fire_progress_event(ctx: &mut NativeContext<'_>, reader_id: ObjectId, kind: EventKind) {
+fn fire_progress_event(
+    ctx: &mut NativeContext<'_>,
+    reader_id: ObjectId,
+    kind: EventKind,
+    blob_size_override: Option<f64>,
+) {
     let handler = ctx
         .vm
         .file_reader_data
@@ -728,16 +749,17 @@ fn fire_progress_event(ctx: &mut NativeContext<'_>, reader_id: ObjectId, kind: E
         EventKind::Loadend => ctx.vm.well_known.loadend_event_type,
         EventKind::Abort => ctx.vm.well_known.abort,
     };
-    let blob_size = ctx
-        .vm
-        .file_reader_data
-        .get(&reader_id)
-        .and_then(|d| d.target_blob)
-        .map_or(0.0, |b_id| {
-            #[allow(clippy::cast_precision_loss)]
-            let n = super::blob::blob_byte_length(ctx.vm, b_id) as f64;
-            n
-        });
+    let blob_size = blob_size_override.unwrap_or_else(|| {
+        ctx.vm
+            .file_reader_data
+            .get(&reader_id)
+            .and_then(|d| d.target_blob)
+            .map_or(0.0, |b_id| {
+                #[allow(clippy::cast_precision_loss)]
+                let n = super::blob::blob_byte_length(ctx.vm, b_id) as f64;
+                n
+            })
+    });
 
     // Build via the shared ctor helper so the event lands on the
     // `progress_event` precomputed shape (core-9 + lengthComputable /

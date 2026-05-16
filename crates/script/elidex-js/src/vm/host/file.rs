@@ -293,12 +293,16 @@ fn parse_file_options(
 /// `SystemTime::duration_since(UNIX_EPOCH)` fails only when the system
 /// clock predates 1970 — extraordinarily unusual; fall back to 0 in
 /// that case (the spec-mandated default for invalid timestamps).
+///
+/// Returns an integer `f64` (truncated to whole milliseconds) so the
+/// default matches `Date.now()` browser observable + the WebIDL
+/// `long long` integer-truncation rule applied to user-supplied values.
 #[allow(clippy::cast_precision_loss)]
 fn now_epoch_ms(_vm: &VmInner) -> f64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_or(0.0, |d| d.as_secs_f64() * 1000.0)
+        .map_or(0.0, |d| d.as_millis() as f64)
 }
 
 // ---------------------------------------------------------------------------

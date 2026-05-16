@@ -209,6 +209,17 @@ fn last_modified_default_is_unix_epoch_ms() {
 }
 
 #[test]
+fn last_modified_default_is_integer_milliseconds() {
+    // Copilot R2 regression: `now_epoch_ms` used `as_secs_f64() *
+    // 1000.0` which yielded fractional ms (e.g. 1767234567890.123).
+    // `Date.now()` always returns integer ms per WebIDL `long long`
+    // semantics; fix uses `Duration::as_millis() as f64` to truncate.
+    let mut vm = Vm::new();
+    let n = eval_number(&mut vm, "new File([], 'x').lastModified;");
+    assert_eq!(n, n.trunc(), "expected integer lastModified, got {n}");
+}
+
+#[test]
 fn last_modified_explicit_value() {
     let mut vm = Vm::new();
     assert_eq!(
@@ -1106,6 +1117,35 @@ fn abort_handler_can_start_new_read_with_fresh_state() {
         other => panic!("expected string, got {other:?}"),
     };
     assert_eq!(val, "second");
+}
+
+#[test]
+fn abort_progress_event_carries_blob_size_as_loaded_total() {
+    // Copilot R2 regression: `abort()` cleared target_blob to None
+    // BEFORE firing abort + loadend, so `fire_progress_event` saw a
+    // missing blob and emitted loaded = total = 0.  Fix captures
+    // blob_size BEFORE the clear and threads it through as an
+    // override.  Observable: a 5-byte Blob aborted mid-read should
+    // report loaded = total = 5 on the abort event.
+    let mut vm = Vm::new();
+    vm.eval(
+        "let r = new FileReader(); \
+         globalThis._loaded = -1; globalThis._total = -1; \
+         r.onabort = function(e) { globalThis._loaded = e.loaded; globalThis._total = e.total; }; \
+         r.readAsText(new Blob(['hello'])); \
+         r.abort();",
+    )
+    .unwrap();
+    assert_eq!(
+        eval_number(&mut vm, "_loaded;"),
+        5.0,
+        "abort onabort.loaded should be blob byte length"
+    );
+    assert_eq!(
+        eval_number(&mut vm, "_total;"),
+        5.0,
+        "abort onabort.total should be blob byte length"
+    );
 }
 
 #[test]
