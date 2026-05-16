@@ -401,11 +401,16 @@ fn input_show_picker_throws_not_supported() {
 }
 
 #[test]
-fn input_files_returns_null_stub() {
+fn input_files_returns_empty_file_list() {
+    // D-14 `#11-file-api` Phase 3 — `<input type=file>.files` upgraded
+    // from `null` stub to per-instance empty FileList wrapper.  Shell-
+    // side file picker staging deferred to `#11-input-file-shell-staging`,
+    // so the FileList is always empty until that lands.
     let out = run("var i = document.createElement('input'); \
          i.type = 'file'; \
-         (i.files === null) ? 'null' : 'non-null';");
-    assert_eq!(out, "null");
+         (i.files instanceof FileList && i.files.length === 0) \
+            ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
 }
 
 #[test]

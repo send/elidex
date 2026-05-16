@@ -905,9 +905,37 @@ fn native_input_get_files(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // Stub — File API surface deferred to `#11c-fl PR-file-api`.
-    let _ = require_input_receiver(ctx, this, "files")?;
-    Ok(JsValue::Null)
+    // FileAPI integration (slot `#11-file-api` Phase 3).  Returns a
+    // real per-instance FileList wrapper (NOT null) per HTML
+    // §4.10.5.1.18 — `input.files` is an empty FileList when no files
+    // are staged, never null while the input remains a `type=file`.
+    //
+    // Identity-stable via `VmInner::input_files_cache`: repeated reads
+    // of `input.files` return the same `ObjectId` per spec
+    // `[SameObject]` semantics.
+    //
+    // **Always empty for now** — shell-side file picker UI integration
+    // (the "staged files" Vec on the FormControlState) is deferred to
+    // slot `#11-input-file-shell-staging` (re-eval with `elidex-shell`
+    // UI milestone, post M4-12).  The wrapper itself is allocated +
+    // cached eagerly so framework code that polls `input.files.length`
+    // observes a stable identity even before any file is staged, and
+    // so that DataTransfer.files / DataTransferItemList tests can use
+    // the same cache once Phase 5 wires those sites.
+    // Brand-check first (rejects non-input receivers); the
+    // wrapper's own `ObjectId` is the cache key for SameObject
+    // identity (NOT the backing Entity — the wrapper is the
+    // observable JS-side identity).
+    let _entity = require_input_receiver(ctx, this, "files")?;
+    let JsValue::Object(input_id) = this else {
+        unreachable!("require_input_receiver returned Ok for non-Object this")
+    };
+    if let Some(cached) = ctx.vm.input_files_cache.get(&input_id).copied() {
+        return Ok(JsValue::Object(cached));
+    }
+    let file_list_id = super::file_list::create_file_list_from_ids(ctx.vm, Vec::new());
+    ctx.vm.input_files_cache.insert(input_id, file_list_id);
+    Ok(JsValue::Object(file_list_id))
 }
 
 fn native_input_get_list(

@@ -71,7 +71,6 @@ pub(crate) struct FileListSideData {
 /// instances).  Caller takes responsibility for ensuring those File
 /// wrappers exist + the surrounding GC-rooting strategy keeps them
 /// reachable through the FileList side-data fan-out.
-#[allow(dead_code)] // Phase 3 + Phase 5 call sites land in `#11-file-api`.
 pub(crate) fn create_file_list_from_ids(vm: &mut VmInner, file_ids: Vec<ObjectId>) -> ObjectId {
     let proto = vm.file_list_prototype;
     let id = vm.alloc_object(Object {

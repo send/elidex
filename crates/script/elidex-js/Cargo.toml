@@ -24,6 +24,7 @@ engine = [
     "elidex-storage-core",
     "bytes",
     "encoding_rs",
+    "base64",
 ]
 
 [dependencies]
@@ -54,6 +55,10 @@ bytes = { workspace = true, optional = true }
 # engine-gated because the surface depends on the engine-only
 # `Uint8Array` + `ArrayBuffer` wrappers.
 encoding_rs = { workspace = true, optional = true }
+# Base64 encode/decode backing `FileReader.readAsDataURL` (FileAPI §6.3).
+# RFC 4648 standard alphabet via `engine::general_purpose::STANDARD`.
+# Workspace dep shared with `elidex-cache-api` / `elidex-js-boa`.
+base64 = { workspace = true, optional = true }
 # Engine-independent DOM API handler implementations dispatched via
 # `DomApiHandler` from `vm::host::dom_bridge::invoke_dom_api`.  See
 # CLAUDE.md "Layering mandate".

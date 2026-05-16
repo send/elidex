@@ -1252,6 +1252,27 @@ impl VmInner {
                 .retain(|_, id| bit_get(marks, id.0));
             self.output_html_for_wrappers
                 .retain(|_, id| bit_get(marks, id.0));
+            // D-14 `#11-file-api` — File API side-tables.
+            // `input_files_cache`: KEY is the HTMLInputElement wrapper
+            // ObjectId, VALUE is the per-instance FileList wrapper.
+            // The input wrapper is the owning lifetime — when it's
+            // collected, the cached FileList becomes unreachable.
+            // VALUE-side mark also gets pruned via the standard sweep
+            // path; the KEY-side filter here prevents a recycled input
+            // wrapper slot from inheriting the prior FileList.
+            self.input_files_cache.retain(|input_id, file_list_id| {
+                bit_get(marks, input_id.0) && bit_get(marks, file_list_id.0)
+            });
+            // `file_data` / `file_list_data` / `file_reader_data` —
+            // payload side-tables keyed by the instance's own
+            // ObjectId.  Standard prune-by-key-mark contract.  Phase
+            // 4 (FileReader) extends `file_reader_data` GC trace to
+            // mark `target_blob` + ArrayBuffer / error referenced from
+            // `result` / `error`; until then the read pipeline is
+            // inert so no fan-out is missed.
+            self.file_data.retain(|id, _| bit_get(marks, id.0));
+            self.file_list_data.retain(|id, _| bit_get(marks, id.0));
+            self.file_reader_data.retain(|id, _| bit_get(marks, id.0));
             // `fetch_abort_observers` — prune entries whose key
             // `AbortSignal` was collected so a recycled slot can't
             // pick up stale fan-out `FetchId`s.  The values are

@@ -1526,7 +1526,6 @@ pub(crate) struct VmInner {
     /// `file_ids`.  Sweep tail prunes entries whose key was
     /// collected.
     #[cfg(feature = "engine")]
-    #[allow(dead_code)] // Phase 0b scaffolding — see file_prototype.
     pub(crate) file_list_data: HashMap<ObjectId, host::file_list::FileListSideData>,
     /// Per-`FileReader` out-of-band state, keyed by the FileReader
     /// instance's `ObjectId`.  Holds the readyState machine,
@@ -1554,7 +1553,6 @@ pub(crate) struct VmInner {
     /// collected (HTMLInputElement wrapper's lifetime handles the
     /// KEY side via the broader `HostData::wrapper_cache`).
     #[cfg(feature = "engine")]
-    #[allow(dead_code)] // Phase 0b scaffolding — see file_prototype.
     pub(crate) input_files_cache: HashMap<ObjectId, ObjectId>,
     /// Per-`TextDecoder` out-of-band state (WHATWG Encoding §8.1).
     /// Keyed by the instance's own `ObjectId`.  Holds the resolved
