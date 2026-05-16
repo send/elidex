@@ -957,6 +957,34 @@ pub enum ObjectKind {
     /// shared `node_iterator_states_shared` map under the mutex.
     #[cfg(feature = "engine")]
     NodeIterator { iterator_id: u64 },
+    /// `Selection` per-document singleton (Selection API §3, formerly
+    /// WHATWG HTML §7.5.5).  Payload-free brand: the single per-document
+    /// `Selection` state lives in `HostData::selection_state` (an
+    /// `Option<SelectionState>`) and the canonical wrapper `ObjectId`
+    /// lives in `HostData::selection_instance` (an `Option<ObjectId>`).
+    /// Both are `Option<...>` rather than `HashMap<...>` because the
+    /// M4-12 VM models exactly one Window+Document; promote to a map
+    /// keyed by document `Entity` when multi-document arrives (D-15
+    /// ShadowRoot / iframe).
+    ///
+    /// `window.getSelection()` and `document.getSelection()` both resolve
+    /// to this singleton — they return the SAME `ObjectId` per spec
+    /// `[SameObject]` semantics, which the host-data singleton slot
+    /// gives for free (no per-call wrapper allocation).
+    ///
+    /// GC contract: trace fan-out (in `vm/gc/trace.rs`) marks the
+    /// currently-selected `Range` wrapper at
+    /// `HostData::range_instances[selection_state.current_range_id().bits()]`,
+    /// keeping the registry entry alive across sweeps even when the user
+    /// has dropped their JS Range reference.  If the wrapper has not yet
+    /// been materialised (Selection set internally via
+    /// `collapse`/`extend`/`setBaseAndExtent` without anyone calling
+    /// `getRangeAt(0)`), trace fan-out is a no-op — `getRangeAt` builds
+    /// a wrapper on demand, with the `RangeId` as the source of truth.
+    /// Sweep tail clears `HostData::selection_instance` when this
+    /// wrapper is collected.
+    #[cfg(feature = "engine")]
+    Selection,
 }
 
 impl ObjectKind {

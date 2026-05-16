@@ -110,6 +110,19 @@ impl VmInner {
             // Per §8.1.5 step 5: microtask checkpoint between tasks.
             self.drain_microtasks();
         }
+        // Selection API §3.4 + HTML §8.1.4.2 "selection task source":
+        // fire a coalesced `selectionchange` event at the document if
+        // any Selection / Range mutation set the dirty bit during
+        // this drain.  One event regardless of how many discrete
+        // mutations happened — the bit was set per-mutation but is
+        // consumed once here.  Runs INSIDE the drain-depth bracket
+        // so a `selectionchange` listener that itself mutates
+        // Selection does NOT re-enter (matches HTML §7.5.4
+        // single-coalescing-per-checkpoint wording).
+        #[cfg(feature = "engine")]
+        {
+            super::dom_selection_proto::dispatch_selectionchange_if_pending(self);
+        }
         self.task_drain_depth = self.task_drain_depth.saturating_sub(1);
     }
 

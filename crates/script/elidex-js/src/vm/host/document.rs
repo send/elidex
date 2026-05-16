@@ -922,6 +922,10 @@ const DOCUMENT_METHODS: &[(&str, super::super::NativeFn)] = &[
     // hasFocus in terms of the system focus — we approximate as
     // "some element inside this Document has focus".
     ("hasFocus", native_document_has_focus),
+    // Selection API §2: `getSelection()` on Document mirrors the
+    // Window-side binding; both resolve to the same singleton
+    // wrapper held in `HostData::selection_instance`.
+    ("getSelection", super::window::native_window_get_selection),
 ];
 
 const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[

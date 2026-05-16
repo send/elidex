@@ -315,6 +315,7 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         ObjectKind::StaticRange { .. } => CloneKind::Unclonable("StaticRange"),
         ObjectKind::TreeWalker { .. } => CloneKind::Unclonable("TreeWalker"),
         ObjectKind::NodeIterator { .. } => CloneKind::Unclonable("NodeIterator"),
+        ObjectKind::Selection => CloneKind::Unclonable("Selection"),
     }
 }
 

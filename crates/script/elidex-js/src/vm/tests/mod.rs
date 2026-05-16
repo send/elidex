@@ -97,6 +97,7 @@ mod tests_range;
 mod tests_readable_stream;
 mod tests_remove_event_listener;
 mod tests_request_response;
+mod tests_selection;
 mod tests_sparse_array;
 mod tests_storage;
 mod tests_string;

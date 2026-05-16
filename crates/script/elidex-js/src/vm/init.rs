@@ -169,6 +169,8 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 node_iterator_prototype: None,
                 #[cfg(feature = "engine")]
+                selection_prototype: None,
+                #[cfg(feature = "engine")]
                 storage_prototype: None,
                 #[cfg(feature = "engine")]
                 storage_event_prototype: None,

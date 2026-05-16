@@ -346,6 +346,13 @@ impl Vm {
                 hd.range_instances.clear();
                 hd.tree_walker_instances.clear();
                 hd.node_iterator_instances.clear();
+                // Selection singleton state + cached wrapper + pending
+                // dispatch flag are all bound to the per-DOM session
+                // lifetime; reset on unbind so the next bind cycle
+                // starts from a clean Selection.
+                hd.selection_state = None;
+                hd.selection_instance = None;
+                hd.selectionchange_pending = false;
                 debug_assert_eq!(
                     std::sync::Arc::strong_count(&hd.node_iterator_states_shared),
                     1,

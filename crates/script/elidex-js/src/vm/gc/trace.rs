@@ -84,6 +84,14 @@ pub(super) fn trace_work_list(
         std::sync::Mutex<std::collections::HashMap<u64, elidex_dom_api::NodeIteratorState>>,
     >,
     #[cfg(feature = "engine")] node_iterator_instances: &std::collections::HashMap<u64, ObjectId>,
+    // D-8 PR-B `#11-traversal-and-range-pr-b-selection`: Selection
+    // trace fan-out marks the cached `Range` wrapper at
+    // `range_instances[active_range_id.bits()]` so the registry entry
+    // survives across sweeps even when the user has dropped their JS
+    // Range reference (Selection itself is the JS-reachable root).
+    #[cfg(feature = "engine")] selection_instance: Option<ObjectId>,
+    #[cfg(feature = "engine")] selection_active_range_id_bits: Option<u64>,
+    #[cfg(feature = "engine")] range_instances: &std::collections::HashMap<u64, ObjectId>,
     obj_marks: &mut [u64],
     uv_marks: &mut [u64],
     work: &mut Vec<u32>,
@@ -694,6 +702,30 @@ pub(super) fn trace_work_list(
                                 #[allow(clippy::cast_possible_truncation)]
                                 mark_object(ObjectId(bits as u32), obj_marks, work);
                             }
+                        }
+                    }
+                }
+            }
+            // D-8 PR-B Selection singleton — fans out to the
+            // canonical Range wrapper at
+            // `range_instances[active_range_id.bits()]`.  Per arch
+            // IMP-3 of the plan-v4 self-review: without this edge, a
+            // Range whose only JS-reachable reference is `Selection`
+            // (e.g. set internally by `collapse(node, 0)` and never
+            // exposed via `getRangeAt(0)`) would have no wrapper to
+            // mark, and the GC sweep tail would unregister the
+            // RangeId — leaving subsequent `getRangeAt(0)` unable to
+            // resolve.  Marking the wrapper (when one has been
+            // materialised) keeps the wrapper alive across sweeps,
+            // which in turn keeps the RangeId registered.  If no
+            // wrapper exists yet, `getRangeAt(0)` builds one on
+            // demand from the still-registered RangeId.
+            #[cfg(feature = "engine")]
+            ObjectKind::Selection => {
+                if selection_instance == Some(ObjectId(obj_idx)) {
+                    if let Some(bits) = selection_active_range_id_bits {
+                        if let Some(&range_wrapper) = range_instances.get(&bits) {
+                            mark_object(range_wrapper, obj_marks, work);
                         }
                     }
                 }

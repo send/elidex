@@ -483,6 +483,17 @@ pub(crate) struct VmInner {
     /// `previousNode` / `detach`.
     #[cfg(feature = "engine")]
     pub(crate) node_iterator_prototype: Option<ObjectId>,
+    /// `Selection.prototype` (Selection API §3).  Chains to
+    /// `Object.prototype`.  Carries 8 readonly props (anchorNode /
+    /// anchorOffset / focusNode / focusOffset / isCollapsed /
+    /// rangeCount / type / direction) + 15 methods (getRangeAt /
+    /// addRange / removeRange / removeAllRanges / empty / collapse /
+    /// setPosition (alias) / collapseToStart / collapseToEnd / extend /
+    /// setBaseAndExtent / selectAllChildren / deleteFromDocument /
+    /// containsNode / toString).  `None` until
+    /// `register_selection_global()` runs.
+    #[cfg(feature = "engine")]
+    pub(crate) selection_prototype: Option<ObjectId>,
     /// `Storage.prototype` (WHATWG HTML §11.2).  Chains to
     /// `Object.prototype` and carries `getItem` / `setItem` /
     /// `removeItem` / `clear` / `key` / `length`.  `None` until
