@@ -531,6 +531,22 @@ fn digest_unknown_algorithm_preserves_user_supplied_name_in_message() {
 }
 
 #[test]
+fn digest_truncates_long_unknown_algorithm_name_in_message() {
+    // Security boundary: attacker-supplied algorithm name is
+    // truncated at MAX_ECHOED_ALGO_NAME_LEN (64 bytes) when echoed
+    // into the NotSupportedError message — bounds per-call DOMException
+    // allocation against `'A'.repeat(N)` abuse.  The 1000-char name
+    // here should NOT appear in full in the error.
+    assert!(eval_global_bool(
+        "globalThis.r = false; \
+         let huge = 'A'.repeat(1000); \
+         crypto.subtle.digest(huge, new Uint8Array(0)) \
+           .catch(e => { globalThis.r = e.message.length < 200; });",
+        "r"
+    ));
+}
+
+#[test]
 fn digest_rejects_non_buffer_source_data_with_type_error() {
     assert_eq!(
         eval_global_string(

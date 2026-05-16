@@ -57,10 +57,15 @@ impl VmInner {
     /// install the `digest` method native, and expose the
     /// `SubtleCrypto` constructor stub on `globalThis`.
     ///
-    /// Called from `register_globals()` after `register_prototypes`
-    /// AND before `register_crypto_global` (so `Crypto.prototype`'s
-    /// `subtle` accessor can reference `subtle_crypto_prototype` for
-    /// `alloc_or_cached_subtle_crypto`).
+    /// Called from `register_globals()` after `register_prototypes`.
+    /// Ordering relative to `register_crypto_global` does NOT matter
+    /// for the prototype install itself — `Crypto.prototype.subtle`'s
+    /// getter reads `subtle_crypto_prototype` lazily on the first
+    /// JS invocation of `crypto.subtle`, which always happens after
+    /// `register_globals()` has finished both registrations.  The
+    /// current ordering (subtle before crypto, see
+    /// `vm/globals.rs::register_globals`) is alphabetical / topological-
+    /// hint convenience, not a correctness requirement.
     ///
     /// # Panics
     ///
