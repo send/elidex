@@ -225,10 +225,21 @@ fn normalize_digest_algorithm(
     let name_sid = match algorithm_arg {
         JsValue::String(sid) => sid,
         JsValue::Object(id) => {
-            // Dictionary form: read `name` member.  Any non-object
-            // non-string falls through to the generic TypeError below.
+            // Dictionary form: read `name` member.  WebCrypto
+            // §18.2.1 step 4 references `[[Algorithm]]` which is
+            // `dictionary Algorithm { required DOMString name; }`
+            // (WebCrypto §10.1) — `required` means a missing /
+            // `undefined` member must throw TypeError during
+            // dictionary conversion, NOT ToString-coerce to
+            // `"undefined"` then reject with NotSupportedError.
             let name_key_sid = ctx.vm.well_known.name;
             let name_val = ctx.get_property_value(id, PropertyKey::String(name_key_sid))?;
+            if matches!(name_val, JsValue::Undefined) {
+                return Err(VmError::type_error(
+                    "Failed to execute 'digest' on 'SubtleCrypto': \
+                     Algorithm: name: Missing or not a string",
+                ));
+            }
             super::super::coerce::to_string(ctx.vm, name_val)?
         }
         // Primitives other than string → coerce-via-ToString (matches
@@ -336,10 +347,17 @@ fn native_subtle_crypto_digest(
     // time so post-call mutation of the input view does not affect
     // the digest result.  `extract_buffer_source_bytes` returns an
     // owned `Vec<u8>` so the snapshot is implicit.
+    //
+    // `allow_undefined_as_empty: false` per WebCrypto §14.3.5
+    // IDL signature (`BufferSource data` — required, no `?`); a
+    // missing 2nd arg defaults to `JsValue::Undefined` and must
+    // settle the Promise with a TypeError, not silently hash empty
+    // input.
     let bytes = match extract_buffer_source_bytes(
         ctx,
         data_arg,
         "Failed to execute 'digest' on 'SubtleCrypto'",
+        false,
     ) {
         Ok(b) => b,
         Err(e) => {

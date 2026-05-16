@@ -610,10 +610,14 @@ fn native_text_decoder_decode(
     let input_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let options_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
 
+    // TextDecoder.decode(input?, ...) — `input` is OPTIONAL per
+    // §10.1.3 step 1 ("If input is missing, let input be an empty
+    // buffer source"), so accept `undefined` as empty bytes.
     let bytes = extract_buffer_source_bytes(
         ctx,
         input_arg,
         "Failed to execute 'decode' on 'TextDecoder'",
+        true,
     )?;
     let stream = parse_decode_stream(ctx, options_arg)?;
 
@@ -700,13 +704,23 @@ fn parse_decode_stream(ctx: &mut NativeContext<'_>, options_arg: JsValue) -> Res
 /// message prefix so JS-visible errors match Chrome's wording.
 /// Shared with [`super::subtle_crypto`] so the `digest` native
 /// reuses the same per-BufferSource-kind match arms.
+///
+/// `allow_undefined_as_empty` flips the `undefined` arm of the
+/// match: callers whose IDL signature marks the parameter optional
+/// (TextDecoder.decode — §10.1.3 step 1 explicitly returns empty
+/// bytes when `input` is missing) pass `true`; callers whose IDL
+/// signature marks the parameter required (SubtleCrypto.digest —
+/// `BufferSource data` with no `?`) pass `false` so missing /
+/// `undefined` data flows through the BufferSource-conversion
+/// TypeError path per WebIDL §3.10.18.
 pub(super) fn extract_buffer_source_bytes(
     ctx: &NativeContext<'_>,
     input_arg: JsValue,
     error_prefix: &'static str,
+    allow_undefined_as_empty: bool,
 ) -> Result<Vec<u8>, VmError> {
     match input_arg {
-        JsValue::Undefined => Ok(Vec::new()),
+        JsValue::Undefined if allow_undefined_as_empty => Ok(Vec::new()),
         JsValue::Object(id) => match ctx.vm.get_object(id).kind {
             ObjectKind::ArrayBuffer => Ok(super::array_buffer::array_buffer_bytes(ctx.vm, id)),
             ObjectKind::TypedArray {

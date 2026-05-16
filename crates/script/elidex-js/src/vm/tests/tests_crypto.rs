@@ -559,6 +559,74 @@ fn digest_rejects_non_buffer_source_data_with_type_error() {
     );
 }
 
+#[test]
+fn digest_rejects_missing_data_arg_with_type_error() {
+    // WebCrypto §14.3.5 IDL signature is `digest(algorithm, data:
+    // BufferSource)` — `data` is REQUIRED, so `digest('SHA-256')`
+    // must throw TypeError per WebIDL §3.10.18 rather than silently
+    // hashing empty input.  Copilot R2 finding.
+    assert_eq!(
+        eval_global_string(
+            "globalThis.r = ''; \
+             crypto.subtle.digest('SHA-256') \
+               .catch(e => { globalThis.r = e.name; });",
+            "r"
+        ),
+        "TypeError"
+    );
+}
+
+#[test]
+fn digest_rejects_explicit_undefined_data_with_type_error() {
+    // Passing `undefined` explicitly is observably the same as
+    // omitting the argument — both fail the required-BufferSource
+    // conversion per WebIDL.  Locks the strict path against future
+    // regression to "undefined → empty buffer".
+    assert_eq!(
+        eval_global_string(
+            "globalThis.r = ''; \
+             crypto.subtle.digest('SHA-256', undefined) \
+               .catch(e => { globalThis.r = e.name; });",
+            "r"
+        ),
+        "TypeError"
+    );
+}
+
+#[test]
+fn digest_dict_form_missing_name_rejects_with_type_error() {
+    // WebCrypto §10.1 `dictionary Algorithm { required DOMString
+    // name; }` — when the dict form omits `name`, the conversion
+    // should throw TypeError, NOT ToString-coerce `undefined` to
+    // the string `"undefined"` and reject with NotSupportedError.
+    // Copilot R2 finding.
+    assert_eq!(
+        eval_global_string(
+            "globalThis.r = ''; \
+             crypto.subtle.digest({hash: 'SHA-256'}, new Uint8Array(0)) \
+               .catch(e => { globalThis.r = e.name; });",
+            "r"
+        ),
+        "TypeError"
+    );
+}
+
+#[test]
+fn digest_dict_form_explicit_undefined_name_rejects_with_type_error() {
+    // Symmetry with the missing-property case: `{name: undefined}`
+    // must also TypeError, not surface as `"undefined"` in a
+    // NotSupportedError.
+    assert_eq!(
+        eval_global_string(
+            "globalThis.r = ''; \
+             crypto.subtle.digest({name: undefined}, new Uint8Array(0)) \
+               .catch(e => { globalThis.r = e.name; });",
+            "r"
+        ),
+        "TypeError"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // `SubtleCrypto.digest` — Promise identity + brand check
 // ---------------------------------------------------------------------------
