@@ -284,17 +284,21 @@ fn parse_file_options(
     }
 }
 
-/// Current epoch milliseconds, matching `Date.now()` observable.
+/// Current Unix epoch milliseconds, matching what `Date.now()` returns
+/// in browsers — spec-mandated for `File.lastModified` default per
+/// FileAPI §4.1 step 3.  Sourced from `SystemTime::now()` so
+/// `new Date(file.lastModified)` renders the current wall-clock time
+/// rather than 1970 (Copilot R1 spec finding).
 ///
-/// VmInner does not expose a centralised "Date.now()" yet; mirrors
-/// the timestamp basis used by `dispatch_post_message`
-/// (`start_instant.elapsed()` in ms) so events fired by the same
-/// VM have a consistent monotonic clock.  For real wall-clock epoch
-/// timestamps, this would need `SystemTime::now()`, but using
-/// `start_instant` keeps test reproducibility (no env-time leakage).
+/// `SystemTime::duration_since(UNIX_EPOCH)` fails only when the system
+/// clock predates 1970 — extraordinarily unusual; fall back to 0 in
+/// that case (the spec-mandated default for invalid timestamps).
 #[allow(clippy::cast_precision_loss)]
-fn now_epoch_ms(vm: &VmInner) -> f64 {
-    vm.start_instant.elapsed().as_secs_f64() * 1000.0
+fn now_epoch_ms(_vm: &VmInner) -> f64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0.0, |d| d.as_secs_f64() * 1000.0)
 }
 
 // ---------------------------------------------------------------------------

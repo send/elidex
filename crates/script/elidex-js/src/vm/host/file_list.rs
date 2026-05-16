@@ -199,23 +199,16 @@ fn native_file_list_item(
 ) -> Result<JsValue, VmError> {
     let id = require_file_list_this(ctx, this, "item")?;
     let index_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    // WebIDL `unsigned long` for the index parameter — ToUint32 per
-    // §3.10.10.  Negative / NaN values wrap to 0 / max which makes
-    // out-of-range checks below return null naturally.
+    // WebIDL `unsigned long` ToUint32 per §3.10.10 — NaN / ±∞ → 0,
+    // negatives wrap mod 2^32 (so `-1` → 0xFFFFFFFF).  Matches Chrome
+    // / Firefox `fileList.item(NaN)` returning the index-0 entry on
+    // non-empty lists rather than null.
     let n = super::super::coerce::to_number(ctx.vm, index_arg)?;
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let index = if !n.is_finite() || n < 0.0 || n > f64::from(u32::MAX) {
-        return Ok(JsValue::Null);
-    } else {
-        n.trunc() as u32 as usize
-    };
+    let index = super::super::coerce::f64_to_uint32(n) as usize;
     let file_id_opt = ctx
         .vm
         .file_list_data
         .get(&id)
         .and_then(|d| d.file_ids.get(index).copied());
-    Ok(match file_id_opt {
-        Some(file_id) => JsValue::Object(file_id),
-        None => JsValue::Null,
-    })
+    Ok(file_id_opt.map_or(JsValue::Null, JsValue::Object))
 }

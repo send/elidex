@@ -185,11 +185,27 @@ fn name_object_via_to_string() {
 #[test]
 fn last_modified_default_finite() {
     let mut vm = Vm::new();
-    // Default is `Date.now()`-equivalent (start_instant.elapsed() in
-    // our VM).  Just check that it's a finite number (not NaN).
+    // Default is `Date.now()` per FileAPI §4.1 step 3 — Unix epoch ms.
     let n = eval_number(&mut vm, "new File([], 'x').lastModified;");
     assert!(n.is_finite(), "expected finite lastModified, got {n}");
     assert!(n >= 0.0, "expected non-negative lastModified, got {n}");
+}
+
+#[test]
+fn last_modified_default_is_unix_epoch_ms() {
+    // Copilot R1 regression: `now_epoch_ms` returned VM-uptime ms
+    // (~0) instead of Unix epoch ms (~1.7e12).  This made
+    // `new Date(file.lastModified)` render 1970 instead of "now" and
+    // broke `Date.now() - file.lastModified < 1000` framework patterns.
+    let mut vm = Vm::new();
+    let n = eval_number(&mut vm, "new File([], 'x').lastModified;");
+    // 2026-01-01T00:00:00Z in ms == 1767225600000.  Any sane wall
+    // clock running this test is past that.  Upper bound 2050 keeps
+    // the test honest if the clock somehow runs absurdly fast.
+    assert!(
+        (1_767_225_600_000.0..2_524_608_000_000.0).contains(&n),
+        "expected Unix epoch ms in (2026, 2050) range, got {n}"
+    );
 }
 
 #[test]
@@ -591,6 +607,35 @@ fn input_files_default_empty_length_zero() {
         ),
         0.0
     );
+}
+
+#[test]
+fn file_list_item_nan_returns_first_entry() {
+    // Copilot R1 regression: `item(NaN)` was returning null because
+    // the bespoke `if !n.is_finite()` guard early-exited.  Per WebIDL
+    // `unsigned long` ToUint32 §3.10.10, NaN → 0 — so on a non-empty
+    // list `item(NaN)` returns index 0, matching Chrome / Firefox.
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "let dt = new DataTransfer(); \
+         let f = new File(['x'], 'a.txt'); \
+         dt.items.add(f); \
+         dt.files.item(NaN) === f;"
+    ));
+}
+
+#[test]
+fn file_list_item_negative_one_wraps_uint32() {
+    // ToUint32(-1) === 0xFFFFFFFF; on a non-empty list with length
+    // 1, that's out-of-range → null (correctly, after the wrap).
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "let dt = new DataTransfer(); \
+         dt.items.add(new File(['x'], 'a.txt')); \
+         dt.files.item(-1) === null;"
+    ));
 }
 
 #[test]
