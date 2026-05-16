@@ -44,10 +44,10 @@
 
 use super::super::shape;
 use super::super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
-    PropertyValue, VmError,
+    ElementKind, JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey,
+    PropertyStorage, PropertyValue, VmError,
 };
-use super::super::VmInner;
+use super::super::{NativeFn, VmInner};
 
 impl VmInner {
     /// Allocate `Crypto.prototype` chained to `Object.prototype`,
@@ -80,9 +80,15 @@ impl VmInner {
             extensible: true,
         });
 
-        // Phase 0b: method + accessor natives land in Phase 1 / 2 / 3.
-        // Skeleton only — the prototype exists for brand-check parity
-        // and the `Crypto` global / `window.crypto` data property below.
+        // Phase 1 — `getRandomValues` method (WebCrypto §11.1).
+        // Phase 2 / 3 / accessor `subtle` land in subsequent commits.
+        let methods: [(_, NativeFn); 1] = [(
+            self.well_known.get_random_values,
+            native_crypto_get_random_values as NativeFn,
+        )];
+        for (name_sid, func) in methods {
+            self.install_native_method(proto_id, name_sid, func, shape::PropertyAttrs::METHOD);
+        }
 
         self.crypto_prototype = Some(proto_id);
 
@@ -171,10 +177,7 @@ impl VmInner {
 
 /// Confirm `this` is a `Crypto` instance, returning a TypeError with
 /// the spec-conformant "Illegal invocation" wording otherwise.  Used
-/// by every `Crypto.prototype.*` method native; Phase 0b has no call
-/// sites yet, suppressing dead-code lints until Phase 1 wires
-/// `getRandomValues` / `randomUUID`.
-#[allow(dead_code)]
+/// by every `Crypto.prototype.*` method native.
 pub(super) fn require_crypto_this(
     ctx: &NativeContext<'_>,
     this: JsValue,
@@ -205,4 +208,111 @@ fn native_crypto_illegal_ctor(
     Err(VmError::type_error(
         "Failed to construct 'Crypto': Illegal constructor",
     ))
+}
+
+// ---------------------------------------------------------------------------
+// `Crypto.prototype.getRandomValues(view)` (WebCrypto §11.1)
+// ---------------------------------------------------------------------------
+
+/// Maximum byte length accepted by `getRandomValues` per WebCrypto
+/// §11.1 step 1.  Views with `byteLength > QUOTA_EXCEEDED_LIMIT`
+/// reject with `QuotaExceededError`; the boundary itself (==
+/// `QUOTA_EXCEEDED_LIMIT`) is allowed.
+const QUOTA_EXCEEDED_LIMIT: u32 = 65_536;
+
+fn native_crypto_get_random_values(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    require_crypto_this(ctx, this, "getRandomValues")?;
+    let view_val = args.first().copied().unwrap_or(JsValue::Undefined);
+
+    // §11.1 step 1 — type check.  Allow-list of integer TypedArrays
+    // (Int8/Uint8/Uint8Clamped/Int16/Uint16/Int32/Uint32/BigInt64/
+    // BigUint64); Float32/Float64/DataView/non-TypedArray reject
+    // with TypeError (NOT TypeMismatchError DOMException — modern
+    // WebCrypto + WPT spec wording).  Matches Chrome / Firefox.
+    let JsValue::Object(view_id) = view_val else {
+        return Err(VmError::type_error(
+            "Failed to execute 'getRandomValues' on 'Crypto': \
+             parameter 1 is not of type '(Int8Array or Int16Array or \
+             Int32Array or BigInt64Array or Uint8Array or Uint16Array \
+             or Uint32Array or BigUint64Array or Uint8ClampedArray)'",
+        ));
+    };
+    let (buffer_id, byte_offset, byte_length) = match ctx.vm.get_object(view_id).kind {
+        ObjectKind::TypedArray {
+            element_kind,
+            buffer_id,
+            byte_offset,
+            byte_length,
+        } => match element_kind {
+            ElementKind::Int8
+            | ElementKind::Uint8
+            | ElementKind::Uint8Clamped
+            | ElementKind::Int16
+            | ElementKind::Uint16
+            | ElementKind::Int32
+            | ElementKind::Uint32
+            | ElementKind::BigInt64
+            | ElementKind::BigUint64 => (buffer_id, byte_offset, byte_length),
+            ElementKind::Float32 | ElementKind::Float64 => {
+                return Err(VmError::type_error(
+                    "Failed to execute 'getRandomValues' on 'Crypto': \
+                     The provided ArrayBufferView is of type 'Float' which is not an integer array type.",
+                ));
+            }
+        },
+        _ => {
+            return Err(VmError::type_error(
+                "Failed to execute 'getRandomValues' on 'Crypto': \
+                 parameter 1 is not of type '(Int8Array or Int16Array or \
+                 Int32Array or BigInt64Array or Uint8Array or Uint16Array \
+                 or Uint32Array or BigUint64Array or Uint8ClampedArray)'",
+            ));
+        }
+    };
+
+    // §11.1 step 2 — quota check.  Boundary value is allowed.
+    if byte_length > QUOTA_EXCEEDED_LIMIT {
+        return Err(VmError::dom_exception(
+            ctx.vm.well_known.dom_exc_quota_exceeded_error,
+            format!(
+                "Failed to execute 'getRandomValues' on 'Crypto': \
+                 The ArrayBufferView's byte length ({byte_length}) \
+                 exceeds the number of bytes of entropy available via \
+                 this API ({QUOTA_EXCEEDED_LIMIT})."
+            ),
+        ));
+    }
+
+    // §11.1 step 3 — zero-length short-circuit.  Skip the body_data
+    // mutation entirely so the entry is NOT materialised by a no-op
+    // write (mirrors `byte_io::write_at` empty-slice early-return —
+    // `body_data.contains_key(&id)` is consulted by other call sites
+    // as a "carries bytes?" signal).
+    if byte_length == 0 {
+        return Ok(view_val);
+    }
+
+    // §11.1 step 4 — fill view bytes with cryptographically strong
+    // random.  Allocate into a stack-friendly temp `Vec<u8>` rather
+    // than borrowing `body_data` mutably (which would conflict with
+    // the `ctx.vm` borrow held by the brand check).  Up to 64 KiB =
+    // well within heap budget for a one-shot call.
+    let byte_len_usize = byte_length as usize;
+    let abs = byte_offset as usize;
+    let mut bytes = vec![0_u8; byte_len_usize];
+    getrandom::fill(&mut bytes).map_err(|e| {
+        VmError::type_error(format!(
+            "Failed to execute 'getRandomValues' on 'Crypto': \
+             OS CSPRNG failure ({e})"
+        ))
+    })?;
+    super::byte_io::write_at(&mut ctx.vm.body_data, buffer_id, abs, &bytes);
+
+    // §11.1 step 5 — return the SAME view receiver (identity per
+    // IDL `ArrayBufferView getRandomValues(ArrayBufferView array)`).
+    Ok(view_val)
 }
