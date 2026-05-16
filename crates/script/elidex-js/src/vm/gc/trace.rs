@@ -455,6 +455,14 @@ pub(super) fn trace_work_list(
             // No trace fan-out here.
             #[cfg(feature = "engine")]
             ObjectKind::Storage { .. } => {}
+            // `Crypto` / `SubtleCrypto` are payload-free singletons.
+            // The cached `crypto` / `crypto.subtle` wrappers are rooted
+            // via `VmInner::crypto_instance` /
+            // `VmInner::subtle_crypto_instance` (mark-roots step).
+            // No side-table state, no inline `ObjectId` — trace
+            // fan-out is a no-op.
+            #[cfg(feature = "engine")]
+            ObjectKind::Crypto | ObjectKind::SubtleCrypto => {}
             // `StorageEvent` has no inline `ObjectId` payload — the
             // 5 IDL attributes (`key` / `oldValue` / `newValue` /
             // `url` / `storageArea`) live as own-data props on the

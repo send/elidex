@@ -25,6 +25,10 @@ engine = [
     "bytes",
     "encoding_rs",
     "base64",
+    "sha1",
+    "sha2",
+    "getrandom",
+    "uuid",
 ]
 
 [dependencies]
@@ -76,6 +80,20 @@ elidex-form = { workspace = true, optional = true }
 # Engine-gated because the Storage surface depends on the
 # engine-only Window prototype + DOMException mapping.
 elidex-storage-core = { workspace = true, optional = true }
+# WebCrypto §10 / §14 backing for the `Crypto` + `SubtleCrypto`
+# VM thin bindings (slot `#11-crypto-subtle-min`).
+# - `sha1` / `sha2`: digest algorithms backing
+#   `SubtleCrypto.prototype.digest` (SHA-1 / SHA-256 / SHA-384 /
+#   SHA-512).
+# - `getrandom`: OS CSPRNG backing `Crypto.prototype.getRandomValues`
+#   and the random bytes consumed by `randomUUID`.
+# - `uuid`: v4 UUID generation backing `Crypto.prototype.randomUUID`.
+# All engine-gated because the WebCrypto surface depends on the
+# engine-only Window + ArrayBuffer / TypedArray / DataView wrappers.
+sha1 = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+getrandom = { workspace = true, optional = true }
+uuid = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

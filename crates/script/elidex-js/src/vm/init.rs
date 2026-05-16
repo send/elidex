@@ -179,6 +179,14 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 storage_session_instance: None,
                 #[cfg(feature = "engine")]
+                crypto_prototype: None,
+                #[cfg(feature = "engine")]
+                subtle_crypto_prototype: None,
+                #[cfg(feature = "engine")]
+                crypto_instance: None,
+                #[cfg(feature = "engine")]
+                subtle_crypto_instance: None,
+                #[cfg(feature = "engine")]
                 html_iframe_prototype: None,
                 #[cfg(feature = "engine")]
                 html_label_prototype: None,

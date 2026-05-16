@@ -1238,6 +1238,30 @@ define_well_known_strings! {
         done_const => "DONE",
     }
 
+    "Crypto / SubtleCrypto (WebCrypto §10 / §14)" {
+        // `window.crypto` accessor identifier + the 2 constructor
+        // globals (`Crypto` / `SubtleCrypto`) — `new Crypto()` and
+        // `new SubtleCrypto()` both throw "Illegal constructor".
+        // `getRandomValues` / `randomUUID` are methods on
+        // `Crypto.prototype`; `subtle` is an accessor on
+        // `Crypto.prototype` returning the `SubtleCrypto`
+        // `[SameObject]` singleton; `digest` is a method on
+        // `SubtleCrypto.prototype`.  Canonical algorithm names
+        // (`SHA-1` / `SHA-256` / `SHA-384` / `SHA-512`) are
+        // compared at call time via `eq_ignore_ascii_case` rather
+        // than pre-interned — `SubtleCrypto.digest` callers rarely
+        // pass canonical-case literals (libraries spell `'sha-256'`
+        // or `'SHA-256'` interchangeably) so a StringId equality
+        // fast path would miss most hits.
+        crypto_accessor => "crypto",
+        crypto_global => "Crypto",
+        subtle_crypto_global => "SubtleCrypto",
+        get_random_values => "getRandomValues",
+        random_uuid => "randomUUID",
+        subtle => "subtle",
+        digest => "digest",
+    }
+
     "ReadableStream (WHATWG Streams §4)" {
         // Constructor globals + method / accessor names unique to
         // the streams surface.  `read` / `value` / `done` /

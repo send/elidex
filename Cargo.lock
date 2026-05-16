@@ -2011,12 +2011,16 @@ dependencies = [
  "elidex-script-session",
  "elidex-storage-core",
  "encoding_rs",
+ "getrandom 0.4.2",
  "hashbrown 0.15.5",
  "num-bigint",
  "num-traits",
  "regress",
+ "sha1",
+ "sha2 0.10.9",
  "unicode-ident",
  "url",
+ "uuid",
 ]
 
 [[package]]

@@ -324,6 +324,12 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         ObjectKind::File => CloneKind::Unclonable("File"),
         ObjectKind::FileList => CloneKind::Unclonable("FileList"),
         ObjectKind::FileReader => CloneKind::Unclonable("FileReader"),
+        // WebCrypto §10 / §14 — Crypto / SubtleCrypto are not
+        // structured-cloneable (no [Serializable] / [Transferable]
+        // IDL extended attributes; cross-realm CSPRNG handle sharing
+        // is non-spec).  Slot `#11-crypto-subtle-min`.
+        ObjectKind::Crypto => CloneKind::Unclonable("Crypto"),
+        ObjectKind::SubtleCrypto => CloneKind::Unclonable("SubtleCrypto"),
     }
 }
 
