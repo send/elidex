@@ -77,6 +77,23 @@ pub(crate) enum PendingTask {
         last_event_id_sid: StringId,
         source_window_id: Option<ObjectId>,
     },
+    /// Produced by `FileReader.prototype.readAs*(blob, encoding?)`
+    /// after the synchronous validation + `loadstart` fire (FileAPI
+    /// §6.5).  Drained at the next eval boundary; the drain step
+    /// snapshots the reader's current `abort_seq` against the carried
+    /// `abort_seq_snapshot` and silent-discards if mismatched (an
+    /// `abort()` OR a superseding `readAs*()` happened between
+    /// enqueue and drain).
+    ///
+    /// `encoding` is the user-provided encoding label for `readAsText`
+    /// (None when no arg given or for other read kinds).  The drain
+    /// applies the 4-step encoding fallback chain per FileAPI §6.3.
+    FileRead {
+        reader_id: ObjectId,
+        abort_seq_snapshot: u32,
+        kind: super::file_reader::ReadKind,
+        encoding: Option<StringId>,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -145,8 +162,38 @@ impl VmInner {
                     source_window_id,
                 );
             }
+            PendingTask::FileRead {
+                reader_id,
+                abort_seq_snapshot,
+                kind,
+                encoding,
+            } => {
+                dispatch_file_read(self, reader_id, abort_seq_snapshot, kind, encoding);
+            }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// FileRead dispatch (Phase 0b stub — Phase 4 implements)
+// ---------------------------------------------------------------------------
+
+/// Drain step for [`PendingTask::FileRead`]: snapshot vs current
+/// `abort_seq` → if stale, discard; otherwise read Blob bytes, decode
+/// per `kind`, set `result` + state=DONE, fire `progress` + terminal
+/// event (`load` / `error`) + `loadend`.
+///
+/// Delegated to `vm/host/file_reader.rs::dispatch_file_read_task`
+/// which owns the abort-snapshot compare + blob byte read + decode +
+/// event fire sequence (progress → load/error → loadend).
+fn dispatch_file_read(
+    vm: &mut VmInner,
+    reader_id: ObjectId,
+    abort_seq_snapshot: u32,
+    kind: super::file_reader::ReadKind,
+    encoding: Option<StringId>,
+) {
+    super::file_reader::dispatch_file_read_task(vm, reader_id, abort_seq_snapshot, kind, encoding);
 }
 
 // ---------------------------------------------------------------------------

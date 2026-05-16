@@ -316,6 +316,14 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         ObjectKind::TreeWalker { .. } => CloneKind::Unclonable("TreeWalker"),
         ObjectKind::NodeIterator { .. } => CloneKind::Unclonable("NodeIterator"),
         ObjectKind::Selection => CloneKind::Unclonable("Selection"),
+        // D-14 `#11-file-api` — File API objects do not implement
+        // structured clone per spec.  FileReader is an EventTarget;
+        // File/FileList carry references to live Blob bytes that
+        // cross-realm clone would need to handle separately (defer
+        // to a future PR if cross-Worker File transfer surfaces).
+        ObjectKind::File => CloneKind::Unclonable("File"),
+        ObjectKind::FileList => CloneKind::Unclonable("FileList"),
+        ObjectKind::FileReader => CloneKind::Unclonable("FileReader"),
     }
 }
 

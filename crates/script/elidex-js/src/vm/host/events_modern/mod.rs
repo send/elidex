@@ -96,11 +96,20 @@ pub(crate) struct DataTransferState {
     /// return the cached wrapper.
     pub(in crate::vm) items_wrapper: Option<ObjectId>,
     /// `[SameObject]` cache for the `files` accessor (HTML §6.2).
-    /// D-9 ships an empty FileList stub — the wrapper itself is
-    /// always identity-stable, but the FileList interface is
-    /// payload-empty pending D-14 (slot
-    /// `#11-data-transfer-file-paired`).
+    /// The wrapper is allocated lazily on first `.files` read; its
+    /// underlying [`super::file_list::FileListSideData`] enumerates
+    /// `file_entries` below.  Wrapper is invalidated (set to `None`)
+    /// whenever `file_entries` mutates (D-14 `#11-file-api` adds the
+    /// invalidation hook on `add(File)` / future `setData` overloads).
     pub(in crate::vm) files_wrapper: Option<ObjectId>,
+    /// Ordered list of File wrapper `ObjectId`s — the file-typed
+    /// subset of `items` for the `[SameObject]` FileList view.  D-14
+    /// `#11-file-api` Phase 5 populates this from `add(File)` and uses
+    /// it to build the `files` accessor's FileList.  Distinct from
+    /// `items` so the JS-visible DataTransferItemList iteration
+    /// (string + file mixed) remains spec-correct via `items` while
+    /// `files` enumerates only the file subset per HTML §6.2.
+    pub(in crate::vm) file_entries: Vec<ObjectId>,
     /// `setDragImage` element reference as `entity_bits` (NonZero
     /// when present).  Pre-populated to `None`; `setDragImage(el,
     /// x, y)` writes both this and the offsets atomically.  Real
@@ -123,6 +132,7 @@ impl DataTransferState {
             items: Vec::new(),
             items_wrapper: None,
             files_wrapper: None,
+            file_entries: Vec::new(),
             drag_image_entity: None,
             drag_image_x: 0,
             drag_image_y: 0,
@@ -235,18 +245,14 @@ pub(in crate::vm) enum DataTransferEntry {
     /// data)` pair both held as interned `StringId`s.  HTML §6.3
     /// step: kind="string", type=format, data=data.
     String { format: StringId, data: StringId },
-    /// `add(File)` overload — D-9 reserves the variant but does
-    /// not allow construction (the `add(File)` path throws
-    /// TypeError).  D-14 will activate File entries by populating
-    /// `blob_id` (the wrapper) + `type_sid` from the File object.
-    ///
-    /// Variant kept in the enum so GC trace + serialisation code
-    /// already handle the File-entry shape when D-14 lands; until
-    /// then, the variant is unreachable from JS so the
-    /// `#[allow(dead_code)]` suppression is intentional.
-    #[allow(dead_code)]
+    /// `add(File)` overload — `file_id` is the File wrapper `ObjectId`
+    /// (NOT the inner Blob), so DataTransferItemList enumeration and
+    /// `getAsFile()` resolve to the same File identity per spec
+    /// `[SameObject]` semantics.  `type_sid` mirrors the File's MIME
+    /// type at entry time (HTML §6.3 step "kind=file, type=type,
+    /// data=data").
     File {
-        blob_id: ObjectId,
+        file_id: ObjectId,
         type_sid: StringId,
     },
 }

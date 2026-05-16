@@ -122,6 +122,12 @@ pub(super) mod fetch;
 #[cfg(feature = "engine")]
 pub(super) mod fetch_tick;
 #[cfg(feature = "engine")]
+pub(crate) mod file;
+#[cfg(feature = "engine")]
+pub(crate) mod file_list;
+#[cfg(feature = "engine")]
+pub(crate) mod file_reader;
+#[cfg(feature = "engine")]
 pub(crate) mod form_data;
 pub(super) mod globals;
 #[cfg(feature = "engine")]

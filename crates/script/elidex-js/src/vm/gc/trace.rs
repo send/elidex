@@ -92,6 +92,26 @@ pub(super) fn trace_work_list(
     #[cfg(feature = "engine")] selection_instance: Option<ObjectId>,
     #[cfg(feature = "engine")] selection_active_range_id_bits: Option<u64>,
     #[cfg(feature = "engine")] range_instances: &std::collections::HashMap<u64, ObjectId>,
+    // D-14 `#11-file-api` — FileList / FileReader payload fan-out.
+    // FileList marks each `File` wrapper in its `file_ids` Vec; FileReader
+    // marks `target_blob`, `error`, the 6 on* handler ObjectIds, and an
+    // `ArrayBuffer` wrapper referenced from `result`.  File has no
+    // ObjectId payload (FileSideData carries StringId / f64 only) so the
+    // arm is a no-op for that variant.
+    #[cfg(feature = "engine")] file_list_data: &std::collections::HashMap<
+        ObjectId,
+        super::super::host::file_list::FileListSideData,
+    >,
+    #[cfg(feature = "engine")] file_reader_data: &std::collections::HashMap<
+        ObjectId,
+        super::super::host::file_reader::FileReaderSideData,
+    >,
+    // `<input type=file>.files` `[SameObject]` cache.  When the
+    // HTMLInputElement wrapper is marked, the cached FileList must
+    // be marked too — otherwise the cache entry gets sweep-pruned
+    // and the next `input.files` read allocates a fresh wrapper,
+    // breaking `input.files === input.files` across GC.
+    #[cfg(feature = "engine")] input_files_cache: &std::collections::HashMap<ObjectId, ObjectId>,
     obj_marks: &mut [u64],
     uv_marks: &mut [u64],
     work: &mut Vec<u32>,
@@ -270,10 +290,6 @@ pub(super) fn trace_work_list(
                 mark_object(*signal_id, obj_marks, work);
             }
             // No ObjectId references — only StringId / scalar fields.
-            // `HostObject` is listed explicitly (not folded under a
-            // wildcard) so adding a future field that holds an ObjectId
-            // (e.g. cached child wrapper list) becomes a compile error
-            // until this arm is updated.
             ObjectKind::Ordinary
             | ObjectKind::NativeFunction(_)
             | ObjectKind::RegExp { .. }
@@ -284,8 +300,20 @@ pub(super) fn trace_work_list(
             | ObjectKind::StringWrapper(_)
             | ObjectKind::BooleanWrapper(_)
             | ObjectKind::BigIntWrapper(_)
-            | ObjectKind::SymbolWrapper(_)
-            | ObjectKind::HostObject { .. } => {}
+            | ObjectKind::SymbolWrapper(_) => {}
+            // `HostObject` itself carries no inline ObjectId, but the
+            // `<input type=file>.files` `[SameObject]` cache uses the
+            // input wrapper's ObjectId as key — fan out so the cached
+            // FileList survives across GC even when JS has dropped
+            // its direct reference.  HashMap::get is O(1) and the map
+            // is empty whenever no `<input type=file>.files` has been
+            // observed, so this stays close to a no-op in common case.
+            ObjectKind::HostObject { .. } => {
+                #[cfg(feature = "engine")]
+                if let Some(&file_list_id) = input_files_cache.get(&ObjectId(obj_idx)) {
+                    mark_object(file_list_id, obj_marks, work);
+                }
+            }
             // Non-engine builds never construct AbortSignal — the
             // variant exists in `ObjectKind` regardless of feature
             // (gating an enum variant requires `cfg_attr` on the
@@ -611,12 +639,20 @@ pub(super) fn trace_work_list(
                     }
                     for entry in &state.items {
                         if let super::super::host::events_modern::DataTransferEntry::File {
-                            blob_id,
+                            file_id,
                             ..
                         } = entry
                         {
-                            mark_object(*blob_id, obj_marks, work);
+                            mark_object(*file_id, obj_marks, work);
                         }
+                    }
+                    // D-14 `#11-file-api` — `file_entries` carries the
+                    // `[SameObject]` File wrapper IDs surfaced via
+                    // `DataTransfer.files`.  Mark them so the FileList
+                    // wrapper + each File survives across GC cycles
+                    // while the DataTransfer is reachable.
+                    for &file_id in &state.file_entries {
+                        mark_object(file_id, obj_marks, work);
                     }
                     // `drag_image_entity` is raw `entity_bits` (not an
                     // ObjectId); the corresponding HostObject wrapper
@@ -727,6 +763,54 @@ pub(super) fn trace_work_list(
                         if let Some(&range_wrapper) = range_instances.get(&bits) {
                             mark_object(range_wrapper, obj_marks, work);
                         }
+                    }
+                }
+            }
+            // D-14 `#11-file-api` — File API trace fan-outs.  File's
+            // bytes live in `vm.blob_data` keyed by the File's own
+            // ObjectId (already marked at this point) so File itself
+            // has no extra payload to walk.  FileList marks each File
+            // in `file_ids`; FileReader marks `target_blob`, `error`,
+            // `result.ArrayBuffer(buf_id)`, and the 6 on* handler
+            // ObjectIds — without this, a live FileReader whose
+            // `r.result` is the only reference to the ArrayBuffer can
+            // see it swept while still JS-observable.
+            #[cfg(feature = "engine")]
+            ObjectKind::File => {}
+            #[cfg(feature = "engine")]
+            ObjectKind::FileList => {
+                if let Some(state) = file_list_data.get(&ObjectId(obj_idx)) {
+                    for &file_id in &state.file_ids {
+                        mark_object(file_id, obj_marks, work);
+                    }
+                }
+            }
+            #[cfg(feature = "engine")]
+            ObjectKind::FileReader => {
+                if let Some(state) = file_reader_data.get(&ObjectId(obj_idx)) {
+                    if let Some(blob) = state.target_blob {
+                        mark_object(blob, obj_marks, work);
+                    }
+                    if let Some(err) = state.error {
+                        mark_object(err, obj_marks, work);
+                    }
+                    if let super::super::host::file_reader::ReaderResult::ArrayBuffer(buf_id) =
+                        state.result
+                    {
+                        mark_object(buf_id, obj_marks, work);
+                    }
+                    for handler in [
+                        state.onloadstart,
+                        state.onprogress,
+                        state.onload,
+                        state.onloadend,
+                        state.onerror,
+                        state.onabort,
+                    ]
+                    .into_iter()
+                    .flatten()
+                    {
+                        mark_object(handler, obj_marks, work);
                     }
                 }
             }

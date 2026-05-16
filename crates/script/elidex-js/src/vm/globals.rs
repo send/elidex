@@ -588,6 +588,15 @@ impl VmInner {
         {
             self.register_array_buffer_global();
             self.register_blob_global();
+            // D-14 `#11-file-api` Phase 0b scaffolding — `File` /
+            // `FileList` / `FileReader` prototype install + constructor
+            // expose.  Stubs in Phase 0b (no behaviour change); real
+            // ctor + accessors land in Phase 1 / 2 / 4 of the slot.
+            // Must run after `register_blob_global` so File's prototype
+            // can chain on `blob_prototype`.
+            self.register_file_global();
+            self.register_file_list_global();
+            self.register_file_reader_global();
             // `%TypedArray%.prototype` + 11 subclass ctors.  Must
             // land after `register_array_buffer_global` (ArrayBuffer
             // backs the TypedArray's bytes).  C2 installs the

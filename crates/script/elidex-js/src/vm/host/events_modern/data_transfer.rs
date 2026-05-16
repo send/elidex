@@ -300,6 +300,7 @@ static EMPTY_DT_STATE: DataTransferState = DataTransferState {
     items: Vec::new(),
     items_wrapper: None,
     files_wrapper: None,
+    file_entries: Vec::new(),
     drag_image_entity: None,
     drag_image_x: 0,
     drag_image_y: 0,
@@ -478,13 +479,14 @@ fn native_dt_get_files(
     if let Some(cached) = dt_state(ctx.vm, id).files_wrapper {
         return Ok(JsValue::Object(cached));
     }
-    // D-9 ships an empty Array stub for FileList (slot
-    // `#11-data-transfer-file-paired`).  Real FileList lands with
-    // File interface in D-14.  Identity-cache the stub so reads
-    // are `[SameObject]`-stable per spec.
-    let stub = ctx.vm.create_array_object(Vec::new());
-    dt_state_mut(ctx.vm, id).files_wrapper = Some(stub);
-    Ok(JsValue::Object(stub))
+    // D-14 `#11-file-api` Phase 5 — real FileList wrapper backed by
+    // the DT's `file_entries` Vec (populated by `add(File)`).  Slot
+    // `#11-data-transfer-file-paired` resolved here.  Identity-cache
+    // so reads are `[SameObject]`-stable per spec.
+    let file_ids = dt_state(ctx.vm, id).file_entries.clone();
+    let file_list_id = super::super::file_list::create_file_list_from_ids(ctx.vm, file_ids);
+    dt_state_mut(ctx.vm, id).files_wrapper = Some(file_list_id);
+    Ok(JsValue::Object(file_list_id))
 }
 
 fn native_dt_get_types(
@@ -943,29 +945,46 @@ fn native_dt_item_get_as_string(
     Ok(JsValue::Undefined)
 }
 
-/// `DataTransferItem.prototype.getAsFile()` (HTML §6.3).  D-9
-/// always returns `null` — File wrapper deferred to slot
-/// `#11-data-transfer-file-paired` (D-14 paired).
+/// `DataTransferItem.prototype.getAsFile()` (HTML §6.3).
+///
+/// D-14 `#11-file-api` Phase 5: returns the File wrapper for File-kind
+/// entries; returns `null` for String-kind entries (per spec) or out-
+/// of-range indices.  Slot `#11-data-transfer-file-paired` resolved.
 fn native_dt_item_get_as_file(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // Brand check.
-    match this {
-        JsValue::Object(id)
-            if matches!(
-                ctx.vm.get_object(id).kind,
-                ObjectKind::DataTransferItem { .. }
-            ) => {}
+    let (parent_dt_id, index) = match this {
+        JsValue::Object(id) => match ctx.vm.get_object(id).kind {
+            ObjectKind::DataTransferItem {
+                parent_dt_id,
+                index,
+            } => (parent_dt_id, index),
+            _ => {
+                return Err(VmError::type_error(
+                    "Failed to execute 'getAsFile' on 'DataTransferItem': \
+                     Illegal invocation.",
+                ));
+            }
+        },
         _ => {
             return Err(VmError::type_error(
                 "Failed to execute 'getAsFile' on 'DataTransferItem': \
                  Illegal invocation.",
             ));
         }
-    }
-    Ok(JsValue::Null)
+    };
+    let file_id = ctx
+        .vm
+        .data_transfer_states
+        .get(&parent_dt_id)
+        .and_then(|s| s.items.get(index as usize))
+        .and_then(|entry| match entry {
+            DataTransferEntry::File { file_id, .. } => Some(*file_id),
+            DataTransferEntry::String { .. } => None,
+        });
+    Ok(file_id.map_or(JsValue::Null, JsValue::Object))
 }
 
 // ---------------------------------------------------------------------------
@@ -1038,17 +1057,36 @@ fn native_dt_item_list_add(
         }
     };
     let data_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    // `add(File)` overload — D-9 stub.  WebIDL overload resolution
-    // gates this on a real `File` brand; `Blob` (a sibling, not a
-    // subclass per File API §11.1) falls through to the
-    // `(DOMString, DOMString)` overload below via `ToString`.  Slot
-    // `#11-data-transfer-file-paired` lands the `File` brand check
-    // when D-14 wires the File API.
+    // `add(File)` overload — WebIDL overload resolution picks this
+    // path when the first arg is a File brand.  Blob is a sibling
+    // (per File API §11.1), NOT a subclass at the IDL overload-
+    // resolution level — but in our impl File IS-A Blob via
+    // prototype chain.  For overload resolution we accept ONLY
+    // ObjectKind::File here (Blob and other Objects fall through to
+    // the (DOMString, DOMString) overload via ToString below).
     //
-    // Today no `ObjectKind::File` exists, so the brand check is
-    // structurally unreachable — the (string, type) path runs for
-    // every Object including Blob.  Future File-brand detection
-    // plugs in here.
+    // D-14 `#11-file-api` Phase 5 — slot `#11-data-transfer-file-paired`
+    // resolved.
+    if let JsValue::Object(file_obj_id) = data_arg {
+        if matches!(ctx.vm.get_object(file_obj_id).kind, ObjectKind::File) {
+            let type_sid = super::super::blob::blob_type(ctx.vm, file_obj_id);
+            let new_index = {
+                let state = dt_state_mut(ctx.vm, parent_dt_id);
+                let i = state.items.len() as u32;
+                state.items.push(DataTransferEntry::File {
+                    file_id: file_obj_id,
+                    type_sid,
+                });
+                state.file_entries.push(file_obj_id);
+                // Invalidate cached files_wrapper so the next
+                // `.files` read sees the updated entry list.
+                state.files_wrapper = None;
+                i
+            };
+            let item_wrapper = item_wrapper_for(ctx.vm, parent_dt_id, new_index);
+            return Ok(JsValue::Object(item_wrapper));
+        }
+    }
     let type_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     if matches!(type_arg, JsValue::Undefined) {
         return Err(VmError::type_error(
@@ -1099,7 +1137,20 @@ fn native_dt_item_list_remove(
     let idx = super::super::super::coerce::f64_to_uint32(idx_num) as usize;
     let state = dt_state_mut(ctx.vm, parent_dt_id);
     if idx < state.items.len() {
-        state.items.remove(idx);
+        let removed = state.items.remove(idx);
+        // D-14 `#11-file-api` Phase 5 — keep `file_entries` and the
+        // `[SameObject]` files_wrapper in sync if the removed entry
+        // was a File.  Drop the FIRST matching `file_id` only — the
+        // same File may legitimately appear multiple times (HTML §6.2
+        // `items.add(f); items.add(f)` is a valid no-dedup append), so
+        // a `retain(|id| id != file_id)` would wrongly evict every
+        // sibling copy when only one items entry was removed.
+        if let DataTransferEntry::File { file_id, .. } = removed {
+            if let Some(pos) = state.file_entries.iter().position(|&id| id == file_id) {
+                state.file_entries.remove(pos);
+            }
+            state.files_wrapper = None;
+        }
         // Invalidate downstream identity-cache entries for indices
         // ≥ idx because the index→entry mapping shifts.
         invalidate_item_wrapper_cache_from(ctx.vm, parent_dt_id, idx as u32);
@@ -1131,6 +1182,10 @@ fn native_dt_item_list_clear(
     };
     let state = dt_state_mut(ctx.vm, parent_dt_id);
     state.items.clear();
+    // D-14 `#11-file-api` Phase 5 — clear file_entries + invalidate
+    // [SameObject] files_wrapper in lockstep with items.clear.
+    state.file_entries.clear();
+    state.files_wrapper = None;
     invalidate_item_wrapper_cache_from(ctx.vm, parent_dt_id, 0);
     Ok(JsValue::Undefined)
 }

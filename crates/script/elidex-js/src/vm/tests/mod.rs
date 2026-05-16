@@ -51,6 +51,7 @@ mod tests_events_misc;
 mod tests_events_modern;
 mod tests_events_modern_touch;
 mod tests_fetch;
+mod tests_file_api;
 mod tests_forbidden_headers;
 mod tests_form_data;
 mod tests_function_prototype;

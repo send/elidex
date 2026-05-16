@@ -1191,6 +1191,53 @@ define_well_known_strings! {
         selectionchange_event => "selectionchange",
     }
 
+    "File API (slot #11-file-api)" {
+        // Constructor globals.  `Blob` ctor itself lives in the
+        // ArrayBuffer / Blob section above.
+        file_global => "File",
+        file_list_global => "FileList",
+        file_reader_global => "FileReader",
+        // `File` IDL members beyond what Blob provides.
+        last_modified => "lastModified",
+        // Blob ctor options dict keys (`type` lives elsewhere as
+        // `r#type` / `event_type` / `type_attr` — semantically the
+        // same StringId via dedup; we use `event_type` at File ctor
+        // sites since the literal is `"type"`).
+        endings => "endings",
+        endings_transparent => "transparent",
+        endings_native => "native",
+        // `FileReader` IDL members.  `error` already lives in core
+        // (line 100); `abort` / `onabort` already exist in the
+        // AbortController section and are reused.  Result enum is just
+        // values, not names.
+        ready_state => "readyState",
+        result_attr => "result",
+        read_as_text => "readAsText",
+        read_as_array_buffer => "readAsArrayBuffer",
+        read_as_data_url => "readAsDataURL",
+        read_as_binary_string => "readAsBinaryString",
+        // `FileReader` event handler attribute names.  `onabort`
+        // already exists (AbortController section); `onload` /
+        // `onloadstart` / `onloadend` / `onprogress` / `onerror` are
+        // newly added here.
+        onload => "onload",
+        onloadstart => "onloadstart",
+        onloadend => "onloadend",
+        onprogress => "onprogress",
+        onerror => "onerror",
+        // Event type names fired by FileReader (per FileAPI §6.5).
+        // `error` is shared with the core throw-error name.
+        load_event_type => "load",
+        loadstart_event_type => "loadstart",
+        loadend_event_type => "loadend",
+        progress_event_type => "progress",
+        // FileReader.readyState constant names installed on the
+        // constructor + prototype per FileAPI §6.
+        empty_const => "EMPTY",
+        loading_const => "LOADING",
+        done_const => "DONE",
+    }
+
     "ReadableStream (WHATWG Streams §4)" {
         // Constructor globals + method / accessor names unique to
         // the streams surface.  `read` / `value` / `done` /
