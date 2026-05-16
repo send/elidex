@@ -698,9 +698,8 @@ fn parse_decode_stream(ctx: &mut NativeContext<'_>, options_arg: JsValue) -> Res
 /// (`"Failed to execute 'decode' on 'TextDecoder'"`, `"Failed to
 /// execute 'digest' on 'SubtleCrypto'"`, …) used as the TypeError
 /// message prefix so JS-visible errors match Chrome's wording.
-/// Hoisted to `pub(super)` so the crypto-min Phase 3 `digest`
-/// native can reuse the same byte-extraction algorithm without
-/// duplicating the per-BufferSource-kind match arms.
+/// Shared with [`super::subtle_crypto`] so the `digest` native
+/// reuses the same per-BufferSource-kind match arms.
 pub(super) fn extract_buffer_source_bytes(
     ctx: &NativeContext<'_>,
     input_arg: JsValue,

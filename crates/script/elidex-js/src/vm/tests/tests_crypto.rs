@@ -373,20 +373,31 @@ fn subtle_crypto_constructor_throws_illegal_constructor() {
 // `SubtleCrypto.digest` — algorithm normalization + known-answer
 // ---------------------------------------------------------------------------
 
+/// Drive `crypto.subtle.digest(<algo_js>, <data_js>)` and return
+/// the hex-encoded digest bytes.  Both arguments are interpolated
+/// verbatim into the JS source so callers can pass either a quoted
+/// string literal (`"'SHA-1'"`) or an object literal
+/// (`"{name: 'SHA-256'}"`) for the algorithm.
+fn digest_hex(algo_js: &str, data_js: &str) -> String {
+    eval_global_string(
+        &format!(
+            "globalThis.r = ''; \
+             crypto.subtle.digest({algo_js}, {data_js}) \
+               .then(buf => {{ \
+                 let v = new Uint8Array(buf); \
+                 globalThis.r = Array.from(v) \
+                   .map(b => b.toString(16).padStart(2, '0')).join(''); \
+               }});"
+        ),
+        "r",
+    )
+}
+
 #[test]
 fn digest_sha1_known_answer_for_abc() {
     // RFC 3174 "abc" — SHA-1: a9993e364706816aba3e25717850c26c9cd0d89d
     assert_eq!(
-        eval_global_string(
-            "globalThis.r = ''; \
-             crypto.subtle.digest('SHA-1', new TextEncoder().encode('abc')) \
-               .then(buf => { \
-                 let v = new Uint8Array(buf); \
-                 globalThis.r = Array.from(v) \
-                   .map(b => b.toString(16).padStart(2, '0')).join(''); \
-               });",
-            "r"
-        ),
+        digest_hex("'SHA-1'", "new TextEncoder().encode('abc')"),
         "a9993e364706816aba3e25717850c26c9cd0d89d"
     );
 }
@@ -396,16 +407,7 @@ fn digest_sha256_known_answer_for_empty_string() {
     // RFC 6234 empty-input — SHA-256:
     // e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
     assert_eq!(
-        eval_global_string(
-            "globalThis.r = ''; \
-             crypto.subtle.digest('SHA-256', new Uint8Array(0)) \
-               .then(buf => { \
-                 let v = new Uint8Array(buf); \
-                 globalThis.r = Array.from(v) \
-                   .map(b => b.toString(16).padStart(2, '0')).join(''); \
-               });",
-            "r"
-        ),
+        digest_hex("'SHA-256'", "new Uint8Array(0)"),
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     );
 }
@@ -440,23 +442,9 @@ fn digest_sha512_returns_64_bytes() {
 fn digest_accepts_mixed_case_algo_name() {
     // §18.2.1 ASCII-case-insensitive match — all three should
     // produce the same hex digest of empty input.
-    let hex_for = |algo: &str| -> String {
-        eval_global_string(
-            &format!(
-                "globalThis.r = ''; \
-                 crypto.subtle.digest('{algo}', new Uint8Array(0)) \
-                   .then(buf => {{ \
-                     let v = new Uint8Array(buf); \
-                     globalThis.r = Array.from(v) \
-                       .map(b => b.toString(16).padStart(2, '0')).join(''); \
-                   }});"
-            ),
-            "r",
-        )
-    };
-    let lower = hex_for("sha-256");
-    let mixed = hex_for("Sha-256");
-    let upper = hex_for("SHA-256");
+    let lower = digest_hex("'sha-256'", "new Uint8Array(0)");
+    let mixed = digest_hex("'Sha-256'", "new Uint8Array(0)");
+    let upper = digest_hex("'SHA-256'", "new Uint8Array(0)");
     assert_eq!(lower, upper);
     assert_eq!(mixed, upper);
 }
@@ -465,22 +453,8 @@ fn digest_accepts_mixed_case_algo_name() {
 fn digest_accepts_dict_form_with_extra_keys_ignored() {
     // §18.2.1: extra dict keys are IGNORED (only `name` consulted
     // for `digest`).
-    let hex_for = |algo: &str| -> String {
-        eval_global_string(
-            &format!(
-                "globalThis.r = ''; \
-                 crypto.subtle.digest({algo}, new Uint8Array(0)) \
-                   .then(buf => {{ \
-                     let v = new Uint8Array(buf); \
-                     globalThis.r = Array.from(v) \
-                       .map(b => b.toString(16).padStart(2, '0')).join(''); \
-                   }});"
-            ),
-            "r",
-        )
-    };
-    let plain = hex_for("{name: 'SHA-256'}");
-    let with_extra = hex_for("{name: 'SHA-256', hash: 'ignored'}");
+    let plain = digest_hex("{name: 'SHA-256'}", "new Uint8Array(0)");
+    let with_extra = digest_hex("{name: 'SHA-256', hash: 'ignored'}", "new Uint8Array(0)");
     assert_eq!(plain, with_extra);
 }
 

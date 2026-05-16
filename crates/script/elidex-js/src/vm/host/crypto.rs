@@ -14,12 +14,8 @@
 //! algorithm to delegate to — `getRandomValues` is a single
 //! `getrandom::fill` call against the receiver's BufferSource
 //! bytes, and `randomUUID` is a single `uuid::Uuid::new_v4`
-//! call followed by `.hyphenated().to_string()`.
-//!
-//! Phase 0b ships only the skeleton: prototype and brand-check
-//! stubs, plus `window.crypto` data-property wiring.  Phase 1 / 2
-//! land the `getRandomValues` / `randomUUID` natives; Phase 3
-//! (digest) lives in [`super::subtle_crypto`].
+//! call followed by `.hyphenated().to_string()`.  `digest` lives
+//! in the sibling [`super::subtle_crypto`] module.
 //!
 //! ## Singleton storage
 //!
@@ -80,8 +76,8 @@ impl VmInner {
             extensible: true,
         });
 
-        // Phase 1 / 2 — `getRandomValues` + `randomUUID` methods
-        // (WebCrypto §11.1 / §11.5).
+        // `getRandomValues` + `randomUUID` methods (WebCrypto
+        // §11.1 / §11.5).
         let methods: [(_, NativeFn); 2] = [
             (
                 self.well_known.get_random_values,
@@ -93,7 +89,7 @@ impl VmInner {
             self.install_native_method(proto_id, name_sid, func, shape::PropertyAttrs::METHOD);
         }
 
-        // Phase 3 — `subtle` accessor (WebCrypto §10
+        // `subtle` accessor (WebCrypto §10
         // `readonly attribute SubtleCrypto subtle` with [SameObject]).
         // Accessor (NOT data prop) so `Object.getOwnPropertyDescriptor(
         // Crypto.prototype, 'subtle')` yields `{get, enumerable,
@@ -194,7 +190,7 @@ impl VmInner {
 /// Confirm `this` is a `Crypto` instance, returning a TypeError with
 /// the spec-conformant "Illegal invocation" wording otherwise.  Used
 /// by every `Crypto.prototype.*` method native.
-pub(super) fn require_crypto_this(
+fn require_crypto_this(
     ctx: &NativeContext<'_>,
     this: JsValue,
     method: &'static str,

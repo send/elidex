@@ -13,13 +13,10 @@
 //! algorithm-name normalisation, BufferSource argument coercion
 //! (reused via [`super::text_encoding::extract_buffer_source_bytes`])
 //! and RustCrypto `Digest` driver calls.  Current scope ships only
-//! `digest(algorithm, data)` per slot `#11-crypto-subtle-min`; full
-//! SubtleCrypto (sign / verify / encrypt / decrypt / deriveKey /
-//! generateKey / importKey / exportKey / wrapKey / unwrapKey +
-//! `CryptoKey` lifecycle) is deferred to `#11-crypto-subtle-full`.
-//!
-//! Phase 0b ships only the skeleton: prototype + brand-check stubs.
-//! Phase 3 lands the `digest` native.
+//! `digest(algorithm, data)`; full SubtleCrypto (sign / verify /
+//! encrypt / decrypt / deriveKey / generateKey / importKey /
+//! exportKey / wrapKey / unwrapKey + `CryptoKey` lifecycle) is
+//! deferred to a follow-up slot.
 //!
 //! ## Singleton storage
 //!
@@ -48,7 +45,7 @@ use super::super::natives_promise::create_promise;
 use super::super::shape;
 use super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
-    PropertyValue, StringId, VmError,
+    PropertyValue, VmError,
 };
 use super::super::{NativeFn, VmInner};
 use super::array_buffer::create_array_buffer_from_bytes;
@@ -57,7 +54,7 @@ use super::text_encoding::extract_buffer_source_bytes;
 
 impl VmInner {
     /// Allocate `SubtleCrypto.prototype` chained to `Object.prototype`,
-    /// install the `digest` method native (Phase 3), and expose the
+    /// install the `digest` method native, and expose the
     /// `SubtleCrypto` constructor stub on `globalThis`.
     ///
     /// Called from `register_globals()` after `register_prototypes`
@@ -81,7 +78,7 @@ impl VmInner {
             extensible: true,
         });
 
-        // Phase 3 — `digest` native (WebCrypto §14.3.5).
+        // `digest` native (WebCrypto §14.3.5).
         let methods: [(_, NativeFn); 1] = [(
             self.well_known.digest,
             native_subtle_crypto_digest as NativeFn,
@@ -149,7 +146,7 @@ impl VmInner {
 /// TypeError with the spec-conformant "Illegal invocation" wording
 /// otherwise.  Used by every `SubtleCrypto.prototype.*` method
 /// native.
-pub(super) fn require_subtle_crypto_this(
+fn require_subtle_crypto_this(
     ctx: &NativeContext<'_>,
     this: JsValue,
     method: &'static str,
@@ -212,14 +209,15 @@ impl DigestAlgo {
 /// dictionary whose `name` member is the algorithm name.  Extra
 /// dictionary keys are IGNORED (spec §18.2.1 step 4-5 — only the
 /// `name` member is consulted for digest).  Returns the canonical
-/// algorithm + the original user-supplied raw name (preserved
-/// case-as-typed for the `NotSupportedError` message per §18.2.1
-/// step 9).
+/// algorithm; the user-supplied raw name (case-as-typed) is echoed
+/// in the `NotSupportedError` message per §18.2.1 step 9, truncated
+/// at [`MAX_ECHOED_ALGO_NAME_LEN`] to bound the per-call DOMException
+/// message allocation.
 fn normalize_digest_algorithm(
     ctx: &mut NativeContext<'_>,
     algorithm_arg: JsValue,
-) -> Result<(DigestAlgo, StringId), VmError> {
-    let name_sid: StringId = match algorithm_arg {
+) -> Result<DigestAlgo, VmError> {
+    let name_sid = match algorithm_arg {
         JsValue::String(sid) => sid,
         JsValue::Object(id) => {
             // Dictionary form: read `name` member.  Any non-object
@@ -237,21 +235,43 @@ fn normalize_digest_algorithm(
     // ASCII case-insensitive match against canonical names.  Spec
     // §18.2.1 step 3 uses ASCII-case-insensitive comparison
     // explicitly.
-    let algo = if raw.eq_ignore_ascii_case("SHA-1") {
-        DigestAlgo::Sha1
+    if raw.eq_ignore_ascii_case("SHA-1") {
+        Ok(DigestAlgo::Sha1)
     } else if raw.eq_ignore_ascii_case("SHA-256") {
-        DigestAlgo::Sha256
+        Ok(DigestAlgo::Sha256)
     } else if raw.eq_ignore_ascii_case("SHA-384") {
-        DigestAlgo::Sha384
+        Ok(DigestAlgo::Sha384)
     } else if raw.eq_ignore_ascii_case("SHA-512") {
-        DigestAlgo::Sha512
+        Ok(DigestAlgo::Sha512)
     } else {
-        return Err(VmError::dom_exception(
+        // Truncate at a UTF-8 boundary to bound the message
+        // allocation — attacker-supplied `'A'.repeat(10_000_000)`
+        // would otherwise allocate a 10 MB error string per call.
+        let echo = truncate_at_char_boundary(&raw, MAX_ECHOED_ALGO_NAME_LEN);
+        Err(VmError::dom_exception(
             ctx.vm.well_known.dom_exc_not_supported_error,
-            format!("Unrecognized algorithm name: '{raw}'"),
-        ));
-    };
-    Ok((algo, name_sid))
+            format!("Unrecognized algorithm name: '{echo}'"),
+        ))
+    }
+}
+
+/// Maximum byte length echoed back from an attacker-supplied
+/// algorithm name into the `NotSupportedError` message.  Bounds
+/// the per-call allocation so `crypto.subtle.digest('A'.repeat(N),
+/// data)` cannot trigger an O(N) error-message alloc.
+const MAX_ECHOED_ALGO_NAME_LEN: usize = 64;
+
+fn truncate_at_char_boundary(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    // Walk back to the nearest preceding UTF-8 boundary so we never
+    // cut mid-codepoint (which would panic on the slice).
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
 }
 
 fn native_subtle_crypto_digest(
@@ -277,8 +297,8 @@ fn native_subtle_crypto_digest(
 
     // §18.2.1 normalize algorithm.  Failures settle the returned
     // Promise with the rejection rather than throwing synchronously.
-    let (algo, _name_sid) = match normalize_digest_algorithm(ctx, algorithm_arg) {
-        Ok(parts) => parts,
+    let algo = match normalize_digest_algorithm(ctx, algorithm_arg) {
+        Ok(algo) => algo,
         Err(e) => {
             let reason = ctx.vm.vm_error_to_thrown(&e);
             super::blob::reject_promise_sync(ctx.vm, promise, reason);
