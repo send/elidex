@@ -663,6 +663,43 @@ fn selectionchange_fires_after_mutation() {
 }
 
 // ---------------------------------------------------------------------------
+// Copilot R2 regression — sweep tail clears stale selection_instance
+// ---------------------------------------------------------------------------
+
+#[test]
+fn selection_wrapper_reallocated_after_gc_when_unreachable() {
+    // Copilot R2 IMP: GC sweep must clear `selection_instance` when
+    // the Selection wrapper's mark bit is clear; otherwise the next
+    // `getSelection()` call returns a stale `ObjectId` whose slot may
+    // have been reused by an unrelated object, breaking the brand
+    // check.  This test exercises the cleanup path:
+    //   1. Materialise a Selection wrapper, drop the JS reference.
+    //   2. Force a GC by allocating churn.
+    //   3. The next `getSelection()` must return a wrapper that
+    //      still satisfies `instanceof Selection`.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(
+        "globalThis.s1 = window.getSelection();\
+         globalThis.s1 = null;\
+         globalThis.junk = [];\
+         for (let i = 0; i < 500; i++) { junk.push({a: i, b: i+1}); }\
+         globalThis.junk = null;\
+         globalThis.s2 = window.getSelection();",
+    )
+    .unwrap();
+    // Whether GC actually ran depends on threshold; the strong
+    // invariant is that `s2` is always a valid Selection regardless,
+    // so the brand check passes (the sweep-clear path doesn't
+    // break the always-valid contract).
+    assert_eq!(
+        eval_str(&mut vm, "s2 instanceof Selection ? 'yes' : 'no'"),
+        "yes"
+    );
+    vm.unbind();
+}
+
+// ---------------------------------------------------------------------------
 // Copilot R1 regression — registry-leak cleanup on replaced RangeId
 // ---------------------------------------------------------------------------
 

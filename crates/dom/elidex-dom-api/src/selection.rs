@@ -504,15 +504,15 @@ impl SelectionState {
         let Some(id) = self.active_range_id else {
             return;
         };
-        registry.with_range_mut(id, dom, |range, _| {
-            // delete_contents needs `&mut EcsDom` so cannot run inside
-            // this closure — we extract a clone and run it outside.
-            // Capture nothing; the actual delete happens below.
-            let _ = range;
-        });
-        // Re-enter to actually mutate dom: the closure-borrow shape of
-        // with_range_mut requires &EcsDom, not &mut. Take a clone of the
-        // range, run delete_contents, then write back via with_range_mut.
+        // `with_range_mut` would need `&mut EcsDom` to call
+        // `delete_contents` from inside the closure, but `with_range_mut`'s
+        // closure receives `&EcsDom`. Clone the boundary state out under
+        // a shared borrow, run `delete_contents(&mut dom)` outside the
+        // closure, then write the post-deletion boundaries back via
+        // `with_range_mut` (Copilot R2 MIN cleanup: removed an earlier
+        // no-op `with_range_mut` that bound `range` to `_` and returned
+        // nothing — confusing because it read as if some mutation
+        // happened there).
         let snapshot = registry.with_range(id, dom, |range, _| range.clone());
         if let Some(mut range) = snapshot {
             range.delete_contents(dom);

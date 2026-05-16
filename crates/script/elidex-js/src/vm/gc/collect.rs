@@ -1352,6 +1352,19 @@ impl VmInner {
                         guard.remove(iid);
                     }
                 }
+                // Selection — per-document singleton wrapper.  When
+                // the Selection wrapper's mark bit is clear, the
+                // `ObjectId` slot will be reused on the next
+                // allocation; if we don't clear `selection_instance`
+                // here, the next `window.getSelection()` /
+                // `document.getSelection()` returns the stale id
+                // (now pointing at an unrelated object), breaking
+                // the `Selection` brand check.  Copilot R2 IMP.
+                if let Some(sel_id) = hd.selection_instance {
+                    if !bit_get(marks, sel_id.0) {
+                        hd.selection_instance = None;
+                    }
+                }
             }
         }
 
