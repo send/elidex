@@ -287,6 +287,33 @@ mod engine_feature {
         /// unregisters the Range from
         /// `live_range_registry.ranges`.
         pub(crate) range_instances: HashMap<u64, ObjectId>,
+        /// Per-document `Selection` singleton state (Selection API §3,
+        /// formerly WHATWG HTML §7.5.5).  M4-12 single-document VM
+        /// models exactly one Selection per VM, so `Option<...>` is the
+        /// right shape — promote to `HashMap<EntityBits, SelectionState>`
+        /// when multi-document arrives (D-15 ShadowRoot / iframe).
+        ///
+        /// Lifecycle: created lazily on first `window.getSelection()` /
+        /// `document.getSelection()` call (or first internal mutation
+        /// via the Selection prototype dispatchers).  Cleared on
+        /// `Vm::unbind` because the registered `RangeId` references
+        /// live in `live_range_registry`, which is also cleared.
+        pub(crate) selection_state: Option<elidex_dom_api::SelectionState>,
+        /// Canonical `[SameObject]` wrapper for the per-document
+        /// Selection.  `window.getSelection()` and
+        /// `document.getSelection()` both return THIS `ObjectId` —
+        /// identity is preserved per spec §2 / Chrome behaviour.
+        /// GC sweep tail clears this slot when the wrapper becomes
+        /// unreachable; the next `getSelection()` call materialises a
+        /// fresh wrapper backed by the same `selection_state`.
+        pub(crate) selection_instance: Option<ObjectId>,
+        /// "Selection task source" dirty flag per HTML §8.1.4.2.  Set
+        /// on any user-script Selection / Range mutation; the
+        /// pending-task drain checks the flag at eval boundary and
+        /// fires a coalesced `selectionchange` at the document per
+        /// Selection API §3.4 (one event per microtask checkpoint
+        /// regardless of how many discrete mutations happened).
+        pub(crate) selectionchange_pending: bool,
     }
 
     /// VM-local TreeWalker state.  WHATWG DOM §6.4.
@@ -366,6 +393,9 @@ mod engine_feature {
                 tree_walker_instances: HashMap::new(),
                 next_tree_walker_id: 0,
                 range_instances: HashMap::new(),
+                selection_state: None,
+                selection_instance: None,
+                selectionchange_pending: false,
             }
         }
 
@@ -405,6 +435,74 @@ mod engine_feature {
             // inside `HostData` itself, not behind `dom_ptr`).
             let dom = unsafe { &*self.dom_ptr };
             (dom, &mut self.live_range_registry)
+        }
+
+        /// Three-way borrow split: `&mut EcsDom`, `&mut LiveRangeRegistry`,
+        /// and `&mut Option<SelectionState>` — used by
+        /// `deleteFromDocument` which delegates to the engine-indep
+        /// `SelectionState::delete_from_document` (Copilot R1 IMP-2:
+        /// the engine-indep impl owns the Phase 1/2/3 spec algorithm,
+        /// so the VM-side just hands all three borrows over).
+        ///
+        /// **Safety contract** (identical to
+        /// [`Self::split_dom_and_live_ranges`]): all three return
+        /// values borrow from `&mut self`; they are disjoint because
+        /// `dom_ptr` is the bound `&mut EcsDom` exclusively held by
+        /// HostData while bound, and the other two are owned fields
+        /// of `HostData`.
+        #[allow(unsafe_code)]
+        pub(crate) fn split_dom_mut_live_ranges_and_selection(
+            &mut self,
+        ) -> (
+            &mut elidex_ecs::EcsDom,
+            &mut elidex_dom_api::LiveRangeRegistry,
+            &mut Option<elidex_dom_api::SelectionState>,
+        ) {
+            assert!(self.is_bound(), "HostData accessed while unbound");
+            // SAFETY: same as `split_dom_and_live_ranges` — `dom_ptr`
+            // references the currently-bound `&mut EcsDom` exclusively
+            // owned by HostData; we synthesise the `&mut` here.  The
+            // other two are owned fields of `HostData`.
+            let dom = unsafe { &mut *self.dom_ptr };
+            (
+                dom,
+                &mut self.live_range_registry,
+                &mut self.selection_state,
+            )
+        }
+
+        /// Three-way borrow split: `&EcsDom`, `&mut LiveRangeRegistry`,
+        /// and `&mut Option<SelectionState>` — the canonical access
+        /// shape for `Selection.prototype` methods that need DOM read,
+        /// registry mutate, and selection-singleton mutate concurrently.
+        ///
+        /// **Safety contract** (identical to
+        /// [`Self::split_dom_and_live_ranges`]): callers MUST observe
+        /// the "no Range / Selection allocations between split and
+        /// drop" rule.  All three return values borrow from `&mut
+        /// self`; they are disjoint because `dom_ptr` is the bound
+        /// `&mut EcsDom` (synthesised here as a shared ref) and the
+        /// other two are owned fields of `HostData` itself.
+        #[allow(unsafe_code)]
+        pub(crate) fn split_dom_live_ranges_and_selection(
+            &mut self,
+        ) -> (
+            &elidex_ecs::EcsDom,
+            &mut elidex_dom_api::LiveRangeRegistry,
+            &mut Option<elidex_dom_api::SelectionState>,
+        ) {
+            assert!(self.is_bound(), "HostData accessed while unbound");
+            // SAFETY: `dom_ptr` references the currently-bound
+            // `&mut EcsDom`; we synthesise a shared ref to it here.
+            // The `&mut LiveRangeRegistry` and `&mut
+            // Option<SelectionState>` project disjoint owned fields
+            // of `HostData` (neither lives behind `dom_ptr`).
+            let dom = unsafe { &*self.dom_ptr };
+            (
+                dom,
+                &mut self.live_range_registry,
+                &mut self.selection_state,
+            )
         }
 
         /// Install the shell-owned `WebStorageManager` (idempotent
@@ -965,6 +1063,28 @@ mod engine_feature {
         }
         pub(crate) fn node_iterator_instances_ref(&self) -> &HashMap<u64, ObjectId> {
             &self.node_iterator_instances
+        }
+
+        /// `[SameObject]` Range wrapper cache accessor for the GC trace
+        /// fan-out (Selection → current Range wrapper).
+        pub(crate) fn range_instances_ref(&self) -> &HashMap<u64, ObjectId> {
+            &self.range_instances
+        }
+
+        /// Selection singleton wrapper ObjectId, if a `getSelection()`
+        /// call has already materialised one.
+        pub(crate) fn selection_instance_id(&self) -> Option<ObjectId> {
+            self.selection_instance
+        }
+
+        /// Read access to the per-document Selection state for the GC
+        /// trace fan-out — returns the currently-active `RangeId.bits()`
+        /// when a range is set.
+        pub(crate) fn selection_active_range_id_bits(&self) -> Option<u64> {
+            self.selection_state
+                .as_ref()
+                .and_then(elidex_dom_api::SelectionState::current_range_id)
+                .map(|rid| rid.0)
         }
     }
 

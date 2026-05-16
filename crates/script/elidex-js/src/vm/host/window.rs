@@ -348,6 +348,11 @@ const WINDOW_METHODS: &[(&str, super::super::NativeFn)] = &[
         "getComputedStyle",
         super::css_style_declaration::native_window_get_computed_style,
     ),
+    // Selection API §2: `getSelection()` returns the per-document
+    // Selection singleton.  Identical binding on `Document.prototype`
+    // (see `vm/host/document.rs`).  Single-doc VM never returns null
+    // here; gated to `InvalidStateError` if host is unbound.
+    ("getSelection", native_window_get_selection),
 ];
 
 // `pageXOffset` / `pageYOffset` are spec aliases for `scrollX` /
@@ -405,5 +410,30 @@ fn native_window_get_session_storage(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = ctx.vm.alloc_or_cached_storage(false);
+    Ok(JsValue::Object(id))
+}
+
+/// `window.getSelection()` (Selection API §2): returns the
+/// per-document Selection singleton.  Identical binding wired on
+/// `Document.prototype` (`vm/host/document.rs`) — both resolve to the
+/// same `[SameObject]` wrapper held in
+/// `HostData::selection_instance`.  Lazily materialises the wrapper
+/// on first call; subsequent calls return the same `ObjectId`
+/// (identity preserved per spec).  In the current single-document
+/// VM this never returns null; the spec "fully-active document" gate
+/// becomes a real check only once multi-document arrives (D-15 /
+/// iframe).
+pub(super) fn native_window_get_selection(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    if ctx.host_if_bound().is_none() {
+        return Err(VmError::dom_exception(
+            ctx.vm.well_known.dom_exc_invalid_state_error,
+            "Failed to execute 'getSelection' on 'Window': host environment is not initialised",
+        ));
+    }
+    let id = ctx.vm.alloc_or_cached_selection();
     Ok(JsValue::Object(id))
 }

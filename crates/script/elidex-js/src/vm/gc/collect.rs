@@ -776,6 +776,18 @@ impl VmInner {
                 self.node_iterator_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 150 + 1 (D-8 PR-B `#11-traversal-and-range-pr-b-selection`:
+                // `Selection.prototype`) = 151.  Per-document singleton
+                // Selection is reached through this prototype slot;
+                // the wrapper itself is held in
+                // `HostData::selection_instance` and traced via
+                // `vm/gc/trace.rs::trace_selection_instance` (which
+                // fans out to the current Range wrapper at
+                // `range_instances[range_id.bits()]`).
+                #[cfg(feature = "engine")]
+                self.selection_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,
@@ -917,6 +929,26 @@ impl VmInner {
             ),
         };
 
+        // D-8 PR-B Selection fan-out: pass the Selection wrapper id +
+        // active RangeId.bits + range_instances cache so the trace
+        // can mark the cached Range wrapper when the Selection itself
+        // is reachable.  Empty maps + None fallbacks when HostData is
+        // unbound — the Selection trace arm short-circuits on
+        // wrapper-id mismatch.
+        #[cfg(feature = "engine")]
+        let empty_range_instances: std::collections::HashMap<u64, ObjectId> =
+            std::collections::HashMap::new();
+        #[cfg(feature = "engine")]
+        let (selection_instance, selection_active_range_id_bits, range_instances_ref) =
+            match self.host_data.as_deref() {
+                Some(hd) => (
+                    hd.selection_instance_id(),
+                    hd.selection_active_range_id_bits(),
+                    hd.range_instances_ref(),
+                ),
+                None => (None, None, &empty_range_instances),
+            };
+
         trace_work_list(
             roots.objects,
             roots.upvalues,
@@ -952,6 +984,12 @@ impl VmInner {
             iter_shared,
             #[cfg(feature = "engine")]
             iter_instances,
+            #[cfg(feature = "engine")]
+            selection_instance,
+            #[cfg(feature = "engine")]
+            selection_active_range_id_bits,
+            #[cfg(feature = "engine")]
+            range_instances_ref,
             &mut self.gc_object_marks,
             &mut self.gc_upvalue_marks,
             &mut self.gc_work_list,
@@ -1312,6 +1350,19 @@ impl VmInner {
                     hd.node_iterator_instances.remove(iid);
                     if let Ok(mut guard) = hd.node_iterator_states_shared.lock() {
                         guard.remove(iid);
+                    }
+                }
+                // Selection — per-document singleton wrapper.  When
+                // the Selection wrapper's mark bit is clear, the
+                // `ObjectId` slot will be reused on the next
+                // allocation; if we don't clear `selection_instance`
+                // here, the next `window.getSelection()` /
+                // `document.getSelection()` returns the stale id
+                // (now pointing at an unrelated object), breaking
+                // the `Selection` brand check.  Copilot R2 IMP.
+                if let Some(sel_id) = hd.selection_instance {
+                    if !bit_get(marks, sel_id.0) {
+                        hd.selection_instance = None;
                     }
                 }
             }

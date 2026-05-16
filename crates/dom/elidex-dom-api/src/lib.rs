@@ -25,6 +25,7 @@ pub mod mutation_bridge;
 pub mod node_methods;
 pub mod range;
 pub mod registry;
+pub mod selection;
 pub mod style;
 pub mod traversal;
 pub mod tree_nav;
@@ -99,6 +100,7 @@ pub use range::{
 // PR-A will widen the visibility to `pub use` if/when an external
 // consumer needs it, keeping the public API surface minimal until
 // then.
+pub use selection::{SelectionDirection, SelectionError, SelectionState, SelectionType};
 pub use style::{StyleGetPropertyValue, StyleRemoveProperty, StyleSetProperty};
 pub use traversal::{
     NodeIterator, TreeWalker, SHOW_ALL, SHOW_COMMENT, SHOW_DOCUMENT, SHOW_ELEMENT, SHOW_TEXT,

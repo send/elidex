@@ -423,6 +423,16 @@ impl VmInner {
             self.register_tree_walker_global();
             self.register_node_iterator_global();
             self.register_node_filter_namespace();
+            // Selection — Selection API §3.  Per-document singleton
+            // reached via `window.getSelection()` /
+            // `document.getSelection()`.  Constructor throws
+            // "Illegal constructor" (`new Selection()` is not
+            // user-callable per spec).  Must run AFTER
+            // `register_range_global()` because `Selection.prototype`
+            // methods reference `range_instances` cache and
+            // `range_prototype` for `getRangeAt(0)` wrapper
+            // materialisation.
+            self.register_selection_global();
             // Storage — chains directly to Object.prototype.
             // Constructor is a stub (`Storage()` throws) but the
             // `Storage` global must exist before

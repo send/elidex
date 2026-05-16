@@ -1155,6 +1155,42 @@ define_well_known_strings! {
         create_node_iterator_method => "createNodeIterator",
     }
 
+    "Selection (Selection API §3, slot #11-traversal-and-range-pr-b-selection)" {
+        selection_global => "Selection",
+        get_selection_method => "getSelection",
+        // Accessor names.
+        anchor_node_attr => "anchorNode",
+        anchor_offset_attr => "anchorOffset",
+        focus_node_attr => "focusNode",
+        focus_offset_attr => "focusOffset",
+        is_collapsed_attr => "isCollapsed",
+        range_count_attr => "rangeCount",
+        direction_attr => "direction",
+        // Method names.  `collapse` + `type` + `toString` already
+        // pre-interned (in Range / Form / Event sections); reused here.
+        get_range_at_method => "getRangeAt",
+        add_range_method => "addRange",
+        remove_range_method => "removeRange",
+        remove_all_ranges_method => "removeAllRanges",
+        empty_method => "empty",
+        set_position_method => "setPosition",
+        collapse_to_start_method => "collapseToStart",
+        collapse_to_end_method => "collapseToEnd",
+        extend_method => "extend",
+        set_base_and_extent_method => "setBaseAndExtent",
+        select_all_children_method => "selectAllChildren",
+        delete_from_document_method => "deleteFromDocument",
+        contains_node_method => "containsNode",
+        // SelectionType / direction enum strings (Selection API §3.1).
+        selection_type_none => "None",
+        selection_type_caret => "Caret",
+        selection_type_range => "Range",
+        selection_dir_directionless => "directionless",
+        // `selectionchange` event name (Selection API §3.4 +
+        // HTML §8.1.4.2 "selection task source").
+        selectionchange_event => "selectionchange",
+    }
+
     "ReadableStream (WHATWG Streams §4)" {
         // Constructor globals + method / accessor names unique to
         // the streams surface.  `read` / `value` / `done` /

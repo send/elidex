@@ -187,6 +187,8 @@ pub(super) mod html_template_proto;
 #[cfg(feature = "engine")]
 pub(super) mod document_traversal;
 #[cfg(feature = "engine")]
+pub(super) mod dom_selection_proto;
+#[cfg(feature = "engine")]
 pub(super) mod form_state_sync;
 #[cfg(feature = "engine")]
 pub(super) mod html_input_proto;
