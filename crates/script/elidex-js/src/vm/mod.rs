@@ -1485,6 +1485,77 @@ pub(crate) struct VmInner {
     /// pattern as `body_data` / `headers_states`.
     #[cfg(feature = "engine")]
     pub(crate) blob_data: HashMap<ObjectId, host::blob::BlobData>,
+    /// `File.prototype` (File API §4).  Chains through
+    /// `Blob.prototype → Object.prototype`.  `None` until
+    /// `register_file_global()` runs during `register_globals()`.
+    ///
+    /// `#[allow(dead_code)]`: Phase 0b scaffolding — fields are
+    /// declared so VmInner layout + GC sweep tail is stable; Phase
+    /// 1 / 2 / 4 of `#11-file-api` populate them.  Allow removed
+    /// when the first Phase lands.
+    #[cfg(feature = "engine")]
+    #[allow(dead_code)]
+    pub(crate) file_prototype: Option<ObjectId>,
+    /// `FileList.prototype` (File API §5).  Chains directly to
+    /// `Object.prototype`.
+    #[cfg(feature = "engine")]
+    #[allow(dead_code)] // Phase 0b scaffolding — see file_prototype.
+    pub(crate) file_list_prototype: Option<ObjectId>,
+    /// `FileReader.prototype` (File API §6).  Chains directly to
+    /// `EventTarget.prototype` (FileReader is an EventTarget per
+    /// FileAPI §6.2 IDL).
+    #[cfg(feature = "engine")]
+    #[allow(dead_code)] // Phase 0b scaffolding — see file_prototype.
+    pub(crate) file_reader_prototype: Option<ObjectId>,
+    /// Per-`File` out-of-band state, keyed by the File instance's
+    /// `ObjectId`.  Holds the link to the backing Blob wrapper
+    /// (`blob_id`), the file `name`, and `lastModified` epoch ms.
+    /// See [`host::file::FileSideData`].
+    ///
+    /// GC contract: the trace step marks `blob_id` so the backing
+    /// Blob survives as long as the File is reachable.  Sweep tail
+    /// prunes entries whose key `ObjectId` was collected.
+    #[cfg(feature = "engine")]
+    #[allow(dead_code)] // Phase 0b scaffolding — see file_prototype.
+    pub(crate) file_data: HashMap<ObjectId, host::file::FileSideData>,
+    /// Per-`FileList` out-of-band state, keyed by the FileList
+    /// instance's `ObjectId`.  Holds the ordered list of File
+    /// wrapper `ObjectId`s.  See [`host::file_list::FileListSideData`].
+    ///
+    /// GC contract: the trace step marks every File ObjectId in
+    /// `file_ids`.  Sweep tail prunes entries whose key was
+    /// collected.
+    #[cfg(feature = "engine")]
+    #[allow(dead_code)] // Phase 0b scaffolding — see file_prototype.
+    pub(crate) file_list_data: HashMap<ObjectId, host::file_list::FileListSideData>,
+    /// Per-`FileReader` out-of-band state, keyed by the FileReader
+    /// instance's `ObjectId`.  Holds the readyState machine,
+    /// result, error, target blob reference, and the abort sequence
+    /// counter used to invalidate stale read tasks.  See
+    /// [`host::file_reader::FileReaderSideData`].
+    ///
+    /// GC contract: the trace step marks `target_blob` (if any) and
+    /// any ObjectId stored in `result` (ArrayBuffer for
+    /// readAsArrayBuffer / error wrapper).  Sweep tail prunes
+    /// entries whose key was collected.
+    #[cfg(feature = "engine")]
+    #[allow(dead_code)] // Phase 0b scaffolding — see file_prototype.
+    pub(crate) file_reader_data: HashMap<ObjectId, host::file_reader::FileReaderSideData>,
+    /// Per-`<input type=file>` SameObject FileList wrapper cache,
+    /// keyed by the input element wrapper's `ObjectId`.  Spec
+    /// §4.10.5.1.18 and WebIDL `[SameObject]` semantics together
+    /// require that `input.files === input.files` holds across reads.
+    /// Until shell-side file picker staging arrives (deferred to
+    /// `#11-input-file-shell-staging`), the wrapper always holds an
+    /// empty FileList — identity is still stable per spec.
+    ///
+    /// GC contract: cached FileList wrappers are reached via this
+    /// map; sweep tail prunes entries whose VALUE `ObjectId` was
+    /// collected (HTMLInputElement wrapper's lifetime handles the
+    /// KEY side via the broader `HostData::wrapper_cache`).
+    #[cfg(feature = "engine")]
+    #[allow(dead_code)] // Phase 0b scaffolding — see file_prototype.
+    pub(crate) input_files_cache: HashMap<ObjectId, ObjectId>,
     /// Per-`TextDecoder` out-of-band state (WHATWG Encoding §8.1).
     /// Keyed by the instance's own `ObjectId`.  Holds the resolved
     /// encoding, the user-chosen `fatal` / `ignoreBOM` flags, and

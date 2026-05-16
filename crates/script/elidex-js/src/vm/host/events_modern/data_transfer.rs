@@ -300,6 +300,7 @@ static EMPTY_DT_STATE: DataTransferState = DataTransferState {
     items: Vec::new(),
     items_wrapper: None,
     files_wrapper: None,
+    file_entries: Vec::new(),
     drag_image_entity: None,
     drag_image_x: 0,
     drag_image_y: 0,

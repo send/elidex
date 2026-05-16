@@ -26,13 +26,23 @@
 //!
 //! ## Deferred
 //!
-//! - `File` subclass / `FileList`.
-//! - Line-ending normalisation for `endings: "native"`.
 //! - MIME type validation — Phase 2 accepts any ASCII string and
 //!   ASCII-lowercases it when stored in [`BlobData::type_sid`]
 //!   (matching Chromium / Firefox; the spec's full media-type
 //!   parse lands with a later tranche).  Non-ASCII rejects with
 //!   the empty type.
+//!
+//! ## File subclass integration (slot `#11-file-api`)
+//!
+//! `File` extends `Blob` per FileAPI §4.  Each File has its own
+//! `ObjectKind::File` discriminator with bytes stored in
+//! [`VmInner::blob_data`] keyed by the File's own `ObjectId`.  The
+//! Blob.prototype accessors (`size` / `type` / `slice` / `text` /
+//! `stream` / `arrayBuffer`) accept either kind via
+//! [`require_blob_or_file_this`], routing all reads through
+//! `blob_data` directly.  Line-ending normalisation for `endings:
+//! "native"` is implemented in [`collect_blob_parts_bytes_with_endings`]
+//! and used by both Blob and File ctors.
 
 #![cfg(feature = "engine")]
 
@@ -160,12 +170,29 @@ fn require_blob_this(
     this: JsValue,
     method: &str,
 ) -> Result<ObjectId, VmError> {
+    require_blob_or_file_this(ctx, this, method)
+}
+
+/// Brand check that accepts both `Blob` and `File` instances.  Slot
+/// `#11-file-api`: File IS-A Blob per FileAPI §4, and both store
+/// bytes / type in [`VmInner::blob_data`] keyed by the instance's own
+/// `ObjectId`.  All `Blob.prototype.*` accessors / methods use this
+/// helper so a File receiver works through prototype inheritance
+/// without needing duplicate method install on File.prototype.
+pub(crate) fn require_blob_or_file_this(
+    ctx: &NativeContext<'_>,
+    this: JsValue,
+    method: &str,
+) -> Result<ObjectId, VmError> {
     let JsValue::Object(id) = this else {
         return Err(VmError::type_error(format!(
             "Blob.prototype.{method} called on non-Blob"
         )));
     };
-    if matches!(ctx.vm.get_object(id).kind, ObjectKind::Blob) {
+    if matches!(
+        ctx.vm.get_object(id).kind,
+        ObjectKind::Blob | ObjectKind::File
+    ) {
         Ok(id)
     } else {
         Err(VmError::type_error(format!(
@@ -271,9 +298,14 @@ fn native_blob_constructor(
     let parts_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let options_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
 
+    // Parse endings BEFORE bits coercion so the helper can apply
+    // per-part USVString line-ending normalisation as it walks.
+    // Blob ctor accepts the same `endings` option as File ctor per
+    // FileAPI §3.2.
+    let endings = parse_blob_options_endings(ctx, options_arg)?;
     let bytes = match parts_arg {
         JsValue::Undefined => Arc::from(&[][..]),
-        _ => collect_blob_parts_bytes(ctx, parts_arg)?,
+        _ => collect_blob_parts_bytes_with_endings(ctx, parts_arg, endings)?,
     };
     let type_sid = parse_blob_options_type(ctx, options_arg)?;
 
@@ -287,29 +319,79 @@ fn native_blob_constructor(
     Ok(JsValue::Object(inst_id))
 }
 
+/// `endings` option per FileAPI §3.2 / §4.1 — controls per-part
+/// line-ending normalisation in USVString entries.  Blob and File
+/// ctors both accept this option.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum EndingsKind {
+    /// `endings: "transparent"` (default) — USVString entries are
+    /// UTF-8 encoded verbatim, no line-ending transformation.
+    Transparent,
+    /// `endings: "native"` — USVString entries have `\r\n` and lone
+    /// `\r` collapsed to `\n` per FileAPI §4.1 step 1 note (Web
+    /// platform default is `\n`, NOT the platform CRLF).  Only
+    /// USVString entries are normalised; BufferSource / Blob entries
+    /// remain byte-for-byte.
+    Native,
+}
+
+/// Normalise line endings in a USVString to `\n` per the Web
+/// platform default (FileAPI §4.1 step 1 note).  Returns an owned
+/// `String` when transformation happens; callers feed the bytes into
+/// the accumulator afterwards.
+fn normalize_line_endings_native(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\r' {
+            if chars.peek() == Some(&'\n') {
+                chars.next();
+            }
+            out.push('\n');
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 /// Convert a single `blobParts` element into bytes and append
 /// them to `out`.  Spec §3.2 step 2 maps each part per the
 /// `BlobPart = BufferSource or Blob or USVString` union:
-/// - `Blob` instance → stored bytes
+/// - `Blob` (or `File` per FileAPI §4 inheritance) instance → stored bytes
 /// - `ArrayBuffer` → stored bytes
 /// - everything else (including String and arbitrary JS values)
 ///   → `ToString` then UTF-8 bytes.
+///
+/// `endings == Native` applies line-ending normalisation only to the
+/// USVString path (string-coerced primitives + the fallback ToString
+/// branch); BufferSource / Blob / File entries are byte-for-byte.
 fn append_blob_part_bytes(
     ctx: &mut NativeContext<'_>,
     out: &mut Vec<u8>,
     part: JsValue,
+    endings: EndingsKind,
 ) -> Result<(), VmError> {
     match part {
         JsValue::String(sid) => {
             let raw = ctx.vm.strings.get_utf8(sid);
-            out.extend_from_slice(raw.as_bytes());
+            match endings {
+                EndingsKind::Transparent => out.extend_from_slice(raw.as_bytes()),
+                EndingsKind::Native => {
+                    let normalised = normalize_line_endings_native(&raw);
+                    out.extend_from_slice(normalised.as_bytes());
+                }
+            }
         }
         JsValue::Object(part_id) => match ctx.vm.get_object(part_id).kind {
             ObjectKind::ArrayBuffer => {
                 let bytes = super::array_buffer::array_buffer_bytes(ctx.vm, part_id);
                 out.extend_from_slice(&bytes);
             }
-            ObjectKind::Blob => {
+            // File IS-A Blob per FileAPI §4; both store bytes in
+            // `blob_data` keyed by their own `ObjectId`, so the
+            // shared accessor here works for either kind.
+            ObjectKind::Blob | ObjectKind::File => {
                 let bytes = blob_bytes(ctx.vm, part_id);
                 out.extend_from_slice(&bytes);
             }
@@ -348,22 +430,37 @@ fn append_blob_part_bytes(
             _ => {
                 // Fallback: stringify per WHATWG §3.2 step 2.3 (a
                 // non-BufferSource / non-Blob value becomes a
-                // USVString).
+                // USVString) — line-ending normalisation applies in
+                // Native mode, same as the String arm above.
                 let sid = super::super::coerce::to_string(ctx.vm, part)?;
                 let raw = ctx.vm.strings.get_utf8(sid);
-                out.extend_from_slice(raw.as_bytes());
+                append_usv_bytes(out, &raw, endings);
             }
         },
         _ => {
             let sid = super::super::coerce::to_string(ctx.vm, part)?;
             let raw = ctx.vm.strings.get_utf8(sid);
-            out.extend_from_slice(raw.as_bytes());
+            append_usv_bytes(out, &raw, endings);
         }
     }
     Ok(())
 }
 
-/// Collect `blobParts` bytes into a single `Arc<[u8]>`.
+/// Helper for the USVString append path so the String arm and the
+/// non-BufferSource fallback share the line-ending normalisation
+/// branch (call sites already hold the UTF-8 `&str`).
+fn append_usv_bytes(out: &mut Vec<u8>, raw: &str, endings: EndingsKind) {
+    match endings {
+        EndingsKind::Transparent => out.extend_from_slice(raw.as_bytes()),
+        EndingsKind::Native => {
+            let normalised = normalize_line_endings_native(raw);
+            out.extend_from_slice(normalised.as_bytes());
+        }
+    }
+}
+
+/// Collect `blobParts` bytes into a single `Arc<[u8]>` with optional
+/// line-ending normalisation per `endings`.
 ///
 /// WebIDL types `blobParts` as `sequence<BlobPart>`, so conversion
 /// runs through the iterator protocol — any value with a callable
@@ -373,9 +470,13 @@ fn append_blob_part_bytes(
 /// throwing) calls `IteratorClose` on custom iterables to let
 /// `.return()` run cleanup, per ES §7.4.6 — same invariant we
 /// added to `HeadersInit` parsing in R17.1 / R18.1 (R21.1).
-fn collect_blob_parts_bytes(
+///
+/// Used by both `Blob` and `File` constructors (the latter via
+/// `vm/host/file.rs`).
+pub(crate) fn collect_blob_parts_bytes_with_endings(
     ctx: &mut NativeContext<'_>,
     parts: JsValue,
+    endings: EndingsKind,
 ) -> Result<Arc<[u8]>, VmError> {
     // Array fast path: arrays have `@@iterator` on their prototype
     // and iterating would yield the same sequence, but reading
@@ -387,7 +488,7 @@ fn collect_blob_parts_bytes(
             let snapshot = elements.clone();
             let mut out: Vec<u8> = Vec::new();
             for part in snapshot {
-                append_blob_part_bytes(ctx, &mut out, part)?;
+                append_blob_part_bytes(ctx, &mut out, part, endings)?;
             }
             return Ok(Arc::from(out));
         }
@@ -421,7 +522,7 @@ fn collect_blob_parts_bytes(
         // for-of-like body; call `IteratorClose` before propagating.
         // `.return()` throwing takes precedence over the triggering
         // error (§7.4.6 step 6-7).
-        if let Err(err) = append_blob_part_bytes(ctx, &mut out, part) {
+        if let Err(err) = append_blob_part_bytes(ctx, &mut out, part, endings) {
             let close_err = ctx.vm.iter_close(iter).err();
             return Err(close_err.unwrap_or(err));
         }
@@ -429,11 +530,47 @@ fn collect_blob_parts_bytes(
     Ok(Arc::from(out))
 }
 
+/// Parse the optional `options` dict's `endings` member into an
+/// [`EndingsKind`].  Default `"transparent"` per FileAPI §3.2 /
+/// §4.1.  Invalid values throw TypeError per WebIDL enum coercion.
+pub(crate) fn parse_blob_options_endings(
+    ctx: &mut NativeContext<'_>,
+    options: JsValue,
+) -> Result<EndingsKind, VmError> {
+    match options {
+        JsValue::Undefined | JsValue::Null => Ok(EndingsKind::Transparent),
+        JsValue::Object(opts_id) => {
+            let endings_key = PropertyKey::String(ctx.vm.well_known.endings);
+            let endings_val = ctx.get_property_value(opts_id, endings_key)?;
+            match endings_val {
+                JsValue::Undefined => Ok(EndingsKind::Transparent),
+                other => {
+                    let sid = super::super::coerce::to_string(ctx.vm, other)?;
+                    let raw = ctx.vm.strings.get_utf8(sid);
+                    if raw == "transparent" {
+                        Ok(EndingsKind::Transparent)
+                    } else if raw == "native" {
+                        Ok(EndingsKind::Native)
+                    } else {
+                        Err(VmError::type_error(format!(
+                            "Failed to construct 'Blob': The provided value '{raw}' \
+                             is not a valid enum value of type EndingType."
+                        )))
+                    }
+                }
+            }
+        }
+        _ => Err(VmError::type_error(
+            "Failed to construct 'Blob': options must be an object",
+        )),
+    }
+}
+
 /// Parse the optional `options` dict's `type` member into a
 /// lowercased `StringId`.  Spec §3.2 step 4 lower-cases the
 /// provided MIME type after an ASCII validity check; Phase 2
 /// lower-cases unconditionally (no validity check yet).
-fn parse_blob_options_type(
+pub(crate) fn parse_blob_options_type(
     ctx: &mut NativeContext<'_>,
     options: JsValue,
 ) -> Result<StringId, VmError> {

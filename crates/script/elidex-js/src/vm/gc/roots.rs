@@ -718,6 +718,17 @@ pub(super) fn mark_roots(
                     mark_object(*src, obj_marks, work);
                 }
             }
+            super::super::host::pending_tasks::PendingTask::FileRead { reader_id, .. } => {
+                // The FileReader wrapper itself is rooted via
+                // `HostData::gc_root_object_ids` for its lifetime
+                // (Phase 4 of `#11-file-api` will hook up rooting),
+                // but mark it defensively from the queued task too
+                // so the per-instance side-data (target Blob, result
+                // ArrayBuffer, error wrapper) reachable via the
+                // FileReader's trace fan-out is preserved between
+                // enqueue and drain.
+                mark_object(*reader_id, obj_marks, work);
+            }
         }
     }
 

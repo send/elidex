@@ -985,6 +985,61 @@ pub enum ObjectKind {
     /// wrapper is collected.
     #[cfg(feature = "engine")]
     Selection,
+    /// `File` instance (File API §4).  Subclass of [`Self::Blob`] via
+    /// prototype chain (`File.prototype.[[Prototype]] = Blob.prototype`),
+    /// NOT via ObjectKind inheritance — File has its own discriminator
+    /// so brand checks distinguish `instanceof File` from a plain Blob.
+    /// Payload-free; the per-instance state
+    /// (`blob_id` reference to the backing Blob wrapper, `name` USVString,
+    /// `last_modified` epoch ms) lives in
+    /// [`super::VmInner::file_data`] keyed by this `ObjectId`.
+    ///
+    /// Storing a `blob_id` reference rather than copying bytes lets
+    /// `File.size` / `.type` / `.slice()` / `.text()` / `.arrayBuffer()`
+    /// reuse `BlobData` directly through the prototype chain — the
+    /// inherited Blob accessors brand-check `ObjectKind::Blob`, so the
+    /// File-side install adds an explicit Blob brand acceptance for
+    /// File instances via the `require_blob_or_file_this` helper.
+    ///
+    /// GC contract: the trace step marks `blob_id` so the backing
+    /// Blob survives as long as the File wrapper is reachable.  Sweep
+    /// tail prunes `file_data` entries whose key was collected.
+    #[cfg(feature = "engine")]
+    File,
+    /// `FileList` instance (File API §5).  Payload-free; the ordered
+    /// list of [`Self::File`] `ObjectId`s lives in
+    /// [`super::VmInner::file_list_data`] keyed by this `ObjectId`.
+    ///
+    /// **Indexed-property exotic NOT IMPLEMENTED**: `list[0]` returns
+    /// `undefined`; callers must use `.item(i)`.  Deferred to slot
+    /// `#11-filelist-indexed-exotic` (paired with the general
+    /// `#11-events-modern-indexed-exotic` infrastructure also pending
+    /// for `TouchList` / `DataTransferItemList` / `CSSRuleList`).
+    ///
+    /// GC contract: the trace step marks every `File` ObjectId in the
+    /// state entry's `file_ids` Vec.  Sweep tail prunes
+    /// `file_list_data` entries whose key was collected.
+    #[cfg(feature = "engine")]
+    FileList,
+    /// `FileReader` instance (File API §6).  Payload-free; the
+    /// readyState machine (state enum, result, error, target blob,
+    /// abort sequence counter) lives in
+    /// [`super::VmInner::file_reader_data`] keyed by this `ObjectId`.
+    ///
+    /// The reader is async: `readAs*()` methods set `state = LOADING`,
+    /// fire `loadstart` synchronously, then enqueue a
+    /// [`super::host::pending_tasks::PendingTask::FileRead`] task that
+    /// drains at the next eval boundary.  The task carries a snapshot
+    /// of `abort_seq` at enqueue time; on drain, if the snapshot no
+    /// longer matches the current state's `abort_seq`, the result is
+    /// discarded (an `abort()` happened, OR a new `readAs*()` was
+    /// invoked which incremented the counter).
+    ///
+    /// GC contract: the trace step marks `target_blob` (if any) and
+    /// `result` (if an ArrayBuffer ObjectId).  Sweep tail prunes
+    /// `file_reader_data` entries whose key was collected.
+    #[cfg(feature = "engine")]
+    FileReader,
 }
 
 impl ObjectKind {

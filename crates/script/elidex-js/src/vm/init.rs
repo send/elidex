@@ -419,6 +419,20 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 blob_data: HashMap::new(),
                 #[cfg(feature = "engine")]
+                file_prototype: None,
+                #[cfg(feature = "engine")]
+                file_list_prototype: None,
+                #[cfg(feature = "engine")]
+                file_reader_prototype: None,
+                #[cfg(feature = "engine")]
+                file_data: HashMap::new(),
+                #[cfg(feature = "engine")]
+                file_list_data: HashMap::new(),
+                #[cfg(feature = "engine")]
+                file_reader_data: HashMap::new(),
+                #[cfg(feature = "engine")]
+                input_files_cache: HashMap::new(),
+                #[cfg(feature = "engine")]
                 typed_array_prototype: None,
                 #[cfg(feature = "engine")]
                 data_view_prototype: None,

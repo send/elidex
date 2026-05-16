@@ -77,6 +77,29 @@ pub(crate) enum PendingTask {
         last_event_id_sid: StringId,
         source_window_id: Option<ObjectId>,
     },
+    /// Produced by `FileReader.prototype.readAs*(blob, encoding?)`
+    /// after the synchronous validation + `loadstart` fire (FileAPI
+    /// §6.5).  Drained at the next eval boundary; the drain step
+    /// snapshots the reader's current `abort_seq` against the carried
+    /// `abort_seq_snapshot` and silent-discards if mismatched (an
+    /// `abort()` OR a superseding `readAs*()` happened between
+    /// enqueue and drain).
+    ///
+    /// `encoding` is the user-provided encoding label for `readAsText`
+    /// (None when no arg given or for other read kinds).  The drain
+    /// applies the 4-step encoding fallback chain per FileAPI §6.3.
+    ///
+    /// `#[allow(dead_code)]`: Phase 0b scaffolding — variant is
+    /// declared so the match exhaustiveness contract is established;
+    /// Phase 4 of `#11-file-api` wires the constructor (FileReader
+    /// readAs* methods enqueue this).
+    #[allow(dead_code)]
+    FileRead {
+        reader_id: ObjectId,
+        abort_seq_snapshot: u32,
+        kind: super::file_reader::ReadKind,
+        encoding: Option<StringId>,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -145,8 +168,40 @@ impl VmInner {
                     source_window_id,
                 );
             }
+            PendingTask::FileRead {
+                reader_id,
+                abort_seq_snapshot,
+                kind,
+                encoding,
+            } => {
+                dispatch_file_read(self, reader_id, abort_seq_snapshot, kind, encoding);
+            }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// FileRead dispatch (Phase 0b stub — Phase 4 implements)
+// ---------------------------------------------------------------------------
+
+/// Drain step for [`PendingTask::FileRead`]: snapshot vs current
+/// `abort_seq` → if stale, discard; otherwise read Blob bytes, decode
+/// per `kind`, set `result` + state=DONE, fire `progress` + terminal
+/// event (`load` / `error`) + `loadend`.
+///
+/// Phase 0b stub — Phase 4 (`#11-file-api`) implements the full
+/// read + decode + event-fire pipeline.
+#[allow(clippy::needless_pass_by_value)]
+fn dispatch_file_read(
+    _vm: &mut VmInner,
+    _reader_id: ObjectId,
+    _abort_seq_snapshot: u32,
+    _kind: super::file_reader::ReadKind,
+    _encoding: Option<StringId>,
+) {
+    // TODO(#11-file-api Phase 4): implement abort-snapshot compare +
+    // blob byte read + encoding/base64 decode + event fire sequence
+    // (progress → load/error → loadend).
 }
 
 // ---------------------------------------------------------------------------

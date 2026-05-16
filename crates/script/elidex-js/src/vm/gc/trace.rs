@@ -611,12 +611,20 @@ pub(super) fn trace_work_list(
                     }
                     for entry in &state.items {
                         if let super::super::host::events_modern::DataTransferEntry::File {
-                            blob_id,
+                            file_id,
                             ..
                         } = entry
                         {
-                            mark_object(*blob_id, obj_marks, work);
+                            mark_object(*file_id, obj_marks, work);
                         }
+                    }
+                    // D-14 `#11-file-api` — `file_entries` carries the
+                    // `[SameObject]` File wrapper IDs surfaced via
+                    // `DataTransfer.files`.  Mark them so the FileList
+                    // wrapper + each File survives across GC cycles
+                    // while the DataTransfer is reachable.
+                    for &file_id in &state.file_entries {
+                        mark_object(file_id, obj_marks, work);
                     }
                     // `drag_image_entity` is raw `entity_bits` (not an
                     // ObjectId); the corresponding HostObject wrapper
@@ -730,6 +738,23 @@ pub(super) fn trace_work_list(
                     }
                 }
             }
+            // D-14 `#11-file-api` — File API trace fan-outs.  File
+            // marks its backing Blob (held in `vm.file_data`);
+            // FileList marks each File in `file_ids`; FileReader
+            // marks its target Blob + any ArrayBuffer / DOMException
+            // ObjectId held in `result` / `error`.  Side-tables
+            // (`vm.file_data` / `vm.file_list_data` /
+            // `vm.file_reader_data`) are not accessible from this
+            // trace context (callers pass narrow slices) — Phase 4
+            // wires per-side-table accessors when the real read
+            // pipeline lands and rooting becomes load-bearing.  For
+            // Phase 0b scaffolding, the variants are empty match
+            // arms so the compiler accepts the discriminant
+            // discovery, and the GC fan-out becomes a no-op (File
+            // wrappers without side-table entries do not yet need
+            // marking — nothing produces them).
+            #[cfg(feature = "engine")]
+            ObjectKind::File | ObjectKind::FileList | ObjectKind::FileReader => {}
         }
     }
 }
