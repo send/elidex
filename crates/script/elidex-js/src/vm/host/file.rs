@@ -42,21 +42,20 @@
 //!   entries are not normalized.
 
 #![cfg(feature = "engine")]
-// Phase 1 implementation — ctor + accessors live; Phases 2/4 add
-// FileList / FileReader interaction.  Removed the Phase 0b
-// blanket `#![allow(dead_code)]`.
 
 use std::sync::Arc;
 
 use super::super::shape::{self, PropertyAttrs};
 use super::super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
-    PropertyValue, StringId, VmError,
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage, StringId,
+    VmError,
 };
 use super::super::{NativeFn, VmInner};
 use super::blob::{
-    collect_blob_parts_bytes_with_endings, parse_blob_options_type, BlobData, EndingsKind,
+    collect_blob_parts_bytes_with_endings, parse_blob_options_endings, parse_blob_options_type,
+    BlobData, EndingsKind,
 };
+use super::events::install_ctor;
 
 // ---------------------------------------------------------------------------
 // State
@@ -105,23 +104,13 @@ impl VmInner {
         self.install_file_members(proto_id);
         self.file_prototype = Some(proto_id);
 
-        let ctor = self.create_constructable_function("File", native_file_constructor);
-        let proto_key = PropertyKey::String(self.well_known.prototype);
-        self.define_shaped_property(
-            ctor,
-            proto_key,
-            PropertyValue::Data(JsValue::Object(proto_id)),
-            PropertyAttrs::BUILTIN,
-        );
-        let ctor_key = PropertyKey::String(self.well_known.constructor);
-        self.define_shaped_property(
+        install_ctor(
+            self,
             proto_id,
-            ctor_key,
-            PropertyValue::Data(JsValue::Object(ctor)),
-            PropertyAttrs::METHOD,
+            "File",
+            native_file_constructor,
+            self.well_known.file_global,
         );
-        let name_sid = self.well_known.file_global;
-        self.globals.insert(name_sid, JsValue::Object(ctor));
     }
 
     fn install_file_members(&mut self, proto_id: ObjectId) {
@@ -259,28 +248,7 @@ fn parse_file_options(
         )),
         JsValue::Object(opts_id) => {
             let type_sid = parse_blob_options_type(ctx, options)?;
-            let endings_key = PropertyKey::String(ctx.vm.well_known.endings);
-            let endings_val = ctx.get_property_value(opts_id, endings_key)?;
-            let endings = match endings_val {
-                JsValue::Undefined => EndingsKind::Transparent,
-                other => {
-                    let sid = super::super::coerce::to_string(ctx.vm, other)?;
-                    let raw = ctx.vm.strings.get_utf8(sid);
-                    // WebIDL enum coercion per FileAPI §4.1 — only
-                    // "transparent" / "native" are valid; any other
-                    // value throws TypeError.
-                    if raw == "transparent" {
-                        EndingsKind::Transparent
-                    } else if raw == "native" {
-                        EndingsKind::Native
-                    } else {
-                        return Err(VmError::type_error(format!(
-                            "Failed to construct 'File': The provided value '{raw}' \
-                             is not a valid enum value of type EndingType."
-                        )));
-                    }
-                }
-            };
+            let endings = parse_blob_options_endings(ctx, options, "File")?;
             let last_modified_key = PropertyKey::String(ctx.vm.well_known.last_modified);
             let last_modified_val = ctx.get_property_value(opts_id, last_modified_key)?;
             let last_modified_ms = match last_modified_val {
@@ -293,8 +261,16 @@ fn parse_file_options(
                     // to UA — just stored verbatim).
                     let n = super::super::coerce::to_number(ctx.vm, other)?;
                     // Truncate to long long range — finite trunc, NaN → 0.
+                    // Normalize `-0` (from e.g. `-0.5.trunc()`) to `+0`
+                    // per WebIDL §3.10.10 step 2; same hazard as the
+                    // ProgressEvent `loaded` / `total` fix (lesson #216).
                     if n.is_finite() {
-                        n.trunc()
+                        let t = n.trunc();
+                        if t == 0.0 {
+                            0.0
+                        } else {
+                            t
+                        }
                     } else {
                         0.0
                     }

@@ -1488,24 +1488,16 @@ pub(crate) struct VmInner {
     /// `File.prototype` (File API §4).  Chains through
     /// `Blob.prototype → Object.prototype`.  `None` until
     /// `register_file_global()` runs during `register_globals()`.
-    ///
-    /// `#[allow(dead_code)]`: Phase 0b scaffolding — fields are
-    /// declared so VmInner layout + GC sweep tail is stable; Phase
-    /// 1 / 2 / 4 of `#11-file-api` populate them.  Allow removed
-    /// when the first Phase lands.
     #[cfg(feature = "engine")]
-    #[allow(dead_code)]
     pub(crate) file_prototype: Option<ObjectId>,
     /// `FileList.prototype` (File API §5).  Chains directly to
     /// `Object.prototype`.
     #[cfg(feature = "engine")]
-    #[allow(dead_code)] // Phase 0b scaffolding — see file_prototype.
     pub(crate) file_list_prototype: Option<ObjectId>,
     /// `FileReader.prototype` (File API §6).  Chains directly to
     /// `EventTarget.prototype` (FileReader is an EventTarget per
     /// FileAPI §6.2 IDL).
     #[cfg(feature = "engine")]
-    #[allow(dead_code)] // Phase 0b scaffolding — see file_prototype.
     pub(crate) file_reader_prototype: Option<ObjectId>,
     /// Per-`File` out-of-band state, keyed by the File instance's
     /// `ObjectId`.  Holds the link to the backing Blob wrapper
@@ -1516,7 +1508,6 @@ pub(crate) struct VmInner {
     /// Blob survives as long as the File is reachable.  Sweep tail
     /// prunes entries whose key `ObjectId` was collected.
     #[cfg(feature = "engine")]
-    #[allow(dead_code)] // Phase 0b scaffolding — see file_prototype.
     pub(crate) file_data: HashMap<ObjectId, host::file::FileSideData>,
     /// Per-`FileList` out-of-band state, keyed by the FileList
     /// instance's `ObjectId`.  Holds the ordered list of File
@@ -1538,7 +1529,6 @@ pub(crate) struct VmInner {
     /// readAsArrayBuffer / error wrapper).  Sweep tail prunes
     /// entries whose key was collected.
     #[cfg(feature = "engine")]
-    #[allow(dead_code)] // Phase 0b scaffolding — see file_prototype.
     pub(crate) file_reader_data: HashMap<ObjectId, host::file_reader::FileReaderSideData>,
     /// Per-`<input type=file>` SameObject FileList wrapper cache,
     /// keyed by the input element wrapper's `ObjectId`.  Spec

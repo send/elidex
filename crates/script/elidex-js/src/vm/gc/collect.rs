@@ -990,6 +990,12 @@ impl VmInner {
             selection_active_range_id_bits,
             #[cfg(feature = "engine")]
             range_instances_ref,
+            #[cfg(feature = "engine")]
+            &self.file_list_data,
+            #[cfg(feature = "engine")]
+            &self.file_reader_data,
+            #[cfg(feature = "engine")]
+            &self.input_files_cache,
             &mut self.gc_object_marks,
             &mut self.gc_upvalue_marks,
             &mut self.gc_work_list,

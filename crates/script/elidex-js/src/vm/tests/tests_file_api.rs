@@ -622,6 +622,30 @@ fn input_files_distinct_per_input_instance() {
 }
 
 #[test]
+fn input_files_same_object_identity_survives_gc() {
+    // `[SameObject]` requires `input.files === input.files` even when
+    // GC runs between the two reads with no script-side reference
+    // holding the intermediate FileList alive.  Pre-fix the cached
+    // wrapper would be swept (its only "root" was the cache entry,
+    // which the trace walker did not fan out to from the input
+    // wrapper) and the second read would allocate a fresh wrapper —
+    // breaking identity.
+    with_doc_vm(|vm| {
+        vm.eval(
+            "globalThis.input = document.createElement('input'); \
+             input.type = 'file'; \
+             globalThis.first = input.files;",
+        )
+        .unwrap();
+        vm.inner.collect_garbage();
+        assert!(eval_bool(
+            vm,
+            "globalThis.first === globalThis.input.files;"
+        ));
+    });
+}
+
+#[test]
 fn input_files_available_on_non_file_type_input() {
     // HTML spec: `input.files` returns FileList only when type=file,
     // null otherwise (per §4.10.5.3.10).  Phase 3 implementation
@@ -830,6 +854,26 @@ fn read_as_text_utf8_bom_sniff() {
 }
 
 #[test]
+fn read_as_text_invalid_encoding_label_falls_back_to_utf8() {
+    // FileAPI §6.3 step 1: if the user-provided label is not a valid
+    // encoding name, fall through to subsequent steps (Blob.type
+    // charset → BOM → UTF-8 default) — do NOT throw.
+    let mut vm = Vm::new();
+    vm.eval(
+        "let r = new FileReader(); \
+         globalThis._got = null; \
+         r.onload = function() { globalThis._got = r.result; }; \
+         r.readAsText(new Blob(['hello']), 'not-a-real-encoding');",
+    )
+    .unwrap();
+    let got = match vm.eval("_got;").unwrap() {
+        JsValue::String(id) => vm.get_string(id),
+        other => panic!("expected string, got {other:?}"),
+    };
+    assert_eq!(got, "hello");
+}
+
+#[test]
 fn read_as_text_blob_type_charset() {
     let mut vm = Vm::new();
     vm.eval(
@@ -986,6 +1030,37 @@ fn abort_during_loading_fires_abort_and_loadend() {
     };
     assert_eq!(first, "abort");
     assert_eq!(second, "loadend");
+}
+
+#[test]
+fn abort_handler_can_start_new_read_with_fresh_state() {
+    // Re-read race: `onabort` calling `readAsText(blob2)` is legal per
+    // FileAPI §6.4 — the new read sets state=LOADING with a fresh
+    // abort_seq; the stale task from the original (aborted) read
+    // silent-discards on drain via abort_seq snapshot mismatch.  After
+    // both tasks settle, only the new read's result is observable.
+    let mut vm = Vm::new();
+    vm.eval(
+        "let r = new FileReader(); \
+         globalThis._loads = []; \
+         r.onabort = function() { r.readAsText(new Blob(['second'])); }; \
+         r.onload = function() { globalThis._loads.push(r.result); }; \
+         r.readAsText(new Blob(['first'])); \
+         r.abort();",
+    )
+    .unwrap();
+    // Only ONE onload fires (for the second blob); the first read's
+    // task was discarded by the abort_seq guard.
+    let count = match vm.eval("_loads.length;").unwrap() {
+        JsValue::Number(n) => n,
+        _ => -1.0,
+    };
+    assert_eq!(count, 1.0, "expected exactly one onload fire");
+    let val = match vm.eval("_loads[0];").unwrap() {
+        JsValue::String(id) => vm.get_string(id),
+        other => panic!("expected string, got {other:?}"),
+    };
+    assert_eq!(val, "second");
 }
 
 #[test]
@@ -1171,6 +1246,23 @@ fn data_transfer_files_wrapper_invalidates_on_add() {
          dt.items.add(new File(['x'], 'a.txt')); \
          let post = dt.files; \
          pre !== post && post.length === 1;"
+    ));
+}
+
+#[test]
+fn data_transfer_remove_duplicate_file_keeps_sibling_copies() {
+    // Regression: adding the same File twice then removing index 0
+    // should leave items.length == 1 AND files.length == 1.  A
+    // `retain(|id| id != file_id)` on file_entries would wrongly
+    // evict both copies, breaking the items↔files invariant.
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "let dt = new DataTransfer(); \
+         let f = new File(['x'], 'a.txt'); \
+         dt.items.add(f); dt.items.add(f); \
+         dt.items.remove(0); \
+         dt.items.length === 1 && dt.files.length === 1 && dt.files.item(0) === f;"
     ));
 }
 

@@ -245,17 +245,12 @@ pub(in crate::vm) enum DataTransferEntry {
     /// data)` pair both held as interned `StringId`s.  HTML §6.3
     /// step: kind="string", type=format, data=data.
     String { format: StringId, data: StringId },
-    /// `add(File)` overload — D-14 `#11-file-api` Phase 5 activates
-    /// File entries.  `file_id` is the File wrapper `ObjectId` (NOT
-    /// the inner Blob), so DataTransferItemList enumeration and
+    /// `add(File)` overload — `file_id` is the File wrapper `ObjectId`
+    /// (NOT the inner Blob), so DataTransferItemList enumeration and
     /// `getAsFile()` resolve to the same File identity per spec
     /// `[SameObject]` semantics.  `type_sid` mirrors the File's MIME
     /// type at entry time (HTML §6.3 step "kind=file, type=type,
     /// data=data").
-    ///
-    /// `#[allow(dead_code)]` suppression removed in Phase 5 wiring
-    /// (kept here through Phase 0b until ctor + add(File) are live).
-    #[allow(dead_code)]
     File {
         file_id: ObjectId,
         type_sid: StringId,

@@ -991,8 +991,8 @@ pub enum ObjectKind {
     /// so brand checks distinguish `instanceof File` from a plain Blob.
     /// Payload-free; the per-instance state
     /// (`blob_id` reference to the backing Blob wrapper, `name` USVString,
-    /// `last_modified` epoch ms) lives in
-    /// [`super::VmInner::file_data`] keyed by this `ObjectId`.
+    /// `last_modified` epoch ms) lives in `VmInner::file_data` keyed by
+    /// this `ObjectId`.
     ///
     /// Storing a `blob_id` reference rather than copying bytes lets
     /// `File.size` / `.type` / `.slice()` / `.text()` / `.arrayBuffer()`
@@ -1008,7 +1008,7 @@ pub enum ObjectKind {
     File,
     /// `FileList` instance (File API §5).  Payload-free; the ordered
     /// list of [`Self::File`] `ObjectId`s lives in
-    /// [`super::VmInner::file_list_data`] keyed by this `ObjectId`.
+    /// `VmInner::file_list_data` keyed by this `ObjectId`.
     ///
     /// **Indexed-property exotic NOT IMPLEMENTED**: `list[0]` returns
     /// `undefined`; callers must use `.item(i)`.  Deferred to slot
@@ -1023,12 +1023,12 @@ pub enum ObjectKind {
     FileList,
     /// `FileReader` instance (File API §6).  Payload-free; the
     /// readyState machine (state enum, result, error, target blob,
-    /// abort sequence counter) lives in
-    /// [`super::VmInner::file_reader_data`] keyed by this `ObjectId`.
+    /// abort sequence counter) lives in `VmInner::file_reader_data`
+    /// keyed by this `ObjectId`.
     ///
     /// The reader is async: `readAs*()` methods set `state = LOADING`,
     /// fire `loadstart` synchronously, then enqueue a
-    /// [`super::host::pending_tasks::PendingTask::FileRead`] task that
+    /// `PendingTask::FileRead` task that
     /// drains at the next eval boundary.  The task carries a snapshot
     /// of `abort_seq` at enqueue time; on drain, if the snapshot no
     /// longer matches the current state's `abort_seq`, the result is

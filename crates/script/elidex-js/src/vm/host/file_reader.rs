@@ -44,20 +44,23 @@ use base64::Engine;
 
 use super::super::shape::{self, PropertyAttrs};
 use super::super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
-    PropertyValue, StringId, VmError,
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, PropertyValue, StringId,
+    VmError,
 };
 use super::super::{NativeFn, VmInner};
-use super::events::install_ctor;
+use super::events::{
+    install_ctor, set_event_slot_raw, EventInit, EVENT_SLOT_CURRENT_TARGET, EVENT_SLOT_TARGET,
+};
 
 // ---------------------------------------------------------------------------
 // State enums
 // ---------------------------------------------------------------------------
 
 /// `FileReader.readyState` enum per FileAPI §6 (3 values).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]
 pub(crate) enum ReadyState {
+    #[default]
     Empty = 0,
     Loading = 1,
     Done = 2,
@@ -91,7 +94,7 @@ pub(crate) enum ReadKind {
 /// Per-`FileReader` out-of-band state, keyed in
 /// [`super::super::VmInner::file_reader_data`] by the instance's
 /// `ObjectId`.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct FileReaderSideData {
     pub(crate) state: ReadyState,
     pub(crate) result: ReaderResult,
@@ -112,24 +115,6 @@ pub(crate) struct FileReaderSideData {
     pub(crate) onloadend: Option<ObjectId>,
     pub(crate) onerror: Option<ObjectId>,
     pub(crate) onabort: Option<ObjectId>,
-}
-
-impl Default for FileReaderSideData {
-    fn default() -> Self {
-        Self {
-            state: ReadyState::Empty,
-            result: ReaderResult::None,
-            error: None,
-            target_blob: None,
-            abort_seq: 0,
-            onloadstart: None,
-            onprogress: None,
-            onload: None,
-            onloadend: None,
-            onerror: None,
-            onabort: None,
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -249,9 +234,6 @@ impl VmInner {
             ),
         ];
         for (name_sid, getter, setter) in on_handlers {
-            // `WEBIDL_RO_ACCESSOR` is the right constant for RW
-            // accessor properties too — the `writable` bit is
-            // meaningless for accessors (per the constant's doc).
             self.install_accessor_pair(
                 proto_id,
                 name_sid,
@@ -662,14 +644,19 @@ pub(crate) fn dispatch_file_read_task(
         (bytes, type_sid)
     };
 
-    let decoded: Result<ReaderResult, &'static str> = match kind {
-        ReadKind::Text => Ok(decode_as_text(vm, &bytes, encoding, type_sid)),
+    // In-memory blob reads are infallible — Phase 4 has no I/O path
+    // that can fail.  When remote-blob support lands, switch the
+    // decode arms to return `Result` and re-introduce the
+    // NotReadableError branch (see `#11-filereader-event-listeners`
+    // sibling defer).
+    let result = match kind {
+        ReadKind::Text => decode_as_text(vm, &bytes, encoding, type_sid),
         ReadKind::ArrayBuffer => {
             let buf_id = super::array_buffer::create_array_buffer_from_bytes(vm, bytes.to_vec());
-            Ok(ReaderResult::ArrayBuffer(buf_id))
+            ReaderResult::ArrayBuffer(buf_id)
         }
-        ReadKind::DataUrl => Ok(ReaderResult::DataUrl(encode_data_url(vm, &bytes, type_sid))),
-        ReadKind::BinaryString => Ok(ReaderResult::BinaryString(decode_binary_string(&bytes))),
+        ReadKind::DataUrl => ReaderResult::DataUrl(encode_data_url(vm, &bytes, type_sid)),
+        ReadKind::BinaryString => ReaderResult::BinaryString(decode_binary_string(&bytes)),
     };
 
     // Re-check abort_seq AFTER decode — abort_seq could change during
@@ -684,40 +671,19 @@ pub(crate) fn dispatch_file_read_task(
         return;
     }
 
-    // Build minimal NativeContext for the event-fire phase.
-    // IMPORTANT: keep `target_blob` populated through the event-fire
-    // sequence so `ProgressEvent.loaded` / `.total` can read the
-    // blob's byte length.  Clear it AFTER `loadend` returns.
+    // Build minimal NativeContext for the event-fire phase.  Keep
+    // `target_blob` populated through the event-fire sequence so
+    // `ProgressEvent.loaded` / `.total` can read the blob's byte
+    // length; cleared after `loadend` returns.
     let mut ctx = super::super::value::NativeContext { vm };
-    if let Ok(result) = decoded {
-        if let Some(d) = ctx.vm.file_reader_data.get_mut(&reader_id) {
-            d.state = ReadyState::Done;
-            d.result = result;
-            d.error = None;
-        }
-        fire_progress_event(&mut ctx, reader_id, EventKind::Progress);
-        fire_progress_event(&mut ctx, reader_id, EventKind::Load);
-        fire_progress_event(&mut ctx, reader_id, EventKind::Loadend);
-    } else {
-        // NotReadableError per spec §6.5 — no real failure mode here
-        // (in-memory blob always readable), but reserve the path for
-        // future remote-blob support.
-        let dom_exc_name = ctx.vm.well_known.dom_exc_not_supported_error;
-        let exc_val = ctx
-            .vm
-            .build_dom_exception(dom_exc_name, "Failed to read Blob");
-        let exc_id = match exc_val {
-            JsValue::Object(id) => Some(id),
-            _ => None,
-        };
-        if let Some(d) = ctx.vm.file_reader_data.get_mut(&reader_id) {
-            d.state = ReadyState::Done;
-            d.error = exc_id;
-            d.result = ReaderResult::None;
-        }
-        fire_progress_event(&mut ctx, reader_id, EventKind::Error);
-        fire_progress_event(&mut ctx, reader_id, EventKind::Loadend);
+    if let Some(d) = ctx.vm.file_reader_data.get_mut(&reader_id) {
+        d.state = ReadyState::Done;
+        d.result = result;
+        d.error = None;
     }
+    fire_progress_event(&mut ctx, reader_id, EventKind::Progress);
+    fire_progress_event(&mut ctx, reader_id, EventKind::Load);
+    fire_progress_event(&mut ctx, reader_id, EventKind::Loadend);
     // Clear target_blob post-events so subsequent `readAs*` calls
     // don't observe a stale blob reference.  Result + error remain
     // populated for retained `r.result` / `r.error` reads.
@@ -736,13 +702,10 @@ enum EventKind {
     Progress,
     Load,
     Loadend,
-    Error,
     Abort,
 }
 
 fn fire_progress_event(ctx: &mut NativeContext<'_>, reader_id: ObjectId, kind: EventKind) {
-    // Look up the handler before any allocation (avoids re-borrow risk
-    // around the upcoming Event allocation).
     let handler = ctx
         .vm
         .file_reader_data
@@ -752,30 +715,19 @@ fn fire_progress_event(ctx: &mut NativeContext<'_>, reader_id: ObjectId, kind: E
             EventKind::Progress => d.onprogress,
             EventKind::Load => d.onload,
             EventKind::Loadend => d.onloadend,
-            EventKind::Error => d.onerror,
             EventKind::Abort => d.onabort,
         });
     let Some(handler_id) = handler else {
         return;
     };
 
-    // Build a ProgressEvent-shaped Event object.  ProgressEvent ctor
-    // / dispatch is already wired in D-10 (events_misc.rs); reuse the
-    // shape via a minimal manual build to avoid coupling to that
-    // module's UA-dispatch path.  For Phase 4 we use a plain Event
-    // object with `type` + the conventional ProgressEvent slots —
-    // matches what `on*` handlers observe in practice.
     let type_sid = match kind {
         EventKind::Loadstart => ctx.vm.well_known.loadstart_event_type,
         EventKind::Progress => ctx.vm.well_known.progress_event_type,
         EventKind::Load => ctx.vm.well_known.load_event_type,
         EventKind::Loadend => ctx.vm.well_known.loadend_event_type,
-        EventKind::Error => ctx.vm.well_known.error,
         EventKind::Abort => ctx.vm.well_known.abort,
     };
-    // ProgressEvent.{lengthComputable, loaded, total} — in-memory
-    // Blob has size known, so always lengthComputable=true and
-    // loaded=total=blob size.
     let blob_size = ctx
         .vm
         .file_reader_data
@@ -786,58 +738,55 @@ fn fire_progress_event(ctx: &mut NativeContext<'_>, reader_id: ObjectId, kind: E
             let n = super::blob::blob_byte_length(ctx.vm, b_id) as f64;
             n
         });
-    let proto = ctx.vm.progress_event_prototype.or(ctx.vm.event_prototype);
-    let event_id = ctx.vm.alloc_object(Object {
-        kind: ObjectKind::Event {
-            default_prevented: false,
-            propagation_stopped: false,
-            immediate_propagation_stopped: false,
-            cancelable: false,
-            passive: false,
-            type_sid,
-            bubbles: false,
-            composed: false,
-            composed_path: None,
-        },
-        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-        prototype: proto,
-        extensible: true,
-    });
-    // Install observable event own-data properties so on* handler
-    // bodies can read `e.type` / `e.target` / `e.lengthComputable` /
-    // `e.loaded` / `e.total` without going through `Event.prototype`
-    // accessors (which require Event-brand `this` and would not see
-    // the per-instance target slot otherwise).
-    let install = |vm: &mut VmInner, key_sid: StringId, val: JsValue| {
-        vm.define_shaped_property(
-            event_id,
-            PropertyKey::String(key_sid),
-            PropertyValue::Data(val),
-            PropertyAttrs::BUILTIN,
-        );
-    };
-    install(
-        ctx.vm,
-        ctx.vm.well_known.event_type,
-        JsValue::String(type_sid),
+
+    // Build via the shared ctor helper so the event lands on the
+    // `progress_event` precomputed shape (core-9 + lengthComputable /
+    // loaded / total) — avoids forking a fresh shape transition
+    // tree per FileReader fire and picks up timeStamp / eventPhase /
+    // isTrusted in the standard slot positions.
+    let shape_id = ctx
+        .vm
+        .precomputed_event_shapes
+        .as_ref()
+        .expect("precomputed_event_shapes missing — register_globals did not run")
+        .progress_event;
+    let payload_slots = vec![
+        PropertyValue::Data(JsValue::Boolean(true)),
+        PropertyValue::Data(JsValue::Number(blob_size)),
+        PropertyValue::Data(JsValue::Number(blob_size)),
+    ];
+    let event_id = ctx.vm.create_fresh_event_object(
+        JsValue::Undefined,
+        type_sid,
+        EventInit::default(),
+        shape_id,
+        payload_slots,
+        true,
     );
-    install(ctx.vm, ctx.vm.well_known.target, JsValue::Object(reader_id));
-    install(
+    // Override prototype to ProgressEvent.prototype so
+    // `e instanceof ProgressEvent` holds; `create_fresh_event_object`
+    // defaults to `Event.prototype` for non-construct allocation.
+    if let Some(proto) = ctx.vm.progress_event_prototype {
+        ctx.vm.get_object_mut(event_id).prototype = Some(proto);
+    }
+    // UA-fire: target == currentTarget == reader.  Core-9 slots are
+    // ctor-seeded to null; `set_event_slot_raw` overwrites in-place
+    // without a shape transition.
+    set_event_slot_raw(
         ctx.vm,
-        ctx.vm.well_known.current_target,
+        event_id,
+        EVENT_SLOT_TARGET,
         JsValue::Object(reader_id),
     );
-    install(
+    set_event_slot_raw(
         ctx.vm,
-        ctx.vm.well_known.length_computable,
-        JsValue::Boolean(true),
+        event_id,
+        EVENT_SLOT_CURRENT_TARGET,
+        JsValue::Object(reader_id),
     );
-    install(ctx.vm, ctx.vm.well_known.loaded, JsValue::Number(blob_size));
-    install(ctx.vm, ctx.vm.well_known.total, JsValue::Number(blob_size));
 
-    // Invoke the handler.  Errors are swallowed (matches browser
-    // behaviour for IDL event handler attributes — uncaught
-    // exceptions log to the console but don't propagate).
+    // Errors swallowed per WHATWG IDL event-handler attribute semantics
+    // (uncaught exceptions log to console, don't propagate).
     let _ = ctx.call_function(
         handler_id,
         JsValue::Object(reader_id),
@@ -887,7 +836,7 @@ fn decode_as_text(
 /// Extract `charset=…` parameter from a MIME type string (case-insensitive
 /// key match).  Returns the value verbatim (encoding_rs lookup is
 /// case-insensitive).  Tolerates whitespace / quoted values minimally.
-fn parse_charset_from_mime(mime: &str) -> Option<String> {
+fn parse_charset_from_mime(mime: &str) -> Option<&str> {
     for param in mime.split(';').skip(1) {
         let param = param.trim();
         if let Some(eq) = param.find('=') {
@@ -895,7 +844,7 @@ fn parse_charset_from_mime(mime: &str) -> Option<String> {
             if k.trim().eq_ignore_ascii_case("charset") {
                 let v = v[1..].trim().trim_matches('"');
                 if !v.is_empty() {
-                    return Some(v.to_string());
+                    return Some(v);
                 }
             }
         }
@@ -921,13 +870,25 @@ fn sniff_bom(bytes: &[u8]) -> Option<&'static encoding_rs::Encoding> {
 /// parity.
 fn encode_data_url(vm: &VmInner, bytes: &Arc<[u8]>, type_sid: StringId) -> String {
     let mime = vm.strings.get_utf8(type_sid);
-    let encoded = BASE64_STANDARD.encode(bytes.as_ref());
-    format!("data:{mime};base64,{encoded}")
+    let prefix_len = "data:".len() + mime.len() + ";base64,".len();
+    let body_len = bytes.len().saturating_mul(4).div_ceil(3) + 4;
+    let mut out = String::with_capacity(prefix_len + body_len);
+    out.push_str("data:");
+    out.push_str(&mime);
+    out.push_str(";base64,");
+    BASE64_STANDARD.encode_string(bytes.as_ref(), &mut out);
+    out
 }
 
 /// `readAsBinaryString` decoder — 1 byte → 1 UTF-16 code unit per
 /// legacy FileAPI §6.3 (deprecated but mandated).  Output is a string
-/// of length `bytes.len()` where each char is `bytes[i] as char`.
+/// of length `bytes.len()` where each char is `bytes[i] as char`;
+/// non-ASCII bytes expand to 2-byte UTF-8 sequences, so worst-case
+/// capacity is `2 * bytes.len()`.
 fn decode_binary_string(bytes: &[u8]) -> String {
-    bytes.iter().map(|&b| b as char).collect()
+    let mut out = String::with_capacity(bytes.len().saturating_mul(2));
+    for &b in bytes {
+        out.push(b as char);
+    }
+    out
 }

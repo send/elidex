@@ -1140,9 +1140,15 @@ fn native_dt_item_list_remove(
         let removed = state.items.remove(idx);
         // D-14 `#11-file-api` Phase 5 — keep `file_entries` and the
         // `[SameObject]` files_wrapper in sync if the removed entry
-        // was a File.
+        // was a File.  Drop the FIRST matching `file_id` only — the
+        // same File may legitimately appear multiple times (HTML §6.2
+        // `items.add(f); items.add(f)` is a valid no-dedup append), so
+        // a `retain(|id| id != file_id)` would wrongly evict every
+        // sibling copy when only one items entry was removed.
         if let DataTransferEntry::File { file_id, .. } = removed {
-            state.file_entries.retain(|&id| id != file_id);
+            if let Some(pos) = state.file_entries.iter().position(|&id| id == file_id) {
+                state.file_entries.remove(pos);
+            }
             state.files_wrapper = None;
         }
         // Invalidate downstream identity-cache entries for indices

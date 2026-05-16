@@ -302,7 +302,7 @@ fn native_blob_constructor(
     // per-part USVString line-ending normalisation as it walks.
     // Blob ctor accepts the same `endings` option as File ctor per
     // FileAPI §3.2.
-    let endings = parse_blob_options_endings(ctx, options_arg)?;
+    let endings = parse_blob_options_endings(ctx, options_arg, "Blob")?;
     let bytes = match parts_arg {
         JsValue::Undefined => Arc::from(&[][..]),
         _ => collect_blob_parts_bytes_with_endings(ctx, parts_arg, endings)?,
@@ -536,6 +536,7 @@ pub(crate) fn collect_blob_parts_bytes_with_endings(
 pub(crate) fn parse_blob_options_endings(
     ctx: &mut NativeContext<'_>,
     options: JsValue,
+    interface: &str,
 ) -> Result<EndingsKind, VmError> {
     match options {
         JsValue::Undefined | JsValue::Null => Ok(EndingsKind::Transparent),
@@ -553,16 +554,16 @@ pub(crate) fn parse_blob_options_endings(
                         Ok(EndingsKind::Native)
                     } else {
                         Err(VmError::type_error(format!(
-                            "Failed to construct 'Blob': The provided value '{raw}' \
+                            "Failed to construct '{interface}': The provided value '{raw}' \
                              is not a valid enum value of type EndingType."
                         )))
                     }
                 }
             }
         }
-        _ => Err(VmError::type_error(
-            "Failed to construct 'Blob': options must be an object",
-        )),
+        _ => Err(VmError::type_error(format!(
+            "Failed to construct '{interface}': options must be an object"
+        ))),
     }
 }
 
