@@ -1216,10 +1216,10 @@ define_well_known_strings! {
         read_as_array_buffer => "readAsArrayBuffer",
         read_as_data_url => "readAsDataURL",
         read_as_binary_string => "readAsBinaryString",
-        // `FileReader` event handler attribute names.  `onabort` /
-        // `onerror` already exist (AbortController + earlier sections);
-        // `onload` did NOT exist as standalone, and the loadstart /
-        // loadend / progress handlers are new.
+        // `FileReader` event handler attribute names.  `onabort`
+        // already exists (AbortController section); `onload` /
+        // `onloadstart` / `onloadend` / `onprogress` / `onerror` are
+        // newly added here.
         onload => "onload",
         onloadstart => "onloadstart",
         onloadend => "onloadend",
