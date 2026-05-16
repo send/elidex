@@ -80,12 +80,16 @@ impl VmInner {
             extensible: true,
         });
 
-        // Phase 1 — `getRandomValues` method (WebCrypto §11.1).
-        // Phase 2 / 3 / accessor `subtle` land in subsequent commits.
-        let methods: [(_, NativeFn); 1] = [(
-            self.well_known.get_random_values,
-            native_crypto_get_random_values as NativeFn,
-        )];
+        // Phase 1 / 2 — `getRandomValues` + `randomUUID` methods
+        // (WebCrypto §11.1 / §11.5).  Phase 3 / accessor `subtle`
+        // land in subsequent commits.
+        let methods: [(_, NativeFn); 2] = [
+            (
+                self.well_known.get_random_values,
+                native_crypto_get_random_values as NativeFn,
+            ),
+            (self.well_known.random_uuid, native_crypto_random_uuid),
+        ];
         for (name_sid, func) in methods {
             self.install_native_method(proto_id, name_sid, func, shape::PropertyAttrs::METHOD);
         }
@@ -315,4 +319,25 @@ fn native_crypto_get_random_values(
     // §11.1 step 5 — return the SAME view receiver (identity per
     // IDL `ArrayBufferView getRandomValues(ArrayBufferView array)`).
     Ok(view_val)
+}
+
+// ---------------------------------------------------------------------------
+// `Crypto.prototype.randomUUID()` (WebCrypto §11.5)
+// ---------------------------------------------------------------------------
+
+fn native_crypto_random_uuid(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    require_crypto_this(ctx, this, "randomUUID")?;
+    // §11.5: return a v4 UUID per RFC 4122 §4.4, lowercase, hyphenated.
+    // `uuid::Uuid::new_v4()` consumes the OS CSPRNG via `getrandom`
+    // (configured via the v4 feature) and `.hyphenated()` emits the
+    // canonical 8-4-4-4-12 form with the version (`4`) and variant
+    // (`8`/`9`/`a`/`b`) bits set at the spec-mandated positions.
+    let uuid = uuid::Uuid::new_v4();
+    let s = uuid.hyphenated().to_string();
+    let sid = ctx.vm.strings.intern(&s);
+    Ok(JsValue::String(sid))
 }

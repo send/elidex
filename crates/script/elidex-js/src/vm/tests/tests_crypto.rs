@@ -255,6 +255,57 @@ fn get_random_values_brand_checks_receiver() {
 }
 
 // ---------------------------------------------------------------------------
+// `randomUUID` (WebCrypto §11.5)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn random_uuid_returns_string() {
+    assert_eq!(eval_string("typeof crypto.randomUUID();"), "string");
+}
+
+#[test]
+fn random_uuid_matches_v4_format() {
+    // Spec §11.5: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+    // where x is hex and y in {8, 9, a, b} (RFC 4122 variant bits).
+    assert!(eval_bool(
+        "const u = crypto.randomUUID(); \
+         /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(u);"
+    ));
+}
+
+#[test]
+fn random_uuid_length_is_36() {
+    assert_eq!(eval_number("crypto.randomUUID().length;"), 36.0);
+}
+
+#[test]
+fn random_uuid_is_unique_across_100_calls() {
+    // 100 v4 UUIDs deduped via sort + adjacent-equal check should
+    // produce 100 distinct entries with overwhelming probability
+    // (collision odds ~ 1/2^122 per pair).  Failing here means the
+    // OS CSPRNG is returning constant bytes — almost certainly a
+    // wiring bug, not a statistical fluke.  (Using sort + scan
+    // because the VM does not expose `Set`.)
+    assert!(eval_bool(
+        "const a = []; \
+         for (let i = 0; i < 100; i++) a.push(crypto.randomUUID()); \
+         a.sort(); \
+         let unique = true; \
+         for (let i = 1; i < a.length; i++) if (a[i] === a[i-1]) { unique = false; break; } \
+         unique;"
+    ));
+}
+
+#[test]
+fn random_uuid_brand_checks_receiver() {
+    let err = eval_err("Crypto.prototype.randomUUID.call({});");
+    assert!(
+        err.to_string().contains("Illegal invocation"),
+        "unexpected error: {err}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
