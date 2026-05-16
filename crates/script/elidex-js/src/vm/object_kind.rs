@@ -1040,6 +1040,34 @@ pub enum ObjectKind {
     /// `file_reader_data` entries whose key was collected.
     #[cfg(feature = "engine")]
     FileReader,
+    /// `Crypto` instance (WebCrypto §10) — accessed via `window.crypto`
+    /// singleton.  Payload-free brand; the wrapper is stateless (every
+    /// `getRandomValues` / `randomUUID` call routes to OS CSPRNG /
+    /// `uuid::Uuid::new_v4()`).  Identity preserved via
+    /// `VmInner::crypto_instance` so `window.crypto === window.crypto`.
+    ///
+    /// `new Crypto()` throws TypeError (`Illegal constructor`) per
+    /// WebIDL §10 — only the constructor identifier is exposed.
+    ///
+    /// GC contract: payload-free.  The singleton is rooted via
+    /// `VmInner::crypto_instance` (mark-roots step in
+    /// `vm/gc/collect.rs`); the wrapper itself carries no inline
+    /// `ObjectId`.  `Vm::unbind` clears `crypto_instance` so a
+    /// retained reference cannot leak across rebinds.
+    #[cfg(feature = "engine")]
+    Crypto,
+    /// `SubtleCrypto` instance (WebCrypto §14) — accessed via the
+    /// `Crypto.prototype.subtle` accessor (per spec `[SameObject]`).
+    /// Payload-free brand; current scope ships only
+    /// `digest(algorithm, data)`.
+    ///
+    /// `new SubtleCrypto()` throws TypeError per WebIDL §14.
+    ///
+    /// GC contract: payload-free.  The singleton is rooted via
+    /// `VmInner::subtle_crypto_instance`.  `Vm::unbind` clears the
+    /// slot alongside `crypto_instance`.
+    #[cfg(feature = "engine")]
+    SubtleCrypto,
 }
 
 impl ObjectKind {

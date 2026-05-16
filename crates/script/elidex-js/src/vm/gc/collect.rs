@@ -368,6 +368,33 @@ impl VmInner {
                 self.storage_session_instance,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 68 + 4 (M4-12 slot #11-crypto-subtle-min:
+                // Crypto.prototype + SubtleCrypto.prototype + cached
+                // `crypto` singleton + cached `crypto.subtle` singleton).
+                // Prototypes follow the same `delete globalThis.<X>`
+                // invariant as every other intrinsic prototype above
+                // (`VmInner::crypto_prototype` / `subtle_crypto_prototype`
+                // retain stale ids otherwise).  Both instance singletons
+                // are rooted here rather than via a wrapper-cache entry
+                // because, like Storage, they have no owner Entity to
+                // weak-anchor on.  Cleared on `Vm::unbind` to avoid
+                // cross-bind leakage.
+                #[cfg(feature = "engine")]
+                self.crypto_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.subtle_crypto_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.crypto_instance,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.subtle_crypto_instance,
+                #[cfg(not(feature = "engine"))]
+                None,
                 // 68 + 13 = 81 — slot `#11-tags-T1-v2` HTML form-control
                 // prototypes (HTML §4.10).  10 per-tag prototypes + 2
                 // live-collection prototypes (HTMLFormControlsCollection

@@ -517,6 +517,31 @@ pub(crate) struct VmInner {
     /// `Vm::unbind`.
     #[cfg(feature = "engine")]
     pub(crate) storage_session_instance: Option<ObjectId>,
+    /// `Crypto.prototype` (WebCrypto §10).  Chains to
+    /// `Object.prototype`.  Carries `getRandomValues` / `randomUUID`
+    /// methods + `subtle` accessor.  `None` until
+    /// `register_crypto_global()` runs during `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) crypto_prototype: Option<ObjectId>,
+    /// `SubtleCrypto.prototype` (WebCrypto §14).  Chains to
+    /// `Object.prototype`.  Carries `digest` (current scope; full
+    /// surface in `#11-crypto-subtle-full`).  `None` until
+    /// `register_subtle_crypto_global()` runs.
+    #[cfg(feature = "engine")]
+    pub(crate) subtle_crypto_prototype: Option<ObjectId>,
+    /// Cached `Crypto` wrapper for `window.crypto` (`[SameObject]`
+    /// per WebIDL — same `ObjectId` returned across reads for the
+    /// lifetime of one bind cycle).  Eager-initialised at
+    /// `register_crypto_global()` since `window.crypto` is always
+    /// reachable from `globalThis`.  Cleared on `Vm::unbind`.
+    #[cfg(feature = "engine")]
+    pub(crate) crypto_instance: Option<ObjectId>,
+    /// Cached `SubtleCrypto` wrapper for `crypto.subtle`
+    /// (`[SameObject]` per WebIDL).  Lazily allocated on the first
+    /// `Crypto.prototype.subtle` accessor read via
+    /// `alloc_or_cached_subtle_crypto`.  Cleared on `Vm::unbind`.
+    #[cfg(feature = "engine")]
+    pub(crate) subtle_crypto_instance: Option<ObjectId>,
     /// `HTMLIFrameElement.prototype` — tag-specific intermediate
     /// prototype for `<iframe>` wrappers.  Chains to
     /// [`Self::html_element_prototype`] (after PR5b splice) so

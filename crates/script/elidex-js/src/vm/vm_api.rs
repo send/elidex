@@ -505,6 +505,13 @@ impl Vm {
             // which is per-VM by spec — see the `session_storage.clear()`
             // call below.
             self.inner.clear_storage_instance_cache();
+            // Cached `crypto` / `crypto.subtle` singletons.  Wrappers
+            // are stateless (every method reuses the global OS CSPRNG /
+            // hashes the input directly) and carry no per-DOM or
+            // per-origin payload, so the clear here is a hygiene
+            // measure — drops the GC roots so the wrappers can be
+            // collected and re-allocated lazily after the next bind.
+            self.inner.clear_crypto_instance_cache();
             // sessionStorage is per-VM and per-browsing-context.  An
             // unbind boundary expresses the browsing-context
             // teardown — drop entries so a rebind cannot observe

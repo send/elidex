@@ -442,6 +442,18 @@ impl VmInner {
             // wrappers.  See `vm/host/window.rs`
             // `register_window_prototype`'s storage-getter install.
             self.register_storage_global();
+            // Crypto / SubtleCrypto (WebCrypto §10 / §14, slot
+            // `#11-crypto-subtle-min`).  Both chain to
+            // `Object.prototype`.  SubtleCrypto first so the eventual
+            // `Crypto.prototype.subtle` accessor can reference
+            // `subtle_crypto_prototype` when it allocates the cached
+            // wrapper via `alloc_or_cached_subtle_crypto`.  Crypto's
+            // `register_*` eagerly installs `globalThis.crypto` as a
+            // data property — must land before `register_window_prototype`
+            // for shape parity with the surrounding `navigator` /
+            // `performance` data-property neighbours.
+            self.register_subtle_crypto_global();
+            self.register_crypto_global();
         }
 
         // Window.prototype — prototype for the `globalThis` `HostObject`

@@ -610,7 +610,11 @@ fn native_text_decoder_decode(
     let input_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let options_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
 
-    let bytes = extract_buffer_source_bytes(ctx, input_arg)?;
+    let bytes = extract_buffer_source_bytes(
+        ctx,
+        input_arg,
+        "Failed to execute 'decode' on 'TextDecoder'",
+    )?;
     let stream = parse_decode_stream(ctx, options_arg)?;
 
     let decoded = {
@@ -681,16 +685,26 @@ fn parse_decode_stream(ctx: &mut NativeContext<'_>, options_arg: JsValue) -> Res
 
 /// Pull raw bytes out of a BufferSource argument.  Accepts
 /// `ArrayBuffer`, any `TypedArray`, or `DataView`; `undefined` →
-/// empty byte vector (spec §10.1.3 step 2).  Anything else throws
+/// empty byte vector (spec §10.1.3 step 2 for TextDecoder; analogous
+/// shape for `SubtleCrypto.digest` in §18.2.5).  Anything else throws
 /// TypeError — matches the WebIDL `BufferSource` union.
 ///
 /// Returns owned `Vec<u8>`: the full-buffer `ArrayBuffer` case
 /// snapshots `body_data[id]`, view cases allocate a fresh `Vec`
 /// covering the sub-slice (linear in the view's byte length, not
 /// the backing buffer's).
-fn extract_buffer_source_bytes(
+///
+/// `error_prefix` is the spec-conformant call-site identifier
+/// (`"Failed to execute 'decode' on 'TextDecoder'"`, `"Failed to
+/// execute 'digest' on 'SubtleCrypto'"`, …) used as the TypeError
+/// message prefix so JS-visible errors match Chrome's wording.
+/// Hoisted to `pub(super)` so the crypto-min Phase 3 `digest`
+/// native can reuse the same byte-extraction algorithm without
+/// duplicating the per-BufferSource-kind match arms.
+pub(super) fn extract_buffer_source_bytes(
     ctx: &NativeContext<'_>,
     input_arg: JsValue,
+    error_prefix: &'static str,
 ) -> Result<Vec<u8>, VmError> {
     match input_arg {
         JsValue::Undefined => Ok(Vec::new()),
@@ -712,13 +726,13 @@ fn extract_buffer_source_bytes(
                 byte_offset,
                 byte_length,
             )),
-            _ => Err(VmError::type_error(
-                "Failed to execute 'decode' on 'TextDecoder': parameter 1 is not of type 'BufferSource'",
-            )),
+            _ => Err(VmError::type_error(format!(
+                "{error_prefix}: parameter is not of type 'BufferSource'"
+            ))),
         },
-        _ => Err(VmError::type_error(
-            "Failed to execute 'decode' on 'TextDecoder': parameter 1 is not of type 'BufferSource'",
-        )),
+        _ => Err(VmError::type_error(format!(
+            "{error_prefix}: parameter is not of type 'BufferSource'"
+        ))),
     }
 }
 

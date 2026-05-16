@@ -1238,6 +1238,33 @@ define_well_known_strings! {
         done_const => "DONE",
     }
 
+    "Crypto / SubtleCrypto (slot #11-crypto-subtle-min, WebCrypto §10 / §14)" {
+        // `window.crypto` accessor identifier + the 2 constructor
+        // globals (`Crypto` / `SubtleCrypto`) — `new Crypto()` and
+        // `new SubtleCrypto()` both throw "Illegal constructor".
+        // `getRandomValues` / `randomUUID` are methods on
+        // `Crypto.prototype`; `subtle` is an accessor on
+        // `Crypto.prototype` returning the `SubtleCrypto`
+        // `[SameObject]` singleton; `digest` is a method on
+        // `SubtleCrypto.prototype`.
+        crypto_accessor => "crypto",
+        crypto_global => "Crypto",
+        subtle_crypto_global => "SubtleCrypto",
+        get_random_values => "getRandomValues",
+        random_uuid => "randomUUID",
+        subtle => "subtle",
+        digest => "digest",
+        // Canonical algorithm names per WebCrypto §18.2.1.  The
+        // `digest` natives ASCII-case-insensitive-compare incoming
+        // strings against these and reject with `NotSupportedError`
+        // otherwise (preserving the user-supplied original case in
+        // the message).
+        sha_1 => "SHA-1",
+        sha_256 => "SHA-256",
+        sha_384 => "SHA-384",
+        sha_512 => "SHA-512",
+    }
+
     "ReadableStream (WHATWG Streams §4)" {
         // Constructor globals + method / accessor names unique to
         // the streams surface.  `read` / `value` / `done` /

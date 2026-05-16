@@ -87,6 +87,8 @@ pub(super) mod class_list;
 #[cfg(feature = "engine")]
 pub(crate) mod cors;
 #[cfg(feature = "engine")]
+pub(super) mod crypto;
+#[cfg(feature = "engine")]
 pub(super) mod css_style_declaration;
 #[cfg(feature = "engine")]
 pub(super) mod cssom_sheet;
@@ -270,6 +272,8 @@ pub(super) mod storage;
 pub(super) mod storage_event;
 #[cfg(feature = "engine")]
 pub(super) mod structured_clone;
+#[cfg(feature = "engine")]
+pub(super) mod subtle_crypto;
 #[cfg(feature = "engine")]
 pub(crate) mod text_encoding;
 pub(super) mod text_proto;
