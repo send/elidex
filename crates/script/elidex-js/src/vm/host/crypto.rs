@@ -54,16 +54,15 @@ impl VmInner {
     /// property.
     ///
     /// Called from `register_globals()` after `register_prototypes`
-    /// (which populates `object_prototype`) AND after
-    /// `register_subtle_crypto_global` (so the `subtle` accessor
-    /// can reference `subtle_crypto_prototype` for its
-    /// `alloc_or_cached_subtle_crypto` call).
+    /// (which populates `object_prototype`).  The `subtle` accessor
+    /// reads `subtle_crypto_prototype` lazily on the first JS
+    /// invocation of `crypto.subtle`, so `register_subtle_crypto_global`
+    /// only needs to run before that — not before this function.
     ///
     /// # Panics
     ///
-    /// Panics if `object_prototype` or `subtle_crypto_prototype`
-    /// is `None` — would mean the call-order invariant from
-    /// `register_globals()` was violated.
+    /// Panics if `object_prototype` is `None` — would mean the
+    /// call-order invariant from `register_globals()` was violated.
     pub(in crate::vm) fn register_crypto_global(&mut self) {
         let object_proto = self
             .object_prototype

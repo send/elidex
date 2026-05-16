@@ -236,28 +236,49 @@ fn normalize_digest_algorithm(
         // "42" then rejects with NotSupportedError).
         other => super::super::coerce::to_string(ctx.vm, other)?,
     };
-    let raw = ctx.vm.strings.get_utf8(name_sid);
-    // ASCII case-insensitive match against canonical names.  Spec
-    // §18.2.1 step 3 uses ASCII-case-insensitive comparison
-    // explicitly.
-    if raw.eq_ignore_ascii_case("SHA-1") {
+    // ASCII case-insensitive match against canonical names per
+    // §18.2.1 step 3.  Compare against the WTF-16 backing storage
+    // directly so the recognised-algorithm hot path does NOT
+    // allocate (the prior `get_utf8` path materialised a fresh
+    // `String` per call, and `get_utf8` is lossy for lone
+    // surrogates — irrelevant for ASCII algorithm names but a real
+    // concern for the rejected-name echo, where we want the user's
+    // input preserved verbatim).
+    let raw_wtf16 = ctx.vm.strings.get(name_sid);
+    if matches_ascii_ci_wtf16(raw_wtf16, b"SHA-1") {
         Ok(DigestAlgo::Sha1)
-    } else if raw.eq_ignore_ascii_case("SHA-256") {
+    } else if matches_ascii_ci_wtf16(raw_wtf16, b"SHA-256") {
         Ok(DigestAlgo::Sha256)
-    } else if raw.eq_ignore_ascii_case("SHA-384") {
+    } else if matches_ascii_ci_wtf16(raw_wtf16, b"SHA-384") {
         Ok(DigestAlgo::Sha384)
-    } else if raw.eq_ignore_ascii_case("SHA-512") {
+    } else if matches_ascii_ci_wtf16(raw_wtf16, b"SHA-512") {
         Ok(DigestAlgo::Sha512)
     } else {
-        // Truncate at a UTF-8 boundary to bound the message
+        // Rejected-name echo path — pay the UTF-8 conversion only
+        // here.  Truncate at a UTF-8 boundary to bound the message
         // allocation — attacker-supplied `'A'.repeat(10_000_000)`
         // would otherwise allocate a 10 MB error string per call.
+        let raw = ctx.vm.strings.get_utf8(name_sid);
         let echo = truncate_at_char_boundary(&raw, MAX_ECHOED_ALGO_NAME_LEN);
         Err(VmError::dom_exception(
             ctx.vm.well_known.dom_exc_not_supported_error,
             format!("Unrecognized algorithm name: '{echo}'"),
         ))
     }
+}
+
+/// ASCII case-insensitive equality between a WTF-16 haystack and an
+/// ASCII byte needle.  Returns `false` immediately for any code unit
+/// outside ASCII (≥ 128) so a lone surrogate cannot accidentally
+/// equal `'a'..'z'` after a lossy decode.  Used by
+/// [`normalize_digest_algorithm`] to compare against canonical
+/// digest names (`"SHA-1"` etc.) without allocating.
+fn matches_ascii_ci_wtf16(haystack: &[u16], needle: &[u8]) -> bool {
+    haystack.len() == needle.len()
+        && haystack
+            .iter()
+            .zip(needle)
+            .all(|(&h, &n)| h < 0x80 && (h as u8).eq_ignore_ascii_case(&n))
 }
 
 /// Maximum byte length echoed back from an attacker-supplied
