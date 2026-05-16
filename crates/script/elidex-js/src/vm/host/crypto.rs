@@ -128,14 +128,14 @@ impl VmInner {
         // `globalThis.crypto` — install eagerly as a data property.
         // Matches the `navigator` / `performance` precedent of
         // exposing the singleton on `globalThis` rather than via a
-        // Window getter.  Promotion to a `Window.prototype` accessor
-        // is a follow-up; it WOULD change the descriptor shape from
-        // `{value, writable, configurable}` to `{get, enumerable,
-        // configurable}`, so anything that consults
+        // Window getter.  This is the chosen design (not a temporary
+        // shim): there is no concrete trigger to migrate to a
+        // `Window.prototype` accessor, and doing so would be a
+        // JS-observable change to the descriptor shape (data prop
+        // `{value, writable, configurable}` vs accessor
+        // `{get, enumerable, configurable}`) that
         // `Object.getOwnPropertyDescriptor(globalThis, 'crypto')`
-        // would observe the difference.  Current tests use
-        // `globalThis.crypto` directly, so the migration stays
-        // forward-compatible for typical access patterns.
+        // consumers would notice.
         let instance_id = self.alloc_or_cached_crypto();
         let crypto_key = PropertyKey::String(self.well_known.crypto_accessor);
         self.define_shaped_property(

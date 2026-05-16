@@ -16,7 +16,9 @@
 //! `digest(algorithm, data)`; full SubtleCrypto (sign / verify /
 //! encrypt / decrypt / deriveKey / generateKey / importKey /
 //! exportKey / wrapKey / unwrapKey + `CryptoKey` lifecycle) is
-//! deferred to a follow-up slot.
+//! deferred to slot `#11-crypto-subtle-full` — trigger: M4-13
+//! entry kickoff OR auth-heavy framework adoption signal (WebAuthn
+//! / request-signing library appearing in the test suite).
 //!
 //! ## Singleton storage
 //!
