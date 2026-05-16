@@ -365,14 +365,24 @@ where
 
 /// Mutable access pattern for Selection methods that mutate state +
 /// registry + (optionally) read DOM.  Sets `selectionchange_pending`
-/// to `true` on success unless `quiet` is true.  Engine-indep errors
-/// returned by the closure (as [`SelectionError`]) are mapped to the
-/// corresponding `DOMException` here so the engine-indep crate stays
-/// free of VM-side intern dependencies.
+/// to `true` on success.  Engine-indep errors returned by the closure
+/// (as [`SelectionError`]) are mapped to the corresponding
+/// `DOMException` here so the engine-indep crate stays free of
+/// VM-side intern dependencies.
+///
+/// Copilot R1 IMP-3 (registry-leak cleanup): when the closure
+/// replaces `active_range_id` with a different `RangeId`, the
+/// displaced `RangeId` is unregistered from `LiveRangeRegistry`
+/// **only if** no JS `Range` wrapper exists for it in
+/// `range_instances`.  This preserves the previous-range-survival
+/// contract — user-held `r = sel.getRangeAt(0)` followed by
+/// `sel.collapse(...)` keeps `r` live-tracked because its cached
+/// wrapper id is in `range_instances` — while preventing unbounded
+/// growth of registry entries in tight `sel.collapse(n,0);
+/// sel.collapse(n,1); ...` loops that never materialise a wrapper.
 fn mutate_selection<F, R>(
     ctx: &mut NativeContext<'_>,
     method: &'static str,
-    quiet: bool,
     f: F,
 ) -> Result<R, VmError>
 where
@@ -391,9 +401,17 @@ where
             ),
         ));
     }
+    // Snapshot the pre-call RangeId so we can detect replacement
+    // and free the displaced registry entry if no wrapper exists.
+    let prev_id = ctx
+        .host()
+        .selection_state
+        .as_ref()
+        .and_then(SelectionState::current_range_id);
     // Confine all HostData borrows to this inner block so we can
-    // re-borrow `ctx` afterwards for `map_selection_error` +
-    // `selectionchange_pending` mutation.
+    // re-borrow `ctx` afterwards for `map_selection_error`,
+    // `selectionchange_pending` mutation, and the displaced-id
+    // unregister check.
     let outcome = {
         let host = ctx.host();
         let doc = host.document();
@@ -405,15 +423,29 @@ where
         f(state, registry, dom, doc)
     };
     let value = outcome.map_err(|e| map_selection_error(ctx, e, method))?;
-    if !quiet {
-        ctx.host().selectionchange_pending = true;
+    let new_id = ctx
+        .host()
+        .selection_state
+        .as_ref()
+        .and_then(SelectionState::current_range_id);
+    if let Some(old) = prev_id {
+        if Some(old) != new_id {
+            let host = ctx.host();
+            if !host.range_instances.contains_key(&old.0) {
+                host.live_range_registry.unregister(old);
+            }
+        }
     }
+    ctx.host().selectionchange_pending = true;
     Ok(value)
 }
 
-/// `deleteFromDocument` needs `&mut EcsDom` (delete_contents mutates
-/// the tree).  Bypasses the 3-way split helper to use the canonical
-/// `dom_mut()` path.  Returns nothing; sets `selectionchange_pending`.
+/// `deleteFromDocument` needs `&mut EcsDom` (the spec algorithm
+/// mutates the tree) **plus** `&mut LiveRangeRegistry` + `&mut
+/// SelectionState`.  Per CLAUDE.md layering mandate (Copilot R1
+/// IMP-2), the spec algorithm lives in the engine-indep
+/// [`SelectionState::delete_from_document`] — this VM-side function
+/// owns only the borrow split + dirty-bit flip.
 fn delete_selection_contents(
     ctx: &mut NativeContext<'_>,
     method: &'static str,
@@ -430,49 +462,10 @@ fn delete_selection_contents(
     if host.selection_state.is_none() {
         host.selection_state = Some(SelectionState::new());
     }
-    // Snapshot the current selected RangeId (if any) so we can use
-    // `host.dom()` (which needs `&mut HostData`) followed by a
-    // separate `with_range_mut` re-borrow.  The engine-indep
-    // `SelectionState::delete_from_document` does the same internal
-    // snapshot+commit shape because the LiveRangeRegistry borrow is
-    // released for the mutating `&mut EcsDom` call.
-    let id = host
-        .selection_state
-        .as_ref()
-        .and_then(SelectionState::current_range_id);
-    let Some(rid) = id else {
-        return Ok(());
-    };
-    // Phase 1: clone current range out of the registry under
-    // `&EcsDom` borrow only.
-    let cloned = {
-        let (dom, registry) = host.split_dom_and_live_ranges();
-        registry.with_range(rid, dom, |r, _| r.clone())
-    };
-    let Some(mut range) = cloned else {
-        return Ok(());
-    };
-    // Phase 2: delete_contents over `&mut EcsDom` (releases the
-    // LiveRangeRegistry borrow before re-acquiring it via dom()).
-    let dom_mut = ctx.host().dom();
-    range.delete_contents(dom_mut);
-    // Phase 3: collapse the registered Range to its (new) start.
-    let host = ctx.host();
-    let (dom, registry) = host.split_dom_and_live_ranges();
-    let _ = registry.with_range_mut(rid, dom, |reg_range, _| {
-        reg_range.start_container = range.start_container;
-        reg_range.start_offset = range.start_offset;
-        reg_range.end_container = range.start_container;
-        reg_range.end_offset = range.start_offset;
-    });
-    if let Some(state) = host.selection_state.as_mut() {
-        // SelectionState only tracks the bias enum, not the boundary
-        // points (those live in the registered Range).  Mirror the
-        // engine-indep state machine: post-delete is directionless.
-        let _ = state; // bias already directionless because we ran on the
-                       // same registered RangeId — no internal reset needed.
-    }
-    host.selectionchange_pending = true;
+    let (dom_mut, registry, sel_slot) = host.split_dom_mut_live_ranges_and_selection();
+    let state = sel_slot.as_mut().expect("just initialised");
+    state.delete_from_document(registry, dom_mut);
+    ctx.host().selectionchange_pending = true;
     Ok(())
 }
 
@@ -763,7 +756,7 @@ fn native_selection_remove_range(
 ) -> Result<JsValue, VmError> {
     require_selection_receiver(ctx, this, "removeRange")?;
     let range_id = arg_range(ctx, args.first().copied(), "removeRange")?;
-    mutate_selection(ctx, "removeRange", false, |s, _reg, _dom, _doc| {
+    mutate_selection(ctx, "removeRange", |s, _reg, _dom, _doc| {
         s.remove_range(range_id)
     })?;
     Ok(JsValue::Undefined)
@@ -775,7 +768,7 @@ fn native_selection_remove_all_ranges(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     require_selection_receiver(ctx, this, "removeAllRanges")?;
-    mutate_selection(ctx, "removeAllRanges", false, |s, _reg, _dom, _doc| {
+    mutate_selection(ctx, "removeAllRanges", |s, _reg, _dom, _doc| {
         s.remove_all_ranges();
         Ok(())
     })?;
@@ -788,7 +781,7 @@ fn native_selection_empty(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     require_selection_receiver(ctx, this, "empty")?;
-    mutate_selection(ctx, "empty", false, |s, _reg, _dom, _doc| {
+    mutate_selection(ctx, "empty", |s, _reg, _dom, _doc| {
         s.empty();
         Ok(())
     })?;
@@ -804,7 +797,7 @@ fn native_selection_collapse(
     // WebIDL §3.7.6 — arg conversion in declared order.
     let node = arg_node_required(ctx, args.first().copied(), "collapse")?;
     let offset = arg_offset_or_default(ctx, args.get(1).copied())?;
-    mutate_selection(ctx, "collapse", false, |s, reg, dom, doc| {
+    mutate_selection(ctx, "collapse", |s, reg, dom, doc| {
         s.collapse(reg, dom, doc, node, offset)
     })?;
     Ok(JsValue::Undefined)
@@ -816,7 +809,7 @@ fn native_selection_collapse_to_start(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     require_selection_receiver(ctx, this, "collapseToStart")?;
-    mutate_selection(ctx, "collapseToStart", false, |s, reg, dom, _doc| {
+    mutate_selection(ctx, "collapseToStart", |s, reg, dom, _doc| {
         s.collapse_to_start(reg, dom)
     })?;
     Ok(JsValue::Undefined)
@@ -828,7 +821,7 @@ fn native_selection_collapse_to_end(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     require_selection_receiver(ctx, this, "collapseToEnd")?;
-    mutate_selection(ctx, "collapseToEnd", false, |s, reg, dom, _doc| {
+    mutate_selection(ctx, "collapseToEnd", |s, reg, dom, _doc| {
         s.collapse_to_end(reg, dom)
     })?;
     Ok(JsValue::Undefined)
@@ -842,7 +835,7 @@ fn native_selection_extend(
     require_selection_receiver(ctx, this, "extend")?;
     let node = arg_node_required(ctx, args.first().copied(), "extend")?;
     let offset = arg_offset_or_default(ctx, args.get(1).copied())?;
-    mutate_selection(ctx, "extend", false, |s, reg, dom, doc| {
+    mutate_selection(ctx, "extend", |s, reg, dom, doc| {
         s.extend(reg, dom, doc, node, offset)
     })?;
     Ok(JsValue::Undefined)
@@ -860,7 +853,7 @@ fn native_selection_set_base_and_extent(
     let anchor_offset = arg_offset_required(ctx, args.get(1).copied(), "setBaseAndExtent")?;
     let focus = arg_node_required(ctx, args.get(2).copied(), "setBaseAndExtent")?;
     let focus_offset = arg_offset_required(ctx, args.get(3).copied(), "setBaseAndExtent")?;
-    mutate_selection(ctx, "setBaseAndExtent", false, |s, reg, dom, doc| {
+    mutate_selection(ctx, "setBaseAndExtent", |s, reg, dom, doc| {
         s.set_base_and_extent(reg, dom, doc, anchor, anchor_offset, focus, focus_offset)
     })?;
     Ok(JsValue::Undefined)
@@ -873,7 +866,7 @@ fn native_selection_select_all_children(
 ) -> Result<JsValue, VmError> {
     require_selection_receiver(ctx, this, "selectAllChildren")?;
     let parent = arg_node_required(ctx, args.first().copied(), "selectAllChildren")?;
-    mutate_selection(ctx, "selectAllChildren", false, |s, reg, dom, doc| {
+    mutate_selection(ctx, "selectAllChildren", |s, reg, dom, doc| {
         s.select_all_children(reg, dom, doc, parent)
     })?;
     Ok(JsValue::Undefined)

@@ -437,6 +437,40 @@ mod engine_feature {
             (dom, &mut self.live_range_registry)
         }
 
+        /// Three-way borrow split: `&mut EcsDom`, `&mut LiveRangeRegistry`,
+        /// and `&mut Option<SelectionState>` — used by
+        /// `deleteFromDocument` which delegates to the engine-indep
+        /// `SelectionState::delete_from_document` (Copilot R1 IMP-2:
+        /// the engine-indep impl owns the Phase 1/2/3 spec algorithm,
+        /// so the VM-side just hands all three borrows over).
+        ///
+        /// **Safety contract** (identical to
+        /// [`Self::split_dom_and_live_ranges`]): all three return
+        /// values borrow from `&mut self`; they are disjoint because
+        /// `dom_ptr` is the bound `&mut EcsDom` exclusively held by
+        /// HostData while bound, and the other two are owned fields
+        /// of `HostData`.
+        #[allow(unsafe_code)]
+        pub(crate) fn split_dom_mut_live_ranges_and_selection(
+            &mut self,
+        ) -> (
+            &mut elidex_ecs::EcsDom,
+            &mut elidex_dom_api::LiveRangeRegistry,
+            &mut Option<elidex_dom_api::SelectionState>,
+        ) {
+            assert!(self.is_bound(), "HostData accessed while unbound");
+            // SAFETY: same as `split_dom_and_live_ranges` — `dom_ptr`
+            // references the currently-bound `&mut EcsDom` exclusively
+            // owned by HostData; we synthesise the `&mut` here.  The
+            // other two are owned fields of `HostData`.
+            let dom = unsafe { &mut *self.dom_ptr };
+            (
+                dom,
+                &mut self.live_range_registry,
+                &mut self.selection_state,
+            )
+        }
+
         /// Three-way borrow split: `&EcsDom`, `&mut LiveRangeRegistry`,
         /// and `&mut Option<SelectionState>` — the canonical access
         /// shape for `Selection.prototype` methods that need DOM read,

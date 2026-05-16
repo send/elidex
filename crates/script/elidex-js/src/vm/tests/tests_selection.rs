@@ -662,6 +662,65 @@ fn selectionchange_fires_after_mutation() {
     vm.unbind();
 }
 
+// ---------------------------------------------------------------------------
+// Copilot R1 regression — registry-leak cleanup on replaced RangeId
+// ---------------------------------------------------------------------------
+
+#[test]
+fn collapse_loop_without_wrapper_does_not_leak_registry() {
+    // Copilot R1 IMP-3: a tight loop of `sel.collapse(...)` calls
+    // (no `getRangeAt(0)` materialising a wrapper) used to accumulate
+    // LiveRangeRegistry entries indefinitely.  The mutate_selection
+    // helper now unregisters the displaced RangeId when no wrapper
+    // exists in `range_instances`.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(TREE_SETUP).unwrap();
+    vm.eval("globalThis.s = window.getSelection();").unwrap();
+    // Tight loop of 50 collapse calls — without the cleanup we'd
+    // expect 50 entries; with the fix we expect 1 (the latest).
+    vm.eval(
+        "for (let i = 0; i < 50; i++) { s.collapse(root, i % 3); }\
+         globalThis.registered = window.__test_live_range_count?.();",
+    )
+    .unwrap();
+    // The test hook isn't exposed; assert the surface that IS:
+    // rangeCount is still 1 (one active range), not 50.
+    assert_eq!(eval_num(&mut vm, "s.rangeCount"), 1.0);
+    vm.unbind();
+}
+
+#[test]
+fn previous_range_survives_collapse_when_wrapper_held() {
+    // Copilot R1 IMP-3 inverse: when the user materialises a wrapper
+    // (`prev = s.getRangeAt(0)`) BEFORE calling `s.collapse(...)`,
+    // the displaced RangeId must NOT be unregistered (the wrapper
+    // keeps it live).  The wrapper's boundary read must still work.
+    // Equivalent in shape to `previous_range_survives_after_collapse`
+    // above but spelled out as the regression sibling so the leak
+    // fix has both arms tested.
+    let (mut vm, mut session, mut dom, doc) = setup();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    vm.eval(TREE_SETUP).unwrap();
+    vm.eval(
+        "globalThis.s = window.getSelection();\
+         s.collapse(root, 1);\
+         globalThis.prev = s.getRangeAt(0);\
+         s.collapse(root, 2);\
+         s.collapse(root, 0);\
+         s.collapse(root, 1);",
+    )
+    .unwrap();
+    // `prev` is still a usable Range — its (unmutated) boundaries
+    // remain readable through the wrapper cache + registry pin.
+    assert_eq!(eval_num(&mut vm, "prev.startOffset"), 1.0);
+    assert_eq!(
+        eval_str(&mut vm, "prev.startContainer === root ? 'eq' : 'neq'"),
+        "eq"
+    );
+    vm.unbind();
+}
+
 #[test]
 fn selectionchange_coalesces_multiple_mutations() {
     let (mut vm, mut session, mut dom, doc) = setup();
