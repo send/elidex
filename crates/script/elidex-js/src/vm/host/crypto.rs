@@ -81,8 +81,7 @@ impl VmInner {
         });
 
         // Phase 1 / 2 — `getRandomValues` + `randomUUID` methods
-        // (WebCrypto §11.1 / §11.5).  Phase 3 / accessor `subtle`
-        // land in subsequent commits.
+        // (WebCrypto §11.1 / §11.5).
         let methods: [(_, NativeFn); 2] = [
             (
                 self.well_known.get_random_values,
@@ -93,6 +92,19 @@ impl VmInner {
         for (name_sid, func) in methods {
             self.install_native_method(proto_id, name_sid, func, shape::PropertyAttrs::METHOD);
         }
+
+        // Phase 3 — `subtle` accessor (WebCrypto §10
+        // `readonly attribute SubtleCrypto subtle` with [SameObject]).
+        // Accessor (NOT data prop) so `Object.getOwnPropertyDescriptor(
+        // Crypto.prototype, 'subtle')` yields `{get, enumerable,
+        // configurable}` rather than `{value, writable}`.
+        self.install_accessor_pair(
+            proto_id,
+            self.well_known.subtle,
+            native_crypto_get_subtle,
+            None,
+            shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
 
         self.crypto_prototype = Some(proto_id);
 
@@ -340,4 +352,18 @@ fn native_crypto_random_uuid(
     let s = uuid.hyphenated().to_string();
     let sid = ctx.vm.strings.intern(&s);
     Ok(JsValue::String(sid))
+}
+
+// ---------------------------------------------------------------------------
+// `Crypto.prototype.subtle` accessor (WebCrypto §10, [SameObject])
+// ---------------------------------------------------------------------------
+
+fn native_crypto_get_subtle(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    require_crypto_this(ctx, this, "subtle")?;
+    let id = ctx.vm.alloc_or_cached_subtle_crypto();
+    Ok(JsValue::Object(id))
 }
