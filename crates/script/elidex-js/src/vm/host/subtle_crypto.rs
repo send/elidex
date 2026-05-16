@@ -251,10 +251,12 @@ fn normalize_digest_algorithm(
     // §18.2.1 step 3.  Compare against the WTF-16 backing storage
     // directly so the recognised-algorithm hot path does NOT
     // allocate (the prior `get_utf8` path materialised a fresh
-    // `String` per call, and `get_utf8` is lossy for lone
-    // surrogates — irrelevant for ASCII algorithm names but a real
-    // concern for the rejected-name echo, where we want the user's
-    // input preserved verbatim).
+    // `String` per call).  WTF-16 comparison also avoids a real
+    // semantic hazard: `get_utf8` is lossy for lone surrogates,
+    // and the recognised-vs-rejected decision should not depend
+    // on a lossy decode — `matches_ascii_ci_wtf16` rejects any
+    // code unit ≥ 128, so a name containing a lone surrogate
+    // unambiguously falls through to the rejected-name path.
     let raw_wtf16 = ctx.vm.strings.get(name_sid);
     if matches_ascii_ci_wtf16(raw_wtf16, b"SHA-1") {
         Ok(DigestAlgo::Sha1)
@@ -269,6 +271,14 @@ fn normalize_digest_algorithm(
         // here.  Truncate at a UTF-8 boundary to bound the message
         // allocation — attacker-supplied `'A'.repeat(10_000_000)`
         // would otherwise allocate a 10 MB error string per call.
+        //
+        // `get_utf8` is intentionally used here even though it
+        // replaces lone surrogates with U+FFFD: valid WebCrypto
+        // algorithm names are pure ASCII per §18.2.1 table, so any
+        // input containing a lone surrogate is by definition
+        // unrecognised and the `'\u{FFFD}'` rendering is no less
+        // informative than the original ill-formed sequence would
+        // have been in a console.
         let raw = ctx.vm.strings.get_utf8(name_sid);
         let echo = truncate_at_char_boundary(&raw, MAX_ECHOED_ALGO_NAME_LEN);
         Err(VmError::dom_exception(
@@ -357,6 +367,7 @@ fn native_subtle_crypto_digest(
         ctx,
         data_arg,
         "Failed to execute 'digest' on 'SubtleCrypto'",
+        2,
         false,
     ) {
         Ok(b) => b,

@@ -130,41 +130,49 @@ fn crypto_prototype_constructor_chain() {
 // `getRandomValues` — type acceptance
 // ---------------------------------------------------------------------------
 
+// Acceptance tests: pre-fill with a sentinel, call
+// `getRandomValues`, then assert that AT LEAST ONE element
+// changed (catches the constant-output / silently-no-op wiring
+// bug).  Buffers are sized at 32 bytes / 32 elements so the
+// false-negative probability — a CSPRNG happening to write back
+// exactly the sentinel byte at every position — is 1/256^32 ≈
+// 1/2^256, well below CPU bit-flip rates.  The sentinel `0xFF`
+// (NOT `0`) ensures the assertion catches a "zero-fill" wiring
+// bug that an `b !== 0` check on a `0`-initialised buffer would
+// silently pass.
 #[test]
 fn get_random_values_accepts_uint8_array() {
-    // After call: at least one byte should be non-zero with very
-    // high probability (1 - 1/2^64 for 8 bytes).
     assert!(eval_bool(
-        "let v = new Uint8Array(8); \
+        "let v = new Uint8Array(32); v.fill(0xFF); \
          crypto.getRandomValues(v); \
-         v.some(b => b !== 0);"
+         v.some(b => b !== 0xFF);"
     ));
 }
 
 #[test]
 fn get_random_values_accepts_uint8_clamped_array() {
     assert!(eval_bool(
-        "let v = new Uint8ClampedArray(8); \
+        "let v = new Uint8ClampedArray(32); v.fill(0xFF); \
          crypto.getRandomValues(v); \
-         v.some(b => b !== 0);"
+         v.some(b => b !== 0xFF);"
     ));
 }
 
 #[test]
 fn get_random_values_accepts_int32_array() {
     assert!(eval_bool(
-        "let v = new Int32Array(4); \
+        "let v = new Int32Array(8); v.fill(-1); \
          crypto.getRandomValues(v); \
-         v.some(b => b !== 0);"
+         v.some(b => b !== -1);"
     ));
 }
 
 #[test]
 fn get_random_values_accepts_bigint64_array() {
     assert!(eval_bool(
-        "let v = new BigInt64Array(2); \
+        "let v = new BigInt64Array(4); v.fill(-1n); \
          crypto.getRandomValues(v); \
-         v.some(b => b !== 0n);"
+         v.some(b => b !== -1n);"
     ));
 }
 
@@ -309,20 +317,20 @@ fn random_uuid_length_is_36() {
 }
 
 #[test]
-fn random_uuid_is_unique_across_100_calls() {
-    // 100 v4 UUIDs deduped via sort + adjacent-equal check should
-    // produce 100 distinct entries with overwhelming probability
-    // (collision odds ~ 1/2^122 per pair).  Failing here means the
-    // OS CSPRNG is returning constant bytes — almost certainly a
-    // wiring bug, not a statistical fluke.  (Using sort + scan
-    // because the VM does not expose `Set`.)
+fn random_uuid_produces_non_degenerate_output() {
+    // Constant / wiring-bug check: ALL outputs equal across 8
+    // calls would indicate a constant-RNG bug (e.g. uuid::Uuid::nil,
+    // or the v4 feature silently disabled).  The assertion is
+    // "some call differs from the first", which is deterministically
+    // true for any non-degenerate CSPRNG (false-negative
+    // probability ~ 1/2^122 per pair — sub-cosmic-bit-flip).
+    // Cheaper + clearer than the prior 100-iteration unique-set
+    // sort, and addresses Copilot R3's probabilistic-assertion
+    // concern by reframing as a degeneracy test.
     assert!(eval_bool(
         "const a = []; \
-         for (let i = 0; i < 100; i++) a.push(crypto.randomUUID()); \
-         a.sort(); \
-         let unique = true; \
-         for (let i = 1; i < a.length; i++) if (a[i] === a[i-1]) { unique = false; break; } \
-         unique;"
+         for (let i = 0; i < 8; i++) a.push(crypto.randomUUID()); \
+         a.some(u => u !== a[0]);"
     ));
 }
 

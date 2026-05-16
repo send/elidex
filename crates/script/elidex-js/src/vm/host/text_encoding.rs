@@ -617,6 +617,7 @@ fn native_text_decoder_decode(
         ctx,
         input_arg,
         "Failed to execute 'decode' on 'TextDecoder'",
+        1,
         true,
     )?;
     let stream = parse_decode_stream(ctx, options_arg)?;
@@ -713,10 +714,15 @@ fn parse_decode_stream(ctx: &mut NativeContext<'_>, options_arg: JsValue) -> Res
 /// `BufferSource data` with no `?`) pass `false` so missing /
 /// `undefined` data flows through the BufferSource-conversion
 /// TypeError path per WebIDL §3.10.18.
+///
+/// `param_index` is the 1-based WebIDL parameter index used to
+/// render Chrome-parity `parameter N` text in the rejection
+/// message (TextDecoder.decode → 1, SubtleCrypto.digest → 2).
 pub(super) fn extract_buffer_source_bytes(
     ctx: &NativeContext<'_>,
     input_arg: JsValue,
     error_prefix: &'static str,
+    param_index: u32,
     allow_undefined_as_empty: bool,
 ) -> Result<Vec<u8>, VmError> {
     match input_arg {
@@ -740,11 +746,11 @@ pub(super) fn extract_buffer_source_bytes(
                 byte_length,
             )),
             _ => Err(VmError::type_error(format!(
-                "{error_prefix}: parameter is not of type 'BufferSource'"
+                "{error_prefix}: parameter {param_index} is not of type 'BufferSource'"
             ))),
         },
         _ => Err(VmError::type_error(format!(
-            "{error_prefix}: parameter is not of type 'BufferSource'"
+            "{error_prefix}: parameter {param_index} is not of type 'BufferSource'"
         ))),
     }
 }
