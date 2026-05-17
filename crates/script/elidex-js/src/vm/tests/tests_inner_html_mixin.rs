@@ -230,6 +230,27 @@ fn element_inner_html_getter_throws_on_alien_receiver() {
 }
 
 #[test]
+fn element_inner_html_getter_distinguishes_detached_from_wrong_brand() {
+    // R1 fix: `require_brand` now mirrors `event_target::require_receiver`
+    // — a wrapper whose backing entity has been destroyed surfaces the
+    // "detached (invalid entity)" message rather than "Illegal
+    // invocation", and a wrapper of the wrong brand still surfaces
+    // "Illegal invocation". The split keeps debug output aligned with
+    // the rest of the receiver-helper surface.
+    let out = run(
+        "var elemProto = Object.getPrototypeOf(document.createElement('div')); \
+         while (elemProto && !Object.getOwnPropertyDescriptor(elemProto, 'innerHTML')) { \
+             elemProto = Object.getPrototypeOf(elemProto); \
+         } \
+         var getter = Object.getOwnPropertyDescriptor(elemProto, 'innerHTML').get; \
+         var alien = ''; \
+         try { getter.call({}); } catch (e) { alien = e.message; } \
+         (alien.indexOf('Illegal invocation') !== -1) ? 'ok' : ('fail:' + alien);",
+    );
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn shadow_root_inner_html_getter_throws_on_element_receiver() {
     // Post-H-migration discriminator: ShadowRoot.prototype.innerHTML
     // accessor uses the ECS-component brand check, not ObjectKind.
@@ -398,6 +419,47 @@ fn element_get_html_round_trip_with_set_html_unsafe() {
          dst.setHTMLUnsafe(html); \
          (dst.shadowRoot !== null && dst.shadowRoot.firstChild && dst.shadowRoot.firstChild.tagName === 'P') \
              ? 'ok' : ('fail:html=' + html + ':shadow=' + (dst.shadowRoot === null ? 'no' : 'yes'));",
+    );
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn element_get_html_emits_shadowrootslotassignment_for_manual_mode() {
+    // Round-trip lock for `slotAssignment: 'manual'` — the serializer
+    // must emit `shadowrootslotassignment="manual"` so a subsequent
+    // `setHTMLUnsafe(getHTML(...))` preserves the manual mode (HTML
+    // §4.13.3 / §13.5). Named mode is the default and is intentionally
+    // omitted from the serialised attribute set to keep the round-trip
+    // terse for the common case.
+    let out = run("var named = document.createElement('div'); \
+         document.body.appendChild(named); \
+         named.attachShadow({mode: 'open', slotAssignment: 'named', serializable: true}); \
+         var manual = document.createElement('div'); \
+         document.body.appendChild(manual); \
+         manual.attachShadow({mode: 'open', slotAssignment: 'manual', serializable: true}); \
+         var namedOut = named.getHTML({serializableShadowRoots: true}); \
+         var manualOut = manual.getHTML({serializableShadowRoots: true}); \
+         (namedOut.indexOf('shadowrootslotassignment') === -1 \
+            && manualOut.indexOf('shadowrootslotassignment=\"manual\"') !== -1) \
+             ? 'ok' : ('fail:named=' + namedOut + ' manual=' + manualOut);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn element_get_html_manual_slot_assignment_round_trip() {
+    // Round-trip discriminator: getHTML output of a manual-mode shadow
+    // host fed back through setHTMLUnsafe must produce a shadow root
+    // whose `slotAssignment` is again `'manual'`.
+    let out = run(
+        "var src = document.createElement('div'); \
+         document.body.appendChild(src); \
+         src.attachShadow({mode: 'open', slotAssignment: 'manual', serializable: true}); \
+         var html = src.getHTML({serializableShadowRoots: true}); \
+         var dst = document.createElement('div'); \
+         document.body.appendChild(dst); \
+         dst.setHTMLUnsafe(html); \
+         (dst.shadowRoot !== null && dst.shadowRoot.slotAssignment === 'manual') \
+             ? 'ok' : ('fail:html=' + html + ':mode=' + (dst.shadowRoot && dst.shadowRoot.slotAssignment));",
     );
     assert_eq!(out, "ok");
 }

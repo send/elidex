@@ -41,12 +41,18 @@ fn brand_shadow_root(vm: &VmInner, entity: Entity) -> bool {
         .is_some_and(|hd| hd.is_shadow_root_entity(entity))
 }
 
-/// WebIDL branded-receiver gate. Returns `Ok(None)` when the receiver
-/// is a wrapper but the VM is unbound or the entity has been
-/// destroyed — callers fall through to a default empty/null result
-/// matching the elidex unbound-receiver policy. Throws
-/// `TypeError("Illegal invocation")` for non-wrapper receivers and
-/// for wrappers whose brand does not match.
+/// WebIDL branded-receiver gate.
+///
+/// Returns `Ok(None)` only for the elidex unbound-receiver case — the
+/// receiver is a `HostObject` wrapper but the VM has been `unbind`'d,
+/// so `entity_from_this` declines to decode entity bits (silent no-op
+/// matches retained-wrapper policy elsewhere). Throws TypeError for
+/// non-wrapper receivers ("Illegal invocation"), for wrappers whose
+/// backing entity has been destroyed in the live DOM ("the node is
+/// detached (invalid entity)"), and for wrappers whose brand does not
+/// match ("Illegal invocation"). The detached / wrong-brand split
+/// mirrors [`event_target::require_receiver`] so debugger messages
+/// line up across the receiver-helper surface.
 fn require_brand(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -62,6 +68,17 @@ fn require_brand(
     let Some(entity) = super::event_target::entity_from_this(ctx, this) else {
         return Ok(None);
     };
+    // Differentiate destroyed entity from wrong-brand receiver so the
+    // surfaced error message matches the actual failure mode.
+    let is_live = ctx
+        .host_if_bound()
+        .is_some_and(|hd| hd.dom().contains(entity));
+    if !is_live {
+        return Err(VmError::type_error(format!(
+            "Failed to execute '{accessor}' on '{interface}': \
+             the node is detached (invalid entity)."
+        )));
+    }
     if !check(ctx.vm, entity) {
         return Err(VmError::type_error(format!(
             "Failed to execute '{accessor}' on '{interface}': Illegal invocation"

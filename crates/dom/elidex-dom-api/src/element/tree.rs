@@ -3,8 +3,7 @@
 use elidex_ecs::{EcsDom, Entity, TextContent};
 use elidex_plugin::JsValue;
 use elidex_script_session::{
-    apply_set_inner_html, DomApiError, DomApiErrorKind, DomApiHandler, JsObjectRef, Mutation,
-    SessionCore, SetInnerHtmlOptions,
+    DomApiError, DomApiErrorKind, DomApiHandler, JsObjectRef, Mutation, SessionCore,
 };
 
 use crate::util::{not_found_error, require_object_ref_arg, require_string_arg};
@@ -386,12 +385,16 @@ const RAW_TEXT_ELEMENTS: &[&str] = &[
 
 /// `element.innerHTML` setter — replaces children with parsed HTML.
 ///
-/// Invokes [`apply_set_inner_html`] directly so the mutation is applied
-/// synchronously rather than queued (CLAUDE.md layering mandate: DOM
-/// mutation algorithm lives engine-indep, and `setInnerHtml` callers
-/// expect post-call DOM reads to see the new children). The
-/// `Mutation::SetInnerHtml` queue variant is retained for any future
-/// buffered-mutation caller but is no longer routed through here.
+/// Records a `Mutation::SetInnerHtml` which is applied during
+/// `session.flush()` so that any caller flushing through the session
+/// (notably the boa runtime) keeps surfacing innerHTML changes as
+/// `MutationRecord`s through the flush return value — required for
+/// MutationObserver delivery and custom-element-reaction enqueueing
+/// on that path. The VM-direct path in `vm/host/dom_inner_html.rs`
+/// bypasses this handler and applies the algorithm synchronously
+/// (calling [`elidex_script_session::apply_set_inner_html`]) before invoking
+/// `Vm::deliver_mutation_records` itself, so the two paths share one
+/// engine-indep algorithm without colliding on observer delivery.
 pub struct SetInnerHtml;
 
 impl DomApiHandler for SetInnerHtml {
@@ -403,14 +406,14 @@ impl DomApiHandler for SetInnerHtml {
         &self,
         this: Entity,
         args: &[JsValue],
-        _session: &mut SessionCore,
-        dom: &mut EcsDom,
+        session: &mut SessionCore,
+        _dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let html = match args.first() {
             Some(JsValue::String(s)) => s.clone(),
             _ => String::new(),
         };
-        let _ = apply_set_inner_html(dom, this, &html, SetInnerHtmlOptions::default());
+        session.record_mutation(Mutation::SetInnerHtml { entity: this, html });
         Ok(JsValue::Undefined)
     }
 }
@@ -645,6 +648,15 @@ fn emit_shadow_root_template(
     }
     if sr_component.serializable {
         html.push_str(" shadowrootserializable=\"\"");
+    }
+    // `shadowrootslotassignment` is an enumerated declarative attribute
+    // (manual / named) that the parser hook honours; omit for the
+    // default `Named` so round-tripping unchanged hosts stays terse.
+    if matches!(
+        sr_component.slot_assignment,
+        elidex_ecs::SlotAssignmentMode::Manual
+    ) {
+        html.push_str(" shadowrootslotassignment=\"manual\"");
     }
     html.push('>');
     for child in dom.children_iter(sr) {
