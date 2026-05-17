@@ -53,11 +53,18 @@ fn brand_shadow_root(vm: &VmInner, entity: Entity) -> bool {
 /// match ("Illegal invocation"). The detached / wrong-brand split
 /// mirrors [`event_target::require_receiver`] so debugger messages
 /// line up across the receiver-helper surface.
+// Argument order matches the WebIDL error-message form `Failed to
+// execute '<accessor>' on '<interface>'`: accessor (the member name
+// being invoked) comes first, interface (the receiver brand) second —
+// so every call site reads naturally as `require_brand(ctx, this,
+// "innerHTML", "Element", check)`. The earlier draft had these
+// parameters swapped, which produced TypeError messages reading
+// "Failed to execute 'Element' on 'innerHTML'" (PR201 Copilot R2).
 fn require_brand(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
-    interface: &'static str,
     accessor: &'static str,
+    interface: &'static str,
     check: BrandCheck,
 ) -> Result<Option<Entity>, VmError> {
     if !super::event_target::this_is_node_wrapper(ctx.vm, this) {

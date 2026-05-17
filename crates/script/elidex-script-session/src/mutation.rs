@@ -262,7 +262,11 @@ fn apply_insert_before(
     new_child: Entity,
     ref_child: Entity,
 ) -> Option<MutationRecord> {
-    let prev_sibling = dom.get_prev_sibling(ref_child);
+    // Sibling fields surface to JS via MutationObserver; use the
+    // exposed-sibling helpers so a closed `ShadowRoot` (which IS a real
+    // ECS sibling but is filtered out of the DOM children view per
+    // §4.8 encapsulation) cannot leak as `previousSibling`/`nextSibling`.
+    let prev_sibling = dom.prev_exposed_sibling(ref_child);
     if !dom.insert_before(parent, new_child, ref_child) {
         return None;
     }
@@ -275,8 +279,8 @@ fn apply_insert_before(
 }
 
 fn apply_remove_child(dom: &mut EcsDom, parent: Entity, child: Entity) -> Option<MutationRecord> {
-    let prev_sibling = dom.get_prev_sibling(child);
-    let next_sibling = dom.get_next_sibling(child);
+    let prev_sibling = dom.prev_exposed_sibling(child);
+    let next_sibling = dom.next_exposed_sibling(child);
     if !dom.remove_child(parent, child) {
         return None;
     }
@@ -294,8 +298,8 @@ fn apply_replace_child(
     new_child: Entity,
     old_child: Entity,
 ) -> Option<MutationRecord> {
-    let prev_sibling = dom.get_prev_sibling(old_child);
-    let next_sibling = dom.get_next_sibling(old_child);
+    let prev_sibling = dom.prev_exposed_sibling(old_child);
+    let next_sibling = dom.next_exposed_sibling(old_child);
     if !dom.replace_child(parent, new_child, old_child) {
         return None;
     }
@@ -484,9 +488,12 @@ pub fn apply_set_outer_html(
     let added =
         elidex_html_parser::parse_html_fragment(html, &context_tag, parent, dom, parse_opts);
     // parse_html_fragment appends the new roots at the end of `parent`;
-    // move them to `entity`'s slot, then unhook `entity` itself.
-    let prev_sibling = dom.get_prev_sibling(entity);
-    let next_sibling = dom.get_next_sibling(entity);
+    // move them to `entity`'s slot, then unhook `entity` itself. Use
+    // exposed-sibling helpers so `MutationRecord.previousSibling`
+    // never leaks a closed `ShadowRoot` (which IS a real ECS sibling
+    // but is filtered out of DOM children per §4.8).
+    let prev_sibling = dom.prev_exposed_sibling(entity);
+    let next_sibling = dom.next_exposed_sibling(entity);
     for &node in &added {
         let _ = dom.remove_child(parent, node);
         let _ = dom.insert_before(parent, node, entity);
@@ -1035,5 +1042,72 @@ mod tests {
         let _ = dom.append_child(doc, html_elem);
         let err = apply_set_outer_html(&mut dom, html_elem, "<html></html>").unwrap_err();
         assert_eq!(err, OuterHtmlError::NoModificationAllowed);
+    }
+
+    // -------------------------------------------------------------
+    // PR201 Copilot R2: MutationRecord sibling fields must not leak
+    // internal ShadowRoot entities (encapsulation lock).
+    // -------------------------------------------------------------
+
+    #[test]
+    fn apply_set_outer_html_does_not_leak_shadow_root_as_previous_sibling() {
+        // Scenario: parent is a shadow host; the shadow root entity
+        // becomes the FIRST child of the host (attach_shadow appends
+        // it before light tree children). Then a light child is
+        // appended. When that light child is replaced via outerHTML,
+        // its raw `prev_sibling` would be the ShadowRoot entity —
+        // surfacing as `MutationRecord.previousSibling` would leak the
+        // closed shadow to JS. The fix walks past ShadowRoot entities
+        // via `prev_exposed_sibling`.
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let host = elem(&mut dom, "div");
+        let _ = dom.append_child(root, host);
+        let shadow_root = dom
+            .attach_shadow(host, elidex_ecs::ShadowRootMode::Closed)
+            .expect("attach closed shadow");
+        let target = elem(&mut dom, "span");
+        let _ = dom.append_child(host, target);
+        // Sanity: raw prev_sibling for `target` IS the shadow root —
+        // confirms the helper would leak without the fix.
+        assert_eq!(
+            dom.get_prev_sibling(target),
+            Some(shadow_root),
+            "shadow root sits between host and target in the raw sibling chain"
+        );
+        let record =
+            apply_set_outer_html(&mut dom, target, "<p>new</p>").expect("outer html should apply");
+        assert_ne!(
+            record.previous_sibling,
+            Some(shadow_root),
+            "MutationRecord.previous_sibling must not leak shadow root"
+        );
+        assert_eq!(
+            record.previous_sibling, None,
+            "no exposed prev sibling for target (shadow root skipped)"
+        );
+    }
+
+    #[test]
+    fn apply_remove_child_does_not_leak_shadow_root_as_previous_sibling() {
+        // Pre-existing apply_remove_child path now uses
+        // `prev_exposed_sibling` too. Lock the no-leak invariant.
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let host = elem(&mut dom, "div");
+        let _ = dom.append_child(root, host);
+        let shadow_root = dom
+            .attach_shadow(host, elidex_ecs::ShadowRootMode::Closed)
+            .expect("attach closed shadow");
+        let child = elem(&mut dom, "span");
+        let _ = dom.append_child(host, child);
+        assert_eq!(dom.get_prev_sibling(child), Some(shadow_root));
+        let m = Mutation::RemoveChild {
+            parent: host,
+            child,
+        };
+        let record = apply_mutation(&m, &mut dom).expect("remove should succeed");
+        assert_ne!(record.previous_sibling, Some(shadow_root));
+        assert_eq!(record.previous_sibling, None);
     }
 }

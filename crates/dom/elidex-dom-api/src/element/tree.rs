@@ -539,7 +539,9 @@ pub struct SerializeOptions {
     /// its host (HTML §13.5 fragment-serialization with shadow roots).
     pub serializable_shadow_roots: bool,
     /// Force-emit declarative templates for these shadow root entities
-    /// regardless of their `serializable` flag or `mode` (open/closed).
+    /// regardless of their `serializable` flag. (HTML §4.4.6 places no
+    /// `mode` restriction on either path — both `Open` and `Closed`
+    /// shadows may be serialized when their host opted in.)
     pub explicit_shadow_roots: std::collections::HashSet<Entity>,
 }
 
@@ -588,8 +590,12 @@ fn is_safe_attr_name(name: &str) -> bool {
 }
 
 /// Decide whether to emit a given shadow root as a declarative template.
-/// `explicit` overrides both the `serializable` and `mode` filters (spec:
-/// "regardless of whether or not they are marked as serializable").
+/// Per HTML §4.4.6 there is no mode-based filter (both `Open` and
+/// `Closed` may be serialized whenever the host opted in): when the
+/// caller-supplied `explicit_shadow_roots` set contains `sr` it is
+/// always emitted; otherwise it is emitted iff the caller passed
+/// `serializable_shadow_roots = true` AND the root carries the
+/// `serializable` init flag.
 fn shadow_root_should_emit(
     sr: Entity,
     sr_component: &elidex_ecs::ShadowRoot,

@@ -230,6 +230,26 @@ fn element_inner_html_getter_throws_on_alien_receiver() {
 }
 
 #[test]
+fn element_inner_html_setter_error_message_uses_correct_interface_and_accessor() {
+    // PR201 Copilot R2 / F1 regression: `require_brand` parameter
+    // order was previously swapped so TypeError messages for alien
+    // receivers read "Failed to execute 'Element' on 'innerHTML'"
+    // instead of "Failed to execute 'innerHTML' on 'Element'". Lock
+    // the corrected order from JS.
+    let out = run(
+        "var elemProto = Object.getPrototypeOf(document.createElement('div')); \
+         while (elemProto && !Object.getOwnPropertyDescriptor(elemProto, 'innerHTML')) { \
+             elemProto = Object.getPrototypeOf(elemProto); \
+         } \
+         var setter = Object.getOwnPropertyDescriptor(elemProto, 'innerHTML').set; \
+         var msg = ''; \
+         try { setter.call({}, 'x'); } catch (e) { msg = e.message; } \
+         (msg.indexOf(\"'innerHTML' on 'Element'\") !== -1) ? 'ok' : ('fail:' + msg);",
+    );
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn element_inner_html_getter_distinguishes_detached_from_wrong_brand() {
     // R1 fix: `require_brand` now mirrors `event_target::require_receiver`
     // — a wrapper whose backing entity has been destroyed surfaces the
