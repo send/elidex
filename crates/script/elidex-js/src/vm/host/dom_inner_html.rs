@@ -273,22 +273,21 @@ fn parse_shadow_root_sequence(
     raw: JsValue,
     interface: &'static str,
 ) -> Result<HashSet<Entity>, VmError> {
-    let JsValue::Object(seq_id) = raw else {
-        return Err(VmError::type_error(format!(
+    let not_iterable = || -> VmError {
+        VmError::type_error(format!(
             "Failed to execute 'getHTML' on '{interface}': \
              'shadowRoots' is not iterable."
-        )));
+        ))
     };
-    // Mirror `natives_function.rs::collect_array_like`: dense
-    // `Array { elements }` storage does not surface through string
-    // property keys, so probe the variant first and fall back to the
-    // `length`-driven indexed walk only for ordinary array-like
-    // objects (e.g. NodeList wrappers).
+    let JsValue::Object(seq_id) = raw else {
+        return Err(not_iterable());
+    };
+    // Fast path for dense `Array { elements }`: html5ever-style
+    // hot path lacking string-property indexing semantics, plus the
+    // materialised values are already in memory so iteration cost is
+    // bounded by JS heap pressure. Validate each element inline and
+    // return the deduped entity set.
     if let ObjectKind::Array { elements } = &ctx.vm.get_object(seq_id).kind {
-        // The dense `Array` path holds materialised JS values in
-        // memory already, so its iteration cost is naturally bounded
-        // by JS heap pressure. Validate each element up front and
-        // return the deduped entity set.
         let snapshot: Vec<JsValue> = elements.iter().map(|v| v.or_undefined()).collect();
         let mut out = HashSet::with_capacity(snapshot.len());
         for (i, elem) in snapshot.into_iter().enumerate() {
@@ -296,30 +295,36 @@ fn parse_shadow_root_sequence(
         }
         return Ok(out);
     }
-    // Non-Array array-like path. Length coercion mirrors
-    // `natives_function.rs::collect_array_like` — ToNumber + trunc +
-    // NaN/negative → 0, then clamp to `SHADOW_ROOTS_SEQ_CAP` (a much
-    // tighter cap than `DENSE_ARRAY_LEN_LIMIT`: realistic getHTML
-    // sequences are a handful of items; a hostile
-    // `{length: 1<<27}` should NOT be permitted to run ~134M
-    // intern-then-fetch iterations before the first invalid element
-    // surfaces). Validation happens INLINE so the first bogus entry
-    // short-circuits the loop — defence in depth on top of the cap.
-    let length_key = super::super::value::PropertyKey::String(ctx.vm.well_known.length);
-    let length_val = ctx.vm.get_property_value(seq_id, length_key)?;
-    let len_f = ctx.to_number(length_val)?.trunc();
-    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-    let length = if len_f.is_nan() || len_f < 0.0 {
-        0
-    } else {
-        (len_f as usize).min(SHADOW_ROOTS_SEQ_CAP)
+    // WebIDL §3.10 "Convert ECMAScript value to IDL sequence" — the
+    // conversion algorithm consults `@@iterator` and drains the
+    // iterator protocol. Plain array-likes with only `length` (no
+    // `@@iterator`) fail per spec; custom iterables (`new Set([sr])`,
+    // generator results, user-defined `[Symbol.iterator]`) must be
+    // honoured. `SHADOW_ROOTS_SEQ_CAP` bounds runaway iterators
+    // independently of the spec-required `@@iterator` dispatch.
+    let iter_val = match ctx.vm.resolve_iterator(raw)? {
+        Some(iter @ JsValue::Object(_)) => iter,
+        Some(_) => {
+            return Err(VmError::type_error(format!(
+                "Failed to execute 'getHTML' on '{interface}': \
+                 '@@iterator' must return an object."
+            )));
+        }
+        None => return Err(not_iterable()),
     };
-    let mut out = HashSet::with_capacity(length);
-    for i in 0..length {
-        let index_sid = ctx.vm.strings.intern(&i.to_string());
-        let index_key = super::super::value::PropertyKey::String(index_sid);
-        let elem = ctx.vm.get_property_value(seq_id, index_key)?;
-        out.insert(validate_shadow_root_seq_element(ctx, i, elem, interface)?);
+    let mut out = HashSet::new();
+    let mut index = 0usize;
+    while let Some(elem) = ctx.vm.iter_next(iter_val)? {
+        if index >= SHADOW_ROOTS_SEQ_CAP {
+            return Err(VmError::type_error(format!(
+                "Failed to execute 'getHTML' on '{interface}': \
+                 'shadowRoots' exceeds the maximum of {SHADOW_ROOTS_SEQ_CAP} entries."
+            )));
+        }
+        out.insert(validate_shadow_root_seq_element(
+            ctx, index, elem, interface,
+        )?);
+        index += 1;
     }
     Ok(out)
 }

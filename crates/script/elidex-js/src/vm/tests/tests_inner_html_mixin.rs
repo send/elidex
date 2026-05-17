@@ -344,6 +344,52 @@ fn element_get_html_explicit_list_emits_closed_shadow_root() {
 }
 
 #[test]
+fn element_get_html_shadow_roots_consumes_custom_iterable() {
+    // PR201 Copilot R8 / F1 regression: WebIDL `sequence<T>` consumes
+    // `@@iterator`. A custom iterable (or generator, or `new Set`)
+    // must produce the same explicit-list emission as the literal
+    // array form. The earlier draft only handled dense `Array` +
+    // `{length, 0..}` indexed walk and silently dropped iterables to
+    // an empty list. `Set` isn't exposed in the test VM, so the test
+    // hand-rolls an iterable via `[Symbol.iterator]()` returning a
+    // single-shot iterator.
+    let out = run("var host = document.createElement('div'); \
+         document.body.appendChild(host); \
+         var sr = host.attachShadow({mode: 'closed'}); \
+         sr.appendChild(document.createElement('p')); \
+         var iterable = { \
+             [Symbol.iterator]() { \
+                 var done = false; \
+                 return { next() { \
+                     if (done) return { done: true, value: undefined }; \
+                     done = true; \
+                     return { done: false, value: sr }; \
+                 } }; \
+             } \
+         }; \
+         var got = host.getHTML({shadowRoots: iterable}); \
+         (got.indexOf('shadowrootmode=\"closed\"') !== -1 \
+            && got.indexOf('<p>') !== -1) \
+             ? 'ok' : ('fail:' + got);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn element_get_html_shadow_roots_plain_array_like_throws_typeerror() {
+    // Companion R8 lock: a plain `{length, 0..}` array-like (no
+    // `@@iterator`) is NOT iterable per spec, so the sequence
+    // converter must throw TypeError instead of silently treating it
+    // as a length-bounded list (which was the pre-R8 behaviour).
+    let out = run("var host = document.createElement('div'); \
+         document.body.appendChild(host); \
+         var bogus = { length: 1, 0: document.createElement('div') }; \
+         var caught = ''; \
+         try { host.getHTML({shadowRoots: bogus}); } catch (e) { caught = e.name; } \
+         (caught === 'TypeError') ? 'ok' : ('fail:' + caught);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn element_get_html_shadow_roots_null_throws_typeerror() {
     // PR201 Copilot R6 / F1 regression: per WebIDL §3.10.16, a
     // dictionary member's default is applied ONLY when the value is
