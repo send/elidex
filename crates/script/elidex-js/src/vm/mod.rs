@@ -58,6 +58,7 @@ mod shape_ops;
 mod temp_root;
 pub mod value;
 mod vm_api;
+pub(crate) mod webidl_sequence;
 mod well_known;
 
 #[cfg(feature = "engine")]

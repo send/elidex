@@ -11,6 +11,7 @@
 use super::super::super::value::{
     JsValue, NativeContext, ObjectKind, PropertyKey, StringId, VmError,
 };
+use super::super::super::webidl_sequence::webidl_iter_to_vec;
 use super::{append_entry, validate_and_normalise, ObjectId};
 
 /// Populate `headers_id` from an `init` value per WHATWG Fetch
@@ -64,29 +65,16 @@ pub(in crate::vm::host) fn parse_headers_init_entries(
                     .map(|s| s.list.clone())
                     .unwrap_or_default());
             }
-            // Source `Array`: require each element to be a length-2
-            // sequence.  Clone elements to release the borrow before
-            // coercing / validating.
-            if let ObjectKind::Array { elements } = &ctx.vm.get_object(obj_id).kind {
-                let snapshot = elements.clone();
-                let mut out = Vec::with_capacity(snapshot.len());
-                for pair in snapshot {
-                    out.push(validate_pair_entry(ctx, pair, error_prefix)?);
-                }
-                return Ok(out);
-            }
             // WebIDL union resolution for `HeadersInit` (§Fetch 5.2:
             // `sequence<sequence<ByteString>> or record<ByteString,
-            // ByteString>`): if `init` has a callable `[Symbol.iterator]`
-            // it must be consumed as the sequence branch — iterate the
-            // user-supplied iterator and validate each yielded pair.
-            // Arrays already hit the fast path above; this branch picks
-            // up generic iterables (user-defined `[Symbol.iterator]`
-            // objects, Map-like wrappers, etc.) that would otherwise
-            // fall through to the record path and silently produce an
-            // empty Headers list (R17.1).  `GetMethod` semantics:
-            // null/undefined → not iterable (record branch); any other
-            // non-callable → TypeError.
+            // ByteString>`): probe `@@iterator` first.  If callable,
+            // the sequence branch wins; otherwise fall through to the
+            // record branch.  `GetMethod` semantics: null/undefined →
+            // not iterable (record branch); any other non-callable →
+            // TypeError.  Arrays carry `Array.prototype[@@iterator]`
+            // so they take the sequence branch via the shared helper
+            // — strict spec compliance, no dense-Array fast path
+            // (overridden Array iterators must be honoured).
             let iter_key = PropertyKey::Symbol(ctx.vm.well_known_symbols.iterator);
             let iter_method = ctx.get_property_value(obj_id, iter_key)?;
             let iter_fn = match iter_method {
@@ -107,27 +95,16 @@ pub(in crate::vm::host) fn parse_headers_init_entries(
                         "{error_prefix}: @@iterator must return an object"
                     )));
                 }
-                let mut out = Vec::new();
-                // A throw from `iter_next` itself means the iterator's
-                // own `.next()` raised — per ES §7.4.6 the iterator is
-                // already considered closed, so `IteratorClose` must
-                // *not* be called.  Propagate directly.
-                while let Some(pair) = ctx.vm.iter_next(iter)? {
-                    // A throw from `validate_pair_entry` is an abrupt
-                    // completion of the for-of-like loop body; §7.4.6
-                    // requires `IteratorClose` (i.e. call `.return()` on
-                    // the iterator) before propagating.  A throw from
-                    // `.return()` itself takes precedence over the
-                    // triggering abrupt completion (§7.4.6 step 6-7).
-                    match validate_pair_entry(ctx, pair, error_prefix) {
-                        Ok(p) => out.push(p),
-                        Err(err) => {
-                            let close_err = ctx.vm.iter_close(iter).err();
-                            return Err(close_err.unwrap_or(err));
-                        }
-                    }
-                }
-                return Ok(out);
+                let cap_exceeded_msg = format!(
+                    "{error_prefix}: HeadersInit sequence exceeds the maximum supported length",
+                );
+                return webidl_iter_to_vec(
+                    ctx,
+                    iter,
+                    usize::MAX,
+                    &cap_exceeded_msg,
+                    |ctx, _idx, pair| validate_pair_entry(ctx, pair, error_prefix),
+                );
             }
             // Record branch: no `@@iterator` — iterate own enumerable
             // string keys (§9.1.11.1 order) and coerce each value.

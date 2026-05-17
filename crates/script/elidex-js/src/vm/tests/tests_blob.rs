@@ -175,6 +175,29 @@ fn ctor_rejects_non_iterable_blob_parts() {
 }
 
 #[test]
+fn ctor_honours_array_iterator_override() {
+    // WebIDL §3.10.16 step 4: overridden Array `[Symbol.iterator]`
+    // must win over dense storage.
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_number(
+            &mut vm,
+            "var arr = ['a', 'b', 'c']; \
+             arr[Symbol.iterator] = function() { \
+                 var done = false; \
+                 return { next: function() { \
+                     if (done) return { value: undefined, done: true }; \
+                     done = true; \
+                     return { value: 'xy', done: false }; \
+                 } }; \
+             }; \
+             new Blob(arr).size;"
+        ),
+        2.0
+    );
+}
+
+#[test]
 fn ctor_blob_parts_abrupt_completion_closes_iterator() {
     let mut vm = Vm::new();
     // ES §7.4.6: when a yielded part fails conversion (here, a

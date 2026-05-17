@@ -53,6 +53,7 @@ use super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
     PropertyValue, StringId, VmError,
 };
+use super::super::webidl_sequence::{webidl_sequence_to_vec, SeqMessages};
 use super::super::{NativeFn, VmInner};
 use super::array_buffer::relative_index;
 
@@ -470,55 +471,16 @@ pub(crate) fn collect_blob_parts_bytes_with_endings(
     parts: JsValue,
     endings: EndingsKind,
 ) -> Result<Arc<[u8]>, VmError> {
-    // Array fast path: arrays have `@@iterator` on their prototype
-    // and iterating would yield the same sequence, but reading
-    // elements directly avoids the iterator protocol overhead.
-    // Matches the analogous fast path in
-    // `parse_headers_init_entries`.
-    if let JsValue::Object(obj_id) = parts {
-        if let ObjectKind::Array { elements } = &ctx.vm.get_object(obj_id).kind {
-            let snapshot = elements.clone();
-            let mut out: Vec<u8> = Vec::new();
-            for part in snapshot {
-                append_blob_part_bytes(ctx, &mut out, part, endings)?;
-            }
-            return Ok(Arc::from(out));
-        }
-    }
-    // Generic iterator protocol: consume whatever `[Symbol.iterator]`
-    // yields.  `resolve_iterator` returns:
-    // - `Some(iter)` for strings (String.prototype[@@iterator]) and
-    //   any object whose `@@iterator` resolves to a callable.
-    // - `None` for primitives without @@iterator (null, undefined,
-    //   numbers, booleans) and for objects without an `@@iterator`
-    //   property.  Either case fails WebIDL sequence conversion.
-    let iter = match ctx.vm.resolve_iterator(parts)? {
-        Some(iter @ JsValue::Object(_)) => iter,
-        Some(_) => {
-            return Err(VmError::type_error(
-                "Failed to construct 'Blob': @@iterator must return an object",
-            ));
-        }
-        None => {
-            return Err(VmError::type_error(
-                "Failed to construct 'Blob': The provided value cannot be converted to a sequence",
-            ));
-        }
+    let msgs = SeqMessages {
+        not_iterable: "Failed to construct 'Blob': \
+                       The provided value cannot be converted to a sequence",
+        iter_not_object: "Failed to construct 'Blob': @@iterator must return an object",
+        cap_exceeded: "Failed to construct 'Blob': blobParts exceeds the maximum supported length",
     };
     let mut out: Vec<u8> = Vec::new();
-    // A throw from `iter_next` leaves the iterator already
-    // closed (§7.4.6).  Propagate without calling `.return()`.
-    while let Some(part) = ctx.vm.iter_next(iter)? {
-        // A throw during `append_blob_part_bytes` (e.g. `ToString`
-        // on a Symbol operand) is an abrupt completion of the
-        // for-of-like body; call `IteratorClose` before propagating.
-        // `.return()` throwing takes precedence over the triggering
-        // error (§7.4.6 step 6-7).
-        if let Err(err) = append_blob_part_bytes(ctx, &mut out, part, endings) {
-            let close_err = ctx.vm.iter_close(iter).err();
-            return Err(close_err.unwrap_or(err));
-        }
-    }
+    webidl_sequence_to_vec(ctx, parts, usize::MAX, &msgs, |ctx, _idx, part| {
+        append_blob_part_bytes(ctx, &mut out, part, endings)
+    })?;
     Ok(Arc::from(out))
 }
 

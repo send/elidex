@@ -108,6 +108,29 @@ fn ctor_pair_arity_error() {
 }
 
 #[test]
+fn ctor_honours_array_iterator_override() {
+    // WebIDL §3.10.16 step 4: overridden Array `[Symbol.iterator]`
+    // must win over dense storage.
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var arr = [['a','1'], ['b','2'], ['c','3']]; \
+             arr[Symbol.iterator] = function() { \
+                 var done = false; \
+                 return { next: function() { \
+                     if (done) return { value: undefined, done: true }; \
+                     done = true; \
+                     return { value: ['x', '9'], done: false }; \
+                 } }; \
+             }; \
+             new URLSearchParams(arr).toString();"
+        ),
+        "x=9"
+    );
+}
+
+#[test]
 fn append_adds_in_insertion_order() {
     let mut vm = Vm::new();
     assert_eq!(
