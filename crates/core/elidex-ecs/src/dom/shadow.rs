@@ -210,9 +210,19 @@ impl EcsDom {
     /// - The slot's owning shadow root must use [`SlotAssignmentMode::Manual`]
     /// - Each node must be a Element-or-Text child of the shadow host
     ///
-    /// Returns `Err(SlotAssignError)` on validation failure; updates
-    /// `SlotAssignment.assigned_nodes` in place on success.
-    pub fn slot_assign(&mut self, slot: Entity, nodes: Vec<Entity>) -> Result<(), SlotAssignError> {
+    /// Returns `Err(SlotAssignError)` on validation failure.  On success
+    /// returns `Ok(changed)` where `changed` is `true` when the
+    /// resulting `SlotAssignment.assigned_nodes` differs from the
+    /// previous list — callers gate the `slotchange` signal on this
+    /// per the spec's "assign slottables" step 2 ("if slottables and
+    /// slot's assigned nodes are not identical, then signal a slot
+    /// change").  Repeated `slot.assign(child)` with an unchanged
+    /// list returns `Ok(false)` and produces no event.
+    pub fn slot_assign(
+        &mut self,
+        slot: Entity,
+        nodes: Vec<Entity>,
+    ) -> Result<bool, SlotAssignError> {
         // Slot must be a <slot> element.  Case-insensitive match
         // mirrors `first_child_with_tag` / sibling HTML tag lookups
         // (HTML §13.2 normalises tag names case-insensitively but
@@ -257,9 +267,17 @@ impl EcsDom {
 
         // Apply assignment (insert SlotAssignment component if absent).
         // Split the existence check from the mutate-or-insert path so the
-        // immutable probe borrow drops before the mutating call.
-        let has_assignment = self.world.get::<&SlotAssignment>(slot).is_ok();
-        if has_assignment {
+        // immutable probe borrow drops before the mutating call.  Compare
+        // current vs new list to decide whether the assignment is a
+        // semantic change (which gates the `slotchange` signal — see
+        // doc-comment above).
+        let existing_nodes: Option<Vec<Entity>> = self
+            .world
+            .get::<&SlotAssignment>(slot)
+            .ok()
+            .map(|sa| sa.assigned_nodes.clone());
+        let changed = existing_nodes.as_deref() != Some(nodes.as_slice());
+        if existing_nodes.is_some() {
             if let Ok(mut existing) = self.world.get::<&mut SlotAssignment>(slot) {
                 existing.assigned_nodes = nodes;
             }
@@ -271,7 +289,7 @@ impl EcsDom {
                 },
             );
         }
-        Ok(())
+        Ok(changed)
     }
 
     /// Return the assigned (distributed) nodes for a `<slot>` element.

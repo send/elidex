@@ -585,6 +585,51 @@ fn attach_shadow_mode_coerces_via_to_string() {
 }
 
 #[test]
+fn slot_assign_unchanged_list_does_not_signal_slotchange() {
+    // R2 finding #2: WHATWG DOM §4.2.2.5 "assign slottables" step 2
+    // — only signal a slot change when the resulting assigned-nodes
+    // list differs from the prior list.  Repeated `slot.assign(c)`
+    // with the SAME nodes across separate microtask checkpoints
+    // must fire `slotchange` exactly once (initial change), not
+    // twice.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // First eval: install listener, perform first assign (fires).
+    vm.eval(&format!(
+        "globalThis.fired = 0; {MANUAL_SLOT_PRELUDE} \
+         globalThis.slot.addEventListener('slotchange', function () {{ globalThis.fired += 1; }}); \
+         globalThis.slot.assign(globalThis.child);"
+    ))
+    .unwrap();
+    let after_first = vm.eval("globalThis.fired").unwrap();
+    let JsValue::Number(n1) = after_first else {
+        panic!("expected number, got {after_first:?}");
+    };
+    assert!(
+        (n1 - 1.0).abs() < f64::EPSILON,
+        "first assign should fire once, got {n1}"
+    );
+    // Second eval: re-assign SAME node, then read counter.
+    vm.eval("globalThis.slot.assign(globalThis.child);")
+        .unwrap();
+    let after_second = vm.eval("globalThis.fired").unwrap();
+    vm.unbind();
+    let JsValue::Number(n2) = after_second else {
+        panic!("expected number, got {after_second:?}");
+    };
+    assert!(
+        (n2 - 1.0).abs() < f64::EPSILON,
+        "no-op re-assign should leave counter at 1, got {n2}"
+    );
+}
+
+#[test]
 fn slot_assign_accepts_uppercase_slot_tag() {
     // R1 finding #6: `slot_assign` tag check is case-insensitive,
     // matching sibling HTML tag lookups (e.g. `first_child_with_tag`).

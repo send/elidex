@@ -239,13 +239,12 @@ fn slot_assign(
     // Firefox.  The spec's `manually assigned nodes` slot is only
     // observable through `assignedNodes()`, which `slot_assign`'s
     // failure path correctly leaves untouched.
-    let assignment_applied = ctx.host().dom().slot_assign(slot, nodes).is_ok();
-    if assignment_applied {
-        // WHATWG DOM §4.2.2.5 "signal a slot change": queue this slot
-        // for the next microtask checkpoint so a `slotchange` event
-        // fires at it.  Only successful assignments signal — engine
-        // validation failures leave the assignment untouched and so
-        // produce no observable change.
+    // WHATWG DOM §4.2.2.5 "signal a slot change": signal only when
+    // the assigned-nodes list actually changes (per "assign
+    // slottables" step 2).  Engine validation failures (`Err`) and
+    // no-op re-assignments (`Ok(false)`) produce no observable
+    // mutation and therefore no event.
+    if let Ok(true) = ctx.host().dom().slot_assign(slot, nodes) {
         ctx.vm.signal_slot_change(slot);
     }
     Ok(JsValue::Undefined)
