@@ -72,11 +72,9 @@ impl VmInner {
             // microtask checkpoint, ahead of the WS frame
             // dispatch.
             //
-            // Phase 0b: dispatch dispatch bodies are stubs;
-            // Phase 1/2/3 fill in `WsEvent::*` and `SseEvent::*`
-            // handling.  The partition + reverse-lookup
-            // scaffolding lands here so Phase 1 only edits the
-            // dispatch arm bodies, not the wiring.
+            // Per-event variant dispatch lives in
+            // `dispatch_realtime_event` below; this loop only
+            // owns the drain + partition-by-reverse-map glue.
             for event in handle.drain_events() {
                 self.dispatch_realtime_event(event);
             }
