@@ -32,7 +32,9 @@ impl WsReadyState {
     }
 }
 
-/// Normalize a WebSocket URL per WHATWG HTML §9.3.1 step 6.
+/// Normalize a WebSocket URL's scheme per WHATWG WebSockets §9.3.1
+/// (the `http`→`ws` / `https`→`wss` promotion the spec performs before
+/// the scheme/fragment validation steps).
 ///
 /// Mutates `url` in place:
 /// - `http://` → `ws://`
@@ -42,8 +44,8 @@ impl WsReadyState {
 ///
 /// Callers should invoke this BEFORE [`validate_ws_url`] so that the
 /// downstream scheme check (which restricts to `ws`/`wss`) sees the
-/// post-normalization scheme.  The two-step split matches the spec's
-/// own ordering (step 6 normalizes, step 7+ validates fragment/SSRF).
+/// post-normalization scheme. The pair mirrors the spec's own split:
+/// normalize first, then validate scheme and fragment.
 ///
 /// Returns `Ok(())` after a successful normalization (or no-op for
 /// already-ws/wss URLs), or an error message describing the
@@ -61,30 +63,29 @@ pub fn normalize_ws_url(url: &mut url::Url) -> Result<(), String> {
     }
 }
 
-/// Validate a WebSocket URL.
+/// Validate a WebSocket URL per WHATWG WebSockets §9.3.1.
 ///
-/// Checks (in spec order per WHATWG HTML §9.3.1):
-/// - Scheme is `ws` or `wss` — step 5 (callers should run
-///   [`normalize_ws_url`] first to handle the §9.3.1 step 6 (formerly
-///   3/4) `http→ws` / `https→wss` promotion; this check then acts as
-///   a defensive backstop)
-/// - No fragment component — step 6
+/// Checks (run in spec order, with the SSRF extension last):
+/// - Scheme is `ws` or `wss`. Callers should run [`normalize_ws_url`]
+///   first to handle the `http`→`ws` / `https`→`wss` promotion; this
+///   check then acts as a defensive backstop.
+/// - No fragment component (matches the spec's `SyntaxError` rule).
 /// - SSRF protection via `elidex_plugin::url_security::validate_url`
 ///   (engine-local extension, not in spec; converts `ws`/`wss` to
-///   `http`/`https` for validation). Runs last so the spec-defined
-///   `SyntaxError` precedence for fragment/scheme is preserved
-///   regardless of host-policy outcome.
+///   `http`/`https` for the shared policy). Runs last so the
+///   spec-defined `SyntaxError` precedence for scheme/fragment is
+///   preserved regardless of host-policy outcome.
 ///
 /// Returns `Ok(())` if the URL is valid, or an error message if it is not.
 pub fn validate_ws_url(url: &url::Url) -> Result<(), String> {
-    // 1. Scheme check (spec step 5).
+    // 1. Scheme check.
     match url.scheme() {
         "ws" | "wss" => {}
         scheme => return Err(format!("unsupported scheme: {scheme}")),
     }
 
-    // 2. Fragment check (spec step 6). Runs before the SSRF extension so
-    //    the spec-mandated SyntaxError precedence is preserved (e.g.
+    // 2. Fragment check. Runs before the SSRF extension so the
+    //    spec-mandated SyntaxError precedence is preserved (e.g.
     //    `ws://localhost/#frag` reports the fragment violation, not the
     //    SSRF block, matching browser behaviour).
     if url.fragment().is_some() {
