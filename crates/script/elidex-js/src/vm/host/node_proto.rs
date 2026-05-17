@@ -214,8 +214,22 @@ pub(super) fn require_node_arg(
     let JsValue::Object(id) = value else {
         return Err(not_a_node());
     };
-    let ObjectKind::HostObject { entity_bits } = ctx.vm.get_object(id).kind else {
-        return Err(not_a_node());
+    // ShadowRoot wrappers don't carry entity bits (the entity lives
+    // in `shadow_root_states`); resolve through the side table so
+    // ShadowRoot is accepted as a Node arg per WHATWG DOM §4.8
+    // (ShadowRoot → DocumentFragment → Node).  Matches the
+    // [`super::event_target::entity_from_this`] extension.
+    let entity_bits = match ctx.vm.get_object(id).kind {
+        ObjectKind::HostObject { entity_bits } => entity_bits,
+        ObjectKind::ShadowRoot => {
+            return ctx
+                .vm
+                .shadow_root_states
+                .get(&id)
+                .map(|s| s.shadow_root)
+                .ok_or_else(not_a_node);
+        }
+        _ => return Err(not_a_node()),
     };
     let entity = Entity::from_bits(entity_bits).ok_or_else(|| {
         VmError::type_error(format!(
@@ -242,7 +256,16 @@ fn native_node_get_parent_node(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    tree_nav_getter(ctx, this, elidex_ecs::EcsDom::get_parent)
+    // `shadowRoot.parentNode === null` per WHATWG DOM §4.8 — a
+    // shadow root is not a tree child of its host even though the
+    // ECS edge points back.  Filter the ECS parent for shadow root
+    // receivers before lifting it to a wrapper.
+    tree_nav_getter(ctx, this, |dom, e| {
+        if dom.world().get::<&elidex_ecs::ShadowRoot>(e).is_ok() {
+            return None;
+        }
+        dom.get_parent(e)
+    })
 }
 
 /// `Node.prototype.parentElement` — returns the parent only if it is
@@ -254,9 +277,14 @@ fn native_node_get_parent_element(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    tree_nav_getter(ctx, this, |dom, e| match dom.get_parent(e) {
-        Some(p) if dom.world().get::<&TagType>(p).is_ok() => Some(p),
-        _ => None,
+    tree_nav_getter(ctx, this, |dom, e| {
+        if dom.world().get::<&elidex_ecs::ShadowRoot>(e).is_ok() {
+            return None;
+        }
+        match dom.get_parent(e) {
+            Some(p) if dom.world().get::<&TagType>(p).is_ok() => Some(p),
+            _ => None,
+        }
     })
 }
 
@@ -285,7 +313,15 @@ fn native_node_get_next_sibling(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    tree_nav_getter(ctx, this, elidex_ecs::EcsDom::next_exposed_sibling)
+    // Shadow roots have no siblings per WHATWG §4.8 (the shadow
+    // root isn't a tree child of its host even though the ECS edge
+    // points back).  Same rationale as `parentNode`.
+    tree_nav_getter(ctx, this, |dom, e| {
+        if dom.world().get::<&elidex_ecs::ShadowRoot>(e).is_ok() {
+            return None;
+        }
+        dom.next_exposed_sibling(e)
+    })
 }
 
 fn native_node_get_previous_sibling(
@@ -293,7 +329,12 @@ fn native_node_get_previous_sibling(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    tree_nav_getter(ctx, this, elidex_ecs::EcsDom::prev_exposed_sibling)
+    tree_nav_getter(ctx, this, |dom, e| {
+        if dom.world().get::<&elidex_ecs::ShadowRoot>(e).is_ok() {
+            return None;
+        }
+        dom.prev_exposed_sibling(e)
+    })
 }
 
 fn native_node_get_child_nodes(

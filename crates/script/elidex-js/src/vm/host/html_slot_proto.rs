@@ -354,8 +354,15 @@ pub(in crate::vm) fn dispatch_pending_slotchange_signals(vm: &mut VmInner) -> us
         return 0;
     }
     let type_sid = vm.well_known.slotchange_event;
+    // Snapshot the signal-slots set BEFORE dispatch (WHATWG DOM
+    // §4.3.4 "notify mutation observers" step 3: clone signal slots,
+    // empty signal slots, then fire `slotchange` for each slot in
+    // the clone).  Slots signaled by a `slotchange` listener body
+    // during this pass land on the live queue and fire in the next
+    // microtask checkpoint — NOT re-entrantly inside this dispatch.
+    let snapshot: Vec<Entity> = vm.pending_slot_change_signals.drain(..).collect();
     let mut fired = 0usize;
-    while let Some(slot) = vm.pending_slot_change_signals.pop_front() {
+    for slot in snapshot {
         // `slot.assign()` followed by tree mutation
         // (`parent.removeChild(slot)`) before the microtask drains
         // can destroy the entity; drop without firing.

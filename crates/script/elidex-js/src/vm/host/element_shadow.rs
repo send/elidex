@@ -140,13 +140,17 @@ fn read_required_mode(
 ) -> Result<ShadowRootMode, VmError> {
     let mode_key = PropertyKey::String(ctx.vm.strings.intern("mode"));
     let raw = ctx.vm.get_property_value(init_id, mode_key)?;
-    let JsValue::String(s_sid) = raw else {
+    if matches!(raw, JsValue::Undefined) {
         return Err(VmError::type_error(
             "Failed to execute 'attachShadow' on 'Element': \
              'mode' is required and must be 'open' or 'closed'"
                 .to_string(),
         ));
-    };
+    }
+    // WebIDL enum conversion: ToString-coerce arbitrary JS values
+    // (so `new String('open')`, Symbol.toPrimitive objects, etc.
+    // route through their conversion methods).
+    let s_sid = super::super::coerce::to_string(ctx.vm, raw)?;
     let s = ctx.vm.strings.get_utf8(s_sid);
     match s.as_str() {
         "open" => Ok(ShadowRootMode::Open),
@@ -180,13 +184,9 @@ fn read_optional_slot_assignment(
     if matches!(raw, JsValue::Undefined) {
         return Ok(SlotAssignmentMode::Named);
     }
-    let JsValue::String(s_sid) = raw else {
-        return Err(VmError::type_error(
-            "Failed to execute 'attachShadow' on 'Element': \
-             'slotAssignment' must be 'named' or 'manual'"
-                .to_string(),
-        ));
-    };
+    // WebIDL enum conversion is ToString-first (see
+    // [`read_required_mode`]).
+    let s_sid = super::super::coerce::to_string(ctx.vm, raw)?;
     let s = ctx.vm.strings.get_utf8(s_sid);
     match s.as_str() {
         "named" => Ok(SlotAssignmentMode::Named),

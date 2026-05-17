@@ -61,29 +61,35 @@ impl VmInner {
 /// behaviour on mixed-type arg lists).
 fn normalize_single_arg(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<Entity, VmError> {
     if let JsValue::Object(id) = val {
-        if let ObjectKind::HostObject { entity_bits } = ctx.vm.get_object(id).kind {
-            if let Some(entity) = Entity::from_bits(entity_bits) {
-                // A HostObject whose `entity_bits` decodes but no
-                // longer exists in the DOM world is a detached /
-                // destroyed node — matches `require_node_arg`'s
-                // "detached (invalid entity)" brand failure.
-                // Silently coercing a stale Node wrapper to a Text
-                // node would hide the bug.
-                if !ctx.host().dom().contains(entity) {
-                    return Err(VmError::type_error(
-                        "Failed to execute argument conversion: \
-                         the node is detached (invalid entity).",
-                    ));
-                }
-                // Accept any DOM node (including legacy entities
-                // missing `NodeKind` but carrying DOM payload) via
-                // `node_kind_inferred`.  Window is an `EventTarget`
-                // but not a Node in WHATWG so it falls through to
-                // text coercion.
-                let inferred = ctx.host().dom().node_kind_inferred(entity);
-                if matches!(inferred, Some(k) if k != NodeKind::Window) {
-                    return Ok(entity);
-                }
+        // Resolve HostObject entity bits OR a ShadowRoot wrapper's
+        // backing entity (ShadowRoot is a Node per WHATWG §4.8 →
+        // DocumentFragment → Node, mirrors
+        // [`super::node_proto::require_node_arg`]).
+        let entity_opt = match ctx.vm.get_object(id).kind {
+            ObjectKind::HostObject { entity_bits } => Entity::from_bits(entity_bits),
+            ObjectKind::ShadowRoot => ctx.vm.shadow_root_states.get(&id).map(|s| s.shadow_root),
+            _ => None,
+        };
+        if let Some(entity) = entity_opt {
+            // A wrapper whose entity bits decode but no longer exist
+            // in the DOM world is a detached / destroyed node —
+            // matches `require_node_arg`'s "detached (invalid
+            // entity)" brand failure.  Silently coercing a stale
+            // Node wrapper to a Text node would hide the bug.
+            if !ctx.host().dom().contains(entity) {
+                return Err(VmError::type_error(
+                    "Failed to execute argument conversion: \
+                     the node is detached (invalid entity).",
+                ));
+            }
+            // Accept any DOM node (including legacy entities
+            // missing `NodeKind` but carrying DOM payload) via
+            // `node_kind_inferred`.  Window is an `EventTarget`
+            // but not a Node in WHATWG so it falls through to
+            // text coercion.
+            let inferred = ctx.host().dom().node_kind_inferred(entity);
+            if matches!(inferred, Some(k) if k != NodeKind::Window) {
+                return Ok(entity);
             }
         }
     }

@@ -429,6 +429,195 @@ fn slotchange_not_fired_when_assign_validation_fails() {
 }
 
 // -------------------------------------------------------------------------
+// Copilot R1 regression tests
+// -------------------------------------------------------------------------
+
+#[test]
+fn shadow_root_accepted_as_node_arg() {
+    // R1 finding #1: `Node` IDL arg surface must accept a ShadowRoot
+    // wrapper; previously rejected because `require_node_arg` only
+    // handled `ObjectKind::HostObject`.  `sr.contains(sr)` and
+    // `sr.isSameNode(sr)` both pass the receiver back as a `Node`
+    // argument — without the fix they throw `TypeError` "not of
+    // type 'Node'".  `host.contains(sr)` is correctly `false` per
+    // spec (shadow root isn't a light-tree descendant of its host),
+    // so the test goes through self-receiver instead.
+    let out = run("var host = document.createElement('div'); \
+         document.body.appendChild(host); \
+         var sr = host.attachShadow({mode: 'open'}); \
+         (sr.contains(sr) === true && sr.isSameNode(sr) === true) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn shadow_root_parent_node_is_null() {
+    // R1 finding #2: `shadowRoot.parentNode === null` per WHATWG
+    // §4.8; previously returned the host because `entity_from_this`
+    // resolved through the ECS parent edge.
+    let out = run("var host = document.createElement('div'); \
+         document.body.appendChild(host); \
+         var sr = host.attachShadow({mode: 'open'}); \
+         (sr.parentNode === null && sr.parentElement === null \
+          && sr.nextSibling === null && sr.previousSibling === null) \
+           ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn slotchange_listener_promise_then_runs_in_same_checkpoint() {
+    // R1 finding #3: a microtask queued by a slotchange listener
+    // body must run within the same `drain_microtasks` pass, not
+    // be deferred to the next checkpoint.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval(
+        "globalThis.slot_fired = 0; globalThis.then_fired = 0; \
+         var host = document.createElement('div'); \
+         document.body.appendChild(host); \
+         var c = document.createElement('span'); \
+         host.appendChild(c); \
+         var sr = host.attachShadow({mode: 'open', slotAssignment: 'manual'}); \
+         var slot = document.createElement('slot'); \
+         sr.append(slot); \
+         slot.addEventListener('slotchange', function () { \
+             globalThis.slot_fired += 1; \
+             Promise.resolve().then(function () { globalThis.then_fired += 1; }); \
+         }); \
+         slot.assign(c);",
+    )
+    .unwrap();
+    let slot_fired = vm.eval("globalThis.slot_fired").unwrap();
+    let then_fired = vm.eval("globalThis.then_fired").unwrap();
+    vm.unbind();
+    let JsValue::Number(s) = slot_fired else {
+        panic!("expected number, got {slot_fired:?}");
+    };
+    let JsValue::Number(t) = then_fired else {
+        panic!("expected number, got {then_fired:?}");
+    };
+    assert_eq!(s, 1.0, "slotchange should fire once");
+    assert_eq!(
+        t, 1.0,
+        "then() callback queued by listener should run in same checkpoint"
+    );
+}
+
+#[test]
+fn slotchange_signal_during_dispatch_defers_to_next_checkpoint() {
+    // R1 finding #4: `signal_slots` is snapshotted before dispatch;
+    // a `slot.assign()` from inside a slotchange listener body
+    // queues for the next checkpoint, not re-entrantly in the same
+    // dispatch.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // First eval: install listener that signals slot2 the FIRST
+    // time slot1's slotchange fires; both slots assigned initially.
+    vm.eval(
+        "globalThis.fired = []; globalThis.reentered = false; \
+         var host = document.createElement('div'); \
+         document.body.appendChild(host); \
+         var c1 = document.createElement('span'); host.appendChild(c1); \
+         var c2 = document.createElement('span'); host.appendChild(c2); \
+         var sr = host.attachShadow({mode: 'open', slotAssignment: 'manual'}); \
+         globalThis.slot1 = document.createElement('slot'); \
+         globalThis.slot2 = document.createElement('slot'); \
+         sr.append(globalThis.slot1); sr.append(globalThis.slot2); \
+         globalThis.slot1.addEventListener('slotchange', function () { \
+             globalThis.fired.push('s1'); \
+             if (!globalThis.reentered) { \
+                 globalThis.reentered = true; \
+                 globalThis.slot2.assign(c2); \
+             } \
+         }); \
+         globalThis.slot2.addEventListener('slotchange', function () { \
+             globalThis.fired.push('s2'); \
+         }); \
+         globalThis.slot1.assign(c1);",
+    )
+    .unwrap();
+    // After first eval: slot1 fires (recorded 's1'), then re-entered
+    // dispatch attempts slot2 — but spec says snapshot-then-drain,
+    // so slot2 signal lands on next checkpoint.  Force the next
+    // checkpoint via a second eval boundary.
+    let after_first = vm.eval("globalThis.fired.join(',')").unwrap();
+    let JsValue::String(sid) = after_first else {
+        panic!("expected string after first eval, got {after_first:?}");
+    };
+    let first_observed = vm.inner.strings.get_utf8(sid);
+    let after_second = vm.eval("globalThis.fired.join(',')").unwrap();
+    let JsValue::String(sid2) = after_second else {
+        panic!("expected string after second eval, got {after_second:?}");
+    };
+    let second_observed = vm.inner.strings.get_utf8(sid2);
+    vm.unbind();
+    assert_eq!(
+        first_observed, "s1",
+        "first checkpoint should fire only the originally-signaled slot1"
+    );
+    assert_eq!(
+        second_observed, "s1,s2",
+        "next checkpoint should pick up slot2 signaled by listener"
+    );
+}
+
+#[test]
+fn attach_shadow_mode_coerces_via_to_string() {
+    // R1 finding #5: WebIDL enum conversion is ToString-first, so
+    // `new String('open')` (boxed string) coerces to the primitive
+    // "open" and succeeds.  Previous code accepted only primitive
+    // `JsValue::String`.
+    let out = run("var host = document.createElement('div'); \
+         var sr = host.attachShadow({mode: new String('open')}); \
+         (sr !== null && sr.mode === 'open') ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn slot_assign_accepts_uppercase_slot_tag() {
+    // R1 finding #6: `slot_assign` tag check is case-insensitive,
+    // matching sibling HTML tag lookups (e.g. `first_child_with_tag`).
+    // Tags inserted via APIs that preserve case (custom parsers,
+    // SVG-style attribute sets) must still validate as `<slot>`.
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let host = dom.create_element("div", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(doc, host));
+    let sr = dom
+        .attach_shadow_with_init(
+            host,
+            elidex_ecs::ShadowInit {
+                mode: elidex_ecs::ShadowRootMode::Open,
+                slot_assignment: elidex_ecs::SlotAssignmentMode::Manual,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let upper_slot = dom.create_element("SLOT", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(sr, upper_slot));
+    // Should NOT return NotASlot — the case-insensitive match
+    // accepts "SLOT" as a slot tag.  Validation may still fail
+    // for other reasons (no light-DOM children to assign here), so
+    // an empty-nodes assign exercises the tag check alone.
+    let result = dom.slot_assign(upper_slot, Vec::new());
+    assert!(
+        result.is_ok(),
+        "case-insensitive slot tag check should accept SLOT; got {result:?}"
+    );
+}
+
+// -------------------------------------------------------------------------
 // Lifecycle / unbind regression
 // -------------------------------------------------------------------------
 

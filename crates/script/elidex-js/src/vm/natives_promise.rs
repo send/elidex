@@ -267,48 +267,65 @@ impl VmInner {
             return;
         }
         self.microtask_drain_depth += 1;
-        while let Some(task) = self.microtask_queue.pop_front() {
-            // Install the popped task as a GC root before invoking user
-            // code — the callback we're about to run can trigger GC, and
-            // without this slot the reaction's handler/capability/resolution
-            // (or bare callback func) are only held in Rust locals and
-            // would be collected.  `Microtask` is `Copy`, so we hold a
-            // snapshot locally for dispatch while `current_microtask`
-            // keeps the originals rooted.
-            self.current_microtask = Some(task);
-            match task {
-                Microtask::PromiseReaction {
-                    kind,
-                    handler,
-                    capability,
-                    resolution,
-                } => {
-                    run_reaction(self, kind, handler, capability, resolution);
-                }
-                Microtask::Callback { func } => {
-                    run_callback(self, func);
-                }
-            }
-            self.current_microtask = None;
-        }
+        // Pass 1 — drain the existing microtask queue.
+        drain_queue_pass(self);
         // End-of-drain: dispatch a `PromiseRejectionEvent` to the
         // document's `unhandledrejection` listeners (HTML §8.1.5.5
         // HostPromiseRejectionTracker hook), falling back to an
         // `eprintln!` when no listener calls `preventDefault`.  Wired
         // in PR3 C10.
         process_pending_rejections(self);
-        // End-of-drain: fire a `slotchange` Event at each `<slot>`
-        // signaled by `HTMLSlotElement.assign()` (WHATWG DOM §4.2.2.5
-        // + §4.3.4 "notify mutation observers" microtask checkpoint).
-        // The full spec-correct MO microtask path is embedder-driven
-        // (`Vm::deliver_mutation_records`); firing here matches the
-        // observable timing for script-initiated assignments and lets
-        // a chained Promise reaction observe the dispatched state.
+        // Notify mutation observers (slotchange fan-out) per WHATWG
+        // DOM §4.3.4.  The full spec-correct MO microtask path is
+        // embedder-driven (`Vm::deliver_mutation_records`); firing
+        // here matches the observable timing for script-initiated
+        // assignments.  Exactly ONE notify-MO per checkpoint per
+        // spec — slots signaled by a listener body stay queued for
+        // the next checkpoint.
         #[cfg(feature = "engine")]
-        {
-            super::host::html_slot_proto::dispatch_pending_slotchange_signals(self);
+        let fired_any = super::host::html_slot_proto::dispatch_pending_slotchange_signals(self) > 0;
+        #[cfg(not(feature = "engine"))]
+        let fired_any = false;
+        // Pass 2 — drain microtasks queued by slotchange listeners
+        // (e.g. `Promise.resolve().then(cb)` inside a listener body).
+        // Per spec, those run within the SAME checkpoint, not the
+        // next one.
+        if fired_any {
+            drain_queue_pass(self);
+            process_pending_rejections(self);
         }
         self.microtask_drain_depth -= 1;
+    }
+}
+
+/// Drain every entry currently in `vm.microtask_queue`, in FIFO
+/// order, rooting the popped task across user-code invocation.
+/// Tasks enqueued during a callback are processed by the same loop
+/// (they land on `microtask_queue` before the next `pop_front`).
+fn drain_queue_pass(vm: &mut VmInner) {
+    while let Some(task) = vm.microtask_queue.pop_front() {
+        // Install the popped task as a GC root before invoking user
+        // code — the callback we're about to run can trigger GC, and
+        // without this slot the reaction's handler/capability/resolution
+        // (or bare callback func) are only held in Rust locals and
+        // would be collected.  `Microtask` is `Copy`, so we hold a
+        // snapshot locally for dispatch while `current_microtask`
+        // keeps the originals rooted.
+        vm.current_microtask = Some(task);
+        match task {
+            Microtask::PromiseReaction {
+                kind,
+                handler,
+                capability,
+                resolution,
+            } => {
+                run_reaction(vm, kind, handler, capability, resolution);
+            }
+            Microtask::Callback { func } => {
+                run_callback(vm, func);
+            }
+        }
+        vm.current_microtask = None;
     }
 }
 

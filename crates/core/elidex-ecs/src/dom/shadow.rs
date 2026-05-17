@@ -213,12 +213,15 @@ impl EcsDom {
     /// Returns `Err(SlotAssignError)` on validation failure; updates
     /// `SlotAssignment.assigned_nodes` in place on success.
     pub fn slot_assign(&mut self, slot: Entity, nodes: Vec<Entity>) -> Result<(), SlotAssignError> {
-        // Slot must be a <slot> element.
+        // Slot must be a <slot> element.  Case-insensitive match
+        // mirrors `first_child_with_tag` / sibling HTML tag lookups
+        // (HTML §13.2 normalises tag names case-insensitively but
+        // the stored `TagType` may originate from a custom source).
         let is_slot = self
             .world
             .get::<&TagType>(slot)
             .ok()
-            .is_some_and(|t| t.0.as_str() == "slot");
+            .is_some_and(|t| t.0.eq_ignore_ascii_case("slot"));
         if !is_slot {
             return Err(SlotAssignError::NotASlot);
         }
