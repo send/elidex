@@ -251,11 +251,15 @@ fn html_slot_assign_manual_mode_distributes_children() {
 #[test]
 fn html_slot_assign_named_mode_is_silent_no_op() {
     // Named-mode shadow roots ignore manual `slot.assign()` per
-    // WHATWG DOM §4.2.2.5 — assignment fails engine validation and
-    // is observable as an empty `assignedNodes()`.
+    // WHATWG DOM §4.2.2.5.  The child below has a `slot="other"`
+    // attribute that doesn't match the unnamed default slot's name
+    // (""), so named-mode distribution does NOT pick it up either;
+    // `assignedNodes()` is therefore empty regardless of the
+    // ignored manual assign.
     let out = run("var host = document.createElement('div'); \
          document.body.appendChild(host); \
          var child = document.createElement('span'); \
+         child.setAttribute('slot', 'other'); \
          host.appendChild(child); \
          var sr = host.attachShadow({mode: 'open'}); \
          var slot = document.createElement('slot'); \
@@ -461,6 +465,64 @@ fn document_fragment_carries_parent_node_mixin() {
          (typeof frag.append === 'function' \
           && typeof frag.prepend === 'function' \
           && span.parentNode !== null) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn shadow_root_states_cleared_on_unbind() {
+    // R4 finding #1: `shadow_root_states` (ObjectId-keyed) holds the
+    // shadow-root Entity each wrapper resolves to.  Entity indices
+    // are reused by a fresh `EcsDom`, so a retained ShadowRoot
+    // wrapper must not silently resolve to an unrelated entity in
+    // the new DOM post-rebind.  Unbind clears the side table; the
+    // wrapper's brand check then throws "Illegal invocation" on
+    // post-unbind accessor reads.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let _ = vm
+        .eval("var host = document.createElement('div'); host.attachShadow({mode: 'open'});")
+        .unwrap();
+    assert!(
+        !vm.inner.shadow_root_states.is_empty(),
+        "expected attachShadow to populate shadow_root_states"
+    );
+    vm.unbind();
+    assert!(
+        vm.inner.shadow_root_states.is_empty(),
+        "expected shadow_root_states to be cleared on unbind, found {} entries",
+        vm.inner.shadow_root_states.len()
+    );
+}
+
+#[test]
+fn assigned_nodes_named_mode_matches_slot_attribute() {
+    // R4 finding #2: WHATWG DOM §4.2.2.5 "find slottables" — named
+    // mode (default) distributes light-DOM children to slots by
+    // matching the child's `slot` attribute against the slot's
+    // `name` attribute.  Default slot (`name=""`) catches children
+    // with no `slot` attribute.
+    let out = run("var host = document.createElement('div'); \
+         document.body.appendChild(host); \
+         var named = document.createElement('span'); \
+         named.setAttribute('slot', 'header'); \
+         var unnamed = document.createElement('span'); \
+         host.appendChild(named); host.appendChild(unnamed); \
+         var sr = host.attachShadow({mode: 'open'}); \
+         var header = document.createElement('slot'); \
+         header.setAttribute('name', 'header'); \
+         var def = document.createElement('slot'); \
+         sr.append(header); sr.append(def); \
+         var h = header.assignedNodes(); \
+         var d = def.assignedNodes(); \
+         (h.length === 1 && h[0] === named \
+          && d.length === 1 && d[0] === unnamed) \
+           ? 'ok' : 'fail:' + h.length + '/' + d.length;");
     assert_eq!(out, "ok");
 }
 

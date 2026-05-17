@@ -292,21 +292,68 @@ impl EcsDom {
         Ok(changed)
     }
 
-    /// Return the assigned (distributed) nodes for a `<slot>` element.
+    /// Return the assigned (distributed) nodes for a `<slot>` element
+    /// (WHATWG DOM §4.2.2.5 "find slottables" + `assignedNodes()`
+    /// algorithm).
     ///
-    /// `flatten=false` returns the slot's assigned nodes as-is per
-    /// WHATWG DOM §4.2.2.5 `assignedNodes()` algorithm — no fallback.
-    /// `flatten=true` should recursively expand nested-slot assignments
-    /// per the "find flattened slottables" algorithm, but for now degrades
-    /// to the non-flatten result + a deferred-marker semantics
-    /// (slot `#11-shadow-slot-flatten` — full recursion lands when nested
-    /// shadow trees become common in test corpus).
+    /// Dispatch by the owning shadow root's slot-assignment mode:
+    /// - **Manual** — return `SlotAssignment.assigned_nodes` (populated
+    ///   by `slot.assign(...)`); empty if no manual assignment yet.
+    /// - **Named** — walk the host's light-DOM children in tree order,
+    ///   filtering to Element-or-Text whose effective slot name (the
+    ///   `slot` content attribute for Elements, `""` for Text) matches
+    ///   the slot's own `name` attribute (`""` for an unnamed slot).
+    ///
+    /// `flatten=true` should recursively expand nested-slot
+    /// assignments per the "find flattened slottables" algorithm, but
+    /// for now degrades to the non-flatten result — full recursion
+    /// lands at slot `#11-shadow-slot-flatten`.
+    ///
+    /// Returns an empty vec when `slot` isn't inside a shadow tree
+    /// (matches the spec's vacuous "no assigned slot" case).
     #[must_use]
     pub fn assigned_nodes(&self, slot: Entity, _flatten: bool) -> Vec<Entity> {
-        self.world
-            .get::<&SlotAssignment>(slot)
-            .map(|sa| sa.assigned_nodes.clone())
-            .unwrap_or_default()
+        let Some(sr_entity) = self.shadow_root_entity_for_slot(slot) else {
+            return Vec::new();
+        };
+        let mode = self
+            .world
+            .get::<&ShadowRoot>(sr_entity)
+            .map_or(SlotAssignmentMode::Named, |sr| sr.slot_assignment);
+        if mode == SlotAssignmentMode::Manual {
+            return self
+                .world
+                .get::<&SlotAssignment>(slot)
+                .map(|sa| sa.assigned_nodes.clone())
+                .unwrap_or_default();
+        }
+        // Named mode — walk light-DOM children of the host, match
+        // by `slot` attribute vs. the slot's `name` attribute.
+        let Some(host) = self
+            .world
+            .get::<&ShadowRoot>(sr_entity)
+            .ok()
+            .map(|sr| sr.host)
+        else {
+            return Vec::new();
+        };
+        let slot_name = self.get_attribute(slot, "name").unwrap_or_default();
+        let mut out = Vec::new();
+        for child in self.children_iter(host) {
+            let kind = self.world.get::<&NodeKind>(child).map(|k| *k).ok();
+            let matches = match kind {
+                Some(NodeKind::Element) => {
+                    let child_slot = self.get_attribute(child, "slot").unwrap_or_default();
+                    child_slot == slot_name
+                }
+                Some(NodeKind::Text) => slot_name.is_empty(),
+                _ => false,
+            };
+            if matches {
+                out.push(child);
+            }
+        }
+        out
     }
 
     /// Locate the host Element for a `<slot>` by walking up to the
