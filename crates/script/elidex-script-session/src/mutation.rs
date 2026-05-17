@@ -244,8 +244,15 @@ fn empty_record(kind: MutationKind, target: Entity) -> MutationRecord {
 }
 
 fn apply_append_child(dom: &mut EcsDom, parent: Entity, child: Entity) -> Option<MutationRecord> {
-    // Capture previous sibling before mutation (the current last child).
-    let prev_sibling = dom.get_last_child(parent);
+    // Capture previous sibling before mutation (the current last
+    // exposed child). `get_last_child` would return a `ShadowRoot`
+    // entity on a shadow host with no light-tree children, leaking
+    // it via `MutationRecord.previousSibling`; `children_iter_rev`
+    // skips internal ShadowRoot entities so the captured sibling
+    // matches the DOM-visible chain — same encapsulation invariant
+    // the insert/remove/replace paths enforce via
+    // `prev_exposed_sibling` / `next_exposed_sibling`.
+    let prev_sibling = dom.children_iter_rev(parent).next();
     if !dom.append_child(parent, child) {
         return None;
     }
@@ -1086,6 +1093,44 @@ mod tests {
         assert_eq!(
             record.previous_sibling, None,
             "no exposed prev sibling for target (shadow root skipped)"
+        );
+    }
+
+    #[test]
+    fn apply_append_child_does_not_leak_shadow_root_as_previous_sibling() {
+        // PR201 Copilot R4 / F3 regression: `apply_append_child` was
+        // capturing `prev_sibling` via raw `get_last_child(parent)`,
+        // which returns the internal ShadowRoot when the host has no
+        // light-tree children yet. The fix walks via
+        // `children_iter_rev` (which skips ShadowRoot entities).
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let host = elem(&mut dom, "div");
+        let _ = dom.append_child(root, host);
+        let shadow_root = dom
+            .attach_shadow(host, elidex_ecs::ShadowRootMode::Closed)
+            .expect("attach closed shadow");
+        // Sanity: raw `get_last_child(host)` IS the shadow root —
+        // confirms the helper would leak without the fix.
+        assert_eq!(
+            dom.get_last_child(host),
+            Some(shadow_root),
+            "shadow root is the only sibling at this point"
+        );
+        let new_child = elem(&mut dom, "span");
+        let m = Mutation::AppendChild {
+            parent: host,
+            child: new_child,
+        };
+        let record = apply_mutation(&m, &mut dom).expect("append should succeed");
+        assert_ne!(
+            record.previous_sibling,
+            Some(shadow_root),
+            "MutationRecord.previous_sibling must not leak shadow root"
+        );
+        assert_eq!(
+            record.previous_sibling, None,
+            "no exposed prev sibling (shadow root skipped)"
         );
     }
 

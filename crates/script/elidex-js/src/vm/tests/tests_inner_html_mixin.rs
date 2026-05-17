@@ -344,6 +344,24 @@ fn element_get_html_explicit_list_emits_closed_shadow_root() {
 }
 
 #[test]
+fn element_get_html_huge_shadow_roots_length_is_capped_safely() {
+    // PR201 Copilot R4 / F1 regression: a malicious caller passing
+    // `{length: 2**31}` (or any value beyond `DENSE_ARRAY_LEN_LIMIT`)
+    // would previously force a multi-GB `Vec::with_capacity` allocation
+    // and exhaust process memory. The cap mirrors
+    // `natives_function.rs::collect_array_like`. The probe completes
+    // synchronously and produces a TypeError ("not a ShadowRoot") on
+    // the first iteration — no OOM.
+    let out = run("var host = document.createElement('div'); \
+         document.body.appendChild(host); \
+         var bogus = { length: 2147483648, 0: document.createElement('div') }; \
+         var caught = ''; \
+         try { host.getHTML({shadowRoots: bogus}); } catch (e) { caught = e.name; } \
+         (caught === 'TypeError') ? 'ok' : ('fail:' + caught);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn element_get_html_throws_typeerror_on_non_object_primitive_options() {
     // PR201 Copilot R3 / F1 regression: WebIDL §3.10.16 dictionary
     // conversion throws TypeError for non-Object / non-null /

@@ -235,8 +235,15 @@ fn parse_shadow_root_sequence(
         } else {
             let length_key = super::super::value::PropertyKey::String(ctx.vm.well_known.length);
             let length_val = ctx.vm.get_property_value(seq_id, length_key)?;
-            let length = super::super::coerce::to_uint32(ctx.vm, length_val)? as usize;
-            let mut out = Vec::with_capacity(length);
+            // Cap to `DENSE_ARRAY_LEN_LIMIT` so a caller passing a
+            // huge `length` (e.g. `{length: 2**32 - 1}`) cannot force a
+            // multi-GB `Vec::with_capacity` allocation — mirrors
+            // `natives_function.rs::collect_array_like`. The
+            // pre-allocation is additionally bounded to 1024 since the
+            // typical caller passes a small handful of ShadowRoots.
+            let length = (super::super::coerce::to_uint32(ctx.vm, length_val)? as usize)
+                .min(super::super::ops::DENSE_ARRAY_LEN_LIMIT);
+            let mut out = Vec::with_capacity(length.min(1024));
             for i in 0..length {
                 let index_sid = ctx.vm.strings.intern(&i.to_string());
                 let index_key = super::super::value::PropertyKey::String(index_sid);

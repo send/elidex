@@ -103,7 +103,18 @@ description = "Hard-cap target/ size to bound incremental cache growth (cargo-sw
 # `--installed` is always safe (drops artifacts from rust toolchains
 # that have been uninstalled via rustup; never touches the active
 # toolchain).
+#
+# `cargo-sweep` is an external cargo subcommand — install with
+# `cargo install cargo-sweep`. We skip with a warning when it isn't
+# present so a fresh checkout doesn't fail `mise run ci`; the only
+# cost of skipping is unbounded incremental cache growth (mitigated
+# by manual `rm -rf target/debug/incremental` if it hits ~100GB).
 run = """
+if ! command -v cargo-sweep >/dev/null 2>&1; then
+  echo "[ci-sweep] cargo-sweep not installed — skipping cache prune"
+  echo "[ci-sweep] install with: cargo install cargo-sweep"
+  exit 0
+fi
 cargo sweep --installed
 cargo sweep --maxsize 30000
 """
