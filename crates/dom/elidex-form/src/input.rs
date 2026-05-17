@@ -308,7 +308,7 @@ fn handle_readonly_navigation(state: &mut FormControlState, key: &str) -> bool {
 ///
 /// Returns `None` for input types the `list` attribute does not apply to
 /// (hidden / checkbox / radio / file / submit / image / reset / button /
-/// password — see [`FormControlKind::list_applies`]).
+/// password — see `input_list_applies_to_type` for the spec exclusion set).
 ///
 /// Tree scope honors shadow boundaries — nested shadow subtrees within the
 /// same root are correctly excluded per the spec's "same tree" wording.
@@ -362,22 +362,40 @@ fn matches_datalist_with_id(dom: &EcsDom, entity: Entity, id: &str) -> bool {
         .is_ok_and(|a| a.get("id") == Some(id))
 }
 
-/// `<input>.list` applicability per HTML §4.10.5.1.16.  Prefer
-/// `FormControlState.kind` (parsed + ASCII-lowered at attach time);
-/// fall back to the raw `type` content attribute for JS-created inputs
-/// without state (mirrors the dual-source pattern in
-/// [`crate::label::is_labelable_element`]).
+/// `<input>.list` applicability per HTML §4.10.5.1.16.
+///
+/// Reads the `type` content attribute directly (spec source of truth):
+/// `setAttribute("type", X)` mutates `Attributes` synchronously while
+/// any cached `FormControlState.kind` only re-syncs on a type-change
+/// sanitize pass — preferring the cached kind would let stale state
+/// mask a fresh `setAttribute("type", "hidden")` mutation.
+///
+/// Missing attribute defaults to `"text"` per HTML §4.10.5.1 missing-
+/// value-default rule.
+///
+/// Exclusion set is matched against the spec text directly (rather than
+/// routed through [`FormControlKind`]) because `from_type_str` collapses
+/// `"image"` (and the unmodeled `"month"` / `"week"` / `"time"`) onto
+/// `TextInput` — that fallback is harmless for the applicable types but
+/// would incorrectly admit `<input type="image">` if the predicate was
+/// gated on `FormControlKind::list_applies`.
 fn input_list_applies_to_type(dom: &EcsDom, input_entity: Entity) -> bool {
-    if let Ok(state) = dom.world().get::<&FormControlState>(input_entity) {
-        return state.kind.list_applies();
-    }
     let Ok(attrs) = dom.world().get::<&Attributes>(input_entity) else {
-        // No attributes component — defensive default to true (the
-        // surrounding `list` attribute read will return None anyway).
         return true;
     };
-    let type_str = attrs.get("type").unwrap_or("text").to_ascii_lowercase();
-    FormControlKind::from_type_str(&type_str).list_applies()
+    let type_str = attrs.get("type").unwrap_or("text");
+    !matches!(
+        type_str.to_ascii_lowercase().as_str(),
+        "hidden"
+            | "checkbox"
+            | "radio"
+            | "file"
+            | "submit"
+            | "image"
+            | "reset"
+            | "button"
+            | "password"
+    )
 }
 
 #[cfg(test)]
@@ -976,7 +994,9 @@ mod tests {
 
     #[test]
     fn resolve_input_list_returns_none_for_button_types() {
-        for ty in ["submit", "reset", "button"] {
+        // image is grouped with the button-typed exclusions per spec
+        // ("button"-state inputs in the HTML §4.10.5 type-state table).
+        for ty in ["submit", "reset", "button", "image"] {
             let mut dom = EcsDom::new();
             let (input, _datalist) = input_with_type_and_list_plus_datalist(&mut dom, ty);
             assert_eq!(
@@ -1005,21 +1025,41 @@ mod tests {
     }
 
     #[test]
-    fn resolve_input_list_returns_none_for_hidden_type_via_form_control_state() {
-        // FormControlState-path coverage: when the side-table is
-        // attached (e.g. via the HTML parser pipeline), `state.kind`
-        // is the source of truth.
+    fn resolve_input_list_ignores_stale_form_control_state_when_attr_excludes() {
+        // Stale-state guard: the IDL accessor must reflect the current
+        // `type` content attribute (HTML §4.10.5.1.16) — a cached
+        // `FormControlState.kind` that disagrees with the current
+        // attribute must not override.  This locks against the
+        // Copilot R2 regression where preferring `state.kind` over
+        // the attribute let a fresh `setAttribute('type', 'hidden')`
+        // mutation incorrectly resolve a datalist.
         let mut dom = EcsDom::new();
         let container = dom.create_element("div", Attributes::default());
         let mut input_attrs = Attributes::default();
         input_attrs.set("type", "hidden");
         input_attrs.set("list", "opts");
         let input = dom.create_element("input", input_attrs.clone());
-        let state = FormControlState::from_element("input", &input_attrs).unwrap();
-        let _ = dom.world_mut().insert_one(input, state);
+        // Attach a state whose `kind` DISAGREES with the attribute
+        // (TextInput would be the createElement default before any
+        // type-change sync) to prove the attribute wins.
+        let stale_attrs = Attributes::default();
+        let stale_state = FormControlState::from_element("input", &stale_attrs).unwrap();
+        assert_eq!(stale_state.kind, FormControlKind::TextInput);
+        let _ = dom.world_mut().insert_one(input, stale_state);
         let _ = dom.append_child(container, input);
         let datalist = datalist_with_id(&mut dom, "opts");
         let _ = dom.append_child(container, datalist);
+        assert_eq!(resolve_input_list(&dom, input), None);
+    }
+
+    #[test]
+    fn resolve_input_list_returns_none_for_image_type() {
+        // R2 regression: `image` is excluded per HTML §4.10.5.1.16 even
+        // though `FormControlKind::from_type_str("image")` falls back
+        // to `TextInput` (pre-existing FormControlKind coverage gap).
+        // The attribute-direct check correctly excludes it.
+        let mut dom = EcsDom::new();
+        let (input, _datalist) = input_with_type_and_list_plus_datalist(&mut dom, "image");
         assert_eq!(resolve_input_list(&dom, input), None);
     }
 
