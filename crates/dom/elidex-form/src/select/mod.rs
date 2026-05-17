@@ -58,9 +58,8 @@ pub fn select_uses_implicit_default(dom: &EcsDom, select: Entity) -> bool {
 /// VM-host saturation cap (`u32::MAX` → `f64::from`) is preserved
 /// exactly.  The "pure hoist / no behavior change" invariant for
 /// slot `#11-tags-T1-v2-drift-hoist` requires preserving the prior
-/// saturation; tightening to a true WebIDL `long` (i32-clamped) is
-/// a separate (intentional) behaviour change tracked alongside
-/// `#11-content-editable-depth-cap`.
+/// saturation; tightening to a true WebIDL `long` (i32-clamped)
+/// would be a separate intentional behaviour change.
 #[must_use]
 pub fn select_selected_index(dom: &EcsDom, select: Entity) -> f64 {
     let mut opts = elidex_dom_api::LiveCollection::new(
