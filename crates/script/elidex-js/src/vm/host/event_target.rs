@@ -292,8 +292,13 @@ pub(super) fn entity_from_this(
 /// elidex unbound-receiver policy requires silent no-op for the
 /// latter).
 ///
-/// Returns `false` for primitive receivers and for HostObject wrappers
-/// whose entity bits don't decode (impossible in practice, defensive).
+/// Returns `false` for primitive receivers and any `Object` whose
+/// kind isn't `HostObject` (Function, Array, plain Ordinary, etc.).
+/// Does NOT attempt to decode the entity bits — the pre-throw is a
+/// wrapper-kind brand check, not an entity-existence probe; callers
+/// that need entity existence run [`entity_from_this`] (which
+/// performs the decode AND the bind-state check) before invoking
+/// any DOM operation.
 #[cfg(feature = "engine")]
 pub(super) fn this_is_node_wrapper(vm: &super::super::VmInner, this: JsValue) -> bool {
     let JsValue::Object(id) = this else {

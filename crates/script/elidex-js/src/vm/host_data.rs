@@ -1161,9 +1161,14 @@ mod engine_feature {
 
         /// Classify `entity` into a [`PrototypeKind`] used by
         /// `create_element_wrapper` to pick the appropriate wrapper
-        /// prototype in a single ECS lookup.  Returns
-        /// [`PrototypeKind::OtherNode`] when the `HostData` is not
-        /// bound (pre-bind wrapper allocation paths).
+        /// prototype.  Probes a small set of ECS components
+        /// (`TagType` → `Element` fast path for the ~99% case, then
+        /// `ShadowRoot` to disambiguate shadow-root DF entities, then
+        /// `node_kind` for the remaining non-Element node families)
+        /// with a legacy-payload fallback (`TextContent` / `CommentData`
+        /// / `DocTypeData`) for entities lacking an explicit `NodeKind`
+        /// component.  Returns [`PrototypeKind::OtherNode`] when the
+        /// `HostData` is not bound (pre-bind wrapper allocation paths).
         ///
         /// Aliasing contract mirrors [`Self::is_element_entity`] — the
         /// caller must not hold a live `&mut EcsDom` produced via
