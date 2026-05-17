@@ -91,9 +91,19 @@ impl VmInner {
         // `child.parentNode.host` reachability).  Detect the
         // shadow-root case up-front and route through the dedicated
         // `cached_or_alloc_shadow_root` identity cache.
+        //
+        // Gate `dom_shared()` on `hd.is_bound()` — `create_element_wrapper`
+        // is documented bind-state-agnostic, and `dom_shared()` /
+        // `dom()` both `assert!(is_bound())` (host_data.rs:1034 /
+        // :960).  Skipping the detection on unbound `HostData` falls
+        // through to the existing `OtherNode` / `DocumentFragment`
+        // branch (Node.prototype / DF.prototype fallback).
         #[cfg(feature = "engine")]
         {
             let shadow_host = self.host_data.as_deref().and_then(|hd| {
+                if !hd.is_bound() {
+                    return None;
+                }
                 hd.dom_shared()
                     .world()
                     .get::<&elidex_ecs::ShadowRoot>(entity)

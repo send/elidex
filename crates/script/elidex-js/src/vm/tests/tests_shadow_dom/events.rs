@@ -543,6 +543,31 @@ fn shadow_root_wrapper_survives_gc_while_host_alive() {
 }
 
 #[test]
+fn create_element_wrapper_on_unbound_does_not_panic() {
+    // R13 finding #3: `create_element_wrapper`'s shadow-root
+    // detection (introduced R9 finding #4) called `hd.dom_shared()`
+    // unconditionally, which asserts `is_bound()`.  An unbound
+    // `HostData` (post-unbind) would panic before reaching the
+    // existing OtherNode fallback.  Now gated on `hd.is_bound()`
+    // so wrapper allocation stays bind-state-agnostic.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let some_entity = dom.create_element("span", elidex_ecs::Attributes::default());
+    vm.unbind();
+    // Direct call into `create_element_wrapper` on the unbound VM —
+    // pre-fix this panicked at `hd.dom_shared()` because the
+    // shadow-root detection didn't gate on `is_bound()`.  Post-fix
+    // it falls through to the OtherNode / Node.prototype branch.
+    let _wrapper = vm.inner.create_element_wrapper(some_entity);
+}
+
+#[test]
 fn unbind_clears_pending_notify_mutation_observers_microtask() {
     // R9 finding #1: a queued `NotifyMutationObservers` microtask
     // must NOT survive `Vm::unbind`.  If it did, a fresh signal
