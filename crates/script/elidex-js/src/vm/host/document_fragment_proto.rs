@@ -1,9 +1,14 @@
 //! `DocumentFragment.prototype` intrinsic (WHATWG DOM §4.7).
 //!
-//! Inherits `Node.prototype` and carries the ParentNode mixin
-//! (`prepend` / `append` / `replaceChildren` + querySelector /
-//! querySelectorAll / children / childElementCount /
-//! firstElementChild / lastElementChild).  Used by:
+//! Inherits `Node.prototype` and carries the ParentNode-mixin
+//! **mutation methods** (`prepend` / `append` / `replaceChildren`)
+//! via [`super::super::VmInner::install_parent_node_mixin`].
+//! Selector / children accessors (`querySelector`, `querySelectorAll`,
+//! `children`, `firstElementChild`, `lastElementChild`, etc.) live
+//! on `Element.prototype` only and are NOT exposed through this
+//! chain yet — defer slot `#11-shadow-parent-node-accessors`.
+//!
+//! Used by:
 //! - `document.createDocumentFragment()` wrappers
 //! - `<template>.content` wrappers (via
 //!   [`super::html_template_proto::create_fragment_wrapper`])

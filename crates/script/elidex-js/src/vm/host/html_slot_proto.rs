@@ -251,13 +251,15 @@ fn slot_assign(
     // Firefox.  The spec's `manually assigned nodes` slot is only
     // observable through `assignedNodes()`, which `slot_assign`'s
     // failure path correctly leaves untouched.
-    // WHATWG DOM §4.2.2.5 "signal a slot change": signal only when
-    // the assigned-nodes list actually changes (per "assign
-    // slottables" step 2).  Engine validation failures (`Err`) and
-    // no-op re-assignments (`Ok(false)`) produce no observable
-    // mutation and therefore no event.
-    if let Ok(true) = ctx.host().dom().slot_assign(slot, nodes) {
-        ctx.vm.signal_slot_change(slot);
+    // WHATWG DOM §4.2.2.5 "signal a slot change": signal every slot
+    // whose `assigned_nodes` list changed.  The engine returns the
+    // receiver AND any other slots from which the new nodes had to
+    // be removed (spec step 3).  Engine validation failures (`Err`)
+    // produce no observable mutation and therefore no event.
+    if let Ok(changed_slots) = ctx.host().dom().slot_assign(slot, nodes) {
+        for changed in changed_slots {
+            ctx.vm.signal_slot_change(changed);
+        }
     }
     Ok(JsValue::Undefined)
 }
@@ -267,14 +269,29 @@ fn slot_assign(
 // -------------------------------------------------------------------------
 
 /// Parse the `flatten` option from an `AssignedNodesOptions`
-/// dictionary.  Missing arg / non-object / missing key all yield
-/// `false`; otherwise the value is `ToBoolean`-coerced per WebIDL.
-fn read_flatten_option(ctx: &mut NativeContext<'_>, args: &[JsValue]) -> Result<bool, VmError> {
+/// dictionary.  Per WebIDL dictionary conversion (§3.2.18):
+/// - missing / `undefined` / `null` → empty dict → `flatten=false`
+/// - any other non-Object primitive (number / string / boolean / …)
+///   → throw `TypeError`
+/// - Object with no `flatten` key OR key value `undefined` → `false`
+/// - Object with `flatten` key → `ToBoolean`-coerce per WebIDL
+fn read_flatten_option(
+    ctx: &mut NativeContext<'_>,
+    args: &[JsValue],
+    method: &str,
+) -> Result<bool, VmError> {
     let Some(&first) = args.first() else {
         return Ok(false);
     };
-    let JsValue::Object(opts_id) = first else {
-        return Ok(false);
+    let opts_id = match first {
+        JsValue::Undefined | JsValue::Null => return Ok(false),
+        JsValue::Object(id) => id,
+        _ => {
+            return Err(VmError::type_error(format!(
+                "Failed to execute '{method}' on 'HTMLSlotElement': \
+                 argument 1 is not of type 'AssignedNodesOptions'"
+            )));
+        }
     };
     let key = PropertyKey::String(ctx.vm.well_known.flatten);
     let raw = ctx.vm.get_property_value(opts_id, key)?;
@@ -292,7 +309,7 @@ fn slot_assigned_nodes(
     let Some(slot) = require_slot_receiver(ctx, this, "assignedNodes")? else {
         return Ok(JsValue::Object(ctx.vm.create_array_object(Vec::new())));
     };
-    let flatten = read_flatten_option(ctx, args)?;
+    let flatten = read_flatten_option(ctx, args, "assignedNodes")?;
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Object(ctx.vm.create_array_object(Vec::new())));
     }
@@ -311,7 +328,7 @@ fn slot_assigned_elements(
     let Some(slot) = require_slot_receiver(ctx, this, "assignedElements")? else {
         return Ok(JsValue::Object(ctx.vm.create_array_object(Vec::new())));
     };
-    let flatten = read_flatten_option(ctx, args)?;
+    let flatten = read_flatten_option(ctx, args, "assignedElements")?;
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Object(ctx.vm.create_array_object(Vec::new())));
     }

@@ -605,6 +605,95 @@ fn require_node_arg_rejects_shadow_root_with_destroyed_entity() {
 }
 
 #[test]
+fn assigned_nodes_rejects_non_object_options_arg() {
+    // R7 finding #1: WebIDL dict conversion (§3.2.18) throws
+    // TypeError when a non-null / non-undefined non-Object is
+    // passed where an `AssignedNodesOptions` dictionary is
+    // expected.  `null` / `undefined` → empty dict → `flatten=false`.
+    let out = run("var s = document.createElement('slot'); \
+         var caught = null; \
+         try { s.assignedNodes(1); } catch (e) { caught = e; } \
+         (caught !== null && caught.name === 'TypeError') ? 'ok' : 'fail:' + (caught && caught.name);");
+    assert_eq!(out, "ok");
+    let out_null = run("var s = document.createElement('slot'); \
+         var a = s.assignedNodes(null); var b = s.assignedNodes(undefined); var c = s.assignedNodes(); \
+         (a.length === 0 && b.length === 0 && c.length === 0) ? 'ok' : 'fail';");
+    assert_eq!(out_null, "ok");
+}
+
+#[test]
+fn slot_assign_cross_slot_dedup_fires_slotchange_at_both() {
+    // R7 finding #3: WHATWG DOM §4.2.2.5 step 3 — assigning a node
+    // to a second slot removes it from the first slot's assigned
+    // list, and slotchange fires at BOTH slots.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval(
+        "globalThis.s1_fires = 0; globalThis.s2_fires = 0; \
+         var host = document.createElement('div'); \
+         document.body.appendChild(host); \
+         globalThis.child = document.createElement('span'); host.appendChild(globalThis.child); \
+         var sr = host.attachShadow({mode: 'open', slotAssignment: 'manual'}); \
+         globalThis.s1 = document.createElement('slot'); \
+         globalThis.s2 = document.createElement('slot'); \
+         sr.append(globalThis.s1); sr.append(globalThis.s2); \
+         globalThis.s1.addEventListener('slotchange', function () { globalThis.s1_fires += 1; }); \
+         globalThis.s2.addEventListener('slotchange', function () { globalThis.s2_fires += 1; }); \
+         globalThis.s1.assign(globalThis.child);",
+    )
+    .unwrap();
+    // After first eval: s1 fires once, s2 fires 0 times.
+    let s1a = vm.eval("globalThis.s1_fires").unwrap();
+    let s2a = vm.eval("globalThis.s2_fires").unwrap();
+    // Reassign to s2 — should remove child from s1 AND fire at both.
+    vm.eval("globalThis.s2.assign(globalThis.child);").unwrap();
+    let s1b = vm.eval("globalThis.s1_fires").unwrap();
+    let s2b = vm.eval("globalThis.s2_fires").unwrap();
+    // Verify lists too.
+    let an1 = vm.eval("globalThis.s1.assignedNodes().length").unwrap();
+    let an2 = vm
+        .eval(
+            "var arr = globalThis.s2.assignedNodes(); \
+         (arr.length === 1 && arr[0] === globalThis.child) ? 1 : 0",
+        )
+        .unwrap();
+    vm.unbind();
+    let JsValue::Number(s1_first) = s1a else {
+        panic!()
+    };
+    let JsValue::Number(s2_first) = s2a else {
+        panic!()
+    };
+    let JsValue::Number(s1_second) = s1b else {
+        panic!()
+    };
+    let JsValue::Number(s2_second) = s2b else {
+        panic!()
+    };
+    let JsValue::Number(s1_len) = an1 else {
+        panic!()
+    };
+    let JsValue::Number(s2_len) = an2 else {
+        panic!()
+    };
+    assert_eq!(s1_first, 1.0, "s1 first assign should fire once");
+    assert_eq!(s2_first, 0.0, "s2 no fire before its assign");
+    assert_eq!(
+        s1_second, 2.0,
+        "s1 fires again on second eval (cross-slot removal)"
+    );
+    assert_eq!(s2_second, 1.0, "s2 fires from its own assignment");
+    assert_eq!(s1_len, 0.0, "s1 list now empty (child moved to s2)");
+    assert_eq!(s2_len, 1.0, "s2 list contains child");
+}
+
+#[test]
 fn shadow_root_accepted_as_node_arg() {
     // R1 finding #1: `Node` IDL arg surface must accept a ShadowRoot
     // wrapper; previously rejected because `require_node_arg` only

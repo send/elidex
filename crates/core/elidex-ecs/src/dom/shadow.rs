@@ -210,19 +210,22 @@ impl EcsDom {
     /// - The slot's owning shadow root must use [`SlotAssignmentMode::Manual`]
     /// - Each node must be a Element-or-Text child of the shadow host
     ///
-    /// Returns `Err(SlotAssignError)` on validation failure.  On success
-    /// returns `Ok(changed)` where `changed` is `true` when the
-    /// resulting `SlotAssignment.assigned_nodes` differs from the
-    /// previous list — callers gate the `slotchange` signal on this
-    /// per the spec's "assign slottables" step 2 ("if slottables and
-    /// slot's assigned nodes are not identical, then signal a slot
-    /// change").  Repeated `slot.assign(child)` with an unchanged
-    /// list returns `Ok(false)` and produces no event.
+    /// Returns `Err(SlotAssignError)` on validation failure.  On
+    /// success returns `Ok(changed_slots)` listing every slot in the
+    /// same shadow tree whose `assigned_nodes` list changed — `slot`
+    /// itself when the new list differs from the old, plus any
+    /// **other** slot that previously had one of `nodes` in its
+    /// manually-assigned list (per spec §4.2.2.5 step 3 "if node's
+    /// manual slot assignment refers to a slot, then remove node
+    /// from that slot's manually assigned nodes").  The caller fires
+    /// `slotchange` at each returned slot; `slot.assign(child)`
+    /// followed by `slot2.assign(child)` therefore fires events at
+    /// both `slot` (now empty) and `slot2` (now containing `child`).
     pub fn slot_assign(
         &mut self,
         slot: Entity,
         nodes: Vec<Entity>,
-    ) -> Result<bool, SlotAssignError> {
+    ) -> Result<Vec<Entity>, SlotAssignError> {
         // Slot must be a <slot> element.  Case-insensitive match
         // mirrors `first_child_with_tag` / sibling HTML tag lookups
         // (HTML §13.2 normalises tag names case-insensitively but
@@ -238,15 +241,17 @@ impl EcsDom {
 
         // Walk up to the owning ShadowRoot to check mode.  The ShadowRoot
         // entity is an ancestor reachable via the TreeRelation parent chain.
-        let host = self
-            .shadow_root_for_slot(slot)
+        let sr_entity = self
+            .shadow_root_entity_for_slot(slot)
             .ok_or(SlotAssignError::NoShadowRoot)?;
+        let host = self
+            .world
+            .get::<&ShadowRoot>(sr_entity)
+            .map(|sr| sr.host)
+            .map_err(|_| SlotAssignError::NoShadowRoot)?;
         let mode = self
             .world
-            .get::<&ShadowRoot>(
-                self.shadow_root_entity_for_slot(slot)
-                    .expect("validated above"),
-            )
+            .get::<&ShadowRoot>(sr_entity)
             .map(|sr| sr.slot_assignment)
             .map_err(|_| SlotAssignError::NoShadowRoot)?;
         if mode != SlotAssignmentMode::Manual {
@@ -265,22 +270,46 @@ impl EcsDom {
             }
         }
 
-        // Apply assignment (insert SlotAssignment component if absent).
-        // Split the existence check from the mutate-or-insert path so the
-        // immutable probe borrow drops before the mutating call.  Compare
-        // current vs new list to decide whether the assignment is a
-        // semantic change (which gates the `slotchange` signal — see
-        // doc-comment above).  A missing `SlotAssignment` component
-        // represents the implicit empty list (spec: "manually assigned
-        // nodes is initially empty"), so `slot.assign()` with no args
-        // on a never-assigned slot is a no-op (`Ok(false)`).
+        // Spec §4.2.2.5 step 3: remove the new nodes from any OTHER
+        // slot's manually-assigned list in the same shadow tree.
+        // Tracks `changed_slots` so the caller can fire `slotchange`
+        // at every affected slot, not just the receiver.
+        let mut changed_slots: Vec<Entity> = Vec::new();
+        if !nodes.is_empty() {
+            let nodes_set: std::collections::HashSet<Entity> = nodes.iter().copied().collect();
+            for other in self.all_slots_in_shadow(sr_entity) {
+                if other == slot {
+                    continue;
+                }
+                let mut needs_update = false;
+                if let Ok(sa) = self.world.get::<&SlotAssignment>(other) {
+                    if sa.assigned_nodes.iter().any(|n| nodes_set.contains(n)) {
+                        needs_update = true;
+                    }
+                }
+                if needs_update {
+                    if let Ok(mut sa) = self.world.get::<&mut SlotAssignment>(other) {
+                        sa.assigned_nodes.retain(|n| !nodes_set.contains(n));
+                    }
+                    changed_slots.push(other);
+                }
+            }
+        }
+
+        // Apply assignment to the receiver (insert SlotAssignment
+        // component if absent).  Split the existence check from the
+        // mutate-or-insert path so the immutable probe borrow drops
+        // before the mutating call.  A missing component represents
+        // the implicit empty list (spec: "manually assigned nodes is
+        // initially empty"), so `slot.assign()` with no args on a
+        // never-assigned slot is a no-op.
         let existing_nodes: Option<Vec<Entity>> = self
             .world
             .get::<&SlotAssignment>(slot)
             .ok()
             .map(|sa| sa.assigned_nodes.clone());
         let existing_slice: &[Entity] = existing_nodes.as_deref().unwrap_or(&[]);
-        let changed = existing_slice != nodes.as_slice();
+        let receiver_changed = existing_slice != nodes.as_slice();
         if existing_nodes.is_some() {
             if let Ok(mut existing) = self.world.get::<&mut SlotAssignment>(slot) {
                 existing.assigned_nodes = nodes;
@@ -293,7 +322,33 @@ impl EcsDom {
                 },
             );
         }
-        Ok(changed)
+        if receiver_changed {
+            changed_slots.push(slot);
+        }
+        Ok(changed_slots)
+    }
+
+    /// Collect every `<slot>` element in tree order within the shadow
+    /// tree rooted at `sr`.  Engine-indep helper used by `slot_assign`
+    /// to dedupe manual assignments across slots per WHATWG DOM
+    /// §4.2.2.5 step 3.
+    fn all_slots_in_shadow(&self, sr: Entity) -> Vec<Entity> {
+        let mut out = Vec::new();
+        self.collect_slots_recursive(sr, &mut out);
+        out
+    }
+
+    fn collect_slots_recursive(&self, root: Entity, out: &mut Vec<Entity>) {
+        for child in self.children_iter(root).collect::<Vec<_>>() {
+            if self
+                .world
+                .get::<&TagType>(child)
+                .is_ok_and(|t| t.0.eq_ignore_ascii_case("slot"))
+            {
+                out.push(child);
+            }
+            self.collect_slots_recursive(child, out);
+        }
     }
 
     /// Return the assigned (distributed) nodes for a `<slot>` element
@@ -393,14 +448,6 @@ impl EcsDom {
             }
         }
         None
-    }
-
-    /// Locate the host Element for a `<slot>` by walking up to the
-    /// nearest `ShadowRoot` ancestor and reading its `host` field.
-    /// Returns `None` if the slot isn't inside a shadow tree.
-    fn shadow_root_for_slot(&self, slot: Entity) -> Option<Entity> {
-        let sr = self.shadow_root_entity_for_slot(slot)?;
-        self.world.get::<&ShadowRoot>(sr).ok().map(|s| s.host)
     }
 
     /// Locate the `ShadowRoot` ENTITY for a `<slot>` by walking up the
