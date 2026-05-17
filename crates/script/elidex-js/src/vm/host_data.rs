@@ -103,9 +103,11 @@ mod engine_feature {
         /// `EcsDom` is `!Pin` — the same world can legally move in
         /// memory between unbind → bind cycles (e.g. `Vec` grow,
         /// `mem::swap`), which would cause a false-positive panic.
-        /// A stable `EcsDom::world_id()` will be introduced when
-        /// Worker threads (PR5b) require per-world isolation; until
-        /// then the invariant is a caller contract.
+        /// A stable `EcsDom::world_id()` discriminator is tracked
+        /// as defer slot `#11-wrapper-cache-cross-dom-discriminator`
+        /// (no current milestone — opens when Web Workers VM port
+        /// land OR an observable cross-DOM aliasing bug surfaces);
+        /// until then the invariant is a caller contract.
         window_entity: Option<Entity>,
         /// Document entities whose wrapper has already had the
         /// document-specific own-property suite (`getElementById` /
