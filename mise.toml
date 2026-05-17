@@ -34,7 +34,48 @@ description = "Format code"
 run = "cargo fmt --all"
 
 [tasks.doc]
-description = "Build documentation (same flags as CI — warnings are errors)"
+description = "Build documentation for changed crates only (fast path; full check via doc-full)."
+env = { RUSTDOCFLAGS = "-D warnings" }
+# rustdoc on the full workspace (`cargo doc --workspace --no-deps
+# --all-features`) is the slowest job in our CI flow by an order of
+# magnitude — touching a single mid-graph crate (elidex-script-session)
+# triggers a 200-220s rebuild because every downstream crate's doc has
+# to be regenerated to re-resolve intra-doc links. For local
+# pre-push iteration we restrict rustdoc to the set of crates with
+# uncommitted changes (vs. HEAD): a single-crate edit drops the cost
+# from ~220s to ~16s. GitHub Actions still runs the full workspace
+# doc on every PR (via `mise run doc-full`), so the trade-off — missing
+# a cross-crate intra-doc link break locally — is caught upstream.
+#
+# Fallback: when there are zero changed files (e.g. fresh checkout or
+# clean working tree) we run the full workspace doc so the task is
+# never a silent no-op.
+run = """
+set -e
+CHANGED_CRATES=$(git status --porcelain | awk '{print $NF}' \\
+  | grep -oE '^crates/[^/]+/[^/]+' \\
+  | sort -u)
+if [ -z "$CHANGED_CRATES" ]; then
+  echo "[doc] no changed crates — running full workspace doc"
+  exec cargo doc --workspace --no-deps --all-features
+fi
+PKGS=""
+for crate_dir in $CHANGED_CRATES; do
+  if [ -f "$crate_dir/Cargo.toml" ]; then
+    name=$(awk -F'"' '/^name = / {print $2; exit}' "$crate_dir/Cargo.toml")
+    PKGS="$PKGS -p $name"
+  fi
+done
+if [ -z "$PKGS" ]; then
+  echo "[doc] no workspace members in changed paths — running full workspace doc"
+  exec cargo doc --workspace --no-deps --all-features
+fi
+echo "[doc] documenting changed crates:$PKGS"
+exec cargo doc --no-deps --all-features $PKGS
+"""
+
+[tasks.doc-full]
+description = "Build documentation for ALL workspace crates (slow; matches GitHub Actions)."
 env = { RUSTDOCFLAGS = "-D warnings" }
 run = "cargo doc --workspace --no-deps --all-features"
 
