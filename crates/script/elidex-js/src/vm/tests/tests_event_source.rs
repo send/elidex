@@ -717,6 +717,103 @@ fn add_event_listener_no_op_for_non_object_listener() {
 }
 
 #[test]
+fn add_event_listener_during_dispatch_does_not_fire_in_same_tick() {
+    // WHATWG DOM §2.7 snapshot-then-iterate: a listener added
+    // mid-dispatch (from inside another listener's body) must NOT
+    // receive the in-flight event.  The minimal shim implements
+    // this by cloning the Vec<ObjectId> snapshot inside the
+    // borrow scope and dropping the borrow before fan-out, so
+    // the user-handler's `addEventListener` mutates the live
+    // registry without affecting the in-flight iteration.
+    with_es_vm(|vm| {
+        vm.eval(
+            "globalThis._first_count = 0; \
+             globalThis._second_count = 0; \
+             globalThis.s = new EventSource('/events'); \
+             globalThis.second = function() { globalThis._second_count++; }; \
+             s.addEventListener('ping', function() { \
+               globalThis._first_count++; \
+               s.addEventListener('ping', globalThis.second); \
+             });",
+        )
+        .unwrap();
+        // First dispatch: only the original listener fires.
+        inject_sse_event_and_tick(
+            vm,
+            0,
+            SseEvent::Event {
+                event_type: "ping".to_string(),
+                data: "x".to_string(),
+                last_event_id: String::new(),
+            },
+        );
+        assert_eval_number(vm, "_first_count", 1.0);
+        assert_eval_number(vm, "_second_count", 0.0);
+        // Second dispatch: BOTH fire (the second listener was
+        // registered during the first dispatch and is now part
+        // of the registry for subsequent ticks).
+        inject_sse_event_and_tick(
+            vm,
+            0,
+            SseEvent::Event {
+                event_type: "ping".to_string(),
+                data: "y".to_string(),
+                last_event_id: String::new(),
+            },
+        );
+        assert_eval_number(vm, "_first_count", 2.0);
+        assert_eval_number(vm, "_second_count", 1.0);
+    });
+}
+
+#[test]
+fn remove_event_listener_during_dispatch_still_fires_in_same_tick() {
+    // Symmetric snapshot-then-iterate guarantee: a listener
+    // removed mid-dispatch DOES receive the in-flight event
+    // because it was in the snapshot taken before the fan-out
+    // started.  The removal takes effect on the NEXT dispatch.
+    with_es_vm(|vm| {
+        vm.eval(
+            "globalThis._a = 0; \
+             globalThis._b = 0; \
+             globalThis.s = new EventSource('/events'); \
+             globalThis.b = function() { globalThis._b++; }; \
+             s.addEventListener('ping', function() { \
+               globalThis._a++; \
+               s.removeEventListener('ping', globalThis.b); \
+             }); \
+             s.addEventListener('ping', globalThis.b);",
+        )
+        .unwrap();
+        inject_sse_event_and_tick(
+            vm,
+            0,
+            SseEvent::Event {
+                event_type: "ping".to_string(),
+                data: "x".to_string(),
+                last_event_id: String::new(),
+            },
+        );
+        // Both fire on the first dispatch (snapshot taken before
+        // any callback ran; removal applies to next tick).
+        assert_eval_number(vm, "_a", 1.0);
+        assert_eval_number(vm, "_b", 1.0);
+        // Second dispatch — only the remover fires; b was removed.
+        inject_sse_event_and_tick(
+            vm,
+            0,
+            SseEvent::Event {
+                event_type: "ping".to_string(),
+                data: "y".to_string(),
+                last_event_id: String::new(),
+            },
+        );
+        assert_eval_number(vm, "_a", 2.0);
+        assert_eval_number(vm, "_b", 1.0);
+    });
+}
+
+#[test]
 fn add_event_listener_type_arg_to_string_first_runs_before_registry_mutation() {
     // WebIDL `USVString` coercion order: ToString runs FIRST, so
     // a Symbol arg throws TypeError BEFORE the registry is
