@@ -169,6 +169,12 @@ fn attr_name_and_value_round_trip() {
 
 #[test]
 fn attr_owner_element_reflects_attachment() {
+    // After `removeAttribute`, the JS-held wrapper observes the
+    // detachment via `ownerElement === null` and reports the
+    // removal-time value through `value` (Chrome / Firefox parity:
+    // the cached Attr is frozen with a snapshot of `'x'` rather
+    // than collapsing to `''` via a live re-read of the now-absent
+    // attribute).
     let out = run("var d = document.createElement('div'); \
          d.setAttribute('id', 'x'); \
          var a = d.getAttributeNode('id'); \
@@ -176,7 +182,7 @@ fn attr_owner_element_reflects_attachment() {
          d.removeAttribute('id'); \
          var ownerAfter = a.ownerElement; \
          var valueAfter = a.value; \
-         (ownerBefore === d && ownerAfter === null && valueAfter === '') \
+         (ownerBefore === d && ownerAfter === null && valueAfter === 'x') \
            ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
 }
@@ -192,17 +198,22 @@ fn attr_namespace_uri_prefix_and_local_name_phase2_defaults() {
 }
 
 #[test]
-fn attr_value_setter_on_detached_attr_is_noop() {
-    // Once the Attr is detached (attribute removed), setting
-    // `.value` should not re-attach it.  Matches browsers where
-    // the detached Attr is a free-standing node until reinserted
-    // via `setAttributeNode`.
+fn attr_value_setter_on_detached_attr_does_not_reattach() {
+    // Once the Attr is detached (attribute removed), assigning to
+    // `.value` mutates the wrapper's snapshot in place
+    // (WHATWG §4.9.2 "change an attribute" on a detached Attr)
+    // but never re-attaches to the former owner — the element
+    // remains free of the attribute.  Matches Chrome / Firefox
+    // where detached Attrs are free-standing nodes until reinserted
+    // via `setAttributeNode` / `setNamedItem`.
     let out = run("var d = document.createElement('div'); \
          d.setAttribute('id', 'x'); \
          var a = d.getAttributeNode('id'); \
          d.removeAttribute('id'); \
          a.value = 'z'; \
-         (d.hasAttribute('id') === false && a.value === '') ? 'ok' : 'fail';");
+         (d.hasAttribute('id') === false \
+          && a.value === 'z' \
+          && a.ownerElement === null) ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
 }
 
@@ -675,6 +686,31 @@ fn element_set_attribute_node_uses_detached_snapshot_as_value() {
          target.setAttributeNode(detached); \
          (target.getAttribute('data-v') === 'kept') \
            ? 'ok' : 'fail:' + target.getAttribute('data-v');");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn cached_attr_stays_detached_after_remove_named_item_cycle() {
+    // Symmetric with
+    // `attr_held_across_remove_set_cycle_reads_snapshot_value` in
+    // `tests_element_attributes.rs` but for the
+    // `NamedNodeMap.removeNamedItem` detach path: the *previously
+    // cached* Attr held by JS via `getAttributeNode` must also be
+    // frozen at its removal-time value so `removeAttribute('x')` vs
+    // `attributes.removeNamedItem('x')` produce the same Chrome /
+    // Firefox observable behaviour on JS-held wrappers.
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('id', 'first'); \
+         var a = d.getAttributeNode('id'); \
+         d.attributes.removeNamedItem('id'); \
+         var snapshotBefore = a.value; \
+         var ownerBefore = a.ownerElement; \
+         d.setAttribute('id', 'second'); \
+         var snapshotAfter = a.value; \
+         var ownerAfter = a.ownerElement; \
+         (snapshotBefore === 'first' && ownerBefore === null \
+          && snapshotAfter === 'first' && ownerAfter === null) \
+           ? 'ok' : 'fail:' + snapshotBefore + '/' + snapshotAfter;");
     assert_eq!(out, "ok");
 }
 

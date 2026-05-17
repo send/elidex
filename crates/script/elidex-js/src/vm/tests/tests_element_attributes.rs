@@ -294,6 +294,154 @@ fn element_class_name_reflects_class_attribute() {
     vm.unbind();
 }
 
+// ---------------------------------------------------------------------------
+// Chrome / Firefox parity for cached-Attr detach + reattach via
+// `removeAttribute` (Element method).  Mirrors
+// `removed_attr_stays_detached_after_same_name_set` in
+// `tests_named_node_map.rs`, which covers the `removeNamedItem` path
+// for the freshly-allocated *returned* Attr.  These cover the
+// *previously-cached* Attr held by JS through
+// `getAttributeNode(name)` — the case that motivated
+// PR `#11-attr-wrapper-cache-symmetric` (drift-hoist C5 follow-up).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn attr_held_across_remove_set_cycle_reads_snapshot_value() {
+    // Chrome parity: a JS-held Attr_A from `getAttributeNode` retains
+    // its `'v1'` value as a snapshot after the attribute is removed,
+    // independent of a same-name `setAttribute` re-adding the
+    // attribute on the same element with value `'v2'`.  The next
+    // `getAttributeNode` returns Attr_B — a fresh canonical wrapper
+    // for the new live value.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let out = vm
+        .eval(
+            "var el = document.getElementById('root'); \
+             el.setAttribute('data-x', 'v1'); \
+             var a = el.getAttributeNode('data-x'); \
+             el.removeAttribute('data-x'); \
+             el.setAttribute('data-x', 'v2'); \
+             var b = el.getAttributeNode('data-x'); \
+             (a !== b && a.value === 'v1' && a.ownerElement === null \
+              && b.value === 'v2' && b.ownerElement === el) \
+               ? 'ok' : 'fail';",
+        )
+        .unwrap();
+    let JsValue::String(sid) = out else { panic!() };
+    assert_eq!(vm.get_string(sid), "ok");
+
+    vm.unbind();
+}
+
+#[test]
+fn attr_held_across_remove_only_reads_snapshot_value() {
+    // Without the same-name re-set, the cached Attr stays detached
+    // and continues to report the removal-time value via `.value`.
+    // Confirms the snapshot is captured in `attr_remove`, not as a
+    // side-effect of the subsequent `setAttribute` call.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let out = vm
+        .eval(
+            "var el = document.getElementById('root'); \
+             el.setAttribute('data-y', 'snap'); \
+             var a = el.getAttributeNode('data-y'); \
+             el.removeAttribute('data-y'); \
+             (a.value === 'snap' \
+              && a.ownerElement === null \
+              && el.hasAttribute('data-y') === false) ? 'ok' : 'fail';",
+        )
+        .unwrap();
+    let JsValue::String(sid) = out else { panic!() };
+    assert_eq!(vm.get_string(sid), "ok");
+
+    vm.unbind();
+}
+
+#[test]
+fn attr_identity_distinct_after_remove_set_cycle() {
+    // Identity regression lock — pre-PR behaviour already passed
+    // (`invalidate_attr_cache_entry` drops the entry); this test
+    // pins that to prevent a future "symmetric invalidate" attempt
+    // from collapsing Attr_A and Attr_B to the same wrapper.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let out = vm
+        .eval(
+            "var el = document.getElementById('root'); \
+             el.setAttribute('data-id', 'first'); \
+             var a = el.getAttributeNode('data-id'); \
+             el.removeAttribute('data-id'); \
+             el.setAttribute('data-id', 'second'); \
+             var b = el.getAttributeNode('data-id'); \
+             (a !== b) ? 'ok' : 'fail';",
+        )
+        .unwrap();
+    let JsValue::String(sid) = out else { panic!() };
+    assert_eq!(vm.get_string(sid), "ok");
+
+    vm.unbind();
+}
+
+#[test]
+fn attr_set_preserves_identity_without_remove() {
+    // Asymmetric-by-design regression lock: repeated `setAttribute`
+    // on the same name does NOT invalidate the wrapper cache.
+    // `el.getAttributeNode('x') === el.getAttributeNode('x')`
+    // continues to hold across a value-only mutation.  Prevents a
+    // future "symmetric invalidate" change from breaking identity
+    // preservation that JS authors rely on.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _body, _p, _div, _span, _raw, _com) = build_element_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    let out = vm
+        .eval(
+            "var el = document.getElementById('root'); \
+             el.setAttribute('data-keep', 'a'); \
+             var a = el.getAttributeNode('data-keep'); \
+             el.setAttribute('data-keep', 'b'); \
+             var b = el.getAttributeNode('data-keep'); \
+             (a === b && a.value === 'b') ? 'ok' : 'fail';",
+        )
+        .unwrap();
+    let JsValue::String(sid) = out else { panic!() };
+    assert_eq!(vm.get_string(sid), "ok");
+
+    vm.unbind();
+}
+
 #[test]
 fn element_id_on_text_node_is_undefined() {
     // `id` / `className` live on Element.prototype, so Text wrappers
