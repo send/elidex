@@ -437,6 +437,34 @@ fn slotchange_not_fired_when_assign_validation_fails() {
 // -------------------------------------------------------------------------
 
 #[test]
+fn shadow_root_getter_on_non_element_receiver_throws_type_error() {
+    // R8 finding #1: `Element.shadowRoot` is a WebIDL Element
+    // attribute, so the getter brand-checks the receiver per spec.
+    // Invoking the getter with a non-Element receiver throws
+    // "Illegal invocation" TypeError instead of returning null.
+    // Symmetric with `attachShadow` brand check (R3 #1).
+    //
+    // `shadowRoot` lives on `Element.prototype` (not the immediate
+    // tag-prototype) so the test walks the chain to locate the
+    // getter descriptor.
+    let out = run("var host = document.createElement('div'); \
+         function findGetter(obj, prop) { \
+             while (obj) { \
+                 var d = Object.getOwnPropertyDescriptor(obj, prop); \
+                 if (d && d.get) return d.get; \
+                 obj = Object.getPrototypeOf(obj); \
+             } \
+             return null; \
+         } \
+         var getter = findGetter(host, 'shadowRoot'); \
+         var caught = null; \
+         try { getter.call(document); } catch (e) { caught = e; } \
+         (caught !== null && caught.name === 'TypeError') \
+           ? 'ok' : 'fail:' + (caught && caught.name);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn attach_shadow_on_non_element_receiver_throws_type_error() {
     // R3 finding #1: WebIDL Element brand check on `this` runs
     // BEFORE init-dict parsing.  `Element.prototype.attachShadow.call(document, ...)`

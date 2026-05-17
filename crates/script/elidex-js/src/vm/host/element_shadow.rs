@@ -8,17 +8,17 @@
 //!
 //! ## Brand check
 //!
-//! Receiver must be an Element (resolved via [`entity_from_this`]).
-//! Non-Element receivers return `undefined` / `null` per the
-//! existing accessor convention rather than throwing — matches the
-//! getter / setter pattern used across `element_attrs.rs`.
+//! Both natives gate on a WebIDL Element brand check via
+//! [`super::event_target::require_receiver`]: non-Element receivers
+//! throw "Illegal invocation" TypeError per spec, while
+//! post-`Vm::unbind` retained wrappers silently no-op (matches
+//! elidex's unbound-receiver policy for accessor/method dispatch).
 
 #![cfg(feature = "engine")]
 
 use elidex_ecs::{ShadowAttachError, ShadowInit, ShadowRootMode, SlotAssignmentMode};
 
 use super::super::value::{JsValue, NativeContext, PropertyKey, VmError};
-use super::event_target::entity_from_this;
 
 /// `element.attachShadow({mode, delegatesFocus?, slotAssignment?,
 /// clonable?, serializable?, customElementRegistry?})` (WHATWG DOM
@@ -73,13 +73,19 @@ pub(super) fn native_element_attach_shadow(
 /// mode is `Open`; returns `null` when the host has no shadow root
 /// or when the mode is `Closed` (encapsulation — closed shadows are
 /// only reachable via the wrapper handle returned by
-/// `attachShadow`).
+/// `attachShadow`).  WebIDL Element brand check fires first — a
+/// non-Element receiver (e.g. `Element.prototype.__lookupGetter__('shadowRoot').call(document)`)
+/// throws "Illegal invocation" TypeError per spec.
 pub(super) fn native_element_get_shadow_root(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(host) = entity_from_this(ctx, this) else {
+    let Some(host) =
+        super::event_target::require_receiver(ctx, this, "Element", "shadowRoot", |k| {
+            k == elidex_ecs::NodeKind::Element
+        })?
+    else {
         return Ok(JsValue::Null);
     };
     let Some(host_data) = ctx.host_if_bound() else {
