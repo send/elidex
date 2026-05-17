@@ -34,6 +34,7 @@ use elidex_script_session::SessionCore;
 use super::super::test_helpers::bind_vm;
 use super::super::value::JsValue;
 use super::super::Vm;
+use super::{assert_eval_bool, assert_eval_number};
 
 fn build_min_doc(dom: &mut EcsDom) -> elidex_ecs::Entity {
     let doc = dom.create_document_root();
@@ -79,23 +80,6 @@ where
     drop(session);
     drop(dom);
     result
-}
-
-fn assert_eval_number(vm: &mut Vm, src: &str, expected: f64) {
-    match vm.eval(src).unwrap() {
-        JsValue::Number(n) => assert!(
-            (n - expected).abs() < f64::EPSILON,
-            "expected {expected}, got {n} (src: {src})"
-        ),
-        other => panic!("expected Number({expected}), got {other:?} (src: {src})"),
-    }
-}
-
-fn assert_eval_bool(vm: &mut Vm, src: &str, expected: bool) {
-    match vm.eval(src).unwrap() {
-        JsValue::Boolean(b) => assert_eq!(b, expected, "src: {src}"),
-        other => panic!("expected Boolean({expected}), got {other:?} (src: {src})"),
-    }
 }
 
 // ---------------------------------------------------------------------------

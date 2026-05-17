@@ -35,6 +35,7 @@ use elidex_script_session::SessionCore;
 use super::super::test_helpers::bind_vm;
 use super::super::value::JsValue;
 use super::super::Vm;
+use super::{assert_eval_bool, assert_eval_number, assert_eval_string};
 
 /// Minimal `doc` fixture for tests requiring a bound HostData session
 /// (the WebSocket constructor demands one for the side-table writes).
@@ -94,30 +95,6 @@ fn inject_ws_event_and_tick(vm: &mut Vm, conn_id: u64, ev: WsEvent) {
     let handle = vm.inner.network_handle.clone().expect("handle installed");
     handle.rebuffer_events(vec![NetworkToRenderer::WebSocketEvent(conn_id, ev)]);
     vm.tick_network();
-}
-
-fn assert_eval_number(vm: &mut Vm, src: &str, expected: f64) {
-    match vm.eval(src).unwrap() {
-        JsValue::Number(n) => assert!(
-            (n - expected).abs() < f64::EPSILON,
-            "expected {expected}, got {n} (src: {src})"
-        ),
-        other => panic!("expected Number({expected}), got {other:?} (src: {src})"),
-    }
-}
-
-fn assert_eval_string(vm: &mut Vm, src: &str, expected: &str) {
-    match vm.eval(src).unwrap() {
-        JsValue::String(id) => assert_eq!(vm.get_string(id), expected, "src: {src}"),
-        other => panic!("expected String({expected:?}), got {other:?} (src: {src})"),
-    }
-}
-
-fn assert_eval_bool(vm: &mut Vm, src: &str, expected: bool) {
-    match vm.eval(src).unwrap() {
-        JsValue::Boolean(b) => assert_eq!(b, expected, "src: {src}"),
-        other => panic!("expected Boolean({expected}), got {other:?} (src: {src})"),
-    }
 }
 
 // ---------------------------------------------------------------------------

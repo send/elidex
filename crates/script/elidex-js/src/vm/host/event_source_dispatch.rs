@@ -52,17 +52,19 @@ use elidex_api_ws::SseReadyState;
 
 use super::super::value::{JsValue, ObjectId, StringId};
 use super::super::VmInner;
-use super::websocket_dispatch::{fire_message_event_for_type, fire_plain_event};
+use super::websocket_dispatch::{fire_message_event, fire_plain_event};
 
 /// Handle `SseEvent::Connected`.
 ///
 /// Order per WHATWG HTML §9.2.5 step "announce the connection":
 /// transition state → fire `Event("open")` via cached `onopen` and
-/// any `addEventListener("open", ...)` listeners.  Race-tolerant:
-/// if a JS-side `close()` already moved the state to `Closed`
-/// before the broker's `Connected` arrived, drop the dispatch (the
-/// state mutation already ran for `Open → Connecting` auto-reconnect
-/// is legal; only the terminal `Closed` short-circuits).
+/// any `addEventListener("open", ...)` listeners.  Only the
+/// terminal `Closed` state short-circuits (JS-side `close()`
+/// raced ahead of the broker's `Connected` reply); `Connecting`
+/// and `Open` both proceed through `transition_to(Open)` — the
+/// latter is the legitimate idempotent path after the broker's
+/// auto-reconnect cycle (`SseEvent::Error` → `Connecting`, then
+/// a fresh `SseEvent::Connected` snaps it back to `Open`).
 pub(super) fn dispatch_sse_connected(vm: &mut VmInner, instance: ObjectId) {
     let (handler, listeners) = {
         let Some(hd) = vm.host_data.as_deref_mut() else {
@@ -108,8 +110,18 @@ pub(super) fn dispatch_sse_event(
     data: &str,
     last_event_id: String,
 ) {
-    let (onmessage, listeners, origin_sid, last_event_id_sid) = {
-        let last_event_id_sid = vm.strings.intern(&last_event_id);
+    // Common case (no `id:` line in the server stream) → skip the
+    // intern round-trip + WTF-16 conversion for the empty value.
+    let last_event_id_sid = if last_event_id.is_empty() {
+        vm.well_known.empty
+    } else {
+        vm.strings.intern(&last_event_id)
+    };
+    // Pre-intern the event type so the `is this the default
+    // "message" type?` branch is a `StringId` equality check
+    // (cheap integer compare) rather than a UTF-8 byte walk.
+    let type_sid = vm.strings.intern(event_type);
+    let (onmessage, listeners, origin_sid) = {
         let Some(hd) = vm.host_data.as_deref_mut() else {
             return;
         };
@@ -122,7 +134,7 @@ pub(super) fn dispatch_sse_event(
         // `id:\n` (empty value resets) and the multi-event
         // accumulator semantics.
         state.last_event_id = last_event_id;
-        let target_onmessage = if event_type == "message" {
+        let target_onmessage = if type_sid == vm.well_known.message {
             state.onmessage
         } else {
             None
@@ -131,17 +143,15 @@ pub(super) fn dispatch_sse_event(
             target_onmessage,
             listener_snapshot(state, event_type),
             state.origin_sid,
-            last_event_id_sid,
         )
     };
-    let type_sid = vm.strings.intern(event_type);
     let data_sid = vm.strings.intern(data);
     let data_val = JsValue::String(data_sid);
 
     // Fan-out: onmessage first (when applicable), then every
     // addEventListener registration in insertion order.
     if let Some(handler_id) = onmessage {
-        fire_message_event_for_type(
+        fire_message_event(
             vm,
             instance,
             handler_id,
@@ -158,7 +168,7 @@ pub(super) fn dispatch_sse_event(
         // per-instance `event_listeners` registry is the only
         // retention for addEventListener'd handlers).
         let mut g = vm.push_temp_root(JsValue::Object(handler_id));
-        fire_message_event_for_type(
+        fire_message_event(
             &mut g,
             instance,
             handler_id,

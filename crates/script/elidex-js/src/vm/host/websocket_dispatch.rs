@@ -141,11 +141,13 @@ pub(super) fn dispatch_ws_text_message(vm: &mut VmInner, instance: ObjectId, s: 
         return;
     };
     let data_sid = vm.strings.intern(s);
+    let message_sid = vm.well_known.message;
     let empty_sid = vm.well_known.empty;
     fire_message_event(
         vm,
         instance,
         handler_id,
+        message_sid,
         JsValue::String(data_sid),
         origin_sid,
         empty_sid,
@@ -183,11 +185,13 @@ pub(super) fn dispatch_ws_binary_message(vm: &mut VmInner, instance: ObjectId, b
         }
         BinaryType::ArrayBuffer => super::array_buffer::create_array_buffer_from_bytes(vm, bytes),
     };
+    let message_sid = vm.well_known.message;
     let empty_sid = vm.well_known.empty;
     fire_message_event(
         vm,
         instance,
         handler_id,
+        message_sid,
         JsValue::Object(data_obj),
         origin_sid,
         empty_sid,
@@ -261,13 +265,15 @@ fn snapshot_message_dispatch(
 /// message`; drift between the two writers puts user-visible slot
 /// values in the wrong properties.
 ///
-/// `type_sid` lets EventSource fire named events (`event:
-/// notification\ndata: ...`) while WebSocket always passes
-/// `well_known.message` for its anonymous text / binary frames.
-/// `last_event_id_sid` is `well_known.empty` for WebSocket (the
-/// `MessageEvent.lastEventId` attribute is SSE-only — WS spec
-/// §9.3.7 leaves it as the IDL default empty string) and the sticky
-/// cumulative value from `EventSourceState::last_event_id` for SSE.
+/// `type_sid` is `well_known.message` for the WebSocket text /
+/// binary callers (the only spec-defined MessageEvent type on WS)
+/// and the broker-supplied `event_type` interned at the EventSource
+/// dispatch site for SSE named events (`event: notification\ndata:
+/// ...`).  `last_event_id_sid` is `well_known.empty` for WebSocket
+/// (the `MessageEvent.lastEventId` attribute is SSE-only — WS spec
+/// §9.3.7 leaves it as the IDL default empty string) and the
+/// sticky cumulative value from `EventSourceState::last_event_id`
+/// for SSE.
 ///
 /// GC discipline (mirrors `pending_tasks::dispatch_post_message`):
 /// `data` is rooted first because the binary path passes a freshly
@@ -281,29 +287,6 @@ fn snapshot_message_dispatch(
 /// module can reuse the helper for SSE named-event delivery
 /// without duplicating the 5-slot payload + GC-root dance.
 pub(super) fn fire_message_event(
-    vm: &mut VmInner,
-    instance: ObjectId,
-    handler_id: ObjectId,
-    data: JsValue,
-    origin_sid: StringId,
-    last_event_id_sid: StringId,
-) {
-    fire_message_event_for_type(
-        vm,
-        instance,
-        handler_id,
-        vm.well_known.message,
-        data,
-        origin_sid,
-        last_event_id_sid,
-    );
-}
-
-/// `fire_message_event` variant that accepts an explicit `type_sid`
-/// so EventSource can fire named events (`event: notification`).
-/// The WebSocket entry point [`fire_message_event`] forwards here
-/// with `type_sid = well_known.message`.
-pub(super) fn fire_message_event_for_type(
     vm: &mut VmInner,
     instance: ObjectId,
     handler_id: ObjectId,
