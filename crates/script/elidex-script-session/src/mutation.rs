@@ -492,16 +492,22 @@ pub fn apply_set_outer_html(
             .ok()
             .map_or_else(|| "div".to_string(), |t| t.0.clone())
     };
+    // Capture exposed siblings BEFORE parse_html_fragment runs — the
+    // parser appends the new roots to the end of `parent` first
+    // (they are moved into place below), so a post-parse
+    // `next_exposed_sibling(entity)` would observe the freshly
+    // appended parse output instead of the pre-mutation sibling when
+    // `entity` was already the last child. The exposed-sibling
+    // helpers also skip internal `ShadowRoot` entities so
+    // `MutationRecord.previousSibling/.nextSibling` never leak a
+    // closed shadow across the §4.8 encapsulation boundary.
+    let prev_sibling = dom.prev_exposed_sibling(entity);
+    let next_sibling = dom.next_exposed_sibling(entity);
     let parse_opts = elidex_html_parser::ParseFragmentOptions::default();
     let added =
         elidex_html_parser::parse_html_fragment(html, &context_tag, parent, dom, parse_opts);
-    // parse_html_fragment appends the new roots at the end of `parent`;
-    // move them to `entity`'s slot, then unhook `entity` itself. Use
-    // exposed-sibling helpers so `MutationRecord.previousSibling`
-    // never leaks a closed `ShadowRoot` (which IS a real ECS sibling
-    // but is filtered out of DOM children per §4.8).
-    let prev_sibling = dom.prev_exposed_sibling(entity);
-    let next_sibling = dom.next_exposed_sibling(entity);
+    // parse_html_fragment appended the parsed roots at the end of
+    // `parent`; relocate them to `entity`'s slot, then unhook entity.
     for &node in &added {
         let _ = dom.remove_child(parent, node);
         let _ = dom.insert_before(parent, node, entity);
@@ -1057,6 +1063,43 @@ mod tests {
     // PR201 Copilot R2: MutationRecord sibling fields must not leak
     // internal ShadowRoot entities (encapsulation lock).
     // -------------------------------------------------------------
+
+    #[test]
+    fn apply_set_outer_html_captures_next_sibling_before_parsing() {
+        // PR201 Copilot R10 regression: `apply_set_outer_html` used
+        // to capture `prev_sibling` / `next_sibling` AFTER calling
+        // `parse_html_fragment`, but the parser appends the new roots
+        // at the end of `parent` first (they are moved into place
+        // immediately after). If `entity` is already the last child,
+        // a post-parse `next_exposed_sibling(entity)` would observe
+        // the freshly appended parse output instead of the
+        // pre-mutation next sibling (None). Lock the corrected order:
+        // capture sibling fields BEFORE parsing so `MutationRecord`
+        // reflects the pre-mutation tree state per the §4.4.5
+        // `outerHTML` replacement algorithm.
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let parent = elem(&mut dom, "div");
+        let _ = dom.append_child(root, parent);
+        let first = elem(&mut dom, "span");
+        let _ = dom.append_child(parent, first);
+        // `target` is the LAST child of `parent` — the bug case.
+        let target = elem(&mut dom, "p");
+        let _ = dom.append_child(parent, target);
+
+        let record =
+            apply_set_outer_html(&mut dom, target, "<b>new</b>").expect("outer html should apply");
+        assert_eq!(
+            record.next_sibling, None,
+            "MutationRecord.next_sibling for the last-child case must \
+             stay None — must not surface the parser's temporary append"
+        );
+        assert_eq!(
+            record.previous_sibling,
+            Some(first),
+            "previous_sibling reflects pre-mutation tree"
+        );
+    }
 
     #[test]
     fn apply_set_outer_html_does_not_leak_shadow_root_as_previous_sibling() {
