@@ -527,6 +527,84 @@ fn assigned_nodes_named_mode_matches_slot_attribute() {
 }
 
 #[test]
+fn slot_assign_empty_initial_does_not_signal() {
+    // R6 finding #1: `slot.assign()` (no args) on a slot that has
+    // never had a `SlotAssignment` component is a no-op vs. the
+    // implicit-empty initial state.  No `slotchange` should fire.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval(&format!(
+        "globalThis.fired = 0; {MANUAL_SLOT_PRELUDE} \
+         globalThis.slot.addEventListener('slotchange', function () {{ globalThis.fired += 1; }}); \
+         globalThis.slot.assign();"
+    ))
+    .unwrap();
+    let count = vm.eval("globalThis.fired").unwrap();
+    vm.unbind();
+    let JsValue::Number(n) = count else {
+        panic!("expected number, got {count:?}");
+    };
+    assert_eq!(n, 0.0, "empty initial assign should not signal");
+}
+
+#[test]
+fn require_node_arg_rejects_shadow_root_with_destroyed_entity() {
+    // R6 finding #2: A retained ShadowRoot wrapper whose backing
+    // entity is destroyed must throw "Illegal invocation" via the
+    // shared existence check, not silently hand a stale entity to
+    // Node IDL methods.  Simulated by unbinding (which clears
+    // `shadow_root_states`) and rebinding to a fresh DOM, then
+    // calling a Node-arg method using the retained wrapper.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // Retain the wrapper across the unbind boundary in a global.
+    vm.eval(
+        "globalThis.host = document.createElement('div'); \
+         globalThis.sr = globalThis.host.attachShadow({mode: 'open'});",
+    )
+    .unwrap();
+    vm.unbind();
+    // Rebind to a fresh DOM (entity indices likely reused).
+    let mut next_dom = EcsDom::new();
+    let next_root = build_doc(&mut next_dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut next_dom, next_root);
+    }
+    let out = vm
+        .eval(
+            "var caught = null; \
+         var probe = document.createElement('div'); \
+         try { probe.contains(globalThis.sr); } \
+         catch (e) { caught = e; } \
+         (caught !== null && caught.name === 'TypeError') \
+           ? 'ok' : 'fail:' + (caught && caught.name);",
+        )
+        .unwrap();
+    vm.unbind();
+    let JsValue::String(sid) = out else {
+        panic!("expected string, got {out:?}");
+    };
+    assert_eq!(
+        vm.inner.strings.get_utf8(sid),
+        "ok",
+        "post-unbind ShadowRoot wrapper should throw TypeError when used as Node arg"
+    );
+}
+
+#[test]
 fn shadow_root_accepted_as_node_arg() {
     // R1 finding #1: `Node` IDL arg surface must accept a ShadowRoot
     // wrapper; previously rejected because `require_node_arg` only

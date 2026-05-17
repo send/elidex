@@ -270,13 +270,17 @@ impl EcsDom {
         // immutable probe borrow drops before the mutating call.  Compare
         // current vs new list to decide whether the assignment is a
         // semantic change (which gates the `slotchange` signal — see
-        // doc-comment above).
+        // doc-comment above).  A missing `SlotAssignment` component
+        // represents the implicit empty list (spec: "manually assigned
+        // nodes is initially empty"), so `slot.assign()` with no args
+        // on a never-assigned slot is a no-op (`Ok(false)`).
         let existing_nodes: Option<Vec<Entity>> = self
             .world
             .get::<&SlotAssignment>(slot)
             .ok()
             .map(|sa| sa.assigned_nodes.clone());
-        let changed = existing_nodes.as_deref() != Some(nodes.as_slice());
+        let existing_slice: &[Entity] = existing_nodes.as_deref().unwrap_or(&[]);
+        let changed = existing_slice != nodes.as_slice();
         if existing_nodes.is_some() {
             if let Ok(mut existing) = self.world.get::<&mut SlotAssignment>(slot) {
                 existing.assigned_nodes = nodes;

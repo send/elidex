@@ -333,22 +333,25 @@ fn slot_assigned_elements(
 /// Drain [`VmInner::pending_slot_change_signals`] and fire a
 /// `slotchange` Event (bubbles=true, composed=false) at each slot.
 ///
-/// Called from `drain_microtasks` after `process_pending_rejections`,
-/// matching the spec's "notify mutation observers" microtask
-/// checkpoint (WHATWG DOM §4.3.4): mutation observer callbacks run,
-/// then any signaled slots get their slotchange dispatched.  We do
-/// not currently queue the MO microtask via the Promise / queueMicrotask
-/// queue — `Vm::deliver_mutation_records` is embedder-driven — so
-/// firing slotchange at the drain tail is the closest correct timing
-/// for script-initiated assignments.
+/// Dispatched by the [`super::super::natives_promise::Microtask::NotifyMutationObservers`]
+/// microtask variant — enqueued at signal time by
+/// [`VmInner::signal_slot_change`] and coalesced per-tick via
+/// [`VmInner::mutation_observer_microtask_queued`].  Drain pass
+/// processes it FIFO with `Promise.then` reactions and
+/// `queueMicrotask` callbacks, so a `Promise.then(cb)` registered
+/// AFTER `slot.assign()` observes the post-slotchange state, while
+/// one registered BEFORE the assign still fires first (WHATWG DOM
+/// §4.3.4 step 1).  Mutation observer callbacks themselves remain
+/// embedder-driven via `Vm::deliver_mutation_records`; the
+/// slotchange half is fully spec-correct.
 ///
 /// The signal-slots set is **snapshotted before dispatch** per spec
 /// §4.3.4 step 3 ("let signalSet be a clone of signal slots; empty
 /// signal slots; for each slot in signalSet: fire an event named
 /// `slotchange` at slot").  Signals enqueued by a `slotchange`
-/// listener body (re-entrant `slot.assign()` calls) land on the
-/// LIVE queue and fire in the next microtask checkpoint — NOT
-/// re-entrantly inside this dispatch.  Returns the number of events
+/// listener body (re-entrant `slot.assign()` calls) re-arm the
+/// coalescing flag and enqueue a fresh notify-MO microtask, which
+/// runs later in the SAME drain pass.  Returns the number of events
 /// actually fired (telemetry / tests).
 pub(in crate::vm) fn dispatch_pending_slotchange_signals(vm: &mut VmInner) -> usize {
     if vm.pending_slot_change_signals.is_empty() {

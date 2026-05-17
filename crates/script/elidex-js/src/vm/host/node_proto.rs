@@ -218,29 +218,33 @@ pub(super) fn require_node_arg(
     // in `shadow_root_states`); resolve through the side table so
     // ShadowRoot is accepted as a Node arg per WHATWG DOM §4.8
     // (ShadowRoot → DocumentFragment → Node).  Matches the
-    // [`super::event_target::entity_from_this`] extension.
-    let entity_bits = match ctx.vm.get_object(id).kind {
-        ObjectKind::HostObject { entity_bits } => entity_bits,
-        ObjectKind::ShadowRoot => {
-            return ctx
-                .vm
-                .shadow_root_states
-                .get(&id)
-                .map(|s| s.shadow_root)
-                .ok_or_else(not_a_node);
+    // [`super::event_target::entity_from_this`] extension.  Both
+    // branches fall through to the shared existence + node-kind
+    // check below so a retained wrapper whose backing entity was
+    // destroyed throws the same detached-node TypeError.
+    let entity = match ctx.vm.get_object(id).kind {
+        ObjectKind::HostObject { entity_bits } => {
+            Entity::from_bits(entity_bits).ok_or_else(|| {
+                VmError::type_error(format!(
+                    "Failed to execute '{method}' on 'Node': the node is detached (invalid entity)."
+                ))
+            })?
         }
+        ObjectKind::ShadowRoot => ctx
+            .vm
+            .shadow_root_states
+            .get(&id)
+            .map(|s| s.shadow_root)
+            .ok_or_else(not_a_node)?,
         _ => return Err(not_a_node()),
     };
-    let entity = Entity::from_bits(entity_bits).ok_or_else(|| {
-        VmError::type_error(format!(
-            "Failed to execute '{method}' on 'Node': the node is detached (invalid entity)."
-        ))
-    })?;
     // Use the inferred kind so legacy DOM entities (payload present
     // but no explicit `NodeKind` component) are accepted as Nodes —
     // matches `normalize_single_arg`, `nodes_equal`, and
     // `HostData::prototype_kind_for`.  Window is an `EventTarget`
-    // but not a Node, so it's rejected explicitly.
+    // but not a Node, so it's rejected explicitly.  Destroyed
+    // entities (HostObject OR ShadowRoot) return `None` here and
+    // surface as the brand-check failure.
     match ctx.host().dom().node_kind_inferred(entity) {
         None | Some(NodeKind::Window) => Err(not_a_node()),
         Some(_) => Ok(entity),
