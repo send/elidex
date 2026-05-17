@@ -42,9 +42,34 @@ run = "cargo doc --workspace --no-deps --all-features"
 description = "Check licenses and vulnerabilities"
 run = "cargo deny check"
 
+[tasks.ci-sweep]
+description = "Hard-cap target/ size to bound incremental cache growth (cargo-sweep)."
+# Workspace has ~50 crates × `--all-features` × many cargo invocations
+# per session (check / clippy / test / doc) — incremental/ accumulates
+# session artifacts that cargo never garbage-collects on its own. A
+# long R-loop has been observed pushing target/debug/incremental to
+# 100GB+ in one sitting.
+#
+# Strategy: `--maxsize 30000` (30GB hard cap) evicts the OLDEST
+# artifacts first until target/ is under the cap. Predictable bound,
+# does not depend on age heuristics. **Do not use `--time N`**: in
+# 2026-05 we measured `--time 7` purging 32GB of artifacts that
+# `--all-features` builds still actively depended on — the "untouched
+# in 7 days" criterion treats stable dep artifacts (not rebuilt for a
+# week because nothing above them changed) as garbage, triggering a
+# 700s+ workspace rebuild on the next `mise run ci`.
+#
+# `--installed` is always safe (drops artifacts from rust toolchains
+# that have been uninstalled via rustup; never touches the active
+# toolchain).
+run = """
+cargo sweep --installed
+cargo sweep --maxsize 30000
+"""
+
 [tasks.ci]
 description = "Run all CI checks locally"
-depends = ["check", "lint", "test-all", "doc", "deny"]
+depends = ["check", "lint", "test-all", "doc", "deny", "ci-sweep"]
 
 [tasks.bench]
 description = "Run all benchmarks"
