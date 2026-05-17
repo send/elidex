@@ -63,23 +63,36 @@ pub fn normalize_ws_url(url: &mut url::Url) -> Result<(), String> {
 
 /// Validate a WebSocket URL.
 ///
-/// Checks:
-/// - Scheme is `ws` or `wss` (callers should run [`normalize_ws_url`]
-///   first to handle the WHATWG §9.3.1 step 6 http→ws / https→wss
-///   promotion; this check then acts as a defensive backstop)
-/// - No fragment component
+/// Checks (in spec order per WHATWG HTML §9.3.1):
+/// - Scheme is `ws` or `wss` — step 5 (callers should run
+///   [`normalize_ws_url`] first to handle the §9.3.1 step 6 (formerly
+///   3/4) `http→ws` / `https→wss` promotion; this check then acts as
+///   a defensive backstop)
+/// - No fragment component — step 6
 /// - SSRF protection via `elidex_plugin::url_security::validate_url`
-///   (converts ws/wss to http/https for validation)
+///   (engine-local extension, not in spec; converts `ws`/`wss` to
+///   `http`/`https` for validation). Runs last so the spec-defined
+///   `SyntaxError` precedence for fragment/scheme is preserved
+///   regardless of host-policy outcome.
 ///
 /// Returns `Ok(())` if the URL is valid, or an error message if it is not.
 pub fn validate_ws_url(url: &url::Url) -> Result<(), String> {
-    // 1. Scheme check.
+    // 1. Scheme check (spec step 5).
     match url.scheme() {
         "ws" | "wss" => {}
         scheme => return Err(format!("unsupported scheme: {scheme}")),
     }
 
-    // 2. SSRF check: convert ws/wss to http/https for validate_url.
+    // 2. Fragment check (spec step 6). Runs before the SSRF extension so
+    //    the spec-mandated SyntaxError precedence is preserved (e.g.
+    //    `ws://localhost/#frag` reports the fragment violation, not the
+    //    SSRF block, matching browser behaviour).
+    if url.fragment().is_some() {
+        return Err("URL must not contain a fragment".to_string());
+    }
+
+    // 3. SSRF check (engine-local extension): convert ws/wss to http/https
+    //    so the shared `validate_url` policy can evaluate the host.
     let http_scheme = if url.scheme() == "wss" {
         "https"
     } else {
@@ -89,11 +102,6 @@ pub fn validate_ws_url(url: &url::Url) -> Result<(), String> {
     check_url.set_scheme(http_scheme).ok();
     elidex_plugin::url_security::validate_url(&check_url)
         .map_err(|e| format!("URL blocked: {e}"))?;
-
-    // 3. Fragment check.
-    if url.fragment().is_some() {
-        return Err("URL must not contain a fragment".to_string());
-    }
 
     Ok(())
 }
@@ -178,6 +186,20 @@ mod tests {
         let url = url::Url::parse("ws://example.com/socket#frag").unwrap();
         let err = validate_ws_url(&url).unwrap_err();
         assert!(err.contains("fragment"));
+    }
+
+    #[test]
+    fn fragment_check_precedes_ssrf_check() {
+        // WHATWG §9.3.1 step 6 (fragment) precedes our engine-local SSRF
+        // extension, so a fragment on an otherwise-blocked host must
+        // still surface the fragment error rather than the SSRF block.
+        let url = url::Url::parse("ws://localhost/socket#frag").unwrap();
+        let err = validate_ws_url(&url).unwrap_err();
+        assert!(
+            err.contains("fragment"),
+            "expected fragment error to take precedence over SSRF block, got: {err}"
+        );
+        assert!(!err.contains("URL blocked"), "got SSRF error: {err}");
     }
 
     #[test]
