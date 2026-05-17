@@ -235,14 +235,24 @@ fn parse_shadow_root_sequence(
         } else {
             let length_key = super::super::value::PropertyKey::String(ctx.vm.well_known.length);
             let length_val = ctx.vm.get_property_value(seq_id, length_key)?;
-            // Cap to `DENSE_ARRAY_LEN_LIMIT` so a caller passing a
-            // huge `length` (e.g. `{length: 2**32 - 1}`) cannot force a
-            // multi-GB `Vec::with_capacity` allocation — mirrors
-            // `natives_function.rs::collect_array_like`. The
-            // pre-allocation is additionally bounded to 1024 since the
-            // typical caller passes a small handful of ShadowRoots.
-            let length = (super::super::coerce::to_uint32(ctx.vm, length_val)? as usize)
-                .min(super::super::ops::DENSE_ARRAY_LEN_LIMIT);
+            // Length coercion mirrors `natives_function.rs::collect_array_like`:
+            // ToNumber + trunc + treat NaN/negative as 0, then clamp
+            // to `DENSE_ARRAY_LEN_LIMIT`. **NOT** `to_uint32`: ES's
+            // ToUint32 applies a modulo-2^32 reduction, so a
+            // caller passing `{length: 2**32 + N}` would silently
+            // wrap to `N` instead of being clamped — that's a quiet
+            // divergence from sibling array-like sites and lets
+            // crafted inputs skip elements. The hard cap is the only
+            // DoS guard; the soft cap (1024) limits the
+            // `Vec::with_capacity` pre-alloc to the typical ShadowRoot
+            // sequence length.
+            let len_f = ctx.to_number(length_val)?.trunc();
+            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+            let length = if len_f.is_nan() || len_f < 0.0 {
+                0
+            } else {
+                (len_f as usize).min(super::super::ops::DENSE_ARRAY_LEN_LIMIT)
+            };
             let mut out = Vec::with_capacity(length.min(1024));
             for i in 0..length {
                 let index_sid = ctx.vm.strings.intern(&i.to_string());
