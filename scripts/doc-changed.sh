@@ -10,11 +10,12 @@
 # Invoked explicitly via bash (POSIX-shell pipelines + awk / grep)
 # so Windows contributors get a clear "bash: command not found"
 # message instead of a confusing partial-execute failure. The
-# `set -e` below catches non-pipeline command failures; the single
-# pipeline below intentionally ends with `|| true` so the no-matches
-# case (grep -o exits non-zero on empty match) does NOT abort the
-# script — `set -o pipefail` is deliberately NOT used here for that
-# reason.
+# `set -e` below catches non-pipeline command failures. The single
+# pipeline below ends with `|| true` defensively — under bash's
+# default no-`pipefail` semantics the pipeline's exit status is
+# `sort`'s alone (so a `grep -o` no-match would NOT trip `set -e`
+# either way), but `|| true` keeps the no-matches case safe if
+# anyone enables `set -o pipefail` later.
 
 set -e
 
