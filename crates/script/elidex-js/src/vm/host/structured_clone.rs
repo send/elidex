@@ -330,6 +330,17 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         // is non-spec).  Slot `#11-crypto-subtle-min`.
         ObjectKind::Crypto => CloneKind::Unclonable("Crypto"),
         ObjectKind::SubtleCrypto => CloneKind::Unclonable("SubtleCrypto"),
+        // D-12 `#11-net-ws-sse` — WebSocket / EventSource are not
+        // structured-cloneable per WHATWG WebSockets §9.3 / HTML
+        // §9.2.  Each wrapper holds a broker `conn_id` whose I/O
+        // thread is per-VM owned; clone semantics would require
+        // either duplicating the underlying connection (spec-
+        // disallowed: a single open `conn_id` per JS instance) or
+        // transferring it (no [Transferable] IDL extended attribute
+        // on either interface).  Throws DataCloneError consistent
+        // with Chrome / Firefox.
+        ObjectKind::WebSocket => CloneKind::Unclonable("WebSocket"),
+        ObjectKind::EventSource => CloneKind::Unclonable("EventSource"),
     }
 }
 

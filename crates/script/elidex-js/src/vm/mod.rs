@@ -529,6 +529,32 @@ pub(crate) struct VmInner {
     /// `register_subtle_crypto_global()` runs.
     #[cfg(feature = "engine")]
     pub(crate) subtle_crypto_prototype: Option<ObjectId>,
+    /// `WebSocket.prototype` (WHATWG WebSockets §9.3).  Chains
+    /// directly to `Object.prototype` (NOT `EventTarget.prototype`
+    /// in this PR — addEventListener delivery for non-Entity
+    /// EventTargets is deferred to `#11-realtime-event-listeners`).
+    /// Carries readyState / url / protocol / extensions /
+    /// bufferedAmount / binaryType accessors, send / close
+    /// methods, and 4 `on*` handler getter/setter pairs.
+    /// `CONNECTING` / `OPEN` / `CLOSING` / `CLOSED` IDL constants
+    /// are installed on BOTH this prototype and the
+    /// `WebSocket` constructor object.  `None` until
+    /// `register_websocket_global()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) websocket_prototype: Option<ObjectId>,
+    /// `EventSource.prototype` (WHATWG HTML §9.2).  Chains
+    /// directly to `Object.prototype` (same scope decision as
+    /// `websocket_prototype`; the per-instance addEventListener
+    /// shim is a minimal CRIT-3 fold, not the full EventTarget
+    /// surface).  Carries readyState / url / withCredentials
+    /// accessors, close / addEventListener / removeEventListener
+    /// methods, and 3 `on*` handler getter/setter pairs.
+    /// `CONNECTING` / `OPEN` / `CLOSED` IDL constants installed
+    /// on both the prototype and the `EventSource` constructor.
+    /// `None` until `register_event_source_global()` runs.
+    #[cfg(feature = "engine")]
+    pub(crate) event_source_prototype: Option<ObjectId>,
     /// Cached `Crypto` wrapper for `window.crypto` (`[SameObject]`
     /// per WebIDL — same `ObjectId` returned across reads for the
     /// lifetime of one bind cycle).  Eager-initialised at

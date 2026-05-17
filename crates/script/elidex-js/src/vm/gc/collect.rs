@@ -815,6 +815,31 @@ impl VmInner {
                 self.selection_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // 151 + 2 (D-12 slot `#11-net-ws-sse`:
+                // `WebSocket.prototype` + `EventSource.prototype`).
+                // Each chains to `Object.prototype` (NOT
+                // `EventTarget.prototype` in this PR — the
+                // addEventListener surface for non-Entity
+                // EventTargets is deferred to
+                // `#11-realtime-event-listeners`).  Per-instance
+                // state (handler `ObjectId`s, addEventListener
+                // registry for SSE) lives in
+                // `HostData::websocket_states` /
+                // `HostData::event_source_states` and is traced via
+                // `vm/gc/trace.rs::trace_realtime_states`; the
+                // prototypes themselves are rooted here because
+                // the matching `VmInner::<x>_prototype` slot retains
+                // a stale id otherwise (same `delete
+                // globalThis.WebSocket` invariant as every other
+                // intrinsic prototype above).
+                #[cfg(feature = "engine")]
+                self.websocket_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.event_source_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,
@@ -976,6 +1001,27 @@ impl VmInner {
                 None => (None, None, &empty_range_instances),
             };
 
+        // D-12 `#11-net-ws-sse` — WebSocket / EventSource handler
+        // ObjectId fan-out.  Empty fallbacks for the unbound
+        // HostData case (WS / SSE instances cannot exist without
+        // a bound HostData since they keep handler ObjectIds in
+        // the side-tables).
+        #[cfg(feature = "engine")]
+        let empty_ws_states: std::collections::HashMap<
+            ObjectId,
+            super::super::host_data::WebSocketState,
+        > = std::collections::HashMap::new();
+        #[cfg(feature = "engine")]
+        let empty_sse_states: std::collections::HashMap<
+            ObjectId,
+            super::super::host_data::EventSourceState,
+        > = std::collections::HashMap::new();
+        #[cfg(feature = "engine")]
+        let (ws_states_ref, sse_states_ref) = match self.host_data.as_deref() {
+            Some(hd) => (hd.websocket_states_ref(), hd.event_source_states_ref()),
+            None => (&empty_ws_states, &empty_sse_states),
+        };
+
         trace_work_list(
             roots.objects,
             roots.upvalues,
@@ -1023,6 +1069,10 @@ impl VmInner {
             &self.file_reader_data,
             #[cfg(feature = "engine")]
             &self.input_files_cache,
+            #[cfg(feature = "engine")]
+            ws_states_ref,
+            #[cfg(feature = "engine")]
+            sse_states_ref,
             &mut self.gc_object_marks,
             &mut self.gc_upvalue_marks,
             &mut self.gc_work_list,
@@ -1417,6 +1467,67 @@ impl VmInner {
                 if let Some(sel_id) = hd.selection_instance {
                     if !bit_get(marks, sel_id.0) {
                         hd.selection_instance = None;
+                    }
+                }
+                // D-12 `#11-net-ws-sse` — WebSocket / EventSource
+                // side-table prune.  Standard mark-the-key contract
+                // PLUS emit a `WebSocketClose(conn_id)` /
+                // `EventSourceClose(conn_id)` per swept instance so
+                // the broker terminates the underlying I/O thread
+                // before the renderer-side state vanishes.  Without
+                // this, a GC-discarded WebSocket would leak its
+                // network thread (the broker keeps the worker alive
+                // until JS code explicitly closes — see CLAUDE.md
+                // "後方互換性は維持しない": no implicit cleanup is
+                // an explicit design choice, GC sweep IS the
+                // explicit close for orphaned wrappers).
+                //
+                // Reverse maps are pruned by VALUE (`ObjectId`)
+                // mark bit, mirroring the conn → instance routing
+                // direction.
+                let dead_ws_conns: Vec<u64> = hd
+                    .websocket_states
+                    .iter()
+                    .filter_map(|(obj_id, state)| {
+                        if bit_get(marks, obj_id.0) {
+                            None
+                        } else {
+                            Some(state.conn_id)
+                        }
+                    })
+                    .collect();
+                hd.websocket_states.retain(|id, _| bit_get(marks, id.0));
+                hd.ws_conn_to_object
+                    .retain(|_, obj_id| bit_get(marks, obj_id.0));
+                let dead_sse_conns: Vec<u64> = hd
+                    .event_source_states
+                    .iter()
+                    .filter_map(|(obj_id, state)| {
+                        if bit_get(marks, obj_id.0) {
+                            None
+                        } else {
+                            Some(state.conn_id)
+                        }
+                    })
+                    .collect();
+                hd.event_source_states.retain(|id, _| bit_get(marks, id.0));
+                hd.sse_conn_to_object
+                    .retain(|_, obj_id| bit_get(marks, obj_id.0));
+                // Emit Close messages to the broker for swept
+                // connections.  Best-effort: a disconnected handle
+                // silently no-ops via `send`'s bool return.
+                if !dead_ws_conns.is_empty() || !dead_sse_conns.is_empty() {
+                    if let Some(handle) = self.network_handle.as_ref() {
+                        for conn_id in dead_ws_conns {
+                            let _ = handle.send(
+                                elidex_net::broker::RendererToNetwork::WebSocketClose(conn_id),
+                            );
+                        }
+                        for conn_id in dead_sse_conns {
+                            let _ = handle.send(
+                                elidex_net::broker::RendererToNetwork::EventSourceClose(conn_id),
+                            );
+                        }
                     }
                 }
             }

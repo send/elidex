@@ -20,6 +20,7 @@ engine = [
     "elidex-net",
     "elidex-dom-api",
     "elidex-api-observers",
+    "elidex-api-ws",
     "elidex-form",
     "elidex-storage-core",
     "bytes",
@@ -71,6 +72,13 @@ elidex-dom-api = { workspace = true, optional = true }
 # the `MutationObserver` VM thin binding.  Engine-gated because the
 # observer surface is engine-only.
 elidex-api-observers = { workspace = true, optional = true }
+# Engine-independent WebSocket / EventSource protocol types
+# (`WsReadyState` / `SseReadyState` / `normalize_ws_url` /
+# `validate_ws_url` / `is_mixed_content`) consumed by the WS / SSE
+# VM thin bindings (slot `#11-net-ws-sse`).  Engine-gated because
+# the realtime surface depends on the engine-only NetworkHandle +
+# event-dispatch wiring.
+elidex-api-ws = { workspace = true, optional = true }
 # Form-control state, label association, validation, selection —
 # consumed by upcoming HTMLFormElement / HTMLInputElement prototype
 # bindings.  Currently dep-only.

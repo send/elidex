@@ -1068,6 +1068,58 @@ pub enum ObjectKind {
     /// slot alongside `crypto_instance`.
     #[cfg(feature = "engine")]
     SubtleCrypto,
+    /// `WebSocket` instance (WHATWG WebSockets §9.3).  Payload-free
+    /// brand; the per-instance state (4-state `readyState` + URL +
+    /// negotiated protocol/extensions + `bufferedAmount` +
+    /// `binaryType` + broker `conn_id` + `on{open,message,error,close}`
+    /// handler `ObjectId`s) lives in
+    /// `HostData::websocket_states` keyed by this `ObjectId`.
+    /// Reverse lookup from broker `conn_id` → `ObjectId` lives in
+    /// `HostData::ws_conn_to_object` so the network drain (extended
+    /// `VmInner::tick_network`) can route `WsEvent`s back to the
+    /// instance.
+    ///
+    /// **Constructor is user-callable** (`new WebSocket(url,
+    /// protocols?)`); the URL parse / scheme promotion / mixed-content
+    /// gate / broker open all happen at construction time.  No
+    /// "illegal constructor" stub (unlike `Crypto`).
+    ///
+    /// GC contract: trace fan-out marks the 4 `on*` handler
+    /// `ObjectId`s held in the side-table entry; sweep tail prunes
+    /// `websocket_states` + `ws_conn_to_object` for collected
+    /// instances and emits a `RendererToNetwork::WebSocketClose` to
+    /// the broker so the I/O thread terminates.  Side-tables are
+    /// cleared on `Vm::unbind` (browsing-context scope per the
+    /// Selection/Range precedent — broker handles die on unbind so
+    /// state must too).
+    #[cfg(feature = "engine")]
+    WebSocket,
+    /// `EventSource` instance (WHATWG HTML §9.2).  Payload-free
+    /// brand; the per-instance state (3-state `readyState` + URL +
+    /// `withCredentials` + sticky `lastEventId` + broker `conn_id` +
+    /// `on{open,message,error}` handler `ObjectId`s + minimal
+    /// `addEventListener` registry per `event_listeners:
+    /// HashMap<String, Vec<ObjectId>>`) lives in
+    /// `HostData::event_source_states` keyed by this `ObjectId`.
+    /// Reverse lookup from broker `conn_id` → `ObjectId` lives in
+    /// `HostData::sse_conn_to_object`.
+    ///
+    /// **Constructor is user-callable** (`new EventSource(url,
+    /// init?)`).  Unlike `WebSocket`, EventSource ships a minimal
+    /// `addEventListener(type, listener)` shim so spec-required
+    /// named-event delivery does not silently drop user data; full
+    /// `addEventListener` options (capture / once / signal) are
+    /// deferred to `#11-realtime-event-listeners`.
+    ///
+    /// GC contract: trace fan-out marks the 3 `on*` handler
+    /// `ObjectId`s plus every listener `ObjectId` across the
+    /// `event_listeners` registry; sweep tail prunes
+    /// `event_source_states` + `sse_conn_to_object` for collected
+    /// instances and emits a `RendererToNetwork::EventSourceClose`
+    /// to the broker.  Side-tables are cleared on `Vm::unbind`
+    /// (browsing-context scope).
+    #[cfg(feature = "engine")]
+    EventSource,
 }
 
 impl ObjectKind {

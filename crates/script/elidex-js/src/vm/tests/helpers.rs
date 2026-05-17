@@ -61,6 +61,43 @@ pub(crate) fn eval_bool(source: &str) -> bool {
     }
 }
 
+/// `vm.eval(src)` and assert the result is `Number(expected)` within
+/// `f64::EPSILON`.  Companion to [`eval_number`] for tests that need
+/// to drive a long-lived VM across multiple eval calls (the realtime
+/// suites under `tests_websocket` / `tests_event_source` /
+/// `tests_realtime` bind once per `with_*_vm` and then evaluate many
+/// scripts against the same VM).
+#[cfg(feature = "engine")]
+pub(crate) fn assert_eval_number(vm: &mut Vm, src: &str, expected: f64) {
+    match vm.eval(src).unwrap() {
+        JsValue::Number(n) => assert!(
+            (n - expected).abs() < f64::EPSILON,
+            "expected {expected}, got {n} (src: {src})"
+        ),
+        other => panic!("expected Number({expected}), got {other:?} (src: {src})"),
+    }
+}
+
+/// `vm.eval(src)` and assert the result is `String(expected)`.
+/// Companion to [`assert_eval_number`].
+#[cfg(feature = "engine")]
+pub(crate) fn assert_eval_string(vm: &mut Vm, src: &str, expected: &str) {
+    match vm.eval(src).unwrap() {
+        JsValue::String(id) => assert_eq!(vm.get_string(id), expected, "src: {src}"),
+        other => panic!("expected String({expected:?}), got {other:?} (src: {src})"),
+    }
+}
+
+/// `vm.eval(src)` and assert the result is `Boolean(expected)`.
+/// Companion to [`assert_eval_number`].
+#[cfg(feature = "engine")]
+pub(crate) fn assert_eval_bool(vm: &mut Vm, src: &str, expected: bool) {
+    match vm.eval(src).unwrap() {
+        JsValue::Boolean(b) => assert_eq!(b, expected, "src: {src}"),
+        other => panic!("expected Boolean({expected}), got {other:?} (src: {src})"),
+    }
+}
+
 /// Evaluate `source`, drain microtasks (via the post-script drain inside
 /// `eval`), then read the global `var` named `name` and expect a number.
 /// Used to observe state set asynchronously from Promise reactions.

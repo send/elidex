@@ -103,6 +103,8 @@ impl NetworkProcessHandle {
             mock_responses: None,
             #[cfg(feature = "test-hooks")]
             recorded_requests: None,
+            #[cfg(feature = "test-hooks")]
+            recorded_outgoing: None,
         }
     }
 
@@ -240,6 +242,25 @@ pub struct NetworkHandle {
     /// unbounded.
     #[cfg(feature = "test-hooks")]
     pub(super) recorded_requests: Option<std::cell::RefCell<Vec<Request>>>,
+    /// Test-only: log of every [`RendererToNetwork`] message
+    /// handed to [`Self::send`] on a mock handle.  Populated only
+    /// when `mock_responses` is `Some` (i.e. the handle came from
+    /// [`Self::mock_with_responses`]); production handles leave
+    /// this `None` so we do not pay for the clone on the
+    /// realtime hot path.  Read out via
+    /// [`Self::drain_recorded_outgoing`] — useful for asserting
+    /// `WebSocketClose` / `EventSourceClose` emit in
+    /// `Vm::unbind` teardown tests (D-12 `#11-net-ws-sse`
+    /// CRIT-A).  The log is unbounded; tests should drain
+    /// periodically.
+    ///
+    /// `RendererToNetwork` is not `Clone`, so the log stores the
+    /// message via debug-printed string snapshots — sufficient for
+    /// assertion patterns like "expected `WebSocketClose(0)` to
+    /// appear" without dragging a `Clone` impl onto every variant
+    /// payload.
+    #[cfg(feature = "test-hooks")]
+    pub(super) recorded_outgoing: Option<std::cell::RefCell<Vec<String>>>,
 }
 
 impl NetworkHandle {
@@ -273,6 +294,8 @@ impl NetworkHandle {
             mock_responses: None,
             #[cfg(feature = "test-hooks")]
             recorded_requests: None,
+            #[cfg(feature = "test-hooks")]
+            recorded_outgoing: None,
         }
     }
 
@@ -348,6 +371,8 @@ impl NetworkHandle {
             mock_responses: None,
             #[cfg(feature = "test-hooks")]
             recorded_requests: None,
+            #[cfg(feature = "test-hooks")]
+            recorded_outgoing: None,
         }
     }
 
@@ -375,6 +400,7 @@ impl NetworkHandle {
         let mut handle = Self::disconnected();
         handle.mock_responses = Some(std::cell::RefCell::new(map));
         handle.recorded_requests = Some(std::cell::RefCell::new(Vec::new()));
+        handle.recorded_outgoing = Some(std::cell::RefCell::new(Vec::new()));
         handle
     }
 
@@ -385,6 +411,23 @@ impl NetworkHandle {
     #[must_use]
     pub fn drain_recorded_requests(&self) -> Vec<Request> {
         self.recorded_requests
+            .as_ref()
+            .map(|log| log.borrow_mut().drain(..).collect())
+            .unwrap_or_default()
+    }
+
+    /// Drain and return the debug-formatted
+    /// [`RendererToNetwork`] messages observed by this mock
+    /// handle's [`Self::send`] since the last drain.  Returns
+    /// `Vec::new()` for non-mock handles.  Test-only — used by
+    /// the elidex-js WebSocket / EventSource teardown tests to
+    /// assert `Vm::unbind` emits the per-conn `WebSocketClose` /
+    /// `EventSourceClose` messages before clearing side-tables
+    /// (D-12 `#11-net-ws-sse` CRIT-A).
+    #[cfg(feature = "test-hooks")]
+    #[must_use]
+    pub fn drain_recorded_outgoing(&self) -> Vec<String> {
+        self.recorded_outgoing
             .as_ref()
             .map(|log| log.borrow_mut().drain(..).collect())
             .unwrap_or_default()
@@ -648,6 +691,10 @@ impl NetworkHandle {
     pub fn send(&self, msg: RendererToNetwork) -> bool {
         if self.check_unregistered() {
             return false;
+        }
+        #[cfg(feature = "test-hooks")]
+        if let Some(ref log) = self.recorded_outgoing {
+            log.borrow_mut().push(format!("{msg:?}"));
         }
         self.request_tx.send((self.client_id, msg)).is_ok()
     }

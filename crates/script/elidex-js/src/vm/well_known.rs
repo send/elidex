@@ -707,6 +707,13 @@ define_well_known_strings! {
         dom_exc_in_use_attribute_error => "InUseAttributeError",
         dom_exc_not_supported_error => "NotSupportedError",
         dom_exc_invalid_node_type_error => "InvalidNodeTypeError",
+        // Added with D-12 `#11-net-ws-sse` Phase 1: WebSocket ctor
+        // mixed-content gate throws SecurityError (§9.3.1 step 5);
+        // close() with an invalid code throws InvalidAccessError
+        // (§9.3.4 step 1) — both are spec-mandated DOMException
+        // names, not generic JS error types.
+        dom_exc_security_error => "SecurityError",
+        dom_exc_invalid_access_error => "InvalidAccessError",
     }
 
     "Headers (WHATWG Fetch §5.2)" {
@@ -1260,6 +1267,49 @@ define_well_known_strings! {
         random_uuid => "randomUUID",
         subtle => "subtle",
         digest => "digest",
+    }
+
+    "WebSocket / EventSource (WHATWG WebSockets §9.3 + HTML §9.2)" {
+        // Constructor globals + WS/SSE-specific attribute and method
+        // names not pre-interned elsewhere.  `protocol`, `data`,
+        // `origin`, `code`, `reason`, `was_clean`, `last_event_id`,
+        // `url`, `extensions` are all already interned above (Event
+        // payload keys / Storage / TLS sections) and reused here.
+        //
+        // `message` / `error` / `open` already exist in the
+        // "primitives" section (line 98/100 message/error) and the
+        // generic close handler key is `close` (ReadableStream
+        // section, line 1286).  WS / SSE `on*` handlers are
+        // declared here because `onopen` / `onmessage` / `onclose`
+        // are unique to the realtime surface.
+        websocket_global => "WebSocket",
+        event_source_global => "EventSource",
+        binary_type => "binaryType",
+        buffered_amount => "bufferedAmount",
+        with_credentials => "withCredentials",
+        onopen => "onopen",
+        onmessage => "onmessage",
+        onclose => "onclose",
+        binary_type_blob => "blob",
+        binary_type_arraybuffer => "arraybuffer",
+        // Method names + attributes unique to the realtime surface.
+        // `send` is the WebSocket.prototype method; `extensions` is the
+        // post-handshake attribute (per-frame extensions negotiated via
+        // `Sec-WebSocket-Extensions`).  `open_event_type` is the UA-fired
+        // event type string for `WsEvent::Connected` (WHATWG §9.3 step 4).
+        ws_send_method => "send",
+        ws_extensions => "extensions",
+        ws_open_event_type => "open",
+        ws_close_event_type => "close",
+        // Constant identifiers (CONNECTING/OPEN/CLOSING/CLOSED) —
+        // installed on both the constructor and the prototype per
+        // WebIDL `const unsigned short` rules.  `CONNECTING` /
+        // `OPEN` / `CLOSING` / `CLOSED` are SHARED between the WS
+        // and SSE surfaces; SSE additionally lacks `CLOSING`.
+        ws_connecting_const => "CONNECTING",
+        ws_open_const => "OPEN",
+        ws_closing_const => "CLOSING",
+        ws_closed_const => "CLOSED",
     }
 
     "ReadableStream (WHATWG Streams §4)" {

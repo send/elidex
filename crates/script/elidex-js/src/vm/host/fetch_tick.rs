@@ -58,6 +58,26 @@ impl VmInner {
             for (fetch_id, result) in handle.drain_fetch_responses_only() {
                 self.settle_fetch(fetch_id, result);
             }
+            // D-12 `#11-net-ws-sse` (IMP-6): single Vm-API surface
+            // for realtime — partition the broker handle's
+            // non-fetch event drain into WebSocket vs
+            // EventSource buckets and dispatch each to the
+            // matching wrapper via the
+            // `HostData::ws_conn_to_object` /
+            // `sse_conn_to_object` reverse maps.  Fetch
+            // settlements run BEFORE realtime per `buffered.rs`
+            // ordering invariant so a `fetch().then(...)` that
+            // happens to share a renderer tick with a stream of
+            // WS frames lands its `.then` reactions in the same
+            // microtask checkpoint, ahead of the WS frame
+            // dispatch.
+            //
+            // Per-event variant dispatch lives in
+            // `dispatch_realtime_event` below; this loop only
+            // owns the drain + partition-by-reverse-map glue.
+            for event in handle.drain_events() {
+                self.dispatch_realtime_event(event);
+            }
         }
         // Microtask checkpoint — `.then` reactions attached to a
         // settled Promise (or any other queued reaction) must run
@@ -67,6 +87,127 @@ impl VmInner {
         // when no handle is installed (R4.1) so the public API's
         // unconditional contract holds for handle-less embedders.
         self.drain_microtasks();
+    }
+
+    /// Dispatch a single non-fetch broker event (WS or SSE) to the
+    /// matching VM-side wrapper.
+    ///
+    /// Looks the receiver up through the reverse map and silently
+    /// drops if the wrapper has been GC-swept (the sweep tail
+    /// already emitted the matching `WebSocketClose` /
+    /// `EventSourceClose` so the broker should not send further
+    /// events for that `conn_id`; a late arrival between sweep and
+    /// broker observe is benign).
+    ///
+    /// Implements every WebSocket arm (Phase 1+2) and every
+    /// EventSource arm (Phase 3); delegates the actual event
+    /// allocation + handler fire to
+    /// [`super::websocket_dispatch`] / [`super::event_source_dispatch`].
+    ///
+    /// Borrow discipline: the reverse-map lookup snapshots the
+    /// instance `ObjectId` into a local before the per-variant
+    /// dispatch helpers are called, dropping the `host_data` borrow
+    /// up front.  Each helper takes `&mut self` and re-borrows
+    /// `host_data` for its mutation (state transition, field
+    /// populate) before the handler call.
+    fn dispatch_realtime_event(&mut self, event: elidex_net::broker::NetworkToRenderer) {
+        use elidex_net::broker::NetworkToRenderer;
+        use elidex_net::sse::SseEvent;
+        use elidex_net::ws::WsEvent;
+        match event {
+            NetworkToRenderer::WebSocketEvent(conn_id, ws_event) => {
+                let Some(instance) = self
+                    .host_data
+                    .as_deref()
+                    .and_then(|hd| hd.ws_conn_to_object.get(&conn_id).copied())
+                else {
+                    return;
+                };
+                match ws_event {
+                    WsEvent::Connected {
+                        protocol,
+                        extensions,
+                    } => {
+                        super::websocket_dispatch::dispatch_ws_connected(
+                            self, instance, protocol, extensions,
+                        );
+                    }
+                    WsEvent::Closed {
+                        code,
+                        reason,
+                        was_clean,
+                    } => {
+                        super::websocket_dispatch::dispatch_ws_closed(
+                            self, instance, code, &reason, was_clean,
+                        );
+                    }
+                    WsEvent::TextMessage(s) => {
+                        super::websocket_dispatch::dispatch_ws_text_message(self, instance, &s);
+                    }
+                    WsEvent::BinaryMessage(bytes) => {
+                        super::websocket_dispatch::dispatch_ws_binary_message(
+                            self, instance, bytes,
+                        );
+                    }
+                    WsEvent::Error(_msg) => {
+                        // Per WHATWG §9.3.7 the script-visible "error"
+                        // is a plain Event with no detail — the broker
+                        // message is discarded intentionally to avoid
+                        // leaking server-internals through the
+                        // unsandboxed handler.
+                        super::websocket_dispatch::dispatch_ws_error(self, instance);
+                    }
+                    WsEvent::BytesSent(n) => {
+                        super::websocket_dispatch::dispatch_ws_bytes_sent(self, instance, n);
+                    }
+                }
+            }
+            NetworkToRenderer::EventSourceEvent(conn_id, sse_event) => {
+                let Some(instance) = self
+                    .host_data
+                    .as_deref()
+                    .and_then(|hd| hd.sse_conn_to_object.get(&conn_id).copied())
+                else {
+                    return;
+                };
+                match sse_event {
+                    SseEvent::Connected => {
+                        super::event_source_dispatch::dispatch_sse_connected(self, instance);
+                    }
+                    SseEvent::Event {
+                        event_type,
+                        data,
+                        last_event_id,
+                    } => {
+                        super::event_source_dispatch::dispatch_sse_event(
+                            self,
+                            instance,
+                            &event_type,
+                            &data,
+                            last_event_id,
+                        );
+                    }
+                    SseEvent::Error(_msg) => {
+                        // Per WHATWG HTML §9.2.5 the script-visible
+                        // "error" is a plain Event with no detail —
+                        // the broker message is discarded
+                        // intentionally to avoid leaking server-
+                        // internals through the unsandboxed handler.
+                        super::event_source_dispatch::dispatch_sse_error(self, instance);
+                    }
+                    SseEvent::FatalError(_msg) => {
+                        super::event_source_dispatch::dispatch_sse_fatal_error(self, instance);
+                    }
+                }
+            }
+            // FetchResponse already drained by
+            // `drain_fetch_responses_only` above — should never
+            // appear in `drain_events`'s residual stream, but the
+            // arm is exhaustive so the broker's existing
+            // ordering invariant is the only contract this code
+            // relies on.
+            NetworkToRenderer::FetchResponse(_, _) | NetworkToRenderer::RendererUnregistered => {}
+        }
     }
 
     /// Reject every entry in [`Self::pending_fetches`] with a

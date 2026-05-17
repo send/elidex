@@ -183,6 +183,10 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 subtle_crypto_prototype: None,
                 #[cfg(feature = "engine")]
+                websocket_prototype: None,
+                #[cfg(feature = "engine")]
+                event_source_prototype: None,
+                #[cfg(feature = "engine")]
                 crypto_instance: None,
                 #[cfg(feature = "engine")]
                 subtle_crypto_instance: None,
