@@ -413,11 +413,71 @@ fn input_files_returns_empty_file_list() {
     assert_eq!(out, "ok");
 }
 
+// ---------------------------------------------------------------------------
+// list — HTML §4.10.5.1.16 IDREF to <datalist> in the input's tree
+// ---------------------------------------------------------------------------
+
 #[test]
-fn input_list_returns_null_stub() {
+fn input_list_returns_null_when_no_attribute() {
     let out = run("var i = document.createElement('input'); \
          (i.list === null) ? 'null' : 'non-null';");
     assert_eq!(out, "null");
+}
+
+#[test]
+fn input_list_returns_null_when_attribute_empty() {
+    let out = run("var i = document.createElement('input'); \
+         i.setAttribute('list', ''); \
+         (i.list === null) ? 'null' : 'non-null';");
+    assert_eq!(out, "null");
+}
+
+#[test]
+fn input_list_returns_null_when_target_is_not_datalist() {
+    let out = run("var d = document.createElement('div'); d.id = 'opts'; \
+         var i = document.createElement('input'); i.setAttribute('list', 'opts'); \
+         document.body.appendChild(d); \
+         document.body.appendChild(i); \
+         (i.list === null) ? 'null' : 'non-null';");
+    assert_eq!(out, "null");
+}
+
+#[test]
+fn input_list_returns_null_when_input_detached() {
+    let out = run(
+        "var dl = document.createElement('datalist'); dl.id = 'opts'; \
+         document.body.appendChild(dl); \
+         var i = document.createElement('input'); i.setAttribute('list', 'opts'); \
+         (i.list === null) ? 'null' : 'non-null';",
+    );
+    assert_eq!(out, "null");
+}
+
+#[test]
+fn input_list_returns_datalist_wrapper_when_matched() {
+    let out = run(
+        "var dl = document.createElement('datalist'); dl.id = 'opts'; \
+         var i = document.createElement('input'); i.setAttribute('list', 'opts'); \
+         document.body.appendChild(dl); \
+         document.body.appendChild(i); \
+         (i.list === dl) ? 'match' : 'mismatch';",
+    );
+    assert_eq!(out, "match");
+}
+
+#[test]
+fn input_list_returns_same_object_on_repeated_reads() {
+    // HTML §4.10.5.1.16 IDL is not `[SameObject]`, but Chrome / Firefox
+    // return identity-stable wrappers via their wrapper caches — elidex
+    // matches via `create_element_wrapper`'s per-entity cache.
+    let out = run(
+        "var dl = document.createElement('datalist'); dl.id = 'opts'; \
+         var i = document.createElement('input'); i.setAttribute('list', 'opts'); \
+         document.body.appendChild(dl); \
+         document.body.appendChild(i); \
+         (i.list === i.list) ? 'stable' : 'fresh';",
+    );
+    assert_eq!(out, "stable");
 }
 
 #[test]

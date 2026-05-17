@@ -1,5 +1,7 @@
 //! Keyboard input handling for text-based form controls.
 
+use elidex_ecs::{Attributes, EcsDom, Entity, TagType};
+
 use crate::util::{next_char_boundary, prev_char_boundary};
 use crate::{FormControlKind, FormControlState};
 
@@ -297,6 +299,60 @@ fn handle_text_key(state: &mut FormControlState, key: &str) -> KeyAction {
 /// but reject all value-modifying keys (character insert, Backspace, Delete, Enter).
 fn handle_readonly_navigation(state: &mut FormControlState, key: &str) -> bool {
     navigate_cursor(state, key) == KeyAction::Consumed
+}
+
+/// Resolve `<input>.list` to its associated `<datalist>` per WHATWG HTML
+/// §4.10.5.1.16: "the first element in the tree of type `HTMLDataListElement`
+/// whose ID is equal to the value of the `list` attribute, if that element is
+/// in the same tree as the input element".
+///
+/// Tree scope honors shadow boundaries — nested shadow subtrees within the
+/// same root are correctly excluded per the spec's "same tree" wording.
+/// Cross-tree (shadow-piercing) resolution is tracked at the
+/// `#11-form-elements-cross-tree` defer slot.
+#[must_use]
+pub fn resolve_input_list(dom: &EcsDom, input_entity: Entity) -> Option<Entity> {
+    let list_id: String = {
+        let attrs = dom.world().get::<&Attributes>(input_entity).ok()?;
+        let v = attrs.get("list")?;
+        if v.is_empty() {
+            return None;
+        }
+        v.to_owned()
+    };
+
+    // `traverse_descendants` skips `root` itself; check explicitly.
+    let root = dom.find_tree_root(input_entity);
+    if matches_datalist_with_id(dom, root, list_id.as_str()) {
+        return Some(root);
+    }
+    let mut candidate = None;
+    dom.traverse_descendants(root, |entity| {
+        if matches_datalist_with_id(dom, entity, list_id.as_str()) {
+            candidate = Some(entity);
+            return false;
+        }
+        true
+    });
+    candidate
+}
+
+fn matches_datalist_with_id(dom: &EcsDom, entity: Entity, id: &str) -> bool {
+    // Namespace filter omitted: today `TagType` implies HTML-namespace
+    // element (elidex does not yet model SVG / MathML on element entities).
+    // When `#11-element-namespace-tracking` lands, add an
+    // `is_html_namespace(entity)` guard here to reject foreign-namespace
+    // `<datalist>` look-alikes per spec wording "of type `HTMLDataListElement`".
+    let Ok(tag) = dom.world().get::<&TagType>(entity) else {
+        return false;
+    };
+    if !tag.0.as_str().eq_ignore_ascii_case("datalist") {
+        return false;
+    }
+    drop(tag);
+    dom.world()
+        .get::<&Attributes>(entity)
+        .is_ok_and(|a| a.get("id") == Some(id))
 }
 
 #[cfg(test)]
@@ -667,5 +723,175 @@ mod tests {
         // Same-kind transition: no sanitize runs (caller already had
         // this value, and same-kind means content didn't change).
         assert_eq!(s.value(), "not-a-number");
+    }
+
+    // -----------------------------------------------------------------
+    // resolve_input_list — HTML §4.10.5.1.16 `<input>.list` IDREF
+    // -----------------------------------------------------------------
+
+    fn input_with_list(dom: &mut EcsDom, list_value: &str) -> Entity {
+        let mut attrs = Attributes::default();
+        attrs.set("list", list_value);
+        dom.create_element("input", attrs)
+    }
+
+    fn datalist_with_id(dom: &mut EcsDom, id_value: &str) -> Entity {
+        let mut attrs = Attributes::default();
+        attrs.set("id", id_value);
+        dom.create_element("datalist", attrs)
+    }
+
+    #[test]
+    fn resolve_input_list_returns_none_when_no_attribute() {
+        let mut dom = EcsDom::new();
+        let input = dom.create_element("input", Attributes::default());
+        assert_eq!(resolve_input_list(&dom, input), None);
+    }
+
+    #[test]
+    fn resolve_input_list_returns_none_when_attribute_empty() {
+        let mut dom = EcsDom::new();
+        let input = input_with_list(&mut dom, "");
+        assert_eq!(resolve_input_list(&dom, input), None);
+    }
+
+    #[test]
+    fn resolve_input_list_returns_none_when_id_does_not_exist() {
+        let mut dom = EcsDom::new();
+        let container = dom.create_element("div", Attributes::default());
+        let input = input_with_list(&mut dom, "missing");
+        let _ = dom.append_child(container, input);
+        let other = datalist_with_id(&mut dom, "other");
+        let _ = dom.append_child(container, other);
+        assert_eq!(resolve_input_list(&dom, input), None);
+    }
+
+    #[test]
+    fn resolve_input_list_returns_none_when_target_is_not_datalist() {
+        // `<div id="opts">` matches the IDREF but is not a `<datalist>`.
+        // Spec wording "of type HTMLDataListElement" rejects non-datalist.
+        let mut dom = EcsDom::new();
+        let container = dom.create_element("div", Attributes::default());
+        let input = input_with_list(&mut dom, "opts");
+        let _ = dom.append_child(container, input);
+        let mut div_attrs = Attributes::default();
+        div_attrs.set("id", "opts");
+        let div = dom.create_element("div", div_attrs);
+        let _ = dom.append_child(container, div);
+        assert_eq!(resolve_input_list(&dom, input), None);
+    }
+
+    #[test]
+    fn resolve_input_list_returns_datalist_when_id_matches() {
+        let mut dom = EcsDom::new();
+        let container = dom.create_element("div", Attributes::default());
+        let input = input_with_list(&mut dom, "opts");
+        let _ = dom.append_child(container, input);
+        let datalist = datalist_with_id(&mut dom, "opts");
+        let _ = dom.append_child(container, datalist);
+        assert_eq!(resolve_input_list(&dom, input), Some(datalist));
+    }
+
+    #[test]
+    fn resolve_input_list_picks_tree_order_first_when_duplicate_id() {
+        // Malformed (duplicate ids), but spec says "the first such
+        // element ... of type HTMLDataListElement".  Pre-order DFS
+        // wins.
+        let mut dom = EcsDom::new();
+        let container = dom.create_element("div", Attributes::default());
+        let input = input_with_list(&mut dom, "opts");
+        let _ = dom.append_child(container, input);
+        let earlier = datalist_with_id(&mut dom, "opts");
+        let _ = dom.append_child(container, earlier);
+        let later = datalist_with_id(&mut dom, "opts");
+        let _ = dom.append_child(container, later);
+        assert_eq!(resolve_input_list(&dom, input), Some(earlier));
+    }
+
+    #[test]
+    fn resolve_input_list_id_match_is_case_sensitive() {
+        // HTML §6.13.2: id attribute is case-sensitive.
+        let mut dom = EcsDom::new();
+        let container = dom.create_element("div", Attributes::default());
+        let input = input_with_list(&mut dom, "FOO");
+        let _ = dom.append_child(container, input);
+        let datalist = datalist_with_id(&mut dom, "foo");
+        let _ = dom.append_child(container, datalist);
+        assert_eq!(resolve_input_list(&dom, input), None);
+    }
+
+    #[test]
+    fn resolve_input_list_skips_non_datalist_match_then_finds_datalist() {
+        // Filter-during-walk lock: a `<div>` with matching id appearing
+        // earlier in tree order must NOT poison the lookup — the spec
+        // requires the FIRST `<datalist>` match, not the first id match.
+        // Mirrors `resolve_label_for_skips_non_labelable_when_id_collision`.
+        let mut dom = EcsDom::new();
+        let mut div_attrs = Attributes::default();
+        div_attrs.set("id", "opts");
+        let div_root = dom.create_element("div", div_attrs);
+        let input = input_with_list(&mut dom, "opts");
+        let _ = dom.append_child(div_root, input);
+        let datalist = datalist_with_id(&mut dom, "opts");
+        let _ = dom.append_child(div_root, datalist);
+        assert_eq!(resolve_input_list(&dom, input), Some(datalist));
+    }
+
+    #[test]
+    fn resolve_input_list_returns_none_when_input_detached() {
+        // Detached input → `find_tree_root` returns the input itself;
+        // descendant walk is empty.  Tree-scope contract: no datalist
+        // outside the input's tree is ever matched.
+        let mut dom = EcsDom::new();
+        let input = input_with_list(&mut dom, "opts");
+        // Datalist exists in the world but in a different tree.
+        let other_root = dom.create_element("div", Attributes::default());
+        let datalist = datalist_with_id(&mut dom, "opts");
+        let _ = dom.append_child(other_root, datalist);
+        assert_eq!(resolve_input_list(&dom, input), None);
+    }
+
+    #[test]
+    fn resolve_input_list_returns_none_when_input_self_references() {
+        // `<input id="x" list="x">` detached.  `find_tree_root` returns
+        // the input itself; the explicit root check is gated by the
+        // tag-first filter in `matches_datalist_with_id`, so the input
+        // (not a `<datalist>`) is rejected.
+        let mut dom = EcsDom::new();
+        let mut attrs = Attributes::default();
+        attrs.set("id", "x");
+        attrs.set("list", "x");
+        let input = dom.create_element("input", attrs);
+        assert_eq!(resolve_input_list(&dom, input), None);
+    }
+
+    #[test]
+    fn resolve_input_list_does_not_trim_whitespace() {
+        // Spec is silent on trimming; Chrome / Firefox both do
+        // exact-compare (e.g. `list=" foo "` does NOT match
+        // `id="foo"`).
+        let mut dom = EcsDom::new();
+        let container = dom.create_element("div", Attributes::default());
+        let input = input_with_list(&mut dom, " foo ");
+        let _ = dom.append_child(container, input);
+        let datalist = datalist_with_id(&mut dom, "foo");
+        let _ = dom.append_child(container, datalist);
+        assert_eq!(resolve_input_list(&dom, input), None);
+    }
+
+    #[test]
+    fn resolve_input_list_skips_datalist_with_empty_id_then_matches_next() {
+        // An earlier `<datalist id="">` does not match `list="opts"`
+        // (empty id ≠ "opts"); the walk continues and finds the next
+        // datalist with the matching id.
+        let mut dom = EcsDom::new();
+        let container = dom.create_element("div", Attributes::default());
+        let input = input_with_list(&mut dom, "opts");
+        let _ = dom.append_child(container, input);
+        let empty_id = datalist_with_id(&mut dom, "");
+        let _ = dom.append_child(container, empty_id);
+        let target = datalist_with_id(&mut dom, "opts");
+        let _ = dom.append_child(container, target);
+        assert_eq!(resolve_input_list(&dom, input), Some(target));
     }
 }
