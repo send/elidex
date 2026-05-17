@@ -45,7 +45,7 @@
 //!   `reject_pending_fetches_with_error` shape at
 //!   `vm/host/fetch_tick.rs:82-131`.
 //!
-//! ## Phase 1 scope
+//! ## Scope (Phase 1 + Phase 2)
 //!
 //! - `new WebSocket(url, protocols?)` — URL parse + WHATWG §9.3.1
 //!   scheme promotion (`normalize_ws_url`) + validation
@@ -54,21 +54,31 @@
 //!   `WebSocketOpen` to broker + side-table + reverse map insert.
 //! - `readyState` accessor (CONNECTING=0 / OPEN=1 / CLOSING=2 /
 //!   CLOSED=3).
-//! - `send(USVString)` — CRIT-2 state semantics: throw
-//!   `InvalidStateError` ONLY on CONNECTING; CLOSING/CLOSED silently
-//!   discard the transmission BUT still increment `bufferedAmount` by
-//!   the encoded byte length (per WHATWG §9.3.4 step 2-3).
+//! - `send(data)` — full `(USVString | Blob | ArrayBuffer |
+//!   ArrayBufferView)` IDL union.  Plain Object (no Blob / Buffer
+//!   brand) raises TypeError per WebIDL §3.10.18.  State semantics:
+//!   throw `InvalidStateError` ONLY on CONNECTING; CLOSING/CLOSED
+//!   silently discard the transmission BUT still increment
+//!   `bufferedAmount` by the encoded byte length (per WHATWG §9.3.4
+//!   step 2-3).
 //! - `close(code?, reason?)` — code u16 ∈ {1000} ∪ [3000,4999]
 //!   (`InvalidAccessError` otherwise), reason ≤ 123 UTF-8 bytes
 //!   (`SyntaxError` otherwise), idempotent if CLOSING/CLOSED.
-//! - `onopen` / `onclose` handler accessor pairs (FileReader callable-
-//!   only retention precedent).
-//! - `Connected` / `Closed` event dispatch through `tick_network` →
-//!   `dispatch_realtime_event` (see `vm/host/fetch_tick.rs`).
+//! - `binaryType` getter+setter — WebIDL `enum BinaryType { "blob",
+//!   "arraybuffer" }`.  Setter ToString-coerces first (Symbol throws
+//!   ECMA-262 TypeError), then enum-checks; any other string raises
+//!   TypeError with the Chrome / Firefox parity message
+//!   (spec-mandated; the boa reference silently ignored unknown
+//!   strings).
+//! - `onopen` / `onmessage` / `onerror` / `onclose` handler accessor
+//!   pairs (FileReader callable-only retention precedent).
+//! - `Connected` / `Closed` / `TextMessage` / `BinaryMessage` /
+//!   `Error` / `BytesSent` broker events dispatch through
+//!   `tick_network` → `dispatch_realtime_event` (see
+//!   `vm/host/fetch_tick.rs` + `vm/host/websocket_dispatch.rs`).
 //!
-//! Phase 2 (binary send + `binaryType` + `onmessage` / `onerror` +
-//! MessageEvent build) and Phase 3 (EventSource) land in follow-up
-//! commits on the same branch.
+//! Phase 3 (EventSource) and Phase 4 (constants / cross-cutting
+//! polish) land in follow-up commits on the same branch.
 //!
 //! ### Spec divergence note: `close()` with no code argument
 //!
@@ -87,7 +97,7 @@
 use elidex_net::broker::RendererToNetwork;
 use elidex_net::ws::WsCommand;
 
-use super::super::host_data::WebSocketState;
+use super::super::host_data::{BinaryType, WebSocketState};
 use super::super::shape::{self, PropertyAttrs};
 use super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
@@ -140,8 +150,8 @@ impl VmInner {
 
     fn install_websocket_members(&mut self, proto_id: ObjectId) {
         // Readonly accessors: readyState / url / protocol / extensions /
-        // bufferedAmount.  binaryType + onmessage / onerror land in
-        // Phase 2.
+        // bufferedAmount.  `binaryType` is mutable and installed via
+        // its own accessor pair below.
         let ro_accessors: [(StringId, NativeFn); 5] = [
             (self.well_known.ready_state, native_ws_get_ready_state),
             (self.well_known.url, native_ws_get_url),
@@ -162,13 +172,38 @@ impl VmInner {
             );
         }
 
-        // Event handler attributes: onopen + onclose (Phase 1).
-        // onmessage + onerror added in Phase 2.
-        let on_handlers: [(StringId, NativeFn, NativeFn); 2] = [
+        // `binaryType` — getter + setter pair.  Setter throws TypeError
+        // on any non-{"blob","arraybuffer"} value per WebIDL §3.10.21
+        // enum coercion (spec-mandated; the boa reference silently
+        // ignored unknown strings).
+        self.install_accessor_pair(
+            proto_id,
+            self.well_known.binary_type,
+            native_ws_get_binary_type,
+            Some(native_ws_set_binary_type),
+            PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
+
+        // Event handler attributes: 4 pairs (onopen / onmessage /
+        // onerror / onclose).  WHATWG IDL EventHandler attribute —
+        // callable-only retention (non-callable assignments null the
+        // slot).  The macro factors the boilerplate for the 4
+        // structurally-identical pairs.
+        let on_handlers: [(StringId, NativeFn, NativeFn); 4] = [
             (
                 self.well_known.onopen,
                 native_ws_get_onopen,
                 native_ws_set_onopen,
+            ),
+            (
+                self.well_known.onmessage,
+                native_ws_get_onmessage,
+                native_ws_set_onmessage,
+            ),
+            (
+                self.well_known.onerror,
+                native_ws_get_onerror,
+                native_ws_set_onerror,
             ),
             (
                 self.well_known.onclose,
@@ -186,7 +221,7 @@ impl VmInner {
             );
         }
 
-        // Methods: send + close (Phase 1).
+        // Methods: send + close.
         let methods: [(StringId, NativeFn); 2] = [
             (self.well_known.ws_send_method, native_ws_send),
             (self.well_known.close, native_ws_close),
@@ -351,10 +386,18 @@ fn native_websocket_constructor(
     ctx.vm.get_object_mut(inst_id).kind = ObjectKind::WebSocket;
 
     // Steps 7-8: allocate conn_id, install state, emit WebSocketOpen.
-    // Origin is the active browsing-context's WHATWG origin (opaque
-    // origins serialise as the literal `"null"` per `Origin`
-    // serialisation rules — same value boa's bridge uses).
-    let origin_str = ctx.vm.navigation.current_url.origin().ascii_serialization();
+    // Two distinct origins are involved:
+    // - `page_origin_str` — the active browsing-context's WHATWG
+    //   origin; sent to the broker as `WebSocketOpen.origin` per
+    //   §9.3.1 step 13 ("origin of the entry settings object").
+    //   Opaque origins serialise as `"null"`.
+    // - `ws_origin_sid` — the SERVER's origin (derived from `url`);
+    //   pre-interned here so per-message `MessageEvent.origin`
+    //   dispatch reads a `StringId` without re-parsing per WHATWG
+    //   §9.3.7.
+    let page_origin_str = ctx.vm.navigation.current_url.origin().ascii_serialization();
+    let ws_origin_string = url.origin().ascii_serialization();
+    let ws_origin_sid = ctx.vm.strings.intern(&ws_origin_string);
     let url_serialized = url.as_str().to_owned();
 
     // Grab the conn_id + populate state-and-reverse-map BEFORE emitting
@@ -374,6 +417,7 @@ fn native_websocket_constructor(
             WebSocketState {
                 ready_state: elidex_api_ws::WsReadyState::Connecting,
                 url: url_serialized,
+                origin_sid: ws_origin_sid,
                 protocol: String::new(),
                 extensions: String::new(),
                 buffered_amount: 0,
@@ -398,7 +442,7 @@ fn native_websocket_constructor(
             conn_id,
             url,
             protocols,
-            origin: origin_str,
+            origin: page_origin_str,
         });
     }
 
@@ -613,27 +657,98 @@ fn native_ws_get_buffered_amount(
 }
 
 // ---------------------------------------------------------------------------
-// `send(data)` — Phase 1: USVString text only (Blob / ArrayBuffer in Phase 2)
+// `binaryType` accessor — getter + setter
+// ---------------------------------------------------------------------------
+
+/// `WebSocket.prototype.binaryType` getter — read the current
+/// [`BinaryType`] from the side-table and return the matching IDL
+/// enum string (`"blob"` or `"arraybuffer"`).
+fn native_ws_get_binary_type(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_websocket_this(ctx, this, "binaryType")?;
+    let bt = ctx
+        .vm
+        .host_data
+        .as_deref()
+        .and_then(|hd| hd.websocket_states.get(&id))
+        .map_or(BinaryType::default(), |s| s.binary_type);
+    let sid = match bt {
+        BinaryType::Blob => ctx.vm.well_known.binary_type_blob,
+        BinaryType::ArrayBuffer => ctx.vm.well_known.binary_type_arraybuffer,
+    };
+    Ok(JsValue::String(sid))
+}
+
+/// `WebSocket.prototype.binaryType` setter per WHATWG WebSockets
+/// §9.3 + WebIDL §3.10.21 enum setter:
+///
+/// 1. `ToString(v)` — propagates ECMA-262 TypeError for `Symbol`
+///    values (the `?` on `to_string` does this BEFORE the enum
+///    check fires, which is the spec-mandated ordering).
+/// 2. Compare the resulting `StringId` against the pre-interned
+///    `binary_type_blob` / `binary_type_arraybuffer` slots (cheap
+///    integer equality — no UTF-8 walk).
+/// 3. Any other string → `TypeError` with the Chrome / Firefox
+///    parity wording (spec-mandated; the boa reference silently
+///    ignored unknown values).
+fn native_ws_set_binary_type(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_websocket_this(ctx, this, "binaryType")?;
+    let new_val = args.first().copied().unwrap_or(JsValue::Undefined);
+    // WebIDL §3.10.21 step 1: ToString first.  Symbol throws here
+    // (correct spec ordering — enum-check TypeError must not pre-empt
+    // the ToString TypeError).
+    let s_sid = super::super::coerce::to_string(ctx.vm, new_val)?;
+    let bt = if s_sid == ctx.vm.well_known.binary_type_blob {
+        BinaryType::Blob
+    } else if s_sid == ctx.vm.well_known.binary_type_arraybuffer {
+        BinaryType::ArrayBuffer
+    } else {
+        // Echo the bad string in the error message per WebIDL
+        // convention.  Allocates a String — only on the error path
+        // (rare).
+        let raw = ctx.vm.strings.get_utf8(s_sid);
+        return Err(VmError::type_error(format!(
+            "Failed to set the 'binaryType' property on 'WebSocket': \
+             The provided value '{raw}' is not a valid enum value of type BinaryType."
+        )));
+    };
+    if let Some(hd) = ctx.vm.host_data.as_deref_mut() {
+        if let Some(state) = hd.websocket_states.get_mut(&id) {
+            state.binary_type = bt;
+        }
+    }
+    Ok(JsValue::Undefined)
+}
+
+// ---------------------------------------------------------------------------
+// `send(data)` — `(USVString or Blob or ArrayBuffer or ArrayBufferView)`
 // ---------------------------------------------------------------------------
 
 /// `WebSocket.prototype.send(data)` per WHATWG WebSockets §9.3.4.
 ///
-/// Phase 1 supports only the `USVString` arm: any non-string value is
-/// coerced via `ToString` and sent as a Text frame.  Phase 2 expands
-/// to `Blob | ArrayBuffer | ArrayBufferView` with `binaryType`-aware
-/// routing.
+/// Accepts the full IDL union `(USVString | Blob | ArrayBuffer |
+/// ArrayBufferView)`; non-Object primitives (`number` / `boolean` /
+/// `null` / `undefined`) coerce to `USVString` via the union's
+/// DOMString arm.  Plain `Object` values (not branding as Blob /
+/// ArrayBuffer / TypedArray / DataView) raise a `TypeError` —
+/// WebIDL §3.10.18 union resolution does NOT have an implicit
+/// Object → DOMString fall-through.
 ///
-/// CRIT-2 state semantics (the non-obvious bit Copilot will check):
-/// - `CONNECTING` → throw `InvalidStateError`.
+/// State semantics per WHATWG §9.3.4:
+/// - `CONNECTING` → throw `InvalidStateError` BEFORE any coercion
+///   (spec step 1 runs before step 2 "extract bytes").
 /// - `OPEN` → transmit + `bufferedAmount.saturating_add(byte_len)`.
 /// - `CLOSING` / `CLOSED` → silently DROP the transmission but STILL
 ///   increment `bufferedAmount` per spec §9.3.4 step 2-3 (the spec
 ///   says the data is "queued" even when no longer transmitted, so
 ///   observers can detect undelivered bytes).
-///
-/// The match expression intentionally enumerates all four readyState
-/// variants explicitly to make the state-machine contract obvious to
-/// reviewers — avoid an `if/else if/else` ladder.
 fn native_ws_send(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -646,10 +761,8 @@ fn native_ws_send(
         )
     })?;
 
-    // Snapshot state before any coercion that may throw (`ToString` on
-    // a Symbol throws); the state-check still throws first per spec
-    // ordering — WHATWG §9.3.4 step 1 (state check) runs before step
-    // 2 (data extraction).
+    // State check FIRST per WHATWG §9.3.4 step 1 — before any
+    // coercion that may throw (e.g. `ToString` on `Symbol`).
     let ready_state = {
         let hd = ctx.vm.host_data.as_deref().ok_or_else(|| {
             VmError::type_error(
@@ -667,15 +780,60 @@ fn native_ws_send(
         ));
     }
 
-    // Coerce data to USVString.  String inputs short-circuit through
-    // the intern table; primitives go through full `ToString`.
-    let data_sid = super::super::coerce::to_string(ctx.vm, data_arg)?;
-    let data = ctx.vm.strings.get_utf8(data_sid);
-    let byte_len = data.len() as u64;
+    // Extract bytes + frame kind per WebIDL union resolution.  Order
+    // mirrors WebIDL §3.10.18 distinguishability for `(USVString or
+    // Blob or ArrayBuffer or ArrayBufferView)`:
+    //   1. Object brand-test: Blob / File → Blob arm; ArrayBuffer /
+    //      TypedArray / DataView → BufferSource arm.
+    //   2. Plain Object (no matching brand) → TypeError (NO implicit
+    //      fall-through to DOMString — spec §3.10.18 step 8).
+    //   3. String → USVString.
+    //   4. Other primitive (number / bool / null / undefined / Symbol)
+    //      → USVString via `ToString` (Symbol throws TypeError here,
+    //      matching Chrome / Firefox).
+    let frame = match data_arg {
+        JsValue::Object(obj_id) => match ctx.vm.get_object(obj_id).kind {
+            ObjectKind::Blob | ObjectKind::File => {
+                // Infallible `Arc<[u8]>` clone — Blob bytes are
+                // fully in-memory (see `#11-body-data-arc-cow`
+                // defer slot for zero-copy backing).
+                let bytes = super::blob::blob_bytes(ctx.vm, obj_id).to_vec();
+                Frame::Binary(bytes)
+            }
+            ObjectKind::ArrayBuffer
+            | ObjectKind::TypedArray { .. }
+            | ObjectKind::DataView { .. } => {
+                let bytes = super::text_encoding::extract_buffer_source_bytes(
+                    ctx,
+                    data_arg,
+                    "Failed to execute 'send' on 'WebSocket'",
+                    1,
+                    false,
+                )?;
+                Frame::Binary(bytes)
+            }
+            _ => {
+                return Err(VmError::type_error(
+                    "Failed to execute 'send' on 'WebSocket': \
+                     The provided value is not of type \
+                     '(Blob or ArrayBuffer or ArrayBufferView or USVString)'.",
+                ));
+            }
+        },
+        JsValue::String(sid) => Frame::Text(ctx.vm.strings.get_utf8(sid)),
+        _ => {
+            let sid = super::super::coerce::to_string(ctx.vm, data_arg)?;
+            Frame::Text(ctx.vm.strings.get_utf8(sid))
+        }
+    };
 
-    // Snapshot conn_id and apply bufferedAmount delta.  Done BEFORE
-    // the broker send so a disconnected handle still leaves the
-    // observer-visible counter consistent.
+    let byte_len = frame.byte_len();
+
+    // Snapshot conn_id and apply bufferedAmount delta UNCONDITIONALLY
+    // (CLOSING/CLOSED keep the increment even though no transmission
+    // occurs — see state-semantics note in the function's doc-
+    // comment).  Done BEFORE the broker send so a disconnected
+    // handle still leaves the observer-visible counter consistent.
     let conn_id = {
         let hd = ctx.vm.host_data.as_deref_mut().ok_or_else(|| {
             VmError::type_error(
@@ -690,20 +848,39 @@ fn native_ws_send(
         }
     };
 
-    // Per CRIT-2: only OPEN actually transmits.  CLOSING/CLOSED keep
-    // the bufferedAmount increment above but do NOT emit a broker
-    // command (matches §9.3.4 step 3: "do not queue/transmit, but DO
+    // Only OPEN actually transmits.  CLOSING/CLOSED keep the
+    // bufferedAmount increment above but do NOT emit a broker command
+    // (matches §9.3.4 step 3: "do not queue/transmit, but DO
     // increase bufferedAmount").
     if matches!(ready_state, elidex_api_ws::WsReadyState::Open) {
         if let (Some(conn_id), Some(handle)) = (conn_id, ctx.vm.network_handle.as_ref()) {
-            let _ = handle.send(RendererToNetwork::WebSocketSend(
-                conn_id,
-                WsCommand::SendText(data),
-            ));
+            let cmd = match frame {
+                Frame::Text(s) => WsCommand::SendText(s),
+                Frame::Binary(bytes) => WsCommand::SendBinary(bytes),
+            };
+            let _ = handle.send(RendererToNetwork::WebSocketSend(conn_id, cmd));
         }
     }
 
     Ok(JsValue::Undefined)
+}
+
+/// Resolved `send(data)` payload — Text drives `WsCommand::SendText`,
+/// Binary drives `WsCommand::SendBinary`.  Pre-computed in the union-
+/// resolution match so the OPEN-state emit is a single branch on a
+/// fully-decoded payload (no re-inspection of `data_arg`).
+enum Frame {
+    Text(String),
+    Binary(Vec<u8>),
+}
+
+impl Frame {
+    fn byte_len(&self) -> u64 {
+        match self {
+            Self::Text(s) => s.len() as u64,
+            Self::Binary(b) => b.len() as u64,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -824,15 +1001,14 @@ fn native_ws_close(
 }
 
 // ---------------------------------------------------------------------------
-// Event handler attribute accessors — `onopen` / `onclose` (Phase 1)
+// Event handler attribute accessors — `onopen` / `onmessage` /
+// `onerror` / `onclose`.
 //
-// `onmessage` / `onerror` land in Phase 2 alongside binary send +
-// MessageEvent build.  The macro pattern mirrors FileReader's
-// `fr_on_handler!` at `file_reader.rs:384-420`; restricted to two
-// pairs here because that's the Phase 1 surface — the macro avoids
-// a 100+ line copy-paste of identical body across the four/six WS
-// handlers without sacrificing call-site visibility (the macro
-// expansion is single-screen).
+// The macro pattern mirrors FileReader's `fr_on_handler!` at
+// `file_reader.rs:384-420`.  Four structurally-identical pairs at
+// this scope; the macro avoids ~200 lines of duplicated body
+// without sacrificing call-site visibility (the expansion is
+// single-screen).
 // ---------------------------------------------------------------------------
 
 macro_rules! ws_on_handler {
@@ -878,6 +1054,18 @@ macro_rules! ws_on_handler {
 }
 
 ws_on_handler!(native_ws_get_onopen, native_ws_set_onopen, onopen, "onopen");
+ws_on_handler!(
+    native_ws_get_onmessage,
+    native_ws_set_onmessage,
+    onmessage,
+    "onmessage"
+);
+ws_on_handler!(
+    native_ws_get_onerror,
+    native_ws_set_onerror,
+    onerror,
+    "onerror"
+);
 ws_on_handler!(
     native_ws_get_onclose,
     native_ws_set_onclose,

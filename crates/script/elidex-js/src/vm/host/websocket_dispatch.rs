@@ -32,8 +32,13 @@
 
 #![cfg(feature = "engine")]
 
+use std::sync::Arc;
+
+use super::super::host_data::BinaryType;
 use super::super::shape::{self, ShapeId};
-use super::super::value::{JsValue, Object, ObjectId, ObjectKind, PropertyStorage, PropertyValue};
+use super::super::value::{
+    JsValue, Object, ObjectId, ObjectKind, PropertyStorage, PropertyValue, StringId,
+};
 use super::super::VmInner;
 use super::events::{set_event_slot_raw, EVENT_SLOT_CURRENT_TARGET, EVENT_SLOT_TARGET};
 
@@ -122,12 +127,185 @@ pub(super) fn dispatch_ws_closed(
     fire_close_event(vm, instance, handler_id, code, reason, was_clean);
 }
 
+/// Handle `WsEvent::TextMessage(s)`.
+///
+/// Fires `MessageEvent("message", { data: s, origin, lastEventId:
+/// "", source: null, ports: [] })` through the cached `onmessage`
+/// handler.  `origin` is the **WebSocket URL's** origin (per WHATWG
+/// §9.3.7), NOT the page origin — read from the side-table's
+/// pre-interned `origin_sid` (computed once at ctor time, no
+/// per-dispatch URL parse).  No state transition.
+pub(super) fn dispatch_ws_text_message(vm: &mut VmInner, instance: ObjectId, s: &str) {
+    let Some((handler_id, origin_sid)) = snapshot_message_dispatch(vm, instance, |st| st.onmessage)
+    else {
+        return;
+    };
+    let data_sid = vm.strings.intern(s);
+    fire_message_event(
+        vm,
+        instance,
+        handler_id,
+        JsValue::String(data_sid),
+        origin_sid,
+    );
+}
+
+/// Handle `WsEvent::BinaryMessage(bytes)`.
+///
+/// `data` is allocated as a `Blob` (with empty MIME per WHATWG
+/// §9.3.7 "if type is Binary and binaryType is 'blob', … type
+/// attribute set to the empty string") when `binaryType === "blob"`,
+/// or as a fresh `ArrayBuffer` when `binaryType === "arraybuffer"`.
+/// The allocation happens BEFORE `fire_message_event` is called;
+/// its first action is `push_temp_root(data)` so the data Object is
+/// rooted across every subsequent allocation (event, ports Array).
+/// No state transition.
+pub(super) fn dispatch_ws_binary_message(vm: &mut VmInner, instance: ObjectId, bytes: Vec<u8>) {
+    let (handler_id, origin_sid, binary_type) = {
+        let Some(hd) = vm.host_data.as_deref() else {
+            return;
+        };
+        let Some(state) = hd.websocket_states.get(&instance) else {
+            return;
+        };
+        let Some(handler_id) = state.onmessage else {
+            return;
+        };
+        (handler_id, state.origin_sid, state.binary_type)
+    };
+
+    let data_obj = match binary_type {
+        BinaryType::Blob => {
+            let empty = vm.well_known.empty;
+            super::blob::create_blob_from_bytes(vm, Arc::from(bytes), empty)
+        }
+        BinaryType::ArrayBuffer => super::array_buffer::create_array_buffer_from_bytes(vm, bytes),
+    };
+    fire_message_event(
+        vm,
+        instance,
+        handler_id,
+        JsValue::Object(data_obj),
+        origin_sid,
+    );
+}
+
+/// Handle `WsEvent::Error(_)`.
+///
+/// Fires a plain `Event("error")` through the cached `onerror`
+/// handler.  Per WHATWG §9.3.7 the WebSocket `"error"` event is a
+/// plain `Event`, NOT an `ErrorEvent` (no message / filename /
+/// lineno).  Discarding the broker's error string here is correct
+/// per spec — the script-visible surface is intentionally opaque to
+/// avoid leaking server-internals.  No state transition (the
+/// matching `WsEvent::Closed` follows and drives the
+/// `transition_to(Closed)`).
+pub(super) fn dispatch_ws_error(vm: &mut VmInner, instance: ObjectId) {
+    let handler = vm
+        .host_data
+        .as_deref()
+        .and_then(|hd| hd.websocket_states.get(&instance))
+        .and_then(|s| s.onerror);
+    let Some(handler_id) = handler else {
+        return;
+    };
+    fire_plain_event(vm, instance, handler_id, vm.well_known.error);
+}
+
+/// Handle `WsEvent::BytesSent(n)`.
+///
+/// Pure side-table mutation: decrement `bufferedAmount` by the
+/// broker's reported bytes-flushed count.  Saturating arithmetic
+/// guards against the broker over-reporting (e.g. due to internal
+/// re-fragmentation accounting that diverges from the JS-visible
+/// `saturating_add` in `send()`).  No event fires per WHATWG §9.3
+/// — `bufferedAmount` is a pull-only observable.
+pub(super) fn dispatch_ws_bytes_sent(vm: &mut VmInner, instance: ObjectId, n: u64) {
+    let Some(hd) = vm.host_data.as_deref_mut() else {
+        return;
+    };
+    if let Some(state) = hd.websocket_states.get_mut(&instance) {
+        state.buffered_amount = state.buffered_amount.saturating_sub(n);
+    }
+}
+
+/// Snapshot the handler `ObjectId` selected by `pick` together with
+/// the pre-interned `origin_sid`, dropping the `host_data` borrow
+/// before the caller continues.  Returns `None` (silent-drop) when
+/// the VM is unbound, the side-table entry is gone (GC sweep race),
+/// or `pick` returns `None` (no handler registered) — short-
+/// circuiting before any downstream allocation work.
+fn snapshot_message_dispatch(
+    vm: &VmInner,
+    instance: ObjectId,
+    pick: impl FnOnce(&super::super::host_data::WebSocketState) -> Option<ObjectId>,
+) -> Option<(ObjectId, StringId)> {
+    let hd = vm.host_data.as_deref()?;
+    let state = hd.websocket_states.get(&instance)?;
+    let handler_id = pick(state)?;
+    Some((handler_id, state.origin_sid))
+}
+
+/// Allocate a `MessageEvent("message", { data, origin, lastEventId:
+/// "", source: null, ports: [] })` and fire it via `handler_id`.
+///
+/// Delegates event allocation + slot install + handler dispatch to
+/// [`alloc_ua_event`] + [`fire_handler`] (the same pair used by
+/// [`fire_plain_event`] / [`fire_close_event`]).  The payload tail
+/// `[data, origin, lastEventId, source, ports]` matches the slot
+/// order built at `event_shapes::build_precomputed_event_shapes::
+/// message`; drift between the two writers puts user-visible slot
+/// values in the wrong properties.
+///
+/// GC discipline (mirrors `pending_tasks::dispatch_post_message`):
+/// `data` is rooted first because the binary path passes a freshly
+/// allocated Blob / ArrayBuffer with no other live root; the
+/// subsequent `create_array_object` (for `ports`) and `alloc_ua_event`
+/// (for the event) both allocate while `g_data` keeps `data` alive.
+/// `fire_handler` overwrites the target / currentTarget slots that
+/// `alloc_ua_event` initially wrote as `Null`.
+fn fire_message_event(
+    vm: &mut VmInner,
+    instance: ObjectId,
+    handler_id: ObjectId,
+    data: JsValue,
+    origin_sid: StringId,
+) {
+    let mut g_data = vm.push_temp_root(data);
+    let empty_sid = g_data.well_known.empty;
+    let message_sid = g_data.well_known.message;
+    let event_proto = g_data.message_event_prototype.or(g_data.event_prototype);
+    let shape_id = g_data
+        .precomputed_event_shapes
+        .as_ref()
+        .expect("precomputed_event_shapes built during VM init")
+        .message;
+    let ports_arr = g_data.create_array_object(Vec::new());
+
+    let payload_slots = vec![
+        PropertyValue::Data(data),
+        PropertyValue::Data(JsValue::String(origin_sid)),
+        PropertyValue::Data(JsValue::String(empty_sid)),
+        PropertyValue::Data(JsValue::Null),
+        PropertyValue::Data(JsValue::Object(ports_arr)),
+    ];
+    let event_id = alloc_ua_event(
+        &mut g_data,
+        message_sid,
+        shape_id,
+        payload_slots,
+        event_proto,
+    );
+    fire_handler(&mut g_data, instance, handler_id, event_id);
+    drop(g_data);
+}
+
 /// Allocate a plain `Event(type)` (no payload slots beyond core-9),
 /// pin it as a GC root, and synchronously invoke `handler_id` with
 /// `this = instance` and `args = [event]`.
 ///
-/// Used for `WsEvent::Connected` → `"open"`.  Phase 2 reuses this
-/// for `WsEvent::Error` → `"error"`.
+/// Used for `WsEvent::Connected` → `"open"` and `WsEvent::Error` →
+/// `"error"`.
 fn fire_plain_event(
     vm: &mut VmInner,
     instance: ObjectId,

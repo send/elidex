@@ -15,7 +15,7 @@
 
 #[cfg(feature = "engine")]
 mod engine_feature {
-    use super::super::value::ObjectId;
+    use super::super::value::{ObjectId, StringId};
     use elidex_ecs::{Entity, NodeKind};
     use elidex_script_session::ListenerId;
     use elidex_storage_core::{SessionStorageState, WebStorageManager};
@@ -396,6 +396,14 @@ mod engine_feature {
         /// `ws.url` echoes back the post-promotion `ws://` /
         /// `wss://` form per WHATWG §9.3.4 step 2 "URL serializer").
         pub url: String,
+        /// Pre-interned WebSocket-URL origin (per WHATWG §9.3.7 the
+        /// `MessageEvent.origin` for incoming frames is the server's
+        /// origin, NOT the page origin).  Cached once at
+        /// constructor time so per-message dispatch reads a
+        /// `StringId` from the side-table rather than re-parsing
+        /// `url` + serialising the origin on every event.  Opaque
+        /// origins serialise to the literal `"null"`.
+        pub origin_sid: StringId,
         /// Negotiated sub-protocol — `""` until `WsEvent::Connected`
         /// supplies the value, then frozen.
         pub protocol: String,
@@ -1331,11 +1339,6 @@ mod engine_feature {
         /// resets on `Vm::unbind` so connection IDs are scoped to
         /// the current bind cycle, matching the broker handle's
         /// own lifetime.
-        ///
-        /// Unused until Phase 1 wires the WebSocket constructor —
-        /// kept here in Phase 0b alongside the side-table fields
-        /// so the allocator + counter live together.
-        #[allow(dead_code)]
         pub(crate) fn alloc_ws_conn_id(&mut self) -> u64 {
             let id = self.ws_next_conn_id;
             self.ws_next_conn_id = self.ws_next_conn_id.wrapping_add(1);

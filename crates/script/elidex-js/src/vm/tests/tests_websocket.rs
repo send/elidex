@@ -1,20 +1,27 @@
-//! D-12 `#11-net-ws-sse` Phase 1 — `WebSocket` JS thin binding tests.
+//! D-12 `#11-net-ws-sse` Phase 1 + Phase 2 — `WebSocket` JS thin
+//! binding tests.
 //!
 //! Coverage:
 //! - Constructor success path + WHATWG §9.3.1 validation (URL parse /
 //!   scheme promotion / fragment / mixed-content / protocols token
 //!   ABNF / duplicate).
 //! - `readyState` accessor + CONNECTING-on-construction invariant.
-//! - `send(USVString)` CRIT-2 state semantics: throw on CONNECTING,
-//!   silent-discard on CLOSING/CLOSED with `bufferedAmount` increment.
+//! - `send(data)` for the full `(USVString | Blob | ArrayBuffer |
+//!   ArrayBufferView)` union + CRIT-2 state semantics (throw on
+//!   CONNECTING, silent-discard on CLOSING/CLOSED with
+//!   `bufferedAmount` increment) + WebIDL union-resolution dispatch
+//!   matrix (plain Object → TypeError, primitive → ToString).
 //! - `close(code?, reason?)` validation matrix + idempotency.
-//! - `onopen` / `onclose` handler accessor pairs (callable-only
-//!   retention).
-//! - `Connected` / `Closed` event dispatch through `tick_network` →
-//!   `dispatch_realtime_event`.
-//!
-//! Constants verification + binary send (`binaryType` /
-//! `onmessage` / `onerror`) land in Phase 2.
+//! - `binaryType` enum getter / setter with IMP-2 TypeError on
+//!   non-`{"blob","arraybuffer"}` strings.
+//! - `onopen` / `onmessage` / `onerror` / `onclose` handler accessor
+//!   pairs (callable-only retention).
+//! - `Connected` / `Closed` / `TextMessage` / `BinaryMessage` /
+//!   `Error` / `BytesSent` broker events dispatched through
+//!   `tick_network` → `dispatch_realtime_event`.
+//! - MessageEvent slot population (data / origin / lastEventId /
+//!   source / ports) including MIN-5 regression: `origin` is the
+//!   **ws-URL** origin, NOT the page origin.
 
 #![cfg(feature = "engine")]
 
@@ -775,6 +782,459 @@ fn readystate_getter_on_non_websocket_throws() {
             .eval(
                 "let d = Object.getOwnPropertyDescriptor(WebSocket.prototype, 'readyState'); \
                  d.get.call({});",
+            )
+            .unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("non-WebSocket") || msg.contains("Type"),
+            "expected brand-check TypeError, got: {msg}"
+        );
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: send(Blob | ArrayBuffer | ArrayBufferView | primitive) +
+// TypeError matrix
+// ---------------------------------------------------------------------------
+
+/// Helper: open a WS connection and transition it to OPEN so tests
+/// can exercise the OPEN-state branch of `send`.
+fn open_ws(vm: &mut Vm) {
+    vm.eval("globalThis.s = new WebSocket('ws://example.com/socket');")
+        .unwrap();
+    inject_ws_event_and_tick(
+        vm,
+        0,
+        WsEvent::Connected {
+            protocol: String::new(),
+            extensions: String::new(),
+        },
+    );
+}
+
+#[test]
+fn send_blob_increments_buffered_amount_by_byte_length() {
+    with_ws_vm(false, |vm| {
+        open_ws(vm);
+        // `new Blob(["abc"])` → 3 bytes.
+        vm.eval("s.send(new Blob(['abc']));")
+            .expect("send(Blob) on OPEN succeeds");
+        assert_eval_number(vm, "s.bufferedAmount", 3.0);
+    });
+}
+
+#[test]
+fn send_arraybuffer_increments_buffered_amount() {
+    with_ws_vm(false, |vm| {
+        open_ws(vm);
+        // 5-byte ArrayBuffer.
+        vm.eval("s.send(new ArrayBuffer(5));")
+            .expect("send(ArrayBuffer) on OPEN succeeds");
+        assert_eval_number(vm, "s.bufferedAmount", 5.0);
+    });
+}
+
+#[test]
+fn send_typed_array_uses_view_byte_length() {
+    with_ws_vm(false, |vm| {
+        open_ws(vm);
+        // Uint8Array view over a 10-byte buffer, length 4 → 4 bytes.
+        vm.eval("s.send(new Uint8Array([1, 2, 3, 4]));")
+            .expect("send(Uint8Array) ok");
+        assert_eval_number(vm, "s.bufferedAmount", 4.0);
+    });
+}
+
+#[test]
+fn send_uint16_typed_array_byte_length_doubles_element_count() {
+    with_ws_vm(false, |vm| {
+        open_ws(vm);
+        // Uint16Array with 4 elements → 8 bytes.
+        vm.eval("s.send(new Uint16Array([1, 2, 3, 4]));")
+            .expect("send(Uint16Array) ok");
+        assert_eval_number(vm, "s.bufferedAmount", 8.0);
+    });
+}
+
+#[test]
+fn send_dataview_uses_byte_length() {
+    with_ws_vm(false, |vm| {
+        open_ws(vm);
+        // DataView over 6-byte buffer.
+        vm.eval("s.send(new DataView(new ArrayBuffer(6)));")
+            .expect("send(DataView) ok");
+        assert_eval_number(vm, "s.bufferedAmount", 6.0);
+    });
+}
+
+#[test]
+fn send_plain_object_throws_type_error() {
+    // WebIDL §3.10.18 union resolution: Object that doesn't brand as
+    // Blob / ArrayBuffer / TypedArray / DataView → TypeError (NO
+    // implicit fall-through to DOMString).
+    with_ws_vm(false, |vm| {
+        open_ws(vm);
+        let err = vm.eval("s.send({a: 1});").unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("not of type") || msg.contains("Type"),
+            "expected TypeError for plain Object arg, got: {msg}"
+        );
+        // bufferedAmount must NOT have incremented on a throw.
+        assert_eval_number(vm, "s.bufferedAmount", 0.0);
+    });
+}
+
+#[test]
+fn send_number_coerces_to_string() {
+    // Primitives (number, bool, null, undefined) fall through to the
+    // USVString arm via ToString — `123` → `"123"` = 3 bytes.
+    with_ws_vm(false, |vm| {
+        open_ws(vm);
+        vm.eval("s.send(123);")
+            .expect("send(number) ToString-coerces");
+        assert_eval_number(vm, "s.bufferedAmount", 3.0);
+    });
+}
+
+#[test]
+fn send_boolean_coerces_to_string() {
+    with_ws_vm(false, |vm| {
+        open_ws(vm);
+        // `true` → `"true"` = 4 bytes.
+        vm.eval("s.send(true);").expect("send(bool) ok");
+        assert_eval_number(vm, "s.bufferedAmount", 4.0);
+    });
+}
+
+#[test]
+fn send_null_coerces_to_string() {
+    with_ws_vm(false, |vm| {
+        open_ws(vm);
+        // `null` → `"null"` = 4 bytes.
+        vm.eval("s.send(null);").expect("send(null) ok");
+        assert_eval_number(vm, "s.bufferedAmount", 4.0);
+    });
+}
+
+#[test]
+fn send_blob_during_closing_silent_discards_but_increments_buffered_amount() {
+    // CRIT-2 must hold for binary too: CLOSING/CLOSED silent-discard,
+    // bufferedAmount still increments.
+    with_ws_vm(false, |vm| {
+        open_ws(vm);
+        vm.eval("s.close();").unwrap();
+        assert_eval_number(vm, "s.readyState", 2.0);
+        vm.eval("s.send(new Blob(['xyz']));")
+            .expect("send(Blob) during CLOSING must not throw");
+        assert_eval_number(vm, "s.bufferedAmount", 3.0);
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: binaryType getter + setter (IMP-2 TypeError on non-enum)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn binary_type_default_is_blob() {
+    with_ws_vm(false, |vm| {
+        vm.eval("globalThis.s = new WebSocket('ws://example.com/socket');")
+            .unwrap();
+        assert_eval_string(vm, "s.binaryType", "blob");
+    });
+}
+
+#[test]
+fn binary_type_setter_accepts_arraybuffer() {
+    with_ws_vm(false, |vm| {
+        vm.eval(
+            "globalThis.s = new WebSocket('ws://example.com/socket'); \
+             s.binaryType = 'arraybuffer';",
+        )
+        .unwrap();
+        assert_eval_string(vm, "s.binaryType", "arraybuffer");
+    });
+}
+
+#[test]
+fn binary_type_setter_accepts_blob_round_trip() {
+    with_ws_vm(false, |vm| {
+        vm.eval(
+            "globalThis.s = new WebSocket('ws://example.com/socket'); \
+             s.binaryType = 'arraybuffer'; \
+             s.binaryType = 'blob';",
+        )
+        .unwrap();
+        assert_eval_string(vm, "s.binaryType", "blob");
+    });
+}
+
+#[test]
+fn binary_type_setter_rejects_other_string_with_type_error() {
+    // Regression: the boa reference silently ignored unknown
+    // strings; the spec-correct behaviour is TypeError per WebIDL
+    // §3.10.21 enum coercion.
+    with_ws_vm(false, |vm| {
+        vm.eval(
+            "globalThis.s = new WebSocket('ws://example.com/socket'); \
+             globalThis.r = null; \
+             try { s.binaryType = 'foo'; } catch (e) { globalThis.r = e.name; }",
+        )
+        .unwrap();
+        assert_eval_string(vm, "r", "TypeError");
+        // The slot must NOT have changed.
+        assert_eval_string(vm, "s.binaryType", "blob");
+    });
+}
+
+#[test]
+fn binary_type_setter_rejects_number_with_type_error() {
+    // `42` ToString → "42" → enum mismatch → TypeError.
+    with_ws_vm(false, |vm| {
+        vm.eval(
+            "globalThis.s = new WebSocket('ws://example.com/socket'); \
+             globalThis.r = null; \
+             try { s.binaryType = 42; } catch (e) { globalThis.r = e.name; }",
+        )
+        .unwrap();
+        assert_eval_string(vm, "r", "TypeError");
+        assert_eval_string(vm, "s.binaryType", "blob");
+    });
+}
+
+#[test]
+fn binary_type_setter_with_undefined_throws_type_error() {
+    // `undefined` ToString → "undefined" → enum mismatch → TypeError.
+    with_ws_vm(false, |vm| {
+        vm.eval(
+            "globalThis.s = new WebSocket('ws://example.com/socket'); \
+             globalThis.r = null; \
+             try { s.binaryType = undefined; } catch (e) { globalThis.r = e.name; }",
+        )
+        .unwrap();
+        assert_eval_string(vm, "r", "TypeError");
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: onmessage + onerror dispatch (MessageEvent / plain Event)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn onmessage_fires_with_string_data_message_event() {
+    with_ws_vm(false, |vm| {
+        vm.eval(
+            "globalThis._evts = []; \
+             globalThis.s = new WebSocket('ws://example.com/socket'); \
+             s.onmessage = function(e) { \
+               globalThis._evts.push({ \
+                 t: e.type, d: e.data, lei: e.lastEventId, \
+                 src: e.source, tg: e.target === s, \
+                 portsLen: e.ports.length \
+               }); \
+             };",
+        )
+        .unwrap();
+        inject_ws_event_and_tick(vm, 0, WsEvent::TextMessage("hello".to_string()));
+        assert_eval_number(vm, "_evts.length", 1.0);
+        assert_eval_string(vm, "_evts[0].t", "message");
+        assert_eval_string(vm, "_evts[0].d", "hello");
+        assert_eval_string(vm, "_evts[0].lei", "");
+        assert_eval_bool(vm, "_evts[0].src === null", true);
+        assert_eval_bool(vm, "_evts[0].tg", true);
+        assert_eval_number(vm, "_evts[0].portsLen", 0.0);
+    });
+}
+
+#[test]
+fn onmessage_origin_is_ws_url_origin_not_page_origin() {
+    // Regression: WHATWG §9.3.7 requires the MessageEvent.origin to
+    // be the WebSocket URL's origin (the SERVER's origin), NOT the
+    // page's origin.  The page is at http://example.com but the WS
+    // is to ws://different.example.org so the two are visibly
+    // distinct.
+    with_ws_vm(false, |vm| {
+        vm.eval(
+            "globalThis._origin = null; \
+             globalThis.s = new WebSocket('ws://different.example.org:8081/socket'); \
+             s.onmessage = function(e) { globalThis._origin = e.origin; };",
+        )
+        .unwrap();
+        inject_ws_event_and_tick(vm, 0, WsEvent::TextMessage("x".to_string()));
+        // `Url::origin().ascii_serialization()` for a non-default port
+        // preserves the port → "ws://different.example.org:8081".
+        assert_eval_string(vm, "_origin", "ws://different.example.org:8081");
+    });
+}
+
+#[test]
+fn onmessage_data_is_blob_when_binary_type_is_blob() {
+    with_ws_vm(false, |vm| {
+        vm.eval(
+            "globalThis._dataKind = null; \
+             globalThis._size = null; \
+             globalThis._mime = null; \
+             globalThis.s = new WebSocket('ws://example.com/socket'); \
+             s.onmessage = function(e) { \
+               globalThis._dataKind = e.data instanceof Blob; \
+               globalThis._size = e.data.size; \
+               globalThis._mime = e.data.type; \
+             };",
+        )
+        .unwrap();
+        inject_ws_event_and_tick(vm, 0, WsEvent::BinaryMessage(vec![1, 2, 3, 4]));
+        assert_eval_bool(vm, "_dataKind", true);
+        assert_eval_number(vm, "_size", 4.0);
+        // WHATWG §9.3.7: Blob `type` is the empty string for WS
+        // binary messages (no spec-mandated MIME).
+        assert_eval_string(vm, "_mime", "");
+    });
+}
+
+#[test]
+fn onmessage_data_is_arraybuffer_when_binary_type_is_arraybuffer() {
+    with_ws_vm(false, |vm| {
+        vm.eval(
+            "globalThis._kind = null; \
+             globalThis._size = null; \
+             globalThis._byte0 = null; \
+             globalThis.s = new WebSocket('ws://example.com/socket'); \
+             s.binaryType = 'arraybuffer'; \
+             s.onmessage = function(e) { \
+               globalThis._kind = e.data instanceof ArrayBuffer; \
+               globalThis._size = e.data.byteLength; \
+               globalThis._byte0 = new Uint8Array(e.data)[0]; \
+             };",
+        )
+        .unwrap();
+        inject_ws_event_and_tick(vm, 0, WsEvent::BinaryMessage(vec![42, 99, 100]));
+        assert_eval_bool(vm, "_kind", true);
+        assert_eval_number(vm, "_size", 3.0);
+        assert_eval_number(vm, "_byte0", 42.0);
+    });
+}
+
+#[test]
+fn onmessage_text_does_not_fire_when_no_handler_registered() {
+    // No `onmessage` set → silent-drop (no addEventListener path in
+    // Phase 1/2 — that's `#11-realtime-event-listeners`).  This is
+    // intentional WHATWG-compliant behaviour for the EventHandler-
+    // only surface.
+    with_ws_vm(false, |vm| {
+        open_ws(vm);
+        // Should not throw, should not mutate state.
+        inject_ws_event_and_tick(vm, 0, WsEvent::TextMessage("nope".to_string()));
+        assert_eval_number(vm, "s.readyState", 1.0);
+    });
+}
+
+#[test]
+fn onerror_fires_plain_event() {
+    with_ws_vm(false, |vm| {
+        vm.eval(
+            "globalThis._evts = []; \
+             globalThis.s = new WebSocket('ws://example.com/socket'); \
+             s.onerror = function(e) { \
+               globalThis._evts.push({t: e.type, tg: e.target === s, msg: e.message}); \
+             };",
+        )
+        .unwrap();
+        inject_ws_event_and_tick(vm, 0, WsEvent::Error("server crashed".to_string()));
+        assert_eval_number(vm, "_evts.length", 1.0);
+        assert_eval_string(vm, "_evts[0].t", "error");
+        assert_eval_bool(vm, "_evts[0].tg", true);
+        // Plain Event has no `message` field — accessing it returns
+        // undefined (NOT the broker's error string, intentionally
+        // opaque per WHATWG §9.3.7).
+        assert_eval_bool(vm, "_evts[0].msg === undefined", true);
+    });
+}
+
+#[test]
+fn onmessage_setter_round_trips_callable() {
+    with_ws_vm(false, |vm| {
+        vm.eval(
+            "globalThis.s = new WebSocket('ws://example.com/socket'); \
+             globalThis.fn = function() {}; \
+             s.onmessage = fn;",
+        )
+        .unwrap();
+        assert_eval_bool(vm, "s.onmessage === fn", true);
+    });
+}
+
+#[test]
+fn onerror_setter_non_callable_nulls_slot() {
+    with_ws_vm(false, |vm| {
+        vm.eval(
+            "globalThis.s = new WebSocket('ws://example.com/socket'); \
+             s.onerror = function() {}; \
+             s.onerror = 'oops'; /* nulls slot */",
+        )
+        .unwrap();
+        match vm.eval("s.onerror").unwrap() {
+            JsValue::Null => {}
+            other => panic!("onerror should be null after non-callable assignment, got {other:?}"),
+        }
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: BytesSent — bufferedAmount saturating decrement
+// ---------------------------------------------------------------------------
+
+#[test]
+fn bytes_sent_decrements_buffered_amount() {
+    with_ws_vm(false, |vm| {
+        open_ws(vm);
+        vm.eval("s.send('hello world');").unwrap();
+        assert_eval_number(vm, "s.bufferedAmount", 11.0);
+        inject_ws_event_and_tick(vm, 0, WsEvent::BytesSent(5));
+        assert_eval_number(vm, "s.bufferedAmount", 6.0);
+    });
+}
+
+#[test]
+fn bytes_sent_saturating_subtracts_without_underflow() {
+    // Broker over-reports (e.g. fragmentation accounting drift) →
+    // saturating arithmetic clamps at 0 instead of underflowing.
+    with_ws_vm(false, |vm| {
+        open_ws(vm);
+        vm.eval("s.send('hi');").unwrap();
+        assert_eval_number(vm, "s.bufferedAmount", 2.0);
+        inject_ws_event_and_tick(vm, 0, WsEvent::BytesSent(999));
+        assert_eval_number(vm, "s.bufferedAmount", 0.0);
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: brand check on new accessor + send-arg-extension surface
+// ---------------------------------------------------------------------------
+
+#[test]
+fn binary_type_getter_on_non_websocket_throws() {
+    with_ws_vm(false, |vm| {
+        let err = vm
+            .eval(
+                "let d = Object.getOwnPropertyDescriptor(WebSocket.prototype, 'binaryType'); \
+                 d.get.call({});",
+            )
+            .unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("non-WebSocket") || msg.contains("Type"),
+            "expected brand-check TypeError, got: {msg}"
+        );
+    });
+}
+
+#[test]
+fn binary_type_setter_on_non_websocket_throws() {
+    with_ws_vm(false, |vm| {
+        let err = vm
+            .eval(
+                "let d = Object.getOwnPropertyDescriptor(WebSocket.prototype, 'binaryType'); \
+                 d.set.call({}, 'blob');",
             )
             .unwrap_err();
         let msg = format!("{err:?}");

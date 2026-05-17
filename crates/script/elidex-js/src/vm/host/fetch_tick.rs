@@ -101,9 +101,8 @@ impl VmInner {
     /// events for that `conn_id`; a late arrival between sweep and
     /// broker observe is benign).
     ///
-    /// Phase 1 implements WebSocket `Connected` / `Closed` arms.
-    /// Phase 2 fills `TextMessage` / `BinaryMessage` / `Error` /
-    /// `BytesSent`; Phase 3 fills all `SseEvent::*` arms.
+    /// Phase 1+2 implement every WebSocket arm.  Phase 3 fills all
+    /// `SseEvent::*` arms.
     ///
     /// Borrow discipline: the reverse-map lookup snapshots the
     /// instance `ObjectId` into a local before the per-variant
@@ -141,15 +140,25 @@ impl VmInner {
                             self, instance, code, &reason, was_clean,
                         );
                     }
-                    // Phase 2 fills these — silent-drop is the
-                    // correct Phase 1 behaviour (no observer is
-                    // registered for messages/errors yet, and
-                    // BytesSent decrement is paired with Phase 2's
-                    // binary-send accounting).
-                    WsEvent::TextMessage(_)
-                    | WsEvent::BinaryMessage(_)
-                    | WsEvent::Error(_)
-                    | WsEvent::BytesSent(_) => {}
+                    WsEvent::TextMessage(s) => {
+                        super::websocket_dispatch::dispatch_ws_text_message(self, instance, &s);
+                    }
+                    WsEvent::BinaryMessage(bytes) => {
+                        super::websocket_dispatch::dispatch_ws_binary_message(
+                            self, instance, bytes,
+                        );
+                    }
+                    WsEvent::Error(_msg) => {
+                        // Per WHATWG §9.3.7 the script-visible "error"
+                        // is a plain Event with no detail — the broker
+                        // message is discarded intentionally to avoid
+                        // leaking server-internals through the
+                        // unsandboxed handler.
+                        super::websocket_dispatch::dispatch_ws_error(self, instance);
+                    }
+                    WsEvent::BytesSent(n) => {
+                        super::websocket_dispatch::dispatch_ws_bytes_sent(self, instance, n);
+                    }
                 }
             }
             NetworkToRenderer::EventSourceEvent(conn_id, _sse_event) => {
