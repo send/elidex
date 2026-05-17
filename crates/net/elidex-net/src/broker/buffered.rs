@@ -240,7 +240,12 @@ mod tests {
             NetworkToRenderer::FetchResponse(fetch_a, Ok(ok_response())),
             NetworkToRenderer::WebSocketEvent(1, crate::ws::WsEvent::TextMessage("b".into())),
             NetworkToRenderer::FetchResponse(fetch_b, Err("boom".into())),
-            NetworkToRenderer::EventSourceEvent(2, crate::sse::SseEvent::Connected),
+            NetworkToRenderer::EventSourceEvent(
+                2,
+                crate::sse::SseEvent::Connected {
+                    final_url: url::Url::parse("https://example.com/stream").unwrap(),
+                },
+            ),
         ]);
 
         let fetches = renderer.drain_fetch_responses_only();

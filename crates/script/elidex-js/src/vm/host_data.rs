@@ -493,22 +493,16 @@ mod engine_feature {
         /// scheme promotion (SSE is HTTP-only).
         pub url: String,
         /// Pre-interned origin used as `MessageEvent.origin` on
-        /// every dispatched server event.  Cached once at
-        /// constructor time to avoid per-message URL parse + origin
-        /// serialisation + intern (mirror of `WebSocketState::
-        /// origin_sid`).  Opaque origins serialise to the literal
-        /// `"null"`.
-        ///
-        /// Spec divergence note: WHATWG HTML §9.2.4 specifies the
-        /// `MessageEvent.origin` as the serialization of the **final
-        /// URL after redirects**, but the broker's
-        /// [`elidex_net::sse::SseEvent::Connected`] does not yet
-        /// carry the post-redirect URL.  Phase 3 uses the
-        /// constructor-time origin (Chrome / Firefox parity for the
-        /// common no-redirect case); the post-redirect path is
-        /// tracked separately as defer slot
-        /// `#11-eventsource-origin-post-redirect` (re-eval when
-        /// broker grows a `final_url` field or WPT calls it out).
+        /// every dispatched server event.  Seeded at constructor
+        /// time from the ctor URL's origin as a defensive default
+        /// for the (unreachable-in-practice) pre-Connected window,
+        /// then refreshed at every `Connected` dispatch
+        /// (`vm::host::event_source_dispatch::dispatch_sse_connected`)
+        /// from the post-redirect final URL's origin per WHATWG
+        /// HTML §9.2 "Dispatch the event".  Opaque-origin
+        /// serialisation returns the literal `"null"`, but SSE's
+        /// HTTP(S) scheme gate (`connect.rs`) makes that path
+        /// unreachable in practice.
         pub origin_sid: StringId,
         /// `init.withCredentials` echo.
         pub with_credentials: bool,

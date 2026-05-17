@@ -55,21 +55,14 @@
 //! - `Vm::unbind` snapshots and closes every active conn (shared
 //!   CRIT-A teardown with WebSocket).
 //!
-//! ### Spec divergence note: `MessageEvent.origin` post-redirect
+//! ### `MessageEvent.origin` semantics
 //!
-//! WHATWG HTML §9.2.4 specifies that `MessageEvent.origin` is the
-//! serialization of the **final URL after redirects**.  The broker's
-//! [`elidex_net::sse::SseEvent::Connected`] does NOT yet carry a
-//! `final_url` payload (the SSE I/O thread internally follows
-//! redirects but does not surface the final URL to the renderer),
-//! so this PR uses the constructor-time URL origin (cached on
-//! [`super::super::host_data::EventSourceState::origin_sid`]).  This
-//! matches Chrome / Firefox for the common case (no SSE redirects)
-//! and diverges from spec only when the server emits a cross-origin
-//! `3xx Location` for the `text/event-stream` GET.  Tracked as
-//! defer slot `#11-eventsource-origin-post-redirect`; re-eval when
-//! the broker grows a `SseEvent::Connected { final_url }` field
-//! (small cross-crate change) OR a WPT test surfaces the divergence.
+//! `MessageEvent.origin` tracks the post-redirect URL per WHATWG
+//! HTML §9.2 "Dispatch the event" — see
+//! [`super::super::host_data::EventSourceState::origin_sid`] for
+//! the refresh path (re-derived from
+//! [`elidex_net::sse::SseEvent::Connected`]'s `final_url` payload
+//! at every handshake / auto-reconnect cycle).
 
 #![cfg(feature = "engine")]
 
@@ -480,7 +473,8 @@ fn native_es_get_with_credentials(
 // `close()`
 // ---------------------------------------------------------------------------
 
-/// `EventSource.prototype.close()` per WHATWG HTML §9.2.4.
+/// `EventSource.prototype.close()` per WHATWG HTML §9.2
+/// "EventSource interface".
 ///
 /// Idempotent: if already CLOSED, no-op.  Otherwise transitions
 /// readyState to CLOSED and emits `EventSourceClose(conn_id)` so
@@ -524,7 +518,7 @@ fn native_es_close(
 // ---------------------------------------------------------------------------
 // addEventListener / removeEventListener — minimal shim
 //
-// WHATWG HTML §9.2.4 requires server-named events
+// WHATWG HTML §9.2 "Dispatch the event" requires server-named events
 // (`event: notification\n`) to surface through
 // `addEventListener("notification", cb)`.  This is the minimal
 // surface needed for spec-correct named-event delivery; full
