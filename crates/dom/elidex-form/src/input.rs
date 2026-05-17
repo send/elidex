@@ -1,5 +1,7 @@
 //! Keyboard input handling for text-based form controls.
 
+use elidex_ecs::{Attributes, EcsDom, Entity, TagType};
+
 use crate::util::{next_char_boundary, prev_char_boundary};
 use crate::{FormControlKind, FormControlState};
 
@@ -299,373 +301,103 @@ fn handle_readonly_navigation(state: &mut FormControlState, key: &str) -> bool {
     navigate_cursor(state, key) == KeyAction::Consumed
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::FormControlKind;
-
-    fn text_state(value: &str, cursor: usize) -> FormControlState {
-        FormControlState {
-            kind: FormControlKind::TextInput,
-            value: value.to_string(),
-            cursor_pos: cursor,
-            char_count: value.chars().count(),
-            ..FormControlState::default()
+/// Resolve `<input>.list` to its associated `<datalist>` per WHATWG HTML
+/// §4.10.5.1.16: "the first element in the tree of type `HTMLDataListElement`
+/// whose ID is equal to the value of the `list` attribute, if that element is
+/// in the same tree as the input element".
+///
+/// Returns `None` for input types the `list` attribute does not apply to
+/// (hidden / checkbox / radio / file / submit / image / reset / button /
+/// password — see `input_list_applies_to_type` for the spec exclusion set).
+///
+/// Tree scope honors shadow boundaries — nested shadow subtrees within the
+/// same root are correctly excluded per the spec's "same tree" wording.
+/// Cross-tree (shadow-piercing) resolution is tracked at the
+/// `#11-form-elements-cross-tree` defer slot.
+#[must_use]
+pub fn resolve_input_list(dom: &EcsDom, input_entity: Entity) -> Option<Entity> {
+    if !input_list_applies_to_type(dom, input_entity) {
+        return None;
+    }
+    let list_id: String = {
+        let attrs = dom.world().get::<&Attributes>(input_entity).ok()?;
+        let v = attrs.get("list")?;
+        if v.is_empty() {
+            return None;
         }
-    }
+        v.to_owned()
+    };
 
-    fn textarea_state(value: &str, cursor: usize) -> FormControlState {
-        FormControlState {
-            kind: FormControlKind::TextArea,
-            value: value.to_string(),
-            cursor_pos: cursor,
-            char_count: value.chars().count(),
-            rows: 2,
-            cols: 20,
-            ..FormControlState::default()
+    // `traverse_descendants` skips `root` itself; check explicitly.
+    let root = dom.find_tree_root(input_entity);
+    if matches_datalist_with_id(dom, root, list_id.as_str()) {
+        return Some(root);
+    }
+    let mut candidate = None;
+    dom.traverse_descendants(root, |entity| {
+        if matches_datalist_with_id(dom, entity, list_id.as_str()) {
+            candidate = Some(entity);
+            return false;
         }
-    }
-
-    #[test]
-    fn insert_character() {
-        let mut s = text_state("ab", 1);
-        assert!(form_control_key_input(&mut s, "x", "KeyX"));
-        assert_eq!(s.value, "axb");
-        assert_eq!(s.cursor_pos, 2);
-    }
-
-    #[test]
-    fn insert_at_end() {
-        let mut s = text_state("ab", 2);
-        assert!(form_control_key_input(&mut s, "c", "KeyC"));
-        assert_eq!(s.value, "abc");
-        assert_eq!(s.cursor_pos, 3);
-    }
-
-    #[test]
-    fn backspace_middle() {
-        let mut s = text_state("abc", 2);
-        assert!(form_control_key_input(&mut s, "Backspace", "Backspace"));
-        assert_eq!(s.value, "ac");
-        assert_eq!(s.cursor_pos, 1);
-    }
-
-    #[test]
-    fn backspace_at_start() {
-        let mut s = text_state("abc", 0);
-        assert!(!form_control_key_input(&mut s, "Backspace", "Backspace"));
-        assert_eq!(s.value, "abc");
-    }
-
-    #[test]
-    fn delete_middle() {
-        let mut s = text_state("abc", 1);
-        assert!(form_control_key_input(&mut s, "Delete", "Delete"));
-        assert_eq!(s.value, "ac");
-        assert_eq!(s.cursor_pos, 1);
-    }
-
-    #[test]
-    fn delete_at_end() {
-        let mut s = text_state("abc", 3);
-        assert!(!form_control_key_input(&mut s, "Delete", "Delete"));
-    }
-
-    #[test]
-    fn arrow_left_right() {
-        let mut s = text_state("abc", 2);
-        assert!(form_control_key_input(&mut s, "ArrowLeft", "ArrowLeft"));
-        assert_eq!(s.cursor_pos, 1);
-        assert!(form_control_key_input(&mut s, "ArrowRight", "ArrowRight"));
-        assert_eq!(s.cursor_pos, 2);
-    }
-
-    #[test]
-    fn home_end() {
-        let mut s = text_state("abc", 1);
-        assert!(form_control_key_input(&mut s, "Home", "Home"));
-        assert_eq!(s.cursor_pos, 0);
-        assert!(form_control_key_input(&mut s, "End", "End"));
-        assert_eq!(s.cursor_pos, 3);
-    }
-
-    #[test]
-    fn enter_in_textarea() {
-        let mut s = textarea_state("ab", 1);
-        assert!(form_control_key_input(&mut s, "Enter", "Enter"));
-        assert_eq!(s.value, "a\nb");
-        assert_eq!(s.cursor_pos, 2);
-    }
-
-    #[test]
-    fn enter_in_text_input_returns_submit() {
-        let mut s = text_state("ab", 1);
-        // Enter on text input triggers implicit form submission.
-        assert_eq!(
-            form_control_key_input_action(&mut s, "Enter", "Enter"),
-            KeyAction::Submit
-        );
-        // form_control_key_input returns true (Submit != None).
-        let mut s2 = text_state("ab", 1);
-        assert!(form_control_key_input(&mut s2, "Enter", "Enter"));
-    }
-
-    #[test]
-    fn multibyte_character() {
-        let mut s = text_state("", 0);
-        assert!(form_control_key_input(&mut s, "あ", ""));
-        assert_eq!(s.value, "あ");
-        assert_eq!(s.cursor_pos, 3); // UTF-8 3 bytes
-    }
-
-    #[test]
-    fn backspace_multibyte() {
-        let mut s = text_state("あい", 3);
-        assert!(form_control_key_input(&mut s, "Backspace", "Backspace"));
-        assert_eq!(s.value, "い");
-        assert_eq!(s.cursor_pos, 0);
-    }
-
-    #[test]
-    fn cursor_pos_clamped_to_value_len() {
-        // cursor_pos beyond value length should be clamped, not panic.
-        let mut s = text_state("abc", 100);
-        assert!(form_control_key_input(&mut s, "x", "KeyX"));
-        assert_eq!(s.value, "abcx");
-        assert_eq!(s.cursor_pos, 4);
-    }
-
-    #[test]
-    fn cursor_pos_clamped_to_char_boundary() {
-        // cursor_pos in the middle of a multibyte char should be corrected.
-        let mut s = text_state("あい", 1); // byte 1 is not a char boundary
-        assert!(form_control_key_input(&mut s, "x", "KeyX"));
-        // Should have been clamped to byte 0 (prev char boundary)
-        assert_eq!(s.value, "xあい");
-        assert_eq!(s.cursor_pos, 1);
-    }
-
-    #[test]
-    fn readonly_rejects_editing() {
-        let mut s = FormControlState {
-            value: "abc".to_string(),
-            cursor_pos: 1,
-            readonly: true,
-            ..FormControlState::default()
-        };
-        // Typing should be rejected.
-        assert!(!form_control_key_input(&mut s, "x", "KeyX"));
-        assert_eq!(s.value, "abc");
-        // Backspace/Delete should be rejected.
-        assert!(!form_control_key_input(&mut s, "Backspace", "Backspace"));
-        assert_eq!(s.value, "abc");
-        assert!(!form_control_key_input(&mut s, "Delete", "Delete"));
-        assert_eq!(s.value, "abc");
-        // Navigation should still work.
-        assert!(form_control_key_input(&mut s, "ArrowRight", "ArrowRight"));
-        assert_eq!(s.cursor_pos, 2);
-        assert!(form_control_key_input(&mut s, "Home", "Home"));
-        assert_eq!(s.cursor_pos, 0);
-        assert!(form_control_key_input(&mut s, "End", "End"));
-        assert_eq!(s.cursor_pos, 3);
-    }
-
-    #[test]
-    fn checkbox_ignores_keys() {
-        let mut s = FormControlState {
-            kind: FormControlKind::Checkbox,
-            ..FormControlState::default()
-        };
-        assert!(!form_control_key_input(&mut s, "a", "KeyA"));
-    }
-
-    #[test]
-    fn newline_rejected_in_text_input() {
-        // HTML spec: single-line inputs reject \n and \r.
-        let mut s = text_state("ab", 2);
-        // \n is a control character that should be rejected anyway,
-        // but we explicitly guard against it.
-        assert!(!form_control_key_input(&mut s, "\n", "Enter"));
-        assert_eq!(s.value, "ab");
-    }
-
-    #[test]
-    fn maxlength_blocks_insertion() {
-        let mut s = FormControlState {
-            kind: FormControlKind::TextInput,
-            value: "abcd".to_string(),
-            cursor_pos: 4,
-            char_count: 4,
-            maxlength: Some(4),
-            ..FormControlState::default()
-        };
-        assert!(!form_control_key_input(&mut s, "x", "KeyX"));
-        assert_eq!(s.value, "abcd");
-    }
-
-    #[test]
-    fn number_rejects_letters() {
-        let mut s = FormControlState {
-            kind: FormControlKind::Number,
-            value: "12".to_string(),
-            cursor_pos: 2,
-            ..FormControlState::default()
-        };
-        assert!(!form_control_key_input(&mut s, "a", "KeyA"));
-        assert_eq!(s.value, "12");
-        // Digits should be accepted.
-        assert!(form_control_key_input(&mut s, "3", "Digit3"));
-        assert_eq!(s.value, "123");
-        // Dot/minus/e should be accepted.
-        assert!(form_control_key_input(&mut s, ".", "Period"));
-        assert_eq!(s.value, "123.");
-    }
-
-    #[test]
-    fn supports_selection_types() {
-        assert!(FormControlKind::TextInput.supports_selection());
-        assert!(FormControlKind::Password.supports_selection());
-        assert!(FormControlKind::TextArea.supports_selection());
-        assert!(!FormControlKind::Checkbox.supports_selection());
-        assert!(!FormControlKind::Select.supports_selection());
-    }
-
-    // -- apply_step tests (D-2 hoist target) -----------------------
-
-    fn make_state(kind: FormControlKind, value: &str, step: Option<&str>) -> FormControlState {
-        let mut s = FormControlState {
-            kind,
-            ..Default::default()
-        };
-        s.set_value(value.to_string());
-        s.step = step.map(String::from);
-        s
-    }
-
-    #[test]
-    fn apply_step_number_default_step_one() {
-        let mut s = make_state(FormControlKind::Number, "5", None);
-        assert!(apply_step(&mut s, 1.0, 1.0).is_ok());
-        assert_eq!(s.value(), "6");
-    }
-
-    #[test]
-    fn apply_step_range_descending() {
-        let mut s = make_state(FormControlKind::Range, "10", Some("2"));
-        assert!(apply_step(&mut s, 3.0, -1.0).is_ok());
-        assert_eq!(s.value(), "4");
-    }
-
-    #[test]
-    fn apply_step_unsupported_kind_returns_not_supported() {
-        let mut s = make_state(FormControlKind::TextInput, "abc", None);
-        assert_eq!(apply_step(&mut s, 1.0, 1.0), Err(StepError::NotSupported));
-        // Value untouched.
-        assert_eq!(s.value(), "abc");
-    }
-
-    #[test]
-    fn apply_step_invalid_step_falls_back_to_one() {
-        let mut s = make_state(FormControlKind::Number, "0", Some("not-a-number"));
-        assert!(apply_step(&mut s, 1.0, 1.0).is_ok());
-        assert_eq!(s.value(), "1");
-    }
-
-    #[test]
-    fn apply_step_empty_value_treated_as_zero() {
-        let mut s = make_state(FormControlKind::Number, "", Some("2"));
-        assert!(apply_step(&mut s, 5.0, 1.0).is_ok());
-        assert_eq!(s.value(), "10");
-    }
-
-    #[test]
-    fn apply_step_fractional_step() {
-        let mut s = make_state(FormControlKind::Number, "1", Some("0.5"));
-        assert!(apply_step(&mut s, 1.0, 1.0).is_ok());
-        // f64 1.5 prints as "1.5" via to_string.
-        assert_eq!(s.value(), "1.5");
-    }
-
-    // -------------------------------------------------------------------
-    // sanitize_for_type_change (HTML §4.10.5.6)
-    // -------------------------------------------------------------------
-
-    #[test]
-    fn sanitize_clears_checked_when_leaving_checkbox() {
-        let mut s = FormControlState {
-            kind: FormControlKind::TextInput,
-            checked: true,
-            ..FormControlState::default()
-        };
-        sanitize_for_type_change(&mut s, FormControlKind::Checkbox);
-        assert!(!s.checked);
-    }
-
-    #[test]
-    fn sanitize_clears_indeterminate_when_leaving_checkbox() {
-        let mut s = FormControlState {
-            kind: FormControlKind::TextInput,
-            indeterminate: true,
-            ..FormControlState::default()
-        };
-        sanitize_for_type_change(&mut s, FormControlKind::Checkbox);
-        assert!(!s.indeterminate);
-    }
-
-    #[test]
-    fn sanitize_clears_checked_when_leaving_radio() {
-        let mut s = FormControlState {
-            kind: FormControlKind::TextInput,
-            checked: true,
-            ..FormControlState::default()
-        };
-        sanitize_for_type_change(&mut s, FormControlKind::Radio);
-        assert!(!s.checked);
-    }
-
-    #[test]
-    fn sanitize_keeps_checked_when_staying_checkable() {
-        let mut s = FormControlState {
-            kind: FormControlKind::Radio,
-            checked: true,
-            ..FormControlState::default()
-        };
-        sanitize_for_type_change(&mut s, FormControlKind::Checkbox);
-        assert!(s.checked);
-    }
-
-    #[test]
-    fn sanitize_clears_value_when_entering_number_with_non_numeric() {
-        let mut s = FormControlState {
-            kind: FormControlKind::Number,
-            ..FormControlState::default()
-        };
-        s.set_value("abc".to_string());
-        sanitize_for_type_change(&mut s, FormControlKind::TextInput);
-        assert_eq!(s.value(), "");
-    }
-
-    #[test]
-    fn sanitize_keeps_value_when_entering_number_with_numeric() {
-        let mut s = FormControlState {
-            kind: FormControlKind::Number,
-            ..FormControlState::default()
-        };
-        s.set_value("3.14".to_string());
-        sanitize_for_type_change(&mut s, FormControlKind::TextInput);
-        assert_eq!(s.value(), "3.14");
-    }
-
-    #[test]
-    fn sanitize_no_op_when_kind_unchanged() {
-        let mut s = FormControlState {
-            kind: FormControlKind::Number,
-            ..FormControlState::default()
-        };
-        s.set_value("not-a-number".to_string());
-        sanitize_for_type_change(&mut s, FormControlKind::Number);
-        // Same-kind transition: no sanitize runs (caller already had
-        // this value, and same-kind means content didn't change).
-        assert_eq!(s.value(), "not-a-number");
-    }
+        true
+    });
+    candidate
 }
+
+fn matches_datalist_with_id(dom: &EcsDom, entity: Entity, id: &str) -> bool {
+    // Namespace filter omitted: today `TagType` implies HTML-namespace
+    // element (elidex does not yet model SVG / MathML on element entities).
+    // When `#11-element-namespace-tracking` lands, add an
+    // `is_html_namespace(entity)` guard here to reject foreign-namespace
+    // `<datalist>` look-alikes per spec wording "of type `HTMLDataListElement`".
+    let Ok(tag) = dom.world().get::<&TagType>(entity) else {
+        return false;
+    };
+    if !tag.0.as_str().eq_ignore_ascii_case("datalist") {
+        return false;
+    }
+    drop(tag);
+    dom.world()
+        .get::<&Attributes>(entity)
+        .is_ok_and(|a| a.get("id") == Some(id))
+}
+
+/// `<input>.list` applicability per HTML §4.10.5.1.16.
+///
+/// Reads the `type` content attribute directly (spec source of truth):
+/// `setAttribute("type", X)` mutates `Attributes` synchronously while
+/// any cached `FormControlState.kind` only re-syncs on a type-change
+/// sanitize pass — preferring the cached kind would let stale state
+/// mask a fresh `setAttribute("type", "hidden")` mutation.
+///
+/// Missing attribute defaults to `"text"` per HTML §4.10.5.1 missing-
+/// value-default rule.
+///
+/// Exclusion set is matched against the spec text directly (rather than
+/// routed through [`FormControlKind`]) because `from_type_str` collapses
+/// `"image"` (and the unmodeled `"month"` / `"week"` / `"time"`) onto
+/// `TextInput` — that fallback is harmless for the applicable types but
+/// would incorrectly admit `<input type="image">` if the predicate was
+/// gated on `FormControlKind::list_applies`.
+fn input_list_applies_to_type(dom: &EcsDom, input_entity: Entity) -> bool {
+    let Ok(attrs) = dom.world().get::<&Attributes>(input_entity) else {
+        return true;
+    };
+    let type_str = attrs.get("type").unwrap_or("text");
+    !matches!(
+        type_str.to_ascii_lowercase().as_str(),
+        "hidden"
+            | "checkbox"
+            | "radio"
+            | "file"
+            | "submit"
+            | "image"
+            | "reset"
+            | "button"
+            | "password"
+    )
+}
+
+#[cfg(test)]
+#[path = "input_tests.rs"]
+mod tests;

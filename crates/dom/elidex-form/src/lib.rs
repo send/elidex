@@ -25,8 +25,8 @@ pub use fieldset::{
 };
 pub use init::{create_form_control_state, find_autofocus_target, init_form_controls};
 pub use input::{
-    apply_step, form_control_key_input, form_control_key_input_action, sanitize_for_type_change,
-    KeyAction, StepError,
+    apply_step, form_control_key_input, form_control_key_input_action, resolve_input_list,
+    sanitize_for_type_change, KeyAction, StepError,
 };
 pub use label::{find_label_target, is_label, is_labelable_element, resolve_label_for};
 pub use radio::{

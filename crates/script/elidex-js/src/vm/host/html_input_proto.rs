@@ -943,9 +943,14 @@ fn native_input_get_list(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // Stub — datalist surface deferred to `#11-tags-T2d-interactive`.
-    let _ = require_input_receiver(ctx, this, "list")?;
-    Ok(JsValue::Null)
+    let Some(entity) = require_input_receiver(ctx, this, "list")? else {
+        return Ok(JsValue::Null);
+    };
+    // Identity-stable via `create_element_wrapper`'s per-entity cache;
+    // HTML §4.10.5.1.16 IDL `list` is not `[SameObject]` but Chrome /
+    // Firefox match this behaviour through their own wrapper caches.
+    let datalist = elidex_form::resolve_input_list(ctx.host().dom(), entity);
+    Ok(super::dom_bridge::wrap_entity_or_null(ctx.vm, datalist))
 }
 
 // ---------------------------------------------------------------------------
