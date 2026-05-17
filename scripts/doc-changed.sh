@@ -7,10 +7,14 @@
 # rationale and `mise run doc-full` for the always-comprehensive
 # variant that matches GitHub Actions.
 #
-# POSIX-shell pipeline (set -e + pipelines + awk / grep): invoked
-# explicitly via bash so Windows contributors get a clear
-# "bash: command not found" message instead of a confusing
-# partial-execute failure.
+# Invoked explicitly via bash (POSIX-shell pipelines + awk / grep)
+# so Windows contributors get a clear "bash: command not found"
+# message instead of a confusing partial-execute failure. The
+# `set -e` below catches non-pipeline command failures; the single
+# pipeline below intentionally ends with `|| true` so the no-matches
+# case (grep -o exits non-zero on empty match) does NOT abort the
+# script — `set -o pipefail` is deliberately NOT used here for that
+# reason.
 
 set -e
 

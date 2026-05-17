@@ -344,6 +344,28 @@ fn element_get_html_explicit_list_emits_closed_shadow_root() {
 }
 
 #[test]
+fn element_get_html_shadow_roots_string_iterates_per_codepoint() {
+    // PR201 Copilot R12 regression: WebIDL `sequence<T>` conversion
+    // accepts any iterable primitive — strings carry
+    // `String.prototype[@@iterator]` (code-point iteration). The
+    // earlier `JsValue::Object` guard up-front rejected strings with
+    // "not iterable", diverging from spec. The fix routes everything
+    // through `resolve_iterator`, so a string now iterates per
+    // code-point; each iteration yields a single-char string which
+    // is not a ShadowRoot → spec-correct TypeError saying
+    // "shadowRoots[0] is not a ShadowRoot" instead of the misleading
+    // "shadowRoots is not iterable". Both throw TypeError (so
+    // error.name checks work), but the message refines per spec.
+    let out = run("var host = document.createElement('div'); \
+         document.body.appendChild(host); \
+         var caught = ''; \
+         try { host.getHTML({shadowRoots: 'abc'}); } catch (e) { caught = e.message; } \
+         (caught.indexOf(\"'shadowRoots[0]' is not a ShadowRoot\") !== -1) \
+             ? 'ok' : ('fail:' + caught);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn element_get_html_shadow_roots_consumes_custom_iterable() {
     // PR201 Copilot R8 / F1 regression: WebIDL `sequence<T>` consumes
     // `@@iterator`. A custom iterable (or generator, or `new Set`)

@@ -279,41 +279,47 @@ fn parse_shadow_root_sequence(
              'shadowRoots' is not iterable."
         ))
     };
-    let JsValue::Object(seq_id) = raw else {
-        return Err(not_iterable());
-    };
     // Fast path for dense `Array { elements }`: WebIDL `sequence<T>`
     // conversion *would* still consult `@@iterator` per spec, but
     // `Array.prototype[@@iterator]` walks the same dense storage so
-    // we short-circuit here. Cap-check the length BEFORE materialising
-    // the snapshot — a 100M-entry Array would otherwise clone all
-    // 100M values before the iterator path's `SHADOW_ROOTS_SEQ_CAP`
-    // had any chance to fire. Cap symmetry with the iterator path is
-    // mandatory (PR201 R11): asymmetric caps create a DoS gap where
-    // `{shadowRoots: hugeArray}` chews unbounded memory while
-    // `{shadowRoots: hugeCustomIterable}` is bounded.
-    if let ObjectKind::Array { elements } = &ctx.vm.get_object(seq_id).kind {
-        let element_count = elements.len();
-        if element_count > SHADOW_ROOTS_SEQ_CAP {
-            return Err(VmError::type_error(format!(
-                "Failed to execute 'getHTML' on '{interface}': \
-                 'shadowRoots' exceeds the maximum of {SHADOW_ROOTS_SEQ_CAP} entries."
-            )));
+    // we short-circuit here. Only objects can carry dense Array
+    // storage; non-Object primitives (incl. strings) fall through to
+    // the spec-required `resolve_iterator` path below. Cap-check the
+    // length BEFORE materialising the snapshot — a 100M-entry Array
+    // would otherwise clone all 100M values before the iterator
+    // path's `SHADOW_ROOTS_SEQ_CAP` had any chance to fire. Cap
+    // symmetry with the iterator path is mandatory (PR201 R11):
+    // asymmetric caps create a DoS gap where `{shadowRoots:
+    // hugeArray}` chews unbounded memory while `{shadowRoots:
+    // hugeCustomIterable}` is bounded.
+    if let JsValue::Object(seq_id) = raw {
+        if let ObjectKind::Array { elements } = &ctx.vm.get_object(seq_id).kind {
+            let element_count = elements.len();
+            if element_count > SHADOW_ROOTS_SEQ_CAP {
+                return Err(VmError::type_error(format!(
+                    "Failed to execute 'getHTML' on '{interface}': \
+                     'shadowRoots' exceeds the maximum of {SHADOW_ROOTS_SEQ_CAP} entries."
+                )));
+            }
+            let snapshot: Vec<JsValue> = elements.iter().map(|v| v.or_undefined()).collect();
+            let mut out = HashSet::with_capacity(snapshot.len());
+            for (i, elem) in snapshot.into_iter().enumerate() {
+                out.insert(validate_shadow_root_seq_element(ctx, i, elem, interface)?);
+            }
+            return Ok(out);
         }
-        let snapshot: Vec<JsValue> = elements.iter().map(|v| v.or_undefined()).collect();
-        let mut out = HashSet::with_capacity(snapshot.len());
-        for (i, elem) in snapshot.into_iter().enumerate() {
-            out.insert(validate_shadow_root_seq_element(ctx, i, elem, interface)?);
-        }
-        return Ok(out);
     }
     // WebIDL §3.10 "Convert ECMAScript value to IDL sequence" — the
     // conversion algorithm consults `@@iterator` and drains the
-    // iterator protocol. Plain array-likes with only `length` (no
-    // `@@iterator`) fail per spec; custom iterables (`new Set([sr])`,
-    // generator results, user-defined `[Symbol.iterator]`) must be
-    // honoured. `SHADOW_ROOTS_SEQ_CAP` bounds runaway iterators
-    // independently of the spec-required `@@iterator` dispatch.
+    // iterator protocol. Non-Object primitives can still iterate
+    // (strings via `String.prototype[@@iterator]`, code-point order);
+    // `resolve_iterator` already handles strings, so we drop the
+    // up-front `JsValue::Object` guard and let the iterator-protocol
+    // lookup decide. Values without `@@iterator` (numbers, booleans,
+    // null/undefined, plain `{length, 0..}` array-likes) surface as
+    // "not iterable" TypeError. `SHADOW_ROOTS_SEQ_CAP` bounds runaway
+    // iterators independently of the spec-required `@@iterator`
+    // dispatch.
     let iter_val = match ctx.vm.resolve_iterator(raw)? {
         Some(iter @ JsValue::Object(_)) => iter,
         Some(_) => {
