@@ -27,6 +27,7 @@ use super::super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
     PropertyValue, VmError,
 };
+use super::super::super::webidl_sequence::{webidl_sequence_to_vec, SeqMessages};
 use super::super::super::VmInner;
 use super::super::events::{check_construct, type_arg};
 use super::super::events_extras::{read_bool, read_number};
@@ -577,50 +578,30 @@ fn parse_touch_sequence(
              sequence<Touch> member is null.",
         ));
     }
-    // Always route through the iterator protocol per WebIDL §3.2.27
-    // — even for `ObjectKind::Array`, a script may have overridden
-    // `arr[Symbol.iterator]` (or `Array.prototype[Symbol.iterator]`)
-    // and the spec mandates honouring that override.  The previous
-    // Array dense-elements fast-path bypassed `@@iterator` lookup
-    // and was a spec deviation flagged by Copilot R4.  `iter_next`
-    // overhead is negligible for typical sequence<Touch> sizes
-    // (<= 10 entries per TouchEvent).
-    //
-    // `JsValue::String` is iterable via `string_prototype[@@iterator]`,
-    // bare numbers / booleans land in the `None` arm (TypeError).
-    // IteratorClose on early-exit matches §7.4.6 to honour custom
-    // iterators' `.return()` hook.
-    let iter = match ctx.vm.resolve_iterator(raw)? {
-        Some(iter @ JsValue::Object(_)) => iter,
-        Some(_) => {
-            return Err(VmError::type_error(
-                "Failed to construct 'TouchEvent': \
-                 sequence<Touch> @@iterator must return an object.",
-            ));
-        }
-        None => {
-            return Err(VmError::type_error(
-                "Failed to construct 'TouchEvent': \
-                 sequence<Touch> member is not iterable.",
-            ));
-        }
+    // sequence<Touch> via the shared WebIDL §3.10.16 helper. Overridden
+    // `arr[Symbol.iterator]` must be honoured — see
+    // `touch_event_sequence_honours_array_iterator_override`.
+    let msgs = SeqMessages {
+        not_iterable: "Failed to construct 'TouchEvent': \
+                       sequence<Touch> member is not iterable.",
+        iter_not_object: "Failed to construct 'TouchEvent': \
+                          sequence<Touch> @@iterator must return an object.",
+        cap_exceeded: "Failed to construct 'TouchEvent': \
+                       sequence<Touch> exceeds the maximum supported length.",
     };
-    let mut out: Vec<ObjectId> = Vec::new();
-    while let Some(entry) = ctx.vm.iter_next(iter)? {
-        match entry {
+    webidl_sequence_to_vec(
+        ctx,
+        raw,
+        usize::MAX,
+        &msgs,
+        |ctx, _idx, entry| match entry {
             JsValue::Object(id) if matches!(ctx.vm.get_object(id).kind, ObjectKind::Touch) => {
-                out.push(id);
+                Ok(id)
             }
-            _ => {
-                let close_err = ctx.vm.iter_close(iter).err();
-                return Err(close_err.unwrap_or_else(|| {
-                    VmError::type_error(
-                        "Failed to construct 'TouchEvent': \
-                         sequence<Touch> entry is not of type 'Touch'.",
-                    )
-                }));
-            }
-        }
-    }
-    Ok(out)
+            _ => Err(VmError::type_error(
+                "Failed to construct 'TouchEvent': \
+             sequence<Touch> entry is not of type 'Touch'.",
+            )),
+        },
+    )
 }

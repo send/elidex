@@ -448,22 +448,64 @@ fn element_get_html_shadow_roots_array_like_with_invalid_first_short_circuits() 
 
 #[test]
 fn element_get_html_dense_array_shadow_roots_capped_safely() {
-    // PR201 Copilot R11 regression: the dense `ObjectKind::Array`
-    // fast path used to materialise the whole `elements` Vec before
-    // any cap check, while the iterator path enforced
-    // `SHADOW_ROOTS_SEQ_CAP` (4096). The asymmetry meant
-    // `{shadowRoots: hugeArray}` would clone all entries to a fresh
-    // Vec and validate each before erroring, doubling memory usage
-    // and CPU time on hostile input. The fix cap-checks
-    // `elements.len()` BEFORE the clone and throws TypeError on
-    // exceed. Test asserts a 5000-entry array (> 4096 cap) terminates
-    // synchronously with TypeError.
+    // DoS bound: `{shadowRoots: new Array(5000)}` terminates
+    // synchronously with TypeError (sparse hole → undefined → validator
+    // brand-check fails at index 0).
     let out = run("var host = document.createElement('div'); \
          document.body.appendChild(host); \
          var arr = new Array(5000); \
          var caught = ''; \
          try { host.getHTML({shadowRoots: arr}); } catch (e) { caught = e.name; } \
          (caught === 'TypeError') ? 'ok' : ('fail:' + caught);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn element_get_html_shadow_roots_honours_array_iterator_override() {
+    // WebIDL §3.10.16 step 4: an Array whose `[Symbol.iterator]` is
+    // overridden must use the override, not dense storage.
+    let out = run("var host = document.createElement('div'); \
+         document.body.appendChild(host); \
+         var sr = host.attachShadow({mode: 'closed'}); \
+         sr.appendChild(document.createElement('p')); \
+         var arr = [sr, sr, sr]; \
+         arr[Symbol.iterator] = function() { \
+             var i = 0; \
+             return { next: function() { \
+                 if (i >= 1) return { value: undefined, done: true }; \
+                 i++; \
+                 return { value: sr, done: false }; \
+             } }; \
+         }; \
+         var got = host.getHTML({shadowRoots: arr}); \
+         /* override emits 1 entry; dense walk would emit 3 */ \
+         (got.indexOf('shadowrootmode=\"closed\"') !== -1 \
+            && got.indexOf('<p>') !== -1) \
+             ? 'ok' : ('fail:' + got);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn element_get_html_shadow_roots_iter_close_runs_on_validator_throw() {
+    // §7.4.6: validator throw triggers IteratorClose; custom .return()
+    // must fire before the TypeError propagates.
+    let out = run(
+        "var host = document.createElement('div'); \
+         document.body.appendChild(host); \
+         var bogus = document.createElement('div'); \
+         var returned = false; \
+         var iterable = { \
+             [Symbol.iterator]() { \
+                 return { \
+                     next() { return { value: bogus, done: false }; }, \
+                     return() { returned = true; return { value: undefined, done: true }; }, \
+                 }; \
+             } \
+         }; \
+         var caught = ''; \
+         try { host.getHTML({shadowRoots: iterable}); } catch (e) { caught = e.name; } \
+         (caught === 'TypeError' && returned === true) ? 'ok' : ('fail:' + caught + '/' + returned);",
+    );
     assert_eq!(out, "ok");
 }
 

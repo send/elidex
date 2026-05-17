@@ -390,6 +390,28 @@ fn ctor_inner_pair_arity_one_throws() {
 }
 
 #[test]
+fn ctor_honours_array_iterator_override() {
+    // WebIDL §3.10.16 step 4: overridden Array `[Symbol.iterator]`
+    // must win over dense storage.
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var arr = [['a','1'], ['b','2'], ['c','3']]; \
+         arr[Symbol.iterator] = function() { \
+             var done = false; \
+             return { next: function() { \
+                 if (done) return { value: undefined, done: true }; \
+                 done = true; \
+                 return { value: ['x', '9'], done: false }; \
+             } }; \
+         }; \
+         var h = new Headers(arr); \
+         /* override yields only one entry; dense walk would yield three */ \
+         h.get('x') === '9' && h.get('a') === null && h.get('b') === null;"
+    ));
+}
+
+#[test]
 fn ctor_iterable_abrupt_completion_calls_return() {
     let mut vm = Vm::new();
     // ES §7.4.6 / WebIDL sequence conversion: if a yielded pair

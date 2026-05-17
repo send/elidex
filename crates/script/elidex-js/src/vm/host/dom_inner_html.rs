@@ -22,6 +22,7 @@ use elidex_ecs::Entity;
 use elidex_script_session::{apply_set_inner_html, apply_set_outer_html, SetInnerHtmlOptions};
 
 use super::super::value::{JsValue, NativeContext, ObjectKind, VmError};
+use super::super::webidl_sequence::{webidl_sequence_to_vec, SeqMessages};
 use super::super::VmInner;
 
 /// Brand-check predicate for the shared `*_for` helpers. `fn` pointer
@@ -273,78 +274,21 @@ fn parse_shadow_root_sequence(
     raw: JsValue,
     interface: &'static str,
 ) -> Result<HashSet<Entity>, VmError> {
-    let not_iterable = || -> VmError {
-        VmError::type_error(format!(
-            "Failed to execute 'getHTML' on '{interface}': \
-             'shadowRoots' is not iterable."
-        ))
+    let prefix = format!("Failed to execute 'getHTML' on '{interface}'");
+    let not_iterable = format!("{prefix}: 'shadowRoots' is not iterable.");
+    let iter_not_object = format!("{prefix}: '@@iterator' must return an object.");
+    let cap_exceeded =
+        format!("{prefix}: 'shadowRoots' exceeds the maximum of {SHADOW_ROOTS_SEQ_CAP} entries.");
+    let msgs = SeqMessages {
+        not_iterable: &not_iterable,
+        iter_not_object: &iter_not_object,
+        cap_exceeded: &cap_exceeded,
     };
-    // Fast path for dense `Array { elements }`: WebIDL `sequence<T>`
-    // conversion *would* still consult `@@iterator` per spec, but
-    // `Array.prototype[@@iterator]` walks the same dense storage so
-    // we short-circuit here. Only objects can carry dense Array
-    // storage; non-Object primitives (incl. strings) fall through to
-    // the spec-required `resolve_iterator` path below. Cap-check the
-    // length BEFORE materialising the snapshot — a 100M-entry Array
-    // would otherwise clone all 100M values before the iterator
-    // path's `SHADOW_ROOTS_SEQ_CAP` had any chance to fire. Cap
-    // symmetry with the iterator path is mandatory (PR201 R11):
-    // asymmetric caps create a DoS gap where `{shadowRoots:
-    // hugeArray}` chews unbounded memory while `{shadowRoots:
-    // hugeCustomIterable}` is bounded.
-    if let JsValue::Object(seq_id) = raw {
-        if let ObjectKind::Array { elements } = &ctx.vm.get_object(seq_id).kind {
-            let element_count = elements.len();
-            if element_count > SHADOW_ROOTS_SEQ_CAP {
-                return Err(VmError::type_error(format!(
-                    "Failed to execute 'getHTML' on '{interface}': \
-                     'shadowRoots' exceeds the maximum of {SHADOW_ROOTS_SEQ_CAP} entries."
-                )));
-            }
-            let snapshot: Vec<JsValue> = elements.iter().map(|v| v.or_undefined()).collect();
-            let mut out = HashSet::with_capacity(snapshot.len());
-            for (i, elem) in snapshot.into_iter().enumerate() {
-                out.insert(validate_shadow_root_seq_element(ctx, i, elem, interface)?);
-            }
-            return Ok(out);
-        }
-    }
-    // WebIDL §3.10 "Convert ECMAScript value to IDL sequence" — the
-    // conversion algorithm consults `@@iterator` and drains the
-    // iterator protocol. Non-Object primitives can still iterate
-    // (strings via `String.prototype[@@iterator]`, code-point order);
-    // `resolve_iterator` already handles strings, so we drop the
-    // up-front `JsValue::Object` guard and let the iterator-protocol
-    // lookup decide. Values without `@@iterator` (numbers, booleans,
-    // null/undefined, plain `{length, 0..}` array-likes) surface as
-    // "not iterable" TypeError. `SHADOW_ROOTS_SEQ_CAP` bounds runaway
-    // iterators independently of the spec-required `@@iterator`
-    // dispatch.
-    let iter_val = match ctx.vm.resolve_iterator(raw)? {
-        Some(iter @ JsValue::Object(_)) => iter,
-        Some(_) => {
-            return Err(VmError::type_error(format!(
-                "Failed to execute 'getHTML' on '{interface}': \
-                 '@@iterator' must return an object."
-            )));
-        }
-        None => return Err(not_iterable()),
-    };
-    let mut out = HashSet::new();
-    let mut index = 0usize;
-    while let Some(elem) = ctx.vm.iter_next(iter_val)? {
-        if index >= SHADOW_ROOTS_SEQ_CAP {
-            return Err(VmError::type_error(format!(
-                "Failed to execute 'getHTML' on '{interface}': \
-                 'shadowRoots' exceeds the maximum of {SHADOW_ROOTS_SEQ_CAP} entries."
-            )));
-        }
-        out.insert(validate_shadow_root_seq_element(
-            ctx, index, elem, interface,
-        )?);
-        index += 1;
-    }
-    Ok(out)
+    let entries =
+        webidl_sequence_to_vec(ctx, raw, SHADOW_ROOTS_SEQ_CAP, &msgs, |ctx, idx, elem| {
+            validate_shadow_root_seq_element(ctx, idx, elem, interface)
+        })?;
+    Ok(entries.into_iter().collect())
 }
 
 fn get_html_for(

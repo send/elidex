@@ -58,6 +58,7 @@ use super::super::value::{
     ArrayIterState, JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey,
     PropertyStorage, PropertyValue, StringId, VmError,
 };
+use super::super::webidl_sequence::webidl_iter_to_vec;
 use super::super::{NativeFn, VmInner};
 
 // ---------------------------------------------------------------------------
@@ -215,19 +216,12 @@ fn parse_init_entries(
                     .cloned()
                     .unwrap_or_default());
             }
-            // Source `Array`: each element must be a length-2
-            // sequence of (name, value).
-            if let ObjectKind::Array { elements } = &ctx.vm.get_object(obj_id).kind {
-                let snapshot = elements.clone();
-                let mut out = Vec::with_capacity(snapshot.len());
-                for pair in snapshot {
-                    out.push(validate_pair_entry(ctx, pair)?);
-                }
-                return Ok(out);
-            }
-            // Generic iterable of pairs: per WebIDL §3.10.34 the
-            // sequence branch wins over the record branch when
-            // `@@iterator` is callable.
+            // Iterable-of-pairs (sequence) vs. record union, per
+            // WebIDL §3.10.34: probe `@@iterator` first; if callable,
+            // take the sequence branch via the shared helper.  Arrays
+            // carry `Array.prototype[@@iterator]` so they reach this
+            // path too — strict spec compliance, no dense-Array fast
+            // path (overridden Array iterators must be honoured).
             let iter_key = PropertyKey::Symbol(ctx.vm.well_known_symbols.iterator);
             let iter_method = ctx.get_property_value(obj_id, iter_key)?;
             let iter_fn = match iter_method {
@@ -248,17 +242,13 @@ fn parse_init_entries(
                         "Failed to construct 'URLSearchParams': @@iterator must return an object",
                     ));
                 }
-                let mut out = Vec::new();
-                while let Some(pair) = ctx.vm.iter_next(iter)? {
-                    match validate_pair_entry(ctx, pair) {
-                        Ok(p) => out.push(p),
-                        Err(err) => {
-                            let close_err = ctx.vm.iter_close(iter).err();
-                            return Err(close_err.unwrap_or(err));
-                        }
-                    }
-                }
-                return Ok(out);
+                return webidl_iter_to_vec(
+                    ctx,
+                    iter,
+                    usize::MAX,
+                    "Failed to construct 'URLSearchParams': sequence exceeds the maximum supported length",
+                    |ctx, _idx, pair| validate_pair_entry(ctx, pair),
+                );
             }
             // Record branch: own enumerable string keys + `ToString`
             // each value.
