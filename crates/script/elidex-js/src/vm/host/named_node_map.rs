@@ -342,11 +342,21 @@ fn native_nnm_set_named_item(
         return Ok(JsValue::Null);
     };
     host.dom().set_attribute(owner, &name_str, value);
-    // Mirrors `Element.setAttributeNode`: live Attrs already
-    // attached to `owner` insert/refresh the cache so reattachment
-    // after `removeNamedItem` keeps identity; cross-element or
-    // detached Attrs cannot be made canonical and drop the entry.
-    if source_owner == owner && source_detached.is_none() {
+    // Mirrors `Element.setAttributeNode`: same-element source
+    // (whether live or detached via a prior
+    // `removeAttribute` / `removeNamedItem`) inserts/refreshes the
+    // cache so reattachment keeps identity; if the source is
+    // currently detached, clear its `detached_value` so subsequent
+    // `value` reads track the live attribute again
+    // (Chrome / Firefox parity for the `removeAttribute(name)` →
+    // `setNamedItem(a)` revive cycle).  Cross-element sources can't
+    // be retargeted and drop the entry instead.
+    if source_owner == owner {
+        if source_detached.is_some() {
+            if let Some(state_mut) = ctx.vm.attr_states.get_mut(&attr_id) {
+                state_mut.detached_value = None;
+            }
+        }
         ctx.vm.attr_wrapper_cache.insert((owner, qname), attr_id);
     } else {
         ctx.vm.invalidate_attr_cache_entry(owner, qname);
@@ -415,6 +425,19 @@ fn native_nnm_remove_named_item(
         ));
     };
     host.dom().remove_attribute(owner, &key);
+    // Symmetric with `Element.removeAttribute` (see
+    // `super::element_attrs::attr_remove`): any JS-held wrapper
+    // cached for `(owner, qname_sid)` must be frozen at its
+    // removal-time value so a subsequent same-name `setAttribute`
+    // can't make `attr.value` appear to track the new write
+    // (Chrome / Firefox parity).  `.copied()` drops the cache-map
+    // borrow before the `attr_states.get_mut` below.
+    let cached_attr_id = ctx.vm.attr_wrapper_cache.get(&(owner, qname_sid)).copied();
+    if let Some(attr_id) = cached_attr_id {
+        if let Some(state_mut) = ctx.vm.attr_states.get_mut(&attr_id) {
+            state_mut.detached_value = Some(prev_sid);
+        }
+    }
     ctx.vm.invalidate_attr_cache_entry(owner, qname_sid);
     let returned = ctx.vm.alloc_attr(AttrState {
         owner,

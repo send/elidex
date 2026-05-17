@@ -111,13 +111,40 @@ pub(super) fn attr_set(
     ctx.host().dom().set_attribute(entity, name, value)
 }
 
-/// Remove attribute `name` from `entity`.  Shim around
-/// [`elidex_ecs::EcsDom::remove_attribute`] that also invalidates
-/// the [`crate::vm::VmInner::attr_wrapper_cache`] entry for
-/// `(entity, intern(name))` so any subsequent `getAttributeNode`
-/// for the same name allocates a fresh wrapper (matches WHATWG
-/// §4.9.2 identity semantics — the removed attribute's Attr is
-/// no longer in the element's attribute list).
+/// Remove attribute `name` from `entity`, snapshot the removal-time
+/// value onto any JS-held `Attr` wrapper cached for `(entity,
+/// intern(name))`, then invalidate the wrapper cache.
+///
+/// The snapshot step matches WHATWG DOM §4.9.2 + Chrome / Firefox
+/// observable behaviour for the
+/// `removeAttribute(name)` → optional same-name `setAttribute` cycle
+/// on a previously-cached Attr: `attr.value` continues to report the
+/// value the attribute held at the moment it was removed.  Without
+/// the snapshot the JS-held Attr would read live DOM state and
+/// appear to re-attach to a subsequent same-name write.  Mirrors the
+/// `removeAttributeNode` path further down this file — `attr_remove`
+/// is the helper every other wrapper-aware removal site routes
+/// through (`removeAttribute`, `toggleAttribute(off)`, reflected
+/// boolean detach branches).
+///
+/// `attr_set` deliberately does NOT invalidate or snapshot:
+/// repeated `setAttribute("X", v)` followed by
+/// `getAttributeNode("X")` returns the same wrapper (identity
+/// preservation), which JS authors rely on and which the spec
+/// permits because the Attr's identity persists across same-name
+/// value mutations on the same owner.  Removal is the only
+/// observable detach point.
+///
+/// Borrow ordering (per [`super::super::NativeContext`] discipline):
+/// intern the qualified name first; snapshot the prior value via
+/// the bound-DOM split borrow so the intern lands on the borrowed
+/// `&str` (no `String::from` clone); copy the cached Attr id out of
+/// the wrapper-cache lookup BEFORE the `attr_states.get_mut` (the
+/// HashMap probe returns a `&ObjectId` that aliases the cache map);
+/// apply the removal through `host_if_bound` (post-unbind callers
+/// no-op, matching the snapshot path's `None` fall-through); only
+/// then update the Attr's `detached_value` and invalidate the
+/// cache entry.
 ///
 /// `name` is the UTF-8 form passed to the DOM; the cache is
 /// keyed by `intern(utf8)` across every hit site (`getAttributeNode`,
@@ -125,8 +152,34 @@ pub(super) fn attr_set(
 /// so this re-intern lands on the same `StringId` they cached
 /// under and the invalidation is correctly observed.
 pub(super) fn attr_remove(ctx: &mut NativeContext<'_>, entity: Entity, name: &str) {
-    ctx.host().dom().remove_attribute(entity, name);
     let qname_sid = ctx.vm.strings.intern(name);
+    let empty = ctx.vm.well_known.empty;
+    // Snapshot the prior value through the disjoint DOM/strings
+    // projection so we can intern on the borrowed `&str` in a single
+    // closure.  `None` collapses both the unbound case and the
+    // already-absent attribute case — both correctly skip the
+    // wrapper-state update below.
+    let prev_sid = ctx.dom_and_strings_if_bound().and_then(|(dom, strings)| {
+        dom.with_attribute(entity, name, |v| {
+            v.map(|s| strings.intern_or_alias(empty, s))
+        })
+    });
+    // Probe the wrapper cache before any subsequent `attr_states`
+    // borrow — `.copied()` drops the `&ObjectId` borrow into the
+    // map so the later `attr_states.get_mut` is conflict-free.
+    let cached_attr_id = ctx.vm.attr_wrapper_cache.get(&(entity, qname_sid)).copied();
+    if let Some(host) = ctx.host_if_bound() {
+        host.dom().remove_attribute(entity, name);
+    }
+    // Freeze any JS-held wrapper at its removal-time value.  Without
+    // this, a subsequent `el.setAttribute(name, v2)` would make the
+    // previously-held Attr_A appear to track `v2` — Chrome / Firefox
+    // both return the snapshot.
+    if let (Some(attr_id), Some(prev_sid)) = (cached_attr_id, prev_sid) {
+        if let Some(state_mut) = ctx.vm.attr_states.get_mut(&attr_id) {
+            state_mut.detached_value = Some(prev_sid);
+        }
+    }
     ctx.vm.invalidate_attr_cache_entry(entity, qname_sid);
 }
 
@@ -355,15 +408,25 @@ pub(super) fn native_element_set_attribute_node(
     };
     host.dom().set_attribute(entity, &name_str, new_value);
     // Sync the identity cache for `(entity, qname_sid)`:
-    // - Live Attrs already attached to `entity` (`source_owner ==
-    //   entity`, `source_detached.is_none()`) become / stay
-    //   canonical: insert/refresh so reattachment after a prior
-    //   `removeAttribute` (which empties the cache) still keeps
-    //   `el.getAttributeNode(name) === a`.
-    // - Cross-element or detached Attrs cannot be made canonical
-    //   here (the engine path doesn't retarget their
-    //   `AttrState.owner`), so drop the entry instead.
-    if source_owner == entity && source_detached.is_none() {
+    // - Same-element source (`source_owner == entity`), whether live
+    //   or detached: insert/refresh so reattachment after a prior
+    //   `removeAttribute` keeps `el.getAttributeNode(name) === a`.
+    //   The snapshot-on-`removeAttribute` path
+    //   (`super::element_attrs::attr_remove`) sets
+    //   `detached_value` on the cached wrapper for Chrome / Firefox
+    //   `attr.value` parity; reattaching to the original owner
+    //   revives the wrapper by clearing the snapshot so subsequent
+    //   reads track the live attribute again.
+    // - Cross-element source: the engine path doesn't retarget the
+    //   passed-in Attr's `AttrState.owner` (Phase 2 limitation), so
+    //   drop the cache entry instead and let the next
+    //   `getAttributeNode` allocate a fresh canonical wrapper.
+    if source_owner == entity {
+        if source_detached.is_some() {
+            if let Some(state_mut) = ctx.vm.attr_states.get_mut(&attr_id) {
+                state_mut.detached_value = None;
+            }
+        }
         ctx.vm
             .attr_wrapper_cache
             .insert((entity, qname_sid), attr_id);
