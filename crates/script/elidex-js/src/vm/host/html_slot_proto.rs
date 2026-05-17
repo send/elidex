@@ -330,10 +330,13 @@ fn slot_assigned_elements(
 /// firing slotchange at the drain tail is the closest correct timing
 /// for script-initiated assignments.
 ///
-/// New signals enqueued by a slotchange listener body (re-entrant
-/// `slot.assign()` calls) are picked up on the next iteration of the
-/// while loop, preserving spec ordering ("set signal slots is empty"
-/// happens before each listener runs).  Returns the number of events
+/// The signal-slots set is **snapshotted before dispatch** per spec
+/// §4.3.4 step 3 ("let signalSet be a clone of signal slots; empty
+/// signal slots; for each slot in signalSet: fire an event named
+/// `slotchange` at slot").  Signals enqueued by a `slotchange`
+/// listener body (re-entrant `slot.assign()` calls) land on the
+/// LIVE queue and fire in the next microtask checkpoint — NOT
+/// re-entrantly inside this dispatch.  Returns the number of events
 /// actually fired (telemetry / tests).
 pub(in crate::vm) fn dispatch_pending_slotchange_signals(vm: &mut VmInner) -> usize {
     if vm.pending_slot_change_signals.is_empty() {

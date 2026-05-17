@@ -143,6 +143,10 @@ impl VmInner {
                 .document_type_prototype
                 .or(self.node_prototype)
                 .expect("create_element_wrapper called before register_node_prototype"),
+            super::super::host_data::PrototypeKind::DocumentFragment => self
+                .document_fragment_prototype
+                .or(self.node_prototype)
+                .expect("create_element_wrapper called before register_node_prototype"),
             super::super::host_data::PrototypeKind::OtherNode => self
                 .node_prototype
                 .expect("create_element_wrapper called before register_node_prototype"),

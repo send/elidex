@@ -433,6 +433,38 @@ fn slotchange_not_fired_when_assign_validation_fails() {
 // -------------------------------------------------------------------------
 
 #[test]
+fn attach_shadow_on_non_element_receiver_throws_type_error() {
+    // R3 finding #1: WebIDL Element brand check on `this` runs
+    // BEFORE init-dict parsing.  `Element.prototype.attachShadow.call(document, ...)`
+    // must throw "Illegal invocation" TypeError, not the
+    // engine-side NotSupportedError DOMException it used to surface
+    // through `attach_shadow_with_init`.
+    let out = run("var host = document.createElement('div'); \
+         var caught = null; \
+         try { host.attachShadow.call(document, {mode: 'open'}); } \
+         catch (e) { caught = e; } \
+         (caught !== null && caught.name === 'TypeError') \
+           ? 'ok' : 'fail:' + (caught && caught.name);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn document_fragment_carries_parent_node_mixin() {
+    // R3 finding #2: `document.createDocumentFragment()` /
+    // `<template>.content` wrappers chain through
+    // `DocumentFragment.prototype` so the ParentNode mixin
+    // (`prepend` / `append` / `replaceChildren`) is reachable
+    // per WHATWG DOM §4.7.
+    let out = run("var frag = document.createDocumentFragment(); \
+         var span = document.createElement('span'); \
+         frag.append(span); \
+         (typeof frag.append === 'function' \
+          && typeof frag.prepend === 'function' \
+          && span.parentNode !== null) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn shadow_root_accepted_as_node_arg() {
     // R1 finding #1: `Node` IDL arg surface must accept a ShadowRoot
     // wrapper; previously rejected because `require_node_arg` only

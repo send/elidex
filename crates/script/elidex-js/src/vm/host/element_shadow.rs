@@ -37,7 +37,17 @@ pub(super) fn native_element_attach_shadow(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(host) = entity_from_this(ctx, this) else {
+    // WebIDL Element brand check FIRST — calling
+    // `Element.prototype.attachShadow.call(document, ...)` must throw
+    // "Illegal invocation" TypeError before any init-dict parsing.
+    // `require_receiver` returns `Ok(None)` post-unbind (silent no-op
+    // matching elidex's retained-wrapper policy) and `Err(TypeError)`
+    // when the receiver IS a HostObject but not Element-kind.
+    let Some(host) =
+        super::event_target::require_receiver(ctx, this, "Element", "attachShadow", |k| {
+            k == elidex_ecs::NodeKind::Element
+        })?
+    else {
         return Err(VmError::type_error(
             "Failed to execute 'attachShadow' on 'Element': Illegal invocation".to_string(),
         ));
