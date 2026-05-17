@@ -425,6 +425,27 @@ fn element_get_html_shadow_roots_array_like_with_invalid_first_short_circuits() 
 }
 
 #[test]
+fn element_get_html_dense_array_shadow_roots_capped_safely() {
+    // PR201 Copilot R11 regression: the dense `ObjectKind::Array`
+    // fast path used to materialise the whole `elements` Vec before
+    // any cap check, while the iterator path enforced
+    // `SHADOW_ROOTS_SEQ_CAP` (4096). The asymmetry meant
+    // `{shadowRoots: hugeArray}` would clone all entries to a fresh
+    // Vec and validate each before erroring, doubling memory usage
+    // and CPU time on hostile input. The fix cap-checks
+    // `elements.len()` BEFORE the clone and throws TypeError on
+    // exceed. Test asserts a 5000-entry array (> 4096 cap) terminates
+    // synchronously with TypeError.
+    let out = run("var host = document.createElement('div'); \
+         document.body.appendChild(host); \
+         var arr = new Array(5000); \
+         var caught = ''; \
+         try { host.getHTML({shadowRoots: arr}); } catch (e) { caught = e.name; } \
+         (caught === 'TypeError') ? 'ok' : ('fail:' + caught);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn element_get_html_huge_shadow_roots_length_is_capped_safely() {
     // PR201 Copilot R4 / F1 regression: a malicious caller passing
     // `{length: 2**31}` (or any value beyond `DENSE_ARRAY_LEN_LIMIT`)

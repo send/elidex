@@ -282,12 +282,24 @@ fn parse_shadow_root_sequence(
     let JsValue::Object(seq_id) = raw else {
         return Err(not_iterable());
     };
-    // Fast path for dense `Array { elements }`: html5ever-style
-    // hot path lacking string-property indexing semantics, plus the
-    // materialised values are already in memory so iteration cost is
-    // bounded by JS heap pressure. Validate each element inline and
-    // return the deduped entity set.
+    // Fast path for dense `Array { elements }`: WebIDL `sequence<T>`
+    // conversion *would* still consult `@@iterator` per spec, but
+    // `Array.prototype[@@iterator]` walks the same dense storage so
+    // we short-circuit here. Cap-check the length BEFORE materialising
+    // the snapshot — a 100M-entry Array would otherwise clone all
+    // 100M values before the iterator path's `SHADOW_ROOTS_SEQ_CAP`
+    // had any chance to fire. Cap symmetry with the iterator path is
+    // mandatory (PR201 R11): asymmetric caps create a DoS gap where
+    // `{shadowRoots: hugeArray}` chews unbounded memory while
+    // `{shadowRoots: hugeCustomIterable}` is bounded.
     if let ObjectKind::Array { elements } = &ctx.vm.get_object(seq_id).kind {
+        let element_count = elements.len();
+        if element_count > SHADOW_ROOTS_SEQ_CAP {
+            return Err(VmError::type_error(format!(
+                "Failed to execute 'getHTML' on '{interface}': \
+                 'shadowRoots' exceeds the maximum of {SHADOW_ROOTS_SEQ_CAP} entries."
+            )));
+        }
         let snapshot: Vec<JsValue> = elements.iter().map(|v| v.or_undefined()).collect();
         let mut out = HashSet::with_capacity(snapshot.len());
         for (i, elem) in snapshot.into_iter().enumerate() {
