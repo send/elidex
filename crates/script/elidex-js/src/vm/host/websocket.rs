@@ -77,6 +77,20 @@
 //!   `tick_network` → `dispatch_realtime_event` (see
 //!   `vm/host/fetch_tick.rs` + `vm/host/websocket_dispatch.rs`).
 //!
+//! ### Asymmetry with EventSource: no `addEventListener` in this PR
+//!
+//! WebSocket inherits `EventTarget` per WHATWG §9.3, so spec-correct
+//! `ws.addEventListener("message", cb)` should work — but this PR
+//! ships the minimal shim ONLY on
+//! [`super::event_source`] because SSE's named-event delivery
+//! (`event: notification\ndata: ...`) is silently lost without it
+//! (spec-violating user-data loss).  WebSocket's surface is
+//! covered by `onopen` / `onmessage` / `onerror` / `onclose` alone
+//! — losing the listener registry only drops the redundant
+//! handler-mode access, not protocol-level data.  Full
+//! `EventTarget` integration for both surfaces is tracked as
+//! defer slot `#11-realtime-event-listeners`.
+//!
 //! Phase 3 (EventSource) and Phase 4 (constants / cross-cutting
 //! polish) land in follow-up commits on the same branch.
 //!

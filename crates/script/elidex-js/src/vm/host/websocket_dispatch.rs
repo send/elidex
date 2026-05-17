@@ -275,13 +275,20 @@ fn snapshot_message_dispatch(
 /// sticky cumulative value from `EventSourceState::last_event_id`
 /// for SSE.
 ///
-/// GC discipline (mirrors `pending_tasks::dispatch_post_message`):
+/// GC discipline (mirrors `host::pending_tasks::dispatch_post_message`):
 /// `data` is rooted first because the binary path passes a freshly
-/// allocated Blob / ArrayBuffer with no other live root; the
-/// subsequent `create_array_object` (for `ports`) and `alloc_ua_event`
-/// (for the event) both allocate while `g_data` keeps `data` alive.
-/// `fire_handler` overwrites the target / currentTarget slots that
-/// `alloc_ua_event` initially wrote as `Null`.
+/// allocated Blob / ArrayBuffer with no other live root; `ports_arr`
+/// is then created AND pushed onto a nested temp root before
+/// `alloc_ua_event` runs, because `vm.alloc_object` inside
+/// `alloc_ua_event` is itself a GC trigger point (per
+/// `inner.rs::alloc_object`'s "callers must ensure that any
+/// ObjectIds reachable only through `obj`'s fields are already
+/// rooted" contract) and `ports_arr` is otherwise reachable only
+/// through the `payload_slots: Vec<PropertyValue>` Rust local that
+/// the GC cannot see.  The freshly-allocated event is rooted by
+/// `fire_handler`'s temp-root push, which keeps both `event` and
+/// the `ports_arr` slot live across the user-callable invocation;
+/// after that returns, both temp roots drop together.
 ///
 /// `pub(super)` so the sibling [`super::event_source_dispatch`]
 /// module can reuse the helper for SSE named-event delivery
@@ -303,6 +310,7 @@ pub(super) fn fire_message_event(
         .expect("precomputed_event_shapes built during VM init")
         .message;
     let ports_arr = g_data.create_array_object(Vec::new());
+    let mut g_ports = g_data.push_temp_root(JsValue::Object(ports_arr));
 
     let payload_slots = vec![
         PropertyValue::Data(data),
@@ -311,8 +319,9 @@ pub(super) fn fire_message_event(
         PropertyValue::Data(JsValue::Null),
         PropertyValue::Data(JsValue::Object(ports_arr)),
     ];
-    let event_id = alloc_ua_event(&mut g_data, type_sid, shape_id, payload_slots, event_proto);
-    fire_handler(&mut g_data, instance, handler_id, event_id);
+    let event_id = alloc_ua_event(&mut g_ports, type_sid, shape_id, payload_slots, event_proto);
+    fire_handler(&mut g_ports, instance, handler_id, event_id);
+    drop(g_ports);
     drop(g_data);
 }
 

@@ -58,13 +58,14 @@ use super::websocket_dispatch::{fire_message_event, fire_plain_event};
 ///
 /// Order per WHATWG HTML §9.2.5 step "announce the connection":
 /// transition state → fire `Event("open")` via cached `onopen` and
-/// any `addEventListener("open", ...)` listeners.  Only the
-/// terminal `Closed` state short-circuits (JS-side `close()`
-/// raced ahead of the broker's `Connected` reply); `Connecting`
-/// and `Open` both proceed through `transition_to(Open)` — the
-/// latter is the legitimate idempotent path after the broker's
-/// auto-reconnect cycle (`SseEvent::Error` → `Connecting`, then
-/// a fresh `SseEvent::Connected` snaps it back to `Open`).
+/// any `addEventListener("open", ...)` listeners.  Per-state
+/// matrix: `Connecting→Open` is the first-handshake announce,
+/// `Open→Open` is the legitimate idempotent path after the
+/// broker's auto-reconnect cycle (`SseEvent::Error` →
+/// `Connecting`, then a fresh `SseEvent::Connected` snaps it
+/// back to `Open`); only the terminal `Closed` state short-
+/// circuits (JS-side `close()` raced ahead of the broker's
+/// `Connected` reply).
 pub(super) fn dispatch_sse_connected(vm: &mut VmInner, instance: ObjectId) {
     let (handler, listeners) = {
         let Some(hd) = vm.host_data.as_deref_mut() else {
@@ -183,14 +184,15 @@ pub(super) fn dispatch_sse_event(
 
 /// Handle `SseEvent::Error(_)`.
 ///
-/// Per WHATWG HTML §9.2.5 step "If the establish-the-event-source-
-/// handshake algorithm fails" — a transient network error
-/// transitions the readyState BACKWARDS to `CONNECTING` because
-/// the broker is auto-reconnecting; the next successful handshake
-/// will fire `SseEvent::Connected` and snap it back to `Open` via
-/// [`dispatch_sse_connected`].  This is intentional and spec-
-/// mandated; do NOT mistake it for a forward-only state machine.
-/// `FatalError` lives in the sibling helper below.
+/// Per WHATWG HTML §9.2.5 (handshake-time failure) and §9.2.6
+/// (mid-stream "reestablish the connection" path) — a transient
+/// network error transitions the readyState BACKWARDS to
+/// `CONNECTING` because the broker is auto-reconnecting; the next
+/// successful handshake will fire `SseEvent::Connected` and snap
+/// it back to `Open` via [`dispatch_sse_connected`].  This is
+/// intentional and spec-mandated; do NOT mistake it for a forward-
+/// only state machine.  `FatalError` lives in the sibling helper
+/// below.
 ///
 /// The error string is discarded at the
 /// [`super::fetch_tick`] arm (server-internals opacity, mirror of
