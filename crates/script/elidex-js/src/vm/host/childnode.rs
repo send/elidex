@@ -61,29 +61,49 @@ impl VmInner {
 /// behaviour on mixed-type arg lists).
 fn normalize_single_arg(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<Entity, VmError> {
     if let JsValue::Object(id) = val {
-        if let ObjectKind::HostObject { entity_bits } = ctx.vm.get_object(id).kind {
-            if let Some(entity) = Entity::from_bits(entity_bits) {
-                // A HostObject whose `entity_bits` decodes but no
-                // longer exists in the DOM world is a detached /
-                // destroyed node — matches `require_node_arg`'s
-                // "detached (invalid entity)" brand failure.
-                // Silently coercing a stale Node wrapper to a Text
-                // node would hide the bug.
-                if !ctx.host().dom().contains(entity) {
-                    return Err(VmError::type_error(
-                        "Failed to execute argument conversion: \
-                         the node is detached (invalid entity).",
-                    ));
-                }
-                // Accept any DOM node (including legacy entities
-                // missing `NodeKind` but carrying DOM payload) via
-                // `node_kind_inferred`.  Window is an `EventTarget`
-                // but not a Node in WHATWG so it falls through to
-                // text coercion.
-                let inferred = ctx.host().dom().node_kind_inferred(entity);
-                if matches!(inferred, Some(k) if k != NodeKind::Window) {
-                    return Ok(entity);
-                }
+        // Resolve HostObject entity bits OR reject ShadowRoot.
+        // ShadowRoot wrappers are Node-typed but per WHATWG DOM
+        // §4.2.3 they cannot be inserted into the light DOM (the
+        // host → shadow_root edge is unique and unmoveable).  The
+        // ChildNode/ParentNode mixin entry points (`append` /
+        // `prepend` / `replaceChildren` / `before` / `after` /
+        // `replaceWith`) all funnel through this helper, so the
+        // rejection covers every script-side insertion path that
+        // doesn't go through `appendChild` / `insertBefore` /
+        // `replaceChild` (which apply the same check via
+        // [`super::node_proto::reject_shadow_root_insertion`]).
+        if matches!(ctx.vm.get_object(id).kind, ObjectKind::ShadowRoot) {
+            let hierarchy_request = ctx.vm.well_known.dom_exc_hierarchy_request_error;
+            return Err(VmError::dom_exception(
+                hierarchy_request,
+                "Failed to execute mixin insertion: a ShadowRoot cannot be moved into the light DOM"
+                    .to_string(),
+            ));
+        }
+        let entity_opt = match ctx.vm.get_object(id).kind {
+            ObjectKind::HostObject { entity_bits } => Entity::from_bits(entity_bits),
+            _ => None,
+        };
+        if let Some(entity) = entity_opt {
+            // A wrapper whose entity bits decode but no longer exist
+            // in the DOM world is a detached / destroyed node —
+            // matches `require_node_arg`'s "detached (invalid
+            // entity)" brand failure.  Silently coercing a stale
+            // Node wrapper to a Text node would hide the bug.
+            if !ctx.host().dom().contains(entity) {
+                return Err(VmError::type_error(
+                    "Failed to execute argument conversion: \
+                     the node is detached (invalid entity).",
+                ));
+            }
+            // Accept any DOM node (including legacy entities
+            // missing `NodeKind` but carrying DOM payload) via
+            // `node_kind_inferred`.  Window is an `EventTarget`
+            // but not a Node in WHATWG so it falls through to
+            // text coercion.
+            let inferred = ctx.host().dom().node_kind_inferred(entity);
+            if matches!(inferred, Some(k) if k != NodeKind::Window) {
+                return Ok(entity);
             }
         }
     }

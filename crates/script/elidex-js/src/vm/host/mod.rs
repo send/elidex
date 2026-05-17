@@ -97,6 +97,8 @@ pub(crate) mod data_view;
 #[cfg(feature = "engine")]
 pub(super) mod dataset;
 pub(super) mod document;
+#[cfg(feature = "engine")]
+pub(super) mod document_fragment_proto;
 pub(super) mod document_type_proto;
 pub(super) mod dom_bridge;
 pub(super) mod dom_collection;
@@ -105,6 +107,8 @@ pub(crate) mod dom_exception;
 pub(super) mod element_attrs;
 pub(super) mod element_insert_adjacent;
 pub(super) mod element_proto;
+#[cfg(feature = "engine")]
+pub(super) mod element_shadow;
 pub(super) mod elements;
 pub(super) mod event_shapes;
 #[cfg(feature = "engine")]
@@ -194,7 +198,11 @@ pub(super) mod html_passive_protos;
 #[cfg(feature = "engine")]
 pub(super) mod html_progress_proto;
 #[cfg(feature = "engine")]
+pub(super) mod html_slot_proto;
+#[cfg(feature = "engine")]
 pub(super) mod html_template_proto;
+#[cfg(feature = "engine")]
+pub(super) mod shadow_root_proto;
 
 #[cfg(feature = "engine")]
 pub(super) mod document_traversal;

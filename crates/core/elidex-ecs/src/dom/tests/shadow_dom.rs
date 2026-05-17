@@ -305,3 +305,143 @@ fn custom_element_invalid_char_rejected() {
         "invalid PCENChar (!) should be rejected"
     );
 }
+
+// --- D-15 PR-A: attach_shadow_with_init / slot_assign / assigned_nodes ----
+
+#[test]
+fn attach_shadow_with_init_plumbs_all_fields() {
+    let mut dom = EcsDom::new();
+    let host = elem(&mut dom, "div");
+    let sr = dom
+        .attach_shadow_with_init(
+            host,
+            ShadowInit {
+                mode: ShadowRootMode::Closed,
+                delegates_focus: true,
+                slot_assignment: SlotAssignmentMode::Manual,
+                clonable: true,
+                serializable: true,
+            },
+        )
+        .unwrap();
+    let stored = dom.world().get::<&ShadowRoot>(sr).unwrap();
+    assert_eq!(stored.mode, ShadowRootMode::Closed);
+    assert!(stored.delegates_focus);
+    assert_eq!(stored.slot_assignment, SlotAssignmentMode::Manual);
+    assert!(stored.clonable);
+    assert!(stored.serializable);
+}
+
+#[test]
+fn attach_shadow_error_variants() {
+    let mut dom = EcsDom::new();
+    // InvalidEntity — DANGLING entity has no TagType
+    assert_eq!(
+        dom.attach_shadow(Entity::DANGLING, ShadowRootMode::Open),
+        Err(ShadowAttachError::InvalidEntity)
+    );
+    // InvalidTag — <input> is not in the allowlist + not a custom element
+    let input = elem(&mut dom, "input");
+    assert_eq!(
+        dom.attach_shadow(input, ShadowRootMode::Open),
+        Err(ShadowAttachError::InvalidTag)
+    );
+    // AlreadyAttached — second attach on the same host
+    let host = elem(&mut dom, "div");
+    dom.attach_shadow(host, ShadowRootMode::Open).unwrap();
+    assert_eq!(
+        dom.attach_shadow(host, ShadowRootMode::Open),
+        Err(ShadowAttachError::AlreadyAttached)
+    );
+}
+
+#[test]
+fn slot_assign_manual_mode_success() {
+    let mut dom = EcsDom::new();
+    let host = elem(&mut dom, "div");
+    let sr = dom
+        .attach_shadow_with_init(
+            host,
+            ShadowInit {
+                mode: ShadowRootMode::Open,
+                slot_assignment: SlotAssignmentMode::Manual,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let slot = elem(&mut dom, "slot");
+    assert!(dom.append_child(sr, slot));
+
+    // Two light-DOM children of the host.
+    let a = elem(&mut dom, "span");
+    let b = elem(&mut dom, "span");
+    assert!(dom.append_child(host, a));
+    assert!(dom.append_child(host, b));
+
+    dom.slot_assign(slot, vec![b, a]).unwrap();
+    assert_eq!(dom.assigned_nodes(slot, false), vec![b, a]);
+}
+
+#[test]
+fn slot_assign_named_mode_rejects() {
+    let mut dom = EcsDom::new();
+    let host = elem(&mut dom, "div");
+    let sr = dom.attach_shadow(host, ShadowRootMode::Open).unwrap();
+    let slot = elem(&mut dom, "slot");
+    assert!(dom.append_child(sr, slot));
+    let a = elem(&mut dom, "span");
+    assert!(dom.append_child(host, a));
+    assert_eq!(
+        dom.slot_assign(slot, vec![a]),
+        Err(SlotAssignError::NotManualMode)
+    );
+}
+
+#[test]
+fn slot_assign_validation_errors() {
+    let mut dom = EcsDom::new();
+    let host = elem(&mut dom, "div");
+    let sr = dom
+        .attach_shadow_with_init(
+            host,
+            ShadowInit {
+                mode: ShadowRootMode::Open,
+                slot_assignment: SlotAssignmentMode::Manual,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let slot = elem(&mut dom, "slot");
+    assert!(dom.append_child(sr, slot));
+
+    // NotASlot — pass an Element that isn't a <slot>
+    let not_slot = elem(&mut dom, "div");
+    assert!(dom.append_child(sr, not_slot));
+    let span = elem(&mut dom, "span");
+    assert!(dom.append_child(host, span));
+    assert_eq!(
+        dom.slot_assign(not_slot, vec![span]),
+        Err(SlotAssignError::NotASlot)
+    );
+
+    // NotHostChild — the node is NOT a child of the host
+    let stray = elem(&mut dom, "span");
+    assert_eq!(
+        dom.slot_assign(slot, vec![stray]),
+        Err(SlotAssignError::NotHostChild)
+    );
+
+    // NoShadowRoot — the slot isn't inside a shadow tree
+    let orphan_slot = elem(&mut dom, "slot");
+    assert_eq!(
+        dom.slot_assign(orphan_slot, vec![]),
+        Err(SlotAssignError::NoShadowRoot)
+    );
+}
+
+#[test]
+fn assigned_nodes_empty_when_no_assignment_component() {
+    let mut dom = EcsDom::new();
+    let slot = elem(&mut dom, "slot");
+    assert_eq!(dom.assigned_nodes(slot, false), Vec::<Entity>::new());
+}

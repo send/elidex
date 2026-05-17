@@ -62,9 +62,17 @@ mod engine_feature {
         /// `DocumentType.prototype → Node.prototype → …`.  Carries
         /// `name` / `publicId` / `systemId`.
         DocumentType,
-        /// Document, DocumentFragment, ShadowRoot, or anything
-        /// without a recognised `NodeKind`.  Chains directly to
-        /// `Node.prototype`.
+        /// `NodeKind::DocumentFragment` — chains via
+        /// `DocumentFragment.prototype → Node.prototype → …`.
+        /// Carries the ParentNode mixin (`prepend` / `append` /
+        /// `replaceChildren`) per WHATWG DOM §4.7.
+        /// `ShadowRoot` wrappers extend this chain via a separate
+        /// `ObjectKind::ShadowRoot` route (see
+        /// `crate::vm::host::shadow_root_proto`), so they are NOT
+        /// classified here.
+        DocumentFragment,
+        /// Document or anything without a recognised `NodeKind`.
+        /// Chains directly to `Node.prototype`.
         OtherNode,
     }
 
@@ -1160,6 +1168,7 @@ mod engine_feature {
                     PrototypeKind::OtherCharacterData
                 }
                 Some(NodeKind::DocumentType) => PrototypeKind::DocumentType,
+                Some(NodeKind::DocumentFragment) => PrototypeKind::DocumentFragment,
                 None => {
                     // Defensive inference for legacy entities that
                     // carry CharacterData payload without an explicit

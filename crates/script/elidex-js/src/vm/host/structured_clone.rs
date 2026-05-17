@@ -341,6 +341,7 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         // with Chrome / Firefox.
         ObjectKind::WebSocket => CloneKind::Unclonable("WebSocket"),
         ObjectKind::EventSource => CloneKind::Unclonable("EventSource"),
+        ObjectKind::ShadowRoot => CloneKind::Unclonable("ShadowRoot"),
     }
 }
 

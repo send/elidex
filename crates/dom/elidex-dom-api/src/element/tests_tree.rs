@@ -1,5 +1,5 @@
 use super::*;
-use elidex_ecs::{Attributes, EcsDom, Entity};
+use elidex_ecs::{Attributes, EcsDom, Entity, ShadowRootMode};
 use elidex_plugin::JsValue;
 use elidex_script_session::{ComponentKind, DomApiErrorKind, DomApiHandler, SessionCore};
 
@@ -721,4 +721,35 @@ fn insert_adjacent_text_beforeend() {
         .unwrap();
     let text = collect_text_content(parent, &dom);
     assert_eq!(text, "hello");
+}
+
+#[test]
+fn serialize_inner_html_excludes_shadow_root_subtree() {
+    // WHATWG DOM §4.8 + HTML §2.7.3: `host.innerHTML` MUST NOT leak
+    // shadow content (encapsulation).  Without the `ShadowRoot` skip
+    // in `serialize_node`, the shadow root child entity (which carries
+    // no TagType) would recurse into its own children + serialize them
+    // as if they belonged to the host's light DOM — breaching
+    // encapsulation for both open and closed shadows.  This regression
+    // test locks the skip introduced in PR `#11-shadow-dom-surface` (D-15).
+    let mut dom = EcsDom::new();
+    let host = dom.create_element("div", Attributes::default());
+    // Light-DOM child + shadow root with its own content.
+    let light = dom.create_element("span", Attributes::default());
+    assert!(dom.append_child(host, light));
+    let shadow = dom
+        .attach_shadow(host, ShadowRootMode::Open)
+        .expect("attach_shadow on <div> succeeds");
+    let shadow_child = dom.create_element("b", Attributes::default());
+    assert!(dom.append_child(shadow, shadow_child));
+
+    let html = super::tree::serialize_inner_html(host, &dom);
+    assert!(
+        html.contains("<span>"),
+        "light DOM child must serialize: {html}"
+    );
+    assert!(
+        !html.contains("<b>"),
+        "shadow root content must NOT serialize: {html}"
+    );
 }

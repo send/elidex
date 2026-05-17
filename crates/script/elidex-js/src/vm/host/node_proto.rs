@@ -214,19 +214,37 @@ pub(super) fn require_node_arg(
     let JsValue::Object(id) = value else {
         return Err(not_a_node());
     };
-    let ObjectKind::HostObject { entity_bits } = ctx.vm.get_object(id).kind else {
-        return Err(not_a_node());
+    // ShadowRoot wrappers don't carry entity bits (the entity lives
+    // in `shadow_root_states`); resolve through the side table so
+    // ShadowRoot is accepted as a Node arg per WHATWG DOM §4.8
+    // (ShadowRoot → DocumentFragment → Node).  Matches the
+    // [`super::event_target::entity_from_this`] extension.  Both
+    // branches fall through to the shared existence + node-kind
+    // check below so a retained wrapper whose backing entity was
+    // destroyed throws the same detached-node TypeError.
+    let entity = match ctx.vm.get_object(id).kind {
+        ObjectKind::HostObject { entity_bits } => {
+            Entity::from_bits(entity_bits).ok_or_else(|| {
+                VmError::type_error(format!(
+                    "Failed to execute '{method}' on 'Node': the node is detached (invalid entity)."
+                ))
+            })?
+        }
+        ObjectKind::ShadowRoot => ctx
+            .vm
+            .shadow_root_states
+            .get(&id)
+            .map(|s| s.shadow_root)
+            .ok_or_else(not_a_node)?,
+        _ => return Err(not_a_node()),
     };
-    let entity = Entity::from_bits(entity_bits).ok_or_else(|| {
-        VmError::type_error(format!(
-            "Failed to execute '{method}' on 'Node': the node is detached (invalid entity)."
-        ))
-    })?;
     // Use the inferred kind so legacy DOM entities (payload present
     // but no explicit `NodeKind` component) are accepted as Nodes —
     // matches `normalize_single_arg`, `nodes_equal`, and
     // `HostData::prototype_kind_for`.  Window is an `EventTarget`
-    // but not a Node, so it's rejected explicitly.
+    // but not a Node, so it's rejected explicitly.  Destroyed
+    // entities (HostObject OR ShadowRoot) return `None` here and
+    // surface as the brand-check failure.
     match ctx.host().dom().node_kind_inferred(entity) {
         None | Some(NodeKind::Window) => Err(not_a_node()),
         Some(_) => Ok(entity),
@@ -242,7 +260,16 @@ fn native_node_get_parent_node(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    tree_nav_getter(ctx, this, elidex_ecs::EcsDom::get_parent)
+    // `shadowRoot.parentNode === null` per WHATWG DOM §4.8 — a
+    // shadow root is not a tree child of its host even though the
+    // ECS edge points back.  Filter the ECS parent for shadow root
+    // receivers before lifting it to a wrapper.
+    tree_nav_getter(ctx, this, |dom, e| {
+        if dom.world().get::<&elidex_ecs::ShadowRoot>(e).is_ok() {
+            return None;
+        }
+        dom.get_parent(e)
+    })
 }
 
 /// `Node.prototype.parentElement` — returns the parent only if it is
@@ -254,9 +281,14 @@ fn native_node_get_parent_element(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    tree_nav_getter(ctx, this, |dom, e| match dom.get_parent(e) {
-        Some(p) if dom.world().get::<&TagType>(p).is_ok() => Some(p),
-        _ => None,
+    tree_nav_getter(ctx, this, |dom, e| {
+        if dom.world().get::<&elidex_ecs::ShadowRoot>(e).is_ok() {
+            return None;
+        }
+        match dom.get_parent(e) {
+            Some(p) if dom.world().get::<&TagType>(p).is_ok() => Some(p),
+            _ => None,
+        }
     })
 }
 
@@ -285,7 +317,15 @@ fn native_node_get_next_sibling(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    tree_nav_getter(ctx, this, elidex_ecs::EcsDom::next_exposed_sibling)
+    // Shadow roots have no siblings per WHATWG §4.8 (the shadow
+    // root isn't a tree child of its host even though the ECS edge
+    // points back).  Same rationale as `parentNode`.
+    tree_nav_getter(ctx, this, |dom, e| {
+        if dom.world().get::<&elidex_ecs::ShadowRoot>(e).is_ok() {
+            return None;
+        }
+        dom.next_exposed_sibling(e)
+    })
 }
 
 fn native_node_get_previous_sibling(
@@ -293,7 +333,12 @@ fn native_node_get_previous_sibling(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    tree_nav_getter(ctx, this, elidex_ecs::EcsDom::prev_exposed_sibling)
+    tree_nav_getter(ctx, this, |dom, e| {
+        if dom.world().get::<&elidex_ecs::ShadowRoot>(e).is_ok() {
+            return None;
+        }
+        dom.prev_exposed_sibling(e)
+    })
 }
 
 fn native_node_get_child_nodes(
@@ -531,6 +576,37 @@ fn native_node_contains(
 // DOM mutation — appendChild / removeChild / insertBefore / replaceChild
 // ---------------------------------------------------------------------------
 
+/// Reject `value` if it wraps a `ShadowRoot` — WHATWG DOM §4.2.3
+/// "ensure pre-insert validity" treats shadow roots as
+/// non-insertable: they belong to exactly one host and moving them
+/// into a different parent would break the shadow encapsulation
+/// invariant (host → shadow_root unique edge).  All mutation
+/// natives that take a "node to insert" arg (`appendChild`,
+/// `insertBefore`'s newChild, `replaceChild`'s newChild) call this
+/// AFTER [`require_node_arg`] so non-Node args still surface as
+/// TypeError before the shadow-specific HierarchyRequestError fires.
+fn reject_shadow_root_insertion(
+    ctx: &NativeContext<'_>,
+    value: JsValue,
+    interface: &str,
+    method: &str,
+) -> Result<(), VmError> {
+    let JsValue::Object(id) = value else {
+        return Ok(());
+    };
+    if !matches!(ctx.vm.get_object(id).kind, ObjectKind::ShadowRoot) {
+        return Ok(());
+    }
+    let hierarchy_request = ctx.vm.well_known.dom_exc_hierarchy_request_error;
+    Err(VmError::dom_exception(
+        hierarchy_request,
+        format!(
+            "Failed to execute '{method}' on '{interface}': \
+             a ShadowRoot cannot be moved into the light DOM"
+        ),
+    ))
+}
+
 fn native_node_append_child(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -547,6 +623,7 @@ fn native_node_append_child(
     // decodes it again from `child_arg` (duplicate work the bridge
     // accepts in exchange for a clean brand-check seam).
     require_node_arg(ctx, child_arg, "appendChild")?;
+    reject_shadow_root_insertion(ctx, child_arg, "Node", "appendChild")?;
     super::dom_bridge::invoke_dom_api(ctx, "appendChild", parent, &[child_arg])
 }
 
@@ -560,6 +637,10 @@ fn native_node_remove_child(
     };
     let child_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     require_node_arg(ctx, child_arg, "removeChild")?;
+    // `removeChild` accepts ShadowRoot in principle (it's a Node)
+    // but a ShadowRoot is never a `parent.children[i]` in the light
+    // tree, so the existing engine "not a child" check rejects it
+    // naturally without a special-case here.
     super::dom_bridge::invoke_dom_api(ctx, "removeChild", parent, &[child_arg])
 }
 
@@ -573,6 +654,7 @@ fn native_node_insert_before(
     };
     let new_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     require_node_arg(ctx, new_arg, "insertBefore")?;
+    reject_shadow_root_insertion(ctx, new_arg, "Node", "insertBefore")?;
     // `refChild` is `Node?` per WHATWG: `null` / `undefined` mean
     // "append at end"; the InsertBefore handler interprets the second
     // arg the same way (matches `args.get(1) == None | Some(Null)`).
@@ -593,6 +675,7 @@ fn native_node_replace_child(
     };
     let new_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     require_node_arg(ctx, new_arg, "replaceChild")?;
+    reject_shadow_root_insertion(ctx, new_arg, "Node", "replaceChild")?;
     let old_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     require_node_arg(ctx, old_arg, "replaceChild")?;
     super::dom_bridge::invoke_dom_api(ctx, "replaceChild", parent, &[new_arg, old_arg])

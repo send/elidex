@@ -17,7 +17,7 @@
 
 pub(crate) mod equality;
 mod mutation_hook;
-mod shadow;
+pub mod shadow;
 mod tree;
 mod tree_clone;
 

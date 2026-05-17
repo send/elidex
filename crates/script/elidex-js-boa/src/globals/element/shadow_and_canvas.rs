@@ -46,7 +46,7 @@ pub(crate) fn register_shadow_dom_methods(
                     // Boa 0.21 lacks DOMException / WebIDL exception support, so we
                     // use TypeError with the DOMException name prefix. JS code can
                     // detect the error type via `e.message.startsWith("NotSupportedError")`.
-                    dom.attach_shadow(entity, mode).map_err(|()| {
+                    dom.attach_shadow(entity, mode).map_err(|_| {
                         JsNativeError::typ()
                             .with_message("NotSupportedError: Failed to execute 'attachShadow' on 'Element': This element does not support attachShadow")
                     })?;

@@ -276,10 +276,44 @@ pub(super) fn entity_from_this(
     let JsValue::Object(id) = this else {
         return None;
     };
-    let ObjectKind::HostObject { entity_bits } = ctx.vm.get_object(id).kind else {
-        return None;
+    match ctx.vm.get_object(id).kind {
+        ObjectKind::HostObject { entity_bits } => elidex_ecs::Entity::from_bits(entity_bits),
+        // `ShadowRoot` wrappers are not `HostObject` (they carry no
+        // entity bits — the entity lives in `shadow_root_states`),
+        // but ParentNode mixin methods inherited from
+        // `DocumentFragment.prototype` (`prepend` / `append` /
+        // `replaceChildren` / `querySelector` / ...) expect to
+        // recover an Entity from `this`.  Resolve through the
+        // side-table here so `shadowRoot.append(el)` works without
+        // duplicating the mixin install on `ShadowRoot.prototype`.
+        ObjectKind::ShadowRoot => ctx.vm.shadow_root_states.get(&id).map(|s| s.shadow_root),
+        _ => None,
+    }
+}
+
+/// Test-only / brand-check helper: returns `true` when `this`
+/// resolves to a DOM wrapper (HostObject OR ShadowRoot) regardless
+/// of bind state.  Callers that need to enforce WebIDL "Illegal
+/// invocation" semantics for non-wrapper receivers (e.g.
+/// `Element.prototype.shadowRoot.call({})`) should pre-throw via
+/// this check BEFORE invoking [`require_receiver`], because
+/// `require_receiver` collapses non-wrapper receivers and unbound
+/// HostObject receivers into the same `Ok(None)` branch (the
+/// elidex unbound-receiver policy requires silent no-op for the
+/// latter).
+///
+/// Returns `false` for primitive receivers and for HostObject /
+/// ShadowRoot wrappers whose entity bits don't decode (impossible
+/// in practice, defensive).
+#[cfg(feature = "engine")]
+pub(super) fn this_is_node_wrapper(vm: &super::super::VmInner, this: JsValue) -> bool {
+    let JsValue::Object(id) = this else {
+        return false;
     };
-    elidex_ecs::Entity::from_bits(entity_bits)
+    matches!(
+        vm.get_object(id).kind,
+        ObjectKind::HostObject { .. } | ObjectKind::ShadowRoot
+    )
 }
 
 /// WebIDL branded receiver extraction.  Returns:
@@ -288,6 +322,9 @@ pub(super) fn entity_from_this(
 /// - `Ok(None)` when `this` is not a HostObject or the VM is
 ///   unbound — silent no-op, matches elidex's unbound-receiver
 ///   policy (post-unbind retained references must not panic).
+///   Callers that need WebIDL-strict TypeError for non-wrapper
+///   receivers (e.g. plain `{}`) should pre-check via
+///   [`this_is_node_wrapper`] before invoking this helper.
 /// - `Err(TypeError)` when `this` IS a HostObject but its kind
 ///   does NOT match — the WebIDL "Illegal invocation" brand
 ///   check that distinguishes `Function.prototype.call`-style

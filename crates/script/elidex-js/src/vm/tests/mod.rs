@@ -102,6 +102,7 @@ mod tests_realtime;
 mod tests_remove_event_listener;
 mod tests_request_response;
 mod tests_selection;
+mod tests_shadow_dom;
 mod tests_sparse_array;
 mod tests_storage;
 mod tests_string;

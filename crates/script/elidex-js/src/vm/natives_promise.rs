@@ -48,6 +48,15 @@ pub(crate) enum Microtask {
     /// drain loop (spec: "If the callback throws an exception, report the
     /// exception.").
     Callback { func: ObjectId },
+    /// WHATWG DOM §4.3.4 "notify mutation observers" microtask —
+    /// coalesced per-tick by [`VmInner::mutation_observer_microtask_queued`].
+    /// When dispatched, snapshots the signal-slots set and fires a
+    /// `slotchange` Event at each (D-15 PR-A wires the slotchange
+    /// half; MutationObserver callbacks remain embedder-driven via
+    /// `Vm::deliver_mutation_records`).  Ordering relative to
+    /// `Promise.then` reactions matches the spec: the microtask is
+    /// enqueued at signal time, not at drain-tail.
+    NotifyMutationObservers,
 }
 
 // ---------------------------------------------------------------------------
@@ -267,30 +276,13 @@ impl VmInner {
             return;
         }
         self.microtask_drain_depth += 1;
-        while let Some(task) = self.microtask_queue.pop_front() {
-            // Install the popped task as a GC root before invoking user
-            // code — the callback we're about to run can trigger GC, and
-            // without this slot the reaction's handler/capability/resolution
-            // (or bare callback func) are only held in Rust locals and
-            // would be collected.  `Microtask` is `Copy`, so we hold a
-            // snapshot locally for dispatch while `current_microtask`
-            // keeps the originals rooted.
-            self.current_microtask = Some(task);
-            match task {
-                Microtask::PromiseReaction {
-                    kind,
-                    handler,
-                    capability,
-                    resolution,
-                } => {
-                    run_reaction(self, kind, handler, capability, resolution);
-                }
-                Microtask::Callback { func } => {
-                    run_callback(self, func);
-                }
-            }
-            self.current_microtask = None;
-        }
+        // Drain the queue in FIFO order.  `NotifyMutationObservers`
+        // microtasks (queued at signal time, not at drain-tail) are
+        // interleaved naturally with `PromiseReaction` / `Callback`
+        // entries so `Promise.then` callbacks queued AFTER a
+        // `slot.assign()` observe the post-slotchange state, while
+        // those queued BEFORE the signal still fire first.
+        drain_queue_pass(self);
         // End-of-drain: dispatch a `PromiseRejectionEvent` to the
         // document's `unhandledrejection` listeners (HTML §8.1.5.5
         // HostPromiseRejectionTracker hook), falling back to an
@@ -298,6 +290,49 @@ impl VmInner {
         // in PR3 C10.
         process_pending_rejections(self);
         self.microtask_drain_depth -= 1;
+    }
+}
+
+/// Drain every entry currently in `vm.microtask_queue`, in FIFO
+/// order, rooting the popped task across user-code invocation.
+/// Tasks enqueued during a callback are processed by the same loop
+/// (they land on `microtask_queue` before the next `pop_front`).
+fn drain_queue_pass(vm: &mut VmInner) {
+    while let Some(task) = vm.microtask_queue.pop_front() {
+        // Install the popped task as a GC root before invoking user
+        // code — the callback we're about to run can trigger GC, and
+        // without this slot the reaction's handler/capability/resolution
+        // (or bare callback func) are only held in Rust locals and
+        // would be collected.  `Microtask` is `Copy`, so we hold a
+        // snapshot locally for dispatch while `current_microtask`
+        // keeps the originals rooted.
+        vm.current_microtask = Some(task);
+        match task {
+            Microtask::PromiseReaction {
+                kind,
+                handler,
+                capability,
+                resolution,
+            } => {
+                run_reaction(vm, kind, handler, capability, resolution);
+            }
+            Microtask::Callback { func } => {
+                run_callback(vm, func);
+            }
+            Microtask::NotifyMutationObservers => {
+                // Per WHATWG DOM §4.3.4 step 1: clear the queued
+                // flag BEFORE dispatch so a signal raised during
+                // the slotchange listener body (re-entrant
+                // `slot.assign()`) enqueues a fresh microtask for
+                // the next checkpoint.
+                #[cfg(feature = "engine")]
+                {
+                    vm.mutation_observer_microtask_queued = false;
+                    super::host::html_slot_proto::dispatch_pending_slotchange_signals(vm);
+                }
+            }
+        }
+        vm.current_microtask = None;
     }
 }
 
