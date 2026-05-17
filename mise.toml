@@ -34,7 +34,33 @@ description = "Format code"
 run = "cargo fmt --all"
 
 [tasks.doc]
-description = "Build documentation (same flags as CI — warnings are errors)"
+description = "Build documentation for changed crates only (fast path; full check via doc-full)."
+env = { RUSTDOCFLAGS = "-D warnings" }
+# rustdoc on the full workspace (`cargo doc --workspace --no-deps
+# --all-features`) is the slowest job in our CI flow by an order of
+# magnitude — touching a single mid-graph crate (elidex-script-session)
+# triggers a 200-220s rebuild because every downstream crate's doc has
+# to be regenerated to re-resolve intra-doc links. For local pre-push
+# iteration we restrict rustdoc to the set of crates with uncommitted
+# changes (vs. HEAD): a single-crate edit drops the cost from ~220s
+# to ~16s. GitHub Actions still runs the full workspace doc on every
+# PR — via raw `cargo doc --workspace --no-deps --all-features` in
+# `.github/workflows/ci.yml` (not via this mise task; CI doesn't use
+# mise) — so the trade-off, missing a cross-crate intra-doc link
+# break locally, is caught upstream. Run `mise run doc-full` locally
+# before push if you want CI parity on the same machine.
+#
+# Logic lives in `scripts/doc-changed.sh` rather than inline so the
+# POSIX-shell pipeline is parsed by an explicit `bash` shebang
+# (instead of whatever shell mise picks per-platform) — Windows
+# contributors get a clear "bash: command not found" message if bash
+# is missing instead of a confusing partial-execute failure. Install
+# Git Bash / MSYS2 on Windows, or run the equivalent
+# `cargo doc -p <changed-crate>` manually.
+run = "bash scripts/doc-changed.sh"
+
+[tasks.doc-full]
+description = "Build documentation for ALL workspace crates (slow; matches GitHub Actions)."
 env = { RUSTDOCFLAGS = "-D warnings" }
 run = "cargo doc --workspace --no-deps --all-features"
 
@@ -42,9 +68,37 @@ run = "cargo doc --workspace --no-deps --all-features"
 description = "Check licenses and vulnerabilities"
 run = "cargo deny check"
 
+[tasks.ci-sweep]
+description = "Hard-cap target/ size to bound incremental cache growth (cargo-sweep)."
+# Workspace has ~50 crates × `--all-features` × many cargo invocations
+# per session (check / clippy / test / doc) — incremental/ accumulates
+# session artifacts that cargo never garbage-collects on its own. A
+# long R-loop has been observed pushing target/debug/incremental to
+# 100GB+ in one sitting.
+#
+# Strategy: `--maxsize 30000` (30GB hard cap) evicts the OLDEST
+# artifacts first until target/ is under the cap. Predictable bound,
+# does not depend on age heuristics. **Do not use `--time N`**: in
+# 2026-05 we measured `--time 7` purging 32GB of artifacts that
+# `--all-features` builds still actively depended on — the "untouched
+# in 7 days" criterion treats stable dep artifacts (not rebuilt for a
+# week because nothing above them changed) as garbage, triggering a
+# 700s+ workspace rebuild on the next `mise run ci`.
+#
+# `--installed` is always safe (drops artifacts from rust toolchains
+# that have been uninstalled via rustup; never touches the active
+# toolchain).
+#
+# `cargo-sweep` is an external cargo subcommand — install with
+# `cargo install cargo-sweep`. We skip with a warning when it isn't
+# present so a fresh checkout doesn't fail `mise run ci`; the only
+# cost of skipping is unbounded incremental cache growth (mitigated
+# by manual `rm -rf target/debug/incremental` if it hits ~100GB).
+run = "bash scripts/ci-sweep.sh"
+
 [tasks.ci]
 description = "Run all CI checks locally"
-depends = ["check", "lint", "test-all", "doc", "deny"]
+depends = ["check", "lint", "test-all", "doc", "deny", "ci-sweep"]
 
 [tasks.bench]
 description = "Run all benchmarks"

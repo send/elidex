@@ -31,6 +31,24 @@ pub fn parse_html(html: &str) -> ParseResult {
     convert_document(rc_dom)
 }
 
+/// Options controlling [`parse_html_fragment`] semantics.
+///
+/// The `allow_declarative_shadow` flag selects between HTML §4.4.5
+/// (innerHTML, plain `<template>` semantics) and HTML §4.4.7 +
+/// §4.13.3 (setHTMLUnsafe, where `<template shadowrootmode>` becomes
+/// a shadow root attached to the parent host).
+#[derive(Default, Clone, Copy, Debug)]
+pub struct ParseFragmentOptions {
+    /// When true, `<template shadowrootmode="open|closed">` children
+    /// are interpreted as declarative shadow root markup (HTML §4.13.3):
+    /// the parent receives a freshly-attached shadow root whose
+    /// children come from the template's content, and the `<template>`
+    /// element itself is discarded. Per spec, a failed attach (e.g.
+    /// host tag not allowed, host already has a shadow root) silently
+    /// leaves the `<template>` as an ordinary element.
+    pub allow_declarative_shadow: bool,
+}
+
 /// Parse an HTML fragment string into child nodes.
 ///
 /// Per WHATWG HTML §2.6.4: Fragment parsing uses a context element to
@@ -43,6 +61,7 @@ pub fn parse_html_fragment(
     context_tag: &str,
     parent: elidex_ecs::Entity,
     dom: &mut elidex_ecs::EcsDom,
+    opts: ParseFragmentOptions,
 ) -> Vec<elidex_ecs::Entity> {
     use html5ever::{ns, QualName};
 
@@ -65,12 +84,12 @@ pub fn parse_html_fragment(
         if let markup5ever_rcdom::NodeData::Element { ref name, .. } = child.data {
             if name.local.as_ref() == "html" {
                 // Unwrap: use the <html> element's children as fragment children.
-                return convert::convert_fragment_children(child, parent, dom);
+                return convert::convert_fragment_children(child, parent, dom, opts);
             }
         }
     }
     // No wrapper — use document's children directly.
-    convert::convert_fragment_children(&rc_dom.document, parent, dom)
+    convert::convert_fragment_children(&rc_dom.document, parent, dom, opts)
 }
 
 /// Parse an HTML5 document from raw bytes (browser mode).
@@ -172,5 +191,49 @@ mod tests {
     fn parse_html_encoding_is_none() {
         let result = parse_html("<p>Hello</p>");
         assert!(result.encoding.is_none());
+    }
+
+    #[test]
+    fn parse_html_fragment_declarative_shadow_attaches_open_root() {
+        use elidex_ecs::{Attributes, EcsDom};
+        let mut dom = EcsDom::new();
+        let host = dom.create_element("div", Attributes::default());
+        let _ = dom.create_document_root(); // detached but enough for tag lookups
+        let added = parse_html_fragment(
+            r#"<template shadowrootmode="open"><p>x</p></template>"#,
+            "div",
+            host,
+            &mut dom,
+            ParseFragmentOptions {
+                allow_declarative_shadow: true,
+            },
+        );
+        // The template is consumed: no light-tree child entities added.
+        assert!(
+            added.is_empty(),
+            "declarative shadow consumes the template; no light-tree adds expected"
+        );
+        let sr = dom
+            .get_shadow_root(host)
+            .expect("shadow root must be attached");
+        // The shadow tree holds the parsed <p>.
+        let shadow_kids = dom.children(sr);
+        let p_present = shadow_kids.iter().any(|c| {
+            dom.world()
+                .get::<&elidex_ecs::TagType>(*c)
+                .is_ok_and(|t| t.0 == "p")
+        });
+        assert!(
+            p_present,
+            "shadow root should hold the <p>; got tags {:?}",
+            shadow_kids
+                .iter()
+                .map(|c| dom
+                    .world()
+                    .get::<&elidex_ecs::TagType>(*c)
+                    .map(|t| t.0.clone())
+                    .ok())
+                .collect::<Vec<_>>()
+        );
     }
 }

@@ -32,6 +32,9 @@ pub use event_dispatch::{
 pub use event_listener::{EventListeners, ListenerEntry, ListenerId};
 pub use event_queue::{EventQueue, QueuedEvent};
 pub use identity_map::IdentityMap;
-pub use mutation::{apply_mutation, Mutation, MutationKind, MutationRecord};
+pub use mutation::{
+    apply_mutation, apply_set_inner_html, apply_set_outer_html, Mutation, MutationKind,
+    MutationRecord, OuterHtmlError, SetInnerHtmlOptions,
+};
 pub use session::{CssomSheetState, SessionCore};
 pub use types::{ComponentKind, DomApiError, DomApiErrorKind, JsObjectRef, ReadyState};

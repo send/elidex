@@ -76,13 +76,14 @@ pub use element::href_accessor::{
 };
 pub use element::{
     camel_to_data_attr, collect_text_content, data_attr_to_camel, serialize_inner_html,
-    validate_attribute_name, AppendChild, DatasetDelete, DatasetGet, DatasetKeys, DatasetSet,
-    GetAttribute, GetAttributeNames, GetBoundingClientRect, GetClassName, GetClientHeight,
-    GetClientLeft, GetClientRects, GetClientTop, GetClientWidth, GetId, GetInnerHtml,
-    GetOffsetHeight, GetOffsetLeft, GetOffsetParent, GetOffsetTop, GetOffsetWidth, GetScrollHeight,
-    GetScrollLeft, GetScrollTop, GetScrollWidth, HasAttribute, InsertAdjacentElement,
-    InsertAdjacentHtml, InsertAdjacentText, InsertBefore, RemoveAttribute, RemoveChild,
-    ReplaceChild, ScrollIntoView, SetAttribute, SetClassName, SetId, SetInnerHtml, ToggleAttribute,
+    serialize_inner_html_with_options, serialize_outer_html, validate_attribute_name, AppendChild,
+    DatasetDelete, DatasetGet, DatasetKeys, DatasetSet, GetAttribute, GetAttributeNames,
+    GetBoundingClientRect, GetClassName, GetClientHeight, GetClientLeft, GetClientRects,
+    GetClientTop, GetClientWidth, GetId, GetInnerHtml, GetOffsetHeight, GetOffsetLeft,
+    GetOffsetParent, GetOffsetTop, GetOffsetWidth, GetScrollHeight, GetScrollLeft, GetScrollTop,
+    GetScrollWidth, HasAttribute, InsertAdjacentElement, InsertAdjacentHtml, InsertAdjacentText,
+    InsertBefore, RemoveAttribute, RemoveChild, ReplaceChild, ScrollIntoView, SerializeOptions,
+    SetAttribute, SetClassName, SetId, SetInnerHtml, ToggleAttribute,
 };
 pub use live_collection::{CollectionFilter, CollectionKind, LiveCollection};
 pub use mutation_bridge::{MutationBridge, NodeIteratorState};

@@ -419,6 +419,11 @@ define_well_known_strings! {
         assigned_nodes => "assignedNodes",
         assigned_elements => "assignedElements",
         flatten => "flatten",
+        // Element / ShadowRoot innerHTML mixin (D-15 PR-B).
+        inner_html => "innerHTML",
+        outer_html => "outerHTML",
+        set_html_unsafe => "setHTMLUnsafe",
+        get_html => "getHTML",
         // HTMLIFrameElement.prototype property names (PR4f C8).
         src => "src",
         srcdoc => "srcdoc",
@@ -726,6 +731,11 @@ define_well_known_strings! {
         // names, not generic JS error types.
         dom_exc_security_error => "SecurityError",
         dom_exc_invalid_access_error => "InvalidAccessError",
+        // Added with D-15 PR-B `#11-shadow-innerhtml-mixin`: the
+        // `outerHTML` setter throws NoModificationAllowedError when the
+        // target has no parent or its parent is the Document (HTML
+        // §4.4.5 step 1).
+        dom_exc_no_modification_allowed_error => "NoModificationAllowedError",
     }
 
     "Headers (WHATWG Fetch §5.2)" {
