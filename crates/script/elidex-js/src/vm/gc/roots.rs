@@ -302,14 +302,6 @@ pub(super) struct GcRoots<'a> {
     /// `<datalist>` / `<output>` entity respectively.
     #[cfg(feature = "engine")]
     pub(super) template_content_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
-    /// `ShadowRoot` wrapper identity cache, keyed by host `Entity`.
-    /// Weak-through-owner: marked only when the host wrapper is
-    /// reachable via `HostData::wrapper_cache`, so an unreferenced
-    /// `host.shadowRoot` survives long enough for the next
-    /// `host.shadowRoot` read to return the SAME wrapper (identity
-    /// invariant + expando-property survival).
-    #[cfg(feature = "engine")]
-    pub(super) shadow_root_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
     #[cfg(feature = "engine")]
     pub(super) datalist_options_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
     #[cfg(feature = "engine")]
@@ -448,22 +440,6 @@ pub(super) fn mark_roots(
         for ((entity, _), &attr_id) in roots.attr_wrapper_cache {
             if hd.get_cached_wrapper(*entity).is_some() {
                 mark_object(attr_id, obj_marks, work);
-            }
-        }
-        // (e2.5) `shadow_root_wrappers` — weak-through-owner like
-        // `attr_wrapper_cache`: the cached `ShadowRoot` wrapper
-        // survives only while the shadow host wrapper is still
-        // rooted via `HostData::wrapper_cache`.  Marking here keeps
-        // `host.shadowRoot === host.shadowRoot` stable + preserves
-        // any script-side expando properties across drops of the
-        // intermediate `host.shadowRoot` result reference.  The
-        // ShadowRoot wrapper itself is payload-free
-        // (`shadow_root_states` side table holds the Entity, which
-        // is GC-unmanaged), so a single mark suffices.
-        #[cfg(feature = "engine")]
-        for (entity, &id) in roots.shadow_root_wrappers {
-            if hd.get_cached_wrapper(*entity).is_some() {
-                mark_object(id, obj_marks, work);
             }
         }
         // (e3) `DOMTokenList` / `DOMStringMap` identity caches —

@@ -331,21 +331,6 @@ fn prepare_arg(ctx: &mut NativeContext<'_>, v: JsValue) -> Result<PreVal, VmErro
                 })?;
                 PreVal::Entity(entity)
             }
-            // ShadowRoot wrappers carry no entity bits — resolve
-            // through `shadow_root_states` (mirrors
-            // [`super::event_target::entity_from_this`] and
-            // [`super::node_proto::require_node_arg`]).
-            ObjectKind::ShadowRoot => {
-                let entity = ctx
-                    .vm
-                    .shadow_root_states
-                    .get(&obj_id)
-                    .map(|s| s.shadow_root)
-                    .ok_or_else(|| {
-                        VmError::type_error("DOM API: argument wraps an invalid entity")
-                    })?;
-                PreVal::Entity(entity)
-            }
             _ => {
                 return Err(VmError::type_error("DOM API expected a Node argument"));
             }

@@ -5,7 +5,7 @@
 
 #![cfg(feature = "engine")]
 
-use super::run;
+use super::{run, FIND_GETTER_PRELUDE};
 
 #[test]
 fn attach_shadow_open_returns_wrapper() {
@@ -141,10 +141,11 @@ fn shadow_root_parent_node_mixin_installed_via_document_fragment_prototype() {
 
 #[test]
 fn shadow_root_append_routes_through_parent_node_mixin() {
-    // `entity_from_this` resolves `ObjectKind::ShadowRoot` receivers
-    // through `shadow_root_states` so the inherited ParentNode mixin
-    // methods can mutate the shadow tree directly (D-15 PR-A wire-up
-    // for `#11-shadow-parent-node-mixin-receiver`).
+    // ShadowRoot wrappers are `ObjectKind::HostObject { entity_bits }`
+    // carrying the shadow root entity, so `entity_from_this` returns
+    // it unchanged and the inherited ParentNode mixin methods mutate
+    // the shadow tree directly (D-15 PR-A wire-up for
+    // `#11-shadow-parent-node-mixin-receiver`).
     //
     // `firstElementChild` / `children` etc. are installed on
     // `Element.prototype` only — DocumentFragment.prototype currently
@@ -420,23 +421,19 @@ fn shadow_root_getter_on_non_wrapper_receiver_throws_type_error() {
     // non-wrapper and unbound-wrapper into the same `Ok(None)`
     // branch; new `this_is_node_wrapper` pre-check distinguishes
     // them.
-    let out = run("var host = document.createElement('div'); \
-         function findGetter(obj, prop) { \
-             while (obj) { \
-                 var d = Object.getOwnPropertyDescriptor(obj, prop); \
-                 if (d && d.get) return d.get; \
-                 obj = Object.getPrototypeOf(obj); \
-             } \
-             return null; \
-         } \
+    let script = format!(
+        "{FIND_GETTER_PRELUDE}\
+         var host = document.createElement('div'); \
          var getter = findGetter(host, 'shadowRoot'); \
          var caught_plain = null; \
-         try { getter.call({}); } catch (e) { caught_plain = e; } \
+         try {{ getter.call({{}}); }} catch (e) {{ caught_plain = e; }} \
          var caught_prim = null; \
-         try { getter.call(42); } catch (e) { caught_prim = e; } \
+         try {{ getter.call(42); }} catch (e) {{ caught_prim = e; }} \
          (caught_plain && caught_plain.name === 'TypeError' \
           && caught_prim && caught_prim.name === 'TypeError') \
-           ? 'ok' : 'fail';");
+           ? 'ok' : 'fail';"
+    );
+    let out = run(&script);
     assert_eq!(out, "ok");
 }
 
@@ -473,20 +470,16 @@ fn shadow_root_getter_on_non_element_receiver_throws_type_error() {
     // `shadowRoot` lives on `Element.prototype` (not the immediate
     // tag-prototype) so the test walks the chain to locate the
     // getter descriptor.
-    let out = run("var host = document.createElement('div'); \
-         function findGetter(obj, prop) { \
-             while (obj) { \
-                 var d = Object.getOwnPropertyDescriptor(obj, prop); \
-                 if (d && d.get) return d.get; \
-                 obj = Object.getPrototypeOf(obj); \
-             } \
-             return null; \
-         } \
+    let script = format!(
+        "{FIND_GETTER_PRELUDE}\
+         var host = document.createElement('div'); \
          var getter = findGetter(host, 'shadowRoot'); \
          var caught = null; \
-         try { getter.call(document); } catch (e) { caught = e; } \
+         try {{ getter.call(document); }} catch (e) {{ caught = e; }} \
          (caught !== null && caught.name === 'TypeError') \
-           ? 'ok' : 'fail:' + (caught && caught.name);");
+           ? 'ok' : 'fail:' + (caught && caught.name);"
+    );
+    let out = run(&script);
     assert_eq!(out, "ok");
 }
 
@@ -592,6 +585,71 @@ fn child_parent_node_returns_cached_shadow_root_wrapper() {
          sr.append(child); \
          (child.parentNode === sr && child.parentNode.host === host) \
            ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn shadow_root_accessors_reject_element_wrapper_receiver() {
+    // H-migration discriminator test (Lesson #276 / [feedback_objectkind-resolution-uniformity]).
+    //
+    // Before H-migration, `ShadowRoot` wrappers were a distinct
+    // `ObjectKind::ShadowRoot` variant and brand checks used
+    // `matches!(kind, ObjectKind::ShadowRoot)` — passing an Element
+    // wrapper (`ObjectKind::HostObject { .. }`) tripped the variant
+    // mismatch and threw immediately.  After H-migration both
+    // Element and ShadowRoot wrappers are `HostObject { entity_bits }`;
+    // the ONLY thing that distinguishes them is the engine ECS
+    // `ShadowRoot` component on the entity.  A regression that
+    // dropped the component check would let an Element wrapper
+    // silently pass the brand check.
+    //
+    // This test calls each of the 6 ShadowRoot accessors with an
+    // Element wrapper as the receiver and asserts each throws
+    // TypeError.  Locks the Phase 2 brand-check rewrite end-to-end.
+    let script = format!(
+        "{FIND_GETTER_PRELUDE}\
+         var host = document.createElement('div'); \
+         var sr = host.attachShadow({{mode: 'open'}}); \
+         var srProto = Object.getPrototypeOf(sr); \
+         var accessors = ['host','mode','delegatesFocus','slotAssignment','clonable','serializable']; \
+         var allThrew = true; \
+         var which = ''; \
+         for (var i = 0; i < accessors.length; i++) {{ \
+             var name = accessors[i]; \
+             var g = findGetter(srProto, name); \
+             if (!g) {{ allThrew = false; which = 'no-getter:' + name; break; }} \
+             var threw = false; \
+             try {{ g.call(host); }} catch (e) {{ threw = (e && e.name === 'TypeError'); }} \
+             if (!threw) {{ allThrew = false; which = name; break; }} \
+         }} \
+         allThrew ? 'ok' : 'fail:' + which;"
+    );
+    let out = run(&script);
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn html_slot_methods_reject_element_wrapper_receiver() {
+    // Sibling H-migration discriminator test for HTMLSlotElement
+    // brand checks (`assign` / `assignedNodes` / `assignedElements`).
+    // Same rationale as `shadow_root_accessors_reject_element_wrapper_receiver`:
+    // post-H both `<slot>` and any other Element are `HostObject {
+    // entity_bits }`; the slot-specific brand check must verify the
+    // engine-side `<slot>` tag (or equivalent ECS marker), not just
+    // a wrapper-kind variant.  This test calls each slot method with
+    // a non-slot Element wrapper as receiver and asserts TypeError.
+    let out = run(
+        "var s = document.createElement('slot'); \
+         var div = document.createElement('div'); \
+         var assignThrew = false; \
+         try { s.assign.call(div, s); } catch (e) { assignThrew = (e && e.name === 'TypeError'); } \
+         var nodesThrew = false; \
+         try { s.assignedNodes.call(div); } catch (e) { nodesThrew = (e && e.name === 'TypeError'); } \
+         var elementsThrew = false; \
+         try { s.assignedElements.call(div); } catch (e) { elementsThrew = (e && e.name === 'TypeError'); } \
+         (assignThrew && nodesThrew && elementsThrew) ? 'ok' \
+           : 'fail: assign=' + assignThrew + ' nodes=' + nodesThrew + ' elements=' + elementsThrew;",
+    );
     assert_eq!(out, "ok");
 }
 

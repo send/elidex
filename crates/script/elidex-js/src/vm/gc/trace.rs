@@ -420,16 +420,6 @@ pub(super) fn trace_work_list(
             // prunes entries whose key `ObjectId` was collected.
             #[cfg(feature = "engine")]
             ObjectKind::NamedNodeMap | ObjectKind::Attr => {}
-            // `ShadowRoot` carries only an `Entity` in its
-            // side-table `shadow_root_states` entry — no `ObjectId`
-            // references — so the trace step has nothing to fan
-            // out.  The `shadow_root_wrappers` identity cache is
-            // weak-through-owner like `attr_wrapper_cache`: entries
-            // are pinned only when the host element wrapper is
-            // reachable.  Sweep tail prunes entries whose
-            // wrapper `ObjectId` was collected.
-            #[cfg(feature = "engine")]
-            ObjectKind::ShadowRoot => {}
             // `DOMTokenList` / `DOMStringMap` carry only an inline
             // `entity_bits: u64` (not an `ObjectId`) and have no
             // side table — every accessor reads through to the

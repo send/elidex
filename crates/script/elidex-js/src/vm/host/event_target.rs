@@ -278,42 +278,56 @@ pub(super) fn entity_from_this(
     };
     match ctx.vm.get_object(id).kind {
         ObjectKind::HostObject { entity_bits } => elidex_ecs::Entity::from_bits(entity_bits),
-        // `ShadowRoot` wrappers are not `HostObject` (they carry no
-        // entity bits — the entity lives in `shadow_root_states`),
-        // but ParentNode mixin methods inherited from
-        // `DocumentFragment.prototype` (`prepend` / `append` /
-        // `replaceChildren` / `querySelector` / ...) expect to
-        // recover an Entity from `this`.  Resolve through the
-        // side-table here so `shadowRoot.append(el)` works without
-        // duplicating the mixin install on `ShadowRoot.prototype`.
-        ObjectKind::ShadowRoot => ctx.vm.shadow_root_states.get(&id).map(|s| s.shadow_root),
         _ => None,
     }
 }
 
 /// Test-only / brand-check helper: returns `true` when `this`
-/// resolves to a DOM wrapper (HostObject OR ShadowRoot) regardless
-/// of bind state.  Callers that need to enforce WebIDL "Illegal
-/// invocation" semantics for non-wrapper receivers (e.g.
-/// `Element.prototype.shadowRoot.call({})`) should pre-throw via
-/// this check BEFORE invoking [`require_receiver`], because
-/// `require_receiver` collapses non-wrapper receivers and unbound
-/// HostObject receivers into the same `Ok(None)` branch (the
+/// resolves to a DOM wrapper (`HostObject`) regardless of bind state.
+/// Callers that need to enforce WebIDL "Illegal invocation" semantics
+/// for non-wrapper receivers (e.g. `Element.prototype.shadowRoot.call({})`)
+/// should pre-throw via this check BEFORE invoking [`require_receiver`],
+/// because `require_receiver` collapses non-wrapper receivers and
+/// unbound HostObject receivers into the same `Ok(None)` branch (the
 /// elidex unbound-receiver policy requires silent no-op for the
 /// latter).
 ///
-/// Returns `false` for primitive receivers and for HostObject /
-/// ShadowRoot wrappers whose entity bits don't decode (impossible
-/// in practice, defensive).
+/// Returns `false` for primitive receivers and any `Object` whose
+/// kind isn't `HostObject` (Function, Array, plain Ordinary, etc.).
+/// Does NOT attempt to decode the entity bits — the pre-throw is a
+/// wrapper-kind brand check, not an entity-existence probe; callers
+/// that need entity existence run [`entity_from_this`] (which
+/// performs the decode AND the bind-state check) before invoking
+/// any DOM operation.
 #[cfg(feature = "engine")]
 pub(super) fn this_is_node_wrapper(vm: &super::super::VmInner, this: JsValue) -> bool {
     let JsValue::Object(id) = this else {
         return false;
     };
-    matches!(
-        vm.get_object(id).kind,
-        ObjectKind::HostObject { .. } | ObjectKind::ShadowRoot
-    )
+    matches!(vm.get_object(id).kind, ObjectKind::HostObject { .. })
+}
+
+/// Engine-component brand check: `entity` carries an
+/// `elidex_ecs::ShadowRoot` component in the currently-bound DOM.
+/// Returns `false` when unbound (silent — callers fall through to
+/// the standard non-shadow path).
+///
+/// This is the post-H-migration replacement for matching against
+/// `ObjectKind::ShadowRoot` ([feedback_objectkind-resolution-uniformity]).
+/// Use this whenever code needs to distinguish a shadow-root wrapper
+/// from any other DOM wrapper — both are `HostObject { entity_bits }`
+/// now, only the ECS component differentiates them.  Delegates to
+/// [`HostData::is_shadow_root_entity`] which encapsulates the
+/// unsafe `dom_ptr` deref + aliasing contract (sibling of
+/// [`HostData::is_element_entity`]).
+#[cfg(feature = "engine")]
+pub(super) fn is_shadow_root_entity(
+    vm: &super::super::VmInner,
+    entity: elidex_ecs::Entity,
+) -> bool {
+    vm.host_data
+        .as_deref()
+        .is_some_and(|hd| hd.is_shadow_root_entity(entity))
 }
 
 /// WebIDL branded receiver extraction.  Returns:

@@ -72,19 +72,19 @@ fn normalize_single_arg(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<Ent
         // doesn't go through `appendChild` / `insertBefore` /
         // `replaceChild` (which apply the same check via
         // [`super::node_proto::reject_shadow_root_insertion`]).
-        if matches!(ctx.vm.get_object(id).kind, ObjectKind::ShadowRoot) {
-            let hierarchy_request = ctx.vm.well_known.dom_exc_hierarchy_request_error;
-            return Err(VmError::dom_exception(
-                hierarchy_request,
-                "Failed to execute mixin insertion: a ShadowRoot cannot be moved into the light DOM"
-                    .to_string(),
-            ));
-        }
         let entity_opt = match ctx.vm.get_object(id).kind {
             ObjectKind::HostObject { entity_bits } => Entity::from_bits(entity_bits),
             _ => None,
         };
         if let Some(entity) = entity_opt {
+            if super::event_target::is_shadow_root_entity(ctx.vm, entity) {
+                let hierarchy_request = ctx.vm.well_known.dom_exc_hierarchy_request_error;
+                return Err(VmError::dom_exception(
+                    hierarchy_request,
+                    "Failed to execute mixin insertion: a ShadowRoot cannot be moved into the light DOM"
+                        .to_string(),
+                ));
+            }
             // A wrapper whose entity bits decode but no longer exist
             // in the DOM world is a detached / destroyed node —
             // matches `require_node_arg`'s "detached (invalid

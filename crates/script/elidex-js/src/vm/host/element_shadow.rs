@@ -61,9 +61,11 @@ pub(super) fn native_element_attach_shadow(
     // Even closed shadow roots return a wrapper from `attachShadow`
     // (the wrapper is what JS uses to populate the shadow tree); the
     // `Element.shadowRoot` getter is where the closed-mode hide
-    // semantics apply.  Cache identity by host so a subsequent
-    // `element.shadowRoot` returns the same wrapper for open mode.
-    let wrapper = ctx.vm.cached_or_alloc_shadow_root(host, shadow_root_entity);
+    // semantics apply.  Routing through `create_element_wrapper`
+    // keys identity by the shadow root's own entity via the standard
+    // `HostData::wrapper_cache` — a subsequent `element.shadowRoot`
+    // returns the same wrapper for open mode.
+    let wrapper = ctx.vm.create_element_wrapper(shadow_root_entity);
     Ok(JsValue::Object(wrapper))
 }
 
@@ -117,7 +119,7 @@ pub(super) fn native_element_get_shadow_root(
     if !is_open {
         return Ok(JsValue::Null);
     }
-    let wrapper = ctx.vm.cached_or_alloc_shadow_root(host, shadow_root_entity);
+    let wrapper = ctx.vm.create_element_wrapper(shadow_root_entity);
     Ok(JsValue::Object(wrapper))
 }
 

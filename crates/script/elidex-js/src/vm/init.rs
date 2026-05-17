@@ -133,10 +133,6 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 shadow_root_prototype: None,
                 #[cfg(feature = "engine")]
-                shadow_root_states: HashMap::new(),
-                #[cfg(feature = "engine")]
-                shadow_root_wrappers: HashMap::new(),
-                #[cfg(feature = "engine")]
                 document_fragment_prototype: None,
                 #[cfg(feature = "engine")]
                 html_slot_prototype: None,
