@@ -44,8 +44,11 @@ env = { RUSTDOCFLAGS = "-D warnings" }
 # iteration we restrict rustdoc to the set of crates with uncommitted
 # changes (vs. HEAD): a single-crate edit drops the cost from ~220s
 # to ~16s. GitHub Actions still runs the full workspace doc on every
-# PR (via `mise run doc-full`), so the trade-off — missing a
-# cross-crate intra-doc link break locally — is caught upstream.
+# PR — via raw `cargo doc --workspace --no-deps --all-features` in
+# `.github/workflows/ci.yml` (not via this mise task; CI doesn't use
+# mise) — so the trade-off, missing a cross-crate intra-doc link
+# break locally, is caught upstream. Run `mise run doc-full` locally
+# before push if you want CI parity on the same machine.
 #
 # Logic lives in `scripts/doc-changed.sh` rather than inline so the
 # POSIX-shell pipeline is parsed by an explicit `bash` shebang

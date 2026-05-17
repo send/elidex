@@ -1050,6 +1050,33 @@ mod tests {
     }
 
     #[test]
+    fn apply_set_outer_html_document_fragment_parent_uses_body_context() {
+        // PR201 Copilot R14 regression: `apply_set_outer_html` falls
+        // back to the synthetic `<body>` fragment-parse context when
+        // parent is a `DocumentFragment` (per HTML §4.4.5 — fragment
+        // parents have no tag name, so the spec uses `<body>` as the
+        // fallback context). The branch was added without a direct
+        // test; this case locks it so a future refactor cannot
+        // silently regress to e.g. `<div>` context (which would parse
+        // table-context fragments incorrectly).
+        let mut dom = EcsDom::new();
+        let frag = dom.create_document_fragment();
+        let target = elem(&mut dom, "span");
+        let _ = dom.append_child(frag, target);
+
+        let record = apply_set_outer_html(&mut dom, target, "<p>new</p>")
+            .expect("outerHTML on a DocumentFragment child should apply");
+        assert_eq!(record.removed_nodes, vec![target]);
+        assert_eq!(record.added_nodes.len(), 1, "one parsed root expected");
+        // Verify the parsed root is a `<p>` element — confirming the
+        // fragment-parse context didn't drop or restructure the input.
+        let kids = dom.children(frag);
+        assert_eq!(kids.len(), 1);
+        let tag = dom.world().get::<&elidex_ecs::TagType>(kids[0]).unwrap();
+        assert_eq!(tag.0, "p");
+    }
+
+    #[test]
     fn apply_set_outer_html_document_parent_returns_error() {
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
