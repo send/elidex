@@ -338,6 +338,15 @@ impl EcsDom {
             return Vec::new();
         };
         let slot_name = self.get_attribute(slot, "name").unwrap_or_default();
+        // Per WHATWG DOM §4.2.2.4 "find a slot", a slottable is
+        // assigned to the FIRST slot in the shadow tree (in tree
+        // order) whose name matches.  Duplicate-named slots later
+        // in tree order report no matches — early-out here keeps
+        // the per-child walk below O(host.children) instead of
+        // duplicating across N slots with the same name.
+        if self.first_named_slot_in_shadow(sr_entity, &slot_name) != Some(slot) {
+            return Vec::new();
+        }
         let mut out = Vec::new();
         for child in self.children_iter(host) {
             let kind = self.world.get::<&NodeKind>(child).map(|k| *k).ok();
@@ -354,6 +363,32 @@ impl EcsDom {
             }
         }
         out
+    }
+
+    /// Locate the first `<slot>` element in the shadow tree (rooted
+    /// at `sr`) whose `name` attribute equals `name`, in WHATWG
+    /// "tree order" (depth-first pre-order).  Returns `None` if no
+    /// slot matches.
+    ///
+    /// Used by [`Self::assigned_nodes`] to early-out for
+    /// duplicate-named slots that come after the canonical match.
+    fn first_named_slot_in_shadow(&self, sr: Entity, name: &str) -> Option<Entity> {
+        for child in self.children_iter(sr).collect::<Vec<_>>() {
+            if self
+                .world
+                .get::<&TagType>(child)
+                .is_ok_and(|t| t.0.eq_ignore_ascii_case("slot"))
+            {
+                let n = self.get_attribute(child, "name").unwrap_or_default();
+                if n == name {
+                    return Some(child);
+                }
+            }
+            if let Some(found) = self.first_named_slot_in_shadow(child, name) {
+                return Some(found);
+            }
+        }
+        None
     }
 
     /// Locate the host Element for a `<slot>` by walking up to the

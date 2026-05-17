@@ -423,6 +423,16 @@ pub(crate) struct VmInner {
     /// per the spec's "signal slots" ordered-set semantics.
     #[cfg(feature = "engine")]
     pub(crate) pending_slot_change_signals: std::collections::VecDeque<elidex_ecs::Entity>,
+    /// Coalescing flag for the "notify mutation observers" microtask
+    /// (WHATWG DOM §4.3.4 step 1).  Set to `true` when
+    /// [`super::host::html_slot_proto::VmInner::signal_slot_change`]
+    /// enqueues the first signal of a tick and resets to `false`
+    /// when the microtask dispatches.  Ensures exactly one
+    /// `slotchange` checkpoint per microtask burst, ordered at
+    /// signal time relative to subsequent `Promise.then` callbacks
+    /// (NOT at drain-tail).
+    #[cfg(feature = "engine")]
+    pub(crate) mutation_observer_microtask_queued: bool,
     /// Identity cache for `DOMTokenList` wrappers backing
     /// `Element.classList` (WHATWG DOM §3.5).  Keyed by owner
     /// `Entity`; a hit returns the same `ObjectId` so

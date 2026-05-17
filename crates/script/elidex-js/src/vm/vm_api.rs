@@ -557,7 +557,14 @@ impl Vm {
             // their entities live in the old world, so firing
             // slotchange post-rebind would either resolve to a
             // recycled slot or panic in `dom_shared().contains`.
+            // Clearing the coalescing flag too so the next signal
+            // in the rebound VM enqueues a fresh notify-MO
+            // microtask (an in-queue `NotifyMutationObservers`
+            // microtask from the previous tick would otherwise
+            // dispatch against the empty signal list — benign, but
+            // the flag must agree with the queue state).
             self.inner.pending_slot_change_signals.clear();
+            self.inner.mutation_observer_microtask_queued = false;
             // Cached `localStorage` / `sessionStorage` Storage
             // wrappers carry no per-DOM Entity, but the area-side
             // origin lookup goes through `VmInner::navigation` which

@@ -143,6 +143,8 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 pending_slot_change_signals: std::collections::VecDeque::new(),
                 #[cfg(feature = "engine")]
+                mutation_observer_microtask_queued: false,
+                #[cfg(feature = "engine")]
                 class_list_wrapper_cache: HashMap::new(),
                 #[cfg(feature = "engine")]
                 dataset_wrapper_cache: HashMap::new(),

@@ -643,6 +643,11 @@ pub(super) fn mark_roots(
         Microtask::Callback { func } => {
             mark_object(*func, obj_marks, work);
         }
+        // No GC-traceable payload — the variant references
+        // `VmInner::pending_slot_change_signals` (entity bits, not
+        // ObjectIds) via the dispatch path, not via the queued
+        // task itself.
+        Microtask::NotifyMutationObservers => {}
     };
     for task in roots.microtask_queue {
         mark_microtask(task, obj_marks, work);

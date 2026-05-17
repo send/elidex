@@ -48,6 +48,15 @@ pub(crate) enum Microtask {
     /// drain loop (spec: "If the callback throws an exception, report the
     /// exception.").
     Callback { func: ObjectId },
+    /// WHATWG DOM §4.3.4 "notify mutation observers" microtask —
+    /// coalesced per-tick by [`VmInner::mutation_observer_microtask_queued`].
+    /// When dispatched, snapshots the signal-slots set and fires a
+    /// `slotchange` Event at each (D-15 PR-A wires the slotchange
+    /// half; MutationObserver callbacks remain embedder-driven via
+    /// `Vm::deliver_mutation_records`).  Ordering relative to
+    /// `Promise.then` reactions matches the spec: the microtask is
+    /// enqueued at signal time, not at drain-tail.
+    NotifyMutationObservers,
 }
 
 // ---------------------------------------------------------------------------
@@ -267,7 +276,12 @@ impl VmInner {
             return;
         }
         self.microtask_drain_depth += 1;
-        // Pass 1 — drain the existing microtask queue.
+        // Drain the queue in FIFO order.  `NotifyMutationObservers`
+        // microtasks (queued at signal time, not at drain-tail) are
+        // interleaved naturally with `PromiseReaction` / `Callback`
+        // entries so `Promise.then` callbacks queued AFTER a
+        // `slot.assign()` observe the post-slotchange state, while
+        // those queued BEFORE the signal still fire first.
         drain_queue_pass(self);
         // End-of-drain: dispatch a `PromiseRejectionEvent` to the
         // document's `unhandledrejection` listeners (HTML §8.1.5.5
@@ -275,25 +289,6 @@ impl VmInner {
         // `eprintln!` when no listener calls `preventDefault`.  Wired
         // in PR3 C10.
         process_pending_rejections(self);
-        // Notify mutation observers (slotchange fan-out) per WHATWG
-        // DOM §4.3.4.  The full spec-correct MO microtask path is
-        // embedder-driven (`Vm::deliver_mutation_records`); firing
-        // here matches the observable timing for script-initiated
-        // assignments.  Exactly ONE notify-MO per checkpoint per
-        // spec — slots signaled by a listener body stay queued for
-        // the next checkpoint.
-        #[cfg(feature = "engine")]
-        let fired_any = super::host::html_slot_proto::dispatch_pending_slotchange_signals(self) > 0;
-        #[cfg(not(feature = "engine"))]
-        let fired_any = false;
-        // Pass 2 — drain microtasks queued by slotchange listeners
-        // (e.g. `Promise.resolve().then(cb)` inside a listener body).
-        // Per spec, those run within the SAME checkpoint, not the
-        // next one.
-        if fired_any {
-            drain_queue_pass(self);
-            process_pending_rejections(self);
-        }
         self.microtask_drain_depth -= 1;
     }
 }
@@ -323,6 +318,18 @@ fn drain_queue_pass(vm: &mut VmInner) {
             }
             Microtask::Callback { func } => {
                 run_callback(vm, func);
+            }
+            Microtask::NotifyMutationObservers => {
+                // Per WHATWG DOM §4.3.4 step 1: clear the queued
+                // flag BEFORE dispatch so a signal raised during
+                // the slotchange listener body (re-entrant
+                // `slot.assign()`) enqueues a fresh microtask for
+                // the next checkpoint.
+                #[cfg(feature = "engine")]
+                {
+                    vm.mutation_observer_microtask_queued = false;
+                    super::host::html_slot_proto::dispatch_pending_slotchange_signals(vm);
+                }
             }
         }
         vm.current_microtask = None;

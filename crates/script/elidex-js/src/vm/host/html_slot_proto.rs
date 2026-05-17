@@ -46,15 +46,27 @@ use super::super::VmInner;
 use super::dom_bridge::{coerce_first_arg_to_string_id, invoke_dom_api, wrap_entities_as_array};
 
 impl VmInner {
-    /// Append `slot` to the signal-slots set (WHATWG DOM §4.2.2.5
-    /// "signal a slot change").  Deduplicated linear scan — the set
-    /// is typically tiny (a handful of slots per microtask burst) so
-    /// avoiding `HashSet` overhead pays off in the common case.
+    /// Append `slot` to the signal-slots set and ensure the
+    /// "notify mutation observers" microtask is queued (WHATWG DOM
+    /// §4.2.2.5 + §4.3.4 step 1).  Deduplicated linear scan — the
+    /// set is typically tiny (a handful of slots per microtask
+    /// burst) so avoiding `HashSet` overhead pays off in the common
+    /// case.  The microtask is coalesced via
+    /// [`Self::mutation_observer_microtask_queued`]: the first signal
+    /// of a tick enqueues a `Microtask::NotifyMutationObservers`;
+    /// subsequent signals piggy-back on the same checkpoint without
+    /// re-enqueuing.  Ordering with `Promise.then` reactions is
+    /// preserved because the microtask lands in `microtask_queue`
+    /// at signal time, NOT at drain-tail.
     pub(crate) fn signal_slot_change(&mut self, slot: Entity) {
-        if self.pending_slot_change_signals.contains(&slot) {
-            return;
+        if !self.pending_slot_change_signals.contains(&slot) {
+            self.pending_slot_change_signals.push_back(slot);
         }
-        self.pending_slot_change_signals.push_back(slot);
+        if !self.mutation_observer_microtask_queued {
+            self.mutation_observer_microtask_queued = true;
+            self.microtask_queue
+                .push_back(super::super::natives_promise::Microtask::NotifyMutationObservers);
+        }
     }
 
     /// Allocate `HTMLSlotElement.prototype` chained to

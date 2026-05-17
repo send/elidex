@@ -603,11 +603,17 @@ fn slotchange_listener_promise_then_runs_in_same_checkpoint() {
 }
 
 #[test]
-fn slotchange_signal_during_dispatch_defers_to_next_checkpoint() {
-    // R1 finding #4: `signal_slots` is snapshotted before dispatch;
-    // a `slot.assign()` from inside a slotchange listener body
-    // queues for the next checkpoint, not re-entrantly in the same
-    // dispatch.
+fn slotchange_signal_during_dispatch_runs_in_same_drain() {
+    // Per WHATWG DOM §4.3.4: each "notify mutation observers"
+    // microtask snapshots the signal-slots set before dispatching
+    // its slotchange events.  A `slot.assign()` from inside a
+    // listener body re-arms the coalescing flag and enqueues a NEW
+    // `NotifyMutationObservers` microtask in the same drain pass —
+    // so both slot1 and slot2 fire within the same eval boundary,
+    // each through its own microtask checkpoint.  Earlier impl
+    // (R1 snapshot-only at drain tail) incorrectly deferred slot2
+    // to the next eval; R5 microtask-queue-ordering fix made the
+    // spec-correct behavior observable.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -616,8 +622,6 @@ fn slotchange_signal_during_dispatch_defers_to_next_checkpoint() {
     unsafe {
         bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
-    // First eval: install listener that signals slot2 the FIRST
-    // time slot1's slotchange fires; both slots assigned initially.
     vm.eval(
         "globalThis.fired = []; globalThis.reentered = false; \
          var host = document.createElement('div'); \
@@ -641,28 +645,56 @@ fn slotchange_signal_during_dispatch_defers_to_next_checkpoint() {
          globalThis.slot1.assign(c1);",
     )
     .unwrap();
-    // After first eval: slot1 fires (recorded 's1'), then re-entered
-    // dispatch attempts slot2 — but spec says snapshot-then-drain,
-    // so slot2 signal lands on next checkpoint.  Force the next
-    // checkpoint via a second eval boundary.
-    let after_first = vm.eval("globalThis.fired.join(',')").unwrap();
-    let JsValue::String(sid) = after_first else {
-        panic!("expected string after first eval, got {after_first:?}");
-    };
-    let first_observed = vm.inner.strings.get_utf8(sid);
-    let after_second = vm.eval("globalThis.fired.join(',')").unwrap();
-    let JsValue::String(sid2) = after_second else {
-        panic!("expected string after second eval, got {after_second:?}");
-    };
-    let second_observed = vm.inner.strings.get_utf8(sid2);
+    let observed = vm.eval("globalThis.fired.join(',')").unwrap();
     vm.unbind();
+    let JsValue::String(sid) = observed else {
+        panic!("expected string, got {observed:?}");
+    };
+    let s = vm.inner.strings.get_utf8(sid);
     assert_eq!(
-        first_observed, "s1",
-        "first checkpoint should fire only the originally-signaled slot1"
+        s, "s1,s2",
+        "snapshot-and-re-enqueue: slot1 fires first, listener signals \
+         slot2 which queues a fresh notify-MO microtask in same drain"
     );
+}
+
+#[test]
+fn slotchange_ordered_in_microtask_queue_at_signal_time() {
+    // R5 finding #4: the `NotifyMutationObservers` microtask is
+    // enqueued at signal time (inside `signal_slot_change`), not at
+    // drain-tail.  A `Promise.then(cb)` registered AFTER the
+    // `slot.assign()` observes the post-slotchange state; one
+    // registered BEFORE the assign still fires first.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval(
+        "globalThis.order = []; \
+         var host = document.createElement('div'); \
+         document.body.appendChild(host); \
+         var c = document.createElement('span'); host.appendChild(c); \
+         var sr = host.attachShadow({mode: 'open', slotAssignment: 'manual'}); \
+         var slot = document.createElement('slot'); sr.append(slot); \
+         slot.addEventListener('slotchange', function () { globalThis.order.push('sc'); }); \
+         Promise.resolve().then(function () { globalThis.order.push('before'); }); \
+         slot.assign(c); \
+         Promise.resolve().then(function () { globalThis.order.push('after'); });",
+    )
+    .unwrap();
+    let observed = vm.eval("globalThis.order.join(',')").unwrap();
+    vm.unbind();
+    let JsValue::String(sid) = observed else {
+        panic!("expected string, got {observed:?}");
+    };
+    let s = vm.inner.strings.get_utf8(sid);
     assert_eq!(
-        second_observed, "s1,s2",
-        "next checkpoint should pick up slot2 signaled by listener"
+        s, "before,sc,after",
+        "notify-MO microtask interleaves with Promise reactions at signal time"
     );
 }
 
