@@ -125,6 +125,17 @@ fn require_slot_receiver(
     this: JsValue,
     method: &str,
 ) -> Result<Option<Entity>, VmError> {
+    // Pre-throw for non-wrapper receivers (`{}` / primitives /
+    // unrelated Object) so the WebIDL brand check fires before
+    // falling into the unbound-wrapper silent-no-op branch.
+    // `require_receiver`'s `Ok(None)` collapses non-wrapper AND
+    // unbound-wrapper into one case; only the latter should silent-
+    // no-op per the elidex unbound-receiver policy.
+    if !super::event_target::this_is_node_wrapper(ctx.vm, this) {
+        return Err(VmError::type_error(format!(
+            "Failed to execute '{method}' on 'HTMLSlotElement': Illegal invocation"
+        )));
+    }
     let Some(entity) =
         super::event_target::require_receiver(ctx, this, "HTMLSlotElement", method, |k| {
             k == NodeKind::Element

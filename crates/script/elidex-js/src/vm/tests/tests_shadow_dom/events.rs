@@ -547,10 +547,15 @@ fn unbind_clears_pending_notify_mutation_observers_microtask() {
     // R9 finding #1: a queued `NotifyMutationObservers` microtask
     // must NOT survive `Vm::unbind`.  If it did, a fresh signal
     // after rebind would dispatch behind any Promise microtasks
-    // queued in the new tick (wrong ordering).  Verified directly:
-    // signal a slot (queues the notify-MO microtask), unbind, then
-    // confirm the microtask queue contains no `NotifyMutationObservers`
-    // entry.
+    // queued in the new tick (wrong ordering).
+    //
+    // The eval-based path can't exercise this because `vm.eval`
+    // drains the microtask queue at its post-script checkpoint —
+    // the queue is empty before `unbind()` runs and the assertion
+    // is trivially true (R11 finding #2 gate-disabled regression).
+    // Instead, queue the signal directly via `signal_slot_change`
+    // (no drain), assert the task IS present, then unbind, then
+    // assert it's gone.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -559,21 +564,37 @@ fn unbind_clears_pending_notify_mutation_observers_microtask() {
     unsafe {
         bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
-    let _ = vm
-        .eval(&format!(
-            "{MANUAL_SLOT_PRELUDE} globalThis.slot.assign(globalThis.child);"
-        ))
-        .unwrap();
+    // Use the document entity itself as the signal target —
+    // `signal_slot_change` is content-agnostic (just appends an
+    // Entity to the queue and coalesces the microtask).  The
+    // unbind-clear path doesn't care whether the entity is a real
+    // <slot> tag.
+    vm.inner.signal_slot_change(doc);
+    assert!(
+        vm.inner.microtask_queue.iter().any(|t| matches!(
+            t,
+            super::super::super::natives_promise::Microtask::NotifyMutationObservers
+        )),
+        "signal_slot_change must enqueue NotifyMutationObservers before unbind"
+    );
+    assert!(
+        vm.inner.mutation_observer_microtask_queued,
+        "coalescing flag should be set after signal"
+    );
     vm.unbind();
     assert!(
         !vm.inner.microtask_queue.iter().any(|t| matches!(
             t,
             super::super::super::natives_promise::Microtask::NotifyMutationObservers
         )),
-        "no stale NotifyMutationObservers microtask should survive unbind"
+        "queued NotifyMutationObservers microtask must NOT survive unbind"
     );
     assert!(
         !vm.inner.mutation_observer_microtask_queued,
         "coalescing flag should be cleared on unbind"
+    );
+    assert!(
+        vm.inner.pending_slot_change_signals.is_empty(),
+        "signal-slots set should be cleared on unbind"
     );
 }

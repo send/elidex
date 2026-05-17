@@ -81,6 +81,17 @@ pub(super) fn native_element_get_shadow_root(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    // Pre-throw for non-wrapper receivers (`{}` / primitives /
+    // unrelated Object) so the spec's WebIDL brand check fires
+    // before falling into the unbound-wrapper silent-null branch.
+    // `require_receiver`'s `Ok(None)` covers both cases (non-wrapper
+    // AND unbound wrapper), but only the latter should silent-null
+    // per the elidex unbound-receiver policy.
+    if !super::event_target::this_is_node_wrapper(ctx.vm, this) {
+        return Err(VmError::type_error(
+            "Failed to execute 'shadowRoot' on 'Element': Illegal invocation".to_string(),
+        ));
+    }
     let Some(host) =
         super::event_target::require_receiver(ctx, this, "Element", "shadowRoot", |k| {
             k == elidex_ecs::NodeKind::Element

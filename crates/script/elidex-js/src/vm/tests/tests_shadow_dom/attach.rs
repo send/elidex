@@ -378,6 +378,57 @@ fn attach_shadow_on_non_element_receiver_throws_type_error() {
 }
 
 #[test]
+fn shadow_root_getter_on_non_wrapper_receiver_throws_type_error() {
+    // R11 finding #1: `Element.prototype.shadowRoot.get.call({})`
+    // (plain Object — not a DOM HostObject) must throw "Illegal
+    // invocation" TypeError per WebIDL brand-check semantics.
+    // Previously returned `null` because `require_receiver` lumps
+    // non-wrapper and unbound-wrapper into the same `Ok(None)`
+    // branch; new `this_is_node_wrapper` pre-check distinguishes
+    // them.
+    let out = run("var host = document.createElement('div'); \
+         function findGetter(obj, prop) { \
+             while (obj) { \
+                 var d = Object.getOwnPropertyDescriptor(obj, prop); \
+                 if (d && d.get) return d.get; \
+                 obj = Object.getPrototypeOf(obj); \
+             } \
+             return null; \
+         } \
+         var getter = findGetter(host, 'shadowRoot'); \
+         var caught_plain = null; \
+         try { getter.call({}); } catch (e) { caught_plain = e; } \
+         var caught_prim = null; \
+         try { getter.call(42); } catch (e) { caught_prim = e; } \
+         (caught_plain && caught_plain.name === 'TypeError' \
+          && caught_prim && caught_prim.name === 'TypeError') \
+           ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn html_slot_methods_on_non_wrapper_receiver_throw_type_error() {
+    // R11 finding #3: `HTMLSlotElement.prototype.assign.call({})`
+    // (and `assignedNodes` / `assignedElements`) must throw
+    // "Illegal invocation" TypeError per WebIDL brand-check
+    // semantics — `require_slot_receiver` now pre-throws for
+    // non-wrapper receivers instead of silently returning
+    // default (empty array / no-op).
+    let out = run("var s = document.createElement('slot'); \
+         var caught_assign = null; \
+         try { s.assign.call({}, s); } catch (e) { caught_assign = e; } \
+         var caught_nodes = null; \
+         try { s.assignedNodes.call({}); } catch (e) { caught_nodes = e; } \
+         var caught_elements = null; \
+         try { s.assignedElements.call(42); } catch (e) { caught_elements = e; } \
+         (caught_assign && caught_assign.name === 'TypeError' \
+          && caught_nodes && caught_nodes.name === 'TypeError' \
+          && caught_elements && caught_elements.name === 'TypeError') \
+           ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn shadow_root_getter_on_non_element_receiver_throws_type_error() {
     // R8 finding #1: `Element.shadowRoot` is a WebIDL Element
     // attribute, so the getter brand-checks the receiver per spec.
