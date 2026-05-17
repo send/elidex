@@ -5,8 +5,12 @@
 
 use std::fmt;
 
-use elidex_ecs::{Attributes, EcsDom, Entity, InlineStyle};
+use elidex_ecs::{
+    Attributes, EcsDom, Entity, InlineStyle, ShadowInit, ShadowRootMode, SlotAssignmentMode,
+};
 use markup5ever_rcdom::{Handle, NodeData, RcDom};
+
+use crate::ParseFragmentOptions;
 
 /// Result of parsing an HTML document.
 ///
@@ -38,7 +42,12 @@ impl fmt::Debug for ParseResult {
 pub(crate) fn convert_document(rc_dom: RcDom) -> ParseResult {
     let mut dom = EcsDom::new();
     let document = dom.create_document_root();
-    convert_children(&rc_dom.document, document, &mut dom);
+    convert_children(
+        &rc_dom.document,
+        document,
+        &mut dom,
+        ParseFragmentOptions::default(),
+    );
     let errors = rc_dom
         .errors
         .into_inner()
@@ -53,9 +62,20 @@ pub(crate) fn convert_document(rc_dom: RcDom) -> ParseResult {
     }
 }
 
-fn convert_children(rc_handle: &Handle, parent: Entity, dom: &mut EcsDom) {
+fn convert_children(
+    rc_handle: &Handle,
+    parent: Entity,
+    dom: &mut EcsDom,
+    opts: ParseFragmentOptions,
+) {
     for child in &*rc_handle.children.borrow() {
-        if let Some(entity) = convert_node(child, dom) {
+        if opts.allow_declarative_shadow && try_attach_declarative_shadow(child, parent, dom, opts)
+        {
+            // Template was consumed as declarative shadow root markup;
+            // the host entity already received the new shadow tree.
+            continue;
+        }
+        if let Some(entity) = convert_node(child, dom, opts) {
             let ok = dom.append_child(parent, entity);
             debug_assert!(ok, "append_child failed during RcDom conversion");
         }
@@ -70,16 +90,113 @@ pub(crate) fn convert_fragment_children(
     rc_handle: &Handle,
     parent: Entity,
     dom: &mut EcsDom,
+    opts: ParseFragmentOptions,
 ) -> Vec<Entity> {
     let mut created = Vec::new();
     for child in &*rc_handle.children.borrow() {
-        if let Some(entity) = convert_node(child, dom) {
+        if opts.allow_declarative_shadow && try_attach_declarative_shadow(child, parent, dom, opts)
+        {
+            // Template was consumed as a declarative shadow root; no
+            // child entity is created in the light tree.
+            continue;
+        }
+        if let Some(entity) = convert_node(child, dom, opts) {
             if dom.append_child(parent, entity) {
                 created.push(entity);
             }
         }
     }
     created
+}
+
+/// HTML §4.13.3 declarative shadow DOM hook.
+///
+/// When the parser encounters a `<template shadowrootmode="open|closed">`
+/// child of `parent`, attach a shadow root to `parent` and route the
+/// template's content into the new shadow tree. Returns `true` when the
+/// template was consumed (caller must skip the standard element-creation
+/// path); returns `false` when the child is not a declarative shadow
+/// template, when the attach was rejected (host tag not allowed, host
+/// already has a shadow root — silent fallback per spec), or when the
+/// `shadowrootmode` value is unrecognised.
+fn try_attach_declarative_shadow(
+    rc_handle: &Handle,
+    parent: Entity,
+    dom: &mut EcsDom,
+    opts: ParseFragmentOptions,
+) -> bool {
+    let NodeData::Element {
+        name,
+        attrs,
+        template_contents,
+        ..
+    } = &rc_handle.data
+    else {
+        return false;
+    };
+    if name.local.as_ref() != "template" {
+        return false;
+    }
+    let attrs = attrs.borrow();
+    let mode_attr = attrs
+        .iter()
+        .find(|a| a.name.local.as_ref() == "shadowrootmode")
+        .map(|a| a.value.as_ref());
+    let Some(mode_str) = mode_attr else {
+        return false;
+    };
+    // HTML §2.3.9: enumerated attribute values are ASCII-case-insensitive.
+    let mode = if mode_str.eq_ignore_ascii_case("open") {
+        ShadowRootMode::Open
+    } else if mode_str.eq_ignore_ascii_case("closed") {
+        ShadowRootMode::Closed
+    } else {
+        return false;
+    };
+    let delegates_focus = attrs
+        .iter()
+        .any(|a| a.name.local.as_ref() == "shadowrootdelegatesfocus");
+    let clonable = attrs
+        .iter()
+        .any(|a| a.name.local.as_ref() == "shadowrootclonable");
+    let serializable = attrs
+        .iter()
+        .any(|a| a.name.local.as_ref() == "shadowrootserializable");
+    let slot_assignment = attrs
+        .iter()
+        .find(|a| a.name.local.as_ref() == "shadowrootslotassignment")
+        .and_then(|a| {
+            if a.value.eq_ignore_ascii_case("manual") {
+                Some(SlotAssignmentMode::Manual)
+            } else if a.value.eq_ignore_ascii_case("named") {
+                Some(SlotAssignmentMode::Named)
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default();
+    drop(attrs);
+    let init = ShadowInit {
+        mode,
+        delegates_focus,
+        slot_assignment,
+        clonable,
+        serializable,
+    };
+    // Spec §4.13.3 silently leaves the template as a normal element when
+    // attach fails (e.g. parent tag not allowlisted, or parent already has
+    // a shadow root from an earlier declarative template). Returning false
+    // routes the caller into the standard element-creation path.
+    let Ok(shadow_root) = dom.attach_shadow_with_init(parent, init) else {
+        return false;
+    };
+    // The template's content lives in `template_contents` (a
+    // DocumentFragment-like handle), not its direct `children`, per
+    // html5ever's RcDom representation.
+    if let Some(contents) = template_contents.borrow().clone() {
+        convert_children(&contents, shadow_root, dom, opts);
+    }
+    true
 }
 
 /// Build element attributes and extract inline style from an element handle.
@@ -101,7 +218,7 @@ fn build_element_data(handle: &Handle) -> Option<(String, Attributes, Option<Inl
     Some((tag, attributes, inline_style))
 }
 
-fn convert_node(handle: &Handle, dom: &mut EcsDom) -> Option<Entity> {
+fn convert_node(handle: &Handle, dom: &mut EcsDom, opts: ParseFragmentOptions) -> Option<Entity> {
     match &handle.data {
         NodeData::Element { .. } => {
             let (tag, attributes, inline_style) = build_element_data(handle)?;
@@ -135,7 +252,7 @@ fn convert_node(handle: &Handle, dom: &mut EcsDom) -> Option<Entity> {
                 };
                 let _ = dom.world_mut().insert_one(entity, iframe_data);
             }
-            convert_children(handle, entity, dom);
+            convert_children(handle, entity, dom, opts);
             Some(entity)
         }
         NodeData::Text { contents } => {

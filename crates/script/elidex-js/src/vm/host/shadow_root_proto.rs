@@ -113,6 +113,28 @@ impl VmInner {
             None,
             shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );
+        // innerHTML mixin: HTML §4.4.5 / §4.4.6 / §4.4.7 — the shared
+        // native bodies (closure-keyed brand checks) live in
+        // [`super::dom_inner_html`].
+        self.install_accessor_pair(
+            proto_id,
+            self.well_known.inner_html,
+            super::dom_inner_html::native_shadow_root_get_inner_html,
+            Some(super::dom_inner_html::native_shadow_root_set_inner_html),
+            shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
+        self.install_native_method(
+            proto_id,
+            self.well_known.set_html_unsafe,
+            super::dom_inner_html::native_shadow_root_set_html_unsafe,
+            shape::PropertyAttrs::METHOD,
+        );
+        self.install_native_method(
+            proto_id,
+            self.well_known.get_html,
+            super::dom_inner_html::native_shadow_root_get_html,
+            shape::PropertyAttrs::METHOD,
+        );
     }
 }
 

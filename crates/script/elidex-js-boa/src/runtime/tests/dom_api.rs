@@ -273,8 +273,13 @@ fn parse_html_fragment_basic() {
     let div = dom.create_element("div", Attributes::default());
     let _ = dom.append_child(root, div);
 
-    let nodes =
-        elidex_html_parser::parse_html_fragment("<p>hello</p><p>world</p>", "div", div, &mut dom);
+    let nodes = elidex_html_parser::parse_html_fragment(
+        "<p>hello</p><p>world</p>",
+        "div",
+        div,
+        &mut dom,
+        elidex_html_parser::ParseFragmentOptions::default(),
+    );
 
     assert_eq!(nodes.len(), 2, "should parse 2 <p> elements");
     // Verify first child is a <p>.

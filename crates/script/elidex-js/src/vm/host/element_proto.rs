@@ -101,6 +101,7 @@ impl VmInner {
         self.install_parent_node_mixin(proto_id);
         self.install_element_matches(proto_id);
         self.install_element_shadow_dom(proto_id);
+        self.install_element_inner_html(proto_id);
     }
 
     /// Install `attachShadow` method + `shadowRoot` accessor on
@@ -122,6 +123,40 @@ impl VmInner {
             super::element_shadow::native_element_get_shadow_root,
             None,
             shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
+    }
+
+    /// Install `innerHTML` / `outerHTML` accessors + `setHTMLUnsafe`
+    /// and `getHTML` methods on `Element.prototype` (WHATWG HTML
+    /// §4.4.5 / §4.4.6 / §4.4.7).  ShadowRoot's parallel set installs
+    /// from [`super::shadow_root_proto`]; the shared native bodies
+    /// live in [`super::dom_inner_html`].
+    fn install_element_inner_html(&mut self, proto_id: ObjectId) {
+        self.install_accessor_pair(
+            proto_id,
+            self.well_known.inner_html,
+            super::dom_inner_html::native_element_get_inner_html,
+            Some(super::dom_inner_html::native_element_set_inner_html),
+            shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
+        self.install_accessor_pair(
+            proto_id,
+            self.well_known.outer_html,
+            super::dom_inner_html::native_element_get_outer_html,
+            Some(super::dom_inner_html::native_element_set_outer_html),
+            shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
+        self.install_native_method(
+            proto_id,
+            self.well_known.set_html_unsafe,
+            super::dom_inner_html::native_element_set_html_unsafe,
+            shape::PropertyAttrs::METHOD,
+        );
+        self.install_native_method(
+            proto_id,
+            self.well_known.get_html,
+            super::dom_inner_html::native_element_get_html,
+            shape::PropertyAttrs::METHOD,
         );
     }
 

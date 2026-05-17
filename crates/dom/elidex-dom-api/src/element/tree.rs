@@ -3,7 +3,8 @@
 use elidex_ecs::{EcsDom, Entity, TextContent};
 use elidex_plugin::JsValue;
 use elidex_script_session::{
-    DomApiError, DomApiErrorKind, DomApiHandler, JsObjectRef, Mutation, SessionCore,
+    apply_set_inner_html, DomApiError, DomApiErrorKind, DomApiHandler, JsObjectRef, Mutation,
+    SessionCore, SetInnerHtmlOptions,
 };
 
 use crate::util::{not_found_error, require_object_ref_arg, require_string_arg};
@@ -385,8 +386,12 @@ const RAW_TEXT_ELEMENTS: &[&str] = &[
 
 /// `element.innerHTML` setter — replaces children with parsed HTML.
 ///
-/// Records a `Mutation::SetInnerHtml` which is applied during `session.flush()`.
-/// The mutation handles fragment parsing, child removal, and new child insertion.
+/// Invokes [`apply_set_inner_html`] directly so the mutation is applied
+/// synchronously rather than queued (CLAUDE.md layering mandate: DOM
+/// mutation algorithm lives engine-indep, and `setInnerHtml` callers
+/// expect post-call DOM reads to see the new children). The
+/// `Mutation::SetInnerHtml` queue variant is retained for any future
+/// buffered-mutation caller but is no longer routed through here.
 pub struct SetInnerHtml;
 
 impl DomApiHandler for SetInnerHtml {
@@ -398,14 +403,14 @@ impl DomApiHandler for SetInnerHtml {
         &self,
         this: Entity,
         args: &[JsValue],
-        session: &mut SessionCore,
-        _dom: &mut EcsDom,
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let html = match args.first() {
             Some(JsValue::String(s)) => s.clone(),
             _ => String::new(),
         };
-        session.record_mutation(Mutation::SetInnerHtml { entity: this, html });
+        let _ = apply_set_inner_html(dom, this, &html, SetInnerHtmlOptions::default());
         Ok(JsValue::Undefined)
     }
 }
@@ -495,16 +500,71 @@ impl DomApiHandler for GetInnerHtml {
     }
 }
 
-/// Serialize children of an entity to HTML.
+/// Serialize children of an entity to HTML using the default options
+/// (matches plain `innerHTML` / `outerHTML` getter behaviour — shadow
+/// roots are skipped to preserve encapsulation per WHATWG DOM §4.8).
 pub fn serialize_inner_html(entity: Entity, dom: &EcsDom) -> String {
+    serialize_inner_html_with_options(entity, dom, &SerializeOptions::default())
+}
+
+/// Serialize `entity` itself plus its descendants — opening tag with
+/// attributes, recursive child serialization, closing tag. Shadow
+/// roots remain skipped per default `SerializeOptions`; for `getHTML`
+/// callers needing shadow visibility, the entity tag is serialized
+/// here and the inner content is routed through
+/// [`serialize_inner_html_with_options`] separately.
+pub fn serialize_outer_html(entity: Entity, dom: &EcsDom) -> String {
     let mut html = String::new();
+    serialize_node(entity, dom, &mut html, false, &SerializeOptions::default());
+    html
+}
+
+/// Options controlling shadow root visibility for [`serialize_inner_html_with_options`].
+///
+/// Per HTML §4.4.6 `Element.getHTML(options)` / `ShadowRoot.getHTML(options)`:
+/// - `serializable_shadow_roots: true` emits a `<template shadowrootmode>`
+///   element for any shadow root whose host is currently being serialized
+///   AND whose `serializable` flag is set.
+/// - `explicit_shadow_roots` is a set of shadow root entities that must
+///   ALWAYS be emitted regardless of their `serializable` flag or mode
+///   ("closed" included) — matches the spec's "regardless of whether or
+///   not they are marked as serializable" clause.
+#[derive(Default, Clone, Debug)]
+pub struct SerializeOptions {
+    /// When true, serialize each visited shadow root whose `serializable`
+    /// flag is set as a declarative `<template shadowrootmode>` child of
+    /// its host (HTML §13.5 fragment-serialization with shadow roots).
+    pub serializable_shadow_roots: bool,
+    /// Force-emit declarative templates for these shadow root entities
+    /// regardless of their `serializable` flag or `mode` (open/closed).
+    pub explicit_shadow_roots: std::collections::HashSet<Entity>,
+}
+
+/// Serialize children of `entity` to HTML, honouring `opts` for shadow
+/// root visibility. Equivalent to [`serialize_inner_html`] when `opts`
+/// is the default.
+///
+/// Per HTML §13.5 fragment serialization with shadow roots, when
+/// `entity` is itself a shadow host whose shadow root should be
+/// emitted (see [`SerializeOptions`]), the declarative
+/// `<template shadowrootmode>` is written *first*, ahead of the
+/// light-tree children. This ordering matches the spec's "shadow
+/// roots are serialized as the first child of their host" rule and
+/// makes `setHTMLUnsafe(host.getHTML(opts))` round-trip correctly.
+pub fn serialize_inner_html_with_options(
+    entity: Entity,
+    dom: &EcsDom,
+    opts: &SerializeOptions,
+) -> String {
+    let mut html = String::new();
+    emit_own_shadow_root_if_needed(entity, dom, &mut html, opts);
     let raw_text = dom
         .world()
         .get::<&TagType>(entity)
         .ok()
         .is_some_and(|tag| RAW_TEXT_ELEMENTS.contains(&tag.0.as_str()));
     for child in dom.children_iter(entity) {
-        serialize_node(child, dom, &mut html, raw_text);
+        serialize_node(child, dom, &mut html, raw_text, opts);
     }
     html
 }
@@ -524,16 +584,88 @@ fn is_safe_attr_name(name: &str) -> bool {
             .all(|b| b != b'"' && b != b'>' && b != b'<' && b != b'=' && !b.is_ascii_whitespace())
 }
 
-fn serialize_node(entity: Entity, dom: &EcsDom, html: &mut String, in_raw_text: bool) {
-    // WHATWG DOM §4.8 + HTML §2.7.3: shadow root contents are encapsulated
-    // and excluded from the default `innerHTML` / `outerHTML` serialization.
-    // (`getHTML({serializableShadowRoots})` opt-in serialization lands in a
-    // follow-up slot — see `#11-shadow-get-html-options`.)  Without this
-    // skip, calling `host.innerHTML` would leak closed-shadow content via
-    // the existing serializer, breaching encapsulation.
-    if dom.world().get::<&elidex_ecs::ShadowRoot>(entity).is_ok() {
+/// Decide whether to emit a given shadow root as a declarative template.
+/// `explicit` overrides both the `serializable` and `mode` filters (spec:
+/// "regardless of whether or not they are marked as serializable").
+fn shadow_root_should_emit(
+    sr: Entity,
+    sr_component: &elidex_ecs::ShadowRoot,
+    opts: &SerializeOptions,
+) -> bool {
+    if opts.explicit_shadow_roots.contains(&sr) {
+        return true;
+    }
+    opts.serializable_shadow_roots && sr_component.serializable
+}
+
+/// Shared helper: if `entity` is a shadow host and the host's shadow
+/// root meets `opts`'s emission criteria, append a declarative
+/// `<template shadowrootmode>` block describing it. Called both at
+/// the [`serialize_inner_html_with_options`] entry (for the host the
+/// caller asked about) and inside [`serialize_node`] (for descendant
+/// shadow hosts encountered while walking the light tree).
+fn emit_own_shadow_root_if_needed(
+    entity: Entity,
+    dom: &EcsDom,
+    html: &mut String,
+    opts: &SerializeOptions,
+) {
+    let Some(sr) = dom.get_shadow_root(entity) else {
+        return;
+    };
+    let Ok(sr_component) = dom.world().get::<&elidex_ecs::ShadowRoot>(sr) else {
+        return;
+    };
+    if !shadow_root_should_emit(sr, &sr_component, opts) {
         return;
     }
+    let sr_copy: elidex_ecs::ShadowRoot = *sr_component;
+    drop(sr_component);
+    emit_shadow_root_template(sr, &sr_copy, dom, html, opts);
+}
+
+fn emit_shadow_root_template(
+    sr: Entity,
+    sr_component: &elidex_ecs::ShadowRoot,
+    dom: &EcsDom,
+    html: &mut String,
+    opts: &SerializeOptions,
+) {
+    html.push_str("<template shadowrootmode=\"");
+    html.push_str(match sr_component.mode {
+        elidex_ecs::ShadowRootMode::Open => "open",
+        elidex_ecs::ShadowRootMode::Closed => "closed",
+    });
+    html.push('"');
+    if sr_component.delegates_focus {
+        html.push_str(" shadowrootdelegatesfocus=\"\"");
+    }
+    if sr_component.clonable {
+        html.push_str(" shadowrootclonable=\"\"");
+    }
+    if sr_component.serializable {
+        html.push_str(" shadowrootserializable=\"\"");
+    }
+    html.push('>');
+    for child in dom.children_iter(sr) {
+        serialize_node(child, dom, html, false, opts);
+    }
+    html.push_str("</template>");
+}
+
+fn serialize_node(
+    entity: Entity,
+    dom: &EcsDom,
+    html: &mut String,
+    in_raw_text: bool,
+    opts: &SerializeOptions,
+) {
+    // `EcsDom::children_iter` already skips ShadowRoot entities, so
+    // they never reach this function — shadow visibility is gated by
+    // [`emit_own_shadow_root_if_needed`] on the host instead, which
+    // handles both the outer entity (called from
+    // [`serialize_inner_html_with_options`]) and descendant hosts
+    // (called for every Element below).
     if let Ok(tc) = dom.world().get::<&TextContent>(entity) {
         if in_raw_text {
             html.push_str(&tc.0);
@@ -563,9 +695,10 @@ fn serialize_node(entity: Entity, dom: &EcsDom, html: &mut String, in_raw_text: 
         if VOID_ELEMENTS.contains(&tag.0.as_str()) {
             return;
         }
+        emit_own_shadow_root_if_needed(entity, dom, html, opts);
         let child_raw_text = RAW_TEXT_ELEMENTS.contains(&tag.0.as_str());
         for child in dom.children_iter(entity) {
-            serialize_node(child, dom, html, child_raw_text);
+            serialize_node(child, dom, html, child_raw_text, opts);
         }
         html.push_str("</");
         html.push_str(&tag.0);
@@ -573,7 +706,7 @@ fn serialize_node(entity: Entity, dom: &EcsDom, html: &mut String, in_raw_text: 
         return;
     }
     for child in dom.children_iter(entity) {
-        serialize_node(child, dom, html, false);
+        serialize_node(child, dom, html, false, opts);
     }
 }
 
