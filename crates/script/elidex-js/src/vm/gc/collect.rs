@@ -950,6 +950,8 @@ impl VmInner {
             #[cfg(feature = "engine")]
             template_content_wrappers: &self.template_content_wrappers,
             #[cfg(feature = "engine")]
+            shadow_root_wrappers: &self.shadow_root_wrappers,
+            #[cfg(feature = "engine")]
             datalist_options_wrappers: &self.datalist_options_wrappers,
             #[cfg(feature = "engine")]
             output_html_for_wrappers: &self.output_html_for_wrappers,

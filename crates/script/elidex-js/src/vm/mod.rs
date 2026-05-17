@@ -385,10 +385,14 @@ pub(crate) struct VmInner {
     /// Identity cache for `ShadowRoot` wrappers — keyed by host
     /// `Entity` so `el.shadowRoot === el.shadowRoot` (open mode only;
     /// closed mode short-circuits to `null` before the cache lookup).
-    /// Pruned in the GC sweep tail when the wrapper `ObjectId` is
-    /// collected; entries do not extend wrapper lifetimes (the
-    /// wrapper is rooted via `HostData::wrapper_cache` for the host
-    /// element instead).  Mirrors `template_content_wrappers`.
+    /// Weak-through-owner GC contract: each cached wrapper is
+    /// marked from [`super::gc::roots::mark_roots`] step (e2.5)
+    /// whenever the host wrapper is reachable via
+    /// `HostData::wrapper_cache`, so an unreferenced
+    /// `host.shadowRoot` survives until the host itself is
+    /// collected (preserves identity + expando-property state).
+    /// Sweep tail prunes entries whose value `ObjectId` was
+    /// collected.  Mirrors `attr_wrapper_cache`.
     #[cfg(feature = "engine")]
     pub(crate) shadow_root_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
     /// `DocumentFragment.prototype` — shared prototype for every
