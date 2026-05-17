@@ -101,8 +101,10 @@ impl VmInner {
     /// events for that `conn_id`; a late arrival between sweep and
     /// broker observe is benign).
     ///
-    /// Phase 1+2 implement every WebSocket arm.  Phase 3 fills all
-    /// `SseEvent::*` arms.
+    /// Implements every WebSocket arm (Phase 1+2) and every
+    /// EventSource arm (Phase 3); delegates the actual event
+    /// allocation + handler fire to
+    /// [`super::websocket_dispatch`] / [`super::event_source_dispatch`].
     ///
     /// Borrow discipline: the reverse-map lookup snapshots the
     /// instance `ObjectId` into a local before the per-variant
@@ -112,6 +114,7 @@ impl VmInner {
     /// populate) before the handler call.
     fn dispatch_realtime_event(&mut self, event: elidex_net::broker::NetworkToRenderer) {
         use elidex_net::broker::NetworkToRenderer;
+        use elidex_net::sse::SseEvent;
         use elidex_net::ws::WsEvent;
         match event {
             NetworkToRenderer::WebSocketEvent(conn_id, ws_event) => {
@@ -161,12 +164,43 @@ impl VmInner {
                     }
                 }
             }
-            NetworkToRenderer::EventSourceEvent(conn_id, _sse_event) => {
-                let Some(hd) = self.host_data.as_deref() else {
+            NetworkToRenderer::EventSourceEvent(conn_id, sse_event) => {
+                let Some(instance) = self
+                    .host_data
+                    .as_deref()
+                    .and_then(|hd| hd.sse_conn_to_object.get(&conn_id).copied())
+                else {
                     return;
                 };
-                let _instance = hd.sse_conn_to_object.get(&conn_id).copied();
-                // Phase 3: per-event-variant dispatch lands here.
+                match sse_event {
+                    SseEvent::Connected => {
+                        super::event_source_dispatch::dispatch_sse_connected(self, instance);
+                    }
+                    SseEvent::Event {
+                        event_type,
+                        data,
+                        last_event_id,
+                    } => {
+                        super::event_source_dispatch::dispatch_sse_event(
+                            self,
+                            instance,
+                            &event_type,
+                            &data,
+                            last_event_id,
+                        );
+                    }
+                    SseEvent::Error(_msg) => {
+                        // Per WHATWG HTML §9.2.5 the script-visible
+                        // "error" is a plain Event with no detail —
+                        // the broker message is discarded
+                        // intentionally to avoid leaking server-
+                        // internals through the unsandboxed handler.
+                        super::event_source_dispatch::dispatch_sse_error(self, instance);
+                    }
+                    SseEvent::FatalError(_msg) => {
+                        super::event_source_dispatch::dispatch_sse_fatal_error(self, instance);
+                    }
+                }
             }
             // FetchResponse already drained by
             // `drain_fetch_responses_only` above — should never

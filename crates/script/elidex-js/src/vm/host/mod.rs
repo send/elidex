@@ -109,6 +109,8 @@ pub(super) mod elements;
 pub(super) mod event_shapes;
 #[cfg(feature = "engine")]
 pub(super) mod event_source;
+#[cfg(feature = "engine")]
+pub(super) mod event_source_dispatch;
 pub(super) mod event_target;
 #[cfg(feature = "engine")]
 pub(super) mod event_target_dispatch;

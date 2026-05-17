@@ -195,6 +195,8 @@ mod tests {
             mock_responses: None,
             #[cfg(feature = "test-hooks")]
             recorded_requests: None,
+            #[cfg(feature = "test-hooks")]
+            recorded_outgoing: None,
         };
         (handle, response_tx)
     }

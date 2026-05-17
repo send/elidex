@@ -12,7 +12,8 @@
 //! engine-bound responsibilities: prototype install, brand check,
 //! constructor + URL parse glue, close emission, and minimal
 //! `addEventListener` / `removeEventListener` shim required by
-//! WHATWG §9.2 for named-event delivery (CRIT-3 fold per plan v1.1).
+//! WHATWG §9.2 for named-event delivery (per the in-PR fold of
+//! the originally-spec-violating silent-drop alternative).
 //! The broker handles SSE framing, reconnection, and lastEventId
 //! sticky semantics.
 //!
@@ -20,10 +21,11 @@
 //!
 //! - [`ObjectKind::EventSource`][] is payload-free.
 //! - Per-instance state ([`super::super::host_data::EventSourceState`]):
-//!   readyState + url + withCredentials + sticky lastEventId +
-//!   broker `conn_id` + 3 `on*` handler `ObjectId`s + per-instance
-//!   `addEventListener` registry (`HashMap<String, Vec<ObjectId>>`).
-//!   Lives in [`super::super::host_data::HostData::event_source_states`]
+//!   readyState + url + pre-interned origin + withCredentials +
+//!   sticky lastEventId + broker `conn_id` + 3 `on*` handler
+//!   `ObjectId`s + per-instance `addEventListener` registry
+//!   (`HashMap<String, Vec<ObjectId>>`).  Lives in
+//!   [`super::super::host_data::HostData::event_source_states`]
 //!   keyed by the instance `ObjectId`.
 //! - Reverse lookup
 //!   [`super::super::host_data::HostData::sse_conn_to_object`] maps
@@ -31,7 +33,7 @@
 //!   `SseEvent`s back to the right wrapper from the extended
 //!   `tick_network` drain.
 //!
-//! ## addEventListener scope (CRIT-3 fold)
+//! ## addEventListener scope
 //!
 //! WHATWG HTML §9.2 lets servers emit named events
 //! (`event: notification\ndata: ...`) that JS code receives via
@@ -40,7 +42,10 @@
 //! ships the minimal `addEventListener(type, listener)` /
 //! `removeEventListener(type, listener)` pair.  Full options
 //! surface (capture / once / passive / signal) is deferred to
-//! `#11-realtime-event-listeners`.
+//! `#11-realtime-event-listeners`.  Per WHATWG DOM §2.7.2 the
+//! `(type, callback, capture)` triple is de-duplicated on
+//! registration — the minimal shim collapses `capture` to `false`
+//! so the dedup check reduces to `(type, callback ObjectId)`.
 //!
 //! ## Lifecycle
 //!
@@ -50,19 +55,33 @@
 //! - `Vm::unbind` snapshots and closes every active conn (shared
 //!   CRIT-A teardown with WebSocket).
 //!
-//! ## Phase 0b scaffolding
+//! ### Spec divergence note: `MessageEvent.origin` post-redirect
 //!
-//! The constructor body is a Phase 1 stub (`TypeError`); prototype +
-//! brand check + register-globals wiring + constants are in place.
+//! WHATWG HTML §9.2.4 specifies that `MessageEvent.origin` is the
+//! serialization of the **final URL after redirects**.  The broker's
+//! [`elidex_net::sse::SseEvent::Connected`] does NOT yet carry a
+//! `final_url` payload (the SSE I/O thread internally follows
+//! redirects but does not surface the final URL to the renderer),
+//! so this PR uses the constructor-time URL origin (cached on
+//! [`super::super::host_data::EventSourceState::origin_sid`]).  This
+//! matches Chrome / Firefox for the common case (no SSE redirects)
+//! and diverges from spec only when the server emits a cross-origin
+//! `3xx Location` for the `text/event-stream` GET.  Tracked as
+//! defer slot `#11-eventsource-origin-post-redirect`; re-eval when
+//! the broker grows a `SseEvent::Connected { final_url }` field
+//! (small cross-crate change) OR a WPT test surfaces the divergence.
 
 #![cfg(feature = "engine")]
 
+use elidex_net::broker::RendererToNetwork;
+
+use super::super::host_data::EventSourceState;
 use super::super::shape::{self, PropertyAttrs};
 use super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
     PropertyValue, StringId, VmError,
 };
-use super::super::VmInner;
+use super::super::{NativeFn, VmInner};
 use super::events::install_ctor;
 
 impl VmInner {
@@ -93,7 +112,7 @@ impl VmInner {
         });
         self.event_source_prototype = Some(proto_id);
 
-        // Phase 3 will install accessors / methods on `proto_id`.
+        self.install_event_source_members(proto_id);
 
         let global_sid = self.well_known.event_source_global;
         install_ctor(
@@ -105,6 +124,74 @@ impl VmInner {
         );
 
         install_sse_readystate_constants(self, proto_id, global_sid);
+    }
+
+    fn install_event_source_members(&mut self, proto_id: ObjectId) {
+        // Readonly accessors: readyState / url / withCredentials.
+        let ro_accessors: [(StringId, NativeFn); 3] = [
+            (self.well_known.ready_state, native_es_get_ready_state),
+            (self.well_known.url, native_es_get_url),
+            (
+                self.well_known.with_credentials,
+                native_es_get_with_credentials,
+            ),
+        ];
+        for (name_sid, getter) in ro_accessors {
+            self.install_accessor_pair(
+                proto_id,
+                name_sid,
+                getter,
+                None,
+                PropertyAttrs::WEBIDL_RO_ACCESSOR,
+            );
+        }
+
+        // Event handler attributes: 3 pairs (onopen / onmessage /
+        // onerror).  WHATWG IDL EventHandler attribute — silent
+        // non-callable nulling per §8.1.7.2 (the macro replicates
+        // ws_on_handler! exactly).
+        let on_handlers: [(StringId, NativeFn, NativeFn); 3] = [
+            (
+                self.well_known.onopen,
+                native_es_get_onopen,
+                native_es_set_onopen,
+            ),
+            (
+                self.well_known.onmessage,
+                native_es_get_onmessage,
+                native_es_set_onmessage,
+            ),
+            (
+                self.well_known.onerror,
+                native_es_get_onerror,
+                native_es_set_onerror,
+            ),
+        ];
+        for (name_sid, getter, setter) in on_handlers {
+            self.install_accessor_pair(
+                proto_id,
+                name_sid,
+                getter,
+                Some(setter),
+                PropertyAttrs::WEBIDL_RO_ACCESSOR,
+            );
+        }
+
+        // Methods: close + addEventListener + removeEventListener.
+        let methods: [(StringId, NativeFn); 3] = [
+            (self.well_known.close, native_es_close),
+            (
+                self.well_known.add_event_listener,
+                native_es_add_event_listener,
+            ),
+            (
+                self.well_known.remove_event_listener,
+                native_es_remove_event_listener,
+            ),
+        ];
+        for (name_sid, func) in methods {
+            self.install_native_method(proto_id, name_sid, func, PropertyAttrs::METHOD);
+        }
     }
 }
 
@@ -150,7 +237,6 @@ fn install_sse_readystate_constants(vm: &mut VmInner, proto_id: ObjectId, global
 /// Return the receiver's `ObjectId` if `this` brands as an
 /// `EventSource`, else a `TypeError`.  Mirror of
 /// `require_websocket_this` in the sibling module.
-#[allow(dead_code)]
 pub(super) fn require_event_source_this(
     ctx: &NativeContext<'_>,
     this: JsValue,
@@ -171,26 +257,442 @@ pub(super) fn require_event_source_this(
 }
 
 // ---------------------------------------------------------------------------
-// Constructor (Phase 0b stub — Phase 3 replaces body)
+// Constructor — `new EventSource(url, init?)`
 // ---------------------------------------------------------------------------
 
-/// `new EventSource(url, init?)` — placeholder for Phase 3.
+/// `new EventSource(url, init?)` per WHATWG HTML §9.2.1.
 ///
-/// User-callable per WHATWG HTML §9.2.1.  Throws `TypeError` until
-/// Phase 3 wires URL parse + dict-member read + broker open +
-/// reverse-map insert.
+/// Steps:
+/// 1. Coerce `url` arg via `ToString`; parse via
+///    `vm.navigation.current_url.join(.)` so relative inputs like
+///    `"/events"` resolve against the active document base URL
+///    (the spec's "API base URL of the entry settings object" —
+///    SSE explicitly supports this, in contrast with the WebSocket
+///    ctor which uses absolute-URL parsing only).  SyntaxError on
+///    parse failure.
+/// 2. Read `init.withCredentials` dict member (WebIDL §3.10
+///    dictionary semantics: undefined / null init → empty dict,
+///    primitive non-Object init → TypeError; Object init →
+///    `ToBoolean(Get(init, "withCredentials"))` defaulting to
+///    `false`).
+/// 3. Allocate `conn_id` via `HostData::alloc_sse_conn_id()`.
+/// 4. Promote `this` to `ObjectKind::EventSource`; insert
+///    `EventSourceState { ready_state: Connecting, url, origin_sid,
+///    with_credentials, ..., conn_id, event_listeners: {} }` into
+///    `host_data.event_source_states`; populate reverse map
+///    `sse_conn_to_object[conn_id] = id`.
+/// 5. Send `RendererToNetwork::EventSourceOpen { conn_id, url,
+///    last_event_id: None, origin: Some(page_origin), with_credentials }`
+///    to the broker via `network_handle.send()`.  `origin` is
+///    `vm.navigation.current_url.origin().ascii_serialization()`
+///    (opaque origins serialise as `"null"` per WHATWG URL §3.5).
+///    A disconnected handle is a non-fatal config — the side-
+///    table entry persists in CONNECTING and the broker's natural
+///    reply path will eventually surface a `SseEvent::FatalError`
+///    (or never, mirroring the WebSocket "no network" scenario).
 #[allow(clippy::needless_pass_by_value)]
 fn native_event_source_constructor(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    _args: &[JsValue],
+    this: JsValue,
+    args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     if !ctx.is_construct() {
         return Err(VmError::type_error(
             "Failed to construct 'EventSource': Please use the 'new' operator",
         ));
     }
-    Err(VmError::type_error(
-        "EventSource constructor not yet implemented (Phase 3)",
-    ))
+
+    // Step 1: required `url` arg + parse against the document
+    // base URL.
+    let url_arg = args.first().copied().ok_or_else(|| {
+        VmError::type_error(
+            "Failed to construct 'EventSource': 1 argument required, but only 0 present.",
+        )
+    })?;
+    let url_sid = super::super::coerce::to_string(ctx.vm, url_arg)?;
+    let url_str = ctx.vm.strings.get_utf8(url_sid);
+    // SSE supports relative URLs against the document base — use
+    // `Url::join` (which handles both absolute and relative inputs)
+    // rather than `Url::parse` (absolute-only) per WHATWG HTML
+    // §9.2.1 "Let urlRecord be the result of encoding-parsing a
+    // URL given url, relative to settings".  Diverges from the WS
+    // ctor (`websocket.rs`) which deliberately uses absolute-URL
+    // parsing because the WS scheme has no document-base concept.
+    let url = ctx.vm.navigation.current_url.join(&url_str).map_err(|e| {
+        VmError::syntax_error(format!(
+            "Failed to construct 'EventSource': The URL '{url_str}' is invalid: {e}"
+        ))
+    })?;
+
+    // Step 2: `init.withCredentials` dict member read.
+    let with_credentials = parse_event_source_init(ctx, args.get(1).copied())?;
+
+    // Step 3+4: instance promotion + state install.
+    let JsValue::Object(inst_id) = this else {
+        unreachable!("constructor `this` is always an Object after `do_new`")
+    };
+    ctx.vm.get_object_mut(inst_id).kind = ObjectKind::EventSource;
+
+    let page_origin_str = ctx.vm.navigation.current_url.origin().ascii_serialization();
+    let es_origin_string = url.origin().ascii_serialization();
+    let origin_sid = ctx.vm.strings.intern(&es_origin_string);
+    let url_serialized = url.as_str().to_owned();
+
+    // Populate state + reverse map BEFORE the broker emit (mirror
+    // the WS ctor's ordering: a broker that races us with an
+    // immediate `FatalError` reply must find the wrapper through
+    // the reverse map when `dispatch_realtime_event` routes the
+    // event).
+    let conn_id = {
+        let hd = ctx.vm.host_data.as_deref_mut().ok_or_else(|| {
+            VmError::type_error(
+                "Failed to construct 'EventSource': VM is not bound to a HostData session",
+            )
+        })?;
+        let conn_id = hd.alloc_sse_conn_id();
+        hd.event_source_states.insert(
+            inst_id,
+            EventSourceState {
+                ready_state: elidex_api_ws::SseReadyState::Connecting,
+                url: url_serialized,
+                origin_sid,
+                with_credentials,
+                last_event_id: String::new(),
+                conn_id,
+                onopen: None,
+                onmessage: None,
+                onerror: None,
+                event_listeners: std::collections::HashMap::new(),
+            },
+        );
+        hd.sse_conn_to_object.insert(conn_id, inst_id);
+        conn_id
+    };
+
+    // Step 5: broker dispatch.  Disconnected / absent handle is
+    // best-effort (same contract as the WS ctor).
+    if let Some(handle) = ctx.vm.network_handle.as_ref() {
+        let _ = handle.send(RendererToNetwork::EventSourceOpen {
+            conn_id,
+            url,
+            last_event_id: None,
+            origin: Some(page_origin_str),
+            with_credentials,
+        });
+    }
+
+    Ok(JsValue::Object(inst_id))
 }
+
+/// Parse the optional `init` dict argument per WHATWG HTML §9.2.1
+/// + WebIDL §3.10 dictionary coercion.
+///
+/// - `undefined` / `null` / missing → default `EventSourceInit { withCredentials: false }`.
+/// - Object → read `withCredentials` via the prototype chain
+///   (`coerce::get_property`); apply `ToBoolean` (defaults to
+///   `false` when the property is missing or `undefined`).
+/// - Other primitive (Number / String / Boolean / Symbol) →
+///   `TypeError` per WebIDL §3.10.6 "If V is not undefined and
+///   V is not null and Type(V) is not Object, then throw a
+///   TypeError exception."
+fn parse_event_source_init(
+    ctx: &mut NativeContext<'_>,
+    init: Option<JsValue>,
+) -> Result<bool, VmError> {
+    let Some(val) = init else {
+        return Ok(false);
+    };
+    match val {
+        JsValue::Undefined | JsValue::Null => Ok(false),
+        JsValue::Object(obj_id) => {
+            let key = PropertyKey::String(ctx.vm.well_known.with_credentials);
+            let raw = match super::super::coerce::get_property(ctx.vm, obj_id, key) {
+                Some(super::super::coerce::PropertyResult::Data(v)) => v,
+                Some(super::super::coerce::PropertyResult::Getter(g)) => {
+                    // Honour user-side getter side-effects (matches
+                    // WebIDL dictionary semantics + the EventInit
+                    // precedent at `events.rs::parse_event_init`).
+                    ctx.vm.call(g, JsValue::Object(obj_id), &[])?
+                }
+                None => JsValue::Undefined,
+            };
+            Ok(super::super::coerce::to_boolean(ctx.vm, raw))
+        }
+        _ => Err(VmError::type_error(
+            "Failed to construct 'EventSource': \
+             EventSourceInit is not an object.",
+        )),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Read-only accessors
+// ---------------------------------------------------------------------------
+
+fn native_es_get_ready_state(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_event_source_this(ctx, this, "readyState")?;
+    let state = ctx
+        .vm
+        .host_data
+        .as_deref()
+        .and_then(|hd| hd.event_source_states.get(&id))
+        .map_or(elidex_api_ws::SseReadyState::Closed, |s| s.ready_state);
+    Ok(JsValue::Number(f64::from(state as u8)))
+}
+
+fn native_es_get_url(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_event_source_this(ctx, this, "url")?;
+    let url_str: String = ctx
+        .vm
+        .host_data
+        .as_deref()
+        .and_then(|hd| hd.event_source_states.get(&id))
+        .map(|s| s.url.clone())
+        .unwrap_or_default();
+    let sid = ctx.vm.strings.intern(&url_str);
+    Ok(JsValue::String(sid))
+}
+
+fn native_es_get_with_credentials(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_event_source_this(ctx, this, "withCredentials")?;
+    let val = ctx
+        .vm
+        .host_data
+        .as_deref()
+        .and_then(|hd| hd.event_source_states.get(&id))
+        .is_some_and(|s| s.with_credentials);
+    Ok(JsValue::Boolean(val))
+}
+
+// ---------------------------------------------------------------------------
+// `close()`
+// ---------------------------------------------------------------------------
+
+/// `EventSource.prototype.close()` per WHATWG HTML §9.2.4.
+///
+/// Idempotent: if already CLOSED, no-op.  Otherwise transitions
+/// readyState to CLOSED and emits `EventSourceClose(conn_id)` so
+/// the broker terminates the SSE I/O thread (no auto-reconnect
+/// after a JS-initiated close, distinct from the transient-error
+/// reconnect path).
+///
+/// No event fires for the JS-initiated close path (SSE has no
+/// CloseEvent equivalent — `close` is purely a terminator).
+fn native_es_close(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_event_source_this(ctx, this, "close")?;
+    let (was_terminal, conn_id) = {
+        let hd = ctx.vm.host_data.as_deref_mut().ok_or_else(|| {
+            VmError::type_error(
+                "Failed to execute 'close' on 'EventSource': VM is not bound to a session",
+            )
+        })?;
+        let Some(state) = hd.event_source_states.get_mut(&id) else {
+            // Already swept / unbound — idempotent no-op.
+            return Ok(JsValue::Undefined);
+        };
+        let was_terminal = matches!(state.ready_state, elidex_api_ws::SseReadyState::Closed);
+        if !was_terminal {
+            let _ = state.transition_to(elidex_api_ws::SseReadyState::Closed);
+        }
+        (was_terminal, state.conn_id)
+    };
+    if was_terminal {
+        return Ok(JsValue::Undefined);
+    }
+    if let Some(handle) = ctx.vm.network_handle.as_ref() {
+        let _ = handle.send(RendererToNetwork::EventSourceClose(conn_id));
+    }
+    Ok(JsValue::Undefined)
+}
+
+// ---------------------------------------------------------------------------
+// addEventListener / removeEventListener — minimal shim
+//
+// WHATWG HTML §9.2.4 requires server-named events
+// (`event: notification\n`) to surface through
+// `addEventListener("notification", cb)`.  This is the minimal
+// surface needed for spec-correct named-event delivery; full
+// `EventTarget` (capture / once / passive / signal) is deferred to
+// `#11-realtime-event-listeners`.
+// ---------------------------------------------------------------------------
+
+/// `EventSource.prototype.addEventListener(type, listener)`.
+///
+/// Per WHATWG DOM §2.7.2 the `(type, callback, capture)` triple is
+/// de-duplicated on registration; the minimal shim collapses
+/// `capture` to `false` so the duplicate check reduces to
+/// `(type_string, listener ObjectId)`.  Argument coercion:
+///
+/// 1. `ToString(type)` runs FIRST (Symbol throws TypeError BEFORE
+///    any registry mutation, matching WebIDL `USVString` coercion
+///    ordering — Phase 1 lesson reapplied).
+/// 2. Non-Object / non-callable listener is a silent no-op per
+///    §2.7.5 step "If callback is null, return".  Other Object
+///    values that are NOT callable are also accepted but never
+///    fire (matches Chrome / Firefox; the spec allows
+///    EventListener interface objects which the minimal shim
+///    folds into "any Object").  Concrete: only Object listeners
+///    are stored; null / undefined / primitive listeners are
+///    silently dropped.
+fn native_es_add_event_listener(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_event_source_this(ctx, this, "addEventListener")?;
+    // ToString FIRST per WebIDL `USVString` coercion (Symbol
+    // throws here BEFORE the registry is touched).
+    let type_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let type_sid = super::super::coerce::to_string(ctx.vm, type_arg)?;
+    let type_string = ctx.vm.strings.get_utf8(type_sid);
+
+    // Listener must be an Object.  Null / undefined / primitive
+    // silently no-op per §2.7.5; other non-callable Object values
+    // are stored but never fire (the EventListener IDL accepts a
+    // callback object whose `handleEvent` method is invoked at
+    // dispatch — the minimal shim only invokes Function-callable
+    // values, so stored non-callable Objects are de facto no-ops).
+    let Some(listener_arg) = args.get(1).copied() else {
+        return Ok(JsValue::Undefined);
+    };
+    let JsValue::Object(listener_id) = listener_arg else {
+        return Ok(JsValue::Undefined);
+    };
+
+    let Some(hd) = ctx.vm.host_data.as_deref_mut() else {
+        return Ok(JsValue::Undefined);
+    };
+    let Some(state) = hd.event_source_states.get_mut(&id) else {
+        return Ok(JsValue::Undefined);
+    };
+    let vec = state.event_listeners.entry(type_string).or_default();
+    // Duplicate-listener dedup per WHATWG DOM §2.7.2 step 5: "If
+    // eventTarget's event listener list does not contain an event
+    // listener whose type is type, callback is callback, and
+    // capture is capture, then append listener ..."  The minimal
+    // shim's `capture = false` collapses the triple to
+    // `(type, callback)`.
+    if !vec.contains(&listener_id) {
+        vec.push(listener_id);
+    }
+    Ok(JsValue::Undefined)
+}
+
+/// `EventSource.prototype.removeEventListener(type, listener)`.
+///
+/// Per WHATWG DOM §2.7.5 a non-matching pair is a silent no-op.
+/// Type coercion mirrors `addEventListener`: `ToString` runs
+/// FIRST.  Null / undefined / primitive listener is also a no-op
+/// (matches spec text "If callback is null, return" + WebIDL
+/// EventListener nullability).
+fn native_es_remove_event_listener(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_event_source_this(ctx, this, "removeEventListener")?;
+    let type_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let type_sid = super::super::coerce::to_string(ctx.vm, type_arg)?;
+    let type_string = ctx.vm.strings.get_utf8(type_sid);
+
+    let Some(listener_arg) = args.get(1).copied() else {
+        return Ok(JsValue::Undefined);
+    };
+    let JsValue::Object(listener_id) = listener_arg else {
+        return Ok(JsValue::Undefined);
+    };
+
+    let Some(hd) = ctx.vm.host_data.as_deref_mut() else {
+        return Ok(JsValue::Undefined);
+    };
+    let Some(state) = hd.event_source_states.get_mut(&id) else {
+        return Ok(JsValue::Undefined);
+    };
+    if let Some(vec) = state.event_listeners.get_mut(&type_string) {
+        vec.retain(|&id| id != listener_id);
+        if vec.is_empty() {
+            state.event_listeners.remove(&type_string);
+        }
+    }
+    Ok(JsValue::Undefined)
+}
+
+// ---------------------------------------------------------------------------
+// Event handler attribute accessors — `onopen` / `onmessage` /
+// `onerror`.
+//
+// Mirror of WebSocket's `ws_on_handler!` macro shape — 3 pairs
+// instead of 4 (SSE has no `onclose` per WHATWG HTML §9.2: the
+// terminator is `close()` and FatalError surfaces as `onerror` +
+// readyState CLOSED, not a CloseEvent).  Non-callable assignments
+// silently null the slot per WHATWG IDL EventHandler §8.1.7.2.
+// ---------------------------------------------------------------------------
+
+macro_rules! es_on_handler {
+    ($getter:ident, $setter:ident, $field:ident, $name:literal) => {
+        fn $getter(
+            ctx: &mut NativeContext<'_>,
+            this: JsValue,
+            _args: &[JsValue],
+        ) -> Result<JsValue, VmError> {
+            let id = require_event_source_this(ctx, this, $name)?;
+            Ok(ctx
+                .vm
+                .host_data
+                .as_deref()
+                .and_then(|hd| hd.event_source_states.get(&id))
+                .and_then(|s| s.$field)
+                .map_or(JsValue::Null, JsValue::Object))
+        }
+        fn $setter(
+            ctx: &mut NativeContext<'_>,
+            this: JsValue,
+            args: &[JsValue],
+        ) -> Result<JsValue, VmError> {
+            let id = require_event_source_this(ctx, this, $name)?;
+            let new_val = args.first().copied().unwrap_or(JsValue::Undefined);
+            let stored = match new_val {
+                JsValue::Object(obj_id) if ctx.vm.get_object(obj_id).kind.is_callable() => {
+                    Some(obj_id)
+                }
+                _ => None,
+            };
+            if let Some(hd) = ctx.vm.host_data.as_deref_mut() {
+                if let Some(state) = hd.event_source_states.get_mut(&id) {
+                    state.$field = stored;
+                }
+            }
+            Ok(JsValue::Undefined)
+        }
+    };
+}
+
+es_on_handler!(native_es_get_onopen, native_es_set_onopen, onopen, "onopen");
+es_on_handler!(
+    native_es_get_onmessage,
+    native_es_set_onmessage,
+    onmessage,
+    "onmessage"
+);
+es_on_handler!(
+    native_es_get_onerror,
+    native_es_set_onerror,
+    onerror,
+    "onerror"
+);

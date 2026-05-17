@@ -141,12 +141,14 @@ pub(super) fn dispatch_ws_text_message(vm: &mut VmInner, instance: ObjectId, s: 
         return;
     };
     let data_sid = vm.strings.intern(s);
+    let empty_sid = vm.well_known.empty;
     fire_message_event(
         vm,
         instance,
         handler_id,
         JsValue::String(data_sid),
         origin_sid,
+        empty_sid,
     );
 }
 
@@ -181,12 +183,14 @@ pub(super) fn dispatch_ws_binary_message(vm: &mut VmInner, instance: ObjectId, b
         }
         BinaryType::ArrayBuffer => super::array_buffer::create_array_buffer_from_bytes(vm, bytes),
     };
+    let empty_sid = vm.well_known.empty;
     fire_message_event(
         vm,
         instance,
         handler_id,
         JsValue::Object(data_obj),
         origin_sid,
+        empty_sid,
     );
 }
 
@@ -246,8 +250,8 @@ fn snapshot_message_dispatch(
     Some((handler_id, state.origin_sid))
 }
 
-/// Allocate a `MessageEvent("message", { data, origin, lastEventId:
-/// "", source: null, ports: [] })` and fire it via `handler_id`.
+/// Allocate a `MessageEvent(type, { data, origin, lastEventId,
+/// source: null, ports: [] })` and fire it via `handler_id`.
 ///
 /// Delegates event allocation + slot install + handler dispatch to
 /// [`alloc_ua_event`] + [`fire_handler`] (the same pair used by
@@ -257,6 +261,14 @@ fn snapshot_message_dispatch(
 /// message`; drift between the two writers puts user-visible slot
 /// values in the wrong properties.
 ///
+/// `type_sid` lets EventSource fire named events (`event:
+/// notification\ndata: ...`) while WebSocket always passes
+/// `well_known.message` for its anonymous text / binary frames.
+/// `last_event_id_sid` is `well_known.empty` for WebSocket (the
+/// `MessageEvent.lastEventId` attribute is SSE-only — WS spec
+/// §9.3.7 leaves it as the IDL default empty string) and the sticky
+/// cumulative value from `EventSourceState::last_event_id` for SSE.
+///
 /// GC discipline (mirrors `pending_tasks::dispatch_post_message`):
 /// `data` is rooted first because the binary path passes a freshly
 /// allocated Blob / ArrayBuffer with no other live root; the
@@ -264,16 +276,43 @@ fn snapshot_message_dispatch(
 /// (for the event) both allocate while `g_data` keeps `data` alive.
 /// `fire_handler` overwrites the target / currentTarget slots that
 /// `alloc_ua_event` initially wrote as `Null`.
-fn fire_message_event(
+///
+/// `pub(super)` so the sibling [`super::event_source_dispatch`]
+/// module can reuse the helper for SSE named-event delivery
+/// without duplicating the 5-slot payload + GC-root dance.
+pub(super) fn fire_message_event(
     vm: &mut VmInner,
     instance: ObjectId,
     handler_id: ObjectId,
     data: JsValue,
     origin_sid: StringId,
+    last_event_id_sid: StringId,
+) {
+    fire_message_event_for_type(
+        vm,
+        instance,
+        handler_id,
+        vm.well_known.message,
+        data,
+        origin_sid,
+        last_event_id_sid,
+    );
+}
+
+/// `fire_message_event` variant that accepts an explicit `type_sid`
+/// so EventSource can fire named events (`event: notification`).
+/// The WebSocket entry point [`fire_message_event`] forwards here
+/// with `type_sid = well_known.message`.
+pub(super) fn fire_message_event_for_type(
+    vm: &mut VmInner,
+    instance: ObjectId,
+    handler_id: ObjectId,
+    type_sid: StringId,
+    data: JsValue,
+    origin_sid: StringId,
+    last_event_id_sid: StringId,
 ) {
     let mut g_data = vm.push_temp_root(data);
-    let empty_sid = g_data.well_known.empty;
-    let message_sid = g_data.well_known.message;
     let event_proto = g_data.message_event_prototype.or(g_data.event_prototype);
     let shape_id = g_data
         .precomputed_event_shapes
@@ -285,17 +324,11 @@ fn fire_message_event(
     let payload_slots = vec![
         PropertyValue::Data(data),
         PropertyValue::Data(JsValue::String(origin_sid)),
-        PropertyValue::Data(JsValue::String(empty_sid)),
+        PropertyValue::Data(JsValue::String(last_event_id_sid)),
         PropertyValue::Data(JsValue::Null),
         PropertyValue::Data(JsValue::Object(ports_arr)),
     ];
-    let event_id = alloc_ua_event(
-        &mut g_data,
-        message_sid,
-        shape_id,
-        payload_slots,
-        event_proto,
-    );
+    let event_id = alloc_ua_event(&mut g_data, type_sid, shape_id, payload_slots, event_proto);
     fire_handler(&mut g_data, instance, handler_id, event_id);
     drop(g_data);
 }
@@ -304,9 +337,12 @@ fn fire_message_event(
 /// pin it as a GC root, and synchronously invoke `handler_id` with
 /// `this = instance` and `args = [event]`.
 ///
-/// Used for `WsEvent::Connected` → `"open"` and `WsEvent::Error` →
-/// `"error"`.
-fn fire_plain_event(
+/// Used for `WsEvent::Connected` → `"open"`, `WsEvent::Error` →
+/// `"error"`, and the SSE Connected / Error / FatalError dispatch
+/// helpers.  `pub(super)` so the sibling
+/// [`super::event_source_dispatch`] module reuses the helper
+/// instead of duplicating the alloc + fire dance.
+pub(super) fn fire_plain_event(
     vm: &mut VmInner,
     instance: ObjectId,
     handler_id: ObjectId,

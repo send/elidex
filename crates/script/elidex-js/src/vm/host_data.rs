@@ -492,6 +492,24 @@ mod engine_feature {
         /// Constructor URL after parse + relative-resolution.  No
         /// scheme promotion (SSE is HTTP-only).
         pub url: String,
+        /// Pre-interned origin used as `MessageEvent.origin` on
+        /// every dispatched server event.  Cached once at
+        /// constructor time to avoid per-message URL parse + origin
+        /// serialisation + intern (mirror of `WebSocketState::
+        /// origin_sid`).  Opaque origins serialise to the literal
+        /// `"null"`.
+        ///
+        /// Spec divergence note: WHATWG HTML §9.2.4 specifies the
+        /// `MessageEvent.origin` as the serialization of the **final
+        /// URL after redirects**, but the broker's
+        /// [`elidex_net::sse::SseEvent::Connected`] does not yet
+        /// carry the post-redirect URL.  Phase 3 uses the
+        /// constructor-time origin (Chrome / Firefox parity for the
+        /// common no-redirect case); the post-redirect path is
+        /// tracked separately as defer slot
+        /// `#11-eventsource-origin-post-redirect` (re-eval when
+        /// broker grows a `final_url` field or WPT calls it out).
+        pub origin_sid: StringId,
         /// `init.withCredentials` echo.
         pub with_credentials: bool,
         /// Sticky lastEventId — broker emits cumulative value per
@@ -1346,8 +1364,7 @@ mod engine_feature {
         }
 
         /// Allocate a fresh per-VM SSE connection ID.  Same scope
-        /// contract as [`Self::alloc_ws_conn_id`].  Phase 3 caller.
-        #[allow(dead_code)]
+        /// contract as [`Self::alloc_ws_conn_id`].
         pub(crate) fn alloc_sse_conn_id(&mut self) -> u64 {
             let id = self.sse_next_conn_id;
             self.sse_next_conn_id = self.sse_next_conn_id.wrapping_add(1);
