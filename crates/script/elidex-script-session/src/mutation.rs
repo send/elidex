@@ -892,10 +892,11 @@ mod tests {
         let sr_component = dom.world().get::<&elidex_ecs::ShadowRoot>(sr).unwrap();
         assert_eq!(sr_component.mode, elidex_ecs::ShadowRootMode::Open);
         // The <template> element itself is consumed; the host's light
-        // tree has no template child.
+        // tree has no template child. `EcsDom::children` filters
+        // ShadowRoot entities out of the view (they are internal-only
+        // siblings), so `host_kids` here is the light-tree-visible
+        // set — we just check that no <template> survived.
         let host_kids = dom.children(host);
-        // The host's children include the shadow root entity itself
-        // (attach_shadow → append_child), but NOT a <template>.
         for kid in &host_kids {
             if let Ok(tag) = dom.world().get::<&elidex_ecs::TagType>(*kid) {
                 assert_ne!(tag.0, "template", "template should be consumed");

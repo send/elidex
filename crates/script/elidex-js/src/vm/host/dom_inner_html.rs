@@ -179,8 +179,14 @@ fn parse_get_html_options(
     if matches!(raw, JsValue::Undefined | JsValue::Null) {
         return Ok(GetHtmlOptions::defaults());
     }
+    // WebIDL §3.10.16 dictionary conversion: non-Object / non-null /
+    // non-undefined argument throws TypeError. Mirrors the
+    // `attachShadow` init-dict precedent at `element_shadow.rs::parse_shadow_init`.
     let JsValue::Object(opts_id) = raw else {
-        return Ok(GetHtmlOptions::defaults());
+        return Err(VmError::type_error(format!(
+            "Failed to execute 'getHTML' on '{interface}': \
+             parameter 1 is not of type 'GetHTMLOptions'."
+        )));
     };
     // `serializableShadowRoots` — WebIDL boolean (ToBoolean coercion).
     let sid_serializable = ctx.vm.strings.intern("serializableShadowRoots");
@@ -258,6 +264,19 @@ fn parse_shadow_root_sequence(
                  'shadowRoots[{i}]' is detached (invalid entity)."
             )));
         };
+        // Separate "wrapper points at a destroyed entity" from "wrong
+        // brand" so the error message matches the actual failure mode
+        // — same split `require_brand` performs above and
+        // `event_target::require_receiver` performs for receivers.
+        let is_live = ctx
+            .host_if_bound()
+            .is_some_and(|hd| hd.dom().contains(entity));
+        if !is_live {
+            return Err(VmError::type_error(format!(
+                "Failed to execute 'getHTML' on '{interface}': \
+                 'shadowRoots[{i}]' is detached (invalid entity)."
+            )));
+        }
         if !super::event_target::is_shadow_root_entity(ctx.vm, entity) {
             return Err(VmError::type_error(format!(
                 "Failed to execute 'getHTML' on '{interface}': \

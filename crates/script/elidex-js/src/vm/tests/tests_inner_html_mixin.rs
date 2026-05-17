@@ -344,6 +344,27 @@ fn element_get_html_explicit_list_emits_closed_shadow_root() {
 }
 
 #[test]
+fn element_get_html_throws_typeerror_on_non_object_primitive_options() {
+    // PR201 Copilot R3 / F1 regression: WebIDL §3.10.16 dictionary
+    // conversion throws TypeError for non-Object / non-null /
+    // non-undefined arguments. The earlier draft silently fell back to
+    // the default dictionary, which masked spec violations in caller
+    // code. Locked here with three representative primitives.
+    let out = run("var host = document.createElement('div'); \
+         document.body.appendChild(host); \
+         function tryCall(arg) { \
+             try { host.getHTML(arg); return null; } \
+             catch (e) { return e.name; } \
+         } \
+         var n = tryCall(42); \
+         var s = tryCall('opts'); \
+         var b = tryCall(true); \
+         (n === 'TypeError' && s === 'TypeError' && b === 'TypeError') \
+             ? 'ok' : ('fail:n=' + n + ' s=' + s + ' b=' + b);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn element_get_html_explicit_shadow_root_brand_check_throws_on_non_shadow_root() {
     // Per WebIDL sequence<ShadowRoot> — a non-ShadowRoot element in
     // the sequence throws TypeError.
