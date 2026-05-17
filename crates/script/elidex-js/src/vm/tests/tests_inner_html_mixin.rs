@@ -344,6 +344,41 @@ fn element_get_html_explicit_list_emits_closed_shadow_root() {
 }
 
 #[test]
+fn element_get_html_shadow_roots_null_throws_typeerror() {
+    // PR201 Copilot R6 / F1 regression: per WebIDL §3.10.16, a
+    // dictionary member's default is applied ONLY when the value is
+    // `undefined`. `null` is passed through to the sequence converter,
+    // which rejects it because `sequence<ShadowRoot>` is not nullable.
+    // The earlier draft conflated null and undefined, silently
+    // accepting `{shadowRoots: null}` as the default empty sequence.
+    let out = run("var host = document.createElement('div'); \
+         document.body.appendChild(host); \
+         var caught = ''; \
+         try { host.getHTML({shadowRoots: null}); } catch (e) { caught = e.name; } \
+         (caught === 'TypeError') ? 'ok' : ('fail:' + caught);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn element_get_html_shadow_roots_array_like_with_invalid_first_short_circuits() {
+    // PR201 Copilot R6 / F2 regression: a hostile `{length: 1<<27, 0: bogus}`
+    // would previously iterate the full ~134M length interning index
+    // strings and pushing into a Vec before validating, even though
+    // index 0 is invalid. The fix validates inline so the first
+    // bogus element terminates the loop immediately, AND the
+    // length is capped at `SHADOW_ROOTS_SEQ_CAP` (4096) as defence
+    // in depth. Test asserts a `{length: 1<<27}` invocation
+    // terminates synchronously with the expected TypeError.
+    let out = run("var host = document.createElement('div'); \
+         document.body.appendChild(host); \
+         var bogus = { length: 134217728, 0: document.createElement('div') }; \
+         var caught = ''; \
+         try { host.getHTML({shadowRoots: bogus}); } catch (e) { caught = e.name; } \
+         (caught === 'TypeError') ? 'ok' : ('fail:' + caught);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn element_get_html_huge_shadow_roots_length_is_capped_safely() {
     // PR201 Copilot R4 / F1 regression: a malicious caller passing
     // `{length: 2**31}` (or any value beyond `DENSE_ARRAY_LEN_LIMIT`)

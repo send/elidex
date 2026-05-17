@@ -197,12 +197,16 @@ fn parse_get_html_options(
     } else {
         super::super::coerce::to_boolean(ctx.vm, raw_serializable)
     };
-    // `shadowRoots` — WebIDL sequence<ShadowRoot>; an array-like with
-    // `length` indexed by integer property names.
+    // `shadowRoots` — WebIDL `sequence<ShadowRoot>`. Per WebIDL
+    // dictionary-member semantics, ONLY `undefined` triggers the
+    // member default (empty sequence); `null` is passed to the
+    // sequence converter which rejects it (sequences are not
+    // nullable). The TypeError is generated downstream by
+    // [`parse_shadow_root_sequence`]'s non-Object guard.
     let sid_shadow_roots = ctx.vm.strings.intern("shadowRoots");
     let key_shadow_roots = super::super::value::PropertyKey::String(sid_shadow_roots);
     let raw_shadow_roots = ctx.vm.get_property_value(opts_id, key_shadow_roots)?;
-    let explicit = if matches!(raw_shadow_roots, JsValue::Undefined | JsValue::Null) {
+    let explicit = if matches!(raw_shadow_roots, JsValue::Undefined) {
         HashSet::new()
     } else {
         parse_shadow_root_sequence(ctx, raw_shadow_roots, interface)?
@@ -211,6 +215,57 @@ fn parse_get_html_options(
         serializable,
         explicit,
     })
+}
+
+/// Hard cap for an array-like `shadowRoots` sequence passed to
+/// `getHTML`. The realistic ceiling is "all shadow hosts the caller
+/// knows about in the current document" — orders of magnitude below
+/// even 4096. Cap chosen to bound the indexed-fetch CPU + string
+/// interning cost of a hostile `{length: ...}` without blocking
+/// legitimate callers.
+const SHADOW_ROOTS_SEQ_CAP: usize = 4096;
+
+/// Brand-check a single sequence element. Returns the validated
+/// `Entity` or a `TypeError` whose message names the supplied index.
+fn validate_shadow_root_seq_element(
+    ctx: &mut NativeContext<'_>,
+    index: usize,
+    elem: JsValue,
+    interface: &'static str,
+) -> Result<Entity, VmError> {
+    let not_a_shadow_root = || -> VmError {
+        VmError::type_error(format!(
+            "Failed to execute 'getHTML' on '{interface}': \
+             'shadowRoots[{index}]' is not a ShadowRoot."
+        ))
+    };
+    let detached = || -> VmError {
+        VmError::type_error(format!(
+            "Failed to execute 'getHTML' on '{interface}': \
+             'shadowRoots[{index}]' is detached (invalid entity)."
+        ))
+    };
+    let JsValue::Object(obj_id) = elem else {
+        return Err(not_a_shadow_root());
+    };
+    let ObjectKind::HostObject { entity_bits } = ctx.vm.get_object(obj_id).kind else {
+        return Err(not_a_shadow_root());
+    };
+    let entity = Entity::from_bits(entity_bits).ok_or_else(detached)?;
+    // Separate "wrapper points at a destroyed entity" from "wrong
+    // brand" so the error message matches the actual failure mode
+    // — same split `require_brand` performs and `event_target::
+    // require_receiver` performs for receivers.
+    if !ctx
+        .host_if_bound()
+        .is_some_and(|hd| hd.dom().contains(entity))
+    {
+        return Err(detached());
+    }
+    if !super::event_target::is_shadow_root_entity(ctx.vm, entity) {
+        return Err(not_a_shadow_root());
+    }
+    Ok(entity)
 }
 
 fn parse_shadow_root_sequence(
@@ -229,78 +284,42 @@ fn parse_shadow_root_sequence(
     // property keys, so probe the variant first and fall back to the
     // `length`-driven indexed walk only for ordinary array-like
     // objects (e.g. NodeList wrappers).
-    let elements: Vec<JsValue> =
-        if let ObjectKind::Array { elements } = &ctx.vm.get_object(seq_id).kind {
-            elements.iter().map(|v| v.or_undefined()).collect()
-        } else {
-            let length_key = super::super::value::PropertyKey::String(ctx.vm.well_known.length);
-            let length_val = ctx.vm.get_property_value(seq_id, length_key)?;
-            // Length coercion mirrors `natives_function.rs::collect_array_like`:
-            // ToNumber + trunc + treat NaN/negative as 0, then clamp
-            // to `DENSE_ARRAY_LEN_LIMIT`. **NOT** `to_uint32`: ES's
-            // ToUint32 applies a modulo-2^32 reduction, so a
-            // caller passing `{length: 2**32 + N}` would silently
-            // wrap to `N` instead of being clamped — that's a quiet
-            // divergence from sibling array-like sites and lets
-            // crafted inputs skip elements. The hard cap is the only
-            // DoS guard; the soft cap (1024) limits the
-            // `Vec::with_capacity` pre-alloc to the typical ShadowRoot
-            // sequence length.
-            let len_f = ctx.to_number(length_val)?.trunc();
-            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-            let length = if len_f.is_nan() || len_f < 0.0 {
-                0
-            } else {
-                (len_f as usize).min(super::super::ops::DENSE_ARRAY_LEN_LIMIT)
-            };
-            let mut out = Vec::with_capacity(length.min(1024));
-            for i in 0..length {
-                let index_sid = ctx.vm.strings.intern(&i.to_string());
-                let index_key = super::super::value::PropertyKey::String(index_sid);
-                out.push(ctx.vm.get_property_value(seq_id, index_key)?);
-            }
-            out
-        };
-    let mut out = HashSet::with_capacity(elements.len());
-    for (i, elem) in elements.into_iter().enumerate() {
-        let JsValue::Object(obj_id) = elem else {
-            return Err(VmError::type_error(format!(
-                "Failed to execute 'getHTML' on '{interface}': \
-                 'shadowRoots[{i}]' is not a ShadowRoot."
-            )));
-        };
-        let ObjectKind::HostObject { entity_bits } = ctx.vm.get_object(obj_id).kind else {
-            return Err(VmError::type_error(format!(
-                "Failed to execute 'getHTML' on '{interface}': \
-                 'shadowRoots[{i}]' is not a ShadowRoot."
-            )));
-        };
-        let Some(entity) = Entity::from_bits(entity_bits) else {
-            return Err(VmError::type_error(format!(
-                "Failed to execute 'getHTML' on '{interface}': \
-                 'shadowRoots[{i}]' is detached (invalid entity)."
-            )));
-        };
-        // Separate "wrapper points at a destroyed entity" from "wrong
-        // brand" so the error message matches the actual failure mode
-        // — same split `require_brand` performs above and
-        // `event_target::require_receiver` performs for receivers.
-        let is_live = ctx
-            .host_if_bound()
-            .is_some_and(|hd| hd.dom().contains(entity));
-        if !is_live {
-            return Err(VmError::type_error(format!(
-                "Failed to execute 'getHTML' on '{interface}': \
-                 'shadowRoots[{i}]' is detached (invalid entity)."
-            )));
+    if let ObjectKind::Array { elements } = &ctx.vm.get_object(seq_id).kind {
+        // The dense `Array` path holds materialised JS values in
+        // memory already, so its iteration cost is naturally bounded
+        // by JS heap pressure. Validate each element up front and
+        // return the deduped entity set.
+        let snapshot: Vec<JsValue> = elements.iter().map(|v| v.or_undefined()).collect();
+        let mut out = HashSet::with_capacity(snapshot.len());
+        for (i, elem) in snapshot.into_iter().enumerate() {
+            out.insert(validate_shadow_root_seq_element(ctx, i, elem, interface)?);
         }
-        if !super::event_target::is_shadow_root_entity(ctx.vm, entity) {
-            return Err(VmError::type_error(format!(
-                "Failed to execute 'getHTML' on '{interface}': \
-                 'shadowRoots[{i}]' is not a ShadowRoot."
-            )));
-        }
-        out.insert(entity);
+        return Ok(out);
+    }
+    // Non-Array array-like path. Length coercion mirrors
+    // `natives_function.rs::collect_array_like` — ToNumber + trunc +
+    // NaN/negative → 0, then clamp to `SHADOW_ROOTS_SEQ_CAP` (a much
+    // tighter cap than `DENSE_ARRAY_LEN_LIMIT`: realistic getHTML
+    // sequences are a handful of items; a hostile
+    // `{length: 1<<27}` should NOT be permitted to run ~134M
+    // intern-then-fetch iterations before the first invalid element
+    // surfaces). Validation happens INLINE so the first bogus entry
+    // short-circuits the loop — defence in depth on top of the cap.
+    let length_key = super::super::value::PropertyKey::String(ctx.vm.well_known.length);
+    let length_val = ctx.vm.get_property_value(seq_id, length_key)?;
+    let len_f = ctx.to_number(length_val)?.trunc();
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    let length = if len_f.is_nan() || len_f < 0.0 {
+        0
+    } else {
+        (len_f as usize).min(SHADOW_ROOTS_SEQ_CAP)
+    };
+    let mut out = HashSet::with_capacity(length);
+    for i in 0..length {
+        let index_sid = ctx.vm.strings.intern(&i.to_string());
+        let index_key = super::super::value::PropertyKey::String(index_sid);
+        let elem = ctx.vm.get_property_value(seq_id, index_key)?;
+        out.insert(validate_shadow_root_seq_element(ctx, i, elem, interface)?);
     }
     Ok(out)
 }
