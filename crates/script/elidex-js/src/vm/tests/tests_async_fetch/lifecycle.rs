@@ -83,15 +83,21 @@ fn tick_network_drains_microtasks_without_handle() {
 }
 
 #[test]
-fn tick_network_leaves_unhandled_ws_sse_events_in_buffer() {
-    // The VM's `tick_network` only consumes `FetchResponse`
-    // events; any `WebSocketEvent` / `EventSourceEvent` that hits
-    // the same handle must remain in the broker handle's internal
-    // buffer so a sibling consumer (boa bridge during the boa→VM
-    // cutover, or future VM-side WS module) still observes them
-    // on its own `drain_events`.  Slot #6.8 implements this via
-    // `NetworkHandle::drain_fetch_responses_only`'s partition-in-
-    // place semantics.
+fn tick_network_consumes_ws_sse_events_for_dispatch() {
+    // D-12 `#11-net-ws-sse` (IMP-6): VM's `tick_network` now
+    // extends to consume `WebSocketEvent` / `EventSourceEvent`
+    // via the broker handle's `drain_events()` after the fetch
+    // partition pass, dispatching each to the matching wrapper
+    // through the `HostData::ws_conn_to_object` /
+    // `sse_conn_to_object` reverse maps.
+    //
+    // Events for conn_ids with no live wrapper (e.g. this test
+    // never instantiates a WebSocket) are silently dropped —
+    // the GC sweep tail emitted the matching `WebSocketClose`
+    // already so a late-arrival event is benign.  Verifies the
+    // post-#6.8-superseded behaviour: the partition still
+    // happens, but VM owns the realtime consumption now (no
+    // sibling-consumer responsibility post-boa-deletion).
     use elidex_net::broker::NetworkToRenderer;
     use elidex_net::ws::WsEvent;
     let mut vm = mock_vm(vec![]);
@@ -102,21 +108,26 @@ fn tick_network_leaves_unhandled_ws_sse_events_in_buffer() {
     ]);
     vm.tick_network();
     let leftover = handle.drain_events();
-    assert_eq!(leftover.len(), 2, "WS events must survive tick_network");
-    for ev in &leftover {
-        assert!(matches!(ev, NetworkToRenderer::WebSocketEvent(_, _)));
-    }
+    assert!(
+        leftover.is_empty(),
+        "VM must consume WS events from drain_events; leftover = {leftover:?}",
+    );
 }
 
 #[test]
-fn tick_network_settles_fetch_and_keeps_surrounding_ws_in_order() {
-    // Slot #6.8 contract: `tick_network` partitions fetch replies
-    // out of the broker buffer in a single pass, settles them,
-    // and leaves every non-fetch event in the buffer in its
-    // original relative order.  Pre-#6.8 behaviour stopped at the
-    // first non-fetch event and re-buffered the tail (including
-    // any later fetch replies) — this test exercises the post-#6.8
-    // contract on a [WS_before, FetchResponse, WS_after] stage.
+fn tick_network_settles_fetch_and_consumes_surrounding_ws_in_order() {
+    // D-12 `#11-net-ws-sse` (IMP-6): post-`tick_network`
+    // contract — fetch responses still drain via the partition
+    // pass (`drain_fetch_responses_only` runs first), then
+    // realtime events are consumed by the VM through
+    // `drain_events`.  Verifies on a [WS_before, FetchResponse,
+    // WS_after] stage that:
+    //  (a) the fetch settlement still completes (promise
+    //      reaction runs to `r == 200`)
+    //  (b) every WS event is consumed by the VM (leftover is
+    //      empty) — Phase 0b dispatch is a no-op stub but the
+    //      handle drain is unconditional, so no realtime event
+    //      survives the VM tick once `drain_events` is wired.
     use elidex_net::broker::NetworkToRenderer;
     use elidex_net::ws::WsEvent;
     let url = url::Url::parse("http://example.com/ordered").expect("valid");
@@ -125,9 +136,6 @@ fn tick_network_settles_fetch_and_keeps_surrounding_ws_in_order() {
         Ok(ok_response("http://example.com/ordered", "ok")),
     )]);
     let handle = vm.inner.network_handle.clone().expect("handle installed");
-    // Stage: dispatch the fetch (mock seeds FetchResponse into
-    // `buffered`), then drain + re-stage as [WS_before, FetchResponse,
-    // WS_after] via a single rebuffer call.
     vm.eval(
         "globalThis.r = 0; \
          fetch('http://example.com/ordered').then(resp => { globalThis.r = resp.status; });",
@@ -148,27 +156,17 @@ fn tick_network_settles_fetch_and_keeps_surrounding_ws_in_order() {
 
     vm.tick_network();
 
-    // FetchResponse extracted and settled — promise reaction ran.
+    // (a) FetchResponse extracted and settled — promise reaction ran.
     match vm.get_global("r") {
         Some(JsValue::Number(n)) => assert!((n - 200.0).abs() < f64::EPSILON),
         other => panic!("fetch must have settled to 200, got {other:?}"),
     }
-    // Both WS events remain in original order; no FetchResponse
-    // left over.
+    // (b) WS events consumed by the VM via `drain_events`.
     let leftover = handle.drain_events();
-    assert_eq!(leftover.len(), 2, "both WS events must remain");
-    match &leftover[0] {
-        NetworkToRenderer::WebSocketEvent(_, WsEvent::TextMessage(s)) => {
-            assert_eq!(s, "before");
-        }
-        other => panic!("expected WS('before'), got {other:?}"),
-    }
-    match &leftover[1] {
-        NetworkToRenderer::WebSocketEvent(_, WsEvent::TextMessage(s)) => {
-            assert_eq!(s, "after");
-        }
-        other => panic!("expected WS('after'), got {other:?}"),
-    }
+    assert!(
+        leftover.is_empty(),
+        "VM must consume WS events via drain_events; leftover = {leftover:?}",
+    );
 }
 
 #[test]

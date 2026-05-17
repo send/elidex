@@ -1262,6 +1262,40 @@ define_well_known_strings! {
         digest => "digest",
     }
 
+    "WebSocket / EventSource (WHATWG WebSockets §9.3 + HTML §9.2)" {
+        // Constructor globals + WS/SSE-specific attribute and method
+        // names not pre-interned elsewhere.  `protocol`, `data`,
+        // `origin`, `code`, `reason`, `was_clean`, `last_event_id`,
+        // `url`, `extensions` are all already interned above (Event
+        // payload keys / Storage / TLS sections) and reused here.
+        //
+        // `message` / `error` / `open` already exist in the
+        // "primitives" section (line 98/100 message/error) and the
+        // generic close handler key is `close` (ReadableStream
+        // section, line 1286).  WS / SSE `on*` handlers are
+        // declared here because `onopen` / `onmessage` / `onclose`
+        // are unique to the realtime surface.
+        websocket_global => "WebSocket",
+        event_source_global => "EventSource",
+        binary_type => "binaryType",
+        buffered_amount => "bufferedAmount",
+        with_credentials => "withCredentials",
+        onopen => "onopen",
+        onmessage => "onmessage",
+        onclose => "onclose",
+        binary_type_blob => "blob",
+        binary_type_arraybuffer => "arraybuffer",
+        // Constant identifiers (CONNECTING/OPEN/CLOSING/CLOSED) —
+        // installed on both the constructor and the prototype per
+        // WebIDL `const unsigned short` rules.  `CONNECTING` /
+        // `OPEN` / `CLOSING` / `CLOSED` are SHARED between the WS
+        // and SSE surfaces; SSE additionally lacks `CLOSING`.
+        ws_connecting_const => "CONNECTING",
+        ws_open_const => "OPEN",
+        ws_closing_const => "CLOSING",
+        ws_closed_const => "CLOSED",
+    }
+
     "ReadableStream (WHATWG Streams §4)" {
         // Constructor globals + method / accessor names unique to
         // the streams surface.  `read` / `value` / `done` /

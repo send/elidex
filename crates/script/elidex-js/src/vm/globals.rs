@@ -454,6 +454,14 @@ impl VmInner {
             // `performance` data-property neighbours.
             self.register_subtle_crypto_global();
             self.register_crypto_global();
+            // D-12 `#11-net-ws-sse` — realtime constructors
+            // (WebSocket / EventSource).  Both chain directly to
+            // `Object.prototype` in this PR; the full EventTarget
+            // surface for non-Entity targets is deferred to
+            // `#11-realtime-event-listeners`.  Order does not
+            // matter relative to each other or to crypto.
+            self.register_websocket_global();
+            self.register_event_source_global();
         }
 
         // Window.prototype — prototype for the `globalThis` `HostObject`

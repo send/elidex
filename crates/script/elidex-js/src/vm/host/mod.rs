@@ -107,6 +107,8 @@ pub(super) mod element_insert_adjacent;
 pub(super) mod element_proto;
 pub(super) mod elements;
 pub(super) mod event_shapes;
+#[cfg(feature = "engine")]
+pub(super) mod event_source;
 pub(super) mod event_target;
 #[cfg(feature = "engine")]
 pub(super) mod event_target_dispatch;
@@ -299,4 +301,6 @@ pub(crate) mod url;
 pub(crate) mod url_search_params;
 #[cfg(feature = "engine")]
 pub(super) mod validity_state;
+#[cfg(feature = "engine")]
+pub(super) mod websocket;
 pub(super) mod window;

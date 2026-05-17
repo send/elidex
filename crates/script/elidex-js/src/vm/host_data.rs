@@ -314,6 +314,236 @@ mod engine_feature {
         /// Selection API §3.4 (one event per microtask checkpoint
         /// regardless of how many discrete mutations happened).
         pub(crate) selectionchange_pending: bool,
+        // -------------------------------------------------------------
+        // D-12 #11-net-ws-sse: WebSocket / EventSource side-tables
+        // -------------------------------------------------------------
+        /// Per-`WebSocket` instance out-of-band state — see
+        /// [`WebSocketState`] for the per-instance fields (4-state
+        /// readyState, url, protocol, extensions, bufferedAmount,
+        /// binaryType, broker conn_id, 4 on* handler `ObjectId`s).
+        /// Lives on HostData (not VmInner) per plan v1.1 IMP-7
+        /// because the underlying broker I/O thread dies on
+        /// `Vm::unbind` (along with the `network_handle`), so
+        /// JS-visible WS state must die with it.  `Vm::unbind`
+        /// snapshots the conn_ids here BEFORE clearing the map so
+        /// it can emit `WebSocketClose` per conn_id to the
+        /// outgoing handle (CRIT-A: mirror
+        /// `reject_pending_fetches_with_error`'s teardown order).
+        pub(crate) websocket_states: HashMap<ObjectId, WebSocketState>,
+        /// Reverse lookup from broker `conn_id` to the instance
+        /// `ObjectId` — populated at ctor time and consumed by the
+        /// extended `tick_network` drain so incoming `WsEvent`s can
+        /// route back to the right wrapper.  Cleared alongside
+        /// `websocket_states` on `Vm::unbind`.
+        pub(crate) ws_conn_to_object: HashMap<u64, ObjectId>,
+        /// Monotonic per-VM WS connection ID counter.  Resets on
+        /// `Vm::unbind` (the broker assigns its own
+        /// `WsId` internally; renderers and broker maintain
+        /// independent counters that meet only via the
+        /// renderer-assigned `conn_id` carried in
+        /// `RendererToNetwork::WebSocketOpen` / `WebSocketSend` /
+        /// `WebSocketClose`).
+        pub(crate) ws_next_conn_id: u64,
+        /// Per-`EventSource` instance out-of-band state — see
+        /// [`EventSourceState`] for the per-instance fields (3-state
+        /// readyState, url, withCredentials, sticky lastEventId,
+        /// broker conn_id, 3 on* handler `ObjectId`s, per-instance
+        /// `addEventListener` registry for spec-mandated named-event
+        /// delivery).  Same HostData rationale as
+        /// `websocket_states`.
+        pub(crate) event_source_states: HashMap<ObjectId, EventSourceState>,
+        /// Reverse lookup from broker `conn_id` to the instance
+        /// `ObjectId` for SSE event routing.  Same `Vm::unbind`
+        /// contract as `ws_conn_to_object`.
+        pub(crate) sse_conn_to_object: HashMap<u64, ObjectId>,
+        /// Monotonic per-VM SSE connection ID counter; resets on
+        /// `Vm::unbind`.
+        pub(crate) sse_next_conn_id: u64,
+    }
+
+    /// `WebSocket.binaryType` enum (WHATWG WebSockets §9.3).
+    ///
+    /// Default is `Blob` per spec.  WebIDL `enum BinaryType {
+    /// "blob", "arraybuffer" }` — assignment to any other string
+    /// throws TypeError (handled in the setter, not here — Phase 2).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+    pub enum BinaryType {
+        /// Default: incoming binary frames are delivered as `Blob`
+        /// instances on the next `MessageEvent.data`.
+        #[default]
+        Blob,
+        /// Incoming binary frames are delivered as `ArrayBuffer`
+        /// instances.  Set via `ws.binaryType = "arraybuffer"`.
+        ArrayBuffer,
+    }
+
+    /// Per-`WebSocket` instance out-of-band state.  Held on
+    /// `HostData` in the `websocket_states` map keyed by the
+    /// instance `ObjectId`.
+    ///
+    /// Lives on HostData (not VmInner) because the broker handle's
+    /// per-conn_id state dies on `Vm::unbind`; JS-visible state has
+    /// to die with it.  `transition_to` enforces WHATWG §9.3 state
+    /// monotonicity (CONNECTING → OPEN → CLOSING → CLOSED, no
+    /// backward moves, no CONNECTING → CLOSED direct without an
+    /// intermediate CLOSING — same-state is a no-op).
+    #[derive(Debug)]
+    pub struct WebSocketState {
+        /// Current readyState bucket (matches the JS-visible
+        /// `WebSocket.readyState` integer).
+        pub ready_state: elidex_api_ws::WsReadyState,
+        /// Constructor URL after normalization + validation (so
+        /// `ws.url` echoes back the post-promotion `ws://` /
+        /// `wss://` form per WHATWG §9.3.4 step 2 "URL serializer").
+        pub url: String,
+        /// Negotiated sub-protocol — `""` until `WsEvent::Connected`
+        /// supplies the value, then frozen.
+        pub protocol: String,
+        /// Negotiated extensions — `""` until Connected, then frozen.
+        pub extensions: String,
+        /// Bytes queued for transmission but not yet flushed.  JS
+        /// `send()` increments via `saturating_add`; broker
+        /// `WsEvent::BytesSent(n)` decrements via `saturating_sub`.
+        /// `u64` to match the spec's `unsigned long long`.
+        pub buffered_amount: u64,
+        /// Current binaryType — see [`BinaryType`].
+        pub binary_type: BinaryType,
+        /// Broker connection ID — paired with HostData's
+        /// `ws_conn_to_object` reverse map for event routing and
+        /// emitted on `WsCommand` / `WebSocketClose` messages.
+        pub conn_id: u64,
+        /// Handler attribute slots — `None` until user JS assigns.
+        /// Direct callable invocation (NO addEventListener delivery
+        /// in this PR; deferred to `#11-realtime-event-listeners`).
+        pub onopen: Option<ObjectId>,
+        pub onmessage: Option<ObjectId>,
+        pub onerror: Option<ObjectId>,
+        pub onclose: Option<ObjectId>,
+    }
+
+    impl WebSocketState {
+        /// Apply a `readyState` transition.  Per WHATWG §9.3 the
+        /// state machine is strictly monotonic — once OPEN the
+        /// only legal next states are CLOSING / CLOSED, and once
+        /// CLOSING the only legal next state is CLOSED.  Same-state
+        /// transitions are accepted as no-ops (idempotent
+        /// `close()` calls land here).
+        ///
+        /// Returns `Err(&'static str)` on an illegal transition
+        /// AND fires a `debug_assert!` — the wrong direction is
+        /// always a code bug, never user-driven.  Production
+        /// release builds receive the Result so the caller can
+        /// short-circuit gracefully (e.g. drop a stale broker
+        /// event after `Vm::unbind` snapshotted the state).
+        pub fn transition_to(
+            &mut self,
+            new: elidex_api_ws::WsReadyState,
+        ) -> Result<(), &'static str> {
+            use elidex_api_ws::WsReadyState::{Closed, Closing, Connecting, Open};
+            // Legal transitions per WHATWG §9.3 (CONNECTING →
+            // anything; OPEN → forward-or-same; CLOSING →
+            // forward-or-same; CLOSED → CLOSED only).  Same-state
+            // pairs are idempotent no-ops folded into each arm.
+            // Wildcard `_` returns `false` for backward /
+            // terminal-exit pairs (Open→Connecting, Closing→
+            // Connecting / Open, Closed→Connecting / Open /
+            // Closing).
+            let ok = matches!(
+                (self.ready_state, new),
+                (Connecting, _)
+                    | (Open, Open | Closing | Closed)
+                    | (Closing, Closing | Closed)
+                    | (Closed, Closed)
+            );
+            if ok {
+                self.ready_state = new;
+                Ok(())
+            } else {
+                debug_assert!(
+                    false,
+                    "illegal WebSocket readyState transition {:?} → {:?}",
+                    self.ready_state, new
+                );
+                Err("illegal WebSocket readyState transition")
+            }
+        }
+    }
+
+    /// Per-`EventSource` instance out-of-band state.  Held on
+    /// `HostData` in the `event_source_states` map keyed by the
+    /// instance `ObjectId`.
+    ///
+    /// SSE has a 3-state machine (no CLOSING — error / fatal /
+    /// close all land directly).  The transient `Error` event
+    /// moves OPEN → CONNECTING during automatic reconnect, then
+    /// `Connected` snaps back to OPEN.  `FatalError` and JS
+    /// `close()` are terminal.
+    #[derive(Debug)]
+    pub struct EventSourceState {
+        pub ready_state: elidex_api_ws::SseReadyState,
+        /// Constructor URL after parse + relative-resolution.  No
+        /// scheme promotion (SSE is HTTP-only).
+        pub url: String,
+        /// `init.withCredentials` echo.
+        pub with_credentials: bool,
+        /// Sticky lastEventId — broker emits cumulative value per
+        /// HTML §9.2 (IMP-5).  Tracked here so the JS surface
+        /// `lastEventId` accessor (not in this PR — handler-only)
+        /// + reconnect's `Last-Event-ID` header are kept in sync.
+        pub last_event_id: String,
+        /// Broker connection ID — paired with HostData's
+        /// `sse_conn_to_object` reverse map.
+        pub conn_id: u64,
+        /// Handler attribute slots.  CRIT-3 fold: SSE additionally
+        /// ships a minimal `addEventListener` registry so named
+        /// events (e.g. `evtsrc.addEventListener("notification",
+        /// cb)`) are not silently dropped.
+        pub onopen: Option<ObjectId>,
+        pub onmessage: Option<ObjectId>,
+        pub onerror: Option<ObjectId>,
+        /// Per-event-type listener registry — minimal shim
+        /// (capture / once / signal / passive deferred to
+        /// `#11-realtime-event-listeners`).  Keyed by event type
+        /// string; vector preserves spec insertion order for
+        /// dispatch.
+        pub event_listeners: HashMap<String, Vec<ObjectId>>,
+    }
+
+    impl EventSourceState {
+        /// Apply an SSE `readyState` transition.  Legal moves:
+        /// - `Connecting → Open` (handshake completed)
+        /// - `Open → Connecting` (transient `SseEvent::Error`,
+        ///   auto-reconnect IMP-3)
+        /// - `Connecting → Closed` / `Open → Closed` (JS
+        ///   `close()` or `SseEvent::FatalError`)
+        /// - Same-state = idempotent
+        ///
+        /// Illegal moves trip `debug_assert!` and return Err.
+        pub fn transition_to(
+            &mut self,
+            new: elidex_api_ws::SseReadyState,
+        ) -> Result<(), &'static str> {
+            use elidex_api_ws::SseReadyState::{Closed, Connecting, Open};
+            // Legal transitions per WHATWG HTML §9.2 — CONNECTING
+            // and OPEN can flow to any state (OPEN→CONNECTING is
+            // the legitimate auto-reconnect path on transient
+            // `SseEvent::Error` per IMP-3), CLOSED is terminal.
+            let ok = matches!(
+                (self.ready_state, new),
+                (Connecting | Open, _) | (Closed, Closed)
+            );
+            if ok {
+                self.ready_state = new;
+                Ok(())
+            } else {
+                debug_assert!(
+                    false,
+                    "illegal EventSource readyState transition {:?} → {:?}",
+                    self.ready_state, new
+                );
+                Err("illegal EventSource readyState transition")
+            }
+        }
     }
 
     /// VM-local TreeWalker state.  WHATWG DOM §6.4.
@@ -396,6 +626,12 @@ mod engine_feature {
                 selection_state: None,
                 selection_instance: None,
                 selectionchange_pending: false,
+                websocket_states: HashMap::new(),
+                ws_conn_to_object: HashMap::new(),
+                ws_next_conn_id: 0,
+                event_source_states: HashMap::new(),
+                sse_conn_to_object: HashMap::new(),
+                sse_next_conn_id: 0,
             }
         }
 
@@ -1086,6 +1322,72 @@ mod engine_feature {
                 .and_then(elidex_dom_api::SelectionState::current_range_id)
                 .map(|rid| rid.0)
         }
+
+        // -------------------------------------------------------------
+        // D-12 #11-net-ws-sse: ID allocation + side-table accessors
+        // -------------------------------------------------------------
+
+        /// Allocate a fresh per-VM WebSocket connection ID.  Counter
+        /// resets on `Vm::unbind` so connection IDs are scoped to
+        /// the current bind cycle, matching the broker handle's
+        /// own lifetime.
+        ///
+        /// Unused until Phase 1 wires the WebSocket constructor —
+        /// kept here in Phase 0b alongside the side-table fields
+        /// so the allocator + counter live together.
+        #[allow(dead_code)]
+        pub(crate) fn alloc_ws_conn_id(&mut self) -> u64 {
+            let id = self.ws_next_conn_id;
+            self.ws_next_conn_id = self.ws_next_conn_id.wrapping_add(1);
+            id
+        }
+
+        /// Allocate a fresh per-VM SSE connection ID.  Same scope
+        /// contract as [`Self::alloc_ws_conn_id`].  Phase 3 caller.
+        #[allow(dead_code)]
+        pub(crate) fn alloc_sse_conn_id(&mut self) -> u64 {
+            let id = self.sse_next_conn_id;
+            self.sse_next_conn_id = self.sse_next_conn_id.wrapping_add(1);
+            id
+        }
+
+        /// Read access to the WebSocket side-table for GC trace
+        /// fan-out — the trace walks each entry's 4 `on*` handler
+        /// `ObjectId`s.
+        pub(crate) fn websocket_states_ref(&self) -> &HashMap<ObjectId, WebSocketState> {
+            &self.websocket_states
+        }
+
+        /// Read access to the EventSource side-table for GC trace
+        /// fan-out — the trace walks each entry's 3 `on*` handler
+        /// `ObjectId`s plus every listener `ObjectId` in
+        /// `event_listeners`.
+        pub(crate) fn event_source_states_ref(&self) -> &HashMap<ObjectId, EventSourceState> {
+            &self.event_source_states
+        }
+
+        /// Drain the WebSocket / EventSource side-tables and
+        /// produce the broker `conn_id` lists that
+        /// `Vm::unbind` must close BEFORE clearing state, per
+        /// CRIT-A.  Returns `(ws_conn_ids, sse_conn_ids)`; the
+        /// caller emits `WebSocketClose` / `EventSourceClose` per
+        /// id and then this method's *post-drain* state is the
+        /// cleared baseline for the next `bind`.
+        ///
+        /// Counter fields (`ws_next_conn_id` / `sse_next_conn_id`)
+        /// also reset so the next bind starts fresh — matches the
+        /// broker handle's lifetime contract.
+        pub(crate) fn drain_realtime_for_unbind(&mut self) -> (Vec<u64>, Vec<u64>) {
+            let ws_conns: Vec<u64> = self.ws_conn_to_object.keys().copied().collect();
+            let sse_conns: Vec<u64> = self.sse_conn_to_object.keys().copied().collect();
+            self.websocket_states.clear();
+            self.ws_conn_to_object.clear();
+            self.ws_next_conn_id = 0;
+            self.event_source_states.clear();
+            self.sse_conn_to_object.clear();
+            self.sse_next_conn_id = 0;
+            (ws_conns, sse_conns)
+        }
     }
 
     impl Default for HostData {
@@ -1202,3 +1504,5 @@ pub use engine_feature::HostData;
 pub use engine_feature::PrototypeKind;
 #[cfg(feature = "engine")]
 pub use engine_feature::TreeWalkerState;
+#[cfg(feature = "engine")]
+pub use engine_feature::{BinaryType, EventSourceState, WebSocketState};

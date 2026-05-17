@@ -318,6 +318,48 @@ impl Vm {
 
     /// Clear host pointers after JS execution.  No-op if unbound.
     pub fn unbind(&mut self) {
+        // D-12 `#11-net-ws-sse` (CRIT-A): snapshot the active
+        // realtime conn_ids BEFORE clearing HostData side-tables
+        // so we can emit a `WebSocketClose` / `EventSourceClose`
+        // per conn through the outgoing handle (mirror of
+        // `reject_pending_fetches_with_error` shape at
+        // `vm/host/fetch_tick.rs:82-131`).  Without the explicit
+        // teardown, the broker's per-conn I/O thread would only
+        // observe its `command_tx`'s `request_rx` drop when the
+        // renderer Drops the `NetworkHandle` itself — which can be
+        // much later than `unbind` if the embedder keeps the
+        // handle around for a subsequent `bind`.  Sending the
+        // Close eagerly bounds the I/O thread's lifetime to the
+        // bind cycle.
+        //
+        // Held in a temporary so the broker `send` calls don't
+        // interleave with the `HostData::*` clears below (clean
+        // borrow split: snapshot first, send after, clear last).
+        #[cfg(feature = "engine")]
+        let realtime_teardown: Option<(Vec<u64>, Vec<u64>)> =
+            self.inner.host_data.as_deref_mut().and_then(|hd| {
+                if hd.is_bound() {
+                    Some(hd.drain_realtime_for_unbind())
+                } else {
+                    None
+                }
+            });
+        #[cfg(feature = "engine")]
+        if let Some((ws_conns, sse_conns)) = realtime_teardown {
+            if let Some(handle) = self.inner.network_handle.as_ref() {
+                for conn_id in ws_conns {
+                    let _ = handle.send(elidex_net::broker::RendererToNetwork::WebSocketClose(
+                        conn_id,
+                    ));
+                }
+                for conn_id in sse_conns {
+                    let _ = handle.send(elidex_net::broker::RendererToNetwork::EventSourceClose(
+                        conn_id,
+                    ));
+                }
+            }
+        }
+
         if let Some(hd) = self.inner.host_data.as_deref_mut() {
             // D-8 PR-A2 — clear the `MutationBridge` from `EcsDom`
             // BEFORE HostData::unbind (which null-zeros `dom_ptr`).

@@ -112,6 +112,23 @@ pub(super) fn trace_work_list(
     // and the next `input.files` read allocates a fresh wrapper,
     // breaking `input.files === input.files` across GC.
     #[cfg(feature = "engine")] input_files_cache: &std::collections::HashMap<ObjectId, ObjectId>,
+    // D-12 `#11-net-ws-sse` — WebSocket / EventSource handler ObjectId
+    // fan-out.  Each WebSocket arm walks the 4 `on*` handler slots
+    // held in the side-table; each EventSource arm walks the 3 `on*`
+    // slots PLUS every listener `ObjectId` in the per-instance
+    // `event_listeners` registry (CRIT-3 minimal addEventListener
+    // shim).  Without this fan-out a user-assigned handler closure
+    // can be collected even while the WS / SSE instance is JS-
+    // reachable, causing the next event delivery to invoke a freed
+    // ObjectId.
+    #[cfg(feature = "engine")] websocket_states: &std::collections::HashMap<
+        ObjectId,
+        super::super::host_data::WebSocketState,
+    >,
+    #[cfg(feature = "engine")] event_source_states: &std::collections::HashMap<
+        ObjectId,
+        super::super::host_data::EventSourceState,
+    >,
     obj_marks: &mut [u64],
     uv_marks: &mut [u64],
     work: &mut Vec<u32>,
@@ -819,6 +836,33 @@ pub(super) fn trace_work_list(
                     .flatten()
                     {
                         mark_object(handler, obj_marks, work);
+                    }
+                }
+            }
+            #[cfg(feature = "engine")]
+            ObjectKind::WebSocket => {
+                if let Some(state) = websocket_states.get(&ObjectId(obj_idx)) {
+                    for handler in [state.onopen, state.onmessage, state.onerror, state.onclose]
+                        .into_iter()
+                        .flatten()
+                    {
+                        mark_object(handler, obj_marks, work);
+                    }
+                }
+            }
+            #[cfg(feature = "engine")]
+            ObjectKind::EventSource => {
+                if let Some(state) = event_source_states.get(&ObjectId(obj_idx)) {
+                    for handler in [state.onopen, state.onmessage, state.onerror]
+                        .into_iter()
+                        .flatten()
+                    {
+                        mark_object(handler, obj_marks, work);
+                    }
+                    for listeners in state.event_listeners.values() {
+                        for &listener in listeners {
+                            mark_object(listener, obj_marks, work);
+                        }
                     }
                 }
             }

@@ -58,6 +58,28 @@ impl VmInner {
             for (fetch_id, result) in handle.drain_fetch_responses_only() {
                 self.settle_fetch(fetch_id, result);
             }
+            // D-12 `#11-net-ws-sse` (IMP-6): single Vm-API surface
+            // for realtime — partition the broker handle's
+            // non-fetch event drain into WebSocket vs
+            // EventSource buckets and dispatch each to the
+            // matching wrapper via the
+            // `HostData::ws_conn_to_object` /
+            // `sse_conn_to_object` reverse maps.  Fetch
+            // settlements run BEFORE realtime per `buffered.rs`
+            // ordering invariant so a `fetch().then(...)` that
+            // happens to share a renderer tick with a stream of
+            // WS frames lands its `.then` reactions in the same
+            // microtask checkpoint, ahead of the WS frame
+            // dispatch.
+            //
+            // Phase 0b: dispatch dispatch bodies are stubs;
+            // Phase 1/2/3 fill in `WsEvent::*` and `SseEvent::*`
+            // handling.  The partition + reverse-lookup
+            // scaffolding lands here so Phase 1 only edits the
+            // dispatch arm bodies, not the wiring.
+            for event in handle.drain_events() {
+                self.dispatch_realtime_event(event);
+            }
         }
         // Microtask checkpoint — `.then` reactions attached to a
         // settled Promise (or any other queued reaction) must run
@@ -67,6 +89,43 @@ impl VmInner {
         // when no handle is installed (R4.1) so the public API's
         // unconditional contract holds for handle-less embedders.
         self.drain_microtasks();
+    }
+
+    /// Dispatch a single non-fetch broker event (WS or SSE) to the
+    /// matching VM-side wrapper.  Phase 0b stub: looks the
+    /// receiver up through the reverse map and silently drops if
+    /// the wrapper has been GC-swept (the sweep tail already
+    /// emitted the matching `WebSocketClose` /
+    /// `EventSourceClose` so the broker should not send
+    /// further events for that `conn_id`; a late arrival between
+    /// sweep and broker observe is benign).  Phase 1/2/3 replace
+    /// the match arms with real `WsEvent::*` / `SseEvent::*`
+    /// handling.
+    fn dispatch_realtime_event(&mut self, event: elidex_net::broker::NetworkToRenderer) {
+        use elidex_net::broker::NetworkToRenderer;
+        match event {
+            NetworkToRenderer::WebSocketEvent(conn_id, _ws_event) => {
+                let Some(hd) = self.host_data.as_deref() else {
+                    return;
+                };
+                let _instance = hd.ws_conn_to_object.get(&conn_id).copied();
+                // Phase 1 + 2: per-event-variant dispatch lands here.
+            }
+            NetworkToRenderer::EventSourceEvent(conn_id, _sse_event) => {
+                let Some(hd) = self.host_data.as_deref() else {
+                    return;
+                };
+                let _instance = hd.sse_conn_to_object.get(&conn_id).copied();
+                // Phase 3: per-event-variant dispatch lands here.
+            }
+            // FetchResponse already drained by
+            // `drain_fetch_responses_only` above — should never
+            // appear in `drain_events`'s residual stream, but the
+            // arm is exhaustive so the broker's existing
+            // ordering invariant is the only contract this code
+            // relies on.
+            NetworkToRenderer::FetchResponse(_, _) | NetworkToRenderer::RendererUnregistered => {}
+        }
     }
 
     /// Reject every entry in [`Self::pending_fetches`] with a
