@@ -54,19 +54,30 @@ use super::super::value::{JsValue, ObjectId, StringId};
 use super::super::VmInner;
 use super::websocket_dispatch::{fire_message_event, fire_plain_event};
 
-/// Handle `SseEvent::Connected`.
+/// Handle `SseEvent::Connected { final_url }`.
 ///
 /// Order per WHATWG HTML §9.2.5 step "announce the connection":
-/// transition state → fire `Event("open")` via cached `onopen` and
-/// any `addEventListener("open", ...)` listeners.  Per-state
-/// matrix: `Connecting→Open` is the first-handshake announce,
-/// `Open→Open` is the legitimate idempotent path after the
-/// broker's auto-reconnect cycle (`SseEvent::Error` →
-/// `Connecting`, then a fresh `SseEvent::Connected` snaps it
-/// back to `Open`); only the terminal `Closed` state short-
-/// circuits (JS-side `close()` raced ahead of the broker's
-/// `Connected` reply).
-pub(super) fn dispatch_sse_connected(vm: &mut VmInner, instance: ObjectId) {
+/// transition state → refresh `MessageEvent.origin` from the
+/// final URL per §9.2 "Dispatch the event" → fire `Event("open")`
+/// via cached `onopen` and any `addEventListener("open", ...)`
+/// listeners.  Per-state matrix: `Connecting→Open` is the
+/// first-handshake announce, `Open→Open` is the legitimate
+/// idempotent path after the broker's auto-reconnect cycle
+/// (`SseEvent::Error` → `Connecting`, then a fresh
+/// `SseEvent::Connected` snaps it back to `Open`); only the
+/// terminal `Closed` state short-circuits (JS-side `close()`
+/// raced ahead of the broker's `Connected` reply).
+///
+/// The origin refresh runs on every `Connected` so auto-reconnect
+/// cycles that land on a different final URL (server-side
+/// redirect-chain change between handshakes) observe the new
+/// origin — spec-silent on the reconnect refresh but Chrome /
+/// Firefox both re-derive.
+pub(super) fn dispatch_sse_connected(vm: &mut VmInner, instance: ObjectId, final_url: &url::Url) {
+    // Pre-borrow intern: `vm.strings.intern` needs `&mut VmInner`
+    // and cannot co-exist with the `host_data.as_deref_mut()`
+    // borrow below.  Same shape as `dispatch_sse_event` below.
+    let new_origin_sid = vm.strings.intern(&final_url.origin().ascii_serialization());
     let (handler, listeners) = {
         let Some(hd) = vm.host_data.as_deref_mut() else {
             return;
@@ -82,6 +93,7 @@ pub(super) fn dispatch_sse_connected(vm: &mut VmInner, instance: ObjectId) {
             return;
         }
         let _ = state.transition_to(SseReadyState::Open);
+        state.origin_sid = new_origin_sid;
         (state.onopen, listener_snapshot(state, "open"))
     };
     let type_sid = vm.well_known.ws_open_event_type;
@@ -90,13 +102,15 @@ pub(super) fn dispatch_sse_connected(vm: &mut VmInner, instance: ObjectId) {
 
 /// Handle `SseEvent::Event { event_type, data, last_event_id }`.
 ///
-/// Per WHATWG HTML §9.2.4 "dispatch the event": update sticky
+/// Per WHATWG HTML §9.2 "Dispatch the event": update sticky
 /// `last_event_id` from the broker's cumulative value
 /// ([`elidex_net::sse::SseParserState::take_event`] always emits the
 /// current buffer per §9.2.6), then build a `MessageEvent` named
-/// `event_type` with `data` / `origin` (ctor URL origin cached on
-/// the side-table) / `lastEventId` (the sticky cumulative value).
-/// Fan-out rule (§9.2.4):
+/// `event_type` with `data` / `origin` (post-redirect URL origin
+/// read from `state.origin_sid`, refreshed at each `Connected`
+/// per WHATWG HTML §9.2) / `lastEventId` (the sticky cumulative
+/// value).
+/// Fan-out rule (§9.2 "Dispatch the event"):
 /// - `event_type == "message"` → fire `onmessage` PLUS every
 ///   `addEventListener("message", ...)` listener.
 /// - `event_type != "message"` → fire only the

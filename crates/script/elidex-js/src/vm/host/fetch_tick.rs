@@ -171,8 +171,10 @@ impl VmInner {
                     return;
                 };
                 match sse_event {
-                    SseEvent::Connected => {
-                        super::event_source_dispatch::dispatch_sse_connected(self, instance);
+                    SseEvent::Connected { final_url } => {
+                        super::event_source_dispatch::dispatch_sse_connected(
+                            self, instance, &final_url,
+                        );
                     }
                     SseEvent::Event {
                         event_type,

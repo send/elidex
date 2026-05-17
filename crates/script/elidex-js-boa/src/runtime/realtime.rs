@@ -264,7 +264,9 @@ fn dispatch_ws_closed(
 
 fn dispatch_sse_event(id: u64, event: SseEvent, bridge: &HostBridge, ctx: &mut Context) {
     match event {
-        SseEvent::Connected => dispatch_sse_connected(id, bridge, ctx),
+        // Explicit `final_url: _` (not `..`) so future field additions
+        // fail-loud at compile time; boa is on the deletion path.
+        SseEvent::Connected { final_url: _ } => dispatch_sse_connected(id, bridge, ctx),
         SseEvent::Event {
             event_type,
             data,

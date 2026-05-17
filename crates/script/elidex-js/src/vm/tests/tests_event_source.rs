@@ -91,6 +91,18 @@ fn inject_sse_event_and_tick(vm: &mut Vm, conn_id: u64, ev: SseEvent) {
     vm.tick_network();
 }
 
+/// Build a `SseEvent::Connected { final_url }` for tests.  The
+/// no-redirect case passes the same URL the ctor used; the
+/// post-redirect case passes whatever the broker would have
+/// settled on after following 3xx hops.  Centralises the
+/// construction so a future `Connected` payload addition only
+/// touches this helper.
+fn connected_event(url_str: &str) -> SseEvent {
+    SseEvent::Connected {
+        final_url: url::Url::parse(url_str).expect("valid test URL"),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Constructor: success path + URL relative-resolution + init dict
 // ---------------------------------------------------------------------------
@@ -237,7 +249,7 @@ fn ready_state_transitions_connecting_to_open_via_connected_event() {
     with_es_vm(|vm| {
         vm.eval("globalThis.s = new EventSource('/events');")
             .unwrap();
-        inject_sse_event_and_tick(vm, 0, SseEvent::Connected);
+        inject_sse_event_and_tick(vm, 0, connected_event("https://example.com/events"));
         assert_eval_number(vm, "s.readyState", 1.0);
     });
 }
@@ -249,12 +261,12 @@ fn ready_state_open_to_connecting_via_transient_error_then_back() {
     with_es_vm(|vm| {
         vm.eval("globalThis.s = new EventSource('/events');")
             .unwrap();
-        inject_sse_event_and_tick(vm, 0, SseEvent::Connected);
+        inject_sse_event_and_tick(vm, 0, connected_event("https://example.com/events"));
         assert_eval_number(vm, "s.readyState", 1.0);
         inject_sse_event_and_tick(vm, 0, SseEvent::Error("transient".to_string()));
         assert_eval_number(vm, "s.readyState", 0.0);
         // Reconnect succeeds: another Connected snaps back to OPEN.
-        inject_sse_event_and_tick(vm, 0, SseEvent::Connected);
+        inject_sse_event_and_tick(vm, 0, connected_event("https://example.com/events"));
         assert_eval_number(vm, "s.readyState", 1.0);
     });
 }
@@ -264,7 +276,7 @@ fn ready_state_transitions_to_closed_via_fatal_error() {
     with_es_vm(|vm| {
         vm.eval("globalThis.s = new EventSource('/events');")
             .unwrap();
-        inject_sse_event_and_tick(vm, 0, SseEvent::Connected);
+        inject_sse_event_and_tick(vm, 0, connected_event("https://example.com/events"));
         inject_sse_event_and_tick(vm, 0, SseEvent::FatalError("server gone".to_string()));
         assert_eval_number(vm, "s.readyState", 2.0);
     });
@@ -279,7 +291,7 @@ fn close_transitions_to_closed() {
     with_es_vm(|vm| {
         vm.eval("globalThis.s = new EventSource('/events');")
             .unwrap();
-        inject_sse_event_and_tick(vm, 0, SseEvent::Connected);
+        inject_sse_event_and_tick(vm, 0, connected_event("https://example.com/events"));
         vm.eval("s.close();").expect("close ok");
         assert_eval_number(vm, "s.readyState", 2.0);
     });
@@ -320,7 +332,7 @@ fn onopen_fires_with_open_event_after_connected_dispatch() {
              s.onopen = function(e) { globalThis._evts.push({t: e.type, tg: e.target === s}); };",
         )
         .unwrap();
-        inject_sse_event_and_tick(vm, 0, SseEvent::Connected);
+        inject_sse_event_and_tick(vm, 0, connected_event("https://example.com/events"));
         assert_eval_number(vm, "_evts.length", 1.0);
         assert_eval_string(vm, "_evts[0].t", "open");
         assert_eval_bool(vm, "_evts[0].tg", true);
@@ -362,8 +374,9 @@ fn onmessage_fires_for_default_message_event_type() {
 
 #[test]
 fn onmessage_does_not_fire_for_named_events() {
-    // §9.2.4: `event: notification` named events fire only to
-    // `addEventListener("notification", ...)`, NOT to `onmessage`.
+    // §9.2 "Dispatch the event": `event: notification` named
+    // events fire only to `addEventListener("notification", ...)`,
+    // NOT to `onmessage`.
     with_es_vm(|vm| {
         vm.eval(
             "globalThis._count = 0; \
@@ -395,7 +408,7 @@ fn onerror_fires_plain_event_on_transient_error() {
              };",
         )
         .unwrap();
-        inject_sse_event_and_tick(vm, 0, SseEvent::Connected);
+        inject_sse_event_and_tick(vm, 0, connected_event("https://example.com/events"));
         inject_sse_event_and_tick(vm, 0, SseEvent::Error("noisy network".to_string()));
         assert_eval_number(vm, "_evts.length", 1.0);
         assert_eval_string(vm, "_evts[0].t", "error");
@@ -481,6 +494,120 @@ fn message_event_origin_is_event_source_url_origin() {
 }
 
 #[test]
+fn message_event_origin_reflects_final_url_after_redirect() {
+    // WHATWG HTML §9.2 "Dispatch the event": `MessageEvent.origin`
+    // is the serialization of the FINAL URL's origin (i.e. after
+    // all HTTP 3xx redirects).  The broker's `connect_sse_stream`
+    // follows redirects internally and surfaces the resolved URL
+    // through `SseEvent::Connected { final_url }`; the dispatcher
+    // refreshes `state.origin_sid` from it so post-Connected
+    // message events observe the redirect-changed origin.
+    with_es_vm(|vm| {
+        vm.eval(
+            "globalThis._origin = null; \
+             globalThis.s = new EventSource('https://stream.example.org/feed'); \
+             s.onmessage = function(e) { globalThis._origin = e.origin; };",
+        )
+        .unwrap();
+        // Server-side 3xx pointed the broker at stream-cdn.example.net.
+        inject_sse_event_and_tick(
+            vm,
+            0,
+            connected_event("https://stream-cdn.example.net/feed"),
+        );
+        inject_sse_event_and_tick(
+            vm,
+            0,
+            SseEvent::Event {
+                event_type: "message".to_string(),
+                data: "x".to_string(),
+                last_event_id: String::new(),
+            },
+        );
+        // Post-redirect origin (NOT the ctor URL's origin).
+        assert_eval_string(vm, "_origin", "https://stream-cdn.example.net");
+    });
+}
+
+#[test]
+fn message_event_origin_uses_ctor_url_until_connected() {
+    // Locks in the "defensive ctor default" contract: even in the
+    // (unreachable-in-practice) window between ctor return and the
+    // broker's first `Connected`, a message dispatched against the
+    // instance observes the ctor URL's origin.  Without the ctor
+    // seed the JS-visible `e.origin` would be the empty intern
+    // (`well_known.empty`) — neither spec-compliant nor browser-
+    // parity.
+    with_es_vm(|vm| {
+        vm.eval(
+            "globalThis._origin = null; \
+             globalThis.s = new EventSource('https://stream.example.org/feed'); \
+             s.onmessage = function(e) { globalThis._origin = e.origin; };",
+        )
+        .unwrap();
+        // NO Connected injected — dispatch_sse_event still fires
+        // (it does not gate on ready_state) and uses the seeded
+        // ctor origin from EventSourceState::origin_sid.
+        inject_sse_event_and_tick(
+            vm,
+            0,
+            SseEvent::Event {
+                event_type: "message".to_string(),
+                data: "x".to_string(),
+                last_event_id: String::new(),
+            },
+        );
+        assert_eval_string(vm, "_origin", "https://stream.example.org");
+    });
+}
+
+#[test]
+fn message_event_origin_refreshes_on_reconnect_with_different_redirect() {
+    // Auto-reconnect cycle: the broker may settle on a different
+    // final URL across reconnect attempts (e.g. a load-balancer
+    // moving the stream endpoint).  Each fresh `Connected` MUST
+    // refresh `state.origin_sid` so post-reconnect messages reflect
+    // the new origin, not the previous one.  Locks the per-handshake
+    // refresh invariant against a regression that caches the origin
+    // only on the first Connected.
+    with_es_vm(|vm| {
+        vm.eval(
+            "globalThis._origins = []; \
+             globalThis.s = new EventSource('https://stream.example.org/feed'); \
+             s.onmessage = function(e) { globalThis._origins.push(e.origin); };",
+        )
+        .unwrap();
+        // First handshake → origin A.
+        inject_sse_event_and_tick(vm, 0, connected_event("https://origin-a.example/feed"));
+        inject_sse_event_and_tick(
+            vm,
+            0,
+            SseEvent::Event {
+                event_type: "message".to_string(),
+                data: "first".to_string(),
+                last_event_id: String::new(),
+            },
+        );
+        // Transient error → Open→Connecting (no origin change yet).
+        inject_sse_event_and_tick(vm, 0, SseEvent::Error("flaky".to_string()));
+        // Reconnect handshake → origin B (different host).
+        inject_sse_event_and_tick(vm, 0, connected_event("https://origin-b.example/feed"));
+        inject_sse_event_and_tick(
+            vm,
+            0,
+            SseEvent::Event {
+                event_type: "message".to_string(),
+                data: "second".to_string(),
+                last_event_id: String::new(),
+            },
+        );
+        assert_eval_number(vm, "_origins.length", 2.0);
+        assert_eval_string(vm, "_origins[0]", "https://origin-a.example");
+        assert_eval_string(vm, "_origins[1]", "https://origin-b.example");
+    });
+}
+
+#[test]
 fn last_event_id_sticky_across_messages() {
     // §9.2.6 step 11: broker's `take_event` emits the cumulative
     // sticky value per event.  The VM-side state mirrors the
@@ -554,7 +681,7 @@ fn add_event_listener_fires_named_event() {
 
 #[test]
 fn add_event_listener_for_message_fires_alongside_onmessage() {
-    // §9.2.4: message events fire BOTH onmessage AND
+    // §9.2 "Dispatch the event": message events fire BOTH onmessage AND
     // addEventListener("message", ...) listeners (the on* handler
     // is the implicit `addEventListener("message", ...)` per
     // EventHandler IDL §8.1.7.2).

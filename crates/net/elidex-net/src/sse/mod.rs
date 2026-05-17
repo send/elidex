@@ -39,7 +39,12 @@ impl SseId {
 #[derive(Clone, Debug)]
 pub enum SseEvent {
     /// HTTP connection established with `text/event-stream` content type.
-    Connected,
+    Connected {
+        /// URL after all HTTP 3xx redirects have been resolved.  Renderer
+        /// feeds this to WHATWG HTML §9.2 "Dispatch the event"
+        /// `MessageEvent.origin` serialization.
+        final_url: url::Url,
+    },
     /// Server-sent event received.
     Event {
         /// Event type (default `"message"`).
@@ -350,7 +355,7 @@ async fn sse_io_loop(
         let Some(connect_outcome) = await_with_cancel(connect_fut, &cancel).await else {
             return;
         };
-        let mut reader = match connect_outcome {
+        let (mut reader, final_url) = match connect_outcome {
             Ok(r) => r,
             Err(SseConnectError::Fatal(msg)) => {
                 // Fatal errors are critical lifecycle events — use blocking send.
@@ -370,7 +375,7 @@ async fn sse_io_loop(
 
         // Connected successfully.
         // Only exit on Disconnected — Full (backpressure) is non-fatal.
-        if evt_tx.send(SseEvent::Connected).is_err() {
+        if evt_tx.send(SseEvent::Connected { final_url }).is_err() {
             return;
         }
 

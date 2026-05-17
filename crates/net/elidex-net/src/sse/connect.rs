@@ -45,18 +45,23 @@ const MAX_SSE_REDIRECTS: u32 = 20;
 ///
 /// If `origin` is `Some`, an `Origin` header is sent and CORS validation is
 /// performed on the final (non-redirect) response.
+///
+/// Returns `(reader, final_url)` where `final_url` is the URL that produced the
+/// 200 OK + `text/event-stream` response (i.e. the URL after all HTTP 3xx
+/// redirects have been resolved).  Callers use this for WHATWG HTML §9.2
+/// `MessageEvent.origin` serialization.
 pub(super) async fn connect_sse_stream(
     url: &url::Url,
     headers: &[(String, String)],
     origin: Option<&str>,
     with_credentials: bool,
-) -> Result<BufReader<Box<dyn AsyncReadWrite>>, SseConnectError> {
+) -> Result<(BufReader<Box<dyn AsyncReadWrite>>, url::Url), SseConnectError> {
     let mut current_url = url.clone();
 
     for _ in 0..MAX_SSE_REDIRECTS {
         let reader = connect_sse_single(&current_url, headers, origin, with_credentials).await?;
         match reader {
-            SseConnectResult::Connected(reader) => return Ok(reader),
+            SseConnectResult::Connected(reader) => return Ok((reader, current_url.clone())),
             SseConnectResult::Redirect(location) => {
                 // Resolve relative Location against the current URL.
                 current_url = current_url.join(&location).map_err(|e| {
