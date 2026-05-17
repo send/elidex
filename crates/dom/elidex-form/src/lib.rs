@@ -144,6 +144,34 @@ impl FormControlKind {
         self.is_text_control()
     }
 
+    /// Returns `true` if the `list` IDL attribute applies to this kind per
+    /// HTML §4.10.5.1.16.  Applicable: text / search / url / tel / email /
+    /// date / datetime-local / month / week / time / number / range / color.
+    /// Excluded (returns null even when a matching `<datalist>` exists):
+    /// hidden / checkbox / radio / file / submit / image / reset / button /
+    /// password.
+    ///
+    /// `month`, `week`, `time`, and `image` lack dedicated `FormControlKind`
+    /// variants and fall back to `TextInput` via `from_type_str` — this
+    /// makes `<input type=image>` incorrectly applicable today (pre-existing
+    /// FormControlKind coverage gap, not introduced by this predicate).
+    #[must_use]
+    pub fn list_applies(self) -> bool {
+        matches!(
+            self,
+            Self::TextInput
+                | Self::Search
+                | Self::Url
+                | Self::Tel
+                | Self::Email
+                | Self::Date
+                | Self::DatetimeLocal
+                | Self::Number
+                | Self::Range
+                | Self::Color
+        )
+    }
+
     /// Returns `true` if the `readonly` attribute applies to this kind
     /// (HTML §4.10.5.1.4).  `readonly` is meaningful for text-editable
     /// controls (`text`, `password`, `textarea`, `email`, `url`,

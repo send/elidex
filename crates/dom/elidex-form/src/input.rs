@@ -306,12 +306,19 @@ fn handle_readonly_navigation(state: &mut FormControlState, key: &str) -> bool {
 /// whose ID is equal to the value of the `list` attribute, if that element is
 /// in the same tree as the input element".
 ///
+/// Returns `None` for input types the `list` attribute does not apply to
+/// (hidden / checkbox / radio / file / submit / image / reset / button /
+/// password — see [`FormControlKind::list_applies`]).
+///
 /// Tree scope honors shadow boundaries — nested shadow subtrees within the
 /// same root are correctly excluded per the spec's "same tree" wording.
 /// Cross-tree (shadow-piercing) resolution is tracked at the
 /// `#11-form-elements-cross-tree` defer slot.
 #[must_use]
 pub fn resolve_input_list(dom: &EcsDom, input_entity: Entity) -> Option<Entity> {
+    if !input_list_applies_to_type(dom, input_entity) {
+        return None;
+    }
     let list_id: String = {
         let attrs = dom.world().get::<&Attributes>(input_entity).ok()?;
         let v = attrs.get("list")?;
@@ -353,6 +360,24 @@ fn matches_datalist_with_id(dom: &EcsDom, entity: Entity, id: &str) -> bool {
     dom.world()
         .get::<&Attributes>(entity)
         .is_ok_and(|a| a.get("id") == Some(id))
+}
+
+/// `<input>.list` applicability per HTML §4.10.5.1.16.  Prefer
+/// `FormControlState.kind` (parsed + ASCII-lowered at attach time);
+/// fall back to the raw `type` content attribute for JS-created inputs
+/// without state (mirrors the dual-source pattern in
+/// [`crate::label::is_labelable_element`]).
+fn input_list_applies_to_type(dom: &EcsDom, input_entity: Entity) -> bool {
+    if let Ok(state) = dom.world().get::<&FormControlState>(input_entity) {
+        return state.kind.list_applies();
+    }
+    let Ok(attrs) = dom.world().get::<&Attributes>(input_entity) else {
+        // No attributes component — defensive default to true (the
+        // surrounding `list` attribute read will return None anyway).
+        return true;
+    };
+    let type_str = attrs.get("type").unwrap_or("text").to_ascii_lowercase();
+    FormControlKind::from_type_str(&type_str).list_applies()
 }
 
 #[cfg(test)]
@@ -893,5 +918,117 @@ mod tests {
         let target = datalist_with_id(&mut dom, "opts");
         let _ = dom.append_child(container, target);
         assert_eq!(resolve_input_list(&dom, input), Some(target));
+    }
+
+    /// Helper: build an `<input type=T list="opts">` (attr path — no
+    /// `FormControlState` attached) and a matching `<datalist id="opts">`
+    /// in a shared tree; return `(input, datalist)`.
+    fn input_with_type_and_list_plus_datalist(
+        dom: &mut EcsDom,
+        input_type: &str,
+    ) -> (Entity, Entity) {
+        let container = dom.create_element("div", Attributes::default());
+        let mut input_attrs = Attributes::default();
+        input_attrs.set("type", input_type);
+        input_attrs.set("list", "opts");
+        let input = dom.create_element("input", input_attrs);
+        let _ = dom.append_child(container, input);
+        let datalist = datalist_with_id(dom, "opts");
+        let _ = dom.append_child(container, datalist);
+        (input, datalist)
+    }
+
+    #[test]
+    fn resolve_input_list_returns_none_for_hidden_type() {
+        // HTML §4.10.5.1.16: `list` does not apply to `<input type=hidden>`.
+        let mut dom = EcsDom::new();
+        let (input, _datalist) = input_with_type_and_list_plus_datalist(&mut dom, "hidden");
+        assert_eq!(resolve_input_list(&dom, input), None);
+    }
+
+    #[test]
+    fn resolve_input_list_returns_none_for_checkbox_type() {
+        let mut dom = EcsDom::new();
+        let (input, _datalist) = input_with_type_and_list_plus_datalist(&mut dom, "checkbox");
+        assert_eq!(resolve_input_list(&dom, input), None);
+    }
+
+    #[test]
+    fn resolve_input_list_returns_none_for_radio_type() {
+        let mut dom = EcsDom::new();
+        let (input, _datalist) = input_with_type_and_list_plus_datalist(&mut dom, "radio");
+        assert_eq!(resolve_input_list(&dom, input), None);
+    }
+
+    #[test]
+    fn resolve_input_list_returns_none_for_file_type() {
+        let mut dom = EcsDom::new();
+        let (input, _datalist) = input_with_type_and_list_plus_datalist(&mut dom, "file");
+        assert_eq!(resolve_input_list(&dom, input), None);
+    }
+
+    #[test]
+    fn resolve_input_list_returns_none_for_password_type() {
+        let mut dom = EcsDom::new();
+        let (input, _datalist) = input_with_type_and_list_plus_datalist(&mut dom, "password");
+        assert_eq!(resolve_input_list(&dom, input), None);
+    }
+
+    #[test]
+    fn resolve_input_list_returns_none_for_button_types() {
+        for ty in ["submit", "reset", "button"] {
+            let mut dom = EcsDom::new();
+            let (input, _datalist) = input_with_type_and_list_plus_datalist(&mut dom, ty);
+            assert_eq!(
+                resolve_input_list(&dom, input),
+                None,
+                "list should not apply to <input type={ty}>"
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_input_list_applies_to_search_url_email_tel() {
+        // Allow-list spot check: types that are NOT TextInput-fallback
+        // but DO carry their own variants resolve correctly.
+        for ty in [
+            "search", "url", "email", "tel", "number", "date", "color", "range",
+        ] {
+            let mut dom = EcsDom::new();
+            let (input, datalist) = input_with_type_and_list_plus_datalist(&mut dom, ty);
+            assert_eq!(
+                resolve_input_list(&dom, input),
+                Some(datalist),
+                "list should apply to <input type={ty}>"
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_input_list_returns_none_for_hidden_type_via_form_control_state() {
+        // FormControlState-path coverage: when the side-table is
+        // attached (e.g. via the HTML parser pipeline), `state.kind`
+        // is the source of truth.
+        let mut dom = EcsDom::new();
+        let container = dom.create_element("div", Attributes::default());
+        let mut input_attrs = Attributes::default();
+        input_attrs.set("type", "hidden");
+        input_attrs.set("list", "opts");
+        let input = dom.create_element("input", input_attrs.clone());
+        let state = FormControlState::from_element("input", &input_attrs).unwrap();
+        let _ = dom.world_mut().insert_one(input, state);
+        let _ = dom.append_child(container, input);
+        let datalist = datalist_with_id(&mut dom, "opts");
+        let _ = dom.append_child(container, datalist);
+        assert_eq!(resolve_input_list(&dom, input), None);
+    }
+
+    #[test]
+    fn resolve_input_list_type_match_is_case_insensitive_via_attr() {
+        // HTML §3.2.6.5: enumerated attributes are ASCII case-insensitive.
+        // `<input type="HIDDEN" list="opts">` should still be excluded.
+        let mut dom = EcsDom::new();
+        let (input, _datalist) = input_with_type_and_list_plus_datalist(&mut dom, "HIDDEN");
+        assert_eq!(resolve_input_list(&dom, input), None);
     }
 }

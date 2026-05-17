@@ -481,6 +481,28 @@ fn input_list_returns_same_object_on_repeated_reads() {
 }
 
 #[test]
+fn input_list_returns_null_for_inapplicable_types() {
+    // HTML §4.10.5.1.16 applicability table: `list` does not apply to
+    // hidden / checkbox / radio / file / submit / reset / button /
+    // password.  Getter must return null even when a matching
+    // `<datalist>` is in the same tree.
+    for ty in [
+        "hidden", "checkbox", "radio", "file", "submit", "reset", "button", "password",
+    ] {
+        let script = format!(
+            "var dl = document.createElement('datalist'); dl.id = 'opts'; \
+             var i = document.createElement('input'); i.type = '{ty}'; \
+             i.setAttribute('list', 'opts'); \
+             document.body.appendChild(dl); \
+             document.body.appendChild(i); \
+             (i.list === null) ? 'null' : 'non-null';"
+        );
+        let out = run(&script);
+        assert_eq!(out, "null", "list should be null for <input type={ty}>");
+    }
+}
+
+#[test]
 fn input_form_resolves_via_form_ancestor() {
     let out = run("var f = document.createElement('form'); \
          var i = document.createElement('input'); \
