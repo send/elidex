@@ -7,7 +7,7 @@
 //! brand check, marshalling). Ancestor-walk algorithms over the DOM
 //! tree are engine-independent and live here.
 
-use elidex_ecs::{EcsDom, Entity};
+use elidex_ecs::{EcsDom, Entity, MAX_ANCESTOR_DEPTH};
 
 /// Resolve the effective `isContentEditable` state for `entity`
 /// (HTML §6.7.3 — `contentEditable` IDL attribute).
@@ -24,6 +24,13 @@ use elidex_ecs::{EcsDom, Entity};
 /// Root with no `contenteditable` along the chain inherits `false`
 /// (spec default for `<html>`).
 ///
+/// Ancestor walk is capped at [`MAX_ANCESTOR_DEPTH`] parent-edges to
+/// defend against pathological trees.  The entity's own attribute is
+/// checked outside the cap; an ancestor at parent-edge distance up to
+/// and including `MAX_ANCESTOR_DEPTH` is reachable, anything beyond
+/// inherits `false`.  Mirrors the sibling walker convention in
+/// [`crate::element::is_option_disabled`].
+///
 /// **Known spec divergence (HTML §6.7.3.2)**: the spec maps invalid
 /// values to the *inherit* state, but this walker preserves the
 /// historical VM behaviour of treating any present non-matching
@@ -33,30 +40,30 @@ use elidex_ecs::{EcsDom, Entity};
 /// parsing rules.
 #[must_use]
 pub fn is_content_editable(dom: &EcsDom, entity: Entity) -> bool {
-    // Unbounded ancestor walk preserves pre-PR VM-host behaviour
-    // exactly (the user mandate for slot `#11-tags-T1-v2-drift-hoist`
-    // is "pure hoist / no behavior change").  Adding a
-    // `MAX_ANCESTOR_DEPTH` cap to mirror sibling walkers would change
-    // `isContentEditable` results for trees deeper than the cap; the
-    // safety hardening is deferred to a separate slot
-    // `#11-content-editable-depth-cap` where it can be introduced as
-    // an intentional behaviour change with a regression test that
-    // covers the depth cutoff.
-    let mut cur = Some(entity);
-    while let Some(e) = cur {
-        let matched = dom.with_attribute(e, "contenteditable", |raw| {
-            raw.map(|s| {
-                s.eq_ignore_ascii_case("true")
-                    || s.eq_ignore_ascii_case("plaintext-only")
-                    || s.is_empty()
-            })
-        });
-        if let Some(b) = matched {
+    if let Some(b) = match_contenteditable(dom, entity) {
+        return b;
+    }
+    let mut cur = dom.get_parent(entity);
+    for _ in 0..MAX_ANCESTOR_DEPTH {
+        let Some(e) = cur else {
+            return false;
+        };
+        if let Some(b) = match_contenteditable(dom, e) {
             return b;
         }
         cur = dom.get_parent(e);
     }
     false
+}
+
+fn match_contenteditable(dom: &EcsDom, entity: Entity) -> Option<bool> {
+    dom.with_attribute(entity, "contenteditable", |raw| {
+        raw.map(|s| {
+            s.eq_ignore_ascii_case("true")
+                || s.eq_ignore_ascii_case("plaintext-only")
+                || s.is_empty()
+        })
+    })
 }
 
 #[cfg(test)]
@@ -151,5 +158,41 @@ mod tests {
         let (dom, entities) = dom_with_chain(&[Some("true"), Some("bogus")]);
         let leaf = *entities.last().unwrap();
         assert!(!is_content_editable(&dom, leaf));
+    }
+
+    #[test]
+    fn caps_walk_at_max_ancestor_depth() {
+        // Build a chain so the root carrying `contenteditable="true"`
+        // sits `MAX_ANCESTOR_DEPTH + 1` parent-edges above the leaf —
+        // one past the reachable boundary.  Self-check + cap iterations
+        // (each visiting one ancestor) exhaust before reaching the root,
+        // so the leaf inherits the spec default (`false`).  Locks the
+        // intentional behaviour change introduced by this slot.
+        let chain_len = MAX_ANCESTOR_DEPTH + 2;
+        let mut states: Vec<Option<&str>> = Vec::with_capacity(chain_len);
+        states.push(Some("true"));
+        for _ in 1..chain_len {
+            states.push(None);
+        }
+        let (dom, entities) = dom_with_chain(&states);
+        let leaf = *entities.last().unwrap();
+        assert!(!is_content_editable(&dom, leaf));
+    }
+
+    #[test]
+    fn reaches_ancestor_exactly_at_max_ancestor_depth() {
+        // Boundary companion: an ancestor at exactly `MAX_ANCESTOR_DEPTH`
+        // parent-edges from the entity IS reachable (the cap bounds
+        // ancestor parent-edges walked, not total entities visited).
+        // Mirrors the sibling `is_option_disabled` convention.
+        let chain_len = MAX_ANCESTOR_DEPTH + 1;
+        let mut states: Vec<Option<&str>> = Vec::with_capacity(chain_len);
+        states.push(Some("true"));
+        for _ in 1..chain_len {
+            states.push(None);
+        }
+        let (dom, entities) = dom_with_chain(&states);
+        let leaf = *entities.last().unwrap();
+        assert!(is_content_editable(&dom, leaf));
     }
 }
