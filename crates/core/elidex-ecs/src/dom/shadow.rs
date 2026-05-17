@@ -340,6 +340,15 @@ impl EcsDom {
 
     fn collect_slots_recursive(&self, root: Entity, out: &mut Vec<Entity>) {
         for child in self.children_iter(root).collect::<Vec<_>>() {
+            // Skip nested ShadowRoot subtrees — slots inside a
+            // descendant element's shadow tree belong to that tree,
+            // not the outer one (WHATWG DOM §4.8 shadow
+            // encapsulation).  Without this guard, an inner slot
+            // would interfere with the outer tree's manual-assignment
+            // dedup.
+            if self.world.get::<&ShadowRoot>(child).is_ok() {
+                continue;
+            }
             if self
                 .world
                 .get::<&TagType>(child)
@@ -433,6 +442,14 @@ impl EcsDom {
     /// duplicate-named slots that come after the canonical match.
     fn first_named_slot_in_shadow(&self, sr: Entity, name: &str) -> Option<Entity> {
         for child in self.children_iter(sr).collect::<Vec<_>>() {
+            // Don't descend into nested ShadowRoot subtrees — a slot
+            // inside a descendant element's shadow tree belongs to
+            // that tree and must not be reported as the outer
+            // tree's first matching slot (WHATWG DOM §4.8 shadow
+            // encapsulation).
+            if self.world.get::<&ShadowRoot>(child).is_ok() {
+                continue;
+            }
             if self
                 .world
                 .get::<&TagType>(child)

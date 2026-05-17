@@ -28,9 +28,14 @@ use super::super::VmInner;
 
 impl VmInner {
     /// Allocate `DocumentFragment.prototype` with `Node.prototype` as
-    /// parent and install the ParentNode mixin (prepend / append /
-    /// replaceChildren) plus selector/children accessors.  Must run
-    /// after `register_node_prototype` and before any prototype that
+    /// parent and install only the ParentNode-mixin **mutation
+    /// methods** (`prepend` / `append` / `replaceChildren`).
+    /// Selector / children accessors (`querySelector`, `children`,
+    /// `firstElementChild`, …) are NOT installed here — they live
+    /// on `Element.prototype` only and reaching them through this
+    /// chain is tracked by defer slot
+    /// `#11-shadow-parent-node-accessors`.  Must run after
+    /// `register_node_prototype` and before any prototype that
     /// inherits from DocumentFragment.prototype
     /// (e.g. `register_shadow_root_prototype`).
     pub(in crate::vm) fn register_document_fragment_prototype(&mut self) {

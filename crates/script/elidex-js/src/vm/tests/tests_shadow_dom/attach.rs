@@ -303,6 +303,40 @@ fn html_slot_assigned_nodes_returns_fresh_array_each_call() {
 }
 
 #[test]
+fn nested_shadow_slots_dont_interfere_with_outer_distribution() {
+    // R14 finding #4 + #5: named-mode `first_named_slot_in_shadow`
+    // and manual-mode `all_slots_in_shadow` walkers must NOT
+    // descend into nested ShadowRoot subtrees (WHATWG DOM §4.8
+    // shadow encapsulation).  Without the boundary skip, an inner
+    // shadow's slot would be reported as the outer tree's first
+    // matching slot, breaking distribution.
+    //
+    // Test: outer host with two children (`x` slot=outer,
+    // `y` slot=outer), shadow has [inner_host (with its OWN shadow
+    // containing a `<slot name="outer">`), outer_slot_named_outer].
+    // The outer_slot_named_outer is the LATER slot in tree order,
+    // but the inner slot belongs to a different shadow tree so the
+    // outer_slot_named_outer should still claim x+y.
+    let out = run("var host = document.createElement('div'); \
+         document.body.appendChild(host); \
+         var x = document.createElement('span'); x.setAttribute('slot', 'outer'); \
+         host.appendChild(x); \
+         var sr = host.attachShadow({mode: 'open'}); \
+         var inner_host = document.createElement('div'); sr.append(inner_host); \
+         var inner_sr = inner_host.attachShadow({mode: 'open'}); \
+         var inner_slot = document.createElement('slot'); \
+         inner_slot.setAttribute('name', 'outer'); \
+         inner_sr.append(inner_slot); \
+         var outer_slot = document.createElement('slot'); \
+         outer_slot.setAttribute('name', 'outer'); \
+         sr.append(outer_slot); \
+         var an = outer_slot.assignedNodes(); \
+         (an.length === 1 && an[0] === x) \
+           ? 'ok' : 'fail:' + an.length;");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn assigned_nodes_named_mode_matches_slot_attribute() {
     // R4 finding #2: WHATWG DOM §4.2.2.5 "find slottables" — named
     // mode (default) distributes light-DOM children to slots by
