@@ -388,14 +388,17 @@ fn slot_assign_cross_slot_dedup_fires_slotchange_at_both() {
 // -------------------------------------------------------------------------
 
 #[test]
-fn shadow_root_states_cleared_on_unbind() {
-    // R4 finding #1: `shadow_root_states` (ObjectId-keyed) holds the
-    // shadow-root Entity each wrapper resolves to.  Entity indices
-    // are reused by a fresh `EcsDom`, so a retained ShadowRoot
-    // wrapper must not silently resolve to an unrelated entity in
-    // the new DOM post-rebind.  Unbind clears the side table; the
-    // wrapper's brand check then throws "Illegal invocation" on
-    // post-unbind accessor reads.
+fn shadow_root_accessor_throws_after_unbind_and_rebind() {
+    // Post-H-migration replacement for the field-introspection test
+    // `shadow_root_states_cleared_on_unbind`.  The same invariant
+    // (retained ShadowRoot wrapper must not silently resolve to an
+    // unrelated entity in a rebound DOM) is now expressed via a
+    // JS-observable accessor call — the brand check looks up the
+    // `elidex_ecs::ShadowRoot` component on the wrapper's entity bits
+    // in the *currently bound* DOM and throws "Illegal invocation"
+    // when the entity slot has been recycled into a non-shadow node
+    // (or absent entirely).  Locks the Phase 2 brand-check rewrite +
+    // Phase 6 simplified unbind clear.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -404,18 +407,32 @@ fn shadow_root_states_cleared_on_unbind() {
     unsafe {
         bind_vm(&mut vm, &mut session, &mut dom, doc);
     }
-    let _ = vm
-        .eval("var host = document.createElement('div'); host.attachShadow({mode: 'open'});")
+    vm.eval("globalThis.sr = document.createElement('div').attachShadow({mode: 'open'});")
         .unwrap();
-    assert!(
-        !vm.inner.shadow_root_states.is_empty(),
-        "expected attachShadow to populate shadow_root_states"
-    );
     vm.unbind();
-    assert!(
-        vm.inner.shadow_root_states.is_empty(),
-        "expected shadow_root_states to be cleared on unbind, found {} entries",
-        vm.inner.shadow_root_states.len()
+    let mut next_dom = EcsDom::new();
+    let next_root = build_doc(&mut next_dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut next_dom, next_root);
+    }
+    let out = vm
+        .eval(
+            "var caught = null; \
+             try { globalThis.sr.host; } \
+             catch (e) { caught = e; } \
+             (caught !== null && caught.name === 'TypeError') \
+               ? 'ok' : 'fail:' + (caught && caught.name);",
+        )
+        .unwrap();
+    vm.unbind();
+    let JsValue::String(sid) = out else {
+        panic!("expected string, got {out:?}");
+    };
+    assert_eq!(
+        vm.inner.strings.get_utf8(sid),
+        "ok",
+        "post-rebind ShadowRoot accessor should throw TypeError when entity bits do not resolve to a shadow root in the current DOM"
     );
 }
 
@@ -424,9 +441,10 @@ fn require_node_arg_rejects_shadow_root_with_destroyed_entity() {
     // R6 finding #2: A retained ShadowRoot wrapper whose backing
     // entity is destroyed must throw "Illegal invocation" via the
     // shared existence check, not silently hand a stale entity to
-    // Node IDL methods.  Simulated by unbinding (which clears
-    // `shadow_root_states`) and rebinding to a fresh DOM, then
-    // calling a Node-arg method using the retained wrapper.
+    // Node IDL methods.  Simulated by unbinding + rebinding to a
+    // fresh DOM (the ShadowRoot ECS component on the original entity
+    // is no longer reachable; the brand check then fails on entity
+    // existence in the new DOM world).
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -471,44 +489,19 @@ fn require_node_arg_rejects_shadow_root_with_destroyed_entity() {
 }
 
 #[test]
-fn shadow_root_wrappers_cleared_on_unbind() {
-    // After `attachShadow`, `shadow_root_wrappers` should hold the
-    // host→wrapper entry; `Vm::unbind()` must clear it so a rebind
-    // to a different DOM cannot resolve the stale wrapper.  Mirrors
-    // `attr_wrapper_cache_cleared_on_unbind` (in
-    // `tests_named_node_map.rs`).
-    let mut vm = Vm::new();
-    let mut session = SessionCore::new();
-    let mut dom = EcsDom::new();
-    let doc = build_doc(&mut dom);
-    #[allow(unsafe_code)]
-    unsafe {
-        bind_vm(&mut vm, &mut session, &mut dom, doc);
-    }
-    let _ = vm
-        .eval("var host = document.createElement('div'); host.attachShadow({mode: 'open'});")
-        .unwrap();
-    assert!(
-        !vm.inner.shadow_root_wrappers.is_empty(),
-        "expected attachShadow to populate shadow_root_wrappers"
-    );
-    vm.unbind();
-    assert!(
-        vm.inner.shadow_root_wrappers.is_empty(),
-        "expected shadow_root_wrappers to be cleared on unbind, found {} entries",
-        vm.inner.shadow_root_wrappers.len()
-    );
-}
-
-#[test]
 fn shadow_root_wrapper_survives_gc_while_host_alive() {
-    // R10 finding #1: `shadow_root_wrappers` is weak-through-owner.
-    // If the cached wrapper isn't marked while the host wrapper is
-    // alive, an unreferenced `host.shadowRoot` is swept and the
-    // cache prune drops the entry → next `host.shadowRoot` returns
-    // a FRESH wrapper, breaking identity + expando-property
-    // continuity.  Setup: attach, write an expando, drop the local
-    // reference, force GC, re-read.  The expando must survive.
+    // Post-H-migration: ShadowRoot wrappers live in the unified
+    // `HostData::wrapper_cache` keyed by the shadow root's own
+    // entity.  The cache pins the wrapper as long as the shadow
+    // root entity is reachable in the ECS world; an unreferenced
+    // `host.shadowRoot` therefore survives long enough for the next
+    // read to return the SAME wrapper (identity + expando-property
+    // continuity preserved).  Setup: attach, write an expando, drop
+    // the local reference, force GC, re-read.  The expando must
+    // survive.  Pre-H this invariant was carried by a dedicated
+    // weak-through-owner `shadow_root_wrappers` cache; H-migration
+    // (Lesson #276) folds that path into the standard wrapper-cache
+    // mark.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();

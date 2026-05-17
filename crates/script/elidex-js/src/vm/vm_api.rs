@@ -535,24 +535,6 @@ impl Vm {
             // previous DOM's cached Attr wrapper because the Entity
             // index slot is shared between `EcsDom::new()` worlds.
             self.inner.attr_wrapper_cache.clear();
-            // `shadow_root_wrappers` (Entity → ObjectId, D-15 PR-A)
-            // shares the same cross-DOM aliasing risk as
-            // `attr_wrapper_cache`: a retained shadow host wrapper
-            // could otherwise resolve `el2.shadowRoot` through the
-            // previous DOM's cached ShadowRoot wrapper because the
-            // Entity index slot is shared between `EcsDom::new()`
-            // worlds.
-            self.inner.shadow_root_wrappers.clear();
-            // `shadow_root_states` (ObjectId → ShadowRootState) holds
-            // the Entity each ShadowRoot wrapper resolves to.  Even
-            // though the wrapper's ObjectId is stable, the Entity it
-            // refers to belongs to the *previous* `EcsDom` world;
-            // recycled Entity indices in a fresh world would let
-            // accessors / Node-arg conversions resolve through to an
-            // unrelated entity in the new DOM.  Clearing the state
-            // table makes retained ShadowRoot wrappers inert (brand
-            // check throws "Illegal invocation") post-unbind.
-            self.inner.shadow_root_states.clear();
             // Drop any signal-slots queued from the previous DOM —
             // their entities live in the old world, so firing
             // slotchange post-rebind would either resolve to a

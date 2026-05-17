@@ -21,38 +21,29 @@
 //!
 //! ## Backing state
 //!
-//! `ObjectKind::ShadowRoot` is payload-free; the shadow root `Entity`
-//! lives in [`crate::vm::VmInner::shadow_root_states`] keyed by this
-//! `ObjectId`.  Identity is preserved across `element.shadowRoot` reads
-//! via [`crate::vm::VmInner::shadow_root_wrappers`] keyed by host
-//! `Entity` (mirrors `template_content_wrappers`).
+//! `ShadowRoot` wrappers are `ObjectKind::HostObject { entity_bits }`
+//! carrying the shadow root's own `Entity` — same as Element / Text
+//! wrappers.  The `ShadowRoot` kind is identified by the engine ECS
+//! component (`elidex_ecs::ShadowRoot`) on the entity, not by a
+//! distinct `ObjectKind` variant ([feedback_objectkind-resolution-uniformity]).
+//! Identity across `element.shadowRoot` reads is preserved by the
+//! standard `HostData::wrapper_cache` entity-keyed cache.
 //!
 //! ## Brand check
 //!
 //! Every accessor routes through [`require_shadow_root_receiver`];
 //! non-ShadowRoot receivers throw "Illegal invocation" TypeError per
-//! WebIDL brand semantics.
+//! WebIDL brand semantics.  Brand check = recover entity bits from
+//! `HostObject`, then verify the entity carries the
+//! `elidex_ecs::ShadowRoot` component.
 
 #![cfg(feature = "engine")]
 
 use elidex_ecs::{Entity, ShadowRoot as EcsShadowRoot, ShadowRootMode, SlotAssignmentMode};
 
 use super::super::shape;
-use super::super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, VmError,
-};
+use super::super::value::{JsValue, NativeContext, Object, ObjectKind, PropertyStorage, VmError};
 use super::super::VmInner;
-
-/// Backing state for `ObjectKind::ShadowRoot` wrappers — the
-/// shadow root `Entity` each wrapper resolves to.  Kept slim
-/// (single `Entity` field) so wrappers can be allocated freely
-/// without `ObjectId` GC fan-out concerns; mirrors `AttrState`.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct ShadowRootState {
-    /// The shadow root entity (NOT the host).  Use `EcsDom`'s
-    /// `ShadowRoot` component lookup to recover host / mode / etc.
-    pub(crate) shadow_root: Entity,
-}
 
 impl VmInner {
     /// Allocate `ShadowRoot.prototype` with `DocumentFragment.prototype`
@@ -123,47 +114,6 @@ impl VmInner {
             shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );
     }
-
-    /// Allocate a fresh `ShadowRoot` wrapper backed by the given
-    /// shadow root entity.  Identity caching is the caller's
-    /// responsibility — use [`Self::cached_or_alloc_shadow_root`].
-    /// `extensible: true` matches other DOM `HostObject` wrappers
-    /// (see [`Self::create_element_wrapper`]); WebIDL doesn't mark
-    /// `ShadowRoot` `[Unforgeable]` / `[Frozen]`, so script-side
-    /// expando properties (`shadowRoot.foo = 1`) are permitted per
-    /// WHATWG DOM §4.8 + WebIDL §3.7.7.
-    pub(crate) fn alloc_shadow_root(&mut self, shadow_root: Entity) -> ObjectId {
-        let proto = self
-            .shadow_root_prototype
-            .expect("alloc_shadow_root before register_shadow_root_prototype");
-        let id = self.alloc_object(Object {
-            kind: ObjectKind::ShadowRoot,
-            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            prototype: Some(proto),
-            extensible: true,
-        });
-        self.shadow_root_states
-            .insert(id, ShadowRootState { shadow_root });
-        id
-    }
-
-    /// Identity-preserving allocation for `ShadowRoot` wrappers keyed
-    /// by host element.  Repeated `el.shadowRoot` reads return the
-    /// same `ObjectId` (matches Chrome / Firefox).  Callers must only
-    /// invoke this for hosts known to carry an open shadow root —
-    /// closed-mode short-circuits to `null` before this lookup.
-    pub(crate) fn cached_or_alloc_shadow_root(
-        &mut self,
-        host: Entity,
-        shadow_root: Entity,
-    ) -> ObjectId {
-        if let Some(&id) = self.shadow_root_wrappers.get(&host) {
-            return id;
-        }
-        let id = self.alloc_shadow_root(shadow_root);
-        self.shadow_root_wrappers.insert(host, id);
-        id
-    }
 }
 
 // -------------------------------------------------------------------------
@@ -173,30 +123,32 @@ impl VmInner {
 /// Recover the shadow root `Entity` for a receiver, or throw
 /// "Illegal invocation" TypeError when the receiver isn't a
 /// ShadowRoot.
+///
+/// Brand check = the receiver is a `HostObject` wrapper whose backing
+/// entity carries the `elidex_ecs::ShadowRoot` component.  Per
+/// [feedback_objectkind-resolution-uniformity] the discriminator is
+/// the ECS component, not an `ObjectKind` variant.
 fn require_shadow_root_receiver(
     ctx: &NativeContext<'_>,
     this: JsValue,
     accessor: &'static str,
 ) -> Result<Entity, VmError> {
-    let JsValue::Object(id) = this else {
-        return Err(VmError::type_error(format!(
+    let illegal = || -> VmError {
+        VmError::type_error(format!(
             "Failed to execute '{accessor}' on 'ShadowRoot': Illegal invocation"
-        )));
+        ))
     };
-    if !matches!(ctx.vm.get_object(id).kind, ObjectKind::ShadowRoot) {
-        return Err(VmError::type_error(format!(
-            "Failed to execute '{accessor}' on 'ShadowRoot': Illegal invocation"
-        )));
+    let JsValue::Object(id) = this else {
+        return Err(illegal());
+    };
+    let ObjectKind::HostObject { entity_bits } = ctx.vm.get_object(id).kind else {
+        return Err(illegal());
+    };
+    let entity = Entity::from_bits(entity_bits).ok_or_else(illegal)?;
+    if !super::event_target::is_shadow_root_entity(ctx.vm, entity) {
+        return Err(illegal());
     }
-    ctx.vm
-        .shadow_root_states
-        .get(&id)
-        .map(|s| s.shadow_root)
-        .ok_or_else(|| {
-            VmError::type_error(format!(
-                "Failed to execute '{accessor}' on 'ShadowRoot': Illegal invocation"
-            ))
-        })
+    Ok(entity)
 }
 
 /// Read the `ShadowRoot` ECS component for a shadow-root `Entity`.

@@ -214,14 +214,12 @@ pub(super) fn require_node_arg(
     let JsValue::Object(id) = value else {
         return Err(not_a_node());
     };
-    // ShadowRoot wrappers don't carry entity bits (the entity lives
-    // in `shadow_root_states`); resolve through the side table so
-    // ShadowRoot is accepted as a Node arg per WHATWG DOM §4.8
-    // (ShadowRoot → DocumentFragment → Node).  Matches the
-    // [`super::event_target::entity_from_this`] extension.  Both
-    // branches fall through to the shared existence + node-kind
-    // check below so a retained wrapper whose backing entity was
-    // destroyed throws the same detached-node TypeError.
+    // Both Element and ShadowRoot wrappers are `HostObject` now —
+    // ShadowRoot is identified by its ECS component, not by an
+    // ObjectKind variant.  ShadowRoot remains accepted here per
+    // WHATWG DOM §4.8 (ShadowRoot → DocumentFragment → Node);
+    // insertion paths that must reject it call
+    // [`reject_shadow_root_insertion`] separately.
     let entity = match ctx.vm.get_object(id).kind {
         ObjectKind::HostObject { entity_bits } => {
             Entity::from_bits(entity_bits).ok_or_else(|| {
@@ -230,12 +228,6 @@ pub(super) fn require_node_arg(
                 ))
             })?
         }
-        ObjectKind::ShadowRoot => ctx
-            .vm
-            .shadow_root_states
-            .get(&id)
-            .map(|s| s.shadow_root)
-            .ok_or_else(not_a_node)?,
         _ => return Err(not_a_node()),
     };
     // Use the inferred kind so legacy DOM entities (payload present
@@ -243,8 +235,8 @@ pub(super) fn require_node_arg(
     // matches `normalize_single_arg`, `nodes_equal`, and
     // `HostData::prototype_kind_for`.  Window is an `EventTarget`
     // but not a Node, so it's rejected explicitly.  Destroyed
-    // entities (HostObject OR ShadowRoot) return `None` here and
-    // surface as the brand-check failure.
+    // entities return `None` here and surface as the brand-check
+    // failure.
     match ctx.host().dom().node_kind_inferred(entity) {
         None | Some(NodeKind::Window) => Err(not_a_node()),
         Some(_) => Ok(entity),
@@ -594,7 +586,13 @@ fn reject_shadow_root_insertion(
     let JsValue::Object(id) = value else {
         return Ok(());
     };
-    if !matches!(ctx.vm.get_object(id).kind, ObjectKind::ShadowRoot) {
+    let ObjectKind::HostObject { entity_bits } = ctx.vm.get_object(id).kind else {
+        return Ok(());
+    };
+    let Some(entity) = Entity::from_bits(entity_bits) else {
+        return Ok(());
+    };
+    if !super::event_target::is_shadow_root_entity(ctx.vm, entity) {
         return Ok(());
     }
     let hierarchy_request = ctx.vm.well_known.dom_exc_hierarchy_request_error;

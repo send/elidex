@@ -215,8 +215,8 @@ impl VmInner {
                 // invariant as the prototype roots above: without marking,
                 // GC would reclaim the prototype slots between register-time
                 // and the next wrapper-creation, leaving subsequent
-                // `alloc_shadow_root` / `alloc` calls binding fresh wrappers
-                // to recycled slots of unrelated types (observed during D-15
+                // `create_element_wrapper` calls binding fresh wrappers to
+                // recycled slots of unrelated types (observed during D-15
                 // bring-up — sr.prototype showed up as `createElement`
                 // function until this fix landed).
                 #[cfg(feature = "engine")]
@@ -950,8 +950,6 @@ impl VmInner {
             #[cfg(feature = "engine")]
             template_content_wrappers: &self.template_content_wrappers,
             #[cfg(feature = "engine")]
-            shadow_root_wrappers: &self.shadow_root_wrappers,
-            #[cfg(feature = "engine")]
             datalist_options_wrappers: &self.datalist_options_wrappers,
             #[cfg(feature = "engine")]
             output_html_for_wrappers: &self.output_html_for_wrappers,
@@ -1288,21 +1286,6 @@ impl VmInner {
             // owner-wrapper presence.
             self.attr_wrapper_cache
                 .retain(|_, attr_id| bit_get(marks, attr_id.0));
-            // `shadow_root_states` — keyed by `ObjectKind::ShadowRoot`
-            // wrapper `ObjectId` (D-15 PR-A).  Drop entries whose key
-            // wrapper was collected so a recycled slot cannot inherit
-            // a stale shadow root entity.  Mirrors `attr_states`.
-            self.shadow_root_states.retain(|id, _| bit_get(marks, id.0));
-            // `shadow_root_wrappers` — `Entity` → `ObjectId` identity
-            // cache for `el.shadowRoot` reads (open mode).  Drop
-            // entries whose value wrapper was collected.  Mirrors
-            // `attr_wrapper_cache` (value-side prune).  Host-side
-            // entity destruction is handled by the wrapper-cache
-            // chain — when the host wrapper is collected, the shadow
-            // root wrapper is unreachable too, and this prune cleans
-            // the residual key.
-            self.shadow_root_wrappers
-                .retain(|_, id| bit_get(marks, id.0));
             // `class_list_wrapper_cache` / `dataset_wrapper_cache` —
             // same prune contract as `attr_wrapper_cache`: drop
             // entries whose wrapper `ObjectId` was collected this

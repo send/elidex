@@ -368,33 +368,17 @@ pub(crate) struct VmInner {
     /// it never extends an Attr's lifetime past its owner.
     #[cfg(feature = "engine")]
     pub(crate) attr_wrapper_cache: HashMap<(elidex_ecs::Entity, StringId), ObjectId>,
-    /// `ShadowRoot.prototype` — shared prototype for every
-    /// `ObjectKind::ShadowRoot` wrapper (WHATWG DOM §4.8).  Carries
-    /// the `host` / `mode` / `delegatesFocus` / `slotAssignment` /
-    /// `clonable` / `serializable` accessor suite.  Chains to
-    /// `DocumentFragment.prototype`.
+    /// `ShadowRoot.prototype` — shared prototype for every shadow root
+    /// wrapper (WHATWG DOM §4.8).  ShadowRoot wrappers are themselves
+    /// `ObjectKind::HostObject { entity_bits }` whose backing entity
+    /// carries the `elidex_ecs::ShadowRoot` component
+    /// ([feedback_objectkind-resolution-uniformity]); identity across
+    /// reads is preserved via `HostData::wrapper_cache` like Element
+    /// wrappers.  Carries the `host` / `mode` / `delegatesFocus` /
+    /// `slotAssignment` / `clonable` / `serializable` accessor suite.
+    /// Chains to `DocumentFragment.prototype`.
     #[cfg(feature = "engine")]
     pub(crate) shadow_root_prototype: Option<ObjectId>,
-    /// Backing state for `ObjectKind::ShadowRoot` wrappers — the
-    /// shadow root `Entity` that each wrapper resolves to.  Held
-    /// separately from the identity cache because the wrapper
-    /// `ObjectId` is the GC handle while the host `Entity` is the
-    /// cache key (see [`Self::shadow_root_wrappers`]).
-    #[cfg(feature = "engine")]
-    pub(crate) shadow_root_states: HashMap<ObjectId, host::shadow_root_proto::ShadowRootState>,
-    /// Identity cache for `ShadowRoot` wrappers — keyed by host
-    /// `Entity` so `el.shadowRoot === el.shadowRoot` (open mode only;
-    /// closed mode short-circuits to `null` before the cache lookup).
-    /// Weak-through-owner GC contract: each cached wrapper is
-    /// marked from [`super::gc::roots::mark_roots`] step (e2.5)
-    /// whenever the host wrapper is reachable via
-    /// `HostData::wrapper_cache`, so an unreferenced
-    /// `host.shadowRoot` survives until the host itself is
-    /// collected (preserves identity + expando-property state).
-    /// Sweep tail prunes entries whose value `ObjectId` was
-    /// collected.  Mirrors `attr_wrapper_cache`.
-    #[cfg(feature = "engine")]
-    pub(crate) shadow_root_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
     /// `DocumentFragment.prototype` — shared prototype for every
     /// `DocumentFragment` node wrapper (`document.createDocumentFragment()`,
     /// `<template>.content`, ShadowRoot inherits from this).  Chains

@@ -66,11 +66,15 @@ mod engine_feature {
         /// `DocumentFragment.prototype → Node.prototype → …`.
         /// Carries the ParentNode mixin (`prepend` / `append` /
         /// `replaceChildren`) per WHATWG DOM §4.7.
-        /// `ShadowRoot` wrappers extend this chain via a separate
-        /// `ObjectKind::ShadowRoot` route (see
-        /// `crate::vm::host::shadow_root_proto`), so they are NOT
-        /// classified here.
         DocumentFragment,
+        /// Entity carries an `elidex_ecs::ShadowRoot` component —
+        /// chains via `ShadowRoot.prototype → DocumentFragment.prototype
+        /// → Node.prototype → …`.  Brand check for ShadowRoot
+        /// receivers is the engine-component lookup
+        /// `world.get::<&elidex_ecs::ShadowRoot>(entity).is_ok()`,
+        /// uniform with how other ECS-backed wrapper kinds are
+        /// dispatched here ([feedback_objectkind-resolution-uniformity]).
+        ShadowRoot,
         /// Document or anything without a recognised `NodeKind`.
         /// Chains directly to `Node.prototype`.
         OtherNode,
@@ -1075,6 +1079,25 @@ mod engine_feature {
             dom.world().get::<&elidex_ecs::TagType>(entity).is_ok()
         }
 
+        /// Engine-component brand check: `entity` carries an
+        /// `elidex_ecs::ShadowRoot` component in the currently-bound
+        /// DOM.  Sibling of [`Self::is_element_entity`] with identical
+        /// aliasing contract.
+        ///
+        /// Used to distinguish ShadowRoot wrappers from other DOM
+        /// wrappers post-H-migration ([feedback_objectkind-resolution-uniformity]):
+        /// both kinds are `ObjectKind::HostObject { entity_bits }` and
+        /// the ECS component is the only discriminator.
+        #[allow(unsafe_code)]
+        pub fn is_shadow_root_entity(&self, entity: Entity) -> bool {
+            if !self.is_bound() {
+                return false;
+            }
+            // SAFETY: see `is_element_entity` — same contract.
+            let dom = unsafe { &*self.dom_ptr };
+            dom.world().get::<&elidex_ecs::ShadowRoot>(entity).is_ok()
+        }
+
         /// Borrow the bound DOM (shared) and the
         /// [`elidex_api_observers::mutation::MutationObserverRegistry`]
         /// (exclusive) simultaneously via disjoint field projection.
@@ -1153,9 +1176,23 @@ mod engine_feature {
             // SAFETY: see `is_element_entity` — same contract.
             let dom = unsafe { &*self.dom_ptr };
             // Element has highest priority (matches the pre-PR4e
-            // behaviour of `is_element_entity` short-circuit).
+            // behaviour of `is_element_entity` short-circuit).  Shadow
+            // root entities lack `TagType` so this probe naturally
+            // short-circuits to the non-shadow path for the ~99% case;
+            // the `ShadowRoot` probe below disambiguates SR-vs-plain-DF
+            // only for the DF-typed minority without paying for an
+            // extra lookup on every Element wrapper allocation.
             if dom.world().get::<&elidex_ecs::TagType>(entity).is_ok() {
                 return PrototypeKind::Element;
+            }
+            // ShadowRoot entities carry `NodeKind::DocumentFragment`
+            // but must route through `ShadowRoot.prototype` (not
+            // `DocumentFragment.prototype`) for accurate brand checks
+            // (`shadowRoot instanceof ShadowRoot === true`).  Probe
+            // after the Element fast-path so non-shadow DF allocations
+            // also benefit from the early TagType short-circuit.
+            if dom.world().get::<&elidex_ecs::ShadowRoot>(entity).is_ok() {
+                return PrototypeKind::ShadowRoot;
             }
             match dom.node_kind(entity) {
                 Some(NodeKind::Text) => PrototypeKind::Text,

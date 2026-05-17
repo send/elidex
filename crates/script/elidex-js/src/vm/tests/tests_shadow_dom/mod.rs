@@ -69,3 +69,18 @@ pub(super) const MANUAL_SLOT_PRELUDE: &str = "globalThis.host = document.createE
      var sr = globalThis.host.attachShadow({mode: 'open', slotAssignment: 'manual'}); \
      globalThis.slot = document.createElement('slot'); \
      sr.append(globalThis.slot); ";
+
+/// JS helper that walks the prototype chain to find a named
+/// accessor's getter descriptor.  Used by brand-check tests that
+/// need to invoke a getter with a non-standard receiver
+/// (`getter.call({})`) to exercise the WebIDL "Illegal invocation"
+/// path; the getter doesn't appear as an own property of element
+/// instances since accessors live on the prototype.
+pub(super) const FIND_GETTER_PRELUDE: &str = "function findGetter(obj, prop) { \
+         while (obj) { \
+             var d = Object.getOwnPropertyDescriptor(obj, prop); \
+             if (d && d.get) return d.get; \
+             obj = Object.getPrototypeOf(obj); \
+         } \
+         return null; \
+     } ";
