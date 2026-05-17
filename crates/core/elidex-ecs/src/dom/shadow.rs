@@ -8,6 +8,58 @@ use hecs::Entity;
 
 use super::EcsDom;
 
+/// Initializer for [`EcsDom::attach_shadow_with_init`], mirroring the
+/// WebIDL `ShadowRootInit` dictionary (WHATWG DOM §4.2.14).
+#[derive(Clone, Copy, Debug)]
+pub struct ShadowInit {
+    pub mode: ShadowRootMode,
+    pub delegates_focus: bool,
+    pub slot_assignment: SlotAssignmentMode,
+    pub clonable: bool,
+    pub serializable: bool,
+}
+
+impl Default for ShadowInit {
+    fn default() -> Self {
+        Self {
+            mode: ShadowRootMode::Open,
+            delegates_focus: false,
+            slot_assignment: SlotAssignmentMode::Named,
+            clonable: false,
+            serializable: false,
+        }
+    }
+}
+
+/// Error variants for [`EcsDom::attach_shadow_with_init`] per WHATWG
+/// DOM §4.2.14 "attach a shadow root" validation steps.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ShadowAttachError {
+    /// Host entity doesn't exist or has no `TagType` component.
+    InvalidEntity,
+    /// Host's tag is not in the WHATWG allowlist + not a valid custom element name.
+    InvalidTag,
+    /// Host already has a shadow root attached (declarative-reuse path
+    /// deferred to slot `#11-shadow-declarative-reuse`).
+    AlreadyAttached,
+}
+
+/// Error variants for [`EcsDom::slot_assign`] per WHATWG DOM §4.2.2.5
+/// "manually assignable" validation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SlotAssignError {
+    /// Target entity is not a `<slot>` element.
+    NotASlot,
+    /// Slot is not inside a shadow root.
+    NoShadowRoot,
+    /// Owning shadow root is `Named` mode (only `Manual` permits `slot.assign()`).
+    NotManualMode,
+    /// One of the nodes isn't a direct child of the shadow host.
+    NotHostChild,
+    /// One of the nodes is not an Element or Text (Comment / Document not slottable).
+    InvalidNodeKind,
+}
+
 /// Tags allowed as shadow hosts per WHATWG DOM 4.2.14.
 /// Custom elements (valid custom element names) are also valid shadow hosts.
 pub(super) const VALID_SHADOW_HOST_TAGS: &[&str] = &[
@@ -73,48 +125,75 @@ fn is_valid_shadow_host(tag: &str) -> bool {
 }
 
 impl EcsDom {
-    /// Attach a shadow root to the given host element.
+    /// Attach a shadow root to the given host element with default init.
+    ///
+    /// Convenience wrapper around [`Self::attach_shadow_with_init`] for
+    /// the simple two-arg case (mode only, all other init fields default).
+    /// Retained for callers (CSS / style / test fixtures) that don't need
+    /// to specify the full init.
+    ///
+    /// Returns `Err(ShadowAttachError)` per the same validation rules as
+    /// [`Self::attach_shadow_with_init`].
+    pub fn attach_shadow(
+        &mut self,
+        host: Entity,
+        mode: ShadowRootMode,
+    ) -> Result<Entity, ShadowAttachError> {
+        self.attach_shadow_with_init(
+            host,
+            ShadowInit {
+                mode,
+                ..Default::default()
+            },
+        )
+    }
+
+    /// Attach a shadow root to the given host element with full init.
     ///
     /// Creates a new shadow root entity as a child of `host` and marks
     /// `host` with a `ShadowHost` component. Returns the shadow root entity.
     ///
-    /// Returns `Err(())` if:
-    /// - The host element's tag is not in the valid shadow host list (WHATWG DOM 4.2.14)
-    /// - The host already has a shadow root attached
-    /// - The entity does not exist or has no `TagType`
-    #[must_use = "returns Err if the operation failed"]
-    #[allow(clippy::result_unit_err)] // WHATWG convention: attach_shadow fails with no useful error detail.
-    pub fn attach_shadow(&mut self, host: Entity, mode: ShadowRootMode) -> Result<Entity, ()> {
-        // Validate host exists and has a valid tag per WHATWG DOM 4.2.14.
-        let tag = self.world.get::<&TagType>(host).map_err(|_| ())?.0.clone();
+    /// Returns `Err(ShadowAttachError)` per WHATWG DOM §4.2.14 "attach a
+    /// shadow root" validation:
+    /// - [`ShadowAttachError::InvalidEntity`]: host doesn't exist or has no `TagType`
+    /// - [`ShadowAttachError::InvalidTag`]: tag not in allowlist + not a valid custom element
+    /// - [`ShadowAttachError::AlreadyAttached`]: host already has a shadow root
+    pub fn attach_shadow_with_init(
+        &mut self,
+        host: Entity,
+        init: ShadowInit,
+    ) -> Result<Entity, ShadowAttachError> {
+        let tag = self
+            .world
+            .get::<&TagType>(host)
+            .map_err(|_| ShadowAttachError::InvalidEntity)?
+            .0
+            .clone();
         if !is_valid_shadow_host(&tag) {
-            return Err(());
+            return Err(ShadowAttachError::InvalidTag);
         }
-
-        // Reject if already a shadow host.
         if self.world.get::<&ShadowHost>(host).is_ok() {
-            return Err(());
+            return Err(ShadowAttachError::AlreadyAttached);
         }
 
-        // Create shadow root entity.
         let shadow_root_entity = self.world.spawn((
             ShadowRoot {
-                mode,
+                mode: init.mode,
                 host,
-                delegates_focus: false,
-                slot_assignment: SlotAssignmentMode::default(),
+                delegates_focus: init.delegates_focus,
+                slot_assignment: init.slot_assignment,
+                clonable: init.clonable,
+                serializable: init.serializable,
             },
             TreeRelation::default(),
             NodeKind::DocumentFragment,
         ));
 
-        // Attach shadow root as child of host.
         if !self.append_child(host, shadow_root_entity) {
             let _ = self.world.despawn(shadow_root_entity);
-            return Err(());
+            return Err(ShadowAttachError::InvalidEntity);
         }
 
-        // Mark host.
         let _ = self.world.insert_one(
             host,
             ShadowHost {
@@ -123,6 +202,110 @@ impl EcsDom {
         );
 
         Ok(shadow_root_entity)
+    }
+
+    /// Assign a list of light-DOM nodes to a `<slot>` element (WHATWG DOM
+    /// §4.2.2.5 "manually assignable" mode).  Validates:
+    /// - `slot` must be a `<slot>` element
+    /// - The slot's owning shadow root must use [`SlotAssignmentMode::Manual`]
+    /// - Each node must be a Element-or-Text child of the shadow host
+    ///
+    /// Returns `Err(SlotAssignError)` on validation failure; updates
+    /// `SlotAssignment.assigned_nodes` in place on success.
+    pub fn slot_assign(&mut self, slot: Entity, nodes: Vec<Entity>) -> Result<(), SlotAssignError> {
+        // Slot must be a <slot> element.
+        let is_slot = self
+            .world
+            .get::<&TagType>(slot)
+            .ok()
+            .is_some_and(|t| t.0.as_str() == "slot");
+        if !is_slot {
+            return Err(SlotAssignError::NotASlot);
+        }
+
+        // Walk up to the owning ShadowRoot to check mode.  The ShadowRoot
+        // entity is an ancestor reachable via the TreeRelation parent chain.
+        let host = self
+            .shadow_root_for_slot(slot)
+            .ok_or(SlotAssignError::NoShadowRoot)?;
+        let mode = self
+            .world
+            .get::<&ShadowRoot>(
+                self.shadow_root_entity_for_slot(slot)
+                    .expect("validated above"),
+            )
+            .map(|sr| sr.slot_assignment)
+            .map_err(|_| SlotAssignError::NoShadowRoot)?;
+        if mode != SlotAssignmentMode::Manual {
+            return Err(SlotAssignError::NotManualMode);
+        }
+
+        // Each node must be a Element-or-Text child of the host.
+        for &node in &nodes {
+            let parent = self.get_parent(node);
+            if parent != Some(host) {
+                return Err(SlotAssignError::NotHostChild);
+            }
+            let kind = self.world.get::<&NodeKind>(node).map(|k| *k).ok();
+            if !matches!(kind, Some(NodeKind::Element | NodeKind::Text)) {
+                return Err(SlotAssignError::InvalidNodeKind);
+            }
+        }
+
+        // Apply assignment (insert SlotAssignment component if absent).
+        // Split the existence check from the mutate-or-insert path so the
+        // immutable probe borrow drops before the mutating call.
+        let has_assignment = self.world.get::<&SlotAssignment>(slot).is_ok();
+        if has_assignment {
+            if let Ok(mut existing) = self.world.get::<&mut SlotAssignment>(slot) {
+                existing.assigned_nodes = nodes;
+            }
+        } else {
+            let _ = self.world.insert_one(
+                slot,
+                SlotAssignment {
+                    assigned_nodes: nodes,
+                },
+            );
+        }
+        Ok(())
+    }
+
+    /// Return the assigned (distributed) nodes for a `<slot>` element.
+    ///
+    /// `flatten=false` returns the slot's assigned nodes as-is per
+    /// WHATWG DOM §4.2.2.5 `assignedNodes()` algorithm — no fallback.
+    /// `flatten=true` should recursively expand nested-slot assignments
+    /// per the "find flattened slottables" algorithm, but for now degrades
+    /// to the non-flatten result + a deferred-marker semantics
+    /// (slot `#11-shadow-slot-flatten` — full recursion lands when nested
+    /// shadow trees become common in test corpus).
+    #[must_use]
+    pub fn assigned_nodes(&self, slot: Entity, _flatten: bool) -> Vec<Entity> {
+        self.world
+            .get::<&SlotAssignment>(slot)
+            .map(|sa| sa.assigned_nodes.clone())
+            .unwrap_or_default()
+    }
+
+    /// Locate the host Element for a `<slot>` by walking up to the
+    /// nearest `ShadowRoot` ancestor and reading its `host` field.
+    /// Returns `None` if the slot isn't inside a shadow tree.
+    fn shadow_root_for_slot(&self, slot: Entity) -> Option<Entity> {
+        let sr = self.shadow_root_entity_for_slot(slot)?;
+        self.world.get::<&ShadowRoot>(sr).ok().map(|s| s.host)
+    }
+
+    /// Locate the `ShadowRoot` ENTITY for a `<slot>` by walking up the
+    /// parent chain.  Returns `None` if the slot isn't inside a shadow tree.
+    fn shadow_root_entity_for_slot(&self, slot: Entity) -> Option<Entity> {
+        let mut current = self.get_parent(slot)?;
+        loop {
+            if self.world.get::<&ShadowRoot>(current).is_ok() {
+                return Some(current);
+            }
+            current = self.get_parent(current)?;
+        }
     }
 
     /// Returns the shadow root entity for the given host, if any.

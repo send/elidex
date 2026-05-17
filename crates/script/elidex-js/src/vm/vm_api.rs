@@ -535,6 +535,21 @@ impl Vm {
             // previous DOM's cached Attr wrapper because the Entity
             // index slot is shared between `EcsDom::new()` worlds.
             self.inner.attr_wrapper_cache.clear();
+            // `shadow_root_wrappers` (Entity → ObjectId, D-15 PR-A)
+            // shares the same cross-DOM aliasing risk as
+            // `attr_wrapper_cache`: a retained shadow host wrapper
+            // could otherwise resolve `el2.shadowRoot` through the
+            // previous DOM's cached ShadowRoot wrapper because the
+            // Entity index slot is shared between `EcsDom::new()`
+            // worlds.  `shadow_root_states` is keyed by ObjectId so
+            // it is GC-managed (the sweep tail prunes it) and needs
+            // no clear here.
+            self.inner.shadow_root_wrappers.clear();
+            // Drop any signal-slots queued from the previous DOM —
+            // their entities live in the old world, so firing
+            // slotchange post-rebind would either resolve to a
+            // recycled slot or panic in `dom_shared().contains`.
+            self.inner.pending_slot_change_signals.clear();
             // Cached `localStorage` / `sessionStorage` Storage
             // wrappers carry no per-DOM Entity, but the area-side
             // origin lookup goes through `VmInner::navigation` which

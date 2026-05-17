@@ -297,6 +297,17 @@ impl VmInner {
         // `eprintln!` when no listener calls `preventDefault`.  Wired
         // in PR3 C10.
         process_pending_rejections(self);
+        // End-of-drain: fire a `slotchange` Event at each `<slot>`
+        // signaled by `HTMLSlotElement.assign()` (WHATWG DOM §4.2.2.5
+        // + §4.3.4 "notify mutation observers" microtask checkpoint).
+        // The full spec-correct MO microtask path is embedder-driven
+        // (`Vm::deliver_mutation_records`); firing here matches the
+        // observable timing for script-initiated assignments and lets
+        // a chained Promise reaction observe the dispatched state.
+        #[cfg(feature = "engine")]
+        {
+            super::host::html_slot_proto::dispatch_pending_slotchange_signals(self);
+        }
         self.microtask_drain_depth -= 1;
     }
 }

@@ -406,6 +406,9 @@ impl VmInner {
         if host.tag_matches_ascii_case(entity, "meter") {
             return self.html_meter_prototype;
         }
+        if host.tag_matches_ascii_case(entity, "slot") {
+            return self.html_slot_prototype;
+        }
         None
     }
 }

@@ -567,6 +567,26 @@ pub enum ObjectKind {
     /// collected.
     #[cfg(feature = "engine")]
     Attr,
+    /// `ShadowRoot` instance (WHATWG DOM §4.8) — the wrapper returned
+    /// by `element.attachShadow({mode})` / `element.shadowRoot`.
+    /// Payload-free; the backing shadow root `Entity` lives in
+    /// `VmInner::shadow_root_states` keyed by this `ObjectId`.
+    ///
+    /// Identity preserved across `element.shadowRoot` reads via
+    /// `VmInner::shadow_root_wrappers` keyed by host `Entity`
+    /// (mirrors `template_content_wrappers`).
+    ///
+    /// GC contract: `ShadowRootState` holds an `Entity` — no
+    /// `ObjectId` references — so no trace fan-out beyond the
+    /// `shadow_root_wrappers` cache itself.  Sweep tail prunes
+    /// `shadow_root_states` entries whose key `ObjectId` was
+    /// collected.
+    ///
+    /// Brand check uses `matches!(ObjectKind::ShadowRoot)`.  The
+    /// prototype chain is `ShadowRoot.prototype → DocumentFragment.prototype
+    /// → Node.prototype → Object.prototype`.
+    #[cfg(feature = "engine")]
+    ShadowRoot,
     /// `TypedArray` instance view over an `ArrayBuffer` (ES2024 §23.2) —
     /// one of the 11 concrete subclasses identified by `element_kind`.
     /// The `[[ViewedArrayBuffer]]` / `[[ByteOffset]]` / `[[ByteLength]]` /

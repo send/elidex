@@ -242,6 +242,17 @@ pub struct ShadowRoot {
     pub delegates_focus: bool,
     /// How slots are assigned to light DOM children.
     pub slot_assignment: SlotAssignmentMode,
+    /// Whether the shadow root is cloned by `Node.cloneNode` (WHATWG DOM §4.8).
+    /// Behavior propagation through cloneNode is deferred to slot
+    /// `#11-shadow-clone-serialize-propagation`; the field stores the
+    /// init-time flag for feature-detection round-trip.
+    pub clonable: bool,
+    /// Whether the shadow root is serialized by HTML fragment serialization
+    /// algorithms when `serializableShadowRoots=true` (WHATWG HTML §2.7.3).
+    /// Behavior propagation is deferred to slot
+    /// `#11-shadow-clone-serialize-propagation`; the field stores the
+    /// init-time flag for feature-detection round-trip.
+    pub serializable: bool,
 }
 
 /// Marker: this element hosts a shadow root.

@@ -407,6 +407,18 @@ define_well_known_strings! {
         local_name => "localName",
         prefix => "prefix",
         specified => "specified",
+        // ShadowRoot.prototype accessor names (D-15).
+        // `host` / `mode` reuse the existing well-known entries
+        // (RequestInit.mode / URL.host) — the StringId interning is
+        // identity-by-content so cross-API reuse is safe.
+        delegates_focus => "delegatesFocus",
+        slot_assignment => "slotAssignment",
+        clonable => "clonable",
+        serializable => "serializable",
+        // HTMLSlotElement.prototype method names (D-15).
+        assigned_nodes => "assignedNodes",
+        assigned_elements => "assignedElements",
+        flatten => "flatten",
         // HTMLIFrameElement.prototype property names (PR4f C8).
         src => "src",
         srcdoc => "srcdoc",
@@ -1196,6 +1208,9 @@ define_well_known_strings! {
         // `selectionchange` event name (Selection API §3.4 +
         // HTML §8.1.4.2 "selection task source").
         selectionchange_event => "selectionchange",
+        // `slotchange` event name (WHATWG DOM §4.2.2.5 +
+        // §4.3.4 "notify mutation observers").
+        slotchange_event => "slotchange",
     }
 
     "File API (slot #11-file-api)" {

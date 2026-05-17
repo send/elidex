@@ -100,6 +100,29 @@ impl VmInner {
         // and so do not see these members yet.
         self.install_parent_node_mixin(proto_id);
         self.install_element_matches(proto_id);
+        self.install_element_shadow_dom(proto_id);
+    }
+
+    /// Install `attachShadow` method + `shadowRoot` accessor on
+    /// `Element.prototype` (WHATWG DOM §4.2.14 / §4.8).  ShadowRoot
+    /// wrapper / state-cache plumbing lives in
+    /// [`super::shadow_root_proto`].
+    fn install_element_shadow_dom(&mut self, proto_id: ObjectId) {
+        let attach_shadow_sid = self.strings.intern("attachShadow");
+        self.install_native_method(
+            proto_id,
+            attach_shadow_sid,
+            super::element_shadow::native_element_attach_shadow,
+            shape::PropertyAttrs::METHOD,
+        );
+        let shadow_root_sid = self.strings.intern("shadowRoot");
+        self.install_accessor_pair(
+            proto_id,
+            shadow_root_sid,
+            super::element_shadow::native_element_get_shadow_root,
+            None,
+            shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
     }
 
     /// Install Element-only tree-navigation accessors from the

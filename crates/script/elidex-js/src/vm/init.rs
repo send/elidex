@@ -131,6 +131,18 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 attr_wrapper_cache: HashMap::new(),
                 #[cfg(feature = "engine")]
+                shadow_root_prototype: None,
+                #[cfg(feature = "engine")]
+                shadow_root_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                shadow_root_wrappers: HashMap::new(),
+                #[cfg(feature = "engine")]
+                document_fragment_prototype: None,
+                #[cfg(feature = "engine")]
+                html_slot_prototype: None,
+                #[cfg(feature = "engine")]
+                pending_slot_change_signals: std::collections::VecDeque::new(),
+                #[cfg(feature = "engine")]
                 class_list_wrapper_cache: HashMap::new(),
                 #[cfg(feature = "engine")]
                 dataset_wrapper_cache: HashMap::new(),

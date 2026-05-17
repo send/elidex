@@ -525,6 +525,15 @@ fn is_safe_attr_name(name: &str) -> bool {
 }
 
 fn serialize_node(entity: Entity, dom: &EcsDom, html: &mut String, in_raw_text: bool) {
+    // WHATWG DOM §4.8 + HTML §2.7.3: shadow root contents are encapsulated
+    // and excluded from the default `innerHTML` / `outerHTML` serialization.
+    // (`getHTML({serializableShadowRoots})` opt-in serialization lands in a
+    // follow-up slot — see `#11-shadow-get-html-options`.)  Without this
+    // skip, calling `host.innerHTML` would leak closed-shadow content via
+    // the existing serializer, breaching encapsulation.
+    if dom.world().get::<&elidex_ecs::ShadowRoot>(entity).is_ok() {
+        return;
+    }
     if let Ok(tc) = dom.world().get::<&TextContent>(entity) {
         if in_raw_text {
             html.push_str(&tc.0);

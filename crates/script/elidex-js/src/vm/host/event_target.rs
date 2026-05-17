@@ -276,10 +276,19 @@ pub(super) fn entity_from_this(
     let JsValue::Object(id) = this else {
         return None;
     };
-    let ObjectKind::HostObject { entity_bits } = ctx.vm.get_object(id).kind else {
-        return None;
-    };
-    elidex_ecs::Entity::from_bits(entity_bits)
+    match ctx.vm.get_object(id).kind {
+        ObjectKind::HostObject { entity_bits } => elidex_ecs::Entity::from_bits(entity_bits),
+        // `ShadowRoot` wrappers are not `HostObject` (they carry no
+        // entity bits — the entity lives in `shadow_root_states`),
+        // but ParentNode mixin methods inherited from
+        // `DocumentFragment.prototype` (`prepend` / `append` /
+        // `replaceChildren` / `querySelector` / ...) expect to
+        // recover an Entity from `this`.  Resolve through the
+        // side-table here so `shadowRoot.append(el)` works without
+        // duplicating the mixin install on `ShadowRoot.prototype`.
+        ObjectKind::ShadowRoot => ctx.vm.shadow_root_states.get(&id).map(|s| s.shadow_root),
+        _ => None,
+    }
 }
 
 /// WebIDL branded receiver extraction.  Returns:

@@ -374,6 +374,22 @@ impl VmInner {
             // still `None`.
             self.register_attr_prototype();
             self.register_named_node_map_prototype();
+            // DocumentFragment.prototype (WHATWG DOM §4.7) — chains
+            // to `Node.prototype` and carries the ParentNode mixin.
+            // Must land BEFORE `register_shadow_root_prototype` since
+            // ShadowRoot.prototype chains to it (WHATWG DOM §4.8).
+            // Also adopted by `<template>.content` /
+            // `document.createDocumentFragment()` wrappers (PR-A
+            // hookup happens in those creation paths separately).
+            self.register_document_fragment_prototype();
+            // ShadowRoot.prototype (WHATWG DOM §4.8) — backs
+            // `Element.attachShadow` / `Element.shadowRoot` returns.
+            // Must land after DocumentFragment.prototype (parent).
+            self.register_shadow_root_prototype();
+            // HTMLSlotElement.prototype (WHATWG HTML §4.12.4) —
+            // backs `<slot>` element wrappers. Chains to
+            // `HTMLElement.prototype`.
+            self.register_html_slot_prototype();
             // DOMTokenList.prototype / DOMStringMap.prototype —
             // backing `Element.classList` / `HTMLElement.dataset`.
             // Chain to `Object.prototype` so they are not

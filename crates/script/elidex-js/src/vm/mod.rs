@@ -368,6 +368,61 @@ pub(crate) struct VmInner {
     /// it never extends an Attr's lifetime past its owner.
     #[cfg(feature = "engine")]
     pub(crate) attr_wrapper_cache: HashMap<(elidex_ecs::Entity, StringId), ObjectId>,
+    /// `ShadowRoot.prototype` — shared prototype for every
+    /// `ObjectKind::ShadowRoot` wrapper (WHATWG DOM §4.8).  Carries
+    /// the `host` / `mode` / `delegatesFocus` / `slotAssignment` /
+    /// `clonable` / `serializable` accessor suite.  Chains to
+    /// `DocumentFragment.prototype`.
+    #[cfg(feature = "engine")]
+    pub(crate) shadow_root_prototype: Option<ObjectId>,
+    /// Backing state for `ObjectKind::ShadowRoot` wrappers — the
+    /// shadow root `Entity` that each wrapper resolves to.  Held
+    /// separately from the identity cache because the wrapper
+    /// `ObjectId` is the GC handle while the host `Entity` is the
+    /// cache key (see [`Self::shadow_root_wrappers`]).
+    #[cfg(feature = "engine")]
+    pub(crate) shadow_root_states: HashMap<ObjectId, host::shadow_root_proto::ShadowRootState>,
+    /// Identity cache for `ShadowRoot` wrappers — keyed by host
+    /// `Entity` so `el.shadowRoot === el.shadowRoot` (open mode only;
+    /// closed mode short-circuits to `null` before the cache lookup).
+    /// Pruned in the GC sweep tail when the wrapper `ObjectId` is
+    /// collected; entries do not extend wrapper lifetimes (the
+    /// wrapper is rooted via `HostData::wrapper_cache` for the host
+    /// element instead).  Mirrors `template_content_wrappers`.
+    #[cfg(feature = "engine")]
+    pub(crate) shadow_root_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
+    /// `DocumentFragment.prototype` — shared prototype for every
+    /// `DocumentFragment` node wrapper (`document.createDocumentFragment()`,
+    /// `<template>.content`, ShadowRoot inherits from this).  Chains
+    /// to `Node.prototype` and carries the ParentNode mixin
+    /// (`prepend` / `append` / `replaceChildren` / `querySelector` /
+    /// `querySelectorAll` / `children` / `childElementCount` /
+    /// `firstElementChild` / `lastElementChild`).  Installed by
+    /// `register_document_fragment_prototype` in `init.rs` after the
+    /// Node prototype + ParentNode mixin natives are available.
+    #[cfg(feature = "engine")]
+    pub(crate) document_fragment_prototype: Option<ObjectId>,
+    /// `HTMLSlotElement.prototype` — shared prototype for every
+    /// `<slot>` element wrapper (WHATWG HTML §4.12.4).  Carries the
+    /// `name` reflected attribute + `assign` / `assignedNodes` /
+    /// `assignedElements` methods.  Chains to `HTMLElement.prototype`.
+    #[cfg(feature = "engine")]
+    pub(crate) html_slot_prototype: Option<ObjectId>,
+    /// Signal-slots set for the `slotchange` event (WHATWG DOM
+    /// §4.2.2.5 "signal a slot change" + §4.3.4 "notify mutation
+    /// observers").  Each `<slot>` entity appended here gets a
+    /// `slotchange` Event fired at it (bubbles=true, composed=false)
+    /// at the next microtask checkpoint.  Drained from
+    /// [`super::host::html_slot_proto::dispatch_pending_slotchange_signals`]
+    /// at the end of `drain_microtasks`.
+    ///
+    /// `VecDeque` for O(1) front-pop in FIFO drain order; dedup on
+    /// append uses a linear scan because the set is typically tiny
+    /// (a handful per microtask burst — even a list-view re-render
+    /// signals once per slot, not per item).  Order is preserved
+    /// per the spec's "signal slots" ordered-set semantics.
+    #[cfg(feature = "engine")]
+    pub(crate) pending_slot_change_signals: std::collections::VecDeque<elidex_ecs::Entity>,
     /// Identity cache for `DOMTokenList` wrappers backing
     /// `Element.classList` (WHATWG DOM §3.5).  Keyed by owner
     /// `Entity`; a hit returns the same `ObjectId` so
