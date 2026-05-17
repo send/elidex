@@ -127,6 +127,11 @@ impl VmInner {
     /// Allocate a fresh `ShadowRoot` wrapper backed by the given
     /// shadow root entity.  Identity caching is the caller's
     /// responsibility — use [`Self::cached_or_alloc_shadow_root`].
+    /// `extensible: true` matches other DOM `HostObject` wrappers
+    /// (see [`Self::create_element_wrapper`]); WebIDL doesn't mark
+    /// `ShadowRoot` `[Unforgeable]` / `[Frozen]`, so script-side
+    /// expando properties (`shadowRoot.foo = 1`) are permitted per
+    /// WHATWG DOM §4.8 + WebIDL §3.7.7.
     pub(crate) fn alloc_shadow_root(&mut self, shadow_root: Entity) -> ObjectId {
         let proto = self
             .shadow_root_prototype
@@ -135,7 +140,7 @@ impl VmInner {
             kind: ObjectKind::ShadowRoot,
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: Some(proto),
-            extensible: false,
+            extensible: true,
         });
         self.shadow_root_states
             .insert(id, ShadowRootState { shadow_root });

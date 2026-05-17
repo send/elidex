@@ -82,6 +82,28 @@ impl VmInner {
         {
             return existing;
         }
+        // Shadow root entities carry `NodeKind::DocumentFragment` so
+        // they'd otherwise land on the `DocumentFragment` arm below
+        // and get a fresh DF wrapper — but a `child.parentNode` walk
+        // from inside a shadow tree must return the SAME ShadowRoot
+        // wrapper that `attachShadow` / `el.shadowRoot` returned
+        // (`child.parentNode === shadowRoot` invariant +
+        // `child.parentNode.host` reachability).  Detect the
+        // shadow-root case up-front and route through the dedicated
+        // `cached_or_alloc_shadow_root` identity cache.
+        #[cfg(feature = "engine")]
+        {
+            let shadow_host = self.host_data.as_deref().and_then(|hd| {
+                hd.dom_shared()
+                    .world()
+                    .get::<&elidex_ecs::ShadowRoot>(entity)
+                    .ok()
+                    .map(|sr| sr.host)
+            });
+            if let Some(host) = shadow_host {
+                return self.cached_or_alloc_shadow_root(host, entity);
+            }
+        }
 
         // Pick the prototype based on the entity's DOM node kind.
         // `prototype_kind_for` centralises the Element / Text /

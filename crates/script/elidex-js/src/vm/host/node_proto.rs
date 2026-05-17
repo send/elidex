@@ -576,6 +576,37 @@ fn native_node_contains(
 // DOM mutation — appendChild / removeChild / insertBefore / replaceChild
 // ---------------------------------------------------------------------------
 
+/// Reject `value` if it wraps a `ShadowRoot` — WHATWG DOM §4.2.3
+/// "ensure pre-insert validity" treats shadow roots as
+/// non-insertable: they belong to exactly one host and moving them
+/// into a different parent would break the shadow encapsulation
+/// invariant (host → shadow_root unique edge).  All mutation
+/// natives that take a "node to insert" arg (`appendChild`,
+/// `insertBefore`'s newChild, `replaceChild`'s newChild) call this
+/// AFTER [`require_node_arg`] so non-Node args still surface as
+/// TypeError before the shadow-specific HierarchyRequestError fires.
+fn reject_shadow_root_insertion(
+    ctx: &NativeContext<'_>,
+    value: JsValue,
+    interface: &str,
+    method: &str,
+) -> Result<(), VmError> {
+    let JsValue::Object(id) = value else {
+        return Ok(());
+    };
+    if !matches!(ctx.vm.get_object(id).kind, ObjectKind::ShadowRoot) {
+        return Ok(());
+    }
+    let hierarchy_request = ctx.vm.well_known.dom_exc_hierarchy_request_error;
+    Err(VmError::dom_exception(
+        hierarchy_request,
+        format!(
+            "Failed to execute '{method}' on '{interface}': \
+             a ShadowRoot cannot be moved into the light DOM"
+        ),
+    ))
+}
+
 fn native_node_append_child(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -592,6 +623,7 @@ fn native_node_append_child(
     // decodes it again from `child_arg` (duplicate work the bridge
     // accepts in exchange for a clean brand-check seam).
     require_node_arg(ctx, child_arg, "appendChild")?;
+    reject_shadow_root_insertion(ctx, child_arg, "Node", "appendChild")?;
     super::dom_bridge::invoke_dom_api(ctx, "appendChild", parent, &[child_arg])
 }
 
@@ -605,6 +637,10 @@ fn native_node_remove_child(
     };
     let child_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     require_node_arg(ctx, child_arg, "removeChild")?;
+    // `removeChild` accepts ShadowRoot in principle (it's a Node)
+    // but a ShadowRoot is never a `parent.children[i]` in the light
+    // tree, so the existing engine "not a child" check rejects it
+    // naturally without a special-case here.
     super::dom_bridge::invoke_dom_api(ctx, "removeChild", parent, &[child_arg])
 }
 
@@ -618,6 +654,7 @@ fn native_node_insert_before(
     };
     let new_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     require_node_arg(ctx, new_arg, "insertBefore")?;
+    reject_shadow_root_insertion(ctx, new_arg, "Node", "insertBefore")?;
     // `refChild` is `Node?` per WHATWG: `null` / `undefined` mean
     // "append at end"; the InsertBefore handler interprets the second
     // arg the same way (matches `args.get(1) == None | Some(Null)`).
@@ -638,6 +675,7 @@ fn native_node_replace_child(
     };
     let new_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     require_node_arg(ctx, new_arg, "replaceChild")?;
+    reject_shadow_root_insertion(ctx, new_arg, "Node", "replaceChild")?;
     let old_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     require_node_arg(ctx, old_arg, "replaceChild")?;
     super::dom_bridge::invoke_dom_api(ctx, "replaceChild", parent, &[new_arg, old_arg])
