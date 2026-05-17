@@ -100,7 +100,12 @@ pub fn validate_ws_url(url: &url::Url) -> Result<(), String> {
         "http"
     };
     let mut check_url = url.clone();
-    check_url.set_scheme(http_scheme).ok();
+    check_url.set_scheme(http_scheme).map_err(|()| {
+        format!(
+            "internal: failed to swap {} → {http_scheme} for SSRF check",
+            url.scheme()
+        )
+    })?;
     elidex_plugin::url_security::validate_url(&check_url)
         .map_err(|e| format!("URL blocked: {e}"))?;
 
@@ -191,8 +196,8 @@ mod tests {
 
     #[test]
     fn fragment_check_precedes_ssrf_check() {
-        // WHATWG §9.3.1 step 6 (fragment) precedes our engine-local SSRF
-        // extension, so a fragment on an otherwise-blocked host must
+        // The spec-mandated fragment SyntaxError precedes our engine-local
+        // SSRF extension, so a fragment on an otherwise-blocked host must
         // still surface the fragment error rather than the SSRF block.
         let url = url::Url::parse("ws://localhost/socket#frag").unwrap();
         let err = validate_ws_url(&url).unwrap_err();
