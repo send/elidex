@@ -303,4 +303,6 @@ pub(crate) mod url_search_params;
 pub(super) mod validity_state;
 #[cfg(feature = "engine")]
 pub(super) mod websocket;
+#[cfg(feature = "engine")]
+pub(super) mod websocket_dispatch;
 pub(super) mod window;

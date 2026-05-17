@@ -122,6 +122,7 @@ mod tests_url;
 mod tests_url_search_params;
 mod tests_validity_state;
 mod tests_value_types;
+mod tests_websocket;
 mod tests_window_global;
 mod tests_window_iframe_props;
 

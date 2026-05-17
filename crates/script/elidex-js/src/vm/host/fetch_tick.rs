@@ -92,24 +92,65 @@ impl VmInner {
     }
 
     /// Dispatch a single non-fetch broker event (WS or SSE) to the
-    /// matching VM-side wrapper.  Phase 0b stub: looks the
-    /// receiver up through the reverse map and silently drops if
-    /// the wrapper has been GC-swept (the sweep tail already
-    /// emitted the matching `WebSocketClose` /
-    /// `EventSourceClose` so the broker should not send
-    /// further events for that `conn_id`; a late arrival between
-    /// sweep and broker observe is benign).  Phase 1/2/3 replace
-    /// the match arms with real `WsEvent::*` / `SseEvent::*`
-    /// handling.
+    /// matching VM-side wrapper.
+    ///
+    /// Looks the receiver up through the reverse map and silently
+    /// drops if the wrapper has been GC-swept (the sweep tail
+    /// already emitted the matching `WebSocketClose` /
+    /// `EventSourceClose` so the broker should not send further
+    /// events for that `conn_id`; a late arrival between sweep and
+    /// broker observe is benign).
+    ///
+    /// Phase 1 implements WebSocket `Connected` / `Closed` arms.
+    /// Phase 2 fills `TextMessage` / `BinaryMessage` / `Error` /
+    /// `BytesSent`; Phase 3 fills all `SseEvent::*` arms.
+    ///
+    /// Borrow discipline: the reverse-map lookup snapshots the
+    /// instance `ObjectId` into a local before the per-variant
+    /// dispatch helpers are called, dropping the `host_data` borrow
+    /// up front.  Each helper takes `&mut self` and re-borrows
+    /// `host_data` for its mutation (state transition, field
+    /// populate) before the handler call.
     fn dispatch_realtime_event(&mut self, event: elidex_net::broker::NetworkToRenderer) {
         use elidex_net::broker::NetworkToRenderer;
+        use elidex_net::ws::WsEvent;
         match event {
-            NetworkToRenderer::WebSocketEvent(conn_id, _ws_event) => {
-                let Some(hd) = self.host_data.as_deref() else {
+            NetworkToRenderer::WebSocketEvent(conn_id, ws_event) => {
+                let Some(instance) = self
+                    .host_data
+                    .as_deref()
+                    .and_then(|hd| hd.ws_conn_to_object.get(&conn_id).copied())
+                else {
                     return;
                 };
-                let _instance = hd.ws_conn_to_object.get(&conn_id).copied();
-                // Phase 1 + 2: per-event-variant dispatch lands here.
+                match ws_event {
+                    WsEvent::Connected {
+                        protocol,
+                        extensions,
+                    } => {
+                        super::websocket_dispatch::dispatch_ws_connected(
+                            self, instance, protocol, extensions,
+                        );
+                    }
+                    WsEvent::Closed {
+                        code,
+                        reason,
+                        was_clean,
+                    } => {
+                        super::websocket_dispatch::dispatch_ws_closed(
+                            self, instance, code, &reason, was_clean,
+                        );
+                    }
+                    // Phase 2 fills these — silent-drop is the
+                    // correct Phase 1 behaviour (no observer is
+                    // registered for messages/errors yet, and
+                    // BytesSent decrement is paired with Phase 2's
+                    // binary-send accounting).
+                    WsEvent::TextMessage(_)
+                    | WsEvent::BinaryMessage(_)
+                    | WsEvent::Error(_)
+                    | WsEvent::BytesSent(_) => {}
+                }
             }
             NetworkToRenderer::EventSourceEvent(conn_id, _sse_event) => {
                 let Some(hd) = self.host_data.as_deref() else {
