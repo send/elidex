@@ -462,10 +462,11 @@ pub enum OuterHtmlError {
 /// targeting the parent, with `removed_nodes = [entity]` and
 /// `added_nodes` = the freshly parsed fragment roots).
 ///
-/// Per spec, a `DocumentFragment` parent uses a synthetic `<body>`
-/// fragment context (the spec calls this "if parent's local name is
-/// neither nor the document root, then …" — DocumentFragment has no
-/// tag so we route it through `<body>` to mirror the spec's fallback).
+/// When the parent is a `DocumentFragment` we use a synthetic
+/// `<body>` fragment context: per HTML §4.4.5 the spec's fragment
+/// algorithm reads the parent's `localName`, and `DocumentFragment`
+/// has no tag — `<body>` is the spec's documented fallback context
+/// for this case and matches Blink / Gecko behaviour.
 pub fn apply_set_outer_html(
     dom: &mut EcsDom,
     entity: Entity,
