@@ -26,20 +26,26 @@ use url::Url;
 use crate::util::{not_found_error, require_string_arg};
 use elidex_script_session::{DomApiError, DomApiHandler, SessionCore};
 
-/// Resolve `<base>` for `entity`'s effective base URL.  When
-/// `entity` is itself a `<base>` element, returns the entity's
-/// [`BaseFrozenUrl`] directly (per WHATWG HTML §4.2.3 "set the
-/// frozen base URL" — the frozen URL is computed against the
-/// document's fallback base URL, NOT recursively against the
-/// `<base>` element itself, so `<base>.href` resolution uses the
-/// frozen URL as the already-resolved value).  Otherwise returns the
-/// document base URL via
-/// [`crate::element::document_base::document_base_url`].
+/// Resolve `entity`'s effective base URL for `href` resolution.
+///
+/// - `<base>` receivers: the document's FALLBACK base URL (currently
+///   [`about_blank_url`] in elidex's stub; will become the document
+///   URL once `#11-document-url-real-navigation` lands).  Per WHATWG
+///   HTML §4.2.3 IDL `href` getter, `<base>.href` parses the raw href
+///   against the document's fallback (NOT the document base URL —
+///   that would be recursive — and NOT the element's own
+///   [`BaseFrozenUrl`] — that would double-resolve relative hrefs
+///   because the frozen URL is itself already a parse-or-fallback
+///   result).  Returning the fallback here lets a single
+///   [`parse_with_base`] in [`href_value_or_raw`] handle both the
+///   parse-success and parse-failure branches of the spec uniformly
+///   (`Some(url)` → serialized URL, `None` → raw href).
+/// - All other receivers: the document base URL via
+///   [`crate::element::document_base::document_base_url`] (which
+///   reflects any installed `<base>` per HTML §2.4.3).
 fn effective_base_url(dom: &EcsDom, entity: Entity) -> Url {
     if dom.is_base_element(entity) {
-        if let Ok(frozen) = dom.world().get::<&elidex_ecs::BaseFrozenUrl>(entity) {
-            return frozen.0.clone();
-        }
+        return elidex_ecs::about_blank_url();
     }
     let doc = dom.owner_document(entity).unwrap_or(entity);
     crate::element::document_base::document_base_url(dom, doc)
@@ -102,6 +108,13 @@ pub fn set_href(entity: Entity, dom: &mut EcsDom, value: &str) -> Result<(), Dom
 /// differs from `href_url_component(.., component_href)` — the
 /// latter returns the empty string on parse failure (correct for the
 /// per-component getters but wrong for `href` itself).
+///
+/// For `<base>` receivers this also implements WHATWG HTML §4.2.3
+/// IDL `href` getter (parse raw href against the document's fallback
+/// base URL, return the serialized URL on success or the raw value
+/// on parse failure).  The private `effective_base_url` helper
+/// returns the fallback URL for `<base>` receivers specifically so a
+/// single `parse_with_base` call handles both branches uniformly.
 pub fn href_value_or_raw(entity: Entity, dom: &EcsDom) -> Result<String, DomApiError> {
     let href = read_href_attr(entity, dom)?;
     let base = effective_base_url(dom, entity);

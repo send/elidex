@@ -152,6 +152,27 @@ fn owner_doc(dom: &EcsDom, node: Entity) -> Option<Entity> {
     dom.owner_document(node).or_else(|| dom.document_root())
 }
 
+/// Returns `true` iff `entity`'s tree root is the EcsDom's
+/// `document_root` — i.e. `entity` lives in the main light tree, not
+/// inside a shadow tree.  Used by the [`BaseUrlMaintainer`] arms to
+/// short-circuit shadow-tree-internal mutations: per WHATWG HTML
+/// §2.4.3, shadow trees form separate documents and any `<base>`
+/// inside them must not affect the host document's base URL.
+///
+/// `EcsDom`'s fire-site filter only suppresses events where the
+/// `node` or `parent` IS a `ShadowRoot`; deeper shadow-tree
+/// mutations (`<base>` 2+ levels into a shadow tree) still dispatch
+/// here.  Without this guard the maintainer would (a) walk the
+/// shadow subtree in `attach_frozen_urls_in_subtree`, (b) attach
+/// `BaseFrozenUrl` to shadow-internal `<base>` elements (which then
+/// silently leak resolved URLs through `<base>.href` getter for
+/// those receivers), and (c) burn cycles in a `recompute` that
+/// `children_iter` would harmlessly skip — all wasted work for a
+/// codepath that cannot legitimately change the document base URL.
+fn in_main_light_tree(dom: &EcsDom, entity: Entity) -> bool {
+    dom.document_root() == Some(dom.find_tree_root(entity))
+}
+
 /// [`MutationEvent`] consumer maintaining the 2-layer base URL state.
 ///
 /// Plain unit struct (no state) — all state lives in the
@@ -194,6 +215,11 @@ impl BaseUrlMaintainer {
     pub fn handle(&mut self, event: &MutationEvent<'_>, dom: &mut EcsDom) {
         match *event {
             MutationEvent::Insert { node, .. } => {
+                // Shadow-tree carve-out: skip work for mutations
+                // landing inside a shadow tree — see [`in_main_light_tree`].
+                if !in_main_light_tree(dom, node) {
+                    return;
+                }
                 let fallback = about_blank_url();
                 let attached = attach_frozen_urls_in_subtree(dom, node, &fallback);
                 // Short-circuit: inserting a subtree with no
@@ -212,7 +238,19 @@ impl BaseUrlMaintainer {
                     recompute_document_base(dom, doc);
                 }
             }
-            MutationEvent::Remove { descendants, .. } => {
+            MutationEvent::Remove {
+                parent,
+                descendants,
+                ..
+            } => {
+                // Shadow-tree carve-out: skip when the removal
+                // happened inside a shadow tree.  `parent` is the
+                // former parent (still alive); its tree root tells
+                // us where the mutation was.  See
+                // [`in_main_light_tree`].
+                if !in_main_light_tree(dom, parent) {
+                    return;
+                }
                 // ECS hygiene + precise recompute trigger: track
                 // whether any removed `<base>` actually carried
                 // [`BaseFrozenUrl`] (the marker for "had a valid
@@ -241,6 +279,13 @@ impl BaseUrlMaintainer {
                 }
             }
             MutationEvent::AttributeChange { node, .. } => {
+                // Shadow-tree carve-out FIRST (cheapest check, and
+                // applies regardless of element kind): a `<base>`
+                // inside a shadow tree must not affect the document
+                // base URL.  See [`in_main_light_tree`].
+                if !in_main_light_tree(dom, node) {
+                    return;
+                }
                 // ECS-state-driven filter: any attribute change on a
                 // <base> element may have changed its href (or any
                 // other attr — recompute is cheap and idempotent).

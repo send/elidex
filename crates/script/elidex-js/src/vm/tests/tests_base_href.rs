@@ -498,6 +498,45 @@ fn pre_bind_base_element_is_picked_up_by_init_pass() {
 }
 
 #[test]
+fn base_inside_shadow_tree_does_not_affect_document_base_uri() {
+    // R5 F2 regression: WHATWG HTML §2.4.3 — shadow trees form
+    // separate documents; a `<base href>` inside a shadow tree must
+    // not affect the host document's base URL.  EcsDom's fire-site
+    // filter only suppresses events where the node OR parent IS a
+    // ShadowRoot; deeper shadow-tree mutations (`<base>` nested 1+
+    // levels into shadow) reach BaseUrlMaintainer.  The
+    // `in_main_light_tree` early-return in each arm enforces the
+    // carve-out.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    vm.eval(
+        r"
+        var host = document.createElement('div');
+        document.body.appendChild(host);
+        var sr = host.attachShadow({mode: 'open'});
+        var inner = document.createElement('section');
+        sr.appendChild(inner);
+        var b = document.createElement('base');
+        b.setAttribute('href', 'https://inside-shadow.example/');
+        inner.appendChild(b);
+        ",
+    )
+    .unwrap();
+
+    // <base> inside a shadow tree must NOT affect document.baseURI.
+    assert_eq!(eval_string(&mut vm, "document.baseURI;"), "about:blank");
+    vm.unbind();
+}
+
+#[test]
 fn base_inside_template_does_not_affect_document_base_uri() {
     // WHATWG HTML §2.4.3 carve-out: template contents form a
     // separate document.  A <base href> inside <template> must NOT
