@@ -4,6 +4,11 @@ Experimental browser engine written in Rust.
 
 ## Development Rules
 
+### Design philosophy
+
+- **ECS-native first**: elidex は **既存にない novel な ECS-native browser engine**。OO browser engine (Blink / Gecko / WebKit) の inheritance + virtual dispatch + observer registry pattern を ideal として直訳しない。ECS first principles (component / system / query / marker / event queue / version counter) から設計を導く。OO pattern を翻訳する時は idiom 対応表を明示 (例: observer registry → marker component + query, subscriber list → component query, class-owned state → ECS component on entity)。**ECS-native であること自体が elidex の design contribution**。
+- **Ideal over pragmatic**: 設計判断は「最もクリーンで spec-faithful + future-extensible な architecture」が default。"現実解" "minimal v1" "stub で済ます" "session 短縮のため scope 削る" は基本選ばない。defer cap / session 残見込は judgment 補助情報であって設計選択の制約条件にしない。User が明示的に "session 節約優先" "stub OK" "scope 制約あり" と言った時のみ pragmatic 路線。
+
 ### Design discipline
 
 - **設計優先**: 場当たり的な reactive fix 禁止。新しい型を足す前に既存の抽象で解決できないか考える。dead code は接続するか削除
