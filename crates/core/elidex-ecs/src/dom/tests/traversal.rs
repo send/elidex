@@ -172,6 +172,31 @@ fn element_siblings_skip_non_elements() {
     assert_eq!(dom.prev_element_sibling(a), None);
 }
 
+#[test]
+fn element_walkers_agree_with_is_element_on_node_kind_only_entity() {
+    // Regression for the predicate-alignment gap surfaced by PR #203
+    // R2: `first/last_element_child` and `next/prev_element_sibling`
+    // must use `EcsDom::is_element` (NodeKind-first, TagType fallback)
+    // so they cannot disagree with `child_element_count` / `is_element`
+    // on an entity that carries `NodeKind::Element` without `TagType`.
+    let mut dom = EcsDom::new();
+    let root = elem(&mut dom, "div");
+    // Spawn an Element-by-NodeKind entity without a TagType component;
+    // `is_element` returns `true` for it, so the walkers must too.
+    let nk_only = dom
+        .world_mut()
+        .spawn((NodeKind::Element, TreeRelation::default()));
+    assert!(dom.is_element(nk_only));
+    let plain = elem(&mut dom, "span");
+    assert!(dom.append_child(root, nk_only));
+    assert!(dom.append_child(root, plain));
+
+    assert_eq!(dom.first_element_child(root), Some(nk_only));
+    assert_eq!(dom.last_element_child(root), Some(plain));
+    assert_eq!(dom.next_element_sibling(nk_only), Some(plain));
+    assert_eq!(dom.prev_element_sibling(plain), Some(nk_only));
+}
+
 // ---------------------------------------------------------------------------
 // first_child_with_tag
 // ---------------------------------------------------------------------------
