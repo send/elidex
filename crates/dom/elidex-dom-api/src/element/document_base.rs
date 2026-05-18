@@ -274,7 +274,19 @@ impl BaseUrlMaintainer {
                 if !removed_a_qualifying_base {
                     return;
                 }
-                if let Some(doc) = dom.document_root() {
+                // Route through `owner_doc(parent)` for symmetry with
+                // the Insert + AttributeChange arms (both use
+                // `owner_doc(node)`).  `parent` is the appropriate
+                // anchor here since `node` has already been detached
+                // — `owner_document(parent)` resolves the same
+                // document the removed subtree previously belonged
+                // to.  Today `owner_doc` and `dom.document_root()`
+                // return the same value (single-`document_root`
+                // per-EcsDom), but keeping the helper consistent
+                // avoids forward-compat drift if multi-document
+                // support lands and `in_main_light_tree` / root
+                // selection semantics shift.
+                if let Some(doc) = owner_doc(dom, parent) {
                     recompute_document_base(dom, doc);
                 }
             }
