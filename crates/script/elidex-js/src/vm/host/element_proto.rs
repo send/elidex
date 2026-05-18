@@ -100,8 +100,11 @@ impl VmInner {
         // `append` / `replaceChildren`) + read surface (`children` /
         // `firstElementChild` / `lastElementChild` /
         // `childElementCount` / `querySelector` / `querySelectorAll`).
-        // The same installs run on `DocumentFragment.prototype` (which
-        // ShadowRoot inherits from) and the Document wrapper per-bind.
+        // Same install fns also run on `DocumentFragment.prototype`
+        // (ShadowRoot inherits via that chain).  The Document wrapper
+        // routes the same native bodies via `DOCUMENT_RO_ACCESSORS` +
+        // `DOCUMENT_METHODS` per-bind rather than calling
+        // `install_parent_node_readers` (Document has no shared proto).
         self.install_parent_node_mixin(proto_id);
         self.install_parent_node_readers(proto_id);
         self.install_element_matches(proto_id);

@@ -297,9 +297,10 @@ impl VmInner {
 }
 
 /// `firstElementChild` / `lastElementChild` use [`tree_nav_getter`],
-/// which returns `null` on unbound receivers.  No brand check: a
-/// non-parent receiver has no `TagType` children, so the lookup
-/// naturally returns `None`.
+/// which returns `null` on unbound receivers.  Intentionally no
+/// WebIDL brand check: `entity_from_this` filters non-host receivers
+/// and the engine-side walker (which uses `EcsDom::is_element`) just
+/// returns `None` for receivers with no element children.
 pub(super) fn native_pn_first_element_child(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
