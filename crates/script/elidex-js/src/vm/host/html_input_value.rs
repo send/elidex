@@ -114,7 +114,7 @@ pub(super) fn native_input_set_default_value(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     let s = ctx.vm.strings.get_utf8(sid);
-    ctx.host().dom().set_attribute(entity, "value", s.clone());
+    ctx.host().dom().set_attribute(entity, "value", &s);
     // Mirror into FormControlState.default_value if not dirty —
     // matches HTML §4.10.5.1.7 step "default value mode".
     let dom = ctx.host().dom();
@@ -185,9 +185,7 @@ pub(super) fn native_input_set_default_checked(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let flag = super::super::coerce::to_boolean(ctx.vm, val);
     if flag {
-        ctx.host()
-            .dom()
-            .set_attribute(entity, "checked", String::new());
+        ctx.host().dom().set_attribute(entity, "checked", "");
     } else {
         super::element_attrs::attr_remove(ctx, entity, "checked");
     }
@@ -426,7 +424,7 @@ pub(super) fn native_input_set_form_enctype(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     let s = ctx.vm.strings.get_utf8(sid);
-    ctx.host().dom().set_attribute(entity, "formenctype", s);
+    ctx.host().dom().set_attribute(entity, "formenctype", &s);
     Ok(JsValue::Undefined)
 }
 
@@ -460,6 +458,6 @@ pub(super) fn native_input_set_form_method(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     let s = ctx.vm.strings.get_utf8(sid);
-    ctx.host().dom().set_attribute(entity, "formmethod", s);
+    ctx.host().dom().set_attribute(entity, "formmethod", &s);
     Ok(JsValue::Undefined)
 }

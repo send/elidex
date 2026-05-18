@@ -76,7 +76,7 @@ where
     let base = effective_base_url(dom, entity);
     if let Some(mut url) = parse_with_base(&href, &base) {
         mutate(&mut url);
-        write_href_attr(entity, dom, url.as_str().to_string())?;
+        write_href_attr(entity, dom, url.as_str())?;
     }
     Ok(())
 }
@@ -87,7 +87,7 @@ where
 /// Distinct from the `URL` interface's `href` setter (`vm/host/url/setters`)
 /// which throws on parse failure; HTMLAnchorElement / HTMLAreaElement do not.
 pub fn set_href(entity: Entity, dom: &mut EcsDom, value: &str) -> Result<(), DomApiError> {
-    write_href_attr(entity, dom, value.to_string())
+    write_href_attr(entity, dom, value)
 }
 
 /// Read the `href` content attribute and return either the URL
@@ -118,7 +118,7 @@ fn read_href_attr(entity: Entity, dom: &EcsDom) -> Result<String, DomApiError> {
     Ok(attrs.get("href").unwrap_or("").to_string())
 }
 
-fn write_href_attr(entity: Entity, dom: &mut EcsDom, value: String) -> Result<(), DomApiError> {
+fn write_href_attr(entity: Entity, dom: &mut EcsDom, value: &str) -> Result<(), DomApiError> {
     // Lesson #181: `EcsDom::set_attribute` is the canonical write
     // path — it bumps `rev_version` so live-collection caches
     // (`document.links` / `document.images` / etc.) and

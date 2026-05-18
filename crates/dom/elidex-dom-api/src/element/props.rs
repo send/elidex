@@ -64,7 +64,7 @@ impl DomApiHandler for SetAttribute {
         // `BaseUrlMaintainer` to react to `<base>.href` writes).  Pre-D-31
         // this handler wrote `Attributes::set` directly and bumped
         // `rev_version` separately — the chokepoint subsumes both.
-        if !dom.set_attribute(this, &name, value.clone()) {
+        if !dom.set_attribute(this, &name, &value) {
             return Err(crate::util::not_found_error("element not found"));
         }
         // Sync the cached Attr entity's value so that attr.value reflects

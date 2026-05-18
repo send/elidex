@@ -235,8 +235,7 @@ impl Vm {
             // the next `register` call.  `unregister`-then-recycle
             // is explicitly forbidden by [`RangeId`] doc.
             let prev_next_id = hd.live_range_registry.next_id_marker();
-            let (mut registry, live_range) =
-                elidex_dom_api::LiveRangeRegistry::new_pair();
+            let (mut registry, live_range) = elidex_dom_api::LiveRangeRegistry::new_pair();
             registry.restore_next_id_marker(prev_next_id);
             hd.live_range_registry = registry;
             let node_iter = elidex_dom_api::NodeIteratorAdjuster::new(iter_shared);

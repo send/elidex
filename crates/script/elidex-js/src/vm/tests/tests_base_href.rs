@@ -74,11 +74,11 @@ fn document_base_uri_reflects_inserted_base_element() {
     }
 
     vm.eval(
-        r#"
+        r"
         var b = document.createElement('base');
         b.setAttribute('href', 'https://example.com/page');
         document.head.appendChild(b);
-        "#,
+        ",
     )
     .unwrap();
 
@@ -102,12 +102,12 @@ fn document_base_uri_changes_when_base_href_mutates() {
     }
 
     vm.eval(
-        r#"
+        r"
         var b = document.createElement('base');
         b.setAttribute('href', 'https://first.example/');
         document.head.appendChild(b);
         b.setAttribute('href', 'https://second.example/');
-        "#,
+        ",
     )
     .unwrap();
 
@@ -131,12 +131,12 @@ fn document_base_uri_reverts_to_fallback_on_href_removal() {
     }
 
     vm.eval(
-        r#"
+        r"
         var b = document.createElement('base');
         b.setAttribute('href', 'https://example.com/');
         document.head.appendChild(b);
         b.removeAttribute('href');
-        "#,
+        ",
     )
     .unwrap();
 
@@ -160,14 +160,14 @@ fn document_base_uri_first_base_wins_with_multiple_bases() {
     }
 
     vm.eval(
-        r#"
+        r"
         var b1 = document.createElement('base');
         b1.setAttribute('href', 'https://first.example/');
         var b2 = document.createElement('base');
         b2.setAttribute('href', 'https://second.example/');
         document.head.appendChild(b1);
         document.head.appendChild(b2);
-        "#,
+        ",
     )
     .unwrap();
 
@@ -191,14 +191,14 @@ fn document_base_uri_skips_base_without_href() {
     }
 
     vm.eval(
-        r#"
+        r"
         var b1 = document.createElement('base');
         // no href on b1
         var b2 = document.createElement('base');
         b2.setAttribute('href', 'https://second.example/');
         document.head.appendChild(b1);
         document.head.appendChild(b2);
-        "#,
+        ",
     )
     .unwrap();
 
@@ -227,13 +227,13 @@ fn node_base_uri_returns_document_base_uri() {
     }
 
     vm.eval(
-        r#"
+        r"
         var b = document.createElement('base');
         b.setAttribute('href', 'https://example.com/');
         document.head.appendChild(b);
         var div = document.createElement('div');
         document.body.appendChild(div);
-        "#,
+        ",
     )
     .unwrap();
 
@@ -267,14 +267,14 @@ fn anchor_href_resolves_against_base_url() {
     }
 
     vm.eval(
-        r#"
+        r"
         var b = document.createElement('base');
         b.setAttribute('href', 'https://example.com/dir/');
         document.head.appendChild(b);
         var a = document.createElement('a');
         a.setAttribute('href', 'page.html');
         document.body.appendChild(a);
-        "#,
+        ",
     )
     .unwrap();
 
@@ -297,7 +297,7 @@ fn anchor_href_updates_when_base_changes() {
     }
 
     vm.eval(
-        r#"
+        r"
         var b = document.createElement('base');
         b.setAttribute('href', 'https://first.example/');
         document.head.appendChild(b);
@@ -305,7 +305,7 @@ fn anchor_href_updates_when_base_changes() {
         a.setAttribute('href', 'page');
         document.body.appendChild(a);
         b.setAttribute('href', 'https://second.example/');
-        "#,
+        ",
     )
     .unwrap();
 
@@ -333,11 +333,11 @@ fn base_href_getter_returns_self_frozen_url() {
     }
 
     vm.eval(
-        r#"
+        r"
         var b = document.createElement('base');
         b.setAttribute('href', 'https://example.com/page');
         document.head.appendChild(b);
-        "#,
+        ",
     )
     .unwrap();
 

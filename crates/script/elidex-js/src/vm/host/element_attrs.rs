@@ -106,7 +106,7 @@ pub(super) fn attr_set(
     ctx: &mut NativeContext<'_>,
     entity: Entity,
     name: &str,
-    value: String,
+    value: &str,
 ) -> bool {
     ctx.host().dom().set_attribute(entity, name, value)
 }
@@ -406,7 +406,7 @@ pub(super) fn native_element_set_attribute_node(
     let Some(host) = ctx.host_if_bound() else {
         return Ok(JsValue::Null);
     };
-    host.dom().set_attribute(entity, &name_str, new_value);
+    host.dom().set_attribute(entity, &name_str, &new_value);
     // Sync the identity cache for `(entity, qname_sid)`:
     // - Same-element source (`source_owner == entity`), whether live
     //   or detached: insert/refresh so reattachment after a prior
@@ -568,7 +568,7 @@ pub(super) fn native_element_toggle_attribute(
             if !currently_present {
                 // WHATWG §4.9.2: when force=true and absent, set value to
                 // empty string.
-                attr_set(ctx, entity, &name, String::new());
+                attr_set(ctx, entity, &name, "");
             }
             true
         }
@@ -583,7 +583,7 @@ pub(super) fn native_element_toggle_attribute(
                 attr_remove(ctx, entity, &name);
                 false
             } else {
-                attr_set(ctx, entity, &name, String::new());
+                attr_set(ctx, entity, &name, "");
                 true
             }
         }
@@ -625,7 +625,7 @@ pub(super) fn reflected_string_set(
         return Ok(JsValue::Undefined);
     };
     let value = coerce_first_arg_to_string(ctx, args)?;
-    attr_set(ctx, entity, attr_name, value);
+    attr_set(ctx, entity, attr_name, &value);
     Ok(JsValue::Undefined)
 }
 

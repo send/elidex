@@ -543,7 +543,7 @@ fn select_get_value_returns_first_selected_option_value() {
         ],
     );
     let opts: Vec<Entity> = dom.children(sel);
-    dom.set_attribute(opts[1], "selected", String::new());
+    dom.set_attribute(opts[1], "selected", "");
     assert_eq!(select_get_value(&dom, sel), "b");
 }
 
@@ -558,7 +558,7 @@ fn select_get_value_implicit_default_first_non_disabled() {
         ],
     );
     let opts: Vec<Entity> = dom.children(sel);
-    dom.set_attribute(opts[0], "disabled", String::new());
+    dom.set_attribute(opts[0], "disabled", "");
     assert_eq!(select_get_value(&dom, sel), "b");
 }
 
@@ -594,7 +594,7 @@ fn select_set_value_clears_other_selections() {
         &[TestOpt::valued("a"), TestOpt::valued("b")],
     );
     let opts: Vec<Entity> = dom.children(sel);
-    dom.set_attribute(opts[0], "selected", String::new());
+    dom.set_attribute(opts[0], "selected", "");
     select_set_value(&mut dom, sel, "b");
     // First option's `selected` attribute was cleared.
     assert!(!dom
@@ -616,7 +616,7 @@ fn select_set_value_no_match_leaves_no_selection() {
         &[TestOpt::valued("a"), TestOpt::valued("b")],
     );
     let opts: Vec<Entity> = dom.children(sel);
-    dom.set_attribute(opts[0], "selected", String::new());
+    dom.set_attribute(opts[0], "selected", "");
     select_set_value(&mut dom, sel, "missing");
     // All options' `selected` attribute is cleared.
     assert!(!dom
@@ -659,7 +659,7 @@ fn select_set_selected_index_clears_existing_then_sets() {
         &[TestOpt::valued("a"), TestOpt::valued("b")],
     );
     let opts: Vec<Entity> = dom.children(sel);
-    dom.set_attribute(opts[0], "selected", String::new());
+    dom.set_attribute(opts[0], "selected", "");
     select_set_selected_index(&mut dom, sel, 1);
     assert!(!dom
         .world()
@@ -680,7 +680,7 @@ fn select_set_selected_index_negative_clears_all() {
         &[TestOpt::valued("a"), TestOpt::valued("b")],
     );
     let opts: Vec<Entity> = dom.children(sel);
-    dom.set_attribute(opts[0], "selected", String::new());
+    dom.set_attribute(opts[0], "selected", "");
     select_set_selected_index(&mut dom, sel, -1);
     for opt in &opts {
         assert!(!dom
@@ -698,7 +698,7 @@ fn select_set_selected_index_out_of_range_clears_all() {
         &[TestOpt::valued("a"), TestOpt::valued("b")],
     );
     let opts: Vec<Entity> = dom.children(sel);
-    dom.set_attribute(opts[0], "selected", String::new());
+    dom.set_attribute(opts[0], "selected", "");
     select_set_selected_index(&mut dom, sel, 99);
     for opt in &opts {
         assert!(!dom

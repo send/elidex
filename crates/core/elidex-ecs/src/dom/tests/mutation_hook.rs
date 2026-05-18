@@ -66,7 +66,11 @@ impl MutationDispatcher for MockHook {
         // descendants snapshot is asserted by `DescendantSnapshotHook`
         // in this same file.
         match *event {
-            MutationEvent::Insert { node, parent, index } => {
+            MutationEvent::Insert {
+                node,
+                parent,
+                index,
+            } => {
                 self.events.lock().unwrap().push(MockEvent::Insert {
                     node,
                     parent,
@@ -85,7 +89,10 @@ impl MutationDispatcher for MockHook {
                     index: removed_index,
                 });
             }
-            MutationEvent::TextChange { node, new_utf16_len } => {
+            MutationEvent::TextChange {
+                node,
+                new_utf16_len,
+            } => {
                 self.events.lock().unwrap().push(MockEvent::TextChange {
                     node,
                     new_utf16_len,

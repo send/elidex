@@ -78,8 +78,7 @@ pub fn document_base_url(dom: &EcsDom, doc: Entity) -> Url {
     dom.world()
         .get::<&DocumentBaseUrl>(doc)
         .ok()
-        .map(|c| c.0.clone())
-        .unwrap_or_else(fallback_url)
+        .map_or_else(fallback_url, |c| c.0.clone())
 }
 
 /// Walk the document subtree (light-tree, pre-order DFS) and return
@@ -139,15 +138,10 @@ fn recompute_document_base(dom: &mut EcsDom, doc: Entity) {
             .world()
             .get::<&BaseFrozenUrl>(base)
             .ok()
-            .map(|c| c.0.clone())
-            .unwrap_or_else(|| fallback.clone()),
+            .map_or_else(|| fallback.clone(), |c| c.0.clone()),
         None => fallback.clone(),
     };
-    let prev_first = dom
-        .world()
-        .get::<&DocumentFirstBase>(doc)
-        .ok()
-        .map(|c| c.0);
+    let prev_first = dom.world().get::<&DocumentFirstBase>(doc).ok().map(|c| c.0);
     let prev_url = dom
         .world()
         .get::<&DocumentBaseUrl>(doc)
@@ -162,19 +156,15 @@ fn recompute_document_base(dom: &mut EcsDom, doc: Entity) {
         .world_mut()
         .insert_one(doc, DocumentFirstBase(new_first));
     if url_changed {
-        let _ = dom
-            .world_mut()
-            .insert_one(doc, DocumentBaseUrl(new_url));
+        let _ = dom.world_mut().insert_one(doc, DocumentBaseUrl(new_url));
         // Layer 3 version bump on URL diff only.
         let prev_version = dom
             .world()
             .get::<&DocumentBaseUrlVersion>(doc)
-            .map(|c| c.0)
-            .unwrap_or(0);
-        let _ = dom.world_mut().insert_one(
-            doc,
-            DocumentBaseUrlVersion(prev_version.wrapping_add(1)),
-        );
+            .map_or(0, |c| c.0);
+        let _ = dom
+            .world_mut()
+            .insert_one(doc, DocumentBaseUrlVersion(prev_version.wrapping_add(1)));
     }
 }
 
@@ -239,9 +229,7 @@ impl BaseUrlMaintainer {
                 match new_value {
                     Some(href) => {
                         let frozen = compute_frozen_url(href, &fallback);
-                        let _ = dom
-                            .world_mut()
-                            .insert_one(node, BaseFrozenUrl(frozen));
+                        let _ = dom.world_mut().insert_one(node, BaseFrozenUrl(frozen));
                     }
                     None => {
                         let _ = dom.world_mut().remove_one::<BaseFrozenUrl>(node);

@@ -16,11 +16,11 @@ pub mod char_data;
 pub mod child_node;
 pub mod class_list;
 pub mod computed_style;
+pub mod consumer_dispatcher;
 pub mod css_namespace;
 pub mod cssom_sheet;
 pub mod document;
 pub mod element;
-pub mod consumer_dispatcher;
 pub mod live_collection;
 pub mod node_methods;
 pub mod range;
@@ -57,6 +57,7 @@ pub use class_list::{
     REL_LIST_SUPPORTS, REL_LIST_TOGGLE, REL_LIST_VALUE_GET, REL_LIST_VALUE_SET,
 };
 pub use computed_style::{css_value_to_string, GetComputedStyle};
+pub use consumer_dispatcher::ConsumerDispatcher;
 pub use css_namespace::{CssEscape, CssSupports};
 pub use cssom_sheet::{
     collect_stylesheet_owners, count_stylesheet_owners, CssRulesItemId, CssRulesLength, DeleteRule,
@@ -66,6 +67,7 @@ pub use cssom_sheet::{
 pub use document::{
     query_selector_all, CreateElement, CreateTextNode, GetElementById, QuerySelector,
 };
+pub use element::document_base::{compute_frozen_url, BaseUrlMaintainer};
 pub use element::href_accessor::{
     HyperlinkHashGet, HyperlinkHashSet, HyperlinkHostGet, HyperlinkHostSet, HyperlinkHostnameGet,
     HyperlinkHostnameSet, HyperlinkHrefGet, HyperlinkHrefSet, HyperlinkOriginGet,
@@ -85,8 +87,6 @@ pub use element::{
     InsertBefore, RemoveAttribute, RemoveChild, ReplaceChild, ScrollIntoView, SerializeOptions,
     SetAttribute, SetClassName, SetId, SetInnerHtml, ToggleAttribute,
 };
-pub use consumer_dispatcher::ConsumerDispatcher;
-pub use element::document_base::{compute_frozen_url, BaseUrlMaintainer};
 pub use live_collection::{CollectionFilter, CollectionKind, LiveCollection};
 pub use node_methods::{
     CloneNode, CompareDocumentPosition, Contains, GetRootNode, GetTextContentNodeKind, IsConnected,

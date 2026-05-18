@@ -1189,11 +1189,7 @@ impl NodeIteratorAdjuster {
     /// Single-method dispatch entry invoked by
     /// [`crate::ConsumerDispatcher`].  Only [`elidex_ecs::MutationEvent::Remove`]
     /// is relevant; other variants are ignored.
-    pub fn handle(
-        &mut self,
-        event: &elidex_ecs::MutationEvent<'_>,
-        dom: &mut elidex_ecs::EcsDom,
-    ) {
+    pub fn handle(&mut self, event: &elidex_ecs::MutationEvent<'_>, dom: &mut elidex_ecs::EcsDom) {
         if let elidex_ecs::MutationEvent::Remove {
             node,
             parent,

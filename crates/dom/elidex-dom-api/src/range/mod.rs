@@ -136,15 +136,16 @@ impl Range {
 /// `dom` is required to walk the descendant relationship for case (1).
 ///
 /// **Calling order**: invoke either BEFORE `EcsDom::remove_child` /
-/// `EcsDom::replace_child`, or from within
-/// [`MutationHook::after_remove`](elidex_ecs::MutationHook::after_remove)
-/// (which is the public-API hook point that fires once the node has been
-/// detached but its subtree's parent links still point at it). The
+/// `EcsDom::replace_child`, or from within a
+/// [`MutationDispatcher`](elidex_ecs::MutationDispatcher) consumer
+/// handling [`MutationEvent::Remove`](elidex_ecs::MutationEvent::Remove)
+/// (which is the public-API dispatch point that fires once the node has
+/// been detached but its subtree's parent links still point at it). The
 /// descendant walk uses [`EcsDom::is_ancestor_or_self`], which walks
 /// from `descendant`'s parent chain upward — that chain remains intact
-/// at the `after_remove` callback because the engine only clears the
-/// removed node's OWN parent / sibling links and leaves its
-/// `first_child` / `last_child` (and the descendants' `parent`) alone.
+/// at the `Remove` event because the engine only clears the removed
+/// node's OWN parent / sibling links and leaves its `first_child` /
+/// `last_child` (and the descendants' `parent`) alone.
 ///
 /// `destroy_entity` differs: it orphans all children before firing the
 /// hook, so the descendant walk does NOT find them — consumers must
@@ -319,10 +320,11 @@ pub(crate) fn adjust_ranges_for_replace_data(
 /// per WHATWG DOM §4.10 "split a Text node" step 8.
 ///
 /// **Ordering invariant** (mirrors
-/// [`elidex_ecs::MutationHook::after_split_text`] doc): MUST run BEFORE
-/// the caller's subsequent `set_text_data(node, head)` fires
-/// `after_text_change` — otherwise the truncate-clamp on `node`
-/// destroys boundary offsets needed for migration to `new_node`.
+/// [`MutationEvent::SplitText`](elidex_ecs::MutationEvent::SplitText)
+/// doc): MUST run BEFORE the caller's subsequent
+/// `set_text_data(node, head)` fires `MutationEvent::TextChange` —
+/// otherwise the truncate-clamp on `node` destroys boundary offsets
+/// needed for migration to `new_node`.
 ///
 /// For each boundary:
 /// - On `node` at `off > offset` → migrate to `(new_node, off - offset)`.
@@ -373,11 +375,12 @@ pub(crate) fn adjust_ranges_for_split_text(
 /// into `prev` (WHATWG DOM §4.5 "normalize" step 6.4).
 ///
 /// **Ordering invariant** (mirrors
-/// [`elidex_ecs::MutationHook::after_normalize_merge`] doc): MUST run
-/// BEFORE the caller's subsequent `remove_child(parent, merged_child)`
-/// fires `after_remove` — otherwise the boundary on `merged_child` is
-/// collapsed to `(parent, child_idx)` by remove-step semantics and the
-/// migration to `(prev, prev_old_len + off)` is lost.
+/// [`MutationEvent::NormalizeMerge`](elidex_ecs::MutationEvent::NormalizeMerge)
+/// doc): MUST run BEFORE the caller's subsequent
+/// `remove_child(parent, merged_child)` fires `MutationEvent::Remove` —
+/// otherwise the boundary on `merged_child` is collapsed to
+/// `(parent, child_idx)` by remove-step semantics and the migration to
+/// `(prev, prev_old_len + off)` is lost.
 ///
 /// `prev_old_len` is the UTF-16 length of `prev` BEFORE absorbing
 /// `merged_child`'s data; `merged_child_index` is the pre-removal index

@@ -53,17 +53,17 @@ fn nodes_equal_per_kind_branches() {
     // Element: same tag + same attrs (order-independent) -> equal
     let same_attrs_lhs = elem(&mut dom, "p");
     let same_attrs_rhs = elem(&mut dom, "p");
-    assert!(dom.set_attribute(same_attrs_lhs, "id", "x".into()));
-    assert!(dom.set_attribute(same_attrs_lhs, "class", "y".into()));
-    assert!(dom.set_attribute(same_attrs_rhs, "class", "y".into()));
-    assert!(dom.set_attribute(same_attrs_rhs, "id", "x".into()));
+    assert!(dom.set_attribute(same_attrs_lhs, "id", "x"));
+    assert!(dom.set_attribute(same_attrs_lhs, "class", "y"));
+    assert!(dom.set_attribute(same_attrs_rhs, "class", "y"));
+    assert!(dom.set_attribute(same_attrs_rhs, "id", "x"));
     assert!(dom.nodes_equal(same_attrs_lhs, same_attrs_rhs));
 
     // Element: differing attribute value -> not equal
     let differ_lhs = elem(&mut dom, "p");
     let differ_rhs = elem(&mut dom, "p");
-    assert!(dom.set_attribute(differ_lhs, "id", "x".into()));
-    assert!(dom.set_attribute(differ_rhs, "id", "z".into()));
+    assert!(dom.set_attribute(differ_lhs, "id", "x"));
+    assert!(dom.set_attribute(differ_rhs, "id", "z"));
     assert!(!dom.nodes_equal(differ_lhs, differ_rhs));
 
     // Element: differing tag -> not equal

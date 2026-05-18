@@ -161,10 +161,7 @@ pub enum MutationEvent<'a> {
     /// Comment nodes use `CommentData` (NOT covered by §4.10 Range
     /// live-tracking) and do NOT fire this event. Middle-splice
     /// operations fire [`Self::ReplaceData`] instead.
-    TextChange {
-        node: Entity,
-        new_utf16_len: usize,
-    },
+    TextChange { node: Entity, new_utf16_len: usize },
 
     /// An `appendData` / `insertData` / `deleteData` / `replaceData`
     /// splice on a Text / CData entity (WHATWG DOM §4.10 Interface

@@ -255,7 +255,7 @@ fn get_elements_by_name_filters_non_element_nodes() {
     // check would leak the Document into the result.  With the
     // filter (`node_kind_inferred == Element` + `e != doc`), only
     // the real `<input>` element is returned.
-    dom.set_attribute(doc, "name", "x".to_string());
+    dom.set_attribute(doc, "name", "x");
 
     #[allow(unsafe_code)]
     unsafe {

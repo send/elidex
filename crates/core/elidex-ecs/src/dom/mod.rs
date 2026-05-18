@@ -56,6 +56,25 @@ pub struct EcsDom {
     dispatcher: Option<Box<dyn MutationDispatcher + Send + Sync>>,
 }
 
+/// Panic-safe Drop guard for [`EcsDom::dispatch_event`]: restores the
+/// taken-out dispatcher back into `self.dispatcher` on scope exit, even
+/// if the dispatch callback panics.  Co-located with `EcsDom` because
+/// the raw pointer aliases `self.dispatcher` and the lifetime is bound
+/// to the `&mut self` borrow at the call site.
+struct RestoreDispatcher {
+    target_ptr: *mut Option<Box<dyn MutationDispatcher + Send + Sync>>,
+    pending: Option<Box<dyn MutationDispatcher + Send + Sync>>,
+}
+
+impl Drop for RestoreDispatcher {
+    fn drop(&mut self) {
+        #[allow(unsafe_code)]
+        unsafe {
+            *self.target_ptr = self.pending.take();
+        }
+    }
+}
+
 impl EcsDom {
     /// Create a new, empty DOM.
     pub fn new() -> Self {
@@ -105,7 +124,8 @@ impl EcsDom {
     fn dispatch_event(&mut self, event: &MutationEvent<'_>) {
         // Take dispatcher out of `self.dispatcher` so `&mut self` can
         // be passed to `dispatch` without borrow-conflicting with the
-        // dispatcher field.  Restore via a panic-safe Drop guard.
+        // dispatcher field.  Restore via a panic-safe Drop guard
+        // (`RestoreDispatcher`, defined above this impl block).
         //
         // SAFETY: `target_ptr` aliases `self.dispatcher` exclusively
         // because we have `&mut self` here and immediately move the
@@ -117,18 +137,6 @@ impl EcsDom {
         // and silently no-ops per the trait re-entry contract).
         if self.dispatcher.is_none() {
             return;
-        }
-        struct RestoreDispatcher {
-            target_ptr: *mut Option<Box<dyn MutationDispatcher + Send + Sync>>,
-            pending: Option<Box<dyn MutationDispatcher + Send + Sync>>,
-        }
-        impl Drop for RestoreDispatcher {
-            fn drop(&mut self) {
-                #[allow(unsafe_code)]
-                unsafe {
-                    *self.target_ptr = self.pending.take();
-                }
-            }
         }
         let target_ptr: *mut Option<Box<dyn MutationDispatcher + Send + Sync>> =
             &raw mut self.dispatcher;
@@ -156,8 +164,7 @@ impl EcsDom {
     pub fn is_base_element(&self, entity: Entity) -> bool {
         self.world
             .get::<&TagType>(entity)
-            .map(|t| t.0.eq_ignore_ascii_case("base"))
-            .unwrap_or(false)
+            .is_ok_and(|t| t.0.eq_ignore_ascii_case("base"))
     }
 
     /// Fire [`MutationEvent::SplitText`] from a caller in another crate.
@@ -213,7 +220,6 @@ impl EcsDom {
         };
         self.dispatch_event(&event);
     }
-
 
     /// Replace the `TextContent` of an entity. Returns the new UTF-16 length
     /// on success, or `None` if the entity has no `TextContent` component.
@@ -279,7 +285,7 @@ impl EcsDom {
     /// On success:
     /// - splices the UTF-16 view of `TextContent` in place,
     /// - bumps [`Self::rev_version`] (cache invalidation),
-    /// - fires [`MutationHook::after_replace_data`] with
+    /// - fires [`MutationEvent::ReplaceData`] with
     ///   `(entity, offset, count, replacement_utf16_len)`.
     ///
     /// **NOT for Comment nodes** (Comment uses `CommentData`, not
@@ -420,19 +426,18 @@ impl EcsDom {
     /// The document root serves as the parent of the `<html>` element.
     /// The entity is cached for fast retrieval via [`document_root()`](Self::document_root).
     ///
-    /// D-31: eagerly attaches [`DocumentBaseUrl`] + [`DocumentFirstBase`]
-    /// + [`DocumentBaseUrlVersion`] (initialised to the placeholder
-    /// `about:blank` fallback URL pending
-    /// `#11-document-url-real-navigation` slot landing).  Phase B
+    /// D-31: eagerly attaches three base-URL components —
+    /// [`DocumentBaseUrl`], [`DocumentFirstBase`], and
+    /// [`DocumentBaseUrlVersion`] — initialised to the placeholder
+    /// `about:blank` fallback URL pending the
+    /// `#11-document-url-real-navigation` slot landing.  Phase B's
     /// `BaseUrlMaintainer` mutates these as `<base>` elements enter /
     /// leave the doc tree.
     pub fn create_document_root(&mut self) -> Entity {
         let entity = self.world.spawn((
             TreeRelation::default(),
             NodeKind::Document,
-            DocumentBaseUrl(
-                url::Url::parse("about:blank").expect("about:blank parses"),
-            ),
+            DocumentBaseUrl(url::Url::parse("about:blank").expect("about:blank parses")),
             DocumentFirstBase(None),
             DocumentBaseUrlVersion::default(),
         ));
@@ -879,7 +884,7 @@ impl EcsDom {
     /// list cache in `elidex-js::vm::host::dom_collection`.
     ///
     /// Returns `false` if the entity has been destroyed.
-    pub fn set_attribute(&mut self, entity: Entity, name: &str, value: String) -> bool {
+    pub fn set_attribute(&mut self, entity: Entity, name: &str, value: &str) -> bool {
         if !self.contains(entity) {
             return false;
         }
@@ -891,14 +896,14 @@ impl EcsDom {
         let has_component = self.world.get::<&Attributes>(entity).is_ok();
         let did_set = if has_component {
             if let Ok(mut attrs) = self.world.get::<&mut Attributes>(entity) {
-                attrs.set(name, value.clone());
+                attrs.set(name, value);
                 true
             } else {
                 false
             }
         } else {
             let mut attrs = Attributes::default();
-            attrs.set(name, value.clone());
+            attrs.set(name, value);
             self.world.insert_one(entity, attrs).is_ok()
         };
         if did_set {
@@ -914,7 +919,7 @@ impl EcsDom {
                 name,
                 namespace: None,
                 old_value: old_value.as_deref(),
-                new_value: Some(&value),
+                new_value: Some(value),
             };
             self.dispatch_event(&event);
         }

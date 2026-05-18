@@ -373,7 +373,7 @@ fn string_reflect_set(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     let s = ctx.vm.strings.get_utf8(sid);
-    ctx.host().dom().set_attribute(entity, attr_name, s);
+    ctx.host().dom().set_attribute(entity, attr_name, &s);
     Ok(JsValue::Undefined)
 }
 
@@ -657,7 +657,7 @@ fn native_hidden_set(
         if s.eq_ignore_ascii_case("until-found") {
             ctx.host()
                 .dom()
-                .set_attribute(entity, "hidden", "until-found".into());
+                .set_attribute(entity, "hidden", "until-found");
             return Ok(JsValue::Undefined);
         }
         if s.is_empty() {
@@ -667,9 +667,7 @@ fn native_hidden_set(
     }
     let flag = super::super::coerce::to_boolean(ctx.vm, val);
     if flag {
-        ctx.host()
-            .dom()
-            .set_attribute(entity, "hidden", String::new());
+        ctx.host().dom().set_attribute(entity, "hidden", "");
     } else {
         super::element_attrs::attr_remove(ctx, entity, "hidden");
     }
@@ -695,9 +693,7 @@ fn native_autofocus_set(
     let entity = require_html_element_receiver(ctx, this, "autofocus")?;
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     if super::super::coerce::to_boolean(ctx.vm, val) {
-        ctx.host()
-            .dom()
-            .set_attribute(entity, "autofocus", String::new());
+        ctx.host().dom().set_attribute(entity, "autofocus", "");
     } else {
         super::element_attrs::attr_remove(ctx, entity, "autofocus");
     }
@@ -738,9 +734,7 @@ fn native_draggable_set(
     } else {
         "false"
     };
-    ctx.host()
-        .dom()
-        .set_attribute(entity, "draggable", literal.into());
+    ctx.host().dom().set_attribute(entity, "draggable", literal);
     Ok(JsValue::Undefined)
 }
 
@@ -784,9 +778,7 @@ fn native_translate_set(
     } else {
         "no"
     };
-    ctx.host()
-        .dom()
-        .set_attribute(entity, "translate", literal.into());
+    ctx.host().dom().set_attribute(entity, "translate", literal);
     Ok(JsValue::Undefined)
 }
 
@@ -822,7 +814,7 @@ fn native_spellcheck_set(
     };
     ctx.host()
         .dom()
-        .set_attribute(entity, "spellcheck", literal.into());
+        .set_attribute(entity, "spellcheck", literal);
     Ok(JsValue::Undefined)
 }
 
@@ -855,7 +847,7 @@ fn native_tab_index_set(
     // WebIDL `long` — truncate via `ToInt32`.
     let n = super::super::coerce::to_int32(ctx.vm, val)?;
     let s = n.to_string();
-    ctx.host().dom().set_attribute(entity, "tabindex", s);
+    ctx.host().dom().set_attribute(entity, "tabindex", &s);
     Ok(JsValue::Undefined)
 }
 

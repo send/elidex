@@ -341,7 +341,7 @@ fn native_nnm_set_named_item(
     let Some(host) = ctx.host_if_bound() else {
         return Ok(JsValue::Null);
     };
-    host.dom().set_attribute(owner, &name_str, value);
+    host.dom().set_attribute(owner, &name_str, &value);
     // Mirrors `Element.setAttributeNode`: same-element source
     // (whether live or detached via a prior
     // `removeAttribute` / `removeNamedItem`) inserts/refreshes the

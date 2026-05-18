@@ -9,8 +9,8 @@ fn clone_attributes_copies_all_keys() {
     let mut dom = EcsDom::new();
     let src = elem(&mut dom, "div");
     let dst = elem(&mut dom, "div");
-    assert!(dom.set_attribute(src, "id", "hero".to_owned()));
-    assert!(dom.set_attribute(src, "class", "big".to_owned()));
+    assert!(dom.set_attribute(src, "id", "hero"));
+    assert!(dom.set_attribute(src, "class", "big"));
     dom.clone_attributes(src, dst);
     assert_eq!(dom.get_attribute(dst, "id"), Some("hero".to_owned()));
     assert_eq!(dom.get_attribute(dst, "class"), Some("big".to_owned()));
@@ -79,9 +79,9 @@ fn clone_subtree_deep_copies_children_order() {
     let a = elem(&mut dom, "li");
     let b = elem(&mut dom, "li");
     let c = elem(&mut dom, "li");
-    assert!(dom.set_attribute(a, "data", "1".to_owned()));
-    assert!(dom.set_attribute(b, "data", "2".to_owned()));
-    assert!(dom.set_attribute(c, "data", "3".to_owned()));
+    assert!(dom.set_attribute(a, "data", "1"));
+    assert!(dom.set_attribute(b, "data", "2"));
+    assert!(dom.set_attribute(c, "data", "3"));
     assert!(dom.append_child(root, a));
     assert!(dom.append_child(root, b));
     assert!(dom.append_child(root, c));

@@ -1,6 +1,6 @@
 //! Live `Range` tracking (WHATWG DOM §5.5 "Live range updates").
 //!
-//! Wires the [`elidex_ecs::MutationHook`] callbacks fired from
+//! Wires the [`elidex_ecs::MutationDispatcher`] events fired from
 //! `EcsDom` tree / text-data primitives into the active set of JS-visible
 //! `Range` objects so their boundaries follow tree mutations per spec.
 //!
@@ -12,11 +12,12 @@
 //!   hash and the RangeId counter. JS-visible Range accessors route
 //!   through it. [`LiveRangeRegistry::finalize_pending`] runs a
 //!   dangling-collapse fallback pass on every read-path access for
-//!   the orphan-then-destroy corner case where no hook fires.
-//! - [`LiveRangeBridge`] (`EcsDom.mutation_hook` consumer) is a small struct
-//!   that implements [`elidex_ecs::MutationHook`] by forwarding all
-//!   six hook callbacks into the shared `ranges`
-//!   `Arc<Mutex<HashMap<RangeId, Range>>>` and applying boundary
+//!   the orphan-then-destroy corner case where no event fires.
+//! - [`LiveRangeBridge`] (`EcsDom` dispatcher consumer) is a small
+//!   struct that implements [`elidex_ecs::MutationDispatcher`] by
+//!   matching on each [`elidex_ecs::MutationEvent`] variant and
+//!   forwarding into the shared `ranges`
+//!   `Arc<Mutex<HashMap<RangeId, Range>>>`, applying boundary
 //!   adjustments SYNCHRONOUSLY. The engine pre-snapshots inclusive
 //!   descendants before any `destroy_entity` orphaning (PR186 R2 #3)
 //!   so no deferred / queue-drain phase is needed.
@@ -28,9 +29,9 @@
 //! ## Lock invariant
 //!
 //! `ranges` is the only mutex shared between the registry and the
-//! bridge. Each hook callback (and each registry method) acquires
-//! the mutex once for the duration of its read or adjustment.
-//! There is no second lock to deadlock against.
+//! bridge. Each dispatch (and each registry method) acquires the
+//! mutex once for the duration of its read or adjustment. There is
+//! no second lock to deadlock against.
 //!
 //! ## Shallow light-tree contract (lesson #229, prereq #185)
 //!
@@ -39,7 +40,7 @@
 //! suppressed). `LiveRangeRegistry` trusts that filter and does NOT
 //! walk to the tree root on every event — doing so would defeat the
 //! cost model spelled out in the
-//! [`elidex_ecs::MutationHook`] trait doc. Range boundaries
+//! [`elidex_ecs::MutationDispatcher`] trait doc. Range boundaries
 //! placed on a node *inside* a shadow tree but reached via a normal
 //! element parent (not the ShadowRoot itself) are within the shallow
 //! filter's grey zone; the
@@ -80,15 +81,15 @@ pub struct RangeId(pub u64);
 // LiveRangeBridge
 // ---------------------------------------------------------------------------
 
-/// `EcsDom.mutation_hook`-side adapter. Forwards [`MutationHook`]
-/// callbacks into the shared `Arc<Mutex<HashMap<RangeId, Range>>>`
+/// `EcsDom` dispatcher-side adapter. Forwards [`MutationEvent`]
+/// dispatches into the shared `Arc<Mutex<HashMap<RangeId, Range>>>`
 /// owned jointly with the HostData-side [`LiveRangeRegistry`].
 ///
 /// Constructed only via [`LiveRangeRegistry::new_pair`]; the pair-shape
 /// keeps the shared `ranges` handle bound at construction time so no
 /// callsite can mismatch-pair them.
 ///
-/// All hooks apply boundary adjustments SYNCHRONOUSLY (PR186 R2 #3):
+/// All dispatches apply boundary adjustments SYNCHRONOUSLY (PR186 R2 #3):
 /// the engine pre-snapshots inclusive descendants before any
 /// `destroy_entity` orphaning, so the consumer no longer needs to
 /// defer the descendant walk to a separate read-path drain phase. The
@@ -107,11 +108,7 @@ pub struct LiveRangeBridge {
 /// code installs the typed [`crate::ConsumerDispatcher`].
 #[cfg(test)]
 impl elidex_ecs::MutationDispatcher for LiveRangeBridge {
-    fn dispatch(
-        &mut self,
-        event: &elidex_ecs::MutationEvent<'_>,
-        dom: &mut EcsDom,
-    ) {
+    fn dispatch(&mut self, event: &elidex_ecs::MutationEvent<'_>, dom: &mut EcsDom) {
         self.handle(event, dom);
     }
 }
@@ -131,8 +128,15 @@ impl LiveRangeBridge {
                 removed_index,
                 descendants,
             } => self.after_remove_with_descendants(node, parent, removed_index, descendants, dom),
-            MutationEvent::Insert { node, parent, index } => self.after_insert(node, parent, index),
-            MutationEvent::TextChange { node, new_utf16_len } => {
+            MutationEvent::Insert {
+                node,
+                parent,
+                index,
+            } => self.after_insert(node, parent, index),
+            MutationEvent::TextChange {
+                node,
+                new_utf16_len,
+            } => {
                 self.after_text_change(node, new_utf16_len);
             }
             MutationEvent::ReplaceData {
@@ -327,16 +331,17 @@ impl LiveRangeBridge {
 // LiveRangeRegistry
 // ---------------------------------------------------------------------------
 
-/// HostData-side consumer of [`MutationHook`] events for Range
+/// HostData-side consumer of [`MutationEvent`] dispatches for Range
 /// live-tracking.
 ///
 /// Owns the Range hash + the RangeId monotonic counter, sharing the
-/// `ranges` `Arc<Mutex<>>` with the EcsDom-side [`LiveRangeBridge`]. Hook
-/// callbacks apply boundary adjustments synchronously (PR186 R2 #3
-/// fix: descendants snapshot eliminates the prior queue); the
-/// remaining read-path concern is the orphan-then-destroy case where
-/// no hook fires for an entity with no parent — [`Self::finalize_pending`]
-/// runs a dangling-collapse pass to catch those.
+/// `ranges` `Arc<Mutex<>>` with the EcsDom-side [`LiveRangeBridge`].
+/// Dispatch callbacks apply boundary adjustments synchronously
+/// (PR186 R2 #3 fix: descendants snapshot eliminates the prior queue);
+/// the remaining read-path concern is the orphan-then-destroy case
+/// where no event fires for an entity with no parent —
+/// [`Self::finalize_pending`] runs a dangling-collapse pass to catch
+/// those.
 pub struct LiveRangeRegistry {
     ranges: Arc<Mutex<HashMap<RangeId, Range>>>,
     next_id: u64,
@@ -345,7 +350,7 @@ pub struct LiveRangeRegistry {
 impl LiveRangeRegistry {
     /// Construct a paired registry + bridge sharing the `ranges`
     /// `Arc<Mutex<>>` handle. The bridge is intended for
-    /// [`EcsDom::set_mutation_hook`] at `Vm::bind` time.
+    /// [`EcsDom::set_mutation_dispatcher`] at `Vm::bind` time.
     #[must_use]
     pub fn new_pair() -> (Self, LiveRangeBridge) {
         let ranges = Arc::new(Mutex::new(HashMap::new()));

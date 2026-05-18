@@ -31,8 +31,9 @@ impl DomApiHandler for GetDocumentUrl {
 
 /// `document.baseURI` getter (WHATWG DOM §4.4 Interface Node
 /// `baseURI` getter, anchor `#dom-node-baseuri`).  Returns the
-/// document's current base URL (cached [`DocumentBaseUrl`] component
-/// maintained by [`crate::BaseUrlMaintainer`]).
+/// document's current base URL (cached
+/// [`elidex_ecs::DocumentBaseUrl`] component maintained by
+/// [`crate::BaseUrlMaintainer`]).
 pub struct GetDocumentBaseURI;
 
 impl DomApiHandler for GetDocumentBaseURI {

@@ -153,7 +153,7 @@ pub fn select_set_value(dom: &mut EcsDom, select: Entity, target: &str) {
     for opt in &snap {
         let candidate = option_value_string(dom, *opt);
         if !found_first && candidate == target {
-            dom.set_attribute(*opt, "selected", String::new());
+            dom.set_attribute(*opt, "selected", "");
             found_first = true;
         } else {
             dom.remove_attribute(*opt, "selected");
@@ -179,7 +179,7 @@ pub fn select_set_selected_index(dom: &mut EcsDom, select: Entity, n: i32) {
     }
     if let Ok(idx) = usize::try_from(n) {
         if let Some(target) = snap.get(idx) {
-            dom.set_attribute(*target, "selected", String::new());
+            dom.set_attribute(*target, "selected", "");
         }
     }
 }

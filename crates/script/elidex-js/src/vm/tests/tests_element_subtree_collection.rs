@@ -260,7 +260,7 @@ fn element_get_elements_by_class_name_skips_non_element_with_attributes() {
     let hot_div = dom.first_child_with_tag(root, "div").unwrap();
     let bogus_text = dom.create_text("x");
     assert!(dom.append_child(hot_div, bogus_text));
-    assert!(dom.set_attribute(bogus_text, "class", "x".to_owned()));
+    assert!(dom.set_attribute(bogus_text, "class", "x"));
 
     #[allow(unsafe_code)]
     unsafe {

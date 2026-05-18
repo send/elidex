@@ -135,10 +135,10 @@ mod tests {
     fn make_details(dom: &mut EcsDom, name: Option<&str>, open: bool) -> Entity {
         let entity = dom.create_element("details", Attributes::default());
         if let Some(n) = name {
-            dom.set_attribute(entity, "name", n.to_string());
+            dom.set_attribute(entity, "name", n);
         }
         if open {
-            dom.set_attribute(entity, "open", String::new());
+            dom.set_attribute(entity, "open", "");
         }
         entity
     }
@@ -224,8 +224,8 @@ mod tests {
         // participate.  Tag check guards against grouping/section
         // elements that happen to share the attribute names.
         let div = dom.create_element("div", Attributes::default());
-        dom.set_attribute(div, "name", "g".to_string());
-        dom.set_attribute(div, "open", String::new());
+        dom.set_attribute(div, "name", "g");
+        dom.set_attribute(div, "open", "");
         let parent = make_div_parent(&mut dom, &[opener, div]);
         let result = collect_open_details_by_name(&dom, parent, "g", opener);
         assert!(result.is_empty(), "non-details elements ignored");
@@ -276,8 +276,8 @@ mod tests {
         let mut dom = EcsDom::new();
         let opener = make_details(&mut dom, Some("g"), false);
         let upper_tag = dom.create_element("DETAILS", Attributes::default());
-        dom.set_attribute(upper_tag, "name", "g".to_string());
-        dom.set_attribute(upper_tag, "open", String::new());
+        dom.set_attribute(upper_tag, "name", "g");
+        dom.set_attribute(upper_tag, "open", "");
         let parent = make_div_parent(&mut dom, &[opener, upper_tag]);
         let result = collect_open_details_by_name(&dom, parent, "g", opener);
         assert_eq!(result, vec![upper_tag]);
