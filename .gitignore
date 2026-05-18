@@ -24,6 +24,7 @@ output-*/
 # Local cargo config (sccache etc.)
 .cargo/config.toml
 
-# Claude Code
-.claude/
+# Claude Code — settings/state は untracked、shared skills のみ tracked
+.claude/*
+!.claude/skills/
 rust_out
