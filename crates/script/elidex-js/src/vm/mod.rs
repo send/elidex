@@ -383,13 +383,12 @@ pub(crate) struct VmInner {
     /// `DocumentFragment.prototype` — shared prototype for every
     /// `DocumentFragment` node wrapper (`document.createDocumentFragment()`,
     /// `<template>.content`, ShadowRoot inherits from this).  Chains
-    /// to `Node.prototype` and carries the ParentNode-mixin **mutation
-    /// methods** (`prepend` / `append` / `replaceChildren`) via
-    /// [`Self::install_parent_node_mixin`].  Selector / children
-    /// accessors (`querySelector`, `firstElementChild`, `children`,
-    /// `childElementCount`, …) live on `Element.prototype` only and
-    /// are NOT exposed through this chain yet — see defer slot
-    /// `#11-shadow-parent-node-accessors`.  Installed by
+    /// to `Node.prototype` and carries the full ParentNode mixin
+    /// (WHATWG §4.2.6) — mutation methods via
+    /// [`Self::install_parent_node_mixin`] and the read surface
+    /// (`children` / `firstElementChild` / `lastElementChild` /
+    /// `childElementCount` / `querySelector` / `querySelectorAll`) via
+    /// [`Self::install_parent_node_readers`].  Installed by
     /// `register_document_fragment_prototype` in `init.rs` after the
     /// Node prototype + ParentNode mixin natives are available.
     #[cfg(feature = "engine")]

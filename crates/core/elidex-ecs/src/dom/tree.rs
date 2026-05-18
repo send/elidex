@@ -547,14 +547,16 @@ impl EcsDom {
         true
     }
 
-    /// Return the first child of `parent` that is an element (has a
-    /// [`TagType`] component).  Text, comment, and shadow-root
-    /// children are skipped.
+    /// Return the first child of `parent` that is an element.  Text,
+    /// comment, and shadow-root children are skipped.  Uses
+    /// [`Self::is_element`] so the brand check matches the canonical
+    /// NodeKind-first predicate shared with `child_element_count` and
+    /// the ParentNode reader mixin.
     #[must_use]
     pub fn first_element_child(&self, parent: Entity) -> Option<Entity> {
         let mut child = self.get_first_child(parent);
         while let Some(c) = child {
-            if self.world.get::<&TagType>(c).is_ok() {
+            if self.is_element(c) {
                 return Some(c);
             }
             child = self.get_next_sibling(c);
@@ -562,13 +564,12 @@ impl EcsDom {
         None
     }
 
-    /// Return the last child of `parent` that is an element (has a
-    /// [`TagType`] component).
+    /// Return the last child of `parent` that is an element.
     #[must_use]
     pub fn last_element_child(&self, parent: Entity) -> Option<Entity> {
         let mut child = self.get_last_child(parent);
         while let Some(c) = child {
-            if self.world.get::<&TagType>(c).is_ok() {
+            if self.is_element(c) {
                 return Some(c);
             }
             child = self.get_prev_sibling(c);
@@ -581,7 +582,7 @@ impl EcsDom {
     pub fn next_element_sibling(&self, entity: Entity) -> Option<Entity> {
         let mut current = self.get_next_sibling(entity);
         while let Some(sib) = current {
-            if self.world.get::<&TagType>(sib).is_ok() {
+            if self.is_element(sib) {
                 return Some(sib);
             }
             current = self.get_next_sibling(sib);
@@ -594,7 +595,7 @@ impl EcsDom {
     pub fn prev_element_sibling(&self, entity: Entity) -> Option<Entity> {
         let mut current = self.get_prev_sibling(entity);
         while let Some(sib) = current {
-            if self.world.get::<&TagType>(sib).is_ok() {
+            if self.is_element(sib) {
                 return Some(sib);
             }
             current = self.get_prev_sibling(sib);

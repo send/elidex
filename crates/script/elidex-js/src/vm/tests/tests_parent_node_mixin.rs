@@ -1,6 +1,10 @@
-//! ParentNode mixin tests (WHATWG DOM §5.2.4). `prepend` /
-//! `append` / `replaceChildren` installed on Element.prototype and
-//! on the document wrapper.
+//! ParentNode mixin tests (WHATWG DOM §4.2.6).  Mutation methods
+//! (`prepend` / `append` / `replaceChildren`) and read surface
+//! (`children` / `firstElementChild` / `lastElementChild` /
+//! `childElementCount` / `querySelector` / `querySelectorAll`)
+//! installed on Element.prototype + DocumentFragment.prototype +
+//! the Document wrapper.  ShadowRoot inherits via the
+//! DocumentFragment.prototype chain.
 
 #![cfg(feature = "engine")]
 
@@ -408,5 +412,227 @@ fn document_replace_children_single_element_replaces() {
         .unwrap();
     assert_eq!(eval_num(&mut vm, "document.childNodes.length;"), 1.0);
     assert_eq!(eval_str(&mut vm, "document.childNodes[0].tagName;"), "ROOT");
+    vm.unbind();
+}
+
+// ---------------------------------------------------------------------------
+// Reader surface — DocumentFragment.prototype (covers
+// `createDocumentFragment()` + `<template>.content` + ShadowRoot
+// via the inherited chain).
+// ---------------------------------------------------------------------------
+
+fn seed_fragment_with_mixed_children(vm: &mut Vm) {
+    vm.eval(
+        "globalThis.f = document.createDocumentFragment();\n\
+         f.appendChild(document.createTextNode('lead'));\n\
+         globalThis.a = document.createElement('a');\n\
+         a.id = 'first';\n\
+         f.appendChild(a);\n\
+         f.appendChild(document.createTextNode('mid'));\n\
+         globalThis.b = document.createElement('b');\n\
+         b.className = 'pick';\n\
+         f.appendChild(b);\n\
+         f.appendChild(document.createTextNode('tail'));",
+    )
+    .unwrap();
+}
+
+#[test]
+fn fragment_first_element_child_skips_leading_text() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    seed_fragment_with_mixed_children(&mut vm);
+    assert_eq!(eval_str(&mut vm, "f.firstElementChild.tagName;"), "A");
+    vm.unbind();
+}
+
+#[test]
+fn fragment_last_element_child_skips_trailing_text() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    seed_fragment_with_mixed_children(&mut vm);
+    assert_eq!(eval_str(&mut vm, "f.lastElementChild.tagName;"), "B");
+    vm.unbind();
+}
+
+#[test]
+fn fragment_children_returns_live_collection_excluding_text() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    seed_fragment_with_mixed_children(&mut vm);
+    assert_eq!(eval_num(&mut vm, "f.children.length;"), 2.0);
+    assert_eq!(eval_str(&mut vm, "f.children[0].tagName;"), "A");
+    // Live semantics: appending a third element bumps the count
+    // observed via a fresh `f.children` access.
+    vm.eval("f.appendChild(document.createElement('c'));")
+        .unwrap();
+    assert_eq!(eval_num(&mut vm, "f.children.length;"), 3.0);
+    vm.unbind();
+}
+
+#[test]
+fn fragment_child_element_count_matches_children_length() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    seed_fragment_with_mixed_children(&mut vm);
+    assert_eq!(eval_num(&mut vm, "f.childElementCount;"), 2.0);
+    assert_eq!(
+        eval_str(
+            &mut vm,
+            "(f.childElementCount === f.children.length) ? 'eq' : 'neq';",
+        ),
+        "eq",
+    );
+    vm.unbind();
+}
+
+#[test]
+fn fragment_query_selector_finds_descendant() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    seed_fragment_with_mixed_children(&mut vm);
+    assert_eq!(eval_str(&mut vm, "f.querySelector('#first').tagName;"), "A");
+    assert_eq!(eval_str(&mut vm, "f.querySelector('.pick').tagName;"), "B");
+    assert_eq!(
+        eval_str(
+            &mut vm,
+            "(f.querySelector('.missing') === null) ? 'null' : 'not-null';",
+        ),
+        "null",
+    );
+    vm.unbind();
+}
+
+#[test]
+fn fragment_query_selector_all_returns_static_snapshot() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    seed_fragment_with_mixed_children(&mut vm);
+    vm.eval("globalThis.snap = f.querySelectorAll('a, b');")
+        .unwrap();
+    assert_eq!(eval_num(&mut vm, "snap.length;"), 2.0);
+    // Static: a subsequent append does NOT affect the captured snapshot.
+    vm.eval("f.appendChild(document.createElement('a'));")
+        .unwrap();
+    assert_eq!(eval_num(&mut vm, "snap.length;"), 2.0);
+    assert_eq!(eval_num(&mut vm, "f.querySelectorAll('a').length;"), 2.0);
+    vm.unbind();
+}
+
+#[test]
+fn template_content_query_selector_finds_descendant() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    // `<template>.content` is a DocumentFragment per HTML §4.12.3, so
+    // the ParentNode reader surface installed on
+    // DocumentFragment.prototype must reach it.
+    vm.eval(
+        "globalThis.t = document.createElement('template');\n\
+         t.content.appendChild(document.createElement('p'));",
+    )
+    .unwrap();
+    assert_eq!(
+        eval_str(&mut vm, "t.content.querySelector('p').tagName;"),
+        "P"
+    );
+    assert_eq!(eval_num(&mut vm, "t.content.childElementCount;"), 1.0);
+    vm.unbind();
+}
+
+// ---------------------------------------------------------------------------
+// Reader surface — Document wrapper (per-bind install via
+// `DOCUMENT_RO_ACCESSORS`).
+// ---------------------------------------------------------------------------
+
+fn setup_with_html_root() -> (Vm, SessionCore, EcsDom, elidex_ecs::Entity) {
+    let vm = Vm::new();
+    let session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let html = dom.create_element("html", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(doc, html));
+    (vm, session, dom, doc)
+}
+
+#[test]
+fn document_first_element_child_is_document_element() {
+    let (mut vm, mut session, mut dom, doc) = setup_with_html_root();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    assert_eq!(
+        eval_str(
+            &mut vm,
+            "(document.firstElementChild === document.documentElement) ? 'eq' : 'neq';",
+        ),
+        "eq",
+    );
+    vm.unbind();
+}
+
+#[test]
+fn document_children_contains_only_document_element() {
+    let (mut vm, mut session, mut dom, doc) = setup_with_html_root();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    assert_eq!(eval_num(&mut vm, "document.children.length;"), 1.0);
+    assert_eq!(eval_num(&mut vm, "document.childElementCount;"), 1.0);
+    assert_eq!(
+        eval_str(
+            &mut vm,
+            "(document.children[0] === document.documentElement) ? 'eq' : 'neq';",
+        ),
+        "eq",
+    );
+    vm.unbind();
+}
+
+// ---------------------------------------------------------------------------
+// Reader surface — ShadowRoot (implicit win via the ShadowRoot →
+// DocumentFragment.prototype chain).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn shadow_root_reader_mixin_reaches_via_document_fragment_chain() {
+    let (mut vm, mut session, mut dom, doc) = setup();
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval(
+        "globalThis.host = document.createElement('div');\n\
+         globalThis.sr = host.attachShadow({mode: 'open'});\n\
+         sr.appendChild(document.createTextNode('lead'));\n\
+         sr.appendChild(document.createElement('span'));\n\
+         sr.appendChild(document.createElement('em'));",
+    )
+    .unwrap();
+    assert_eq!(eval_num(&mut vm, "sr.children.length;"), 2.0);
+    assert_eq!(eval_str(&mut vm, "sr.firstElementChild.tagName;"), "SPAN");
+    assert_eq!(eval_str(&mut vm, "sr.querySelector('em').tagName;"), "EM");
     vm.unbind();
 }

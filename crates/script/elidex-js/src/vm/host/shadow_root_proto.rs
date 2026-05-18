@@ -11,13 +11,13 @@
 //! - `clonable` — boolean, defaults `false`.
 //! - `serializable` — boolean, defaults `false`.
 //!
-//! Inherits `DocumentFragment.prototype`, which currently carries the
-//! ParentNode-mixin **mutation methods** (`prepend` / `append` /
-//! `replaceChildren`); so `shadow.append(...)` etc. work without
-//! per-method install here.  Selector / children accessors
-//! (`querySelector`, `firstElementChild`, `children`, …) live on
-//! `Element.prototype` only and are NOT yet exposed through this
-//! chain — tracked by defer slot `#11-shadow-parent-node-accessors`.
+//! Inherits `DocumentFragment.prototype`, which carries the full
+//! ParentNode mixin — mutation (`prepend` / `append` /
+//! `replaceChildren`) and the read surface (`children` /
+//! `firstElementChild` / `lastElementChild` / `childElementCount` /
+//! `querySelector` / `querySelectorAll`).  So `shadow.append(...)`
+//! and `shadow.querySelector(...)` etc. work without per-method
+//! install here.
 //!
 //! ## Backing state
 //!

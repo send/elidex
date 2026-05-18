@@ -1,12 +1,14 @@
 //! `DocumentFragment.prototype` intrinsic (WHATWG DOM §4.7).
 //!
-//! Inherits `Node.prototype` and carries the ParentNode-mixin
-//! **mutation methods** (`prepend` / `append` / `replaceChildren`)
-//! via [`super::super::VmInner::install_parent_node_mixin`].
-//! Selector / children accessors (`querySelector`, `querySelectorAll`,
-//! `children`, `firstElementChild`, `lastElementChild`, etc.) live
-//! on `Element.prototype` only and are NOT exposed through this
-//! chain yet — defer slot `#11-shadow-parent-node-accessors`.
+//! Inherits `Node.prototype` and carries the full ParentNode mixin
+//! (WHATWG §4.2.6) — mutation methods (`prepend` / `append` /
+//! `replaceChildren`) via
+//! [`super::super::VmInner::install_parent_node_mixin`] and the read
+//! surface (`children` / `firstElementChild` / `lastElementChild` /
+//! `childElementCount` / `querySelector` / `querySelectorAll`) via
+//! [`super::super::VmInner::install_parent_node_readers`].  Both
+//! installs are shared with `Element.prototype` and the Document
+//! wrapper.
 //!
 //! Used by:
 //! - `document.createDocumentFragment()` wrappers
@@ -27,17 +29,10 @@ use super::super::value::{Object, ObjectKind, PropertyStorage};
 use super::super::VmInner;
 
 impl VmInner {
-    /// Allocate `DocumentFragment.prototype` with `Node.prototype` as
-    /// parent and install only the ParentNode-mixin **mutation
-    /// methods** (`prepend` / `append` / `replaceChildren`).
-    /// Selector / children accessors (`querySelector`, `children`,
-    /// `firstElementChild`, …) are NOT installed here — they live
-    /// on `Element.prototype` only and reaching them through this
-    /// chain is tracked by defer slot
-    /// `#11-shadow-parent-node-accessors`.  Must run after
-    /// `register_node_prototype` and before any prototype that
-    /// inherits from DocumentFragment.prototype
-    /// (e.g. `register_shadow_root_prototype`).
+    /// Allocate `DocumentFragment.prototype` with `Node.prototype`
+    /// parent + install the ParentNode mixin (mutation + read).
+    /// Must run after `register_node_prototype` and before any
+    /// inheritor (`register_shadow_root_prototype`).
     pub(in crate::vm) fn register_document_fragment_prototype(&mut self) {
         let node_proto = self
             .node_prototype
@@ -50,10 +45,7 @@ impl VmInner {
         });
         self.document_fragment_prototype = Some(proto_id);
 
-        // Install the ParentNode mixin (prepend / append /
-        // replaceChildren).  The mixin natives already brand-check
-        // `NodeKind::DocumentFragment` via `is_parent_node_kind`,
-        // so the install is safe to reuse here.
         self.install_parent_node_mixin(proto_id);
+        self.install_parent_node_readers(proto_id);
     }
 }

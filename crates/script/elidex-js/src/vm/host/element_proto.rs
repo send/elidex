@@ -1,10 +1,14 @@
 //! `Element.prototype` intrinsic (WHATWG DOM §4.9).
 //!
-//! Holds **Element-only** members — element-scoped tree navigation
-//! (`firstElementChild`, `children`, `childElementCount`, …),
-//! attribute manipulation (`getAttribute`, `setAttribute`, …),
-//! selector helpers (`matches`, `closest`), `tagName` / `id` /
-//! `className`, and the `ChildNode` mixin method `remove()`.
+//! Holds **Element-only** members — sibling tree navigation
+//! (`nextElementSibling`, `previousElementSibling`), attribute
+//! manipulation (`getAttribute`, `setAttribute`, …), selector
+//! helpers (`matches`, `closest`), `tagName` / `id` / `className`,
+//! and the `ChildNode` mixin method `remove()`.  The ParentNode
+//! mixin's read surface (`children`, `firstElementChild`,
+//! `querySelector`, …) is installed via
+//! [`super::parentnode::VmInner::install_parent_node_readers`] and so
+//! reaches Element / DocumentFragment / ShadowRoot uniformly.
 //!
 //! Node-common members — `parentNode`, `parentElement`,
 //! `firstChild`, `nodeType`, `textContent`, `appendChild`,
@@ -45,8 +49,8 @@ use super::super::value::{
 };
 use super::super::{NativeFn, VmInner};
 use super::dom_bridge::{
-    coerce_first_arg_to_string, coerce_first_arg_to_string_id, invoke_dom_api,
-    query_selector_all_snapshot, tree_nav_getter, wrap_entities_as_array,
+    coerce_first_arg_to_string, coerce_first_arg_to_string_id, invoke_dom_api, tree_nav_getter,
+    wrap_entities_as_array,
 };
 use super::element_attrs::{
     native_element_get_attribute, native_element_get_attribute_names,
@@ -57,9 +61,8 @@ use super::element_attrs::{
     native_element_set_attribute_node, native_element_set_class_name, native_element_set_id,
     native_element_toggle_attribute,
 };
-use super::event_target::entity_from_this;
 
-use elidex_ecs::{NodeKind, TagType};
+use elidex_ecs::NodeKind;
 
 impl VmInner {
     /// Allocate `Element.prototype` whose parent is
@@ -93,12 +96,17 @@ impl VmInner {
         // `register_character_data_prototype`, matching WHATWG's
         // mixin-on-multiple-interfaces pattern.
         self.install_child_node_mixin(proto_id);
-        // ParentNode mixin (WHATWG §5.2.4) — `prepend` / `append` /
-        // `replaceChildren`.  The document wrapper gets its own copy
-        // patched per-bind in `install_document_methods_if_needed`.
-        // DocumentFragment wrappers currently chain via Node.prototype
-        // and so do not see these members yet.
+        // ParentNode mixin (WHATWG §4.2.6) — mutation (`prepend` /
+        // `append` / `replaceChildren`) + read surface (`children` /
+        // `firstElementChild` / `lastElementChild` /
+        // `childElementCount` / `querySelector` / `querySelectorAll`).
+        // Same install fns also run on `DocumentFragment.prototype`
+        // (ShadowRoot inherits via that chain).  The Document wrapper
+        // routes the same native bodies via `DOCUMENT_RO_ACCESSORS` +
+        // `DOCUMENT_METHODS` per-bind rather than calling
+        // `install_parent_node_readers` (Document has no shared proto).
         self.install_parent_node_mixin(proto_id);
+        self.install_parent_node_readers(proto_id);
         self.install_element_matches(proto_id);
         self.install_element_shadow_dom(proto_id);
         self.install_element_inner_html(proto_id);
@@ -160,33 +168,23 @@ impl VmInner {
         );
     }
 
-    /// Install Element-only tree-navigation accessors from the
-    /// ParentNode / NonDocumentTypeChildNode mixins defined on
-    /// `Element.prototype` (WHATWG DOM §4.4 / §4.9).  Node-level
-    /// accessors (`parentNode`, `parentElement`, `firstChild`,
-    /// `childNodes`, …) live on `Node.prototype`.
+    /// Install Element-only sibling accessors from the
+    /// NonDocumentTypeChildNode mixin (WHATWG DOM §4.4).  The four
+    /// ParentNode-mixin reader accessors (`firstElementChild`,
+    /// `lastElementChild`, `children`, `childElementCount`) install
+    /// via [`Self::install_parent_node_readers`] from the shared
+    /// [`super::parentnode`] module.  Node-level accessors
+    /// (`parentNode`, `parentElement`, `firstChild`, `childNodes`, …)
+    /// live on `Node.prototype`.
     fn install_element_tree_nav(&mut self, proto_id: ObjectId) {
         for (name_sid, getter) in [
             (
-                self.well_known.first_element_child,
-                native_element_get_first_element_child as NativeFn,
-            ),
-            (
-                self.well_known.last_element_child,
-                native_element_get_last_element_child,
-            ),
-            (
                 self.well_known.next_element_sibling,
-                native_element_get_next_element_sibling,
+                native_element_get_next_element_sibling as NativeFn,
             ),
             (
                 self.well_known.previous_element_sibling,
                 native_element_get_previous_element_sibling,
-            ),
-            (self.well_known.children, native_element_get_children),
-            (
-                self.well_known.child_element_count,
-                native_element_get_child_element_count,
             ),
         ] {
             self.install_accessor_pair(
@@ -299,23 +297,15 @@ impl VmInner {
     }
 
     /// Install `matches(selector)` / `closest(selector)` +
-    /// `querySelector(selector)` / `querySelectorAll(selector)` +
-    /// `insertAdjacentElement` / `insertAdjacentText` on
-    /// `proto_id`.  The querySelector family is subtree-scoped
-    /// (WHATWG §4.2.6) — `this` itself is not a match candidate,
-    /// only its light-tree descendants.
+    /// `insertAdjacentElement` / `insertAdjacentText` +
+    /// `getElementsByTagName` / `getElementsByClassName` on
+    /// `proto_id`.  The ParentNode-mixin selector pair
+    /// (`querySelector` / `querySelectorAll`) installs via
+    /// [`Self::install_parent_node_readers`].
     fn install_element_matches(&mut self, proto_id: ObjectId) {
         for (name_sid, func) in [
             (self.well_known.matches, native_element_matches as NativeFn),
             (self.well_known.closest, native_element_closest),
-            (
-                self.well_known.query_selector,
-                native_element_query_selector,
-            ),
-            (
-                self.well_known.query_selector_all,
-                native_element_query_selector_all,
-            ),
             (
                 self.well_known.insert_adjacent_element,
                 super::element_insert_adjacent::native_element_insert_adjacent_element,
@@ -342,22 +332,6 @@ impl VmInner {
 // Natives: tree-navigation accessors
 // ---------------------------------------------------------------------------
 
-fn native_element_get_first_element_child(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    tree_nav_getter(ctx, this, elidex_ecs::EcsDom::first_element_child)
-}
-
-fn native_element_get_last_element_child(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    tree_nav_getter(ctx, this, elidex_ecs::EcsDom::last_element_child)
-}
-
 fn native_element_get_next_element_sibling(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -372,44 +346,6 @@ fn native_element_get_previous_element_sibling(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     tree_nav_getter(ctx, this, elidex_ecs::EcsDom::prev_element_sibling)
-}
-
-fn native_element_get_children(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
-        return Ok(JsValue::Null);
-    };
-    // `element.children` is a live `HTMLCollection` — every access
-    // re-traverses the parent's children to include concurrent
-    // mutations (WHATWG §4.2.10).
-    let id = ctx.vm.alloc_collection(elidex_dom_api::LiveCollection::new(
-        entity,
-        elidex_dom_api::CollectionFilter::ElementChildren,
-        elidex_dom_api::CollectionKind::HtmlCollection,
-    ));
-    Ok(JsValue::Object(id))
-}
-
-fn native_element_get_child_element_count(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
-        return Ok(JsValue::Number(0.0));
-    };
-    let dom = ctx.host().dom();
-    let count = dom
-        .children_iter(entity)
-        .filter(|c| dom.world().get::<&TagType>(*c).is_ok())
-        .count();
-    #[allow(clippy::cast_precision_loss)]
-    // child counts in practice fit in u32, well within f64 mantissa
-    let count_f = count as f64;
-    Ok(JsValue::Number(count_f))
 }
 
 // ---------------------------------------------------------------------------
@@ -430,53 +366,6 @@ fn native_element_matches(
     };
     let target_sid = coerce_first_arg_to_string_id(ctx, args)?;
     invoke_dom_api(ctx, "matches", entity, &[JsValue::String(target_sid)])
-}
-
-/// `Element.prototype.querySelector(selector)` (WHATWG §4.2.6).
-/// Subtree-scoped — `this` itself is never a match candidate, only
-/// its descendants.  The `QuerySelector` handler in `elidex-dom-api`
-/// runs the same DFS regardless of whether the receiver is a
-/// Document or an Element.
-fn native_element_query_selector(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) =
-        super::event_target::require_receiver(ctx, this, "Element", "querySelector", |k| {
-            k == NodeKind::Element
-        })?
-    else {
-        return Ok(JsValue::Null);
-    };
-    let target_sid = coerce_first_arg_to_string_id(ctx, args)?;
-    invoke_dom_api(ctx, "querySelector", entity, &[JsValue::String(target_sid)])
-}
-
-/// `Element.prototype.querySelectorAll(selector)` — subtree-scoped.
-///
-/// WHATWG §4.2.6: returns a **static** NodeList.  The selector is
-/// evaluated once, the matching entities are captured in a
-/// `Snapshot` kind, and subsequent reads serve from that frozen
-/// list.  Live collection kinds (ByTag / ByClass) are reserved for
-/// `getElementsBy*` and `element.children`.
-///
-/// Uses the engine-independent `elidex_dom_api::query_selector_all`
-/// free function (handler architecture cannot return `Vec<Entity>`).
-fn native_element_query_selector_all(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let Some(entity) =
-        super::event_target::require_receiver(ctx, this, "Element", "querySelectorAll", |k| {
-            k == NodeKind::Element
-        })?
-    else {
-        return Ok(JsValue::Null);
-    };
-    let selector_str = coerce_first_arg_to_string(ctx, args)?;
-    query_selector_all_snapshot(ctx, entity, &selector_str)
 }
 
 fn native_element_closest(
