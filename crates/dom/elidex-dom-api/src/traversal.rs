@@ -770,7 +770,7 @@ pub fn step_with_filter_previous_node<F: FilterAction>(
 /// Applies `pointer_before` discipline + filter, mutating
 /// `state.reference` / `state.pointer_before` per spec.
 pub fn step_with_filter_node_iterator_next<F: FilterAction>(
-    state: &mut crate::mutation_bridge::NodeIteratorState,
+    state: &mut NodeIteratorState,
     dom: &EcsDom,
     filter: &mut F,
 ) -> Result<Option<Entity>, FilterError> {
@@ -780,7 +780,7 @@ pub fn step_with_filter_node_iterator_next<F: FilterAction>(
 /// Mirror of [`step_with_filter_node_iterator_next`] in the reverse
 /// direction.
 pub fn step_with_filter_node_iterator_previous<F: FilterAction>(
-    state: &mut crate::mutation_bridge::NodeIteratorState,
+    state: &mut NodeIteratorState,
     dom: &EcsDom,
     filter: &mut F,
 ) -> Result<Option<Entity>, FilterError> {
@@ -788,7 +788,7 @@ pub fn step_with_filter_node_iterator_previous<F: FilterAction>(
 }
 
 fn traverse_node_iterator_filtered<F: FilterAction>(
-    state: &mut crate::mutation_bridge::NodeIteratorState,
+    state: &mut NodeIteratorState,
     dom: &EcsDom,
     filter: &mut F,
     next: bool,
@@ -875,7 +875,7 @@ fn traverse_node_iterator_filtered<F: FilterAction>(
 /// only handle on the removed subtree at fire time.
 ///
 pub fn adjust_node_iterator_for_removal(
-    state: &mut crate::mutation_bridge::NodeIteratorState,
+    state: &mut NodeIteratorState,
     removed: Entity,
     parent: Entity,
     removed_index: usize,
@@ -937,7 +937,7 @@ pub fn adjust_node_iterator_for_removal(
         dom.children_iter(parent).nth(removed_index - 1)
     };
 
-    let try_follower = |state: &mut crate::mutation_bridge::NodeIteratorState| -> bool {
+    let try_follower = |state: &mut NodeIteratorState| -> bool {
         let Some(seed) = follower_seed else {
             return false;
         };
@@ -952,7 +952,7 @@ pub fn adjust_node_iterator_for_removal(
         }
         false
     };
-    let try_preceding = |state: &mut crate::mutation_bridge::NodeIteratorState| -> bool {
+    let try_preceding = |state: &mut NodeIteratorState| -> bool {
         let Some(seed) = preceding_seed else {
             return false;
         };
@@ -1122,6 +1122,94 @@ impl NodeIterator {
             self.reference_node = node;
             if accepts(node, self.what_to_show, dom) {
                 return Some(node);
+            }
+        }
+    }
+}
+
+// ===========================================================================
+// NodeIterator state + dispatcher-side adjuster
+// ===========================================================================
+
+/// Per-iterator state for `NodeIterator` (WHATWG DOM §6.1).
+///
+/// Held in `HostData::node_iterator_states_shared`'s
+/// `Arc<Mutex<HashMap<u64, NodeIteratorState>>>`, shared with
+/// [`NodeIteratorAdjuster`] so the dispatch-fire path can apply
+/// WHATWG DOM §6.1 "pre-removing steps" synchronously.
+///
+/// `filter_object_id` is an **opaque** `Option<u64>` carrying the
+/// VM-side `ObjectId` bits.  This crate is engine-indep and must
+/// NOT depend on `vm/object_kind.rs::ObjectId`; the VM-side filter
+/// dispatch (`vm/host/node_filter_dispatch.rs`) converts back via
+/// `ObjectId::from_bits(filter)` at access time.
+#[derive(Debug, Clone)]
+pub struct NodeIteratorState {
+    /// `root` per spec §6.1 — never mutates after construction.
+    pub root: elidex_ecs::Entity,
+    /// `whatToShow` bitmask per spec §6.3.
+    pub what_to_show: u32,
+    /// VM-side filter callback `ObjectId` bits, or `None` for
+    /// "no filter" (every node ACCEPTed).
+    pub filter_object_id: Option<u64>,
+    /// `referenceNode` per spec §6.1 — adjusted by pre-removing
+    /// steps when its tree position is invalidated.
+    pub reference: elidex_ecs::Entity,
+    /// `pointerBeforeReferenceNode` per spec §6.1.
+    pub pointer_before: bool,
+    /// Active-flag for filter re-entrancy detection (spec §6.3
+    /// step 2 — throw `InvalidStateError` if a filter callback
+    /// re-enters the iterator).
+    pub active: bool,
+}
+
+/// `MutationEvent::Remove`-handling adjuster for NodeIterator
+/// pre-removing-steps (WHATWG DOM §6.1).
+///
+/// Holds the shared `Arc<Mutex<HashMap<u64, NodeIteratorState>>>`
+/// (cloned from `HostData::node_iterator_states_shared` at
+/// `Vm::bind` time).  Composed by [`crate::ConsumerDispatcher`] as
+/// one of its typed fields.
+#[derive(Default)]
+pub struct NodeIteratorAdjuster {
+    node_iterators:
+        std::sync::Arc<std::sync::Mutex<std::collections::HashMap<u64, NodeIteratorState>>>,
+}
+
+impl NodeIteratorAdjuster {
+    #[must_use]
+    pub fn new(
+        node_iterators: std::sync::Arc<
+            std::sync::Mutex<std::collections::HashMap<u64, NodeIteratorState>>,
+        >,
+    ) -> Self {
+        Self { node_iterators }
+    }
+
+    /// Single-method dispatch entry invoked by
+    /// [`crate::ConsumerDispatcher`].  Only [`elidex_ecs::MutationEvent::Remove`]
+    /// is relevant; other variants are ignored.
+    pub fn handle(&mut self, event: &elidex_ecs::MutationEvent<'_>, dom: &mut elidex_ecs::EcsDom) {
+        if let elidex_ecs::MutationEvent::Remove {
+            node,
+            parent,
+            removed_index,
+            descendants,
+        } = *event
+        {
+            let mut iterators = self
+                .node_iterators
+                .lock()
+                .expect("NodeIterator state mutex poisoned");
+            for state in iterators.values_mut() {
+                adjust_node_iterator_for_removal(
+                    state,
+                    node,
+                    parent,
+                    removed_index,
+                    descendants,
+                    dom,
+                );
             }
         }
     }

@@ -3,7 +3,7 @@
 use crate::components::{Attributes, ShadowRoot, TagType, TreeRelation};
 use hecs::Entity;
 
-use super::mutation_hook::MutationHook;
+use super::mutation_event::MutationEvent;
 use super::{EcsDom, MAX_ANCESTOR_DEPTH};
 
 impl EcsDom {
@@ -177,13 +177,13 @@ impl EcsDom {
     /// the shadow root's `ShadowRoot` component is removed. This prevents
     /// stale cross-references after destruction.
     ///
-    /// # Mutation hook contract
+    /// # Mutation dispatch contract
     ///
-    /// Fires [`MutationHook::after_remove`](super::MutationHook::after_remove)
+    /// Fires [`MutationEvent::Remove`](super::MutationEvent::Remove)
     /// exactly once if `entity` has a parent AND `entity` is not itself a
     /// shadow root, with the pre-removal index in the parent's child
     /// list. Descendant entities orphaned by the destroy do NOT receive
-    /// individual `after_remove` calls — this is a "hard delete" with no
+    /// individual `Remove` events — this is a "hard delete" with no
     /// per-descendant notification.
     ///
     /// Consumers (e.g. `LiveRangeRegistry`) MUST tolerate dangling boundary
@@ -365,14 +365,14 @@ impl EcsDom {
     /// Shadow-root siblings are **skipped** so the count matches the
     /// indices yielded by [`Self::children_iter`] / [`Self::children`],
     /// which excludes [`ShadowRoot`] entities from the exposed child
-    /// list. Used by [`MutationHook`](super::MutationHook) fire sites to
-    /// capture the pre-mutation index without paying the O(n²) cost of
-    /// `children_iter(parent).count()`.
+    /// list. Used by [`MutationEvent`](super::MutationEvent) fire sites
+    /// to capture the pre-mutation index without paying the O(n²) cost
+    /// of `children_iter(parent).count()`.
     ///
-    /// `None` on depth-cap is intentional: hook consumers (e.g. Range
-    /// live-tracking) depend on the returned index for correctness, so
-    /// signalling corruption is safer than handing them a truncated
-    /// count.
+    /// `None` on depth-cap is intentional: dispatcher consumers (e.g.
+    /// Range live-tracking) depend on the returned index for
+    /// correctness, so signalling corruption is safer than handing them
+    /// a truncated count.
     #[must_use]
     pub fn index_in_parent(&self, entity: Entity) -> Option<usize> {
         self.get_parent(entity)?;
@@ -397,17 +397,16 @@ impl EcsDom {
 
     /// Returns `true` if `entity` carries a [`ShadowRoot`] component.
     /// Shadow roots are internal to the engine and not exposed as
-    /// light-tree children; [`MutationHook`](super::MutationHook) fire
-    /// sites suppress events whose subject is a shadow root.
+    /// light-tree children; [`MutationEvent`](super::MutationEvent)
+    /// fire sites suppress events whose subject is a shadow root.
     pub(super) fn is_shadow_root(&self, entity: Entity) -> bool {
         self.world.get::<&ShadowRoot>(entity).is_ok()
     }
 
-    /// Centralized `after_insert` fire site for tree mutations.
+    /// Centralized `MutationEvent::Insert` fire site for tree mutations.
     ///
-    /// Per the light-tree-only contract of
-    /// [`MutationHook`](super::MutationHook), the callback is suppressed
-    /// when **either** `node` or `parent` is itself a shadow root —
+    /// Per the light-tree-only contract, the event is suppressed when
+    /// **either** `node` or `parent` is itself a shadow root —
     /// shadow roots are internal to the engine and shadow-tree
     /// mutations under the root must not surface to light-tree
     /// consumers (e.g. Range live-tracking). Deeper mutations within
@@ -418,85 +417,45 @@ impl EcsDom {
         if self.is_shadow_root(node) || self.is_shadow_root(parent) {
             return;
         }
-        if let Some(hook) = self.mutation_hook.as_mut() {
-            hook.after_insert(node, parent, index);
-        }
+        let event = MutationEvent::Insert {
+            node,
+            parent,
+            index,
+        };
+        self.dispatch_event(&event);
     }
 
-    /// Centralized `after_remove` fire site for tree mutations.
+    /// Centralized `MutationEvent::Remove` fire site for tree mutations.
     /// Suppression rules match [`Self::fire_after_insert`].
-    fn fire_after_remove(&mut self, node: Entity, parent: Entity, index: usize) {
+    fn fire_after_remove(&mut self, node: Entity, parent: Entity, removed_index: usize) {
         if self.is_shadow_root(node) || self.is_shadow_root(parent) {
             return;
         }
         // PR186 R2 #3: snapshot the light-tree inclusive-descendant
         // set BEFORE the caller orphans children / despawns the
         // subtree (the `destroy_entity` path clears descendant parent
-        // links after this fire). The hook consumer (e.g.
-        // `LiveRangeBridge` / `MutationBridge`) uses this snapshot
-        // to collapse Range boundaries on any inclusive descendant
-        // per WHATWG §5.5 remove step 4 — `is_ancestor_or_self`
-        // walking up from the boundary container would miss orphaned
-        // descendants whose parent link is about to be cleared.
+        // links after this fire). The dispatcher consumer uses this
+        // snapshot to collapse Range boundaries on any inclusive
+        // descendant per WHATWG DOM §4.2.3 remove algorithm —
+        // `is_ancestor_or_self` walking up from the boundary container
+        // would miss orphaned descendants whose parent link is about
+        // to be cleared.
         let descendants = self.collect_inclusive_descendants(node);
-        // PR-A2 plan-v4 §A-NI-1: take-and-restore pattern so the
-        // hook callback receives `&EcsDom` (read-only DOM access for
-        // WHATWG §6.1 NodeIterator pre-removing-steps walk).  The
-        // straight `if let Some(hook) = self.mutation_hook.as_mut()`
-        // pattern mut-borrows `self.mutation_hook`, blocking any
-        // concurrent `&*self` — `take()` moves the hook out of
-        // `self`, frees the field, lets us pass `&*self` to the
-        // callback, then restores the hook on the post-call
-        // restore (with `Drop`-guard panic safety).
-        if self.mutation_hook.is_some() {
-            // SAFETY: `target_ptr` aliases `self.mutation_hook`
-            // exclusively because we have `&mut self` here and
-            // immediately move the hook out via `take()`.  No other
-            // borrow of `self.mutation_hook` is live for the
-            // duration of `guard` (the `&*self` borrow we hand to
-            // the callback specifically excludes the now-empty
-            // field).  `Drop` writes the hook back atomically on
-            // both normal return and panic-unwind.
-            struct RestoreHook {
-                target_ptr: *mut Option<Box<dyn MutationHook + Send + Sync>>,
-                pending: Option<Box<dyn MutationHook + Send + Sync>>,
-            }
-            impl Drop for RestoreHook {
-                fn drop(&mut self) {
-                    // SAFETY: target_ptr was &mut self.mutation_hook
-                    // at construction; we took the hook out before
-                    // forming the pointer, so the field is empty
-                    // and not aliased by any reference during the
-                    // hook callback.  Writing the pending value
-                    // back is a single field assignment.
-                    #[allow(unsafe_code)]
-                    unsafe {
-                        *self.target_ptr = self.pending.take();
-                    }
-                }
-            }
-            let target_ptr: *mut Option<Box<dyn MutationHook + Send + Sync>> =
-                &raw mut self.mutation_hook;
-            // Take the hook out of self.mutation_hook so the field
-            // is empty and `&*self` is unaliased.
-            let mut guard = RestoreHook {
-                target_ptr,
-                pending: self.mutation_hook.take(),
-            };
-            if let Some(hook) = guard.pending.as_mut() {
-                hook.after_remove_with_descendants(node, parent, index, &descendants, &*self);
-            }
-            // guard drops here -> restores self.mutation_hook
-            drop(guard);
-        }
+        let event = MutationEvent::Remove {
+            node,
+            parent,
+            removed_index,
+            descendants: &descendants,
+        };
+        self.dispatch_event(&event);
     }
 
     /// Light-tree inclusive-descendant walker — collects `node` plus
     /// every descendant reachable via [`Self::children_iter`] (which
     /// suppresses shadow roots). Used by [`Self::fire_after_remove`]
-    /// to snapshot the subtree pre-orphan so `MutationHook` consumers
-    /// can apply boundary adjustments without depending on intact
-    /// parent links.
+    /// to snapshot the subtree pre-orphan so `MutationDispatcher`
+    /// consumers can apply boundary adjustments without depending on
+    /// intact parent links.
     fn collect_inclusive_descendants(&self, node: Entity) -> Vec<Entity> {
         let mut out = Vec::new();
         let mut stack = vec![node];
@@ -509,8 +468,10 @@ impl EcsDom {
         out
     }
 
-    /// Detach `child` from its current parent and fire `after_remove` on
-    /// the installed [`MutationHook`](super::MutationHook), if any.
+    /// Detach `child` from its current parent and fire
+    /// [`MutationEvent::Remove`](super::MutationEvent::Remove) on the
+    /// installed [`MutationDispatcher`](super::MutationDispatcher), if
+    /// any.
     ///
     /// Used by `append_child` / `insert_before` / `replace_child` to
     /// notify consumers of the **implicit** removal that happens when a
@@ -524,11 +485,11 @@ impl EcsDom {
     /// version-tracking call here is skipped to avoid a redundant
     /// ancestor-walk per same-parent move.
     ///
-    /// Per the light-tree-only contract of `MutationHook`, the
-    /// `after_remove` callback is suppressed when `child` is itself a
-    /// shadow root — shadow roots have a `TreeRelation.parent` set to
-    /// the host (via the internal `attach_shadow → append_child`
-    /// plumbing), but are not exposed as DOM children.
+    /// Per the light-tree-only contract of `MutationDispatcher`, the
+    /// `Remove` event is suppressed when `child` is itself a shadow
+    /// root — shadow roots have a `TreeRelation.parent` set to the host
+    /// (via the internal `attach_shadow → append_child` plumbing), but
+    /// are not exposed as DOM children.
     fn detach_with_hook(&mut self, child: Entity, new_parent: Entity) -> bool {
         let Some(old_parent) = self.get_parent(child) else {
             return false;

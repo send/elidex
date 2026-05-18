@@ -406,7 +406,7 @@ fn native_attr_set_value(
         // Re-borrow `ctx.host_if_bound()` since we need a fresh
         // `&mut` after the shared-read above.
         if let Some(host) = ctx.host_if_bound() {
-            host.dom().set_attribute(owner, &name_str, new_value);
+            host.dom().set_attribute(owner, &name_str, &new_value);
         }
     }
     Ok(JsValue::Undefined)

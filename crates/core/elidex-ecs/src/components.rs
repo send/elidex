@@ -78,6 +78,30 @@ impl Attributes {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Base URL state (HTML §2.4.3 + §4.2.3)
+// ---------------------------------------------------------------------------
+
+/// Frozen base URL per WHATWG HTML §4.2.3 — set on each `<base>`
+/// element at mutation time.
+///
+/// Absent (component not attached) when the element has no `href`
+/// attribute. When the `href` attribute IS present, the component is
+/// ALWAYS attached — per HTML §4.2.3 step 3 "if any of the following
+/// are true" disjunction, the fallback case still SETS the frozen URL
+/// to fallback (the only absent case is "no href attribute").
+#[derive(Debug, Clone)]
+pub struct BaseFrozenUrl(pub url::Url);
+
+/// Derived document base URL — first `<base>`'s frozen URL OR the
+/// fallback URL when no qualifying `<base>` exists.
+///
+/// Always present on Document entities (eager populate at
+/// [`crate::EcsDom::create_document_root`]). Maintained by
+/// `elidex_dom_api::BaseUrlMaintainer`.
+#[derive(Debug, Clone)]
+pub struct DocumentBaseUrl(pub url::Url);
+
 /// Tree structure relationships linking entities into a DOM tree.
 ///
 /// Fields are `pub(crate)` to ensure tree mutations go through [`EcsDom`]

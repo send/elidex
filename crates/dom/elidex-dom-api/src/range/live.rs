@@ -1,6 +1,6 @@
 //! Live `Range` tracking (WHATWG DOM §5.5 "Live range updates").
 //!
-//! Wires the [`elidex_ecs::MutationHook`] callbacks fired from
+//! Wires the [`elidex_ecs::MutationDispatcher`] events fired from
 //! `EcsDom` tree / text-data primitives into the active set of JS-visible
 //! `Range` objects so their boundaries follow tree mutations per spec.
 //!
@@ -12,11 +12,13 @@
 //!   hash and the RangeId counter. JS-visible Range accessors route
 //!   through it. [`LiveRangeRegistry::finalize_pending`] runs a
 //!   dangling-collapse fallback pass on every read-path access for
-//!   the orphan-then-destroy corner case where no hook fires.
-//! - [`LiveRangeBridge`] (`EcsDom.mutation_hook` consumer) is a small struct
-//!   that implements [`elidex_ecs::MutationHook`] by forwarding all
-//!   six hook callbacks into the shared `ranges`
-//!   `Arc<Mutex<HashMap<RangeId, Range>>>` and applying boundary
+//!   the orphan-then-destroy corner case where no event fires.
+//! - [`LiveRangeBridge`] is a typed consumer invoked through its
+//!   `handle` method by [`crate::ConsumerDispatcher`] (which is the
+//!   actual [`elidex_ecs::MutationDispatcher`] impl).  The bridge
+//!   matches on each [`elidex_ecs::MutationEvent`] variant and
+//!   forwards into the shared `ranges`
+//!   `Arc<Mutex<HashMap<RangeId, Range>>>`, applying boundary
 //!   adjustments SYNCHRONOUSLY. The engine pre-snapshots inclusive
 //!   descendants before any `destroy_entity` orphaning (PR186 R2 #3)
 //!   so no deferred / queue-drain phase is needed.
@@ -28,9 +30,9 @@
 //! ## Lock invariant
 //!
 //! `ranges` is the only mutex shared between the registry and the
-//! bridge. Each hook callback (and each registry method) acquires
-//! the mutex once for the duration of its read or adjustment.
-//! There is no second lock to deadlock against.
+//! bridge. Each dispatch (and each registry method) acquires the
+//! mutex once for the duration of its read or adjustment. There is
+//! no second lock to deadlock against.
 //!
 //! ## Shallow light-tree contract (lesson #229, prereq #185)
 //!
@@ -39,7 +41,7 @@
 //! suppressed). `LiveRangeRegistry` trusts that filter and does NOT
 //! walk to the tree root on every event — doing so would defeat the
 //! cost model spelled out in the
-//! [`elidex_ecs::MutationHook`] trait doc. Range boundaries
+//! [`elidex_ecs::MutationDispatcher`] trait doc. Range boundaries
 //! placed on a node *inside* a shadow tree but reached via a normal
 //! element parent (not the ShadowRoot itself) are within the shallow
 //! filter's grey zone; the
@@ -54,7 +56,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use elidex_ecs::{EcsDom, Entity, MutationHook};
+use elidex_ecs::{EcsDom, Entity, MutationEvent};
 
 use super::{
     adjust_ranges_for_insertion, adjust_ranges_for_normalize_merge,
@@ -80,15 +82,15 @@ pub struct RangeId(pub u64);
 // LiveRangeBridge
 // ---------------------------------------------------------------------------
 
-/// `EcsDom.mutation_hook`-side adapter. Forwards [`MutationHook`]
-/// callbacks into the shared `Arc<Mutex<HashMap<RangeId, Range>>>`
+/// `EcsDom` dispatcher-side adapter. Forwards [`MutationEvent`]
+/// dispatches into the shared `Arc<Mutex<HashMap<RangeId, Range>>>`
 /// owned jointly with the HostData-side [`LiveRangeRegistry`].
 ///
 /// Constructed only via [`LiveRangeRegistry::new_pair`]; the pair-shape
 /// keeps the shared `ranges` handle bound at construction time so no
 /// callsite can mismatch-pair them.
 ///
-/// All hooks apply boundary adjustments SYNCHRONOUSLY (PR186 R2 #3):
+/// All dispatches apply boundary adjustments SYNCHRONOUSLY (PR186 R2 #3):
 /// the engine pre-snapshots inclusive descendants before any
 /// `destroy_entity` orphaning, so the consumer no longer needs to
 /// defer the descendant walk to a separate read-path drain phase. The
@@ -100,7 +102,65 @@ pub struct LiveRangeBridge {
     ranges: Arc<Mutex<HashMap<RangeId, Range>>>,
 }
 
-impl MutationHook for LiveRangeBridge {
+impl LiveRangeBridge {
+    /// Single-method dispatch entry point invoked by
+    /// [`crate::ConsumerDispatcher`].  Pattern-matches the
+    /// [`MutationEvent`] variant and forwards to the per-variant
+    /// helper below.  Variants not affecting Range live-tracking
+    /// (Insert handled by `after_insert`, AttributeChange ignored)
+    /// fall through the `_` arm.
+    pub fn handle(&mut self, event: &MutationEvent<'_>, dom: &mut EcsDom) {
+        match *event {
+            MutationEvent::Remove {
+                node,
+                parent,
+                removed_index,
+                descendants,
+            } => self.after_remove_with_descendants(node, parent, removed_index, descendants, dom),
+            MutationEvent::Insert {
+                node,
+                parent,
+                index,
+            } => self.after_insert(node, parent, index),
+            MutationEvent::TextChange {
+                node,
+                new_utf16_len,
+            } => {
+                self.after_text_change(node, new_utf16_len);
+            }
+            MutationEvent::ReplaceData {
+                node,
+                offset_utf16,
+                count_utf16,
+                new_data_len_utf16,
+            } => self.after_replace_data(node, offset_utf16, count_utf16, new_data_len_utf16),
+            MutationEvent::SplitText {
+                node,
+                new_node,
+                offset_utf16,
+                parent,
+                node_index,
+            } => self.after_split_text(node, new_node, offset_utf16, parent, node_index),
+            MutationEvent::NormalizeMerge {
+                merged_child,
+                prev,
+                prev_old_len_utf16,
+                parent,
+                merged_child_index,
+            } => self.after_normalize_merge(
+                merged_child,
+                prev,
+                prev_old_len_utf16,
+                parent,
+                merged_child_index,
+            ),
+            MutationEvent::AttributeChange { .. } => {
+                // Range live-tracking does not depend on attribute
+                // mutations — Range boundaries are tree-positional.
+            }
+        }
+    }
+
     fn after_remove_with_descendants(
         &mut self,
         _node: Entity,
@@ -260,16 +320,17 @@ impl MutationHook for LiveRangeBridge {
 // LiveRangeRegistry
 // ---------------------------------------------------------------------------
 
-/// HostData-side consumer of [`MutationHook`] events for Range
+/// HostData-side consumer of [`MutationEvent`] dispatches for Range
 /// live-tracking.
 ///
 /// Owns the Range hash + the RangeId monotonic counter, sharing the
-/// `ranges` `Arc<Mutex<>>` with the EcsDom-side [`LiveRangeBridge`]. Hook
-/// callbacks apply boundary adjustments synchronously (PR186 R2 #3
-/// fix: descendants snapshot eliminates the prior queue); the
-/// remaining read-path concern is the orphan-then-destroy case where
-/// no hook fires for an entity with no parent — [`Self::finalize_pending`]
-/// runs a dangling-collapse pass to catch those.
+/// `ranges` `Arc<Mutex<>>` with the EcsDom-side [`LiveRangeBridge`].
+/// Dispatch callbacks apply boundary adjustments synchronously
+/// (PR186 R2 #3 fix: descendants snapshot eliminates the prior queue);
+/// the remaining read-path concern is the orphan-then-destroy case
+/// where no event fires for an entity with no parent —
+/// [`Self::finalize_pending`] runs a dangling-collapse pass to catch
+/// those.
 pub struct LiveRangeRegistry {
     ranges: Arc<Mutex<HashMap<RangeId, Range>>>,
     next_id: u64,
@@ -278,7 +339,7 @@ pub struct LiveRangeRegistry {
 impl LiveRangeRegistry {
     /// Construct a paired registry + bridge sharing the `ranges`
     /// `Arc<Mutex<>>` handle. The bridge is intended for
-    /// [`EcsDom::set_mutation_hook`] at `Vm::bind` time.
+    /// [`EcsDom::set_mutation_dispatcher`] at `Vm::bind` time.
     #[must_use]
     pub fn new_pair() -> (Self, LiveRangeBridge) {
         let ranges = Arc::new(Mutex::new(HashMap::new()));
@@ -522,7 +583,9 @@ mod tests {
         // rule that would fire if the unclamped count=99 were passed.
         let mut dom = EcsDom::new();
         let (mut reg, bridge) = LiveRangeRegistry::new_pair();
-        dom.set_mutation_hook(Box::new(bridge));
+        dom.set_mutation_dispatcher(Box::new(crate::ConsumerDispatcher::for_range_only_test(
+            bridge,
+        )));
         let parent = elem(&mut dom, "p");
         let t = dom.create_text("hello");
         let _ = dom.append_child(parent, t);
@@ -802,7 +865,9 @@ mod tests {
         // `(parent, removed_index)` per WHATWG §5.5 remove step 4.
         let (mut reg, bridge) = LiveRangeRegistry::new_pair();
         let mut dom = EcsDom::new();
-        dom.set_mutation_hook(Box::new(bridge));
+        dom.set_mutation_dispatcher(Box::new(crate::ConsumerDispatcher::for_range_only_test(
+            bridge,
+        )));
         let parent = elem(&mut dom, "div");
         let target = elem(&mut dom, "section");
         let descendant = dom.create_text("hello");
@@ -946,10 +1011,11 @@ mod tests {
 
     #[test]
     fn bridge_send_sync_marker() {
-        // Compile-time check: LiveRangeBridge must be Send + Sync per the
-        // `MutationHook: Send + Sync` supertrait. If a future field
-        // breaks this (e.g. switching to Rc<RefCell<>>), this fails
-        // to compile.
+        // Compile-time check: LiveRangeBridge must be Send + Sync per
+        // the `MutationDispatcher: Send + Sync` supertrait that
+        // `ConsumerDispatcher` (the actual dispatcher impl) inherits.
+        // If a future field breaks this (e.g. switching to
+        // Rc<RefCell<>>), this fails to compile.
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<LiveRangeBridge>();
         assert_send_sync::<LiveRangeRegistry>();

@@ -16,16 +16,16 @@
 //!   mutate the tree.
 
 pub(crate) mod equality;
-mod mutation_hook;
+mod mutation_event;
 pub mod shadow;
 mod tree;
 mod tree_clone;
 
-pub use mutation_hook::MutationHook;
+pub use mutation_event::{MutationDispatcher, MutationEvent};
 
 use crate::components::{
-    AssociatedDocument, AttrData, Attributes, CommentData, DocTypeData, NodeKind, ShadowRoot,
-    TagType, TextContent, TreeRelation,
+    AssociatedDocument, AttrData, Attributes, CommentData, DocTypeData, DocumentBaseUrl, NodeKind,
+    ShadowRoot, TagType, TextContent, TreeRelation,
 };
 use hecs::{Entity, World};
 
@@ -44,13 +44,56 @@ pub struct EcsDom {
     world: World,
     /// Cached document root entity, set by [`create_document_root()`](Self::create_document_root).
     document_root: Option<Entity>,
-    /// Optional mutation hook; fires from `append_child` / `insert_before` /
-    /// `remove_child` / `replace_child` / `destroy_entity` / `set_text_data`.
-    /// The trait `MutationHook: Send + Sync` supertrait already propagates
-    /// the bounds; the explicit markers on the trait-object type are kept
-    /// for one canonical spelling shared with `set_mutation_hook` /
-    /// `take_mutation_hook` signatures.
-    mutation_hook: Option<Box<dyn MutationHook + Send + Sync>>,
+    /// Optional mutation event dispatcher.  Fires synchronously from
+    /// `append_child` / `insert_before` / `remove_child` /
+    /// `replace_child` / `destroy_entity` / `set_text_data` /
+    /// `replace_text_data` / `set_attribute` / `attr_remove` /
+    /// `fire_split_text` / `fire_normalize_merge`.  Single dispatcher
+    /// per [`Self`] — multi-consumer composition is handled by a
+    /// typed composer (`elidex_dom_api::ConsumerDispatcher`) impl'ing
+    /// [`MutationDispatcher`] with typed consumer fields.
+    dispatcher: Option<Box<dyn MutationDispatcher + Send + Sync>>,
+    /// Re-entry detection counter — incremented at the start of every
+    /// [`Self::dispatch_event`] invocation, decremented in
+    /// [`RestoreDispatcher::drop`].  Used by [`Self::dispatch_event`]
+    /// to fire a `debug_assert!` when a mutation primitive is called
+    /// recursively from within a consumer's `dispatch` body (violates
+    /// the re-entry contract on [`MutationDispatcher::dispatch`]).
+    dispatch_depth: u8,
+}
+
+/// Panic-safe Drop guard for [`EcsDom::dispatch_event`]: restores the
+/// taken-out dispatcher back into `self.dispatcher` AND decrements the
+/// re-entry depth counter on scope exit, even if the dispatch callback
+/// panics.
+///
+/// # Safety
+///
+/// `target_ptr` and `depth_ptr` alias `EcsDom::dispatcher` /
+/// `EcsDom::dispatch_depth` respectively.  Both pointers are derived
+/// from a `&mut EcsDom` at the call site; the `RestoreDispatcher`
+/// value is held in the SAME stack frame as the `&mut self` borrow,
+/// so no other live borrow of either field can exist for the
+/// duration of `guard`.  The raw pointers are dormant during the
+/// re-borrowed `&mut *self` callback call (Rust's borrow stack
+/// model allows raw pointers to alias actively-borrowed data so long
+/// as they are not dereferenced).  Dereference happens only in
+/// `Drop`, after the callback returns / unwinds and the `&mut self`
+/// borrow has expired.
+struct RestoreDispatcher {
+    target_ptr: *mut Option<Box<dyn MutationDispatcher + Send + Sync>>,
+    depth_ptr: *mut u8,
+    pending: Option<Box<dyn MutationDispatcher + Send + Sync>>,
+}
+
+impl Drop for RestoreDispatcher {
+    fn drop(&mut self) {
+        #[allow(unsafe_code)]
+        unsafe {
+            *self.target_ptr = self.pending.take();
+            *self.depth_ptr = (*self.depth_ptr).saturating_sub(1);
+        }
+    }
 }
 
 impl EcsDom {
@@ -59,52 +102,127 @@ impl EcsDom {
         Self {
             world: World::new(),
             document_root: None,
-            mutation_hook: None,
+            dispatcher: None,
+            dispatch_depth: 0,
         }
     }
 
-    // ---- Mutation hook ----
+    // ---- Mutation event dispatcher ----
 
-    /// Install a mutation hook. Returns the previously-installed hook, if any.
-    ///
-    /// The hook receives `after_remove` / `after_insert` / `after_text_change`
-    /// callbacks from tree-mutation primitives and from
-    /// [`Self::set_text_data`]. First user: D-8 PR-A `LiveRangeRegistry`
-    /// (Range live-tracking per WHATWG DOM §5.5).
-    pub fn set_mutation_hook(
+    /// Install the (single) mutation event dispatcher.  Returns the
+    /// previously-installed dispatcher (if any) for replace-then-
+    /// retrieve patterns.  Production caller: `Vm::bind` installs a
+    /// `ConsumerDispatcher` composing the mutation consumers.
+    pub fn set_mutation_dispatcher(
         &mut self,
-        hook: Box<dyn MutationHook + Send + Sync>,
-    ) -> Option<Box<dyn MutationHook + Send + Sync>> {
-        self.mutation_hook.replace(hook)
+        dispatcher: Box<dyn MutationDispatcher + Send + Sync>,
+    ) -> Option<Box<dyn MutationDispatcher + Send + Sync>> {
+        self.dispatcher.replace(dispatcher)
     }
 
-    /// Drop the mutation hook, if one was installed.
-    pub fn clear_mutation_hook(&mut self) {
-        self.mutation_hook = None;
+    /// Drop the installed dispatcher, if any.
+    pub fn clear_mutation_dispatcher(&mut self) {
+        self.dispatcher = None;
     }
 
-    /// Take the mutation hook out without dropping it. Returns the previous
-    /// hook, or `None` if none was installed.
-    pub fn take_mutation_hook(&mut self) -> Option<Box<dyn MutationHook + Send + Sync>> {
-        self.mutation_hook.take()
+    /// Take the installed dispatcher out without dropping it.
+    /// Returns `None` if none was installed.
+    pub fn take_mutation_dispatcher(
+        &mut self,
+    ) -> Option<Box<dyn MutationDispatcher + Send + Sync>> {
+        self.dispatcher.take()
     }
 
-    /// Fire [`MutationHook::after_split_text`] from a caller in another
-    /// crate. WHATWG DOM §4.10 "split a Text node" step 8.
+    /// Dispatch one [`MutationEvent`] to the installed dispatcher (if
+    /// any), using a take-and-restore borrow pattern so the dispatch
+    /// callback can receive `&mut EcsDom`.  Panic-safe via the inline
+    /// [`RestoreDispatcher`] `Drop` guard — both the dispatcher slot
+    /// AND the re-entry depth counter are restored even if the
+    /// callback unwinds.
     ///
-    /// **Caller ordering contract** (per the trait method's docs): MUST
-    /// be invoked AFTER `new_node` has been inserted as a sibling of
-    /// `node` but BEFORE `node`'s text is truncated via
-    /// [`Self::set_text_data`]. If the order is reversed, the
-    /// `after_text_change` callback fired by `set_text_data` would
-    /// clamp boundaries on `node` to the truncated length and destroy
-    /// the offset needed for migration.
+    /// **Re-entry contract**: the dispatcher's `dispatch` impl MUST NOT
+    /// invoke mutation primitives on the same `EcsDom`.  A
+    /// `debug_assert!` on the `dispatch_depth` counter fires in debug
+    /// builds when this is violated; release builds silently no-op
+    /// (nested dispatch sees an empty dispatcher slot and skips).
+    fn dispatch_event(&mut self, event: &MutationEvent<'_>) {
+        debug_assert_eq!(
+            self.dispatch_depth, 0,
+            "EcsDom mutation primitive called from inside \
+             MutationDispatcher::dispatch — violates re-entry contract \
+             (see `MutationDispatcher::dispatch` docstring).  Queue the \
+             work via per-consumer deferred state instead."
+        );
+        if self.dispatcher.is_none() {
+            return;
+        }
+        let target_ptr: *mut Option<Box<dyn MutationDispatcher + Send + Sync>> =
+            &raw mut self.dispatcher;
+        let depth_ptr: *mut u8 = &raw mut self.dispatch_depth;
+        self.dispatch_depth = self.dispatch_depth.saturating_add(1);
+        let mut guard = RestoreDispatcher {
+            target_ptr,
+            depth_ptr,
+            pending: self.dispatcher.take(),
+        };
+        if let Some(d) = guard.pending.as_mut() {
+            d.dispatch(event, self);
+        }
+        drop(guard);
+    }
+
+    /// HTML tag-name predicate: returns `true` iff `entity` is an
+    /// `<base>` element (HTML §4.2.3).  Used by event consumers (e.g.
+    /// `BaseUrlMaintainer` in `elidex-dom-api`) to filter
+    /// `MutationEvent::AttributeChange` events to `<base>.href`
+    /// writes only.
     ///
-    /// Engine-independent `split_text_at_offset` in `elidex-dom-api`
-    /// owns the canonical split algorithm and routes the hook fire
-    /// through this thin pub helper so the mutation-hook field can stay
-    /// private.
-    pub fn fire_after_split_text(
+    /// HTML-spec knowledge co-located with `shadow.rs` `VALID_SHADOW_HOST_TAGS`
+    /// (lines 65-84) + `is_valid_shadow_host` (lines 122-125) tag-whitelist
+    /// precedent per layering mandate (small HTML predicates in
+    /// elidex-ecs are OK; large algorithms hoist to elidex-dom-api).
+    #[must_use]
+    pub fn is_base_element(&self, entity: Entity) -> bool {
+        self.world
+            .get::<&TagType>(entity)
+            .is_ok_and(|t| t.0.eq_ignore_ascii_case("base"))
+        // FIXME: WHATWG HTML §4.2.3 restricts `<base>` to the HTML
+        // namespace; this predicate currently matches a tag-name
+        // `"base"` regardless of namespace.  Latent gap until the
+        // `#11-element-namespace-tracking` slot lands element-
+        // namespace components — at which point this predicate gates
+        // additionally on `dom.is_html_namespace(entity)`.
+    }
+
+    /// HTML tag-name predicate: returns `true` iff `entity` is a
+    /// `<template>` element (HTML §4.12.3).  Tree walkers that
+    /// implement spec algorithms requiring the "template contents"
+    /// carve-out (HTML §2.4.3 "first base element in the document" —
+    /// template contents form a separate document) use this to skip
+    /// the `<template>` element's children.
+    ///
+    /// Tag-string compare matches the [`Self::is_base_element`]
+    /// precedent.  The `TemplateContent` component is reserved for
+    /// future plug-in use (e.g. signalling "this element owns a
+    /// detached contents fragment"); a content-attach pass would
+    /// piggyback on this predicate.
+    #[must_use]
+    pub fn is_template_element(&self, entity: Entity) -> bool {
+        self.world
+            .get::<&TagType>(entity)
+            .is_ok_and(|t| t.0.eq_ignore_ascii_case("template"))
+    }
+
+    /// Fire [`MutationEvent::SplitText`] from a caller in another crate.
+    /// WHATWG DOM §4.11 Interface Text "split a Text node" step 7.
+    ///
+    /// **Caller ordering contract**: MUST be invoked AFTER `new_node`
+    /// has been inserted as a sibling of `node` but BEFORE `node`'s
+    /// text is truncated via [`Self::set_text_data`] (which would
+    /// otherwise fire `TextChange` and clamp Range boundaries on
+    /// `node` to the truncated length, destroying offsets needed for
+    /// migration).
+    pub fn fire_split_text(
         &mut self,
         node: Entity,
         new_node: Entity,
@@ -112,27 +230,26 @@ impl EcsDom {
         parent: Option<Entity>,
         node_index: Option<usize>,
     ) {
-        if let Some(hook) = self.mutation_hook.as_mut() {
-            hook.after_split_text(node, new_node, offset_utf16, parent, node_index);
-        }
+        let event = MutationEvent::SplitText {
+            node,
+            new_node,
+            offset_utf16,
+            parent,
+            node_index,
+        };
+        self.dispatch_event(&event);
     }
 
-    /// Fire [`MutationHook::after_normalize_merge`] from a caller in
-    /// another crate. WHATWG DOM §4.5 "normalize" step 6.4.
+    /// Fire [`MutationEvent::NormalizeMerge`] from a caller in another
+    /// crate.  WHATWG DOM §4.4 Interface Node `normalize()` step 6.4.
     ///
-    /// **Caller ordering contract** (per the trait method's docs): MUST
-    /// be invoked AFTER `prev` has absorbed `merged_child`'s data but
-    /// BEFORE `merged_child` is detached from its parent — firing
-    /// before detach lets the consumer migrate boundaries on
-    /// `merged_child` to `(prev, prev_old_len + off)` instead of
-    /// collapsing them to `(parent, child_idx)` via the subsequent
-    /// `after_remove` callback.
-    ///
-    /// Engine-independent `Normalize` handler in `elidex-dom-api` owns
-    /// the canonical merge algorithm and routes the hook fire through
-    /// this thin pub helper so the mutation-hook field can stay
-    /// private.
-    pub fn fire_after_normalize_merge(
+    /// **Caller ordering contract**: MUST be invoked AFTER `prev` has
+    /// absorbed `merged_child`'s data but BEFORE `merged_child` is
+    /// detached.  Firing before detach lets consumers migrate
+    /// boundaries on `merged_child` to `(prev, prev_old_len + off)`
+    /// instead of collapsing via the subsequent
+    /// [`MutationEvent::Remove`].
+    pub fn fire_normalize_merge(
         &mut self,
         merged_child: Entity,
         prev: Entity,
@@ -140,15 +257,14 @@ impl EcsDom {
         parent: Option<Entity>,
         merged_child_index: Option<usize>,
     ) {
-        if let Some(hook) = self.mutation_hook.as_mut() {
-            hook.after_normalize_merge(
-                merged_child,
-                prev,
-                prev_old_len_utf16,
-                parent,
-                merged_child_index,
-            );
-        }
+        let event = MutationEvent::NormalizeMerge {
+            merged_child,
+            prev,
+            prev_old_len_utf16,
+            parent,
+            merged_child_index,
+        };
+        self.dispatch_event(&event);
     }
 
     /// Replace the `TextContent` of an entity. Returns the new UTF-16 length
@@ -181,9 +297,11 @@ impl EcsDom {
             len
         };
         self.rev_version(entity);
-        if let Some(hook) = self.mutation_hook.as_mut() {
-            hook.after_text_change(entity, new_utf16_len);
-        }
+        let event = MutationEvent::TextChange {
+            node: entity,
+            new_utf16_len,
+        };
+        self.dispatch_event(&event);
         Some(new_utf16_len)
     }
 
@@ -213,7 +331,7 @@ impl EcsDom {
     /// On success:
     /// - splices the UTF-16 view of `TextContent` in place,
     /// - bumps [`Self::rev_version`] (cache invalidation),
-    /// - fires [`MutationHook::after_replace_data`] with
+    /// - fires [`MutationEvent::ReplaceData`] with
     ///   `(entity, offset, count, replacement_utf16_len)`.
     ///
     /// **NOT for Comment nodes** (Comment uses `CommentData`, not
@@ -248,16 +366,20 @@ impl EcsDom {
             (new_len, clamped_count)
         };
         self.rev_version(entity);
-        if let Some(hook) = self.mutation_hook.as_mut() {
-            // WHATWG §11.2 step 6 clamps the live-range adjustment to
-            // the actual spliced span (`end - offset`), not the
-            // caller's possibly-overflowing `count_utf16`. Passing the
-            // unclamped value would make `adjust_ranges_for_replace_data`
-            // treat boundaries near the OLD end as inside the splice
-            // region and collapse them to `offset` instead of shifting
-            // by `new_data_len - clamped_count` — PR186 R3 #1 fix.
-            hook.after_replace_data(entity, offset_utf16, clamped_count, replacement_len);
-        }
+        // WHATWG DOM §4.10 step 6 clamps the live-range adjustment to
+        // the actual spliced span (`end - offset`), not the caller's
+        // possibly-overflowing `count_utf16`. Passing the unclamped
+        // value would make `adjust_ranges_for_replace_data` treat
+        // boundaries near the OLD end as inside the splice region
+        // and collapse them to `offset` instead of shifting by
+        // `new_data_len - clamped_count` — PR186 R3 #1 fix.
+        let event = MutationEvent::ReplaceData {
+            node: entity,
+            offset_utf16,
+            count_utf16: clamped_count,
+            new_data_len_utf16: replacement_len,
+        };
+        self.dispatch_event(&event);
         Some(new_utf16_len)
     }
 
@@ -349,10 +471,18 @@ impl EcsDom {
     ///
     /// The document root serves as the parent of the `<html>` element.
     /// The entity is cached for fast retrieval via [`document_root()`](Self::document_root).
+    ///
+    /// Eagerly attaches [`DocumentBaseUrl`] initialised to
+    /// [`about_blank_url`](crate::about_blank_url) pending the
+    /// `#11-document-url-real-navigation` slot landing.
+    /// `elidex_dom_api::BaseUrlMaintainer` mutates it as `<base>`
+    /// elements enter / leave the doc tree.
     pub fn create_document_root(&mut self) -> Entity {
-        let entity = self
-            .world
-            .spawn((TreeRelation::default(), NodeKind::Document));
+        let entity = self.world.spawn((
+            TreeRelation::default(),
+            NodeKind::Document,
+            DocumentBaseUrl(crate::about_blank_url()),
+        ));
         self.document_root = Some(entity);
         entity
     }
@@ -796,11 +926,26 @@ impl EcsDom {
     /// list cache in `elidex-js::vm::host::dom_collection`.
     ///
     /// Returns `false` if the entity has been destroyed.
-    pub fn set_attribute(&mut self, entity: Entity, name: &str, value: String) -> bool {
+    pub fn set_attribute(&mut self, entity: Entity, name: &str, value: &str) -> bool {
         if !self.contains(entity) {
             return false;
         }
-        let has_component = self.world.get::<&Attributes>(entity).is_ok();
+        // Engine-internal hardening (pre-D-31 `require_attrs_mut`
+        // semantics): only Element entities carry `Attributes`.
+        // Silently auto-attaching `Attributes` to Document / Text /
+        // ShadowRoot / Comment entities would corrupt downstream
+        // attribute readers; bail with `false` so caller sees the
+        // mis-routed write the same way it sees a destroyed entity.
+        if !matches!(self.node_kind(entity), Some(NodeKind::Element)) {
+            return false;
+        }
+        // Single component lookup: capture old_value AND component
+        // presence from one borrow; if absent, insert a fresh
+        // Attributes default below.
+        let (old_value, has_component) = match self.world.get::<&Attributes>(entity) {
+            Ok(a) => (a.get(name).map(String::from), true),
+            Err(_) => (None, false),
+        };
         let did_set = if has_component {
             if let Ok(mut attrs) = self.world.get::<&mut Attributes>(entity) {
                 attrs.set(name, value);
@@ -815,21 +960,45 @@ impl EcsDom {
         };
         if did_set {
             self.rev_version(entity);
+            // Fire `MutationEvent::AttributeChange` per DOM §4.3.2 +
+            // §4.3.3; same-value writes still fire because spec
+            // requires same-value records be queued for
+            // MutationObserver consumers.  Per-consumer suppression
+            // (e.g. `BaseUrlMaintainer` idempotent bump) lives in
+            // the dispatcher's handle, not here.
+            let event = MutationEvent::AttributeChange {
+                node: entity,
+                name,
+                old_value: old_value.as_deref(),
+                new_value: Some(value),
+            };
+            self.dispatch_event(&event);
         }
         did_set
     }
 
     /// Remove attribute `name` from `entity` if present, then bump
     /// [`rev_version`](Self::rev_version) — both gated on the
-    /// entity still being live.
+    /// entity still being live AND being an Element.
     ///
     /// Destroyed entities short-circuit before either write,
     /// matching [`set_attribute`](Self::set_attribute)'s contract.
+    /// Non-Element entities (Document / Text / Comment / ShadowRoot)
+    /// also short-circuit — symmetric to `set_attribute`'s
+    /// Element-only guard.  Without this, a stray
+    /// `remove_attribute(non_element, ...)` would still bump
+    /// `inclusive_descendants_version` and dispatch
+    /// [`MutationEvent::AttributeChange`], cascading version bumps
+    /// to attribute-filtered live collections and triggering
+    /// downstream `MutationEvent` consumers (e.g. `BaseUrlMaintainer`,
+    /// living in `elidex-dom-api`) on a receiver that cannot
+    /// semantically own attributes.
+    ///
     /// The attribute-storage write is itself a no-op when the
     /// `Attributes` component is absent or the key is missing,
-    /// but the version bump still fires for live entities so
-    /// attribute-filtered live collections invalidate cleanly even
-    /// on spurious removals (the next read pays one walk and
+    /// but the version bump still fires for live Element entities
+    /// so attribute-filtered live collections invalidate cleanly
+    /// even on spurious removals (the next read pays one walk and
     /// re-caches under the freshly bumped version).  See the SP2
     /// entity-list cache in `elidex-js::vm::host::dom_collection`;
     /// the `set_attribute` rationale on over-invalidation applies
@@ -838,10 +1007,34 @@ impl EcsDom {
         if !self.contains(entity) {
             return;
         }
-        if let Ok(mut attrs) = self.world.get::<&mut Attributes>(entity) {
-            attrs.remove(name);
+        // Symmetric to `set_attribute`'s Element-only guard
+        // (line ~939): non-Element entities never own `Attributes`,
+        // so a remove on them is meaningless and must not cascade
+        // version bumps / mutation events.
+        if !matches!(self.node_kind(entity), Some(NodeKind::Element)) {
+            return;
         }
+        let old_value = self
+            .world
+            .get::<&mut Attributes>(entity)
+            .ok()
+            .and_then(|mut attrs| attrs.remove(name));
         self.rev_version(entity);
+        // Fire `MutationEvent::AttributeChange` per DOM §4.3.2 "Queue
+        // a mutation record" — runs unconditionally, mirroring
+        // `set_attribute` (DOM §4.3.2 requires records be queued for
+        // MutationObserver consumers regardless of value-diff).
+        // Absent-attribute removes therefore still fire (old_value =
+        // new_value = None signals a no-op record).  Per-consumer
+        // suppression (e.g. `BaseUrlMaintainer` skip when not a
+        // `<base>`) lives in the dispatcher's handle, not here.
+        let event = MutationEvent::AttributeChange {
+            node: entity,
+            name,
+            old_value: old_value.as_deref(),
+            new_value: None,
+        };
+        self.dispatch_event(&event);
     }
 }
 

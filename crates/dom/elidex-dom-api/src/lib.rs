@@ -16,17 +16,18 @@ pub mod char_data;
 pub mod child_node;
 pub mod class_list;
 pub mod computed_style;
+pub mod consumer_dispatcher;
 pub mod css_namespace;
 pub mod cssom_sheet;
 pub mod document;
 pub mod element;
 pub mod live_collection;
-pub mod mutation_bridge;
 pub mod node_methods;
 pub mod range;
 pub mod registry;
 pub mod selection;
 pub mod style;
+pub(crate) mod subtree_walk;
 pub mod traversal;
 pub mod tree_nav;
 pub(crate) mod util;
@@ -57,6 +58,7 @@ pub use class_list::{
     REL_LIST_SUPPORTS, REL_LIST_TOGGLE, REL_LIST_VALUE_GET, REL_LIST_VALUE_SET,
 };
 pub use computed_style::{css_value_to_string, GetComputedStyle};
+pub use consumer_dispatcher::ConsumerDispatcher;
 pub use css_namespace::{CssEscape, CssSupports};
 pub use cssom_sheet::{
     collect_stylesheet_owners, count_stylesheet_owners, CssRulesItemId, CssRulesLength, DeleteRule,
@@ -66,6 +68,7 @@ pub use cssom_sheet::{
 pub use document::{
     query_selector_all, CreateElement, CreateTextNode, GetElementById, QuerySelector,
 };
+pub use element::document_base::{compute_frozen_url, BaseUrlMaintainer};
 pub use element::href_accessor::{
     HyperlinkHashGet, HyperlinkHashSet, HyperlinkHostGet, HyperlinkHostSet, HyperlinkHostnameGet,
     HyperlinkHostnameSet, HyperlinkHrefGet, HyperlinkHrefSet, HyperlinkOriginGet,
@@ -86,7 +89,6 @@ pub use element::{
     SetAttribute, SetClassName, SetId, SetInnerHtml, ToggleAttribute,
 };
 pub use live_collection::{CollectionFilter, CollectionKind, LiveCollection};
-pub use mutation_bridge::{MutationBridge, NodeIteratorState};
 pub use node_methods::{
     CloneNode, CompareDocumentPosition, Contains, GetRootNode, GetTextContentNodeKind, IsConnected,
     IsEqualNode, IsSameNode, Normalize, OwnerDocument, SetNodeValue, SetTextContentNodeKind,
@@ -104,7 +106,8 @@ pub use range::{
 pub use selection::{SelectionDirection, SelectionError, SelectionState, SelectionType};
 pub use style::{StyleGetPropertyValue, StyleRemoveProperty, StyleSetProperty};
 pub use traversal::{
-    NodeIterator, TreeWalker, SHOW_ALL, SHOW_COMMENT, SHOW_DOCUMENT, SHOW_ELEMENT, SHOW_TEXT,
+    NodeIterator, NodeIteratorAdjuster, NodeIteratorState, TreeWalker, SHOW_ALL, SHOW_COMMENT,
+    SHOW_DOCUMENT, SHOW_ELEMENT, SHOW_TEXT,
 };
 pub use tree_nav::{
     GetChildElementCount, GetFirstChild, GetFirstElementChild, GetLastChild, GetLastElementChild,

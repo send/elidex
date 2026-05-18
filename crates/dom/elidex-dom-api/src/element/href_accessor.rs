@@ -26,21 +26,44 @@ use url::Url;
 use crate::util::{not_found_error, require_string_arg};
 use elidex_script_session::{DomApiError, DomApiHandler, SessionCore};
 
-/// Document base-URL placeholder until `#11-base-href-resolution`
-/// lands real navigation state + `<base href>` walking.  Matches the
-/// stub returned by `document.URL` (`char_data/document_props.rs`).
-const BASE_URL_PLACEHOLDER: &str = "about:blank";
+/// Resolve `entity`'s effective base URL for `href` resolution.
+///
+/// - `<base>` receivers: the document's FALLBACK base URL (currently
+///   [`about_blank_url`] in elidex's stub; will become the document
+///   URL once `#11-document-url-real-navigation` lands).  Per WHATWG
+///   HTML §4.2.3 IDL `href` getter, `<base>.href` parses the raw href
+///   against the document's fallback (NOT the document base URL —
+///   that would be recursive — and NOT the element's own
+///   [`BaseFrozenUrl`] — that would double-resolve relative hrefs
+///   because the frozen URL is itself already a parse-or-fallback
+///   result).  Returning the fallback here lets a single
+///   [`parse_with_base`] in [`href_value_or_raw`] handle both the
+///   parse-success and parse-failure branches of the spec uniformly
+///   (`Some(url)` → serialized URL, `None` → raw href).
+/// - All other receivers: the document base URL via
+///   [`crate::element::document_base::document_base_url`] (which
+///   reflects any installed `<base>` per HTML §2.4.3).
+fn effective_base_url(dom: &EcsDom, entity: Entity) -> Url {
+    if dom.is_base_element(entity) {
+        return elidex_ecs::about_blank_url();
+    }
+    let doc = dom.owner_document(entity).unwrap_or(entity);
+    crate::element::document_base::document_base_url(dom, doc)
+}
 
-/// Read the `href` content attribute, resolve against the base URL,
-/// parse with `url::Url`, and call the supplied closure with the
-/// parsed URL.  Returns the closure's `String` result, or `""` if the
-/// `href` attribute is absent / unparseable per WHATWG URL §6.2.
+/// Read the `href` content attribute, resolve against the effective
+/// base URL (D-31: `<base>.href` for `<base>` elements, doc base for
+/// other URL-bearing elements), parse with `url::Url`, and call the
+/// supplied closure with the parsed URL.  Returns the closure's
+/// `String` result, or `""` if the `href` attribute is absent /
+/// unparseable per WHATWG URL §6.2.
 pub fn href_url_component<F>(entity: Entity, dom: &EcsDom, f: F) -> Result<String, DomApiError>
 where
     F: FnOnce(&Url) -> String,
 {
     let href = read_href_attr(entity, dom)?;
-    match parse_with_base(&href) {
+    let base = effective_base_url(dom, entity);
+    match parse_with_base(&href, &base) {
         Some(url) => Ok(f(&url)),
         None => Ok(String::new()),
     }
@@ -59,32 +82,43 @@ where
     F: FnOnce(&mut Url),
 {
     let href = read_href_attr(entity, dom)?;
-    if let Some(mut url) = parse_with_base(&href) {
+    let base = effective_base_url(dom, entity);
+    if let Some(mut url) = parse_with_base(&href, &base) {
         mutate(&mut url);
-        write_href_attr(entity, dom, url.as_str().to_string())?;
+        write_href_attr(entity, dom, url.as_str())?;
     }
     Ok(())
 }
 
-/// Set the `href` content attribute.  WHATWG HTML §HTMLHyperlinkElementUtils
-/// 6.5 specifies the setter steps as **plain "set this's href content
-/// attribute's value to the given value"** — no parse, no normalise.
-/// Distinct from the `URL` interface's `href` setter (`vm/host/url/setters`)
-/// which throws on parse failure; HTMLAnchorElement / HTMLAreaElement do not.
+/// Set the `href` content attribute.  WHATWG HTML §4.6.5
+/// (HTMLHyperlinkElementUtils) specifies the setter steps as **plain
+/// "set this's href content attribute's value to the given value"** —
+/// no parse, no normalise.  Distinct from the `URL` interface's
+/// `href` setter (`vm/host/url/setters`) which throws on parse
+/// failure; HTMLAnchorElement / HTMLAreaElement do not.
 pub fn set_href(entity: Entity, dom: &mut EcsDom, value: &str) -> Result<(), DomApiError> {
-    write_href_attr(entity, dom, value.to_string())
+    write_href_attr(entity, dom, value)
 }
 
 /// Read the `href` content attribute and return either the URL
 /// serialisation (when the attribute parses) or the raw stored value
-/// (when it doesn't).  Implements WHATWG HTML §HTMLHyperlinkElementUtils
-/// 6.4 step 4: "if url is null, return this's href content attribute's
-/// value".  This differs from `href_url_component(.., component_href)`
-/// — the latter returns the empty string on parse failure (correct for
-/// the per-component getters but wrong for `href` itself).
+/// (when it doesn't).  Implements WHATWG HTML §4.6.5
+/// (HTMLHyperlinkElementUtils) `href` getter step 4: "if url is
+/// null, return this's href content attribute's value".  This
+/// differs from `href_url_component(.., component_href)` — the
+/// latter returns the empty string on parse failure (correct for the
+/// per-component getters but wrong for `href` itself).
+///
+/// For `<base>` receivers this also implements WHATWG HTML §4.2.3
+/// IDL `href` getter (parse raw href against the document's fallback
+/// base URL, return the serialized URL on success or the raw value
+/// on parse failure).  The private `effective_base_url` helper
+/// returns the fallback URL for `<base>` receivers specifically so a
+/// single `parse_with_base` call handles both branches uniformly.
 pub fn href_value_or_raw(entity: Entity, dom: &EcsDom) -> Result<String, DomApiError> {
     let href = read_href_attr(entity, dom)?;
-    match parse_with_base(&href) {
+    let base = effective_base_url(dom, entity);
+    match parse_with_base(&href, &base) {
         Some(url) => Ok(url.as_str().to_string()),
         None => Ok(href),
     }
@@ -102,7 +136,7 @@ fn read_href_attr(entity: Entity, dom: &EcsDom) -> Result<String, DomApiError> {
     Ok(attrs.get("href").unwrap_or("").to_string())
 }
 
-fn write_href_attr(entity: Entity, dom: &mut EcsDom, value: String) -> Result<(), DomApiError> {
+fn write_href_attr(entity: Entity, dom: &mut EcsDom, value: &str) -> Result<(), DomApiError> {
     // Lesson #181: `EcsDom::set_attribute` is the canonical write
     // path — it bumps `rev_version` so live-collection caches
     // (`document.links` / `document.images` / etc.) and
@@ -114,16 +148,12 @@ fn write_href_attr(entity: Entity, dom: &mut EcsDom, value: String) -> Result<()
     Ok(())
 }
 
-fn parse_with_base(href: &str) -> Option<Url> {
+fn parse_with_base(href: &str, base: &Url) -> Option<Url> {
     if href.is_empty() {
         return None;
     }
     // Try absolute parse first; if relative, resolve against base.
-    Url::parse(href).ok().or_else(|| {
-        Url::parse(BASE_URL_PLACEHOLDER)
-            .ok()
-            .and_then(|base| base.join(href).ok())
-    })
+    Url::parse(href).ok().or_else(|| base.join(href).ok())
 }
 
 // ---------------------------------------------------------------------------
@@ -277,8 +307,9 @@ macro_rules! getter_handler {
     };
 }
 
-/// `href` getter — WHATWG HTML §HTMLHyperlinkElementUtils 6.4 step 4
-/// requires returning the raw `href` content attribute when the URL
+/// `href` getter — WHATWG HTML §4.6.5 (HTMLHyperlinkElementUtils)
+/// `href` getter step 4 requires returning the raw `href` content
+/// attribute when the URL
 /// fails to parse (rather than the empty string the per-component
 /// getters use).  Uses the spec-faithful [`href_value_or_raw`] helper
 /// instead of the `component_href` closure.

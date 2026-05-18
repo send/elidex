@@ -237,19 +237,21 @@ fn element_get_elements_by_class_name_brand_check_precedes_tostring() {
 
 #[test]
 fn element_get_elements_by_class_name_skips_non_element_with_attributes() {
-    // Copilot R5 F12 lock-in: `EcsDom::set_attribute` will attach an
-    // `Attributes` component to any entity, including Text / Comment
-    // nodes produced by parser fixtures.  The collector must require
-    // `TagType` before matching class tokens so non-Elements never
-    // leak into the result set (WHATWG §4.2.6.2 "descendant
-    // elements").
+    // Defence-in-depth lock-in (Copilot R5 F12 origin): even if a
+    // Text / Comment entity ends up carrying an `Attributes`
+    // component (e.g. via a hypothetical parser-fixture bug — the
+    // `EcsDom::set_attribute` chokepoint now refuses non-Element
+    // entities per R-loop hardening), the descendant collector must
+    // still require `TagType` before matching class tokens so
+    // non-Elements never leak into the result set (WHATWG §4.2.6.2
+    // "descendant elements").
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = build_fixture(&mut dom);
-    // Manually stamp `class="x"` onto a Text node under #root — this
-    // bypasses the VM's brand-checked Element-only setAttribute path
-    // and mimics what a parser fixture could produce.
+    // Bypass the chokepoint to stamp `class="x"` onto a Text node
+    // under #root — direct world insertion mirrors the corrupted
+    // state a future parser-fixture bug could produce.
     let root = dom
         .first_child_with_tag(
             dom.first_child_with_tag(dom.document_root().unwrap(), "html")
@@ -260,7 +262,11 @@ fn element_get_elements_by_class_name_skips_non_element_with_attributes() {
     let hot_div = dom.first_child_with_tag(root, "div").unwrap();
     let bogus_text = dom.create_text("x");
     assert!(dom.append_child(hot_div, bogus_text));
-    assert!(dom.set_attribute(bogus_text, "class", "x".to_owned()));
+    let mut bogus_attrs = elidex_ecs::Attributes::default();
+    bogus_attrs.set("class", "x");
+    dom.world_mut()
+        .insert_one(bogus_text, bogus_attrs)
+        .expect("insert Attributes on Text entity (chokepoint bypass)");
 
     #[allow(unsafe_code)]
     unsafe {

@@ -76,7 +76,7 @@ where
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let flag = super::super::coerce::to_boolean(ctx.vm, val);
     if flag {
-        ctx.host().dom().set_attribute(entity, attr, String::new());
+        ctx.host().dom().set_attribute(entity, attr, "");
     } else {
         super::element_attrs::attr_remove(ctx, entity, attr);
     }
@@ -113,7 +113,7 @@ where
     if n < 0 {
         super::element_attrs::attr_remove(ctx, entity, attr);
     } else {
-        ctx.host().dom().set_attribute(entity, attr, n.to_string());
+        ctx.host().dom().set_attribute(entity, attr, &n.to_string());
     }
     let dom = ctx.host().dom();
     if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {

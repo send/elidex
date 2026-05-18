@@ -12,6 +12,7 @@ mod tests_array_prototype_ext;
 mod tests_associated_document;
 mod tests_async;
 mod tests_async_fetch;
+mod tests_base_href;
 mod tests_bigint;
 mod tests_blob;
 mod tests_body_mixin;

@@ -1958,6 +1958,7 @@ dependencies = [
  "elidex-plugin",
  "hecs",
  "indexmap",
+ "url",
 ]
 
 [[package]]

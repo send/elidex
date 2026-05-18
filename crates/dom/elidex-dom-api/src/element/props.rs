@@ -58,9 +58,15 @@ impl DomApiHandler for SetAttribute {
         validate_attribute_name(&raw_name)?;
         let name = raw_name.to_ascii_lowercase();
         let value = require_string_arg(args, 1)?;
-        let mut attrs = require_attrs_mut(this, dom)?;
-        attrs.set(&name, &value);
-        drop(attrs);
+        // Lesson #181: route through the canonical `EcsDom::set_attribute`
+        // chokepoint so `MutationEvent::AttributeChange` fires + the
+        // attribute-mutation revision bump runs (essential for D-31
+        // `BaseUrlMaintainer` to react to `<base>.href` writes).  Pre-D-31
+        // this handler wrote `Attributes::set` directly and bumped
+        // `rev_version` separately — the chokepoint subsumes both.
+        if !dom.set_attribute(this, &name, &value) {
+            return Err(crate::util::not_found_error("element not found"));
+        }
         // Sync the cached Attr entity's value so that attr.value reflects
         // the update without breaking identity (getAttributeNode returns the
         // same object before and after setAttribute).
@@ -74,7 +80,6 @@ impl DomApiHandler for SetAttribute {
                 ad.value.clone_from(&value);
             }
         }
-        dom.rev_version(this);
         Ok(JsValue::Undefined)
     }
 }

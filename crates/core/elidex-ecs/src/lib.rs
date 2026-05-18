@@ -6,12 +6,27 @@
 mod components;
 mod dom;
 
+/// The placeholder `about:blank` base URL used while
+/// `#11-document-url-real-navigation` slot is pending (no real
+/// `DocumentUrl` ECS state yet).  Pre-parsed once on first call.
+///
+/// Consumers: [`EcsDom::create_document_root`] initial
+/// [`DocumentBaseUrl`] + `elidex_dom_api::BaseUrlMaintainer`
+/// `compute_frozen_url` fallback.
+#[must_use]
+pub fn about_blank_url() -> url::Url {
+    static URL: std::sync::OnceLock<url::Url> = std::sync::OnceLock::new();
+    URL.get_or_init(|| url::Url::parse("about:blank").expect("about:blank parses"))
+        .clone()
+}
+
 pub use components::{
     AnonymousTableMarker, AssociatedDocument, AttrData, AttrEntityCache, Attributes,
-    BackgroundImages, CommentData, DialogReturnValue, DocTypeData, ElementState, IframeData,
-    ImageData, InlineStyle, IsModalDialog, LoadingAttribute, NodeKind, OutputDefaultValue,
-    OutputValueOverride, PseudoElementMarker, ScrollState, ShadowHost, ShadowRoot, ShadowRootMode,
-    SlotAssignment, SlotAssignmentMode, SlottedMarker, TagType, TemplateContent, TextContent,
+    BackgroundImages, BaseFrozenUrl, CommentData, DialogReturnValue, DocTypeData, DocumentBaseUrl,
+    ElementState, IframeData, ImageData, InlineStyle, IsModalDialog, LoadingAttribute, NodeKind,
+    OutputDefaultValue, OutputValueOverride, PseudoElementMarker, ScrollState, ShadowHost,
+    ShadowRoot, ShadowRootMode, SlotAssignment, SlotAssignmentMode, SlottedMarker, TagType,
+    TemplateContent, TextContent,
 };
 pub use dom::equality::{
     DOCUMENT_POSITION_CONTAINED_BY, DOCUMENT_POSITION_CONTAINS, DOCUMENT_POSITION_DISCONNECTED,
@@ -19,7 +34,7 @@ pub use dom::equality::{
     DOCUMENT_POSITION_PRECEDING,
 };
 pub use dom::shadow::{ShadowAttachError, ShadowInit, SlotAssignError};
-pub use dom::{EcsDom, MutationHook, MAX_ANCESTOR_DEPTH};
+pub use dom::{EcsDom, MutationDispatcher, MutationEvent, MAX_ANCESTOR_DEPTH};
 
 // Re-export hecs Entity for downstream consumers.
 pub use hecs::Entity;

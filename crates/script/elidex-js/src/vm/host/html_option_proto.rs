@@ -175,7 +175,7 @@ fn bool_reflect_set(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let flag = super::super::coerce::to_boolean(ctx.vm, val);
     if flag {
-        ctx.host().dom().set_attribute(entity, attr, String::new());
+        ctx.host().dom().set_attribute(entity, attr, "");
     } else {
         super::element_attrs::attr_remove(ctx, entity, attr);
     }
@@ -252,7 +252,7 @@ fn native_option_set_label(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     let s = ctx.vm.strings.get_utf8(sid);
-    ctx.host().dom().set_attribute(entity, "label", s);
+    ctx.host().dom().set_attribute(entity, "label", &s);
     Ok(JsValue::Undefined)
 }
 
@@ -290,7 +290,7 @@ fn native_option_set_value(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     let s = ctx.vm.strings.get_utf8(sid);
-    ctx.host().dom().set_attribute(entity, "value", s);
+    ctx.host().dom().set_attribute(entity, "value", &s);
     Ok(JsValue::Undefined)
 }
 

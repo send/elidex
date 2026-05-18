@@ -29,6 +29,55 @@ impl DomApiHandler for GetDocumentUrl {
     }
 }
 
+/// `document.baseURI` getter (WHATWG DOM §4.4 Interface Node
+/// `baseURI` getter, anchor `#dom-node-baseuri`).  Returns the
+/// document's current base URL (cached
+/// [`elidex_ecs::DocumentBaseUrl`] component maintained by
+/// [`crate::BaseUrlMaintainer`]).
+pub struct GetDocumentBaseURI;
+
+impl DomApiHandler for GetDocumentBaseURI {
+    fn method_name(&self) -> &str {
+        "document.baseURI.get"
+    }
+
+    fn invoke(
+        &self,
+        this: Entity,
+        _args: &[JsValue],
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let url = crate::element::document_base::document_base_url(dom, this);
+        Ok(JsValue::String(url.as_str().into()))
+    }
+}
+
+/// `Node.prototype.baseURI` getter (WHATWG DOM §4.4 Interface Node).
+/// Resolves to the **node document's** base URL via
+/// [`EcsDom::owner_document`] (which honors per-node
+/// `AssociatedDocument` then falls back to the tree-root walk per
+/// spec); for Document receivers `this` IS the document.
+pub struct GetNodeBaseURI;
+
+impl DomApiHandler for GetNodeBaseURI {
+    fn method_name(&self) -> &str {
+        "node.baseURI.get"
+    }
+
+    fn invoke(
+        &self,
+        this: Entity,
+        _args: &[JsValue],
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let doc = dom.owner_document(this).unwrap_or(this);
+        let url = crate::element::document_base::document_base_url(dom, doc);
+        Ok(JsValue::String(url.as_str().into()))
+    }
+}
+
 /// `document.readyState` getter.
 pub struct GetReadyState;
 

@@ -80,7 +80,7 @@ fn sync_to_attribute(entity: Entity, dom: &mut EcsDom) {
         Ok(style) => style.css_text(),
         Err(_) => return,
     };
-    let _ = dom.set_attribute(entity, "style", css_text);
+    let _ = dom.set_attribute(entity, "style", &css_text);
 }
 
 // ---------------------------------------------------------------------------

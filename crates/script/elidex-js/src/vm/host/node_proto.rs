@@ -116,6 +116,7 @@ impl VmInner {
             (self.well_known.node_type, native_node_get_node_type),
             (self.well_known.node_name, native_node_get_node_name),
             (self.well_known.is_connected, native_node_get_is_connected),
+            (self.well_known.base_uri, native_node_get_base_uri),
             (
                 self.well_known.owner_document,
                 native_node_get_owner_document,
@@ -352,6 +353,22 @@ fn native_node_get_child_nodes(
         elidex_dom_api::CollectionKind::NodeList,
     ));
     Ok(JsValue::Object(id))
+}
+
+/// `Node.prototype.baseURI` getter (D-31; WHATWG DOM §4.4 Interface
+/// Node `baseURI` getter, anchor `#dom-node-baseuri`).  Routes
+/// through the `node.baseURI.get` handler which resolves the owner
+/// document (Phase B: single-doc EcsDom == document_root) and reads
+/// the cached `DocumentBaseUrl` component.
+fn native_node_get_base_uri(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    };
+    super::dom_bridge::invoke_dom_api(ctx, "node.baseURI.get", entity, &[])
 }
 
 fn native_node_get_is_connected(

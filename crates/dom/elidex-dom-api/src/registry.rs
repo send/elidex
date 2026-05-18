@@ -35,6 +35,17 @@ pub fn create_dom_registry() -> DomHandlerRegistry {
 
     // --- Document properties ---
     r.register_static("document.URL.get", Box::new(super::GetDocumentUrl));
+    // D-31: WHATWG DOM §4.4 Interface Node `baseURI` getter
+    // (anchor `#dom-node-baseuri`).  Document-receiver flavour +
+    // Node-receiver flavour share the same underlying reader.
+    r.register_static(
+        "document.baseURI.get",
+        Box::new(super::char_data::GetDocumentBaseURI),
+    );
+    r.register_static(
+        "node.baseURI.get",
+        Box::new(super::char_data::GetNodeBaseURI),
+    );
     r.register_static("document.readyState.get", Box::new(super::GetReadyState));
     r.register_static("document.compatMode.get", Box::new(super::GetCompatMode));
     r.register_static(

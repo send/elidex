@@ -67,24 +67,27 @@ impl VmInner {
 /// marshalling 用途 (entity 取得 / 単純 attribute read / wrapper
 /// 生成) に限定"). Brand check + WebIDL `unsigned long` coercion
 /// happen here; the actual splice + Range live-tracking ordering
-/// (insert → fire_after_split_text → set_text_data) is in
+/// (insert → fire_split_text → set_text_data) is in
 /// elidex-dom-api.
 ///
 /// ## Range live-tracking ordering (informational)
 ///
 /// `split_text_at_offset` orchestrates a three-step Range boundary
-/// dance: `insert_before(new_node)` fires `after_insert` (parent-side
-/// `off > node_idx + 1 → +1`), then `fire_after_split_text` carrying
-/// the pre-split `parent` + `node_index` fires the
-/// [`elidex_ecs::MutationHook::after_split_text`] callback (node-side
-/// `off > offset → (new_node, off - offset)` + parent-side
+/// dance: `insert_before(new_node)` fires
+/// [`MutationEvent::Insert`](elidex_ecs::MutationEvent::Insert)
+/// (parent-side `off > node_idx + 1 → +1`), then `fire_split_text`
+/// carrying the pre-split `parent` + `node_index` fires
+/// [`MutationEvent::SplitText`](elidex_ecs::MutationEvent::SplitText)
+/// (node-side `off > offset → (new_node, off - offset)` + parent-side
 /// `off == node_idx + 1 → +1` delta top-up), then
 /// `set_text_data(head)` truncates the original node. The combined
-/// hook sequence implements WHATWG §4.10 step 7 in full when the
-/// standard `LiveRangeRegistry::Bridge` is the installed hook.
-/// Engines installing a custom hook that ignores the parent /
-/// node_index args inherit only the `after_insert` shift (lag at
-/// `node_idx + 1`); such hooks should document the gap explicitly.
+/// dispatch sequence implements WHATWG §4.10 step 7 in full when the
+/// standard [`elidex_dom_api::LiveRangeBridge`] consumer (composed by
+/// [`elidex_dom_api::ConsumerDispatcher`]) is the installed
+/// dispatcher.  Engines installing a custom dispatcher that ignores
+/// the parent / node_index args inherit only the `Insert` shift (lag
+/// at `node_idx + 1`); such dispatchers should document the gap
+/// explicitly.
 ///
 /// Errors:
 /// - `RangeError` when `offset > length`.

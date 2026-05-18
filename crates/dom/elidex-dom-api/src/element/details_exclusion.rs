@@ -45,6 +45,8 @@
 
 use elidex_ecs::{Attributes, EcsDom, Entity, TagType};
 
+use crate::subtree_walk::walk_inclusive;
+
 /// Walk the inclusive descendants of `root`, collecting open
 /// `<details>` entities whose `name` attribute byte-equals `name` and
 /// which are not `exclude` (the opening element itself).
@@ -66,7 +68,7 @@ pub fn collect_open_details_by_name(
         return Vec::new();
     }
     let mut result = Vec::new();
-    walk_inclusive(dom, root, &mut |entity| {
+    walk_inclusive(dom, root, |entity| {
         if entity == exclude {
             return;
         }
@@ -95,38 +97,6 @@ pub fn collect_open_details_by_name(
     result
 }
 
-/// Generic inclusive-descendants pre-order walker used by
-/// [`collect_open_details_by_name`].  Local to this module — the
-/// existing `tree.rs` walkers (selector matching / collect-text) all
-/// have caller-specific filters, so a small ad-hoc walker keeps this
-/// helper self-contained.
-///
-/// **Iterative, NOT recursive.**  DOM trees in this codebase can be up
-/// to [`elidex_ecs::MAX_ANCESTOR_DEPTH`] (10000) deep, which would blow
-/// the default Rust thread stack with a recursive walker (~100 bytes
-/// per frame × 10000 frames ≈ 1 MB; safe in isolation but susceptible
-/// to overflow when invoked deep inside an existing JS / dispatch call
-/// stack).  Explicit `Vec` stack with reverse-push of children
-/// preserves pre-order semantics: pop yields the next node in
-/// document-order, children pushed in reverse so the leftmost child
-/// pops first.
-fn walk_inclusive(dom: &EcsDom, root: Entity, visit: &mut impl FnMut(Entity)) {
-    let mut stack: Vec<Entity> = vec![root];
-    while let Some(entity) = stack.pop() {
-        visit(entity);
-        // Collect children first, then push in reverse so the leftmost
-        // child is on top of the stack (pops first → pre-order walk).
-        // Allocating a per-node Vec is wasteful for shallow trees but
-        // keeps the iterative invariant simple; in practice the DOM
-        // walker fires only on `<details>.open` mutation paths, not
-        // hot-loop scenarios.
-        let children: Vec<Entity> = dom.children_iter(entity).collect();
-        for child in children.into_iter().rev() {
-            stack.push(child);
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -135,10 +105,10 @@ mod tests {
     fn make_details(dom: &mut EcsDom, name: Option<&str>, open: bool) -> Entity {
         let entity = dom.create_element("details", Attributes::default());
         if let Some(n) = name {
-            dom.set_attribute(entity, "name", n.to_string());
+            dom.set_attribute(entity, "name", n);
         }
         if open {
-            dom.set_attribute(entity, "open", String::new());
+            dom.set_attribute(entity, "open", "");
         }
         entity
     }
@@ -224,8 +194,8 @@ mod tests {
         // participate.  Tag check guards against grouping/section
         // elements that happen to share the attribute names.
         let div = dom.create_element("div", Attributes::default());
-        dom.set_attribute(div, "name", "g".to_string());
-        dom.set_attribute(div, "open", String::new());
+        dom.set_attribute(div, "name", "g");
+        dom.set_attribute(div, "open", "");
         let parent = make_div_parent(&mut dom, &[opener, div]);
         let result = collect_open_details_by_name(&dom, parent, "g", opener);
         assert!(result.is_empty(), "non-details elements ignored");
@@ -276,8 +246,8 @@ mod tests {
         let mut dom = EcsDom::new();
         let opener = make_details(&mut dom, Some("g"), false);
         let upper_tag = dom.create_element("DETAILS", Attributes::default());
-        dom.set_attribute(upper_tag, "name", "g".to_string());
-        dom.set_attribute(upper_tag, "open", String::new());
+        dom.set_attribute(upper_tag, "name", "g");
+        dom.set_attribute(upper_tag, "open", "");
         let parent = make_div_parent(&mut dom, &[opener, upper_tag]);
         let result = collect_open_details_by_name(&dom, parent, "g", opener);
         assert_eq!(result, vec![upper_tag]);

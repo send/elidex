@@ -236,7 +236,7 @@ macro_rules! form_string_attr {
             let val = args.first().copied().unwrap_or(JsValue::Undefined);
             let sid = super::super::coerce::to_string(ctx.vm, val)?;
             let s = ctx.vm.strings.get_utf8(sid);
-            ctx.host().dom().set_attribute(entity, $attr, s);
+            ctx.host().dom().set_attribute(entity, $attr, &s);
             Ok(JsValue::Undefined)
         }
     };
@@ -286,7 +286,7 @@ fn form_set_method(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     let s = ctx.vm.strings.get_utf8(sid);
-    ctx.host().dom().set_attribute(entity, "method", s);
+    ctx.host().dom().set_attribute(entity, "method", &s);
     Ok(JsValue::Undefined)
 }
 
@@ -324,7 +324,7 @@ fn form_set_enctype(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     let s = ctx.vm.strings.get_utf8(sid);
-    ctx.host().dom().set_attribute(entity, "enctype", s);
+    ctx.host().dom().set_attribute(entity, "enctype", &s);
     Ok(JsValue::Undefined)
 }
 
@@ -361,7 +361,7 @@ fn form_set_autocomplete(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     let s = ctx.vm.strings.get_utf8(sid);
-    ctx.host().dom().set_attribute(entity, "autocomplete", s);
+    ctx.host().dom().set_attribute(entity, "autocomplete", &s);
     Ok(JsValue::Undefined)
 }
 
@@ -393,9 +393,7 @@ fn native_form_set_no_validate(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let flag = super::super::coerce::to_boolean(ctx.vm, val);
     if flag {
-        ctx.host()
-            .dom()
-            .set_attribute(entity, "novalidate", String::new());
+        ctx.host().dom().set_attribute(entity, "novalidate", "");
     } else {
         super::element_attrs::attr_remove(ctx, entity, "novalidate");
     }

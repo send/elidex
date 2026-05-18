@@ -5,35 +5,37 @@
 //! VM-side binding is marshalling-only per the CLAUDE.md layering
 //! mandate. The boa-side and engine-indep `DomApiHandler::SplitText`
 //! both call into this function — the bespoke order
-//! `insert → fire_after_split_text → set_text_data` ensures Range
+//! `insert → fire_split_text → set_text_data` ensures Range
 //! live-tracking on the original `entity` migrates boundaries to the
 //! new node BEFORE `set_text_data` clamps remaining boundaries to the
 //! truncated head length.
 //!
-//! # Why `insert` before `fire_after_split_text`
+//! # Why `insert` before `fire_split_text`
 //!
-//! The hook callback (`MutationHook::after_split_text`) only needs to
-//! migrate boundaries from `entity` → `new_node`; it does not need
-//! `new_node` to be reachable from the tree. But firing the hook
-//! AFTER `set_text_data(entity, head)` would mean
-//! `after_text_change` fires first and clamps any `(entity, off)`
-//! boundary with `off > offset` down to `head_len = offset`, losing
-//! the `off - offset` migration target. Order is therefore
+//! The `MutationEvent::SplitText` dispatch only needs to migrate
+//! boundaries from `entity` → `new_node`; it does not need `new_node`
+//! to be reachable from the tree. But dispatching the event AFTER
+//! `set_text_data(entity, head)` would mean `MutationEvent::TextChange`
+//! fires first and clamps any `(entity, off)` boundary with
+//! `off > offset` down to `head_len = offset`, losing the
+//! `off - offset` migration target. Order is therefore
 //! `set_text_data` LAST.
 //!
-//! The `insert_before` / `append_child` step fires `after_insert` for
-//! the new sibling — `parent`-side Range boundaries adjust via the
-//! standard insertion-step rule (off > new_node_idx → +1). Spec
-//! §4.10 step 7.2 requires `off > entity_idx → +1`, which differs at
-//! the single offset `entity_idx + 1`. The
-//! [`elidex_ecs::MutationHook::after_split_text`] callback that
-//! follows the insert is fired with the pre-split `parent` +
-//! `node_index` so the consumer (`LiveRangeRegistry::Bridge`) tops up
-//! that exact slot — the standard bridge therefore implements
-//! §4.10 step 7 in full. Callers that install a CUSTOM hook which
-//! ignores the parent / node_index args inherit the after_insert-only
-//! behaviour (lag at `entity_idx + 1`); document the limitation on
-//! such hooks if the gap matters for their use case.
+//! The `insert_before` / `append_child` step fires
+//! `MutationEvent::Insert` for the new sibling — `parent`-side Range
+//! boundaries adjust via the standard insertion-step rule
+//! (off > new_node_idx → +1). Spec §4.10 step 7.2 requires
+//! `off > entity_idx → +1`, which differs at the single offset
+//! `entity_idx + 1`. The
+//! [`MutationEvent::SplitText`](elidex_ecs::MutationEvent::SplitText)
+//! event that follows the insert is fired with the pre-split parent
+//! and `node_index` so the consumer ([`crate::LiveRangeBridge`], invoked
+//! via [`crate::ConsumerDispatcher`]) tops up that exact slot — the
+//! standard consumer therefore implements §4.10 step 7 in full.
+//! Callers that install a CUSTOM dispatcher which ignores the parent /
+//! node_index args inherit the Insert-only behaviour (lag at
+//! `entity_idx + 1`); document the limitation on such dispatchers if
+//! the gap matters for their use case.
 
 use elidex_ecs::{EcsDom, Entity, NodeKind};
 
@@ -71,7 +73,7 @@ pub enum SplitTextError {
 /// the tail `[offset..]` is created and inserted as `entity`'s next
 /// sibling. Returns the new node entity on success.
 ///
-/// Steps (with hook ordering):
+/// Steps (with dispatch ordering):
 /// 1. Brand-check `entity` is Text / CDATASection.
 /// 2. Read `entity.TextContent`, verify `offset_utf16 ≤ utf16_len`.
 /// 3. Split UTF-16 view at `offset_utf16` → head / tail strings
@@ -80,17 +82,17 @@ pub enum SplitTextError {
 /// 4. Allocate `new_node` carrying the tail, inheriting `entity`'s
 ///    `AssociatedDocument` via `create_text_with_owner`.
 /// 5. If `entity` has a parent: insert `new_node` as the next sibling.
-///    Fires [`elidex_ecs::MutationHook::after_insert`].
-/// 6. Fire [`elidex_ecs::MutationHook::after_split_text`] — boundaries
-///    on `entity` at `off > offset` migrate to `(new_node, off -
-///    offset)`. MUST run AFTER insert (so `new_node` is alive) but
-///    BEFORE `set_text_data` (so the clamp does not destroy the
-///    migration target).
+///    Fires [`MutationEvent::Insert`](elidex_ecs::MutationEvent::Insert).
+/// 6. Fire [`MutationEvent::SplitText`](elidex_ecs::MutationEvent::SplitText)
+///    — boundaries on `entity` at `off > offset` migrate to
+///    `(new_node, off - offset)`. MUST run AFTER insert (so `new_node`
+///    is alive) but BEFORE `set_text_data` (so the clamp does not
+///    destroy the migration target).
 /// 7. `set_text_data(entity, head)` — truncates entity to head, fires
-///    [`elidex_ecs::MutationHook::after_text_change`] which clamps any
-///    boundaries still on `entity` (i.e. `off ≤ offset`) to
-///    `head_len`. Those boundaries are by definition unaffected
-///    (off ≤ head_len = offset).
+///    [`MutationEvent::TextChange`](elidex_ecs::MutationEvent::TextChange)
+///    which clamps any boundaries still on `entity`
+///    (i.e. `off ≤ offset`) to `head_len`. Those boundaries are by
+///    definition unaffected (off ≤ head_len = offset).
 ///
 /// On failure: rolls back the inserted `new_node` and destroys it so
 /// the tree shape and `entity`'s data are unchanged.
@@ -166,7 +168,7 @@ pub fn split_text_at_offset(
     // stay on the original node); parent-side boundary at exactly
     // `node_index + 1` shifts +1 (the `after_insert` hook fired by
     // step 5 already handled the `off > node_index + 1` cases).
-    dom.fire_after_split_text(entity, new_node, offset_utf16, parent_opt, node_index);
+    dom.fire_split_text(entity, new_node, offset_utf16, parent_opt, node_index);
 
     // Step 7: truncate entity to head. Fires after_text_change which
     // clamps boundaries still on entity (those with off ≤ offset) to
@@ -302,12 +304,14 @@ mod tests {
     fn split_text_migrates_range_boundary_to_new_node() {
         // WHATWG §4.10 step 8: boundary on `entity` at off > offset
         // migrates to (new_node, off - offset). With the insert →
-        // fire_after_split_text → set_text_data ordering, the
+        // fire_split_text → set_text_data ordering, the
         // migration runs BEFORE set_text_data's after_text_change
         // would clamp the boundary down to `head_len = offset`.
         let (mut dom, _parent, t) = build_tree();
         let (mut reg, bridge) = LiveRangeRegistry::new_pair();
-        dom.set_mutation_hook(Box::new(bridge));
+        dom.set_mutation_dispatcher(Box::new(crate::ConsumerDispatcher::for_range_only_test(
+            bridge,
+        )));
 
         let mut r = Range::new(t);
         r.set_start(t, 8); // inside "hello world", past offset 5
@@ -333,7 +337,9 @@ mod tests {
         // case has off ≤ offset so the clamp is a no-op.
         let (mut dom, _parent, t) = build_tree();
         let (mut reg, bridge) = LiveRangeRegistry::new_pair();
-        dom.set_mutation_hook(Box::new(bridge));
+        dom.set_mutation_dispatcher(Box::new(crate::ConsumerDispatcher::for_range_only_test(
+            bridge,
+        )));
 
         let mut r = Range::new(t);
         r.set_start(t, 2);

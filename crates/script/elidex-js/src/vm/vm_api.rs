@@ -235,13 +235,36 @@ impl Vm {
             // the next `register` call.  `unregister`-then-recycle
             // is explicitly forbidden by [`RangeId`] doc.
             let prev_next_id = hd.live_range_registry.next_id_marker();
-            let (mut registry, bridge) = elidex_dom_api::MutationBridge::new_pair(iter_shared);
+            let (mut registry, live_range) = elidex_dom_api::LiveRangeRegistry::new_pair();
             registry.restore_next_id_marker(prev_next_id);
             hd.live_range_registry = registry;
-            let displaced = hd.dom().set_mutation_hook(Box::new(bridge));
+            let node_iter = elidex_dom_api::NodeIteratorAdjuster::new(iter_shared);
+            // D-31: typed `ConsumerDispatcher` replaces the v4-era
+            // `MutationBridge` 2-consumer composer (the
+            // `#11-mutation-hook-multiplexer` slot is closed by this
+            // structural shift).  Dispatch order = field declaration
+            // order = (live_range → node_iter → base_url).
+            let mut dispatcher = elidex_dom_api::ConsumerDispatcher::new(live_range, node_iter);
+            // D-31 init pass: pre-bind tree state (e.g. parser-
+            // created `<base href>`) never went through
+            // `MutationEvent::Insert`, so the `BaseUrlMaintainer`
+            // consumer never attached `BaseFrozenUrl` to those
+            // entities and `DocumentBaseUrl` is stuck at
+            // `about_blank`.  Walk the existing tree once BEFORE
+            // installing the dispatcher so post-bind reads of
+            // `document.baseURI` / `Node.baseURI` and relative URL
+            // resolution see the real `<base href>` immediately
+            // (rather than waiting for the next mutation), and so
+            // removing a pre-bind `<base>` triggers recompute as
+            // intended.  Other consumers (`live_range`, `node_iter`)
+            // do not derive ECS state from pre-bind tree structure
+            // and are no-ops here; see
+            // `ConsumerDispatcher::initialize_consumers`.
+            dispatcher.initialize_consumers(hd.dom());
+            let displaced = hd.dom().set_mutation_dispatcher(Box::new(dispatcher));
             debug_assert!(
                 displaced.is_none(),
-                "Vm::bind: EcsDom already had a MutationHook installed — \
+                "Vm::bind: EcsDom already had a MutationDispatcher installed — \
                  bind/unbind paired-teardown invariant violated"
             );
             we
@@ -378,7 +401,7 @@ impl Vm {
                 // `clear_mutation_hook` returns the displaced hook
                 // (currently `()`); we don't read the result — Drop
                 // on the boxed bridge handles cleanup.
-                hd.dom().clear_mutation_hook();
+                hd.dom().clear_mutation_dispatcher();
                 hd.live_range_registry.clear();
                 hd.node_iterator_states_shared
                     .lock()
@@ -503,7 +526,7 @@ impl Vm {
             // clearing on unbind.  These live on `HostData` (not
             // `VmInner`) because the bridge pair-install happens
             // there; the `clear` happens via `HostData::unbind` in
-            // the block below alongside `dom.clear_mutation_hook()`
+            // the block below alongside `dom.clear_mutation_dispatcher()`
             // and the bridge teardown.  See plan-v4 §A-NI-1 Vm::unbind
             // install-order recap.
             // `mutation_observers.clear_all_targets()` drains every

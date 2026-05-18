@@ -306,6 +306,7 @@ define_well_known_strings! {
         child_element_count => "childElementCount",
         has_child_nodes => "hasChildNodes",
         is_connected => "isConnected",
+        base_uri => "baseURI",
         contains => "contains",
         node_type => "nodeType",
         node_name => "nodeName",

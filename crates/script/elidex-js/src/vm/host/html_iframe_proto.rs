@@ -238,7 +238,7 @@ macro_rules! iframe_string_attr {
             let val = args.first().copied().unwrap_or(JsValue::Undefined);
             let sid = super::super::coerce::to_string(ctx.vm, val)?;
             let s = ctx.vm.strings.get_utf8(sid);
-            ctx.host().dom().set_attribute(entity, $attr, s);
+            ctx.host().dom().set_attribute(entity, $attr, &s);
             Ok(JsValue::Undefined)
         }
     };
@@ -289,7 +289,7 @@ fn native_iframe_set_allow_fullscreen(
     if flag {
         ctx.host()
             .dom()
-            .set_attribute(entity, "allowfullscreen", String::new());
+            .set_attribute(entity, "allowfullscreen", "");
     } else {
         super::element_attrs::attr_remove(ctx, entity, "allowfullscreen");
     }

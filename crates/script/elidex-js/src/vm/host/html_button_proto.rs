@@ -180,7 +180,7 @@ macro_rules! button_string_attr {
             let val = args.first().copied().unwrap_or(JsValue::Undefined);
             let sid = super::super::coerce::to_string(ctx.vm, val)?;
             let s = ctx.vm.strings.get_utf8(sid);
-            ctx.host().dom().set_attribute(entity, $attr, s);
+            ctx.host().dom().set_attribute(entity, $attr, &s);
             Ok(JsValue::Undefined)
         }
     };
@@ -243,7 +243,7 @@ fn native_button_set_form_enctype(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     let s = ctx.vm.strings.get_utf8(sid);
-    ctx.host().dom().set_attribute(entity, "formenctype", s);
+    ctx.host().dom().set_attribute(entity, "formenctype", &s);
     Ok(JsValue::Undefined)
 }
 
@@ -280,7 +280,7 @@ fn native_button_set_form_method(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     let s = ctx.vm.strings.get_utf8(sid);
-    ctx.host().dom().set_attribute(entity, "formmethod", s);
+    ctx.host().dom().set_attribute(entity, "formmethod", &s);
     Ok(JsValue::Undefined)
 }
 button_string_attr!(
@@ -321,7 +321,7 @@ fn native_button_set_type(
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = super::super::coerce::to_string(ctx.vm, val)?;
     let s = ctx.vm.strings.get_utf8(sid);
-    ctx.host().dom().set_attribute(entity, "type", s);
+    ctx.host().dom().set_attribute(entity, "type", &s);
     Ok(JsValue::Undefined)
 }
 
@@ -355,7 +355,7 @@ macro_rules! button_bool_attr {
             let val = args.first().copied().unwrap_or(JsValue::Undefined);
             let flag = super::super::coerce::to_boolean(ctx.vm, val);
             if flag {
-                ctx.host().dom().set_attribute(entity, $attr, String::new());
+                ctx.host().dom().set_attribute(entity, $attr, "");
             } else {
                 super::element_attrs::attr_remove(ctx, entity, $attr);
             }

@@ -19,7 +19,8 @@ pub use char_data_handlers::{
 pub use doctype::{GetDoctype, GetDoctypeName, GetDoctypePublicId, GetDoctypeSystemId};
 pub use document_props::{
     first_body_or_frameset_child, CreateComment, CreateDocumentFragment, GetBody, GetCharacterSet,
-    GetCompatMode, GetDocumentElement, GetDocumentUrl, GetHead, GetReadyState, GetTitle, SetTitle,
+    GetCompatMode, GetDocumentBaseURI, GetDocumentElement, GetDocumentUrl, GetHead, GetNodeBaseURI,
+    GetReadyState, GetTitle, SetTitle,
 };
 
 #[cfg(test)]
