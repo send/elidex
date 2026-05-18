@@ -92,32 +92,40 @@ fn attach_frozen_urls_in_subtree(dom: &mut EcsDom, root: Entity, fallback: &Url)
     any
 }
 
-/// Recompute the document's [`DocumentBaseUrl`] based on the current
-/// tree state — locates the first `<base href>` in tree order
-/// (WHATWG HTML §2.4.3 step 1 — "the first base element ... that has
-/// an href attribute, in tree order") and adopts its frozen URL, or
-/// falls back to [`about_blank_url`].  Idempotent no-op when the
-/// resolved URL is unchanged.
+/// Recompute the [`DocumentBaseUrl`] for `doc` based on the current
+/// tree state rooted at `doc` itself — locates the first `<base href>`
+/// in tree order (WHATWG HTML §2.4.3 step 1 — "the first base element
+/// ... that has an href attribute, in tree order") and adopts its
+/// frozen URL, or falls back to [`about_blank_url`].  Idempotent no-op
+/// when the resolved URL is unchanged.
+///
+/// Walks the subtree rooted at `doc` (not the EcsDom's cached document
+/// root), keeping the function self-consistent: callers pick the
+/// document the recompute is for, the function uses that same tree
+/// to derive `<base>` candidates and writes back to that document.
+/// Today the only multi-document context is per-EcsDom (single
+/// `document_root`), so in production `doc == dom.document_root()`,
+/// but multi-document / DocumentFragment owner-document support would
+/// hit a write/walk mismatch under the old `dom.document_root()`-
+/// only formulation.
 ///
 /// `<template>` element children are skipped per HTML §2.4.3 —
 /// template contents form a separate document and a `<base>` inside
 /// must not be selected as the host document's first base.
 fn recompute_document_base(dom: &mut EcsDom, doc: Entity) {
     let fallback = about_blank_url();
-    let new_first = dom.document_root().and_then(|root| {
-        walk_inclusive_filtered_until(
-            dom,
-            root,
-            |node| !dom.is_template_element(node),
-            |node| {
-                if dom.is_base_element(node) && dom.has_attribute(node, "href") {
-                    ControlFlow::Break(node)
-                } else {
-                    ControlFlow::Continue(())
-                }
-            },
-        )
-    });
+    let new_first = walk_inclusive_filtered_until(
+        dom,
+        doc,
+        |node| !dom.is_template_element(node),
+        |node| {
+            if dom.is_base_element(node) && dom.has_attribute(node, "href") {
+                ControlFlow::Break(node)
+            } else {
+                ControlFlow::Continue(())
+            }
+        },
+    );
     let new_url = match new_first {
         Some(base) => dom
             .world()
@@ -287,5 +295,61 @@ mod tests {
         let base = Url::parse("https://example.com/page/").unwrap();
         let url = compute_frozen_url("sub/path", &base);
         assert_eq!(url.as_str(), "https://example.com/page/sub/path");
+    }
+
+    #[test]
+    fn recompute_walks_from_doc_param_not_cached_root() {
+        // Regression for R3: `recompute_document_base(dom, doc)` must
+        // walk from `doc` itself, NOT from `dom.document_root()`.
+        // Old formulation would pick up a `<base href>` reachable from
+        // the cached root and write its URL onto `doc` even when `doc`
+        // is a different / detached subtree — write/walk mismatch.
+        use elidex_ecs::{Attributes, EcsDom};
+        let mut dom = EcsDom::new();
+        let doc_root = dom.create_document_root();
+        let body = dom.create_element("body", Attributes::default());
+        assert!(dom.append_child(doc_root, body));
+
+        // Attach a `<base href>` reachable from the cached root.  The
+        // `BaseFrozenUrl` is hand-attached because no dispatcher is
+        // installed in this raw-ECS test fixture.
+        let base = dom.create_element("base", Attributes::default());
+        assert!(dom.set_attribute(base, "href", "https://outer.example/"));
+        assert!(dom.append_child(body, base));
+        let outer = Url::parse("https://outer.example/").unwrap();
+        dom.world_mut()
+            .insert_one(base, BaseFrozenUrl(outer.clone()))
+            .expect("attach BaseFrozenUrl on test base element");
+
+        // A separate, detached "would-be document" entity with NO base
+        // in its (empty) subtree.
+        let alt_doc = dom.create_element("html", Attributes::default());
+
+        // Walk must originate at `alt_doc` — empty subtree → fallback.
+        recompute_document_base(&mut dom, alt_doc);
+        let recorded = dom
+            .world()
+            .get::<&DocumentBaseUrl>(alt_doc)
+            .expect("recompute writes DocumentBaseUrl to its `doc` param")
+            .0
+            .clone();
+        assert_eq!(
+            recorded,
+            about_blank_url(),
+            "recompute_document_base must walk from its `doc` param \
+             (alt_doc here), not from dom.document_root() — otherwise \
+             outer.example would leak in via the cached-root walk",
+        );
+
+        // Sanity: recomputing for `doc_root` (which IS the cached root)
+        // still picks up `<base href>` correctly.
+        recompute_document_base(&mut dom, doc_root);
+        let doc_root_url = dom
+            .world()
+            .get::<&DocumentBaseUrl>(doc_root)
+            .expect("recompute writes DocumentBaseUrl to doc_root")
+            .0
+            .clone();
+        assert_eq!(doc_root_url, outer);
     }
 }
