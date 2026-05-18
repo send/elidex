@@ -132,18 +132,16 @@ fn shadow_root_inner_html_get_serializes_shadow_children() {
 
 #[test]
 fn shadow_root_inner_html_set_replaces_shadow_children() {
-    // Use Node-level `childNodes` rather than Element-only `children`
-    // because the latter accessor is not yet exposed on the
-    // ShadowRoot → DocumentFragment.prototype → Node.prototype chain
-    // (defer slot `#11-shadow-parent-node-accessors`).
+    // `sr.children` exercises the ParentNode mixin reader inherited
+    // via the ShadowRoot → DocumentFragment.prototype chain.
     let out = run(
         "var host = document.createElement('div'); \
          document.body.appendChild(host); \
          var sr = host.attachShadow({mode: 'open'}); \
          sr.appendChild(document.createElement('span')); \
          sr.innerHTML = '<p>new</p>'; \
-         (sr.childNodes.length === 1 && sr.firstChild.tagName === 'P') \
-             ? 'ok' : ('fail:' + sr.childNodes.length + ':' + (sr.firstChild && sr.firstChild.tagName));",
+         (sr.children.length === 1 && sr.firstElementChild.tagName === 'P') \
+             ? 'ok' : ('fail:' + sr.children.length + ':' + (sr.firstElementChild && sr.firstElementChild.tagName));",
     );
     assert_eq!(out, "ok");
 }
@@ -151,13 +149,13 @@ fn shadow_root_inner_html_set_replaces_shadow_children() {
 #[test]
 fn element_set_html_unsafe_parses_template_shadowrootmode_as_shadow_root() {
     // Declarative shadow root attaches via setHTMLUnsafe (HTML §4.13.3).
-    // Node-level `firstChild` rather than Element-only
-    // `firstElementChild` (not exposed on ShadowRoot.prototype yet).
+    // `firstElementChild` reaches ShadowRoot via the ParentNode mixin
+    // installed on `DocumentFragment.prototype`.
     let out = run(
         "var host = document.createElement('div'); \
          document.body.appendChild(host); \
          host.setHTMLUnsafe('<template shadowrootmode=\"open\"><p>x</p></template>'); \
-         (host.shadowRoot !== null && host.shadowRoot.firstChild && host.shadowRoot.firstChild.tagName === 'P') \
+         (host.shadowRoot !== null && host.shadowRoot.firstElementChild && host.shadowRoot.firstElementChild.tagName === 'P') \
              ? 'ok' : ('fail:' + (host.shadowRoot === null ? 'no-shadow' : host.shadowRoot.innerHTML));",
     );
     assert_eq!(out, "ok");

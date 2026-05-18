@@ -144,15 +144,11 @@ fn shadow_root_append_routes_through_parent_node_mixin() {
     // ShadowRoot wrappers are `ObjectKind::HostObject { entity_bits }`
     // carrying the shadow root entity, so `entity_from_this` returns
     // it unchanged and the inherited ParentNode mixin methods mutate
-    // the shadow tree directly (D-15 PR-A wire-up for
-    // `#11-shadow-parent-node-mixin-receiver`).
-    //
-    // `firstElementChild` / `children` etc. are installed on
-    // `Element.prototype` only — DocumentFragment.prototype currently
-    // carries just the mutation methods (`prepend` / `append` /
-    // `replaceChildren`).  Observability of the appended child via
-    // `Node.parentNode` is sufficient for this test; the ParentNode
-    // accessor surface on ShadowRoot tracks a separate defer slot.
+    // the shadow tree directly.  Sibling test
+    // `shadow_root_reader_mixin_reaches_via_document_fragment_chain`
+    // (in `tests_inner_html_mixin.rs`) locks the reader half of the
+    // mixin reaching ShadowRoot via the same DocumentFragment.prototype
+    // chain.
     let out = run("var host = document.createElement('div'); \
          var sr = host.attachShadow({mode: 'open'}); \
          var span = document.createElement('span'); \

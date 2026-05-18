@@ -932,6 +932,21 @@ const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
     ("documentElement", native_document_get_document_element),
     ("head", native_document_get_head),
     ("body", native_document_get_body),
+    // ParentNode mixin (WHATWG §4.2.6) RO accessors — Document has
+    // no shared prototype; selector pair stays in `DOCUMENT_METHODS`.
+    (
+        "firstElementChild",
+        super::parentnode::native_pn_first_element_child,
+    ),
+    (
+        "lastElementChild",
+        super::parentnode::native_pn_last_element_child,
+    ),
+    ("children", super::parentnode::native_pn_children),
+    (
+        "childElementCount",
+        super::parentnode::native_pn_child_element_count,
+    ),
     ("URL", native_document_get_url),
     ("documentURI", native_document_get_url),
     ("readyState", native_document_get_ready_state),

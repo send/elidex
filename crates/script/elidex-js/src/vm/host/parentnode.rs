@@ -1,18 +1,18 @@
-//! ParentNode mixin — `prepend` / `append` / `replaceChildren`
-//! (WHATWG DOM §5.2.4).
+//! ParentNode mixin (WHATWG DOM §4.2.6) — mutation methods
+//! (`prepend` / `append` / `replaceChildren`) via
+//! [`VmInner::install_parent_node_mixin`] and read surface
+//! (`children` / `firstElementChild` / `lastElementChild` /
+//! `childElementCount` / `querySelector` / `querySelectorAll`) via
+//! [`VmInner::install_parent_node_readers`].
 //!
-//! In the DOM spec, ParentNode is mixed into Element, Document, and
-//! DocumentFragment.  In this implementation, these native fns are
-//! currently installed only on `Element.prototype` and on the
-//! document wrapper at bind time (Document has no shared prototype
-//! the way Element does — its wrapper is patched per-bind by
-//! [`install_document_methods_if_needed`](super::document)).
-//! DocumentFragment wrappers still chain via `Node.prototype` and
-//! therefore do not expose `prepend`/`append`/`replaceChildren`
-//! yet; that gap lands together with the `DocumentFragment.prototype`
-//! work in a later PR.
+//! Spec receivers are Element / Document / DocumentFragment.  Both
+//! installs run on `Element.prototype` and `DocumentFragment.prototype`
+//! (ShadowRoot inherits via the latter); Document has no shared
+//! prototype so its wrapper picks up the four RO accessors via
+//! [`super::document::DOCUMENT_RO_ACCESSORS`] and keeps its existing
+//! `native_document_query_selector*` own-properties.
 //!
-//! Argument normalisation reuses
+//! Argument normalisation for the mutation methods reuses
 //! [`super::childnode::convert_nodes_to_single_node_or_fragment`] so
 //! the Phase 2 (spec §4.2.5) rules are identical.
 
@@ -22,7 +22,11 @@ use super::super::shape;
 use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
 use super::super::{NativeFn, VmInner};
 use super::childnode::{convert_nodes_to_single_node_or_fragment, finalize_pair};
-use super::dom_bridge::nodes_to_insert;
+use super::dom_bridge::{
+    coerce_first_arg_to_string, coerce_first_arg_to_string_id, invoke_dom_api, nodes_to_insert,
+    query_selector_all_snapshot, tree_nav_getter,
+};
+use super::event_target::entity_from_this;
 
 use elidex_ecs::{Entity, NodeKind};
 
@@ -61,11 +65,10 @@ fn hierarchy_request_error(ctx: &NativeContext<'_>, method: &str) -> VmError {
 }
 
 /// ParentNode mixin receivers per WHATWG §4.2.6 — Element,
-/// Document, DocumentFragment.  DocumentFragment wrappers don't
-/// currently receive the mixin install (the prototype install
-/// happens on Element.prototype and the document wrapper only),
-/// but a `Function.call` reroute can still hit these natives with
-/// a Fragment receiver — accept it so we don't falsely throw.
+/// Document, DocumentFragment.  ShadowRoot is `NodeKind::DocumentFragment`
+/// in our model (it carries the `elidex_ecs::ShadowRoot` brand
+/// component but shares the fragment node-kind), so it accepts
+/// uniformly without a separate kind enum.
 fn is_parent_node_kind(k: NodeKind) -> bool {
     matches!(
         k,
@@ -247,4 +250,155 @@ fn native_parent_node_replace_children(
         }
     }
     Ok(JsValue::Undefined)
+}
+
+// === Read surface (WHATWG §4.2.6) ===
+
+impl VmInner {
+    /// Install the four ParentNode read accessors + the two selector
+    /// methods on `proto_id` (Element.prototype, DocumentFragment.prototype).
+    pub(in crate::vm) fn install_parent_node_readers(&mut self, proto_id: ObjectId) {
+        for (name_sid, getter) in [
+            (
+                self.well_known.first_element_child,
+                native_pn_first_element_child as NativeFn,
+            ),
+            (
+                self.well_known.last_element_child,
+                native_pn_last_element_child,
+            ),
+            (self.well_known.children, native_pn_children),
+            (
+                self.well_known.child_element_count,
+                native_pn_child_element_count,
+            ),
+        ] {
+            self.install_accessor_pair(
+                proto_id,
+                name_sid,
+                getter,
+                None,
+                shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
+            );
+        }
+        for (name_sid, func) in [
+            (
+                self.well_known.query_selector,
+                native_pn_query_selector as NativeFn,
+            ),
+            (
+                self.well_known.query_selector_all,
+                native_pn_query_selector_all,
+            ),
+        ] {
+            self.install_native_method(proto_id, name_sid, func, shape::PropertyAttrs::METHOD);
+        }
+    }
+}
+
+/// `firstElementChild` / `lastElementChild` use [`tree_nav_getter`],
+/// which returns `null` on unbound receivers.  No brand check: a
+/// non-parent receiver has no `TagType` children, so the lookup
+/// naturally returns `None`.
+pub(super) fn native_pn_first_element_child(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    tree_nav_getter(ctx, this, elidex_ecs::EcsDom::first_element_child)
+}
+
+pub(super) fn native_pn_last_element_child(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    tree_nav_getter(ctx, this, elidex_ecs::EcsDom::last_element_child)
+}
+
+/// `children` returns a fresh live `HTMLCollection` per access.  This
+/// does **not** satisfy the `[SameObject] children` annotation in
+/// WHATWG §4.2.6 IDL (which requires
+/// `node.children === node.children`).  Caching the wrapper requires
+/// a per-entity side-table mirroring
+/// `html_form_proto.rs::form_elements_wrappers` and is tracked under
+/// defer slot `#11-parentnode-children-sameobject-cache` (trigger:
+/// framework site or WPT failure on identity preservation).
+pub(super) fn native_pn_children(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    let id = ctx.vm.alloc_collection(elidex_dom_api::LiveCollection::new(
+        entity,
+        elidex_dom_api::CollectionFilter::ElementChildren,
+        elidex_dom_api::CollectionKind::HtmlCollection,
+    ));
+    Ok(JsValue::Object(id))
+}
+
+pub(super) fn native_pn_child_element_count(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = entity_from_this(ctx, this) else {
+        return Ok(JsValue::Number(0.0));
+    };
+    let dom = ctx.host().dom();
+    let count = dom
+        .children_iter(entity)
+        .filter(|c| dom.is_element(*c))
+        .count();
+    #[allow(clippy::cast_precision_loss)]
+    let count_f = count as f64;
+    Ok(JsValue::Number(count_f))
+}
+
+/// `querySelector(selector)` — subtree-scoped per WHATWG §4.2.6.
+/// `this` itself is never a match candidate, only its descendants.
+/// The brand check is relaxed from Element-only to
+/// `is_parent_node_kind` so DocumentFragment / ShadowRoot receivers
+/// route through the same engine-indep `QuerySelector` handler.
+fn native_pn_query_selector(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = super::event_target::require_receiver(
+        ctx,
+        this,
+        "ParentNode",
+        "querySelector",
+        is_parent_node_kind,
+    )?
+    else {
+        return Ok(JsValue::Null);
+    };
+    let target_sid = coerce_first_arg_to_string_id(ctx, args)?;
+    invoke_dom_api(ctx, "querySelector", entity, &[JsValue::String(target_sid)])
+}
+
+/// `querySelectorAll(selector)` — subtree-scoped, returns a static
+/// `NodeList` snapshot per WHATWG §4.2.6.
+fn native_pn_query_selector_all(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let Some(entity) = super::event_target::require_receiver(
+        ctx,
+        this,
+        "ParentNode",
+        "querySelectorAll",
+        is_parent_node_kind,
+    )?
+    else {
+        return Ok(JsValue::Null);
+    };
+    let selector_str = coerce_first_arg_to_string(ctx, args)?;
+    query_selector_all_snapshot(ctx, entity, &selector_str)
 }
