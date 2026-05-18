@@ -55,11 +55,16 @@ use crate::EcsDom;
 /// - [`Self::Remove`] — fired AFTER a node is detached from its
 ///   parent. Source spec: **WHATWG DOM §4.2.3** "Mutation algorithms"
 ///   (remove algorithm); the synchronous fire corresponds to the §4.2
-///   "removing steps" extension hook. The inclusive descendant
-///   snapshot is captured BEFORE detach (PR186 R2 #3 / R4 #1
-///   additive-snapshot pattern); `dom: &EcsDom` access enables WHATWG
-///   DOM §6.1 NodeIterator pre-removing-steps walk-forward through
-///   the about-to-be-removed subtree.
+///   "removing steps" extension hook. Engine ordering: (1) capture
+///   the inclusive descendant set into `descendants` BEFORE any
+///   orphaning, (2) detach `node` from `parent`, (3) fire this event
+///   carrying the pre-orphan snapshot — so the event itself fires
+///   post-detach but the `descendants` slice reflects the intact
+///   pre-detach subtree (PR186 R2 #3 / R4 #1 additive-snapshot
+///   pattern; see "Tree shape at fire time" on the variant). `dom:
+///   &EcsDom` access enables WHATWG DOM §6.1 NodeIterator pre-
+///   removing-steps walk-forward through the about-to-be-removed
+///   subtree.
 ///
 /// - [`Self::TextChange`] — fired AFTER a Text / CData entity's
 ///   `TextContent` is rewritten as a single whole-string assignment
