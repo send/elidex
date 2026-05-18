@@ -146,7 +146,7 @@ fn shadow_root_append_routes_through_parent_node_mixin() {
     // it unchanged and the inherited ParentNode mixin methods mutate
     // the shadow tree directly.  Sibling test
     // `shadow_root_reader_mixin_reaches_via_document_fragment_chain`
-    // (in `tests_inner_html_mixin.rs`) locks the reader half of the
+    // (in `tests_parent_node_mixin.rs`) locks the reader half of the
     // mixin reaching ShadowRoot via the same DocumentFragment.prototype
     // chain.
     let out = run("var host = document.createElement('div'); \
