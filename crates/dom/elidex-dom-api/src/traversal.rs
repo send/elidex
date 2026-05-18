@@ -1192,7 +1192,7 @@ impl NodeIteratorAdjuster {
     pub fn handle(
         &mut self,
         event: &elidex_ecs::MutationEvent<'_>,
-        dom: &elidex_ecs::EcsDom,
+        dom: &mut elidex_ecs::EcsDom,
     ) {
         if let elidex_ecs::MutationEvent::Remove {
             node,

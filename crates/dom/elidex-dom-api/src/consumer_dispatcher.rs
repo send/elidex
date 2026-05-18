@@ -57,7 +57,7 @@ impl ConsumerDispatcher {
 }
 
 impl MutationDispatcher for ConsumerDispatcher {
-    fn dispatch(&mut self, event: &MutationEvent<'_>, dom: &EcsDom) {
+    fn dispatch(&mut self, event: &MutationEvent<'_>, dom: &mut EcsDom) {
         // Field-order = dispatch-order.  All consumers see every
         // event; each pattern-matches variants of interest.
         // Lock-disjoint scope is preserved within each handler.

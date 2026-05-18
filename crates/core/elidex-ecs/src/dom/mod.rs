@@ -24,8 +24,9 @@ mod tree_clone;
 pub use mutation_event::{MutationDispatcher, MutationEvent};
 
 use crate::components::{
-    AssociatedDocument, AttrData, Attributes, CommentData, DocTypeData, NodeKind, ShadowRoot,
-    TagType, TextContent, TreeRelation,
+    AssociatedDocument, AttrData, Attributes, CommentData, DocTypeData, DocumentBaseUrl,
+    DocumentBaseUrlVersion, DocumentFirstBase, NodeKind, ShadowRoot, TagType, TextContent,
+    TreeRelation,
 };
 use hecs::{Entity, World};
 
@@ -102,28 +103,27 @@ impl EcsDom {
     /// dispatch would observe an empty dispatcher slot and silently
     /// no-op.
     fn dispatch_event(&mut self, event: &MutationEvent<'_>) {
-        if self.dispatcher.is_none() {
-            return;
-        }
+        // Take dispatcher out of `self.dispatcher` so `&mut self` can
+        // be passed to `dispatch` without borrow-conflicting with the
+        // dispatcher field.  Restore via a panic-safe Drop guard.
+        //
         // SAFETY: `target_ptr` aliases `self.dispatcher` exclusively
         // because we have `&mut self` here and immediately move the
         // dispatcher out via `take()`.  No other borrow of
         // `self.dispatcher` is live for the duration of `guard` (the
-        // `&*self` borrow we hand to the callback specifically
-        // excludes the now-empty field).  `Drop` writes the dispatcher
-        // back atomically on both normal return and panic-unwind.
+        // `&mut *self` borrow we hand to the callback re-borrows the
+        // whole struct minus the now-empty dispatcher field — nested
+        // dispatch via mutation primitives observes the empty slot
+        // and silently no-ops per the trait re-entry contract).
+        if self.dispatcher.is_none() {
+            return;
+        }
         struct RestoreDispatcher {
             target_ptr: *mut Option<Box<dyn MutationDispatcher + Send + Sync>>,
             pending: Option<Box<dyn MutationDispatcher + Send + Sync>>,
         }
         impl Drop for RestoreDispatcher {
             fn drop(&mut self) {
-                // SAFETY: target_ptr was &mut self.dispatcher at
-                // construction; we took the dispatcher out before
-                // forming the pointer, so the field is empty and not
-                // aliased by any reference during the dispatch
-                // callback.  Writing the pending value back is a
-                // single field assignment.
                 #[allow(unsafe_code)]
                 unsafe {
                     *self.target_ptr = self.pending.take();
@@ -137,9 +137,8 @@ impl EcsDom {
             pending: self.dispatcher.take(),
         };
         if let Some(d) = guard.pending.as_mut() {
-            d.dispatch(event, &*self);
+            d.dispatch(event, self);
         }
-        // guard drops here -> restores self.dispatcher
         drop(guard);
     }
 
@@ -420,10 +419,23 @@ impl EcsDom {
     ///
     /// The document root serves as the parent of the `<html>` element.
     /// The entity is cached for fast retrieval via [`document_root()`](Self::document_root).
+    ///
+    /// D-31: eagerly attaches [`DocumentBaseUrl`] + [`DocumentFirstBase`]
+    /// + [`DocumentBaseUrlVersion`] (initialised to the placeholder
+    /// `about:blank` fallback URL pending
+    /// `#11-document-url-real-navigation` slot landing).  Phase B
+    /// `BaseUrlMaintainer` mutates these as `<base>` elements enter /
+    /// leave the doc tree.
     pub fn create_document_root(&mut self) -> Entity {
-        let entity = self
-            .world
-            .spawn((TreeRelation::default(), NodeKind::Document));
+        let entity = self.world.spawn((
+            TreeRelation::default(),
+            NodeKind::Document,
+            DocumentBaseUrl(
+                url::Url::parse("about:blank").expect("about:blank parses"),
+            ),
+            DocumentFirstBase(None),
+            DocumentBaseUrlVersion::default(),
+        ));
         self.document_root = Some(entity);
         entity
     }

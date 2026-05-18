@@ -441,6 +441,19 @@ pub(super) fn native_document_get_url(
     Ok(JsValue::String(sid))
 }
 
+/// `document.baseURI` getter (D-31; WHATWG DOM §4.4 Interface Node
+/// `baseURI` getter, anchor `#dom-node-baseuri`).  Routes through the
+/// dom-api `document.baseURI.get` handler which reads the cached
+/// `DocumentBaseUrl` component maintained by `BaseUrlMaintainer`.
+pub(super) fn native_document_get_base_uri(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let empty = JsValue::String(ctx.vm.well_known.empty);
+    invoke_document_accessor(ctx, this, "baseURI", "document.baseURI.get", empty)
+}
+
 pub(super) fn native_document_get_ready_state(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -949,6 +962,7 @@ const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
     ),
     ("URL", native_document_get_url),
     ("documentURI", native_document_get_url),
+    ("baseURI", native_document_get_base_uri),
     ("readyState", native_document_get_ready_state),
     ("compatMode", native_document_get_compat_mode),
     ("defaultView", native_document_get_default_view),

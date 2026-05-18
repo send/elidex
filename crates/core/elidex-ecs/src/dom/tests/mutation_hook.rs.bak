@@ -57,7 +57,7 @@ struct MockHook {
 }
 
 impl MutationDispatcher for MockHook {
-    fn dispatch(&mut self, event: &MutationEvent<'_>, _dom: &mut crate::EcsDom) {
+    fn dispatch(&mut self, event: &MutationEvent<'_>, _dom: &crate::EcsDom) {
         // Pattern-match every variant, recording into the same
         // MockEvent shape the legacy tests assert against.  The
         // generic AttributeChange variant is ignored — dedicated
@@ -973,7 +973,7 @@ struct DescendantSnapshotHook {
 }
 
 impl MutationDispatcher for DescendantSnapshotHook {
-    fn dispatch(&mut self, event: &MutationEvent<'_>, _dom: &mut crate::EcsDom) {
+    fn dispatch(&mut self, event: &MutationEvent<'_>, _dom: &crate::EcsDom) {
         if let MutationEvent::Remove {
             node, descendants, ..
         } = *event

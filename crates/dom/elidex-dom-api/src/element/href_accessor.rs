@@ -26,21 +26,35 @@ use url::Url;
 use crate::util::{not_found_error, require_string_arg};
 use elidex_script_session::{DomApiError, DomApiHandler, SessionCore};
 
-/// Document base-URL placeholder until `#11-base-href-resolution`
-/// lands real navigation state + `<base href>` walking.  Matches the
-/// stub returned by `document.URL` (`char_data/document_props.rs`).
-const BASE_URL_PLACEHOLDER: &str = "about:blank";
+/// Resolve `<base>` for `entity`'s effective base URL.  When
+/// `entity` is itself a `<base>` element, returns the entity's
+/// [`BaseFrozenUrl`] (per WHATWG HTML §4.2.3 — the `<base>` element's
+/// own `href` getter resolves against itself, not against the doc
+/// base).  Otherwise returns the document base URL via
+/// [`crate::element::document_base::document_base_url`].
+fn effective_base_url(dom: &EcsDom, entity: Entity) -> Url {
+    if dom.is_base_element(entity) {
+        if let Ok(frozen) = dom.world().get::<&elidex_ecs::BaseFrozenUrl>(entity) {
+            return frozen.0.clone();
+        }
+    }
+    let doc = dom.document_root().unwrap_or(entity);
+    crate::element::document_base::document_base_url(dom, doc)
+}
 
-/// Read the `href` content attribute, resolve against the base URL,
-/// parse with `url::Url`, and call the supplied closure with the
-/// parsed URL.  Returns the closure's `String` result, or `""` if the
-/// `href` attribute is absent / unparseable per WHATWG URL §6.2.
+/// Read the `href` content attribute, resolve against the effective
+/// base URL (D-31: `<base>.href` for `<base>` elements, doc base for
+/// other URL-bearing elements), parse with `url::Url`, and call the
+/// supplied closure with the parsed URL.  Returns the closure's
+/// `String` result, or `""` if the `href` attribute is absent /
+/// unparseable per WHATWG URL §6.2.
 pub fn href_url_component<F>(entity: Entity, dom: &EcsDom, f: F) -> Result<String, DomApiError>
 where
     F: FnOnce(&Url) -> String,
 {
     let href = read_href_attr(entity, dom)?;
-    match parse_with_base(&href) {
+    let base = effective_base_url(dom, entity);
+    match parse_with_base(&href, &base) {
         Some(url) => Ok(f(&url)),
         None => Ok(String::new()),
     }
@@ -59,7 +73,8 @@ where
     F: FnOnce(&mut Url),
 {
     let href = read_href_attr(entity, dom)?;
-    if let Some(mut url) = parse_with_base(&href) {
+    let base = effective_base_url(dom, entity);
+    if let Some(mut url) = parse_with_base(&href, &base) {
         mutate(&mut url);
         write_href_attr(entity, dom, url.as_str().to_string())?;
     }
@@ -84,7 +99,8 @@ pub fn set_href(entity: Entity, dom: &mut EcsDom, value: &str) -> Result<(), Dom
 /// the per-component getters but wrong for `href` itself).
 pub fn href_value_or_raw(entity: Entity, dom: &EcsDom) -> Result<String, DomApiError> {
     let href = read_href_attr(entity, dom)?;
-    match parse_with_base(&href) {
+    let base = effective_base_url(dom, entity);
+    match parse_with_base(&href, &base) {
         Some(url) => Ok(url.as_str().to_string()),
         None => Ok(href),
     }
@@ -114,16 +130,12 @@ fn write_href_attr(entity: Entity, dom: &mut EcsDom, value: String) -> Result<()
     Ok(())
 }
 
-fn parse_with_base(href: &str) -> Option<Url> {
+fn parse_with_base(href: &str, base: &Url) -> Option<Url> {
     if href.is_empty() {
         return None;
     }
     // Try absolute parse first; if relative, resolve against base.
-    Url::parse(href).ok().or_else(|| {
-        Url::parse(BASE_URL_PLACEHOLDER)
-            .ok()
-            .and_then(|base| base.join(href).ok())
-    })
+    Url::parse(href).ok().or_else(|| base.join(href).ok())
 }
 
 // ---------------------------------------------------------------------------

@@ -110,7 +110,7 @@ impl elidex_ecs::MutationDispatcher for LiveRangeBridge {
     fn dispatch(
         &mut self,
         event: &elidex_ecs::MutationEvent<'_>,
-        dom: &EcsDom,
+        dom: &mut EcsDom,
     ) {
         self.handle(event, dom);
     }
@@ -123,7 +123,7 @@ impl LiveRangeBridge {
     /// helper below.  Variants not affecting Range live-tracking
     /// (Insert handled by `after_insert`, AttributeChange ignored)
     /// fall through the `_` arm.
-    pub fn handle(&mut self, event: &MutationEvent<'_>, dom: &EcsDom) {
+    pub fn handle(&mut self, event: &MutationEvent<'_>, dom: &mut EcsDom) {
         match *event {
             MutationEvent::Remove {
                 node,

@@ -310,5 +310,17 @@ pub trait MutationDispatcher: Send + Sync {
     /// Dispatch ONE event synchronously. Consumers (called by the
     /// dispatcher's impl) pattern-match on variants of interest;
     /// unmatched variants are silently ignored.
-    fn dispatch(&mut self, event: &MutationEvent<'_>, dom: &EcsDom);
+    ///
+    /// `dom` is passed `&mut` so consumers (e.g. `BaseUrlMaintainer`
+    /// in D-31) can mutate ECS components (e.g. `BaseFrozenUrl`,
+    /// `DocumentBaseUrl`) at dispatch time.  Read-only consumers
+    /// (e.g. `LiveRangeBridge`, `NodeIteratorAdjuster`) ignore the
+    /// `&mut` and use it as `&` via auto-deref.
+    ///
+    /// Re-entry: invoking an `EcsDom` mutation primitive (which would
+    /// fire a nested event) from within `dispatch` would observe an
+    /// empty dispatcher slot (take-and-restore pattern) and silently
+    /// no-op — consumers MUST queue such work for after-drain via
+    /// per-consumer deferred-action state instead.
+    fn dispatch(&mut self, event: &MutationEvent<'_>, dom: &mut EcsDom);
 }
