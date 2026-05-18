@@ -30,11 +30,13 @@ pub(crate) fn get_char_data(entity: Entity, dom: &EcsDom) -> Result<String, DomA
 /// Write character data (text or comment) to an entity.
 ///
 /// Text / CData writes route through [`EcsDom::set_text_data`] so the
-/// installed `MutationHook` (e.g. `LiveRangeRegistry`) receives the
-/// `after_text_change` callback (WHATWG DOM §5.5 "set/replace data steps"
-/// Range live-tracking).  Comment writes update `CommentData` in place; per
-/// WHATWG §5.5 Range live-tracking does not cover Comment nodes, so no
-/// hook fires for that branch.
+/// installed [`elidex_ecs::MutationDispatcher`] (typically
+/// [`crate::ConsumerDispatcher`]) receives the
+/// [`elidex_ecs::MutationEvent::TextChange`] event and consumers
+/// (e.g. [`crate::LiveRangeBridge`]) apply WHATWG DOM §5.5
+/// "set/replace data steps" Range live-tracking.  Comment writes
+/// update `CommentData` in place; per WHATWG §5.5 Range live-tracking
+/// does not cover Comment nodes, so no event fires for that branch.
 ///
 /// Both branches are self-contained for cache invalidation: the Text
 /// path inherits the `rev_version(entity)` call inside `set_text_data`,
@@ -130,10 +132,11 @@ pub fn utf16_to_byte_offset(s: &str, utf16_offset: usize) -> Option<usize> {
 /// Splice `entity`'s CharacterData per WHATWG DOM §4.10 "replace
 /// data". Routes Text / CDATASection writes through the
 /// [`elidex_ecs::EcsDom::replace_text_data`] chokepoint so the
-/// installed `MutationHook` (e.g. `LiveRangeRegistry`) sees the
-/// middle-splice as `after_replace_data` rather than a whole-string
-/// `after_text_change` — boundary-adjustment math differs (§4.10
-/// steps 8-11 vs §5.5 clamp).
+/// installed [`elidex_ecs::MutationDispatcher`] (typically
+/// [`crate::ConsumerDispatcher`]) sees the middle-splice as
+/// [`elidex_ecs::MutationEvent::ReplaceData`] rather than a whole-
+/// string [`elidex_ecs::MutationEvent::TextChange`] — boundary-
+/// adjustment math differs (§4.10 steps 8-11 vs §5.5 clamp).
 ///
 /// Comment writes do not fire Range live-tracking per WHATWG §5.5,
 /// so the Comment branch keeps the legacy "compute spliced string +
@@ -429,10 +432,12 @@ impl DomApiHandler for ReplaceData {
 /// Delegates to the engine-independent [`split_text_at_offset`] which
 /// owns the canonical WHATWG DOM §4.10 "split a Text node" algorithm:
 /// `insert new_node → fire_split_text → set_text_data(head)`.
-/// Range live-tracking via the `MutationHook` falls out of the
-/// ordering — boundaries on the original node at off > split_offset
-/// migrate to (new_node, off - offset) BEFORE the head-truncate
-/// would clamp them down.
+/// Range live-tracking via the [`elidex_ecs::MutationEvent::SplitText`]
+/// event (consumed by [`crate::LiveRangeBridge`] through
+/// [`crate::ConsumerDispatcher`]) falls out of the ordering —
+/// boundaries on the original node at off > split_offset migrate to
+/// (new_node, off - offset) BEFORE the head-truncate would clamp them
+/// down.
 pub struct SplitText;
 
 impl DomApiHandler for SplitText {

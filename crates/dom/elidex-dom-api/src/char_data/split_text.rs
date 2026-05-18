@@ -29,12 +29,13 @@
 //! `entity_idx + 1`. The
 //! [`MutationEvent::SplitText`](elidex_ecs::MutationEvent::SplitText)
 //! event that follows the insert is fired with the pre-split parent
-//! and `node_index` so the consumer (`LiveRangeRegistry::Bridge`) tops
-//! up that exact slot — the standard bridge therefore implements
-//! §4.10 step 7 in full. Callers that install a CUSTOM dispatcher
-//! which ignores the parent / node_index args inherit the Insert-only
-//! behaviour (lag at `entity_idx + 1`); document the limitation on
-//! such dispatchers if the gap matters for their use case.
+//! and `node_index` so the consumer ([`crate::LiveRangeBridge`], invoked
+//! via [`crate::ConsumerDispatcher`]) tops up that exact slot — the
+//! standard consumer therefore implements §4.10 step 7 in full.
+//! Callers that install a CUSTOM dispatcher which ignores the parent /
+//! node_index args inherit the Insert-only behaviour (lag at
+//! `entity_idx + 1`); document the limitation on such dispatchers if
+//! the gap matters for their use case.
 
 use elidex_ecs::{EcsDom, Entity, NodeKind};
 

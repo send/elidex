@@ -82,10 +82,12 @@ impl VmInner {
 /// `off == node_idx + 1 → +1` delta top-up), then
 /// `set_text_data(head)` truncates the original node. The combined
 /// dispatch sequence implements WHATWG §4.10 step 7 in full when the
-/// standard `LiveRangeRegistry::Bridge` is the installed dispatcher.
-/// Engines installing a custom dispatcher that ignores the parent /
-/// node_index args inherit only the `Insert` shift (lag at
-/// `node_idx + 1`); such dispatchers should document the gap explicitly.
+/// standard [`elidex_dom_api::LiveRangeBridge`] consumer (composed by
+/// [`elidex_dom_api::ConsumerDispatcher`]) is the installed
+/// dispatcher.  Engines installing a custom dispatcher that ignores
+/// the parent / node_index args inherit only the `Insert` shift (lag
+/// at `node_idx + 1`); such dispatchers should document the gap
+/// explicitly.
 ///
 /// Errors:
 /// - `RangeError` when `offset > length`.

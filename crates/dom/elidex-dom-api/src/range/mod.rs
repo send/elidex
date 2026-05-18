@@ -183,12 +183,13 @@ pub fn adjust_ranges_for_removal(
 /// driven by a caller-provided `descendants` set instead of an
 /// `EcsDom` ancestor walk.
 ///
-/// PR186 R2 #3: `destroy_entity` orphans children BEFORE firing
-/// `after_remove`, so an `is_ancestor_or_self`-based descendant walk
-/// at the consumer side would miss already-orphaned descendants. The
-/// engine pre-snapshots the light-tree inclusive-descendant set
-/// before orphaning and hands it to the hook; the consumer
-/// (`LiveRangeRegistry::Bridge`) uses this snapshot membership check
+/// PR186 R2 #3: `destroy_entity` orphans children BEFORE firing the
+/// `MutationEvent::Remove` event, so an `is_ancestor_or_self`-based
+/// descendant walk at the consumer side would miss already-orphaned
+/// descendants.  The engine pre-snapshots the light-tree inclusive-
+/// descendant set before orphaning and hands it to the consumer; the
+/// consumer ([`crate::LiveRangeBridge`], composed via
+/// [`crate::ConsumerDispatcher`]) uses this snapshot membership check
 /// instead of a tree walk.
 ///
 /// `descendants` MUST include `node` itself (inclusive descendants) —
@@ -196,7 +197,7 @@ pub fn adjust_ranges_for_removal(
 /// this.
 ///
 /// `pub(crate)` because the only driver is the in-crate
-/// `LiveRangeRegistry::Bridge`.
+/// [`crate::LiveRangeBridge`] consumer.
 pub(crate) fn adjust_ranges_for_removal_snapshot(
     ranges: &mut [Range],
     descendants: &[Entity],

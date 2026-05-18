@@ -244,7 +244,23 @@ impl Vm {
             // `#11-mutation-hook-multiplexer` slot is closed by this
             // structural shift).  Dispatch order = field declaration
             // order = (live_range → node_iter → base_url).
-            let dispatcher = elidex_dom_api::ConsumerDispatcher::new(live_range, node_iter);
+            let mut dispatcher = elidex_dom_api::ConsumerDispatcher::new(live_range, node_iter);
+            // D-31 init pass: pre-bind tree state (e.g. parser-
+            // created `<base href>`) never went through
+            // `MutationEvent::Insert`, so the `BaseUrlMaintainer`
+            // consumer never attached `BaseFrozenUrl` to those
+            // entities and `DocumentBaseUrl` is stuck at
+            // `about_blank`.  Walk the existing tree once BEFORE
+            // installing the dispatcher so post-bind reads of
+            // `document.baseURI` / `Node.baseURI` and relative URL
+            // resolution see the real `<base href>` immediately
+            // (rather than waiting for the next mutation), and so
+            // removing a pre-bind `<base>` triggers recompute as
+            // intended.  Other consumers (`live_range`, `node_iter`)
+            // do not derive ECS state from pre-bind tree structure
+            // and are no-ops here; see
+            // `ConsumerDispatcher::initialize_consumers`.
+            dispatcher.initialize_consumers(hd.dom());
             let displaced = hd.dom().set_mutation_dispatcher(Box::new(dispatcher));
             debug_assert!(
                 displaced.is_none(),

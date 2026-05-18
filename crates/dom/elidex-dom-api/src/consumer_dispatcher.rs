@@ -49,11 +49,32 @@ impl ConsumerDispatcher {
         }
     }
 
+    /// Initialize every consumer that needs to derive state from the
+    /// current DOM tree at install time.  Called by the binding layer
+    /// (e.g. `Vm::bind` in `elidex-js`) right BEFORE
+    /// [`EcsDom::set_mutation_dispatcher`] hands ownership over —
+    /// pre-bind nodes never produced [`MutationEvent`]s, so consumers
+    /// that maintain ECS state derived from existing structure (today:
+    /// [`BaseUrlMaintainer`]'s `BaseFrozenUrl` + `DocumentBaseUrl`
+    /// components, both defined in `elidex_ecs`) would otherwise see
+    /// an empty event stream and never observe the pre-bind subtree.
+    ///
+    /// Idempotent — each delegate is documented as a no-op on an
+    /// already-initialized tree.  [`LiveRangeBridge`] and
+    /// [`NodeIteratorAdjuster`] do not need init: their state lives
+    /// outside the DOM tree (Range / NodeIterator handles are
+    /// JS-allocated and can only exist post-bind), so they are not
+    /// invoked here.  Add a delegate call only when a future consumer
+    /// derives state from pre-bind tree structure.
+    pub fn initialize_consumers(&mut self, dom: &mut EcsDom) {
+        self.base_url.initialize_from_tree(dom);
+    }
+
     /// Test-only constructor: only [`LiveRangeBridge`] is wired —
     /// [`NodeIteratorAdjuster`] gets a fresh default, [`BaseUrlMaintainer`]
     /// is stateless.  Used by Range-only test fixtures so they exercise
     /// the same composition path as production rather than a one-off
-    /// `impl MutationDispatcher for LiveRangeBridge` back-door.
+    /// back-door type alias.
     #[cfg(test)]
     #[must_use]
     pub fn for_range_only_test(live_range: LiveRangeBridge) -> Self {

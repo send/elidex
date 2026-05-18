@@ -153,6 +153,33 @@ fn owner_doc(dom: &EcsDom, node: Entity) -> Option<Entity> {
 pub struct BaseUrlMaintainer;
 
 impl BaseUrlMaintainer {
+    /// Initialize the 2-layer base URL state from the current DOM
+    /// tree.  Required when the tree was populated BEFORE the
+    /// dispatcher was installed (e.g. parser-created `<base href>`
+    /// prior to first `Vm::bind`): pre-bind nodes never went through
+    /// [`MutationEvent::Insert`] dispatch, so [`BaseFrozenUrl`] was
+    /// never attached and [`DocumentBaseUrl`] remained at its
+    /// [`about_blank_url`] default.  Without this initialization
+    /// `document.baseURI` / `Node.baseURI` / relative URL resolution
+    /// stay stuck on the fallback until a subsequent mutation fires,
+    /// and removing a pre-bind `<base>` would not trigger recompute
+    /// (no [`BaseFrozenUrl`] to detach).
+    ///
+    /// Idempotent: re-running on an already-initialized tree is a
+    /// no-op (each `<base href>` already has [`BaseFrozenUrl`];
+    /// recompute's `unchanged` short-circuit absorbs the
+    /// [`DocumentBaseUrl`] re-write).  Invoked by
+    /// [`crate::ConsumerDispatcher::initialize_consumers`] from the
+    /// bind path.
+    pub fn initialize_from_tree(&mut self, dom: &mut EcsDom) {
+        let Some(root) = dom.document_root() else {
+            return;
+        };
+        let fallback = about_blank_url();
+        let _ = attach_frozen_urls_in_subtree(dom, root, &fallback);
+        recompute_document_base(dom, root);
+    }
+
     /// Single-method dispatch entry invoked by
     /// [`crate::ConsumerDispatcher`].  Maintains both layers in
     /// response to Insert / Remove / AttributeChange events.

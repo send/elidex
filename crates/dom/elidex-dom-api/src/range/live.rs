@@ -13,10 +13,11 @@
 //!   through it. [`LiveRangeRegistry::finalize_pending`] runs a
 //!   dangling-collapse fallback pass on every read-path access for
 //!   the orphan-then-destroy corner case where no event fires.
-//! - [`LiveRangeBridge`] (`EcsDom` dispatcher consumer) is a small
-//!   struct that implements [`elidex_ecs::MutationDispatcher`] by
-//!   matching on each [`elidex_ecs::MutationEvent`] variant and
-//!   forwarding into the shared `ranges`
+//! - [`LiveRangeBridge`] is a typed consumer invoked through its
+//!   `handle` method by [`crate::ConsumerDispatcher`] (which is the
+//!   actual [`elidex_ecs::MutationDispatcher`] impl).  The bridge
+//!   matches on each [`elidex_ecs::MutationEvent`] variant and
+//!   forwards into the shared `ranges`
 //!   `Arc<Mutex<HashMap<RangeId, Range>>>`, applying boundary
 //!   adjustments SYNCHRONOUSLY. The engine pre-snapshots inclusive
 //!   descendants before any `destroy_entity` orphaning (PR186 R2 #3)
@@ -1010,10 +1011,11 @@ mod tests {
 
     #[test]
     fn bridge_send_sync_marker() {
-        // Compile-time check: LiveRangeBridge must be Send + Sync per the
-        // `MutationHook: Send + Sync` supertrait. If a future field
-        // breaks this (e.g. switching to Rc<RefCell<>>), this fails
-        // to compile.
+        // Compile-time check: LiveRangeBridge must be Send + Sync per
+        // the `MutationDispatcher: Send + Sync` supertrait that
+        // `ConsumerDispatcher` (the actual dispatcher impl) inherits.
+        // If a future field breaks this (e.g. switching to
+        // Rc<RefCell<>>), this fails to compile.
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<LiveRangeBridge>();
         assert_send_sync::<LiveRangeRegistry>();

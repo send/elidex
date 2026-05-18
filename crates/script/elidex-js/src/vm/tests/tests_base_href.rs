@@ -447,6 +447,57 @@ fn base_element_reparented_mid_document_updates_first_base_winner() {
 }
 
 #[test]
+fn pre_bind_base_element_is_picked_up_by_init_pass() {
+    // Pre-bind tree state: parser-style fixture where `<base href>`
+    // exists in the DOM BEFORE the `MutationDispatcher` is installed
+    // via `Vm::bind`.  Without the dispatcher's init pass
+    // (`ConsumerDispatcher::initialize_consumers` → `BaseUrlMaintainer::
+    // initialize_from_tree`) these nodes would never have produced
+    // `MutationEvent::Insert`, so `BaseFrozenUrl` would not be
+    // attached and `document.baseURI` would stay stuck at the
+    // fallback `about:blank` until a subsequent mutation fires.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_fixture(&mut dom);
+
+    // Insert `<base href>` BEFORE bind — directly via `EcsDom`, no
+    // dispatcher exists yet.
+    let head = dom.first_child_with_tag(doc, "html").unwrap();
+    let head = dom.first_child_with_tag(head, "head").unwrap();
+    let base = dom.create_element("base", Attributes::default());
+    assert!(dom.set_attribute(base, "href", "https://pre-bind.example/"));
+    assert!(dom.append_child(head, base));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    // First read after bind MUST see the pre-bind `<base href>`
+    // (init pass attached `BaseFrozenUrl` + recomputed
+    // `DocumentBaseUrl`).
+    assert_eq!(
+        eval_string(&mut vm, "document.baseURI;"),
+        "https://pre-bind.example/"
+    );
+
+    // Removing the pre-bind `<base>` must also work — the init pass
+    // is what wired `BaseFrozenUrl`, without which the Remove arm's
+    // `removed_a_qualifying_base` short-circuit would never trip and
+    // recompute would never re-derive `about:blank`.
+    vm.eval(
+        r"
+        var b = document.head.querySelector('base');
+        document.head.removeChild(b);
+        ",
+    )
+    .unwrap();
+    assert_eq!(eval_string(&mut vm, "document.baseURI;"), "about:blank");
+    vm.unbind();
+}
+
+#[test]
 fn base_inside_template_does_not_affect_document_base_uri() {
     // WHATWG HTML §2.4.3 carve-out: template contents form a
     // separate document.  A <base href> inside <template> must NOT
