@@ -137,18 +137,6 @@ fn recompute_document_base(dom: &mut EcsDom, doc: Entity) {
     let _ = dom.world_mut().insert_one(doc, DocumentBaseUrl(new_url));
 }
 
-/// Cheap pre-recompute filter: returns `true` iff at least one
-/// `<base>` element with [`BaseFrozenUrl`] exists in the ECS world.
-/// Used by [`BaseUrlMaintainer`] to short-circuit `recompute_document_base`
-/// when no `<base>` could have affected the document base URL.
-fn has_any_base_frozen_url(dom: &EcsDom) -> bool {
-    dom.world()
-        .query::<&BaseFrozenUrl>()
-        .iter()
-        .next()
-        .is_some()
-}
-
 /// Owner document for `node`, or fall back to the EcsDom's
 /// `document_root` when `node` is not attached to any document
 /// (e.g. a detached element).
@@ -173,10 +161,16 @@ impl BaseUrlMaintainer {
             MutationEvent::Insert { node, .. } => {
                 let fallback = about_blank_url();
                 let attached = attach_frozen_urls_in_subtree(dom, node, &fallback);
-                // Short-circuit: no recompute if the inserted subtree
-                // contained no <base> AND the document had no existing
-                // first-base whose tree-order could shift.
-                if !attached && !has_any_base_frozen_url(dom) {
+                // Short-circuit: inserting a subtree with no
+                // qualifying `<base href>` cannot change which
+                // `<base href>` is first-in-tree-order (HTML §2.4.3
+                // step 1 — "first base element ... that has an href
+                // attribute, in tree order").  Inserting non-`<base>`
+                // nodes adds nothing to the candidate set, so the
+                // current first-base remains first regardless of
+                // insertion position.  Holds even when the document
+                // already has other `<base href>` elements.
+                if !attached {
                     return;
                 }
                 if let Some(doc) = owner_doc(dom, node) {
@@ -184,22 +178,27 @@ impl BaseUrlMaintainer {
                 }
             }
             MutationEvent::Remove { descendants, .. } => {
-                // ECS hygiene: detach `BaseFrozenUrl` from any `<base>`
-                // element that left the document tree.  Without this
-                // the component lingers on the orphaned entity and
-                // pollutes the world-wide [`BaseFrozenUrl`] query
-                // (used by [`has_any_base_frozen_url`] short-circuit
-                // below).
-                let mut removed_a_base = false;
+                // ECS hygiene + precise recompute trigger: track
+                // whether any removed `<base>` actually carried
+                // [`BaseFrozenUrl`] (the marker for "had a valid
+                // href" — set by `attach_frozen_urls_in_subtree`).
+                // Detach the component from any such removed entity
+                // so it doesn't linger on the orphan.
+                let mut removed_a_qualifying_base = false;
                 for &n in descendants {
-                    if dom.is_base_element(n) {
-                        let _ = dom.world_mut().remove_one::<BaseFrozenUrl>(n);
-                        removed_a_base = true;
+                    if dom.is_base_element(n)
+                        && dom.world_mut().remove_one::<BaseFrozenUrl>(n).is_ok()
+                    {
+                        removed_a_qualifying_base = true;
                     }
                 }
-                // Short-circuit: skip recompute when no <base> exited
-                // the tree AND no <base> remains anywhere in the world.
-                if !removed_a_base && !has_any_base_frozen_url(dom) {
+                // Short-circuit: removing nodes that include no
+                // qualifying `<base href>` cannot change the first-
+                // in-tree-order selection (symmetric to the Insert
+                // arm's reasoning).  `<base>` elements without href,
+                // and any other removed nodes, are filtered out by
+                // the `BaseFrozenUrl` presence check above.
+                if !removed_a_qualifying_base {
                     return;
                 }
                 if let Some(doc) = dom.document_root() {

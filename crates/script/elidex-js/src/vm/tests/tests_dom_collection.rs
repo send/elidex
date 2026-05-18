@@ -251,11 +251,22 @@ fn get_elements_by_name_filters_non_element_nodes() {
     let doc = build_doc(&mut dom);
 
     // Attach `name="x"` directly to the Document root (non-Element).
+    // `EcsDom::set_attribute` (and now `remove_attribute`) refuse
+    // non-Element entities at the chokepoint, so this defence-in-
+    // depth test bypasses the chokepoint by raw-inserting the
+    // `Attributes` component — mirrors the corrupted state a future
+    // parser-fixture bug could produce.  See the `tests_element_
+    // subtree_collection` precedent (~line 267).
+    //
     // Without R5 #1's filter, `traverse_descendants` + attribute
     // check would leak the Document into the result.  With the
     // filter (`node_kind_inferred == Element` + `e != doc`), only
     // the real `<input>` element is returned.
-    dom.set_attribute(doc, "name", "x");
+    let mut bogus_attrs = elidex_ecs::Attributes::default();
+    bogus_attrs.set("name", "x");
+    dom.world_mut()
+        .insert_one(doc, bogus_attrs)
+        .expect("insert Attributes on Document entity (chokepoint bypass)");
 
     #[allow(unsafe_code)]
     unsafe {

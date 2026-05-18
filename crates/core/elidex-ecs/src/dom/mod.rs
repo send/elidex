@@ -979,21 +979,39 @@ impl EcsDom {
 
     /// Remove attribute `name` from `entity` if present, then bump
     /// [`rev_version`](Self::rev_version) — both gated on the
-    /// entity still being live.
+    /// entity still being live AND being an Element.
     ///
     /// Destroyed entities short-circuit before either write,
     /// matching [`set_attribute`](Self::set_attribute)'s contract.
+    /// Non-Element entities (Document / Text / Comment / ShadowRoot)
+    /// also short-circuit — symmetric to `set_attribute`'s
+    /// Element-only guard.  Without this, a stray
+    /// `remove_attribute(non_element, ...)` would still bump
+    /// `inclusive_descendants_version` and dispatch
+    /// [`MutationEvent::AttributeChange`], cascading version bumps
+    /// to attribute-filtered live collections and triggering
+    /// downstream `MutationEvent` consumers (e.g. `BaseUrlMaintainer`,
+    /// living in `elidex-dom-api`) on a receiver that cannot
+    /// semantically own attributes.
+    ///
     /// The attribute-storage write is itself a no-op when the
     /// `Attributes` component is absent or the key is missing,
-    /// but the version bump still fires for live entities so
-    /// attribute-filtered live collections invalidate cleanly even
-    /// on spurious removals (the next read pays one walk and
+    /// but the version bump still fires for live Element entities
+    /// so attribute-filtered live collections invalidate cleanly
+    /// even on spurious removals (the next read pays one walk and
     /// re-caches under the freshly bumped version).  See the SP2
     /// entity-list cache in `elidex-js::vm::host::dom_collection`;
     /// the `set_attribute` rationale on over-invalidation applies
     /// here too.
     pub fn remove_attribute(&mut self, entity: Entity, name: &str) {
         if !self.contains(entity) {
+            return;
+        }
+        // Symmetric to `set_attribute`'s Element-only guard
+        // (line ~939): non-Element entities never own `Attributes`,
+        // so a remove on them is meaningless and must not cascade
+        // version bumps / mutation events.
+        if !matches!(self.node_kind(entity), Some(NodeKind::Element)) {
             return;
         }
         let old_value = self

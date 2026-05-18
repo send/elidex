@@ -285,6 +285,79 @@ fn remove_attribute_destroyed_entity_no_version_bump() {
 }
 
 #[test]
+fn set_attribute_non_element_no_version_bump_or_event() {
+    // `set_attribute` (and `remove_attribute`) are Element-only at
+    // the chokepoint: a non-Element entity (Document / Text /
+    // Comment / ShadowRoot) never owns `Attributes`, and silently
+    // accepting the call would cascade `rev_version` /
+    // `MutationEvent::AttributeChange` to consumers that cannot
+    // semantically own that mutation.
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let v_doc = dom.inclusive_descendants_version(doc);
+
+    assert!(!dom.set_attribute(doc, "id", "x"));
+    assert_eq!(
+        dom.inclusive_descendants_version(doc),
+        v_doc,
+        "set_attribute on a non-Element (Document) must not bump version"
+    );
+
+    let text = dom.create_text("t");
+    dom.append_child(doc, text);
+    let v_text = dom.inclusive_descendants_version(text);
+    let v_doc_after_append = dom.inclusive_descendants_version(doc);
+
+    assert!(!dom.set_attribute(text, "name", "y"));
+    assert_eq!(
+        dom.inclusive_descendants_version(text),
+        v_text,
+        "set_attribute on a non-Element (Text) must not bump version"
+    );
+    assert_eq!(
+        dom.inclusive_descendants_version(doc),
+        v_doc_after_append,
+        "set_attribute on a non-Element (Text) must not propagate to ancestor"
+    );
+}
+
+#[test]
+fn remove_attribute_non_element_no_version_bump_or_event() {
+    // Mirror of `set_attribute_non_element_no_version_bump_or_event`:
+    // `remove_attribute` symmetric Element-only guard.  Without this
+    // a stray remove on a non-Element would still bump version and
+    // dispatch `MutationEvent::AttributeChange` to downstream
+    // consumers (e.g. `BaseUrlMaintainer`).
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let v_doc = dom.inclusive_descendants_version(doc);
+
+    dom.remove_attribute(doc, "id");
+    assert_eq!(
+        dom.inclusive_descendants_version(doc),
+        v_doc,
+        "remove_attribute on a non-Element (Document) must not bump version"
+    );
+
+    let text = dom.create_text("t");
+    dom.append_child(doc, text);
+    let v_text = dom.inclusive_descendants_version(text);
+    let v_doc_after_append = dom.inclusive_descendants_version(doc);
+
+    dom.remove_attribute(text, "name");
+    assert_eq!(
+        dom.inclusive_descendants_version(text),
+        v_text,
+        "remove_attribute on a non-Element (Text) must not bump version"
+    );
+    assert_eq!(
+        dom.inclusive_descendants_version(doc),
+        v_doc_after_append,
+        "remove_attribute on a non-Element (Text) must not propagate to ancestor"
+    );
+}
+
+#[test]
 fn version_bumped_by_remove_attribute_even_when_absent() {
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
