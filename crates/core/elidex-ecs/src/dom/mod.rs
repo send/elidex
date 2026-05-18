@@ -16,11 +16,13 @@
 //!   mutate the tree.
 
 pub(crate) mod equality;
+mod mutation_event;
 mod mutation_hook;
 pub mod shadow;
 mod tree;
 mod tree_clone;
 
+pub use mutation_event::{MutationDispatcher, MutationEvent};
 pub use mutation_hook::MutationHook;
 
 use crate::components::{

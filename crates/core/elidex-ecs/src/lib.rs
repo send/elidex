@@ -19,7 +19,7 @@ pub use dom::equality::{
     DOCUMENT_POSITION_PRECEDING,
 };
 pub use dom::shadow::{ShadowAttachError, ShadowInit, SlotAssignError};
-pub use dom::{EcsDom, MutationHook, MAX_ANCESTOR_DEPTH};
+pub use dom::{EcsDom, MutationDispatcher, MutationEvent, MutationHook, MAX_ANCESTOR_DEPTH};
 
 // Re-export hecs Entity for downstream consumers.
 pub use hecs::Entity;
