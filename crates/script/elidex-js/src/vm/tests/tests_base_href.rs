@@ -314,13 +314,25 @@ fn anchor_href_updates_when_base_changes() {
 }
 
 // ===========================================================================
-// <base>.href self-resolution
+// <base>.href IDL getter (WHATWG HTML §4.2.3)
+//
+// The getter does NOT return the element's BaseFrozenUrl directly;
+// it parses the raw `href` content attribute against the document's
+// fallback base URL (about:blank in elidex's stub) and returns:
+// - the serialized parsed URL on parse success
+// - the raw href value on parse failure (matches the spec's
+//   "if url is failure, return the value of the content attribute")
+//
+// Two tests pin the two branches independently.
 // ===========================================================================
 
 #[test]
-fn base_href_getter_returns_self_frozen_url() {
-    // <base>.href IDL getter returns the frozen URL of the <base>
-    // itself (HTML §4.2.3) — NOT the document base URL.
+fn base_href_getter_returns_parsed_url_when_href_is_absolute() {
+    // Parse-success branch: absolute href parses against the
+    // about:blank fallback successfully → getter returns the
+    // serialized parsed URL (which coincidentally equals the raw
+    // href + the element's BaseFrozenUrl for absolute hrefs, since
+    // all three are the same URL).
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -342,6 +354,44 @@ fn base_href_getter_returns_self_frozen_url() {
 
     let result = eval_string(&mut vm, "document.head.lastChild.href;");
     assert_eq!(result, "https://example.com/page");
+    vm.unbind();
+}
+
+#[test]
+fn base_href_getter_returns_raw_value_when_href_unparseable() {
+    // Parse-failure branch: relative href cannot resolve against
+    // the about:blank fallback (url crate refuses to join relative
+    // paths against opaque schemes) → getter returns the raw href
+    // value per WHATWG HTML §4.2.3 IDL getter step 3 ("if url is
+    // failure, return the value of the content attribute").  This
+    // is the branch that distinguishes the getter from a naive
+    // "return frozen URL" implementation: frozen URL would be the
+    // fallback ("about:blank") for the same input — collapsing the
+    // raw-fallback signal.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    vm.eval(
+        r"
+        var b = document.createElement('base');
+        b.setAttribute('href', 'sub/path');
+        document.head.appendChild(b);
+        ",
+    )
+    .unwrap();
+
+    let result = eval_string(&mut vm, "document.head.lastChild.href;");
+    assert_eq!(
+        result, "sub/path",
+        "parse-failure branch must return raw href, not the fallback URL"
+    );
     vm.unbind();
 }
 
