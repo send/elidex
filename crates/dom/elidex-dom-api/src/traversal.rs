@@ -1168,9 +1168,9 @@ pub struct NodeIteratorState {
 ///
 /// Holds the shared `Arc<Mutex<HashMap<u64, NodeIteratorState>>>`
 /// (cloned from `HostData::node_iterator_states_shared` at
-/// `Vm::bind` time).  Migrated from the deleted `MutationBridge`
-/// composer in D-31; ConsumerDispatcher composes this as one of its
-/// typed fields.
+/// `Vm::bind` time).  Composed by [`crate::ConsumerDispatcher`] as
+/// one of its typed fields.
+#[derive(Default)]
 pub struct NodeIteratorAdjuster {
     node_iterators:
         std::sync::Arc<std::sync::Mutex<std::collections::HashMap<u64, NodeIteratorState>>>,

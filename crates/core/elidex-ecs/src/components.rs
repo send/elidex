@@ -79,12 +79,11 @@ impl Attributes {
 }
 
 // ---------------------------------------------------------------------------
-// D-31 base URL state (HTML §2.4.3 + §4.2.3)
+// Base URL state (HTML §2.4.3 + §4.2.3)
 // ---------------------------------------------------------------------------
 
 /// Frozen base URL per WHATWG HTML §4.2.3 — set on each `<base>`
-/// element at mutation time (Layer 1 of the D-31 3-layer base URL
-/// architecture).
+/// element at mutation time.
 ///
 /// Absent (component not attached) when the element has no `href`
 /// attribute. When the `href` attribute IS present, the component is
@@ -95,34 +94,13 @@ impl Attributes {
 pub struct BaseFrozenUrl(pub url::Url);
 
 /// Derived document base URL — first `<base>`'s frozen URL OR the
-/// fallback URL when no qualifying `<base>` exists (Layer 2 of the
-/// D-31 3-layer base URL architecture).
+/// fallback URL when no qualifying `<base>` exists.
 ///
 /// Always present on Document entities (eager populate at
 /// [`crate::EcsDom::create_document_root`]). Maintained by
 /// `elidex_dom_api::BaseUrlMaintainer`.
 #[derive(Debug, Clone)]
 pub struct DocumentBaseUrl(pub url::Url);
-
-/// Positional index of the first `<base>` element with `href`
-/// attribute in tree order (Layer 2 of D-31; WHATWG HTML §2.4.3 step
-/// 1 — "the first base element ... that has an href attribute").
-///
-/// `None` when no qualifying `<base>` exists; [`DocumentBaseUrl`]
-/// then carries the fallback URL.
-#[derive(Debug, Clone)]
-pub struct DocumentFirstBase(pub Option<Entity>);
-
-/// Monotonic version counter — incremented on every
-/// [`DocumentBaseUrl`] value change (Layer 3 of the D-31 3-layer base
-/// URL architecture).
-///
-/// Future reactive consumers (CSS engine / Layout / Fetch) read this
-/// to detect stale local caches (ECS-native plug-in point for
-/// synchronous-drain mutation observation — late subscription is not
-/// possible since events are not queued).
-#[derive(Debug, Clone, Copy, Default)]
-pub struct DocumentBaseUrlVersion(pub u32);
 
 /// Tree structure relationships linking entities into a DOM tree.
 ///

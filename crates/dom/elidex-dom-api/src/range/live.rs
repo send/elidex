@@ -101,18 +101,6 @@ pub struct LiveRangeBridge {
     ranges: Arc<Mutex<HashMap<RangeId, Range>>>,
 }
 
-/// Test-only single-consumer `MutationDispatcher` adapter so legacy
-/// tests can install a [`LiveRangeBridge`] directly on `EcsDom`
-/// without constructing a full [`crate::ConsumerDispatcher`] (which
-/// would require pairing a NodeIteratorAdjuster too).  Production
-/// code installs the typed [`crate::ConsumerDispatcher`].
-#[cfg(test)]
-impl elidex_ecs::MutationDispatcher for LiveRangeBridge {
-    fn dispatch(&mut self, event: &elidex_ecs::MutationEvent<'_>, dom: &mut EcsDom) {
-        self.handle(event, dom);
-    }
-}
-
 impl LiveRangeBridge {
     /// Single-method dispatch entry point invoked by
     /// [`crate::ConsumerDispatcher`].  Pattern-matches the
@@ -594,7 +582,9 @@ mod tests {
         // rule that would fire if the unclamped count=99 were passed.
         let mut dom = EcsDom::new();
         let (mut reg, bridge) = LiveRangeRegistry::new_pair();
-        dom.set_mutation_dispatcher(Box::new(bridge));
+        dom.set_mutation_dispatcher(Box::new(crate::ConsumerDispatcher::for_range_only_test(
+            bridge,
+        )));
         let parent = elem(&mut dom, "p");
         let t = dom.create_text("hello");
         let _ = dom.append_child(parent, t);
@@ -874,7 +864,9 @@ mod tests {
         // `(parent, removed_index)` per WHATWG §5.5 remove step 4.
         let (mut reg, bridge) = LiveRangeRegistry::new_pair();
         let mut dom = EcsDom::new();
-        dom.set_mutation_dispatcher(Box::new(bridge));
+        dom.set_mutation_dispatcher(Box::new(crate::ConsumerDispatcher::for_range_only_test(
+            bridge,
+        )));
         let parent = elem(&mut dom, "div");
         let target = elem(&mut dom, "section");
         let descendant = dom.create_text("hello");

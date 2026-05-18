@@ -308,7 +308,9 @@ mod tests {
         // would clamp the boundary down to `head_len = offset`.
         let (mut dom, _parent, t) = build_tree();
         let (mut reg, bridge) = LiveRangeRegistry::new_pair();
-        dom.set_mutation_dispatcher(Box::new(bridge));
+        dom.set_mutation_dispatcher(Box::new(crate::ConsumerDispatcher::for_range_only_test(
+            bridge,
+        )));
 
         let mut r = Range::new(t);
         r.set_start(t, 8); // inside "hello world", past offset 5
@@ -334,7 +336,9 @@ mod tests {
         // case has off ≤ offset so the clamp is a no-op.
         let (mut dom, _parent, t) = build_tree();
         let (mut reg, bridge) = LiveRangeRegistry::new_pair();
-        dom.set_mutation_dispatcher(Box::new(bridge));
+        dom.set_mutation_dispatcher(Box::new(crate::ConsumerDispatcher::for_range_only_test(
+            bridge,
+        )));
 
         let mut r = Range::new(t);
         r.set_start(t, 2);

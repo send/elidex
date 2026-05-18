@@ -1,13 +1,12 @@
-//! D-31 `#11-base-href-resolution`: WHATWG HTML §2.4.3 Document base
-//! URLs + §4.2.3 The base element + WHATWG DOM §4.4 Interface Node
-//! `baseURI` getter.
+//! `<base href>` document base URL tests: WHATWG HTML §2.4.3
+//! "Document base URLs" + §4.2.3 "The base element" + WHATWG DOM §4.4
+//! Interface Node `baseURI` getter.
 //!
 //! Exercises the BaseUrlMaintainer consumer composed in
 //! `elidex_dom_api::ConsumerDispatcher` — Insert / Remove /
 //! AttributeChange events on `<base>` elements maintain
-//! [`DocumentBaseUrl`] + [`DocumentFirstBase`] +
-//! [`DocumentBaseUrlVersion`] (Layer 2 + 3) and per-element
-//! [`BaseFrozenUrl`] (Layer 1).
+//! [`DocumentBaseUrl`] (Layer 2) and per-element [`BaseFrozenUrl`]
+//! (Layer 1).
 
 #![cfg(feature = "engine")]
 
@@ -343,5 +342,140 @@ fn base_href_getter_returns_self_frozen_url() {
 
     let result = eval_string(&mut vm, "document.head.lastChild.href;");
     assert_eq!(result, "https://example.com/page");
+    vm.unbind();
+}
+
+// ===========================================================================
+// ECS-state hygiene + reparent + template-skip
+// ===========================================================================
+
+#[test]
+fn remove_child_on_base_detaches_base_frozen_url_component() {
+    // ECS hygiene: removing a <base> from the document tree must
+    // detach its BaseFrozenUrl component (cleanup runs in the
+    // BaseUrlMaintainer Remove arm via the descendants snapshot).
+    // Without this the component lingers on the orphaned entity and
+    // pollutes the world-wide BaseFrozenUrl query that gates the
+    // short-circuit in subsequent Insert/Remove handling.
+    use elidex_ecs::BaseFrozenUrl;
+
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    // All mutations through JS so the dispatcher stays live for the
+    // Remove arm to execute.  appendChild attaches BaseFrozenUrl;
+    // removeChild must detach it as part of the cleanup.
+    vm.eval(
+        r"
+        var b = document.createElement('base');
+        b.setAttribute('href', 'https://example.com/');
+        document.head.appendChild(b);
+        document.head.removeChild(b);
+        ",
+    )
+    .unwrap();
+    vm.unbind();
+
+    // Post-cleanup: no entity in the world should retain BaseFrozenUrl.
+    let any_frozen = dom
+        .world()
+        .query::<&BaseFrozenUrl>()
+        .iter()
+        .next()
+        .is_some();
+    assert!(
+        !any_frozen,
+        "BaseFrozenUrl must be detached from orphaned <base> entity \
+         (ECS hygiene — Remove arm cleanup via descendants snapshot)"
+    );
+}
+
+#[test]
+fn base_element_reparented_mid_document_updates_first_base_winner() {
+    // Two <base href> elements in <head>: a then b → tree order picks
+    // a.  Move a after b (appendChild on already-attached node = move
+    // to end) → tree order picks b.  Exercises the recompute when the
+    // first-base shifts mid-document.
+    //
+    // All JS in a single eval call (vm.eval is a fresh program each
+    // call; `var` declarations don't persist across calls).
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    // Phase 1: a then b → a first → baseURI = a.
+    vm.eval(
+        r"
+        var a = document.createElement('base');
+        a.setAttribute('href', 'https://a.example/');
+        var b = document.createElement('base');
+        b.setAttribute('href', 'https://b.example/');
+        document.head.appendChild(a);
+        document.head.appendChild(b);
+        globalThis.__phase1_a = a;
+        globalThis.__phase1_b = b;
+        ",
+    )
+    .unwrap();
+    assert_eq!(
+        eval_string(&mut vm, "document.baseURI;"),
+        "https://a.example/"
+    );
+
+    // Phase 2: move a to end via stashed reference on globalThis →
+    // b is now first → baseURI = b.
+    vm.eval("document.head.appendChild(globalThis.__phase1_a);")
+        .unwrap();
+    assert_eq!(
+        eval_string(&mut vm, "document.baseURI;"),
+        "https://b.example/"
+    );
+    vm.unbind();
+}
+
+#[test]
+fn base_inside_template_does_not_affect_document_base_uri() {
+    // WHATWG HTML §2.4.3 carve-out: template contents form a
+    // separate document.  A <base href> inside <template> must NOT
+    // be selected as the host document's first-base.  Walker skip
+    // via dom.is_template_element.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_fixture(&mut dom);
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+
+    vm.eval(
+        r"
+        var t = document.createElement('template');
+        var b = document.createElement('base');
+        b.setAttribute('href', 'https://inside-template.example/');
+        t.appendChild(b);
+        document.body.appendChild(t);
+        ",
+    )
+    .unwrap();
+
+    // <base> inside <template> must be invisible to the document
+    // base-URL algorithm.
+    let result = eval_string(&mut vm, "document.baseURI;");
+    assert_eq!(result, "about:blank");
     vm.unbind();
 }

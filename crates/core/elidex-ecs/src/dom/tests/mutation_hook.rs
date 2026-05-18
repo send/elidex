@@ -1060,3 +1060,38 @@ fn remove_child_passes_inclusive_descendants_snapshot() {
     expected.sort();
     assert_eq!(sorted, expected);
 }
+
+/// A deliberately-misbehaving dispatcher that re-enters the EcsDom
+/// from inside its `dispatch` body — used to test the re-entry
+/// detection `debug_assert!` in [`EcsDom::dispatch_event`].
+struct ReEntryHook;
+
+impl MutationDispatcher for ReEntryHook {
+    fn dispatch(&mut self, event: &MutationEvent<'_>, dom: &mut crate::EcsDom) {
+        // Only re-enter on Insert; avoid infinite recursion if the
+        // assert was disabled (release build).
+        if let MutationEvent::Insert { parent, .. } = *event {
+            let _ = dom.set_attribute(parent, "data-reentry", "1");
+        }
+    }
+}
+
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "re-entry contract")]
+fn dispatcher_calling_mutation_primitive_panics_in_debug() {
+    // The `MutationDispatcher::dispatch` docstring forbids consumers
+    // from calling EcsDom mutation primitives recursively.  The
+    // `EcsDom::dispatch_event` debug_assert (re-entry depth counter)
+    // catches violations in debug builds.
+    let mut dom = crate::EcsDom::new();
+    let root = dom.create_document_root();
+    let parent = dom.create_element("div", crate::Attributes::default());
+    let child = dom.create_element("span", crate::Attributes::default());
+    assert!(dom.append_child(root, parent));
+    dom.set_mutation_dispatcher(Box::new(ReEntryHook));
+    // The append_child below fires an Insert event; ReEntryHook
+    // calls set_attribute back, which fires its own dispatch_event
+    // with depth > 0 → debug_assert!.
+    let _ = dom.append_child(parent, child);
+}

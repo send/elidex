@@ -24,9 +24,8 @@ mod tree_clone;
 pub use mutation_event::{MutationDispatcher, MutationEvent};
 
 use crate::components::{
-    AssociatedDocument, AttrData, Attributes, CommentData, DocTypeData, DocumentBaseUrl,
-    DocumentBaseUrlVersion, DocumentFirstBase, NodeKind, ShadowRoot, TagType, TextContent,
-    TreeRelation,
+    AssociatedDocument, AttrData, Attributes, CommentData, DocTypeData, DocumentBaseUrl, NodeKind,
+    ShadowRoot, TagType, TextContent, TreeRelation,
 };
 use hecs::{Entity, World};
 
@@ -54,15 +53,36 @@ pub struct EcsDom {
     /// typed composer (`elidex_dom_api::ConsumerDispatcher`) impl'ing
     /// [`MutationDispatcher`] with typed consumer fields.
     dispatcher: Option<Box<dyn MutationDispatcher + Send + Sync>>,
+    /// Re-entry detection counter — incremented at the start of every
+    /// [`Self::dispatch_event`] invocation, decremented in
+    /// [`RestoreDispatcher::drop`].  Used by [`Self::dispatch_event`]
+    /// to fire a `debug_assert!` when a mutation primitive is called
+    /// recursively from within a consumer's `dispatch` body (violates
+    /// the re-entry contract on [`MutationDispatcher::dispatch`]).
+    dispatch_depth: u8,
 }
 
 /// Panic-safe Drop guard for [`EcsDom::dispatch_event`]: restores the
-/// taken-out dispatcher back into `self.dispatcher` on scope exit, even
-/// if the dispatch callback panics.  Co-located with `EcsDom` because
-/// the raw pointer aliases `self.dispatcher` and the lifetime is bound
-/// to the `&mut self` borrow at the call site.
+/// taken-out dispatcher back into `self.dispatcher` AND decrements the
+/// re-entry depth counter on scope exit, even if the dispatch callback
+/// panics.
+///
+/// # Safety
+///
+/// `target_ptr` and `depth_ptr` alias `EcsDom::dispatcher` /
+/// `EcsDom::dispatch_depth` respectively.  Both pointers are derived
+/// from a `&mut EcsDom` at the call site; the `RestoreDispatcher`
+/// value is held in the SAME stack frame as the `&mut self` borrow,
+/// so no other live borrow of either field can exist for the
+/// duration of `guard`.  The raw pointers are dormant during the
+/// re-borrowed `&mut *self` callback call (Rust's borrow stack
+/// model allows raw pointers to alias actively-borrowed data so long
+/// as they are not dereferenced).  Dereference happens only in
+/// `Drop`, after the callback returns / unwinds and the `&mut self`
+/// borrow has expired.
 struct RestoreDispatcher {
     target_ptr: *mut Option<Box<dyn MutationDispatcher + Send + Sync>>,
+    depth_ptr: *mut u8,
     pending: Option<Box<dyn MutationDispatcher + Send + Sync>>,
 }
 
@@ -71,6 +91,7 @@ impl Drop for RestoreDispatcher {
         #[allow(unsafe_code)]
         unsafe {
             *self.target_ptr = self.pending.take();
+            *self.depth_ptr = (*self.depth_ptr).saturating_sub(1);
         }
     }
 }
@@ -82,6 +103,7 @@ impl EcsDom {
             world: World::new(),
             document_root: None,
             dispatcher: None,
+            dispatch_depth: 0,
         }
     }
 
@@ -90,7 +112,7 @@ impl EcsDom {
     /// Install the (single) mutation event dispatcher.  Returns the
     /// previously-installed dispatcher (if any) for replace-then-
     /// retrieve patterns.  Production caller: `Vm::bind` installs a
-    /// `ConsumerDispatcher` composing all D-31-era consumers.
+    /// `ConsumerDispatcher` composing the mutation consumers.
     pub fn set_mutation_dispatcher(
         &mut self,
         dispatcher: Box<dyn MutationDispatcher + Send + Sync>,
@@ -113,35 +135,34 @@ impl EcsDom {
 
     /// Dispatch one [`MutationEvent`] to the installed dispatcher (if
     /// any), using a take-and-restore borrow pattern so the dispatch
-    /// callback can receive `&EcsDom` (read-only access).  Panic-safe
-    /// via the inline `RestoreDispatcher` `Drop` guard — the
-    /// dispatcher is restored even if the callback unwinds.
+    /// callback can receive `&mut EcsDom`.  Panic-safe via the inline
+    /// [`RestoreDispatcher`] `Drop` guard — both the dispatcher slot
+    /// AND the re-entry depth counter are restored even if the
+    /// callback unwinds.
     ///
     /// **Re-entry contract**: the dispatcher's `dispatch` impl MUST NOT
-    /// invoke mutation primitives on the same `EcsDom`; nested
-    /// dispatch would observe an empty dispatcher slot and silently
-    /// no-op.
+    /// invoke mutation primitives on the same `EcsDom`.  A
+    /// `debug_assert!` on the `dispatch_depth` counter fires in debug
+    /// builds when this is violated; release builds silently no-op
+    /// (nested dispatch sees an empty dispatcher slot and skips).
     fn dispatch_event(&mut self, event: &MutationEvent<'_>) {
-        // Take dispatcher out of `self.dispatcher` so `&mut self` can
-        // be passed to `dispatch` without borrow-conflicting with the
-        // dispatcher field.  Restore via a panic-safe Drop guard
-        // (`RestoreDispatcher`, defined above this impl block).
-        //
-        // SAFETY: `target_ptr` aliases `self.dispatcher` exclusively
-        // because we have `&mut self` here and immediately move the
-        // dispatcher out via `take()`.  No other borrow of
-        // `self.dispatcher` is live for the duration of `guard` (the
-        // `&mut *self` borrow we hand to the callback re-borrows the
-        // whole struct minus the now-empty dispatcher field — nested
-        // dispatch via mutation primitives observes the empty slot
-        // and silently no-ops per the trait re-entry contract).
+        debug_assert_eq!(
+            self.dispatch_depth, 0,
+            "EcsDom mutation primitive called from inside \
+             MutationDispatcher::dispatch — violates re-entry contract \
+             (see `MutationDispatcher::dispatch` docstring).  Queue the \
+             work via per-consumer deferred state instead."
+        );
         if self.dispatcher.is_none() {
             return;
         }
         let target_ptr: *mut Option<Box<dyn MutationDispatcher + Send + Sync>> =
             &raw mut self.dispatcher;
+        let depth_ptr: *mut u8 = &raw mut self.dispatch_depth;
+        self.dispatch_depth = self.dispatch_depth.saturating_add(1);
         let mut guard = RestoreDispatcher {
             target_ptr,
+            depth_ptr,
             pending: self.dispatcher.take(),
         };
         if let Some(d) = guard.pending.as_mut() {
@@ -165,6 +186,31 @@ impl EcsDom {
         self.world
             .get::<&TagType>(entity)
             .is_ok_and(|t| t.0.eq_ignore_ascii_case("base"))
+        // FIXME: WHATWG HTML §4.2.3 restricts `<base>` to the HTML
+        // namespace; this predicate currently matches a tag-name
+        // `"base"` regardless of namespace.  Latent gap until the
+        // `#11-element-namespace-tracking` slot lands element-
+        // namespace components — at which point this predicate gates
+        // additionally on `dom.is_html_namespace(entity)`.
+    }
+
+    /// HTML tag-name predicate: returns `true` iff `entity` is a
+    /// `<template>` element (HTML §4.12.3).  Tree walkers that
+    /// implement spec algorithms requiring the "template contents"
+    /// carve-out (HTML §2.4.3 "first base element in the document" —
+    /// template contents form a separate document) use this to skip
+    /// the `<template>` element's children.
+    ///
+    /// Tag-string compare matches the [`Self::is_base_element`]
+    /// precedent.  The `TemplateContent` component is reserved for
+    /// future plug-in use (e.g. signalling "this element owns a
+    /// detached contents fragment"); a content-attach pass would
+    /// piggyback on this predicate.
+    #[must_use]
+    pub fn is_template_element(&self, entity: Entity) -> bool {
+        self.world
+            .get::<&TagType>(entity)
+            .is_ok_and(|t| t.0.eq_ignore_ascii_case("template"))
     }
 
     /// Fire [`MutationEvent::SplitText`] from a caller in another crate.
@@ -426,20 +472,16 @@ impl EcsDom {
     /// The document root serves as the parent of the `<html>` element.
     /// The entity is cached for fast retrieval via [`document_root()`](Self::document_root).
     ///
-    /// D-31: eagerly attaches three base-URL components —
-    /// [`DocumentBaseUrl`], [`DocumentFirstBase`], and
-    /// [`DocumentBaseUrlVersion`] — initialised to the placeholder
-    /// `about:blank` fallback URL pending the
-    /// `#11-document-url-real-navigation` slot landing.  Phase B's
-    /// `BaseUrlMaintainer` mutates these as `<base>` elements enter /
-    /// leave the doc tree.
+    /// Eagerly attaches [`DocumentBaseUrl`] initialised to
+    /// [`about_blank_url`](crate::about_blank_url) pending the
+    /// `#11-document-url-real-navigation` slot landing.
+    /// `elidex_dom_api::BaseUrlMaintainer` mutates it as `<base>`
+    /// elements enter / leave the doc tree.
     pub fn create_document_root(&mut self) -> Entity {
         let entity = self.world.spawn((
             TreeRelation::default(),
             NodeKind::Document,
-            DocumentBaseUrl(url::Url::parse("about:blank").expect("about:blank parses")),
-            DocumentFirstBase(None),
-            DocumentBaseUrlVersion::default(),
+            DocumentBaseUrl(crate::about_blank_url()),
         ));
         self.document_root = Some(entity);
         entity
@@ -888,12 +930,22 @@ impl EcsDom {
         if !self.contains(entity) {
             return false;
         }
-        let old_value = self
-            .world
-            .get::<&Attributes>(entity)
-            .ok()
-            .and_then(|a| a.get(name).map(String::from));
-        let has_component = self.world.get::<&Attributes>(entity).is_ok();
+        // Engine-internal hardening (pre-D-31 `require_attrs_mut`
+        // semantics): only Element entities carry `Attributes`.
+        // Silently auto-attaching `Attributes` to Document / Text /
+        // ShadowRoot / Comment entities would corrupt downstream
+        // attribute readers; bail with `false` so caller sees the
+        // mis-routed write the same way it sees a destroyed entity.
+        if !matches!(self.node_kind(entity), Some(NodeKind::Element)) {
+            return false;
+        }
+        // Single component lookup: capture old_value AND component
+        // presence from one borrow; if absent, insert a fresh
+        // Attributes default below.
+        let (old_value, has_component) = match self.world.get::<&Attributes>(entity) {
+            Ok(a) => (a.get(name).map(String::from), true),
+            Err(_) => (None, false),
+        };
         let did_set = if has_component {
             if let Ok(mut attrs) = self.world.get::<&mut Attributes>(entity) {
                 attrs.set(name, value);
@@ -917,7 +969,6 @@ impl EcsDom {
             let event = MutationEvent::AttributeChange {
                 node: entity,
                 name,
-                namespace: None,
                 old_value: old_value.as_deref(),
                 new_value: Some(value),
             };
@@ -951,16 +1002,21 @@ impl EcsDom {
             .ok()
             .and_then(|mut attrs| attrs.remove(name));
         self.rev_version(entity);
-        if let Some(old_value) = old_value {
-            let event = MutationEvent::AttributeChange {
-                node: entity,
-                name,
-                namespace: None,
-                old_value: Some(&old_value),
-                new_value: None,
-            };
-            self.dispatch_event(&event);
-        }
+        // Fire `MutationEvent::AttributeChange` per DOM §4.3.2 "Queue
+        // a mutation record" — runs unconditionally, mirroring
+        // `set_attribute` (DOM §4.3.2 requires records be queued for
+        // MutationObserver consumers regardless of value-diff).
+        // Absent-attribute removes therefore still fire (old_value =
+        // new_value = None signals a no-op record).  Per-consumer
+        // suppression (e.g. `BaseUrlMaintainer` skip when not a
+        // `<base>`) lives in the dispatcher's handle, not here.
+        let event = MutationEvent::AttributeChange {
+            node: entity,
+            name,
+            old_value: old_value.as_deref(),
+            new_value: None,
+        };
+        self.dispatch_event(&event);
     }
 }
 

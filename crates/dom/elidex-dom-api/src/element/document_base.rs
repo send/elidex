@@ -1,64 +1,43 @@
-//! Base URL maintenance for `<base>` elements (D-31 PR Phase B).
+//! Base URL maintenance for `<base>` elements.
 //!
-//! Owns 3-layer ECS state per WHATWG HTML §2.4.3 (Document base
+//! Owns 2-layer ECS state per WHATWG HTML §2.4.3 (Document base
 //! URLs) + §4.2.3 (The base element):
 //!
-//! - **Layer 1**: per-element `BaseFrozenUrl` component on each
+//! - **Layer 1**: per-element [`BaseFrozenUrl`] component on each
 //!   `<base>` (frozen URL invariant per HTML §4.2.3 "set the frozen
 //!   base URL" algorithm).
-//! - **Layer 2**: per-document `DocumentBaseUrl` derived cache +
-//!   `DocumentFirstBase` positional index (HTML §2.4.3 first `<base>`
-//!   rule).
-//! - **Layer 3**: per-document `DocumentBaseUrlVersion` monotonic
-//!   counter (HTML §2.4.3 "Respond to base URL changes" plug-in
-//!   point for future reactive consumers; synchronous-drain
-//!   semantics preclude late subscription).
+//! - **Layer 2**: per-document [`DocumentBaseUrl`] derived cache
+//!   (HTML §2.4.3 first `<base>` rule).
 //!
 //! [`BaseUrlMaintainer`] is the [`MutationEvent`] consumer that
-//! maintains all 3 layers, composed by
-//! [`crate::ConsumerDispatcher`].
-//!
-//! Phase A scaffolding: only the `BaseUrlMaintainer` skeleton + the
-//! `compute_frozen_url` algorithm are present; layer maintenance
-//! lands in Phase B together with the component definitions in
-//! `elidex_ecs::components`.
+//! maintains both layers, composed by [`crate::ConsumerDispatcher`].
 
-use elidex_ecs::{
-    BaseFrozenUrl, DocumentBaseUrl, DocumentBaseUrlVersion, DocumentFirstBase, EcsDom, Entity,
-    MutationEvent,
-};
+use std::ops::ControlFlow;
+
+use elidex_ecs::{about_blank_url, BaseFrozenUrl, DocumentBaseUrl, EcsDom, Entity, MutationEvent};
 use url::Url;
 
-// TODO swap fallback source to `dom.document_url(doc)` when
-// `#11-document-url-real-navigation` slot lands.  The "about:blank"
-// const here is placeholder until that slot provides a real
-// `DocumentUrl` component reader.
-const FALLBACK_BASE_URL: &str = "about:blank";
+use crate::subtree_walk::walk_inclusive_filtered_until;
 
-fn fallback_url() -> Url {
-    Url::parse(FALLBACK_BASE_URL).expect("about:blank parses")
-}
-
-/// Compute the frozen base URL per HTML §4.2.3 "set the frozen base
-/// URL" algorithm:
+/// Compute the frozen base URL per WHATWG HTML §4.2.3 "set the
+/// frozen base URL" algorithm:
 ///
-/// 1. Let urlRecord be the result of parsing `href` against
-///    `fallback` (URL spec §4.4 Basic URL parser via
+/// 1. Let urlRecord be the result of parsing `href` against the
+///    fallback base URL (URL spec §4.4 Basic URL parser via
 ///    [`Url::join`]).
-/// 2. (step 3 "if any of the following are true" three-part
-///    disjunction): If urlRecord is failure OR urlRecord's scheme
-///    is `data` / `javascript` OR `Is base allowed for Document?`
-///    (CSP base-uri directive) returns "Blocked", set the frozen
-///    base URL to `fallback` and return.
+/// 2. Step 3 — if any of three disjuncts holds, set the frozen base
+///    URL to the fallback and return:
+///    - 3.1: urlRecord is failure (parse error)
+///    - 3.2: urlRecord's scheme is `data` or `javascript`
+///    - 3.3: `Is base allowed for Document?` (CSP `base-uri`
+///      directive) returns "Blocked" — currently always-allow stub,
+///      CSP wiring deferred to `#11-csp-base-uri` defer slot
 /// 3. Otherwise set the frozen base URL to urlRecord and return.
 ///
-/// CSP `Is base allowed for Document?` is currently always-allow
-/// stub; CSP wiring deferred to `#11-csp-base-uri` defer slot.
-/// Scheme blocklist is implemented inline.
+/// Disjuncts 3.1 and 3.2 are implemented inline; 3.3 is stubbed.
 #[must_use]
 pub fn compute_frozen_url(href: &str, fallback: &Url) -> Url {
-    let parsed = fallback.join(href).ok();
-    match parsed {
+    match fallback.join(href).ok() {
         Some(url) if matches!(url.scheme(), "data" | "javascript") => fallback.clone(),
         Some(url) => url,
         None => fallback.clone(),
@@ -70,172 +49,183 @@ pub fn compute_frozen_url(href: &str, fallback: &Url) -> Url {
 /// — populated eagerly at [`EcsDom::create_document_root`] and
 /// maintained by [`BaseUrlMaintainer`].
 ///
-/// Returns the placeholder `about:blank` fallback if `doc` carries
-/// no [`DocumentBaseUrl`] (shouldn't happen for properly-constructed
-/// documents).
+/// Returns [`about_blank_url`] if `doc` carries no [`DocumentBaseUrl`]
+/// (caller misuse — `create_document_root` attaches the component
+/// eagerly).
 #[must_use]
 pub fn document_base_url(dom: &EcsDom, doc: Entity) -> Url {
     dom.world()
         .get::<&DocumentBaseUrl>(doc)
         .ok()
-        .map_or_else(fallback_url, |c| c.0.clone())
-}
-
-/// Walk the document subtree (light-tree, pre-order DFS) and return
-/// the first `<base>` element with an `href` attribute (HTML §2.4.3
-/// step 1 — "the first base element ... that has an href attribute,
-/// in tree order").  Returns `None` if no qualifying `<base>` exists.
-fn find_first_base_with_href(dom: &EcsDom, root: Entity) -> Option<Entity> {
-    let mut stack = vec![root];
-    while let Some(node) = stack.pop() {
-        if dom.is_base_element(node) && dom.has_attribute(node, "href") {
-            return Some(node);
-        }
-        // Push children in reverse so we visit first-child first.
-        let children: Vec<_> = dom.children_iter(node).collect();
-        for child in children.into_iter().rev() {
-            stack.push(child);
-        }
-    }
-    None
+        .map_or_else(about_blank_url, |c| c.0.clone())
 }
 
 /// Walk a subtree and attach [`BaseFrozenUrl`] to each `<base>`
-/// element it contains, computing the frozen URL from the element's
-/// current `href` attribute (or no-op if the element has no `href`).
-fn attach_frozen_urls_in_subtree(dom: &mut EcsDom, root: Entity, fallback: &Url) {
-    // Collect first (avoid borrowing dom mutably while iterating).
-    let mut targets = Vec::new();
-    let mut stack = vec![root];
-    while let Some(node) = stack.pop() {
-        if dom.is_base_element(node) {
-            if let Some(href) = dom.get_attribute(node, "href") {
-                targets.push((node, href));
+/// element with an `href` attribute.  Returns `true` iff at least one
+/// `<base>` element was attached — caller uses this to skip the
+/// downstream `recompute_document_base` when the subtree contained
+/// no `<base>` (the common case for typical pages).
+///
+/// `<template>` element children are skipped per HTML §2.4.3 —
+/// template contents form a separate document and a `<base>` inside
+/// must not affect the host document's base URL.
+fn attach_frozen_urls_in_subtree(dom: &mut EcsDom, root: Entity, fallback: &Url) -> bool {
+    let mut targets: Vec<(Entity, String)> = Vec::new();
+    walk_inclusive_filtered_until(
+        dom,
+        root,
+        |node| !dom.is_template_element(node),
+        |node| {
+            if dom.is_base_element(node) {
+                if let Some(href) = dom.get_attribute(node, "href") {
+                    targets.push((node, href));
+                }
             }
-        }
-        let children: Vec<_> = dom.children_iter(node).collect();
-        for child in children.into_iter().rev() {
-            stack.push(child);
-        }
-    }
+            ControlFlow::<()>::Continue(())
+        },
+    );
+    let any = !targets.is_empty();
     for (node, href) in targets {
         let frozen = compute_frozen_url(&href, fallback);
         let _ = dom.world_mut().insert_one(node, BaseFrozenUrl(frozen));
     }
+    any
 }
 
-/// Recompute the document's first-base + DocumentBaseUrl +
-/// DocumentBaseUrlVersion based on the current tree state.  Idempotent
-/// no-op when first-base entity is unchanged AND the resolved URL is
-/// unchanged (avoids spurious version bumps).
+/// Recompute the document's [`DocumentBaseUrl`] based on the current
+/// tree state — locates the first `<base href>` in tree order
+/// (WHATWG HTML §2.4.3 step 1 — "the first base element ... that has
+/// an href attribute, in tree order") and adopts its frozen URL, or
+/// falls back to [`about_blank_url`].  Idempotent no-op when the
+/// resolved URL is unchanged.
+///
+/// `<template>` element children are skipped per HTML §2.4.3 —
+/// template contents form a separate document and a `<base>` inside
+/// must not be selected as the host document's first base.
 fn recompute_document_base(dom: &mut EcsDom, doc: Entity) {
-    let fallback = fallback_url();
-    let new_first = dom
-        .document_root()
-        .and_then(|root| find_first_base_with_href(dom, root));
+    let fallback = about_blank_url();
+    let new_first = dom.document_root().and_then(|root| {
+        walk_inclusive_filtered_until(
+            dom,
+            root,
+            |node| !dom.is_template_element(node),
+            |node| {
+                if dom.is_base_element(node) && dom.has_attribute(node, "href") {
+                    ControlFlow::Break(node)
+                } else {
+                    ControlFlow::Continue(())
+                }
+            },
+        )
+    });
     let new_url = match new_first {
         Some(base) => dom
             .world()
             .get::<&BaseFrozenUrl>(base)
             .ok()
             .map_or_else(|| fallback.clone(), |c| c.0.clone()),
-        None => fallback.clone(),
+        None => fallback,
     };
-    let prev_first = dom.world().get::<&DocumentFirstBase>(doc).ok().map(|c| c.0);
-    let prev_url = dom
+    let unchanged = dom
         .world()
         .get::<&DocumentBaseUrl>(doc)
         .ok()
-        .map(|c| c.0.clone());
-    let url_changed = prev_url.as_ref() != Some(&new_url);
-    let first_changed = prev_first.flatten() != new_first;
-    if !url_changed && !first_changed {
+        .is_some_and(|c| c.0 == new_url);
+    if unchanged {
         return;
     }
-    let _ = dom
-        .world_mut()
-        .insert_one(doc, DocumentFirstBase(new_first));
-    if url_changed {
-        let _ = dom.world_mut().insert_one(doc, DocumentBaseUrl(new_url));
-        // Layer 3 version bump on URL diff only.
-        let prev_version = dom
-            .world()
-            .get::<&DocumentBaseUrlVersion>(doc)
-            .map_or(0, |c| c.0);
-        let _ = dom
-            .world_mut()
-            .insert_one(doc, DocumentBaseUrlVersion(prev_version.wrapping_add(1)));
-    }
+    let _ = dom.world_mut().insert_one(doc, DocumentBaseUrl(new_url));
 }
 
-/// Find the doc entity that owns a given node (or fall back to the
-/// EcsDom's document_root).  Used to scope the per-doc Layer 2+3
-/// recompute after a mutation event.
-fn owner_doc_or_root(dom: &EcsDom, _node: Entity) -> Option<Entity> {
-    // D-31 Phase B uses the single document_root for the recompute
-    // scope; multi-document support follows when AssociatedDocument
-    // is wired into per-node owner resolution (separate concern from
-    // this PR — `OwnerDocument` handler in `node_methods` already
-    // does it, but routing through that mid-dispatch would require
-    // additional &mut access plumbing).  Acceptable for D-31 scope
-    // since the elidex test corpus uses a single document per
-    // EcsDom.
-    dom.document_root()
+/// Cheap pre-recompute filter: returns `true` iff at least one
+/// `<base>` element with [`BaseFrozenUrl`] exists in the ECS world.
+/// Used by [`BaseUrlMaintainer`] to short-circuit `recompute_document_base`
+/// when no `<base>` could have affected the document base URL.
+fn has_any_base_frozen_url(dom: &EcsDom) -> bool {
+    dom.world()
+        .query::<&BaseFrozenUrl>()
+        .iter()
+        .next()
+        .is_some()
 }
 
-/// [`MutationEvent`] consumer for the D-31 3-layer base URL state.
+/// Owner document for `node`, or fall back to the EcsDom's
+/// `document_root` when `node` is not attached to any document
+/// (e.g. a detached element).
+fn owner_doc(dom: &EcsDom, node: Entity) -> Option<Entity> {
+    dom.owner_document(node).or_else(|| dom.document_root())
+}
+
+/// [`MutationEvent`] consumer maintaining the 2-layer base URL state.
 ///
-/// Plain unit struct (no state) — all state lives in ECS components
-/// on entities. Composed as a typed field of
+/// Plain unit struct (no state) — all state lives in the
+/// [`BaseFrozenUrl`] and [`DocumentBaseUrl`] ECS components on
+/// entities. Composed as a typed field of
 /// [`crate::ConsumerDispatcher`].
 pub struct BaseUrlMaintainer;
 
 impl BaseUrlMaintainer {
     /// Single-method dispatch entry invoked by
-    /// [`crate::ConsumerDispatcher`].  Maintains Layer 1+2+3 base URL
-    /// state in response to Insert / Remove / AttributeChange events.
+    /// [`crate::ConsumerDispatcher`].  Maintains both layers in
+    /// response to Insert / Remove / AttributeChange events.
     pub fn handle(&mut self, event: &MutationEvent<'_>, dom: &mut EcsDom) {
         match *event {
             MutationEvent::Insert { node, .. } => {
-                let fallback = fallback_url();
-                attach_frozen_urls_in_subtree(dom, node, &fallback);
-                if let Some(doc) = owner_doc_or_root(dom, node) {
+                let fallback = about_blank_url();
+                let attached = attach_frozen_urls_in_subtree(dom, node, &fallback);
+                // Short-circuit: no recompute if the inserted subtree
+                // contained no <base> AND the document had no existing
+                // first-base whose tree-order could shift.
+                if !attached && !has_any_base_frozen_url(dom) {
+                    return;
+                }
+                if let Some(doc) = owner_doc(dom, node) {
                     recompute_document_base(dom, doc);
                 }
             }
             MutationEvent::Remove { descendants, .. } => {
-                // Layer 1 BaseFrozenUrl will be naturally absent on
-                // re-insert (re-attached by Insert handler); for
-                // detached-but-alive subtrees the component lingers
-                // but is harmless since the entity is no longer in
-                // the document tree.  Recompute Layer 2+3 to drop
-                // the doc's first-base if it was inside the removed
-                // subtree.
-                let _ = descendants;
+                // ECS hygiene: detach `BaseFrozenUrl` from any `<base>`
+                // element that left the document tree.  Without this
+                // the component lingers on the orphaned entity and
+                // pollutes the world-wide [`BaseFrozenUrl`] query
+                // (used by [`has_any_base_frozen_url`] short-circuit
+                // below).
+                let mut removed_a_base = false;
+                for &n in descendants {
+                    if dom.is_base_element(n) {
+                        let _ = dom.world_mut().remove_one::<BaseFrozenUrl>(n);
+                        removed_a_base = true;
+                    }
+                }
+                // Short-circuit: skip recompute when no <base> exited
+                // the tree AND no <base> remains anywhere in the world.
+                if !removed_a_base && !has_any_base_frozen_url(dom) {
+                    return;
+                }
                 if let Some(doc) = dom.document_root() {
                     recompute_document_base(dom, doc);
                 }
             }
-            MutationEvent::AttributeChange {
-                node,
-                name,
-                new_value,
-                ..
-            } => {
-                if !name.eq_ignore_ascii_case("href") || !dom.is_base_element(node) {
+            MutationEvent::AttributeChange { node, .. } => {
+                // ECS-state-driven filter: any attribute change on a
+                // <base> element may have changed its href (or any
+                // other attr — recompute is cheap and idempotent).
+                // No name-string check needed — `is_base_element`
+                // predicate IS the structural identifier.
+                if !dom.is_base_element(node) {
                     return;
                 }
-                let fallback = fallback_url();
-                match new_value {
+                let fallback = about_blank_url();
+                match dom.get_attribute(node, "href") {
                     Some(href) => {
-                        let frozen = compute_frozen_url(href, &fallback);
+                        let frozen = compute_frozen_url(&href, &fallback);
                         let _ = dom.world_mut().insert_one(node, BaseFrozenUrl(frozen));
                     }
                     None => {
                         let _ = dom.world_mut().remove_one::<BaseFrozenUrl>(node);
                     }
                 }
-                if let Some(doc) = owner_doc_or_root(dom, node) {
+                if let Some(doc) = owner_doc(dom, node) {
                     recompute_document_base(dom, doc);
                 }
             }
@@ -248,26 +238,22 @@ impl BaseUrlMaintainer {
 mod tests {
     use super::*;
 
-    fn fallback() -> Url {
-        Url::parse(FALLBACK_BASE_URL).unwrap()
-    }
-
     #[test]
     fn compute_frozen_url_returns_parsed_url_when_valid() {
-        let url = compute_frozen_url("https://example.com/page", &fallback());
+        let url = compute_frozen_url("https://example.com/page", &about_blank_url());
         assert_eq!(url.as_str(), "https://example.com/page");
     }
 
     #[test]
     fn compute_frozen_url_returns_fallback_on_data_scheme() {
-        let url = compute_frozen_url("data:text/plain,hello", &fallback());
-        assert_eq!(url.as_str(), FALLBACK_BASE_URL);
+        let url = compute_frozen_url("data:text/plain,hello", &about_blank_url());
+        assert_eq!(url, about_blank_url());
     }
 
     #[test]
     fn compute_frozen_url_returns_fallback_on_javascript_scheme() {
-        let url = compute_frozen_url("javascript:alert(1)", &fallback());
-        assert_eq!(url.as_str(), FALLBACK_BASE_URL);
+        let url = compute_frozen_url("javascript:alert(1)", &about_blank_url());
+        assert_eq!(url, about_blank_url());
     }
 
     #[test]

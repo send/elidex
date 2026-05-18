@@ -27,6 +27,7 @@ pub mod range;
 pub mod registry;
 pub mod selection;
 pub mod style;
+pub(crate) mod subtree_walk;
 pub mod traversal;
 pub mod tree_nav;
 pub(crate) mod util;

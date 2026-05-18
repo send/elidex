@@ -256,9 +256,6 @@ pub enum MutationEvent<'a> {
     ///
     /// - `node`: element whose attribute changed.
     /// - `name`: local attribute name (case-preserving as stored).
-    /// - `namespace`: attribute namespace URI, or `None` for
-    ///   no-namespace attributes (HTML attribute namespace handling per
-    ///   WHATWG DOM §4.9 Interface Element).
     /// - `old_value`: previous attribute value, or `None` if the
     ///   attribute was absent (insert case).
     /// - `new_value`: post-mutation attribute value, or `None` if the
@@ -266,19 +263,20 @@ pub enum MutationEvent<'a> {
     ///
     /// Source spec: WHATWG DOM §4.3.2 "Queue a mutation record" step
     /// 5.1 + MutationRecord shape per WHATWG DOM §4.3.3 Interface
-    /// MutationRecord.
+    /// MutationRecord.  Attribute-namespace tracking (DOM §4.9
+    /// `attributeNamespace`) is deferred to the
+    /// `#11-element-namespace-tracking` slot — when it lands, a
+    /// `namespace: Option<&'a str>` field will be added here.
     ///
     /// **Suppression contract** (per-consumer, NOT at EcsDom fire
     /// path): same-value `set_attribute` writes still fire this event
     /// because WHATWG DOM §4.3.2 requires same-value records be
     /// queued for MutationObserver consumers. Consumers that want to
-    /// skip same-value processing (e.g., `BaseUrlMaintainer`
-    /// idempotent bump suppression) apply the diff check inside their
+    /// skip same-value processing apply the diff check inside their
     /// own `handle` body, NOT at the engine fire path.
     AttributeChange {
         node: Entity,
         name: &'a str,
-        namespace: Option<&'a str>,
         old_value: Option<&'a str>,
         new_value: Option<&'a str>,
     },
@@ -308,11 +306,13 @@ pub trait MutationDispatcher: Send + Sync {
     /// dispatcher's impl) pattern-match on variants of interest;
     /// unmatched variants are silently ignored.
     ///
-    /// `dom` is passed `&mut` so consumers (e.g. `BaseUrlMaintainer`
-    /// in D-31) can mutate ECS components (e.g. `BaseFrozenUrl`,
-    /// `DocumentBaseUrl`) at dispatch time.  Read-only consumers
-    /// (e.g. `LiveRangeBridge`, `NodeIteratorAdjuster`) ignore the
-    /// `&mut` and use it as `&` via auto-deref.
+    /// `dom: &mut EcsDom` is the canonical signature: consumers that
+    /// derive secondary ECS state from the event (e.g.
+    /// `BaseUrlMaintainer` writing `BaseFrozenUrl` / `DocumentBaseUrl`)
+    /// need component-write access at dispatch time.  Read-only
+    /// consumers (`LiveRangeBridge`, `NodeIteratorAdjuster`) accept
+    /// the `&mut` and use it as `&` via auto-deref — uniformity beats
+    /// a two-trait split.
     ///
     /// Re-entry: invoking an `EcsDom` mutation primitive (which would
     /// fire a nested event) from within `dispatch` would observe an

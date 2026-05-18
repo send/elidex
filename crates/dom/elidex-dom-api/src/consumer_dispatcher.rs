@@ -1,18 +1,14 @@
-//! Typed [`MutationDispatcher`] impl composing all D-31-era consumers.
+//! Typed [`MutationDispatcher`] impl composing mutation consumers.
 //!
-//! Replaces the v4-era `MutationBridge` (2-consumer composer of
-//! `LiveRangeBridge` + NodeIteratorState) and closes the
-//! `#11-mutation-hook-multiplexer` defer slot (typed N-way composer).
+//! Field-order = dispatch-order = compile-time-visible.  Adding a
+//! consumer = adding a typed field + a `handle` call line.  No
+//! runtime registration API, no subscriber-list pattern, no implicit
+//! ordering dependency.
 //!
-//! Field-order = dispatch-order = compile-time-visible. Adding a
-//! consumer = adding a typed field + a `handle` call line. No runtime
-//! registration API, no subscriber-list pattern, no implicit ordering
-//! dependency.
-//!
-//! # Lock ordering (PR-A2 plan-v4 §A-NI-1 Round 2 IMP-3)
+//! # Lock ordering
 //!
 //! Each consumer's lock is acquired in a **disjoint** scope — no
-//! nested locking. The Range-side guard drops before the
+//! nested locking.  The Range-side guard drops before the
 //! NodeIterator-side guard is acquired (inside [`LiveRangeBridge`]
 //! and [`NodeIteratorAdjuster`] respectively).
 
@@ -24,20 +20,18 @@ use crate::element::document_base::BaseUrlMaintainer;
 use crate::range::LiveRangeBridge;
 use crate::traversal::NodeIteratorAdjuster;
 
-/// Typed composer of the D-31-era mutation consumers.
+/// Typed composer of the mutation consumers.
 pub struct ConsumerDispatcher {
-    /// Range live-tracking — Range IDL per WHATWG DOM §5.5
-    /// "Interface Range"; boundary-point adjustment behavior lives
-    /// in the mutation algorithms themselves (DOM §4.2.3 remove,
-    /// §4.10 CharacterData "replace data", §4.11 Text "split a Text
-    /// node" step 7, §4.4 Node `normalize()` step 6.4).
+    /// Range live-tracking — Range IDL per WHATWG DOM §5.5; boundary-
+    /// point adjustment lives in the mutation algorithms themselves
+    /// (DOM §4.2.3 remove, §4.10 CharacterData "replace data",
+    /// §4.11 Text "split a Text node" step 7, §4.4 Node `normalize()`
+    /// step 6.4).
     live_range: LiveRangeBridge,
     /// NodeIterator pre-removing-steps (WHATWG DOM §6.1).
-    /// Handles Remove with descendants snapshot + dom access.
     node_iter: NodeIteratorAdjuster,
     /// Base URL maintenance for `<base>` elements (HTML §2.4.3 +
-    /// §4.2.3 — Phase B consumer).  Handles Insert / Remove /
-    /// AttributeChange filtered by `dom.is_base_element`.
+    /// §4.2.3).
     base_url: BaseUrlMaintainer,
 }
 
@@ -53,6 +47,17 @@ impl ConsumerDispatcher {
             node_iter,
             base_url: BaseUrlMaintainer,
         }
+    }
+
+    /// Test-only constructor: only [`LiveRangeBridge`] is wired —
+    /// [`NodeIteratorAdjuster`] gets a fresh default, [`BaseUrlMaintainer`]
+    /// is stateless.  Used by Range-only test fixtures so they exercise
+    /// the same composition path as production rather than a one-off
+    /// `impl MutationDispatcher for LiveRangeBridge` back-door.
+    #[cfg(test)]
+    #[must_use]
+    pub fn for_range_only_test(live_range: LiveRangeBridge) -> Self {
+        Self::new(live_range, NodeIteratorAdjuster::default())
     }
 }
 
