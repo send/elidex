@@ -3,6 +3,7 @@
 
 mod attrs;
 pub mod details_exclusion;
+pub mod document_base;
 pub mod enumerated_reflect;
 pub mod href_accessor;
 mod inheritance;

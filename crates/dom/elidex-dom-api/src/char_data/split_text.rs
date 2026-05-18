@@ -5,12 +5,12 @@
 //! VM-side binding is marshalling-only per the CLAUDE.md layering
 //! mandate. The boa-side and engine-indep `DomApiHandler::SplitText`
 //! both call into this function — the bespoke order
-//! `insert → fire_after_split_text → set_text_data` ensures Range
+//! `insert → fire_split_text → set_text_data` ensures Range
 //! live-tracking on the original `entity` migrates boundaries to the
 //! new node BEFORE `set_text_data` clamps remaining boundaries to the
 //! truncated head length.
 //!
-//! # Why `insert` before `fire_after_split_text`
+//! # Why `insert` before `fire_split_text`
 //!
 //! The hook callback (`MutationHook::after_split_text`) only needs to
 //! migrate boundaries from `entity` → `new_node`; it does not need
@@ -166,7 +166,7 @@ pub fn split_text_at_offset(
     // stay on the original node); parent-side boundary at exactly
     // `node_index + 1` shifts +1 (the `after_insert` hook fired by
     // step 5 already handled the `off > node_index + 1` cases).
-    dom.fire_after_split_text(entity, new_node, offset_utf16, parent_opt, node_index);
+    dom.fire_split_text(entity, new_node, offset_utf16, parent_opt, node_index);
 
     // Step 7: truncate entity to head. Fires after_text_change which
     // clamps boundaries still on entity (those with off ≤ offset) to
@@ -302,12 +302,12 @@ mod tests {
     fn split_text_migrates_range_boundary_to_new_node() {
         // WHATWG §4.10 step 8: boundary on `entity` at off > offset
         // migrates to (new_node, off - offset). With the insert →
-        // fire_after_split_text → set_text_data ordering, the
+        // fire_split_text → set_text_data ordering, the
         // migration runs BEFORE set_text_data's after_text_change
         // would clamp the boundary down to `head_len = offset`.
         let (mut dom, _parent, t) = build_tree();
         let (mut reg, bridge) = LiveRangeRegistry::new_pair();
-        dom.set_mutation_hook(Box::new(bridge));
+        dom.set_mutation_dispatcher(Box::new(bridge));
 
         let mut r = Range::new(t);
         r.set_start(t, 8); // inside "hello world", past offset 5
@@ -333,7 +333,7 @@ mod tests {
         // case has off ≤ offset so the clamp is a no-op.
         let (mut dom, _parent, t) = build_tree();
         let (mut reg, bridge) = LiveRangeRegistry::new_pair();
-        dom.set_mutation_hook(Box::new(bridge));
+        dom.set_mutation_dispatcher(Box::new(bridge));
 
         let mut r = Range::new(t);
         r.set_start(t, 2);

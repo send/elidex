@@ -20,8 +20,8 @@ pub mod css_namespace;
 pub mod cssom_sheet;
 pub mod document;
 pub mod element;
+pub mod consumer_dispatcher;
 pub mod live_collection;
-pub mod mutation_bridge;
 pub mod node_methods;
 pub mod range;
 pub mod registry;
@@ -85,8 +85,9 @@ pub use element::{
     InsertBefore, RemoveAttribute, RemoveChild, ReplaceChild, ScrollIntoView, SerializeOptions,
     SetAttribute, SetClassName, SetId, SetInnerHtml, ToggleAttribute,
 };
+pub use consumer_dispatcher::ConsumerDispatcher;
+pub use element::document_base::{compute_frozen_url, BaseUrlMaintainer};
 pub use live_collection::{CollectionFilter, CollectionKind, LiveCollection};
-pub use mutation_bridge::{MutationBridge, NodeIteratorState};
 pub use node_methods::{
     CloneNode, CompareDocumentPosition, Contains, GetRootNode, GetTextContentNodeKind, IsConnected,
     IsEqualNode, IsSameNode, Normalize, OwnerDocument, SetNodeValue, SetTextContentNodeKind,
@@ -104,7 +105,8 @@ pub use range::{
 pub use selection::{SelectionDirection, SelectionError, SelectionState, SelectionType};
 pub use style::{StyleGetPropertyValue, StyleRemoveProperty, StyleSetProperty};
 pub use traversal::{
-    NodeIterator, TreeWalker, SHOW_ALL, SHOW_COMMENT, SHOW_DOCUMENT, SHOW_ELEMENT, SHOW_TEXT,
+    NodeIterator, NodeIteratorAdjuster, NodeIteratorState, TreeWalker, SHOW_ALL, SHOW_COMMENT,
+    SHOW_DOCUMENT, SHOW_ELEMENT, SHOW_TEXT,
 };
 pub use tree_nav::{
     GetChildElementCount, GetFirstChild, GetFirstElementChild, GetLastChild, GetLastElementChild,

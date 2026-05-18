@@ -428,7 +428,7 @@ impl DomApiHandler for ReplaceData {
 ///
 /// Delegates to the engine-independent [`split_text_at_offset`] which
 /// owns the canonical WHATWG DOM §4.10 "split a Text node" algorithm:
-/// `insert new_node → fire_after_split_text → set_text_data(head)`.
+/// `insert new_node → fire_split_text → set_text_data(head)`.
 /// Range live-tracking via the `MutationHook` falls out of the
 /// ordering — boundaries on the original node at off > split_offset
 /// migrate to (new_node, off - offset) BEFORE the head-truncate

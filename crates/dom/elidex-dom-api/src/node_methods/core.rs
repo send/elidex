@@ -135,7 +135,7 @@ impl Normalize {
                     let child_idx = dom.index_in_parent(child);
                     let merged = prev_text_val + &text;
                     let _ = dom.set_text_data(prev, &merged);
-                    dom.fire_after_normalize_merge(
+                    dom.fire_normalize_merge(
                         child,
                         prev,
                         prev_old_len,

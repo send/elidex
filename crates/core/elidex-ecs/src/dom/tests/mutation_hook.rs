@@ -1,15 +1,17 @@
-//! Tests for the `MutationHook` trait + `EcsDom` fire sites.
+//! Tests for the `MutationDispatcher` trait + `EcsDom` fire sites.
 //!
 //! Verifies that every mutation primitive
 //! (`append_child` / `insert_before` / `remove_child` / `replace_child` /
-//! `destroy_entity` / `set_text_data`) fires the correct callback with the
-//! correct index / length. Uses a mock `MutationHook` impl that records
-//! every callback into a `Vec<MockEvent>`.
+//! `destroy_entity` / `set_text_data` / `replace_text_data` /
+//! `set_attribute` / `remove_attribute` / `fire_split_text` /
+//! `fire_normalize_merge`) fires the correct [`MutationEvent`] variant.
+//! Uses a mock `MutationDispatcher` impl that records each event into a
+//! `Vec<MockEvent>` (variant-equivalent shape).
 
 use std::sync::{Arc, Mutex};
 
 use super::*;
-use crate::dom::MutationHook;
+use crate::dom::{MutationDispatcher, MutationEvent};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum MockEvent {
@@ -54,91 +56,95 @@ struct MockHook {
     events: Arc<Mutex<Vec<MockEvent>>>,
 }
 
-impl MutationHook for MockHook {
-    fn after_remove(&mut self, node: Entity, parent: Entity, removed_index: usize) {
-        // General-purpose tests don't assert on the descendants
-        // snapshot. The dedicated
-        // `destroy_entity_passes_inclusive_descendants_snapshot` test
-        // uses a separate `DescendantSnapshotHook` to override
-        // `after_remove_with_descendants` and pin the snapshot shape
-        // + order.
-        //
-        // MockHook only overrides the basic `after_remove` method;
-        // the default impl of `after_remove_with_descendants`
-        // delegates here, so MockHook captures the same event shape
-        // it always has — additive-trait migration is transparent
-        // for this consumer (PR186 R4 #1).
-        self.events.lock().unwrap().push(MockEvent::Remove {
-            node,
-            parent,
-            index: removed_index,
-        });
-    }
-    fn after_insert(&mut self, node: Entity, parent: Entity, index: usize) {
-        self.events.lock().unwrap().push(MockEvent::Insert {
-            node,
-            parent,
-            index,
-        });
-    }
-    fn after_text_change(&mut self, node: Entity, new_utf16_len: usize) {
-        self.events.lock().unwrap().push(MockEvent::TextChange {
-            node,
-            new_utf16_len,
-        });
-    }
-    fn after_replace_data(
-        &mut self,
-        node: Entity,
-        offset_utf16: usize,
-        count_utf16: usize,
-        new_data_len_utf16: usize,
-    ) {
-        self.events.lock().unwrap().push(MockEvent::ReplaceData {
-            node,
-            offset: offset_utf16,
-            count: count_utf16,
-            new_data_len: new_data_len_utf16,
-        });
-    }
-    fn after_split_text(
-        &mut self,
-        node: Entity,
-        new_node: Entity,
-        offset_utf16: usize,
-        parent: Option<Entity>,
-        node_index: Option<usize>,
-    ) {
-        self.events.lock().unwrap().push(MockEvent::SplitText {
-            node,
-            new_node,
-            offset: offset_utf16,
-            parent,
-            node_index,
-        });
-    }
-    fn after_normalize_merge(
-        &mut self,
-        merged_child: Entity,
-        prev: Entity,
-        prev_old_len_utf16: usize,
-        parent: Option<Entity>,
-        merged_child_index: Option<usize>,
-    ) {
-        self.events.lock().unwrap().push(MockEvent::NormalizeMerge {
-            merged_child,
-            prev,
-            prev_old_len: prev_old_len_utf16,
-            parent,
-            merged_child_index,
-        });
+impl MutationDispatcher for MockHook {
+    fn dispatch(&mut self, event: &MutationEvent<'_>, _dom: &crate::EcsDom) {
+        // Pattern-match every variant, recording into the same
+        // MockEvent shape the legacy tests assert against.  The
+        // generic AttributeChange variant is ignored — dedicated
+        // attribute tests use a separate fixture.  The Remove arm
+        // records (node, parent, removed_index) only — the
+        // descendants snapshot is asserted by `DescendantSnapshotHook`
+        // in this same file.
+        match *event {
+            MutationEvent::Insert { node, parent, index } => {
+                self.events.lock().unwrap().push(MockEvent::Insert {
+                    node,
+                    parent,
+                    index,
+                });
+            }
+            MutationEvent::Remove {
+                node,
+                parent,
+                removed_index,
+                ..
+            } => {
+                self.events.lock().unwrap().push(MockEvent::Remove {
+                    node,
+                    parent,
+                    index: removed_index,
+                });
+            }
+            MutationEvent::TextChange { node, new_utf16_len } => {
+                self.events.lock().unwrap().push(MockEvent::TextChange {
+                    node,
+                    new_utf16_len,
+                });
+            }
+            MutationEvent::ReplaceData {
+                node,
+                offset_utf16,
+                count_utf16,
+                new_data_len_utf16,
+            } => {
+                self.events.lock().unwrap().push(MockEvent::ReplaceData {
+                    node,
+                    offset: offset_utf16,
+                    count: count_utf16,
+                    new_data_len: new_data_len_utf16,
+                });
+            }
+            MutationEvent::SplitText {
+                node,
+                new_node,
+                offset_utf16,
+                parent,
+                node_index,
+            } => {
+                self.events.lock().unwrap().push(MockEvent::SplitText {
+                    node,
+                    new_node,
+                    offset: offset_utf16,
+                    parent,
+                    node_index,
+                });
+            }
+            MutationEvent::NormalizeMerge {
+                merged_child,
+                prev,
+                prev_old_len_utf16,
+                parent,
+                merged_child_index,
+            } => {
+                self.events.lock().unwrap().push(MockEvent::NormalizeMerge {
+                    merged_child,
+                    prev,
+                    prev_old_len: prev_old_len_utf16,
+                    parent,
+                    merged_child_index,
+                });
+            }
+            MutationEvent::AttributeChange { .. } => {
+                // Generic MockHook does not record attribute events.
+            }
+        }
     }
 }
 
 fn install_mock(dom: &mut EcsDom) -> Arc<Mutex<Vec<MockEvent>>> {
     let hook = MockHook::default();
     let events = hook.events.clone();
-    dom.set_mutation_hook(Box::new(hook));
+    dom.set_mutation_dispatcher(Box::new(hook));
     events
 }
 
@@ -417,7 +423,7 @@ fn set_text_data_empty_string() {
 }
 
 #[test]
-fn take_mutation_hook_round_trip() {
+fn take_mutation_dispatcher_round_trip() {
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "div");
     let c0 = elem(&mut dom, "a");
@@ -430,40 +436,40 @@ fn take_mutation_hook_round_trip() {
     assert_eq!(events.lock().unwrap().len(), 1);
 
     // Take the hook out: subsequent mutations do NOT fire.
-    let taken = dom.take_mutation_hook();
+    let taken = dom.take_mutation_dispatcher();
     assert!(taken.is_some());
     assert!(dom.append_child(parent, c1));
     assert_eq!(events.lock().unwrap().len(), 1);
 
     // Re-install: mutations fire again.
     let c2 = elem(&mut dom, "c");
-    dom.set_mutation_hook(taken.expect("hook was taken"));
+    dom.set_mutation_dispatcher(taken.expect("hook was taken"));
     assert!(dom.append_child(parent, c2));
     assert_eq!(events.lock().unwrap().len(), 2);
 }
 
 #[test]
-fn clear_mutation_hook_drops_hook() {
+fn clear_mutation_dispatcher_drops_hook() {
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "div");
     let child = elem(&mut dom, "a");
 
     let events = install_mock(&mut dom);
-    dom.clear_mutation_hook();
+    dom.clear_mutation_dispatcher();
 
     assert!(dom.append_child(parent, child));
     assert!(events.lock().unwrap().is_empty());
 }
 
 #[test]
-fn set_mutation_hook_returns_previous_hook() {
+fn set_mutation_dispatcher_returns_previous_hook() {
     let mut dom = EcsDom::new();
     let _ = install_mock(&mut dom);
-    let prev = dom.set_mutation_hook(Box::new(MockHook::default()));
+    let prev = dom.set_mutation_dispatcher(Box::new(MockHook::default()));
     assert!(prev.is_some());
-    let none = dom.take_mutation_hook();
+    let none = dom.take_mutation_dispatcher();
     assert!(none.is_some());
-    let none2 = dom.take_mutation_hook();
+    let none2 = dom.take_mutation_dispatcher();
     assert!(none2.is_none());
 }
 
@@ -869,7 +875,7 @@ fn replace_text_data_bumps_inclusive_descendants_version() {
 }
 
 #[test]
-fn fire_after_split_text_helper_routes_to_hook() {
+fn fire_split_text_helper_routes_to_hook() {
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "p");
     let text = dom.create_text("hello world");
@@ -878,7 +884,7 @@ fn fire_after_split_text_helper_routes_to_hook() {
     assert!(dom.append_child(parent, new_text));
 
     let events = install_mock(&mut dom);
-    dom.fire_after_split_text(text, new_text, 5, Some(parent), Some(0));
+    dom.fire_split_text(text, new_text, 5, Some(parent), Some(0));
 
     let log = events.lock().unwrap().clone();
     assert_eq!(
@@ -894,7 +900,7 @@ fn fire_after_split_text_helper_routes_to_hook() {
 }
 
 #[test]
-fn fire_after_normalize_merge_helper_routes_to_hook() {
+fn fire_normalize_merge_helper_routes_to_hook() {
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "p");
     let prev = dom.create_text("hello");
@@ -904,7 +910,7 @@ fn fire_after_normalize_merge_helper_routes_to_hook() {
 
     let events = install_mock(&mut dom);
     // prev_old_len = 5 (len of "hello" before absorbing "world").
-    dom.fire_after_normalize_merge(merged_child, prev, 5, Some(parent), Some(1));
+    dom.fire_normalize_merge(merged_child, prev, 5, Some(parent), Some(1));
 
     let log = events.lock().unwrap().clone();
     assert_eq!(
@@ -929,8 +935,8 @@ fn fire_helpers_silent_when_no_hook_installed() {
     assert!(dom.append_child(parent, new_text));
 
     // No hook installed — helpers must be no-ops, not panic.
-    dom.fire_after_split_text(text, new_text, 1, Some(parent), Some(0));
-    dom.fire_after_normalize_merge(new_text, text, 2, Some(parent), Some(1));
+    dom.fire_split_text(text, new_text, 1, Some(parent), Some(0));
+    dom.fire_normalize_merge(new_text, text, 2, Some(parent), Some(1));
 }
 
 #[test]
@@ -966,19 +972,17 @@ struct DescendantSnapshotHook {
     snapshot: Arc<Mutex<DescendantSnapshotLog>>,
 }
 
-impl MutationHook for DescendantSnapshotHook {
-    fn after_remove_with_descendants(
-        &mut self,
-        node: Entity,
-        _parent: Entity,
-        _removed_index: usize,
-        descendants: &[Entity],
-        _dom: &crate::EcsDom,
-    ) {
-        self.snapshot
-            .lock()
-            .unwrap()
-            .push((node, descendants.to_vec()));
+impl MutationDispatcher for DescendantSnapshotHook {
+    fn dispatch(&mut self, event: &MutationEvent<'_>, _dom: &crate::EcsDom) {
+        if let MutationEvent::Remove {
+            node, descendants, ..
+        } = *event
+        {
+            self.snapshot
+                .lock()
+                .unwrap()
+                .push((node, descendants.to_vec()));
+        }
     }
 }
 
@@ -1001,7 +1005,7 @@ fn destroy_entity_passes_inclusive_descendants_snapshot() {
 
     let hook = DescendantSnapshotHook::default();
     let snapshot_handle = hook.snapshot.clone();
-    dom.set_mutation_hook(Box::new(hook));
+    dom.set_mutation_dispatcher(Box::new(hook));
 
     assert!(dom.destroy_entity(target));
 
@@ -1035,7 +1039,7 @@ fn remove_child_passes_inclusive_descendants_snapshot() {
 
     let hook = DescendantSnapshotHook::default();
     let snapshot_handle = hook.snapshot.clone();
-    dom.set_mutation_hook(Box::new(hook));
+    dom.set_mutation_dispatcher(Box::new(hook));
 
     assert!(dom.remove_child(parent, target));
 

@@ -67,14 +67,14 @@ impl VmInner {
 /// marshalling 用途 (entity 取得 / 単純 attribute read / wrapper
 /// 生成) に限定"). Brand check + WebIDL `unsigned long` coercion
 /// happen here; the actual splice + Range live-tracking ordering
-/// (insert → fire_after_split_text → set_text_data) is in
+/// (insert → fire_split_text → set_text_data) is in
 /// elidex-dom-api.
 ///
 /// ## Range live-tracking ordering (informational)
 ///
 /// `split_text_at_offset` orchestrates a three-step Range boundary
 /// dance: `insert_before(new_node)` fires `after_insert` (parent-side
-/// `off > node_idx + 1 → +1`), then `fire_after_split_text` carrying
+/// `off > node_idx + 1 → +1`), then `fire_split_text` carrying
 /// the pre-split `parent` + `node_index` fires the
 /// [`elidex_ecs::MutationHook::after_split_text`] callback (node-side
 /// `off > offset → (new_node, off - offset)` + parent-side

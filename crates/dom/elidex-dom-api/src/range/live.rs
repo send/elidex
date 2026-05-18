@@ -54,7 +54,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use elidex_ecs::{EcsDom, Entity, MutationHook};
+use elidex_ecs::{EcsDom, Entity, MutationEvent};
 
 use super::{
     adjust_ranges_for_insertion, adjust_ranges_for_normalize_merge,
@@ -100,7 +100,74 @@ pub struct LiveRangeBridge {
     ranges: Arc<Mutex<HashMap<RangeId, Range>>>,
 }
 
-impl MutationHook for LiveRangeBridge {
+/// Test-only single-consumer `MutationDispatcher` adapter so legacy
+/// tests can install a [`LiveRangeBridge`] directly on `EcsDom`
+/// without constructing a full [`crate::ConsumerDispatcher`] (which
+/// would require pairing a NodeIteratorAdjuster too).  Production
+/// code installs the typed [`crate::ConsumerDispatcher`].
+#[cfg(test)]
+impl elidex_ecs::MutationDispatcher for LiveRangeBridge {
+    fn dispatch(
+        &mut self,
+        event: &elidex_ecs::MutationEvent<'_>,
+        dom: &EcsDom,
+    ) {
+        self.handle(event, dom);
+    }
+}
+
+impl LiveRangeBridge {
+    /// Single-method dispatch entry point invoked by
+    /// [`crate::ConsumerDispatcher`].  Pattern-matches the
+    /// [`MutationEvent`] variant and forwards to the per-variant
+    /// helper below.  Variants not affecting Range live-tracking
+    /// (Insert handled by `after_insert`, AttributeChange ignored)
+    /// fall through the `_` arm.
+    pub fn handle(&mut self, event: &MutationEvent<'_>, dom: &EcsDom) {
+        match *event {
+            MutationEvent::Remove {
+                node,
+                parent,
+                removed_index,
+                descendants,
+            } => self.after_remove_with_descendants(node, parent, removed_index, descendants, dom),
+            MutationEvent::Insert { node, parent, index } => self.after_insert(node, parent, index),
+            MutationEvent::TextChange { node, new_utf16_len } => {
+                self.after_text_change(node, new_utf16_len);
+            }
+            MutationEvent::ReplaceData {
+                node,
+                offset_utf16,
+                count_utf16,
+                new_data_len_utf16,
+            } => self.after_replace_data(node, offset_utf16, count_utf16, new_data_len_utf16),
+            MutationEvent::SplitText {
+                node,
+                new_node,
+                offset_utf16,
+                parent,
+                node_index,
+            } => self.after_split_text(node, new_node, offset_utf16, parent, node_index),
+            MutationEvent::NormalizeMerge {
+                merged_child,
+                prev,
+                prev_old_len_utf16,
+                parent,
+                merged_child_index,
+            } => self.after_normalize_merge(
+                merged_child,
+                prev,
+                prev_old_len_utf16,
+                parent,
+                merged_child_index,
+            ),
+            MutationEvent::AttributeChange { .. } => {
+                // Range live-tracking does not depend on attribute
+                // mutations — Range boundaries are tree-positional.
+            }
+        }
+    }
+
     fn after_remove_with_descendants(
         &mut self,
         _node: Entity,
@@ -522,7 +589,7 @@ mod tests {
         // rule that would fire if the unclamped count=99 were passed.
         let mut dom = EcsDom::new();
         let (mut reg, bridge) = LiveRangeRegistry::new_pair();
-        dom.set_mutation_hook(Box::new(bridge));
+        dom.set_mutation_dispatcher(Box::new(bridge));
         let parent = elem(&mut dom, "p");
         let t = dom.create_text("hello");
         let _ = dom.append_child(parent, t);
@@ -802,7 +869,7 @@ mod tests {
         // `(parent, removed_index)` per WHATWG §5.5 remove step 4.
         let (mut reg, bridge) = LiveRangeRegistry::new_pair();
         let mut dom = EcsDom::new();
-        dom.set_mutation_hook(Box::new(bridge));
+        dom.set_mutation_dispatcher(Box::new(bridge));
         let parent = elem(&mut dom, "div");
         let target = elem(&mut dom, "section");
         let descendant = dom.create_text("hello");
