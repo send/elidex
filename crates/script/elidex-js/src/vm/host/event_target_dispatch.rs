@@ -680,10 +680,14 @@ pub(super) fn dispatch_submit_event(
         .expect("precomputed_event_shapes built during VM init")
         .submit_event;
 
-    // Root `submitter` BEFORE `alloc_object` — if `submitter` is a
-    // GC-tracked Object the alloc could trigger GC and collect it
-    // before the slot Vec carries the reference.  Mirrors the
-    // SubmitEvent constructor's push_temp_root precedent in
+    // Root `submitter` BEFORE the event-object `alloc_object` below
+    // — if `submitter` is a GC-tracked Object the alloc could
+    // trigger GC and collect it before the slot Vec carries the
+    // reference.  `target_wrapper` (above) was looked up via
+    // `create_element_wrapper`'s entity-keyed cache; on cache miss
+    // it allocates, but the dom-wrapper map keeps the wrapper alive
+    // by entity, so it does not need temp-rooting here.  Mirrors
+    // the SubmitEvent constructor's push_temp_root precedent in
     // `events_misc.rs::native_submit_event_constructor`.
     let mut g = ctx.vm.push_temp_root(submitter);
 
@@ -757,9 +761,10 @@ pub(super) fn dispatch_formdata_event(
         .expect("precomputed_event_shapes built during VM init")
         .formdata_event;
 
-    // Root `form_data_id` BEFORE alloc — see [`dispatch_submit_event`]
-    // for the rooting-order rationale (slot Vec is the only owner of
-    // the FormData reference between alloc and define).
+    // Root `form_data_id` BEFORE the event-object `alloc_object`
+    // below — see [`dispatch_submit_event`] for the rooting-order
+    // rationale (slot Vec is the only owner of the FormData
+    // reference between alloc and define).
     let form_data_val = JsValue::Object(form_data_id);
     let mut g = ctx.vm.push_temp_root(form_data_val);
 

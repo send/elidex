@@ -22,6 +22,14 @@
 //! - E-7 `new FormData(formEl)` populates the entry list from the
 //!   form's controls via the §C-3 single-source-of-truth path
 //!   (existing FormData ctor TODO closed).
+//! - E-8 `form.requestSubmit(divEl)` with a non-submit-button
+//!   wrapper throws `TypeError` per HTML §4.10.21.4 step 2.1.
+//! - E-9 Interactive validation arm (§4.10.21.3 substep): a form
+//!   with a single `<input required>` empty control fires `invalid`
+//!   on the control and aborts before `submit` / `formdata`.
+//! - E-10 `form.noValidate = true` (and `submitter.formNoValidate`)
+//!   skip the interactive-validation substep so `submit` /
+//!   `formdata` fire even when constraints would otherwise fail.
 //!
 //! Cross-tree submitter validation (`form="id"` attribute path) and
 //! `FormControlKind::Button` rejection (non-submit `type=button`) are
@@ -184,4 +192,57 @@ fn new_form_data_with_form_populates_entries() {
          fd.forEach(function(v, k) { entries.push(k + '=' + v); }); \
          entries.join('&');");
     assert_eq!(out, "q=world");
+}
+
+// E-8 — requestSubmit(non-submit-button) → TypeError per HTML
+// §4.10.21.4 step 2.1.  `<div>` passes `entity_from_this` (it has a
+// HostObject wrapper) but fails `is_submit_button` because it has
+// no `FormControlState`.
+#[test]
+fn request_submit_non_submit_button_throws_type_error() {
+    let out = run("var f = document.createElement('form'); \
+         var d = document.createElement('div'); \
+         try { f.requestSubmit(d); 'no-throw'; } \
+         catch (e) { e instanceof TypeError ? 'ok' : ('other:' + e.name); }");
+    assert_eq!(out, "ok");
+}
+
+// E-9 — Interactive validation arm: a form with `<input required>`
+// empty must NOT fire `submit` / `formdata`, and must fire `invalid`
+// on the failing control.  Per HTML §4.10.21.3 the "interactively
+// validate the constraints" substep runs before `submit` and aborts
+// on failure.
+#[test]
+fn request_submit_invalid_form_skips_submit_and_fires_invalid() {
+    let out = run("var f = document.createElement('form'); \
+         var i = document.createElement('input'); \
+         i.name = 'q'; i.required = true; \
+         f.appendChild(i); \
+         var trace = []; \
+         i.addEventListener('invalid', function() { trace.push('invalid'); }); \
+         f.addEventListener('submit', function() { trace.push('submit'); }); \
+         f.addEventListener('formdata', function() { trace.push('formdata'); }); \
+         f.requestSubmit(); \
+         trace.join(',');");
+    assert_eq!(out, "invalid");
+}
+
+// E-10 — `form.noValidate = true` skips the interactive-validation
+// substep so `submit` / `formdata` still fire even when constraints
+// would otherwise fail.  Matches HTML §4.10.21.3 "if form's
+// no-validate state is true" carve-out.
+#[test]
+fn request_submit_novalidate_skips_validation() {
+    let out = run("var f = document.createElement('form'); \
+         f.noValidate = true; \
+         var i = document.createElement('input'); \
+         i.name = 'q'; i.required = true; \
+         f.appendChild(i); \
+         var trace = []; \
+         i.addEventListener('invalid', function() { trace.push('invalid'); }); \
+         f.addEventListener('submit', function() { trace.push('submit'); }); \
+         f.addEventListener('formdata', function() { trace.push('formdata'); }); \
+         f.requestSubmit(); \
+         trace.join(',');");
+    assert_eq!(out, "submit,formdata");
 }

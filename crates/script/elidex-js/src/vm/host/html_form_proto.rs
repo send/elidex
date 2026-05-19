@@ -534,7 +534,27 @@ fn native_form_request_submit(
         }
     };
 
-    // Step 3: dispatch submit event.
+    // Step 3 (HTML §4.10.21.3 "interactively validate the
+    // constraints" substep): if neither the form's `novalidate` nor
+    // the submitter's `formnovalidate` override the validation step,
+    // walk every submittable descendant via [`run_form_check_validity`]
+    // (which also fires synthetic `invalid` events on failing
+    // controls).  Validation failure aborts before any `submit`
+    // event fires — listeners on `submit` must NOT observe a request
+    // whose constraints failed.
+    let skip_validation = {
+        let dom = ctx.host().dom();
+        dom.has_attribute(form_entity, "novalidate")
+            || submitter_entity.is_some_and(|e| dom.has_attribute(e, "formnovalidate"))
+    };
+    if !skip_validation {
+        let all_valid = run_form_check_validity(ctx, form_entity)?;
+        if !all_valid {
+            return Ok(JsValue::Undefined);
+        }
+    }
+
+    // Step 4: dispatch submit event.
     let submitter_value = submitter_entity.map_or(JsValue::Null, |e| {
         JsValue::Object(ctx.vm.create_element_wrapper(e))
     });
@@ -544,7 +564,8 @@ fn native_form_request_submit(
         return Ok(JsValue::Undefined);
     }
 
-    // Step 4 + 5: build FormData from form controls + dispatch formdata event.
+    // Step 5 + 6: build FormData from form controls + dispatch
+    // formdata event.
     let form_data_id = super::form_data::build_form_data_from_form(ctx, form_entity);
     let _ = super::event_target_dispatch::dispatch_formdata_event(ctx, form_entity, form_data_id)?;
 
