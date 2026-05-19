@@ -8,6 +8,8 @@ Agent prompt は「Read axes.md Axis N → apply `Detect` の `[diff]`/`[plan]`/
 
 **Fix 提案禁止 (Step 3.5 で行う) — output format の `Suggested fix` field の意味**: 各 axis の Output format には `Suggested fix` / `ECS-native alternative` / `Recommended action` 等の field が含まれるが、これらは **agent が input を読んで発見した raw suggestion** であって philosophy-aligned な user-facing 推奨 fix ではない。User-facing 推奨 fix は Step 3.5 (philosophy alignment re-evaluation) で構築される。Agent は raw suggestion を input として記録するに留め、「これが推奨 fix です」と endorse しない (smallest-patch bias 防止)。
 
+**`memory/...` reference convention**: 本 file で `memory/X.md` と書かれている path は **CLAUDE Code per-user memory dir** (`~/.claude/projects/<encoded-repo-path>/memory/X.md`) を指し、git tracked な repo file ではない。Project member は CLAUDE memory dir で該当 file を read 可能、cross-dev reader (memory dir なし) は inline context summary に依拠する形。
+
 ## Common: severity calibration
 
 - **CRIT** — merging で immediate damage / spec contract 違反 / Layering mandate 違反 (incident-derived) / build break。push gate / plan gate で mandatory fix

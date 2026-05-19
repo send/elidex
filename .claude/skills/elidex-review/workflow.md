@@ -3,7 +3,7 @@
 Shared lifecycle for `elidex-review` (post-impl diff) and `elidex-plan-review` (pre-impl plan-memo).  Each skill's `SKILL.md` is a thin wrapper providing:
 
 - Input collection (Step 1 — `git diff` vs plan-memo path)
-- Step 2 agent invocation table (axis × axes.md `Detect at <context>` subsection × dry-run file path)
+- Step 2 agent invocation table (axis × axes.md `Detect` entries tagged `[diff]`/`[plan]`/`[both]` × dry-run file path)
 - Recommendation phrasing specific to that gate (push gate vs implementation gate)
 - Skill-specific extras (e.g., plan-review Step 5)
 
