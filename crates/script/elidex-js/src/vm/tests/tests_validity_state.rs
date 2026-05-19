@@ -109,9 +109,12 @@ fn textarea_max_length_negative_resets_constraint() {
 #[test]
 fn textarea_validity_value_missing_when_required_sync_works() {
     // Regression test for I-3 — `required = true` via JS must
-    // round-trip into FormControlState.required (through
-    // bool_attr_reflect) so an empty required textarea is
-    // valueMissing.
+    // round-trip into FormControlState.required so an empty required
+    // textarea is `valueMissing`.  Flow: IDL setter → content-attribute
+    // reflection (`form_state_sync::bool_attr_reflect`) →
+    // `EcsDom::set_attribute` chokepoint fires
+    // `MutationEvent::AttributeChange` → `FormControlReconciler`
+    // updates the FCS field uniformly (D-31 post-relocation path).
     let out = run("var t = document.createElement('textarea'); \
          t.required = true; \
          '' + t.validity.valueMissing;");
