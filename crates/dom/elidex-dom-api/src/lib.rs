@@ -16,7 +16,6 @@ pub mod char_data;
 pub mod child_node;
 pub mod class_list;
 pub mod computed_style;
-pub mod consumer_dispatcher;
 pub mod css_namespace;
 pub mod cssom_sheet;
 pub mod document;
@@ -58,7 +57,6 @@ pub use class_list::{
     REL_LIST_SUPPORTS, REL_LIST_TOGGLE, REL_LIST_VALUE_GET, REL_LIST_VALUE_SET,
 };
 pub use computed_style::{css_value_to_string, GetComputedStyle};
-pub use consumer_dispatcher::ConsumerDispatcher;
 pub use css_namespace::{CssEscape, CssSupports};
 pub use cssom_sheet::{
     collect_stylesheet_owners, count_stylesheet_owners, CssRulesItemId, CssRulesLength, DeleteRule,

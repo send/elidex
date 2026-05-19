@@ -30,7 +30,7 @@
 //! [`MutationEvent::SplitText`](elidex_ecs::MutationEvent::SplitText)
 //! event that follows the insert is fired with the pre-split parent
 //! and `node_index` so the consumer ([`crate::LiveRangeBridge`], invoked
-//! via [`crate::ConsumerDispatcher`]) tops up that exact slot — the
+//! via `elidex_js::vm::consumer_dispatcher::ConsumerDispatcher`) tops up that exact slot — the
 //! standard consumer therefore implements §4.10 step 7 in full.
 //! Callers that install a CUSTOM dispatcher which ignores the parent /
 //! node_index args inherit the Insert-only behaviour (lag at
@@ -309,9 +309,7 @@ mod tests {
         // would clamp the boundary down to `head_len = offset`.
         let (mut dom, _parent, t) = build_tree();
         let (mut reg, bridge) = LiveRangeRegistry::new_pair();
-        dom.set_mutation_dispatcher(Box::new(crate::ConsumerDispatcher::for_range_only_test(
-            bridge,
-        )));
+        dom.set_mutation_dispatcher(crate::range::make_range_only_test_dispatcher(bridge));
 
         let mut r = Range::new(t);
         r.set_start(t, 8); // inside "hello world", past offset 5
@@ -337,9 +335,7 @@ mod tests {
         // case has off ≤ offset so the clamp is a no-op.
         let (mut dom, _parent, t) = build_tree();
         let (mut reg, bridge) = LiveRangeRegistry::new_pair();
-        dom.set_mutation_dispatcher(Box::new(crate::ConsumerDispatcher::for_range_only_test(
-            bridge,
-        )));
+        dom.set_mutation_dispatcher(crate::range::make_range_only_test_dispatcher(bridge));
 
         let mut r = Range::new(t);
         r.set_start(t, 2);

@@ -1,36 +1,41 @@
-//! Shared helpers for form-control attribute setters that mirror the
-//! parsed value into [`elidex_form::FormControlState`] alongside the
-//! content-attribute write.
+//! Shared helpers for form-control attribute setters that route through
+//! the [`EcsDom::set_attribute`] / [`EcsDom::remove_attribute`]
+//! chokepoint (via the VM-layer [`element_attrs::attr_remove`] wrapper
+//! for the removal branch).
 //!
 //! ## Why this exists
 //!
 //! `<input>` and `<textarea>` both expose constraint-bearing attributes
 //! (`disabled` / `required` / `readOnly` / `maxLength` / `minLength`)
-//! whose IDL setters must do two things:
+//! whose IDL setters share two non-trivial branches: the boolean-
+//! presence reflect rule (`true` ⇒ set empty-string attr, `false` ⇒
+//! remove attr) and the long-reflect negative-clears rule (HTML
+//! §6.13.1) for `maxlength` / `minlength`.  Consolidating the wiring
+//! here gives any future form-control proto (datalist / output /
+//! progress / meter per the T2 carve-out — see
+//! `m4-12-platform-gap-roadmap.md` §D-9) the same path out of the box.
 //!
-//! 1. write through to the content attribute (so DOM-side serialization
-//!    and CSS attribute selectors see the new value), and
-//! 2. mirror the parsed value into the matching `FormControlState`
-//!    field so subsequent
-//!    [`elidex_form::validate_control`](elidex_form::validate_control)
-//!    calls observe the constraint without requiring an attach pass.
-//!
-//! The two protos previously carried near-identical
-//! `bool_attr_with_state_sync` / `length_set_with_state_sync` helpers;
-//! consolidating them here removes the duplication and gives any
-//! future form-control proto (datalist / output / progress / meter
-//! per the T2 carve-out — see `m4-12-platform-gap-roadmap.md` §D-9)
-//! the same wiring out of the box.
+//! These helpers perform content-attribute reflection only.
+//! `FormControlState` mirroring lives in
+//! [`FormControlReconciler`](elidex_form::FormControlReconciler) (a
+//! `MutationEvent::AttributeChange` consumer composed into the VM's
+//! `ConsumerDispatcher`), which observes the mutations fired by the
+//! `EcsDom::set_attribute` / `EcsDom::remove_attribute` chokepoint and
+//! re-derives
+//! FCS fields uniformly across IDL setter / `setAttribute` / parser /
+//! `innerHTML` paths.  Module / function names below therefore reflect
+//! attribute-reflection responsibility, NOT FCS sync (which was the
+//! pre-D-31 placement that these helpers carried in their original
+//! `_with_state_sync` suffix).
 //!
 //! ## Layering
 //!
 //! Per CLAUDE.md "Layering mandate", these helpers are pure
 //! marshalling glue: the brand check (interface-specific
 //! `require_input_receiver` / `require_textarea_receiver`) is
-//! injected by the call site, and `apply` is the field-mutation
-//! callback that writes a `FormControlState` field.  The reflection
-//! rule itself (negative-value-clears-attr per HTML §6.13.1) lives
-//! in this module since it's identical across protos.
+//! injected by the call site.  The reflection rule (negative-value-
+//! clears-attr per HTML §6.13.1) lives in this module since it's
+//! identical across protos.
 
 #![cfg(feature = "engine")]
 // Cast-sign-loss: every `as usize` conversion here is gated by an
@@ -38,7 +43,6 @@
 #![allow(clippy::cast_sign_loss)]
 
 use elidex_ecs::Entity;
-use elidex_form::FormControlState;
 
 use super::super::value::{JsValue, NativeContext, VmError};
 
@@ -51,25 +55,24 @@ use super::super::value::{JsValue, NativeContext, VmError};
 pub(super) type RequireReceiver =
     fn(&mut NativeContext<'_>, JsValue, &str) -> Result<Option<Entity>, VmError>;
 
-/// Boolean reflect setter that ALSO mirrors into the matching
-/// `FormControlState` field via `apply` after writing the content
-/// attribute.
+/// Boolean-presence content-attribute setter (HTML §2.5.2 boolean
+/// attribute rule — `true` ⇒ presence ⇒ empty string; `false` ⇒
+/// absence).
 ///
 /// `attr` is the lowercase content-attribute name written through to
 /// `EcsDom::set_attribute` (e.g. `"readonly"` even for the IDL alias
-/// `readOnly`).
-pub(super) fn bool_attr_with_state_sync<F>(
+/// `readOnly`).  `FormControlState` mirroring is done downstream by
+/// the [`FormControlReconciler`](elidex_form::FormControlReconciler)
+/// consumer of the `MutationEvent::AttributeChange` fired by the
+/// chokepoint.
+pub(super) fn bool_attr_reflect(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     args: &[JsValue],
     method: &str,
     attr: &str,
     require: RequireReceiver,
-    apply: F,
-) -> Result<JsValue, VmError>
-where
-    F: FnOnce(&mut FormControlState, bool),
-{
+) -> Result<JsValue, VmError> {
     let Some(entity) = require(ctx, this, method)? else {
         return Ok(JsValue::Undefined);
     };
@@ -80,31 +83,23 @@ where
     } else {
         super::element_attrs::attr_remove(ctx, entity, attr);
     }
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        apply(&mut state, flag);
-    }
     Ok(JsValue::Undefined)
 }
 
-/// Length-attribute setter that mirrors the parsed value into the
-/// matching `FormControlState` field so subsequent
-/// `validate_control()` observes the constraint without a re-attach
-/// (HTML §4.10.20.3).  Negative values map to `None` (no constraint)
-/// per HTML §6.13.1 reflection rules — the content attribute is
-/// removed rather than persisting an illegal `maxlength="-1"`.
-pub(super) fn length_set_with_state_sync<F>(
+/// Long-reflect content-attribute setter (HTML §6.13.1) — negative
+/// values remove the attribute rather than persisting an illegal
+/// `maxlength="-1"`.  `FormControlState` mirroring is done
+/// downstream by the [`FormControlReconciler`](elidex_form::FormControlReconciler)
+/// consumer of the `MutationEvent::AttributeChange` fired by the
+/// chokepoint.
+pub(super) fn length_attr_reflect(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     args: &[JsValue],
     method: &str,
     attr: &str,
     require: RequireReceiver,
-    apply: F,
-) -> Result<JsValue, VmError>
-where
-    F: FnOnce(&mut FormControlState, Option<usize>),
-{
+) -> Result<JsValue, VmError> {
     let Some(entity) = require(ctx, this, method)? else {
         return Ok(JsValue::Undefined);
     };
@@ -114,10 +109,6 @@ where
         super::element_attrs::attr_remove(ctx, entity, attr);
     } else {
         ctx.host().dom().set_attribute(entity, attr, &n.to_string());
-    }
-    let dom = ctx.host().dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        apply(&mut state, if n < 0 { None } else { Some(n as usize) });
     }
     Ok(JsValue::Undefined)
 }

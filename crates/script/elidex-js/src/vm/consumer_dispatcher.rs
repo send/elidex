@@ -5,6 +5,19 @@
 //! runtime registration API, no subscriber-list pattern, no implicit
 //! ordering dependency.
 //!
+//! # Crate placement
+//!
+//! Originally placed in `elidex_dom_api` alongside its first 3
+//! consumers (D-31).  Relocated to `elidex-js` (the binding crate)
+//! when [`FormControlReconciler`] from `elidex-form` was added as
+//! the 4th consumer — `elidex-form` already depends on
+//! `elidex-dom-api`, so embedding a form-control-typed field in a
+//! composer that lived in `elidex-dom-api` would have introduced a
+//! circular cargo dep.  The composer is binding-layer infrastructure
+//! (wires every consumer at VM-init time), so its natural home is the
+//! binding crate that depends on both `elidex-dom-api` AND
+//! `elidex-form`.
+//!
 //! # Lock ordering
 //!
 //! Each consumer's lock is acquired in a **disjoint** scope — no
@@ -14,11 +27,9 @@
 
 #![deny(clippy::significant_drop_tightening)]
 
+use elidex_dom_api::{BaseUrlMaintainer, LiveRangeBridge, NodeIteratorAdjuster};
 use elidex_ecs::{EcsDom, MutationDispatcher, MutationEvent};
-
-use crate::element::document_base::BaseUrlMaintainer;
-use crate::range::LiveRangeBridge;
-use crate::traversal::NodeIteratorAdjuster;
+use elidex_form::FormControlReconciler;
 
 /// Typed composer of the mutation consumers.
 pub struct ConsumerDispatcher {
@@ -33,6 +44,14 @@ pub struct ConsumerDispatcher {
     /// Base URL maintenance for `<base>` elements (HTML §2.4.3 +
     /// §4.2.3).
     base_url: BaseUrlMaintainer,
+    /// Form-control derived-state reconciliation
+    /// ([`elidex_form::FormControlState`] fields re-derived on
+    /// attribute mutations + FCS attach on form-control element
+    /// insertion).  HTML §4.10.18.3 form-associated element insertion
+    /// steps + WHATWG DOM §4.9 attribute change steps.  Added last in
+    /// field order so previous consumers' invariants are preserved
+    /// before form-derived state is updated.
+    form_control: FormControlReconciler,
 }
 
 impl ConsumerDispatcher {
@@ -46,6 +65,7 @@ impl ConsumerDispatcher {
             live_range,
             node_iter,
             base_url: BaseUrlMaintainer,
+            form_control: FormControlReconciler,
         }
     }
 
@@ -64,21 +84,15 @@ impl ConsumerDispatcher {
     /// [`NodeIteratorAdjuster`] do not need init: their state lives
     /// outside the DOM tree (Range / NodeIterator handles are
     /// JS-allocated and can only exist post-bind), so they are not
-    /// invoked here.  Add a delegate call only when a future consumer
-    /// derives state from pre-bind tree structure.
+    /// invoked here.  [`FormControlReconciler`] also skips init —
+    /// `create_form_control_state` is invoked at element-creation
+    /// time (`Document::createElement` / parser path) for the pre-
+    /// bind tree, so FCS attach is already complete by the time the
+    /// dispatcher is installed; post-install Insert events handle
+    /// dynamic additions.  Add a delegate call only when a future
+    /// consumer derives state from pre-bind tree structure.
     pub fn initialize_consumers(&mut self, dom: &mut EcsDom) {
         self.base_url.initialize_from_tree(dom);
-    }
-
-    /// Test-only constructor: only [`LiveRangeBridge`] is wired —
-    /// [`NodeIteratorAdjuster`] gets a fresh default, [`BaseUrlMaintainer`]
-    /// is stateless.  Used by Range-only test fixtures so they exercise
-    /// the same composition path as production rather than a one-off
-    /// back-door type alias.
-    #[cfg(test)]
-    #[must_use]
-    pub fn for_range_only_test(live_range: LiveRangeBridge) -> Self {
-        Self::new(live_range, NodeIteratorAdjuster::default())
     }
 }
 
@@ -90,5 +104,6 @@ impl MutationDispatcher for ConsumerDispatcher {
         self.live_range.handle(event, dom);
         self.node_iter.handle(event, dom);
         self.base_url.handle(event, dom);
+        self.form_control.handle(event, dom);
     }
 }

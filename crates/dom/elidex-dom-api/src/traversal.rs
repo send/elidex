@@ -1168,7 +1168,7 @@ pub struct NodeIteratorState {
 ///
 /// Holds the shared `Arc<Mutex<HashMap<u64, NodeIteratorState>>>`
 /// (cloned from `HostData::node_iterator_states_shared` at
-/// `Vm::bind` time).  Composed by [`crate::ConsumerDispatcher`] as
+/// `Vm::bind` time).  Composed by `elidex_js::vm::consumer_dispatcher::ConsumerDispatcher` as
 /// one of its typed fields.
 #[derive(Default)]
 pub struct NodeIteratorAdjuster {
@@ -1187,7 +1187,7 @@ impl NodeIteratorAdjuster {
     }
 
     /// Single-method dispatch entry invoked by
-    /// [`crate::ConsumerDispatcher`].  Only [`elidex_ecs::MutationEvent::Remove`]
+    /// `elidex_js::vm::consumer_dispatcher::ConsumerDispatcher`.  Only [`elidex_ecs::MutationEvent::Remove`]
     /// is relevant; other variants are ignored.
     pub fn handle(&mut self, event: &elidex_ecs::MutationEvent<'_>, dom: &mut elidex_ecs::EcsDom) {
         if let elidex_ecs::MutationEvent::Remove {

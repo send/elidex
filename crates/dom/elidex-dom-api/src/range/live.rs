@@ -14,7 +14,7 @@
 //!   dangling-collapse fallback pass on every read-path access for
 //!   the orphan-then-destroy corner case where no event fires.
 //! - [`LiveRangeBridge`] is a typed consumer invoked through its
-//!   `handle` method by [`crate::ConsumerDispatcher`] (which is the
+//!   `handle` method by `elidex_js::vm::consumer_dispatcher::ConsumerDispatcher` (which is the
 //!   actual [`elidex_ecs::MutationDispatcher`] impl).  The bridge
 //!   matches on each [`elidex_ecs::MutationEvent`] variant and
 //!   forwards into the shared `ranges`
@@ -104,7 +104,7 @@ pub struct LiveRangeBridge {
 
 impl LiveRangeBridge {
     /// Single-method dispatch entry point invoked by
-    /// [`crate::ConsumerDispatcher`].  Pattern-matches the
+    /// `elidex_js::vm::consumer_dispatcher::ConsumerDispatcher`.  Pattern-matches the
     /// [`MutationEvent`] variant and forwards to the per-variant
     /// helper below.  Variants not affecting Range live-tracking
     /// (Insert handled by `after_insert`, AttributeChange ignored)
@@ -583,9 +583,7 @@ mod tests {
         // rule that would fire if the unclamped count=99 were passed.
         let mut dom = EcsDom::new();
         let (mut reg, bridge) = LiveRangeRegistry::new_pair();
-        dom.set_mutation_dispatcher(Box::new(crate::ConsumerDispatcher::for_range_only_test(
-            bridge,
-        )));
+        dom.set_mutation_dispatcher(crate::range::make_range_only_test_dispatcher(bridge));
         let parent = elem(&mut dom, "p");
         let t = dom.create_text("hello");
         let _ = dom.append_child(parent, t);
@@ -865,9 +863,7 @@ mod tests {
         // `(parent, removed_index)` per WHATWG §5.5 remove step 4.
         let (mut reg, bridge) = LiveRangeRegistry::new_pair();
         let mut dom = EcsDom::new();
-        dom.set_mutation_dispatcher(Box::new(crate::ConsumerDispatcher::for_range_only_test(
-            bridge,
-        )));
+        dom.set_mutation_dispatcher(crate::range::make_range_only_test_dispatcher(bridge));
         let parent = elem(&mut dom, "div");
         let target = elem(&mut dom, "section");
         let descendant = dom.create_text("hello");

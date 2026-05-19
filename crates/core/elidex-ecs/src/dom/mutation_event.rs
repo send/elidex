@@ -18,7 +18,7 @@
 //!   pre-removing-steps correctness; Bevy-style deferred drain would
 //!   break this).
 //! - **Single `Box<dyn MutationDispatcher>` in `EcsDom`** (NOT a Vec):
-//!   typed composer ([`elidex_dom_api::ConsumerDispatcher`]) holds all
+//!   typed composer (`elidex_js::vm::consumer_dispatcher::ConsumerDispatcher`) holds all
 //!   consumers as typed fields, dispatches in declaration order.
 //!   Compile-time-visible ordering, no subscriber-list runtime registry,
 //!   monomorphized internal dispatch.
@@ -292,10 +292,10 @@ pub enum MutationEvent<'a> {
 /// Installed via [`EcsDom::set_mutation_dispatcher`]; called once per
 /// fired event in registration order.
 ///
-/// Production impl: `elidex_dom_api::ConsumerDispatcher` (typed
+/// Production impl: `elidex_js::vm::consumer_dispatcher::ConsumerDispatcher` (typed
 /// composer of `LiveRangeBridge` + `NodeIteratorAdjuster` +
-/// `BaseUrlMaintainer`). Dispatch order = composer field declaration
-/// order = compile-time-visible.
+/// `BaseUrlMaintainer` + `FormControlReconciler`). Dispatch order =
+/// composer field declaration order = compile-time-visible.
 ///
 /// New mutation kinds are added as [`MutationEvent`] variant additions;
 /// existing dispatcher / consumer code compile-time-ignores via the
