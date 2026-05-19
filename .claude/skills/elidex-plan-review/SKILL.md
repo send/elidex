@@ -43,9 +43,9 @@ ls "$REPO_ROOT/.claude/skills/elidex-review/axes.md"  # fails with stderr if mis
 
 Plan-memo size > 1000 行なら user 確認 (通常 ~200-500 行)。
 
-### Step 1.5 — Test mental dry-run
+### Step 1.5 — Mental dry-run
 
-`workflow.md` § "Step 1.5" を適用、output を `/tmp/elidex-plan-review.dry-run.md` に。Plan-memo §E-N test cases 全件 simulate、write-path が plan 内予定 OR 既存実装で wired か確認。
+`workflow.md` § "Step 1.5" を適用、output を `/tmp/elidex-plan-review.dry-run.md` に。**対象は test 限定ではない** — workflow.md 通り plan-memo §E-N test cases AND plan body / §Implementation で言及される new code path that reads ECS components 両方を simulate、write-path が plan 内予定 OR 既存実装で wired か確認。後者を skip すると Axis 2 sub-check 2b coverage が弱化する (non-test read site の data-flow gap 見逃し)。
 
 ### Step 2 — Launch 5 agents in parallel
 

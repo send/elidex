@@ -41,9 +41,9 @@ ls "$REPO_ROOT/.claude/skills/elidex-review/axes.md"  # fails with stderr if mis
 
 Diff size > 5000 行なら user 確認 (5-agent token cost 過大)。
 
-### Step 1.5 — Test mental dry-run
+### Step 1.5 — Mental dry-run
 
-`workflow.md` § "Step 1.5" を適用、output を `/tmp/elidex-review.dry-run.md` に。Step 2 Agent 2 prompt に hand off。
+`workflow.md` § "Step 1.5" を適用、output を `/tmp/elidex-review.dry-run.md` に。**対象は test 限定ではない** — workflow.md 通り「新規/変更 test case AND new code path that reads ECS components」両方 (refactor PR の new caller / new system query 等 non-test も含む) を simulate、Sub-check 2b coverage を担保。Step 2 Agent 2 prompt に hand off。
 
 ### Step 2 — Launch 5 agents in parallel
 
