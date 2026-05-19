@@ -13,11 +13,17 @@
 //! progress / meter per the T2 carve-out — see
 //! `m4-12-platform-gap-roadmap.md` §D-9) the same path out of the box.
 //!
-//! `FormControlState` mirroring is NOT handled here: post the
-//! [`FormControlReconciler`](elidex_form::FormControlReconciler)
-//! D-31 landing, `EcsDom::set_attribute` / `attr_remove` fire
-//! `MutationEvent::AttributeChange` and the reconciler updates FCS
-//! fields uniformly — these helpers do not duplicate that work.
+//! These helpers perform content-attribute reflection only.
+//! `FormControlState` mirroring lives in
+//! [`FormControlReconciler`](elidex_form::FormControlReconciler) (a
+//! `MutationEvent::AttributeChange` consumer composed into the VM's
+//! `ConsumerDispatcher`), which observes the mutations fired by the
+//! `EcsDom::set_attribute` / `attr_remove` chokepoint and re-derives
+//! FCS fields uniformly across IDL setter / `setAttribute` / parser /
+//! `innerHTML` paths.  Module / function names below therefore reflect
+//! attribute-reflection responsibility, NOT FCS sync (which was the
+//! pre-D-31 placement that these helpers carried in their original
+//! `_with_state_sync` suffix).
 //!
 //! ## Layering
 //!
@@ -56,7 +62,7 @@ pub(super) type RequireReceiver =
 /// the [`FormControlReconciler`](elidex_form::FormControlReconciler)
 /// consumer of the `MutationEvent::AttributeChange` fired by the
 /// chokepoint.
-pub(super) fn bool_attr_with_state_sync(
+pub(super) fn bool_attr_reflect(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     args: &[JsValue],
@@ -83,7 +89,7 @@ pub(super) fn bool_attr_with_state_sync(
 /// downstream by the [`FormControlReconciler`](elidex_form::FormControlReconciler)
 /// consumer of the `MutationEvent::AttributeChange` fired by the
 /// chokepoint.
-pub(super) fn length_set_with_state_sync(
+pub(super) fn length_attr_reflect(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     args: &[JsValue],

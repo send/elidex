@@ -405,7 +405,7 @@ fn native_textarea_set_disabled(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    super::form_state_sync::bool_attr_with_state_sync(
+    super::form_state_sync::bool_attr_reflect(
         ctx,
         this,
         args,
@@ -433,7 +433,7 @@ fn native_textarea_set_required(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    super::form_state_sync::bool_attr_with_state_sync(
+    super::form_state_sync::bool_attr_reflect(
         ctx,
         this,
         args,
@@ -461,7 +461,7 @@ fn native_textarea_set_readonly(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    super::form_state_sync::bool_attr_with_state_sync(
+    super::form_state_sync::bool_attr_reflect(
         ctx,
         this,
         args,
@@ -555,7 +555,7 @@ fn native_textarea_set_max_length(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    super::form_state_sync::length_set_with_state_sync(
+    super::form_state_sync::length_attr_reflect(
         ctx,
         this,
         args,
@@ -578,7 +578,7 @@ fn native_textarea_set_min_length(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    super::form_state_sync::length_set_with_state_sync(
+    super::form_state_sync::length_attr_reflect(
         ctx,
         this,
         args,

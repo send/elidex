@@ -294,8 +294,8 @@ pub enum MutationEvent<'a> {
 ///
 /// Production impl: `elidex_js::vm::consumer_dispatcher::ConsumerDispatcher` (typed
 /// composer of `LiveRangeBridge` + `NodeIteratorAdjuster` +
-/// `BaseUrlMaintainer`). Dispatch order = composer field declaration
-/// order = compile-time-visible.
+/// `BaseUrlMaintainer` + `FormControlReconciler`). Dispatch order =
+/// composer field declaration order = compile-time-visible.
 ///
 /// New mutation kinds are added as [`MutationEvent`] variant additions;
 /// existing dispatcher / consumer code compile-time-ignores via the

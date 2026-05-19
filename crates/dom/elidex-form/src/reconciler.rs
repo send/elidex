@@ -22,7 +22,7 @@
 use elidex_ecs::{EcsDom, Entity, MutationEvent, TagType};
 
 use crate::{compile_pattern_regex, create_form_control_state, sanitize_for_type_change};
-use crate::{FormControlKind, FormControlState};
+use crate::{FormControlKind, FormControlState, SelectionDirection};
 
 /// [`MutationEvent`] consumer maintaining [`FormControlState`] derived
 /// fields against attribute mutations.
@@ -119,8 +119,23 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
                 FormControlKind::ResetButton if raw.is_empty() => "Reset",
                 _ => raw,
             };
+            let end = displayed.len();
             fcs.char_count = displayed.chars().count();
-            fcs.cursor_pos = displayed.len();
+            fcs.cursor_pos = end;
+            // HTML §4.10.5.5 step 5 of the value-replacement algorithm:
+            // when the relevant value is programmatically replaced (here,
+            // via a `value` content-attribute mutation while
+            // `dirty_value` is false), collapse any selection to the end
+            // of the new value and reset the selection direction.  Stale
+            // `selection_start` / `selection_end` from a prior Selection
+            // API range can otherwise point past the (potentially
+            // shorter) replacement value, violating the spec's
+            // "selection is within the value" invariant.  Mirrors the
+            // [`FormControlState::set_value`] in-crate path used by IDL
+            // setters.
+            fcs.selection_start = end;
+            fcs.selection_end = end;
+            fcs.selection_direction = SelectionDirection::None;
             fcs.default_value.clear();
             fcs.default_value.push_str(raw);
             fcs.value.clear();
@@ -370,6 +385,35 @@ mod tests {
             assert_eq!(s.char_count, 5);
             assert_eq!(s.cursor_pos, 5);
             assert!(!s.dirty_value);
+        });
+    }
+
+    #[test]
+    fn e5d_non_dirty_value_write_collapses_stale_selection_to_end() {
+        // Regression: HTML §4.10.5.5 step 5 of the value-replacement
+        // algorithm requires the selection to be collapsed to the end
+        // of the new value (and `selection_direction` reset to `none`)
+        // when the relevant value is programmatically replaced.  A
+        // prior reconciler that left `selection_start` /
+        // `selection_end` untouched would leave them pointing past the
+        // new (potentially shorter) value, violating the spec's
+        // "selection is within the value" invariant — observable via
+        // a subsequent `input.selectionStart` IDL read returning a
+        // stale out-of-bounds offset.
+        let (mut dom, e) = setup("input", &[("value", "longer-initial")]);
+        // Simulate a `setSelectionRange(10, 14)` from JS.
+        {
+            let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
+            state.set_selection(10, 14);
+            state.selection_direction = SelectionDirection::Forward;
+        }
+        // Non-dirty content-attribute write replaces the value.
+        assert!(dom.set_attribute(e, "value", "short"));
+        with_fcs(&dom, e, |s| {
+            assert_eq!(s.value, "short");
+            assert_eq!(s.selection_start, 5);
+            assert_eq!(s.selection_end, 5);
+            assert_eq!(s.selection_direction, SelectionDirection::None);
         });
     }
 
