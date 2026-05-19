@@ -510,14 +510,13 @@ fn native_form_request_submit(
     let submitter_entity = match submitter_arg {
         JsValue::Undefined | JsValue::Null => None,
         _ => {
-            let entity = super::event_target::entity_from_this(ctx, submitter_arg).ok_or_else(
-                || {
+            let entity =
+                super::event_target::entity_from_this(ctx, submitter_arg).ok_or_else(|| {
                     VmError::type_error(
                         "Failed to execute 'requestSubmit' on 'HTMLFormElement': \
                          parameter 1 is not of type 'HTMLElement'.",
                     )
-                },
-            )?;
+                })?;
             if !elidex_form::is_submit_button(ctx.host().dom(), entity) {
                 return Err(VmError::type_error(
                     "Failed to execute 'requestSubmit' on 'HTMLFormElement': \
@@ -536,14 +535,11 @@ fn native_form_request_submit(
     };
 
     // Step 3: dispatch submit event.
-    let submitter_value = submitter_entity
-        .map(|e| JsValue::Object(ctx.vm.create_element_wrapper(e)))
-        .unwrap_or(JsValue::Null);
-    let cancelled = super::event_target_dispatch::dispatch_submit_event(
-        ctx,
-        form_entity,
-        submitter_value,
-    )?;
+    let submitter_value = submitter_entity.map_or(JsValue::Null, |e| {
+        JsValue::Object(ctx.vm.create_element_wrapper(e))
+    });
+    let cancelled =
+        super::event_target_dispatch::dispatch_submit_event(ctx, form_entity, submitter_value)?;
     if cancelled {
         return Ok(JsValue::Undefined);
     }

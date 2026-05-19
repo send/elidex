@@ -748,10 +748,7 @@ pub(super) fn dispatch_formdata_event(
     use super::super::value::PropertyValue;
 
     let formdata_type_sid = ctx.vm.well_known.formdata_event;
-    let formdata_proto = ctx
-        .vm
-        .formdata_event_prototype
-        .or(ctx.vm.event_prototype);
+    let formdata_proto = ctx.vm.formdata_event_prototype.or(ctx.vm.event_prototype);
     let target_wrapper = ctx.vm.create_element_wrapper(target_entity);
     let formdata_shape = ctx
         .vm
