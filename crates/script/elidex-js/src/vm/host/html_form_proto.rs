@@ -534,9 +534,10 @@ fn native_form_request_submit(
         }
     };
 
-    // Step 3 (HTML §4.10.21.3 "interactively validate the
-    // constraints" substep): if neither the form's `novalidate` nor
-    // the submitter's `formnovalidate` override the validation step,
+    // Step 3 (HTML §4.10.21.3 invokes the "interactively validate
+    // the constraints" substep defined in §4.10.20.3): if neither
+    // the form's `novalidate` nor the submitter's `formnovalidate`
+    // override the validation step,
     // walk every submittable descendant via [`run_form_check_validity`]
     // (which also fires synthetic `invalid` events on failing
     // controls).  Validation failure aborts before any `submit`

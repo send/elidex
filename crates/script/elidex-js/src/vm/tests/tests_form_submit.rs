@@ -39,8 +39,10 @@
 //! `form="id"` attribute scenario is now structurally feasible
 //! post-#208 (`FormControlReconciler::handle_insert` attaches
 //! `FormControlState` to parser-created form-control entities), but
-//! is deferred to a follow-up slot to keep this PR's scope to the
-//! `submit()` / `requestSubmit()` / `formdata` dispatcher surface.
+//! is deferred to slot `#11-form-navigation` (D-33 paired sweep —
+//! registered in the D-29 landing memo Defer ledger) so this PR's
+//! scope stays on the `submit()` / `requestSubmit()` / `formdata`
+//! dispatcher surface.
 
 #![cfg(feature = "engine")]
 

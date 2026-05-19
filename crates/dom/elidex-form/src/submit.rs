@@ -168,7 +168,8 @@ pub fn is_submit_button(dom: &EcsDom, submitter: Entity) -> bool {
 /// ([`resolve_form_owner_public`](crate::radio::resolve_form_owner_public)),
 /// which combines the `form="..."` IDREF lookup with the tree-ancestor
 /// fallback.  The empty-id edge case (`form` has no `id` or `id=""`)
-/// is handled by `find_form_by_id`'s `HTML §6.2.4` short-circuit.
+/// is handled by `find_form_by_id`'s WHATWG DOM §4.2.5 / HTML §3.2.5
+/// empty-IDREF short-circuit.
 ///
 /// Caller maps `false` to `NotFoundError` `DOMException` per spec.
 #[must_use]
@@ -195,7 +196,8 @@ pub fn collect_form_data(dom: &EcsDom, form_entity: Entity) -> Vec<FormDataEntry
     );
     // Collect controls associated via `form` attribute (HTML
     // §4.10.15.3).  Empty `id=""` is filtered for symmetry with the
-    // submitter-side lookup (HTML §6.2.4 — empty IDREF is unreachable),
+    // submitter-side lookup (WHATWG DOM §4.2.5 / HTML §3.2.5 —
+    // empty IDREF is unreachable),
     // so a `<form id="">` does not silently sweep up cross-tree
     // controls that happen to carry `form_owner = Some(String::new())`.
     let form_id = dom
