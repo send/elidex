@@ -25,12 +25,18 @@ user-invocable: true
 
 ## Workflow
 
-### Step 1 — Collect diff
+### Step 1 — Collect diff + resolve repo root
 
 ```bash
-git diff main > /tmp/elidex-review.diff
-git diff main --stat > /tmp/elidex-review.stat
+# Explicit ..HEAD range avoids working-tree contamination from
+# unstaged changes (matches description "git diff main..HEAD")
+git diff main..HEAD > /tmp/elidex-review.diff
+git diff main..HEAD --stat > /tmp/elidex-review.stat
 wc -l /tmp/elidex-review.diff
+
+# Resolve repo root for Step 2 agent prompts (axes.md absolute path placeholder)
+REPO_ROOT=$(git rev-parse --show-toplevel)
+echo "$REPO_ROOT/.claude/skills/elidex-review/axes.md"  # verify accessible
 ```
 
 Diff size > 5000 行なら user 確認 (5-agent token cost 過大)。
@@ -48,9 +54,10 @@ Diff size > 5000 行なら user 確認 (5-agent token cost 過大)。
 ```
 Agent <N> — Axis <name> review (diff).
 
-Read /Users/kazuaki/repos/send.sh/elidex/.claude/skills/elidex-review/axes.md Axis <N> section.
+Read ${REPO_ROOT}/.claude/skills/elidex-review/axes.md Axis <N> section.
+(${REPO_ROOT} resolved in Step 1 via `git rev-parse --show-toplevel`; substitute the concrete absolute path before dispatching the agent.)
 
-Apply Axis <N> Detect entries tagged [diff] or [both] to /tmp/elidex-review.diff (full diff; stat at /tmp/elidex-review.stat).
+Apply Axis <N> Detect entries tagged [diff] or [both] to /tmp/elidex-review.diff (full diff vs main..HEAD; stat at /tmp/elidex-review.stat).
 
 <Agent 2 only>: Also read /tmp/elidex-review.dry-run.md and incorporate gaps into Sub-check 2b findings.
 
