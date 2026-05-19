@@ -33,11 +33,12 @@ User が plan-memo absolute path を skill argument で指定する前提 (auto-
 
 ```bash
 # Skill arg = plan-memo absolute path (user-supplied)
-wc -l <plan-memo-path>
+PLAN_MEMO="$1"  # or substitute the absolute path
+wc -l "$PLAN_MEMO"
 
 # Resolve repo root for Step 2 agent prompts (axes.md absolute path placeholder)
 REPO_ROOT=$(git rev-parse --show-toplevel)
-echo "$REPO_ROOT/.claude/skills/elidex-review/axes.md"  # verify accessible
+ls "$REPO_ROOT/.claude/skills/elidex-review/axes.md"  # fails with stderr if missing
 ```
 
 Plan-memo size > 1000 行なら user 確認 (通常 ~200-500 行)。

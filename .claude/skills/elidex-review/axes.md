@@ -93,7 +93,7 @@ Agent prompt は「Read axes.md Axis N → apply `Detect` の `[diff]`/`[plan]`/
 ### Output format
 
 ```
-[CRIT|IMP|MIN|FP] <file:line | plan-memo §section> — <sub-check 2a/2b/2c short label> in <context>
+[CRIT|IMP|MIN|FP] <file:line | plan-memo §section> — <sub-check 2a/2b short label> in <context>
   ECS-native alternative: <component / system / query / marker / reconciliation infra>
   Reference: <lesson # or feedback memory>
 ```

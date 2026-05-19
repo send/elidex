@@ -36,7 +36,7 @@ wc -l /tmp/elidex-review.diff
 
 # Resolve repo root for Step 2 agent prompts (axes.md absolute path placeholder)
 REPO_ROOT=$(git rev-parse --show-toplevel)
-echo "$REPO_ROOT/.claude/skills/elidex-review/axes.md"  # verify accessible
+ls "$REPO_ROOT/.claude/skills/elidex-review/axes.md"  # fails with stderr if missing
 ```
 
 Diff size > 5000 行なら user 確認 (5-agent token cost 過大)。
