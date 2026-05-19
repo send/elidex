@@ -44,7 +44,8 @@ pub use selection::{collapse_selection, delete_selection, extend_selection, sele
 pub use sizing::form_intrinsic_size;
 pub use submit::{
     build_form_submission, collect_form_data, encode_form_urlencoded, find_form_ancestor,
-    read_form_attrs, reset_form, FormAttrs, FormDataEntry, FormSubmission,
+    is_form_owner, is_submit_button, read_form_attrs, reset_form, FormAttrs, FormDataEntry,
+    FormSubmission,
 };
 pub use validation::{is_constraint_validation_candidate, validate_control, ValidityState};
 

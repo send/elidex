@@ -138,21 +138,10 @@ fn form_elements_is_same_object() {
     assert_eq!(out, "same");
 }
 
-#[test]
-fn form_submit_throws_not_supported_error() {
-    let out = run("var f = document.createElement('form'); \
-         try { f.submit(); 'no-throw'; } \
-         catch (e) { (e.name === 'NotSupportedError') ? 'ok' : ('other:' + e.name); }");
-    assert_eq!(out, "ok");
-}
-
-#[test]
-fn form_request_submit_throws_not_supported_error() {
-    let out = run("var f = document.createElement('form'); \
-         try { f.requestSubmit(); 'no-throw'; } \
-         catch (e) { (e.name === 'NotSupportedError') ? 'ok' : ('other:' + e.name); }");
-    assert_eq!(out, "ok");
-}
+// `submit()` and `requestSubmit()` behaviour tests live in
+// `tests_form_submit` (D-29 #11-form-submission-dispatcher) — the
+// prior NotSupportedError stubs were replaced by spec-compliant
+// event dispatch + (deferred) navigation per WHATWG HTML §4.10.21.
 
 #[test]
 fn form_reset_returns_undefined_no_op_when_empty() {

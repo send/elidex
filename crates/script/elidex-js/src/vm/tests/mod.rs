@@ -58,6 +58,7 @@ mod tests_file_api;
 mod tests_forbidden_headers;
 mod tests_form_control_reconciliation;
 mod tests_form_data;
+mod tests_form_submit;
 mod tests_function_prototype;
 mod tests_gc_audit;
 mod tests_generator;

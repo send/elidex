@@ -149,6 +149,34 @@ pub fn find_form_ancestor(dom: &EcsDom, entity: Entity) -> Option<Entity> {
     None
 }
 
+/// WHATWG HTML §4.10.21.4 `requestSubmit(submitter?)` step 2.1:
+/// a non-null submitter must be a submit button — `<button type=submit>`,
+/// `<input type=submit>`, or `<input type=image>` (all classified as
+/// `FormControlKind::SubmitButton` by `from_element`).
+///
+/// Caller maps `false` to `TypeError` per spec.
+#[must_use]
+pub fn is_submit_button(dom: &EcsDom, submitter: Entity) -> bool {
+    dom.world()
+        .get::<&FormControlState>(submitter)
+        .is_ok_and(|fcs| fcs.kind == FormControlKind::SubmitButton)
+}
+
+/// WHATWG HTML §4.10.21.4 `requestSubmit(submitter?)` step 2.2:
+/// the submitter's form owner must be `form`.  Delegates to the
+/// canonical §4.10.18.3 form-owner resolution path
+/// ([`resolve_form_owner_public`](crate::radio::resolve_form_owner_public)),
+/// which combines the `form="..."` IDREF lookup with the tree-ancestor
+/// fallback.  The empty-id edge case (`form` has no `id` or `id=""`)
+/// is handled by `find_form_by_id`'s WHATWG DOM §4.2.5 / HTML §3.2.5
+/// empty-IDREF short-circuit.
+///
+/// Caller maps `false` to `NotFoundError` `DOMException` per spec.
+#[must_use]
+pub fn is_form_owner(dom: &EcsDom, submitter: Entity, form: Entity) -> bool {
+    crate::radio::resolve_form_owner_public(dom, submitter) == Some(form)
+}
+
 /// Collect form data from all submittable controls in a form.
 ///
 /// Per HTML §4.10.15.3: collect entries from input, select, textarea
@@ -166,12 +194,18 @@ pub fn collect_form_data(dom: &EcsDom, form_entity: Entity) -> Vec<FormDataEntry
         },
         0,
     );
-    // Collect controls associated via `form` attribute (HTML §4.10.15.3).
+    // Collect controls associated via `form` attribute (HTML
+    // §4.10.15.3).  Empty `id=""` is filtered for symmetry with the
+    // submitter-side lookup (WHATWG DOM §4.2.5 / HTML §3.2.5 —
+    // empty IDREF is unreachable),
+    // so a `<form id="">` does not silently sweep up cross-tree
+    // controls that happen to carry `form_owner = Some(String::new())`.
     let form_id = dom
         .world()
         .get::<&elidex_ecs::Attributes>(form_entity)
         .ok()
-        .and_then(|a| a.get("id").map(String::from));
+        .and_then(|a| a.get("id").map(String::from))
+        .filter(|s| !s.is_empty());
     if let Some(ref id) = form_id {
         let associated: Vec<Entity> = dom
             .world()
@@ -713,5 +747,110 @@ mod tests {
         }];
         // WHATWG URL §5.2: * (0x2A) is in the unreserved set.
         assert_eq!(encode_form_urlencoded(&data), "q=a*b");
+    }
+
+    // ---------------------------------------------------------------
+    // is_submit_button / is_form_owner — WHATWG HTML §4.10.21.4 step 2
+    // ---------------------------------------------------------------
+
+    fn make_submit_button(dom: &mut EcsDom, parent: Entity) -> Entity {
+        let mut attrs = Attributes::default();
+        attrs.set("type", "submit");
+        let btn = dom.create_element("input", attrs.clone());
+        let fcs = FormControlState::from_element("input", &attrs).unwrap();
+        let _ = dom.world_mut().insert_one(btn, fcs);
+        let _ = dom.append_child(parent, btn);
+        btn
+    }
+
+    #[test]
+    fn is_submit_button_input_type_submit() {
+        let mut dom = EcsDom::new();
+        let form = dom.create_element("form", Attributes::default());
+        let btn = make_submit_button(&mut dom, form);
+        assert!(is_submit_button(&dom, btn));
+    }
+
+    #[test]
+    fn is_submit_button_input_type_text_false() {
+        let mut dom = EcsDom::new();
+        let (_, input) = make_form_with_input(&mut dom, "q", "test");
+        assert!(!is_submit_button(&dom, input));
+    }
+
+    #[test]
+    fn is_submit_button_no_form_control_state_false() {
+        let mut dom = EcsDom::new();
+        let div = dom.create_element("div", Attributes::default());
+        assert!(!is_submit_button(&dom, div));
+    }
+
+    #[test]
+    fn is_form_owner_tree_descendant() {
+        let mut dom = EcsDom::new();
+        let form = dom.create_element("form", Attributes::default());
+        let btn = make_submit_button(&mut dom, form);
+        assert!(is_form_owner(&dom, btn, form));
+    }
+
+    #[test]
+    fn is_form_owner_wrong_form_false() {
+        let mut dom = EcsDom::new();
+        let form_a = dom.create_element("form", Attributes::default());
+        let form_b = dom.create_element("form", Attributes::default());
+        let btn = make_submit_button(&mut dom, form_a);
+        assert!(!is_form_owner(&dom, btn, form_b));
+    }
+
+    #[test]
+    fn is_form_owner_cross_tree_via_form_attr() {
+        // <form id=login> ... </form>  <button type=submit form="login">
+        let mut dom = EcsDom::new();
+        let mut form_attrs = Attributes::default();
+        form_attrs.set("id", "login");
+        let form = dom.create_element("form", form_attrs);
+        // Submit button OUTSIDE the form, with form="login" attribute.
+        let mut btn_attrs = Attributes::default();
+        btn_attrs.set("type", "submit");
+        btn_attrs.set("form", "login");
+        let btn = dom.create_element("input", btn_attrs.clone());
+        let mut fcs = FormControlState::from_element("input", &btn_attrs).unwrap();
+        fcs.form_owner = Some("login".to_string());
+        let _ = dom.world_mut().insert_one(btn, fcs);
+        // Note: btn NOT appended to form.
+        assert!(is_form_owner(&dom, btn, form));
+    }
+
+    #[test]
+    fn is_form_owner_cross_tree_form_has_no_id_false() {
+        // Edge case: form attribute path (b) unreachable when form has no id.
+        let mut dom = EcsDom::new();
+        let form = dom.create_element("form", Attributes::default());
+        let mut btn_attrs = Attributes::default();
+        btn_attrs.set("type", "submit");
+        btn_attrs.set("form", "login");
+        let btn = dom.create_element("input", btn_attrs.clone());
+        let mut fcs = FormControlState::from_element("input", &btn_attrs).unwrap();
+        fcs.form_owner = Some("login".to_string());
+        let _ = dom.world_mut().insert_one(btn, fcs);
+        // btn detached AND form has no id → no ownership.
+        assert!(!is_form_owner(&dom, btn, form));
+    }
+
+    #[test]
+    fn is_form_owner_cross_tree_empty_id_false() {
+        // Edge case: empty id is treated as no id per spec.
+        let mut dom = EcsDom::new();
+        let mut form_attrs = Attributes::default();
+        form_attrs.set("id", "");
+        let form = dom.create_element("form", form_attrs);
+        let mut btn_attrs = Attributes::default();
+        btn_attrs.set("type", "submit");
+        btn_attrs.set("form", "");
+        let btn = dom.create_element("input", btn_attrs.clone());
+        let mut fcs = FormControlState::from_element("input", &btn_attrs).unwrap();
+        fcs.form_owner = Some(String::new());
+        let _ = dom.world_mut().insert_one(btn, fcs);
+        assert!(!is_form_owner(&dom, btn, form));
     }
 }
