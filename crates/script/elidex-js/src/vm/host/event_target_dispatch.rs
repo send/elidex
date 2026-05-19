@@ -646,3 +646,163 @@ pub(super) fn dispatch_toggle_event(
 
     result.map(|not_default_prevented| !not_default_prevented)
 }
+
+/// Dispatch a `submit` `SubmitEvent` at `target_entity` (the `<form>`)
+/// from the UA — used by `form.requestSubmit(submitter?)` per WHATWG
+/// HTML §4.10.21.3 step 8.4.
+///
+/// Per spec the `submit` event is `bubbles=true`, `cancelable=true`
+/// (a listener calling `preventDefault()` cancels the submission and
+/// the subsequent `formdata` event MUST NOT fire).  `is_trusted=true`
+/// since this is a UA-fired dispatch from the spec algorithm, not a
+/// script-side `dispatchEvent` call.
+///
+/// Returns `Ok(true)` when the event was cancelled by a listener
+/// (default prevented), `Ok(false)` when it ran to completion.  `Err`
+/// is propagated only for VM-level failures (handler infrastructure
+/// errors, not listener-thrown JS exceptions — those go through the
+/// report-an-exception path).  Caller (`form.requestSubmit`) skips
+/// the `formdata` dispatch and returns `undefined` when cancelled.
+pub(super) fn dispatch_submit_event(
+    ctx: &mut NativeContext<'_>,
+    target_entity: elidex_ecs::Entity,
+    submitter: JsValue,
+) -> Result<bool, VmError> {
+    use super::super::value::PropertyValue;
+
+    let submit_type_sid = ctx.vm.well_known.submit_event;
+    let submit_proto = ctx.vm.submit_event_prototype.or(ctx.vm.event_prototype);
+    let target_wrapper = ctx.vm.create_element_wrapper(target_entity);
+    let submit_shape = ctx
+        .vm
+        .precomputed_event_shapes
+        .as_ref()
+        .expect("precomputed_event_shapes built during VM init")
+        .submit_event;
+
+    // Root `submitter` BEFORE `alloc_object` — if `submitter` is a
+    // GC-tracked Object the alloc could trigger GC and collect it
+    // before the slot Vec carries the reference.  Mirrors the
+    // SubmitEvent constructor's push_temp_root precedent in
+    // `events_misc.rs::native_submit_event_constructor`.
+    let mut g = ctx.vm.push_temp_root(submitter);
+
+    let event_id = g.alloc_object(super::super::value::Object {
+        kind: ObjectKind::Event {
+            default_prevented: false,
+            propagation_stopped: false,
+            immediate_propagation_stopped: false,
+            cancelable: true,
+            passive: false,
+            type_sid: submit_type_sid,
+            bubbles: true,
+            composed: false,
+            composed_path: None,
+        },
+        storage: super::super::value::PropertyStorage::shaped(super::super::shape::ROOT_SHAPE),
+        prototype: submit_proto,
+        extensible: true,
+    });
+    g.dispatched_events.insert(event_id);
+
+    let timestamp_ms = g.start_instant.elapsed().as_secs_f64() * 1000.0;
+    // Core-9 slot order + 1 SubmitEvent payload slot (`submitter`).
+    let slots: Vec<PropertyValue> = vec![
+        PropertyValue::Data(JsValue::String(submit_type_sid)), // type
+        PropertyValue::Data(JsValue::Boolean(true)),           // bubbles
+        PropertyValue::Data(JsValue::Boolean(true)),           // cancelable
+        PropertyValue::Data(JsValue::Number(0.0)),             // eventPhase
+        PropertyValue::Data(JsValue::Object(target_wrapper)),  // target
+        PropertyValue::Data(JsValue::Object(target_wrapper)),  // currentTarget
+        PropertyValue::Data(JsValue::Number(timestamp_ms)),    // timeStamp
+        PropertyValue::Data(JsValue::Boolean(false)),          // composed
+        PropertyValue::Data(JsValue::Boolean(true)),           // isTrusted (UA-fired)
+        PropertyValue::Data(submitter),                        // submitter
+    ];
+    g.define_with_precomputed_shape(event_id, submit_shape, slots);
+    drop(g);
+
+    let result = dispatch_script_event(ctx, event_id, target_entity);
+    ctx.vm.dispatched_events.remove(&event_id);
+
+    result.map(|not_default_prevented| !not_default_prevented)
+}
+
+/// Dispatch a `formdata` `FormDataEvent` at `target_entity` (the
+/// `<form>`) from the UA — used by `form.requestSubmit()` per WHATWG
+/// HTML §4.10.21.3 step 8.5 after a non-cancelled `submit` event.
+///
+/// Per spec the `formdata` event is `bubbles=true`, `cancelable=false`
+/// (listeners receive a chance to mutate the carried `FormData` but
+/// cannot abort the dispatch).  `is_trusted=true` since this is a
+/// UA-fired dispatch.
+///
+/// Returns `Ok(false)` in practice (cancelable=false), but preserves
+/// the `Result<bool, VmError>` signature for caller symmetry with
+/// [`dispatch_submit_event`] and the other UA-dispatch helpers.
+pub(super) fn dispatch_formdata_event(
+    ctx: &mut NativeContext<'_>,
+    target_entity: elidex_ecs::Entity,
+    form_data_id: super::super::value::ObjectId,
+) -> Result<bool, VmError> {
+    use super::super::value::PropertyValue;
+
+    let formdata_type_sid = ctx.vm.well_known.formdata_event;
+    let formdata_proto = ctx
+        .vm
+        .formdata_event_prototype
+        .or(ctx.vm.event_prototype);
+    let target_wrapper = ctx.vm.create_element_wrapper(target_entity);
+    let formdata_shape = ctx
+        .vm
+        .precomputed_event_shapes
+        .as_ref()
+        .expect("precomputed_event_shapes built during VM init")
+        .formdata_event;
+
+    // Root `form_data_id` BEFORE alloc — see [`dispatch_submit_event`]
+    // for the rooting-order rationale (slot Vec is the only owner of
+    // the FormData reference between alloc and define).
+    let form_data_val = JsValue::Object(form_data_id);
+    let mut g = ctx.vm.push_temp_root(form_data_val);
+
+    let event_id = g.alloc_object(super::super::value::Object {
+        kind: ObjectKind::Event {
+            default_prevented: false,
+            propagation_stopped: false,
+            immediate_propagation_stopped: false,
+            cancelable: false,
+            passive: false,
+            type_sid: formdata_type_sid,
+            bubbles: true,
+            composed: false,
+            composed_path: None,
+        },
+        storage: super::super::value::PropertyStorage::shaped(super::super::shape::ROOT_SHAPE),
+        prototype: formdata_proto,
+        extensible: true,
+    });
+    g.dispatched_events.insert(event_id);
+
+    let timestamp_ms = g.start_instant.elapsed().as_secs_f64() * 1000.0;
+    // Core-9 slot order + 1 FormDataEvent payload slot (`formData`).
+    let slots: Vec<PropertyValue> = vec![
+        PropertyValue::Data(JsValue::String(formdata_type_sid)), // type
+        PropertyValue::Data(JsValue::Boolean(true)),             // bubbles
+        PropertyValue::Data(JsValue::Boolean(false)),            // cancelable
+        PropertyValue::Data(JsValue::Number(0.0)),               // eventPhase
+        PropertyValue::Data(JsValue::Object(target_wrapper)),    // target
+        PropertyValue::Data(JsValue::Object(target_wrapper)),    // currentTarget
+        PropertyValue::Data(JsValue::Number(timestamp_ms)),      // timeStamp
+        PropertyValue::Data(JsValue::Boolean(false)),            // composed
+        PropertyValue::Data(JsValue::Boolean(true)),             // isTrusted (UA-fired)
+        PropertyValue::Data(form_data_val),                      // formData
+    ];
+    g.define_with_precomputed_shape(event_id, formdata_shape, slots);
+    drop(g);
+
+    let result = dispatch_script_event(ctx, event_id, target_entity);
+    ctx.vm.dispatched_events.remove(&event_id);
+
+    result.map(|not_default_prevented| !not_default_prevented)
+}

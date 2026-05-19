@@ -30,14 +30,20 @@
 //!
 //! ## Implemented
 //!
-//! - `new FormData(form?)` — the optional `form` argument is not
-//!   yet processed with HTML's form-submission control walk
-//!   (WHATWG HTML §5.4 — out of scope for this PR).  Current
-//!   behaviour:
+//! - `new FormData(form?)` (WHATWG XHR §4.3 + HTML §4.10.21.3 step 7
+//!   "construct the entry list").  Optional `form` argument:
 //!   - missing / `undefined` / `null` → empty FormData.
-//!   - any `Object` (form element or otherwise) → empty FormData
-//!     (matches an `<form>` with no submittable controls; the
-//!     element's controls are not yet enumerated).
+//!   - `<form>` element wrapper → entry list populated from the
+//!     form's submittable controls (delegates to
+//!     [`elidex_form::collect_form_data`], which walks descendants
+//!     AND cross-tree controls associated via the `form` IDREF
+//!     attribute).  Same code path is reused by
+//!     `form.requestSubmit()` to build the `FormDataEvent.formData`.
+//!   - non-form Object (plain object / non-form element wrapper)
+//!     → empty FormData (matches an `<form>` with no submittable
+//!     controls; the WebIDL `optional HTMLFormElement form` coercion
+//!     is permissive about non-form Objects in elidex per the silent-
+//!     empty precedent).
 //!   - any primitive (number / boolean / string / Symbol / BigInt)
 //!     → `TypeError`, matching the WebIDL `optional HTMLFormElement
 //!     form` coercion of a non-Object operand.
@@ -173,14 +179,21 @@ impl VmInner {
 // Constructor
 // ---------------------------------------------------------------------------
 
-/// `new FormData(form?)` (WHATWG XHR §4.3).
+/// `new FormData(form?)` — WHATWG XHR §4.3 constructor + WHATWG HTML
+/// §4.10.21.3 step 7 "construct the entry list" for the `form` argument.
 ///
-/// `form` argument: when present, the spec requires walking the
-/// `<form>` element's submittable controls.  This PR initialises
-/// the FormData empty even with a form argument (matches
-/// `<form>` with no submittable controls); the full traversal lands
-/// with the form-submission integration.  Passing a non-Object /
-/// non-`HostObject` argument throws TypeError per WebIDL.
+/// The `form` argument, when an `<form>` element wrapper, populates
+/// the entry list by walking submittable controls (descendants AND
+/// cross-tree controls via the `form` IDREF attribute) through
+/// [`elidex_form::collect_form_data`].  Same code path is reused by
+/// `form.requestSubmit()` via [`populate_form_data_from_form`] so the
+/// "form → FormData" construction has a single source of truth.
+///
+/// Non-form Objects (plain object, non-form element wrapper) install
+/// an empty entry list — matches the silent-empty precedent retained
+/// from the pre-D-29 stub for tests that pass arbitrary objects.
+/// Primitives throw `TypeError` per WebIDL nullable-interface
+/// coercion.
 fn native_form_data_constructor(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -195,28 +208,96 @@ fn native_form_data_constructor(
         unreachable!("constructor `this` is always an Object after `do_new`");
     };
 
-    // WebIDL: `optional HTMLFormElement form` — undefined / missing
-    // is fine, anything else must be an Object (plain objects fail
-    // silently here since the form-element walk is deferred; a
-    // primitive like `new FormData("foo")` rejects with TypeError
-    // to match WebIDL nullable-interface coercion).
-    // TODO: walk `<form>` controls when the form-submission
-    // integration lands.  Until then we install an empty
-    // entry list for `JsValue::Object(_)` — matches `<form>` with
-    // no submittable controls, observably correct for tests that
-    // construct `new FormData(formEl)` and immediately append.
-    match args.first().copied().unwrap_or(JsValue::Undefined) {
-        JsValue::Undefined | JsValue::Null | JsValue::Object(_) => {}
+    // WebIDL `optional HTMLFormElement form` coercion: undefined /
+    // missing / null → no source; Object → may be a form wrapper
+    // (populate from controls) or non-form (silent empty); primitives
+    // throw TypeError.
+    let arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let source_form_entity = match arg {
+        JsValue::Undefined | JsValue::Null => None,
+        JsValue::Object(_) => super::event_target::entity_from_this(ctx, arg)
+            .filter(|&e| ctx.host().tag_matches_ascii_case(e, "form")),
         _ => {
             return Err(VmError::type_error(
                 "Failed to construct 'FormData': parameter 1 is not of type 'HTMLFormElement'",
             ));
         }
-    }
+    };
 
     ctx.vm.get_object_mut(id).kind = ObjectKind::FormData;
-    ctx.vm.form_data_states.insert(id, Vec::new());
+    match source_form_entity {
+        Some(form_entity) => populate_form_data_from_form(ctx, id, form_entity),
+        None => {
+            ctx.vm.form_data_states.insert(id, Vec::new());
+        }
+    }
     Ok(JsValue::Object(id))
+}
+
+/// Populate the `FormData` instance at `id` by walking `form_entity`'s
+/// submittable controls per WHATWG HTML §4.10.21.3 step 7.
+///
+/// Delegates the form-walk to [`elidex_form::collect_form_data`] (which
+/// handles tree descendants + cross-tree `form` IDREF association) and
+/// interns each entry's name/value into the VM string pool.  All entries
+/// are installed as [`FormDataValue::String`] — file inputs would
+/// produce `Blob` entries, but elidex's File-input → Blob bridge is
+/// part of slot `#11-form-navigation` (D-33 paired sweep).
+///
+/// Shared by [`native_form_data_constructor`] (when called with a
+/// form-element argument) and by `form.requestSubmit()` so the
+/// "form → FormData" construction has a single source of truth.
+pub(super) fn populate_form_data_from_form(
+    ctx: &mut NativeContext<'_>,
+    id: ObjectId,
+    form_entity: elidex_ecs::Entity,
+) {
+    // Two-step borrow split: collect from DOM (immutable host borrow)
+    // into owned Strings first, then intern into VM (mutable vm borrow).
+    let raw_entries: Vec<(String, String)> = {
+        let dom = ctx.host().dom();
+        elidex_form::collect_form_data(dom, form_entity)
+            .into_iter()
+            .map(|e| (e.name, e.value))
+            .collect()
+    };
+    let fd_entries: Vec<FormDataEntry> = raw_entries
+        .into_iter()
+        .map(|(name, value)| FormDataEntry {
+            name: ctx.vm.strings.intern(&name),
+            value: FormDataValue::String(ctx.vm.strings.intern(&value)),
+            filename: None,
+        })
+        .collect();
+    ctx.vm.form_data_states.insert(id, fd_entries);
+}
+
+/// Allocate a fresh `FormData` instance backed by the entry list
+/// constructed from `form_entity` per WHATWG HTML §4.10.21.3 step 7.
+///
+/// Used by `form.requestSubmit()` (vm/host/html_form_proto.rs) to
+/// build the `FormDataEvent.formData` payload BEFORE the formdata
+/// event dispatches — listeners observe the populated entry list and
+/// can mutate it via the FormData prototype methods.
+///
+/// Differs from [`native_form_data_constructor`] only in the allocation
+/// path: the constructor reuses the pre-allocated `this` from `do_new`,
+/// while this helper allocates a fresh `Object` with `FormData.prototype`
+/// from scratch.  Both then funnel through
+/// [`populate_form_data_from_form`].
+pub(super) fn build_form_data_from_form(
+    ctx: &mut NativeContext<'_>,
+    form_entity: elidex_ecs::Entity,
+) -> ObjectId {
+    let proto = ctx.vm.form_data_prototype;
+    let id = ctx.vm.alloc_object(Object {
+        kind: ObjectKind::FormData,
+        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+        prototype: proto,
+        extensible: true,
+    });
+    populate_form_data_from_form(ctx, id, form_entity);
+    id
 }
 
 // ---------------------------------------------------------------------------

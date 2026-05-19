@@ -186,12 +186,7 @@ macro_rules! button_string_attr {
     };
 }
 
-button_string_attr!(
-    native_button_get_name,
-    native_button_set_name,
-    "name",
-    "name"
-);
+button_string_attr!(native_button_get_name, native_button_set_name, "name", "name");
 button_string_attr!(
     native_button_get_value,
     native_button_set_value,

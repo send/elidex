@@ -25,8 +25,15 @@
 //!   `elements.length`).
 //!
 //! Methods:
-//! - `submit()` / `requestSubmit()` — `NotSupportedError` stub
-//!   (defer slot `#11-form-submission`, navigation infra).
+//! - `submit()` — no-op per WHATWG HTML §4.10.21.3 step 5
+//!   (from-submit-method=true skips event dispatch); navigation
+//!   deferred to slot `#11-form-navigation` (D-33 paired sweep).
+//! - `requestSubmit(submitter?)` — fires cancelable `submit` event
+//!   then, if not cancelled, populates a `FormData` from controls
+//!   and fires the `formdata` event per HTML §4.10.21.4.  Submitter
+//!   validation throws `TypeError` (non-submit-button) or
+//!   `NotFoundError` (not owned by this form) per spec.  Navigation
+//!   deferred to slot `#11-form-navigation`.
 //! - `reset()` — dispatches a cancelable `reset` event then, if not
 //!   default-prevented, calls `elidex_form::reset_form` to roll
 //!   each form control back to its `default_value` /
@@ -448,28 +455,104 @@ fn native_form_get_elements(
 // submit / requestSubmit / reset
 // ---------------------------------------------------------------------------
 
+/// `form.submit()` — WHATWG HTML §4.10.21.3 step 5
+/// (from-submit-method=true): no submit event, no formdata event
+/// fired (the spec algorithm sets a flag that short-circuits the
+/// event-dispatch arm and proceeds directly to navigation).
+///
+/// Navigation deferred to slot `#11-form-navigation` (D-33 paired
+/// sweep) — until that slot lands, this is observably a no-op:
+/// returns `undefined`, fires no events, performs no network
+/// request.  Spec-compliant for the event-observable surface; the
+/// navigation surface awaits the cooperative `elidex-shell` +
+/// `elidex-net` lifecycle.
 fn native_form_submit(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let _ = require_form_receiver(ctx, this, "submit")?;
-    Err(VmError::dom_exception(
-        ctx.vm.well_known.dom_exc_not_supported_error,
-        "form.submit() is not yet supported (slot #11-form-submission)",
-    ))
+    Ok(JsValue::Undefined)
 }
 
+/// `form.requestSubmit(submitter?)` — WHATWG HTML §4.10.21.4 +
+/// §4.10.21.3 step 8.4-8.5.
+///
+/// Algorithm:
+/// 1. Brand check (require form receiver).
+/// 2. If `submitter` argument is provided (non-null, non-undefined):
+///    - Step 2.1: must be a submit button (`is_submit_button`) →
+///      otherwise throw `TypeError`.
+///    - Step 2.2: must be owned by this form (`is_form_owner`) →
+///      otherwise throw `NotFoundError` `DOMException`.
+/// 3. Dispatch cancelable `submit` event with `submitter` slot.
+///    If a listener calls `preventDefault()` the submission is
+///    cancelled and `requestSubmit` returns `undefined` without
+///    firing the `formdata` event.
+/// 4. Construct `FormData` from this form's controls via the same
+///    code path as `new FormData(form)` ([`build_form_data_from_form`]).
+/// 5. Dispatch non-cancelable `formdata` event with the FormData.
+///
+/// Navigation / network submission deferred to slot
+/// `#11-form-navigation` (D-33 paired sweep) — `submit` + `formdata`
+/// events are observable; UA submission post-event is no-op.
 fn native_form_request_submit(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
-    _args: &[JsValue],
+    args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let _ = require_form_receiver(ctx, this, "requestSubmit")?;
-    Err(VmError::dom_exception(
-        ctx.vm.well_known.dom_exc_not_supported_error,
-        "form.requestSubmit() is not yet supported (slot #11-form-submission)",
-    ))
+    let Some(form_entity) = require_form_receiver(ctx, this, "requestSubmit")? else {
+        return Ok(JsValue::Undefined);
+    };
+
+    // Step 2: validate optional submitter argument.
+    let submitter_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let submitter_entity = match submitter_arg {
+        JsValue::Undefined | JsValue::Null => None,
+        _ => {
+            let entity = super::event_target::entity_from_this(ctx, submitter_arg).ok_or_else(
+                || {
+                    VmError::type_error(
+                        "Failed to execute 'requestSubmit' on 'HTMLFormElement': \
+                         parameter 1 is not of type 'HTMLElement'.",
+                    )
+                },
+            )?;
+            if !elidex_form::is_submit_button(ctx.host().dom(), entity) {
+                return Err(VmError::type_error(
+                    "Failed to execute 'requestSubmit' on 'HTMLFormElement': \
+                     The specified element is not a submit button.",
+                ));
+            }
+            if !elidex_form::is_form_owner(ctx.host().dom(), entity, form_entity) {
+                return Err(VmError::dom_exception(
+                    ctx.vm.well_known.dom_exc_not_found_error,
+                    "Failed to execute 'requestSubmit' on 'HTMLFormElement': \
+                     The specified element is not owned by this form element.",
+                ));
+            }
+            Some(entity)
+        }
+    };
+
+    // Step 3: dispatch submit event.
+    let submitter_value = submitter_entity
+        .map(|e| JsValue::Object(ctx.vm.create_element_wrapper(e)))
+        .unwrap_or(JsValue::Null);
+    let cancelled = super::event_target_dispatch::dispatch_submit_event(
+        ctx,
+        form_entity,
+        submitter_value,
+    )?;
+    if cancelled {
+        return Ok(JsValue::Undefined);
+    }
+
+    // Step 4 + 5: build FormData from form controls + dispatch formdata event.
+    let form_data_id = super::form_data::build_form_data_from_form(ctx, form_entity);
+    let _ = super::event_target_dispatch::dispatch_formdata_event(ctx, form_entity, form_data_id)?;
+
+    Ok(JsValue::Undefined)
 }
 
 /// `form.reset()` — HTML §4.10.21.5.

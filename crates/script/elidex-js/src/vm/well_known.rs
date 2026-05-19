@@ -1101,6 +1101,15 @@ define_well_known_strings! {
         enctype_text_plain => "text/plain",
         // `reset` event name (HTML §4.10.21.3).
         reset_event => "reset",
+        // `submit` event name (HTML §4.10.21.3 step 8.4).  Fired by
+        // `form.requestSubmit()` UA dispatch — not by `form.submit()`,
+        // which sets from-submit-method=true and skips event firing.
+        submit_event => "submit",
+        // `formdata` event name (HTML §4.10.21.3 step 8.5).  Fired
+        // after a non-cancelled `submit` event during `requestSubmit()`
+        // dispatch, carrying the populated `FormData` on the
+        // `FormDataEvent.formData` slot.
+        formdata_event => "formdata",
         // `invalid` event name (HTML §4.10.20.4).  Fired by
         // `checkValidity()` / `reportValidity()` when constraint
         // validation rejects a candidate control.
