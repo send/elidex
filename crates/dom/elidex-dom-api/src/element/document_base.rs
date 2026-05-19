@@ -10,7 +10,7 @@
 //!   (HTML §2.4.3 first `<base>` rule).
 //!
 //! [`BaseUrlMaintainer`] is the [`MutationEvent`] consumer that
-//! maintains both layers, composed by [`crate::ConsumerDispatcher`].
+//! maintains both layers, composed by `elidex_js::vm::consumer_dispatcher::ConsumerDispatcher`.
 
 use std::ops::ControlFlow;
 
@@ -178,7 +178,7 @@ fn in_main_light_tree(dom: &EcsDom, entity: Entity) -> bool {
 /// Plain unit struct (no state) — all state lives in the
 /// [`BaseFrozenUrl`] and [`DocumentBaseUrl`] ECS components on
 /// entities. Composed as a typed field of
-/// [`crate::ConsumerDispatcher`].
+/// `elidex_js::vm::consumer_dispatcher::ConsumerDispatcher`.
 pub struct BaseUrlMaintainer;
 
 impl BaseUrlMaintainer {
@@ -198,7 +198,7 @@ impl BaseUrlMaintainer {
     /// no-op (each `<base href>` already has [`BaseFrozenUrl`];
     /// recompute's `unchanged` short-circuit absorbs the
     /// [`DocumentBaseUrl`] re-write).  Invoked by
-    /// [`crate::ConsumerDispatcher::initialize_consumers`] from the
+    /// `ConsumerDispatcher::initialize_consumers` from the
     /// bind path.
     pub fn initialize_from_tree(&mut self, dom: &mut EcsDom) {
         let Some(root) = dom.document_root() else {
@@ -210,7 +210,7 @@ impl BaseUrlMaintainer {
     }
 
     /// Single-method dispatch entry invoked by
-    /// [`crate::ConsumerDispatcher`].  Maintains both layers in
+    /// `elidex_js::vm::consumer_dispatcher::ConsumerDispatcher`.  Maintains both layers in
     /// response to Insert / Remove / AttributeChange events.
     pub fn handle(&mut self, event: &MutationEvent<'_>, dom: &mut EcsDom) {
         match *event {

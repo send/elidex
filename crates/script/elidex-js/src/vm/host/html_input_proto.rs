@@ -594,7 +594,6 @@ fn native_input_set_disabled(
         "disabled",
         "disabled",
         require_input_receiver,
-        |s, flag| s.disabled = flag,
     )
 }
 
@@ -623,7 +622,6 @@ fn native_input_set_required(
         "required",
         "required",
         require_input_receiver,
-        |s, flag| s.required = flag,
     )
 }
 
@@ -652,7 +650,6 @@ fn native_input_set_read_only(
         "readOnly",
         "readonly",
         require_input_receiver,
-        |s, flag| s.readonly = flag,
     )
 }
 
@@ -731,7 +728,6 @@ fn native_input_set_max_length(
         "maxLength",
         "maxlength",
         require_input_receiver,
-        |s, n| s.maxlength = n,
     )
 }
 
@@ -755,7 +751,6 @@ fn native_input_set_min_length(
         "minLength",
         "minlength",
         require_input_receiver,
-        |s, n| s.minlength = n,
     )
 }
 

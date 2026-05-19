@@ -31,7 +31,7 @@ pub(crate) fn get_char_data(entity: Entity, dom: &EcsDom) -> Result<String, DomA
 ///
 /// Text / CData writes route through [`EcsDom::set_text_data`] so the
 /// installed [`elidex_ecs::MutationDispatcher`] (typically
-/// [`crate::ConsumerDispatcher`]) receives the
+/// `elidex_js::vm::consumer_dispatcher::ConsumerDispatcher`) receives the
 /// [`elidex_ecs::MutationEvent::TextChange`] event and consumers
 /// (e.g. [`crate::LiveRangeBridge`]) apply WHATWG DOM §5.5
 /// "set/replace data steps" Range live-tracking.  Comment writes
@@ -133,7 +133,7 @@ pub fn utf16_to_byte_offset(s: &str, utf16_offset: usize) -> Option<usize> {
 /// data". Routes Text / CDATASection writes through the
 /// [`elidex_ecs::EcsDom::replace_text_data`] chokepoint so the
 /// installed [`elidex_ecs::MutationDispatcher`] (typically
-/// [`crate::ConsumerDispatcher`]) sees the middle-splice as
+/// `elidex_js::vm::consumer_dispatcher::ConsumerDispatcher`) sees the middle-splice as
 /// [`elidex_ecs::MutationEvent::ReplaceData`] rather than a whole-
 /// string [`elidex_ecs::MutationEvent::TextChange`] — boundary-
 /// adjustment math differs (§4.10 steps 8-11 vs §5.5 clamp).
@@ -434,7 +434,7 @@ impl DomApiHandler for ReplaceData {
 /// `insert new_node → fire_split_text → set_text_data(head)`.
 /// Range live-tracking via the [`elidex_ecs::MutationEvent::SplitText`]
 /// event (consumed by [`crate::LiveRangeBridge`] through
-/// [`crate::ConsumerDispatcher`]) falls out of the ordering —
+/// `elidex_js::vm::consumer_dispatcher::ConsumerDispatcher`) falls out of the ordering —
 /// boundaries on the original node at off > split_offset migrate to
 /// (new_node, off - offset) BEFORE the head-truncate would clamp them
 /// down.

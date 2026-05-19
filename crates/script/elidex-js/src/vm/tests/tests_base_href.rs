@@ -3,7 +3,7 @@
 //! Interface Node `baseURI` getter.
 //!
 //! Exercises the BaseUrlMaintainer consumer composed in
-//! `elidex_dom_api::ConsumerDispatcher` — Insert / Remove /
+//! `crate::vm::consumer_dispatcher::ConsumerDispatcher` — Insert / Remove /
 //! AttributeChange events on `<base>` elements maintain
 //! [`DocumentBaseUrl`] (Layer 2) and per-element [`BaseFrozenUrl`]
 //! (Layer 1).

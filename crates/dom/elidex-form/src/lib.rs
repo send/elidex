@@ -11,6 +11,7 @@ mod init;
 mod input;
 mod label;
 pub mod radio;
+mod reconciler;
 mod select;
 mod selection;
 mod sizing;
@@ -33,6 +34,7 @@ pub use radio::{
     find_radio_group, find_radio_group_scoped, is_radio_group_satisfied, radio_arrow_navigate,
     toggle_radio,
 };
+pub use reconciler::FormControlReconciler;
 pub use select::{
     find_option_index_in_tree, find_option_select, init_select_options, is_option_disabled,
     navigate_select, option_value_string, select_get_value, select_option, select_selected_index,
@@ -193,6 +195,29 @@ impl FormControlKind {
                 | Self::File
                 | Self::Hidden
         )
+    }
+
+    /// Map a `type` content-attribute value to a [`FormControlKind`]
+    /// for the given tag.  Returns `None` for tags whose `type`
+    /// attribute does not select a kind (e.g. `textarea` / `select`).
+    /// Spec defaults: HTML §4.10.5.1 (input → "text"), §4.10.6 (button
+    /// → "submit").
+    #[must_use]
+    pub fn from_tag_and_type_attr(tag: &str, raw_value: Option<&str>) -> Option<Self> {
+        match tag {
+            "input" => {
+                let v = raw_value.unwrap_or("text").to_ascii_lowercase();
+                Some(Self::from_type_str(&v))
+            }
+            "button" => Some(
+                match raw_value.unwrap_or("submit").to_ascii_lowercase().as_str() {
+                    "reset" => Self::ResetButton,
+                    "button" => Self::Button,
+                    _ => Self::SubmitButton,
+                },
+            ),
+            _ => None,
+        }
     }
 
     /// Parse an input type string to a `FormControlKind`.
@@ -639,9 +664,8 @@ impl FormControlState {
     /// Parse `<input>` element attributes into form control state.
     fn from_input_element(attrs: &Attributes) -> Self {
         // HTML spec §2.5.2: enumerated attributes are ASCII case-insensitive.
-        let raw_type = attrs.get("type").unwrap_or("text");
-        let input_type = raw_type.to_ascii_lowercase();
-        let kind = FormControlKind::from_type_str(&input_type);
+        let kind = FormControlKind::from_tag_and_type_attr("input", attrs.get("type"))
+            .unwrap_or(FormControlKind::TextInput);
         let raw_value = attrs.get("value").unwrap_or("").to_string();
         let value = if kind == FormControlKind::SubmitButton && raw_value.is_empty() {
             "Submit".to_string()
@@ -685,12 +709,8 @@ impl FormControlState {
     /// The submit button's name/value pair is appended to form data on submission.
     fn from_button_element(attrs: &Attributes) -> Self {
         let disabled = attrs.contains("disabled");
-        let btn_type = attrs.get("type").unwrap_or("submit").to_ascii_lowercase();
-        let kind = match btn_type.as_str() {
-            "reset" => FormControlKind::ResetButton,
-            "button" => FormControlKind::Button,
-            _ => FormControlKind::SubmitButton,
-        };
+        let kind = FormControlKind::from_tag_and_type_attr("button", attrs.get("type"))
+            .unwrap_or(FormControlKind::SubmitButton);
         Self {
             kind,
             value: attrs.get("value").unwrap_or("").to_string(),

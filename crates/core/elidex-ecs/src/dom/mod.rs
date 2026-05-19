@@ -50,7 +50,7 @@ pub struct EcsDom {
     /// `replace_text_data` / `set_attribute` / `attr_remove` /
     /// `fire_split_text` / `fire_normalize_merge`.  Single dispatcher
     /// per [`Self`] — multi-consumer composition is handled by a
-    /// typed composer (`elidex_dom_api::ConsumerDispatcher`) impl'ing
+    /// typed composer (`elidex_js::vm::consumer_dispatcher::ConsumerDispatcher`) impl'ing
     /// [`MutationDispatcher`] with typed consumer fields.
     dispatcher: Option<Box<dyn MutationDispatcher + Send + Sync>>,
     /// Re-entry detection counter — incremented at the start of every

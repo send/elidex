@@ -9,6 +9,8 @@
 pub mod coerce;
 pub(crate) mod coerce_format;
 pub(crate) mod coerce_ops;
+#[cfg(feature = "engine")]
+pub mod consumer_dispatcher;
 mod coroutine_types;
 mod dispatch;
 mod dispatch_helpers;

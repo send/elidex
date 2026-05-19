@@ -244,7 +244,8 @@ impl Vm {
             // `#11-mutation-hook-multiplexer` slot is closed by this
             // structural shift).  Dispatch order = field declaration
             // order = (live_range → node_iter → base_url).
-            let mut dispatcher = elidex_dom_api::ConsumerDispatcher::new(live_range, node_iter);
+            let mut dispatcher =
+                crate::vm::consumer_dispatcher::ConsumerDispatcher::new(live_range, node_iter);
             // D-31 init pass: pre-bind tree state (e.g. parser-
             // created `<base href>`) never went through
             // `MutationEvent::Insert`, so the `BaseUrlMaintainer`

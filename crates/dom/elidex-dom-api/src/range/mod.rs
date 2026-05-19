@@ -10,6 +10,30 @@ mod mutation;
 pub use boundary::RangePointError;
 pub use live::{LiveRangeBridge, LiveRangeRegistry, RangeId};
 
+/// Test-only minimal [`elidex_ecs::MutationDispatcher`] wiring ONLY
+/// the [`LiveRangeBridge`] consumer.  Used by range / char_data tests
+/// inside this crate that need to validate range-boundary tracking
+/// without pulling in the full production composer (which lives at
+/// `elidex_js::vm::consumer_dispatcher::ConsumerDispatcher` and would
+/// create a circular cargo dep if referenced from this crate's
+/// tests).
+#[cfg(test)]
+pub(crate) fn make_range_only_test_dispatcher(
+    bridge: LiveRangeBridge,
+) -> Box<dyn elidex_ecs::MutationDispatcher> {
+    struct RangeOnlyDispatcher(LiveRangeBridge);
+    impl elidex_ecs::MutationDispatcher for RangeOnlyDispatcher {
+        fn dispatch(
+            &mut self,
+            event: &elidex_ecs::MutationEvent<'_>,
+            dom: &mut elidex_ecs::EcsDom,
+        ) {
+            self.0.handle(event, dom);
+        }
+    }
+    Box::new(RangeOnlyDispatcher(bridge))
+}
+
 use elidex_ecs::{EcsDom, Entity, TextContent};
 
 use crate::char_data::{utf16_len, utf16_to_byte_offset};
@@ -189,7 +213,7 @@ pub fn adjust_ranges_for_removal(
 /// descendants.  The engine pre-snapshots the light-tree inclusive-
 /// descendant set before orphaning and hands it to the consumer; the
 /// consumer ([`crate::LiveRangeBridge`], composed via
-/// [`crate::ConsumerDispatcher`]) uses this snapshot membership check
+/// `elidex_js::vm::consumer_dispatcher::ConsumerDispatcher`) uses this snapshot membership check
 /// instead of a tree walk.
 ///
 /// `descendants` MUST include `node` itself (inclusive descendants) —

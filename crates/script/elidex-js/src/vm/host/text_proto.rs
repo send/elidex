@@ -83,7 +83,7 @@ impl VmInner {
 /// `set_text_data(head)` truncates the original node. The combined
 /// dispatch sequence implements WHATWG §4.10 step 7 in full when the
 /// standard [`elidex_dom_api::LiveRangeBridge`] consumer (composed by
-/// [`elidex_dom_api::ConsumerDispatcher`]) is the installed
+/// [`crate::vm::consumer_dispatcher::ConsumerDispatcher`]) is the installed
 /// dispatcher.  Engines installing a custom dispatcher that ignores
 /// the parent / node_index args inherit only the `Insert` shift (lag
 /// at `node_idx + 1`); such dispatchers should document the gap

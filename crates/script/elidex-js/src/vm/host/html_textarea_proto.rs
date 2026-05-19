@@ -412,7 +412,6 @@ fn native_textarea_set_disabled(
         "disabled",
         "disabled",
         require_textarea_receiver,
-        |s, flag| s.disabled = flag,
     )
 }
 
@@ -441,7 +440,6 @@ fn native_textarea_set_required(
         "required",
         "required",
         require_textarea_receiver,
-        |s, flag| s.required = flag,
     )
 }
 
@@ -470,7 +468,6 @@ fn native_textarea_set_readonly(
         "readOnly",
         "readonly",
         require_textarea_receiver,
-        |s, flag| s.readonly = flag,
     )
 }
 
@@ -565,7 +562,6 @@ fn native_textarea_set_max_length(
         "maxLength",
         "maxlength",
         require_textarea_receiver,
-        |s, n| s.maxlength = n,
     )
 }
 
@@ -589,7 +585,6 @@ fn native_textarea_set_min_length(
         "minLength",
         "minlength",
         require_textarea_receiver,
-        |s, n| s.minlength = n,
     )
 }
 
