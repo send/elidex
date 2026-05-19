@@ -32,6 +32,12 @@ user-invocable: true
 User が plan-memo absolute path を skill argument で指定する前提 (auto-discovery は per-user CLAUDE memory dir が hardcoded path にならないため不可)。Plan-memo は通常 `~/.claude/projects/<encoded-repo-path>/memory/` 配下の `m4-12-pr-*-plan.md` 等、user が明示 path 渡し。
 
 ```bash
+# Clear stale dry-run from prior plan-review in the same session —
+# the Step 1.5 output path is fixed and Write tool requires a Read
+# before overwriting a non-empty file, which trips agents up when a
+# previous invocation's dry-run still sits at the same path.
+rm -f /tmp/elidex-plan-review.dry-run.md
+
 # Skill arg = plan-memo absolute path (user-supplied)
 PLAN_MEMO="$1"  # or substitute the absolute path
 wc -l "$PLAN_MEMO"

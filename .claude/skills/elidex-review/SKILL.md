@@ -28,6 +28,12 @@ user-invocable: true
 ### Step 1 — Collect diff + resolve repo root
 
 ```bash
+# Clear stale dry-run from prior PR review in the same session —
+# the Step 1.5 output path is fixed and Write tool requires a Read
+# before overwriting a non-empty file, which trips agents up when a
+# previous invocation's dry-run still sits at the same path.
+rm -f /tmp/elidex-review.dry-run.md
+
 # Explicit ..HEAD range avoids working-tree contamination from
 # unstaged changes (matches description "git diff main..HEAD")
 git diff main..HEAD > /tmp/elidex-review.diff

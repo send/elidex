@@ -118,5 +118,8 @@ Auto-fix NG — user decision drives.  ≥1 fix-tier without Step 3.5 block = ga
 
 ## Change log
 
+- **2026-05-20** — Two skill brush-ups from D-29 PR #209 trial:
+  - **B**: Step 1 of both SKILL.md gained `rm -f` of the dry-run output path (`/tmp/elidex-review.dry-run.md` / `/tmp/elidex-plan-review.dry-run.md`).  Triggered by stale-residue friction during D-29 R-loop: prior PR's dry-run sat at the fixed path, Write tool's "Read first" guard tripped the agent.  `rm -f` at Step 1 ensures a clean slate per invocation.
+  - **C**: axes.md Axis 5 Detect first bullet (orphan defer slot citation) gained an explicit "Acceptable exception (FP, not IMP)" carve-out for slots whose plan-memo carries a quoted **ship-time registration commitment** (e.g. `D-N ship 時に登録`).  Triggered by recurring noise: `#11-form-navigation` was flagged as IMP by both `/elidex-plan-review` (pre-impl) and `/elidex-review` (pre-push) for D-29, despite the plan-memo explicitly scheduling slot registration at ship-time.  Pre-agreed admin debt should fold into Step 3.5's landing-memo reminder, not gate the push.
 - **2026-05-19** — Initial extraction (axes.md + workflow.md SSoT).  Triggered by D-29 plan-review trial-run failure: self-review (single perspective, inline) missed Axis 2 sub-check 2b component data-flow integrity → IDL setter patches + dropped tests + TODO punt 場当たり cascade.  Structural fix: (a) axes.md SSoT, (b) Axis 2 sub-check 2b added explicitly, (c) Step 1.5 mental dry-run mandatory, (d) plan-review skill created consuming same axes.md, (e) workflow.md SSoT extracted to dedupe both SKILL.md.
 - **2026-05-18** — `/elidex-review` skill initial creation + D-31 PR trial-run (Step 3.5 philosophy-alignment block added after user pushback on polish-dominated F10 fix options).
