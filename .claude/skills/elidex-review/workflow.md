@@ -21,13 +21,15 @@ For each **new/changed test case** AND **new code path that reads ECS components
 4. Verify the write-path is wired by the change (or pre-existing).  If a step assumes state populated by an unwired mechanism, record:
 
    ```markdown
-   ## <test identifier> dry-run
+   ## <scenario identifier> dry-run
 
-   - Read assumption: `<component>.<field>` after `<test step>`
-   - SoT mutation paths exercised by test: <list>
+   - Read assumption: `<component>.<field>` after `<step>`
+   - SoT mutation paths exercised by scenario: <list>
    - Write paths wired by change / existing impl: <list>
    - **Gap**: <description>
    ```
+
+   `<scenario identifier>` は test の場合 `<file>:<test_name>` / non-test の場合 `<file>:<fn_name>` / plan-memo の場合 `plan §<section> §E-<N>` 等、scenario を一意に指す identifier を入れる。
 
 5. Output to `<dry-run-file>` (path specified per skill — `/tmp/elidex-review.dry-run.md` or `/tmp/elidex-plan-review.dry-run.md`).
 6. Step 2 Agent 2 prompt receives `<dry-run-file>` path and incorporates gaps into Sub-check 2b findings.

@@ -38,7 +38,7 @@ wc -l "$PLAN_MEMO"
 
 # Resolve repo root for Step 2 agent prompts (axes.md absolute path placeholder)
 REPO_ROOT=$(git rev-parse --show-toplevel)
-ls "$REPO_ROOT/.claude/skills/elidex-review/axes.md"  # fails with stderr if missing
+test -f "$REPO_ROOT/.claude/skills/elidex-review/axes.md" || { echo "axes.md missing at $REPO_ROOT/.claude/skills/elidex-review/axes.md" >&2; exit 1; }
 ```
 
 Plan-memo size > 1000 行なら user 確認 (通常 ~200-500 行)。
