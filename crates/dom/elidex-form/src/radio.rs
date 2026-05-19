@@ -34,7 +34,15 @@ fn resolve_form_owner(dom: &EcsDom, entity: Entity) -> Option<Entity> {
 }
 
 /// Find a `<form>` element by its `id` attribute.
+///
+/// Per HTML §6.2.4 the empty string is not a valid IDREF and cannot
+/// refer to any element, so an empty `id` argument short-circuits to
+/// `None` rather than matching forms that happen to carry an empty
+/// `id=""` content attribute.
 fn find_form_by_id(dom: &EcsDom, id: &str) -> Option<Entity> {
+    if id.is_empty() {
+        return None;
+    }
     dom.world()
         .query::<(Entity, &elidex_ecs::TagType, &Attributes)>()
         .iter()

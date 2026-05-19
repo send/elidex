@@ -253,19 +253,17 @@ pub(super) fn populate_form_data_from_form(
     form_entity: elidex_ecs::Entity,
 ) {
     // Two-step borrow split: collect from DOM (immutable host borrow)
-    // into owned Strings first, then intern into VM (mutable vm borrow).
-    let raw_entries: Vec<(String, String)> = {
+    // into the owned `elidex_form::FormDataEntry` Vec first, then
+    // intern its `name` / `value` strings under a mutable vm borrow.
+    let raw_entries = {
         let dom = ctx.host().dom();
         elidex_form::collect_form_data(dom, form_entity)
-            .into_iter()
-            .map(|e| (e.name, e.value))
-            .collect()
     };
     let fd_entries: Vec<FormDataEntry> = raw_entries
         .into_iter()
-        .map(|(name, value)| FormDataEntry {
-            name: ctx.vm.strings.intern(&name),
-            value: FormDataValue::String(ctx.vm.strings.intern(&value)),
+        .map(|e| FormDataEntry {
+            name: ctx.vm.strings.intern(&e.name),
+            value: FormDataValue::String(ctx.vm.strings.intern(&e.value)),
             filename: None,
         })
         .collect();

@@ -163,37 +163,17 @@ pub fn is_submit_button(dom: &EcsDom, submitter: Entity) -> bool {
 }
 
 /// WHATWG HTML §4.10.21.4 `requestSubmit(submitter?)` step 2.2:
-/// the submitter's form owner must be `form`.  Ownership is satisfied
-/// by either:
-///
-/// - (a) **Tree ancestry** — `submitter` is a descendant of `form`
-///   (mirrors [`find_form_ancestor`]); or
-/// - (b) **`form` attribute association** — `submitter`'s
-///   `FormControlState::form_owner` (the cross-tree `form="..."`
-///   IDREF) equals `form`'s `id` attribute, and the id is non-empty.
-///
-/// Edge case: when `form` has no `id` (or an empty one), path (b) is
-/// unreachable per spec — `form="..."` cannot reference an idless
-/// element — so ownership is decided by path (a) alone.
+/// the submitter's form owner must be `form`.  Delegates to the
+/// canonical §4.10.18.3 form-owner resolution path
+/// ([`resolve_form_owner_public`](crate::radio::resolve_form_owner_public)),
+/// which combines the `form="..."` IDREF lookup with the tree-ancestor
+/// fallback.  The empty-id edge case (`form` has no `id` or `id=""`)
+/// is handled by `find_form_by_id`'s `HTML §6.2.4` short-circuit.
 ///
 /// Caller maps `false` to `NotFoundError` `DOMException` per spec.
 #[must_use]
 pub fn is_form_owner(dom: &EcsDom, submitter: Entity, form: Entity) -> bool {
-    if find_form_ancestor(dom, submitter) == Some(form) {
-        return true;
-    }
-    let form_id = dom
-        .world()
-        .get::<&elidex_ecs::Attributes>(form)
-        .ok()
-        .and_then(|a| a.get("id").map(String::from))
-        .filter(|s| !s.is_empty());
-    let Some(id) = form_id else {
-        return false;
-    };
-    dom.world()
-        .get::<&FormControlState>(submitter)
-        .is_ok_and(|fcs| fcs.form_owner.as_deref() == Some(id.as_str()))
+    crate::radio::resolve_form_owner_public(dom, submitter) == Some(form)
 }
 
 /// Collect form data from all submittable controls in a form.
@@ -213,12 +193,17 @@ pub fn collect_form_data(dom: &EcsDom, form_entity: Entity) -> Vec<FormDataEntry
         },
         0,
     );
-    // Collect controls associated via `form` attribute (HTML §4.10.15.3).
+    // Collect controls associated via `form` attribute (HTML
+    // §4.10.15.3).  Empty `id=""` is filtered for symmetry with the
+    // submitter-side lookup (HTML §6.2.4 — empty IDREF is unreachable),
+    // so a `<form id="">` does not silently sweep up cross-tree
+    // controls that happen to carry `form_owner = Some(String::new())`.
     let form_id = dom
         .world()
         .get::<&elidex_ecs::Attributes>(form_entity)
         .ok()
-        .and_then(|a| a.get("id").map(String::from));
+        .and_then(|a| a.get("id").map(String::from))
+        .filter(|s| !s.is_empty());
     if let Some(ref id) = form_id {
         let associated: Vec<Entity> = dom
             .world()
@@ -787,9 +772,7 @@ mod tests {
     #[test]
     fn is_submit_button_input_type_text_false() {
         let mut dom = EcsDom::new();
-        let form = dom.create_element("form", Attributes::default());
         let (_, input) = make_form_with_input(&mut dom, "q", "test");
-        let _ = form; // silence unused
         assert!(!is_submit_button(&dom, input));
     }
 
