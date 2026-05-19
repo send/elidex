@@ -1,5 +1,7 @@
 //! Shared helpers for form-control attribute setters that route through
-//! `EcsDom::set_attribute` / `attr_remove`.
+//! the [`EcsDom::set_attribute`] / [`EcsDom::remove_attribute`]
+//! chokepoint (via the VM-layer [`element_attrs::attr_remove`] wrapper
+//! for the removal branch).
 //!
 //! ## Why this exists
 //!
@@ -18,7 +20,8 @@
 //! [`FormControlReconciler`](elidex_form::FormControlReconciler) (a
 //! `MutationEvent::AttributeChange` consumer composed into the VM's
 //! `ConsumerDispatcher`), which observes the mutations fired by the
-//! `EcsDom::set_attribute` / `attr_remove` chokepoint and re-derives
+//! `EcsDom::set_attribute` / `EcsDom::remove_attribute` chokepoint and
+//! re-derives
 //! FCS fields uniformly across IDL setter / `setAttribute` / parser /
 //! `innerHTML` paths.  Module / function names below therefore reflect
 //! attribute-reflection responsibility, NOT FCS sync (which was the
