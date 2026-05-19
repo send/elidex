@@ -165,6 +165,7 @@ Agent prompt は「Read axes.md Axis N → apply `Detect` の `[diff]`/`[plan]`/
 ### Detect
 
 - `[both]` 引用 defer slot 番号 (`#11-*`) が memory ledger で actually open 中か (旧名 slot ref 引用なし、recent landing memo で renamed/closed されていないか)
+  - **Acceptable exception (FP, not IMP)**: 引用 slot が未登録でも、PR の plan-memo 内に "**D-N ship 時に登録**" / "**at landing memo time register**" 等の **pre-agreed ship-time registration commitment** が明示されている場合 (例: `m4-12-pr-d29-form-submission-plan.md:169` "NEW slot `#11-form-navigation` — D-29 ship 時に登録、+1")。Plan-memo の該当行を citation として finding に添えること。Agent はこの場合 **FP-defer** で record、landing memo §"Defer ledger" で slot definition 必須 reminder を Step 3.5 で fold。Diff review (`elidex-review`) でも同 ledger を読んで同一 exception を適用 (plan-stage 合意の admin debt を ship-stage で重複 flag しない)
 - `[both]` §D-tier3 phase plan / `MEMORY.md` `Active state` との整合 (scope creep / batch 違反検出)
 - `[both]` 過去 lesson 違反: lesson #235 trait extension cascade 等 (**lesson #276 は Axis 2 専属、ここでは検出しない**)
 - `[both]` 同時並行で他 PR が変更している file での convention drift (`git branch -r` で active branches 確認)
