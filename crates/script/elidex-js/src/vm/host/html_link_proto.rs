@@ -432,8 +432,9 @@ fn link_set_sizes(
 // sheet getter — CSSOM `LinkStyle.sheet`
 // ---------------------------------------------------------------------------
 
-/// `HTMLLinkElement.prototype.sheet` (CSSOM `LinkStyle.sheet`,
-/// `[SameObject]`). Returns the `[SameObject]` `CSSStyleSheet` wrapper
+/// `HTMLLinkElement.prototype.sheet` (CSSOM §6.2 `LinkStyle.sheet`,
+/// `[SameObject]` — same citation as the sibling `<style>.sheet` getter).
+/// Returns the `[SameObject]` `CSSStyleSheet` wrapper
 /// for the `<link>`'s associated CSS style sheet (present only after a
 /// successful load, HTML §4.6.7), or `null` when there is none (no
 /// `LinkStylesheet` component — non-stylesheet `rel`, missing href, or

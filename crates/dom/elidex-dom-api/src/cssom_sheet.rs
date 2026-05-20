@@ -631,7 +631,7 @@ pub fn count_stylesheet_owners(document: Entity, dom: &EcsDom) -> usize {
 /// `true` if `entity` is a `<link>` with an associated CSS style sheet —
 /// non-null only after a successful load (HTML §4.6.7), i.e. a
 /// `LinkStylesheet` component is attached. Backs the host `link.sheet`
-/// getter (CSSOM `LinkStyle.sheet`).
+/// getter (CSSOM §6.2 `LinkStyle.sheet`).
 #[must_use]
 pub fn link_has_loaded_sheet(entity: Entity, dom: &EcsDom) -> bool {
     dom.world().get::<&LinkStylesheet>(entity).is_ok()
