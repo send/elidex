@@ -531,14 +531,15 @@ impl Vm {
             // the block below alongside `dom.clear_mutation_dispatcher()`
             // and the bridge teardown.  See plan-v4 §A-NI-1 Vm::unbind
             // install-order recap.
-            // `mutation_observers.clear_all_targets()` drains every
-            // observer's target list + record queue so a post-rebind
-            // `notify` cannot match a `target` Entity that happens to
-            // collide with an observation registered against the
-            // previous `EcsDom` world (two `EcsDom::new()` worlds
-            // share Entity index space).  Observer IDs themselves
-            // stay live in the registry so brand checks on retained
-            // JS instances continue to succeed.
+            // `mutation_observers.clear_pending_records()` drains every
+            // observer's pending record queue so a post-rebind `notify`
+            // cannot deliver records that reference `Entity` values from
+            // the outgoing `EcsDom` world.  The observation target lists
+            // need no scrub: they live as `MutationObservedBy` components
+            // on entities, which are despawned with the outgoing world —
+            // so the old Entity-index-collision hazard cannot occur.
+            // Observer IDs themselves stay live in the registry so brand
+            // checks on retained JS instances continue to succeed.
             //
             // `mutation_observer_callbacks` /
             // `mutation_observer_instances` are intentionally NOT
@@ -552,7 +553,7 @@ impl Vm {
             // a future weak-rooting design tracked in
             // `#11-mutation-observer-extras`.
             if let Some(hd) = self.inner.host_data.as_deref_mut() {
-                hd.mutation_observers.clear_all_targets();
+                hd.mutation_observers.clear_pending_records();
             }
             // `attr_wrapper_cache` is keyed by `(Entity, StringId)`
             // and faces the same cross-DOM aliasing — `el2.getAttributeNode('id')`

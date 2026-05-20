@@ -700,10 +700,9 @@ impl HostBridge {
             inner.listener_store.remove(id);
         }
 
-        // Remove entity from observer target lists.
-        inner.mutation_observers.remove_entity(entity);
-        inner.resize_observers.remove_entity(entity);
-        inner.intersection_observers.remove_entity(entity);
+        // Observer registrations need no cleanup here: they live as
+        // per-entity `*ObservedBy` components and are dropped automatically
+        // when the entity is despawned from the `EcsDom` world.
     }
 
     // Worker methods are in workers.rs

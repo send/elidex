@@ -24,21 +24,13 @@ impl JsRuntime {
         dom: &mut EcsDom,
         document_entity: Entity,
     ) {
-        // Feed records to the registry.
+        // Feed records to the registry. `notify` reads each node's
+        // `MutationObservedBy` component while walking the target's
+        // inclusive ancestors (WHATWG DOM §4.3.2), so it only needs the
+        // shared `&EcsDom`.
         for record in records {
-            self.bridge.with_mutation_observers(|reg| {
-                reg.notify(record, &|target, ancestor| {
-                    // Walk up the tree from target to check if ancestor is an ancestor.
-                    let mut current = dom.get_parent(target);
-                    while let Some(node) = current {
-                        if node == ancestor {
-                            return true;
-                        }
-                        current = dom.get_parent(node);
-                    }
-                    false
-                });
-            });
+            self.bridge
+                .with_mutation_observers(|reg| reg.notify(dom, record));
         }
 
         // Collect observer IDs with pending records.
@@ -103,8 +95,8 @@ impl JsRuntime {
         document_entity: Entity,
     ) {
         let observations = self.bridge.with_resize_observers(|reg| {
-            reg.gather_observations(&|entity| {
-                let lb = dom.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
+            reg.gather_observations(dom, &|d, entity| {
+                let lb = d.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
                 let bb = lb.border_box();
                 Some((lb.content.size, bb.size))
             })
@@ -157,8 +149,9 @@ impl JsRuntime {
     ) {
         let observations = self.bridge.with_intersection_observers(|reg| {
             reg.gather_observations(
-                &|entity| {
-                    let lb = dom.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
+                dom,
+                &|d, entity| {
+                    let lb = d.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
                     let bb = lb.border_box();
                     Some(elidex_plugin::Rect::new(
                         lb.content.origin.x,

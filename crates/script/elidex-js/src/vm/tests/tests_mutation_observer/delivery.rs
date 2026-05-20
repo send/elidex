@@ -292,7 +292,7 @@ fn mutation_observer_take_records_drains_pending() {
         .as_deref_mut()
         .unwrap()
         .mutation_observers
-        .notify(&record, &|_, _| false);
+        .notify(&dom, &record);
 
     let drained = vm.eval("mo.takeRecords().length").unwrap();
     assert_eq!(drained, JsValue::Number(1.0));
@@ -332,7 +332,7 @@ fn mutation_observer_disconnect_clears_pending() {
         .as_deref_mut()
         .unwrap()
         .mutation_observers
-        .notify(&record, &|_, _| false);
+        .notify(&dom, &record);
     vm.eval("mo.disconnect();").unwrap();
     vm.deliver_mutation_records(&[]);
     let calls = vm.eval("calls").unwrap();

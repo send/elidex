@@ -166,7 +166,7 @@ fn mutation_observe(
     }
 
     let mo_id = elidex_api_observers::mutation::MutationObserverId::from_raw(observer_id);
-    bridge.with_mutation_observers(|reg| reg.observe(mo_id, target, init));
+    bridge.with_mutation_observers_and_dom(|dom, reg| reg.observe(dom, mo_id, target, init));
     Ok(JsValue::undefined())
 }
 
@@ -329,7 +329,7 @@ fn resize_observe(
         }
     }
     let ro_id = elidex_api_observers::resize::ResizeObserverId::from_raw(observer_id);
-    bridge.with_resize_observers(|reg| reg.observe(ro_id, target, options));
+    bridge.with_resize_observers_and_dom(|dom, reg| reg.observe(dom, ro_id, target, options));
     Ok(JsValue::undefined())
 }
 
@@ -344,7 +344,7 @@ fn resize_unobserve(
     let target = require_target(args, "ResizeObserver.unobserve", ctx)?;
 
     let ro_id = elidex_api_observers::resize::ResizeObserverId::from_raw(observer_id);
-    bridge.with_resize_observers(|reg| reg.unobserve(ro_id, target));
+    bridge.with_resize_observers_and_dom(|dom, reg| reg.unobserve(dom, ro_id, target));
     Ok(JsValue::undefined())
 }
 
@@ -467,7 +467,7 @@ fn intersection_observe(
     let target = require_target(args, "IntersectionObserver.observe", ctx)?;
 
     let io_id = elidex_api_observers::intersection::IntersectionObserverId::from_raw(observer_id);
-    bridge.with_intersection_observers(|reg| reg.observe(io_id, target));
+    bridge.with_intersection_observers_and_dom(|dom, reg| reg.observe(dom, io_id, target));
     Ok(JsValue::undefined())
 }
 
@@ -482,7 +482,7 @@ fn intersection_unobserve(
     let target = require_target(args, "IntersectionObserver.unobserve", ctx)?;
 
     let io_id = elidex_api_observers::intersection::IntersectionObserverId::from_raw(observer_id);
-    bridge.with_intersection_observers(|reg| reg.unobserve(io_id, target));
+    bridge.with_intersection_observers_and_dom(|dom, reg| reg.unobserve(dom, io_id, target));
     Ok(JsValue::undefined())
 }
 
@@ -507,7 +507,7 @@ struct MutationDisconnect;
 impl DisconnectKind for MutationDisconnect {
     fn disconnect(bridge: &HostBridge, observer_id: u64) {
         let id = elidex_api_observers::mutation::MutationObserverId::from_raw(observer_id);
-        bridge.with_mutation_observers(|reg| reg.disconnect(id));
+        bridge.with_mutation_observers_and_dom(|dom, reg| reg.disconnect(dom, id));
     }
 }
 
@@ -515,7 +515,7 @@ struct ResizeDisconnect;
 impl DisconnectKind for ResizeDisconnect {
     fn disconnect(bridge: &HostBridge, observer_id: u64) {
         let id = elidex_api_observers::resize::ResizeObserverId::from_raw(observer_id);
-        bridge.with_resize_observers(|reg| reg.disconnect(id));
+        bridge.with_resize_observers_and_dom(|dom, reg| reg.disconnect(dom, id));
     }
 }
 
@@ -523,7 +523,7 @@ struct IntersectionDisconnect;
 impl DisconnectKind for IntersectionDisconnect {
     fn disconnect(bridge: &HostBridge, observer_id: u64) {
         let id = elidex_api_observers::intersection::IntersectionObserverId::from_raw(observer_id);
-        bridge.with_intersection_observers(|reg| reg.disconnect(id));
+        bridge.with_intersection_observers_and_dom(|dom, reg| reg.disconnect(dom, id));
     }
 }
 

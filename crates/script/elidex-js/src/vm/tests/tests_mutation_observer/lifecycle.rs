@@ -93,8 +93,9 @@ fn mutation_observer_unbind_retains_callback_maps() {
     // (or another) DOM and still have its callback fire.  The maps
     // are keyed by VM-monotonic `observer_id`, not by `Entity` or
     // recycled `ObjectId`, so cross-DOM aliasing cannot apply.
-    // Only `clear_all_targets` drains target lists + record queues
-    // (Entity-keyed state, where aliasing IS a risk).
+    // Only `clear_pending_records` drains the per-observer record
+    // queues (which hold `Entity` refs); observation targets are
+    // world-scoped `MutationObservedBy` components needing no scrub.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -120,7 +121,7 @@ fn mutation_observer_unbind_retains_callback_maps() {
 }
 
 #[test]
-fn mutation_observer_unbind_drains_registry_targets() {
+fn mutation_observer_unbind_drains_pending_records() {
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -131,10 +132,8 @@ fn mutation_observer_unbind_drains_registry_targets() {
          mo.observe(root, {childList:true, attributes:true, characterData:true, subtree:true});",
     )
     .unwrap();
-    vm.unbind();
 
-    // Notify against an entity that would have matched: registry
-    // must report no matches because targets were cleared.
+    // Queue a pending record, then unbind.
     let record = SessionRecord {
         kind: MutationKind::Attribute,
         target: root,
@@ -150,7 +149,24 @@ fn mutation_observer_unbind_drains_registry_targets() {
         .as_deref_mut()
         .unwrap()
         .mutation_observers
-        .notify(&record, &|_, _| true);
+        .notify(&dom, &record);
+    assert!(
+        vm.inner
+            .host_data
+            .as_deref()
+            .unwrap()
+            .mutation_observers
+            .has_pending_records(),
+        "record should be queued before unbind"
+    );
+
+    vm.unbind();
+
+    // `unbind` drains the per-observer record queues (they hold `Entity`
+    // refs from the outgoing world).  The observation itself is a
+    // `MutationObservedBy` component scoped to `dom`'s world — despawned
+    // with that world on rebind — so no Entity-index-collision can occur
+    // and no manual target scrub is needed.
     assert!(
         !vm.inner
             .host_data
@@ -158,7 +174,7 @@ fn mutation_observer_unbind_drains_registry_targets() {
             .unwrap()
             .mutation_observers
             .has_pending_records(),
-        "registry must be empty after unbind"
+        "pending records must be drained on unbind"
     );
 }
 
@@ -167,8 +183,9 @@ fn mutation_observer_unbind_drains_registry_targets() {
 #[test]
 fn mutation_observer_methods_after_unbind_then_rebind_to_same_dom() {
     // Retained `mo` across `unbind()` then `bind(same_doc)` — observer
-    // IDs persist in the registry (`clear_all_targets` only drains
-    // targets), so a fresh `observe` after rebind must work end-to-end.
+    // IDs persist in the registry (`clear_pending_records` only drains
+    // pending records), so a fresh `observe` after rebind must work
+    // end-to-end.
     let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();

@@ -233,7 +233,8 @@ fn native_mutation_observer_observe(
              set at least one of 'attributes', 'characterData', or 'childList' to true.",
         ));
     }
-    ctx.host().mutation_observers.observe(id, target, init);
+    let (dom, observers) = ctx.host().split_dom_mut_and_observers();
+    observers.observe(dom, id, target, init);
     Ok(JsValue::Undefined)
 }
 
@@ -246,7 +247,8 @@ fn native_mutation_observer_disconnect(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }
-    ctx.host().mutation_observers.disconnect(id);
+    let (dom, observers) = ctx.host().split_dom_mut_and_observers();
+    observers.disconnect(dom, id);
     Ok(JsValue::Undefined)
 }
 
@@ -487,23 +489,18 @@ impl VmInner {
         self.drain_microtasks();
     }
 
-    /// Wrapper around `MutationObserverRegistry::notify` that
-    /// supplies the subtree-ancestry walker via
-    /// [`elidex_ecs::EcsDom::is_ancestor_or_self`] (which carries a
-    /// `MAX_ANCESTOR_DEPTH` corruption-loop guard on top of the
-    /// straight-line parent walk).  The registry only invokes the
-    /// closure when `record.target != observed_target`, so the
-    /// `is_ancestor_or_self` self-match arm is unreachable from this
-    /// caller — passing the inclusive helper is still spec-correct.
+    /// Wrapper around `MutationObserverRegistry::notify`, which reads
+    /// each node's `MutationObservedBy` component while walking the
+    /// record target's inclusive ancestors (WHATWG DOM §4.3.2). The
+    /// shared `&EcsDom` lets the registry perform the ancestor walk via
+    /// `EcsDom::get_parent` directly.
     fn notify_one(&mut self, record: &elidex_script_session::MutationRecord) {
         let host = self
             .host_data
             .as_deref_mut()
             .expect("notify_one: HostData required when bound");
         let (dom, observers) = host.split_dom_and_observers();
-        observers.notify(record, &|target, ancestor| {
-            dom.is_ancestor_or_self(ancestor, target)
-        });
+        observers.notify(dom, record);
     }
 }
 
