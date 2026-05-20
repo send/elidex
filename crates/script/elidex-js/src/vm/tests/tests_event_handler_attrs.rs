@@ -17,22 +17,34 @@ use super::super::test_helpers::{eval_str, setup_with_element};
 use super::super::value::JsValue;
 use super::super::Vm;
 
+/// RAII guard that unbinds the VM on drop — including during a panic
+/// unwind, so `session`/`dom` are never dropped while the VM still holds
+/// raw pointers into them (upholds [`Vm::bind`]'s safety contract even
+/// when a test assertion panics inside the closure).
+struct BoundVm(Vm);
+impl Drop for BoundVm {
+    fn drop(&mut self) {
+        self.0.unbind();
+    }
+}
+
 /// Run `body` against a VM bound to a document with a single `<div>`
 /// exposed as the JS global `el`.
 ///
-/// `session` / `dom` are kept alive as locals for the whole closure:
+/// `session` / `dom` are declared **before** the VM so that, on unwind,
+/// the `BoundVm` guard (dropped first) unbinds before they are dropped —
 /// [`Vm::bind`] (via [`setup_with_element`]) stores raw pointers into
-/// them, so they MUST NOT be moved (e.g. returned from a helper) while
-/// the VM is bound — doing so dangles the pointers (UB / SIGBUS).
+/// them, so they MUST stay live and non-aliased until `unbind`.
 fn with_el(body: impl FnOnce(&mut Vm)) {
-    let mut vm = Vm::new();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
+    let mut vm = Vm::new();
     #[allow(unsafe_code)]
     let _el = unsafe { setup_with_element(&mut vm, &mut session, &mut dom, doc, "div") };
-    body(&mut vm);
-    vm.unbind();
+    let mut guard = BoundVm(vm);
+    body(&mut guard.0);
+    // `guard` drops here (or on unwind), unbinding before `dom`/`session`.
 }
 
 /// Evaluate `src` and expect a boolean result.
@@ -231,6 +243,8 @@ fn inline_syntax_error_is_silent() {
         )
         .unwrap();
         assert!(!eval_bool(vm, "globalThis.ran"));
+        // §8.1.8.1 "if body is not parsable" → handler value is null.
+        assert!(eval_bool(vm, "el.onclick === null"));
     });
 }
 
