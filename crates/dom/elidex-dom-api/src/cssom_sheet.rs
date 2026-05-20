@@ -3,25 +3,35 @@
 //!
 //! ## Storage model
 //!
-//! Per `<style>` element the parsed `Stylesheet` lives in
-//! `SessionCore::cssom_sheets`, keyed by the `<style>` `Entity`.  The cache
-//! is populated lazily on first CSSOM access; on every entry, the handler
-//! checks the `<style>` subtree's `EcsDom::inclusive_descendants_version`
-//! against the cached snapshot version — divergence (the script wrote
-//! `<style>.textContent` directly) triggers a re-walk + re-parse and
-//! reassigns rule_ids, leaving any held `CSSStyleRule` /
-//! `CSSStyleDeclaration` Rule wrapper stale by design.  Using the ECS
-//! version counter rather than a string snapshot keeps the divergence
-//! check O(1) per CSSOM access.
+//! Per stylesheet-owning element the parsed `Stylesheet` lives in
+//! `SessionCore::cssom_sheets`, keyed by the owner `Entity`.  The cache is
+//! populated lazily on first CSSOM access; on every entry the handler
+//! checks the owner's source version against the cached snapshot version,
+//! and divergence triggers a re-walk + re-parse (reassigning rule_ids,
+//! leaving any held `CSSStyleRule` / `CSSStyleDeclaration` Rule wrapper
+//! stale by design).  The source + version differ by owner kind
+//! (`sync_and_get_state` source branch / `sheet_version`):
+//!
+//! - `<style>` — source is the element's text content; version is the
+//!   subtree `EcsDom::inclusive_descendants_version` (a direct
+//!   `<style>.textContent` write diverges it).
+//! - `<link rel="stylesheet">` — source is the `LinkStylesheet` component
+//!   (HTML §4.6.7 associated CSS style sheet, fetched by the loader);
+//!   version is the component's own monotonic counter, since the void
+//!   `<link>` has no child-text mutation signal.
+//!
+//! Using a version counter rather than a string snapshot keeps the
+//! divergence check O(1) per CSSOM access.
 //!
 //! ## Mutator round-trip (CRIT-3 Option II)
 //!
 //! `insertRule` / `deleteRule` mutate the cache, then re-serialise the
 //! `Stylesheet` via [`elidex_css::serialize_stylesheet`] and write the
-//! result back to `<style>.textContent` through the canonical
-//! `SetTextContentNodeKind` path so the cascade picks up the change on the
-//! next walk and `EcsDom::rev_version` fires for `LiveCollection` /
-//! `MutationObserver` invalidation.
+//! result back to the owner's source through `flush_sheet_mutation`:
+//! for `<style>` to `.textContent` via the canonical `SetTextContentNodeKind`
+//! path (so the cascade picks up the change and `EcsDom::rev_version` fires
+//! for `LiveCollection` / `MutationObserver` invalidation); for `<link>`
+//! into the `LinkStylesheet` component (the void element has no text node).
 //!
 //! ## CSSMediaRule deferral
 //!
@@ -32,7 +42,7 @@
 //! exposes only `CSSStyleRule`.
 
 use elidex_css::{parse_single_rule, parse_stylesheet, serialize_stylesheet, Origin};
-use elidex_ecs::{EcsDom, Entity};
+use elidex_ecs::{EcsDom, Entity, LinkStylesheet};
 use elidex_plugin::JsValue;
 use elidex_script_session::{
     CssomSheetState, DomApiError, DomApiErrorKind, DomApiHandler, SessionCore,
@@ -47,24 +57,43 @@ use crate::util::require_string_arg;
 // Cache plumbing
 // ---------------------------------------------------------------------------
 
-/// Sync the cached `Stylesheet` against the current `<style>` subtree
-/// and return a mutable reference. Re-parses (and reassigns rule_ids)
-/// when `EcsDom::inclusive_descendants_version` indicates the subtree
-/// has changed since the last cache fill — far cheaper than the
-/// alternative of stringifying + comparing the textContent on every
-/// CSSOM access (PR-B review F1).
+/// Divergence-version of a stylesheet owner's source. `<link>` (with a
+/// `LinkStylesheet` component) uses the component's monotonic counter;
+/// `<style>` uses its subtree `EcsDom::inclusive_descendants_version`.
+/// Cheap (no string materialisation), so it runs on every CSSOM access.
+fn sheet_version(sheet_entity: Entity, dom: &EcsDom) -> u64 {
+    dom.world()
+        .get::<&LinkStylesheet>(sheet_entity)
+        .map_or_else(
+            |_| dom.inclusive_descendants_version(sheet_entity),
+            |link| link.version,
+        )
+}
+
+/// Sync the cached `Stylesheet` against the current owner source and
+/// return a mutable reference. Re-parses (and reassigns rule_ids) when
+/// [`sheet_version`] indicates the source has changed since the last
+/// cache fill — far cheaper than stringifying + comparing the source on
+/// every CSSOM access (PR-B review F1).
 fn sync_and_get_state<'a>(
     sheet_entity: Entity,
     session: &'a mut SessionCore,
     dom: &EcsDom,
 ) -> &'a mut CssomSheetState {
-    let version = dom.inclusive_descendants_version(sheet_entity);
+    let version = sheet_version(sheet_entity, dom);
     let needs_reparse = session
         .cssom_sheets
         .get(&sheet_entity)
         .is_none_or(|s| s.snapshot_version != version);
     if needs_reparse {
-        let parsed = parse_stylesheet(&collect_text_content(sheet_entity, dom), Origin::Author);
+        // Parse from the owner source. `<link>` parses its `LinkStylesheet`
+        // component text in place (no clone — the component can be a large
+        // external sheet); `<style>` collects its child text content
+        // (HTML §4.6.7 associated style sheet vs `<style>` text node).
+        let parsed = match dom.world().get::<&LinkStylesheet>(sheet_entity) {
+            Ok(link) => parse_stylesheet(&link.source, Origin::Author),
+            Err(_) => parse_stylesheet(&collect_text_content(sheet_entity, dom), Origin::Author),
+        };
         session.cssom_sheets.insert(
             sheet_entity,
             CssomSheetState {
@@ -79,14 +108,17 @@ fn sync_and_get_state<'a>(
         .expect("cssom_sheets entry just inserted")
 }
 
-/// Re-serialise the cached parsed stylesheet and write back to
-/// `<style>.textContent`. The write goes through the canonical
-/// `SetTextContentNodeKind` handler so `EcsDom::rev_version` fires for
-/// cascade / `LiveCollection` / `MutationObserver` invalidation. The
-/// version bump also synchronises [`CssomSheetState::snapshot_version`]
-/// — the next `sync_and_get_state` will see an up-to-date version and
-/// skip a redundant re-parse.
-fn flush_to_text_content(
+/// Re-serialise the cached parsed stylesheet and write it back to the
+/// owner's source, then synchronise [`CssomSheetState::snapshot_version`]
+/// so the next `sync_and_get_state` skips a redundant re-parse.
+///
+/// - `<style>`: the write goes through the canonical
+///   `SetTextContentNodeKind` handler so `EcsDom::rev_version` fires for
+///   cascade / `LiveCollection` / `MutationObserver` invalidation.
+/// - `<link rel="stylesheet">`: the void element has no text node, so the
+///   serialised CSS is written into the `LinkStylesheet` component and its
+///   monotonic `version` is bumped (CSSOM §6.4 / §6.5 round-trip).
+fn flush_sheet_mutation(
     sheet_entity: Entity,
     session: &mut SessionCore,
     dom: &mut EcsDom,
@@ -95,12 +127,36 @@ fn flush_to_text_content(
         let state = session
             .cssom_sheets
             .get(&sheet_entity)
-            .expect("flush_to_text_content called before sync_and_get_state");
+            .expect("flush_sheet_mutation called before sync_and_get_state");
         serialize_stylesheet(&state.parsed)
     };
-    SetTextContentNodeKind.invoke(sheet_entity, &[JsValue::String(serialized)], session, dom)?;
-    if let Some(state) = session.cssom_sheets.get_mut(&sheet_entity) {
-        state.snapshot_version = dom.inclusive_descendants_version(sheet_entity);
+    // Probe link-ness immutably first: the `<style>` arm re-borrows `dom`
+    // mutably through `SetTextContentNodeKind`, so an `if let Ok(mut link)`
+    // scrutinee borrow would extend into the else arm and conflict.
+    let is_link = dom.world().get::<&LinkStylesheet>(sheet_entity).is_ok();
+    if is_link {
+        let new_version = {
+            let mut link = dom
+                .world_mut()
+                .get::<&mut LinkStylesheet>(sheet_entity)
+                .expect("LinkStylesheet present (checked above)");
+            link.source = serialized;
+            link.version = link.version.saturating_add(1);
+            link.version
+        };
+        if let Some(state) = session.cssom_sheets.get_mut(&sheet_entity) {
+            state.snapshot_version = new_version;
+        }
+    } else {
+        SetTextContentNodeKind.invoke(
+            sheet_entity,
+            &[JsValue::String(serialized)],
+            session,
+            dom,
+        )?;
+        if let Some(state) = session.cssom_sheets.get_mut(&sheet_entity) {
+            state.snapshot_version = dom.inclusive_descendants_version(sheet_entity);
+        }
     }
     Ok(())
 }
@@ -260,12 +316,13 @@ impl DomApiHandler for InsertRule {
         new_rule.rule_id = state.parsed.next_rule_id;
         state.parsed.next_rule_id = state.parsed.next_rule_id.saturating_add(1);
         state.parsed.rules.insert(index, new_rule);
-        // No need to renumber `source_order` here: `flush_to_text_content`
-        // re-serialises the sheet and writes back to `<style>.textContent`,
-        // so the next `sync_and_get_state` re-parses from textContent and
-        // assigns fresh sequential `source_order` values from scratch.  Any
-        // in-memory mutation here would be overwritten on the next walk.
-        flush_to_text_content(this, session, dom)?;
+        // No need to renumber `source_order` here: `flush_sheet_mutation`
+        // re-serialises the sheet and writes back to the owner's source
+        // (`<style>.textContent` or the `<link>` `LinkStylesheet` component),
+        // so the next `sync_and_get_state` re-parses and assigns fresh
+        // sequential `source_order` values from scratch.  Any in-memory
+        // mutation here would be overwritten on the next walk.
+        flush_sheet_mutation(this, session, dom)?;
         #[allow(clippy::cast_precision_loss)]
         Ok(JsValue::Number(index_f))
     }
@@ -309,9 +366,9 @@ impl DomApiHandler for DeleteRule {
         }
         state.parsed.rules.remove(index);
         // No `source_order` renumbering here — the next `sync_and_get_state`
-        // re-parses from the post-flush textContent and assigns fresh
-        // sequential values (mirrors `InsertRule` above).
-        flush_to_text_content(this, session, dom)?;
+        // re-parses from the post-flush source and assigns fresh sequential
+        // values (mirrors `InsertRule` above).
+        flush_sheet_mutation(this, session, dom)?;
         Ok(JsValue::Undefined)
     }
 }
@@ -544,11 +601,10 @@ impl DomApiHandler for RuleStyleCssText {
 // document.styleSheets walker
 // ---------------------------------------------------------------------------
 
-/// Collect all `<style>` element entities in document order. Used by the
-/// host-side `document.styleSheets` indexed-property exotic and `item`.
-/// `<link rel="stylesheet">` is intentionally NOT walked in PR-B —
-/// stylesheet preloading lives in a future milestone (slot
-/// `#11-link-stylesheet-loading`).
+/// Collect all stylesheet-owning element entities (`<style>` and loaded
+/// `<link rel="stylesheet">`) in document (tree) order. Backs the
+/// host-side `document.styleSheets` indexed-property exotic and `item`
+/// (CSSOM §6.8 — the sheets are returned in tree order).
 #[must_use]
 pub fn collect_stylesheet_owners(document: Entity, dom: &EcsDom) -> Vec<Entity> {
     let mut out = Vec::new();
@@ -556,14 +612,34 @@ pub fn collect_stylesheet_owners(document: Entity, dom: &EcsDom) -> Vec<Entity> 
     out
 }
 
-/// Count `<style>` element entities under `document` without materialising
-/// the entity list. Backs `document.styleSheets.length` so the common
-/// length-only read path avoids a per-access `Vec` allocation.
+/// Count stylesheet-owning entities under `document` without
+/// materialising the entity list. Backs `document.styleSheets.length` so
+/// the common length-only read path avoids a per-access `Vec` allocation.
 #[must_use]
 pub fn count_stylesheet_owners(document: Entity, dom: &EcsDom) -> usize {
     let mut n: usize = 0;
     walk_styles(document, dom, |_| n += 1);
     n
+}
+
+/// `true` if `entity` is a `<link>` with an associated CSS style sheet —
+/// non-null only after a successful load (HTML §4.6.7), i.e. a
+/// `LinkStylesheet` component is attached. Backs the host `link.sheet`
+/// getter (CSSOM §6.2 `LinkStyle.sheet`).
+#[must_use]
+pub fn link_has_loaded_sheet(entity: Entity, dom: &EcsDom) -> bool {
+    dom.world().get::<&LinkStylesheet>(entity).is_ok()
+}
+
+/// Resolved absolute URL of a `<link>`-loaded sheet (CSSOM §6.2
+/// `StyleSheet.href`); `None` for a `<style>` sheet (no href). Backs the
+/// host `sheet.href` getter.
+#[must_use]
+pub fn link_sheet_href(entity: Entity, dom: &EcsDom) -> Option<String> {
+    dom.world()
+        .get::<&LinkStylesheet>(entity)
+        .ok()
+        .map(|link| link.href.clone())
 }
 
 fn walk_styles(entity: Entity, dom: &EcsDom, mut visit: impl FnMut(Entity)) {
@@ -577,7 +653,12 @@ fn walk_styles_inner(entity: Entity, dom: &EcsDom, visit: &mut impl FnMut(Entity
     let is_style = dom.with_tag_name(entity, |t| {
         t.is_some_and(|t| t.eq_ignore_ascii_case("style"))
     });
-    if is_style {
+    // CSSOM §6.8: `document.styleSheets` enumerates every element with an
+    // associated CSS style sheet, in tree order. A `<link rel="stylesheet">`
+    // gains one once its resource loads (HTML §4.6.7) — signalled by the
+    // `LinkStylesheet` component attached by the resource loader.
+    let is_loaded_link = dom.world().get::<&LinkStylesheet>(entity).is_ok();
+    if is_style || is_loaded_link {
         visit(entity);
     }
     for child in dom.children_iter(entity) {

@@ -3,10 +3,13 @@
 //!
 //! ## Layering
 //!
-//! Engine-bound only.  Stylesheet load lifecycle and the `link.sheet`
-//! accessor are deferred to slot `#11-tags-T2a-link-stylesheet`
-//! (paired with PR-B `#11-link-stylesheet-loading`).  This PR returns
-//! `null` from `link.sheet`.
+//! Engine-bound only.  The `link.sheet` getter (CSSOM `LinkStyle.sheet`)
+//! is a brand-check + wrapper-alloc that delegates the "has an associated
+//! CSS style sheet?" predicate to engine-independent
+//! [`elidex_dom_api::link_has_loaded_sheet`]; the stylesheet load
+//! lifecycle itself lives in the resource loader (`elidex-navigation`) +
+//! the `LinkStylesheet` ECS component.  Dynamic (post-load) fetch is
+//! deferred to slot `#11-link-stylesheet-dynamic-fetch`.
 //!
 //! `<link>.sizes` is a `[SameObject, PutForwards=value]` DOMTokenList
 //! (HTML §4.6.7 — e.g. `<link rel="icon" sizes="16x16 32x32">`).
@@ -42,7 +45,7 @@ impl VmInner {
         self.install_html_link_enumerated_reflect(proto_id);
         self.install_html_link_bool_reflect(proto_id);
         self.install_html_link_token_lists(proto_id);
-        self.install_html_link_sheet_stub(proto_id);
+        self.install_html_link_sheet(proto_id);
     }
 
     fn install_html_link_string_reflect(&mut self, proto_id: ObjectId) {
@@ -131,7 +134,7 @@ impl VmInner {
         );
     }
 
-    fn install_html_link_sheet_stub(&mut self, proto_id: ObjectId) {
+    fn install_html_link_sheet(&mut self, proto_id: ObjectId) {
         let sid = self.strings.intern("sheet");
         self.install_accessor_pair(
             proto_id,
@@ -426,17 +429,32 @@ fn link_set_sizes(
 }
 
 // ---------------------------------------------------------------------------
-// Sheet stub — paired with deferred slot `#11-tags-T2a-link-stylesheet`
+// sheet getter — CSSOM `LinkStyle.sheet`
 // ---------------------------------------------------------------------------
 
+/// `HTMLLinkElement.prototype.sheet` (CSSOM §6.2 `LinkStyle.sheet`,
+/// `[SameObject]` — same citation as the sibling `<style>.sheet` getter).
+/// Returns the `[SameObject]` `CSSStyleSheet` wrapper
+/// for the `<link>`'s associated CSS style sheet (present only after a
+/// successful load, HTML §4.6.7), or `null` when there is none (no
+/// `LinkStylesheet` component — non-stylesheet `rel`, missing href, or
+/// failed fetch). The "has a sheet?" predicate is delegated to the
+/// engine-independent [`elidex_dom_api::link_has_loaded_sheet`]; this
+/// body does only brand-check + wrapper marshalling.
 fn link_get_sheet(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, super::super::value::VmError> {
-    // Brand-check still enforced so a stale reference correctly raises
-    // TypeError rather than silently returning `null` for non-link
-    // receivers.
-    let _ = require_link_receiver(ctx, this, "sheet")?;
-    Ok(JsValue::Null)
+    let Some(entity) = require_link_receiver(ctx, this, "sheet")? else {
+        return Ok(JsValue::Null);
+    };
+    let Some(hd) = ctx.host_if_bound() else {
+        return Ok(JsValue::Null);
+    };
+    if !elidex_dom_api::link_has_loaded_sheet(entity, hd.dom()) {
+        return Ok(JsValue::Null);
+    }
+    let id = ctx.vm.alloc_or_cached_stylesheet(entity);
+    Ok(JsValue::Object(id))
 }

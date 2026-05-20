@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use elidex_css::{Origin, Stylesheet};
 use elidex_dom_compat::parse_compat_stylesheet;
-use elidex_ecs::{BackgroundImages, EcsDom, Entity, ImageData};
+use elidex_ecs::{BackgroundImages, EcsDom, Entity, ImageData, LinkStylesheet};
 use elidex_net::broker::NetworkHandle;
 use elidex_net::NetError;
 use elidex_plugin::background::BackgroundImage;
@@ -172,10 +172,29 @@ pub fn load_document(
             StyleSource::Inline(css) => {
                 stylesheets.push(parse_compat_stylesheet(css, Origin::Author));
             }
-            StyleSource::External(href) => {
+            StyleSource::External { href, entity } => {
                 match resolve_and_fetch_text(&response.url, href, network_handle) {
-                    Ok(css_text) => {
+                    Ok((css_text, sheet_url)) => {
                         stylesheets.push(parse_compat_stylesheet(&css_text, Origin::Author));
+                        // HTML §4.6.7: a successfully fetched stylesheet
+                        // resource becomes the link's associated CSS style
+                        // sheet — store it on the `<link>` entity so the VM
+                        // CSSOM surface (`document.styleSheets` / `link.sheet`)
+                        // can reach it. Failed fetches attach nothing, so
+                        // component presence == associated sheet exists.
+                        // Warn (rather than `let _`) if the attach fails so a
+                        // dropped component — which would make `link.sheet`
+                        // wrongly read null — is not lost silently.
+                        if let Err(e) = dom.world_mut().insert_one(
+                            *entity,
+                            LinkStylesheet {
+                                source: css_text,
+                                href: sheet_url.to_string(),
+                                version: 1,
+                            },
+                        ) {
+                            tracing::warn!("Failed to attach loaded stylesheet for {href}: {e}");
+                        }
                     }
                     Err(e) => {
                         tracing::warn!("Failed to fetch stylesheet {href}: {e}");
@@ -195,7 +214,7 @@ pub fn load_document(
             }
             ScriptSource::External { src, entity } => {
                 match resolve_and_fetch_text(&response.url, &src, network_handle) {
-                    Ok(js_text) => {
+                    Ok((js_text, _)) => {
                         scripts.push(ResolvedScript {
                             source: js_text,
                             entity,
@@ -332,12 +351,15 @@ fn decode_image(bytes: &[u8]) -> Result<ImageData, image::ImageError> {
     })
 }
 
-/// Resolve a potentially relative URL against a base and fetch its text content.
+/// Resolve a potentially relative URL against a base and fetch its text
+/// content. Returns the decoded text **and** the resolved/final response
+/// URL (post-redirect) — the latter is used as `StyleSheet.href` for an
+/// external `<link>` stylesheet.
 fn resolve_and_fetch_text(
     base: &url::Url,
     href: &str,
     network_handle: &NetworkHandle,
-) -> Result<String, LoadError> {
+) -> Result<(String, url::Url), LoadError> {
     let response = resolve_and_fetch(base, href, network_handle)?;
     // L-10: Log non-UTF-8 sub-resources before lossy conversion.
     if std::str::from_utf8(&response.body).is_err() {
@@ -346,7 +368,8 @@ fn resolve_and_fetch_text(
             response.url
         );
     }
-    Ok(String::from_utf8_lossy(&response.body).into_owned())
+    let body = String::from_utf8_lossy(&response.body).into_owned();
+    Ok((body, response.url))
 }
 
 /// Fetch a single image URL, using a cache to avoid duplicate requests.
