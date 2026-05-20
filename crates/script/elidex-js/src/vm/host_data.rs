@@ -1147,8 +1147,16 @@ mod engine_feature {
         /// Like [`Self::split_dom_and_observers`] but yields an
         /// exclusive `&mut EcsDom` for observation mutations
         /// (`observe` / `disconnect` insert/remove the per-node
-        /// `MutationObservedBy` component on target entities). Same
-        /// disjoint-allocation aliasing contract.
+        /// `MutationObservedBy` component on target entities).
+        ///
+        /// # Safety
+        ///
+        /// Same `dom_ptr` aliasing contract as [`Self::split_dom_and_observers`]
+        /// / [`Self::dom_shared`]: callers must not invoke any sibling
+        /// `host()` / `host().dom()` path while either returned reference is
+        /// live. The `EcsDom` allocation is disjoint from the `HostData`'s
+        /// registry storage by `bind`'s "disjoint allocations" contract, so the
+        /// `&mut EcsDom` and `&mut MutationObserverRegistry` cannot alias.
         #[allow(unsafe_code)]
         pub(crate) fn split_dom_mut_and_observers(
             &mut self,
