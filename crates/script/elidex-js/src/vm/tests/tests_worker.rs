@@ -72,59 +72,79 @@ fn recv_within(
     None
 }
 
+/// Run `f` against a bound dedicated-worker VM. `session` / `dom` are declared
+/// **before** `vm`, and `vm` is dropped first, satisfying the `Vm::bind_worker`
+/// safety contract (the pointed-to `SessionCore` / `EcsDom` must outlive the
+/// bound VM). `secure` is the creator-inherited `isSecureContext` flag.
+fn with_worker_vm<F, R>(name: &str, url: &str, secure: bool, f: F) -> R
+where
+    F: FnOnce(&mut Vm) -> R,
+{
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let mut vm = Vm::new_worker(name.to_string(), Url::parse(url).unwrap(), secure);
+    unsafe { bind_worker_vm(&mut vm, &mut session, &mut dom, doc) };
+    let result = f(&mut vm);
+    // `vm` (whose `HostData` holds raw pointers into `session` / `dom`) drops
+    // first, while both are still live.
+    drop(vm);
+    drop(session);
+    drop(dom);
+    result
+}
+
 // ---------------------------------------------------------------------------
 // Worker global scope
 // ---------------------------------------------------------------------------
 
 #[test]
 fn worker_self_is_global() {
-    let mut vm = Vm::new_worker(String::new(), Url::parse(WORKER_URL).unwrap());
-    let mut session = SessionCore::new();
-    let mut dom = EcsDom::new();
-    let doc = dom.create_document_root();
-    unsafe { bind_worker_vm(&mut vm, &mut session, &mut dom, doc) };
-
-    assert!(eval_bool_on(&mut vm, "self === globalThis"));
-    assert!(eval_bool_on(
-        &mut vm,
-        "typeof self.postMessage === 'function'"
-    ));
-    assert!(eval_bool_on(&mut vm, "typeof self.close === 'function'"));
-    assert!(eval_bool_on(
-        &mut vm,
-        "typeof self.addEventListener === 'function'"
-    ));
+    with_worker_vm("", WORKER_URL, true, |vm| {
+        assert!(eval_bool_on(vm, "self === globalThis"));
+        assert!(eval_bool_on(vm, "typeof self.postMessage === 'function'"));
+        assert!(eval_bool_on(vm, "typeof self.close === 'function'"));
+        assert!(eval_bool_on(
+            vm,
+            "typeof self.addEventListener === 'function'"
+        ));
+    });
 }
 
 #[test]
 fn worker_has_no_document_or_window() {
-    let mut vm = Vm::new_worker(String::new(), Url::parse(WORKER_URL).unwrap());
-    let mut session = SessionCore::new();
-    let mut dom = EcsDom::new();
-    let doc = dom.create_document_root();
-    unsafe { bind_worker_vm(&mut vm, &mut session, &mut dom, doc) };
-
-    assert!(eval_bool_on(&mut vm, "typeof document === 'undefined'"));
-    assert!(eval_bool_on(&mut vm, "typeof window === 'undefined'"));
+    with_worker_vm("", WORKER_URL, true, |vm| {
+        assert!(eval_bool_on(vm, "typeof document === 'undefined'"));
+        assert!(eval_bool_on(vm, "typeof window === 'undefined'"));
+    });
 }
 
 #[test]
 fn worker_name_and_location_and_navigator() {
-    let mut vm = Vm::new_worker("my-worker".to_string(), Url::parse(WORKER_URL).unwrap());
-    let mut session = SessionCore::new();
-    let mut dom = EcsDom::new();
-    let doc = dom.create_document_root();
-    unsafe { bind_worker_vm(&mut vm, &mut session, &mut dom, doc) };
+    with_worker_vm("my-worker", WORKER_URL, true, |vm| {
+        assert_eq!(eval_str_on(vm, "self.name"), "my-worker");
+        assert_eq!(eval_str_on(vm, "self.location.href"), WORKER_URL);
+        assert_eq!(eval_str_on(vm, "self.location.protocol"), "https:");
+        assert_eq!(eval_str_on(vm, "self.location.toString()"), WORKER_URL);
+        assert!(eval_bool_on(
+            vm,
+            "typeof self.navigator.userAgent === 'string'"
+        ));
+        assert!(eval_bool_on(vm, "self.isSecureContext === true"));
+    });
+}
 
-    assert_eq!(eval_str_on(&mut vm, "self.name"), "my-worker");
-    assert_eq!(eval_str_on(&mut vm, "self.location.href"), WORKER_URL);
-    assert_eq!(eval_str_on(&mut vm, "self.location.protocol"), "https:");
-    assert_eq!(eval_str_on(&mut vm, "self.location.toString()"), WORKER_URL);
-    assert!(eval_bool_on(
-        &mut vm,
-        "typeof self.navigator.userAgent === 'string'"
-    ));
-    assert!(eval_bool_on(&mut vm, "self.isSecureContext === true"));
+#[test]
+fn worker_is_secure_context_inherits_from_creator_not_script_url() {
+    // The flag is threaded from the creator, NOT derived from the worker script
+    // URL (WHATWG HTML §8.1.3.5). An https script URL with a non-secure creator
+    // reads `false`; a secure creator reads `true` regardless of the URL.
+    with_worker_vm("", WORKER_URL, false, |vm| {
+        assert!(eval_bool_on(vm, "self.isSecureContext === false"));
+    });
+    with_worker_vm("", WORKER_URL, true, |vm| {
+        assert!(eval_bool_on(vm, "self.isSecureContext === true"));
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -133,44 +153,36 @@ fn worker_name_and_location_and_navigator() {
 
 #[test]
 fn onmessage_handler_receives_data_and_origin() {
-    let mut vm = Vm::new_worker(String::new(), Url::parse(WORKER_URL).unwrap());
-    let mut session = SessionCore::new();
-    let mut dom = EcsDom::new();
-    let doc = dom.create_document_root();
-    unsafe { bind_worker_vm(&mut vm, &mut session, &mut dom, doc) };
+    with_worker_vm("", WORKER_URL, true, |vm| {
+        vm.eval(
+            "globalThis.got = null; globalThis.gotOrigin = null;
+             self.onmessage = function(e) { globalThis.got = e.data; globalThis.gotOrigin = e.origin; };",
+        )
+        .unwrap();
+        vm.inner
+            .dispatch_worker_message("\"hello\"", "https://sender.example");
 
-    vm.eval(
-        "globalThis.got = null; globalThis.gotOrigin = null;
-         self.onmessage = function(e) { globalThis.got = e.data; globalThis.gotOrigin = e.origin; };",
-    )
-    .unwrap();
-    vm.inner
-        .dispatch_worker_message("\"hello\"", "https://sender.example");
-
-    assert_eq!(eval_str_on(&mut vm, "globalThis.got"), "hello");
-    assert_eq!(
-        eval_str_on(&mut vm, "globalThis.gotOrigin"),
-        "https://sender.example"
-    );
+        assert_eq!(eval_str_on(vm, "globalThis.got"), "hello");
+        assert_eq!(
+            eval_str_on(vm, "globalThis.gotOrigin"),
+            "https://sender.example"
+        );
+    });
 }
 
 #[test]
 fn add_event_listener_message_receives_in_order() {
-    let mut vm = Vm::new_worker(String::new(), Url::parse(WORKER_URL).unwrap());
-    let mut session = SessionCore::new();
-    let mut dom = EcsDom::new();
-    let doc = dom.create_document_root();
-    unsafe { bind_worker_vm(&mut vm, &mut session, &mut dom, doc) };
+    with_worker_vm("", WORKER_URL, true, |vm| {
+        vm.eval(
+            "globalThis.rx = [];
+             self.addEventListener('message', function(e) { globalThis.rx.push(e.data); });",
+        )
+        .unwrap();
+        vm.inner.dispatch_worker_message("\"a\"", "o");
+        vm.inner.dispatch_worker_message("42", "o");
 
-    vm.eval(
-        "globalThis.rx = [];
-         self.addEventListener('message', function(e) { globalThis.rx.push(e.data); });",
-    )
-    .unwrap();
-    vm.inner.dispatch_worker_message("\"a\"", "o");
-    vm.inner.dispatch_worker_message("42", "o");
-
-    assert_eq!(eval_str_on(&mut vm, "globalThis.rx.join(',')"), "a,42");
+        assert_eq!(eval_str_on(vm, "globalThis.rx.join(',')"), "a,42");
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -178,70 +190,56 @@ fn add_event_listener_message_receives_in_order() {
 // driven through a mock NetworkHandle (no thread).
 // ---------------------------------------------------------------------------
 
-#[test]
-fn import_scripts_fetches_validates_and_runs() {
-    let helper_url = "https://example.com/app/helper.js";
-    let parsed = Url::parse(helper_url).unwrap();
-    let response = NetResponse {
+/// Build a 200 response for `url` with `content_type` and `body`.
+fn js_response(url: &str, content_type: &str, body: &'static [u8]) -> NetResponse {
+    let parsed = Url::parse(url).expect("valid URL");
+    NetResponse {
         status: 200,
-        headers: vec![(
-            "content-type".to_string(),
-            "application/javascript".to_string(),
-        )],
-        body: bytes::Bytes::from_static(b"globalThis.imported = 42;"),
+        headers: vec![("content-type".to_string(), content_type.to_string())],
+        body: bytes::Bytes::from_static(body),
         url: parsed.clone(),
         version: HttpVersion::H1,
-        url_list: vec![parsed.clone()],
+        url_list: vec![parsed],
         is_redirect_tainted: false,
         credentialed_network: false,
-    };
+    }
+}
 
-    let mut vm = Vm::new_worker(String::new(), Url::parse(WORKER_URL).unwrap());
-    vm.install_network_handle(Rc::new(NetworkHandle::mock_with_responses(vec![(
-        parsed,
-        Ok(response),
-    )])));
-    let mut session = SessionCore::new();
-    let mut dom = EcsDom::new();
-    let doc = dom.create_document_root();
-    unsafe { bind_worker_vm(&mut vm, &mut session, &mut dom, doc) };
-
-    // Relative URL resolves against the worker script URL base
-    // (https://example.com/app/worker.js → .../app/helper.js).
-    vm.eval("importScripts('helper.js');")
-        .expect("importScripts");
-    assert!(eval_bool_on(&mut vm, "globalThis.imported === 42"));
+#[test]
+fn import_scripts_fetches_validates_and_runs() {
+    let helper = "https://example.com/app/helper.js";
+    let response = js_response(
+        helper,
+        "application/javascript",
+        b"globalThis.imported = 42;",
+    );
+    with_worker_vm("", WORKER_URL, true, |vm| {
+        vm.install_network_handle(Rc::new(NetworkHandle::mock_with_responses(vec![(
+            Url::parse(helper).unwrap(),
+            Ok(response),
+        )])));
+        // Relative URL resolves against the worker script URL base
+        // (https://example.com/app/worker.js → .../app/helper.js).
+        vm.eval("importScripts('helper.js');")
+            .expect("importScripts");
+        assert!(eval_bool_on(vm, "globalThis.imported === 42"));
+    });
 }
 
 #[test]
 fn import_scripts_rejects_non_js_mime() {
-    let helper_url = "https://example.com/app/helper.js";
-    let parsed = Url::parse(helper_url).unwrap();
-    let response = NetResponse {
-        status: 200,
-        headers: vec![("content-type".to_string(), "text/html".to_string())],
-        body: bytes::Bytes::from_static(b"globalThis.imported = 1;"),
-        url: parsed.clone(),
-        version: HttpVersion::H1,
-        url_list: vec![parsed.clone()],
-        is_redirect_tainted: false,
-        credentialed_network: false,
-    };
-
-    let mut vm = Vm::new_worker(String::new(), Url::parse(WORKER_URL).unwrap());
-    vm.install_network_handle(Rc::new(NetworkHandle::mock_with_responses(vec![(
-        parsed,
-        Ok(response),
-    )])));
-    let mut session = SessionCore::new();
-    let mut dom = EcsDom::new();
-    let doc = dom.create_document_root();
-    unsafe { bind_worker_vm(&mut vm, &mut session, &mut dom, doc) };
-
-    assert!(
-        vm.eval("importScripts('helper.js');").is_err(),
-        "non-JavaScript MIME must reject (WHATWG HTML §10.2.4)"
-    );
+    let helper = "https://example.com/app/helper.js";
+    let response = js_response(helper, "text/html", b"globalThis.imported = 1;");
+    with_worker_vm("", WORKER_URL, true, |vm| {
+        vm.install_network_handle(Rc::new(NetworkHandle::mock_with_responses(vec![(
+            Url::parse(helper).unwrap(),
+            Ok(response),
+        )])));
+        assert!(
+            vm.eval("importScripts('helper.js');").is_err(),
+            "non-JavaScript MIME must reject (WHATWG HTML §10.2.4)"
+        );
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -250,31 +248,23 @@ fn import_scripts_rejects_non_js_mime() {
 
 #[test]
 fn post_message_queues_serialized_outgoing() {
-    let mut vm = Vm::new_worker(String::new(), Url::parse(WORKER_URL).unwrap());
-    let mut session = SessionCore::new();
-    let mut dom = EcsDom::new();
-    let doc = dom.create_document_root();
-    unsafe { bind_worker_vm(&mut vm, &mut session, &mut dom, doc) };
-
-    vm.eval("postMessage({ a: 1 }); postMessage('hi');")
-        .unwrap();
-    assert_eq!(
-        vm.inner.worker_outgoing,
-        vec!["{\"a\":1}".to_string(), "\"hi\"".to_string()]
-    );
+    with_worker_vm("", WORKER_URL, true, |vm| {
+        vm.eval("postMessage({ a: 1 }); postMessage('hi');")
+            .unwrap();
+        assert_eq!(
+            vm.inner.worker_outgoing,
+            vec!["{\"a\":1}".to_string(), "\"hi\"".to_string()]
+        );
+    });
 }
 
 #[test]
 fn close_sets_close_requested() {
-    let mut vm = Vm::new_worker(String::new(), Url::parse(WORKER_URL).unwrap());
-    let mut session = SessionCore::new();
-    let mut dom = EcsDom::new();
-    let doc = dom.create_document_root();
-    unsafe { bind_worker_vm(&mut vm, &mut session, &mut dom, doc) };
-
-    assert!(!vm.inner.worker_close_requested);
-    vm.eval("close();").unwrap();
-    assert!(vm.inner.worker_close_requested);
+    with_worker_vm("", WORKER_URL, true, |vm| {
+        assert!(!vm.inner.worker_close_requested);
+        vm.eval("close();").unwrap();
+        assert!(vm.inner.worker_close_requested);
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -290,6 +280,7 @@ fn worker_thread_round_trip_echo() {
             "self.onmessage = function(e) { postMessage(e.data + ' pong'); };",
             &body_url,
             String::new(),
+            true,
             None,
             &ch,
         );
@@ -321,6 +312,7 @@ fn worker_thread_accepts_sibling_network_handle() {
             "self.onmessage = function(e) { postMessage(typeof fetch); };",
             &body_url,
             String::new(),
+            true,
             Some(sibling),
             &ch,
         );
@@ -341,7 +333,7 @@ fn worker_thread_close_sends_closed_and_exits() {
     let url = Url::parse(WORKER_URL).unwrap();
     let body_url = url.clone();
     let handle = spawn_worker(String::new(), url, move |ch| {
-        run_worker_with_source("close();", &body_url, String::new(), None, &ch);
+        run_worker_with_source("close();", &body_url, String::new(), true, None, &ch);
     });
 
     assert!(
@@ -490,6 +482,28 @@ fn main_worker_terminate_is_callable_and_idempotent() {
 }
 
 #[test]
+fn main_worker_terminate_uncaches_wrapper() {
+    use super::super::host::worker::WorkerRef;
+    with_main_vm(|vm| {
+        vm.eval(r#"const w = new Worker("data:text/javascript,self.onmessage=function(){}"); w.terminate();"#)
+            .expect("ctor + terminate");
+        // The `NodeKind::Worker` entity persists (brand-check home), but its
+        // cached `Worker` wrapper must be dropped so it is no longer GC-rooted
+        // (F-R2-2 — otherwise create/terminate cycles leak wrappers).
+        let hd = vm.host_data().expect("bound");
+        let entity = {
+            let mut q = hd.dom_shared().world().query::<(Entity, &WorkerRef)>();
+            q.iter().map(|(e, _)| e).next()
+        }
+        .expect("worker entity exists");
+        assert!(
+            hd.get_cached_wrapper(entity).is_none(),
+            "terminated worker's wrapper must be uncached (not GC-rooted)"
+        );
+    });
+}
+
+#[test]
 fn main_worker_cross_origin_url_throws_security_error() {
     with_main_vm(|vm| {
         let name = eval_str_on(
@@ -537,21 +551,17 @@ fn main_worker_post_message_circular_throws_data_clone() {
 
 #[test]
 fn worker_scope_post_message_circular_throws_data_clone() {
-    let mut vm = Vm::new_worker(String::new(), Url::parse(WORKER_URL).unwrap());
-    let mut session = SessionCore::new();
-    let mut dom = EcsDom::new();
-    let doc = dom.create_document_root();
-    unsafe { bind_worker_vm(&mut vm, &mut session, &mut dom, doc) };
-
     // Worker-side `self.postMessage` of a circular structure rejects as a
     // `DataCloneError` DOMException (WHATWG HTML §10.2.1.2).
-    assert_eq!(
-        eval_str_on(
-            &mut vm,
-            "const o = {}; o.self = o; try { postMessage(o); 'no-throw' } catch (e) { e.name }",
-        ),
-        "DataCloneError"
-    );
+    with_worker_vm("", WORKER_URL, true, |vm| {
+        assert_eq!(
+            eval_str_on(
+                vm,
+                "const o = {}; o.self = o; try { postMessage(o); 'no-throw' } catch (e) { e.name }",
+            ),
+            "DataCloneError"
+        );
+    });
 }
 
 #[test]

@@ -61,6 +61,7 @@ type WorkerChannel = LocalChannel<WorkerToParent, ParentToWorker>;
 pub(crate) fn run_worker(
     script_url: &url::Url,
     name: String,
+    is_secure_context: bool,
     network_handle: Option<NetworkHandle>,
     channel: &WorkerChannel,
 ) {
@@ -72,7 +73,14 @@ pub(crate) fn run_worker(
             return;
         }
     };
-    run_worker_with_source(&source, script_url, name, network_handle, channel);
+    run_worker_with_source(
+        &source,
+        script_url,
+        name,
+        is_secure_context,
+        network_handle,
+        channel,
+    );
 }
 
 /// Fetch (or inline-decode) the worker script source (WHATWG HTML §10.2.4
@@ -127,6 +135,7 @@ pub(crate) fn run_worker_with_source(
     source: &str,
     script_url: &url::Url,
     name: String,
+    is_secure_context: bool,
     network_handle: Option<NetworkHandle>,
     channel: &WorkerChannel,
 ) {
@@ -138,7 +147,7 @@ pub(crate) fn run_worker_with_source(
     let document = dom.create_document_root();
     let mut session = SessionCore::new();
 
-    let mut vm = Vm::new_worker(name, script_url.clone());
+    let mut vm = Vm::new_worker(name, script_url.clone(), is_secure_context);
     vm.install_host_data(HostData::new());
     if let Some(handle) = network_handle {
         vm.install_network_handle(Rc::new(handle));

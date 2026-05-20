@@ -191,6 +191,14 @@ impl VmInner {
 
             if closed {
                 self.worker_registry.remove(worker_id);
+                // No further events will dispatch at this entity — drop the
+                // cached `Worker` wrapper so it is no longer GC-rooted (it
+                // survives only as long as live JS still references it). The
+                // brand check reads `WorkerRef` off the still-live entity, so
+                // `postMessage` after close stays a silent no-op (not a throw).
+                if let Some(hd) = self.host_data.as_deref_mut() {
+                    hd.remove_wrapper(entity);
+                }
             }
         }
     }
@@ -324,11 +332,23 @@ fn native_worker_constructor(
         .as_ref()
         .map(|h| h.create_sibling_handle());
 
+    // Secure-context is inherited from the creator (this document), not derived
+    // from the worker script URL (WHATWG HTML §8.1.3.5) — so a `data:` / `blob:`
+    // worker spawned by a secure page is itself secure.
+    let is_secure_context =
+        super::worker_scope::url_is_secure_context(&ctx.vm.navigation.current_url);
+
     let name = options.name;
     let worker_url = resolved.clone();
     let worker_name = name.clone();
     let handle = spawn_worker(name, resolved, move |channel| {
-        crate::vm::worker_thread::run_worker(&worker_url, worker_name, sibling, &channel);
+        crate::vm::worker_thread::run_worker(
+            &worker_url,
+            worker_name,
+            is_secure_context,
+            sibling,
+            &channel,
+        );
     });
     let worker_id = ctx.vm.worker_registry.register(handle);
 
@@ -467,7 +487,15 @@ fn native_worker_terminate(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (_entity, worker_id) = require_worker(ctx, this, "terminate")?;
+    let (entity, worker_id) = require_worker(ctx, this, "terminate")?;
     ctx.vm.worker_registry.terminate(worker_id);
+    // `terminate` drops the registry handle immediately, so the drain never
+    // sees `Closed` for this worker — un-root its cached wrapper here instead
+    // (mirrors the close-drain path) so it does not leak for the VM's lifetime.
+    // The entity + `WorkerRef` stay, so `postMessage` after `terminate` remains
+    // a silent no-op rather than an "Illegal invocation" throw.
+    if let Some(hd) = ctx.vm.host_data.as_deref_mut() {
+        hd.remove_wrapper(entity);
+    }
     Ok(JsValue::Undefined)
 }

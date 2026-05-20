@@ -28,12 +28,18 @@ impl Vm {
     /// The worker realm installs the `WorkerGlobalScope` surface instead of
     /// `window` / `document`. `name` is the `new Worker(url, { name })` value
     /// (empty when unnamed); `script_url` backs `WorkerLocation` and labels
-    /// uncaught-error reports. The caller binds an empty `EcsDom` + worker
-    /// scope entity and installs a worker-side `NetworkHandle` before eval.
+    /// uncaught-error reports; `is_secure_context` is inherited from the
+    /// creator's environment (WHATWG HTML §8.1.3.5 — not derived from
+    /// `script_url`). The caller binds an empty `EcsDom` + worker scope entity
+    /// and installs a worker-side `NetworkHandle` before eval.
     #[cfg(feature = "engine")]
     #[must_use]
-    pub fn new_worker(name: String, script_url: url::Url) -> Self {
-        Self::new_with_scope(super::GlobalScopeKind::DedicatedWorker { name, script_url })
+    pub fn new_worker(name: String, script_url: url::Url, is_secure_context: bool) -> Self {
+        Self::new_with_scope(super::GlobalScopeKind::DedicatedWorker {
+            name,
+            script_url,
+            is_secure_context,
+        })
     }
 
     /// Construct a VM for the given global scope kind, then register globals.

@@ -117,6 +117,11 @@ pub enum GlobalScopeKind {
         name: String,
         /// Worker script URL — source for `WorkerLocation` and error filename.
         script_url: url::Url,
+        /// Whether the worker runs in a secure context (WHATWG HTML §8.1.3.5 /
+        /// W3C Secure Contexts): inherited from the **creator's** environment,
+        /// not derived from `script_url` (a `data:` / `blob:` worker spawned by
+        /// a secure parent is itself secure).
+        is_secure_context: bool,
     },
 }
 

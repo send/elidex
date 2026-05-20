@@ -522,7 +522,11 @@ impl VmInner {
                 // `register_event_target_prototype()`.
                 self.register_worker_global();
             }
-            GlobalScopeKind::DedicatedWorker { name, script_url } => {
+            GlobalScopeKind::DedicatedWorker {
+                name,
+                script_url,
+                is_secure_context,
+            } => {
                 self.register_worker_global_scope_prototype();
                 self.get_object_mut(self.global_object).prototype = self.worker_scope_prototype;
                 // `navigator` — WorkerNavigator (WHATWG HTML §10.3.2).
@@ -533,7 +537,7 @@ impl VmInner {
                 // (WHATWG HTML §10.3.3).
                 self.register_worker_location_global(&script_url);
                 // `self` / `name` / `isSecureContext` (WHATWG HTML §10.2.1.1).
-                self.register_worker_globals(&name, &script_url);
+                self.register_worker_globals(&name, is_secure_context);
             }
         }
 

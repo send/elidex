@@ -156,10 +156,11 @@ impl VmInner {
 
     /// Install the remaining worker globals: `self` (the §10.2.1.1
     /// self-reference making `self === globalThis`), the read-only worker
-    /// `name`, and `isSecureContext` (WindowOrWorkerGlobalScope mixin; secure
-    /// context per W3C Secure Contexts — secure transport or a localhost / file
-    /// URL).
-    pub(in crate::vm) fn register_worker_globals(&mut self, name: &str, url: &url::Url) {
+    /// `name`, and `isSecureContext` (WindowOrWorkerGlobalScope mixin; W3C
+    /// Secure Contexts). `is_secure_context` is inherited from the **creator's**
+    /// environment — NOT derived from the worker script URL, so a `data:` /
+    /// `blob:` worker spawned by a secure parent is itself secure.
+    pub(in crate::vm) fn register_worker_globals(&mut self, name: &str, is_secure_context: bool) {
         let self_sid = self.strings.intern("self");
         self.globals
             .insert(self_sid, JsValue::Object(self.global_object));
@@ -168,13 +169,24 @@ impl VmInner {
         let name_val = self.strings.intern(name);
         self.globals.insert(name_key, JsValue::String(name_val));
 
-        let is_secure = url.scheme() == "https"
-            || url.scheme() == "file"
-            || matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "::1"));
         let secure_key = self.strings.intern("isSecureContext");
-        self.globals.insert(secure_key, JsValue::Boolean(is_secure));
+        self.globals
+            .insert(secure_key, JsValue::Boolean(is_secure_context));
     }
+}
 
+/// Whether a URL denotes a secure context (WHATWG HTML §8.1.3.5 / W3C Secure
+/// Contexts — the "potentially trustworthy URL" essence): HTTPS / WSS, `file:`,
+/// or a localhost host. The main-side `Worker` constructor applies this to the
+/// **creator's** URL to derive the worker's inherited secure-context flag.
+pub(in crate::vm) fn url_is_secure_context(url: &url::Url) -> bool {
+    url.scheme() == "https"
+        || url.scheme() == "wss"
+        || url.scheme() == "file"
+        || matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "::1"))
+}
+
+impl VmInner {
     /// Deliver an inbound `postMessage` from the parent to the worker scope
     /// (WHATWG HTML §10.2.1.2 step "fire an event named `message`"). Resolves
     /// the worker-scope entity (the global object's backing entity) and
