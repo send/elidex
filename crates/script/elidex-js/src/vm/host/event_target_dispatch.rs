@@ -268,6 +268,7 @@ pub(super) fn dispatch_script_event(
 /// the per-phase propagation gates respond to listener mutations
 /// made via `Event.prototype.{preventDefault, stopPropagation,
 /// stopImmediatePropagation}`.
+#[allow(clippy::too_many_lines)] // single per-phase listener walk + §8.1.8.1 lazy-compile branch — splitting would scatter §2.10 flow
 fn walk_phase(
     ctx: &mut NativeContext<'_>,
     event_id: ObjectId,
@@ -361,13 +362,16 @@ fn walk_phase(
             // inline source); handler entries are re-read here so a
             // content attribute changed mid-dispatch is still honored.
             if entry.is_handler {
-                let uncompiled = {
+                let (uncompiled, cleared) = {
                     let dom = ctx.host().dom();
                     dom.world_mut()
                         .get::<&mut EventListeners>(*entity)
                         .ok()
-                        .and_then(|mut listeners| {
-                            listeners.take_uncompiled(entry.id).map(|u| u.source)
+                        .map_or((None, false), |mut listeners| {
+                            (
+                                listeners.take_uncompiled(entry.id).map(|u| u.source),
+                                listeners.is_handler_cleared(entry.id),
+                            )
                         })
                 };
                 if let Some(source) = uncompiled {
@@ -379,6 +383,11 @@ fn walk_phase(
                         }
                         None => ctx.vm.remove_listener_and_prune_back_ref(entry.id),
                     }
+                } else if cleared {
+                    // Content attribute removed after a prior compile: drop
+                    // the stale callable so the get_listener miss below skips
+                    // it (WHATWG HTML §8.1.8.1 — handler value is null).
+                    ctx.vm.remove_listener_and_prune_back_ref(entry.id);
                 }
             }
 

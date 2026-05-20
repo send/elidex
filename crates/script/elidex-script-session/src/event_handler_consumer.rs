@@ -194,9 +194,9 @@ impl EventHandlerAttributeConsumer {
             MutationEvent::AttributeChange {
                 node,
                 name,
+                old_value,
                 new_value,
-                ..
-            } => handle_attribute_change(node, name, new_value, dom),
+            } => handle_attribute_change(node, name, old_value, new_value, dom),
             MutationEvent::Insert { node, .. } => handle_insert(node, dom),
             _ => {}
         }
@@ -205,14 +205,27 @@ impl EventHandlerAttributeConsumer {
 
 /// Arm 1 — dynamic `setAttribute` / `removeAttribute` (WHATWG DOM §4.9
 /// attribute change steps + HTML §8.1.8.1).
-fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, dom: &mut EcsDom) {
+fn handle_attribute_change(
+    node: Entity,
+    name: &str,
+    old_value: Option<&str>,
+    new_value: Option<&str>,
+    dom: &mut EcsDom,
+) {
     let Some(event_type) = event_handler_attr_event_type(name) else {
         return;
     };
     let event_type = event_type.to_string();
     match new_value {
         Some(src) => set_inline_handler(node, &event_type, src, dom),
-        None => clear_inline_handler(node, &event_type, dom),
+        // Only a genuine content-attribute removal (an attribute that
+        // actually existed) clears the handler. `remove_attribute` fires
+        // unconditionally with `old_value = None` for an absent attribute
+        // (EcsDom DOM §4.3.2 record semantics); such a no-op must NOT
+        // disturb an IDL-set handler (`el.onclick = fn` creates no content
+        // attribute), per WHATWG HTML §8.1.8.1.
+        None if old_value.is_some() => clear_inline_handler(node, &event_type, dom),
+        None => {}
     }
 }
 
@@ -256,13 +269,16 @@ fn set_inline_handler(entity: Entity, event_type: &str, source: &str, dom: &mut 
     }
 }
 
-/// Content-attribute removal: clear the uncompiled source (the listener
-/// entry is kept for registration-order stability; getter/dispatch will
-/// see no compiled callable + no uncompiled source → no-op).
+/// Content-attribute removal (`removeAttribute('onclick')`): mark the
+/// handler cleared (WHATWG HTML §8.1.8.1 — the handler value becomes
+/// null). The listener entry is kept for registration-order stability;
+/// the `cleared` flag makes the VM-side getter/dispatch drop any already-
+/// compiled callable (which this engine-independent crate cannot reach)
+/// and treat the handler as null until it is reactivated.
 fn clear_inline_handler(entity: Entity, event_type: &str, dom: &mut EcsDom) {
     if let Ok(mut listeners) = dom.world_mut().get::<&mut EventListeners>(entity) {
         if let Some(id) = listeners.find_event_handler(event_type) {
-            listeners.clear_uncompiled(id);
+            listeners.mark_cleared(id);
         }
     }
 }

@@ -56,6 +56,15 @@ pub enum ListenerKind {
     EventHandler {
         /// Inline source awaiting lazy compile, or `None`.
         uncompiled: Option<UncompiledHandler>,
+        /// `true` once the content attribute that sourced this handler is
+        /// removed (`removeAttribute('onclick')`) — the handler value is
+        /// null (WHATWG HTML §8.1.8.1). The compiled callable may still
+        /// sit in the engine's listener store (the engine-independent
+        /// consumer cannot reach it); the VM-side getter/dispatch observe
+        /// this flag, drop that stale callable, and treat the handler as
+        /// null. Reset to `false` when a fresh value is assigned (inline
+        /// source set, or IDL setter).
+        cleared: bool,
     },
 }
 
@@ -168,7 +177,10 @@ impl EventListeners {
             capture: false,
             once: false,
             passive: false,
-            kind: ListenerKind::EventHandler { uncompiled: None },
+            kind: ListenerKind::EventHandler {
+                uncompiled: None,
+                cleared: false,
+            },
         });
         id
     }
@@ -189,14 +201,20 @@ impl EventListeners {
     }
 
     /// Set the uncompiled inline source for an event-handler listener
-    /// (content-attribute write path). No-op if `id` is absent or not an
-    /// event-handler listener.
+    /// (content-attribute write path). Resets the `cleared` flag — a fresh
+    /// inline value reactivates the handler. No-op if `id` is absent or not
+    /// an event-handler listener.
     pub fn set_uncompiled(&mut self, id: ListenerId, source: impl Into<String>) {
         if let Some(entry) = self.entries.iter_mut().find(|e| e.id == id) {
-            if let ListenerKind::EventHandler { uncompiled } = &mut entry.kind {
+            if let ListenerKind::EventHandler {
+                uncompiled,
+                cleared,
+            } = &mut entry.kind
+            {
                 *uncompiled = Some(UncompiledHandler {
                     source: source.into(),
                 });
+                *cleared = false;
             }
         }
     }
@@ -206,7 +224,7 @@ impl EventListeners {
     /// read/dispatch time (WHATWG HTML §8.1.8.1 "get the current value").
     pub fn take_uncompiled(&mut self, id: ListenerId) -> Option<UncompiledHandler> {
         let entry = self.entries.iter_mut().find(|e| e.id == id)?;
-        if let ListenerKind::EventHandler { uncompiled } = &mut entry.kind {
+        if let ListenerKind::EventHandler { uncompiled, .. } = &mut entry.kind {
             uncompiled.take()
         } else {
             None
@@ -214,14 +232,47 @@ impl EventListeners {
     }
 
     /// Clear an event-handler listener's uncompiled source without
-    /// returning it (IDL setter / null-clear path: a fresh compiled
-    /// callable supersedes any pending inline source).
+    /// returning it, and mark the handler as **not** cleared (IDL setter /
+    /// null-clear path: a fresh value supersedes any pending inline source
+    /// and the IDL surface owns the value).
     pub fn clear_uncompiled(&mut self, id: ListenerId) {
         if let Some(entry) = self.entries.iter_mut().find(|e| e.id == id) {
-            if let ListenerKind::EventHandler { uncompiled } = &mut entry.kind {
+            if let ListenerKind::EventHandler {
+                uncompiled,
+                cleared,
+            } = &mut entry.kind
+            {
                 *uncompiled = None;
+                *cleared = false;
             }
         }
+    }
+
+    /// Mark an event-handler listener as cleared by content-attribute
+    /// removal (`removeAttribute('onclick')`, WHATWG HTML §8.1.8.1): drop
+    /// the pending inline source and flag it so the VM-side getter/dispatch
+    /// drop any stale compiled callable and treat the handler as null.
+    pub fn mark_cleared(&mut self, id: ListenerId) {
+        if let Some(entry) = self.entries.iter_mut().find(|e| e.id == id) {
+            if let ListenerKind::EventHandler {
+                uncompiled,
+                cleared,
+            } = &mut entry.kind
+            {
+                *uncompiled = None;
+                *cleared = true;
+            }
+        }
+    }
+
+    /// Whether an event-handler listener was cleared by content-attribute
+    /// removal (and so reads as null until reactivated).
+    #[must_use]
+    pub fn is_handler_cleared(&self, id: ListenerId) -> bool {
+        self.entries
+            .iter()
+            .find(|e| e.id == id)
+            .is_some_and(|e| matches!(e.kind, ListenerKind::EventHandler { cleared: true, .. }))
     }
 
     /// Read an event-handler listener's pending uncompiled source
@@ -232,6 +283,7 @@ impl EventListeners {
         self.entries.iter().find(|e| e.id == id).and_then(|e| {
             if let ListenerKind::EventHandler {
                 uncompiled: Some(u),
+                ..
             } = &e.kind
             {
                 Some(u.source.as_str())

@@ -45,6 +45,7 @@
 
 #![cfg(feature = "engine")]
 
+use elidex_ecs::NodeKind;
 use elidex_script_session::{
     event_handler_attr_event_type, EventListeners, HandlerScope, ListenerId, EVENT_HANDLER_ATTRS,
 };
@@ -52,7 +53,7 @@ use elidex_script_session::{
 use super::super::shape::PropertyAttrs;
 use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
 use super::super::{NativeFn, VmInner};
-use super::event_target::entity_from_this;
+use super::event_target::require_receiver;
 
 // ---------------------------------------------------------------------------
 // Install
@@ -131,6 +132,28 @@ impl VmInner {
 // Shared backend (normal): target = `entity_from_this`
 // ---------------------------------------------------------------------------
 
+/// Brand check for the normal (non-delegating) handler accessors. The
+/// GlobalEventHandlers / DocumentAndElementEventHandlers / Document /
+/// WindowEventHandlers IDL surfaces live on `Element`, `Document`, and
+/// `Window` (WHATWG HTML §8.1.8.2.1) — restrict the receiver to those
+/// node kinds so the accessor cannot be borrowed onto a `Text` / `Attr`
+/// node via `.call()`. Mirrors the sibling host accessors' use of
+/// [`require_receiver`]: `Ok(None)` for an unbound / non-wrapper receiver
+/// (detach-tolerant silent no-op), `Err` ("Illegal invocation") for a
+/// bound wrapper of the wrong kind.
+fn require_handler_receiver(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    method: &str,
+) -> Result<Option<elidex_ecs::Entity>, VmError> {
+    require_receiver(ctx, this, "EventTarget", method, |kind| {
+        matches!(
+            kind,
+            NodeKind::Element | NodeKind::Document | NodeKind::Window
+        )
+    })
+}
+
 /// Shared getter for every event-handler IDL attribute (WHATWG HTML
 /// §8.1.8.1 "the event handler IDL attributes" — getter / "getting the
 /// current value of the event handler"; WebIDL §3.7.6). Recovers its
@@ -143,7 +166,7 @@ fn native_event_handler_get(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let event_type = bound_event_type(ctx);
-    let Some(entity) = entity_from_this(ctx, this) else {
+    let Some(entity) = require_handler_receiver(ctx, this, &event_type)? else {
         return Ok(JsValue::Null);
     };
     Ok(read_event_handler(ctx, entity, &event_type))
@@ -160,7 +183,7 @@ fn native_event_handler_set(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let event_type = bound_event_type(ctx);
-    let Some(entity) = entity_from_this(ctx, this) else {
+    let Some(entity) = require_handler_receiver(ctx, this, &event_type)? else {
         return Ok(JsValue::Undefined);
     };
     let callable = callable_arg(ctx, args);
@@ -172,29 +195,60 @@ fn native_event_handler_set(
 // Body-delegation backend: target = Window entity (HTML §8.1.8.2)
 // ---------------------------------------------------------------------------
 
-/// `HTMLBodyElement.prototype` WindowEventHandlers getter — delegates to
-/// the Window object (WHATWG HTML §8.1.8.2). No-op (`null`) if no Window
-/// is bound.
+/// Brand check for the body-delegation accessors: the receiver must be an
+/// `HTMLBodyElement` (WHATWG HTML §8.1.8.2 — only `<body>`/`<frameset>`
+/// delegate WindowEventHandlers to the Window). Without this, the
+/// accessor would redirect to the Window from *any* receiver via
+/// `.call()`. Returns `Ok(None)` for an unbound / non-wrapper receiver
+/// (silent), `Err` ("Illegal invocation") for a bound non-`<body>` wrapper.
+fn require_body_receiver(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    method: &str,
+) -> Result<Option<elidex_ecs::Entity>, VmError> {
+    let entity = require_receiver(ctx, this, "HTMLBodyElement", method, |kind| {
+        matches!(kind, NodeKind::Element)
+    })?;
+    if let Some(entity) = entity {
+        if !ctx.host().tag_matches_ascii_case(entity, "body") {
+            return Err(VmError::type_error(format!(
+                "Failed to execute '{method}' on 'HTMLBodyElement': Illegal invocation"
+            )));
+        }
+    }
+    Ok(entity)
+}
+
+/// `HTMLBodyElement.prototype` WindowEventHandlers getter — brand-checks
+/// the `<body>` receiver, then delegates to the Window object (WHATWG HTML
+/// §8.1.8.2). No-op (`null`) if no Window is bound.
 fn native_body_weh_get(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let event_type = bound_event_type(ctx);
+    if require_body_receiver(ctx, this, &event_type)?.is_none() {
+        return Ok(JsValue::Null);
+    }
     let Some(window_entity) = ctx.host().window_entity() else {
         return Ok(JsValue::Null);
     };
     Ok(read_event_handler(ctx, window_entity, &event_type))
 }
 
-/// `HTMLBodyElement.prototype` WindowEventHandlers setter — delegates to
-/// the Window object (WHATWG HTML §8.1.8.2). No-op if no Window is bound.
+/// `HTMLBodyElement.prototype` WindowEventHandlers setter — brand-checks
+/// the `<body>` receiver, then delegates to the Window object (WHATWG HTML
+/// §8.1.8.2). No-op if no Window is bound.
 fn native_body_weh_set(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let event_type = bound_event_type(ctx);
+    if require_body_receiver(ctx, this, &event_type)?.is_none() {
+        return Ok(JsValue::Undefined);
+    }
     let Some(window_entity) = ctx.host().window_entity() else {
         return Ok(JsValue::Undefined);
     };
@@ -254,9 +308,10 @@ fn read_event_handler(
     entity: elidex_ecs::Entity,
     event_type: &str,
 ) -> JsValue {
-    // Pass 1: locate the handler listener and drain any pending inline
-    // source (scoped so the DOM/world borrow drops before compiling).
-    let (id, uncompiled) = {
+    // Pass 1: locate the handler listener, drain any pending inline
+    // source, and read the cleared flag (scoped so the DOM/world borrow
+    // drops before compiling).
+    let (id, uncompiled, cleared) = {
         let dom = ctx.host().dom();
         let Ok(mut listeners) = dom.world_mut().get::<&mut EventListeners>(entity) else {
             return JsValue::Null;
@@ -264,7 +319,8 @@ fn read_event_handler(
         let Some(id) = listeners.find_event_handler(event_type) else {
             return JsValue::Null;
         };
-        (id, listeners.take_uncompiled(id).map(|u| u.source))
+        let uncompiled = listeners.take_uncompiled(id).map(|u| u.source);
+        (id, uncompiled, listeners.is_handler_cleared(id))
     };
 
     if let Some(source) = uncompiled {
@@ -275,6 +331,12 @@ fn read_event_handler(
             ctx.vm.remove_listener_and_prune_back_ref(id);
             return JsValue::Null;
         }
+    } else if cleared {
+        // §8.1.8.1: the content attribute was removed after a prior lazy
+        // compile — the handler value is null. Drop the stale compiled
+        // callable that the engine-independent consumer could not reach.
+        ctx.vm.remove_listener_and_prune_back_ref(id);
+        return JsValue::Null;
     }
 
     ctx.host()

@@ -396,6 +396,66 @@ fn remove_attribute_does_not_clear_idl_handler() {
     });
 }
 
+// ---- F-9b: inline handler cleared after a prior lazy compile (Copilot R1 #3) ----
+#[test]
+fn inline_handler_cleared_after_compile_on_remove_attribute() {
+    with_el(|vm| {
+        // Compile + fire once (drains uncompiled, stores the callable).
+        vm.eval(
+            "globalThis.n = 0; \
+             el.setAttribute('onclick', 'globalThis.n += 1'); \
+             el.dispatchEvent(new Event('click'));",
+        )
+        .unwrap();
+        assert_eq!(eval_num(vm, "globalThis.n"), 1.0);
+        // Remove the content attribute, then dispatch again — the
+        // already-compiled callable must NOT fire (handler value is null).
+        vm.eval("el.removeAttribute('onclick'); el.dispatchEvent(new Event('click'));")
+            .unwrap();
+        assert_eq!(
+            eval_num(vm, "globalThis.n"),
+            1.0,
+            "cleared handler must not fire"
+        );
+        assert!(eval_bool(vm, "el.onclick === null"));
+    });
+}
+
+// ---- F-23: normal-pair brand check rejects non-Element/Document/Window (Copilot R1 #2) ----
+#[test]
+fn handler_accessor_rejects_text_receiver() {
+    with_el(|vm| {
+        vm.eval(
+            "globalThis.r = 'init'; \
+             var p = Object.getPrototypeOf(el); \
+             while (p && !Object.getOwnPropertyDescriptor(p, 'onclick')) p = Object.getPrototypeOf(p); \
+             var setter = Object.getOwnPropertyDescriptor(p, 'onclick').set; \
+             var t = document.createTextNode('x'); \
+             try { setter.call(t, function () {}); globalThis.r = 'no-throw'; } \
+             catch (e) { globalThis.r = 'threw'; }",
+        )
+        .unwrap();
+        assert_eq!(eval_str(vm, "globalThis.r"), "threw");
+    });
+}
+
+// ---- F-24: body-delegation brand check rejects non-<body> element (Copilot R1 #1) ----
+#[test]
+fn body_weh_accessor_rejects_non_body_receiver() {
+    with_el(|vm| {
+        vm.eval(
+            "globalThis.r = 'init'; \
+             var b = document.createElement('body'); \
+             var setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(b), 'onbeforeunload').set; \
+             var d = document.createElement('div'); \
+             try { setter.call(d, function () {}); globalThis.r = 'no-throw'; } \
+             catch (e) { globalThis.r = 'threw'; }",
+        )
+        .unwrap();
+        assert_eq!(eval_str(vm, "globalThis.r"), "threw");
+    });
+}
+
 // ---- F-22: distinct event types resolve independently (bound key) ----
 #[test]
 fn distinct_event_types_resolve_independently() {
