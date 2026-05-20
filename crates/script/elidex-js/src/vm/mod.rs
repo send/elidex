@@ -167,6 +167,12 @@ pub(crate) struct VmInner {
     /// Set while a native function is invoked via `[[Construct]]` (i.e. `new`).
     /// Read by constructors to distinguish `new F(...)` from `F(...)`.
     pub(crate) in_construct: bool,
+    /// Key bound to the native accessor currently executing — staged from
+    /// [`value::NativeFunction::bound_key`] for the duration of the native
+    /// call (save/restore around dispatch). A shared backend fn reads it via
+    /// [`value::NativeContext::bound_key`] to recover which property it serves.
+    /// `None` outside a bound-accessor call.
+    pub(crate) active_bound_key: Option<value::StringId>,
     /// Host-provided data for browser shell integration (event listeners,
     /// DOM wrappers, timers, etc.).  `None` when the VM runs standalone
     /// (e.g., in unit tests without the `engine` feature).

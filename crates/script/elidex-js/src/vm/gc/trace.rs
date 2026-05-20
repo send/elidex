@@ -824,17 +824,7 @@ pub(super) fn trace_work_list(
                     {
                         mark_object(buf_id, obj_marks, work);
                     }
-                    for handler in [
-                        state.onloadstart,
-                        state.onprogress,
-                        state.onload,
-                        state.onloadend,
-                        state.onerror,
-                        state.onabort,
-                    ]
-                    .into_iter()
-                    .flatten()
-                    {
+                    for &handler in state.handlers.values() {
                         mark_object(handler, obj_marks, work);
                     }
                 }

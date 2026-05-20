@@ -130,6 +130,16 @@ impl NativeContext<'_> {
         self.vm.in_construct
     }
 
+    /// The key bound to the native accessor currently executing, if any.
+    /// Set when the function object carries
+    /// [`super::value::NativeFunction::bound_key`] (installed via
+    /// `VmInner::install_bound_accessor_pair`); lets a single shared
+    /// backend fn recover which property it serves. `None` for ordinary natives.
+    #[inline]
+    pub fn bound_key(&self) -> Option<StringId> {
+        self.vm.active_bound_key
+    }
+
     /// Access the host data.
     ///
     /// # Panics

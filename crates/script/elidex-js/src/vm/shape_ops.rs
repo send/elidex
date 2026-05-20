@@ -333,6 +333,61 @@ impl VmInner {
         );
     }
 
+    /// Create a native function whose [`NativeFunction::bound_key`] is
+    /// `Some(key_sid)`, so the native call path stages `key_sid` into the VM
+    /// for the duration of the call.  A single shared backend fn then recovers
+    /// which property it serves via [`super::value::NativeContext::bound_key`],
+    /// instead of one monomorphized fn per property.  WebIDL §3.7.6.
+    #[cfg(feature = "engine")]
+    pub(crate) fn create_native_function_bound(
+        &mut self,
+        name: &str,
+        func: super::NativeFn,
+        key_sid: StringId,
+    ) -> ObjectId {
+        let name_id = self.strings.intern(name);
+        self.create_native_function_keyed(name_id, func, false, Some(key_sid))
+    }
+
+    /// Install a getter (and optional setter) accessor (keyed by `name_sid`)
+    /// whose getter/setter share a single backend fn each, parametrized by
+    /// `key_sid` via [`Self::create_native_function_bound`].  Mirrors
+    /// [`Self::install_accessor_pair`] (`setter` is `Option` — a `None` setter
+    /// keeps the read-only [[Set]] semantics, vs. a no-op setter which would
+    /// suppress the strict-mode assignment TypeError) but threads the bound
+    /// key, so an accessor *family* (e.g. event-handler IDL attributes)
+    /// installs N real prototype accessors over one backend fn pair.
+    /// WebIDL §3.7.6.
+    #[cfg(feature = "engine")]
+    pub(crate) fn install_bound_accessor_pair(
+        &mut self,
+        target: ObjectId,
+        name_sid: StringId,
+        getter: super::NativeFn,
+        setter: Option<super::NativeFn>,
+        key_sid: StringId,
+        attrs: shape::PropertyAttrs,
+    ) {
+        debug_assert!(
+            attrs.is_accessor,
+            "install_bound_accessor_pair requires accessor-typed attrs",
+        );
+        let display = self.strings.get_utf8(name_sid);
+        let getter_id =
+            self.create_native_function_bound(&format!("get {display}"), getter, key_sid);
+        let setter_id = setter
+            .map(|f| self.create_native_function_bound(&format!("set {display}"), f, key_sid));
+        self.define_shaped_property(
+            target,
+            value::PropertyKey::String(name_sid),
+            value::PropertyValue::Accessor {
+                getter: Some(getter_id),
+                setter: setter_id,
+            },
+            attrs,
+        );
+    }
+
     /// Install `func` as a method (data-property) keyed by
     /// `name_sid` and return the freshly-allocated function's
     /// `ObjectId`.  Routes the function-name allocation through
@@ -374,11 +429,25 @@ impl VmInner {
         func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
         constructable: bool,
     ) -> ObjectId {
+        self.create_native_function_keyed(name_id, func, constructable, None)
+    }
+
+    /// Core native-function allocator; `bound_key` carries the per-accessor
+    /// key for [`Self::install_bound_accessor_pair`] (`None` for ordinary
+    /// natives).  WebIDL §3.7.6.
+    fn create_native_function_keyed(
+        &mut self,
+        name_id: StringId,
+        func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
+        constructable: bool,
+        bound_key: Option<StringId>,
+    ) -> ObjectId {
         let obj = self.alloc_object(Object {
             kind: ObjectKind::NativeFunction(NativeFunction {
                 name: name_id,
                 func,
                 constructable,
+                bound_key,
             }),
             storage: value::PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: self.function_prototype,

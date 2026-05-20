@@ -621,6 +621,12 @@ pub struct NativeFunction {
     pub func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
     /// Whether `new` can be used on this function. `false` for Symbol etc.
     pub constructable: bool,
+    /// Key bound to this native accessor (e.g. the handler-name SID for an
+    /// event-handler IDL attribute). The native call path stages it into the
+    /// VM (`active_bound_key`) so a single shared backend fn recovers which
+    /// property it serves, instead of one monomorphized fn per property.
+    /// `None` for ordinary natives. WebIDL §3.7.6 (Attributes).
+    pub bound_key: Option<StringId>,
 }
 
 /// Context passed to native functions, providing mutable access to the VM.
