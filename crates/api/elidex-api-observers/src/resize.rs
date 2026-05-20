@@ -98,8 +98,8 @@ impl ResizeObserverRegistry {
         id
     }
 
-    /// Start observing a target. Re-observing the same target is a no-op
-    /// (matches the existing registration).
+    /// Start observing a target (Resize Observer §2.1 `observe(target, options)`).
+    /// Re-observing the same target is a no-op (matches the existing registration).
     pub fn observe(
         &mut self,
         dom: &mut EcsDom,
@@ -127,7 +127,7 @@ impl ResizeObserverRegistry {
         );
     }
 
-    /// Stop observing a specific target.
+    /// Stop observing a specific target (Resize Observer §2.1 `unobserve(target)`).
     pub fn unobserve(&mut self, dom: &mut EcsDom, id: ResizeObserverId, target: Entity) {
         let mut now_empty = false;
         if let Ok(mut comp) = dom.world_mut().get::<&mut ResizeObservedBy>(target) {
@@ -139,7 +139,7 @@ impl ResizeObserverRegistry {
         }
     }
 
-    /// Stop observing all targets for this observer.
+    /// Stop observing all targets for this observer (Resize Observer §2.1 `disconnect()`).
     pub fn disconnect(&mut self, dom: &mut EcsDom, id: ResizeObserverId) {
         let mut emptied: Vec<Entity> = Vec::new();
         for (entity, comp) in &mut dom.world().query::<(Entity, &mut ResizeObservedBy)>() {

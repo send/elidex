@@ -91,7 +91,8 @@ impl IntersectionObserverRegistry {
         id
     }
 
-    /// Start observing a target. Re-observing the same target is a no-op.
+    /// Start observing a target (Intersection Observer §2.2 `observe(target)`).
+    /// Re-observing the same target is a no-op.
     pub fn observe(&mut self, dom: &mut EcsDom, id: IntersectionObserverId, target: Entity) {
         if let Ok(mut comp) = dom.world_mut().get::<&mut IntersectionObservedBy>(target) {
             if !comp.0.iter().any(|o| o.observer == id) {
@@ -111,7 +112,7 @@ impl IntersectionObserverRegistry {
         );
     }
 
-    /// Stop observing a specific target.
+    /// Stop observing a specific target (Intersection Observer §2.2 `unobserve(target)`).
     pub fn unobserve(&mut self, dom: &mut EcsDom, id: IntersectionObserverId, target: Entity) {
         let mut now_empty = false;
         if let Ok(mut comp) = dom.world_mut().get::<&mut IntersectionObservedBy>(target) {
@@ -123,7 +124,7 @@ impl IntersectionObserverRegistry {
         }
     }
 
-    /// Stop observing all targets for this observer.
+    /// Stop observing all targets for this observer (Intersection Observer §2.2 `disconnect()`).
     pub fn disconnect(&mut self, dom: &mut EcsDom, id: IntersectionObserverId) {
         let mut emptied: Vec<Entity> = Vec::new();
         for (entity, comp) in &mut dom.world().query::<(Entity, &mut IntersectionObservedBy)>() {
