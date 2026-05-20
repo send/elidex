@@ -34,6 +34,14 @@ Acceptable marshalling use: prototype install / brand check / `JsValue` ↔ `Ent
 
 `m4-12-architectural-drift-incident.md` (PR #151, 2026-05-04 — 4R × 17 IMP findings before downward drift detected; lesson #145).
 
+## fix_discipline
+
+Applied at SKILL.md Step 5.1 (fix planning), before settling a finding's patch.
+
+Reuse `/elidex-review` **Step 3.5 "Philosophy alignment"** (SSoT: `<repo>/.claude/skills/elidex-review/workflow.md` § "Step 3.5"): for each fix, re-evaluate **symptom vs root** through CLAUDE.md "ideal over pragmatic" + "設計優先 (場当たり的 reactive fix 禁止)" + "ECS-native first". A Copilot finding's obvious patch is usually the smallest symptom-fix (add a sort / guard / attribute / cast); prefer a structural fix that makes the invariant hold **by construction** (existing abstraction / data-structure choice / restructure) over a per-site reactive patch. Polish-domination smell: if every option is symptom-level, suspect the framing and re-derive.
+
+Precedent (PR #213, 2026-05-20): R2 flagged nondeterministic `HashMap` callback order; the reactive patch was "add `sort_by_key` at each enumeration site". The philosophy-ideal was a `BTreeMap` keyed by the monotonic observer id — registration-order delivery becomes a *structural* invariant (no sort to forget, the exact omission Copilot flagged). The reactive patch shipped through TERMINAL and needed a follow-up to reach the ideal; this lens at Step 5.1 would have reached `BTreeMap` at R2.
+
 ## failure_modes
 
 Each line: incident → operative rule that landed in `~/.claude/skills/copilot-review/SKILL.md`.
@@ -44,6 +52,7 @@ Each line: incident → operative rule that landed in `~/.claude/skills/copilot-
 - PR #163 R1-R17 (2026-05-08) — 5k LoC budget upper-bound exceeded by 2× without scope creep → **Step 4 trigger #4** (LoC-scaled).
 - PR #163 R29 (workflow-log misread), R30 (`first: 100` page-2 truncation), R31 (post-TERMINAL over-loop), 2026-05-08 — **Step 1 pitfall gate + Step 4 TERMINAL stop**.
 - PR #201 R9 (2026-05-17) — pre-request review counted as fresh round, real R10 with IMP arrived later → **Step 1 request-staleness gate**.
+- PR #213 R2 (2026-05-20) — reactive `HashMap`+per-site `sort` patch shipped through TERMINAL; philosophy-ideal was `BTreeMap` (structural delivery order) → **Step 5.1 design-philosophy lens** (`fix_discipline` overlay).
 
 ## wakeup_median
 
