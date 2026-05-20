@@ -34,11 +34,17 @@ impl Vm {
     /// and installs a worker-side `NetworkHandle` before eval.
     #[cfg(feature = "engine")]
     #[must_use]
-    pub fn new_worker(name: String, script_url: url::Url, is_secure_context: bool) -> Self {
+    pub fn new_worker(
+        name: String,
+        script_url: url::Url,
+        is_secure_context: bool,
+        credentials: elidex_net::CredentialsMode,
+    ) -> Self {
         Self::new_with_scope(super::GlobalScopeKind::DedicatedWorker {
             name,
             script_url,
             is_secure_context,
+            credentials,
         })
     }
 

@@ -62,10 +62,11 @@ pub(crate) fn run_worker(
     script_url: &url::Url,
     name: String,
     is_secure_context: bool,
+    credentials: elidex_net::CredentialsMode,
     network_handle: Option<NetworkHandle>,
     channel: &WorkerChannel,
 ) {
-    let source = match obtain_worker_source(script_url, network_handle.as_ref()) {
+    let source = match obtain_worker_source(script_url, credentials, network_handle.as_ref()) {
         Ok(source) => source,
         Err(message) => {
             send_error(channel, message, script_url.as_str());
@@ -78,6 +79,7 @@ pub(crate) fn run_worker(
         script_url,
         name,
         is_secure_context,
+        credentials,
         network_handle,
         channel,
     );
@@ -86,8 +88,15 @@ pub(crate) fn run_worker(
 /// Fetch (or inline-decode) the worker script source (WHATWG HTML §10.2.4
 /// "fetch a classic worker script"). Returns the decoded source text or a
 /// human-readable error message for the parent's `error` event.
+///
+/// The fetch carries the worker's own origin (the script URL's origin — the
+/// top-level script is same-origin), `RequestMode::SameOrigin`, and the
+/// `WorkerOptions.credentials` mode, so the broker gates cookie attachment
+/// correctly (a bare `..Default::default()` would leave `origin = None` and
+/// attach cookies unconditionally).
 fn obtain_worker_source(
     script_url: &url::Url,
+    credentials: elidex_net::CredentialsMode,
     network_handle: Option<&NetworkHandle>,
 ) -> Result<String, String> {
     if script_url.scheme() == "data" {
@@ -102,6 +111,9 @@ fn obtain_worker_source(
     let request = elidex_net::Request {
         method: "GET".to_string(),
         url: script_url.clone(),
+        origin: Some(script_url.origin()),
+        credentials,
+        mode: elidex_net::RequestMode::SameOrigin,
         ..Default::default()
     };
     let response = handle
@@ -136,6 +148,7 @@ pub(crate) fn run_worker_with_source(
     script_url: &url::Url,
     name: String,
     is_secure_context: bool,
+    credentials: elidex_net::CredentialsMode,
     network_handle: Option<NetworkHandle>,
     channel: &WorkerChannel,
 ) {
@@ -147,7 +160,7 @@ pub(crate) fn run_worker_with_source(
     let document = dom.create_document_root();
     let mut session = SessionCore::new();
 
-    let mut vm = Vm::new_worker(name, script_url.clone(), is_secure_context);
+    let mut vm = Vm::new_worker(name, script_url.clone(), is_secure_context, credentials);
     vm.install_host_data(HostData::new());
     if let Some(handle) = network_handle {
         vm.install_network_handle(Rc::new(handle));

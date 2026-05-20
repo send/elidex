@@ -360,14 +360,22 @@ fn native_import_scripts(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let base = match &ctx.vm.global_scope_kind {
-        GlobalScopeKind::DedicatedWorker { script_url, .. } => script_url.clone(),
+    let (base, credentials) = match &ctx.vm.global_scope_kind {
+        GlobalScopeKind::DedicatedWorker {
+            script_url,
+            credentials,
+            ..
+        } => (script_url.clone(), *credentials),
         GlobalScopeKind::Window => {
             return Err(VmError::type_error(
                 "importScripts is only available in workers",
             ))
         }
     };
+    // The worker's own origin gates cookie attachment + CORS on its subresource
+    // fetches (WHATWG HTML §10.3.1 — without it the broker treats the request as
+    // an embedder-driven load and attaches cookies unconditionally).
+    let worker_origin = base.origin();
     let Some(handle) = ctx.vm.network_handle.clone() else {
         return Err(VmError::type_error(
             "NetworkError: no network handle installed on this worker",
@@ -384,6 +392,8 @@ fn native_import_scripts(
         let request = elidex_net::Request {
             method: "GET".to_string(),
             url: resolved.clone(),
+            origin: Some(worker_origin.clone()),
+            credentials,
             ..Default::default()
         };
         let response = handle.fetch_blocking(request).map_err(|e| {

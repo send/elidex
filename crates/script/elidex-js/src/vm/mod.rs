@@ -122,6 +122,11 @@ pub enum GlobalScopeKind {
         /// not derived from `script_url` (a `data:` / `blob:` worker spawned by
         /// a secure parent is itself secure).
         is_secure_context: bool,
+        /// Credentials mode for the worker's own subresource fetches
+        /// (`importScripts`, WHATWG HTML §10.2.6.3 `WorkerOptions.credentials`).
+        /// Applied — with the worker's origin — to the `importScripts` request
+        /// so cookie attachment is gated correctly.
+        credentials: elidex_net::CredentialsMode,
     },
 }
 

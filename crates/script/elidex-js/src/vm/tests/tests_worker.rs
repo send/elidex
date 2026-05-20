@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use elidex_api_workers::{spawn_worker, WorkerToParent};
 use elidex_ecs::{EcsDom, Entity};
 use elidex_net::broker::NetworkHandle;
-use elidex_net::{HttpVersion, Response as NetResponse};
+use elidex_net::{CredentialsMode, HttpVersion, Response as NetResponse};
 use elidex_script_session::SessionCore;
 use url::Url;
 
@@ -83,7 +83,12 @@ where
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
-    let mut vm = Vm::new_worker(name.to_string(), Url::parse(url).unwrap(), secure);
+    let mut vm = Vm::new_worker(
+        name.to_string(),
+        Url::parse(url).unwrap(),
+        secure,
+        CredentialsMode::SameOrigin,
+    );
     unsafe { bind_worker_vm(&mut vm, &mut session, &mut dom, doc) };
     let result = f(&mut vm);
     // `vm` (whose `HostData` holds raw pointers into `session` / `dom`) drops
@@ -214,15 +219,28 @@ fn import_scripts_fetches_validates_and_runs() {
         b"globalThis.imported = 42;",
     );
     with_worker_vm("", WORKER_URL, true, |vm| {
-        vm.install_network_handle(Rc::new(NetworkHandle::mock_with_responses(vec![(
+        let handle = Rc::new(NetworkHandle::mock_with_responses(vec![(
             Url::parse(helper).unwrap(),
             Ok(response),
-        )])));
+        )]));
+        vm.install_network_handle(handle.clone());
         // Relative URL resolves against the worker script URL base
         // (https://example.com/app/worker.js → .../app/helper.js).
         vm.eval("importScripts('helper.js');")
             .expect("importScripts");
         assert!(eval_bool_on(vm, "globalThis.imported === 42"));
+
+        // The fetch must carry the worker's own origin + credentials mode
+        // (F-R6-1/F-R6-3) — not `origin = None` (which would attach cookies
+        // unconditionally).
+        let recorded = handle.drain_recorded_requests();
+        let req = recorded.last().expect("importScripts issued a request");
+        assert_eq!(
+            req.origin,
+            Some(Url::parse(WORKER_URL).unwrap().origin()),
+            "importScripts request must carry the worker origin"
+        );
+        assert_eq!(req.credentials, CredentialsMode::SameOrigin);
     });
 }
 
@@ -281,6 +299,7 @@ fn worker_thread_round_trip_echo() {
             &body_url,
             String::new(),
             true,
+            CredentialsMode::SameOrigin,
             None,
             &ch,
         );
@@ -313,6 +332,7 @@ fn worker_thread_accepts_sibling_network_handle() {
             &body_url,
             String::new(),
             true,
+            CredentialsMode::SameOrigin,
             Some(sibling),
             &ch,
         );
@@ -333,7 +353,15 @@ fn worker_thread_close_sends_closed_and_exits() {
     let url = Url::parse(WORKER_URL).unwrap();
     let body_url = url.clone();
     let handle = spawn_worker(String::new(), url, move |ch| {
-        run_worker_with_source("close();", &body_url, String::new(), true, None, &ch);
+        run_worker_with_source(
+            "close();",
+            &body_url,
+            String::new(),
+            true,
+            CredentialsMode::SameOrigin,
+            None,
+            &ch,
+        );
     });
 
     assert!(
@@ -579,6 +607,19 @@ fn main_worker_module_type_throws() {
              catch (e) { true }",
         );
         assert!(threw, "{{ type: 'module' }} must be rejected");
+    });
+}
+
+#[test]
+fn main_worker_blob_url_rejected() {
+    with_main_vm(|vm| {
+        // `blob:` worker scripts are rejected until a blob-URL source loader
+        // exists (F-R6-4 — no `URL.createObjectURL`; defer `#11-worker-blob-script`).
+        let threw = eval_bool_on(
+            vm,
+            "try { new Worker('blob:https://example.com/uuid-1'); false } catch (e) { true }",
+        );
+        assert!(threw, "blob: worker URL must be rejected");
     });
 }
 

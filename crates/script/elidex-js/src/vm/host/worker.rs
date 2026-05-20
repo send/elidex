@@ -337,7 +337,8 @@ fn native_worker_constructor(
         .map_err(|e| marshal_worker_script_error(ctx.vm, &e))?;
     validate_worker_type(options.type_opt.as_deref())
         .map_err(|e| marshal_worker_script_error(ctx.vm, &e))?;
-    validate_credentials(options.credentials.as_deref())
+    let credentials = validate_credentials(options.credentials.as_deref())
+        .map(|c| credentials_mode(&c))
         .map_err(|e| marshal_worker_script_error(ctx.vm, &e))?;
 
     // Mint a `Send` sibling network handle on the **main** thread (the
@@ -364,6 +365,7 @@ fn native_worker_constructor(
             &worker_url,
             worker_name,
             is_secure_context,
+            credentials,
             sibling,
             &channel,
         );
@@ -390,6 +392,17 @@ fn native_worker_constructor(
     };
     ctx.host().cache_wrapper(entity, inst_id);
     Ok(JsValue::Object(inst_id))
+}
+
+/// Map a validated `WorkerOptions.credentials` value (WHATWG HTML §10.2.6.3 /
+/// Fetch RequestCredentials) to the network [`CredentialsMode`]. The input is
+/// already validated by [`validate_credentials`] to one of the three values.
+fn credentials_mode(value: &str) -> elidex_net::CredentialsMode {
+    match value {
+        "omit" => elidex_net::CredentialsMode::Omit,
+        "include" => elidex_net::CredentialsMode::Include,
+        _ => elidex_net::CredentialsMode::SameOrigin,
+    }
 }
 
 /// Parsed `WorkerOptions` (WHATWG HTML §10.2.6.3): `name` (default empty),

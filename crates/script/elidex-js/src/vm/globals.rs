@@ -526,6 +526,9 @@ impl VmInner {
                 name,
                 script_url,
                 is_secure_context,
+                // `credentials` is read at `importScripts` time from
+                // `global_scope_kind`, not during globals setup.
+                credentials: _,
             } => {
                 self.register_worker_global_scope_prototype();
                 self.get_object_mut(self.global_object).prototype = self.worker_scope_prototype;

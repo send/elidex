@@ -48,6 +48,9 @@ pub enum WorkerScriptError {
         /// The base URL the worker was created from.
         base: String,
     },
+    /// The resolved URL uses a scheme the worker runtime cannot load yet
+    /// (currently `blob:` — needs a blob-URL source loader).
+    UnsupportedScheme(String),
     /// `{ type: "module" }` — module workers are not yet supported.
     UnsupportedType,
     /// `{ type: ... }` with a value outside the `WorkerType` enum
@@ -75,6 +78,10 @@ impl std::fmt::Display for WorkerScriptError {
                 f,
                 "Worker script URL {resolved} is not same-origin with {base}"
             ),
+            Self::UnsupportedScheme(scheme) => write!(
+                f,
+                "Worker: '{scheme}:' worker scripts are not supported yet"
+            ),
             Self::UnsupportedType => write!(f, "Worker: type 'module' is not supported"),
             Self::InvalidType(t) => write!(
                 f,
@@ -98,13 +105,16 @@ impl std::error::Error for WorkerScriptError {}
 /// restriction (WHATWG HTML §10.2.6.3 — the `Worker(scriptURL, options)`
 /// constructor steps).
 ///
-/// `data:` URLs are always permitted; `blob:` URLs carry their origin in the
-/// path and are compared against `base`. Any other scheme must match the base
-/// origin exactly.
+/// `data:` URLs are always permitted (decoded inline); any other scheme must be
+/// same-origin with `base`. `blob:` is rejected until the worker runtime gains a
+/// blob-URL source loader (blocked on `URL.createObjectURL`; defer slot
+/// `#11-worker-blob-script`) — accepting it here would only fail later at the
+/// source-fetch step.
 ///
 /// # Errors
 /// [`WorkerScriptError::EmptyUrl`] when `url_str` is empty,
-/// [`WorkerScriptError::InvalidUrl`] when it fails to resolve, and
+/// [`WorkerScriptError::InvalidUrl`] when it fails to resolve,
+/// [`WorkerScriptError::UnsupportedScheme`] for `blob:`, and
 /// [`WorkerScriptError::NotSameOrigin`] when the resolved URL is cross-origin.
 pub fn resolve_worker_script_url(base: &Url, url_str: &str) -> Result<Url, WorkerScriptError> {
     if url_str.is_empty() {
@@ -115,16 +125,16 @@ pub fn resolve_worker_script_url(base: &Url, url_str: &str) -> Result<Url, Worke
         .join(url_str)
         .map_err(|e| WorkerScriptError::InvalidUrl(e.to_string()))?;
 
-    // `data:` scheme is same-origin by fiat; `blob:` embeds its origin in the
-    // path (e.g. `blob:https://example.com/uuid`); everything else compares the
-    // resolved origin against the base origin.
-    let is_same_origin = if resolved.scheme() == "data" {
-        true
-    } else if resolved.scheme() == "blob" {
-        Url::parse(resolved.path()).is_ok_and(|inner| inner.origin() == base.origin())
-    } else {
-        base.origin() == resolved.origin()
-    };
+    // `blob:` worker scripts need a blob-URL source loader that does not yet
+    // exist (no `URL.createObjectURL` in the runtime) — reject rather than
+    // accept-then-fail.
+    if resolved.scheme() == "blob" {
+        return Err(WorkerScriptError::UnsupportedScheme("blob".to_string()));
+    }
+
+    // `data:` is same-origin by fiat (decoded inline); everything else compares
+    // the resolved origin against the base origin.
+    let is_same_origin = resolved.scheme() == "data" || base.origin() == resolved.origin();
 
     if !is_same_origin {
         return Err(WorkerScriptError::NotSameOrigin {
@@ -242,17 +252,13 @@ mod tests {
     }
 
     #[test]
-    fn blob_same_origin_allowed() {
-        let resolved = resolve_worker_script_url(&base(), "blob:https://example.com/uuid-123")
-            .expect("same-origin blob");
-        assert_eq!(resolved.scheme(), "blob");
-    }
-
-    #[test]
-    fn blob_cross_origin_rejected() {
-        let err = resolve_worker_script_url(&base(), "blob:https://evil.example/uuid-123")
-            .expect_err("cross-origin blob");
-        assert!(matches!(err, WorkerScriptError::NotSameOrigin { .. }));
+    fn blob_rejected_until_loader_exists() {
+        // `blob:` needs a blob-URL source loader the runtime lacks (no
+        // `URL.createObjectURL`) — reject rather than accept-then-fail
+        // (defer slot `#11-worker-blob-script`).
+        let err = resolve_worker_script_url(&base(), "blob:https://example.com/uuid-123")
+            .expect_err("blob: unsupported");
+        assert!(matches!(err, WorkerScriptError::UnsupportedScheme(s) if s == "blob"));
     }
 
     #[test]
