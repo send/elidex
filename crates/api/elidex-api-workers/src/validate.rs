@@ -11,11 +11,25 @@ use url::Url;
 
 /// JavaScript MIME types accepted for worker scripts (WHATWG HTML §10.2.4 —
 /// "fetch a classic worker script", essence check against the JavaScript MIME
-/// type set defined in MIME Sniffing §4.6).
+/// type set defined in MIME Sniffing §4.6 — the full essence list, incl. the
+/// `ecmascript` / `x-` family and the legacy `text/javascript1.x` essences).
 pub const JS_MIME_TYPES: &[&str] = &[
-    "text/javascript",
+    "application/ecmascript",
     "application/javascript",
+    "application/x-ecmascript",
     "application/x-javascript",
+    "text/ecmascript",
+    "text/javascript",
+    "text/javascript1.0",
+    "text/javascript1.1",
+    "text/javascript1.2",
+    "text/javascript1.3",
+    "text/javascript1.4",
+    "text/javascript1.5",
+    "text/jscript",
+    "text/livescript",
+    "text/x-ecmascript",
+    "text/x-javascript",
 ];
 
 /// Failure reasons for worker-script setup. The binding layer maps each to the
@@ -36,6 +50,9 @@ pub enum WorkerScriptError {
     },
     /// `{ type: "module" }` — module workers are not yet supported.
     UnsupportedType,
+    /// `{ type: ... }` with a value outside the `WorkerType` enum
+    /// (`"classic"` / `"module"`) — a WebIDL enum-coercion `TypeError`.
+    InvalidType(String),
     /// `{ credentials: ... }` with a value outside the allowed set.
     InvalidCredentials(String),
     /// The fetched script had a non-JavaScript MIME type.
@@ -59,6 +76,10 @@ impl std::fmt::Display for WorkerScriptError {
                 "Worker script URL {resolved} is not same-origin with {base}"
             ),
             Self::UnsupportedType => write!(f, "Worker: type 'module' is not supported"),
+            Self::InvalidType(t) => write!(
+                f,
+                "Worker: '{t}' is not a valid WorkerType ('classic' or 'module')"
+            ),
             Self::InvalidCredentials(c) => write!(f, "Worker: invalid credentials value: {c}"),
             Self::InvalidMimeType(m) => write!(f, "Invalid MIME type for worker script: {m}"),
             Self::BadStatus { status, url } => {
@@ -115,16 +136,20 @@ pub fn resolve_worker_script_url(base: &Url, url_str: &str) -> Result<Url, Worke
     Ok(resolved)
 }
 
-/// Validate the `type` worker option. Only classic workers are supported;
-/// `{ type: "module" }` is rejected (WHATWG HTML §10.2.6.3).
+/// Validate the `type` worker option against the WebIDL `WorkerType` enum
+/// (`"classic"` / `"module"`, WHATWG HTML §10.2.6.3). Absent / `"classic"` is
+/// accepted; `"module"` is a recognized-but-unsupported value; any other string
+/// is an invalid enum value (WebIDL §3.10 enum coercion → `TypeError`).
 ///
 /// # Errors
-/// [`WorkerScriptError::UnsupportedType`] when `type_opt` is `"module"`.
+/// [`WorkerScriptError::UnsupportedType`] for `"module"`;
+/// [`WorkerScriptError::InvalidType`] for a value outside the enum.
 pub fn validate_worker_type(type_opt: Option<&str>) -> Result<(), WorkerScriptError> {
-    if type_opt == Some("module") {
-        return Err(WorkerScriptError::UnsupportedType);
+    match type_opt {
+        None | Some("classic") => Ok(()),
+        Some("module") => Err(WorkerScriptError::UnsupportedType),
+        Some(other) => Err(WorkerScriptError::InvalidType(other.to_string())),
     }
-    Ok(())
 }
 
 /// Validate the `credentials` worker option, returning the effective value
@@ -238,6 +263,37 @@ mod tests {
         );
         assert_eq!(validate_worker_type(Some("classic")), Ok(()));
         assert_eq!(validate_worker_type(None), Ok(()));
+    }
+
+    #[test]
+    fn invalid_worker_type_rejected() {
+        // WebIDL `WorkerType` enum: anything outside classic/module is a
+        // coercion error, not silently treated as classic.
+        assert_eq!(
+            validate_worker_type(Some("bogus")),
+            Err(WorkerScriptError::InvalidType("bogus".to_string()))
+        );
+        assert_eq!(
+            validate_worker_type(Some("")),
+            Err(WorkerScriptError::InvalidType(String::new()))
+        );
+    }
+
+    #[test]
+    fn ecmascript_mime_essences_accepted() {
+        let url = base();
+        for mime in [
+            "application/ecmascript",
+            "text/ecmascript",
+            "application/x-ecmascript",
+            "text/x-javascript",
+            "text/javascript1.5",
+        ] {
+            assert!(
+                validate_worker_script_response(Some(mime), 200, b"1", &url).is_ok(),
+                "{mime} is a JavaScript MIME essence and must be accepted"
+            );
+        }
     }
 
     #[test]

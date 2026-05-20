@@ -177,13 +177,22 @@ impl VmInner {
 
 /// Whether a URL denotes a secure context (WHATWG HTML §8.1.3.5 / W3C Secure
 /// Contexts — the "potentially trustworthy URL" essence): HTTPS / WSS, `file:`,
-/// or a localhost host. The main-side `Worker` constructor applies this to the
+/// or a loopback host. The main-side `Worker` constructor applies this to the
 /// **creator's** URL to derive the worker's inherited secure-context flag.
 pub(in crate::vm) fn url_is_secure_context(url: &url::Url) -> bool {
-    url.scheme() == "https"
-        || url.scheme() == "wss"
-        || url.scheme() == "file"
-        || matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "::1"))
+    matches!(url.scheme(), "https" | "wss" | "file") || host_is_loopback(url)
+}
+
+/// Whether `url`'s host is loopback per W3C Secure Contexts "is origin
+/// potentially trustworthy": the entire `127.0.0.0/8` block, IPv6 `::1`, the
+/// `localhost` domain, or any `*.localhost` subdomain.
+fn host_is_loopback(url: &url::Url) -> bool {
+    match url.host() {
+        Some(url::Host::Ipv4(ip)) => ip.octets()[0] == 127,
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        Some(url::Host::Domain(host)) => host == "localhost" || host.ends_with(".localhost"),
+        None => false,
+    }
 }
 
 impl VmInner {
