@@ -56,6 +56,15 @@ impl ScriptEngine for ElidexJsEngine {
         passive: bool,
         _ctx: &mut ScriptContext<'_>,
     ) {
+        // HTML §8.1.8.1: bring an event-handler IDL attribute backing up to
+        // date (lazy-compile a pending inline source / drop a cleared one)
+        // before resolving its callable, so UA-initiated dispatch honours
+        // inline `<body onload="...">`-style handlers identically to the
+        // script dispatch walk. No-op for `addEventListener` listeners.
+        self.vm
+            .inner
+            .ensure_event_handler_current(current_target, listener_id);
+
         // 1. Resolve the listener function ObjectId from HostData's
         //    listener_store.  A miss means the listener was removed
         //    between dispatch-plan freezing and this invocation —

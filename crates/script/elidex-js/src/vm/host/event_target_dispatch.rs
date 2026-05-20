@@ -268,7 +268,6 @@ pub(super) fn dispatch_script_event(
 /// the per-phase propagation gates respond to listener mutations
 /// made via `Event.prototype.{preventDefault, stopPropagation,
 /// stopImmediatePropagation}`.
-#[allow(clippy::too_many_lines)] // single per-phase listener walk + §8.1.8.1 lazy-compile branch — splitting would scatter §2.10 flow
 fn walk_phase(
     ctx: &mut NativeContext<'_>,
     event_id: ObjectId,
@@ -350,45 +349,15 @@ fn walk_phase(
             }
 
             // HTML §8.1.8.1 "getting the current value of the event
-            // handler": if this listener backs an event-handler IDL
-            // attribute (`el.onclick` / inline `<button onclick>`) with
-            // a pending uncompiled inline source, compile it now (first
-            // dispatch) and overwrite the stored callable.  An
-            // uncompiled source always supersedes a stale compiled
-            // callable (last-write-wins); a parse failure clears the
-            // handler so the `get_listener` miss below skips it.  Gated
-            // on `is_handler` so the common `addEventListener` listener
-            // skips the component lookup entirely (it can never carry
-            // inline source); handler entries are re-read here so a
-            // content attribute changed mid-dispatch is still honored.
+            // handler": bring an event-handler IDL attribute backing up to
+            // date (lazy-compile a pending inline source / drop a cleared
+            // one) before its callable is resolved below. Gated on
+            // `is_handler` so the common `addEventListener` listener skips
+            // the component lookup entirely. Shared with the session-crate
+            // UA dispatch + promise-rejection dispatch via
+            // `VmInner::ensure_event_handler_current`.
             if entry.is_handler {
-                let (uncompiled, cleared) = {
-                    let dom = ctx.host().dom();
-                    dom.world_mut()
-                        .get::<&mut EventListeners>(*entity)
-                        .ok()
-                        .map_or((None, false), |mut listeners| {
-                            (
-                                listeners.take_uncompiled(entry.id).map(|u| u.source),
-                                listeners.is_handler_cleared(entry.id),
-                            )
-                        })
-                };
-                if let Some(source) = uncompiled {
-                    match super::event_handler_attrs::lazy_compile_handler(ctx, &source) {
-                        Some(callable) => {
-                            super::event_handler_attrs::set_handler_callable(
-                                ctx, entry.id, callable,
-                            );
-                        }
-                        None => ctx.vm.remove_listener_and_prune_back_ref(entry.id),
-                    }
-                } else if cleared {
-                    // Content attribute removed after a prior compile: drop
-                    // the stale callable so the get_listener miss below skips
-                    // it (WHATWG HTML §8.1.8.1 — handler value is null).
-                    ctx.vm.remove_listener_and_prune_back_ref(entry.id);
-                }
+                ctx.vm.ensure_event_handler_current(*entity, entry.id);
             }
 
             // Resolve the JS function; a miss means the listener

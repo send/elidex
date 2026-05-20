@@ -166,7 +166,7 @@ fn native_event_handler_get(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let event_type = bound_event_type(ctx);
-    let Some(entity) = require_handler_receiver(ctx, this, &event_type)? else {
+    let Some(entity) = require_handler_receiver(ctx, this, &format!("on{event_type}"))? else {
         return Ok(JsValue::Null);
     };
     Ok(read_event_handler(ctx, entity, &event_type))
@@ -183,7 +183,7 @@ fn native_event_handler_set(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let event_type = bound_event_type(ctx);
-    let Some(entity) = require_handler_receiver(ctx, this, &event_type)? else {
+    let Some(entity) = require_handler_receiver(ctx, this, &format!("on{event_type}"))? else {
         return Ok(JsValue::Undefined);
     };
     let callable = callable_arg(ctx, args);
@@ -228,7 +228,7 @@ fn native_body_weh_get(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let event_type = bound_event_type(ctx);
-    if require_body_receiver(ctx, this, &event_type)?.is_none() {
+    if require_body_receiver(ctx, this, &format!("on{event_type}"))?.is_none() {
         return Ok(JsValue::Null);
     }
     let Some(window_entity) = ctx.host().window_entity() else {
@@ -246,7 +246,7 @@ fn native_body_weh_set(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let event_type = bound_event_type(ctx);
-    if require_body_receiver(ctx, this, &event_type)?.is_none() {
+    if require_body_receiver(ctx, this, &format!("on{event_type}"))?.is_none() {
         return Ok(JsValue::Undefined);
     }
     let Some(window_entity) = ctx.host().window_entity() else {
@@ -272,20 +272,61 @@ fn bound_event_type(ctx: &NativeContext<'_>) -> String {
     ctx.get_utf8(sid)
 }
 
-/// Store `callable` as the compiled callable for handler listener `id`,
-/// replacing any previous one. Event-handler reassignment intentionally
-/// overwrites the slot (unlike `addEventListener`, whose `store_listener`
-/// asserts uniqueness): remove the old entry first so the insert does not
-/// trip that guard. The `listener_store` map is itself the GC root set,
-/// so the dropped callable is correctly unrooted and the new one rooted.
-pub(super) fn set_handler_callable(
-    ctx: &mut NativeContext<'_>,
-    id: ListenerId,
-    callable: ObjectId,
-) {
-    let host = ctx.host();
-    let _ = host.remove_listener(id);
-    host.store_listener(id, callable);
+impl VmInner {
+    /// Store `callable` as the compiled callable for handler listener `id`,
+    /// replacing any previous one. Event-handler reassignment intentionally
+    /// overwrites the slot (unlike `addEventListener`, whose `store_listener`
+    /// asserts uniqueness): remove the old entry first so the insert does
+    /// not trip that guard. The `listener_store` map is itself the GC root
+    /// set, so the dropped callable is correctly unrooted and the new one
+    /// rooted.
+    pub(in crate::vm) fn set_handler_callable(&mut self, id: ListenerId, callable: ObjectId) {
+        if let Some(host) = self.host_data.as_deref_mut() {
+            let _ = host.remove_listener(id);
+            host.store_listener(id, callable);
+        }
+    }
+
+    /// Bring listener `id` (an event-handler IDL attribute backing) up to
+    /// date before its callable is resolved, on **any** dispatch path
+    /// (WHATWG HTML §8.1.8.1 "getting the current value of the event
+    /// handler"). If it has a pending inline source, compile it now and
+    /// overwrite the stored callable (a parse failure or the cleared flag
+    /// drops the stale callable so the handler reads as null). Centralizing
+    /// here means the script-dispatch walk, the session-crate UA dispatch
+    /// (`ScriptEngine::call_listener`), and the promise-rejection dispatch
+    /// all observe inline-source / cleared transitions identically. A
+    /// no-op for `Normal` (addEventListener) listeners.
+    pub(crate) fn ensure_event_handler_current(
+        &mut self,
+        entity: elidex_ecs::Entity,
+        id: ListenerId,
+    ) {
+        let (uncompiled, cleared) = {
+            let Some(host) = self.host_data.as_deref_mut() else {
+                return;
+            };
+            host.dom()
+                .world_mut()
+                .get::<&mut EventListeners>(entity)
+                .ok()
+                .map_or((None, false), |mut listeners| {
+                    (
+                        listeners.take_uncompiled(id).map(|u| u.source),
+                        listeners.is_handler_cleared(id),
+                    )
+                })
+        };
+        if let Some(source) = uncompiled {
+            if let Some(callable) = self.lazy_compile_handler(&source) {
+                self.set_handler_callable(id, callable);
+            } else {
+                self.remove_listener_and_prune_back_ref(id);
+            }
+        } else if cleared {
+            self.remove_listener_and_prune_back_ref(id);
+        }
+    }
 }
 
 /// `args[0]` if it is a callable object, else `None` (the WebIDL
@@ -298,47 +339,25 @@ fn callable_arg(ctx: &NativeContext<'_>, args: &[JsValue]) -> Option<ObjectId> {
 }
 
 /// Read the current value of the `(entity, event_type)` handler (WHATWG
-/// HTML §8.1.8.1 "getting the current value of the event handler"). An
-/// `uncompiled = Some` source takes precedence over any stale compiled
-/// callable (last-write-wins): it is drained, compiled, and the result
-/// overwrites the stored callable. A parse failure clears the handler to
-/// `null`.
+/// HTML §8.1.8.1 "getting the current value of the event handler"). Brings
+/// the handler up to date via [`VmInner::ensure_event_handler_current`]
+/// (lazy compile of a pending inline source / drop on clear), then returns
+/// the stored callable or `null`.
 fn read_event_handler(
     ctx: &mut NativeContext<'_>,
     entity: elidex_ecs::Entity,
     event_type: &str,
 ) -> JsValue {
-    // Pass 1: locate the handler listener, drain any pending inline
-    // source, and read the cleared flag (scoped so the DOM/world borrow
-    // drops before compiling).
-    let (id, uncompiled, cleared) = {
+    let Some(id) = ({
         let dom = ctx.host().dom();
-        let Ok(mut listeners) = dom.world_mut().get::<&mut EventListeners>(entity) else {
-            return JsValue::Null;
-        };
-        let Some(id) = listeners.find_event_handler(event_type) else {
-            return JsValue::Null;
-        };
-        let uncompiled = listeners.take_uncompiled(id).map(|u| u.source);
-        (id, uncompiled, listeners.is_handler_cleared(id))
-    };
-
-    if let Some(source) = uncompiled {
-        if let Some(callable) = lazy_compile_handler(ctx, &source) {
-            set_handler_callable(ctx, id, callable);
-        } else {
-            // §8.1.8.1: "if body is not parsable" → handler value is null.
-            ctx.vm.remove_listener_and_prune_back_ref(id);
-            return JsValue::Null;
-        }
-    } else if cleared {
-        // §8.1.8.1: the content attribute was removed after a prior lazy
-        // compile — the handler value is null. Drop the stale compiled
-        // callable that the engine-independent consumer could not reach.
-        ctx.vm.remove_listener_and_prune_back_ref(id);
+        dom.world()
+            .get::<&EventListeners>(entity)
+            .ok()
+            .and_then(|listeners| listeners.find_event_handler(event_type))
+    }) else {
         return JsValue::Null;
-    }
-
+    };
+    ctx.vm.ensure_event_handler_current(entity, id);
     ctx.host()
         .get_listener(id)
         .map_or(JsValue::Null, JsValue::Object)
@@ -373,7 +392,7 @@ fn activate_event_handler(
             listeners.clear_uncompiled(id);
             id
         };
-        set_handler_callable(ctx, id, obj);
+        ctx.vm.set_handler_callable(id, obj);
     } else {
         let id = {
             let dom = ctx.host().dom();
@@ -390,31 +409,33 @@ fn activate_event_handler(
     }
 }
 
-/// Compile an inline handler body as `function (event) { <body> }` and
-/// return the callable's `ObjectId` (WHATWG HTML §8.1.8.1 "getting the
-/// current value of the event handler" — compile step). Returns `None`
-/// if the body is not parsable (the caller then clears the handler to
-/// `null`). Shared by the getter ([`read_event_handler`]) and the
-/// dispatch walk's lazy-compile branch.
-///
-/// The body is wrapped in a function expression so a top-level `return`
-/// inside the inline handler (`onsubmit="return false"`) is valid.
-/// Compilation uses `run_script` (not `Vm::eval`) deliberately: `eval`
-/// drains the microtask + same-window task queues, which could re-enter
-/// event dispatch while this runs mid-dispatch; evaluating the function
-/// expression only allocates the closure and never runs user code, so no
-/// queues need draining.
-///
-/// The special inline-handler scope chain (`with(document)
-/// with(form-owner) with(element)`) is deferred
-/// (`#11-inline-handler-scope-chain`); `event` + `this` = currentTarget
-/// cover the common case. The 5-argument `onerror` signature is deferred
-/// (`#11-onerror-error-event-args`).
-pub(super) fn lazy_compile_handler(ctx: &mut NativeContext<'_>, source: &str) -> Option<ObjectId> {
-    let wrapped = format!("(function (event) {{\n{source}\n}})");
-    let script = crate::compiler::compile_script(&wrapped).ok()?;
-    match ctx.vm.run_script(script) {
-        Ok(JsValue::Object(id)) if ctx.vm.get_object(id).kind.is_callable() => Some(id),
-        _ => None,
+impl VmInner {
+    /// Compile an inline handler body as `function (event) { <body> }` and
+    /// return the callable's `ObjectId` (WHATWG HTML §8.1.8.1 "getting the
+    /// current value of the event handler" — compile step). Returns `None`
+    /// if the body is not parsable (the caller then clears the handler to
+    /// `null`). Shared by [`Self::ensure_event_handler_current`] across all
+    /// dispatch paths and the getter.
+    ///
+    /// The body is wrapped in a function expression so a top-level `return`
+    /// inside the inline handler (`onsubmit="return false"`) is valid.
+    /// Compilation uses `run_script` (not `Vm::eval`) deliberately: `eval`
+    /// drains the microtask + same-window task queues, which could re-enter
+    /// event dispatch while this runs mid-dispatch; evaluating the function
+    /// expression only allocates the closure and never runs user code, so
+    /// no queues need draining.
+    ///
+    /// The special inline-handler scope chain (`with(document)
+    /// with(form-owner) with(element)`) is deferred
+    /// (`#11-inline-handler-scope-chain`); `event` + `this` = currentTarget
+    /// cover the common case. The 5-argument `onerror` signature is deferred
+    /// (`#11-onerror-error-event-args`).
+    pub(in crate::vm) fn lazy_compile_handler(&mut self, source: &str) -> Option<ObjectId> {
+        let wrapped = format!("(function (event) {{\n{source}\n}})");
+        let script = crate::compiler::compile_script(&wrapped).ok()?;
+        match self.run_script(script) {
+            Ok(JsValue::Object(id)) if self.get_object(id).kind.is_callable() => Some(id),
+            _ => None,
+        }
     }
 }

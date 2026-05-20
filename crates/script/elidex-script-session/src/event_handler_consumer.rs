@@ -32,7 +32,7 @@
 //! introduce a new `elidex-form → elidex-script-session` dependency
 //! edge. It is the first `MutationDispatcher` impl in this crate.
 
-use elidex_ecs::{Attributes, EcsDom, Entity, MutationEvent};
+use elidex_ecs::{Attributes, EcsDom, Entity, MutationEvent, TagType};
 
 use crate::EventListeners;
 
@@ -183,6 +183,36 @@ pub fn event_handler_attr_event_type(name: &str) -> Option<&str> {
     }
 }
 
+/// If `name` is a known event-handler content attribute, return its event
+/// type (name minus `on`) and [`HandlerScope`]. Linear scan, off the hot
+/// path. The scope drives `<body>` WindowEventHandlers delegation (below).
+fn event_handler_attr_lookup(name: &str) -> Option<(&str, HandlerScope)> {
+    EVENT_HANDLER_ATTRS
+        .iter()
+        .find(|(attr, _)| *attr == name)
+        .map(|(attr, scope)| (&attr[2..], *scope))
+}
+
+/// Resolve the entity whose [`EventListeners`] component should hold an
+/// inline handler for `(origin, scope)`. WindowEventHandlers content
+/// attributes on a `<body>` element delegate to the Window object (WHATWG
+/// HTML §8.1.8.2) — the IDL accessors read/write the Window, so the inline
+/// source must land there too. Everything else stays on the origin entity.
+fn resolve_handler_target(origin: Entity, scope: HandlerScope, dom: &EcsDom) -> Entity {
+    if scope == HandlerScope::Window && is_body_element(origin, dom) {
+        dom.window_entity().unwrap_or(origin)
+    } else {
+        origin
+    }
+}
+
+/// `true` if `entity` is an HTML `<body>` element.
+fn is_body_element(entity: Entity, dom: &EcsDom) -> bool {
+    dom.world()
+        .get::<&TagType>(entity)
+        .is_ok_and(|t| t.0.eq_ignore_ascii_case("body"))
+}
+
 /// Inline event-handler content attribute consumer. Unit struct — all
 /// state lives in the [`EventListeners`] ECS component.
 pub struct EventHandlerAttributeConsumer;
@@ -212,19 +242,20 @@ fn handle_attribute_change(
     new_value: Option<&str>,
     dom: &mut EcsDom,
 ) {
-    let Some(event_type) = event_handler_attr_event_type(name) else {
+    let Some((event_type, scope)) = event_handler_attr_lookup(name) else {
         return;
     };
     let event_type = event_type.to_string();
+    let target = resolve_handler_target(node, scope, dom);
     match new_value {
-        Some(src) => set_inline_handler(node, &event_type, src, dom),
+        Some(src) => set_inline_handler(target, &event_type, src, dom),
         // Only a genuine content-attribute removal (an attribute that
         // actually existed) clears the handler. `remove_attribute` fires
         // unconditionally with `old_value = None` for an absent attribute
         // (EcsDom DOM §4.3.2 record semantics); such a no-op must NOT
         // disturb an IDL-set handler (`el.onclick = fn` creates no content
         // attribute), per WHATWG HTML §8.1.8.1.
-        None if old_value.is_some() => clear_inline_handler(node, &event_type, dom),
+        None if old_value.is_some() => clear_inline_handler(target, &event_type, dom),
         None => {}
     }
 }
@@ -242,18 +273,27 @@ fn handle_insert(node: Entity, dom: &mut EcsDom) {
         entities.push(descendant);
         true
     });
-    let mut pending: Vec<(Entity, String, String)> = Vec::new();
+    // (origin entity, scope, event_type, source). Target resolution is
+    // deferred to after the `Attributes` borrow is released to avoid
+    // overlapping `dom` borrows.
+    let mut pending: Vec<(Entity, HandlerScope, String, String)> = Vec::new();
     for entity in entities {
         if let Ok(attrs) = dom.world().get::<&Attributes>(entity) {
             for (attr_name, attr_value) in attrs.iter() {
-                if let Some(event_type) = event_handler_attr_event_type(attr_name) {
-                    pending.push((entity, event_type.to_string(), attr_value.to_string()));
+                if let Some((event_type, scope)) = event_handler_attr_lookup(attr_name) {
+                    pending.push((
+                        entity,
+                        scope,
+                        event_type.to_string(),
+                        attr_value.to_string(),
+                    ));
                 }
             }
         }
     }
-    for (entity, event_type, source) in pending {
-        set_inline_handler(entity, &event_type, &source, dom);
+    for (origin, scope, event_type, source) in pending {
+        let target = resolve_handler_target(origin, scope, dom);
+        set_inline_handler(target, &event_type, &source, dom);
     }
 }
 

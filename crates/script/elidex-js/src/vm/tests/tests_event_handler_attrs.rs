@@ -426,16 +426,44 @@ fn inline_handler_cleared_after_compile_on_remove_attribute() {
 fn handler_accessor_rejects_text_receiver() {
     with_el(|vm| {
         vm.eval(
-            "globalThis.r = 'init'; \
+            "globalThis.r = 'init'; globalThis.msg = ''; \
              var p = Object.getPrototypeOf(el); \
              while (p && !Object.getOwnPropertyDescriptor(p, 'onclick')) p = Object.getPrototypeOf(p); \
              var setter = Object.getOwnPropertyDescriptor(p, 'onclick').set; \
              var t = document.createTextNode('x'); \
              try { setter.call(t, function () {}); globalThis.r = 'no-throw'; } \
-             catch (e) { globalThis.r = 'threw'; }",
+             catch (e) { globalThis.r = 'threw'; globalThis.msg = String(e.message); }",
         )
         .unwrap();
         assert_eq!(eval_str(vm, "globalThis.r"), "threw");
+        // Copilot R2 #2: the Illegal-invocation message names the IDL
+        // property ("onclick"), not the event type ("click").
+        assert!(
+            eval_str(vm, "globalThis.msg").contains("onclick"),
+            "brand-check error message should name the property 'onclick'"
+        );
+    });
+}
+
+// ---- F-12b: inline `<body on{weh}>` content attribute delegates to Window (Copilot R2 #1) ----
+#[test]
+fn inline_body_weh_attribute_delegates_to_window() {
+    with_el(|vm| {
+        // A WindowEventHandlers content attribute on <body> must be
+        // recorded on the Window (where the IDL accessor + dispatch read),
+        // not the body entity (WHATWG HTML §8.1.8.2).
+        vm.eval(
+            "globalThis.popped = 0; \
+             var b = document.createElement('body'); \
+             b.setAttribute('onpopstate', 'globalThis.popped = 1');",
+        )
+        .unwrap();
+        // Visible through the Window IDL getter (compiles the inline source).
+        assert!(eval_bool(vm, "window.onpopstate !== null"));
+        // And fires on a Window dispatch.
+        vm.eval("window.dispatchEvent(new Event('popstate'));")
+            .unwrap();
+        assert_eq!(eval_num(vm, "globalThis.popped"), 1.0);
     });
 }
 
