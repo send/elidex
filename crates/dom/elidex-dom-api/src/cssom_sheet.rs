@@ -10,7 +10,7 @@
 //! and divergence triggers a re-walk + re-parse (reassigning rule_ids,
 //! leaving any held `CSSStyleRule` / `CSSStyleDeclaration` Rule wrapper
 //! stale by design).  The source + version differ by owner kind
-//! (`sheet_source_text` / `sheet_version`):
+//! (`sync_and_get_state` source branch / `sheet_version`):
 //!
 //! - `<style>` — source is the element's text content; version is the
 //!   subtree `EcsDom::inclusive_descendants_version` (a direct
@@ -70,19 +70,6 @@ fn sheet_version(sheet_entity: Entity, dom: &EcsDom) -> u64 {
         )
 }
 
-/// Source CSS text of a stylesheet owner. `<link>` reads its
-/// `LinkStylesheet` component (HTML §4.6.7 associated style sheet);
-/// `<style>` collects its text content. Only called on a cache miss /
-/// divergence.
-fn sheet_source_text(sheet_entity: Entity, dom: &EcsDom) -> String {
-    dom.world()
-        .get::<&LinkStylesheet>(sheet_entity)
-        .map_or_else(
-            |_| collect_text_content(sheet_entity, dom),
-            |link| link.source.clone(),
-        )
-}
-
 /// Sync the cached `Stylesheet` against the current owner source and
 /// return a mutable reference. Re-parses (and reassigns rule_ids) when
 /// [`sheet_version`] indicates the source has changed since the last
@@ -99,7 +86,14 @@ fn sync_and_get_state<'a>(
         .get(&sheet_entity)
         .is_none_or(|s| s.snapshot_version != version);
     if needs_reparse {
-        let parsed = parse_stylesheet(&sheet_source_text(sheet_entity, dom), Origin::Author);
+        // Parse from the owner source. `<link>` parses its `LinkStylesheet`
+        // component text in place (no clone — the component can be a large
+        // external sheet); `<style>` collects its child text content
+        // (HTML §4.6.7 associated style sheet vs `<style>` text node).
+        let parsed = match dom.world().get::<&LinkStylesheet>(sheet_entity) {
+            Ok(link) => parse_stylesheet(&link.source, Origin::Author),
+            Err(_) => parse_stylesheet(&collect_text_content(sheet_entity, dom), Origin::Author),
+        };
         session.cssom_sheets.insert(
             sheet_entity,
             CssomSheetState {

@@ -368,8 +368,8 @@ fn resolve_and_fetch_text(
             response.url
         );
     }
-    let url = response.url.clone();
-    Ok((String::from_utf8_lossy(&response.body).into_owned(), url))
+    let body = String::from_utf8_lossy(&response.body).into_owned();
+    Ok((body, response.url))
 }
 
 /// Fetch a single image URL, using a cache to avoid duplicate requests.
