@@ -31,8 +31,7 @@ pub use event_dispatch::{
     DispatchFlags, DispatchPlan, ListenerPlanEntry,
 };
 pub use event_handler_consumer::{
-    event_handler_attr_event_type, EventHandlerAttributeConsumer, HandlerScope,
-    EVENT_HANDLER_ATTRS,
+    event_handler_attr_event_type, EventHandlerAttributeConsumer, HandlerScope, EVENT_HANDLER_ATTRS,
 };
 pub use event_listener::{
     EventListeners, ListenerEntry, ListenerId, ListenerKind, UncompiledHandler,

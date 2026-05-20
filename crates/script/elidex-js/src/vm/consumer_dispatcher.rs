@@ -30,6 +30,7 @@
 use elidex_dom_api::{BaseUrlMaintainer, LiveRangeBridge, NodeIteratorAdjuster};
 use elidex_ecs::{EcsDom, MutationDispatcher, MutationEvent};
 use elidex_form::FormControlReconciler;
+use elidex_script_session::EventHandlerAttributeConsumer;
 
 /// Typed composer of the mutation consumers.
 pub struct ConsumerDispatcher {
@@ -52,6 +53,16 @@ pub struct ConsumerDispatcher {
     /// field order so previous consumers' invariants are preserved
     /// before form-derived state is updated.
     form_control: FormControlReconciler,
+    /// Inline event-handler content attribute detection (`<button
+    /// onclick="...">`). Dual-arm (AttributeChange + Insert) consumer
+    /// recording uncompiled handler source into the [`EventListeners`]
+    /// component; lazy compile happens VM-side at first read / dispatch.
+    /// WHATWG HTML §8.1.8.1. Added last — it only writes
+    /// [`EventListeners`], which no earlier consumer reads, so order is
+    /// independent.
+    ///
+    /// [`EventListeners`]: elidex_script_session::EventListeners
+    event_handler_attrs: EventHandlerAttributeConsumer,
 }
 
 impl ConsumerDispatcher {
@@ -66,6 +77,7 @@ impl ConsumerDispatcher {
             node_iter,
             base_url: BaseUrlMaintainer,
             form_control: FormControlReconciler,
+            event_handler_attrs: EventHandlerAttributeConsumer,
         }
     }
 
@@ -105,5 +117,6 @@ impl MutationDispatcher for ConsumerDispatcher {
         self.node_iter.handle(event, dom);
         self.base_url.handle(event, dom);
         self.form_control.handle(event, dom);
+        self.event_handler_attrs.handle(event, dom);
     }
 }

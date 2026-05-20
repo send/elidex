@@ -348,6 +348,40 @@ fn walk_phase(
                 }
             }
 
+            // HTML §8.1.8.1 "getting the current value of the event
+            // handler": if this listener backs an event-handler IDL
+            // attribute (`el.onclick` / inline `<button onclick>`) with
+            // a pending uncompiled inline source, compile it now (first
+            // dispatch) and overwrite the stored callable.  An
+            // uncompiled source always supersedes a stale compiled
+            // callable (last-write-wins); a parse failure clears the
+            // handler so the `get_listener` miss below skips it.  Gated
+            // on `is_handler` so the common `addEventListener` listener
+            // skips the component lookup entirely (it can never carry
+            // inline source); handler entries are re-read here so a
+            // content attribute changed mid-dispatch is still honored.
+            if entry.is_handler {
+                let uncompiled = {
+                    let dom = ctx.host().dom();
+                    dom.world_mut()
+                        .get::<&mut EventListeners>(*entity)
+                        .ok()
+                        .and_then(|mut listeners| {
+                            listeners.take_uncompiled(entry.id).map(|u| u.source)
+                        })
+                };
+                if let Some(source) = uncompiled {
+                    match super::event_handler_attrs::lazy_compile_handler(ctx, &source) {
+                        Some(callable) => {
+                            super::event_handler_attrs::set_handler_callable(
+                                ctx, entry.id, callable,
+                            );
+                        }
+                        None => ctx.vm.remove_listener_and_prune_back_ref(entry.id),
+                    }
+                }
+            }
+
             // Resolve the JS function; a miss means the listener
             // was removed between plan-freeze and now (addEventListener
             // inside an earlier listener can't add to this plan

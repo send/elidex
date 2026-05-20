@@ -900,6 +900,21 @@ impl super::super::VmInner {
         // ParentNode mixin (WHATWG §5.2.4) shared with
         // `Element.prototype`.
         self.install_parent_node_mixin(doc_wrapper);
+        // Event-handler IDL attributes (WHATWG HTML §8.1.8.2.1):
+        // Document mixes in GlobalEventHandlers +
+        // DocumentAndElementEventHandlers + the Document-specific
+        // partial (`onreadystatechange` / `onvisibilitychange`).
+        // Installed per-entity on the wrapper (no shared
+        // `Document.prototype` in elidex), gated by the same
+        // idempotency set.
+        self.install_event_handler_attrs(
+            doc_wrapper,
+            &[
+                elidex_script_session::HandlerScope::Global,
+                elidex_script_session::HandlerScope::DocumentElement,
+                elidex_script_session::HandlerScope::DocumentOnly,
+            ],
+        );
         if let Some(hd) = self.host_data.as_deref_mut() {
             hd.document_methods_installed.insert(doc_entity);
         }

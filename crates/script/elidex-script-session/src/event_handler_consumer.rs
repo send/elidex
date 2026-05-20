@@ -1,12 +1,13 @@
 //! [`EventHandlerAttributeConsumer`] — inline event-handler content
 //! attribute detector (WHATWG HTML §8.1.8.1).
 //!
-//! Dual-arm [`MutationDispatcher`] consumer (mirrors the
-//! `FormControlReconciler` AttributeChange + Insert shape):
+//! Dual-arm [`MutationDispatcher`](elidex_ecs::MutationDispatcher)
+//! consumer (mirrors the `FormControlReconciler` AttributeChange +
+//! Insert shape):
 //!
 //! - **Arm 1 — [`MutationEvent::AttributeChange`]**: dynamic
 //!   `setAttribute` / `removeAttribute` on a live element. Fires at the
-//!   [`EcsDom::set_attribute`] chokepoint.
+//!   `EcsDom::set_attribute` chokepoint.
 //! - **Arm 2 — [`MutationEvent::Insert`]**: parser / `innerHTML` /
 //!   `outerHTML` / `setHTMLUnsafe` bake attributes into the `Attributes`
 //!   component at `create_element` time and do **not** fire
@@ -19,8 +20,9 @@
 //! # Layering
 //!
 //! Engine-independent: records the *uncompiled* source string into the
-//! [`EventListeners`] component's [`ListenerKind::EventHandler`] entry
-//! (`set_uncompiled`); it never compiles (no VM / `NativeContext`
+//! [`EventListeners`] component's
+//! [`ListenerKind::EventHandler`](crate::ListenerKind::EventHandler)
+//! entry (`set_uncompiled`); it never compiles (no VM / `NativeContext`
 //! access — `MutationDispatcher::dispatch` receives only `EcsDom`).
 //! Compilation is lazy, performed VM-side at first read / dispatch
 //! (WHATWG HTML §8.1.8.1 "get the current value"). This consumer is

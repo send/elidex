@@ -266,10 +266,10 @@ fn dialog_close_when_closed_no_event() {
 }
 
 #[test]
-fn dialog_no_event_handler_idl_attrs() {
-    // Defer-proof: oncancel / onclose are NOT installed on
-    // HTMLDialogElement.prototype (deferred to D-10).  Walk full chain
-    // to Object.prototype and assert absence (T2b lesson #204).
+fn dialog_inherits_event_handler_idl_attrs() {
+    // D-28 (`#11-event-handler-attribute-vm`) installs GlobalEventHandlers
+    // on `HTMLElement.prototype` (HTML §8.1.8.2.1), so `<dialog>` inherits
+    // `oncancel` / `onclose` through the chain.
     let out = run("var d = document.createElement('dialog'); \
          function inChain(obj, name) { \
              while (obj) { \
@@ -280,7 +280,7 @@ fn dialog_no_event_handler_idl_attrs() {
          } \
          var cancel = inChain(d, 'oncancel'); \
          var close = inChain(d, 'onclose'); \
-         (!cancel && !close) ? 'ok' : 'fail:cancel=' + cancel + ',close=' + close;");
+         (cancel && close) ? 'ok' : 'fail:cancel=' + cancel + ',close=' + close;");
     assert_eq!(out, "ok");
 }
 
@@ -320,11 +320,12 @@ fn details_name_reflect() {
 }
 
 #[test]
-fn details_no_event_handler_idl_attrs() {
-    // Defer-proof (slot `#11-tags-T2d-details-toggle-event`):
-    // oncancel / onclose / ontoggle / onbeforetoggle MUST NOT be
-    // installed yet.  Walk full chain to Object.prototype per
-    // T2b lesson #204.
+fn details_inherits_event_handler_idl_attrs() {
+    // D-28 (`#11-event-handler-attribute-vm`) installs GlobalEventHandlers
+    // on `HTMLElement.prototype` (HTML §8.1.8.2.1), so `<details>`
+    // inherits `ontoggle` / `onbeforetoggle` through the chain.  (The
+    // ToggleEvent UA-fire wiring remains a separate slot — only the IDL
+    // attribute accessor is asserted here.)
     let out = run("var d = document.createElement('details'); \
          function inChain(obj, name) { \
              while (obj) { \
@@ -335,7 +336,7 @@ fn details_no_event_handler_idl_attrs() {
          } \
          var t = inChain(d, 'ontoggle'); \
          var bt = inChain(d, 'onbeforetoggle'); \
-         (!t && !bt) ? 'ok' : 'fail:toggle=' + t + ',beforetoggle=' + bt;");
+         (t && bt) ? 'ok' : 'fail:toggle=' + t + ',beforetoggle=' + bt;");
     assert_eq!(out, "ok");
 }
 

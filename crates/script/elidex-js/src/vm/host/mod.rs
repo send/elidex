@@ -112,6 +112,8 @@ pub(super) mod element_proto;
 #[cfg(feature = "engine")]
 pub(super) mod element_shadow;
 pub(super) mod elements;
+#[cfg(feature = "engine")]
+pub(super) mod event_handler_attrs;
 pub(super) mod event_shapes;
 #[cfg(feature = "engine")]
 pub(super) mod event_source;

@@ -144,8 +144,13 @@ impl EventListeners {
         passive: bool,
     ) -> ListenerId {
         let id = ListenerId(NEXT_LISTENER_ID.fetch_add(1, Ordering::Relaxed));
-        self.entries
-            .push(ListenerEntry::normal(id, event_type.into(), capture, once, passive));
+        self.entries.push(ListenerEntry::normal(
+            id,
+            event_type.into(),
+            capture,
+            once,
+            passive,
+        ));
         id
     }
 

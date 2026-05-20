@@ -320,6 +320,19 @@ impl VmInner {
         // wrapper from `VmInner::alloc_or_cached_storage` so
         // `localStorage === localStorage` holds (`[SameObject]`).
         self.install_ro_accessors(proto_id, WINDOW_STORAGE_ACCESSORS);
+        // Event-handler IDL attributes (WHATWG HTML §8.1.8.2.1): Window
+        // mixes in GlobalEventHandlers + WindowEventHandlers.  Both
+        // target the Window entity directly (`entity_from_this(window)`),
+        // so the normal (non-delegating) backend pair is used; the body
+        // proto installs the WindowEventHandlers delegation overrides
+        // separately.
+        self.install_event_handler_attrs(
+            proto_id,
+            &[
+                elidex_script_session::HandlerScope::Global,
+                elidex_script_session::HandlerScope::Window,
+            ],
+        );
 
         self.window_prototype = Some(proto_id);
     }
