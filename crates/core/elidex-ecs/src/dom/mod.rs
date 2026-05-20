@@ -506,6 +506,23 @@ impl EcsDom {
         self.world.spawn((NodeKind::Window,))
     }
 
+    /// Locate the single [`NodeKind::Window`] entity, if one exists.
+    ///
+    /// One Window entity is created per `Vm` (via [`Self::create_window_root`]
+    /// at bind time). Engine-independent consumers (e.g. the inline
+    /// event-handler detector routing `<body>` WindowEventHandlers content
+    /// attributes to the Window per WHATWG HTML §8.1.8.2) need it without a
+    /// VM-side handle. Linear scan — only invoked off the hot path (a body
+    /// element gaining a WindowEventHandlers `on*` attribute).
+    #[must_use]
+    pub fn window_entity(&self) -> Option<Entity> {
+        self.world
+            .query::<(Entity, &NodeKind)>()
+            .iter()
+            .find(|(_, kind)| matches!(**kind, NodeKind::Window))
+            .map(|(entity, _)| entity)
+    }
+
     /// Create a text node.
     ///
     /// Shim over [`create_text_with_owner`](Self::create_text_with_owner)

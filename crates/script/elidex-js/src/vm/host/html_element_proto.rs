@@ -123,6 +123,19 @@ impl VmInner {
             None,
             shape::PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );
+        // Event-handler IDL attributes (WHATWG HTML §8.1.8.2.1):
+        // GlobalEventHandlers + DocumentAndElementEventHandlers
+        // (`oncopy`/`oncut`/`onpaste`) are mixed into HTMLElement /
+        // Element, so every HTML element inherits them here.
+        // WindowEventHandlers are installed on Window / delegated from
+        // `HTMLBodyElement.prototype` separately.
+        self.install_event_handler_attrs(
+            proto_id,
+            &[
+                elidex_script_session::HandlerScope::Global,
+                elidex_script_session::HandlerScope::DocumentElement,
+            ],
+        );
     }
 
     /// Install `focus()` / `blur()` on `HTMLElement.prototype`.

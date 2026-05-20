@@ -53,6 +53,17 @@ impl VmInner {
         self.html_dlist_prototype = Some(self.alloc_html_subclass_prototype(parent));
         self.html_menu_prototype = Some(self.alloc_html_subclass_prototype(parent));
         self.html_picture_prototype = Some(self.alloc_html_subclass_prototype(parent));
+
+        // WHATWG HTML §8.1.8.2: `<body>` delegates the WindowEventHandlers
+        // attributes (`onbeforeunload`, `onhashchange`, ...) to the Window
+        // object — `<body>.onbeforeunload = fn` reads/writes
+        // `window.onbeforeunload`.  GlobalEventHandlers are inherited from
+        // `HTMLElement.prototype` (on the body element itself, not
+        // delegated).
+        let body_proto = self
+            .html_body_prototype
+            .expect("html_body_prototype just populated above");
+        self.install_body_weh_delegation(body_proto);
     }
 
     /// Allocate a fresh `HTMLElement` subclass prototype chained to

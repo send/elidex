@@ -78,16 +78,12 @@ fn head_brand_distinct_from_body() {
 }
 
 #[test]
-fn body_has_no_onload_event_handler_idl_attr() {
-    // T2b ships HTMLBody as brand-only; the 16 event-handler IDL
-    // attributes (HTML §4.3.1.1) are deferred to slot
-    // `#11-tags-T2b-body-events` paired with D-10 EventHandlerAttribute
-    // base machinery.  This test pins the absence so a future
-    // accidental install on HTMLElement.prototype (or any other
-    // ancestor) gets caught: walks the **entire** prototype chain
-    // up to Object.prototype rather than only the body's own
-    // prototype, so an `onload` accessor installed on
-    // HTMLElement.prototype would also surface as a regression.
+fn body_inherits_onload_event_handler_idl_attr() {
+    // D-28 (`#11-event-handler-attribute-vm`) installs the
+    // GlobalEventHandlers IDL attributes on `HTMLElement.prototype`
+    // (HTML §8.1.8.2.1), so `<body>` inherits `onload`.  Walk the
+    // whole prototype chain to confirm the accessor is reachable (not
+    // an own property of the body wrapper).
     let out = run("var b = document.createElement('body'); \
          var p = Object.getPrototypeOf(b); \
          var found = false; \
@@ -95,9 +91,8 @@ fn body_has_no_onload_event_handler_idl_attr() {
             if (Object.getOwnPropertyDescriptor(p, 'onload')) { found = true; break; } \
             p = Object.getPrototypeOf(p); \
          } \
-         var present = ('onload' in b) || (b.onload !== undefined); \
-         (found || present) ? 'has-onload' : 'no-onload';");
-    assert_eq!(out, "no-onload");
+         found ? 'has-onload' : 'no-onload';");
+    assert_eq!(out, "has-onload");
 }
 
 #[test]

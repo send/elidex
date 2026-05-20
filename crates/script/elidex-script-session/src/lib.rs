@@ -14,6 +14,7 @@ mod cssom_api;
 mod dom_api;
 mod engine;
 pub mod event_dispatch;
+pub mod event_handler_consumer;
 pub mod event_listener;
 pub mod event_queue;
 mod identity_map;
@@ -29,7 +30,12 @@ pub use event_dispatch::{
     dispatch_event, retarget, script_dispatch_event, script_dispatch_event_core, DispatchEvent,
     DispatchFlags, DispatchPlan, ListenerPlanEntry,
 };
-pub use event_listener::{EventListeners, ListenerEntry, ListenerId};
+pub use event_handler_consumer::{
+    event_handler_attr_event_type, EventHandlerAttributeConsumer, HandlerScope, EVENT_HANDLER_ATTRS,
+};
+pub use event_listener::{
+    EventListeners, ListenerEntry, ListenerId, ListenerKind, UncompiledHandler,
+};
 pub use event_queue::{EventQueue, QueuedEvent};
 pub use identity_map::IdentityMap;
 pub use mutation::{

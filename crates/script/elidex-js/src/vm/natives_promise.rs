@@ -503,6 +503,12 @@ fn dispatch_unhandled_rejection_event(
     // mutations (e.g. `e.foo = 1`) into the next listener's view, which
     // diverges from the regular dispatch path.
     for entry in pending {
+        // HTML §8.1.8.1: lazy-compile / drop an event-handler IDL attribute
+        // backing before resolving its callable (a content-attribute
+        // `onunhandledrejection` would otherwise never compile on this
+        // non-`walk_phase` dispatch path). No-op for `addEventListener`
+        // listeners.
+        vm.ensure_event_handler_current(document, entry.id);
         let Some(func_id) = vm
             .host_data
             .as_deref()

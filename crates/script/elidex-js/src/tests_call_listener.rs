@@ -19,7 +19,7 @@
 use elidex_ecs::{Attributes, EcsDom};
 use elidex_plugin::EventPayload;
 use elidex_script_session::event_dispatch::DispatchEvent;
-use elidex_script_session::{ListenerId, ScriptContext, ScriptEngine, SessionCore};
+use elidex_script_session::{EventListeners, ListenerId, ScriptContext, ScriptEngine, SessionCore};
 
 use crate::engine::ElidexJsEngine;
 use crate::vm::host_data::HostData;
@@ -106,6 +106,67 @@ fn first_green_listener_calls_prevent_default() {
     assert!(
         event.flags.default_prevented,
         "preventDefault() inside listener must sync to event.flags"
+    );
+
+    engine.vm().unbind();
+}
+
+/// Copilot PR212 R2 #3 regression: the UA-initiated dispatch path
+/// (`ScriptEngine::call_listener`, used by the session-crate dispatch
+/// loop) must lazy-compile an inline event-handler IDL attribute source
+/// before resolving its callable — not just the script `walk_phase`. A
+/// `<body onload="...">`-style content attribute reaches handlers via this
+/// path on UA fire (WHATWG HTML §8.1.8.1).
+#[test]
+#[allow(unsafe_code)]
+fn call_listener_lazy_compiles_inline_handler() {
+    let mut engine = ElidexJsEngine::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let target = dom.create_element("div", Attributes::default());
+
+    // Pre-seed an event-handler listener whose value is an uncompiled
+    // inline source (as the inline-attribute consumer would record).
+    let listener_id = {
+        let mut listeners = EventListeners::new();
+        let id = listeners.add_event_handler("click");
+        listeners.set_uncompiled(id, "globalThis.x = 1");
+        dom.world_mut()
+            .insert_one(target, listeners)
+            .expect("insert EventListeners");
+        id
+    };
+
+    engine.vm().install_host_data(HostData::new());
+    unsafe {
+        engine.vm().bind(
+            std::ptr::from_mut(&mut session),
+            std::ptr::from_mut(&mut dom),
+            doc,
+        );
+    }
+    engine.vm().eval("globalThis.x = 0;").unwrap();
+
+    // No compiled callable is stored yet — only the uncompiled source.
+    assert!(
+        engine
+            .vm()
+            .host_data()
+            .expect("HostData")
+            .get_listener(listener_id)
+            .is_none(),
+        "inline handler must not be compiled before first dispatch"
+    );
+
+    let mut event = DispatchEvent::new("click", target);
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    engine.call_listener(listener_id, &mut event, target, false, &mut ctx);
+
+    assert_eq!(
+        engine.vm().eval("globalThis.x").unwrap(),
+        JsValue::Number(1.0),
+        "call_listener must lazy-compile + invoke the inline handler"
     );
 
     engine.vm().unbind();

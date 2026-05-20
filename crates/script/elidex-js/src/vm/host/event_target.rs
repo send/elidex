@@ -535,9 +535,21 @@ fn find_listener_id(
                 // require — `addEventListener` (duplicate check) and
                 // `removeEventListener` (find target) call this on
                 // every invocation, so the alloc savings add up.
+                //
+                // WHATWG HTML §8.1.8.1: event-handler listeners (backing
+                // `el.onclick = fn`) are NOT identity-matchable by
+                // `removeEventListener(type, fn)` nor by the
+                // `addEventListener` duplicate check — their callback is
+                // the internal event-handler processing algorithm, not
+                // the raw `fn`. Filter to `Normal` so handler listeners
+                // are excluded from both paths (they are managed solely
+                // through the IDL attribute / content-attribute surface).
                 listeners
                     .iter_matching(event_type)
-                    .filter(|e| e.capture == capture)
+                    .filter(|e| {
+                        e.capture == capture
+                            && matches!(e.kind, elidex_script_session::ListenerKind::Normal)
+                    })
                     .map(|e| e.id)
                     .collect()
             })

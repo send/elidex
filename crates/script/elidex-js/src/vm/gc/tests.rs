@@ -327,8 +327,13 @@ fn gc_heap_bounded_in_loop() {
     // (PointerEvent / DragEvent / TouchEvent / Touch / TouchList /
     // DataTransfer / DataTransferItem / DataTransferItemList — 8 new
     // ctors + 8 new prototypes + ~40 accessor pairs / methods total).
+    // Bumped from 2200 with D-28 `#11-event-handler-attribute-vm`: the
+    // ~108 GlobalEventHandlers / WindowEventHandlers / DAEH IDL attribute
+    // accessors install one native getter + setter each across
+    // HTMLElement.prototype / Window.prototype / the Document wrapper, a
+    // fixed baseline of several hundred extra native-function objects.
     assert!(
-        live < 2200,
+        live < 2800,
         "heap should be bounded by GC, got {live} live objects"
     );
 }

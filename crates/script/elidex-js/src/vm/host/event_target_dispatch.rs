@@ -348,6 +348,18 @@ fn walk_phase(
                 }
             }
 
+            // HTML §8.1.8.1 "getting the current value of the event
+            // handler": bring an event-handler IDL attribute backing up to
+            // date (lazy-compile a pending inline source / drop a cleared
+            // one) before its callable is resolved below. Gated on
+            // `is_handler` so the common `addEventListener` listener skips
+            // the component lookup entirely. Shared with the session-crate
+            // UA dispatch + promise-rejection dispatch via
+            // `VmInner::ensure_event_handler_current`.
+            if entry.is_handler {
+                ctx.vm.ensure_event_handler_current(*entity, entry.id);
+            }
+
             // Resolve the JS function; a miss means the listener
             // was removed between plan-freeze and now (addEventListener
             // inside an earlier listener can't add to this plan

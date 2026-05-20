@@ -227,6 +227,15 @@ pub struct ListenerPlanEntry {
     pub once: bool,
     /// Whether the listener was registered with `{ passive: true }`.
     pub passive: bool,
+    /// `true` if this entry backs an event-handler IDL attribute
+    /// ([`ListenerKind::EventHandler`](crate::ListenerKind::EventHandler)).
+    /// Lets the dispatch walk skip the
+    /// per-listener uncompiled-source lookup for the common
+    /// `addEventListener` case (which can never carry inline source).
+    /// Handler entries are still re-read at invocation so a content
+    /// attribute changed mid-dispatch is honored (WHATWG HTML §8.1.8.1
+    /// "getting the current value of the event handler").
+    pub is_handler: bool,
 }
 
 /// Pre-collected dispatch plan: propagation path with listener entries per entity.
@@ -309,6 +318,7 @@ fn collect_listeners(
                     id: e.id,
                     once: e.once,
                     passive: e.passive,
+                    is_handler: matches!(e.kind, crate::ListenerKind::EventHandler { .. }),
                 })
                 .collect()
         })
