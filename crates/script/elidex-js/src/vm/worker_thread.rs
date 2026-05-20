@@ -102,7 +102,17 @@ fn obtain_worker_source(
     if script_url.scheme() == "data" {
         let data = elidex_net::data_url::parse_data_url(script_url)
             .map_err(|e| format!("NetworkError: invalid worker data: URL: {e}"))?;
-        return Ok(String::from_utf8_lossy(&data.body).into_owned());
+        // A `data:` worker script must still carry a JavaScript MIME essence
+        // (WHATWG HTML §10.2.4) — `data:text/html,...` must fail validation, not
+        // be evaluated as script. Reuse the same essence check as the network
+        // path (status is synthesised as 200 for the inline body).
+        return elidex_api_workers::validate_worker_script_response(
+            Some(&data.media_type),
+            200,
+            &data.body,
+            script_url,
+        )
+        .map_err(|e| format!("NetworkError: {e}"));
     }
 
     let handle = network_handle.ok_or_else(|| {

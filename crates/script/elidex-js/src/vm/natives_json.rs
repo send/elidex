@@ -923,9 +923,11 @@ fn internalize(
 }
 
 /// Entry point for `JSON.parse(text, reviver?)`.
-/// Parse a JSON document straight from a Rust `&str` (ECMA-262 §25.5.1
-/// `JSON.parse` core, no reviver) **without interning the transient source
-/// text** into the permanent, deduped `StringPool`.
+/// Rust `&str` helper equivalent to `JSON.parse(text)` with **no reviver**
+/// (ECMA-262 §25.5.1 parse core only), **without interning the transient source
+/// text** into the permanent, deduped `StringPool`. This is *not* the JS-facing
+/// `JSON.parse` entry point — that is [`native_json_parse`] below, which takes
+/// an interned JS string and supports the optional reviver argument.
 ///
 /// `native_json_parse` requires its input as an already-interned JS string;
 /// routing high-cardinality transient payloads (the cross-thread worker

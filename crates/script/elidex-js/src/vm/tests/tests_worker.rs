@@ -24,7 +24,7 @@ use url::Url;
 
 use super::super::host_data::HostData;
 use super::super::value::JsValue;
-use super::super::worker_thread::run_worker_with_source;
+use super::super::worker_thread::{run_worker, run_worker_with_source};
 use super::super::Vm;
 
 const WORKER_URL: &str = "https://example.com/app/worker.js";
@@ -349,6 +349,29 @@ fn worker_thread_accepts_sibling_network_handle() {
     drop(handle);
     // Keep the network process alive until the worker has exited.
     drop(np);
+}
+
+#[test]
+fn worker_data_url_non_js_mime_rejected() {
+    // `data:text/html,...` is not a JavaScript MIME essence — the fetch/decode
+    // step must reject it (WHATWG HTML §10.2.4) rather than evaluate the HTML
+    // as script (F-R9-1).
+    let url = Url::parse("data:text/html,<h1>hi</h1>").unwrap();
+    let body_url = url.clone();
+    let handle = spawn_worker(String::new(), url, move |ch| {
+        run_worker(
+            &body_url,
+            String::new(),
+            true,
+            CredentialsMode::SameOrigin,
+            None,
+            &ch,
+        );
+    });
+    match recv_within(&handle, Duration::from_secs(5)) {
+        Some(WorkerToParent::Error { .. } | WorkerToParent::Closed) => {}
+        other => panic!("expected error/close for non-JS data: MIME, got {other:?}"),
+    }
 }
 
 #[test]
