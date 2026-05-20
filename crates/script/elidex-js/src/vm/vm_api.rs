@@ -435,6 +435,13 @@ impl Vm {
             }
         }
 
+        // Terminate every dedicated worker spawned by this document (WHATWG
+        // HTML §10.2.4 "terminate a worker" runs from document teardown):
+        // dropping the registry runs each `WorkerHandle::Drop` (sends
+        // `Shutdown`, detaches the thread).
+        #[cfg(feature = "engine")]
+        self.inner.worker_registry.terminate_all();
+
         if let Some(hd) = self.inner.host_data.as_deref_mut() {
             // D-8 PR-A2 — clear the `MutationBridge` from `EcsDom`
             // BEFORE HostData::unbind (which null-zeros `dom_ptr`).
@@ -730,6 +737,16 @@ impl Vm {
     #[cfg(feature = "engine")]
     pub fn tick_network(&mut self) {
         self.inner.tick_network();
+    }
+
+    /// Drain every registered dedicated worker's outbound channel and fire the
+    /// resulting `message` / `error` / `messageerror` events on the matching
+    /// `Worker` objects (the parent's event-loop step of WHATWG HTML §10.2.4
+    /// "run a worker"). The shell main loop calls this each frame, exactly as
+    /// it calls [`Self::tick_network`]; a no-op when no workers are registered.
+    #[cfg(feature = "engine")]
+    pub fn drain_worker_messages(&mut self) {
+        self.inner.drain_worker_messages();
     }
 
     /// Install the `NetworkHandle` used by the `fetch()` host

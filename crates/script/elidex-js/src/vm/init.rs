@@ -130,6 +130,8 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 worker_scope_prototype: None,
                 #[cfg(feature = "engine")]
+                worker_prototype: None,
+                #[cfg(feature = "engine")]
                 character_data_prototype: None,
                 #[cfg(feature = "engine")]
                 text_prototype: None,
@@ -570,6 +572,8 @@ impl Vm {
                 worker_outgoing: Vec::new(),
                 #[cfg(feature = "engine")]
                 worker_close_requested: false,
+                #[cfg(feature = "engine")]
+                worker_registry: elidex_api_workers::WorkerRegistry::new(),
             },
         };
 

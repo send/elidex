@@ -12,10 +12,13 @@
 // (identical to `Vm::bind`); the binding is scoped to each test's locals.
 #![allow(unsafe_code)]
 
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use elidex_api_workers::{spawn_worker, WorkerToParent};
 use elidex_ecs::{EcsDom, Entity};
+use elidex_net::broker::NetworkHandle;
+use elidex_net::{HttpVersion, Response as NetResponse};
 use elidex_script_session::SessionCore;
 use url::Url;
 
@@ -171,6 +174,77 @@ fn add_event_listener_message_receives_in_order() {
 }
 
 // ---------------------------------------------------------------------------
+// importScripts (WHATWG HTML §10.3.1) — synchronous fetch + validate + run,
+// driven through a mock NetworkHandle (no thread).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn import_scripts_fetches_validates_and_runs() {
+    let helper_url = "https://example.com/app/helper.js";
+    let parsed = Url::parse(helper_url).unwrap();
+    let response = NetResponse {
+        status: 200,
+        headers: vec![(
+            "content-type".to_string(),
+            "application/javascript".to_string(),
+        )],
+        body: bytes::Bytes::from_static(b"globalThis.imported = 42;"),
+        url: parsed.clone(),
+        version: HttpVersion::H1,
+        url_list: vec![parsed.clone()],
+        is_redirect_tainted: false,
+        credentialed_network: false,
+    };
+
+    let mut vm = Vm::new_worker(String::new(), Url::parse(WORKER_URL).unwrap());
+    vm.install_network_handle(Rc::new(NetworkHandle::mock_with_responses(vec![(
+        parsed,
+        Ok(response),
+    )])));
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    unsafe { bind_worker_vm(&mut vm, &mut session, &mut dom, doc) };
+
+    // Relative URL resolves against the worker script URL base
+    // (https://example.com/app/worker.js → .../app/helper.js).
+    vm.eval("importScripts('helper.js');")
+        .expect("importScripts");
+    assert!(eval_bool_on(&mut vm, "globalThis.imported === 42"));
+}
+
+#[test]
+fn import_scripts_rejects_non_js_mime() {
+    let helper_url = "https://example.com/app/helper.js";
+    let parsed = Url::parse(helper_url).unwrap();
+    let response = NetResponse {
+        status: 200,
+        headers: vec![("content-type".to_string(), "text/html".to_string())],
+        body: bytes::Bytes::from_static(b"globalThis.imported = 1;"),
+        url: parsed.clone(),
+        version: HttpVersion::H1,
+        url_list: vec![parsed.clone()],
+        is_redirect_tainted: false,
+        credentialed_network: false,
+    };
+
+    let mut vm = Vm::new_worker(String::new(), Url::parse(WORKER_URL).unwrap());
+    vm.install_network_handle(Rc::new(NetworkHandle::mock_with_responses(vec![(
+        parsed,
+        Ok(response),
+    )])));
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    unsafe { bind_worker_vm(&mut vm, &mut session, &mut dom, doc) };
+
+    assert!(
+        vm.eval("importScripts('helper.js');").is_err(),
+        "non-JavaScript MIME must reject (WHATWG HTML §10.2.4)"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Outbound message + close state
 // ---------------------------------------------------------------------------
 
@@ -277,4 +351,227 @@ fn worker_thread_close_sends_closed_and_exits() {
         ),
         "worker should report Closed after close()"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Main-side `Worker` IDL (constructor + postMessage / terminate / onmessage /
+// onerror, end-to-end through a real worker thread). These exercise both
+// endpoints: the `data:` worker script runs the runtime harness on its own
+// thread, and `Vm::drain_worker_messages` converts the inbound frames into DOM
+// events on the main VM.
+// ---------------------------------------------------------------------------
+
+const PAGE_URL: &str = "https://example.com/app/index.html";
+
+struct UnbindOnDrop<'a>(&'a mut Vm);
+
+impl Drop for UnbindOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.unbind();
+    }
+}
+
+/// Run `f` against a main-thread (Window) VM bound to a fresh session, with the
+/// navigation URL at `https://example.com/app/` so relative / same-origin
+/// worker scripts resolve. No network handle is installed — the tests use
+/// `data:` worker scripts, which the runtime harness decodes inline.
+fn with_main_vm<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut Vm) -> R,
+{
+    let mut vm = Vm::new();
+    vm.inner.navigation.current_url = Url::parse(PAGE_URL).expect("valid base URL");
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    unsafe { super::super::test_helpers::bind_vm(&mut vm, &mut session, &mut dom, doc) };
+    let guard = UnbindOnDrop(&mut vm);
+    let result = f(guard.0);
+    drop(guard);
+    drop(session);
+    drop(dom);
+    result
+}
+
+/// Drive `vm.drain_worker_messages()` (the main event-loop step) until the JS
+/// `predicate` evaluates truthy or `timeout` elapses. Returns whether the
+/// predicate became true.
+fn pump_until(vm: &mut Vm, predicate: &str, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        vm.drain_worker_messages();
+        if eval_bool_on(vm, predicate) {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn main_worker_round_trip_via_onmessage() {
+    with_main_vm(|vm| {
+        vm.eval(
+            r#"globalThis.got = null;
+               const w = new Worker("data:text/javascript,self.onmessage=function(e){postMessage(e.data+'-pong')}");
+               w.onmessage = function(e) { globalThis.got = e.data; };
+               w.postMessage("ping");"#,
+        )
+        .expect("ctor + postMessage succeed");
+
+        assert!(
+            pump_until(vm, "globalThis.got !== null", Duration::from_secs(5)),
+            "worker reply never arrived"
+        );
+        assert_eq!(eval_str_on(vm, "globalThis.got"), "ping-pong");
+    });
+}
+
+#[test]
+fn main_worker_add_event_listener_receives_message() {
+    with_main_vm(|vm| {
+        vm.eval(
+            r#"globalThis.rx = [];
+               const w = new Worker("data:text/javascript,self.onmessage=function(e){postMessage(e.data)}");
+               w.addEventListener("message", function(e) { globalThis.rx.push(e.data); });
+               w.postMessage(7);"#,
+        )
+        .expect("ctor + postMessage succeed");
+
+        assert!(
+            pump_until(vm, "globalThis.rx.length > 0", Duration::from_secs(5)),
+            "worker reply never arrived"
+        );
+        assert_eq!(eval_str_on(vm, "globalThis.rx.join(',')"), "7");
+    });
+}
+
+#[test]
+fn main_worker_message_event_target_and_origin() {
+    with_main_vm(|vm| {
+        vm.eval(
+            r#"globalThis.targetIsWorker = null; globalThis.origin = null;
+               const w = new Worker("data:text/javascript,self.onmessage=function(){postMessage('x')}");
+               globalThis.w = w;
+               w.onmessage = function(e) {
+                 globalThis.targetIsWorker = (e.target === w);
+                 globalThis.origin = e.origin;
+               };
+               w.postMessage(0);"#,
+        )
+        .expect("ctor + postMessage succeed");
+
+        assert!(
+            pump_until(
+                vm,
+                "globalThis.targetIsWorker !== null",
+                Duration::from_secs(5)
+            ),
+            "worker reply never arrived"
+        );
+        assert!(eval_bool_on(vm, "globalThis.targetIsWorker === true"));
+        // The worker scope's origin is the (opaque) `data:` URL origin.
+        assert_eq!(eval_str_on(vm, "globalThis.origin"), "null");
+    });
+}
+
+#[test]
+fn main_worker_terminate_is_callable_and_idempotent() {
+    with_main_vm(|vm| {
+        vm.eval(
+            r#"const w = new Worker("data:text/javascript,self.onmessage=function(){}");
+               w.terminate();
+               w.terminate();"#,
+        )
+        .expect("terminate is idempotent");
+    });
+}
+
+#[test]
+fn main_worker_cross_origin_url_throws_security_error() {
+    with_main_vm(|vm| {
+        let name = eval_str_on(
+            vm,
+            "try { new Worker('https://evil.example/w.js'); 'no-throw' } \
+             catch (e) { e.name }",
+        );
+        assert_eq!(name, "SecurityError");
+    });
+}
+
+#[test]
+fn main_worker_module_type_throws() {
+    with_main_vm(|vm| {
+        let threw = eval_bool_on(
+            vm,
+            "try { new Worker('data:text/javascript,', { type: 'module' }); false } \
+             catch (e) { true }",
+        );
+        assert!(threw, "{{ type: 'module' }} must be rejected");
+    });
+}
+
+#[test]
+fn main_worker_post_message_circular_throws_data_clone() {
+    with_main_vm(|vm| {
+        let message = eval_str_on(
+            vm,
+            r#"const w = new Worker("data:text/javascript,self.onmessage=function(){}");
+               const o = {}; o.self = o;
+               try { w.postMessage(o); 'no-throw' } catch (e) { e.message }"#,
+        );
+        assert!(
+            message.contains("DataCloneError"),
+            "expected DataCloneError, got {message:?}"
+        );
+    });
+}
+
+#[test]
+fn main_worker_uncaught_error_fires_onerror() {
+    with_main_vm(|vm| {
+        vm.eval(
+            r#"globalThis.errMsg = null;
+               const w = new Worker("data:text/javascript,throw new Error('boom')");
+               w.onerror = function(e) { globalThis.errMsg = e.message; };"#,
+        )
+        .expect("ctor succeeds even though the worker script throws");
+
+        assert!(
+            pump_until(vm, "globalThis.errMsg !== null", Duration::from_secs(5)),
+            "worker error never propagated"
+        );
+        assert!(
+            eval_str_on(vm, "globalThis.errMsg").contains("boom"),
+            "error message should carry the worker error"
+        );
+    });
+}
+
+#[test]
+fn main_concurrent_workers_each_receive_their_own_reply() {
+    with_main_vm(|vm| {
+        vm.eval(
+            r#"globalThis.a = null; globalThis.b = null;
+               const wa = new Worker("data:text/javascript,self.onmessage=function(e){postMessage('a:'+e.data)}");
+               const wb = new Worker("data:text/javascript,self.onmessage=function(e){postMessage('b:'+e.data)}");
+               wa.onmessage = function(e){ globalThis.a = e.data; };
+               wb.onmessage = function(e){ globalThis.b = e.data; };
+               wa.postMessage(1); wb.postMessage(2);"#,
+        )
+        .expect("two ctors + posts succeed");
+
+        assert!(
+            pump_until(
+                vm,
+                "globalThis.a !== null && globalThis.b !== null",
+                Duration::from_secs(5)
+            ),
+            "both worker replies never arrived"
+        );
+        assert_eq!(eval_str_on(vm, "globalThis.a"), "a:1");
+        assert_eq!(eval_str_on(vm, "globalThis.b"), "b:2");
+    });
 }

@@ -156,8 +156,9 @@ impl VmInner {
 
     /// Install the remaining worker globals: `self` (the §10.2.1.1
     /// self-reference making `self === globalThis`), the read-only worker
-    /// `name`, and `isSecureContext` (WHATWG HTML §7.2.3.2 — secure transport
-    /// or a localhost / file URL).
+    /// `name`, and `isSecureContext` (WindowOrWorkerGlobalScope mixin; secure
+    /// context per W3C Secure Contexts — secure transport or a localhost / file
+    /// URL).
     pub(in crate::vm) fn register_worker_globals(&mut self, name: &str, url: &url::Url) {
         let self_sid = self.strings.intern("self");
         self.globals
@@ -175,13 +176,10 @@ impl VmInner {
     }
 
     /// Deliver an inbound `postMessage` from the parent to the worker scope
-    /// (WHATWG HTML §10.2.1.2 step "fire an event named `message`"). Parses the
-    /// JSON `data_json` payload back to a JS value, builds a `MessageEvent`
-    /// (`source` is `null` — the parent window is not a worker-visible object),
-    /// and dispatches it at the worker-scope entity through the shared
-    /// `dispatch_script_event` walker (so `self.onmessage` and every
-    /// `addEventListener('message')` listener fire with correct `{once}` /
-    /// `{signal}` handling). Mirrors the Window `dispatch_post_message` path.
+    /// (WHATWG HTML §10.2.1.2 step "fire an event named `message`"). Resolves
+    /// the worker-scope entity (the global object's backing entity) and
+    /// delegates to the shared [`dispatch_message_event_at`](Self::dispatch_message_event_at)
+    /// helper, with the worker's `globalThis` as the event target wrapper.
     pub(in crate::vm) fn dispatch_worker_message(&mut self, data_json: &str, origin: &str) {
         let global_id = self.global_object;
         let ObjectKind::HostObject {
@@ -193,7 +191,39 @@ impl VmInner {
         let Some(target_entity) = elidex_ecs::Entity::from_bits(target_bits) else {
             return;
         };
+        let message_type_sid = self.well_known.message;
+        self.dispatch_message_event_at(
+            message_type_sid,
+            target_entity,
+            global_id,
+            data_json,
+            origin,
+        );
+    }
 
+    /// Fire a trusted `MessageEvent` of type `type_sid` carrying the JSON
+    /// `data_json` payload at `target_entity`, with `target` / `srcElement` set
+    /// to `target_wrapper` (WHATWG HTML §9.1 MessageEvent + the dedicated-worker
+    /// §10.2.1.2 / AbstractWorker §10.2.6.1 delivery steps). `type_sid` is
+    /// `message` for normal delivery or `messageerror` for a payload that failed
+    /// to deserialize (§10.2.1.2 / §10.2.6.1 — both are MessageEvents). Shared
+    /// by the worker-side inbound delivery
+    /// ([`dispatch_worker_message`](Self::dispatch_worker_message), target = the
+    /// worker's `globalThis`) and the main-side per-tick drain
+    /// ([`drain_worker_messages`](Self::drain_worker_messages), target = the
+    /// `Worker` object). `source` is always `null` — neither realm exposes the
+    /// peer as a worker-visible object. Dispatched through the shared
+    /// `dispatch_script_event` walker so the matching `on*` handler and every
+    /// `addEventListener` listener fire with correct `{once}` / `{signal}`
+    /// handling.
+    pub(in crate::vm) fn dispatch_message_event_at(
+        &mut self,
+        type_sid: super::super::value::StringId,
+        target_entity: elidex_ecs::Entity,
+        target_wrapper: super::super::value::ObjectId,
+        data_json: &str,
+        origin: &str,
+    ) {
         // JSON.parse the payload; a parse failure (e.g. the `undefined`→`null`
         // shortcut) degrades to `undefined`, matching the structured-clone-via
         // -JSON approximation.
@@ -208,7 +238,7 @@ impl VmInner {
             .unwrap_or(JsValue::Undefined)
         };
 
-        let message_type_sid = self.well_known.message;
+        let message_type_sid = type_sid;
         let origin_sid = self.strings.intern(origin);
         let last_event_id_sid = self.well_known.empty;
 
@@ -246,8 +276,8 @@ impl VmInner {
             PropertyValue::Data(JsValue::Boolean(false)),
             PropertyValue::Data(JsValue::Boolean(false)),
             PropertyValue::Data(JsValue::Number(0.0)),
-            PropertyValue::Data(JsValue::Object(global_id)),
-            PropertyValue::Data(JsValue::Object(global_id)),
+            PropertyValue::Data(JsValue::Object(target_wrapper)),
+            PropertyValue::Data(JsValue::Object(target_wrapper)),
             PropertyValue::Data(JsValue::Number(timestamp_ms)),
             PropertyValue::Data(JsValue::Boolean(false)),
             PropertyValue::Data(JsValue::Boolean(true)),

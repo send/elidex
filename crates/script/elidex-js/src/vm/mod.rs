@@ -1083,6 +1083,12 @@ pub(crate) struct VmInner {
     /// `register_globals()`.
     #[cfg(feature = "engine")]
     pub(crate) worker_scope_prototype: Option<ObjectId>,
+    /// `Worker.prototype` — the main-side `Worker` object's prototype
+    /// (WHATWG HTML §10.2.6), chained to `EventTarget.prototype`. `None` in a
+    /// worker VM; set by `register_worker_global()` during the Window fork of
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) worker_prototype: Option<ObjectId>,
     /// `AbortSignal.prototype` — chained directly to
     /// `EventTarget.prototype` (Node.prototype is **skipped**: WHATWG
     /// DOM §3.1 / §7.2 — AbortSignal is an EventTarget but not a
@@ -2041,6 +2047,15 @@ pub(crate) struct VmInner {
     /// exits after the current tick. Always `false` in a Window VM.
     #[cfg(feature = "engine")]
     pub(crate) worker_close_requested: bool,
+    /// Main-side registry of spawned dedicated workers
+    /// ([`WorkerId`](elidex_api_workers::WorkerId) → transport handle), keyed
+    /// the same as each `Worker` object's `WorkerRef` ECS component (WHATWG
+    /// HTML §10.2.6). Empty in a worker VM (workers do not currently spawn
+    /// nested workers). Holds only cross-thread channel handles + `JoinHandle`s
+    /// — listener state lives in the `EventListeners` ECS component on the
+    /// `Worker` entity, not here.
+    #[cfg(feature = "engine")]
+    pub(crate) worker_registry: elidex_api_workers::WorkerRegistry,
     /// HTML §8.1.5 same-window task queue.  Currently populated only
     /// by `window.postMessage`; drained at the end of every
     /// `VmInner::eval` after the microtask flush.  See

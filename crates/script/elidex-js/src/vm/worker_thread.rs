@@ -42,6 +42,75 @@ const FRAME_INTERVAL: Duration = Duration::from_millis(16);
 
 type WorkerChannel = LocalChannel<WorkerToParent, ParentToWorker>;
 
+/// Worker thread entry (WHATWG HTML §10.2.4 "run a worker", from the "fetch a
+/// classic worker script" step). Runs **on the worker thread** as the
+/// `spawn_worker` closure body: obtains the script source, then hands off to
+/// [`run_worker_with_source`].
+///
+/// `data:` URLs decode inline (no network); every other scheme fetches through
+/// the `Send` sibling `NetworkHandle` minted on the main thread by the `Worker`
+/// constructor (`NetworkHandle::create_sibling_handle()`, WHATWG HTML §10.2.6.3)
+/// and validates the response per §10.2.4 ("fetch a classic worker script").
+/// A missing handle for a non-`data:` URL, a fetch failure, or a validation
+/// failure reports an `error` to the parent and ends the worker.
+///
+/// This is the production consumer of [`run_worker_with_source`] +
+/// `elidex_api_workers` (it is what the main-side ctor passes to `spawn_worker`).
+pub(crate) fn run_worker(
+    script_url: &url::Url,
+    name: String,
+    network_handle: Option<NetworkHandle>,
+    channel: &WorkerChannel,
+) {
+    let source = match obtain_worker_source(script_url, network_handle.as_ref()) {
+        Ok(source) => source,
+        Err(message) => {
+            send_error(channel, message, script_url.as_str());
+            let _ = channel.send(WorkerToParent::Closed);
+            return;
+        }
+    };
+    run_worker_with_source(&source, script_url, name, network_handle, channel);
+}
+
+/// Fetch (or inline-decode) the worker script source (WHATWG HTML §10.2.4
+/// "fetch a classic worker script"). Returns the decoded source text or a
+/// human-readable error message for the parent's `error` event.
+fn obtain_worker_source(
+    script_url: &url::Url,
+    network_handle: Option<&NetworkHandle>,
+) -> Result<String, String> {
+    if script_url.scheme() == "data" {
+        let data = elidex_net::data_url::parse_data_url(script_url)
+            .map_err(|e| format!("NetworkError: invalid worker data: URL: {e}"))?;
+        return Ok(String::from_utf8_lossy(&data.body).into_owned());
+    }
+
+    let handle = network_handle.ok_or_else(|| {
+        "NetworkError: no network handle available to fetch the worker script".to_string()
+    })?;
+    let request = elidex_net::Request {
+        method: "GET".to_string(),
+        url: script_url.clone(),
+        ..Default::default()
+    };
+    let response = handle
+        .fetch_blocking(request)
+        .map_err(|e| format!("NetworkError: failed to fetch worker script: {e}"))?;
+    let content_type = response
+        .headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
+        .map(|(_, v)| v.as_str());
+    elidex_api_workers::validate_worker_script_response(
+        content_type,
+        response.status,
+        &response.body,
+        script_url,
+    )
+    .map_err(|e| format!("NetworkError: {e}"))
+}
+
 /// Build + run a worker VM from already-fetched `source` (WHATWG HTML §10.2.4
 /// from the "run the worker" step onward). Constructs a worker-mode VM bound to
 /// an empty `EcsDom`, evaluates the script, then drives the per-worker event
@@ -85,7 +154,8 @@ pub(crate) fn run_worker_with_source(
     }
 
     if let Err(e) = vm.eval(source) {
-        send_error(channel, e.message, script_url.as_str());
+        let message = uncaught_error_message(&mut vm, &e);
+        send_error(channel, message, script_url.as_str());
         let _ = channel.send(WorkerToParent::Closed);
         return;
     }
@@ -133,6 +203,25 @@ fn drain_outgoing(vm: &mut Vm, channel: &WorkerChannel, script_url: &url::Url) {
             origin: origin.clone(),
         });
     }
+}
+
+/// Resolve a human-readable message for an uncaught worker-script error
+/// (WHATWG HTML §10.2.5 — the `message` of the `error` event). For a thrown
+/// `Error` instance, read its `message` property (the VM is still live after
+/// the failed `eval`); for everything else fall back to the [`VmError`]'s own
+/// diagnostic message.
+fn uncaught_error_message(vm: &mut Vm, error: &super::value::VmError) -> String {
+    use super::value::{JsValue, PropertyKey, VmErrorKind};
+    if let VmErrorKind::ThrowValue(JsValue::Object(id)) = error.kind {
+        let key = PropertyKey::String(vm.inner.strings.intern("message"));
+        if let Ok(JsValue::String(sid)) = vm.inner.get_property_value(id, key) {
+            let message = vm.inner.strings.get_utf8(sid);
+            if !message.is_empty() {
+                return message;
+            }
+        }
+    }
+    error.message.clone()
 }
 
 /// Report an uncaught worker error to the parent (WHATWG HTML §10.2.5).

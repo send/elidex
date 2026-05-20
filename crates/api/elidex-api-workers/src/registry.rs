@@ -70,6 +70,15 @@ impl WorkerRegistry {
         self.workers.remove(&id)
     }
 
+    /// Terminate every registered worker (WHATWG HTML §10.2.4 "terminate a
+    /// worker", invoked en masse at document teardown). Dropping each
+    /// [`WorkerHandle`] runs its `Drop` (sends `Shutdown`, detaches the
+    /// thread); the id counter is preserved so a later worker never aliases a
+    /// terminated one.
+    pub fn terminate_all(&mut self) {
+        self.workers.clear();
+    }
+
     /// Ids of all currently registered workers, for the main-loop message drain.
     pub fn ids(&self) -> Vec<WorkerId> {
         self.workers.keys().copied().collect()

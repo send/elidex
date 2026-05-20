@@ -515,6 +515,12 @@ impl VmInner {
                 self.register_history_global();
                 // `window === globalThis` (WHATWG HTML §7.2.4).
                 self.install_window_self_ref();
+                // `Worker` — dedicated worker constructor (WHATWG HTML §10.2.6).
+                // Window-scope only: a dedicated worker does not currently
+                // spawn nested workers. Chains to `EventTarget.prototype`
+                // (registered above), so it must run after the shared
+                // `register_event_target_prototype()`.
+                self.register_worker_global();
             }
             GlobalScopeKind::DedicatedWorker { name, script_url } => {
                 self.register_worker_global_scope_prototype();

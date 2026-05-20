@@ -47,8 +47,8 @@
 
 use elidex_ecs::NodeKind;
 use elidex_script_session::{
-    event_handler_attr_event_type, EventListeners, HandlerScope, ListenerId, EVENT_HANDLER_ATTRS,
-    WORKER_EVENT_HANDLER_ATTRS,
+    event_handler_attr_event_type, EventListeners, HandlerScope, ListenerId,
+    ABSTRACT_WORKER_EVENT_HANDLER_ATTRS, EVENT_HANDLER_ATTRS, WORKER_EVENT_HANDLER_ATTRS,
 };
 
 use super::super::shape::PropertyAttrs;
@@ -90,9 +90,30 @@ impl VmInner {
     /// the `EventListeners` component on the worker-scope entity (WHATWG HTML
     /// §10.2.1.1 / §8.1.8.1).
     pub(in crate::vm) fn install_worker_handler_attrs(&mut self, target: ObjectId) {
-        for attr_name in WORKER_EVENT_HANDLER_ATTRS {
+        self.install_handler_attrs_from_list(target, WORKER_EVENT_HANDLER_ATTRS);
+    }
+
+    /// Install the main-side `Worker` object's AbstractWorker / Worker
+    /// event-handler IDL attributes ([`ABSTRACT_WORKER_EVENT_HANDLER_ATTRS`] =
+    /// `onmessage` / `onmessageerror` / `onerror`) on `Worker.prototype`, over
+    /// the same shared backend pair. The receiver brand check
+    /// ([`require_handler_receiver`]) accepts [`NodeKind::Worker`], so
+    /// `worker.onmessage = fn` records the handler in the `EventListeners`
+    /// component on the `Worker` entity (WHATWG HTML §10.2.6.1 / §8.1.8.1).
+    pub(in crate::vm) fn install_abstract_worker_handler_attrs(&mut self, target: ObjectId) {
+        self.install_handler_attrs_from_list(target, ABSTRACT_WORKER_EVENT_HANDLER_ATTRS);
+    }
+
+    /// Install a fixed list of event-handler IDL attributes (by attribute
+    /// name) on `target` over the shared
+    /// [`native_event_handler_get`] / [`native_event_handler_set`] backend,
+    /// keyed by each attribute's event-type SID (bound key). Shared by the
+    /// `WorkerGlobalScope` and `Worker` surfaces, whose attribute sets are
+    /// hand-picked subsets rather than [`HandlerScope`]-tagged rows.
+    fn install_handler_attrs_from_list(&mut self, target: ObjectId, attrs: &[&str]) {
+        for attr_name in attrs {
             let event_type = event_handler_attr_event_type(attr_name)
-                .expect("WORKER_EVENT_HANDLER_ATTRS row must be a known event-handler attribute");
+                .expect("handler-attr list row must be a known event-handler attribute");
             let attr_name_sid = self.strings.intern(attr_name);
             let event_type_sid = self.strings.intern(event_type);
             self.install_bound_accessor_pair(
