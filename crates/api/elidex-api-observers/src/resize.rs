@@ -1,9 +1,19 @@
-//! `ResizeObserver` API (Resize Observer §2).
+//! `ResizeObserver` API (Resize Observer §3).
 //!
 //! Observes changes to the content box / border box size of elements.
+//!
+//! ECS-native model: each observation lives as a `ResizeObservedBy` component
+//! on the observed target entity (carrying the per-observer last-reported size
+//! used for change detection), so a despawned entity drops its observations
+//! automatically. The registry holds only the monotonic id counter.
 
-use elidex_ecs::Entity;
+use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::Size;
+
+/// Geometry source for `gather_observations`: returns the current
+/// `(content_box_size, border_box_size)` for an entity. Takes `&EcsDom` so it
+/// can read layout without aliasing the `&mut EcsDom` write-back borrow.
+type SizeProvider<'a> = dyn Fn(&EcsDom, Entity) -> Option<(Size, Size)> + 'a;
 
 /// A unique identifier for a resize observer registration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -53,22 +63,25 @@ pub struct ResizeObserverEntry {
     pub border_box_size: Size,
 }
 
+/// A single observation on a node (one per observer watching this entity).
+#[derive(Debug, Clone)]
+struct ResizeObservation {
+    observer: ResizeObserverId,
+    #[allow(dead_code)] // retained for box-model fidelity; gather currently keys on content size
+    options: ResizeObserverOptions,
+    /// Last reported content box size (for change detection).
+    last_size: Option<Size>,
+}
+
+/// Per-node component listing the resize observers watching this entity.
+/// Dropped automatically when the entity is despawned.
+#[derive(Debug, Default)]
+struct ResizeObservedBy(Vec<ResizeObservation>);
+
 /// Registry for active resize observers.
 #[derive(Debug, Default)]
 pub struct ResizeObserverRegistry {
     next_id: u64,
-    observers: Vec<ResizeObserverState>,
-}
-
-/// Stored per-observer, per-entity last known sizes for change detection.
-type LastSizes = std::collections::HashMap<Entity, Size>;
-
-#[derive(Debug)]
-struct ResizeObserverState {
-    id: ResizeObserverId,
-    targets: Vec<(Entity, ResizeObserverOptions)>,
-    /// Last reported content box sizes (entity → (width, height)).
-    last_sizes: LastSizes,
 }
 
 impl ResizeObserverRegistry {
@@ -82,96 +95,123 @@ impl ResizeObserverRegistry {
     pub fn register(&mut self) -> ResizeObserverId {
         let id = ResizeObserverId(self.next_id);
         self.next_id += 1;
-        self.observers.push(ResizeObserverState {
-            id,
-            targets: Vec::new(),
-            last_sizes: LastSizes::new(),
-        });
         id
     }
 
-    /// Start observing a target.
+    /// Start observing a target. Re-observing the same target is a no-op
+    /// (matches the existing registration).
     pub fn observe(
         &mut self,
+        dom: &mut EcsDom,
         id: ResizeObserverId,
         target: Entity,
         options: ResizeObserverOptions,
     ) {
-        if let Some(entry) = self.observers.iter_mut().find(|e| e.id == id) {
-            if !entry.targets.iter().any(|(e, _)| *e == target) {
-                entry.targets.push((target, options));
+        if let Ok(mut comp) = dom.world_mut().get::<&mut ResizeObservedBy>(target) {
+            if !comp.0.iter().any(|o| o.observer == id) {
+                comp.0.push(ResizeObservation {
+                    observer: id,
+                    options,
+                    last_size: None,
+                });
             }
+            return;
         }
+        let _ = dom.world_mut().insert_one(
+            target,
+            ResizeObservedBy(vec![ResizeObservation {
+                observer: id,
+                options,
+                last_size: None,
+            }]),
+        );
     }
 
     /// Stop observing a specific target.
-    pub fn unobserve(&mut self, id: ResizeObserverId, target: Entity) {
-        if let Some(entry) = self.observers.iter_mut().find(|e| e.id == id) {
-            entry.targets.retain(|(e, _)| *e != target);
+    pub fn unobserve(&mut self, dom: &mut EcsDom, id: ResizeObserverId, target: Entity) {
+        let mut now_empty = false;
+        if let Ok(mut comp) = dom.world_mut().get::<&mut ResizeObservedBy>(target) {
+            comp.0.retain(|o| o.observer != id);
+            now_empty = comp.0.is_empty();
+        }
+        if now_empty {
+            let _ = dom.world_mut().remove_one::<ResizeObservedBy>(target);
         }
     }
 
     /// Stop observing all targets for this observer.
-    pub fn disconnect(&mut self, id: ResizeObserverId) {
-        if let Some(entry) = self.observers.iter_mut().find(|e| e.id == id) {
-            entry.targets.clear();
+    pub fn disconnect(&mut self, dom: &mut EcsDom, id: ResizeObserverId) {
+        let mut emptied: Vec<Entity> = Vec::new();
+        for (entity, comp) in &mut dom.world().query::<(Entity, &mut ResizeObservedBy)>() {
+            comp.0.retain(|o| o.observer != id);
+            if comp.0.is_empty() {
+                emptied.push(entity);
+            }
+        }
+        for entity in emptied {
+            let _ = dom.world_mut().remove_one::<ResizeObservedBy>(entity);
         }
     }
 
-    /// Remove the observer entirely.
-    pub fn unregister(&mut self, id: ResizeObserverId) {
-        self.observers.retain(|e| e.id != id);
+    /// Remove the observer entirely (equivalent to disconnect; no registry-side
+    /// state beyond the id counter).
+    pub fn unregister(&mut self, dom: &mut EcsDom, id: ResizeObserverId) {
+        self.disconnect(dom, id);
     }
 
-    /// Remove a destroyed entity from all observer target lists.
+    /// Gather resize observations by comparing current sizes against last known
+    /// sizes (Resize Observer §3.4.1 "Gather active observations at depth" /
+    /// §3.4.5 "Broadcast active observations").
     ///
-    /// Call this when an entity is removed from the DOM to prevent stale references.
-    pub fn remove_entity(&mut self, entity: Entity) {
-        for entry in &mut self.observers {
-            entry.targets.retain(|(e, _)| *e != entity);
-            entry.last_sizes.remove(&entity);
-        }
-    }
-
-    /// Gather resize observations by comparing current sizes against last known sizes.
-    ///
-    /// `size_fn` provides the current `(content_box_size, border_box_size)` for each
-    /// observed entity. Returns a list of `(observer_id, entries)` pairs for
-    /// observers that have at least one changed target.
+    /// `size_fn` provides the current `(content_box_size, border_box_size)` for
+    /// an entity, taking `&EcsDom` so it can read layout without aliasing the
+    /// `&mut EcsDom` write-back borrow. Returns `(observer_id, entries)` pairs
+    /// for observers with at least one changed target.
     pub fn gather_observations(
         &mut self,
-        size_fn: &dyn Fn(Entity) -> Option<(Size, Size)>,
+        dom: &mut EcsDom,
+        size_fn: &SizeProvider<'_>,
     ) -> Vec<(ResizeObserverId, Vec<ResizeObserverEntry>)> {
-        let mut result = Vec::new();
-        for observer in &mut self.observers {
-            let mut entries = Vec::new();
-            for &(target, _) in &observer.targets {
-                let Some((content_size, border_size)) = size_fn(target) else {
-                    continue;
-                };
-                let changed = observer.last_sizes.get(&target).is_none_or(|last| {
+        let mut grouped: std::collections::HashMap<ResizeObserverId, Vec<ResizeObserverEntry>> =
+            std::collections::HashMap::new();
+        let mut writebacks: Vec<(Entity, ResizeObserverId, Size)> = Vec::new();
+
+        // Phase A: read observations + current sizes (shared borrows only —
+        // the `&ResizeObservedBy` query and `size_fn`'s layout reads touch
+        // disjoint components, so they coexist).
+        for (entity, comp) in &mut dom.world().query::<(Entity, &ResizeObservedBy)>() {
+            let Some((content_size, border_size)) = size_fn(&*dom, entity) else {
+                continue;
+            };
+            for obs in &comp.0 {
+                let changed = obs.last_size.is_none_or(|last| {
                     (last.width - content_size.width).abs() > f32::EPSILON
                         || (last.height - content_size.height).abs() > f32::EPSILON
                 });
                 if changed {
-                    observer.last_sizes.insert(target, content_size);
-                    entries.push(ResizeObserverEntry {
-                        target,
-                        content_box_size: content_size,
-                        border_box_size: border_size,
-                    });
+                    writebacks.push((entity, obs.observer, content_size));
+                    grouped
+                        .entry(obs.observer)
+                        .or_default()
+                        .push(ResizeObserverEntry {
+                            target: entity,
+                            content_box_size: content_size,
+                            border_box_size: border_size,
+                        });
                 }
             }
-            if !entries.is_empty() {
-                result.push((observer.id, entries));
+        }
+
+        // Phase B: write back last sizes (exclusive borrow).
+        for (entity, observer, size) in writebacks {
+            if let Ok(mut comp) = dom.world_mut().get::<&mut ResizeObservedBy>(entity) {
+                if let Some(obs) = comp.0.iter_mut().find(|o| o.observer == observer) {
+                    obs.last_size = Some(size);
+                }
             }
         }
-        result
-    }
 
-    /// Returns iterator over all observer IDs.
-    pub fn observer_ids(&self) -> impl Iterator<Item = ResizeObserverId> + '_ {
-        self.observers.iter().map(|e| e.id)
+        grouped.into_iter().collect()
     }
 }
 
@@ -191,9 +231,9 @@ mod tests {
 
         let mut reg = ResizeObserverRegistry::new();
         let id = reg.register();
-        reg.observe(id, el, ResizeObserverOptions::default());
+        reg.observe(&mut dom, id, el, ResizeObserverOptions::default());
 
-        let observations = reg.gather_observations(&|e| {
+        let observations = reg.gather_observations(&mut dom, &|_, e| {
             if e == el {
                 Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0)))
             } else {
@@ -217,14 +257,17 @@ mod tests {
 
         let mut reg = ResizeObserverRegistry::new();
         let id = reg.register();
-        reg.observe(id, el, ResizeObserverOptions::default());
+        reg.observe(&mut dom, id, el, ResizeObserverOptions::default());
 
         // First gather — initial observation.
-        reg.gather_observations(&|_| Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0))));
+        reg.gather_observations(&mut dom, &|_, _| {
+            Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0)))
+        });
 
         // Same sizes — no observations.
-        let observations =
-            reg.gather_observations(&|_| Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0))));
+        let observations = reg.gather_observations(&mut dom, &|_, _| {
+            Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0)))
+        });
         assert!(observations.is_empty());
     }
 
@@ -235,13 +278,16 @@ mod tests {
 
         let mut reg = ResizeObserverRegistry::new();
         let id = reg.register();
-        reg.observe(id, el, ResizeObserverOptions::default());
+        reg.observe(&mut dom, id, el, ResizeObserverOptions::default());
 
-        reg.gather_observations(&|_| Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0))));
+        reg.gather_observations(&mut dom, &|_, _| {
+            Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0)))
+        });
 
         // Width changed.
-        let observations =
-            reg.gather_observations(&|_| Some((Size::new(200.0, 50.0), Size::new(210.0, 60.0))));
+        let observations = reg.gather_observations(&mut dom, &|_, _| {
+            Some((Size::new(200.0, 50.0), Size::new(210.0, 60.0)))
+        });
         assert_eq!(observations.len(), 1);
         assert_eq!(
             observations[0].1[0].content_box_size,
@@ -250,19 +296,38 @@ mod tests {
     }
 
     #[test]
-    fn remove_entity_clears_last_sizes() {
+    fn despawn_clears_observation() {
         let mut dom = EcsDom::new();
         let el = elem(&mut dom, "div");
 
         let mut reg = ResizeObserverRegistry::new();
         let id = reg.register();
-        reg.observe(id, el, ResizeObserverOptions::default());
-        reg.gather_observations(&|_| Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0))));
-        reg.remove_entity(el);
+        reg.observe(&mut dom, id, el, ResizeObserverOptions::default());
+        reg.gather_observations(&mut dom, &|_, _| {
+            Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0)))
+        });
+        let _ = dom.destroy_entity(el);
 
-        // After removal, no observations should be produced.
-        let observations =
-            reg.gather_observations(&|_| Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0))));
+        // After despawn, the observation component is gone — no observations.
+        let observations = reg.gather_observations(&mut dom, &|_, _| {
+            Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0)))
+        });
+        assert!(observations.is_empty());
+    }
+
+    #[test]
+    fn unobserve_stops_observation() {
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+
+        let mut reg = ResizeObserverRegistry::new();
+        let id = reg.register();
+        reg.observe(&mut dom, id, el, ResizeObserverOptions::default());
+        reg.unobserve(&mut dom, id, el);
+
+        let observations = reg.gather_observations(&mut dom, &|_, _| {
+            Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0)))
+        });
         assert!(observations.is_empty());
     }
 }

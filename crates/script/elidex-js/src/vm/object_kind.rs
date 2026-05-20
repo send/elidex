@@ -747,11 +747,11 @@ pub enum ObjectKind {
     ReadableStreamCancelStep { promise: ObjectId, is_reject: bool },
     /// `MutationObserver` instance (WHATWG DOM §4.3) — observes
     /// childList / attributes / characterData mutations.
-    /// Payload-free at the JS-object level; the per-observer
-    /// registration (target list, options, pending records) lives
-    /// in `HostData::mutation_observers` and the JS callback in
-    /// `HostData::mutation_observer_callbacks`, both keyed by
-    /// `observer_id`.  The observer ID is monotonic per-VM and
+    /// Payload-free at the JS-object level; the per-observer pending
+    /// records live in `HostData::mutation_observers` and the JS
+    /// callback in `HostData::mutation_observer_callbacks`, both keyed
+    /// by `observer_id`.  The observation targets + options live as
+    /// `MutationObservedBy` components on the observed entities.  The observer ID is monotonic per-VM and
     /// sized at 64 bits to match
     /// `elidex_api_observers::mutation::MutationObserverId::raw`.
     ///

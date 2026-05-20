@@ -159,14 +159,15 @@ mod engine_feature {
         /// "cookie-averse" path of WHATWG §6.5.2).
         cookie_jar: Option<std::sync::Arc<elidex_net::CookieJar>>,
         /// `MutationObserver` registry (WHATWG DOM §4.3) — owns the
-        /// per-observer target list, options, and pending records.
-        /// Held here (rather than on `VmInner`) so the registry's
-        /// lifetime tracks the bound DOM world: `Vm::unbind` clears
-        /// per-observer target lists via
-        /// `MutationObserverRegistry::clear_all_targets` to avoid
-        /// cross-`EcsDom` Entity aliasing on rebind, while observer
-        /// IDs and registrations themselves stay live so a JS
-        /// reference held to a `MutationObserver` instance across
+        /// per-observer pending-record queues. The observation targets +
+        /// options live as `MutationObservedBy` components on the
+        /// observed entities (WHATWG DOM §4.3.1 registered observer
+        /// list), not in the registry. Held here (rather than on
+        /// `VmInner`) so the registry's lifetime tracks the bound DOM
+        /// world: `Vm::unbind` drains pending records via
+        /// `MutationObserverRegistry::clear_pending_records` (they hold
+        /// outgoing-world `Entity` refs), while observer IDs stay live so
+        /// a JS reference held to a `MutationObserver` instance across
         /// the unbind boundary continues to brand-check.
         pub(crate) mutation_observers: elidex_api_observers::mutation::MutationObserverRegistry,
         /// JS callback `ObjectId` per observer ID.  Keyed by the
@@ -1140,6 +1141,27 @@ mod engine_feature {
             // a disjoint field (the registry lives inside
             // `HostData` itself, not behind `dom_ptr`).
             let dom = unsafe { &*self.dom_ptr };
+            (dom, &mut self.mutation_observers)
+        }
+
+        /// Like [`Self::split_dom_and_observers`] but yields an
+        /// exclusive `&mut EcsDom` for observation mutations
+        /// (`observe` / `disconnect` insert/remove the per-node
+        /// `MutationObservedBy` component on target entities). Same
+        /// disjoint-allocation aliasing contract.
+        #[allow(unsafe_code)]
+        pub(crate) fn split_dom_mut_and_observers(
+            &mut self,
+        ) -> (
+            &mut elidex_ecs::EcsDom,
+            &mut elidex_api_observers::mutation::MutationObserverRegistry,
+        ) {
+            assert!(self.is_bound(), "HostData accessed while unbound");
+            // SAFETY: `dom_ptr` is the bound `&mut EcsDom` from the most
+            // recent `bind()`; the returned `&mut MutationObserverRegistry`
+            // projects a disjoint `HostData` field (the registry lives in
+            // `HostData`, not behind `dom_ptr`), so the two `&mut` cannot alias.
+            let dom = unsafe { &mut *self.dom_ptr };
             (dom, &mut self.mutation_observers)
         }
 

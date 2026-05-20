@@ -1,8 +1,16 @@
 //! `MutationObserver` API (DOM Standard §4.3).
 //!
 //! Observes changes to the DOM tree (child list, attributes, character data).
+//!
+//! ECS-native model: the per-node **registered observer list** (WHATWG DOM
+//! §4.3.1) lives as a `MutationObservedBy` component on the observed target
+//! entity, mirroring the spec data model. `notify` reproduces §4.3.2 "Queuing a
+//! mutation record" by walking the target's inclusive ancestors via
+//! [`EcsDom::get_parent`] and reading each node's registered observer list.
+//! Only the per-observer pending-record queue (the JS observer object's
+//! `[[recordQueue]]` internal slot) is held registry-side, keyed by observer id.
 
-use elidex_ecs::Entity;
+use elidex_ecs::{EcsDom, Entity};
 
 /// A unique identifier for a mutation observer registration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -63,18 +71,27 @@ pub struct MutationRecord {
     pub old_value: Option<String>,
 }
 
-/// Registry for active mutation observers.
+/// A single registered observer on a node (WHATWG DOM §4.3.1 "registered observer").
+#[derive(Debug, Clone)]
+struct MutationObservation {
+    observer: MutationObserverId,
+    init: MutationObserverInit,
+}
+
+/// The per-node **registered observer list** (WHATWG DOM §4.3.1), stored as a
+/// component on the observed target entity. Removed automatically when the
+/// entity is despawned.
+#[derive(Debug, Default)]
+struct MutationObservedBy(Vec<MutationObservation>);
+
+/// Registry of active mutation observers.
+///
+/// Holds only the observer-owned pending-record queues; the observation
+/// relationship lives on target entities as `MutationObservedBy` components.
 #[derive(Debug, Default)]
 pub struct MutationObserverRegistry {
     next_id: u64,
-    observers: Vec<MutationObserverEntry>,
-}
-
-#[derive(Debug)]
-struct MutationObserverEntry {
-    id: MutationObserverId,
-    targets: Vec<(Entity, MutationObserverInit)>,
-    records: Vec<MutationRecord>,
+    records: std::collections::HashMap<MutationObserverId, Vec<MutationRecord>>,
 }
 
 impl MutationObserverRegistry {
@@ -88,176 +105,175 @@ impl MutationObserverRegistry {
     pub fn register(&mut self) -> MutationObserverId {
         let id = MutationObserverId(self.next_id);
         self.next_id += 1;
-        self.observers.push(MutationObserverEntry {
-            id,
-            targets: Vec::new(),
-            records: Vec::new(),
-        });
+        self.records.insert(id, Vec::new());
         id
     }
 
     /// Start observing a target with the given options.
-    pub fn observe(&mut self, id: MutationObserverId, target: Entity, init: MutationObserverInit) {
-        if let Some(entry) = self.observers.iter_mut().find(|e| e.id == id) {
-            // Replace existing observation on the same target.
-            if let Some(existing) = entry.targets.iter_mut().find(|(e, _)| *e == target) {
-                existing.1 = init;
+    ///
+    /// Re-observing the same target replaces that observer's options (DOM
+    /// §4.3.1 `observe()` step: existing registered observer is updated).
+    pub fn observe(
+        &mut self,
+        dom: &mut EcsDom,
+        id: MutationObserverId,
+        target: Entity,
+        init: MutationObserverInit,
+    ) {
+        if let Ok(mut comp) = dom.world_mut().get::<&mut MutationObservedBy>(target) {
+            if let Some(existing) = comp.0.iter_mut().find(|o| o.observer == id) {
+                existing.init = init;
             } else {
-                entry.targets.push((target, init));
+                comp.0.push(MutationObservation { observer: id, init });
             }
+            return;
         }
+        let _ = dom.world_mut().insert_one(
+            target,
+            MutationObservedBy(vec![MutationObservation { observer: id, init }]),
+        );
     }
 
     /// Stop observing all targets for this observer.
     ///
     /// Per WHATWG DOM §4.3.3.3: empties both the node list and the record queue.
-    pub fn disconnect(&mut self, id: MutationObserverId) {
-        if let Some(entry) = self.observers.iter_mut().find(|e| e.id == id) {
-            entry.targets.clear();
-            entry.records.clear();
+    pub fn disconnect(&mut self, dom: &mut EcsDom, id: MutationObserverId) {
+        let mut emptied: Vec<Entity> = Vec::new();
+        for (entity, comp) in &mut dom.world().query::<(Entity, &mut MutationObservedBy)>() {
+            comp.0.retain(|o| o.observer != id);
+            if comp.0.is_empty() {
+                emptied.push(entity);
+            }
+        }
+        for entity in emptied {
+            let _ = dom.world_mut().remove_one::<MutationObservedBy>(entity);
+        }
+        if let Some(queue) = self.records.get_mut(&id) {
+            queue.clear();
         }
     }
 
     /// Take all pending records for this observer.
     pub fn take_records(&mut self, id: MutationObserverId) -> Vec<MutationRecord> {
-        self.observers
-            .iter_mut()
-            .find(|e| e.id == id)
-            .map(|e| std::mem::take(&mut e.records))
+        self.records
+            .get_mut(&id)
+            .map(std::mem::take)
             .unwrap_or_default()
     }
 
-    /// Remove the observer entirely.
-    pub fn unregister(&mut self, id: MutationObserverId) {
-        self.observers.retain(|e| e.id != id);
+    /// Remove the observer entirely (drops its registrations and record queue).
+    pub fn unregister(&mut self, dom: &mut EcsDom, id: MutationObserverId) {
+        self.disconnect(dom, id);
+        self.records.remove(&id);
     }
 
-    /// Remove a destroyed entity from all observer target lists.
+    /// Drain every observer's pending records without dropping observer ids.
     ///
-    /// Call this when an entity is removed from the DOM to prevent stale references.
-    pub fn remove_entity(&mut self, entity: Entity) {
-        for entry in &mut self.observers {
-            entry.targets.retain(|(e, _)| *e != entity);
+    /// Called at a VM unbind boundary: records reference `Entity` values from
+    /// the outgoing world, so they must not be delivered after rebind. Unlike
+    /// the old `clear_all_targets`, no target-list scrub is needed — the
+    /// observation components vanish with the despawned world, so there is no
+    /// Entity-index-collision hazard.
+    pub fn clear_pending_records(&mut self) {
+        for queue in self.records.values_mut() {
+            queue.clear();
         }
     }
 
-    /// **Internal coupling — not a supported public API.**  Drain
-    /// every observer's target list and pending records, keeping
-    /// observer IDs registered.
+    /// Queue matching records from a session-level `MutationRecord` to all
+    /// interested observers.
     ///
-    /// `pub fn` is required because this crate is consumed across a
-    /// crate boundary by `elidex-js::Vm::unbind`, but `#[doc(hidden)]`
-    /// signals "do not depend on this from external code".  External
-    /// callers ignoring that signal will get no semver guarantee:
-    /// the visibility / signature / location may change in any
-    /// release.  A sealed-trait or feature-gate refactor that
-    /// formalises the engine↔registry coupling without leaking
-    /// surface area is tracked at `#11-mutation-observer-extras`.
-    ///
-    /// **Use only from a VM bind/unbind cycle.**  Calling this from
-    /// any other context silently invalidates every active
-    /// observation across the embedder, breaking the spec contract
-    /// that an `observe()` call remains in effect until matching
-    /// `disconnect()`.
-    ///
-    /// Rationale: after `unbind`, two `EcsDom::new()` worlds share
-    /// `Entity` index space — without draining targets here, a
-    /// post-rebind `notify` would match a `target` Entity that
-    /// happens to collide with an observation registered against the
-    /// previous world.  Observer IDs themselves are monotonic per-VM
-    /// and stay live so post-unbind method calls on retained JS
-    /// instances continue to brand-check.
-    #[doc(hidden)]
-    pub fn clear_all_targets(&mut self) {
-        for entry in &mut self.observers {
-            entry.targets.clear();
-            entry.records.clear();
-        }
-    }
-
-    /// Queue matching records from a session-level `MutationRecord` to all interested observers.
-    ///
-    /// `is_descendant_fn` checks whether a `target` is a descendant of an `ancestor`
-    /// (needed for `subtree` option matching).
-    pub fn notify(
-        &mut self,
-        record: &elidex_script_session::MutationRecord,
-        is_descendant_fn: &dyn Fn(Entity, Entity) -> bool,
-    ) {
+    /// Implements WHATWG DOM §4.3.2 "Queuing a mutation record": walk the
+    /// target's inclusive ancestors and, for each node's registered observer
+    /// list, queue a record for observers whose options match (proper
+    /// ancestors require `subtree`).
+    pub fn notify(&mut self, dom: &EcsDom, record: &elidex_script_session::MutationRecord) {
         use elidex_script_session::MutationKind;
 
-        for entry in &mut self.observers {
-            for &(observed_target, ref init) in &entry.targets {
-                // Check if this observer's target matches the record target.
-                let target_matches = record.target == observed_target
-                    || (init.subtree && is_descendant_fn(record.target, observed_target));
-                if !target_matches {
-                    continue;
-                }
+        if !dom.contains(record.target) {
+            return;
+        }
 
-                // Check if the mutation kind is observed.
-                let kind_matches = match record.kind {
-                    MutationKind::ChildList => init.child_list,
-                    MutationKind::Attribute => {
-                        if !init.attributes {
-                            false
-                        } else if let (Some(ref filter), Some(ref attr)) =
-                            (&init.attribute_filter, &record.attribute_name)
-                        {
-                            filter.iter().any(|f| f == attr)
-                        } else {
-                            init.attributes
+        let mut node = Some(record.target);
+        let mut is_target = true;
+        while let Some(n) = node {
+            if let Ok(comp) = dom.world().get::<&MutationObservedBy>(n) {
+                for obs in &comp.0 {
+                    // Proper ancestors only match subtree observers.
+                    if !is_target && !obs.init.subtree {
+                        continue;
+                    }
+                    let init = &obs.init;
+
+                    let kind_matches = match record.kind {
+                        MutationKind::ChildList => init.child_list,
+                        MutationKind::Attribute => {
+                            if !init.attributes {
+                                false
+                            } else if let (Some(filter), Some(attr)) =
+                                (&init.attribute_filter, &record.attribute_name)
+                            {
+                                filter.iter().any(|f| f == attr)
+                            } else {
+                                init.attributes
+                            }
                         }
+                        MutationKind::CharacterData => init.character_data,
+                        // InlineStyle, CssRule, and future variants are not observed by MutationObserver.
+                        MutationKind::InlineStyle | MutationKind::CssRule | _ => false,
+                    };
+                    if !kind_matches {
+                        continue;
                     }
-                    MutationKind::CharacterData => init.character_data,
-                    // InlineStyle, CssRule, and future variants are not observed by MutationObserver.
-                    MutationKind::InlineStyle | MutationKind::CssRule | _ => false,
-                };
-                if !kind_matches {
-                    continue;
+
+                    let mutation_type = match record.kind {
+                        MutationKind::ChildList => "childList",
+                        MutationKind::Attribute => "attributes",
+                        MutationKind::CharacterData => "characterData",
+                        _ => continue,
+                    };
+
+                    let old_value = match record.kind {
+                        MutationKind::Attribute if init.attribute_old_value => {
+                            record.old_value.clone()
+                        }
+                        MutationKind::CharacterData if init.character_data_old_value => {
+                            record.old_value.clone()
+                        }
+                        _ => None,
+                    };
+
+                    if let Some(queue) = self.records.get_mut(&obs.observer) {
+                        queue.push(MutationRecord {
+                            mutation_type: mutation_type.to_string(),
+                            target: record.target,
+                            added_nodes: record.added_nodes.clone(),
+                            removed_nodes: record.removed_nodes.clone(),
+                            previous_sibling: record.previous_sibling,
+                            next_sibling: record.next_sibling,
+                            attribute_name: record.attribute_name.clone(),
+                            old_value,
+                        });
+                    }
                 }
-
-                let mutation_type = match record.kind {
-                    MutationKind::ChildList => "childList",
-                    MutationKind::Attribute => "attributes",
-                    MutationKind::CharacterData => "characterData",
-                    _ => continue,
-                };
-
-                let old_value = match record.kind {
-                    MutationKind::Attribute if init.attribute_old_value => record.old_value.clone(),
-                    MutationKind::CharacterData if init.character_data_old_value => {
-                        record.old_value.clone()
-                    }
-                    _ => None,
-                };
-
-                entry.records.push(MutationRecord {
-                    mutation_type: mutation_type.to_string(),
-                    target: record.target,
-                    added_nodes: record.added_nodes.clone(),
-                    removed_nodes: record.removed_nodes.clone(),
-                    previous_sibling: record.previous_sibling,
-                    next_sibling: record.next_sibling,
-                    attribute_name: record.attribute_name.clone(),
-                    old_value,
-                });
             }
+            node = dom.get_parent(n);
+            is_target = false;
         }
     }
 
     /// Returns `true` if any observer has pending records.
     #[must_use]
     pub fn has_pending_records(&self) -> bool {
-        self.observers.iter().any(|e| !e.records.is_empty())
+        self.records.values().any(|queue| !queue.is_empty())
     }
 
     /// Returns an iterator of observer IDs that have pending records.
     pub fn observers_with_records(&self) -> impl Iterator<Item = MutationObserverId> + '_ {
-        self.observers
+        self.records
             .iter()
-            .filter(|e| !e.records.is_empty())
-            .map(|e| e.id)
+            .filter(|(_, queue)| !queue.is_empty())
+            .map(|(id, _)| *id)
     }
 }
 
@@ -280,6 +296,7 @@ mod tests {
         let mut reg = MutationObserverRegistry::new();
         let id = reg.register();
         reg.observe(
+            &mut dom,
             id,
             parent,
             MutationObserverInit {
@@ -299,7 +316,7 @@ mod tests {
             old_value: None,
         };
 
-        reg.notify(&session_record, &|_, _| false);
+        reg.notify(&dom, &session_record);
 
         assert!(reg.has_pending_records());
         let records = reg.take_records(id);
@@ -316,6 +333,7 @@ mod tests {
         let mut reg = MutationObserverRegistry::new();
         let id = reg.register();
         reg.observe(
+            &mut dom,
             id,
             el,
             MutationObserverInit {
@@ -337,7 +355,7 @@ mod tests {
             attribute_name: Some("class".to_string()),
             old_value: Some("old".to_string()),
         };
-        reg.notify(&record_class, &|_, _| false);
+        reg.notify(&dom, &record_class);
 
         // "id" attribute should NOT match the filter.
         let record_id = SessionRecord {
@@ -350,7 +368,7 @@ mod tests {
             attribute_name: Some("id".to_string()),
             old_value: Some("test".to_string()),
         };
-        reg.notify(&record_id, &|_, _| false);
+        reg.notify(&dom, &record_id);
 
         let records = reg.take_records(id);
         assert_eq!(records.len(), 1);
@@ -366,6 +384,7 @@ mod tests {
         let mut reg = MutationObserverRegistry::new();
         let id = reg.register();
         reg.observe(
+            &mut dom,
             id,
             el,
             MutationObserverInit {
@@ -384,21 +403,26 @@ mod tests {
             attribute_name: None,
             old_value: None,
         };
-        reg.notify(&record, &|_, _| false);
+        reg.notify(&dom, &record);
 
-        reg.disconnect(id);
+        reg.disconnect(&mut dom, id);
         assert!(!reg.has_pending_records());
         assert!(reg.take_records(id).is_empty());
+
+        // Targets cleared: a post-disconnect notify matches nothing.
+        reg.notify(&dom, &record);
+        assert!(!reg.has_pending_records());
     }
 
     #[test]
-    fn remove_entity_cleans_targets() {
+    fn despawn_auto_cleans_targets() {
         let mut dom = EcsDom::new();
         let el = elem(&mut dom, "div");
 
         let mut reg = MutationObserverRegistry::new();
         let id = reg.register();
         reg.observe(
+            &mut dom,
             id,
             el,
             MutationObserverInit {
@@ -407,9 +431,10 @@ mod tests {
             },
         );
 
-        reg.remove_entity(el);
+        // Despawning the entity drops its MutationObservedBy component, so the
+        // observer no longer matches — no manual scrub needed.
+        let _ = dom.destroy_entity(el);
 
-        // Notify should not match since the target is removed.
         let record = SessionRecord {
             kind: MutationKind::ChildList,
             target: el,
@@ -420,7 +445,7 @@ mod tests {
             attribute_name: None,
             old_value: None,
         };
-        reg.notify(&record, &|_, _| false);
+        reg.notify(&dom, &record);
         assert!(!reg.has_pending_records());
     }
 
@@ -434,6 +459,7 @@ mod tests {
         let mut reg = MutationObserverRegistry::new();
         let id = reg.register();
         reg.observe(
+            &mut dom,
             id,
             parent,
             MutationObserverInit {
@@ -443,6 +469,8 @@ mod tests {
             },
         );
 
+        // Record on the child is matched via inclusive-ancestor walk to the
+        // parent's subtree observer.
         let record = SessionRecord {
             kind: MutationKind::Attribute,
             target: child,
@@ -453,13 +481,41 @@ mod tests {
             attribute_name: Some("class".to_string()),
             old_value: None,
         };
-        // is_descendant_fn returns true for child→parent.
-        reg.notify(&record, &|target, ancestor| {
-            target == child && ancestor == parent
-        });
+        reg.notify(&dom, &record);
 
         let records = reg.take_records(id);
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].target, child);
+    }
+
+    #[test]
+    fn two_observers_same_target() {
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+
+        let mut reg = MutationObserverRegistry::new();
+        let id_a = reg.register();
+        let id_b = reg.register();
+        let init = MutationObserverInit {
+            child_list: true,
+            ..Default::default()
+        };
+        reg.observe(&mut dom, id_a, el, init.clone());
+        reg.observe(&mut dom, id_b, el, init);
+
+        let record = SessionRecord {
+            kind: MutationKind::ChildList,
+            target: el,
+            added_nodes: vec![],
+            removed_nodes: vec![],
+            previous_sibling: None,
+            next_sibling: None,
+            attribute_name: None,
+            old_value: None,
+        };
+        reg.notify(&dom, &record);
+
+        assert_eq!(reg.take_records(id_a).len(), 1);
+        assert_eq!(reg.take_records(id_b).len(), 1);
     }
 }

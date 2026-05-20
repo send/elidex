@@ -1,9 +1,20 @@
-//! `IntersectionObserver` API (Intersection Observer §2).
+//! `IntersectionObserver` API (Intersection Observer §3).
 //!
 //! Observes visibility changes of elements relative to a root element or viewport.
+//!
+//! ECS-native model: each observation lives as an `IntersectionObservedBy`
+//! component on the observed target entity (carrying the per-observer
+//! last-reported ratio for threshold-crossing detection), so a despawned entity
+//! drops its observations automatically. The registry holds the id counter plus
+//! the per-observer `IntersectionObserverInit` configuration.
 
-use elidex_ecs::Entity;
+use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::Rect;
+
+/// Geometry source for `gather_observations`: returns the current bounding rect
+/// for an entity. Takes `&EcsDom` so it can read layout without aliasing the
+/// `&mut EcsDom` write-back borrow.
+type RectProvider<'a> = dyn Fn(&EcsDom, Entity) -> Option<Rect> + 'a;
 
 /// A unique identifier for an intersection observer registration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -45,24 +56,24 @@ pub struct IntersectionObserverEntry {
     pub is_intersecting: bool,
 }
 
+/// A single observation on a node (one per observer watching this entity).
+#[derive(Debug, Clone)]
+struct IntersectionObservation {
+    observer: IntersectionObserverId,
+    /// Last reported intersection ratio (for threshold-crossing detection).
+    last_ratio: Option<f64>,
+}
+
+/// Per-node component listing the intersection observers watching this entity.
+/// Dropped automatically when the entity is despawned.
+#[derive(Debug, Default)]
+struct IntersectionObservedBy(Vec<IntersectionObservation>);
+
 /// Registry for active intersection observers.
 #[derive(Debug, Default)]
 pub struct IntersectionObserverRegistry {
     next_id: u64,
-    observers: Vec<IntersectionObserverState>,
-}
-
-/// Stored per-observer, per-entity last known ratios for threshold crossing detection.
-type LastRatios = std::collections::HashMap<Entity, f64>;
-
-#[derive(Debug)]
-struct IntersectionObserverState {
-    id: IntersectionObserverId,
-    /// Observer configuration (root, rootMargin, threshold).
-    init: IntersectionObserverInit,
-    targets: Vec<Entity>,
-    /// Last reported intersection ratios (entity → ratio).
-    last_ratios: LastRatios,
+    init: std::collections::HashMap<IntersectionObserverId, IntersectionObserverInit>,
 }
 
 impl IntersectionObserverRegistry {
@@ -76,100 +87,128 @@ impl IntersectionObserverRegistry {
     pub fn register(&mut self, init: IntersectionObserverInit) -> IntersectionObserverId {
         let id = IntersectionObserverId(self.next_id);
         self.next_id += 1;
-        self.observers.push(IntersectionObserverState {
-            id,
-            init,
-            targets: Vec::new(),
-            last_ratios: LastRatios::new(),
-        });
+        self.init.insert(id, init);
         id
     }
 
-    /// Start observing a target.
-    pub fn observe(&mut self, id: IntersectionObserverId, target: Entity) {
-        if let Some(entry) = self.observers.iter_mut().find(|e| e.id == id) {
-            if !entry.targets.contains(&target) {
-                entry.targets.push(target);
+    /// Start observing a target. Re-observing the same target is a no-op.
+    pub fn observe(&mut self, dom: &mut EcsDom, id: IntersectionObserverId, target: Entity) {
+        if let Ok(mut comp) = dom.world_mut().get::<&mut IntersectionObservedBy>(target) {
+            if !comp.0.iter().any(|o| o.observer == id) {
+                comp.0.push(IntersectionObservation {
+                    observer: id,
+                    last_ratio: None,
+                });
             }
+            return;
         }
+        let _ = dom.world_mut().insert_one(
+            target,
+            IntersectionObservedBy(vec![IntersectionObservation {
+                observer: id,
+                last_ratio: None,
+            }]),
+        );
     }
 
     /// Stop observing a specific target.
-    pub fn unobserve(&mut self, id: IntersectionObserverId, target: Entity) {
-        if let Some(entry) = self.observers.iter_mut().find(|e| e.id == id) {
-            entry.targets.retain(|e| *e != target);
+    pub fn unobserve(&mut self, dom: &mut EcsDom, id: IntersectionObserverId, target: Entity) {
+        let mut now_empty = false;
+        if let Ok(mut comp) = dom.world_mut().get::<&mut IntersectionObservedBy>(target) {
+            comp.0.retain(|o| o.observer != id);
+            now_empty = comp.0.is_empty();
+        }
+        if now_empty {
+            let _ = dom.world_mut().remove_one::<IntersectionObservedBy>(target);
         }
     }
 
     /// Stop observing all targets for this observer.
-    pub fn disconnect(&mut self, id: IntersectionObserverId) {
-        if let Some(entry) = self.observers.iter_mut().find(|e| e.id == id) {
-            entry.targets.clear();
+    pub fn disconnect(&mut self, dom: &mut EcsDom, id: IntersectionObserverId) {
+        let mut emptied: Vec<Entity> = Vec::new();
+        for (entity, comp) in &mut dom.world().query::<(Entity, &mut IntersectionObservedBy)>() {
+            comp.0.retain(|o| o.observer != id);
+            if comp.0.is_empty() {
+                emptied.push(entity);
+            }
+        }
+        for entity in emptied {
+            let _ = dom.world_mut().remove_one::<IntersectionObservedBy>(entity);
         }
     }
 
-    /// Remove the observer entirely.
-    pub fn unregister(&mut self, id: IntersectionObserverId) {
-        self.observers.retain(|e| e.id != id);
+    /// Remove the observer entirely (drops its registrations and config).
+    pub fn unregister(&mut self, dom: &mut EcsDom, id: IntersectionObserverId) {
+        self.disconnect(dom, id);
+        self.init.remove(&id);
     }
 
-    /// Remove a destroyed entity from all observer target lists.
+    /// Gather intersection observations by computing intersection ratios
+    /// (Intersection Observer §3.2.8 "Run the Update Intersection Observations
+    /// Steps").
     ///
-    /// Call this when an entity is removed from the DOM to prevent stale references.
-    pub fn remove_entity(&mut self, entity: Entity) {
-        for entry in &mut self.observers {
-            entry.targets.retain(|e| *e != entity);
-            entry.last_ratios.remove(&entity);
-        }
-    }
-
-    /// Gather intersection observations by computing intersection ratios.
-    ///
-    /// `rect_fn` provides the current bounding rect for an entity.
-    /// `viewport` is the root viewport rect.
-    /// Returns `(observer_id, entries)` pairs for observers with threshold crossings.
+    /// `rect_fn` provides the current bounding rect for an entity, taking
+    /// `&EcsDom` so it can read layout without aliasing the `&mut EcsDom`
+    /// write-back borrow. `viewport` is the root viewport rect. Returns
+    /// `(observer_id, entries)` pairs for observers with threshold crossings.
     pub fn gather_observations(
         &mut self,
-        rect_fn: &dyn Fn(Entity) -> Option<Rect>,
+        dom: &mut EcsDom,
+        rect_fn: &RectProvider<'_>,
         viewport: Rect,
     ) -> Vec<(IntersectionObserverId, Vec<IntersectionObserverEntry>)> {
-        let mut result = Vec::new();
-        for observer in &mut self.observers {
-            let root_rect = observer.init.root.and_then(rect_fn).unwrap_or(viewport);
-            let thresholds = if observer.init.threshold.is_empty() {
-                &[0.0][..]
-            } else {
-                &observer.init.threshold
-            };
+        let mut grouped: std::collections::HashMap<
+            IntersectionObserverId,
+            Vec<IntersectionObserverEntry>,
+        > = std::collections::HashMap::new();
+        let mut changes: Vec<(Entity, IntersectionObserverId, f64)> = Vec::new();
 
-            let mut entries = Vec::new();
-            for &target in &observer.targets {
-                let Some(target_rect) = rect_fn(target) else {
+        // Phase A: read observations + compute ratios (shared borrows only —
+        // the `&IntersectionObservedBy` query and `rect_fn`'s layout reads
+        // touch disjoint components, so they coexist).
+        for (entity, comp) in &mut dom.world().query::<(Entity, &IntersectionObservedBy)>() {
+            let Some(target_rect) = rect_fn(&*dom, entity) else {
+                continue;
+            };
+            for obs in &comp.0 {
+                let Some(init) = self.init.get(&obs.observer) else {
                     continue;
                 };
+                let root_rect = init
+                    .root
+                    .and_then(|r| rect_fn(&*dom, r))
+                    .unwrap_or(viewport);
+                let thresholds = if init.threshold.is_empty() {
+                    &[0.0][..]
+                } else {
+                    &init.threshold
+                };
                 let ratio = compute_intersection_ratio(target_rect, root_rect);
-                let last_ratio = observer.last_ratios.get(&target).copied().unwrap_or(-1.0);
-
-                if crossed_threshold(last_ratio, ratio, thresholds) {
-                    observer.last_ratios.insert(target, ratio);
-                    entries.push(IntersectionObserverEntry {
-                        target,
-                        intersection_ratio: ratio,
-                        is_intersecting: ratio > 0.0,
-                    });
+                let last = obs.last_ratio.unwrap_or(-1.0);
+                if crossed_threshold(last, ratio, thresholds) {
+                    changes.push((entity, obs.observer, ratio));
+                    grouped
+                        .entry(obs.observer)
+                        .or_default()
+                        .push(IntersectionObserverEntry {
+                            target: entity,
+                            intersection_ratio: ratio,
+                            is_intersecting: ratio > 0.0,
+                        });
                 }
             }
-            if !entries.is_empty() {
-                result.push((observer.id, entries));
+        }
+
+        // Phase B: write back last ratios (exclusive borrow).
+        for (entity, observer, ratio) in changes {
+            if let Ok(mut comp) = dom.world_mut().get::<&mut IntersectionObservedBy>(entity) {
+                if let Some(obs) = comp.0.iter_mut().find(|o| o.observer == observer) {
+                    obs.last_ratio = Some(ratio);
+                }
             }
         }
-        result
-    }
 
-    /// Access the init config for a given observer.
-    #[must_use]
-    pub fn get_init(&self, id: IntersectionObserverId) -> Option<&IntersectionObserverInit> {
-        self.observers.iter().find(|e| e.id == id).map(|e| &e.init)
+        grouped.into_iter().collect()
     }
 }
 
@@ -254,12 +293,13 @@ mod tests {
         };
         let mut reg = IntersectionObserverRegistry::new();
         let id = reg.register(init);
-        reg.observe(id, el);
+        reg.observe(&mut dom, id, el);
 
         let viewport = Rect::new(0.0, 0.0, 1024.0, 768.0);
         // Element fully inside viewport.
         let observations = reg.gather_observations(
-            &|e| {
+            &mut dom,
+            &|_, e| {
                 if e == el {
                     Some(Rect::new(10.0, 10.0, 100.0, 100.0))
                 } else {
@@ -284,35 +324,49 @@ mod tests {
         };
         let mut reg = IntersectionObserverRegistry::new();
         let id = reg.register(init);
-        reg.observe(id, el);
+        reg.observe(&mut dom, id, el);
 
         let viewport = Rect::new(0.0, 0.0, 1024.0, 768.0);
 
         // First: fully visible → ratio 1.0, crosses 0.5.
-        reg.gather_observations(&|_| Some(Rect::new(10.0, 10.0, 100.0, 100.0)), viewport);
+        reg.gather_observations(
+            &mut dom,
+            &|_, _| Some(Rect::new(10.0, 10.0, 100.0, 100.0)),
+            viewport,
+        );
 
         // Still fully visible — same ratio, no crossing.
-        let observations =
-            reg.gather_observations(&|_| Some(Rect::new(20.0, 20.0, 100.0, 100.0)), viewport);
+        let observations = reg.gather_observations(
+            &mut dom,
+            &|_, _| Some(Rect::new(20.0, 20.0, 100.0, 100.0)),
+            viewport,
+        );
         assert!(observations.is_empty());
     }
 
     #[test]
-    fn remove_entity_clears_ratios() {
+    fn despawn_clears_observation() {
         let mut dom = EcsDom::new();
         let el = elem(&mut dom, "div");
 
         let init = IntersectionObserverInit::default();
         let mut reg = IntersectionObserverRegistry::new();
         let id = reg.register(init);
-        reg.observe(id, el);
+        reg.observe(&mut dom, id, el);
 
         let viewport = Rect::new(0.0, 0.0, 1024.0, 768.0);
-        reg.gather_observations(&|_| Some(Rect::new(10.0, 10.0, 100.0, 100.0)), viewport);
+        reg.gather_observations(
+            &mut dom,
+            &|_, _| Some(Rect::new(10.0, 10.0, 100.0, 100.0)),
+            viewport,
+        );
 
-        reg.remove_entity(el);
-        let observations =
-            reg.gather_observations(&|_| Some(Rect::new(10.0, 10.0, 100.0, 100.0)), viewport);
+        let _ = dom.destroy_entity(el);
+        let observations = reg.gather_observations(
+            &mut dom,
+            &|_, _| Some(Rect::new(10.0, 10.0, 100.0, 100.0)),
+            viewport,
+        );
         assert!(observations.is_empty());
     }
 }
