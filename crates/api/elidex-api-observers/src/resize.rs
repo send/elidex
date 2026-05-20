@@ -79,9 +79,15 @@ struct ResizeObservation {
 struct ResizeObservedBy(Vec<ResizeObservation>);
 
 /// Registry for active resize observers.
+///
+/// Tracks live observer ids so `observe` can reject an unregistered id and
+/// `unregister` truly retires it — mirroring the mutation registry's `records`
+/// keys and the intersection registry's `init` keys (ResizeObserver carries no
+/// other per-observer state, hence a bare id set).
 #[derive(Debug, Default)]
 pub struct ResizeObserverRegistry {
     next_id: u64,
+    registered: std::collections::HashSet<ResizeObserverId>,
 }
 
 impl ResizeObserverRegistry {
@@ -95,6 +101,7 @@ impl ResizeObserverRegistry {
     pub fn register(&mut self) -> ResizeObserverId {
         let id = ResizeObserverId(self.next_id);
         self.next_id += 1;
+        self.registered.insert(id);
         id
     }
 
@@ -107,6 +114,12 @@ impl ResizeObserverRegistry {
         target: Entity,
         options: ResizeObserverOptions,
     ) {
+        // Ignore observe for an unregistered (or unregister()'d) id so a stale
+        // `ResizeObservedBy` can't accumulate. Restores the pre-refactor
+        // registry-lookup guard.
+        if !self.registered.contains(&id) {
+            return;
+        }
         if let Ok(mut comp) = dom.world_mut().get::<&mut ResizeObservedBy>(target) {
             if !comp.0.iter().any(|o| o.observer == id) {
                 comp.0.push(ResizeObservation {
@@ -153,10 +166,11 @@ impl ResizeObserverRegistry {
         }
     }
 
-    /// Remove the observer entirely (equivalent to disconnect; no registry-side
-    /// state beyond the id counter).
+    /// Remove the observer entirely: drop its observations and retire the id so
+    /// a later `observe` with the same id is a no-op.
     pub fn unregister(&mut self, dom: &mut EcsDom, id: ResizeObserverId) {
         self.disconnect(dom, id);
+        self.registered.remove(&id);
     }
 
     /// Gather resize observations by comparing current sizes against last known
@@ -355,5 +369,37 @@ mod tests {
         sorted.sort_unstable();
         assert_eq!(got.len(), 4);
         assert_eq!(got, sorted, "gather must deliver in id-sorted order");
+    }
+
+    #[test]
+    fn observe_unregistered_id_is_noop() {
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+
+        let mut reg = ResizeObserverRegistry::new();
+        let ghost = ResizeObserverId::from_raw(999);
+        reg.observe(&mut dom, ghost, el, ResizeObserverOptions::default());
+        assert!(
+            dom.world().get::<&ResizeObservedBy>(el).is_err(),
+            "observe on an unregistered id must not attach a component"
+        );
+    }
+
+    #[test]
+    fn unregister_retires_id() {
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+
+        let mut reg = ResizeObserverRegistry::new();
+        let id = reg.register();
+        reg.observe(&mut dom, id, el, ResizeObserverOptions::default());
+        reg.unregister(&mut dom, id);
+
+        // The id is retired: a later observe with it is a no-op.
+        reg.observe(&mut dom, id, el, ResizeObserverOptions::default());
+        assert!(
+            dom.world().get::<&ResizeObservedBy>(el).is_err(),
+            "a retired id must not be reusable for observe"
+        );
     }
 }
