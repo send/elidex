@@ -21,15 +21,6 @@ fn echo_bound_key(
     Ok(JsValue::String(key))
 }
 
-/// No-op setter (the install helper requires a setter; unused here).
-fn noop_set(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    Ok(JsValue::Undefined)
-}
-
 #[test]
 fn distinct_bound_keys_yield_distinct_values() {
     let mut vm = Vm::new();
@@ -38,12 +29,12 @@ fn distinct_bound_keys_yield_distinct_values() {
     let alpha = vm.inner.strings.intern("alpha");
     let beta = vm.inner.strings.intern("beta");
 
-    // Two accessors over ONE backend fn pair, distinguished only by bound key.
+    // Two read-only accessors over ONE backend fn, distinguished only by bound key.
     vm.inner.install_bound_accessor_pair(
         global,
         alpha,
         echo_bound_key,
-        noop_set,
+        None,
         alpha,
         PropertyAttrs::WEBIDL_RO_ACCESSOR,
     );
@@ -51,7 +42,7 @@ fn distinct_bound_keys_yield_distinct_values() {
         global,
         beta,
         echo_bound_key,
-        noop_set,
+        None,
         beta,
         PropertyAttrs::WEBIDL_RO_ACCESSOR,
     );
@@ -70,6 +61,33 @@ fn distinct_bound_keys_yield_distinct_values() {
     assert_ne!(got_alpha, got_beta);
 }
 
+/// A `None` setter installs a genuinely read-only accessor — no no-op setter
+/// that would suppress strict-mode assignment semantics (the `Option<setter>`
+/// fix vs. the original mandatory-setter API).
+#[test]
+fn none_setter_installs_readonly_accessor() {
+    let mut vm = Vm::new();
+    let global = vm.inner.global_object;
+    let alpha = vm.inner.strings.intern("alpha");
+    vm.inner.install_bound_accessor_pair(
+        global,
+        alpha,
+        echo_bound_key,
+        None,
+        alpha,
+        PropertyAttrs::WEBIDL_RO_ACCESSOR,
+    );
+
+    let no_setter = match vm
+        .eval("Object.getOwnPropertyDescriptor(globalThis, 'alpha').set === undefined;")
+        .unwrap()
+    {
+        JsValue::Boolean(b) => b,
+        other => panic!("expected bool, got {other:?}"),
+    };
+    assert!(no_setter, "None setter must not install a setter fn");
+}
+
 /// The bound key is call-scoped: after a bound-accessor call returns, the
 /// staged key is restored to `None` (no leak into subsequent ordinary natives).
 #[test]
@@ -81,7 +99,7 @@ fn bound_key_does_not_leak_after_call() {
         global,
         alpha,
         echo_bound_key,
-        noop_set,
+        None,
         alpha,
         PropertyAttrs::WEBIDL_RO_ACCESSOR,
     );

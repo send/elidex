@@ -216,7 +216,7 @@ impl VmInner {
                 proto_id,
                 name_sid,
                 native_fr_handler_get,
-                native_fr_handler_set,
+                Some(native_fr_handler_set),
                 name_sid,
                 PropertyAttrs::WEBIDL_RO_ACCESSOR,
             );

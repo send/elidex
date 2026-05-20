@@ -349,19 +349,22 @@ impl VmInner {
         self.create_native_function_keyed(name_id, func, false, Some(key_sid))
     }
 
-    /// Install a getter/setter accessor pair (keyed by `name_sid`) whose
-    /// getter and setter share a single backend fn each, parametrized by
+    /// Install a getter (and optional setter) accessor (keyed by `name_sid`)
+    /// whose getter/setter share a single backend fn each, parametrized by
     /// `key_sid` via [`Self::create_native_function_bound`].  Mirrors
-    /// [`Self::install_accessor_pair`] but threads the bound key, so an
-    /// accessor *family* (e.g. event-handler IDL attributes) installs N real
-    /// prototype accessors over one backend fn pair.  WebIDL §3.7.6.
+    /// [`Self::install_accessor_pair`] (`setter` is `Option` — a `None` setter
+    /// keeps the read-only [[Set]] semantics, vs. a no-op setter which would
+    /// suppress the strict-mode assignment TypeError) but threads the bound
+    /// key, so an accessor *family* (e.g. event-handler IDL attributes)
+    /// installs N real prototype accessors over one backend fn pair.
+    /// WebIDL §3.7.6.
     #[cfg(feature = "engine")]
     pub(crate) fn install_bound_accessor_pair(
         &mut self,
         target: ObjectId,
         name_sid: StringId,
         getter: super::NativeFn,
-        setter: super::NativeFn,
+        setter: Option<super::NativeFn>,
         key_sid: StringId,
         attrs: shape::PropertyAttrs,
     ) {
@@ -372,14 +375,14 @@ impl VmInner {
         let display = self.strings.get_utf8(name_sid);
         let getter_id =
             self.create_native_function_bound(&format!("get {display}"), getter, key_sid);
-        let setter_id =
-            self.create_native_function_bound(&format!("set {display}"), setter, key_sid);
+        let setter_id = setter
+            .map(|f| self.create_native_function_bound(&format!("set {display}"), f, key_sid));
         self.define_shaped_property(
             target,
             value::PropertyKey::String(name_sid),
             value::PropertyValue::Accessor {
                 getter: Some(getter_id),
-                setter: Some(setter_id),
+                setter: setter_id,
             },
             attrs,
         );
