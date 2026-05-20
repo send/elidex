@@ -106,15 +106,14 @@ pub(crate) struct FileReaderSideData {
     /// `readAs*()`.  Drain snapshots vs current to invalidate stale
     /// completion if abort intervened OR a new read superseded.
     pub(crate) abort_seq: u32,
-    // Event handler attributes (FileAPI §6.2 IDL) — `None` until
-    // user JS assigns.  Direct callable invocation (NOT
-    // dispatchEvent — see module doc on event-delivery scope).
-    pub(crate) onloadstart: Option<ObjectId>,
-    pub(crate) onprogress: Option<ObjectId>,
-    pub(crate) onload: Option<ObjectId>,
-    pub(crate) onloadend: Option<ObjectId>,
-    pub(crate) onerror: Option<ObjectId>,
-    pub(crate) onabort: Option<ObjectId>,
+    /// Event handler attributes (FileAPI §6.2 IDL; the 6-attr set is the
+    /// §6.2.1 event-handler-attribute table) keyed by the interned attr-name
+    /// SID (`onloadstart`/`onprogress`/`onload`/`onloadend`/`onerror`/
+    /// `onabort`).  Direct callable invocation (NOT dispatchEvent —
+    /// see module doc on event-delivery scope).  `onerror` is written but
+    /// never read today (no error fire-path; in-memory blob reads are
+    /// infallible — deferred to `#11-filereader-event-listeners`).
+    pub(crate) handlers: std::collections::HashMap<StringId, ObjectId>,
 }
 
 // ---------------------------------------------------------------------------
@@ -200,45 +199,25 @@ impl VmInner {
             );
         }
 
-        // Event handler attributes: 6 RW getter/setter pairs.
-        let on_handlers: [(StringId, NativeFn, NativeFn); 6] = [
-            (
-                self.well_known.onloadstart,
-                native_fr_get_onloadstart as NativeFn,
-                native_fr_set_onloadstart as NativeFn,
-            ),
-            (
-                self.well_known.onprogress,
-                native_fr_get_onprogress as NativeFn,
-                native_fr_set_onprogress as NativeFn,
-            ),
-            (
-                self.well_known.onload,
-                native_fr_get_onload as NativeFn,
-                native_fr_set_onload as NativeFn,
-            ),
-            (
-                self.well_known.onloadend,
-                native_fr_get_onloadend as NativeFn,
-                native_fr_set_onloadend as NativeFn,
-            ),
-            (
-                self.well_known.onerror,
-                native_fr_get_onerror as NativeFn,
-                native_fr_set_onerror as NativeFn,
-            ),
-            (
-                self.well_known.onabort,
-                native_fr_get_onabort as NativeFn,
-                native_fr_set_onabort as NativeFn,
-            ),
+        // Event handler attributes: 6 RW accessor pairs sharing ONE backend
+        // getter/setter, parametrized by the attr-name SID as the bound key
+        // (FileAPI §6.2 IDL / HTML §8.1.8.1).  The same SID family is the read
+        // key in `fire_progress_event` (via `handler_name_sid`).
+        let handler_names: [StringId; 6] = [
+            self.well_known.onloadstart,
+            self.well_known.onprogress,
+            self.well_known.onload,
+            self.well_known.onloadend,
+            self.well_known.onerror,
+            self.well_known.onabort,
         ];
-        for (name_sid, getter, setter) in on_handlers {
-            self.install_accessor_pair(
+        for name_sid in handler_names {
+            self.install_bound_accessor_pair(
                 proto_id,
                 name_sid,
-                getter,
-                Some(setter),
+                native_fr_handler_get,
+                native_fr_handler_set,
+                name_sid,
                 PropertyAttrs::WEBIDL_RO_ACCESSOR,
             );
         }
@@ -289,6 +268,24 @@ fn require_file_reader_this(
         Err(VmError::type_error(format!(
             "FileReader.prototype.{method} called on non-FileReader"
         )))
+    }
+}
+
+/// Brand check for the shared event-handler accessors, where the method label
+/// is an interned attr-name SID (the bound key).  Defers the `get_utf8`
+/// allocation to the error path — the common (valid-`this`) call returns the
+/// id without materializing the label, unlike eagerly passing
+/// `&ctx.get_utf8(key)`.
+fn require_file_reader_this_keyed(
+    ctx: &NativeContext<'_>,
+    this: JsValue,
+    name_sid: StringId,
+) -> Result<ObjectId, VmError> {
+    match this {
+        JsValue::Object(id) if matches!(ctx.vm.get_object(id).kind, ObjectKind::FileReader) => {
+            Ok(id)
+        }
+        _ => require_file_reader_this(ctx, this, &ctx.get_utf8(name_sid)),
     }
 }
 
@@ -381,75 +378,54 @@ fn native_fr_get_error(
 // Event handler attribute accessors — 6 getter/setter pairs
 // ---------------------------------------------------------------------------
 
-macro_rules! fr_on_handler {
-    ($getter:ident, $setter:ident, $field:ident, $name:literal) => {
-        fn $getter(
-            ctx: &mut NativeContext<'_>,
-            this: JsValue,
-            _args: &[JsValue],
-        ) -> Result<JsValue, VmError> {
-            let id = require_file_reader_this(ctx, this, $name)?;
-            Ok(ctx
-                .vm
-                .file_reader_data
-                .get(&id)
-                .and_then(|d| d.$field)
-                .map_or(JsValue::Null, JsValue::Object))
-        }
-        fn $setter(
-            ctx: &mut NativeContext<'_>,
-            this: JsValue,
-            args: &[JsValue],
-        ) -> Result<JsValue, VmError> {
-            let id = require_file_reader_this(ctx, this, $name)?;
-            let new_val = args.first().copied().unwrap_or(JsValue::Undefined);
-            // Spec: only callable values are retained; any other
-            // value silently nulls the slot (matches Chrome/Firefox).
-            let stored = match new_val {
-                JsValue::Object(obj_id) if ctx.vm.get_object(obj_id).kind.is_callable() => {
-                    Some(obj_id)
-                }
-                _ => None,
-            };
-            if let Some(d) = ctx.vm.file_reader_data.get_mut(&id) {
-                d.$field = stored;
-            }
-            Ok(JsValue::Undefined)
-        }
-    };
+/// Shared getter for all 6 event-handler IDL attributes.  Recovers which
+/// handler it serves from `ctx.bound_key()` (= the attr-name SID, installed by
+/// `install_bound_accessor_pair`).  Returns the stored callable or `null`
+/// (HTML §8.1.8.1 getter algorithm).
+fn native_fr_handler_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let key = ctx
+        .bound_key()
+        .expect("FileReader event-handler accessor missing bound_key");
+    let id = require_file_reader_this_keyed(ctx, this, key)?;
+    Ok(ctx
+        .vm
+        .file_reader_data
+        .get(&id)
+        .and_then(|d| d.handlers.get(&key).copied())
+        .map_or(JsValue::Null, JsValue::Object))
 }
 
-fr_on_handler!(
-    native_fr_get_onloadstart,
-    native_fr_set_onloadstart,
-    onloadstart,
-    "onloadstart"
-);
-fr_on_handler!(
-    native_fr_get_onprogress,
-    native_fr_set_onprogress,
-    onprogress,
-    "onprogress"
-);
-fr_on_handler!(native_fr_get_onload, native_fr_set_onload, onload, "onload");
-fr_on_handler!(
-    native_fr_get_onloadend,
-    native_fr_set_onloadend,
-    onloadend,
-    "onloadend"
-);
-fr_on_handler!(
-    native_fr_get_onerror,
-    native_fr_set_onerror,
-    onerror,
-    "onerror"
-);
-fr_on_handler!(
-    native_fr_get_onabort,
-    native_fr_set_onabort,
-    onabort,
-    "onabort"
-);
+/// Shared setter for all 6 event-handler IDL attributes.  Stores the callable
+/// keyed by `ctx.bound_key()`; any non-callable value silently clears the slot
+/// (HTML §8.1.8.1 setter algorithm — matches Chrome/Firefox).
+fn native_fr_handler_set(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let key = ctx
+        .bound_key()
+        .expect("FileReader event-handler accessor missing bound_key");
+    let id = require_file_reader_this_keyed(ctx, this, key)?;
+    let new_val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let callable =
+        matches!(new_val, JsValue::Object(obj) if ctx.vm.get_object(obj).kind.is_callable());
+    if let Some(d) = ctx.vm.file_reader_data.get_mut(&id) {
+        match new_val {
+            JsValue::Object(obj) if callable => {
+                d.handlers.insert(key, obj);
+            }
+            _ => {
+                d.handlers.remove(&key);
+            }
+        }
+    }
+    Ok(JsValue::Undefined)
+}
 
 // ---------------------------------------------------------------------------
 // readAs* methods — synchronously enter LOADING + enqueue task
@@ -721,23 +697,34 @@ enum EventKind {
     Abort,
 }
 
+/// SoT mapping `EventKind` → the **attr-name** SID (`onload` etc.) used as
+/// both the install bound key (`install_file_reader_members`) AND the
+/// fire-read key (`fire_progress_event`).  Distinct from the event-`type`
+/// SID family (`load_event_type` = "load") read a few lines below — keeping
+/// this single source prevents the two from diverging (a read against the
+/// type family would miss every handler).
+fn handler_name_sid(wk: &super::super::well_known::WellKnownStrings, kind: EventKind) -> StringId {
+    match kind {
+        EventKind::Loadstart => wk.onloadstart,
+        EventKind::Progress => wk.onprogress,
+        EventKind::Load => wk.onload,
+        EventKind::Loadend => wk.onloadend,
+        EventKind::Abort => wk.onabort,
+    }
+}
+
 fn fire_progress_event(
     ctx: &mut NativeContext<'_>,
     reader_id: ObjectId,
     kind: EventKind,
     blob_size_override: Option<f64>,
 ) {
+    let handler_key = handler_name_sid(&ctx.vm.well_known, kind);
     let handler = ctx
         .vm
         .file_reader_data
         .get(&reader_id)
-        .and_then(|d| match kind {
-            EventKind::Loadstart => d.onloadstart,
-            EventKind::Progress => d.onprogress,
-            EventKind::Load => d.onload,
-            EventKind::Loadend => d.onloadend,
-            EventKind::Abort => d.onabort,
-        });
+        .and_then(|d| d.handlers.get(&handler_key).copied());
     let Some(handler_id) = handler else {
         return;
     };

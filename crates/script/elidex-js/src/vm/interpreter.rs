@@ -79,11 +79,16 @@ impl VmInner {
                 ObjectKind::NativeFunction(nf) => {
                     let func = nf.func;
                     let saved_gc = self.gc_enabled;
+                    // Stage the accessor's bound key (re-entrancy: a native may
+                    // call another native, so save/restore rather than clear).
+                    let saved_bound_key = self.active_bound_key;
+                    self.active_bound_key = nf.bound_key;
                     self.gc_enabled = false;
                     let call_args = owned_args.as_deref().unwrap_or(args);
                     let mut ctx = NativeContext { vm: self };
                     let result = func(&mut ctx, effective_this, call_args);
                     ctx.vm.gc_enabled = saved_gc;
+                    ctx.vm.active_bound_key = saved_bound_key;
                     return result;
                 }
                 ObjectKind::BoundFunction {

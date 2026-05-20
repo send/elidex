@@ -85,6 +85,7 @@ impl Vm {
                 gc_threshold: 65536,
                 gc_enabled: false,
                 in_construct: false,
+                active_bound_key: None,
                 host_data: None,
                 #[cfg(feature = "engine")]
                 dom_registry: std::rc::Rc::new(elidex_dom_api::registry::create_dom_registry()),

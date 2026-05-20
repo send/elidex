@@ -878,6 +878,7 @@ impl VmInner {
                 name: fp_name,
                 func: native_function_prototype_noop,
                 constructable: false,
+                bound_key: None,
             }),
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
             prototype: Some(obj_proto),
