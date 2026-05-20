@@ -94,6 +94,13 @@ impl IntersectionObserverRegistry {
     /// Start observing a target (Intersection Observer §2.2 `observe(target)`).
     /// Re-observing the same target is a no-op.
     pub fn observe(&mut self, dom: &mut EcsDom, id: IntersectionObserverId, target: Entity) {
+        // Ignore observe for an id with no init config (e.g. unregistered):
+        // a stale `IntersectionObservedBy` would be scanned each gather but
+        // never delivered (gather skips missing init). Restores the
+        // pre-refactor registry-lookup guard.
+        if !self.init.contains_key(&id) {
+            return;
+        }
         if let Ok(mut comp) = dom.world_mut().get::<&mut IntersectionObservedBy>(target) {
             if !comp.0.iter().any(|o| o.observer == id) {
                 comp.0.push(IntersectionObservation {
@@ -127,7 +134,10 @@ impl IntersectionObserverRegistry {
     /// Stop observing all targets for this observer (Intersection Observer §2.2 `disconnect()`).
     pub fn disconnect(&mut self, dom: &mut EcsDom, id: IntersectionObserverId) {
         let mut emptied: Vec<Entity> = Vec::new();
-        for (entity, comp) in &mut dom.world().query::<(Entity, &mut IntersectionObservedBy)>() {
+        for (entity, comp) in &mut dom
+            .world_mut()
+            .query::<(Entity, &mut IntersectionObservedBy)>()
+        {
             comp.0.retain(|o| o.observer != id);
             if comp.0.is_empty() {
                 emptied.push(entity);
@@ -369,5 +379,21 @@ mod tests {
             viewport,
         );
         assert!(observations.is_empty());
+    }
+
+    #[test]
+    fn observe_unregistered_id_is_noop() {
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+
+        let mut reg = IntersectionObserverRegistry::new();
+        // `ghost` has no init config (never register()'d) — observe must not
+        // attach a component that gather would scan but never deliver.
+        let ghost = IntersectionObserverId::from_raw(999);
+        reg.observe(&mut dom, ghost, el);
+        assert!(
+            dom.world().get::<&IntersectionObservedBy>(el).is_err(),
+            "observe on an unregistered id must not attach a component"
+        );
     }
 }

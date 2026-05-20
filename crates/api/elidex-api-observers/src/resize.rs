@@ -142,7 +142,7 @@ impl ResizeObserverRegistry {
     /// Stop observing all targets for this observer (Resize Observer §2.1 `disconnect()`).
     pub fn disconnect(&mut self, dom: &mut EcsDom, id: ResizeObserverId) {
         let mut emptied: Vec<Entity> = Vec::new();
-        for (entity, comp) in &mut dom.world().query::<(Entity, &mut ResizeObservedBy)>() {
+        for (entity, comp) in &mut dom.world_mut().query::<(Entity, &mut ResizeObservedBy)>() {
             comp.0.retain(|o| o.observer != id);
             if comp.0.is_empty() {
                 emptied.push(entity);

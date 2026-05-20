@@ -120,6 +120,13 @@ impl MutationObserverRegistry {
         target: Entity,
         init: MutationObserverInit,
     ) {
+        // Ignore observe for an unregistered observer id (no record queue):
+        // keeps registry state and per-entity registrations consistent so a
+        // stale `MutationObservedBy` can't accumulate with its notifications
+        // silently dropped. Restores the pre-refactor registry-lookup guard.
+        if !self.records.contains_key(&id) {
+            return;
+        }
         if let Ok(mut comp) = dom.world_mut().get::<&mut MutationObservedBy>(target) {
             if let Some(existing) = comp.0.iter_mut().find(|o| o.observer == id) {
                 existing.init = init;
@@ -139,7 +146,7 @@ impl MutationObserverRegistry {
     /// Per WHATWG DOM §4.3.3.3: empties both the node list and the record queue.
     pub fn disconnect(&mut self, dom: &mut EcsDom, id: MutationObserverId) {
         let mut emptied: Vec<Entity> = Vec::new();
-        for (entity, comp) in &mut dom.world().query::<(Entity, &mut MutationObservedBy)>() {
+        for (entity, comp) in &mut dom.world_mut().query::<(Entity, &mut MutationObservedBy)>() {
             comp.0.retain(|o| o.observer != id);
             if comp.0.is_empty() {
                 emptied.push(entity);
@@ -517,5 +524,29 @@ mod tests {
 
         assert_eq!(reg.take_records(id_a).len(), 1);
         assert_eq!(reg.take_records(id_b).len(), 1);
+    }
+
+    #[test]
+    fn observe_unregistered_id_is_noop() {
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+
+        let mut reg = MutationObserverRegistry::new();
+        // `ghost` is never register()'d — observe must not attach a stale
+        // component nor leave registry state inconsistent.
+        let ghost = MutationObserverId::from_raw(999);
+        reg.observe(
+            &mut dom,
+            ghost,
+            el,
+            MutationObserverInit {
+                child_list: true,
+                ..Default::default()
+            },
+        );
+        assert!(
+            dom.world().get::<&MutationObservedBy>(el).is_err(),
+            "observe on an unregistered id must not attach a component"
+        );
     }
 }
