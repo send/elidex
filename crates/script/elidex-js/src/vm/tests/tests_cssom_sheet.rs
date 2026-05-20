@@ -15,7 +15,7 @@
 
 #![cfg(feature = "engine")]
 
-use elidex_ecs::{Attributes, EcsDom};
+use elidex_ecs::{Attributes, EcsDom, LinkStylesheet};
 use elidex_script_session::SessionCore;
 
 use super::super::test_helpers::bind_vm;
@@ -656,4 +656,231 @@ fn sheet_owner_node_is_style_element() {
          (s.sheet.ownerNode === s) ? 'same' : 'different';",
     );
     assert_eq!(out, "same");
+}
+
+// --- <link rel="stylesheet"> (D-27 #11-link-stylesheet-loading) ----------
+
+/// Build a document with a single `<link rel="stylesheet" href>` in
+/// `<head>` carrying a `LinkStylesheet` component — emulating the loader
+/// attaching the associated CSS style sheet after a successful fetch.
+/// Returns `(document, link_entity)`.
+fn build_doc_with_link(
+    dom: &mut EcsDom,
+    css: &str,
+    href: &str,
+) -> (elidex_ecs::Entity, elidex_ecs::Entity) {
+    let doc = dom.create_document_root();
+    let html = dom.create_element("html", Attributes::default());
+    let head = dom.create_element("head", Attributes::default());
+    let body = dom.create_element("body", Attributes::default());
+    let mut attrs = Attributes::default();
+    attrs.set("rel", "stylesheet");
+    attrs.set("href", href);
+    let link = dom.create_element("link", attrs);
+    assert!(dom.append_child(head, link));
+    assert!(dom.append_child(html, head));
+    assert!(dom.append_child(html, body));
+    assert!(dom.append_child(doc, html));
+    dom.world_mut()
+        .insert_one(
+            link,
+            LinkStylesheet {
+                source: css.to_string(),
+                href: href.to_string(),
+                version: 1,
+            },
+        )
+        .expect("attach LinkStylesheet");
+    (doc, link)
+}
+
+fn run_with_link(css: &str, href: &str, script: &str) -> String {
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let (doc, _link) = build_doc_with_link(&mut dom, css, href);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let result = vm.eval(script).unwrap();
+    let out = match result {
+        JsValue::String(sid) => vm.inner.strings.get_utf8(sid),
+        JsValue::Number(n) => n.to_string(),
+        JsValue::Boolean(b) => b.to_string(),
+        JsValue::Null => "null".to_string(),
+        JsValue::Undefined => "undefined".to_string(),
+        _ => format!("{result:?}"),
+    };
+    vm.unbind();
+    out
+}
+
+#[test]
+fn loaded_link_sheet_is_css_style_sheet() {
+    let out = run_with_link(
+        "div { color: red; }",
+        "https://example.com/a.css",
+        "var l = document.getElementsByTagName('link')[0]; \
+         (l.sheet !== null && typeof l.sheet === 'object') ? 'sheet' : 'no-sheet';",
+    );
+    assert_eq!(out, "sheet");
+}
+
+#[test]
+fn link_sheet_identity_preserved() {
+    let out = run_with_link(
+        "div {}",
+        "https://example.com/a.css",
+        "var l = document.getElementsByTagName('link')[0]; \
+         (l.sheet === l.sheet) ? 'same' : 'different';",
+    );
+    assert_eq!(out, "same");
+}
+
+#[test]
+fn link_sheet_null_without_loaded_component() {
+    // A `<link rel="stylesheet">` whose resource has NOT loaded (no
+    // `LinkStylesheet` component) has no associated CSS style sheet —
+    // `link.sheet` is null (HTML §4.6.7 / CSSOM LinkStyle.sheet).
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let html = dom.create_element("html", Attributes::default());
+    let head = dom.create_element("head", Attributes::default());
+    let mut attrs = Attributes::default();
+    attrs.set("rel", "stylesheet");
+    attrs.set("href", "a.css");
+    let link = dom.create_element("link", attrs);
+    assert!(dom.append_child(head, link));
+    assert!(dom.append_child(html, head));
+    assert!(dom.append_child(doc, html));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let result = vm
+        .eval(
+            "var l = document.getElementsByTagName('link')[0]; \
+             (l.sheet === null) ? 'null' : 'not-null';",
+        )
+        .unwrap();
+    let JsValue::String(sid) = result else {
+        panic!("expected string, got {result:?}")
+    };
+    let out = vm.inner.strings.get_utf8(sid);
+    vm.unbind();
+    assert_eq!(out, "null");
+}
+
+#[test]
+fn link_sheet_href_returns_resolved_url() {
+    let out = run_with_link(
+        "div {}",
+        "https://example.com/styles/main.css",
+        "document.getElementsByTagName('link')[0].sheet.href;",
+    );
+    assert_eq!(out, "https://example.com/styles/main.css");
+}
+
+#[test]
+fn link_sheet_owner_node_is_link() {
+    let out = run_with_link(
+        "div {}",
+        "https://example.com/a.css",
+        "var l = document.getElementsByTagName('link')[0]; \
+         (l.sheet.ownerNode === l) ? 'same' : 'different';",
+    );
+    assert_eq!(out, "same");
+}
+
+#[test]
+fn link_sheet_css_rules_parsed_from_component() {
+    let out = run_with_link(
+        "div { color: red; } p { color: blue; }",
+        "https://example.com/a.css",
+        "var s = document.getElementsByTagName('link')[0].sheet; \
+         String(s.cssRules.length) + ':' + s.cssRules[0].selectorText;",
+    );
+    assert_eq!(out, "2:div");
+}
+
+#[test]
+fn link_sheet_insert_and_delete_rule_round_trip() {
+    // insertRule/deleteRule on a <link> sheet mutate the LinkStylesheet
+    // component (no text node) and stay observable through cssRules.
+    let out = run_with_link(
+        "div { color: red; }",
+        "https://example.com/a.css",
+        "var s = document.getElementsByTagName('link')[0].sheet; \
+         s.insertRule('p { color: blue; }', 1); \
+         var afterInsert = s.cssRules.length; \
+         s.deleteRule(0); \
+         String(afterInsert) + ':' + s.cssRules.length + ':' + s.cssRules[0].selectorText;",
+    );
+    assert_eq!(out, "2:1:p");
+}
+
+#[test]
+fn document_style_sheets_includes_loaded_link() {
+    let out = run_with_link(
+        "div {}",
+        "https://example.com/a.css",
+        "String(document.styleSheets.length);",
+    );
+    assert_eq!(out, "1");
+}
+
+#[test]
+fn document_style_sheets_link_and_style_in_document_order() {
+    // <link> precedes <style> in <head>; document.styleSheets must list
+    // them in tree order (CSSOM §6.8): [0] = link, [1] = style.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let html = dom.create_element("html", Attributes::default());
+    let head = dom.create_element("head", Attributes::default());
+    let mut attrs = Attributes::default();
+    attrs.set("rel", "stylesheet");
+    attrs.set("href", "https://example.com/a.css");
+    let link = dom.create_element("link", attrs);
+    assert!(dom.append_child(head, link));
+    let style = dom.create_element("style", Attributes::default());
+    let text = dom.create_text("p {}".to_string());
+    assert!(dom.append_child(style, text));
+    assert!(dom.append_child(head, style));
+    assert!(dom.append_child(html, head));
+    assert!(dom.append_child(doc, html));
+    dom.world_mut()
+        .insert_one(
+            link,
+            LinkStylesheet {
+                source: "div {}".to_string(),
+                href: "https://example.com/a.css".to_string(),
+                version: 1,
+            },
+        )
+        .expect("attach LinkStylesheet");
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let result = vm
+        .eval(
+            "var ss = document.styleSheets; \
+             String(ss.length) + ':' \
+             + (ss[0].ownerNode.tagName.toLowerCase()) + ':' \
+             + (ss[1].ownerNode.tagName.toLowerCase());",
+        )
+        .unwrap();
+    let JsValue::String(sid) = result else {
+        panic!("expected string, got {result:?}")
+    };
+    let out = vm.inner.strings.get_utf8(sid);
+    vm.unbind();
+    assert_eq!(out, "2:link:style");
 }

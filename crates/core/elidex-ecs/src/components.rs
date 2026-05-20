@@ -358,6 +358,31 @@ pub struct ImageData {
     pub height: u32,
 }
 
+/// External CSS loaded for a `<link rel="stylesheet">` element
+/// (HTML §4.6.7 — a `<link>` whose resource is successfully fetched and
+/// parsable has an *associated CSS style sheet*; that association is what
+/// `document.styleSheets` enumerates, CSSOM §6.8).
+///
+/// Attached by the resource loader after a successful fetch. The element
+/// is the source of truth for its loaded sheet: the CSSOM stylesheet
+/// walker, the per-entity stylesheet cache, and `link.sheet` all read it.
+/// Absent when the link is not a stylesheet, has no href, or the fetch
+/// failed — so component presence == "associated CSS style sheet exists".
+#[derive(Clone, Debug)]
+pub struct LinkStylesheet {
+    /// Raw CSS source text as fetched (parsed lazily by the CSSOM cache,
+    /// mirroring how `<style>` text content is parsed lazily).
+    pub source: String,
+    /// Resolved absolute URL of the linked sheet (CSSOM §6.2
+    /// `StyleSheet.href`).
+    pub href: String,
+    /// Monotonic version, bumped on each write (loader attach +
+    /// CSSOM `insertRule`/`deleteRule` flush). The per-entity stylesheet
+    /// cache uses it as the O(1) divergence key, since a void `<link>`
+    /// has no `inclusive_descendants_version` child-mutation signal.
+    pub version: u64,
+}
+
 /// Decoded background image layers for CSS `background-image`.
 ///
 /// Each entry corresponds to a background layer. `None` entries indicate

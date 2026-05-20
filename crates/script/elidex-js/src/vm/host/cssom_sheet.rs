@@ -441,10 +441,19 @@ fn native_sheet_href_get(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // `<style>.sheet.href` is null per CSSOM §6.2 (only `<link>`-loaded
-    // sheets carry an href).  Slot `#11-link-stylesheet-loading` extends.
-    let _ = require_sheet_receiver(ctx, this, "href")?;
-    Ok(JsValue::Null)
+    // CSSOM §6.2 `StyleSheet.href`: the location of the style sheet.
+    // `<link>`-loaded sheets carry the resolved absolute URL (read from
+    // the engine-independent `LinkStylesheet` component via dom-api);
+    // `<style>` sheets have no href and return null.
+    let entity = require_sheet_receiver(ctx, this, "href")?;
+    let Some(hd) = ctx.host_if_bound() else {
+        return Ok(JsValue::Null);
+    };
+    let Some(href) = elidex_dom_api::link_sheet_href(entity, hd.dom()) else {
+        return Ok(JsValue::Null);
+    };
+    let sid = ctx.vm.strings.intern(&href);
+    Ok(JsValue::String(sid))
 }
 
 fn native_sheet_insert_rule(

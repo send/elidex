@@ -10,8 +10,15 @@ use elidex_ecs::{Attributes, EcsDom, Entity, TagType, TextContent};
 pub enum StyleSource {
     /// Inline `<style>` element text content.
     Inline(String),
-    /// External `<link rel="stylesheet" href="...">` URL.
-    External(String),
+    /// External `<link rel="stylesheet" href="...">` reference. Carries
+    /// the `<link>` entity so the loader can attach the loaded sheet as a
+    /// component on it (HTML §4.6.7 associated CSS style sheet).
+    External {
+        /// The `href` attribute value (relative or absolute URL).
+        href: String,
+        /// The entity of the `<link>` element.
+        entity: Entity,
+    },
 }
 
 /// A script source found in the document.
@@ -73,7 +80,10 @@ fn collect_styles(dom: &EcsDom, entity: Entity, sources: &mut Vec<StyleSource>) 
                     if is_stylesheet {
                         if let Some(href) = attrs.get("href") {
                             if !href.is_empty() {
-                                sources.push(StyleSource::External(href.to_string()));
+                                sources.push(StyleSource::External {
+                                    href: href.to_string(),
+                                    entity,
+                                });
                             }
                         }
                     }
@@ -220,7 +230,8 @@ mod tests {
     fn extract_external_stylesheet() {
         let (dom, doc) = make_dom_with_link("style.css");
         let sources = extract_style_sources(&dom, doc);
-        assert_eq!(sources, vec![StyleSource::External("style.css".into())]);
+        assert_eq!(sources.len(), 1);
+        assert!(matches!(&sources[0], StyleSource::External { href, .. } if href == "style.css"));
     }
 
     #[test]
@@ -245,7 +256,9 @@ mod tests {
 
         let sources = extract_style_sources(&dom, doc);
         assert_eq!(sources.len(), 2);
-        assert_eq!(sources[0], StyleSource::External("a.css".into()));
+        assert!(
+            matches!(&sources[0], StyleSource::External { href, entity } if href == "a.css" && *entity == link)
+        );
         assert_eq!(sources[1], StyleSource::Inline("p { margin: 0; }".into()));
     }
 
@@ -435,7 +448,10 @@ mod tests {
         let link = dom.create_element("link", attrs);
         let _ = dom.append_child(doc, link);
         let sources = extract_style_sources(&dom, doc);
-        assert_eq!(sources, vec![StyleSource::External("alt.css".into())]);
+        assert_eq!(sources.len(), 1);
+        assert!(
+            matches!(&sources[0], StyleSource::External { href, entity } if href == "alt.css" && *entity == link)
+        );
     }
 
     // --- Image source extraction tests ---
