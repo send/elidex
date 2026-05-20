@@ -2061,6 +2061,16 @@ pub(crate) struct VmInner {
     /// `Worker` entity, not here.
     #[cfg(feature = "engine")]
     pub(crate) worker_registry: elidex_api_workers::WorkerRegistry,
+    /// Live-worker `WorkerId` → backing `NodeKind::Worker` entity map (main
+    /// mode). The drain iterates **this** (live workers only) rather than
+    /// scanning every `WorkerRef` entity in the world — terminated workers'
+    /// entities are retained for the brand check (so `postMessage` after close
+    /// stays a silent no-op) but removed from here, so the per-frame drain
+    /// stays O(live workers). Lifecycle-synced with [`Self::worker_registry`]:
+    /// inserted by the `Worker` ctor, removed on `terminate()` / close-drain /
+    /// unbind.
+    #[cfg(feature = "engine")]
+    pub(crate) worker_entities: HashMap<elidex_api_workers::WorkerId, elidex_ecs::Entity>,
     /// HTML §8.1.5 same-window task queue.  Currently populated only
     /// by `window.postMessage`; drained at the end of every
     /// `VmInner::eval` after the microtask flush.  See

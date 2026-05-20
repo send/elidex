@@ -89,36 +89,29 @@ impl VmInner {
         );
     }
 
-    /// Per-tick drain of every registered worker's outbound channel (the
-    /// parent's event-loop step of WHATWG HTML §10.2.4 "run a worker"). For
-    /// each [`NodeKind::Worker`] entity carrying a [`WorkerRef`]: pull all
-    /// pending [`WorkerToParent`] frames and convert them to DOM events on the
-    /// `Worker` object — `PostMessage` → `message`, `Error` → `error`,
-    /// `MessageError` → `messageerror` — and drop the registry handle once the
-    /// worker reports `Closed` / disconnects. The future shell main loop drives
-    /// this each frame, exactly as it drives [`Vm::tick_network`](crate::vm::Vm::tick_network).
+    /// Per-tick drain of every **live** worker's outbound channel (the parent's
+    /// event-loop step of WHATWG HTML §10.2.4 "run a worker"). Iterates the
+    /// [`worker_entities`](Self::worker_entities) live set (NOT a full
+    /// `WorkerRef` world scan — terminated workers' entities are retained for
+    /// the brand check but dropped from that set, so the per-frame cost stays
+    /// O(live workers)): pulls all pending [`WorkerToParent`] frames and
+    /// converts them to DOM events on the `Worker` object — `PostMessage` →
+    /// `message`, `Error` → `error`, `MessageError` → `messageerror` — dropping
+    /// the worker once it reports `Closed` / disconnects. The future shell main
+    /// loop drives this each frame, like [`Vm::tick_network`](crate::vm::Vm::tick_network).
     pub(in crate::vm) fn drain_worker_messages(&mut self) {
-        // Cheap per-frame guard: skip the ECS world query + `Vec` allocation
-        // entirely on the common no-worker page (mirrors `tick_network`'s
-        // `network_handle`-absent skip).
-        if self.worker_registry.is_empty() {
+        // Cheap per-frame guard: skip on the common no-worker page (mirrors
+        // `tick_network`'s `network_handle`-absent skip).
+        if self.worker_entities.is_empty() {
             return;
         }
-        // Snapshot (entity, worker-id) before touching the registry so the DOM
-        // borrow ends before the per-worker dispatch (which needs `&mut self`).
-        let workers: Vec<(Entity, WorkerId)> = {
-            let Some(hd) = self.host_data.as_deref_mut().filter(|h| h.is_bound()) else {
-                return;
-            };
-            hd.dom()
-                .world()
-                .query::<(Entity, &WorkerRef)>()
-                .iter()
-                .map(|(entity, w)| (entity, w.0))
-                .collect()
-        };
+        let workers: Vec<(WorkerId, Entity)> = self
+            .worker_entities
+            .iter()
+            .map(|(&id, &entity)| (id, entity))
+            .collect();
 
-        for (entity, worker_id) in workers {
+        for (worker_id, entity) in workers {
             let mut messages = Vec::new();
             let mut closed = false;
             // The worker's own origin (its script URL's origin), for stamping
@@ -196,6 +189,7 @@ impl VmInner {
 
             if closed {
                 self.worker_registry.remove(worker_id);
+                self.worker_entities.remove(&worker_id);
                 // No further events will dispatch at this entity — drop the
                 // cached `Worker` wrapper so it is no longer GC-rooted (it
                 // survives only as long as live JS still references it). The
@@ -215,20 +209,15 @@ impl VmInner {
     /// close-drain cleanup — because the post-unbind drain early-returns on the
     /// now-empty registry and would otherwise leave the wrappers GC-rooted.
     pub(in crate::vm) fn teardown_workers(&mut self) {
+        // Only live workers (still in the map) hold a cached wrapper —
+        // terminated ones were uncached at `terminate()` / close-drain time.
+        let live: Vec<Entity> = self.worker_entities.values().copied().collect();
         if let Some(hd) = self.host_data.as_deref_mut() {
-            if hd.is_bound() {
-                let worker_entities: Vec<Entity> = hd
-                    .dom()
-                    .world()
-                    .query::<(Entity, &WorkerRef)>()
-                    .iter()
-                    .map(|(entity, _)| entity)
-                    .collect();
-                for entity in worker_entities {
-                    hd.remove_wrapper(entity);
-                }
+            for entity in live {
+                hd.remove_wrapper(entity);
             }
         }
+        self.worker_entities.clear();
         self.worker_registry.terminate_all();
     }
 
@@ -381,12 +370,14 @@ fn native_worker_constructor(
     });
     let worker_id = ctx.vm.worker_registry.register(handle);
 
-    // Allocate the backing entity (ECS-native brand key + listener home).
+    // Allocate the backing entity (ECS-native brand key + listener home) and
+    // record the live `WorkerId` → entity mapping the drain iterates.
     let entity = ctx
         .host()
         .dom()
         .world_mut()
         .spawn((NodeKind::Worker, WorkerRef(worker_id)));
+    ctx.vm.worker_entities.insert(worker_id, entity);
 
     // Promote the ctor's `this` (already prototyped to `Worker.prototype` by
     // `do_new`) to a `HostObject` over the entity, and cache it so the inbound
@@ -518,6 +509,8 @@ fn native_worker_terminate(
 ) -> Result<JsValue, VmError> {
     let (entity, worker_id) = require_worker(ctx, this, "terminate")?;
     ctx.vm.worker_registry.terminate(worker_id);
+    // Drop from the live set so the drain stops visiting it.
+    ctx.vm.worker_entities.remove(&worker_id);
     // `terminate` drops the registry handle immediately, so the drain never
     // sees `Closed` for this worker — un-root its cached wrapper here instead
     // (mirrors the close-drain path) so it does not leak for the VM's lifetime.

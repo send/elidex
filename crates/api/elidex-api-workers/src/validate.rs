@@ -56,7 +56,7 @@ impl std::fmt::Display for WorkerScriptError {
             Self::InvalidUrl(e) => write!(f, "Worker: invalid URL: {e}"),
             Self::NotSameOrigin { resolved, base } => write!(
                 f,
-                "SecurityError: Worker script URL {resolved} is not same-origin with {base}"
+                "Worker script URL {resolved} is not same-origin with {base}"
             ),
             Self::UnsupportedType => write!(f, "Worker: type 'module' is not supported"),
             Self::InvalidCredentials(c) => write!(f, "Worker: invalid credentials value: {c}"),

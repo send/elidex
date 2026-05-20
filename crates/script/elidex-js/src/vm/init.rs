@@ -580,6 +580,8 @@ impl Vm {
                 worker_close_requested: false,
                 #[cfg(feature = "engine")]
                 worker_registry: elidex_api_workers::WorkerRegistry::new(),
+                #[cfg(feature = "engine")]
+                worker_entities: HashMap::new(),
             },
         };
 

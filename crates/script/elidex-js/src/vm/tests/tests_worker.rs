@@ -504,6 +504,26 @@ fn main_worker_terminate_uncaches_wrapper() {
 }
 
 #[test]
+fn drain_live_set_drops_terminated_workers() {
+    with_main_vm(|vm| {
+        vm.eval(
+            r#"globalThis.a = new Worker("data:text/javascript,self.onmessage=function(){}");
+               globalThis.b = new Worker("data:text/javascript,self.onmessage=function(){}");
+               globalThis.a.terminate();"#,
+        )
+        .expect("two ctors + one terminate");
+        // The drain iterates `worker_entities` (live workers only), NOT a full
+        // `WorkerRef` world scan — so a terminated worker is dropped from the
+        // set and the per-frame cost stays O(live workers) (F-R4-1).
+        assert_eq!(
+            vm.inner.worker_entities.len(),
+            1,
+            "terminated worker must be removed from the live drain set"
+        );
+    });
+}
+
+#[test]
 fn worker_wrappers_uncached_on_unbind() {
     use super::super::host::worker::WorkerRef;
     let mut vm = Vm::new();
