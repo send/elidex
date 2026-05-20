@@ -211,7 +211,12 @@ impl ResizeObserverRegistry {
             }
         }
 
-        grouped.into_iter().collect()
+        // Deterministic delivery order by observer id (monotonic = registration
+        // order), independent of the `HashMap`'s iteration order.
+        let mut result: Vec<(ResizeObserverId, Vec<ResizeObserverEntry>)> =
+            grouped.into_iter().collect();
+        result.sort_unstable_by_key(|(id, _)| id.raw());
+        result
     }
 }
 
@@ -329,5 +334,26 @@ mod tests {
             Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0)))
         });
         assert!(observations.is_empty());
+    }
+
+    #[test]
+    fn gather_observations_is_id_sorted() {
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+
+        let mut reg = ResizeObserverRegistry::new();
+        for _ in 0..4 {
+            let id = reg.register();
+            reg.observe(&mut dom, id, el, ResizeObserverOptions::default());
+        }
+
+        let result = reg.gather_observations(&mut dom, &|_, _| {
+            Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0)))
+        });
+        let got: Vec<u64> = result.iter().map(|(id, _)| id.raw()).collect();
+        let mut sorted = got.clone();
+        sorted.sort_unstable();
+        assert_eq!(got.len(), 4);
+        assert_eq!(got, sorted, "gather must deliver in id-sorted order");
     }
 }

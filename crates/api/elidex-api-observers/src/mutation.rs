@@ -10,7 +10,7 @@
 //! Only the per-observer pending-record queue (the JS observer object's
 //! `[[recordQueue]]` internal slot) is held registry-side, keyed by observer id.
 
-use elidex_ecs::{EcsDom, Entity};
+use elidex_ecs::{EcsDom, Entity, MAX_ANCESTOR_DEPTH};
 
 /// A unique identifier for a mutation observer registration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -203,7 +203,15 @@ impl MutationObserverRegistry {
 
         let mut node = Some(record.target);
         let mut is_target = true;
+        // Cap the ancestor walk against a corrupted tree (cycle / self-parent),
+        // matching the `MAX_ANCESTOR_DEPTH` guard `EcsDom::is_ancestor_or_self`
+        // applies to its own upward walk.
+        let mut depth = 0usize;
         while let Some(n) = node {
+            if depth >= MAX_ANCESTOR_DEPTH {
+                break;
+            }
+            depth += 1;
             if let Ok(comp) = dom.world().get::<&MutationObservedBy>(n) {
                 for obs in &comp.0 {
                     // Proper ancestors only match subtree observers.
@@ -275,12 +283,18 @@ impl MutationObserverRegistry {
         self.records.values().any(|queue| !queue.is_empty())
     }
 
-    /// Returns an iterator of observer IDs that have pending records.
-    pub fn observers_with_records(&self) -> impl Iterator<Item = MutationObserverId> + '_ {
-        self.records
+    /// Returns observer IDs that have pending records, ordered by id
+    /// (monotonic = registration order) so callback delivery is deterministic
+    /// regardless of the backing `HashMap`'s iteration order.
+    pub fn observers_with_records(&self) -> impl Iterator<Item = MutationObserverId> {
+        let mut ids: Vec<MutationObserverId> = self
+            .records
             .iter()
             .filter(|(_, queue)| !queue.is_empty())
             .map(|(id, _)| *id)
+            .collect();
+        ids.sort_unstable_by_key(|id| id.raw());
+        ids.into_iter()
     }
 }
 
@@ -548,5 +562,42 @@ mod tests {
             dom.world().get::<&MutationObservedBy>(el).is_err(),
             "observe on an unregistered id must not attach a component"
         );
+    }
+
+    #[test]
+    fn observers_with_records_is_id_sorted() {
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+
+        let mut reg = MutationObserverRegistry::new();
+        let init = MutationObserverInit {
+            child_list: true,
+            ..Default::default()
+        };
+        for _ in 0..4 {
+            let id = reg.register();
+            reg.observe(&mut dom, id, el, init.clone());
+        }
+
+        let record = SessionRecord {
+            kind: MutationKind::ChildList,
+            target: el,
+            added_nodes: vec![],
+            removed_nodes: vec![],
+            previous_sibling: None,
+            next_sibling: None,
+            attribute_name: None,
+            old_value: None,
+        };
+        reg.notify(&dom, &record);
+
+        let got: Vec<u64> = reg
+            .observers_with_records()
+            .map(MutationObserverId::raw)
+            .collect();
+        let mut sorted = got.clone();
+        sorted.sort_unstable();
+        assert_eq!(got.len(), 4);
+        assert_eq!(got, sorted, "observers_with_records must be id-sorted");
     }
 }

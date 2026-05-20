@@ -219,7 +219,12 @@ impl IntersectionObserverRegistry {
             }
         }
 
-        grouped.into_iter().collect()
+        // Deterministic delivery order by observer id (monotonic = registration
+        // order), independent of the `HashMap`'s iteration order.
+        let mut result: Vec<(IntersectionObserverId, Vec<IntersectionObserverEntry>)> =
+            grouped.into_iter().collect();
+        result.sort_unstable_by_key(|(id, _)| id.raw());
+        result
     }
 }
 
@@ -395,5 +400,32 @@ mod tests {
             dom.world().get::<&IntersectionObservedBy>(el).is_err(),
             "observe on an unregistered id must not attach a component"
         );
+    }
+
+    #[test]
+    fn gather_observations_is_id_sorted() {
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+
+        let mut reg = IntersectionObserverRegistry::new();
+        for _ in 0..4 {
+            let id = reg.register(IntersectionObserverInit {
+                threshold: vec![0.0],
+                ..Default::default()
+            });
+            reg.observe(&mut dom, id, el);
+        }
+
+        let viewport = Rect::new(0.0, 0.0, 1024.0, 768.0);
+        let result = reg.gather_observations(
+            &mut dom,
+            &|_, _| Some(Rect::new(10.0, 10.0, 100.0, 100.0)),
+            viewport,
+        );
+        let got: Vec<u64> = result.iter().map(|(id, _)| id.raw()).collect();
+        let mut sorted = got.clone();
+        sorted.sort_unstable();
+        assert_eq!(got.len(), 4);
+        assert_eq!(got, sorted, "gather must deliver in id-sorted order");
     }
 }
