@@ -923,6 +923,34 @@ fn internalize(
 }
 
 /// Entry point for `JSON.parse(text, reviver?)`.
+/// Parse a JSON document straight from a Rust `&str` (ECMA-262 §25.5.1
+/// `JSON.parse` core, no reviver) **without interning the transient source
+/// text** into the permanent, deduped `StringPool`.
+///
+/// `native_json_parse` requires its input as an already-interned JS string;
+/// routing high-cardinality transient payloads (the cross-thread worker
+/// `postMessage` JSON blobs, WHATWG HTML §10.2.1.2) through it would intern
+/// every distinct blob permanently → unbounded pool growth. Parsed *string
+/// values* are still interned by the parser (they become live JS strings, which
+/// is correct); only the one-shot wrapper blob is kept out of the pool.
+pub(in crate::vm) fn parse_json_str(
+    vm: &mut super::VmInner,
+    source: &str,
+) -> Result<JsValue, VmError> {
+    let text: Vec<u16> = source.encode_utf16().collect();
+    let mut parser = JsonParser::new(&text);
+    let mut ctx = NativeContext { vm };
+    let result = parser.parse_value(&mut ctx)?;
+    parser.skip_ws();
+    if parser.pos < parser.input.len() {
+        return Err(VmError::syntax_error(format!(
+            "JSON.parse: unexpected character at position {}",
+            parser.pos
+        )));
+    }
+    Ok(result)
+}
+
 pub(super) fn native_json_parse(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,

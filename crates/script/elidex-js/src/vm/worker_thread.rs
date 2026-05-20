@@ -2,24 +2,26 @@
 //! "run a worker" + §10.2.2 worker event loop).
 //!
 //! Runs **on the worker thread** (invoked as the `elidex_api_workers::spawn_worker`
-//! body). Builds a fresh worker-mode [`Vm`] bound to an empty [`EcsDom`],
-//! evaluates the worker script, and drives the worker's own event loop: inbound
-//! `postMessage` → MessageEvent dispatch, microtask + timer + network drain
-//! each tick, outgoing-message + close/shutdown handling.
+//! body). [`run_worker`] is the full entry: it fetches / decodes the worker
+//! script ([`obtain_worker_source`] — `data:` inline-decode, else fetch +
+//! validate via the supplied `network_handle`, WHATWG HTML §10.2.4 "fetch a
+//! classic worker script"), then [`run_worker_with_source`] builds a fresh
+//! worker-mode [`Vm`] bound to an empty [`EcsDom`], evaluates the script, and
+//! drives the worker's own event loop: inbound `postMessage` → MessageEvent
+//! dispatch, microtask + timer + network drain each tick, outgoing-message +
+//! close/shutdown handling. ([`run_worker_with_source`] is also the unit-test
+//! seam, exercised directly with already-fetched source.)
 //!
 //! The loop deliberately reuses `drain_microtasks` / `drain_timers` /
 //! `tick_network` (all window/document-independent) and **not** the Window
 //! `pending_tasks` queue.
 //!
 //! The `network_handle` is supplied by the caller (the main-side `Worker`
-//! constructor, PR-B): it mints a sibling on the **main** thread via
+//! constructor, `host/worker.rs`): it mints a sibling on the **main** thread via
 //! `NetworkHandle::create_sibling_handle()` and moves it here. `NetworkHandle`
 //! is `Send` (its `RefCell` / `Arc` / crossbeam fields are all `Send`; it is
 //! only `!Sync`), so the by-value move across the spawn boundary is sound — the
-//! worker wraps it in a thread-local `Rc` here. The worker-script *fetch +
-//! validate* step that precedes this entry also lives with that constructor;
-//! this module owns the post-fetch runtime harness, the seam tested in
-//! isolation.
+//! worker wraps it in a thread-local `Rc` here.
 
 #![cfg(feature = "engine")]
 

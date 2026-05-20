@@ -224,19 +224,13 @@ impl VmInner {
         data_json: &str,
         origin: &str,
     ) {
-        // JSON.parse the payload; a parse failure (e.g. the `undefined`→`null`
-        // shortcut) degrades to `undefined`, matching the structured-clone-via
-        // -JSON approximation.
-        let json_sid = self.strings.intern(data_json);
-        let data = {
-            let mut ctx = NativeContext { vm: self };
-            super::super::natives_json::native_json_parse(
-                &mut ctx,
-                JsValue::Undefined,
-                &[JsValue::String(json_sid)],
-            )
-            .unwrap_or(JsValue::Undefined)
-        };
+        // JSON.parse the payload via the non-interning `&str` entry — these
+        // transient cross-thread blobs must not accrete in the permanent
+        // `StringPool`. A parse failure (e.g. the `undefined`→`null` shortcut)
+        // degrades to `undefined`, matching the structured-clone-via-JSON
+        // approximation.
+        let data = super::super::natives_json::parse_json_str(self, data_json)
+            .unwrap_or(JsValue::Undefined);
 
         let message_type_sid = type_sid;
         let origin_sid = self.strings.intern(origin);
@@ -310,8 +304,9 @@ fn native_worker_post_message(
     let Ok(json) =
         super::super::natives_json::native_json_stringify(ctx, JsValue::Undefined, &[data])
     else {
-        return Err(VmError::type_error(
-            "DataCloneError: Failed to serialize message",
+        return Err(VmError::dom_exception(
+            ctx.vm.well_known.dom_exc_data_clone_error,
+            "Failed to serialize message",
         ));
     };
     // `JSON.stringify` of a function / symbol yields `undefined`; encode it as

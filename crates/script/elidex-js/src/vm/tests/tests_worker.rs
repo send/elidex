@@ -516,17 +516,42 @@ fn main_worker_module_type_throws() {
 #[test]
 fn main_worker_post_message_circular_throws_data_clone() {
     with_main_vm(|vm| {
-        let message = eval_str_on(
+        // A circular structure rejects as a `DataCloneError` DOMException —
+        // `e.name` must read "DataCloneError" and `e instanceof DOMException`
+        // hold (WHATWG WebIDL §3.14 / HTML §10.2.6.3), not a bare TypeError.
+        let name = eval_str_on(
             vm,
             r#"const w = new Worker("data:text/javascript,self.onmessage=function(){}");
                const o = {}; o.self = o;
-               try { w.postMessage(o); 'no-throw' } catch (e) { e.message }"#,
+               try { w.postMessage(o); 'no-throw' } catch (e) { e.name }"#,
         );
-        assert!(
-            message.contains("DataCloneError"),
-            "expected DataCloneError, got {message:?}"
-        );
+        assert_eq!(name, "DataCloneError");
+        assert!(eval_bool_on(
+            vm,
+            r#"const w = new Worker("data:text/javascript,self.onmessage=function(){}");
+               const o = {}; o.self = o;
+               try { w.postMessage(o); false } catch (e) { e instanceof DOMException }"#,
+        ));
     });
+}
+
+#[test]
+fn worker_scope_post_message_circular_throws_data_clone() {
+    let mut vm = Vm::new_worker(String::new(), Url::parse(WORKER_URL).unwrap());
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    unsafe { bind_worker_vm(&mut vm, &mut session, &mut dom, doc) };
+
+    // Worker-side `self.postMessage` of a circular structure rejects as a
+    // `DataCloneError` DOMException (WHATWG HTML §10.2.1.2).
+    assert_eq!(
+        eval_str_on(
+            &mut vm,
+            "const o = {}; o.self = o; try { postMessage(o); 'no-throw' } catch (e) { e.name }",
+        ),
+        "DataCloneError"
+    );
 }
 
 #[test]

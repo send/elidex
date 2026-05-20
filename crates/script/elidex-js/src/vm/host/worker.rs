@@ -440,8 +440,9 @@ fn native_worker_post_message(
     let Ok(json) =
         super::super::natives_json::native_json_stringify(ctx, JsValue::Undefined, &[data])
     else {
-        return Err(VmError::type_error(
-            "DataCloneError: Failed to serialize message",
+        return Err(VmError::dom_exception(
+            ctx.vm.well_known.dom_exc_data_clone_error,
+            "Failed to serialize message",
         ));
     };
     // `JSON.stringify` of a function / symbol yields `undefined`; encode it as
