@@ -62,6 +62,8 @@ pub mod value;
 mod vm_api;
 pub(crate) mod webidl_sequence;
 mod well_known;
+#[cfg(feature = "engine")]
+pub(crate) mod worker_thread;
 
 #[cfg(feature = "engine")]
 pub(crate) use temp_root::VmTempRoot;
@@ -119,6 +121,10 @@ pub enum GlobalScopeKind {
 }
 
 /// The internal state of the VM, exposed to native functions via `NativeContext`.
+// Not an API surface: this is the VM's monolithic interpreter-state struct, not
+// a config object — the `struct_excessive_bools` ergonomics lint (aimed at
+// builder/argument structs) does not apply.
+#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct VmInner {
     pub(crate) stack: Vec<JsValue>,
     pub(crate) frames: Vec<CallFrame>,
@@ -1070,6 +1076,13 @@ pub(crate) struct VmInner {
     /// `register_globals()` (right after `register_event_target_prototype`
     /// so the chain is built bottom-up).
     pub(crate) window_prototype: Option<ObjectId>,
+    /// `WorkerGlobalScope.prototype` — the worker analog of
+    /// [`window_prototype`](Self::window_prototype), chained to
+    /// `EventTarget.prototype`. `None` in a Window VM; set by
+    /// `register_worker_global_scope_prototype()` during the worker fork of
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) worker_scope_prototype: Option<ObjectId>,
     /// `AbortSignal.prototype` — chained directly to
     /// `EventTarget.prototype` (Node.prototype is **skipped**: WHATWG
     /// DOM §3.1 / §7.2 — AbortSignal is an EventTarget but not a

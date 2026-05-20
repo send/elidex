@@ -128,6 +128,8 @@ impl Vm {
                 node_prototype: None,
                 element_prototype: None,
                 #[cfg(feature = "engine")]
+                worker_scope_prototype: None,
+                #[cfg(feature = "engine")]
                 character_data_prototype: None,
                 #[cfg(feature = "engine")]
                 text_prototype: None,

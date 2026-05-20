@@ -302,6 +302,56 @@ impl Vm {
         self.install_document_global();
     }
 
+    /// Bind a dedicated-worker VM against its (empty) `EcsDom` + worker-scope
+    /// entity (WHATWG HTML §10.2.1.1).
+    ///
+    /// Unlike [`Vm::bind`] there is no `document` global and no
+    /// `ConsumerDispatcher` — a worker has no DOM tree to expose or mutate.
+    /// `globalThis`'s `entity_bits` are pointed at the `NodeKind::Worker`
+    /// entity so `self.addEventListener(...)` / `self.onmessage = fn` record
+    /// against it and `dispatch_worker_message` fires there. The `document`
+    /// entity is required only to satisfy `HostData::bind` (the worker creates
+    /// an empty document root) and is never surfaced to script.
+    ///
+    /// # Safety
+    ///
+    /// As [`Vm::bind`]: the `session` / `dom` pointers must stay valid and
+    /// unaliased while the VM is bound. The worker VM is dropped (with its
+    /// `HostData`) before its owning `dom` / `session` at thread teardown and
+    /// is never `unbind`-ed (it installs no dispatcher to tear down).
+    #[cfg(feature = "engine")]
+    #[allow(unsafe_code)]
+    pub unsafe fn bind_worker(
+        &mut self,
+        session: *mut elidex_script_session::SessionCore,
+        dom: *mut elidex_ecs::EcsDom,
+        document: elidex_ecs::Entity,
+    ) {
+        let global_id = self.inner.global_object;
+        let scope_entity = {
+            let Some(hd) = self.inner.host_data.as_deref_mut() else {
+                return;
+            };
+            unsafe { hd.bind(session, dom, document) };
+            let we = if let Some(e) = hd.dom().worker_scope_entity() {
+                e
+            } else {
+                hd.dom().create_worker_global_scope_root()
+            };
+            if hd.get_cached_wrapper(we).is_none() {
+                hd.cache_wrapper(we, global_id);
+            }
+            we
+        };
+        let target_bits = scope_entity.to_bits().get();
+        if let super::value::ObjectKind::HostObject {
+            ref mut entity_bits,
+        } = self.inner.get_object_mut(global_id).kind
+        {
+            *entity_bits = target_bits;
+        }
+    }
+
     /// Resolve an ECS `Entity` to its shared JS wrapper `ObjectId`,
     /// allocating on the first lookup and reusing the cached wrapper
     /// on every subsequent call.  See `vm/host/elements.rs` module

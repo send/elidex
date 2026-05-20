@@ -48,6 +48,7 @@
 use elidex_ecs::NodeKind;
 use elidex_script_session::{
     event_handler_attr_event_type, EventListeners, HandlerScope, ListenerId, EVENT_HANDLER_ATTRS,
+    WORKER_EVENT_HANDLER_ATTRS,
 };
 
 use super::super::shape::PropertyAttrs;
@@ -79,6 +80,30 @@ impl VmInner {
             native_event_handler_get as NativeFn,
             native_event_handler_set as NativeFn,
         );
+    }
+
+    /// Install the `WorkerGlobalScope` event-handler IDL attributes
+    /// ([`WORKER_EVENT_HANDLER_ATTRS`]) onto the worker scope prototype, over
+    /// the same shared backend pair as the Window/Element handlers. The
+    /// receiver brand check ([`require_handler_receiver`]) accepts
+    /// [`NodeKind::Worker`], so `self.onmessage = fn` records the handler in
+    /// the `EventListeners` component on the worker-scope entity (WHATWG HTML
+    /// §10.2.1.1 / §8.1.8.1).
+    pub(in crate::vm) fn install_worker_handler_attrs(&mut self, target: ObjectId) {
+        for attr_name in WORKER_EVENT_HANDLER_ATTRS {
+            let event_type = event_handler_attr_event_type(attr_name)
+                .expect("WORKER_EVENT_HANDLER_ATTRS row must be a known event-handler attribute");
+            let attr_name_sid = self.strings.intern(attr_name);
+            let event_type_sid = self.strings.intern(event_type);
+            self.install_bound_accessor_pair(
+                target,
+                attr_name_sid,
+                native_event_handler_get as NativeFn,
+                Some(native_event_handler_set as NativeFn),
+                event_type_sid,
+                PropertyAttrs::WEBIDL_RO_ACCESSOR,
+            );
+        }
     }
 
     /// Install the WindowEventHandlers (18 attrs) onto
@@ -149,7 +174,7 @@ fn require_handler_receiver(
     require_receiver(ctx, this, "EventTarget", method, |kind| {
         matches!(
             kind,
-            NodeKind::Element | NodeKind::Document | NodeKind::Window
+            NodeKind::Element | NodeKind::Document | NodeKind::Window | NodeKind::Worker
         )
     })
 }

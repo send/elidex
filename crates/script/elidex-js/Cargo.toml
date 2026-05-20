@@ -22,6 +22,7 @@ engine = [
     "elidex-api-observers",
     "elidex-api-ws",
     "elidex-api-workers",
+    "crossbeam-channel",
     "elidex-form",
     "elidex-storage-core",
     "bytes",
@@ -87,6 +88,9 @@ elidex-api-ws = { workspace = true, optional = true }
 # gated because the worker surface depends on the engine-only DOM / fetch
 # / event-dispatch wiring.
 elidex-api-workers = { workspace = true, optional = true }
+# `RecvTimeoutError` for the worker thread loop's `recv_timeout` (Timeout
+# vs Disconnected) — the `elidex-plugin` `LocalChannel` is crossbeam-backed.
+crossbeam-channel = { workspace = true, optional = true }
 # Form-control state, label association, validation, selection —
 # consumed by upcoming HTMLFormElement / HTMLInputElement prototype
 # bindings.  Currently dep-only.

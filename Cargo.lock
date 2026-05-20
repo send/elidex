@@ -2002,6 +2002,7 @@ dependencies = [
  "base64",
  "bytes",
  "criterion",
+ "crossbeam-channel",
  "elidex-api-observers",
  "elidex-api-workers",
  "elidex-api-ws",
