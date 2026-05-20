@@ -241,6 +241,9 @@ fn import_scripts_fetches_validates_and_runs() {
             "importScripts request must carry the worker origin"
         );
         assert_eq!(req.credentials, CredentialsMode::SameOrigin);
+        // Explicit SameOrigin mode (not the NoCors default) so the broker
+        // applies CORS/same-origin gating (F-R7-1).
+        assert_eq!(req.mode, elidex_net::RequestMode::SameOrigin);
     });
 }
 

@@ -372,9 +372,13 @@ fn native_import_scripts(
             ))
         }
     };
-    // The worker's own origin gates cookie attachment + CORS on its subresource
-    // fetches (WHATWG HTML §10.3.1 — without it the broker treats the request as
-    // an embedder-driven load and attaches cookies unconditionally).
+    // The worker's own origin + an explicit `SameOrigin` request mode gate
+    // cookie attachment and reject cross-origin imports at the broker (WHATWG
+    // HTML §10.3.1). Without these the request would default to `origin = None`
+    // (cookies attach unconditionally) + `NoCors` (CORS bypass), and a
+    // `{ credentials: 'include' }` worker could leak cookies cross-origin.
+    // Cross-origin classic `importScripts` (no-cors) is intentionally
+    // restricted to this PR's same-origin scope.
     let worker_origin = base.origin();
     let Some(handle) = ctx.vm.network_handle.clone() else {
         return Err(VmError::type_error(
@@ -394,6 +398,7 @@ fn native_import_scripts(
             url: resolved.clone(),
             origin: Some(worker_origin.clone()),
             credentials,
+            mode: elidex_net::RequestMode::SameOrigin,
             ..Default::default()
         };
         let response = handle.fetch_blocking(request).map_err(|e| {
