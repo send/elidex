@@ -37,11 +37,16 @@ rm -f /tmp/elidex-review.dry-run.md
 # Resolve the base ref against CURRENT remote main, not a possibly-stale local
 # `main`. The GitHub PR diffs against origin/main; a local `main` that hasn't
 # been fetched can be behind it, making both the diff and the staleness check
-# silently wrong. Fetch the base ref (best-effort: offline / no-remote falls
-# back to local `main`), then prefer the freshened `origin/main`.
-git fetch --quiet origin main 2>/dev/null || true
-BASE=main
-git rev-parse --verify --quiet origin/main >/dev/null && BASE=origin/main
+# silently wrong. Best-effort refresh — warn (don't silently swallow) on
+# failure so a stale base is visible rather than masquerading as current.
+git fetch --quiet origin main 2>/dev/null \
+  || echo "⚠ could not fetch origin/main (offline?) — base may be stale; using last-known refs." >&2
+# Prefer the freshened origin/main; else a verified local main; bail clearly if
+# neither ref exists (non-main default branch / partial checkout) rather than
+# letting the diff fail cryptically.
+if git rev-parse --verify --quiet origin/main >/dev/null; then BASE=origin/main
+elif git rev-parse --verify --quiet main >/dev/null; then BASE=main
+else echo "no origin/main or local main to diff against — fetch the base branch first" >&2; exit 1; fi
 
 # 3-dot `$BASE...HEAD` (NOT 2-dot `$BASE..HEAD`) so the range is
 # `merge-base($BASE, HEAD)..HEAD` — exactly this branch's own commits since it
