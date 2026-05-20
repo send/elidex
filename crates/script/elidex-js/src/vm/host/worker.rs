@@ -121,7 +121,13 @@ impl VmInner {
         for (entity, worker_id) in workers {
             let mut messages = Vec::new();
             let mut closed = false;
+            // The worker's own origin (its script URL's origin), for stamping
+            // worker→parent events that carry no origin field (`messageerror`).
+            // Mirrors `PostMessage { origin, .. }`, which the worker thread
+            // stamps with this same value (WHATWG HTML §10.2.1.2).
+            let mut worker_origin = String::new();
             if let Some(handle) = self.worker_registry.get(worker_id) {
+                worker_origin = handle.script_url().origin().ascii_serialization();
                 loop {
                     match handle.try_recv() {
                         Ok(msg) => messages.push(msg),
@@ -176,13 +182,12 @@ impl VmInner {
                     // same MessageEvent path, not a bare `Event`.
                     WorkerToParent::MessageError => {
                         let type_sid = self.strings.intern("messageerror");
-                        let origin = self.navigation.current_url.origin().ascii_serialization();
                         self.dispatch_message_event_at(
                             type_sid,
                             entity,
                             target_wrapper,
                             "null",
-                            &origin,
+                            &worker_origin,
                         );
                     }
                     WorkerToParent::Closed => closed = true,
@@ -201,6 +206,30 @@ impl VmInner {
                 }
             }
         }
+    }
+
+    /// Terminate every registered dedicated worker and uncache its `Worker`
+    /// wrapper (the document-teardown half of WHATWG HTML §10.2.4 "terminate a
+    /// worker", driven from [`Vm::unbind`](crate::vm::Vm::unbind)). Uncaching
+    /// runs **while still bound** — mirroring the in-session `terminate()` /
+    /// close-drain cleanup — because the post-unbind drain early-returns on the
+    /// now-empty registry and would otherwise leave the wrappers GC-rooted.
+    pub(in crate::vm) fn teardown_workers(&mut self) {
+        if let Some(hd) = self.host_data.as_deref_mut() {
+            if hd.is_bound() {
+                let worker_entities: Vec<Entity> = hd
+                    .dom()
+                    .world()
+                    .query::<(Entity, &WorkerRef)>()
+                    .iter()
+                    .map(|(entity, _)| entity)
+                    .collect();
+                for entity in worker_entities {
+                    hd.remove_wrapper(entity);
+                }
+            }
+        }
+        self.worker_registry.terminate_all();
     }
 
     /// Fire a trusted `error` event (WHATWG HTML §10.2.5 — runtime script

@@ -436,11 +436,10 @@ impl Vm {
         }
 
         // Terminate every dedicated worker spawned by this document (WHATWG
-        // HTML §10.2.4 "terminate a worker" runs from document teardown):
-        // dropping the registry runs each `WorkerHandle::Drop` (sends
-        // `Shutdown`, detaches the thread).
+        // HTML §10.2.4 "terminate a worker" runs from document teardown) and
+        // uncache their `Worker` wrappers while still bound.
         #[cfg(feature = "engine")]
-        self.inner.worker_registry.terminate_all();
+        self.inner.teardown_workers();
 
         if let Some(hd) = self.inner.host_data.as_deref_mut() {
             // D-8 PR-A2 — clear the `MutationBridge` from `EcsDom`

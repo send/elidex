@@ -504,6 +504,41 @@ fn main_worker_terminate_uncaches_wrapper() {
 }
 
 #[test]
+fn worker_wrappers_uncached_on_unbind() {
+    use super::super::host::worker::WorkerRef;
+    let mut vm = Vm::new();
+    vm.inner.navigation.current_url = Url::parse(PAGE_URL).unwrap();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    unsafe { super::super::test_helpers::bind_vm(&mut vm, &mut session, &mut dom, doc) };
+
+    vm.eval(r#"const w = new Worker("data:text/javascript,self.onmessage=function(){}");"#)
+        .expect("ctor");
+    let entity = {
+        let hd = vm.host_data().expect("bound");
+        let mut q = hd.dom_shared().world().query::<(Entity, &WorkerRef)>();
+        q.iter().map(|(e, _)| e).next()
+    }
+    .expect("worker entity");
+
+    vm.unbind();
+
+    // After unbind, the `Worker` wrapper must be uncached (F-R3-2): the drain
+    // early-returns on the now-empty registry, so an un-removed wrapper would
+    // stay GC-rooted across navigation.
+    let hd = vm.host_data().expect("host data installed");
+    assert!(
+        hd.get_cached_wrapper(entity).is_none(),
+        "Worker wrapper must be uncached on unbind"
+    );
+
+    drop(vm);
+    drop(session);
+    drop(dom);
+}
+
+#[test]
 fn main_worker_cross_origin_url_throws_security_error() {
     with_main_vm(|vm| {
         let name = eval_str_on(
