@@ -176,11 +176,13 @@ impl MutationObserverRegistry {
 
     /// Drain every observer's pending records without dropping observer ids.
     ///
-    /// Called at a VM unbind boundary: records reference `Entity` values from
-    /// the outgoing world, so they must not be delivered after rebind. Unlike
-    /// the old `clear_all_targets`, no target-list scrub is needed — the
-    /// observation components vanish with the despawned world, so there is no
-    /// Entity-index-collision hazard.
+    /// **Internal VM-integration helper — not a supported public API** (hence
+    /// `#[doc(hidden)]`); call only from a VM bind/unbind cycle. Records
+    /// reference `Entity` values from the outgoing world, so they must not be
+    /// delivered after rebind. Unlike the old `clear_all_targets`, no
+    /// target-list scrub is needed — the observation components vanish with the
+    /// despawned world, so there is no Entity-index-collision hazard.
+    #[doc(hidden)]
     pub fn clear_pending_records(&mut self) {
         for queue in self.records.values_mut() {
             queue.clear();
