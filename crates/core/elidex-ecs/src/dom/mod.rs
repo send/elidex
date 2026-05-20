@@ -533,10 +533,14 @@ impl EcsDom {
         self.world.spawn((NodeKind::Worker,))
     }
 
-    /// Locate the single [`NodeKind::Worker`] entity, if one exists.
+    /// Locate the worker-global-scope entity, if one exists.
     ///
-    /// One worker scope entity is created per worker `Vm` at bind time.
-    /// Linear scan — only invoked off the hot path (worker bind / WEH routing).
+    /// **Worker-VM DOMs only**: a worker `Vm`'s `EcsDom` holds exactly one
+    /// [`NodeKind::Worker`] entity (the worker scope, created at bind time), so
+    /// `find` is unambiguous. A *main*-VM DOM may hold many `NodeKind::Worker`
+    /// entities (one per main-side `Worker` object) — this helper is not meant
+    /// for that DOM and would return an arbitrary one. Linear scan — only
+    /// invoked off the hot path (worker bind / WEH routing).
     #[must_use]
     pub fn worker_scope_entity(&self) -> Option<Entity> {
         self.world

@@ -112,6 +112,11 @@ pub enum GlobalScopeKind {
     /// Dedicated worker scope (WHATWG HTML §10.2.1.1), carrying the worker
     /// name + script URL needed to build `name` / `WorkerLocation` /
     /// `WorkerNavigator` and to label uncaught-error reports.
+    ///
+    /// `engine`-only: the whole worker surface is feature-gated, and the
+    /// `credentials` field references `elidex_net` (an `engine`-only dep), so
+    /// the variant must not exist in non-`engine` builds.
+    #[cfg(feature = "engine")]
     DedicatedWorker {
         /// Worker name (`new Worker(url, { name })`; empty when unnamed).
         name: String,

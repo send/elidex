@@ -102,7 +102,7 @@ fn normalize_single_arg(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<Ent
             // but not a Node in WHATWG so it falls through to
             // text coercion.
             let inferred = ctx.host().dom().node_kind_inferred(entity);
-            if matches!(inferred, Some(k) if k != NodeKind::Window) {
+            if matches!(inferred, Some(k) if k.is_node()) {
                 return Ok(entity);
             }
         }
@@ -139,7 +139,7 @@ fn classify_arg_without_mutation(
                     ));
                 }
                 let inferred = ctx.host().dom().node_kind_inferred(entity);
-                if matches!(inferred, Some(k) if k != NodeKind::Window) {
+                if matches!(inferred, Some(k) if k.is_node()) {
                     return Ok(ClassifiedArg::Node(entity));
                 }
             }

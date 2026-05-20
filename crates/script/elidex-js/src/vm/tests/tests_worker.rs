@@ -614,6 +614,21 @@ fn main_worker_module_type_throws() {
 }
 
 #[test]
+fn main_worker_is_not_a_node() {
+    with_main_vm(|vm| {
+        // A `Worker` object is a `HostObject` over a `NodeKind::Worker` entity,
+        // but Worker is NOT a Node — Node-argument coercion must reject it so it
+        // can't be grafted into the DOM tree (F-R8-1).
+        let threw = eval_bool_on(
+            vm,
+            r#"const w = new Worker("data:text/javascript,self.onmessage=function(){}");
+               try { document.appendChild(w); false } catch (e) { e instanceof TypeError }"#,
+        );
+        assert!(threw, "Worker must be rejected as a Node argument");
+    });
+}
+
+#[test]
 fn main_worker_blob_url_rejected() {
     with_main_vm(|vm| {
         // `blob:` worker scripts are rejected until a blob-URL source loader
