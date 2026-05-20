@@ -2003,6 +2003,7 @@ dependencies = [
  "bytes",
  "criterion",
  "elidex-api-observers",
+ "elidex-api-workers",
  "elidex-api-ws",
  "elidex-css",
  "elidex-dom-api",

@@ -21,6 +21,7 @@ engine = [
     "elidex-dom-api",
     "elidex-api-observers",
     "elidex-api-ws",
+    "elidex-api-workers",
     "elidex-form",
     "elidex-storage-core",
     "bytes",
@@ -79,6 +80,13 @@ elidex-api-observers = { workspace = true, optional = true }
 # the realtime surface depends on the engine-only NetworkHandle +
 # event-dispatch wiring.
 elidex-api-ws = { workspace = true, optional = true }
+# Dedicated Web Worker IPC types + pure validation + thread-spawn
+# scaffolding (`ParentToWorker` / `WorkerToParent` / `WorkerRegistry` /
+# `spawn_worker` / `validate::*`) consumed by the worker-mode VM
+# construction + worker thread loop (slot `#11-web-workers-vm`).  Engine-
+# gated because the worker surface depends on the engine-only DOM / fetch
+# / event-dispatch wiring.
+elidex-api-workers = { workspace = true, optional = true }
 # Form-control state, label association, validation, selection —
 # consumed by upcoming HTMLFormElement / HTMLInputElement prototype
 # bindings.  Currently dep-only.

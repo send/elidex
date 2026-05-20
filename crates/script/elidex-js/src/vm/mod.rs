@@ -95,6 +95,29 @@ pub(crate) const MAX_BIND_CHAIN_DEPTH: usize = 10_000;
 // Vm (public wrapper) + VmInner (internal state)
 // ---------------------------------------------------------------------------
 
+/// The kind of global scope a [`Vm`] realizes.
+///
+/// Read by `register_globals` to fork the Window-only prototype block: a
+/// Window VM (WHATWG HTML §7.2) installs `window` / `document` / `location` /
+/// `history`, whereas a dedicated worker VM (WHATWG HTML §10.2.1.1) installs
+/// the `WorkerGlobalScope` surface (`self` / `postMessage` / `close` /
+/// `importScripts` / `WorkerLocation` / `WorkerNavigator`) and never binds a
+/// document. Set once at construction, before `register_globals` runs.
+#[derive(Clone, Debug)]
+pub enum GlobalScopeKind {
+    /// Main-thread Window scope (WHATWG HTML §7.2).
+    Window,
+    /// Dedicated worker scope (WHATWG HTML §10.2.1.1), carrying the worker
+    /// name + script URL needed to build `name` / `WorkerLocation` /
+    /// `WorkerNavigator` and to label uncaught-error reports.
+    DedicatedWorker {
+        /// Worker name (`new Worker(url, { name })`; empty when unnamed).
+        name: String,
+        /// Worker script URL — source for `WorkerLocation` and error filename.
+        script_url: url::Url,
+    },
+}
+
 /// The internal state of the VM, exposed to native functions via `NativeContext`.
 pub(crate) struct VmInner {
     pub(crate) stack: Vec<JsValue>,
@@ -1987,6 +2010,24 @@ pub(crate) struct VmInner {
     /// that step lands.
     #[cfg(feature = "engine")]
     pub(crate) window_name: StringId,
+    /// Which global scope this VM realizes (WHATWG HTML §10.2.1.1).
+    /// `register_globals` reads it to fork the Window-only prototype block;
+    /// the worker globals (`postMessage` / `close` / `WorkerLocation`) read
+    /// the embedded name + script URL. Set once at construction.
+    #[cfg(feature = "engine")]
+    pub(crate) global_scope_kind: GlobalScopeKind,
+    /// Worker-side outgoing `postMessage` data (JSON strings), enqueued by the
+    /// worker scope's `postMessage()` (WHATWG HTML §10.2.1.2) and drained by
+    /// the worker thread loop into `WorkerToParent::PostMessage`. Empty in a
+    /// Window VM — workers never route through the window `pending_tasks`
+    /// queue (that is Window-target only).
+    #[cfg(feature = "engine")]
+    pub(crate) worker_outgoing: Vec<String>,
+    /// Set when the worker scope calls `close()` (WHATWG HTML §10.2.1.2 /
+    /// the §10.2.2 closing flag). The worker thread loop observes it and
+    /// exits after the current tick. Always `false` in a Window VM.
+    #[cfg(feature = "engine")]
+    pub(crate) worker_close_requested: bool,
     /// HTML §8.1.5 same-window task queue.  Currently populated only
     /// by `window.postMessage`; drained at the end of every
     /// `VmInner::eval` after the microtask flush.  See

@@ -422,6 +422,16 @@ pub enum NodeKind {
     /// Window entities carry only this component (no `TreeRelation`,
     /// `Attributes`, etc.) and never participate in tree traversal.
     Window,
+    /// Dedicated worker global scope (WHATWG HTML §10.2.1.1
+    /// `WorkerGlobalScope`).
+    ///
+    /// Like [`NodeKind::Window`], this is not a Node and has no `nodeType`;
+    /// it is the worker realm's analog of the Window entity — a single stable
+    /// ECS address per worker `Vm` to which the scripting layer attaches the
+    /// worker scope's `EventListeners` (`onmessage` / `onerror` /
+    /// `addEventListener`). It carries only this component, has no
+    /// `TreeRelation`, and never participates in tree traversal.
+    Worker,
 }
 
 impl NodeKind {
@@ -442,7 +452,7 @@ impl NodeKind {
             Self::Document => 9,
             Self::DocumentType => 10,
             Self::DocumentFragment => 11,
-            Self::Window => 0,
+            Self::Window | Self::Worker => 0,
         }
     }
 

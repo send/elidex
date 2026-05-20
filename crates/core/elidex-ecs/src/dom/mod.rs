@@ -523,6 +523,29 @@ impl EcsDom {
             .map(|(entity, _)| entity)
     }
 
+    /// Create a worker global scope root entity (WHATWG HTML §10.2.1.1).
+    ///
+    /// The worker realm's analog of [`create_window_root`](Self::create_window_root):
+    /// the entity carries only the [`NodeKind::Worker`] component, has no
+    /// `TreeRelation`, and exists purely as a stable ECS address for the
+    /// worker scope's `EventListeners`. One per worker `Vm`.
+    pub fn create_worker_global_scope_root(&mut self) -> Entity {
+        self.world.spawn((NodeKind::Worker,))
+    }
+
+    /// Locate the single [`NodeKind::Worker`] entity, if one exists.
+    ///
+    /// One worker scope entity is created per worker `Vm` at bind time.
+    /// Linear scan — only invoked off the hot path (worker bind / WEH routing).
+    #[must_use]
+    pub fn worker_scope_entity(&self) -> Option<Entity> {
+        self.world
+            .query::<(Entity, &NodeKind)>()
+            .iter()
+            .find(|(_, kind)| matches!(**kind, NodeKind::Worker))
+            .map(|(entity, _)| entity)
+    }
+
     /// Create a text node.
     ///
     /// Shim over [`create_text_with_owner`](Self::create_text_with_owner)
