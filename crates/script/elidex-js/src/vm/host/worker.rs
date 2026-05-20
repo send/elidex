@@ -160,7 +160,7 @@ impl VmInner {
                         filename,
                         lineno,
                         colno,
-                        ..
+                        error_value,
                     } => {
                         self.dispatch_worker_error_event_at(
                             entity,
@@ -168,6 +168,7 @@ impl VmInner {
                             &filename,
                             f64::from(lineno),
                             f64::from(colno),
+                            &error_value,
                         );
                     }
                     // A `messageerror` is itself a `MessageEvent` with a `null`
@@ -233,10 +234,16 @@ impl VmInner {
         filename: &str,
         lineno: f64,
         colno: f64,
+        error_value: &str,
     ) {
         let type_sid = self.well_known.error;
         let message_sid = self.strings.intern(message);
         let filename_sid = self.strings.intern(filename);
+        // `ErrorEvent.error` carries the thrown value; the real JS value cannot
+        // cross the worker thread boundary, so the worker sends a string
+        // representation (consistent with the JSON-messaging approximation) —
+        // expose it as a JS string rather than the spec's `any` value.
+        let error_sid = self.strings.intern(error_value);
         let shape_id = self
             .precomputed_event_shapes
             .as_ref()
@@ -247,7 +254,7 @@ impl VmInner {
             PropertyValue::Data(JsValue::String(filename_sid)),
             PropertyValue::Data(JsValue::Number(lineno)),
             PropertyValue::Data(JsValue::Number(colno)),
-            PropertyValue::Data(JsValue::Null),
+            PropertyValue::Data(JsValue::String(error_sid)),
         ];
         let event_id = self.create_fresh_event_object(
             JsValue::Undefined,

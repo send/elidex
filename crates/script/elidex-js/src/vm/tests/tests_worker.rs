@@ -705,9 +705,9 @@ fn worker_scope_post_message_circular_throws_data_clone() {
 fn main_worker_uncaught_error_fires_onerror() {
     with_main_vm(|vm| {
         vm.eval(
-            r#"globalThis.errMsg = null;
+            r#"globalThis.errMsg = null; globalThis.errVal = null;
                const w = new Worker("data:text/javascript,throw new Error('boom')");
-               w.onerror = function(e) { globalThis.errMsg = e.message; };"#,
+               w.onerror = function(e) { globalThis.errMsg = e.message; globalThis.errVal = e.error; };"#,
         )
         .expect("ctor succeeds even though the worker script throws");
 
@@ -718,6 +718,12 @@ fn main_worker_uncaught_error_fires_onerror() {
         assert!(
             eval_str_on(vm, "globalThis.errMsg").contains("boom"),
             "error message should carry the worker error"
+        );
+        // ErrorEvent.error carries the (cross-thread string) error value, not
+        // null (F-R10-1).
+        assert!(
+            eval_str_on(vm, "globalThis.errVal").contains("boom"),
+            "ErrorEvent.error should carry the error value"
         );
     });
 }
