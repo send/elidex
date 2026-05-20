@@ -229,6 +229,39 @@ fn worker_thread_round_trip_echo() {
     }
 }
 
+/// Proves the Q3 main-side mechanism end-to-end: a `Send` sibling
+/// `NetworkHandle` minted on this (parent) thread crosses into the worker
+/// thread's `spawn_worker` closure (compiles ⇒ `NetworkHandle: Send`) and is
+/// installed, so `fetch` is available inside the worker. This is exactly the
+/// path the main-side `Worker` constructor will use
+/// (`self.network_handle.create_sibling_handle()`).
+#[test]
+fn worker_thread_accepts_sibling_network_handle() {
+    let np = elidex_net::broker::spawn_network_process(elidex_net::NetClient::new());
+    let sibling = np.create_renderer_handle().create_sibling_handle();
+
+    let url = Url::parse(WORKER_URL).unwrap();
+    let body_url = url.clone();
+    let handle = spawn_worker(String::new(), url, move |ch| {
+        run_worker_with_source(
+            "self.onmessage = function(e) { postMessage(typeof fetch); };",
+            &body_url,
+            String::new(),
+            Some(sibling),
+            &ch,
+        );
+    });
+
+    handle.post_message("\"probe\"".to_string(), "https://example.com".to_string());
+    match recv_within(&handle, Duration::from_secs(5)) {
+        Some(WorkerToParent::PostMessage { data, .. }) => assert_eq!(data, "\"function\""),
+        other => panic!("expected `typeof fetch` reply, got {other:?}"),
+    }
+    drop(handle);
+    // Keep the network process alive until the worker has exited.
+    drop(np);
+}
+
 #[test]
 fn worker_thread_close_sends_closed_and_exits() {
     let url = Url::parse(WORKER_URL).unwrap();

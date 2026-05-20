@@ -12,12 +12,14 @@
 //! `pending_tasks` queue.
 //!
 //! The `network_handle` is supplied by the caller (the main-side `Worker`
-//! constructor, PR-B, mints it worker-side from the parent's `Send`
-//! `NetworkProcessHandle` via `create_renderer_handle` — the `!Send`
-//! `NetworkHandle` is never moved across the boundary). The worker-script
-//! *fetch + validate* step that precedes this entry also lives with that
-//! constructor; this module owns the post-fetch runtime harness, which is the
-//! seam tested in isolation.
+//! constructor, PR-B): it mints a sibling on the **main** thread via
+//! `NetworkHandle::create_sibling_handle()` and moves it here. `NetworkHandle`
+//! is `Send` (its `RefCell` / `Arc` / crossbeam fields are all `Send`; it is
+//! only `!Sync`), so the by-value move across the spawn boundary is sound — the
+//! worker wraps it in a thread-local `Rc` here. The worker-script *fetch +
+//! validate* step that precedes this entry also lives with that constructor;
+//! this module owns the post-fetch runtime harness, the seam tested in
+//! isolation.
 
 #![cfg(feature = "engine")]
 
@@ -47,12 +49,14 @@ type WorkerChannel = LocalChannel<WorkerToParent, ParentToWorker>;
 ///
 /// `network_handle = None` leaves `fetch` / `importScripts` unavailable (fine
 /// for messaging-only scenarios + isolation tests); the `Worker` constructor
-/// passes the worker-side-minted handle.
+/// passes a `Send` sibling minted on the main thread
+/// (`NetworkHandle::create_sibling_handle()`), which is wrapped in a
+/// thread-local `Rc` here.
 pub(crate) fn run_worker_with_source(
     source: &str,
     script_url: &url::Url,
     name: String,
-    network_handle: Option<Rc<NetworkHandle>>,
+    network_handle: Option<NetworkHandle>,
     channel: &WorkerChannel,
 ) {
     // Declared before `vm` so they outlive it: `vm`'s `HostData` holds raw
@@ -66,7 +70,7 @@ pub(crate) fn run_worker_with_source(
     let mut vm = Vm::new_worker(name, script_url.clone());
     vm.install_host_data(HostData::new());
     if let Some(handle) = network_handle {
-        vm.install_network_handle(handle);
+        vm.install_network_handle(Rc::new(handle));
     }
     // SAFETY: `session` / `dom` outlive `vm` (declared before it) and are not
     // touched via any Rust reference while the VM is bound — all access goes
