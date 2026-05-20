@@ -17,7 +17,7 @@ use elidex_plugin::Rect;
 type RectProvider<'a> = dyn Fn(&EcsDom, Entity) -> Option<Rect> + 'a;
 
 /// A unique identifier for an intersection observer registration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct IntersectionObserverId(u64);
 
 impl IntersectionObserverId {
@@ -168,10 +168,12 @@ impl IntersectionObserverRegistry {
         rect_fn: &RectProvider<'_>,
         viewport: Rect,
     ) -> Vec<(IntersectionObserverId, Vec<IntersectionObserverEntry>)> {
-        let mut grouped: std::collections::HashMap<
+        // BTreeMap keyed by the monotonic observer id → iteration (and the
+        // returned Vec) is in registration order by construction.
+        let mut grouped: std::collections::BTreeMap<
             IntersectionObserverId,
             Vec<IntersectionObserverEntry>,
-        > = std::collections::HashMap::new();
+        > = std::collections::BTreeMap::new();
         let mut changes: Vec<(Entity, IntersectionObserverId, f64)> = Vec::new();
 
         // Phase A: read observations + compute ratios (shared borrows only —
@@ -219,12 +221,7 @@ impl IntersectionObserverRegistry {
             }
         }
 
-        // Deterministic delivery order by observer id (monotonic = registration
-        // order), independent of the `HashMap`'s iteration order.
-        let mut result: Vec<(IntersectionObserverId, Vec<IntersectionObserverEntry>)> =
-            grouped.into_iter().collect();
-        result.sort_unstable_by_key(|(id, _)| id.raw());
-        result
+        grouped.into_iter().collect()
     }
 }
 

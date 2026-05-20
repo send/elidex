@@ -16,7 +16,7 @@ use elidex_plugin::Size;
 type SizeProvider<'a> = dyn Fn(&EcsDom, Entity) -> Option<(Size, Size)> + 'a;
 
 /// A unique identifier for a resize observer registration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ResizeObserverId(u64);
 
 impl ResizeObserverId {
@@ -186,8 +186,10 @@ impl ResizeObserverRegistry {
         dom: &mut EcsDom,
         size_fn: &SizeProvider<'_>,
     ) -> Vec<(ResizeObserverId, Vec<ResizeObserverEntry>)> {
-        let mut grouped: std::collections::HashMap<ResizeObserverId, Vec<ResizeObserverEntry>> =
-            std::collections::HashMap::new();
+        // BTreeMap keyed by the monotonic observer id → iteration (and the
+        // returned Vec) is in registration order by construction.
+        let mut grouped: std::collections::BTreeMap<ResizeObserverId, Vec<ResizeObserverEntry>> =
+            std::collections::BTreeMap::new();
         let mut writebacks: Vec<(Entity, ResizeObserverId, Size)> = Vec::new();
 
         // Phase A: read observations + current sizes (shared borrows only —
@@ -225,12 +227,7 @@ impl ResizeObserverRegistry {
             }
         }
 
-        // Deterministic delivery order by observer id (monotonic = registration
-        // order), independent of the `HashMap`'s iteration order.
-        let mut result: Vec<(ResizeObserverId, Vec<ResizeObserverEntry>)> =
-            grouped.into_iter().collect();
-        result.sort_unstable_by_key(|(id, _)| id.raw());
-        result
+        grouped.into_iter().collect()
     }
 }
 

@@ -13,7 +13,7 @@
 use elidex_ecs::{EcsDom, Entity, MAX_ANCESTOR_DEPTH};
 
 /// A unique identifier for a mutation observer registration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MutationObserverId(u64);
 
 impl MutationObserverId {
@@ -91,7 +91,10 @@ struct MutationObservedBy(Vec<MutationObservation>);
 #[derive(Debug, Default)]
 pub struct MutationObserverRegistry {
     next_id: u64,
-    records: std::collections::HashMap<MutationObserverId, Vec<MutationRecord>>,
+    /// Per-observer pending-record queues. A `BTreeMap` keyed by the monotonic
+    /// observer id keeps iteration in registration order, so callback delivery
+    /// is deterministic by construction (no explicit re-sort at enumeration).
+    records: std::collections::BTreeMap<MutationObserverId, Vec<MutationRecord>>,
 }
 
 impl MutationObserverRegistry {
@@ -285,18 +288,14 @@ impl MutationObserverRegistry {
         self.records.values().any(|queue| !queue.is_empty())
     }
 
-    /// Returns observer IDs that have pending records, ordered by id
-    /// (monotonic = registration order) so callback delivery is deterministic
-    /// regardless of the backing `HashMap`'s iteration order.
-    pub fn observers_with_records(&self) -> impl Iterator<Item = MutationObserverId> {
-        let mut ids: Vec<MutationObserverId> = self
-            .records
+    /// Returns observer IDs that have pending records, in id order (monotonic =
+    /// registration order). `records` is a `BTreeMap`, so its iteration is
+    /// already key-ordered — deterministic delivery is structural, no sort.
+    pub fn observers_with_records(&self) -> impl Iterator<Item = MutationObserverId> + '_ {
+        self.records
             .iter()
             .filter(|(_, queue)| !queue.is_empty())
             .map(|(id, _)| *id)
-            .collect();
-        ids.sort_unstable_by_key(|id| id.raw());
-        ids.into_iter()
     }
 }
 
