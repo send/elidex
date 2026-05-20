@@ -182,14 +182,19 @@ pub fn load_document(
                         // CSSOM surface (`document.styleSheets` / `link.sheet`)
                         // can reach it. Failed fetches attach nothing, so
                         // component presence == associated sheet exists.
-                        let _ = dom.world_mut().insert_one(
+                        // Warn (rather than `let _`) if the attach fails so a
+                        // dropped component — which would make `link.sheet`
+                        // wrongly read null — is not lost silently.
+                        if let Err(e) = dom.world_mut().insert_one(
                             *entity,
                             LinkStylesheet {
                                 source: css_text,
                                 href: sheet_url.to_string(),
                                 version: 1,
                             },
-                        );
+                        ) {
+                            tracing::warn!("Failed to attach loaded stylesheet for {href}: {e}");
+                        }
                     }
                     Err(e) => {
                         tracing::warn!("Failed to fetch stylesheet {href}: {e}");
@@ -346,7 +351,10 @@ fn decode_image(bytes: &[u8]) -> Result<ImageData, image::ImageError> {
     })
 }
 
-/// Resolve a potentially relative URL against a base and fetch its text content.
+/// Resolve a potentially relative URL against a base and fetch its text
+/// content. Returns the decoded text **and** the resolved/final response
+/// URL (post-redirect) — the latter is used as `StyleSheet.href` for an
+/// external `<link>` stylesheet.
 fn resolve_and_fetch_text(
     base: &url::Url,
     href: &str,
