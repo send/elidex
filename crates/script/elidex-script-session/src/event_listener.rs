@@ -32,6 +32,43 @@ impl ListenerId {
     }
 }
 
+/// Distinguishes an `addEventListener`-registered listener from one
+/// backing an event-handler IDL attribute (`el.onclick = fn`).
+///
+/// WHATWG HTML §8.1.8.1: an event handler is a *special kind of event
+/// listener*. It participates in dispatch in registration order like
+/// any listener, but its callback is the internal "event handler
+/// processing algorithm" — so `removeEventListener(type, fn)` and the
+/// `addEventListener` duplicate check (both keyed on the raw callback
+/// object) must **not** match it. Identity-match call sites filter to
+/// [`ListenerKind::Normal`]; dispatch invokes both kinds uniformly.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ListenerKind {
+    /// Registered via `addEventListener`. Subject to identity match.
+    Normal,
+    /// Backs an event-handler IDL attribute. `uncompiled` holds the
+    /// inline content-attribute source (`<button onclick="...">`)
+    /// pending lazy compilation (WHATWG HTML §8.1.8.1 "internal raw
+    /// uncompiled handler"); `None` once compiled or set via the IDL
+    /// setter. When `Some`, it takes precedence over any stale
+    /// compiled callable in the engine's listener store (last-write-
+    /// wins): the read/dispatch site recompiles and overwrites.
+    EventHandler {
+        /// Inline source awaiting lazy compile, or `None`.
+        uncompiled: Option<UncompiledHandler>,
+    },
+}
+
+/// An inline event-handler content attribute's uncompiled source
+/// (WHATWG HTML §8.1.8.1). Engine-independent: holds the raw source
+/// string only; compilation happens in the JS engine layer at first
+/// invoke / on read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UncompiledHandler {
+    /// The attribute value (handler body source), e.g. `"alert('x')"`.
+    pub source: String,
+}
+
 /// Metadata for a single registered event listener.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ListenerEntry {
@@ -48,6 +85,33 @@ pub struct ListenerEntry {
     /// WHATWG DOM §2.6: if `true`, `preventDefault()` inside this listener
     /// is a silent no-op (the canceled flag is not set).
     pub passive: bool,
+    /// `Normal` (addEventListener) vs `EventHandler` (IDL attribute).
+    pub kind: ListenerKind,
+}
+
+impl ListenerEntry {
+    /// Construct a `Normal` (addEventListener-registered) entry.
+    ///
+    /// Builder used by every Normal-listener construction site so the
+    /// `kind` field stays additive at call sites (a bare struct literal
+    /// would force every site to spell out `kind: ListenerKind::Normal`).
+    #[must_use]
+    pub fn normal(
+        id: ListenerId,
+        event_type: String,
+        capture: bool,
+        once: bool,
+        passive: bool,
+    ) -> Self {
+        Self {
+            id,
+            event_type,
+            capture,
+            once,
+            passive,
+            kind: ListenerKind::Normal,
+        }
+    }
 }
 
 /// ECS component holding all event listeners for a single entity.
@@ -80,14 +144,96 @@ impl EventListeners {
         passive: bool,
     ) -> ListenerId {
         let id = ListenerId(NEXT_LISTENER_ID.fetch_add(1, Ordering::Relaxed));
+        self.entries
+            .push(ListenerEntry::normal(id, event_type.into(), capture, once, passive));
+        id
+    }
+
+    /// Register an event-handler IDL attribute listener (WHATWG HTML
+    /// §8.1.8.1 "activate an event handler"). Capture is always `false`
+    /// per spec. The compiled callable lives in the engine's listener
+    /// store keyed by the returned [`ListenerId`]; `uncompiled` starts
+    /// `None` (IDL setter path) and is populated via [`Self::set_uncompiled`]
+    /// for inline content-attribute handlers.
+    pub fn add_event_handler(&mut self, event_type: impl Into<String>) -> ListenerId {
+        let id = ListenerId(NEXT_LISTENER_ID.fetch_add(1, Ordering::Relaxed));
         self.entries.push(ListenerEntry {
             id,
             event_type: event_type.into(),
-            capture,
-            once,
-            passive,
+            capture: false,
+            once: false,
+            passive: false,
+            kind: ListenerKind::EventHandler { uncompiled: None },
         });
         id
+    }
+
+    /// Find the single event-handler listener for `event_type`, if any
+    /// (WHATWG HTML §8.1.8.1 — at most one handler per (target, event
+    /// type)). This is the activation-idempotency lookup: a hit means a
+    /// handler listener already exists for this attribute. Engine-
+    /// independent single source of truth (no VM-side reverse map).
+    #[must_use]
+    pub fn find_event_handler(&self, event_type: &str) -> Option<ListenerId> {
+        self.entries
+            .iter()
+            .find(|e| {
+                e.event_type == event_type && matches!(e.kind, ListenerKind::EventHandler { .. })
+            })
+            .map(|e| e.id)
+    }
+
+    /// Set the uncompiled inline source for an event-handler listener
+    /// (content-attribute write path). No-op if `id` is absent or not an
+    /// event-handler listener.
+    pub fn set_uncompiled(&mut self, id: ListenerId, source: impl Into<String>) {
+        if let Some(entry) = self.entries.iter_mut().find(|e| e.id == id) {
+            if let ListenerKind::EventHandler { uncompiled } = &mut entry.kind {
+                *uncompiled = Some(UncompiledHandler {
+                    source: source.into(),
+                });
+            }
+        }
+    }
+
+    /// Drain the uncompiled inline source for an event-handler listener,
+    /// leaving `uncompiled = None`. Used by the lazy-compile step at
+    /// read/dispatch time (WHATWG HTML §8.1.8.1 "get the current value").
+    pub fn take_uncompiled(&mut self, id: ListenerId) -> Option<UncompiledHandler> {
+        let entry = self.entries.iter_mut().find(|e| e.id == id)?;
+        if let ListenerKind::EventHandler { uncompiled } = &mut entry.kind {
+            uncompiled.take()
+        } else {
+            None
+        }
+    }
+
+    /// Clear an event-handler listener's uncompiled source without
+    /// returning it (IDL setter / null-clear path: a fresh compiled
+    /// callable supersedes any pending inline source).
+    pub fn clear_uncompiled(&mut self, id: ListenerId) {
+        if let Some(entry) = self.entries.iter_mut().find(|e| e.id == id) {
+            if let ListenerKind::EventHandler { uncompiled } = &mut entry.kind {
+                *uncompiled = None;
+            }
+        }
+    }
+
+    /// Read an event-handler listener's pending uncompiled source
+    /// (without draining). `None` if absent, not a handler, or already
+    /// compiled.
+    #[must_use]
+    pub fn uncompiled_source(&self, id: ListenerId) -> Option<&str> {
+        self.entries.iter().find(|e| e.id == id).and_then(|e| {
+            if let ListenerKind::EventHandler {
+                uncompiled: Some(u),
+            } = &e.kind
+            {
+                Some(u.source.as_str())
+            } else {
+                None
+            }
+        })
     }
 
     /// Remove a listener by its ID. Returns `true` if found and removed.
@@ -221,6 +367,69 @@ mod tests {
     fn listener_id_raw_roundtrip() {
         let id = ListenerId::from_raw(42);
         assert_eq!(id.to_raw(), 42);
+    }
+
+    #[test]
+    fn normal_builder_sets_normal_kind() {
+        let mut listeners = EventListeners::new();
+        let id = listeners.add("click", false);
+        let entry = listeners.find_entry(id).unwrap();
+        assert_eq!(entry.kind, ListenerKind::Normal);
+    }
+
+    #[test]
+    fn add_event_handler_is_event_handler_kind_capture_false() {
+        let mut listeners = EventListeners::new();
+        let id = listeners.add_event_handler("click");
+        let entry = listeners.find_entry(id).unwrap();
+        assert!(matches!(entry.kind, ListenerKind::EventHandler { .. }));
+        assert!(!entry.capture);
+    }
+
+    #[test]
+    fn find_event_handler_matches_only_handler_kind() {
+        let mut listeners = EventListeners::new();
+        let normal = listeners.add("click", false);
+        // A Normal listener for "click" must NOT be returned.
+        assert_eq!(listeners.find_event_handler("click"), None);
+        let handler = listeners.add_event_handler("click");
+        assert_eq!(listeners.find_event_handler("click"), Some(handler));
+        assert_ne!(handler, normal);
+        // Different event type → no match.
+        assert_eq!(listeners.find_event_handler("keydown"), None);
+    }
+
+    #[test]
+    fn set_take_uncompiled_roundtrip() {
+        let mut listeners = EventListeners::new();
+        let id = listeners.add_event_handler("click");
+        assert_eq!(listeners.uncompiled_source(id), None);
+        listeners.set_uncompiled(id, "window.x = 1");
+        assert_eq!(listeners.uncompiled_source(id), Some("window.x = 1"));
+        let taken = listeners.take_uncompiled(id).unwrap();
+        assert_eq!(taken.source, "window.x = 1");
+        // Drained.
+        assert_eq!(listeners.uncompiled_source(id), None);
+        assert_eq!(listeners.take_uncompiled(id), None);
+    }
+
+    #[test]
+    fn clear_uncompiled_resets() {
+        let mut listeners = EventListeners::new();
+        let id = listeners.add_event_handler("click");
+        listeners.set_uncompiled(id, "a()");
+        listeners.clear_uncompiled(id);
+        assert_eq!(listeners.uncompiled_source(id), None);
+    }
+
+    #[test]
+    fn uncompiled_ops_noop_on_normal_listener() {
+        let mut listeners = EventListeners::new();
+        let id = listeners.add("click", false);
+        // Setting uncompiled on a Normal listener is a no-op.
+        listeners.set_uncompiled(id, "a()");
+        assert_eq!(listeners.uncompiled_source(id), None);
+        assert_eq!(listeners.take_uncompiled(id), None);
     }
 
     #[test]
