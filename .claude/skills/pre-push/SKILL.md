@@ -1,6 +1,6 @@
 ---
 name: pre-push
-description: Run the full elidex pre-push gate in one shot — cargo fmt → sequential mise verify (lint/test-all/doc/deny) → /simplify → /review → /elidex-review — so no stage gets skipped on a busy PR. Invoke BEFORE `git push` / `gh pr create`. Collapses the 5-stage gate into one decision so the heavy stages (/simplify, /review) aren't forgotten.
+description: Run the full elidex pre-push gate in one shot — cargo fmt → mise run ci → /simplify → /review → /elidex-review — so no stage gets skipped on a busy PR. Invoke BEFORE `git push` / `gh pr create`. Collapses the 5-stage gate into one decision so the heavy stages (/simplify, /review) aren't forgotten.
 user-invocable: true
 ---
 
@@ -36,16 +36,20 @@ surface is "did I run /pre-push?", not five independent "did I remember X?".
 cargo fmt --all
 ```
 
-### Stage 2 — Verify (sequential, NOT `mise run ci`)
-Run the gate **sequentially**, not via `mise run ci`:
+### Stage 2 — Verify
+```sh
+mise run ci   # check + lint + test-all + doc + deny — the canonical pre-push gate (CLAUDE.md "Push 前")
+```
+All jobs must be green. (`test-all` includes doc-tests; cargo tasks are
+`--all-features`-gated so feature-gated code is covered.)
+
+Fallback: if `mise run ci` reports a spurious `target/`-missing failure — its
+`ci-sweep` cleanup task can run in parallel with the build and wipe `target/`
+mid-compile, surfacing a misleading "No such file" error — re-run the jobs
+sequentially instead, which sidesteps the race:
 ```sh
 mise run lint && mise run test-all && mise run doc && mise run deny
 ```
-Rationale: `mise run ci` runs the `ci-sweep` task in parallel with the build, and
-ci-sweep wipes `target/` mid-build → spurious "No such file" failures
-(`feedback_ci-sweep-race`). The sequential chain avoids the race. All four must
-be green. (`test-all` includes doc-tests; cargo tasks are `--all-features`-gated
-so feature-gated code is covered.)
 
 ### Stage 3 — `/simplify`
 Invoke the `simplify` skill. Reuse / quality / efficiency review of the changed
@@ -73,6 +77,7 @@ unless previously authorized).
 
 ## Skip-OK (whole skill)
 
-- Pure doc-only PR with no `src/**` changes → Stages 3–5 each trivially 0-finding;
-  may note explicit skip in the landing memo. Stages 1–2 still run.
+- Pure doc / non-code PR with no `**/*.rs` changes (Rust sources live under
+  `crates/**/src/**`, there is no top-level `src/`) → Stages 3–5 each trivially
+  0-finding; may note explicit skip in the landing memo. Stages 1–2 still run.
 - Otherwise: run the whole gate.
