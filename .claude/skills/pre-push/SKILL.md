@@ -7,7 +7,7 @@ user-invocable: true
 # pre-push — one-shot pre-push gate
 
 The elidex pre-push gate is five stages run in a fixed order. Run as separate
-manual steps they get **skipped on heavy PRs** — the easy trap is reaching for
+manual steps, they get **skipped on heavy PRs** — the easy trap is reaching for
 `/elidex-review` alone and rationalizing it as "the comprehensive one". It is
 **not** a substitute: `/elidex-review` explicitly layers *on top of* `/simplify`
 (reuse / quality / efficiency) and `/review` (general PR review) and assumes
@@ -52,8 +52,10 @@ sequentially instead, which sidesteps the race:
 ```sh
 mise run check && mise run lint && mise run test-all && mise run doc && mise run deny
 ```
-(These are exactly `ci`'s component tasks — `check + lint + test-all + doc +
-deny` — run serially, so the fallback covers the same jobs.)
+(These are `ci`'s *verification* jobs run serially. `ci` also depends on the
+`ci-sweep` cleanup task — deliberately omitted here, since its build-parallel
+`target/` wipe is exactly the race the fallback exists to dodge; it cleans
+artifacts, it doesn't verify anything.)
 
 ### Stage 3 — `/simplify`
 Invoke the `simplify` skill. Reuse / quality / efficiency review of the changed
