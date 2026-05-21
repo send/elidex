@@ -156,7 +156,8 @@ impl WrapperKey {
 pub(crate) enum MarkAgent {
     /// `Node` (#1): strong root — the seam mark loop marks it unconditionally
     /// (replaces the `wrapper_cache.values()` chain in
-    /// `HostData::gc_root_object_ids`). Pruned only via `remove_wrapper_for`.
+    /// `HostData::gc_root_object_ids`). Pruned only via
+    /// `HostData::remove_wrapper` on entity despawn.
     StrongRoot,
     /// Entity-owned secondaries: marked iff the owner element's primary `Node`
     /// wrapper is still cached (weak-through-owner gate).
@@ -176,8 +177,8 @@ pub(crate) enum MarkAgent {
 /// [`WrapperKind::retain`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum RetainPredicate {
-    /// `Node` (#1): never value-swept; dropped only via `remove_wrapper_for`
-    /// on entity despawn.
+    /// `Node` (#1): never value-swept; dropped only via
+    /// `HostData::remove_wrapper` on entity despawn.
     NeverSweep,
     /// Drop iff the wrapper `ObjectId` value was collected this cycle.
     ValueMark,
