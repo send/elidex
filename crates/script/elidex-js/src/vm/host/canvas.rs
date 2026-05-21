@@ -733,8 +733,8 @@ fn native_get_image_data(
     let sx = arg_f32(ctx, args, 0)? as i32;
     #[allow(clippy::cast_possible_truncation)]
     let sy = arg_f32(ctx, args, 1)? as i32;
-    let sw = dim_arg(ctx, args, 2)?;
-    let sh = dim_arg(ctx, args, 3)?;
+    let sw = require_image_data_dim(ctx, args, 2, "getImageData", "width")?;
+    let sh = require_image_data_dim(ctx, args, 3, "getImageData", "height")?;
     let pixels = dispatch_context(ctx, this, "getImageData", false, |c| {
         c.get_image_data(sx, sy, sw, sh)
     })?;
@@ -773,7 +773,10 @@ fn native_create_image_data(
             let (width, height, _) = read_image_data_object(ctx, args[0])?;
             (width, height)
         }
-        _ => (dim_arg(ctx, args, 0)?, dim_arg(ctx, args, 1)?),
+        _ => (
+            require_image_data_dim(ctx, args, 0, "createImageData", "width")?,
+            require_image_data_dim(ctx, args, 1, "createImageData", "height")?,
+        ),
     };
     let pixels = Canvas2dContext::create_image_data(w, h);
     build_image_data(ctx, w, h, &pixels)
@@ -795,8 +798,16 @@ fn native_image_data_constructor(
     let first = args.first().copied().unwrap_or(JsValue::Undefined);
     let (width, height, pixels) = match first {
         // new ImageData(Uint8ClampedArray, width[, height]) — HTML §4.12.5.1.16.
+        // The data overload requires a `Uint8ClampedArray` specifically; any
+        // other TypedArray fails WebIDL overload resolution → TypeError.
         JsValue::Object(id)
-            if matches!(ctx.vm.get_object(id).kind, ObjectKind::TypedArray { .. }) =>
+            if matches!(
+                ctx.vm.get_object(id).kind,
+                ObjectKind::TypedArray {
+                    element_kind: ElementKind::Uint8Clamped,
+                    ..
+                }
+            ) =>
         {
             let data = read_typed_array_bytes(ctx.vm, id).ok_or_else(|| {
                 VmError::type_error("Failed to construct 'ImageData': invalid data array")
@@ -841,6 +852,15 @@ fn native_image_data_constructor(
             };
             (width, height, data)
         }
+        // A non-`Uint8ClampedArray` TypedArray fails the data-overload's WebIDL
+        // type check (and must not silently fall through to the (sw, sh) form).
+        JsValue::Object(id)
+            if matches!(ctx.vm.get_object(id).kind, ObjectKind::TypedArray { .. }) =>
+        {
+            return Err(VmError::type_error(
+                "Failed to construct 'ImageData': The provided value is not of type 'Uint8ClampedArray'.",
+            ));
+        }
         // new ImageData(width, height)
         _ => {
             let width = dim_arg(ctx, args, 0)?;
@@ -882,6 +902,32 @@ fn dim_arg(ctx: &mut NativeContext<'_>, args: &[JsValue], i: usize) -> Result<u3
         0
     };
     Ok(out)
+}
+
+/// Coerce a `getImageData` / `createImageData` `sw`/`sh` argument (WebIDL
+/// `long`, HTML §4.12.5.1.16): a zero or non-finite magnitude throws
+/// `IndexSizeError`; otherwise the absolute magnitude is used (a negative
+/// dimension flips the rectangle, per spec). `dim` names the member for the
+/// error message.
+fn require_image_data_dim(
+    ctx: &mut NativeContext<'_>,
+    args: &[JsValue],
+    i: usize,
+    method: &str,
+    dim: &str,
+) -> Result<u32, VmError> {
+    let v = args.get(i).copied().unwrap_or(JsValue::Undefined);
+    let n = coerce::to_number(ctx.vm, v)?;
+    if !n.is_finite() || n == 0.0 {
+        return Err(VmError::dom_exception(
+            ctx.vm.well_known.dom_exc_index_size_error,
+            format!(
+                "Failed to execute '{method}' on 'CanvasRenderingContext2D': The source {dim} is zero."
+            ),
+        ));
+    }
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    Ok(n.abs() as u32)
 }
 
 /// Build a fresh `ImageData` object (own `data` / `width` / `height`) backed by
@@ -952,8 +998,15 @@ fn make_uint8_clamped_array(
     )
 }
 
-/// Read an `ImageData`-shaped argument: its `width` / `height` (own properties)
-/// and the bytes of its `data` `Uint8ClampedArray`.
+/// Read + validate an `ImageData` argument (`putImageData` / `createImageData`):
+/// its `width` / `height` and the bytes of its `data` `Uint8ClampedArray`.
+///
+/// A real `ImageData` is internally consistent (`data.length == width*height*4`),
+/// so anything failing that invariant — a spoofed plain object, a wrong-typed
+/// `data`, or a length mismatch — is rejected as not-an-`ImageData` (TypeError),
+/// matching the WebIDL `[EnforceRange]`/branding the spec assumes (no new
+/// `ObjectKind` brand, per lesson #276 — the `Uint8ClampedArray`-of-exact-length
+/// invariant is the brand).
 #[allow(clippy::similar_names)]
 fn read_image_data_object(
     ctx: &mut NativeContext<'_>,
@@ -977,7 +1030,24 @@ fn read_image_data_object(
     let JsValue::Object(data_id) = data else {
         return Err(not_image_data());
     };
+    // `data` must be a `Uint8ClampedArray` (not just any TypedArray).
+    if !matches!(
+        ctx.vm.get_object(data_id).kind,
+        ObjectKind::TypedArray {
+            element_kind: ElementKind::Uint8Clamped,
+            ..
+        }
+    ) {
+        return Err(not_image_data());
+    }
     let bytes = read_typed_array_bytes(ctx.vm, data_id).ok_or_else(not_image_data)?;
+    // Internal-consistency invariant: data.length == width * height * 4.
+    let expected = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|wh| wh.checked_mul(4));
+    if expected != Some(bytes.len()) {
+        return Err(not_image_data());
+    }
     Ok((width, height, bytes))
 }
 

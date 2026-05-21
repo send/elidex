@@ -256,6 +256,70 @@ fn get_put_image_data_round_trip() {
 }
 
 #[test]
+fn get_image_data_rejects_zero_dims() {
+    // HTML §4.12.5.1.16: getImageData with sw/sh == 0 throws IndexSizeError.
+    with_vm(|vm, _dom| {
+        assert!(vm
+            .eval(
+                "var ctx = document.createElement('canvas').getContext('2d'); \
+                 ctx.getImageData(0, 0, 0, 4);"
+            )
+            .is_err());
+        assert!(vm
+            .eval(
+                "var ctx = document.createElement('canvas').getContext('2d'); \
+                 ctx.getImageData(0, 0, 4, 0);"
+            )
+            .is_err());
+    });
+}
+
+#[test]
+fn create_image_data_rejects_zero_dims() {
+    with_vm(|vm, _dom| {
+        assert!(vm
+            .eval(
+                "var ctx = document.createElement('canvas').getContext('2d'); \
+                 ctx.createImageData(0, 4);"
+            )
+            .is_err());
+    });
+}
+
+#[test]
+fn image_data_constructor_rejects_non_clamped_typed_array() {
+    // The data overload requires Uint8ClampedArray; a plain Uint8Array → TypeError.
+    with_vm(|vm, _dom| {
+        assert!(vm.eval("new ImageData(new Uint8Array(4), 1);").is_err());
+    });
+}
+
+#[test]
+fn put_image_data_rejects_spoofed_and_mismatched() {
+    with_vm(|vm, _dom| {
+        let ctx = "var ctx = document.createElement('canvas').getContext('2d'); ";
+        // Plain object with wrong-typed data → not an ImageData.
+        assert!(vm
+            .eval(&format!(
+                "{ctx} ctx.putImageData({{width: 1, height: 1, data: new Uint8Array(4)}}, 0, 0);"
+            ))
+            .is_err());
+        // data.length inconsistent with width*height*4 → not an ImageData.
+        assert!(vm
+            .eval(&format!(
+                "{ctx} ctx.putImageData({{width: 2, height: 2, data: new Uint8ClampedArray(4)}}, 0, 0);"
+            ))
+            .is_err());
+        // A real ImageData round-trips.
+        assert!(vm
+            .eval(&format!(
+                "{ctx} ctx.putImageData(new ImageData(2, 2), 0, 0); true;"
+            ))
+            .is_ok());
+    });
+}
+
+#[test]
 fn create_image_data_is_transparent_black() {
     with_vm(|vm, _dom| {
         assert!(eval_bool(

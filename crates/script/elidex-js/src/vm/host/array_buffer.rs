@@ -245,6 +245,12 @@ pub(crate) fn create_typed_array_from_bytes(
     bytes: Vec<u8>,
     ek: ElementKind,
 ) -> Result<ObjectId, VmError> {
+    debug_assert_eq!(
+        bytes.len() % usize::from(ek.bytes_per_element()),
+        0,
+        "create_typed_array_from_bytes: byte length {} is not a whole number of {ek:?} elements",
+        bytes.len()
+    );
     let byte_length = u32::try_from(bytes.len())
         .map_err(|_| VmError::range_error("typed array byte length exceeds 4 GiB"))?;
     let buffer_id = create_array_buffer_from_bytes(vm, bytes);
