@@ -667,6 +667,22 @@ pub(crate) struct VmInner {
     /// `#11-link-stylesheet-loading`).
     #[cfg(feature = "engine")]
     pub(crate) html_link_prototype: Option<ObjectId>,
+    /// `HTMLCanvasElement.prototype` (HTML §4.12.5).  Carries
+    /// `getContext('2d')` + `width` / `height` numeric reflect.
+    /// Looked up per canvas-wrapper creation, so rooted in
+    /// `gc::collect` like the other element prototypes.
+    #[cfg(feature = "engine")]
+    pub(crate) html_canvas_prototype: Option<ObjectId>,
+    /// `CanvasRenderingContext2D.prototype` (HTML §4.12.5.1).
+    /// Read on every `getContext` to seed the context wrapper's
+    /// prototype, so rooted in `gc::collect`.
+    #[cfg(feature = "engine")]
+    pub(crate) canvas_rendering_context_2d_prototype: Option<ObjectId>,
+    /// `ImageData.prototype` (HTML §4.12.5.1.16).  Read on every
+    /// `getImageData` / `createImageData` / `new ImageData`, so
+    /// rooted in `gc::collect`.
+    #[cfg(feature = "engine")]
+    pub(crate) image_data_prototype: Option<ObjectId>,
     // -----------------------------------------------------------------
     // T2b passive head + grouping prototypes (slot
     // `#11-tags-T2b-passive`).  All chain to `HTMLElement.prototype`.

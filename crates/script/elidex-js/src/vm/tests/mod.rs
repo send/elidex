@@ -17,6 +17,8 @@ mod tests_bigint;
 mod tests_blob;
 mod tests_body_mixin;
 mod tests_bound_accessor;
+#[cfg(feature = "engine")]
+mod tests_canvas;
 mod tests_character_data;
 mod tests_child_node_mixin;
 mod tests_class_list;

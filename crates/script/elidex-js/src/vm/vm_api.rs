@@ -733,6 +733,22 @@ impl Vm {
         self.inner.drain_worker_messages();
     }
 
+    /// Flush every dirty `<canvas>` (HTML §4.12.5 "The 2D rendering context"):
+    /// copy each 2D context's pixels into its [`ImageData`] component (the
+    /// display-list source `elidex-render` composites) and clear the dirty
+    /// marker. The shell main loop calls this each frame, exactly as it calls
+    /// [`Self::tick_network`]; a no-op when unbound or no canvas is dirty.
+    ///
+    /// [`ImageData`]: elidex_ecs::ImageData
+    #[cfg(feature = "engine")]
+    pub fn sync_dirty_canvases(&mut self) {
+        if let Some(hd) = self.inner.host_data.as_deref_mut() {
+            if hd.is_bound() {
+                elidex_api_canvas::sync_dirty_canvases(hd.dom());
+            }
+        }
+    }
+
     /// Install the `NetworkHandle` used by the `fetch()` host
     /// global.  Without a handle, every `fetch()` call rejects
     /// with a `TypeError` (matches `NetworkHandle::disconnected()`

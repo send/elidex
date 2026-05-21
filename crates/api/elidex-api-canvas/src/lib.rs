@@ -3,6 +3,13 @@
 //! Provides constants and helpers shared across script engine bindings.
 //! The actual rendering logic lives in `elidex-web-canvas`.
 
+mod component;
+
+pub use component::{
+    canvas_dimensions, ensure_context, mark_dirty, sync_dirty_canvases, with_context, CanvasDirty,
+    CanvasReconciler,
+};
+
 /// Default canvas width in pixels (HTML spec §4.12.5.1).
 pub const DEFAULT_WIDTH: u32 = 300;
 

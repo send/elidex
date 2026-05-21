@@ -27,6 +27,7 @@
 
 #![deny(clippy::significant_drop_tightening)]
 
+use elidex_api_canvas::CanvasReconciler;
 use elidex_dom_api::{BaseUrlMaintainer, LiveRangeBridge, NodeIteratorAdjuster};
 use elidex_ecs::{EcsDom, MutationDispatcher, MutationEvent};
 use elidex_form::FormControlReconciler;
@@ -63,6 +64,13 @@ pub struct ConsumerDispatcher {
     ///
     /// [`EventListeners`]: elidex_script_session::EventListeners
     event_handler_attrs: EventHandlerAttributeConsumer,
+    /// Canvas bitmap reset on `<canvas>` `width`/`height` content-attribute
+    /// change (HTML §4.12.5 "set bitmap dimensions" — even a same-value write
+    /// clears the bitmap + resets state). Driven from the `AttributeChange` SoT
+    /// (not the IDL setter) so `setAttribute` + parser-baked attributes are
+    /// covered. Order-independent — it only touches the `Canvas2dContext`
+    /// component, which no other consumer reads.
+    canvas: CanvasReconciler,
 }
 
 impl ConsumerDispatcher {
@@ -78,6 +86,7 @@ impl ConsumerDispatcher {
             base_url: BaseUrlMaintainer,
             form_control: FormControlReconciler,
             event_handler_attrs: EventHandlerAttributeConsumer,
+            canvas: CanvasReconciler,
         }
     }
 
@@ -118,5 +127,6 @@ impl MutationDispatcher for ConsumerDispatcher {
         self.base_url.handle(event, dom);
         self.form_control.handle(event, dom);
         self.event_handler_attrs.handle(event, dom);
+        self.canvas.handle(event, dom);
     }
 }

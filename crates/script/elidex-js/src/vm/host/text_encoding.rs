@@ -759,47 +759,11 @@ pub(super) fn extract_buffer_source_bytes(
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-/// Allocate a fresh `Uint8Array` whose underlying buffer owns
-/// `bytes`.  Uses the shared `body_data` / `array_buffer_prototype`
-/// + `subclass_array_prototypes[ElementKind::Uint8.index()]` slot
-///   (SP14) so GC sweep prunes it like any other view allocation.
-///
-/// Returns `RangeError` if `bytes.len()` exceeds `u32::MAX` — the
-/// TypedArray `[[ByteLength]]` slot is `u32` so a silent truncation
-/// would produce a view with a length inconsistent with the
-/// backing buffer.
+/// Allocate a fresh `Uint8Array` whose underlying buffer owns `bytes`
+/// (`TextEncoder.encode` / `encodeInto` results). Thin alias over the shared
+/// [`super::array_buffer::create_typed_array_from_bytes`] builder.
 fn create_uint8_array_from_bytes(vm: &mut VmInner, bytes: Vec<u8>) -> Result<ObjectId, VmError> {
-    let byte_length = u32::try_from(bytes.len()).map_err(|_| {
-        VmError::range_error(
-            "Failed to execute 'encode' on 'TextEncoder': encoded byte length exceeds 4 GiB",
-        )
-    })?;
-    let buffer_id = super::array_buffer::create_array_buffer_from_bytes(vm, bytes);
-    // Temp-root `buffer_id` across the Uint8Array allocation via
-    // the RAII `push_temp_root` guard so the stack is restored on
-    // every exit path (normal return and panic unwinding alike) —
-    // a bare `stack.push` / `stack.pop` pair would leak the root
-    // through any `catch_unwind` upstream.  GC is disabled inside
-    // native calls today (`gc_enabled = false`), so the second
-    // `alloc_object` cannot currently trigger a collection, but
-    // the rooting matches the invariant used by `wrap_in_array_-
-    // iterator` / event constructors / the typed-array ctor.
-    let mut g = vm.push_temp_root(JsValue::Object(buffer_id));
-    let proto = g.subclass_array_prototypes[ElementKind::Uint8.index()];
-    let view_id = g.alloc_object(Object {
-        kind: ObjectKind::TypedArray {
-            buffer_id,
-            byte_offset: 0,
-            byte_length,
-            element_kind: ElementKind::Uint8,
-        },
-        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-        prototype: proto,
-        extensible: true,
-    });
-    // Guard `g` is dropped here, restoring the stack — either
-    // cleanly (post-alloc return) or during panic unwinding.
-    Ok(view_id)
+    super::array_buffer::create_typed_array_from_bytes(vm, bytes, ElementKind::Uint8)
 }
 
 fn intern_lowercase(vm: &mut VmInner, s: &str) -> StringId {

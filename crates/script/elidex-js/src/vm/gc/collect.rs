@@ -541,6 +541,29 @@ impl VmInner {
                 self.html_link_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // +3 (M4-12 slot #11-canvas-2d-vm: HTMLCanvasElement /
+                // CanvasRenderingContext2D / ImageData prototypes).
+                // HTMLCanvasElement.prototype is looked up per canvas-
+                // wrapper creation, the context prototype on every
+                // getContext, and the ImageData prototype on every
+                // getImageData / createImageData / `new ImageData` — so
+                // each is read at arbitrary times and must stay rooted
+                // here (same `delete globalThis.<X>` invariant as every
+                // other intrinsic prototype: the matching
+                // `VmInner::<x>_prototype` field retains a stale id
+                // otherwise).
+                #[cfg(feature = "engine")]
+                self.html_canvas_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.canvas_rendering_context_2d_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.image_data_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
                 // 91 + 24 = 115 (M4-12 slot #11-tags-T2b-passive:
                 // 7 head + 17 grouping prototypes — h1-h6 share one
                 // HTMLHeadingElement prototype and blockquote+q

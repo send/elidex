@@ -231,6 +231,14 @@ pub(super) fn require_node_arg(
         }
         _ => return Err(not_a_node()),
     };
+    // Reverse half of the canvas-2D-context bidirectional brand: a
+    // `CanvasRenderingContext2D` wrapper shares its `<canvas>` entity
+    // (which IS a node), so `is_node()` alone would wrongly accept it
+    // as a Node argument (e.g. `document.appendChild(ctx)`). Reject it
+    // here — it brands as a context, not a node.
+    if super::canvas::is_canvas_2d_context_wrapper(ctx.vm, id, entity) {
+        return Err(not_a_node());
+    }
     // Use the inferred kind so legacy DOM entities (payload present
     // but no explicit `NodeKind` component) are accepted as Nodes —
     // matches `normalize_single_arg`, `nodes_equal`, and

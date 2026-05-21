@@ -40,8 +40,8 @@
 use super::super::coerce;
 use super::super::shape::{self, PropertyAttrs};
 use super::super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
-    PropertyValue, VmError,
+    ElementKind, JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey,
+    PropertyStorage, PropertyValue, VmError,
 };
 use super::super::VmInner;
 
@@ -228,6 +228,40 @@ pub(crate) fn create_array_buffer_from_bytes(vm: &mut VmInner, bytes: Vec<u8>) -
         vm.body_data.insert(id, bytes);
     }
     id
+}
+
+/// Allocate a TypedArray of element kind `ek` whose fresh backing `ArrayBuffer`
+/// owns `bytes` (length must already be a whole number of elements). The buffer
+/// is temp-rooted across the view allocation via the RAII `push_temp_root`
+/// guard so the stack is restored on every exit path. Shared by every
+/// Rust-side "wrap these bytes in a typed array" site (`TextEncoder.encode` →
+/// `Uint8Array`, canvas `ImageData.data` → `Uint8ClampedArray`, …).
+///
+/// Returns `RangeError` if `bytes.len()` exceeds `u32::MAX` (the TypedArray
+/// `[[ByteLength]]` slot is `u32`, so a silent truncation would desync the view
+/// length from its buffer).
+pub(crate) fn create_typed_array_from_bytes(
+    vm: &mut VmInner,
+    bytes: Vec<u8>,
+    ek: ElementKind,
+) -> Result<ObjectId, VmError> {
+    let byte_length = u32::try_from(bytes.len())
+        .map_err(|_| VmError::range_error("typed array byte length exceeds 4 GiB"))?;
+    let buffer_id = create_array_buffer_from_bytes(vm, bytes);
+    let mut g = vm.push_temp_root(JsValue::Object(buffer_id));
+    let proto = g.subclass_array_prototypes[ek.index()];
+    let view_id = g.alloc_object(Object {
+        kind: ObjectKind::TypedArray {
+            buffer_id,
+            byte_offset: 0,
+            byte_length,
+            element_kind: ek,
+        },
+        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+        prototype: proto,
+        extensible: true,
+    });
+    Ok(view_id)
 }
 
 /// ES §7.1.22 `ToIndex` narrowed to `usize` for the `ArrayBuffer`

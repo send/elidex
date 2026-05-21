@@ -20,6 +20,8 @@ engine = [
     "elidex-net",
     "elidex-dom-api",
     "elidex-api-observers",
+    "elidex-api-canvas",
+    "elidex-web-canvas",
     "elidex-api-ws",
     "elidex-api-workers",
     "crossbeam-channel",
@@ -74,6 +76,14 @@ elidex-dom-api = { workspace = true, optional = true }
 # the `MutationObserver` VM thin binding.  Engine-gated because the
 # observer surface is engine-only.
 elidex-api-observers = { workspace = true, optional = true }
+# Canvas 2D component plumbing (`Canvas2dContext`-component ensure/query/
+# dirty/sync + the width/height bitmap-reset `CanvasReconciler`) consumed by
+# the `HTMLCanvasElement.getContext('2d')` VM binding (slot `#11-canvas-2d-vm`).
+# Engine-gated because the canvas surface is engine-only.
+elidex-api-canvas = { workspace = true, optional = true }
+# Canvas 2D raster backend (`Canvas2dContext` + `serialize_canvas_color`) —
+# the engine-independent drawing ops the host binding marshals into.
+elidex-web-canvas = { workspace = true, optional = true }
 # Engine-independent WebSocket / EventSource protocol types
 # (`WsReadyState` / `SseReadyState` / `normalize_ws_url` /
 # `validate_ws_url` / `is_mixed_content`) consumed by the WS / SSE
