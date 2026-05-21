@@ -47,8 +47,8 @@
 
 use elidex_ecs::NodeKind;
 use elidex_script_session::{
-    event_handler_attr_event_type, EventListeners, HandlerScope, ListenerId,
-    ABSTRACT_WORKER_EVENT_HANDLER_ATTRS, EVENT_HANDLER_ATTRS, WORKER_EVENT_HANDLER_ATTRS,
+    event_handler_attr_event_type, EventListeners, HandlerScope, ListenerId, EVENT_HANDLER_ATTRS,
+    WORKER_EVENT_HANDLER_ATTRS, WORKER_OBJECT_EVENT_HANDLER_ATTRS,
 };
 
 use super::super::shape::PropertyAttrs;
@@ -93,15 +93,16 @@ impl VmInner {
         self.install_handler_attrs_from_list(target, WORKER_EVENT_HANDLER_ATTRS);
     }
 
-    /// Install the main-side `Worker` object's AbstractWorker / Worker
-    /// event-handler IDL attributes ([`ABSTRACT_WORKER_EVENT_HANDLER_ATTRS`] =
-    /// `onmessage` / `onmessageerror` / `onerror`) on `Worker.prototype`, over
-    /// the same shared backend pair. The receiver brand check
-    /// ([`require_handler_receiver`]) accepts [`NodeKind::Worker`], so
-    /// `worker.onmessage = fn` records the handler in the `EventListeners`
-    /// component on the `Worker` entity (WHATWG HTML §10.2.6.1 / §8.1.8.1).
-    pub(in crate::vm) fn install_abstract_worker_handler_attrs(&mut self, target: ObjectId) {
-        self.install_handler_attrs_from_list(target, ABSTRACT_WORKER_EVENT_HANDLER_ATTRS);
+    /// Install the main-side `Worker` object's event-handler IDL attributes
+    /// ([`WORKER_OBJECT_EVENT_HANDLER_ATTRS`] = `onmessage` / `onmessageerror`
+    /// from the dedicated `Worker` interface + `onerror` from the AbstractWorker
+    /// mixin) on `Worker.prototype`, over the same shared backend pair. The
+    /// receiver brand check ([`require_handler_receiver`]) accepts
+    /// [`NodeKind::Worker`], so `worker.onmessage = fn` records the handler in
+    /// the `EventListeners` component on the `Worker` entity (WHATWG HTML
+    /// §10.2.6.1 / §10.2.6.3 / §8.1.8.1).
+    pub(in crate::vm) fn install_worker_object_handler_attrs(&mut self, target: ObjectId) {
+        self.install_handler_attrs_from_list(target, WORKER_OBJECT_EVENT_HANDLER_ATTRS);
     }
 
     /// Install a fixed list of event-handler IDL attributes (by attribute

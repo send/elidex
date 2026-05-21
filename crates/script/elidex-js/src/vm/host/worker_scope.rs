@@ -155,11 +155,16 @@ impl VmInner {
     }
 
     /// Install the remaining worker globals: `self` (the §10.2.1.1
-    /// self-reference making `self === globalThis`), the read-only worker
-    /// `name`, and `isSecureContext` (WindowOrWorkerGlobalScope mixin; W3C
-    /// Secure Contexts). `is_secure_context` is inherited from the **creator's**
-    /// environment — NOT derived from the worker script URL, so a `data:` /
-    /// `blob:` worker spawned by a secure parent is itself secure.
+    /// self-reference making `self === globalThis`), the worker `name`
+    /// (DedicatedWorkerGlobalScope), and `isSecureContext`
+    /// (WindowOrWorkerGlobalScope mixin; W3C Secure Contexts). The latter two
+    /// are `readonly attribute`s in WebIDL, but — like every other global in
+    /// this VM (`navigator` / `location` / the constructors) — they are
+    /// installed as plain writable bindings in the `globals` map; the VM has no
+    /// descriptor-backed readonly-global mechanism. `is_secure_context` is
+    /// inherited from the **creator's** environment — NOT derived from the
+    /// worker script URL, so a `data:` / `blob:` worker spawned by a secure
+    /// parent is itself secure.
     pub(in crate::vm) fn register_worker_globals(&mut self, name: &str, is_secure_context: bool) {
         let self_sid = self.strings.intern("self");
         self.globals

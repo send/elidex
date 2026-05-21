@@ -32,7 +32,7 @@ pub use event_dispatch::{
 };
 pub use event_handler_consumer::{
     event_handler_attr_event_type, EventHandlerAttributeConsumer, HandlerScope,
-    ABSTRACT_WORKER_EVENT_HANDLER_ATTRS, EVENT_HANDLER_ATTRS, WORKER_EVENT_HANDLER_ATTRS,
+    EVENT_HANDLER_ATTRS, WORKER_EVENT_HANDLER_ATTRS, WORKER_OBJECT_EVENT_HANDLER_ATTRS,
 };
 pub use event_listener::{
     EventListeners, ListenerEntry, ListenerId, ListenerKind, UncompiledHandler,

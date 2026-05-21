@@ -76,7 +76,7 @@ impl VmInner {
         // `onmessage` / `onmessageerror` / `onerror` over the shared
         // event-handler backend, backed by the `EventListeners` component on
         // the `Worker` entity (WHATWG HTML §10.2.6.1 / §8.1.8.1).
-        self.install_abstract_worker_handler_attrs(proto_id);
+        self.install_worker_object_handler_attrs(proto_id);
         self.worker_prototype = Some(proto_id);
 
         let global_sid = self.strings.intern("Worker");

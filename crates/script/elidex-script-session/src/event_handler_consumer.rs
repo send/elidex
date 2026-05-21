@@ -199,8 +199,7 @@ pub const WORKER_EVENT_HANDLER_ATTRS: &[&str] = &[
 /// *scope*, not to the `Worker` object. Kept here as the single source of
 /// truth so the VM-side install reads one list; every entry also appears in
 /// [`EVENT_HANDLER_ATTRS`], so [`event_handler_attr_event_type`] resolves each.
-pub const ABSTRACT_WORKER_EVENT_HANDLER_ATTRS: &[&str] =
-    &["onmessage", "onmessageerror", "onerror"];
+pub const WORKER_OBJECT_EVENT_HANDLER_ATTRS: &[&str] = &["onmessage", "onmessageerror", "onerror"];
 
 /// If `name` is a known event-handler content attribute, return its
 /// event type (the name with the leading `on` stripped). Linear scan —
