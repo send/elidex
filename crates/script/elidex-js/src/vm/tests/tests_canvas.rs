@@ -333,6 +333,53 @@ fn put_image_data_rejects_spoofed_and_mismatched() {
 }
 
 #[test]
+fn canvas_width_preserves_large_integer_precision() {
+    // > 2^24: an f32 round-trip would corrupt this; f64→u32 keeps it exact.
+    with_vm(|vm, _dom| {
+        assert!(eval_bool(
+            vm,
+            "var c = document.createElement('canvas'); c.width = 16777217; \
+             c.width === 16777217;"
+        ));
+    });
+}
+
+#[test]
+fn image_data_constructor_rejects_overflow_dims() {
+    with_vm(|vm, _dom| {
+        // width*height*4 overflows usize → RangeError, not a 0-length ImageData.
+        assert!(vm.eval("new ImageData(4294967295, 4294967295);").is_err());
+    });
+}
+
+#[test]
+fn get_context_rejects_non_canvas_receiver() {
+    // getContext.call(<div>, '2d') must throw Illegal invocation, not attach
+    // canvas state to a non-canvas element.
+    with_vm(|vm, _dom| {
+        assert!(vm
+            .eval(
+                "var d = document.createElement('div'); \
+                 HTMLCanvasElement.prototype.getContext.call(d, '2d');"
+            )
+            .is_err());
+    });
+}
+
+#[test]
+fn width_accessor_rejects_non_canvas_receiver() {
+    with_vm(|vm, _dom| {
+        assert!(vm
+            .eval(
+                "var d = document.createElement('div'); \
+                 var g = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, 'width').get; \
+                 g.call(d);"
+            )
+            .is_err());
+    });
+}
+
+#[test]
 fn create_image_data_is_transparent_black() {
     with_vm(|vm, _dom| {
         assert!(eval_bool(
