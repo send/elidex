@@ -164,9 +164,8 @@ fn data_transfer_item_not_promoted_by_parent() {
     // has no proactive mark agent, it must be collected even though the
     // parent (and its items list) are alive — the leak a naive
     // "mark-iff-parent" rule would have caused.
-    // Indexed access (`dt.items[0]`) is deferred to
-    // `#11-events-modern-indexed-exotic`; `add()` returns the same
-    // interned item wrapper, so capture the id from there.
+    // Indexed-exotic access (`dt.items[0]`) is out of scope; `add()`
+    // returns the same interned item wrapper, so capture the id there.
     vm.eval("globalThis.dt = new DataTransfer(); undefined")
         .unwrap();
     let item_id = eval_object_id(&mut vm, "dt.items.add('hi', 'text/plain')");
