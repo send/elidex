@@ -533,21 +533,28 @@ impl EcsDom {
         self.world.spawn((NodeKind::Worker,))
     }
 
-    /// Locate the worker-global-scope entity, if one exists.
+    /// Locate the worker-global-scope entity, if one exists **unambiguously**.
     ///
     /// **Worker-VM DOMs only**: a worker `Vm`'s `EcsDom` holds exactly one
     /// [`NodeKind::Worker`] entity (the worker scope, created at bind time), so
-    /// `find` is unambiguous. A *main*-VM DOM may hold many `NodeKind::Worker`
-    /// entities (one per main-side `Worker` object) — this helper is not meant
-    /// for that DOM and would return an arbitrary one. Linear scan — only
-    /// invoked off the hot path (worker bind / WEH routing).
+    /// the lookup is unambiguous and returns it. A *main*-VM DOM may hold many
+    /// `NodeKind::Worker` entities (one per main-side `Worker` object) — this
+    /// helper is not meant for that DOM, so rather than return an arbitrary one
+    /// it returns `None` when zero **or more than one** `Worker` entity exists.
+    /// Misuse on a main DOM therefore fails safe (no silent misrouting) instead
+    /// of resolving to a random `Worker` handle. Linear scan (stops after the
+    /// second hit) — only invoked off the hot path (worker bind / WEH routing).
     #[must_use]
     pub fn worker_scope_entity(&self) -> Option<Entity> {
-        self.world
-            .query::<(Entity, &NodeKind)>()
+        let mut query = self.world.query::<(Entity, &NodeKind)>();
+        let mut workers = query
             .iter()
-            .find(|(_, kind)| matches!(**kind, NodeKind::Worker))
-            .map(|(entity, _)| entity)
+            .filter(|(_, kind)| matches!(**kind, NodeKind::Worker))
+            .map(|(entity, _)| entity);
+        match (workers.next(), workers.next()) {
+            (Some(entity), None) => Some(entity),
+            _ => None,
+        }
     }
 
     /// Create a text node.

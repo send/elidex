@@ -4,8 +4,13 @@
 //! mandate: URL same-origin/`blob:`/`data:` resolution (WHATWG HTML §10.2.6.3)
 //! and worker-script MIME/status validation (WHATWG HTML §10.2.4, invoked by
 //! "fetch a classic worker script"). No JS-runtime / VM / boa types — the VM
-//! binding layer calls these and marshals the [`WorkerScriptError`] into the
-//! appropriate `TypeError` / `SecurityError` / `NetworkError`.
+//! binding layer (`marshal_worker_script_error`) maps each
+//! [`WorkerScriptError`] to its JS-visible form: `NotSameOrigin` → a
+//! `SecurityError` DOMException, `InvalidUrl` → a JS `SyntaxError`, every other
+//! variant → a JS `TypeError`. There is **no** `NetworkError` exception here:
+//! fetch failures on the worker script surface as the worker's `error` event
+//! carrying a `"NetworkError: …"` message string (`worker_thread`), not a
+//! thrown DOMException.
 
 use url::Url;
 
