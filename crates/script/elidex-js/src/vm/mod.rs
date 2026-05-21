@@ -63,6 +63,8 @@ mod vm_api;
 pub(crate) mod webidl_sequence;
 mod well_known;
 #[cfg(feature = "engine")]
+pub(crate) mod wrapper_intern;
+#[cfg(feature = "engine")]
 pub(crate) mod worker_thread;
 
 #[cfg(feature = "engine")]
