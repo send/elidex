@@ -7,11 +7,16 @@ Experimental browser engine written in Rust.
 ### Design philosophy
 
 - **ECS-native first**: elidex は **既存にない novel な ECS-native browser engine**。OO browser engine (Blink / Gecko / WebKit) の inheritance + virtual dispatch + observer registry pattern を ideal として直訳しない。ECS first principles (component / system / query / marker / event queue / version counter) から設計を導く。OO pattern を翻訳する時は idiom 対応表を明示 (例: observer registry → marker component + query, subscriber list → component query, class-owned state → ECS component on entity)。**ECS-native であること自体が elidex の design contribution**。
+  - **Side-store→component 判定ルール**: per-entity 状態を entity-keyed の side-store/registry (HostData の `*_cache` / `*Registry` / `HashMap<entity, _>`) に持たせる時、その値が `Send + Sync` **かつ per-VM identity handle でない**なら **ECS component on the entity が正**（SameObject = component get、GC = 単一 query、despawn = 自動 cleanup）。boa `HostBridge` side-store を VM へ移植する時の直訳が典型的な罠（D-21 R3 で CRIT 化）。`Send+Sync` は hecs 適格条件であって「すべき」とは別 — side-store が正当な例外は2つ:
+    - **(a) per-VM identity handle (一時的例外)**: VM `ObjectId` (JS wrapper / callback) を保持するもの。値は Send (`ObjectId(u32)`) だが意味が per-VM — `EcsDom` は VM 間で entity-index 空間を共有し rebind され得るので、component 化すると **cross-DOM aliasing** (前 DOM の wrapper を拾う、`vm_api.rs` `Vm::unbind` の cache-clear 参照: コメント `cross-DOM references and must be cleared on unbind`)。`world_id` discriminator (`#11-wrapper-cache-cross-dom-discriminator`) が解禁条件で、それまで per-VM HostData (unbind-clear) が正。world_id 後は component 化可 (`#11-wrapper-identity-component-migration`)。
+    - **(b) shared cross-cutting state (恒久的例外)**: cookie jar / `NetworkHandle` 等、単一 entity の事実でない browsing-context/session レベル資源 (per-entity でないので component 対象外、Send+Sync でも該当しない)。
+    詳細 → `memory/ecs-native-side-store-audit-2026-05-21.md` / `memory/feedback_boa-hostbridge-port-is-not-a-registry.md`。
 - **Ideal over pragmatic**: 設計判断は「最もクリーンで spec-faithful + future-extensible な architecture」が default。"現実解" "minimal v1" "stub で済ます" "session 短縮のため scope 削る" は基本選ばない。defer cap / session 残見込は judgment 補助情報であって設計選択の制約条件にしない。User が明示的に "session 節約優先" "stub OK" "scope 制約あり" と言った時のみ pragmatic 路線。
 
 ### Design discipline
 
 - **設計優先**: 場当たり的な reactive fix 禁止。新しい型を足す前に既存の抽象で解決できないか考える。dead code は接続するか削除
+- **One issue, one way**: より良い機構を見つけたら、その種の処理は **単一の正準形に一括収束** (full unification) させる。「新 seam + N 個の legacy 実装」が共存する strangler 中間状態を残さない — 共存は「どっちで書く?/これは migration 対象?」という決定 tax を**消さず移すだけ**で、PR ごと・reader ごとに再発する。混沌度 (= 決定の表面積) を下げること自体が目的で、それは upfront の大きめ refactor に値する。Ideal over pragmatic の decision-surface 版。詳細 → `memory/feedback_one-issue-one-way.md`
 - **TODO 先送り禁止**: 計画に含めた実装を安易に TODO にしない。実装不可能なら理由 + 対処時期を明示して確認を取る
 - **後方互換性は維持しない**: デッドコードや shim は残さず削除
 - **html5ever 非依存**: Layout は html5ever の暗黙的 DOM 構造修正に依存しない（anonymous table object generation 等は layout 側で実装、自前 parser 置換予定）
