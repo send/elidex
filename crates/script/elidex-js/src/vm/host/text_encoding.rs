@@ -760,10 +760,17 @@ pub(super) fn extract_buffer_source_bytes(
 // ---------------------------------------------------------------------------
 
 /// Allocate a fresh `Uint8Array` whose underlying buffer owns `bytes`
-/// (`TextEncoder.encode` / `encodeInto` results). Thin alias over the shared
-/// [`super::array_buffer::create_typed_array_from_bytes`] builder.
+/// (`TextEncoder.encode` / `encodeInto` results). Thin wrapper over the shared
+/// [`super::array_buffer::create_typed_array_from_bytes`] builder; re-maps the
+/// generic >4 GiB `RangeError` to the contextual `TextEncoder` wording.
 fn create_uint8_array_from_bytes(vm: &mut VmInner, bytes: Vec<u8>) -> Result<ObjectId, VmError> {
-    super::array_buffer::create_typed_array_from_bytes(vm, bytes, ElementKind::Uint8)
+    super::array_buffer::create_typed_array_from_bytes(vm, bytes, ElementKind::Uint8).map_err(
+        |_| {
+            VmError::range_error(
+                "Failed to execute 'encode' on 'TextEncoder': encoded byte length exceeds 4 GiB",
+            )
+        },
+    )
 }
 
 fn intern_lowercase(vm: &mut VmInner, s: &str) -> StringId {

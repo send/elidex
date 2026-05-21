@@ -11,8 +11,10 @@ pub use component::{
 };
 
 // The canonical canvas default dimensions live in `elidex_web_canvas`
-// (`DEFAULT_WIDTH` / `DEFAULT_HEIGHT`, the raster backend) — single source of
-// truth; this crate references those rather than redefining them.
+// (the raster backend) — single source of truth. Re-exported here so this
+// crate's public surface still offers `DEFAULT_WIDTH` / `DEFAULT_HEIGHT`
+// without a second definition that could drift.
+pub use elidex_web_canvas::{DEFAULT_HEIGHT, DEFAULT_WIDTH};
 
 /// Split a 64-bit entity ID into (high, low) 32-bit parts.
 ///
