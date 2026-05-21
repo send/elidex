@@ -34,7 +34,7 @@ pub(super) fn native_get_image_data(
     let pixels = dispatch_context(ctx, this, "getImageData", false, |c| {
         c.get_image_data(sx, sy, sw, sh)
     })?;
-    build_image_data(ctx, sw, sh, &pixels)
+    build_image_data(ctx, sw, sh, pixels)
 }
 
 /// `putImageData(imageData, dx, dy)` — writes the `ImageData`'s pixels into the
@@ -73,7 +73,7 @@ pub(super) fn native_create_image_data(
         ),
     };
     let pixels = Canvas2dContext::create_image_data(w, h);
-    build_image_data(ctx, w, h, &pixels)
+    build_image_data(ctx, w, h, pixels)
 }
 
 /// `new ImageData(width, height)` / `new ImageData(Uint8ClampedArray, width[,
@@ -177,7 +177,7 @@ pub(super) fn native_image_data_constructor(
                 ));
             }
             let bytes = Canvas2dContext::create_image_data(width, height);
-            let data_id = make_uint8_clamped_array(ctx, &bytes)?;
+            let data_id = make_uint8_clamped_array(ctx, bytes)?;
             set_image_data_props(ctx, inst_id, width, height, data_id)?;
         }
     }
@@ -232,7 +232,7 @@ fn build_image_data(
     ctx: &mut NativeContext<'_>,
     width: u32,
     height: u32,
-    pixels: &[u8],
+    pixels: Vec<u8>,
 ) -> Result<JsValue, VmError> {
     let proto = ctx.vm.image_data_prototype;
     let inst = ctx.vm.alloc_object(Object {
@@ -296,12 +296,14 @@ fn set_image_data_props(
     Ok(())
 }
 
-/// Allocate a `Uint8ClampedArray` whose backing buffer owns a copy of `bytes`.
+/// Allocate a `Uint8ClampedArray` whose backing buffer takes ownership of
+/// `bytes` (no copy — the caller's owned buffer is moved straight into the
+/// `ArrayBuffer`).
 fn make_uint8_clamped_array(
     ctx: &mut NativeContext<'_>,
-    bytes: &[u8],
+    bytes: Vec<u8>,
 ) -> Result<ObjectId, VmError> {
-    array_buffer::create_typed_array_from_bytes(ctx.vm, bytes.to_vec(), ElementKind::Uint8Clamped)
+    array_buffer::create_typed_array_from_bytes(ctx.vm, bytes, ElementKind::Uint8Clamped)
 }
 
 /// The `[[ByteLength]]` of a TypedArray view (`None` if `id` is not one).

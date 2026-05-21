@@ -43,10 +43,20 @@ pub fn ensure_context(dom: &mut EcsDom, entity: Entity) -> bool {
         return true;
     }
     let (width, height) = canvas_dimensions(dom, entity);
-    let Some(ctx) = Canvas2dContext::new(width, height) else {
+    let Some(ctx) = Canvas2dContext::new(bitmap_dim(width), bitmap_dim(height)) else {
         return false;
     };
     dom.world_mut().insert_one(entity, ctx).is_ok()
+}
+
+/// Clamp a content-attribute dimension to the backing bitmap's representable
+/// floor of 1: tiny-skia cannot allocate a 0-sized `Pixmap`, so a `width`/
+/// `height` of 0 renders as 1×1 rather than leaving a stale bitmap (the
+/// `canvas.width`/`height` IDL getters still reflect the raw attribute,
+/// unclamped). True 0×0 bitmap support is deferred to
+/// `#11-canvas-zero-dimension-bitmap`.
+fn bitmap_dim(n: u32) -> u32 {
+    n.max(1)
 }
 
 /// Run `f` against the canvas entity's [`Canvas2dContext`] component, returning
@@ -139,7 +149,13 @@ impl CanvasReconciler {
             return;
         }
         let (width, height) = canvas_dimensions(dom, node);
-        if with_context(dom, node, |ctx| ctx.reset(width, height)) == Some(true) {
+        // Clamp to the 1×1 bitmap floor so a 0-dimension attribute re-allocates
+        // to 1×1 instead of leaving the stale prior bitmap (whose size the
+        // per-frame sync would otherwise keep publishing).
+        if with_context(dom, node, |ctx| {
+            ctx.reset(bitmap_dim(width), bitmap_dim(height))
+        }) == Some(true)
+        {
             mark_dirty(dom, node);
         }
     }
@@ -295,5 +311,42 @@ mod tests {
         );
         assert!(dom.world().get::<&Canvas2dContext>(e).is_err());
         assert!(dom.world().get::<&CanvasDirty>(e).is_err());
+    }
+
+    #[test]
+    fn ensure_context_clamps_zero_dims_to_one() {
+        let mut dom = EcsDom::new();
+        let e = canvas(&mut dom, "0", "0");
+        // tiny-skia can't allocate 0×0; clamp to the 1×1 floor (still succeeds).
+        assert!(ensure_context(&mut dom, e));
+        assert_eq!(
+            with_context(&mut dom, e, |ctx| (ctx.width(), ctx.height())),
+            Some((1, 1))
+        );
+    }
+
+    #[test]
+    fn reconciler_zero_dim_reallocates_not_stale() {
+        let mut dom = EcsDom::new();
+        let e = canvas(&mut dom, "4", "4");
+        ensure_context(&mut dom, e);
+        // Resize width to 0: the bitmap must re-allocate to the 1×4 floor, NOT
+        // keep the stale 4×4 (which the sync would otherwise publish).
+        dom.set_attribute(e, "width", "0");
+        let mut rec = CanvasReconciler;
+        rec.handle(
+            &MutationEvent::AttributeChange {
+                node: e,
+                name: "width",
+                old_value: Some("4"),
+                new_value: Some("0"),
+            },
+            &mut dom,
+        );
+        assert_eq!(
+            with_context(&mut dom, e, |ctx| (ctx.width(), ctx.height())),
+            Some((1, 4))
+        );
+        assert!(dom.world().get::<&CanvasDirty>(e).is_ok());
     }
 }
