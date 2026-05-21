@@ -16,10 +16,12 @@ surface is "did I run /pre-push?", not five independent "did I remember X?".
 
 ## Hard rules
 
-- **No skipping.** Every stage below is mandatory unless its own skip-OK clause
-  fires (each sub-skill defines its own — e.g. doc-only / <30 LoC). Do not
-  invent new skip logic here; defer to each sub-skill's clause and record the
-  reason in the landing memo.
+- **No skipping.** Every stage below is mandatory unless a skip-OK clause fires.
+  Do not invent *new per-stage* skip conditions here — for an individual stage,
+  defer to that sub-skill's own clause (e.g. `/elidex-review`'s doc-only / <30
+  LoC). The only whole-skill fast-path is the doc-only one below, which is just
+  the union of the sub-skills' own doc-only clauses hoisted to avoid three
+  no-op invocations — not a new condition. Record any skip in the landing memo.
 - **No substitution.** `/elidex-review` does NOT replace `/simplify` + `/review`.
   Run all three.
 - **Fix → re-verify.** If any stage produces code edits (a `/simplify` fix, a
@@ -48,8 +50,10 @@ Fallback: if `mise run ci` reports a spurious `target/`-missing failure — its
 mid-compile, surfacing a misleading "No such file" error — re-run the jobs
 sequentially instead, which sidesteps the race:
 ```sh
-mise run lint && mise run test-all && mise run doc && mise run deny
+mise run check && mise run lint && mise run test-all && mise run doc && mise run deny
 ```
+(These are exactly `ci`'s component tasks — `check + lint + test-all + doc +
+deny` — run serially, so the fallback covers the same jobs.)
 
 ### Stage 3 — `/simplify`
 Invoke the `simplify` skill. Reuse / quality / efficiency review of the changed
@@ -77,7 +81,12 @@ unless previously authorized).
 
 ## Skip-OK (whole skill)
 
+This is **not a new skip condition** — `/simplify`, `/review`, and
+`/elidex-review` each independently declare doc-only as skip-OK, so on a pure
+doc PR all three return 0 findings anyway. This clause only hoists that to the
+top level to avoid three no-op invocations (per the "No skipping" Hard rule).
+
 - Pure doc / non-code PR with no `**/*.rs` changes (Rust sources live under
-  `crates/**/src/**`, there is no top-level `src/`) → Stages 3–5 each trivially
-  0-finding; may note explicit skip in the landing memo. Stages 1–2 still run.
+  `crates/**/src/**`, there is no top-level `src/`) → skip Stages 3–5; note the
+  skip in the landing memo. Stages 1–2 still run.
 - Otherwise: run the whole gate.
