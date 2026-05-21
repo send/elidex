@@ -93,11 +93,18 @@ pub(super) fn native_image_data_constructor(
             "Failed to construct 'ImageData': Please use the 'new' operator",
         ));
     }
+    // The `do_new`-allocated receiver, promoted in place (its prototype is
+    // already `new.target.prototype`, so subclassing is preserved).
+    let JsValue::Object(inst_id) = this else {
+        unreachable!("constructor `this` is always an Object after `do_new`")
+    };
     let first = args.first().copied().unwrap_or(JsValue::Undefined);
-    let (width, height, pixels) = match first {
+    match first {
         // new ImageData(Uint8ClampedArray, width[, height]) — HTML §4.12.5.1.16.
         // The data overload requires a `Uint8ClampedArray` specifically; any
-        // other TypedArray fails WebIDL overload resolution → TypeError.
+        // other TypedArray fails WebIDL overload resolution → TypeError. The
+        // passed array becomes the `data` property *by reference* (spec
+        // "initialize this's data to source") — no copy, identity preserved.
         JsValue::Object(id)
             if matches!(
                 ctx.vm.get_object(id).kind,
@@ -107,17 +114,15 @@ pub(super) fn native_image_data_constructor(
                 }
             ) =>
         {
-            let data = read_typed_array_bytes(ctx.vm, id).ok_or_else(|| {
-                VmError::type_error("Failed to construct 'ImageData': invalid data array")
-            })?;
+            let byte_len = typed_array_byte_len(ctx.vm, id).unwrap_or(0);
             // Data length must be a nonzero integral multiple of 4 (RGBA).
-            if data.is_empty() || data.len() % 4 != 0 {
+            if byte_len == 0 || !byte_len.is_multiple_of(4) {
                 return Err(VmError::dom_exception(
                     ctx.vm.well_known.dom_exc_invalid_state_error,
                     "Failed to construct 'ImageData': The input data length is not a non-zero multiple of 4.",
                 ));
             }
-            let len_pixels = data.len() / 4;
+            let len_pixels = byte_len / 4;
             let width = dim_arg(ctx, args, 1)?;
             if width == 0 {
                 return Err(VmError::dom_exception(
@@ -138,7 +143,7 @@ pub(super) fn native_image_data_constructor(
                 h
             } else {
                 // Derived height: the data must divide evenly by the width.
-                if len_pixels % width_px != 0 {
+                if !len_pixels.is_multiple_of(width_px) {
                     return Err(VmError::dom_exception(
                         ctx.vm.well_known.dom_exc_index_size_error,
                         "Failed to construct 'ImageData': The input data length is not a multiple of (4 * width).",
@@ -148,7 +153,7 @@ pub(super) fn native_image_data_constructor(
                 let h = (len_pixels / width_px) as u32;
                 h
             };
-            (width, height, data)
+            set_image_data_props(ctx, inst_id, width, height, id)?;
         }
         // A non-`Uint8ClampedArray` TypedArray fails the data-overload's WebIDL
         // type check (and must not silently fall through to the (sw, sh) form).
@@ -159,7 +164,7 @@ pub(super) fn native_image_data_constructor(
                 "Failed to construct 'ImageData': The provided value is not of type 'Uint8ClampedArray'.",
             ));
         }
-        // new ImageData(width, height)
+        // new ImageData(width, height) — fresh transparent-black buffer.
         _ => {
             let width = dim_arg(ctx, args, 0)?;
             let height = dim_arg(ctx, args, 1)?;
@@ -175,16 +180,11 @@ pub(super) fn native_image_data_constructor(
                     "Failed to construct 'ImageData': The source height is zero or not a number.",
                 ));
             }
-            let pixels = Canvas2dContext::create_image_data(width, height);
-            (width, height, pixels)
+            let bytes = Canvas2dContext::create_image_data(width, height);
+            let data_id = make_uint8_clamped_array(ctx, &bytes)?;
+            set_image_data_props(ctx, inst_id, width, height, data_id)?;
         }
-    };
-    // Promote the `do_new`-allocated receiver in place (preserves
-    // `new.target.prototype` for subclassing).
-    let JsValue::Object(inst_id) = this else {
-        unreachable!("constructor `this` is always an Object after `do_new`")
-    };
-    populate_image_data(ctx, inst_id, width, height, &pixels)?;
+    }
     Ok(JsValue::Object(inst_id))
 }
 
@@ -229,7 +229,9 @@ fn require_image_data_dim(
 }
 
 /// Build a fresh `ImageData` object (own `data` / `width` / `height`) backed by
-/// a `Uint8ClampedArray` holding `pixels`.
+/// a freshly-allocated `Uint8ClampedArray` holding `pixels` (getImageData /
+/// createImageData). The constructor's data overload instead reuses the
+/// caller's array via [`set_image_data_props`].
 fn build_image_data(
     ctx: &mut NativeContext<'_>,
     width: u32,
@@ -245,34 +247,35 @@ fn build_image_data(
     });
     let mut g = ctx.vm.push_temp_root(JsValue::Object(inst));
     let mut ctx2 = NativeContext { vm: &mut g };
-    populate_image_data(&mut ctx2, inst, width, height, pixels)?;
+    let data_id = make_uint8_clamped_array(&mut ctx2, pixels)?;
+    set_image_data_props(&mut ctx2, inst, width, height, data_id)?;
     Ok(JsValue::Object(inst))
 }
 
-/// Set the `data` (`Uint8ClampedArray` over `pixels`) / `width` / `height` own
-/// properties on an `ImageData` instance.
+/// Set the `data` / `width` / `height` own properties on an `ImageData`
+/// instance from an already-allocated `data` `Uint8ClampedArray` (`data_id`).
+///
+/// Single sink for every ImageData construction. `width*height*4` must be
+/// representable AND equal `data`'s byte length — this rejects the
+/// `Canvas2dContext::create_image_data` / `get_image_data` overflow case (empty
+/// buffer for nonzero dims) that would otherwise yield an `ImageData` with
+/// nonzero dims but zero-length data.
 #[allow(clippy::similar_names)]
-fn populate_image_data(
+fn set_image_data_props(
     ctx: &mut NativeContext<'_>,
     inst: ObjectId,
     width: u32,
     height: u32,
-    pixels: &[u8],
+    data_id: ObjectId,
 ) -> Result<(), VmError> {
-    // Single sink for every ImageData construction (build_image_data +
-    // the constructor). `width*height*4` must be representable AND equal the
-    // pixel-buffer length — this rejects the `Canvas2dContext::create_image_data`
-    // / `get_image_data` overflow case (empty Vec for nonzero dims) that would
-    // otherwise yield an ImageData with nonzero dims but zero-length data.
     let expected = (width as usize)
         .checked_mul(height as usize)
         .and_then(|wh| wh.checked_mul(4));
-    if expected != Some(pixels.len()) {
+    if expected.is_none() || expected != typed_array_byte_len(ctx.vm, data_id) {
         return Err(VmError::range_error(
             "Failed to construct 'ImageData': the requested dimensions are too large.",
         ));
     }
-    let data_id = make_uint8_clamped_array(ctx, pixels)?;
     let data_sid = ctx.vm.well_known.data;
     let width_sid = ctx.vm.well_known.width;
     let height_sid = ctx.vm.well_known.height;
@@ -305,15 +308,42 @@ fn make_uint8_clamped_array(
     array_buffer::create_typed_array_from_bytes(ctx.vm, bytes.to_vec(), ElementKind::Uint8Clamped)
 }
 
+/// The `[[ByteLength]]` of a TypedArray view (`None` if `id` is not one).
+fn typed_array_byte_len(vm: &VmInner, id: ObjectId) -> Option<usize> {
+    match vm.get_object(id).kind {
+        ObjectKind::TypedArray { byte_length, .. } => Some(byte_length as usize),
+        _ => None,
+    }
+}
+
+/// Walk `id`'s prototype chain looking for `ImageData.prototype` — the brand
+/// for `ImageData` instances and their subclasses. The hop cap guards against a
+/// pathological cycle (prototype chains are acyclic in normal operation).
+fn prototype_chain_has_image_data(vm: &VmInner, id: ObjectId) -> bool {
+    let Some(target) = vm.image_data_prototype else {
+        return false;
+    };
+    let mut cur = vm.get_object(id).prototype;
+    for _ in 0..64 {
+        match cur {
+            Some(p) if p == target => return true,
+            Some(p) => cur = vm.get_object(p).prototype,
+            None => return false,
+        }
+    }
+    false
+}
+
 /// Read + validate an `ImageData` argument (`putImageData` / `createImageData`):
 /// its `width` / `height` and the bytes of its `data` `Uint8ClampedArray`.
 ///
 /// Branding (no new `ObjectKind` — `ImageData` is an entity-less value object,
-/// so lesson #276's ECS-component brand does not apply): the receiver's
-/// prototype must be `ImageData.prototype` (rejects plain spoofed objects), AND
-/// `data` must be a `Uint8ClampedArray` whose length equals `width*height*4`
-/// with positive integral dims (the internal-consistency invariant a genuine
-/// `ImageData` always holds). Anything else is not-an-`ImageData` (TypeError).
+/// so lesson #276's ECS-component brand does not apply): `ImageData.prototype`
+/// must be on the receiver's prototype *chain* (rejects plain spoofed objects,
+/// accepts `class X extends ImageData {}` subclasses), AND `data` must be a
+/// `Uint8ClampedArray` whose length equals `width*height*4` with positive
+/// integral dims (the internal-consistency invariant a genuine `ImageData`
+/// always holds). Anything else is not-an-`ImageData` (TypeError).
 #[allow(clippy::similar_names)]
 fn read_image_data_object(
     ctx: &mut NativeContext<'_>,
@@ -324,10 +354,10 @@ fn read_image_data_object(
     let JsValue::Object(id) = value else {
         return Err(not_image_data());
     };
-    // Prototype-identity brand: a genuine ImageData (ctor / getImageData /
-    // createImageData) carries `ImageData.prototype`; a plain object literal
-    // carries `Object.prototype` and is rejected here.
-    if ctx.vm.get_object(id).prototype != ctx.vm.image_data_prototype {
+    // Prototype-chain brand: a genuine ImageData (or a subclass instance) has
+    // `ImageData.prototype` on its chain; a plain object literal (chain ends at
+    // `Object.prototype`) is rejected here.
+    if !prototype_chain_has_image_data(ctx.vm, id) {
         return Err(not_image_data());
     }
     let width_sid = ctx.vm.well_known.width;

@@ -380,6 +380,49 @@ fn width_accessor_rejects_non_canvas_receiver() {
 }
 
 #[test]
+fn canvas_method_rejects_context_wrapper_receiver() {
+    // The context wrapper shares its canvas entity, but an HTMLCanvasElement
+    // method invoked with this = ctx must throw (it's not the element wrapper).
+    with_vm(|vm, _dom| {
+        assert!(vm
+            .eval(
+                "var c = document.createElement('canvas'); var ctx = c.getContext('2d'); \
+                 HTMLCanvasElement.prototype.getContext.call(ctx, '2d');"
+            )
+            .is_err());
+    });
+}
+
+#[test]
+fn image_data_data_overload_preserves_identity() {
+    // new ImageData(arr, w) must use `arr` as `data` by reference (no copy).
+    with_vm(|vm, _dom| {
+        assert!(eval_bool(
+            vm,
+            "var a = new Uint8ClampedArray(16); var img = new ImageData(a, 2); \
+             img.data === a && img.width === 2 && img.height === 2;"
+        ));
+    });
+}
+
+#[test]
+fn put_image_data_accepts_image_data_subtype_chain() {
+    // Brand is prototype-CHAIN membership: an object reaching ImageData.prototype
+    // via an intermediate prototype (a subclass instance) is a valid ImageData.
+    with_vm(|vm, _dom| {
+        assert!(vm
+            .eval(
+                "var ctx = document.createElement('canvas').getContext('2d'); \
+                 var base = new ImageData(2, 2); \
+                 var sub = Object.create(Object.create(ImageData.prototype)); \
+                 sub.width = 2; sub.height = 2; sub.data = base.data; \
+                 ctx.putImageData(sub, 0, 0); true;"
+            )
+            .is_ok());
+    });
+}
+
+#[test]
 fn create_image_data_is_transparent_black() {
     with_vm(|vm, _dom| {
         assert!(eval_bool(

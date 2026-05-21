@@ -251,7 +251,17 @@ fn require_canvas_element(
             "Failed to execute '{method}' on 'HTMLCanvasElement': Illegal invocation"
         ))
     };
+    let JsValue::Object(id) = this else {
+        return Err(illegal());
+    };
     let entity = entity_from_this(ctx, this).ok_or_else(illegal)?;
+    // The `CanvasRenderingContext2D` wrapper shares its canvas entity (so the
+    // tag check below would pass); reject it explicitly — only the canonical
+    // canvas *element* wrapper is a valid HTMLCanvasElement receiver. Mirror of
+    // the `require_node_arg` reverse-exclusion (the bidirectional brand).
+    if is_canvas_2d_context_wrapper(ctx.vm, id, entity) {
+        return Err(illegal());
+    }
     if ctx.host().tag_matches_ascii_case(entity, "canvas") {
         Ok(entity)
     } else {
