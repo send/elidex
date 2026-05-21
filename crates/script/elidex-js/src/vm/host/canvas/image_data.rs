@@ -402,12 +402,13 @@ fn read_image_data_object(
     ) {
         return Err(not_image_data());
     }
+    // Cap width*height*4 BEFORE the full-buffer copy below so a branded-but-
+    // oversized ImageData (huge `data` array) can't OOM the process — mirrors
+    // the getImageData / createImageData preflight (RangeError if too large).
+    let expected = checked_image_bytes(width, height)?;
     let bytes = read_typed_array_bytes(ctx.vm, data_id).ok_or_else(not_image_data)?;
     // Internal-consistency invariant: data.length == width * height * 4.
-    let expected = (width as usize)
-        .checked_mul(height as usize)
-        .and_then(|wh| wh.checked_mul(4));
-    if expected != Some(bytes.len()) {
+    if expected != bytes.len() {
         return Err(not_image_data());
     }
     Ok((width, height, bytes))

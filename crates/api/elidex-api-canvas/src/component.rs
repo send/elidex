@@ -43,10 +43,9 @@ pub fn ensure_context(dom: &mut EcsDom, entity: Entity) -> bool {
         return true;
     }
     let (width, height) = canvas_dimensions(dom, entity);
-    let Some(ctx) = Canvas2dContext::new(bitmap_dim(width), bitmap_dim(height)) else {
-        return false;
-    };
-    dom.world_mut().insert_one(entity, ctx).is_ok()
+    dom.world_mut()
+        .insert_one(entity, make_context(width, height))
+        .is_ok()
 }
 
 /// Clamp a content-attribute dimension to the backing bitmap's representable
@@ -57,6 +56,17 @@ pub fn ensure_context(dom: &mut EcsDom, entity: Entity) -> bool {
 /// `#11-canvas-zero-dimension-bitmap`.
 fn bitmap_dim(n: u32) -> u32 {
     n.max(1)
+}
+
+/// Build a context bitmap that is always allocatable, clamping both ends of the
+/// representable range: the low end via [`bitmap_dim`] (0 → 1), and the high end
+/// via a 1×1 fallback when a huge dimension makes `Pixmap` allocation fail. A
+/// requested size that the backend cannot represent must still yield a *fresh*
+/// bitmap (never a stale prior one), so the per-frame sync can't keep publishing
+/// pixels at the old size. 1×1 always succeeds, so this is infallible.
+fn make_context(width: u32, height: u32) -> Canvas2dContext {
+    Canvas2dContext::new(bitmap_dim(width), bitmap_dim(height))
+        .unwrap_or_else(|| Canvas2dContext::new(1, 1).expect("1×1 bitmap is always allocatable"))
 }
 
 /// Run `f` against the canvas entity's [`Canvas2dContext`] component, returning
@@ -149,12 +159,18 @@ impl CanvasReconciler {
             return;
         }
         let (width, height) = canvas_dimensions(dom, node);
-        // Clamp to the 1×1 bitmap floor so a 0-dimension attribute re-allocates
-        // to 1×1 instead of leaving the stale prior bitmap (whose size the
-        // per-frame sync would otherwise keep publishing).
+        // A width/height change always re-allocates a *fresh* bitmap, clamping
+        // both ends of the representable range so a stale prior bitmap can never
+        // survive: the low end via `bitmap_dim` (0 → 1×1), and the high end via
+        // a 1×1 fallback when a huge dimension makes the re-allocation fail.
+        // The reset clears to transparent black regardless, so the canvas is
+        // always marked dirty for re-sync.
         if with_context(dom, node, |ctx| {
-            ctx.reset(bitmap_dim(width), bitmap_dim(height))
-        }) == Some(true)
+            if !ctx.reset(bitmap_dim(width), bitmap_dim(height)) {
+                let _ = ctx.reset(1, 1);
+            }
+        })
+        .is_some()
         {
             mark_dirty(dom, node);
         }
@@ -318,6 +334,45 @@ mod tests {
         let mut dom = EcsDom::new();
         let e = canvas(&mut dom, "0", "0");
         // tiny-skia can't allocate 0×0; clamp to the 1×1 floor (still succeeds).
+        assert!(ensure_context(&mut dom, e));
+        assert_eq!(
+            with_context(&mut dom, e, |ctx| (ctx.width(), ctx.height())),
+            Some((1, 1))
+        );
+    }
+
+    #[test]
+    fn reconciler_huge_dim_reallocates_to_one_not_stale() {
+        let mut dom = EcsDom::new();
+        let e = canvas(&mut dom, "4", "4");
+        ensure_context(&mut dom, e);
+        // Resize width to a value tiny-skia cannot allocate (> i32::MAX): the
+        // bitmap must fall back to 1×1, NOT keep the stale 4×4 that the per-frame
+        // sync would otherwise publish.
+        dom.set_attribute(e, "width", "4294967295");
+        let mut rec = CanvasReconciler;
+        rec.handle(
+            &MutationEvent::AttributeChange {
+                node: e,
+                name: "width",
+                old_value: Some("4"),
+                new_value: Some("4294967295"),
+            },
+            &mut dom,
+        );
+        assert_eq!(
+            with_context(&mut dom, e, |ctx| (ctx.width(), ctx.height())),
+            Some((1, 1)),
+            "unrepresentable-huge dims fall back to 1×1, not the stale 4×4"
+        );
+        assert!(dom.world().get::<&CanvasDirty>(e).is_ok());
+    }
+
+    #[test]
+    fn ensure_context_huge_dims_fall_back_to_one() {
+        let mut dom = EcsDom::new();
+        let e = canvas(&mut dom, "4294967295", "4294967295");
+        // Unrepresentable-huge attribute dims still yield a (1×1) context.
         assert!(ensure_context(&mut dom, e));
         assert_eq!(
             with_context(&mut dom, e, |ctx| (ctx.width(), ctx.height())),

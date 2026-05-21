@@ -423,6 +423,24 @@ fn put_image_data_accepts_image_data_subtype_chain() {
 }
 
 #[test]
+fn put_image_data_rejects_oversized_branded_object() {
+    // A branded ImageData-like object (ImageData.prototype on its chain) with
+    // huge own width/height must be capped BEFORE copying its `data` — untrusted
+    // JS putImageData must not OOM the process. width*height*4 > 2 GiB → throw.
+    with_vm(|vm, _dom| {
+        assert!(vm
+            .eval(
+                "var ctx = document.createElement('canvas').getContext('2d'); \
+                 var sub = Object.create(ImageData.prototype); \
+                 sub.width = 100000; sub.height = 100000; \
+                 sub.data = new Uint8ClampedArray(4); \
+                 ctx.putImageData(sub, 0, 0);"
+            )
+            .is_err());
+    });
+}
+
+#[test]
 fn get_image_data_rejects_oversized_request() {
     // Untrusted JS must not OOM the process: a huge sw*sh is capped → RangeError.
     with_vm(|vm, _dom| {
