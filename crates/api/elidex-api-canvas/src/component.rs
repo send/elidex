@@ -90,13 +90,24 @@ pub fn sync_dirty_canvases(dom: &mut EcsDom) {
 }
 
 /// Parse a canvas `width`/`height` content attribute per the HTML "rules for
-/// parsing non-negative integers": a valid non-negative integer is used as-is,
-/// anything missing/invalid/negative falls back to `default` (300 / 150).
+/// parsing non-negative integers" (§2.4.4.2) as applied by the reflected
+/// `unsigned long`: skip leading ASCII whitespace + an optional `+`, take the
+/// leading ASCII-digit run (so `"100px"` → 100, trailing garbage ignored), and
+/// saturate to `u32::MAX` on overflow (clamp to the `unsigned long` range).
+/// Falls back to `default` (300 / 150) only when there is no leading digit
+/// (absent / non-numeric / negative value).
 fn parse_canvas_dim(value: Option<&str>, default: u32) -> u32 {
-    value
-        .and_then(|v| v.trim().parse::<i64>().ok())
-        .and_then(|n| u32::try_from(n).ok())
-        .unwrap_or(default)
+    let Some(s) = value else {
+        return default;
+    };
+    let s = s.trim_start_matches(|c: char| c.is_ascii_whitespace());
+    let s = s.strip_prefix('+').unwrap_or(s);
+    let digits = s.chars().take_while(char::is_ascii_digit).count();
+    if digits == 0 {
+        return default;
+    }
+    // `digits` counts ASCII digits, each 1 byte, so the byte slice is valid.
+    s[..digits].parse::<u32>().unwrap_or(u32::MAX)
 }
 
 /// [`MutationEvent`] consumer resetting a canvas bitmap when its `width`/
@@ -153,6 +164,25 @@ mod tests {
         assert_eq!(parse_canvas_dim(Some("abc"), DEFAULT_WIDTH), DEFAULT_WIDTH);
         assert_eq!(parse_canvas_dim(Some("-5"), DEFAULT_HEIGHT), DEFAULT_HEIGHT);
         assert_eq!(parse_canvas_dim(None, DEFAULT_WIDTH), DEFAULT_WIDTH);
+    }
+
+    #[test]
+    fn parse_dim_leading_digit_run_and_overflow() {
+        // HTML "rules for parsing non-negative integers": leading digit run,
+        // trailing garbage ignored.
+        assert_eq!(parse_canvas_dim(Some("100px"), DEFAULT_WIDTH), 100);
+        assert_eq!(parse_canvas_dim(Some("12.9"), DEFAULT_WIDTH), 12);
+        assert_eq!(parse_canvas_dim(Some("+50"), DEFAULT_WIDTH), 50);
+        // Overflow saturates to the unsigned-long max, not the default.
+        assert_eq!(
+            parse_canvas_dim(Some("99999999999"), DEFAULT_WIDTH),
+            u32::MAX
+        );
+        // Leading non-digit (after optional sign) → no digits → default.
+        assert_eq!(
+            parse_canvas_dim(Some("px100"), DEFAULT_WIDTH),
+            DEFAULT_WIDTH
+        );
     }
 
     #[test]
