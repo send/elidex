@@ -625,8 +625,9 @@ fn canvas_back_ref_getter(
 }
 
 /// `ToString`-coerce a `fillStyle` / `strokeStyle` assignment (only CSS color
-/// strings are supported in v1; gradients/patterns are deferred). An invalid
-/// color string leaves the current style unchanged (backend behavior).
+/// strings are supported in v1; gradients/patterns deferred to slot
+/// `#11-canvas-gradient-pattern`). An invalid color string leaves the current
+/// style unchanged (backend behavior).
 fn color_arg(ctx: &mut NativeContext<'_>, args: &[JsValue]) -> Result<String, VmError> {
     let arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let sid = coerce::to_string(ctx.vm, arg)?;
