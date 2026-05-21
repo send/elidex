@@ -279,6 +279,30 @@ fn post_message_queues_serialized_outgoing() {
     });
 }
 
+/// Regression (Copilot R12): `postMessage` serialization must NOT intern the
+/// transient JSON blob into the GC-less `StringPool`. With numeric payloads
+/// (no string literals to intern as live values), a high-frequency send loop
+/// must leave the pool size effectively unchanged — pre-fix this grew by one
+/// entry per message (`native_json_stringify` interned every `"0"`, `"1"`, …).
+#[test]
+fn post_message_does_not_intern_transient_json() {
+    with_worker_vm("", WORKER_URL, true, |vm| {
+        // Warm up: compile the loop + intern its identifiers once.
+        vm.eval("for (let i = 0; i < 8; i++) postMessage(i);")
+            .unwrap();
+        let before = vm.inner.strings.len();
+        vm.eval("for (let i = 0; i < 500; i++) postMessage(i);")
+            .unwrap();
+        let grew = vm.inner.strings.len() - before;
+        assert!(
+            grew < 50,
+            "StringPool grew by {grew} over 500 numeric postMessage sends \
+             (expected ~0 — transient JSON must not be interned)"
+        );
+        assert!(vm.inner.worker_outgoing.len() >= 500);
+    });
+}
+
 #[test]
 fn close_sets_close_requested() {
     with_worker_vm("", WORKER_URL, true, |vm| {

@@ -327,23 +327,40 @@ fn native_worker_post_message(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let data = args.first().copied().unwrap_or(JsValue::Undefined);
-    let Ok(json) =
-        super::super::natives_json::native_json_stringify(ctx, JsValue::Undefined, &[data])
-    else {
-        return Err(VmError::dom_exception(
-            ctx.vm.well_known.dom_exc_data_clone_error,
-            "Failed to serialize message",
-        ));
-    };
-    // `JSON.stringify` of a function / symbol yields `undefined`; encode it as
-    // JSON `null` so it round-trips through the parent's `JSON.parse` (matching
-    // the structured-clone-via-JSON approximation).
-    let serialized = match json {
-        JsValue::String(sid) => ctx.vm.strings.get_utf8(sid),
-        _ => "null".to_string(),
-    };
+    let serialized = serialize_message(ctx, data)?;
     ctx.vm.worker_outgoing.push(serialized);
     Ok(JsValue::Undefined)
+}
+
+/// Serialize a `postMessage` argument to an owned JSON `String` for cross-thread
+/// IPC (shared by main-side `Worker.postMessage` and worker-scope
+/// `self.postMessage`). The JSON shortcut stands in for full StructuredSerialize
+/// (defer slot `#11-worker-structured-serialize`); a serialization failure
+/// (e.g. a circular reference) maps to `DataCloneError`. A top-level value that
+/// `JSON.stringify` would drop (function / symbol / `undefined`) is encoded as
+/// JSON `null` so it round-trips through the peer's `JSON.parse`.
+///
+/// Uses [`stringify_to_string`](super::super::natives_json::stringify_to_string)
+/// (non-interning) rather than `native_json_stringify`: the blob is copied
+/// straight into the crossbeam channel, so interning it into the GC-less
+/// `StringPool` would leak unboundedly for chatty workers.
+pub(in crate::vm) fn serialize_message(
+    ctx: &mut NativeContext<'_>,
+    data: JsValue,
+) -> Result<String, VmError> {
+    match super::super::natives_json::stringify_to_string(
+        ctx,
+        data,
+        JsValue::Undefined,
+        JsValue::Undefined,
+    ) {
+        Ok(Some(json)) => Ok(json),
+        Ok(None) => Ok("null".to_string()),
+        Err(_) => Err(VmError::dom_exception(
+            ctx.vm.well_known.dom_exc_data_clone_error,
+            "Failed to serialize message",
+        )),
+    }
 }
 
 /// `self.close()` (WHATWG HTML §10.2.1.2): request worker shutdown. The worker

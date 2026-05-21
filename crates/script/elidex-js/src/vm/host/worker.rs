@@ -497,20 +497,7 @@ fn native_worker_post_message(
 ) -> Result<JsValue, VmError> {
     let (_entity, worker_id) = require_worker(ctx, this, "postMessage")?;
     let data = args.first().copied().unwrap_or(JsValue::Undefined);
-    let Ok(json) =
-        super::super::natives_json::native_json_stringify(ctx, JsValue::Undefined, &[data])
-    else {
-        return Err(VmError::dom_exception(
-            ctx.vm.well_known.dom_exc_data_clone_error,
-            "Failed to serialize message",
-        ));
-    };
-    // `JSON.stringify` of a function / symbol yields `undefined`; encode it as
-    // JSON `null` so it round-trips through the worker's `JSON.parse`.
-    let serialized = match json {
-        JsValue::String(sid) => ctx.vm.strings.get_utf8(sid),
-        _ => "null".to_string(),
-    };
+    let serialized = super::worker_scope::serialize_message(ctx, data)?;
     let origin = ctx.vm.navigation.current_url.origin().ascii_serialization();
     if let Some(handle) = ctx.vm.worker_registry.get(worker_id) {
         handle.post_message(serialized, origin);

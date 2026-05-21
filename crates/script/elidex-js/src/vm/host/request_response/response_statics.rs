@@ -147,26 +147,23 @@ pub(super) fn native_response_static_json(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // Defer to `native_json_stringify` for the serialisation —
+    // Defer to the shared stringify core for the serialisation —
     // re-using the spec-compliant path keeps us in sync with
     // `JSON.stringify` semantics (cycle detection, replacer
-    // fn / list, Number/BigInt / toJSON etc.).
+    // fn / list, Number/BigInt / toJSON etc.). The non-interning
+    // variant is used because the result becomes body bytes
+    // immediately and is never a live JS string — interning it would
+    // grow the GC-less `StringPool` per call. `JSON.stringify(undefined)`
+    // → `undefined` → body absent, matching browsers
+    // (`Response.json(undefined).text()` → `""`).
     let data = args.first().copied().unwrap_or(JsValue::Undefined);
-    let json_val =
-        super::super::super::natives_json::native_json_stringify(ctx, JsValue::Undefined, &[data])?;
-    let body_bytes = match json_val {
-        JsValue::String(sid) => {
-            let raw = ctx.vm.strings.get_utf8(sid);
-            Some(raw.into_bytes())
-        }
-        _ => {
-            // `JSON.stringify(undefined)` → `undefined` → body is
-            // absent.  Matches browsers which pass through
-            // undefined literally: `Response.json(undefined).text()`
-            // resolves to `""`.
-            None
-        }
-    };
+    let body_bytes = super::super::super::natives_json::stringify_to_string(
+        ctx,
+        data,
+        JsValue::Undefined,
+        JsValue::Undefined,
+    )?
+    .map(String::into_bytes);
     let init = args.get(1).copied().unwrap_or(JsValue::Undefined);
 
     let proto = ctx.vm.response_prototype;
