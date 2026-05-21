@@ -10,11 +10,9 @@ pub use component::{
     CanvasReconciler,
 };
 
-/// Default canvas width in pixels (HTML spec §4.12.5.1).
-pub const DEFAULT_WIDTH: u32 = 300;
-
-/// Default canvas height in pixels (HTML spec §4.12.5.1).
-pub const DEFAULT_HEIGHT: u32 = 150;
+// The canonical canvas default dimensions live in `elidex_web_canvas`
+// (`DEFAULT_WIDTH` / `DEFAULT_HEIGHT`, the raster backend) — single source of
+// truth; this crate references those rather than redefining them.
 
 /// Split a 64-bit entity ID into (high, low) 32-bit parts.
 ///
@@ -37,12 +35,6 @@ pub fn join_entity_bits(hi: u32, lo: u32) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn defaults() {
-        assert_eq!(DEFAULT_WIDTH, 300);
-        assert_eq!(DEFAULT_HEIGHT, 150);
-    }
 
     #[test]
     fn split_and_join_roundtrip() {

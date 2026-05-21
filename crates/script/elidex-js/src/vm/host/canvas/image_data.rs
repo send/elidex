@@ -18,7 +18,7 @@ use super::super::super::value::{
 };
 use super::super::super::{coerce, shape, VmInner};
 use super::super::array_buffer;
-use super::{arg_f32, dispatch_context, require_canvas_2d_context};
+use super::{arg_i32, dispatch_context, require_canvas_2d_context};
 
 /// `getImageData(sx, sy, sw, sh)` — returns a fresh `ImageData` whose `data`
 /// `Uint8ClampedArray` holds the requested region (straight-alpha RGBA8).
@@ -27,10 +27,8 @@ pub(super) fn native_get_image_data(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    #[allow(clippy::cast_possible_truncation)]
-    let sx = arg_f32(ctx, args, 0)? as i32;
-    #[allow(clippy::cast_possible_truncation)]
-    let sy = arg_f32(ctx, args, 1)? as i32;
+    let sx = arg_i32(ctx, args, 0)?;
+    let sy = arg_i32(ctx, args, 1)?;
     let sw = require_image_data_dim(ctx, args, 2, "getImageData", "width")?;
     let sh = require_image_data_dim(ctx, args, 3, "getImageData", "height")?;
     let pixels = dispatch_context(ctx, this, "getImageData", false, |c| {
@@ -48,10 +46,8 @@ pub(super) fn native_put_image_data(
 ) -> Result<JsValue, VmError> {
     let img = args.first().copied().unwrap_or(JsValue::Undefined);
     let (width, height, data) = read_image_data_object(ctx, img)?;
-    #[allow(clippy::cast_possible_truncation)]
-    let dx = arg_f32(ctx, args, 1)? as i32;
-    #[allow(clippy::cast_possible_truncation)]
-    let dy = arg_f32(ctx, args, 2)? as i32;
+    let dx = arg_i32(ctx, args, 1)?;
+    let dy = arg_i32(ctx, args, 2)?;
     dispatch_context(ctx, this, "putImageData", true, |c| {
         c.put_image_data(&data, dx, dy, width, height);
     })?;
