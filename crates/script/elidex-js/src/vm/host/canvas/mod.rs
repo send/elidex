@@ -348,17 +348,13 @@ fn arg_f32(ctx: &mut NativeContext<'_>, args: &[JsValue], i: usize) -> Result<f3
     }
 }
 
-/// Coerce `args[i]` to `i32` via ToNumber, going `f64`→`i32` **directly** (NOT
-/// through `f32`, which loses integer precision above 2²⁴). For the WebIDL
-/// `long` pixel-offset params (`getImageData` sx/sy, `putImageData` dx/dy); a
-/// missing arg → `0`, non-finite → `0`.
+/// Coerce `args[i]` to the WebIDL `long` pixel-offset params (`getImageData`
+/// sx/sy, `putImageData` dx/dy) via the canonical ToInt32 (`coerce::to_int32`,
+/// mod-2³² + signed reinterpret — NOT a saturating `as i32` cast). A missing
+/// arg → `0`; non-finite → `0` (ToInt32 of NaN/±∞).
 fn arg_i32(ctx: &mut NativeContext<'_>, args: &[JsValue], i: usize) -> Result<i32, VmError> {
     match args.get(i).copied() {
-        Some(v) => {
-            let n = coerce::to_number(ctx.vm, v)?;
-            #[allow(clippy::cast_possible_truncation)]
-            Ok(if n.is_finite() { n as i32 } else { 0 })
-        }
+        Some(v) => coerce::to_int32(ctx.vm, v),
         None => Ok(0),
     }
 }

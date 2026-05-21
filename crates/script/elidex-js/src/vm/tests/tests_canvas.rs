@@ -423,6 +423,38 @@ fn put_image_data_accepts_image_data_subtype_chain() {
 }
 
 #[test]
+fn get_image_data_rejects_oversized_request() {
+    // Untrusted JS must not OOM the process: a huge sw*sh is capped → RangeError.
+    with_vm(|vm, _dom| {
+        assert!(vm
+            .eval(
+                "var ctx = document.createElement('canvas').getContext('2d'); \
+                 ctx.getImageData(0, 0, 100000, 100000);"
+            )
+            .is_err());
+    });
+}
+
+#[test]
+fn image_data_constructor_rejects_oversized() {
+    with_vm(|vm, _dom| {
+        assert!(vm.eval("new ImageData(100000, 100000);").is_err());
+    });
+}
+
+#[test]
+fn get_image_data_dim_uses_to_int32() {
+    // WebIDL `long` sw is ToInt32 (mod 2^32): 4294967301 → 5, not saturated.
+    with_vm(|vm, _dom| {
+        assert!(eval_bool(
+            vm,
+            "var ctx = document.createElement('canvas').getContext('2d'); \
+             ctx.getImageData(0, 0, 4294967301, 1).width === 5;"
+        ));
+    });
+}
+
+#[test]
 fn create_image_data_is_transparent_black() {
     with_vm(|vm, _dom| {
         assert!(eval_bool(

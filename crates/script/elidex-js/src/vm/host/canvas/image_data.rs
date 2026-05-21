@@ -31,6 +31,8 @@ pub(super) fn native_get_image_data(
     let sy = arg_i32(ctx, args, 1)?;
     let sw = require_image_data_dim(ctx, args, 2, "getImageData", "width")?;
     let sh = require_image_data_dim(ctx, args, 3, "getImageData", "height")?;
+    // Cap before the backend's `vec![0; sw*sh*4]` so untrusted JS can't OOM-abort.
+    checked_image_bytes(sw, sh)?;
     let pixels = dispatch_context(ctx, this, "getImageData", false, |c| {
         c.get_image_data(sx, sy, sw, sh)
     })?;
@@ -72,6 +74,7 @@ pub(super) fn native_create_image_data(
             require_image_data_dim(ctx, args, 1, "createImageData", "height")?,
         ),
     };
+    checked_image_bytes(w, h)?;
     let pixels = Canvas2dContext::create_image_data(w, h);
     build_image_data(ctx, w, h, pixels)
 }
@@ -176,6 +179,7 @@ pub(super) fn native_image_data_constructor(
                     "Failed to construct 'ImageData': The source height is zero or not a number.",
                 ));
             }
+            checked_image_bytes(width, height)?;
             let bytes = Canvas2dContext::create_image_data(width, height);
             let data_id = make_uint8_clamped_array(ctx, bytes)?;
             set_image_data_props(ctx, inst_id, width, height, data_id)?;
@@ -184,25 +188,19 @@ pub(super) fn native_image_data_constructor(
     Ok(JsValue::Object(inst_id))
 }
 
-/// Coerce a non-negative integer dimension argument (`sw` / `sh` / `width` /
-/// `height`), defaulting a missing arg to 0.
+/// Coerce a `new ImageData(sw, sh)` dimension argument — WebIDL `unsigned long`,
+/// so the canonical ToUint32 (`coerce::to_uint32`, mod-2³²). A missing arg → 0;
+/// the caller rejects 0 / validates the data length.
 fn dim_arg(ctx: &mut NativeContext<'_>, args: &[JsValue], i: usize) -> Result<u32, VmError> {
     let v = args.get(i).copied().unwrap_or(JsValue::Undefined);
-    let n = coerce::to_number(ctx.vm, v)?;
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let out = if n.is_finite() && n >= 0.0 {
-        n as u32
-    } else {
-        0
-    };
-    Ok(out)
+    coerce::to_uint32(ctx.vm, v)
 }
 
-/// Coerce a `getImageData` / `createImageData` `sw`/`sh` argument (WebIDL
-/// `long`, HTML §4.12.5.1.16): a zero or non-finite magnitude throws
-/// `IndexSizeError`; otherwise the absolute magnitude is used (a negative
-/// dimension flips the rectangle, per spec). `dim` names the member for the
-/// error message.
+/// Coerce a `getImageData` / `createImageData` `sw`/`sh` argument — WebIDL
+/// `long` (HTML §4.12.5.1.16), so the canonical ToInt32 (`coerce::to_int32`).
+/// A zero magnitude throws `IndexSizeError`; otherwise the absolute magnitude
+/// is used (a negative dimension flips the rectangle, per spec). `unsigned_abs`
+/// handles `i32::MIN` without overflow. `dim` names the member for the error.
 fn require_image_data_dim(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],
@@ -211,8 +209,8 @@ fn require_image_data_dim(
     dim: &str,
 ) -> Result<u32, VmError> {
     let v = args.get(i).copied().unwrap_or(JsValue::Undefined);
-    let n = coerce::to_number(ctx.vm, v)?;
-    if !n.is_finite() || n == 0.0 {
+    let n = coerce::to_int32(ctx.vm, v)?;
+    if n == 0 {
         return Err(VmError::dom_exception(
             ctx.vm.well_known.dom_exc_index_size_error,
             format!(
@@ -220,8 +218,27 @@ fn require_image_data_dim(
             ),
         ));
     }
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    Ok(n.abs() as u32)
+    Ok(n.unsigned_abs())
+}
+
+/// Maximum `ImageData` byte length the VM will allocate. Guards untrusted JS
+/// from triggering an OOM-abort with a huge-but-representable getImageData /
+/// createImageData / `new ImageData` request (e.g. 50000×50000×4 ≈ 10 GiB) that
+/// `checked_mul` alone wouldn't catch.
+const MAX_IMAGE_DATA_BYTES: usize = 1 << 31; // 2 GiB
+
+/// `width*height*4` if representable AND within [`MAX_IMAGE_DATA_BYTES`], else a
+/// `RangeError`. A preflight before any backend pixel-buffer allocation.
+fn checked_image_bytes(width: u32, height: u32) -> Result<usize, VmError> {
+    (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|wh| wh.checked_mul(4))
+        .filter(|&n| n <= MAX_IMAGE_DATA_BYTES)
+        .ok_or_else(|| {
+            VmError::range_error(
+                "Failed to allocate ImageData: the requested size exceeds the maximum.",
+            )
+        })
 }
 
 /// Build a fresh `ImageData` object (own `data` / `width` / `height`) backed by
