@@ -17,7 +17,7 @@
 use super::super::shape::{self, PropertyAttrs};
 use super::super::value::{
     JsValue, NativeContext, Object, ObjectKind, PropertyKey, PropertyStorage, PropertyValue,
-    VmError,
+    VmError, VmErrorKind,
 };
 use super::super::{GlobalScopeKind, NativeFn, VmInner};
 use super::event_target_dispatch::dispatch_script_event;
@@ -335,10 +335,16 @@ fn native_worker_post_message(
 /// Serialize a `postMessage` argument to an owned JSON `String` for cross-thread
 /// IPC (shared by main-side `Worker.postMessage` and worker-scope
 /// `self.postMessage`). The JSON shortcut stands in for full StructuredSerialize
-/// (defer slot `#11-worker-structured-serialize`); a serialization failure
-/// (e.g. a circular reference) maps to `DataCloneError`. A top-level value that
+/// (defer slot `#11-worker-structured-serialize`). A top-level value that
 /// `JSON.stringify` would drop (function / symbol / `undefined`) is encoded as
 /// JSON `null` so it round-trips through the peer's `JSON.parse`.
+///
+/// Error mapping (WHATWG HTML postMessage → StructuredSerialize): a user
+/// exception thrown *during* serialization — a throwing `toJSON` / property
+/// getter — is script-observable and must propagate unchanged (a
+/// [`VmErrorKind::ThrowValue`]). Only the JSON shortcut's own "cannot represent
+/// this value" failures (circular structure, `BigInt`, depth cap — none of them
+/// `ThrowValue`) map to `DataCloneError`, the closest structured-clone error.
 ///
 /// Uses [`stringify_to_string`](super::super::natives_json::stringify_to_string)
 /// (non-interning) rather than `native_json_stringify`: the blob is copied
@@ -356,6 +362,7 @@ pub(in crate::vm) fn serialize_message(
     ) {
         Ok(Some(json)) => Ok(json),
         Ok(None) => Ok("null".to_string()),
+        Err(e) if matches!(e.kind, VmErrorKind::ThrowValue(_)) => Err(e),
         Err(_) => Err(VmError::dom_exception(
             ctx.vm.well_known.dom_exc_data_clone_error,
             "Failed to serialize message",

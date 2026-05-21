@@ -725,6 +725,33 @@ fn worker_scope_post_message_circular_throws_data_clone() {
     });
 }
 
+/// Regression (Copilot R13): a user exception thrown *during* serialization (a
+/// throwing `toJSON` / property getter) must propagate unchanged — NOT be
+/// masked as `DataCloneError`. WHATWG HTML postMessage runs StructuredSerialize,
+/// whose `[[Get]]` propagates getter throws; only structural "cannot represent"
+/// failures (circular / BigInt / depth) map to `DataCloneError`.
+#[test]
+fn post_message_throwing_getter_propagates_original_error() {
+    with_worker_vm("", WORKER_URL, true, |vm| {
+        // A throwing getter surfaces the user's TypeError verbatim, not a
+        // DataCloneError DOMException.
+        assert!(eval_bool_on(
+            vm,
+            r"const o = { get x() { throw new TypeError('boom'); } };
+               try { postMessage(o); false }
+               catch (e) { e instanceof TypeError && e.message === 'boom' }",
+        ));
+        // Sanity: the structural circular case still maps to DataCloneError.
+        assert_eq!(
+            eval_str_on(
+                vm,
+                "const c = {}; c.self = c; try { postMessage(c); 'no-throw' } catch (e) { e.name }",
+            ),
+            "DataCloneError"
+        );
+    });
+}
+
 #[test]
 fn main_worker_uncaught_error_fires_onerror() {
     with_main_vm(|vm| {
