@@ -32,6 +32,7 @@ use elidex_ecs::{Entity, NodeKind};
 
 use super::super::shape;
 use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
+use super::super::wrapper_intern::{WrapperKey, WrapperKind};
 use super::super::VmInner;
 
 impl VmInner {
@@ -74,9 +75,10 @@ fn require_template_receiver(
 }
 
 /// `<template>.content` — `[SameObject]` DocumentFragment.  Lazy-
-/// allocated on first JS-side read; cached per-template Entity in
-/// [`VmInner::template_content_wrappers`].  The fragment's owner
-/// document mirrors the template's owner document (via
+/// allocated on first JS-side read; interned per-template Entity in
+/// the unified wrapper store under [`WrapperKind::TemplateContent`].
+/// The fragment's owner document mirrors the template's owner
+/// document (via
 /// `EcsDom::associated_document`).
 fn template_get_content(
     ctx: &mut NativeContext<'_>,
@@ -86,7 +88,10 @@ fn template_get_content(
     let Some(entity) = require_template_receiver(ctx, this, "content")? else {
         return Ok(JsValue::Null);
     };
-    if let Some(&cached) = ctx.vm.template_content_wrappers.get(&entity) {
+    if let Some(cached) = ctx
+        .vm
+        .get_wrapper(WrapperKey::entity(entity, WrapperKind::TemplateContent))
+    {
         return Ok(JsValue::Object(cached));
     }
     if ctx.host_if_bound().is_none() {
@@ -99,7 +104,13 @@ fn template_get_content(
         .dom()
         .create_document_fragment_with_owner(owner_doc);
     let wrapper_id = create_fragment_wrapper(ctx, fragment_entity);
-    ctx.vm.template_content_wrappers.insert(entity, wrapper_id);
+    // The alloc needs the full `NativeContext` (DOM access), so this
+    // interns the already-built wrapper via `set_wrapper` rather than
+    // the `intern_wrapper` get-or-create closure.
+    ctx.vm.set_wrapper(
+        WrapperKey::entity(entity, WrapperKind::TemplateContent),
+        wrapper_id,
+    );
     Ok(JsValue::Object(wrapper_id))
 }
 

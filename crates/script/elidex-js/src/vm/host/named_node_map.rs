@@ -45,6 +45,7 @@ use super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
     PropertyValue, VmError,
 };
+use super::super::wrapper_intern::{WrapperKey, WrapperKind};
 use super::super::{NativeFn, StringId, VmInner};
 use super::attr_proto::AttrState;
 
@@ -357,7 +358,10 @@ fn native_nnm_set_named_item(
                 state_mut.detached_value = None;
             }
         }
-        ctx.vm.attr_wrapper_cache.insert((owner, qname), attr_id);
+        ctx.vm.set_wrapper(
+            WrapperKey::entity_named(owner, WrapperKind::Attr, qname),
+            attr_id,
+        );
     } else {
         ctx.vm.invalidate_attr_cache_entry(owner, qname);
     }
@@ -432,7 +436,11 @@ fn native_nnm_remove_named_item(
     // can't make `attr.value` appear to track the new write
     // (Chrome / Firefox parity).  `.copied()` drops the cache-map
     // borrow before the `attr_states.get_mut` below.
-    let cached_attr_id = ctx.vm.attr_wrapper_cache.get(&(owner, qname_sid)).copied();
+    let cached_attr_id = ctx.vm.get_wrapper(WrapperKey::entity_named(
+        owner,
+        WrapperKind::Attr,
+        qname_sid,
+    ));
     if let Some(attr_id) = cached_attr_id {
         if let Some(state_mut) = ctx.vm.attr_states.get_mut(&attr_id) {
             state_mut.detached_value = Some(prev_sid);

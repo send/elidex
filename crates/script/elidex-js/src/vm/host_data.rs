@@ -16,6 +16,7 @@
 #[cfg(feature = "engine")]
 mod engine_feature {
     use super::super::value::{ObjectId, StringId};
+    use super::super::wrapper_intern::{WrapperKey, WrapperKind};
     use elidex_ecs::{Entity, NodeKind};
     use elidex_script_session::ListenerId;
     use elidex_storage_core::{SessionStorageState, WebStorageManager};
@@ -131,7 +132,14 @@ mod engine_feature {
         /// same slot for a different entity).  Copilot R9.
         pub(crate) bind_epoch: u32,
         pub(crate) listener_store: HashMap<ListenerId, ObjectId>,
-        pub(crate) wrapper_cache: HashMap<u64, ObjectId>,
+        /// Unified wrapper-identity store (`#11-wrapper-identity-seam`) —
+        /// every `[SameObject]` DOM wrapper identity (node wrappers + the 23
+        /// former per-purpose caches: classList / dataset / style / attr /
+        /// cssRules / collections / FileList / DataTransferItem) keyed by
+        /// [`WrapperKey`].  GC mark/sweep dispatch via
+        /// [`WrapperKind::mark_agent`] / [`WrapperKind::retain`].  Cleared on
+        /// `unbind` (per-VM, world_id-independent — see module docs).
+        pub(crate) wrapper_store: HashMap<WrapperKey, ObjectId>,
         /// Currently focused Element entity (WHATWG HTML §6.6.3).
         ///
         /// `None` when no Element is focused; `document.activeElement`
@@ -638,7 +646,7 @@ mod engine_feature {
                 document_methods_installed: HashSet::new(),
                 bind_epoch: 0,
                 listener_store: HashMap::new(),
-                wrapper_cache: HashMap::new(),
+                wrapper_store: HashMap::new(),
                 focused_entity: None,
                 cookie_jar: None,
                 mutation_observers: elidex_api_observers::mutation::MutationObserverRegistry::new(),
@@ -1333,7 +1341,9 @@ mod engine_feature {
         }
 
         pub fn get_cached_wrapper(&self, entity: Entity) -> Option<ObjectId> {
-            self.wrapper_cache.get(&entity.to_bits().get()).copied()
+            self.wrapper_store
+                .get(&WrapperKey::entity(entity, WrapperKind::Node))
+                .copied()
         }
 
         /// # Panics
@@ -1345,7 +1355,9 @@ mod engine_feature {
         /// `gc_root_object_ids` while live JS references may still
         /// reach it.  Enforced in release too.
         pub fn cache_wrapper(&mut self, entity: Entity, obj: ObjectId) {
-            let prev = self.wrapper_cache.insert(entity.to_bits().get(), obj);
+            let prev = self
+                .wrapper_store
+                .insert(WrapperKey::entity(entity, WrapperKind::Node), obj);
             assert!(
                 prev.is_none(),
                 "wrapper already cached for Entity {entity:?}"
@@ -1364,7 +1376,8 @@ mod engine_feature {
         /// bounded leak (capped by the number of distinct entities
         /// the page ever observes).
         pub fn remove_wrapper(&mut self, entity: Entity) -> Option<ObjectId> {
-            self.wrapper_cache.remove(&entity.to_bits().get())
+            self.wrapper_store
+                .remove(&WrapperKey::entity(entity, WrapperKind::Node))
         }
 
         pub fn gc_root_object_ids(&self) -> impl Iterator<Item = ObjectId> + '_ {
@@ -1377,10 +1390,14 @@ mod engine_feature {
             // `trace_work_list`'s `TreeWalker` / `NodeIterator`
             // arms), so an unreachable wrapper drops its filter
             // root naturally on the same sweep.
+            //
+            // Node wrappers (the former `wrapper_cache`) are NOT chained
+            // here: they are strong-marked by the unified wrapper-store mark
+            // loop in `gc/roots.rs` via the `MarkAgent::StrongRoot` arm
+            // (`#11-wrapper-identity-seam`).
             self.listener_store
                 .values()
                 .copied()
-                .chain(self.wrapper_cache.values().copied())
                 .chain(self.mutation_observer_callbacks.values().copied())
                 .chain(self.mutation_observer_instances.values().copied())
         }

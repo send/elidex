@@ -38,11 +38,12 @@
 //!
 //! ## Identity
 //!
-//! `el.classList === el.classList` is preserved via
-//! [`VmInner::class_list_wrapper_cache`] keyed by owner `Entity` —
-//! a hit returns the same `ObjectId`, a miss allocates and inserts.
-//! The cache is weak through the owner element wrapper (see
-//! `gc/roots.rs` step `(e3)`); a dropped element releases its
+//! `el.classList === el.classList` is preserved by interning the
+//! wrapper in the unified wrapper store (`WrapperKind::ClassList`)
+//! keyed by owner `Entity` — a hit returns the same `ObjectId`, a
+//! miss allocates and inserts.  The entry is weak through the owner
+//! element wrapper (the seam mark loop in `gc/roots.rs` gates on the
+//! owner's primary `Node` wrapper); a dropped element releases its
 //! classList wrapper in the same GC.
 //!
 //! ## Indexed-property exotic
@@ -61,6 +62,7 @@ use super::super::value::{
     ArrayIterState, JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey,
     PropertyStorage, PropertyValue, VmError, ARRAY_ITER_KIND_VALUES,
 };
+use super::super::wrapper_intern::{WrapperKey, WrapperKind};
 use super::super::{NativeFn, VmInner};
 use super::dom_bridge::{coerce_first_arg_to_string_id, invoke_dom_api};
 
@@ -130,56 +132,42 @@ impl VmInner {
     /// Allocate a `DOMTokenList` wrapper for `owner`, caching by
     /// `owner` so `el.classList === el.classList` (WHATWG DOM §3.5).
     pub(crate) fn alloc_or_cached_class_list(&mut self, owner: Entity) -> ObjectId {
-        if let Some(&id) = self.class_list_wrapper_cache.get(&owner) {
-            return id;
-        }
-        let id = self.alloc_dom_token_list(owner, DomTokenListSource::Class);
-        self.class_list_wrapper_cache.insert(owner, id);
-        id
+        self.intern_wrapper(WrapperKey::entity(owner, WrapperKind::ClassList), |vm| {
+            vm.alloc_dom_token_list(owner, DomTokenListSource::Class)
+        })
     }
 
     /// Allocate / fetch a `DOMTokenList` wrapper for
     /// `<a>.relList` / `<area>.relList`.  Slot `#11-tags-T2a-url-bearing`.
     pub(crate) fn alloc_or_cached_rel_list(&mut self, owner: Entity) -> ObjectId {
-        if let Some(&id) = self.rel_list_wrapper_cache.get(&owner) {
-            return id;
-        }
-        let id = self.alloc_dom_token_list(owner, DomTokenListSource::RelHyperlink);
-        self.rel_list_wrapper_cache.insert(owner, id);
-        id
+        self.intern_wrapper(WrapperKey::entity(owner, WrapperKind::RelList), |vm| {
+            vm.alloc_dom_token_list(owner, DomTokenListSource::RelHyperlink)
+        })
     }
 
     /// Allocate / fetch a `DOMTokenList` wrapper for `<link>.relList`.
     pub(crate) fn alloc_or_cached_link_rel_list(&mut self, owner: Entity) -> ObjectId {
-        if let Some(&id) = self.link_rel_list_wrapper_cache.get(&owner) {
-            return id;
-        }
-        let id = self.alloc_dom_token_list(owner, DomTokenListSource::RelLink);
-        self.link_rel_list_wrapper_cache.insert(owner, id);
-        id
+        self.intern_wrapper(WrapperKey::entity(owner, WrapperKind::LinkRelList), |vm| {
+            vm.alloc_dom_token_list(owner, DomTokenListSource::RelLink)
+        })
     }
 
     /// Allocate / fetch a `DOMTokenList` wrapper for `<link>.sizes`.
     pub(crate) fn alloc_or_cached_link_sizes(&mut self, owner: Entity) -> ObjectId {
-        if let Some(&id) = self.link_sizes_wrapper_cache.get(&owner) {
-            return id;
-        }
-        let id = self.alloc_dom_token_list(owner, DomTokenListSource::LinkSizes);
-        self.link_sizes_wrapper_cache.insert(owner, id);
-        id
+        self.intern_wrapper(WrapperKey::entity(owner, WrapperKind::LinkSizes), |vm| {
+            vm.alloc_dom_token_list(owner, DomTokenListSource::LinkSizes)
+        })
     }
 
     /// Allocate / fetch a `DOMTokenList` wrapper for `<output>.htmlFor`
     /// (slot `#11-tags-T2d-interactive`).  Backed by the `for` content
-    /// attribute; identity is preserved per `[SameObject]` via
-    /// [`Self::output_html_for_wrappers`].
+    /// attribute; identity is preserved per `[SameObject]` by
+    /// interning under `WrapperKind::OutputHtmlFor`.
     pub(crate) fn alloc_or_cached_output_html_for(&mut self, owner: Entity) -> ObjectId {
-        if let Some(&id) = self.output_html_for_wrappers.get(&owner) {
-            return id;
-        }
-        let id = self.alloc_dom_token_list(owner, DomTokenListSource::OutputHtmlFor);
-        self.output_html_for_wrappers.insert(owner, id);
-        id
+        self.intern_wrapper(
+            WrapperKey::entity(owner, WrapperKind::OutputHtmlFor),
+            |vm| vm.alloc_dom_token_list(owner, DomTokenListSource::OutputHtmlFor),
+        )
     }
 
     fn alloc_dom_token_list(&mut self, owner: Entity, source: DomTokenListSource) -> ObjectId {

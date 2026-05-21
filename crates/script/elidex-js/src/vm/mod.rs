@@ -64,6 +64,8 @@ pub(crate) mod webidl_sequence;
 mod well_known;
 #[cfg(feature = "engine")]
 pub(crate) mod worker_thread;
+#[cfg(feature = "engine")]
+pub(crate) mod wrapper_intern;
 
 #[cfg(feature = "engine")]
 pub(crate) use temp_root::VmTempRoot;
@@ -389,38 +391,6 @@ pub(crate) struct VmInner {
     /// surfaces `ownerElement === null` and `value === ""`.
     #[cfg(feature = "engine")]
     pub(crate) attr_states: HashMap<ObjectId, host::attr_proto::AttrState>,
-    /// Identity cache for live `Attr` wrappers (WHATWG DOM §4.9.2).
-    ///
-    /// Keyed by `(owner Element entity, qualified-name StringId)`; a
-    /// hit returns the same `ObjectId` so
-    /// `el.getAttributeNode("id") === el.getAttributeNode("id")`
-    /// (matches Chrome / Firefox / Safari).  `Attr.prototype.value` /
-    /// `ownerElement` accessors read through to the owner's
-    /// `Attributes` component on each call, so a single cached
-    /// wrapper observes value mutations transparently.
-    ///
-    /// The cache is **invalidated** when the named attribute leaves
-    /// the owner's attribute list — `removeAttribute`,
-    /// `removeAttributeNode`, `toggleAttribute(off)`,
-    /// `removeNamedItem`.  `setAttributeNode` / `setNamedItem`
-    /// invalidate only when the passed-in Attr cannot remain
-    /// canonical (cross-element source, or detached) — a live Attr
-    /// already attached to the receiving element keeps the cache
-    /// entry intact so `el.setAttributeNode(el.getAttributeNode("id"))`
-    /// preserves identity.  Cross-element / detached arguments
-    /// cannot be retargeted because the engine path does not
-    /// mutate the passed-in Attr's `AttrState.owner` (Phase 2
-    /// limitation paired with the existing AttrState ownership
-    /// simplification).
-    ///
-    /// GC interaction: tracing fans out a cached `attr_id` only when
-    /// the owner element wrapper is reachable (looked up via
-    /// `HostData::wrapper_cache`); the sweep tail prunes entries
-    /// whose `attr_id` was collected (same retain-on-key-mark pattern
-    /// as `attr_states`).  This makes the cache effectively weak —
-    /// it never extends an Attr's lifetime past its owner.
-    #[cfg(feature = "engine")]
-    pub(crate) attr_wrapper_cache: HashMap<(elidex_ecs::Entity, StringId), ObjectId>,
     /// `ShadowRoot.prototype` — shared prototype for every shadow root
     /// wrapper (WHATWG DOM §4.8).  ShadowRoot wrappers are themselves
     /// `ObjectKind::HostObject { entity_bits }` whose backing entity
@@ -476,41 +446,6 @@ pub(crate) struct VmInner {
     /// (NOT at drain-tail).
     #[cfg(feature = "engine")]
     pub(crate) mutation_observer_microtask_queued: bool,
-    /// Identity cache for `DOMTokenList` wrappers backing
-    /// `Element.classList` (WHATWG DOM §3.5).  Keyed by owner
-    /// `Entity`; a hit returns the same `ObjectId` so
-    /// `el.classList === el.classList`.  Pruned in the GC sweep tail
-    /// when the wrapper `ObjectId` is collected; entries do not
-    /// extend wrapper lifetimes (the wrapper is rooted via
-    /// `HostData::wrapper_cache` for the owner element instead).
-    #[cfg(feature = "engine")]
-    pub(crate) class_list_wrapper_cache: HashMap<elidex_ecs::Entity, ObjectId>,
-    /// Identity cache for `DOMStringMap` wrappers backing
-    /// `HTMLElement.dataset` (WHATWG HTML §3.2.6).  Same shape as
-    /// [`Self::class_list_wrapper_cache`] — keyed by owner `Entity`,
-    /// pruned in the GC sweep tail.
-    #[cfg(feature = "engine")]
-    pub(crate) dataset_wrapper_cache: HashMap<elidex_ecs::Entity, ObjectId>,
-    /// Identity cache for `DOMTokenList` wrappers backing
-    /// `HTMLAnchorElement.relList` / `HTMLAreaElement.relList`
-    /// (WHATWG HTML §4.6.5).  Same shape as
-    /// [`Self::class_list_wrapper_cache`] (Option A — separate
-    /// per-attr Entity-keyed cache for liveness simplicity).
-    #[cfg(feature = "engine")]
-    pub(crate) rel_list_wrapper_cache: HashMap<elidex_ecs::Entity, ObjectId>,
-    /// Identity cache for `DOMTokenList` wrappers backing
-    /// `HTMLLinkElement.relList` (WHATWG HTML §4.6.7).  Separate from
-    /// [`Self::rel_list_wrapper_cache`] so an anchor and a link with
-    /// the same `Entity` ID would not collide (defensive — entities
-    /// are globally unique per `EcsDom`, but the separation makes
-    /// the per-attr cache discipline obvious at the call site).
-    #[cfg(feature = "engine")]
-    pub(crate) link_rel_list_wrapper_cache: HashMap<elidex_ecs::Entity, ObjectId>,
-    /// Identity cache for `DOMTokenList` wrappers backing
-    /// `HTMLLinkElement.sizes` (HTML §4.6.7,
-    /// `[SameObject, PutForwards=value] DOMTokenList`).
-    #[cfg(feature = "engine")]
-    pub(crate) link_sizes_wrapper_cache: HashMap<elidex_ecs::Entity, ObjectId>,
     /// `CSSStyleDeclaration.prototype` — shared prototype for every
     /// `ObjectKind::CSSStyleDeclaration` wrapper backing both
     /// `Element.style` (Inline source) and `getComputedStyle`
@@ -520,15 +455,6 @@ pub(crate) struct VmInner {
     /// `removeProperty` / `item` methods.
     #[cfg(feature = "engine")]
     pub(crate) css_style_declaration_prototype: Option<ObjectId>,
-    /// Identity cache for Inline `CSSStyleDeclaration` wrappers
-    /// backing `Element.style` (CSSOM §6.6).  Keyed by owner
-    /// `Entity`; a hit returns the same `ObjectId` so
-    /// `el.style === el.style`.  Computed-source wrappers (returned
-    /// by `getComputedStyle`) are NOT cached — fresh allocation per
-    /// call matches WPT identity rules.  Pruned in the GC sweep tail
-    /// like `class_list_wrapper_cache`.
-    #[cfg(feature = "engine")]
-    pub(crate) style_wrapper_cache: HashMap<elidex_ecs::Entity, ObjectId>,
     /// `CSSStyleSheet.prototype` (CSSOM §6.2).  Chains to
     /// `Object.prototype`; carries `cssRules` / `ownerNode` /
     /// `type` / `disabled` / `href` / `media` accessors and
@@ -547,22 +473,6 @@ pub(crate) struct VmInner {
     /// `item` method.
     #[cfg(feature = "engine")]
     pub(crate) style_sheet_list_prototype: Option<ObjectId>,
-    /// Identity cache for `CSSStyleSheet` wrappers backing
-    /// `<style>.sheet` (CSSOM §6.2).  Keyed by `<style>` `Entity`.
-    /// Pruned in the GC sweep tail.
-    #[cfg(feature = "engine")]
-    pub(crate) stylesheet_wrapper_cache: HashMap<elidex_ecs::Entity, ObjectId>,
-    /// Identity cache for `CSSStyleRule` wrappers (CSSOM §6.6) keyed
-    /// by `(<style> Entity, rule_id)` so `sheet.cssRules[i] ===
-    /// sheet.cssRules[i]` across reads of the same rule.  Pruned in
-    /// the GC sweep tail.
-    #[cfg(feature = "engine")]
-    pub(crate) css_style_rule_wrapper_cache: HashMap<(elidex_ecs::Entity, u64), ObjectId>,
-    /// Identity cache for Rule-source `CSSRuleStyleDeclaration`
-    /// wrappers (CSSOM §6.6.1).  Same key shape as
-    /// [`Self::css_style_rule_wrapper_cache`] so `r.style === r.style`.
-    #[cfg(feature = "engine")]
-    pub(crate) rule_style_wrapper_cache: HashMap<(elidex_ecs::Entity, u64), ObjectId>,
     /// `MutationObserver.prototype` (WHATWG DOM §4.3).  Chains to
     /// `Object.prototype` and carries the `observe` / `disconnect` /
     /// `takeRecords` methods.  `None` until
@@ -799,8 +709,8 @@ pub(crate) struct VmInner {
     pub(crate) html_meta_prototype: Option<ObjectId>,
     /// `HTMLStyleElement.prototype` (HTML §4.2.6).  Carries `media`
     /// and `type` (string reflect) plus `sheet` (`[SameObject]`
-    /// CSSStyleSheet wrapper via PR-B's
-    /// [`Self::stylesheet_wrapper_cache`]).  `disabled` is folded
+    /// CSSStyleSheet wrapper via PR-B's seam kind
+    /// `WrapperKind::StyleSheet`).  `disabled` is folded
     /// into the existing slot `#11-stylesheet-disabled` (cross-crate
     /// cascade integration shared with `CSSStyleSheet.disabled`).
     #[cfg(feature = "engine")]
@@ -914,25 +824,6 @@ pub(crate) struct VmInner {
     /// deferred.
     #[cfg(feature = "engine")]
     pub(crate) html_table_col_prototype: Option<ObjectId>,
-    /// `<table>.rows` `[SameObject]` HTMLCollection identity cache
-    /// (HTML §4.9.1).  Keyed by the owning `<table>` Entity; same
-    /// weak-through-owner mark-via-owner semantics as
-    /// [`Self::map_areas_wrappers`].  Cleared on `Vm::unbind`.
-    #[cfg(feature = "engine")]
-    pub(crate) table_rows_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
-    /// `<table>.tBodies` `[SameObject]` HTMLCollection identity cache.
-    /// Keyed by the owning `<table>` Entity.
-    #[cfg(feature = "engine")]
-    pub(crate) table_bodies_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
-    /// `<thead>`/`<tbody>`/`<tfoot>` `.rows` `[SameObject]`
-    /// HTMLCollection identity cache.  Keyed by the owning section
-    /// Entity (one cache shared across the three section tags).
-    #[cfg(feature = "engine")]
-    pub(crate) table_section_rows_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
-    /// `<tr>.cells` `[SameObject]` HTMLCollection identity cache.
-    /// Keyed by the owning `<tr>` Entity.
-    #[cfg(feature = "engine")]
-    pub(crate) table_row_cells_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
     /// `HTMLDialogElement.prototype` (HTML §4.11.4).  Carries
     /// `open` (boolean reflect) + `returnValue` (state via
     /// [`elidex_ecs::DialogReturnValue`]) + `show()` / `showModal()`
@@ -949,7 +840,7 @@ pub(crate) struct VmInner {
     pub(crate) html_details_prototype: Option<ObjectId>,
     /// `HTMLTemplateElement.prototype` (HTML §4.12.3).  Carries the
     /// `[SameObject]` `content` DocumentFragment accessor.  Lazy
-    /// allocation per [`Self::template_content_wrappers`].
+    /// allocation interned under `WrapperKind::TemplateContent`.
     #[cfg(feature = "engine")]
     pub(crate) html_template_prototype: Option<ObjectId>,
     /// `HTMLDataListElement.prototype` (HTML §4.10.10).  Carries the
@@ -976,29 +867,6 @@ pub(crate) struct VmInner {
     /// double IDL) + `labels` stub.
     #[cfg(feature = "engine")]
     pub(crate) html_meter_prototype: Option<ObjectId>,
-    /// `<template>.content` `[SameObject]` DocumentFragment identity
-    /// cache, keyed by the owning `<template>` Entity (HTML §4.12.3).
-    /// Lazy allocation: first read creates the fragment Entity via
-    /// [`elidex_ecs::EcsDom::create_document_fragment_with_owner`] and
-    /// inserts here.  Same weak-through-owner mark-via-owner semantics
-    /// as [`Self::map_areas_wrappers`].  Cleared on `Vm::unbind`
-    /// (lesson #195).  Slot `#11-tags-T2d-interactive`.
-    #[cfg(feature = "engine")]
-    pub(crate) template_content_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
-    /// `<datalist>.options` `[SameObject]` HTMLCollection identity
-    /// cache, keyed by the owning `<datalist>` Entity (HTML §4.10.10).
-    /// Same weak-through-owner mark-via-owner semantics as
-    /// [`Self::map_areas_wrappers`].  Cleared on `Vm::unbind`.
-    #[cfg(feature = "engine")]
-    pub(crate) datalist_options_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
-    /// `<output>.htmlFor` `[SameObject, PutForwards=value]`
-    /// DOMTokenList identity cache, keyed by the owning `<output>`
-    /// Entity (HTML §4.10.13).  Parallels the T2a per-attr
-    /// DOMTokenList caches (`rel_list_wrapper_cache` /
-    /// `link_rel_list_wrapper_cache` / `link_sizes_wrapper_cache`).
-    /// Cleared on `Vm::unbind`.
-    #[cfg(feature = "engine")]
-    pub(crate) output_html_for_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
     /// `HTMLFormControlsCollection.prototype` (HTML §4.10.18.4) —
     /// reserved-not-yet-registered slot.  When the
     /// `#11-tags-radionodelist` defer slot lands, this will hold a
@@ -1023,32 +891,6 @@ pub(crate) struct VmInner {
     /// `elidex_form::validation::validate_control` directly.
     #[cfg(feature = "engine")]
     pub(crate) validity_state_prototype: Option<ObjectId>,
-    /// `ValidityState` `[SameObject]` identity cache — keyed by the
-    /// owning form-control entity.  Sweep-pruned when the owner
-    /// element wrapper is no longer reachable via
-    /// `HostData::wrapper_cache`.
-    #[cfg(feature = "engine")]
-    pub(crate) validity_state_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
-    /// `HTMLOptionsCollection` `[SameObject]` identity cache, keyed
-    /// by the owning `<select>` entity.  Same weak-through-owner
-    /// semantics as [`Self::validity_state_wrappers`].
-    #[cfg(feature = "engine")]
-    pub(crate) options_collection_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
-    /// `HTMLFormControlsCollection` `[SameObject]` identity cache,
-    /// keyed by the owning `<form>` / `<fieldset>` entity.  Same
-    /// weak-through-owner semantics.
-    #[cfg(feature = "engine")]
-    pub(crate) form_controls_collection_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
-    /// `<map>.areas` `[SameObject]` HTMLCollection identity cache,
-    /// keyed by the owning `<map>` entity (HTML §4.8.13).  Same
-    /// weak-through-owner mark-via-owner semantics as the other
-    /// `*_wrappers` collections — sweep prunes entries whose key
-    /// `<map>` element wrapper is no longer reachable.
-    /// Cleared on `Vm::unbind` (lesson #195: every Entity-keyed
-    /// wrapper cache needs an explicit clear in the unbind path so
-    /// stale entries can't be cross-DOM-aliased after a re-bind).
-    #[cfg(feature = "engine")]
-    pub(crate) map_areas_wrappers: HashMap<elidex_ecs::Entity, ObjectId>,
     /// `DOMException.prototype` (WebIDL §3.14.1).  Chains to
     /// `Error.prototype` so `instanceof Error` holds for DOMException
     /// instances.  Holds the `name` / `message` / `code` accessor
@@ -1406,12 +1248,6 @@ pub(crate) struct VmInner {
     /// tail prunes entries whose key was collected.
     #[cfg(feature = "engine")]
     pub(crate) data_transfer_states: HashMap<ObjectId, host::events_modern::DataTransferState>,
-    /// Identity cache for [`ObjectKind::DataTransferItem`] wrappers,
-    /// keyed by `(parent_dt_id, index)` so `dt.items[0] === dt.items[0]`.
-    /// Sweep tail prunes entries whose value `ObjectId` was collected
-    /// or whose parent / index combination is no longer live.
-    #[cfg(feature = "engine")]
-    pub(crate) data_transfer_item_wrapper_cache: HashMap<(ObjectId, u32), ObjectId>,
     /// Per-`Touch` instance state (Touch Events §5.6).  Keyed by the
     /// instance's `ObjectId`.  All 12 IDL members live here as
     /// `f64` + `Option<ObjectId>` (the EventTarget `target`).
@@ -1702,20 +1538,6 @@ pub(crate) struct VmInner {
     /// entries whose key was collected.
     #[cfg(feature = "engine")]
     pub(crate) file_reader_data: HashMap<ObjectId, host::file_reader::FileReaderSideData>,
-    /// Per-`<input type=file>` SameObject FileList wrapper cache,
-    /// keyed by the input element wrapper's `ObjectId`.  Spec
-    /// §4.10.5.1.18 and WebIDL `[SameObject]` semantics together
-    /// require that `input.files === input.files` holds across reads.
-    /// Until shell-side file picker staging arrives (deferred to
-    /// `#11-input-file-shell-staging`), the wrapper always holds an
-    /// empty FileList — identity is still stable per spec.
-    ///
-    /// GC contract: cached FileList wrappers are reached via this
-    /// map; sweep tail prunes entries whose VALUE `ObjectId` was
-    /// collected (HTMLInputElement wrapper's lifetime handles the
-    /// KEY side via the broader `HostData::wrapper_cache`).
-    #[cfg(feature = "engine")]
-    pub(crate) input_files_cache: HashMap<ObjectId, ObjectId>,
     /// Per-`TextDecoder` out-of-band state (WHATWG Encoding §8.1).
     /// Keyed by the instance's own `ObjectId`.  Holds the resolved
     /// encoding, the user-chosen `fatal` / `ignoreBOM` flags, and

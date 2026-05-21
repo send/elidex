@@ -9,8 +9,8 @@
 //! - `DataTransfer`     → [`super::DataTransferState`] (mutable
 //!   container, holds the items Vec + enum values + wrapper caches).
 //! - `DataTransferItem` → wrapper-only, carries
-//!   `(parent_dt_id, index)` inline.  Identity-cached via
-//!   [`crate::vm::VmInner::data_transfer_item_wrapper_cache`].
+//!   `(parent_dt_id, index)` inline.  Identity-cached in the unified
+//!   wrapper store under `WrapperKind::DataTransferItem`.
 //! - `DataTransferItemList` → wrapper-only, single instance per
 //!   parent; cached on `DataTransferState::items_wrapper`.
 //!
@@ -33,6 +33,7 @@ use super::super::super::shape;
 use super::super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, StringId, VmError,
 };
+use super::super::super::wrapper_intern::{WrapperKey, WrapperKind, WrapperOwner, WrapperSubkey};
 use super::super::super::VmInner;
 use super::super::events::{check_construct, install_ctor};
 use super::{DataTransferEntry, DataTransferState, DropEffect, EffectAllowed};
@@ -1197,34 +1198,43 @@ pub(in crate::vm) fn item_wrapper_for(
     parent_dt_id: ObjectId,
     index: u32,
 ) -> ObjectId {
-    if let Some(cached) = vm
-        .data_transfer_item_wrapper_cache
-        .get(&(parent_dt_id, index))
-    {
-        return *cached;
-    }
-    let proto = vm
-        .data_transfer_item_prototype
-        .expect("DataTransferItem.prototype must be registered before item_wrapper_for");
-    let id = vm.alloc_object(Object {
-        kind: ObjectKind::DataTransferItem {
-            parent_dt_id,
-            index,
+    vm.intern_wrapper(
+        WrapperKey::object_indexed(parent_dt_id, WrapperKind::DataTransferItem, index),
+        |vm| {
+            let proto = vm
+                .data_transfer_item_prototype
+                .expect("DataTransferItem.prototype must be registered before item_wrapper_for");
+            vm.alloc_object(Object {
+                kind: ObjectKind::DataTransferItem {
+                    parent_dt_id,
+                    index,
+                },
+                storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+                prototype: Some(proto),
+                extensible: true,
+            })
         },
-        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-        prototype: Some(proto),
-        extensible: true,
-    });
-    vm.data_transfer_item_wrapper_cache
-        .insert((parent_dt_id, index), id);
-    id
+    )
 }
 
 /// Drop cached DataTransferItem wrappers at or above `from_index`
 /// for the given parent — used after list mutations that shift
 /// indices.  Cache entries below `from_index` survive because
 /// their index→entry mapping is unaffected.
+///
+/// Post-seam this is a whole-`wrapper_store` `retain` rather than a
+/// scan of a dedicated DataTransferItem map — the same bulk-op idiom
+/// the GC sweep (`gc/collect.rs`) and `Vm::unbind` retains use. The
+/// scan is bounded by total interned wrappers, but DataTransfer item
+/// lists are tiny and these index-shifting mutations (`remove` /
+/// `clearData`) are rare cold-path drag-and-drop operations, so the
+/// O(store) pass is an acceptable trade for one unified store.
 fn invalidate_item_wrapper_cache_from(vm: &mut VmInner, parent_dt_id: ObjectId, from_index: u32) {
-    vm.data_transfer_item_wrapper_cache
-        .retain(|&(parent, idx), _| !(parent == parent_dt_id && idx >= from_index));
+    if let Some(hd) = vm.host_data.as_deref_mut() {
+        hd.wrapper_store.retain(|key, _| {
+            !(key.kind == WrapperKind::DataTransferItem
+                && key.owner == WrapperOwner::Object(parent_dt_id)
+                && matches!(key.subkey, WrapperSubkey::Index(idx) if idx >= from_index))
+        });
+    }
 }

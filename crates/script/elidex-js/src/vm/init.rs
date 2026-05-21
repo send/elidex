@@ -170,8 +170,6 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 attr_states: HashMap::new(),
                 #[cfg(feature = "engine")]
-                attr_wrapper_cache: HashMap::new(),
-                #[cfg(feature = "engine")]
                 shadow_root_prototype: None,
                 #[cfg(feature = "engine")]
                 document_fragment_prototype: None,
@@ -182,19 +180,7 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 mutation_observer_microtask_queued: false,
                 #[cfg(feature = "engine")]
-                class_list_wrapper_cache: HashMap::new(),
-                #[cfg(feature = "engine")]
-                dataset_wrapper_cache: HashMap::new(),
-                #[cfg(feature = "engine")]
-                rel_list_wrapper_cache: HashMap::new(),
-                #[cfg(feature = "engine")]
-                link_rel_list_wrapper_cache: HashMap::new(),
-                #[cfg(feature = "engine")]
-                link_sizes_wrapper_cache: HashMap::new(),
-                #[cfg(feature = "engine")]
                 css_style_declaration_prototype: None,
-                #[cfg(feature = "engine")]
-                style_wrapper_cache: HashMap::new(),
                 #[cfg(feature = "engine")]
                 css_stylesheet_prototype: None,
                 #[cfg(feature = "engine")]
@@ -203,12 +189,6 @@ impl Vm {
                 css_style_rule_prototype: None,
                 #[cfg(feature = "engine")]
                 style_sheet_list_prototype: None,
-                #[cfg(feature = "engine")]
-                stylesheet_wrapper_cache: HashMap::new(),
-                #[cfg(feature = "engine")]
-                css_style_rule_wrapper_cache: HashMap::new(),
-                #[cfg(feature = "engine")]
-                rule_style_wrapper_cache: HashMap::new(),
                 #[cfg(feature = "engine")]
                 mutation_observer_prototype: None,
                 #[cfg(feature = "engine")]
@@ -330,14 +310,6 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 validity_state_prototype: None,
                 #[cfg(feature = "engine")]
-                validity_state_wrappers: HashMap::new(),
-                #[cfg(feature = "engine")]
-                options_collection_wrappers: HashMap::new(),
-                #[cfg(feature = "engine")]
-                form_controls_collection_wrappers: HashMap::new(),
-                #[cfg(feature = "engine")]
-                map_areas_wrappers: HashMap::new(),
-                #[cfg(feature = "engine")]
                 html_table_prototype: None,
                 #[cfg(feature = "engine")]
                 html_table_section_prototype: None,
@@ -349,14 +321,6 @@ impl Vm {
                 html_table_caption_prototype: None,
                 #[cfg(feature = "engine")]
                 html_table_col_prototype: None,
-                #[cfg(feature = "engine")]
-                table_rows_wrappers: HashMap::new(),
-                #[cfg(feature = "engine")]
-                table_bodies_wrappers: HashMap::new(),
-                #[cfg(feature = "engine")]
-                table_section_rows_wrappers: HashMap::new(),
-                #[cfg(feature = "engine")]
-                table_row_cells_wrappers: HashMap::new(),
                 #[cfg(feature = "engine")]
                 html_dialog_prototype: None,
                 #[cfg(feature = "engine")]
@@ -371,12 +335,6 @@ impl Vm {
                 html_progress_prototype: None,
                 #[cfg(feature = "engine")]
                 html_meter_prototype: None,
-                #[cfg(feature = "engine")]
-                template_content_wrappers: HashMap::new(),
-                #[cfg(feature = "engine")]
-                datalist_options_wrappers: HashMap::new(),
-                #[cfg(feature = "engine")]
-                output_html_for_wrappers: HashMap::new(),
                 #[cfg(feature = "engine")]
                 dom_exception_prototype: None,
                 #[cfg(feature = "engine")]
@@ -454,8 +412,6 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 data_transfer_states: HashMap::new(),
                 #[cfg(feature = "engine")]
-                data_transfer_item_wrapper_cache: HashMap::new(),
-                #[cfg(feature = "engine")]
                 touch_states: HashMap::new(),
                 #[cfg(feature = "engine")]
                 touch_list_states: HashMap::new(),
@@ -493,8 +449,6 @@ impl Vm {
                 file_list_data: HashMap::new(),
                 #[cfg(feature = "engine")]
                 file_reader_data: HashMap::new(),
-                #[cfg(feature = "engine")]
-                input_files_cache: HashMap::new(),
                 #[cfg(feature = "engine")]
                 typed_array_prototype: None,
                 #[cfg(feature = "engine")]

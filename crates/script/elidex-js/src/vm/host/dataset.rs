@@ -14,8 +14,8 @@
 //!
 //! [`ObjectKind::DOMStringMap`] carries the owner `Entity` inline
 //! (`entity_bits`); there is no per-wrapper side table.  Identity
-//! is preserved via [`VmInner::dataset_wrapper_cache`] keyed by the
-//! owner `Entity`.
+//! is preserved by interning under `WrapperKind::Dataset` keyed by
+//! the owner `Entity`.
 //!
 //! ## Named-property exotic dispatch
 //!
@@ -38,6 +38,7 @@ use super::super::shape;
 use super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, VmError,
 };
+use super::super::wrapper_intern::{WrapperKey, WrapperKind};
 use super::super::VmInner;
 use super::dom_bridge::invoke_dom_api;
 
@@ -61,22 +62,19 @@ impl VmInner {
     /// Allocate a `DOMStringMap` wrapper for `owner`, caching by
     /// `owner` so `el.dataset === el.dataset` (WHATWG HTML §3.2.6).
     pub(crate) fn alloc_or_cached_dataset(&mut self, owner: Entity) -> ObjectId {
-        if let Some(&id) = self.dataset_wrapper_cache.get(&owner) {
-            return id;
-        }
-        let proto = self
-            .dom_string_map_prototype
-            .expect("alloc_or_cached_dataset before register_dom_string_map_prototype");
-        let id = self.alloc_object(Object {
-            kind: ObjectKind::DOMStringMap {
-                entity_bits: owner.to_bits().get(),
-            },
-            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            prototype: Some(proto),
-            extensible: false,
-        });
-        self.dataset_wrapper_cache.insert(owner, id);
-        id
+        self.intern_wrapper(WrapperKey::entity(owner, WrapperKind::Dataset), |vm| {
+            let proto = vm
+                .dom_string_map_prototype
+                .expect("alloc_or_cached_dataset before register_dom_string_map_prototype");
+            vm.alloc_object(Object {
+                kind: ObjectKind::DOMStringMap {
+                    entity_bits: owner.to_bits().get(),
+                },
+                storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+                prototype: Some(proto),
+                extensible: false,
+            })
+        })
     }
 }
 

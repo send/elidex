@@ -17,8 +17,9 @@
 use elidex_ecs::EcsDom;
 use elidex_script_session::SessionCore;
 
-use super::super::test_helpers::bind_vm;
+use super::super::test_helpers::{bind_vm, count_wrapper_kind};
 use super::super::value::JsValue;
+use super::super::wrapper_intern::WrapperKind;
 use super::super::Vm;
 
 fn build_doc(dom: &mut EcsDom) -> elidex_ecs::Entity {
@@ -759,21 +760,24 @@ fn attr_wrapper_cache_cleared_on_unbind() {
     )
     .unwrap();
     assert!(
-        !vm.inner.attr_wrapper_cache.is_empty(),
-        "attr_wrapper_cache should be populated after getAttributeNode"
+        count_wrapper_kind(&vm, WrapperKind::Attr) > 0,
+        "Attr wrappers should be interned after getAttributeNode"
     );
     vm.unbind();
-    assert!(
-        vm.inner.attr_wrapper_cache.is_empty(),
-        "attr_wrapper_cache must be empty after unbind to avoid cross-DOM aliasing"
+    assert_eq!(
+        count_wrapper_kind(&vm, WrapperKind::Attr),
+        0,
+        "Attr wrappers must be cleared after unbind to avoid cross-DOM aliasing"
     );
-    assert!(
-        vm.inner.class_list_wrapper_cache.is_empty(),
-        "class_list_wrapper_cache must be empty after unbind"
+    assert_eq!(
+        count_wrapper_kind(&vm, WrapperKind::ClassList),
+        0,
+        "ClassList wrappers must be cleared after unbind"
     );
-    assert!(
-        vm.inner.dataset_wrapper_cache.is_empty(),
-        "dataset_wrapper_cache must be empty after unbind"
+    assert_eq!(
+        count_wrapper_kind(&vm, WrapperKind::Dataset),
+        0,
+        "Dataset wrappers must be cleared after unbind"
     );
 }
 
@@ -807,22 +811,25 @@ fn t2a_token_list_wrapper_caches_cleared_on_unbind() {
     )
     .unwrap();
     assert!(
-        !vm.inner.rel_list_wrapper_cache.is_empty()
-            && !vm.inner.link_rel_list_wrapper_cache.is_empty()
-            && !vm.inner.link_sizes_wrapper_cache.is_empty(),
-        "T2a wrapper caches should be populated after relList / sizes touch"
+        count_wrapper_kind(&vm, WrapperKind::RelList) > 0
+            && count_wrapper_kind(&vm, WrapperKind::LinkRelList) > 0
+            && count_wrapper_kind(&vm, WrapperKind::LinkSizes) > 0,
+        "T2a token-list wrappers should be interned after relList / sizes touch"
     );
     vm.unbind();
-    assert!(
-        vm.inner.rel_list_wrapper_cache.is_empty(),
-        "rel_list_wrapper_cache must be empty after unbind"
+    assert_eq!(
+        count_wrapper_kind(&vm, WrapperKind::RelList),
+        0,
+        "RelList wrappers must be cleared after unbind"
     );
-    assert!(
-        vm.inner.link_rel_list_wrapper_cache.is_empty(),
-        "link_rel_list_wrapper_cache must be empty after unbind"
+    assert_eq!(
+        count_wrapper_kind(&vm, WrapperKind::LinkRelList),
+        0,
+        "LinkRelList wrappers must be cleared after unbind"
     );
-    assert!(
-        vm.inner.link_sizes_wrapper_cache.is_empty(),
-        "link_sizes_wrapper_cache must be empty after unbind"
+    assert_eq!(
+        count_wrapper_kind(&vm, WrapperKind::LinkSizes),
+        0,
+        "LinkSizes wrappers must be cleared after unbind"
     );
 }

@@ -523,47 +523,35 @@ impl Vm {
             // `_coll.length` reads `0`, `_coll.item(i)` reads `null`,
             // identical to the JS-still-bound-but-empty-tree case.
             self.inner.live_collection_states.clear();
-            // Same cross-DOM aliasing risk for the Entity-keyed
-            // `class_list` / `dataset` wrapper identity caches: a
-            // stale entry would let `el2.classList` from a rebind
-            // pick up the previous DOM's cached wrapper because the
-            // two `EcsDom::new()` worlds share entity-index space.
-            // Clearing here keeps post-rebind lookups allocate-fresh.
-            self.inner.class_list_wrapper_cache.clear();
-            self.inner.dataset_wrapper_cache.clear();
-            // T2a slot — per-attr DOMTokenList wrapper caches share
-            // the same Entity-index aliasing risk as classList /
-            // dataset.  Clearing here keeps post-rebind lookups
-            // allocate-fresh.
-            self.inner.rel_list_wrapper_cache.clear();
-            self.inner.link_rel_list_wrapper_cache.clear();
-            self.inner.link_sizes_wrapper_cache.clear();
-            self.inner.style_wrapper_cache.clear();
-            self.inner.stylesheet_wrapper_cache.clear();
-            self.inner.css_style_rule_wrapper_cache.clear();
-            self.inner.rule_style_wrapper_cache.clear();
-            // T2b slot — `<map>.areas` `[SameObject]` HTMLCollection
-            // identity cache.  Same Entity-index cross-DOM aliasing
-            // risk as the T2a wrapper caches above (lesson #195).
-            self.inner.map_areas_wrappers.clear();
-            // T2c slot (`#11-tags-T2c-table`) — 4 `[SameObject]`
-            // HTMLCollection identity caches for the HTMLTable family
-            // (table.rows / table.tBodies / section.rows / row.cells).
-            // Same Entity-index cross-DOM aliasing risk as the T2a/T2b
-            // wrapper caches above (lesson #195).
-            self.inner.table_rows_wrappers.clear();
-            self.inner.table_bodies_wrappers.clear();
-            self.inner.table_section_rows_wrappers.clear();
-            self.inner.table_row_cells_wrappers.clear();
-            // T2d slot (`#11-tags-T2d-interactive`) — 3 `[SameObject]`
-            // identity caches for the interactive bundle
-            // (template.content DocumentFragment / datalist.options
-            // HTMLCollection / output.htmlFor DOMTokenList).  Same
-            // Entity-index cross-DOM aliasing risk as the T2a/T2b/T2c
-            // wrapper caches above (lesson #195).
-            self.inner.template_content_wrappers.clear();
-            self.inner.datalist_options_wrappers.clear();
-            self.inner.output_html_for_wrappers.clear();
+            // `#11-wrapper-identity-seam` — clear every NON-`Node`
+            // interned wrapper from the unified store, keeping the
+            // primary `Node` wrapper.  The Entity-keyed and
+            // ObjectId-keyed secondaries (classList / dataset / Attr /
+            // inline+CSSOM style / the `[SameObject]` collections /
+            // `<input>.files` FileList / DataTransferItem / …) all face
+            // the cross-DOM Entity-index aliasing risk (lesson #195):
+            // two `EcsDom::new()` worlds share entity-index space, so a
+            // retained `el2.classList` after a rebind could surface the
+            // previous DOM's cached wrapper.  Clearing them keeps
+            // post-rebind lookups allocate-fresh.
+            //
+            // The primary `Node` wrapper is INTENTIONALLY retained —
+            // node-wrapper identity (notably Window → `global_object`,
+            // see the `entity_bits = 0` reset above) must persist across
+            // bind→unbind→bind; the `bind_epoch` mechanism invalidates
+            // stale retained node wrappers instead of dropping them.
+            //
+            // This one retain also covers caches the prior per-field
+            // clears OMITTED — `validity_state` / `options_collection` /
+            // `form_controls_collection` (Entity-keyed) and the FileList
+            // (ObjectId-keyed) were never cleared on unbind despite
+            // carrying the identical cross-DOM aliasing risk.  Folding
+            // them in is a net cross-DOM-safety improvement, not a
+            // behaviour regression.
+            if let Some(hd) = self.inner.host_data.as_deref_mut() {
+                hd.wrapper_store
+                    .retain(|key, _| key.kind == super::wrapper_intern::WrapperKind::Node);
+            }
             // D-9 events-modern-input (slot
             // `#11-events-modern-input`).  Three state tables hold
             // cross-DOM references and must be cleared on unbind:
@@ -574,10 +562,9 @@ impl Vm {
             //   wrapping an Entity from the previous EcsDom.
             // - `touch_list_states`: items list references Touch
             //   wrappers whose `target` faces the same cross-DOM risk.
-            // The DataTransferItem identity cache must also be cleared
-            // because its parent DataTransfer state was just dropped.
+            // (The DataTransferItem identity cache is cleared by the
+            // unified `wrapper_store.retain` above.)
             self.inner.data_transfer_states.clear();
-            self.inner.data_transfer_item_wrapper_cache.clear();
             self.inner.touch_states.clear();
             self.inner.touch_list_states.clear();
             // D-8 PR-A2 — Range / TreeWalker / NodeIterator state
@@ -611,12 +598,9 @@ impl Vm {
             if let Some(hd) = self.inner.host_data.as_deref_mut() {
                 hd.mutation_observers.clear_pending_records();
             }
-            // `attr_wrapper_cache` is keyed by `(Entity, StringId)`
-            // and faces the same cross-DOM aliasing — `el2.getAttributeNode('id')`
-            // after a rebind would otherwise resolve through the
-            // previous DOM's cached Attr wrapper because the Entity
-            // index slot is shared between `EcsDom::new()` worlds.
-            self.inner.attr_wrapper_cache.clear();
+            // (The Attr identity cache — keyed by `(Entity, StringId)`,
+            // same cross-DOM aliasing risk — is cleared by the unified
+            // `wrapper_store.retain` above.)
             // Drop any signal-slots queued from the previous DOM —
             // their entities live in the old world, so firing
             // slotchange post-rebind would either resolve to a
