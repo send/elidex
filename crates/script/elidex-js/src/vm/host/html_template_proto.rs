@@ -105,13 +105,12 @@ fn template_get_content(
         .create_document_fragment_with_owner(owner_doc);
     let wrapper_id = create_fragment_wrapper(ctx, fragment_entity);
     // The alloc needs the full `NativeContext` (DOM access), so this
-    // interns manually rather than via `VmInner::intern_wrapper`.
-    if let Some(hd) = ctx.vm.host_data.as_deref_mut() {
-        hd.wrapper_store.insert(
-            WrapperKey::entity(entity, WrapperKind::TemplateContent),
-            wrapper_id,
-        );
-    }
+    // interns the already-built wrapper via `set_wrapper` rather than
+    // the `intern_wrapper` get-or-create closure.
+    ctx.vm.set_wrapper(
+        WrapperKey::entity(entity, WrapperKind::TemplateContent),
+        wrapper_id,
+    );
     Ok(JsValue::Object(wrapper_id))
 }
 

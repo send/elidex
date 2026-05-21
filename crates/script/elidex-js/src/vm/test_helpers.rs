@@ -164,3 +164,15 @@ pub fn eval_num(vm: &mut Vm, src: &str) -> f64 {
         other => panic!("expected number, got {other:?}"),
     }
 }
+
+/// Count interned wrappers of `kind` in the unified wrapper store
+/// (`#11-wrapper-identity-seam`).  The store persists on `HostData`
+/// across `Vm::unbind`, so this works in both bound and unbound state.
+/// Test-only (benches don't probe the seam), so unlike the other
+/// helpers it is `#[cfg(test)]` rather than bench-visible `pub`.
+#[cfg(test)]
+pub(crate) fn count_wrapper_kind(vm: &Vm, kind: super::wrapper_intern::WrapperKind) -> usize {
+    vm.inner.host_data.as_deref().map_or(0, |hd| {
+        hd.wrapper_store.keys().filter(|k| k.kind == kind).count()
+    })
+}

@@ -216,6 +216,18 @@ impl super::VmInner {
             .as_deref()
             .and_then(|hd| hd.wrapper_store.get(&key).copied())
     }
+
+    /// Intern an already-allocated wrapper `id` under `key`, overwriting
+    /// any prior entry. For the sites that compute the wrapper first
+    /// (e.g. reattaching an existing `Attr`, or a `<template>.content`
+    /// fragment built through the full `NativeContext`) and so cannot
+    /// use the `intern_wrapper` get-or-create closure. No-op when no
+    /// `HostData` is installed.
+    pub(crate) fn set_wrapper(&mut self, key: WrapperKey, id: ObjectId) {
+        if let Some(hd) = self.host_data.as_deref_mut() {
+            hd.wrapper_store.insert(key, id);
+        }
+    }
 }
 
 impl WrapperKind {

@@ -432,12 +432,10 @@ pub(super) fn native_element_set_attribute_node(
                 state_mut.detached_value = None;
             }
         }
-        if let Some(hd) = ctx.vm.host_data.as_deref_mut() {
-            hd.wrapper_store.insert(
-                WrapperKey::entity_named(entity, WrapperKind::Attr, qname_sid),
-                attr_id,
-            );
-        }
+        ctx.vm.set_wrapper(
+            WrapperKey::entity_named(entity, WrapperKind::Attr, qname_sid),
+            attr_id,
+        );
     } else {
         ctx.vm.invalidate_attr_cache_entry(entity, qname_sid);
     }

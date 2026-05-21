@@ -358,12 +358,10 @@ fn native_nnm_set_named_item(
                 state_mut.detached_value = None;
             }
         }
-        if let Some(hd) = ctx.vm.host_data.as_deref_mut() {
-            hd.wrapper_store.insert(
-                WrapperKey::entity_named(owner, WrapperKind::Attr, qname),
-                attr_id,
-            );
-        }
+        ctx.vm.set_wrapper(
+            WrapperKey::entity_named(owner, WrapperKind::Attr, qname),
+            attr_id,
+        );
     } else {
         ctx.vm.invalidate_attr_cache_entry(owner, qname);
     }

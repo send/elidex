@@ -18,18 +18,10 @@
 use elidex_ecs::{Attributes, EcsDom, LinkStylesheet};
 use elidex_script_session::SessionCore;
 
-use super::super::test_helpers::bind_vm;
+use super::super::test_helpers::{bind_vm, count_wrapper_kind};
 use super::super::value::JsValue;
 use super::super::wrapper_intern::WrapperKind;
 use super::super::Vm;
-
-/// Count interned wrappers of `kind` in the unified wrapper store
-/// (`#11-wrapper-identity-seam`).
-fn count_wrapper_kind(vm: &Vm, kind: WrapperKind) -> usize {
-    vm.inner.host_data.as_deref().map_or(0, |hd| {
-        hd.wrapper_store.keys().filter(|k| k.kind == kind).count()
-    })
-}
 
 fn build_doc_with_style(dom: &mut EcsDom, css: &str) -> elidex_ecs::Entity {
     let doc = dom.create_document_root();
