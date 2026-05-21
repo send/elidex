@@ -1221,6 +1221,14 @@ pub(in crate::vm) fn item_wrapper_for(
 /// for the given parent — used after list mutations that shift
 /// indices.  Cache entries below `from_index` survive because
 /// their index→entry mapping is unaffected.
+///
+/// Post-seam this is a whole-`wrapper_store` `retain` rather than a
+/// scan of a dedicated DataTransferItem map — the same bulk-op idiom
+/// the GC sweep (`gc/collect.rs`) and `Vm::unbind` retains use. The
+/// scan is bounded by total interned wrappers, but DataTransfer item
+/// lists are tiny and these index-shifting mutations (`remove` /
+/// `clearData`) are rare cold-path drag-and-drop operations, so the
+/// O(store) pass is an acceptable trade for one unified store.
 fn invalidate_item_wrapper_cache_from(vm: &mut VmInner, parent_dt_id: ObjectId, from_index: u32) {
     if let Some(hd) = vm.host_data.as_deref_mut() {
         hd.wrapper_store.retain(|key, _| {

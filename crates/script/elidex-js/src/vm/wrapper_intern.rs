@@ -1,12 +1,14 @@
 //! Unified wrapper-identity seam (`#11-wrapper-identity-seam`).
 //!
 //! Collapses the per-purpose wrapper-IDENTITY caches that used to live as
-//! ~24 separate side-maps (`HostData::wrapper_cache` + the 23
+//! ~24 separate side-maps (the primary node `wrapper_cache` + the 23
 //! `VmInner::*_wrapper_cache` / `*_wrappers` fields) into ONE store keyed by
-//! [`WrapperKey`], with one get-or-create entry point ([`HostData::get_wrapper`]
-//! / [`super::VmInner::intern_wrapper`]), one GC mark pass + one sweep pass
-//! dispatched by [`WrapperKind::mark_agent`] / [`WrapperKind::retain`], and one
-//! `clear()` on `Vm::unbind`.
+//! [`WrapperKey`], reached only through the seam API on `VmInner`
+//! ([`super::VmInner::intern_wrapper`] get-or-create /
+//! [`super::VmInner::get_wrapper`] read / [`super::VmInner::set_wrapper`]
+//! eager-insert), one GC mark pass + one sweep pass dispatched by
+//! [`WrapperKind::mark_agent`] / [`WrapperKind::retain`], and one
+//! `retain` keeping only [`WrapperKind::Node`] on `Vm::unbind`.
 //!
 //! Each cache satisfied a Web IDL `[SameObject]` invariant: the same wrapper
 //! object must be returned on every access (`el.classList === el.classList`,
