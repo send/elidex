@@ -13,6 +13,8 @@ use std::collections::HashMap;
 use super::super::natives_promise::Microtask;
 use super::super::value::StringId;
 use super::super::value::{CallFrame, JsValue, Object, ObjectId, Upvalue};
+#[cfg(feature = "engine")]
+use super::super::wrapper_intern::{MarkAgent, WrapperOwner, WrapperSubkey};
 use super::{mark_object, mark_upvalue, mark_value};
 
 /// Snapshot of all GC root sets, borrowed immutably from `VmInner`.
@@ -184,128 +186,15 @@ pub(super) struct GcRoots<'a> {
     #[cfg(feature = "engine")]
     pub(super) pending_tasks:
         &'a std::collections::VecDeque<super::super::host::pending_tasks::PendingTask>,
-    /// `Attr` wrapper identity cache (WHATWG DOM §4.9.2).  Keyed by
-    /// `(owner Element entity, qualified-name StringId)`.  Values
-    /// are pinned only when the owner element wrapper is reachable
-    /// — looked up via `HostData::get_cached_wrapper(entity)`; this
-    /// keeps the cache effectively *weak* through the owner so a
-    /// dropped element does not extend its Attrs' lifetimes.  Sweep
-    /// tail prunes entries whose value `ObjectId` was collected.
-    #[cfg(feature = "engine")]
-    pub(super) attr_wrapper_cache:
-        &'a HashMap<(elidex_ecs::Entity, super::super::value::StringId), ObjectId>,
-    /// `DOMTokenList` (`Element.classList`) wrapper identity cache.
-    /// Same weak-through-owner semantics as
-    /// [`Self::attr_wrapper_cache`] — entries are pinned only when
-    /// the owner element wrapper is still reachable.  Sweep tail
-    /// prunes entries whose value `ObjectId` was collected.
-    #[cfg(feature = "engine")]
-    pub(super) class_list_wrapper_cache: &'a HashMap<elidex_ecs::Entity, ObjectId>,
-    /// `DOMStringMap` (`HTMLElement.dataset`) wrapper identity cache.
-    /// Same weak-through-owner semantics as
-    /// [`Self::class_list_wrapper_cache`].
-    #[cfg(feature = "engine")]
-    pub(super) dataset_wrapper_cache: &'a HashMap<elidex_ecs::Entity, ObjectId>,
-    /// `DOMTokenList` (`HTMLAnchorElement.relList` /
-    /// `HTMLAreaElement.relList`) wrapper identity cache.  Same
-    /// weak-through-owner semantics as
-    /// [`Self::class_list_wrapper_cache`].
-    #[cfg(feature = "engine")]
-    pub(super) rel_list_wrapper_cache: &'a HashMap<elidex_ecs::Entity, ObjectId>,
-    /// `DOMTokenList` (`HTMLLinkElement.relList`) wrapper identity
-    /// cache.  Separate from [`Self::rel_list_wrapper_cache`] so each
-    /// per-attr binding has its own (Entity → ObjectId) namespace per
-    /// CRIT-2 Option A in the D-4 plan memo.
-    #[cfg(feature = "engine")]
-    pub(super) link_rel_list_wrapper_cache: &'a HashMap<elidex_ecs::Entity, ObjectId>,
-    /// `DOMTokenList` (`HTMLLinkElement.sizes`) wrapper identity
-    /// cache.  Same weak-through-owner semantics as the rel-list
-    /// caches above.
-    #[cfg(feature = "engine")]
-    pub(super) link_sizes_wrapper_cache: &'a HashMap<elidex_ecs::Entity, ObjectId>,
-    /// Inline `CSSStyleDeclaration` (`Element.style`) wrapper identity
-    /// cache.  Same weak-through-owner semantics as
-    /// [`Self::class_list_wrapper_cache`].  Computed-source wrappers
-    /// (from `getComputedStyle`) are not cached so they don't appear
-    /// here.
-    #[cfg(feature = "engine")]
-    pub(super) style_wrapper_cache: &'a HashMap<elidex_ecs::Entity, ObjectId>,
-    /// `CSSStyleSheet` (`<style>.sheet`) wrapper identity cache.  Same
-    /// weak-through-owner semantics as
-    /// [`Self::style_wrapper_cache`].  Owner is the `<style>` element.
-    #[cfg(feature = "engine")]
-    pub(super) stylesheet_wrapper_cache: &'a HashMap<elidex_ecs::Entity, ObjectId>,
-    /// `CSSStyleRule` wrapper identity cache keyed by
-    /// `(<style> Entity, rule_id)`.  Weak-through-owner AND
-    /// gated on rule_id liveness: an entry is pinned only while
-    /// the `<style>` element wrapper is reachable AND the rule_id
-    /// still exists in the parsed sheet
-    /// ([`Self::active_cssom_rule_ids`]).  Without the rule_id
-    /// gate, `insertRule`/`deleteRule` cycles produce unbounded
-    /// rule_ids over time and cache entries for stale rule_ids
-    /// would pin forever (Copilot R9 finding).
-    #[cfg(feature = "engine")]
-    pub(super) css_style_rule_wrapper_cache: &'a HashMap<(elidex_ecs::Entity, u64), ObjectId>,
-    /// Rule-source `CSSRuleStyleDeclaration` wrapper identity cache.
-    /// Same shape and lifetime contract as
-    /// [`Self::css_style_rule_wrapper_cache`] — including the
-    /// rule_id-liveness gate.
-    #[cfg(feature = "engine")]
-    pub(super) rule_style_wrapper_cache: &'a HashMap<(elidex_ecs::Entity, u64), ObjectId>,
     /// Snapshot of currently-live CSSOM rule_ids per `<style>` entity,
     /// rebuilt from [`elidex_script_session::SessionCore::cssom_sheets`]
-    /// at the start of each GC cycle.  Used to gate
-    /// [`Self::css_style_rule_wrapper_cache`] /
-    /// [`Self::rule_style_wrapper_cache`] mark-roots so wrappers for
-    /// rule_ids that no longer exist in the parsed sheet are eligible
-    /// for collection.
+    /// at the start of each GC cycle.  Used to gate the seam mark
+    /// loop's `WeakViaOwnerEntityAndRuleId` arm (`CssStyleRule` /
+    /// `RuleStyle` kinds) so wrappers for rule_ids that no longer
+    /// exist in the parsed sheet are eligible for collection.
     #[cfg(feature = "engine")]
     pub(super) active_cssom_rule_ids:
         &'a HashMap<elidex_ecs::Entity, std::collections::HashSet<u64>>,
-    /// `ValidityState` `[SameObject]` identity cache.  Same
-    /// weak-through-owner semantics as
-    /// [`Self::class_list_wrapper_cache`] — entries are pinned only
-    /// while the owner element wrapper is reachable.  Sweep tail
-    /// prunes entries whose wrapper `ObjectId` was collected.
-    #[cfg(feature = "engine")]
-    pub(super) validity_state_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
-    /// `HTMLOptionsCollection` `[SameObject]` identity cache.
-    /// Owner is the `<select>` entity.
-    #[cfg(feature = "engine")]
-    pub(super) options_collection_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
-    /// `HTMLFormControlsCollection` `[SameObject]` identity cache.
-    /// Owner is the `<form>` or `<fieldset>` entity.
-    #[cfg(feature = "engine")]
-    pub(super) form_controls_collection_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
-    /// `<map>.areas` `[SameObject]` HTMLCollection identity cache
-    /// (slot `#11-tags-T2b-passive`).  Owner is the `<map>` entity;
-    /// mark-via-owner semantics — entry stays live while the
-    /// `<map>` element wrapper is reachable.  Sweep tail prunes
-    /// entries whose value `ObjectId` was collected.
-    #[cfg(feature = "engine")]
-    pub(super) map_areas_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
-    /// 4 `[SameObject]` HTMLCollection identity caches for the
-    /// HTMLTable family (slot `#11-tags-T2c-table`).  Same
-    /// mark-via-owner semantics as `map_areas_wrappers` — owner is
-    /// the `<table>` / section / `<tr>` entity respectively.
-    #[cfg(feature = "engine")]
-    pub(super) table_rows_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
-    #[cfg(feature = "engine")]
-    pub(super) table_bodies_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
-    #[cfg(feature = "engine")]
-    pub(super) table_section_rows_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
-    #[cfg(feature = "engine")]
-    pub(super) table_row_cells_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
-    /// 3 `[SameObject]` identity caches for the T2d interactive bundle
-    /// (slot `#11-tags-T2d-interactive`).  Same mark-via-owner
-    /// semantics as `map_areas_wrappers` — owner is the `<template>` /
-    /// `<datalist>` / `<output>` entity respectively.
-    #[cfg(feature = "engine")]
-    pub(super) template_content_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
-    #[cfg(feature = "engine")]
-    pub(super) datalist_options_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
-    #[cfg(feature = "engine")]
-    pub(super) output_html_for_wrappers: &'a HashMap<elidex_ecs::Entity, ObjectId>,
     /// In-flight async `fetch()` Promise pins.  Values are Promise
     /// ObjectIds that must survive until the broker reply (or abort
     /// fan-out) settles them — see [`super::super::VmInner::pending_fetches`]
@@ -426,198 +315,64 @@ pub(super) fn mark_roots(
         for id in hd.gc_root_object_ids() {
             mark_object(id, obj_marks, work);
         }
-        // (e2) `Attr` identity cache — fan out a cached `attr_id`
-        // only when the owner element wrapper is still reachable
-        // through `HostData::wrapper_cache`.  This makes the cache
-        // weak through the owner: an element wrapper dropped from
-        // `wrapper_cache` (entity destroyed via `remove_wrapper`)
-        // releases its cached Attrs in the same GC, since the
-        // `attr_id` is no longer reached from the owner-wrapper
-        // root.  Attrs themselves carry no further fan-out
-        // (`AttrState` holds only `Entity` / `StringId`), so a
-        // single mark is enough — no work-list re-add needed.
+        // (e) Unified wrapper-identity seam mark loop
+        // (`#11-wrapper-identity-seam`).  Every `[SameObject]` wrapper
+        // (the primary node wrapper + classList / dataset / Attr /
+        // CSSOM / collection / … secondaries) is interned in one
+        // `hd.wrapper_store` keyed by [`WrapperKey`].  The mark
+        // behaviour is dispatched by [`WrapperKind::mark_agent`],
+        // faithful to the per-cache behaviours this loop replaced:
+        //
+        // - `StrongRoot` (the primary `Node` wrapper): marked
+        //   unconditionally — this *is* the marking path for node
+        //   wrappers, replacing the `wrapper_cache.values()` strong
+        //   chain that used to live in `HostData::gc_root_object_ids`.
+        // - `WeakViaOwnerEntity` (classList / dataset / Attr / style /
+        //   the collection caches): marked iff the owner element's
+        //   primary `Node` wrapper is still cached
+        //   (`hd.get_cached_wrapper(entity).is_some()`), so a dropped
+        //   element releases its secondaries on the same GC.  All such
+        //   wrappers are payload-free, so a single mark suffices.
+        // - `WeakViaOwnerEntityAndRuleId` (CSSOM `CSSStyleRule` /
+        //   `RuleStyle`): the owner gate AND rule_id liveness in the
+        //   parsed sheet (`active_cssom_rule_ids`) — stale rule_ids
+        //   (deleted via `deleteRule` or reissued after a textContent
+        //   rewrite) go unmarked → swept (Copilot R9 finding).
+        // - `ViaOwnerTrace` (`<input>.files` FileList): NOT marked
+        //   here — the owning `<input>` `HostObject`'s trace fan-out
+        //   marks it (`gc/trace.rs`).
+        // - `NoProactiveMark` (`DataTransferItem`): nothing marks it;
+        //   it survives only if independently JS-reachable.
+        //
+        // Borrow note: iterating `&hd.wrapper_store` and calling
+        // `hd.get_cached_wrapper` are both shared borrows of `hd`, so
+        // no two-phase snapshot is needed.
         #[cfg(feature = "engine")]
-        for ((entity, _), &attr_id) in roots.attr_wrapper_cache {
-            if hd.get_cached_wrapper(*entity).is_some() {
-                mark_object(attr_id, obj_marks, work);
-            }
-        }
-        // (e3) `DOMTokenList` / `DOMStringMap` identity caches —
-        // weak-through-owner like `attr_wrapper_cache` above: a
-        // cached wrapper survives only while the owner element
-        // wrapper is still rooted via `HostData::wrapper_cache`.
-        // The variants are payload-free, so a single mark suffices.
-        #[cfg(feature = "engine")]
-        for (entity, &id) in roots.class_list_wrapper_cache {
-            if hd.get_cached_wrapper(*entity).is_some() {
-                mark_object(id, obj_marks, work);
-            }
-        }
-        #[cfg(feature = "engine")]
-        for (entity, &id) in roots.dataset_wrapper_cache {
-            if hd.get_cached_wrapper(*entity).is_some() {
-                mark_object(id, obj_marks, work);
-            }
-        }
-        // (e3.1) T2a `<a>.relList` / `<area>.relList` /
-        // `<link>.relList` / `<link>.sizes` wrappers — same
-        // weak-through-owner contract as classList / dataset above.
-        // Slot `#11-tags-T2a-url-bearing` (CRIT-2 Option A: separate
-        // per-attr caches).
-        #[cfg(feature = "engine")]
-        for (entity, &id) in roots.rel_list_wrapper_cache {
-            if hd.get_cached_wrapper(*entity).is_some() {
-                mark_object(id, obj_marks, work);
-            }
-        }
-        #[cfg(feature = "engine")]
-        for (entity, &id) in roots.link_rel_list_wrapper_cache {
-            if hd.get_cached_wrapper(*entity).is_some() {
-                mark_object(id, obj_marks, work);
-            }
-        }
-        #[cfg(feature = "engine")]
-        for (entity, &id) in roots.link_sizes_wrapper_cache {
-            if hd.get_cached_wrapper(*entity).is_some() {
-                mark_object(id, obj_marks, work);
-            }
-        }
-        #[cfg(feature = "engine")]
-        for (entity, &id) in roots.style_wrapper_cache {
-            if hd.get_cached_wrapper(*entity).is_some() {
-                mark_object(id, obj_marks, work);
-            }
-        }
-        // CSSOM stylesheet wrappers (`#11-style-declaration` PR-B) —
-        // weak-through-owner: a cached wrapper for `<style>.sheet`,
-        // `sheet.cssRules[i]` (CSSStyleRule), or `rule.style`
-        // (CSSRuleStyleDeclaration) survives only while the owning
-        // `<style>` element wrapper is reachable.  Each variant is
-        // payload-free in trace terms, so a single mark suffices.
-        #[cfg(feature = "engine")]
-        for (entity, &id) in roots.stylesheet_wrapper_cache {
-            if hd.get_cached_wrapper(*entity).is_some() {
-                mark_object(id, obj_marks, work);
-            }
-        }
-        // Gate rule-wrapper marking on BOTH owner-wrapper presence
-        // AND rule_id liveness in the current parsed sheet.  Stale
-        // rule_ids (deleted via `deleteRule`, or reissued after a
-        // `<style>.textContent =` rewrite) get unmarked → swept →
-        // pruned by the sweep-tail `retain`.  Without the rule_id
-        // gate, insertRule/deleteRule cycles would accumulate
-        // permanently-pinned cache entries (Copilot R9 finding).
-        #[cfg(feature = "engine")]
-        for (&(entity, rule_id), &id) in roots.css_style_rule_wrapper_cache {
-            if hd.get_cached_wrapper(entity).is_some()
-                && roots
-                    .active_cssom_rule_ids
-                    .get(&entity)
-                    .is_some_and(|ids| ids.contains(&rule_id))
-            {
-                mark_object(id, obj_marks, work);
-            }
-        }
-        #[cfg(feature = "engine")]
-        for (&(entity, rule_id), &id) in roots.rule_style_wrapper_cache {
-            if hd.get_cached_wrapper(entity).is_some()
-                && roots
-                    .active_cssom_rule_ids
-                    .get(&entity)
-                    .is_some_and(|ids| ids.contains(&rule_id))
-            {
-                mark_object(id, obj_marks, work);
-            }
-        }
-        // (e4) T1-v2 form-control identity caches — same
-        // weak-through-owner contract as (e3) above.  Each cache is
-        // payload-free at the JS-object level (no fan-out beyond the
-        // wrapper itself), so a single mark per surviving entry
-        // suffices.
-        #[cfg(feature = "engine")]
-        for (entity, &id) in roots.validity_state_wrappers {
-            if hd.get_cached_wrapper(*entity).is_some() {
-                mark_object(id, obj_marks, work);
-            }
-        }
-        #[cfg(feature = "engine")]
-        for (entity, &id) in roots.options_collection_wrappers {
-            if hd.get_cached_wrapper(*entity).is_some() {
-                mark_object(id, obj_marks, work);
-            }
-        }
-        #[cfg(feature = "engine")]
-        for (entity, &id) in roots.form_controls_collection_wrappers {
-            if hd.get_cached_wrapper(*entity).is_some() {
-                mark_object(id, obj_marks, work);
-            }
-        }
-        // (e5) T2b `<map>.areas` `[SameObject]` cache — same
-        // weak-through-owner contract.  The HTMLCollection itself
-        // contains no payload that needs separate fan-out (the
-        // descendant `<area>` entities are reached via the document
-        // tree walk, not through the collection).
-        #[cfg(feature = "engine")]
-        for (entity, &id) in roots.map_areas_wrappers {
-            if hd.get_cached_wrapper(*entity).is_some() {
-                mark_object(id, obj_marks, work);
-            }
-        }
-        // (e6) T2c `<table>.rows` / `<table>.tBodies` /
-        // section.rows / `<tr>.cells` `[SameObject]` caches — same
-        // weak-through-owner contract.  Descendant entities reached
-        // via the document tree walk, not through the collection.
-        #[cfg(feature = "engine")]
-        for (entity, &id) in roots.table_rows_wrappers {
-            if hd.get_cached_wrapper(*entity).is_some() {
-                mark_object(id, obj_marks, work);
-            }
-        }
-        #[cfg(feature = "engine")]
-        for (entity, &id) in roots.table_bodies_wrappers {
-            if hd.get_cached_wrapper(*entity).is_some() {
-                mark_object(id, obj_marks, work);
-            }
-        }
-        #[cfg(feature = "engine")]
-        for (entity, &id) in roots.table_section_rows_wrappers {
-            if hd.get_cached_wrapper(*entity).is_some() {
-                mark_object(id, obj_marks, work);
-            }
-        }
-        #[cfg(feature = "engine")]
-        for (entity, &id) in roots.table_row_cells_wrappers {
-            if hd.get_cached_wrapper(*entity).is_some() {
-                mark_object(id, obj_marks, work);
-            }
-        }
-        // (e7) T2d `<template>.content` / `<datalist>.options` /
-        // `<output>.htmlFor` `[SameObject]` caches — same
-        // weak-through-owner contract.  The cached value (a
-        // DocumentFragment / HTMLCollection / DOMTokenList wrapper)
-        // contains no extra payload that needs separate fan-out: a
-        // template fragment's children are reached via the document
-        // tree walk through the fragment Entity, the descendant
-        // `<option>` entities for `<datalist>.options` are reached via
-        // the document tree walk, and a DOMTokenList wrapper carries
-        // only its owner `Entity` inline.  Slot
-        // `#11-tags-T2d-interactive`.
-        #[cfg(feature = "engine")]
-        for (entity, &id) in roots.template_content_wrappers {
-            if hd.get_cached_wrapper(*entity).is_some() {
-                mark_object(id, obj_marks, work);
-            }
-        }
-        #[cfg(feature = "engine")]
-        for (entity, &id) in roots.datalist_options_wrappers {
-            if hd.get_cached_wrapper(*entity).is_some() {
-                mark_object(id, obj_marks, work);
-            }
-        }
-        #[cfg(feature = "engine")]
-        for (entity, &id) in roots.output_html_for_wrappers {
-            if hd.get_cached_wrapper(*entity).is_some() {
-                mark_object(id, obj_marks, work);
+        for (key, &id) in &hd.wrapper_store {
+            match key.kind.mark_agent() {
+                MarkAgent::StrongRoot => mark_object(id, obj_marks, work),
+                MarkAgent::WeakViaOwnerEntity => {
+                    if let WrapperOwner::Entity(entity) = key.owner {
+                        if hd.get_cached_wrapper(entity).is_some() {
+                            mark_object(id, obj_marks, work);
+                        }
+                    }
+                }
+                MarkAgent::WeakViaOwnerEntityAndRuleId => {
+                    if let (WrapperOwner::Entity(entity), WrapperSubkey::RuleId(rule_id)) =
+                        (key.owner, key.subkey)
+                    {
+                        if hd.get_cached_wrapper(entity).is_some()
+                            && roots
+                                .active_cssom_rule_ids
+                                .get(&entity)
+                                .is_some_and(|ids| ids.contains(&rule_id))
+                        {
+                            mark_object(id, obj_marks, work);
+                        }
+                    }
+                }
+                MarkAgent::ViaOwnerTrace | MarkAgent::NoProactiveMark => {}
             }
         }
     }

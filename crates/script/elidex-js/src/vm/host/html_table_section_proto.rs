@@ -4,8 +4,7 @@
 //!
 //! IDL surface:
 //! - `rows` — `[SameObject]` HTMLCollection of direct `<tr>`
-//!   children, identity-cached per
-//!   [`super::super::VmInner::table_section_rows_wrappers`].
+//!   children, interned under `WrapperKind::TableSectionRows`.
 //! - `insertRow(index?)` / `deleteRow(index)` — mutation methods,
 //!   dispatched through the `section.insertRow` /
 //!   `section.deleteRow` registry handlers.
@@ -23,6 +22,7 @@ use elidex_ecs::{Entity, NodeKind};
 
 use super::super::shape;
 use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
+use super::super::wrapper_intern::{WrapperKey, WrapperKind};
 use super::super::VmInner;
 use super::dom_bridge::invoke_dom_api;
 use super::idl_coerce::{coerce_long_idl_arg, coerce_optional_long_idl_arg};
@@ -53,17 +53,17 @@ impl VmInner {
     /// Allocate (or return cached) `<thead>`/`<tbody>`/`<tfoot>`.rows
     /// HTMLCollection wrapper.  HTML §4.9.5-7 mandates `[SameObject]`.
     pub(crate) fn alloc_or_cached_table_section_rows(&mut self, owner: Entity) -> ObjectId {
-        if let Some(&id) = self.table_section_rows_wrappers.get(&owner) {
-            return id;
-        }
-        let coll = LiveCollection::new(
-            owner,
-            CollectionFilter::DirectChildrenByTagName(vec!["tr".into()]),
-            CollectionKind::HtmlCollection,
-        );
-        let id = self.alloc_collection(coll);
-        self.table_section_rows_wrappers.insert(owner, id);
-        id
+        self.intern_wrapper(
+            WrapperKey::entity(owner, WrapperKind::TableSectionRows),
+            |vm| {
+                let coll = LiveCollection::new(
+                    owner,
+                    CollectionFilter::DirectChildrenByTagName(vec!["tr".into()]),
+                    CollectionKind::HtmlCollection,
+                );
+                vm.alloc_collection(coll)
+            },
+        )
     }
 }
 

@@ -63,6 +63,7 @@ use super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
     PropertyValue, VmError, ARRAY_ITER_KIND_VALUES,
 };
+use super::super::wrapper_intern::{WrapperKey, WrapperKind};
 use super::super::{NativeFn, VmInner};
 
 // -------------------------------------------------------------------------
@@ -293,38 +294,29 @@ impl VmInner {
 // `[SameObject]`-cached form collection helper
 // -------------------------------------------------------------------------
 
-/// Identifies which `[SameObject]` cache field on [`VmInner`] backs a
-/// form-related HTMLCollection accessor.  Used by
-/// [`cached_form_collection`] to dispatch reads / writes against the
-/// correct cache without exposing the field-level HashMap details to
-/// every prototype call site.
+/// Identifies which `[SameObject]` wrapper kind backs a form-related
+/// HTMLCollection accessor.  Used by [`cached_form_collection`] to
+/// pick the correct [`WrapperKind`] for the unified wrapper-identity
+/// store without exposing the seam key details to every prototype
+/// call site.
 #[derive(Clone, Copy)]
 pub(super) enum FormCollectionCache {
     /// `form.elements` / `fieldset.elements` →
-    /// [`VmInner::form_controls_collection_wrappers`], keyed by the
-    /// owner `<form>` / `<fieldset>` entity.
+    /// [`WrapperKind::FormControlsCollection`], keyed by the owner
+    /// `<form>` / `<fieldset>` entity.
     FormControls,
-    /// `select.options` → [`VmInner::options_collection_wrappers`],
-    /// keyed by the owner `<select>` entity.
+    /// `select.options` → [`WrapperKind::OptionsCollection`], keyed by
+    /// the owner `<select>` entity.
     Options,
 }
 
 impl FormCollectionCache {
-    fn get(self, vm: &VmInner, entity: Entity) -> Option<ObjectId> {
+    /// The unified [`WrapperKind`] backing this form-collection accessor.
+    fn kind(self) -> WrapperKind {
         match self {
-            Self::FormControls => vm.form_controls_collection_wrappers.get(&entity).copied(),
-            Self::Options => vm.options_collection_wrappers.get(&entity).copied(),
+            Self::FormControls => WrapperKind::FormControlsCollection,
+            Self::Options => WrapperKind::OptionsCollection,
         }
-    }
-
-    fn insert(self, vm: &mut VmInner, entity: Entity, id: ObjectId) {
-        // `HashMap::insert` returns the previous value, which we
-        // intentionally discard — the caller has already verified
-        // the key wasn't present via `cache.get` above.
-        let _ = match self {
-            Self::FormControls => vm.form_controls_collection_wrappers.insert(entity, id),
-            Self::Options => vm.options_collection_wrappers.insert(entity, id),
-        };
     }
 }
 
@@ -374,13 +366,10 @@ pub(super) fn cached_form_collection(
         let snapshot = LiveCollection::new_snapshot(Vec::new(), CollectionKind::HtmlCollection);
         return alloc_form_collection_wrapper(vm, snapshot, cache);
     };
-    if let Some(id) = cache.get(vm, entity) {
-        return id;
-    }
-    let coll = LiveCollection::new(entity, filter, CollectionKind::HtmlCollection);
-    let id = alloc_form_collection_wrapper(vm, coll, cache);
-    cache.insert(vm, entity, id);
-    id
+    vm.intern_wrapper(WrapperKey::entity(entity, cache.kind()), |vm| {
+        let coll = LiveCollection::new(entity, filter, CollectionKind::HtmlCollection);
+        alloc_form_collection_wrapper(vm, coll, cache)
+    })
 }
 
 /// Allocate a collection wrapper whose prototype matches `cache`'s

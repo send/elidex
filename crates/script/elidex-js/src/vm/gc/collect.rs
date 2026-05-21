@@ -910,49 +910,7 @@ impl VmInner {
             #[cfg(feature = "engine")]
             pending_tasks: &self.pending_tasks,
             #[cfg(feature = "engine")]
-            attr_wrapper_cache: &self.attr_wrapper_cache,
-            #[cfg(feature = "engine")]
-            class_list_wrapper_cache: &self.class_list_wrapper_cache,
-            #[cfg(feature = "engine")]
-            dataset_wrapper_cache: &self.dataset_wrapper_cache,
-            #[cfg(feature = "engine")]
-            rel_list_wrapper_cache: &self.rel_list_wrapper_cache,
-            #[cfg(feature = "engine")]
-            link_rel_list_wrapper_cache: &self.link_rel_list_wrapper_cache,
-            #[cfg(feature = "engine")]
-            link_sizes_wrapper_cache: &self.link_sizes_wrapper_cache,
-            #[cfg(feature = "engine")]
-            style_wrapper_cache: &self.style_wrapper_cache,
-            #[cfg(feature = "engine")]
-            stylesheet_wrapper_cache: &self.stylesheet_wrapper_cache,
-            #[cfg(feature = "engine")]
-            css_style_rule_wrapper_cache: &self.css_style_rule_wrapper_cache,
-            #[cfg(feature = "engine")]
-            rule_style_wrapper_cache: &self.rule_style_wrapper_cache,
-            #[cfg(feature = "engine")]
             active_cssom_rule_ids: &active_cssom_rule_ids,
-            #[cfg(feature = "engine")]
-            validity_state_wrappers: &self.validity_state_wrappers,
-            #[cfg(feature = "engine")]
-            options_collection_wrappers: &self.options_collection_wrappers,
-            #[cfg(feature = "engine")]
-            form_controls_collection_wrappers: &self.form_controls_collection_wrappers,
-            #[cfg(feature = "engine")]
-            map_areas_wrappers: &self.map_areas_wrappers,
-            #[cfg(feature = "engine")]
-            table_rows_wrappers: &self.table_rows_wrappers,
-            #[cfg(feature = "engine")]
-            table_bodies_wrappers: &self.table_bodies_wrappers,
-            #[cfg(feature = "engine")]
-            table_section_rows_wrappers: &self.table_section_rows_wrappers,
-            #[cfg(feature = "engine")]
-            table_row_cells_wrappers: &self.table_row_cells_wrappers,
-            #[cfg(feature = "engine")]
-            template_content_wrappers: &self.template_content_wrappers,
-            #[cfg(feature = "engine")]
-            datalist_options_wrappers: &self.datalist_options_wrappers,
-            #[cfg(feature = "engine")]
-            output_html_for_wrappers: &self.output_html_for_wrappers,
             #[cfg(feature = "engine")]
             pending_fetches: &self.pending_fetches,
             #[cfg(feature = "engine")]
@@ -1043,6 +1001,24 @@ impl VmInner {
             None => (&empty_ws_states, &empty_sse_states),
         };
 
+        // `#11-wrapper-identity-seam` — the `<input>.files` FileList
+        // `[SameObject]` cache is now interned in `hd.wrapper_store`
+        // (keyed by `WrapperKey::object(input_id, FileList)`).  The
+        // `<input>` `HostObject` trace arm marks the cached FileList
+        // through this store (`MarkAgent::ViaOwnerTrace`).  Empty
+        // fallback when HostData is unbound — no input wrapper can
+        // exist then.
+        #[cfg(feature = "engine")]
+        let empty_wrapper_store: std::collections::HashMap<
+            super::super::wrapper_intern::WrapperKey,
+            ObjectId,
+        > = std::collections::HashMap::new();
+        #[cfg(feature = "engine")]
+        let wrapper_store_ref = match self.host_data.as_deref() {
+            Some(hd) => &hd.wrapper_store,
+            None => &empty_wrapper_store,
+        };
+
         trace_work_list(
             roots.objects,
             roots.upvalues,
@@ -1089,7 +1065,7 @@ impl VmInner {
             #[cfg(feature = "engine")]
             &self.file_reader_data,
             #[cfg(feature = "engine")]
-            &self.input_files_cache,
+            wrapper_store_ref,
             #[cfg(feature = "engine")]
             ws_states_ref,
             #[cfg(feature = "engine")]
@@ -1146,16 +1122,6 @@ impl VmInner {
                 .retain(|id, _| bit_get(marks, id.0));
             self.touch_states.retain(|id, _| bit_get(marks, id.0));
             self.touch_list_states.retain(|id, _| bit_get(marks, id.0));
-            // `data_transfer_item_wrapper_cache` keys are
-            // `(parent_dt_id, index)`.  Prune by value (the
-            // DataTransferItem ObjectId) AND parent liveness
-            // (mark-via-owner — when the parent DataTransfer was
-            // collected the index entries no longer reference any
-            // live wrapper).
-            self.data_transfer_item_wrapper_cache
-                .retain(|(parent_dt_id, _), &mut item_id| {
-                    bit_get(marks, item_id.0) && bit_get(marks, parent_dt_id.0)
-                });
             // `pending_timeout_signals` — values are rooted during
             // mark so a collected signal is an invariant violation
             // (the `mark_roots` pass kept them alive).  Defensively
@@ -1279,94 +1245,52 @@ impl VmInner {
             // (the entry's Blob references are no longer reachable
             // through the FormData wrapper anyway).
             self.form_data_states.retain(|id, _| bit_get(marks, id.0));
-            // `attr_wrapper_cache` — drop entries whose wrapper was
-            // collected in this sweep.  Owner-wrapper destruction
-            // via `remove_wrapper` flows through this prune because
-            // the `(e2)` mark-roots fan-out gates Attr marking on
-            // owner-wrapper presence.
-            self.attr_wrapper_cache
-                .retain(|_, attr_id| bit_get(marks, attr_id.0));
-            // `class_list_wrapper_cache` / `dataset_wrapper_cache` —
-            // same prune contract as `attr_wrapper_cache`: drop
-            // entries whose wrapper `ObjectId` was collected this
-            // sweep.  Owner-wrapper destruction flows through the
-            // mark-roots `(e3)` gate.
-            self.class_list_wrapper_cache
-                .retain(|_, id| bit_get(marks, id.0));
-            self.dataset_wrapper_cache
-                .retain(|_, id| bit_get(marks, id.0));
-            // T2a `relList` / `<link>.sizes` DOMTokenList wrapper
-            // identity caches (slot `#11-tags-T2a-url-bearing`,
-            // CRIT-2 Option A — separate per-attr Entity-keyed
-            // caches).  Same prune contract.
-            self.rel_list_wrapper_cache
-                .retain(|_, id| bit_get(marks, id.0));
-            self.link_rel_list_wrapper_cache
-                .retain(|_, id| bit_get(marks, id.0));
-            self.link_sizes_wrapper_cache
-                .retain(|_, id| bit_get(marks, id.0));
-            // Inline `CSSStyleDeclaration` (`Element.style`) cache —
-            // same prune contract: drop entries whose wrapper
-            // `ObjectId` was collected this sweep.  Computed-source
-            // CSSStyleDeclaration wrappers are not cached, so this
-            // single retain covers all PR-A identity-tracked wrappers.
-            self.style_wrapper_cache
-                .retain(|_, id| bit_get(marks, id.0));
-            // CSSOM stylesheet wrappers (`#11-style-declaration` PR-B)
-            // — same prune contract as the PR-A `style_wrapper_cache`.
-            // CSSRuleList / StyleSheetList are fresh-alloc per access
-            // and have no identity cache to prune.
-            self.stylesheet_wrapper_cache
-                .retain(|_, id| bit_get(marks, id.0));
-            self.css_style_rule_wrapper_cache
-                .retain(|_, id| bit_get(marks, id.0));
-            self.rule_style_wrapper_cache
-                .retain(|_, id| bit_get(marks, id.0));
-            // T1-v2 form-control identity caches — `[SameObject]`
-            // semantics for `input.validity` / `select.options` /
-            // `form.elements` (each accessor returns the same
-            // wrapper across reads).  Same prune-by-wrapper-mark
-            // contract as `class_list_wrapper_cache`.
-            self.validity_state_wrappers
-                .retain(|_, id| bit_get(marks, id.0));
-            self.options_collection_wrappers
-                .retain(|_, id| bit_get(marks, id.0));
-            self.form_controls_collection_wrappers
-                .retain(|_, id| bit_get(marks, id.0));
-            // T2b `<map>.areas` `[SameObject]` cache — same
-            // prune-by-wrapper-mark contract.
-            self.map_areas_wrappers.retain(|_, id| bit_get(marks, id.0));
-            // T2c `<table>.rows` / `<table>.tBodies` / section.rows /
-            // `<tr>.cells` `[SameObject]` caches — same prune-by-
-            // wrapper-mark contract as `map_areas_wrappers`.
-            self.table_rows_wrappers
-                .retain(|_, id| bit_get(marks, id.0));
-            self.table_bodies_wrappers
-                .retain(|_, id| bit_get(marks, id.0));
-            self.table_section_rows_wrappers
-                .retain(|_, id| bit_get(marks, id.0));
-            self.table_row_cells_wrappers
-                .retain(|_, id| bit_get(marks, id.0));
-            // T2d `<template>.content` / `<datalist>.options` /
-            // `<output>.htmlFor` `[SameObject]` caches — same
-            // prune-by-wrapper-mark contract as `map_areas_wrappers`.
-            self.template_content_wrappers
-                .retain(|_, id| bit_get(marks, id.0));
-            self.datalist_options_wrappers
-                .retain(|_, id| bit_get(marks, id.0));
-            self.output_html_for_wrappers
-                .retain(|_, id| bit_get(marks, id.0));
-            // D-14 `#11-file-api` — File API side-tables.
-            // `input_files_cache`: KEY is the HTMLInputElement wrapper
-            // ObjectId, VALUE is the per-instance FileList wrapper.
-            // The input wrapper is the owning lifetime — when it's
-            // collected, the cached FileList becomes unreachable.
-            // VALUE-side mark also gets pruned via the standard sweep
-            // path; the KEY-side filter here prevents a recycled input
-            // wrapper slot from inheriting the prior FileList.
-            self.input_files_cache.retain(|input_id, file_list_id| {
-                bit_get(marks, input_id.0) && bit_get(marks, file_list_id.0)
-            });
+            // `#11-wrapper-identity-seam` — ONE sweep-retain over the
+            // unified wrapper-identity store, dispatched by
+            // [`WrapperKind::retain`], replacing the ~24 per-cache
+            // `.retain` sites this consolidated.  The prune predicates
+            // are faithful to the originals:
+            //
+            // - `NeverSweep` (the primary `Node` wrapper): kept here —
+            //   node wrappers are pruned only via `remove_wrapper`
+            //   (despawn), never value-swept.
+            // - `ValueMark` (classList / dataset / Attr / CSSOM /
+            //   collection secondaries): drop iff the wrapper
+            //   `ObjectId` value was collected this sweep.  Owner
+            //   destruction flows through this prune because the
+            //   weak-through-owner mark gate left the value unmarked.
+            // - `ValueAndOwnerMark` (`<input>.files` FileList /
+            //   `DataTransferItem`): drop iff the value OR its owning
+            //   wrapper `ObjectId` (recoverable from `key.owner`) was
+            //   collected — the two-predicate prune that keeps a
+            //   recycled owner slot from inheriting a stale entry.
+            //
+            // Borrow note: `marks` borrows `self.gc_object_marks`,
+            // `host_data` is a disjoint field, so the `&mut` store
+            // borrow does not alias.
+            #[cfg(feature = "engine")]
+            if let Some(hd) = self.host_data.as_deref_mut() {
+                hd.wrapper_store.retain(|key, value| {
+                    match key.kind.retain() {
+                        super::super::wrapper_intern::RetainPredicate::NeverSweep => true,
+                        super::super::wrapper_intern::RetainPredicate::ValueMark => {
+                            bit_get(marks, value.0)
+                        }
+                        super::super::wrapper_intern::RetainPredicate::ValueAndOwnerMark => {
+                            let owner_live = match key.owner {
+                                super::super::wrapper_intern::WrapperOwner::Object(owner_id) => {
+                                    bit_get(marks, owner_id.0)
+                                }
+                                // No `ValueAndOwnerMark` kind is
+                                // entity-owned today; if one is added,
+                                // fall back to value-only liveness.
+                                super::super::wrapper_intern::WrapperOwner::Entity(_) => true,
+                            };
+                            bit_get(marks, value.0) && owner_live
+                        }
+                    }
+                });
+            }
             // `file_data` / `file_list_data` / `file_reader_data` —
             // payload side-tables keyed by the instance's own
             // ObjectId.  Standard prune-by-key-mark contract.  Phase

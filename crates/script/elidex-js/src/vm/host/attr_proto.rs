@@ -18,8 +18,8 @@
 //!
 //! ## Identity
 //!
-//! Live `Attr` wrappers are interned in
-//! [`VmInner::attr_wrapper_cache`] keyed by
+//! Live `Attr` wrappers are interned in the unified wrapper store
+//! (`WrapperKind::Attr`) keyed by
 //! `(owner Element entity, qualified-name StringId)`, so repeated
 //! `getAttributeNode('id')` returns the same `ObjectId` (matches
 //! Chrome / Firefox / Safari).  The qualified-name `StringId` is
@@ -83,6 +83,7 @@ use super::super::shape;
 use super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, VmError,
 };
+use super::super::wrapper_intern::{WrapperKey, WrapperKind};
 use super::super::{NativeFn, StringId, VmInner};
 
 /// `(owner Element, qualified-name StringId, detached snapshot)`
@@ -200,16 +201,16 @@ impl VmInner {
         owner: Entity,
         qualified_name: StringId,
     ) -> ObjectId {
-        if let Some(&id) = self.attr_wrapper_cache.get(&(owner, qualified_name)) {
-            return id;
-        }
-        let id = self.alloc_attr(AttrState {
-            owner,
-            qualified_name,
-            detached_value: None,
-        });
-        self.attr_wrapper_cache.insert((owner, qualified_name), id);
-        id
+        self.intern_wrapper(
+            WrapperKey::entity_named(owner, WrapperKind::Attr, qualified_name),
+            |vm| {
+                vm.alloc_attr(AttrState {
+                    owner,
+                    qualified_name,
+                    detached_value: None,
+                })
+            },
+        )
     }
 
     /// Drop the cached `Attr` wrapper for `(owner, qualified_name)`
@@ -221,7 +222,13 @@ impl VmInner {
     /// wrapper distinct from any caller-held handle to the prior
     /// incarnation.  No-op when no entry exists.
     pub(crate) fn invalidate_attr_cache_entry(&mut self, owner: Entity, qualified_name: StringId) {
-        self.attr_wrapper_cache.remove(&(owner, qualified_name));
+        if let Some(hd) = self.host_data.as_deref_mut() {
+            hd.wrapper_store.remove(&WrapperKey::entity_named(
+                owner,
+                WrapperKind::Attr,
+                qualified_name,
+            ));
+        }
     }
 }
 

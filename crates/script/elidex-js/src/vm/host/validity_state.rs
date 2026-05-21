@@ -9,8 +9,8 @@
 //! [`elidex_form::FormControlState::custom_validity_message`] —
 //! no standalone HashMap.
 //!
-//! The `[SameObject]` cache lives in
-//! [`super::super::VmInner::validity_state_wrappers`]; sweep-pruned
+//! The `[SameObject]` wrapper is interned in the unified wrapper
+//! store under `WrapperKind::ValidityState`; sweep-pruned
 //! weak-through-owner.
 
 #![cfg(feature = "engine")]
@@ -19,6 +19,7 @@ use super::super::shape;
 use super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, VmError,
 };
+use super::super::wrapper_intern::{WrapperKey, WrapperKind};
 use super::super::{NativeFn, VmInner};
 
 use elidex_ecs::Entity;
@@ -354,22 +355,22 @@ fn require_form_control_receiver(
 }
 
 fn alloc_validity_wrapper(vm: &mut VmInner, entity: Entity) -> ObjectId {
-    if let Some(&existing) = vm.validity_state_wrappers.get(&entity) {
-        return existing;
-    }
-    let proto = vm
-        .validity_state_prototype
-        .expect("alloc_validity_wrapper before register_validity_state_prototype");
-    let id = vm.alloc_object(Object {
-        kind: ObjectKind::ValidityState {
-            entity_bits: entity.to_bits().get(),
+    vm.intern_wrapper(
+        WrapperKey::entity(entity, WrapperKind::ValidityState),
+        |vm| {
+            let proto = vm
+                .validity_state_prototype
+                .expect("alloc_validity_wrapper before register_validity_state_prototype");
+            vm.alloc_object(Object {
+                kind: ObjectKind::ValidityState {
+                    entity_bits: entity.to_bits().get(),
+                },
+                storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+                prototype: Some(proto),
+                extensible: false,
+            })
         },
-        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-        prototype: Some(proto),
-        extensible: false,
-    });
-    vm.validity_state_wrappers.insert(entity, id);
-    id
+    )
 }
 
 fn native_get_validity(

@@ -8,8 +8,8 @@
 //! - `type` — string reflect (no enumerated canonicalisation; spec
 //!   §4.2.6 leaves the value uninterpreted at the IDL surface).
 //! - `sheet` — `[SameObject]` `CSSStyleSheet` wrapper from PR-B's
-//!   [`super::cssom_sheet::native_html_style_get_sheet`] (uses the
-//!   existing [`super::super::VmInner::stylesheet_wrapper_cache`]).
+//!   [`super::cssom_sheet::native_html_style_get_sheet`] (interned
+//!   under `WrapperKind::StyleSheet`).
 //!
 //! `disabled` is intentionally NOT installed: HTML §4.2.6 +
 //! CSSOM §6.2 specify shared cascade-application semantics with

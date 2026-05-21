@@ -104,23 +104,43 @@ impl WrapperKey {
     /// Entity-owned wrapper with no secondary discriminator (classList,
     /// dataset, style, the collections, the primary Node, …).
     pub(crate) fn entity(owner: Entity, kind: WrapperKind) -> Self {
-        Self { owner: WrapperOwner::Entity(owner), kind, subkey: WrapperSubkey::None }
+        Self {
+            owner: WrapperOwner::Entity(owner),
+            kind,
+            subkey: WrapperSubkey::None,
+        }
     }
     /// Entity-owned wrapper with a name subkey (`Attr`).
     pub(crate) fn entity_named(owner: Entity, kind: WrapperKind, name: StringId) -> Self {
-        Self { owner: WrapperOwner::Entity(owner), kind, subkey: WrapperSubkey::Name(name) }
+        Self {
+            owner: WrapperOwner::Entity(owner),
+            kind,
+            subkey: WrapperSubkey::Name(name),
+        }
     }
     /// Entity-owned wrapper with a CSSOM rule-id subkey.
     pub(crate) fn entity_rule(owner: Entity, kind: WrapperKind, rule_id: u64) -> Self {
-        Self { owner: WrapperOwner::Entity(owner), kind, subkey: WrapperSubkey::RuleId(rule_id) }
+        Self {
+            owner: WrapperOwner::Entity(owner),
+            kind,
+            subkey: WrapperSubkey::RuleId(rule_id),
+        }
     }
     /// Object-owned wrapper with no secondary discriminator (`FileList`).
     pub(crate) fn object(owner: ObjectId, kind: WrapperKind) -> Self {
-        Self { owner: WrapperOwner::Object(owner), kind, subkey: WrapperSubkey::None }
+        Self {
+            owner: WrapperOwner::Object(owner),
+            kind,
+            subkey: WrapperSubkey::None,
+        }
     }
     /// Object-owned wrapper with an index subkey (`DataTransferItem`).
     pub(crate) fn object_indexed(owner: ObjectId, kind: WrapperKind, index: u32) -> Self {
-        Self { owner: WrapperOwner::Object(owner), kind, subkey: WrapperSubkey::Index(index) }
+        Self {
+            owner: WrapperOwner::Object(owner),
+            kind,
+            subkey: WrapperSubkey::Index(index),
+        }
     }
 }
 
@@ -200,25 +220,38 @@ impl super::VmInner {
 
 impl WrapperKind {
     pub(crate) fn mark_agent(self) -> MarkAgent {
-        use WrapperKind::*;
         match self {
-            Node => MarkAgent::StrongRoot,
-            CssStyleRule | RuleStyle => MarkAgent::WeakViaOwnerEntityAndRuleId,
-            FileList => MarkAgent::ViaOwnerTrace,
-            DataTransferItem => MarkAgent::NoProactiveMark,
+            Self::Node => MarkAgent::StrongRoot,
+            Self::CssStyleRule | Self::RuleStyle => MarkAgent::WeakViaOwnerEntityAndRuleId,
+            Self::FileList => MarkAgent::ViaOwnerTrace,
+            Self::DataTransferItem => MarkAgent::NoProactiveMark,
             // All other entity-owned secondaries.
-            Attr | ClassList | Dataset | RelList | LinkRelList | LinkSizes | OutputHtmlFor
-            | InlineStyle | StyleSheet | ValidityState | OptionsCollection
-            | FormControlsCollection | MapAreas | TableRows | TableBodies | TableSectionRows
-            | TableRowCells | TemplateContent | DatalistOptions => MarkAgent::WeakViaOwnerEntity,
+            Self::Attr
+            | Self::ClassList
+            | Self::Dataset
+            | Self::RelList
+            | Self::LinkRelList
+            | Self::LinkSizes
+            | Self::OutputHtmlFor
+            | Self::InlineStyle
+            | Self::StyleSheet
+            | Self::ValidityState
+            | Self::OptionsCollection
+            | Self::FormControlsCollection
+            | Self::MapAreas
+            | Self::TableRows
+            | Self::TableBodies
+            | Self::TableSectionRows
+            | Self::TableRowCells
+            | Self::TemplateContent
+            | Self::DatalistOptions => MarkAgent::WeakViaOwnerEntity,
         }
     }
 
     pub(crate) fn retain(self) -> RetainPredicate {
-        use WrapperKind::*;
         match self {
-            Node => RetainPredicate::NeverSweep,
-            FileList | DataTransferItem => RetainPredicate::ValueAndOwnerMark,
+            Self::Node => RetainPredicate::NeverSweep,
+            Self::FileList | Self::DataTransferItem => RetainPredicate::ValueAndOwnerMark,
             _ => RetainPredicate::ValueMark,
         }
     }

@@ -6,7 +6,7 @@
 //!
 //! - `htmlFor` — `[SameObject, PutForwards=value]` DOMTokenList backed
 //!   by the `for` content attribute.  Identity is preserved per
-//!   `[SameObject]` via [`VmInner::output_html_for_wrappers`]; the
+//!   `[SameObject]` by interning under `WrapperKind::OutputHtmlFor`; the
 //!   getter surfaces the cached DOMTokenList wrapper.  The
 //!   `[PutForwards=value]` semantic is implemented by an explicit
 //!   accessor setter (`output_set_html_for`) that ToString-coerces

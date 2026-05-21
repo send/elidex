@@ -12,8 +12,8 @@
 //! ## Backing state
 //!
 //! [`ObjectKind::CSSStyleDeclaration`] carries `(source, key_bits)` inline:
-//! - `source = 0` (Inline): `key_bits` = owner Entity bits, mutable, identity-
-//!   cached per Entity via [`VmInner::style_wrapper_cache`] so
+//! - `source = 0` (Inline): `key_bits` = owner Entity bits, mutable, interned
+//!   per Entity under `WrapperKind::InlineStyle` so
 //!   `el.style === el.style` (CSSOM §6.6 `[SameObject]`).
 //! - `source = 1` (Computed): `key_bits` = owner Entity bits, read-only,
 //!   freshly allocated on each `getComputedStyle` call (matches WPT — the
@@ -59,6 +59,7 @@ use super::super::shape;
 use super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, VmError,
 };
+use super::super::wrapper_intern::{WrapperKey, WrapperKind};
 use super::super::{NativeFn, VmInner};
 use super::dom_bridge::{coerce_first_arg_to_string_id, invoke_dom_api};
 use super::named_property_exotic::{coerce_key_or_none, is_bound, key_on_prototype_chain};
@@ -146,23 +147,20 @@ impl VmInner {
     /// Allocate (or return cached) Inline `CSSStyleDeclaration` wrapper for
     /// `owner`.  CSSOM §6.6 `[SameObject]`: `el.style === el.style`.
     pub(crate) fn alloc_or_cached_style(&mut self, owner: Entity) -> ObjectId {
-        if let Some(&id) = self.style_wrapper_cache.get(&owner) {
-            return id;
-        }
-        let proto = self
-            .css_style_declaration_prototype
-            .expect("alloc_or_cached_style before register_css_style_declaration_prototype");
-        let id = self.alloc_object(Object {
-            kind: ObjectKind::CSSStyleDeclaration {
-                source: SOURCE_INLINE,
-                key_bits: owner.to_bits().get(),
-            },
-            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            prototype: Some(proto),
-            extensible: false,
-        });
-        self.style_wrapper_cache.insert(owner, id);
-        id
+        self.intern_wrapper(WrapperKey::entity(owner, WrapperKind::InlineStyle), |vm| {
+            let proto = vm
+                .css_style_declaration_prototype
+                .expect("alloc_or_cached_style before register_css_style_declaration_prototype");
+            vm.alloc_object(Object {
+                kind: ObjectKind::CSSStyleDeclaration {
+                    source: SOURCE_INLINE,
+                    key_bits: owner.to_bits().get(),
+                },
+                storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+                prototype: Some(proto),
+                extensible: false,
+            })
+        })
     }
 
     /// Allocate a *fresh* read-only `CSSStyleDeclaration` wrapper for

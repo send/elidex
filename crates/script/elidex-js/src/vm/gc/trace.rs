@@ -106,12 +106,17 @@ pub(super) fn trace_work_list(
         ObjectId,
         super::super::host::file_reader::FileReaderSideData,
     >,
-    // `<input type=file>.files` `[SameObject]` cache.  When the
-    // HTMLInputElement wrapper is marked, the cached FileList must
-    // be marked too — otherwise the cache entry gets sweep-pruned
-    // and the next `input.files` read allocates a fresh wrapper,
-    // breaking `input.files === input.files` across GC.
-    #[cfg(feature = "engine")] input_files_cache: &std::collections::HashMap<ObjectId, ObjectId>,
+    // `#11-wrapper-identity-seam` — unified wrapper-identity store.
+    // The `<input type=file>.files` FileList `[SameObject]` cache lives
+    // here keyed by `WrapperKey::object(input_id, FileList)`: when the
+    // HTMLInputElement `HostObject` is marked, its cached FileList must
+    // be marked too (`MarkAgent::ViaOwnerTrace`) — otherwise the entry
+    // gets sweep-pruned and the next `input.files` read allocates a
+    // fresh wrapper, breaking `input.files === input.files` across GC.
+    #[cfg(feature = "engine")] wrapper_store: &std::collections::HashMap<
+        super::super::wrapper_intern::WrapperKey,
+        ObjectId,
+    >,
     // D-12 `#11-net-ws-sse` — WebSocket / EventSource handler ObjectId
     // fan-out.  Each WebSocket arm walks the 4 `on*` handler slots
     // held in the side-table; each EventSource arm walks the 3 `on*`
@@ -327,7 +332,12 @@ pub(super) fn trace_work_list(
             // observed, so this stays close to a no-op in common case.
             ObjectKind::HostObject { .. } => {
                 #[cfg(feature = "engine")]
-                if let Some(&file_list_id) = input_files_cache.get(&ObjectId(obj_idx)) {
+                if let Some(&file_list_id) =
+                    wrapper_store.get(&super::super::wrapper_intern::WrapperKey::object(
+                        ObjectId(obj_idx),
+                        super::super::wrapper_intern::WrapperKind::FileList,
+                    ))
+                {
                     mark_object(file_list_id, obj_marks, work);
                 }
             }

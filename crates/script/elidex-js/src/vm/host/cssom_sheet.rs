@@ -38,6 +38,7 @@ use super::super::shape;
 use super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, VmError,
 };
+use super::super::wrapper_intern::{WrapperKey, WrapperKind};
 use super::super::{NativeFn, VmInner};
 use super::dom_bridge::{coerce_first_arg_to_string_id, invoke_dom_api};
 
@@ -173,22 +174,19 @@ impl VmInner {
     /// Allocate (or return cached) `CSSStyleSheet` wrapper for `<style>`
     /// `owner`.  CSSOM §6.2 `[SameObject]` for `HTMLStyleElement.sheet`.
     pub(crate) fn alloc_or_cached_stylesheet(&mut self, owner: Entity) -> ObjectId {
-        if let Some(&id) = self.stylesheet_wrapper_cache.get(&owner) {
-            return id;
-        }
-        let proto = self
-            .css_stylesheet_prototype
-            .expect("alloc_or_cached_stylesheet before register_cssom_sheet_prototypes");
-        let id = self.alloc_object(Object {
-            kind: ObjectKind::CSSStyleSheet {
-                entity_bits: owner.to_bits().get(),
-            },
-            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            prototype: Some(proto),
-            extensible: false,
-        });
-        self.stylesheet_wrapper_cache.insert(owner, id);
-        id
+        self.intern_wrapper(WrapperKey::entity(owner, WrapperKind::StyleSheet), |vm| {
+            let proto = vm
+                .css_stylesheet_prototype
+                .expect("alloc_or_cached_stylesheet before register_cssom_sheet_prototypes");
+            vm.alloc_object(Object {
+                kind: ObjectKind::CSSStyleSheet {
+                    entity_bits: owner.to_bits().get(),
+                },
+                storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+                prototype: Some(proto),
+                extensible: false,
+            })
+        })
     }
 
     /// Allocate a fresh `CSSRuleList` wrapper.  Not cached (matches WPT
@@ -214,47 +212,46 @@ impl VmInner {
         sheet: Entity,
         rule_id: u64,
     ) -> ObjectId {
-        if let Some(&id) = self.css_style_rule_wrapper_cache.get(&(sheet, rule_id)) {
-            return id;
-        }
-        let proto = self
-            .css_style_rule_prototype
-            .expect("alloc_or_cached_css_style_rule before register_cssom_sheet_prototypes");
-        let id = self.alloc_object(Object {
-            kind: ObjectKind::CSSStyleRule {
-                sheet_entity_bits: sheet.to_bits().get(),
-                rule_id,
+        self.intern_wrapper(
+            WrapperKey::entity_rule(sheet, WrapperKind::CssStyleRule, rule_id),
+            |vm| {
+                let proto = vm.css_style_rule_prototype.expect(
+                    "alloc_or_cached_css_style_rule before register_cssom_sheet_prototypes",
+                );
+                vm.alloc_object(Object {
+                    kind: ObjectKind::CSSStyleRule {
+                        sheet_entity_bits: sheet.to_bits().get(),
+                        rule_id,
+                    },
+                    storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+                    prototype: Some(proto),
+                    extensible: false,
+                })
             },
-            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            prototype: Some(proto),
-            extensible: false,
-        });
-        self.css_style_rule_wrapper_cache
-            .insert((sheet, rule_id), id);
-        id
+        )
     }
 
     /// Allocate (or return cached) Rule-source `CSSStyleDeclaration` wrapper
     /// for `(sheet, rule_id)`.  Chains to the shared
     /// `CSSStyleDeclaration.prototype` from PR-A.
     pub(crate) fn alloc_or_cached_rule_style(&mut self, sheet: Entity, rule_id: u64) -> ObjectId {
-        if let Some(&id) = self.rule_style_wrapper_cache.get(&(sheet, rule_id)) {
-            return id;
-        }
-        let proto = self
-            .css_style_declaration_prototype
-            .expect("alloc_or_cached_rule_style before register_css_style_declaration_prototype");
-        let id = self.alloc_object(Object {
-            kind: ObjectKind::CSSRuleStyleDeclaration {
-                sheet_entity_bits: sheet.to_bits().get(),
-                rule_id,
+        self.intern_wrapper(
+            WrapperKey::entity_rule(sheet, WrapperKind::RuleStyle, rule_id),
+            |vm| {
+                let proto = vm.css_style_declaration_prototype.expect(
+                    "alloc_or_cached_rule_style before register_css_style_declaration_prototype",
+                );
+                vm.alloc_object(Object {
+                    kind: ObjectKind::CSSRuleStyleDeclaration {
+                        sheet_entity_bits: sheet.to_bits().get(),
+                        rule_id,
+                    },
+                    storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+                    prototype: Some(proto),
+                    extensible: false,
+                })
             },
-            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            prototype: Some(proto),
-            extensible: false,
-        });
-        self.rule_style_wrapper_cache.insert((sheet, rule_id), id);
-        id
+        )
     }
 
     /// Allocate a fresh `StyleSheetList` wrapper.  Not cached.

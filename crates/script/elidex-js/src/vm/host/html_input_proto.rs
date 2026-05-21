@@ -76,6 +76,7 @@
 
 use super::super::shape;
 use super::super::value::{JsValue, NativeContext, Object, ObjectKind, PropertyStorage, VmError};
+use super::super::wrapper_intern::{WrapperKey, WrapperKind};
 use super::super::{NativeFn, VmInner};
 
 use elidex_ecs::{Entity, NodeKind};
@@ -905,9 +906,10 @@ fn native_input_get_files(
     // §4.10.5.1.18 — `input.files` is an empty FileList when no files
     // are staged, never null while the input remains a `type=file`.
     //
-    // Identity-stable via `VmInner::input_files_cache`: repeated reads
-    // of `input.files` return the same `ObjectId` per spec
-    // `[SameObject]` semantics.
+    // Identity-stable via the unified wrapper store keyed by
+    // `WrapperKey::object(input_id, FileList)`: repeated reads of
+    // `input.files` return the same `ObjectId` per spec `[SameObject]`
+    // semantics.
     //
     // **Always empty for now** — shell-side file picker UI integration
     // (the "staged files" Vec on the FormControlState) is deferred to
@@ -925,11 +927,11 @@ fn native_input_get_files(
     let JsValue::Object(input_id) = this else {
         unreachable!("require_input_receiver returned Ok for non-Object this")
     };
-    if let Some(cached) = ctx.vm.input_files_cache.get(&input_id).copied() {
-        return Ok(JsValue::Object(cached));
-    }
-    let file_list_id = super::file_list::create_file_list_from_ids(ctx.vm, Vec::new());
-    ctx.vm.input_files_cache.insert(input_id, file_list_id);
+    let file_list_id = ctx
+        .vm
+        .intern_wrapper(WrapperKey::object(input_id, WrapperKind::FileList), |vm| {
+            super::file_list::create_file_list_from_ids(vm, Vec::new())
+        });
     Ok(JsValue::Object(file_list_id))
 }
 

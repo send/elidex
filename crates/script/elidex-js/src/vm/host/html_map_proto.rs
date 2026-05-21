@@ -8,8 +8,7 @@
 //!   are visible through the same wrapper.  Backed by
 //!   [`elidex_dom_api::live_collection::LiveCollection`] with
 //!   `CollectionFilter::ByTagName("area")` rooted at the `<map>`
-//!   entity, identity-cached per
-//!   [`super::super::VmInner::map_areas_wrappers`].
+//!   entity, interned under `WrapperKind::MapAreas`.
 //!
 //! Deprecated alias `<map>.images` is intentionally not surfaced —
 //! it's been a no-op in browsers since IE6 and does not appear in
@@ -28,6 +27,7 @@ use elidex_ecs::{Entity, NodeKind};
 
 use super::super::shape;
 use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
+use super::super::wrapper_intern::{WrapperKey, WrapperKind};
 use super::super::VmInner;
 use super::dom_bridge::{coerce_first_arg_to_string_id, invoke_dom_api};
 
@@ -61,17 +61,14 @@ impl VmInner {
     /// for `owner`.  HTML §4.8.13 mandates `[SameObject]` so two
     /// reads of `m.areas` return the identical `ObjectId`.
     pub(crate) fn alloc_or_cached_map_areas(&mut self, owner: Entity) -> ObjectId {
-        if let Some(&id) = self.map_areas_wrappers.get(&owner) {
-            return id;
-        }
-        let coll = LiveCollection::new(
-            owner,
-            CollectionFilter::ByTagName("area".to_string()),
-            CollectionKind::HtmlCollection,
-        );
-        let id = self.alloc_collection(coll);
-        self.map_areas_wrappers.insert(owner, id);
-        id
+        self.intern_wrapper(WrapperKey::entity(owner, WrapperKind::MapAreas), |vm| {
+            let coll = LiveCollection::new(
+                owner,
+                CollectionFilter::ByTagName("area".to_string()),
+                CollectionKind::HtmlCollection,
+            );
+            vm.alloc_collection(coll)
+        })
     }
 }
 

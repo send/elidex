@@ -6,7 +6,7 @@
 //! - `options` — `[SameObject]` HTMLCollection of descendant `<option>`
 //!   elements.  Reuses the existing `CollectionFilter::Options` filter
 //!   (same shape as `<select>.options`).  Identity is preserved per
-//!   `[SameObject]` via [`VmInner::datalist_options_wrappers`].
+//!   `[SameObject]` by interning under `WrapperKind::DatalistOptions`.
 //!
 //! `<input>.list` back-reference is deferred to slot
 //! `#11-tags-T2d-input-list` (the `<input>.list` accessor still
@@ -24,6 +24,7 @@ use elidex_ecs::{Entity, NodeKind};
 
 use super::super::shape;
 use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
+use super::super::wrapper_intern::{WrapperKey, WrapperKind};
 use super::super::VmInner;
 
 impl VmInner {
@@ -47,17 +48,17 @@ impl VmInner {
     /// Allocate (or return cached) `<datalist>.options` HTMLCollection
     /// wrapper.  HTML §4.10.10 mandates `[SameObject]`.
     pub(crate) fn alloc_or_cached_datalist_options(&mut self, owner: Entity) -> ObjectId {
-        if let Some(&id) = self.datalist_options_wrappers.get(&owner) {
-            return id;
-        }
-        let coll = LiveCollection::new(
-            owner,
-            CollectionFilter::Options,
-            CollectionKind::HtmlCollection,
-        );
-        let id = self.alloc_collection(coll);
-        self.datalist_options_wrappers.insert(owner, id);
-        id
+        self.intern_wrapper(
+            WrapperKey::entity(owner, WrapperKind::DatalistOptions),
+            |vm| {
+                let coll = LiveCollection::new(
+                    owner,
+                    CollectionFilter::Options,
+                    CollectionKind::HtmlCollection,
+                );
+                vm.alloc_collection(coll)
+            },
+        )
     }
 }
 

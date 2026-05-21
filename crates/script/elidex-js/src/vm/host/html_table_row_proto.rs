@@ -10,8 +10,7 @@
 //!   rows list.  Returns `-1` if the parent is not
 //!   `<thead>`/`<tbody>`/`<tfoot>`.
 //! - `cells` — `[SameObject]` HTMLCollection of direct `<td>`/`<th>`
-//!   children, identity-cached per
-//!   [`super::super::VmInner::table_row_cells_wrappers`].
+//!   children, interned under `WrapperKind::TableRowCells`.
 //! - `insertCell(index?)` / `deleteCell(index)` — mutation methods
 //!   per HTML §4.9.8, dispatched through the `row.insertCell` /
 //!   `row.deleteCell` registry handlers.
@@ -28,6 +27,7 @@ use elidex_ecs::{Entity, NodeKind};
 
 use super::super::shape;
 use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
+use super::super::wrapper_intern::{WrapperKey, WrapperKind};
 use super::super::VmInner;
 use super::dom_bridge::invoke_dom_api;
 use super::idl_coerce::{coerce_long_idl_arg, coerce_optional_long_idl_arg};
@@ -60,17 +60,17 @@ impl VmInner {
     /// Allocate (or return cached) `<tr>.cells` HTMLCollection wrapper.
     /// HTML §4.9.8 mandates `[SameObject]`.
     pub(crate) fn alloc_or_cached_table_row_cells(&mut self, owner: Entity) -> ObjectId {
-        if let Some(&id) = self.table_row_cells_wrappers.get(&owner) {
-            return id;
-        }
-        let coll = LiveCollection::new(
-            owner,
-            CollectionFilter::DirectChildrenByTagName(vec!["td".into(), "th".into()]),
-            CollectionKind::HtmlCollection,
-        );
-        let id = self.alloc_collection(coll);
-        self.table_row_cells_wrappers.insert(owner, id);
-        id
+        self.intern_wrapper(
+            WrapperKey::entity(owner, WrapperKind::TableRowCells),
+            |vm| {
+                let coll = LiveCollection::new(
+                    owner,
+                    CollectionFilter::DirectChildrenByTagName(vec!["td".into(), "th".into()]),
+                    CollectionKind::HtmlCollection,
+                );
+                vm.alloc_collection(coll)
+            },
+        )
     }
 }
 

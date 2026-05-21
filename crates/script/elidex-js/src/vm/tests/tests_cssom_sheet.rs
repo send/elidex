@@ -20,7 +20,16 @@ use elidex_script_session::SessionCore;
 
 use super::super::test_helpers::bind_vm;
 use super::super::value::JsValue;
+use super::super::wrapper_intern::WrapperKind;
 use super::super::Vm;
+
+/// Count interned wrappers of `kind` in the unified wrapper store
+/// (`#11-wrapper-identity-seam`).
+fn count_wrapper_kind(vm: &Vm, kind: WrapperKind) -> usize {
+    vm.inner.host_data.as_deref().map_or(0, |hd| {
+        hd.wrapper_store.keys().filter(|k| k.kind == kind).count()
+    })
+}
 
 fn build_doc_with_style(dom: &mut EcsDom, css: &str) -> elidex_ecs::Entity {
     let doc = dom.create_document_root();
@@ -278,8 +287,8 @@ fn rule_style_set_property_is_silent_noop() {
 
 #[test]
 fn deleted_rule_wrapper_caches_drop_after_gc() {
-    // R9 IMP regression: rule-keyed wrapper caches
-    // (`css_style_rule_wrapper_cache` / `rule_style_wrapper_cache`)
+    // R9 IMP regression: rule-keyed interned wrappers
+    // (`WrapperKind::CssStyleRule` / `RuleStyle`)
     // must not pin entries for rule_ids no longer in the parsed
     // sheet.  Mark-roots gates on `active_cssom_rule_ids`, so a
     // wrapper for a `deleteRule`'d rule_id (no live JS reference)
@@ -302,7 +311,7 @@ fn deleted_rule_wrapper_caches_drop_after_gc() {
          var _2 = s.sheet.cssRules[2];",
     )
     .unwrap();
-    let populated_count = vm.inner.css_style_rule_wrapper_cache.len();
+    let populated_count = count_wrapper_kind(&vm, WrapperKind::CssStyleRule);
     assert_eq!(populated_count, 3, "all three rule wrappers cached");
 
     // Delete one rule + drop all JS-side references to the rule
@@ -314,7 +323,7 @@ fn deleted_rule_wrapper_caches_drop_after_gc() {
     // the wrappers whose JS references we cleared should be
     // collectable.  The mark-roots gate ensures rule_ids absent from
     // the new parsed sheet are not pinned via owner-`<style>`.
-    let after_count = vm.inner.css_style_rule_wrapper_cache.len();
+    let after_count = count_wrapper_kind(&vm, WrapperKind::CssStyleRule);
     assert!(
         after_count < populated_count,
         "expected wrapper cache to shrink after deleteRule + GC: {populated_count} → {after_count}"

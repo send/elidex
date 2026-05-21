@@ -38,11 +38,12 @@
 //!
 //! ## Identity
 //!
-//! `el.classList === el.classList` is preserved via
-//! [`VmInner::class_list_wrapper_cache`] keyed by owner `Entity` —
-//! a hit returns the same `ObjectId`, a miss allocates and inserts.
-//! The cache is weak through the owner element wrapper (see
-//! `gc/roots.rs` step `(e3)`); a dropped element releases its
+//! `el.classList === el.classList` is preserved by interning the
+//! wrapper in the unified wrapper store (`WrapperKind::ClassList`)
+//! keyed by owner `Entity` — a hit returns the same `ObjectId`, a
+//! miss allocates and inserts.  The entry is weak through the owner
+//! element wrapper (the seam mark loop in `gc/roots.rs` gates on the
+//! owner's primary `Node` wrapper); a dropped element releases its
 //! classList wrapper in the same GC.
 //!
 //! ## Indexed-property exotic
@@ -160,12 +161,13 @@ impl VmInner {
 
     /// Allocate / fetch a `DOMTokenList` wrapper for `<output>.htmlFor`
     /// (slot `#11-tags-T2d-interactive`).  Backed by the `for` content
-    /// attribute; identity is preserved per `[SameObject]` via
-    /// [`Self::output_html_for_wrappers`].
+    /// attribute; identity is preserved per `[SameObject]` by
+    /// interning under `WrapperKind::OutputHtmlFor`.
     pub(crate) fn alloc_or_cached_output_html_for(&mut self, owner: Entity) -> ObjectId {
-        self.intern_wrapper(WrapperKey::entity(owner, WrapperKind::OutputHtmlFor), |vm| {
-            vm.alloc_dom_token_list(owner, DomTokenListSource::OutputHtmlFor)
-        })
+        self.intern_wrapper(
+            WrapperKey::entity(owner, WrapperKind::OutputHtmlFor),
+            |vm| vm.alloc_dom_token_list(owner, DomTokenListSource::OutputHtmlFor),
+        )
     }
 
     fn alloc_dom_token_list(&mut self, owner: Entity, source: DomTokenListSource) -> ObjectId {

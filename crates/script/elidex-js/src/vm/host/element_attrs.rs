@@ -16,6 +16,7 @@
 #![cfg(feature = "engine")]
 
 use super::super::value::{JsValue, NativeContext, ObjectKind, VmError};
+use super::super::wrapper_intern::{WrapperKey, WrapperKind};
 use super::dom_bridge::{
     coerce_first_arg_to_string, coerce_first_arg_to_string_id, invoke_dom_api,
 };
@@ -167,7 +168,11 @@ pub(super) fn attr_remove(ctx: &mut NativeContext<'_>, entity: Entity, name: &st
     // Probe the wrapper cache before any subsequent `attr_states`
     // borrow — `.copied()` drops the `&ObjectId` borrow into the
     // map so the later `attr_states.get_mut` is conflict-free.
-    let cached_attr_id = ctx.vm.attr_wrapper_cache.get(&(entity, qname_sid)).copied();
+    let cached_attr_id = ctx.vm.get_wrapper(WrapperKey::entity_named(
+        entity,
+        WrapperKind::Attr,
+        qname_sid,
+    ));
     if let Some(host) = ctx.host_if_bound() {
         host.dom().remove_attribute(entity, name);
     }
@@ -427,9 +432,12 @@ pub(super) fn native_element_set_attribute_node(
                 state_mut.detached_value = None;
             }
         }
-        ctx.vm
-            .attr_wrapper_cache
-            .insert((entity, qname_sid), attr_id);
+        if let Some(hd) = ctx.vm.host_data.as_deref_mut() {
+            hd.wrapper_store.insert(
+                WrapperKey::entity_named(entity, WrapperKind::Attr, qname_sid),
+                attr_id,
+            );
+        }
     } else {
         ctx.vm.invalidate_attr_cache_entry(entity, qname_sid);
     }
