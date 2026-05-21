@@ -245,12 +245,18 @@ pub(crate) fn create_typed_array_from_bytes(
     bytes: Vec<u8>,
     ek: ElementKind,
 ) -> Result<ObjectId, VmError> {
-    debug_assert_eq!(
-        bytes.len() % usize::from(ek.bytes_per_element()),
-        0,
-        "create_typed_array_from_bytes: byte length {} is not a whole number of {ek:?} elements",
-        bytes.len()
-    );
+    // The generic API admits any `ElementKind`, so enforce the whole-number-of-
+    // elements invariant at runtime (not just `debug_assert`) — a `byte_length`
+    // that isn't a multiple of the element size would desync the view's element
+    // count from its backing buffer for any >1-byte kind.
+    if !bytes
+        .len()
+        .is_multiple_of(usize::from(ek.bytes_per_element()))
+    {
+        return Err(VmError::range_error(
+            "typed array byte length is not a whole number of elements",
+        ));
+    }
     let byte_length = u32::try_from(bytes.len())
         .map_err(|_| VmError::range_error("typed array byte length exceeds 4 GiB"))?;
     let buffer_id = create_array_buffer_from_bytes(vm, bytes);

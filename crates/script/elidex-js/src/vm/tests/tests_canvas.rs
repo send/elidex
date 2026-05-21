@@ -310,6 +310,19 @@ fn put_image_data_rejects_spoofed_and_mismatched() {
                 "{ctx} ctx.putImageData({{width: 2, height: 2, data: new Uint8ClampedArray(4)}}, 0, 0);"
             ))
             .is_err());
+        // Spoofed zero-dimension object (0*0*4 == data.length == 0) must NOT
+        // slip the length check — real ImageData has positive integral dims.
+        assert!(vm
+            .eval(&format!(
+                "{ctx} ctx.putImageData({{width: 0, height: 0, data: new Uint8ClampedArray(0)}}, 0, 0);"
+            ))
+            .is_err());
+        // Fractional dimensions are likewise not a real ImageData.
+        assert!(vm
+            .eval(&format!(
+                "{ctx} ctx.putImageData({{width: 2.5, height: 2, data: new Uint8ClampedArray(20)}}, 0, 0);"
+            ))
+            .is_err());
         // A real ImageData round-trips.
         assert!(vm
             .eval(&format!(

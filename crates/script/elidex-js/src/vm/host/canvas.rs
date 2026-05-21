@@ -1023,10 +1023,14 @@ fn read_image_data_object(
     let width = ctx.get_property_value(id, PropertyKey::String(width_sid))?;
     let height = ctx.get_property_value(id, PropertyKey::String(height_sid))?;
     let data = ctx.get_property_value(id, PropertyKey::String(data_sid))?;
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let width = coerce::to_number(ctx.vm, width)? as u32;
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let height = coerce::to_number(ctx.vm, height)? as u32;
+    // A real `ImageData` has positive integral u32 dimensions; reject anything
+    // else (zero / fractional / non-finite / out-of-range) as not-an-ImageData
+    // so a spoofed `{width: 0, height: 0, data: <empty>}` cannot satisfy the
+    // `data.length == width*height*4` invariant below by trivial `0 == 0`.
+    let width =
+        image_data_dim_value(coerce::to_number(ctx.vm, width)?).ok_or_else(not_image_data)?;
+    let height =
+        image_data_dim_value(coerce::to_number(ctx.vm, height)?).ok_or_else(not_image_data)?;
     let JsValue::Object(data_id) = data else {
         return Err(not_image_data());
     };
@@ -1049,6 +1053,18 @@ fn read_image_data_object(
         return Err(not_image_data());
     }
     Ok((width, height, bytes))
+}
+
+/// Validate an `ImageData` `width`/`height` own property: a positive integral
+/// value within `u32` range (the invariant a genuine `ImageData` always holds).
+/// `None` rejects zero / fractional / non-finite / out-of-range spoofs.
+fn image_data_dim_value(n: f64) -> Option<u32> {
+    if n.is_finite() && n.fract() == 0.0 && n >= 1.0 && n <= f64::from(u32::MAX) {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        Some(n as u32)
+    } else {
+        None
+    }
 }
 
 /// Snapshot the bytes a `Uint8ClampedArray` (or any TypedArray) view exposes,
