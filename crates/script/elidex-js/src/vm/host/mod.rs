@@ -320,3 +320,7 @@ pub(super) mod websocket;
 #[cfg(feature = "engine")]
 pub(super) mod websocket_dispatch;
 pub(super) mod window;
+#[cfg(feature = "engine")]
+pub(super) mod worker;
+#[cfg(feature = "engine")]
+pub(super) mod worker_scope;

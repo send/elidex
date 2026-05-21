@@ -354,10 +354,10 @@ impl DomApiHandler for GetNodeName {
                 // Attr.nodeName is the attribute name, but we don't have it here.
                 String::new()
             }
-            // Window is not a Node per WHATWG and does not have a
+            // Window / WorkerGlobalScope are not Nodes per WHATWG and have no
             // nodeName.  `None` also collapses to empty per the spec
             // fallthrough.
-            Some(NodeKind::Window) | None => String::new(),
+            Some(NodeKind::Window | NodeKind::Worker) | None => String::new(),
         };
         Ok(JsValue::String(name))
     }

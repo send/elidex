@@ -134,6 +134,7 @@ mod tests_value_types;
 mod tests_websocket;
 mod tests_window_global;
 mod tests_window_iframe_props;
+mod tests_worker;
 
 // Re-export helpers (eval, eval_bool, drain_fetch_replies, etc.)
 // so the sibling `tests_*.rs` files can keep referring to them as

@@ -234,13 +234,13 @@ pub(super) fn require_node_arg(
     // Use the inferred kind so legacy DOM entities (payload present
     // but no explicit `NodeKind` component) are accepted as Nodes —
     // matches `normalize_single_arg`, `nodes_equal`, and
-    // `HostData::prototype_kind_for`.  Window is an `EventTarget`
-    // but not a Node, so it's rejected explicitly.  Destroyed
-    // entities return `None` here and surface as the brand-check
-    // failure.
+    // `HostData::prototype_kind_for`.  `Window` and `Worker` are
+    // `EventTarget`s but not Nodes, so they're rejected via
+    // `NodeKind::is_node()`.  Destroyed entities return `None` here
+    // and surface as the brand-check failure.
     match ctx.host().dom().node_kind_inferred(entity) {
-        None | Some(NodeKind::Window) => Err(not_a_node()),
-        Some(_) => Ok(entity),
+        Some(k) if k.is_node() => Ok(entity),
+        _ => Err(not_a_node()),
     }
 }
 

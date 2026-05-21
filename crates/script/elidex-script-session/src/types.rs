@@ -57,6 +57,9 @@ pub enum ComponentKind {
     DocumentFragment,
     /// The Window object (WHATWG HTML §7.2). Not a Node — no `nodeType`.
     Window,
+    /// The dedicated worker global scope (WHATWG HTML §10.2.1.1). Not a Node —
+    /// no `nodeType`; the worker realm's analog of [`ComponentKind::Window`].
+    Worker,
 
     // --- Sub-object types (not node kinds) ---
     /// The element's computed/inline style object.
@@ -84,6 +87,7 @@ impl ComponentKind {
             NodeKind::DocumentType => Self::DocumentType,
             NodeKind::DocumentFragment => Self::DocumentFragment,
             NodeKind::Window => Self::Window,
+            NodeKind::Worker => Self::Worker,
         }
     }
 
@@ -100,7 +104,12 @@ impl ComponentKind {
             Self::Document => Some(9),
             Self::DocumentType => Some(10),
             Self::DocumentFragment => Some(11),
-            Self::Style | Self::ClassList | Self::ChildNodes | Self::Dataset | Self::Window => None,
+            Self::Style
+            | Self::ClassList
+            | Self::ChildNodes
+            | Self::Dataset
+            | Self::Window
+            | Self::Worker => None,
         }
     }
 }

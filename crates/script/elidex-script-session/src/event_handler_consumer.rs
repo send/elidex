@@ -170,6 +170,37 @@ pub const EVENT_HANDLER_ATTRS: &[(&str, HandlerScope)] = &[
     ("onvisibilitychange", HandlerScope::DocumentOnly),
 ];
 
+/// Event-handler IDL attributes exposed on `WorkerGlobalScope` /
+/// `DedicatedWorkerGlobalScope` (WHATWG HTML §10.2.1.1: `onerror` from
+/// WorkerGlobalScope, `onmessage` / `onmessageerror` from
+/// DedicatedWorkerGlobalScope, and the WindowOrWorkerGlobalScope shared
+/// handlers). Disjoint from the `HandlerScope`-keyed [`EVENT_HANDLER_ATTRS`]
+/// table because the worker set is a hand-picked subset that overlaps the
+/// `Window` / `Global` scopes (single-scope rows cannot be dual-tagged); kept
+/// here as the single source of truth so the VM-side install reads one list.
+/// Every entry also appears in [`EVENT_HANDLER_ATTRS`], so
+/// [`event_handler_attr_event_type`] resolves each.
+pub const WORKER_EVENT_HANDLER_ATTRS: &[&str] = &[
+    "onmessage",
+    "onmessageerror",
+    "onerror",
+    "onlanguagechange",
+    "onoffline",
+    "ononline",
+    "onrejectionhandled",
+    "onunhandledrejection",
+];
+
+/// Event-handler IDL attributes exposed on the main-side `Worker` object (the
+/// parent's handle): `onerror` from the AbstractWorker mixin (WHATWG HTML
+/// §10.2.6.1) plus `onmessage` / `onmessageerror` from the dedicated `Worker`
+/// interface (§10.2.6.3). A strict subset of [`WORKER_EVENT_HANDLER_ATTRS`] —
+/// the WindowOrWorkerGlobalScope shared handlers belong only to the worker
+/// *scope*, not to the `Worker` object. Kept here as the single source of
+/// truth so the VM-side install reads one list; every entry also appears in
+/// [`EVENT_HANDLER_ATTRS`], so [`event_handler_attr_event_type`] resolves each.
+pub const WORKER_OBJECT_EVENT_HANDLER_ATTRS: &[&str] = &["onmessage", "onmessageerror", "onerror"];
+
 /// If `name` is a known event-handler content attribute, return its
 /// event type (the name with the leading `on` stripped). Linear scan —
 /// only on attribute mutations / element inserts, not a hot path.

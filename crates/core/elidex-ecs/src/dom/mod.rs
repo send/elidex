@@ -523,6 +523,40 @@ impl EcsDom {
             .map(|(entity, _)| entity)
     }
 
+    /// Create a worker global scope root entity (WHATWG HTML §10.2.1.1).
+    ///
+    /// The worker realm's analog of [`create_window_root`](Self::create_window_root):
+    /// the entity carries only the [`NodeKind::Worker`] component, has no
+    /// `TreeRelation`, and exists purely as a stable ECS address for the
+    /// worker scope's `EventListeners`. One per worker `Vm`.
+    pub fn create_worker_global_scope_root(&mut self) -> Entity {
+        self.world.spawn((NodeKind::Worker,))
+    }
+
+    /// Locate the worker-global-scope entity, if one exists **unambiguously**.
+    ///
+    /// **Worker-VM DOMs only**: a worker `Vm`'s `EcsDom` holds exactly one
+    /// [`NodeKind::Worker`] entity (the worker scope, created at bind time), so
+    /// the lookup is unambiguous and returns it. A *main*-VM DOM may hold many
+    /// `NodeKind::Worker` entities (one per main-side `Worker` object) — this
+    /// helper is not meant for that DOM, so rather than return an arbitrary one
+    /// it returns `None` when zero **or more than one** `Worker` entity exists.
+    /// Misuse on a main DOM therefore fails safe (no silent misrouting) instead
+    /// of resolving to a random `Worker` handle. Linear scan (stops after the
+    /// second hit) — only invoked off the hot path (worker bind / WEH routing).
+    #[must_use]
+    pub fn worker_scope_entity(&self) -> Option<Entity> {
+        let mut query = self.world.query::<(Entity, &NodeKind)>();
+        let mut workers = query
+            .iter()
+            .filter(|(_, kind)| matches!(**kind, NodeKind::Worker))
+            .map(|(entity, _)| entity);
+        match (workers.next(), workers.next()) {
+            (Some(entity), None) => Some(entity),
+            _ => None,
+        }
+    }
+
     /// Create a text node.
     ///
     /// Shim over [`create_text_with_owner`](Self::create_text_with_owner)

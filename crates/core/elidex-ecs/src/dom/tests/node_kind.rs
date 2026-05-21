@@ -105,6 +105,30 @@ fn create_window_root_has_node_kind() {
 }
 
 #[test]
+fn worker_scope_entity_unambiguous_only() {
+    // Worker-VM DOM: exactly one Worker entity → resolved.
+    let mut dom = EcsDom::new();
+    assert_eq!(
+        dom.worker_scope_entity(),
+        None,
+        "empty DOM has no worker scope"
+    );
+    let scope = dom.create_worker_global_scope_root();
+    assert_eq!(dom.worker_scope_entity(), Some(scope));
+
+    // Main-VM-like DOM: many Worker entities → fails safe to None rather than
+    // resolving to an arbitrary one (no silent misrouting).
+    let mut main = EcsDom::new();
+    main.create_worker_global_scope_root();
+    main.create_worker_global_scope_root();
+    assert_eq!(
+        main.worker_scope_entity(),
+        None,
+        "multiple Worker entities must not resolve to an arbitrary one"
+    );
+}
+
+#[test]
 fn attributes_insertion_order() {
     let mut attrs = Attributes::default();
     attrs.set("c", "3");

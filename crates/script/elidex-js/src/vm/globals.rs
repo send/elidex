@@ -47,6 +47,8 @@ use super::value::{
     JsValue, NativeContext, Object, ObjectKind, PropertyKey, PropertyStorage, PropertyValue,
     VmError,
 };
+#[cfg(feature = "engine")]
+use super::GlobalScopeKind;
 use super::{NativeFn, VmInner};
 
 /// §19.2.3 Function.prototype — accepts any arguments, returns undefined.
@@ -487,26 +489,59 @@ impl VmInner {
         // globalThis's prototype slot, finalising
         // `globalThis → Window.prototype → EventTarget.prototype →
         // Object.prototype`.
+        // Fork the global-scope-specific prototype + singletons. Window
+        // (WHATWG HTML §7.2) installs `window` / `navigator` / `location` /
+        // `history`; a dedicated worker (§10.2.1.1) installs the
+        // `WorkerGlobalScope` surface and never binds a document. The shared
+        // `register_event_target_prototype` ran above and roots both chains.
         #[cfg(feature = "engine")]
-        {
-            self.register_window_prototype();
-            self.get_object_mut(self.global_object).prototype = self.window_prototype;
-            // `navigator` — static Navigator object (WHATWG HTML §8.1.5).
-            // Installed after the Window prototype chain is in place so
-            // `navigator.hasOwnProperty`, `Object.getPrototypeOf(navigator)`
-            // etc. resolve against `Object.prototype` as expected.
-            self.register_navigator_global();
-            // `performance` — HR-Time §5.  Shares the time origin
-            // (`VmInner::start_instant`) with `Event.timeStamp`.
-            self.register_performance_global();
-            // `location` — WHATWG HTML §7.1.  Reads/writes
-            // `VmInner::navigation` (in-memory only at Phase 2).
-            self.register_location_global();
-            // `history` — WHATWG HTML §7.4.  Shares navigation state
-            // with `location`.
-            self.register_history_global();
-            // `window === globalThis` (WHATWG HTML §7.2.4).
-            self.install_window_self_ref();
+        match self.global_scope_kind.clone() {
+            GlobalScopeKind::Window => {
+                self.register_window_prototype();
+                self.get_object_mut(self.global_object).prototype = self.window_prototype;
+                // `navigator` — static Navigator object (WHATWG HTML §8.1.5).
+                // Installed after the Window prototype chain is in place so
+                // `navigator.hasOwnProperty`, `Object.getPrototypeOf(navigator)`
+                // etc. resolve against `Object.prototype` as expected.
+                self.register_navigator_global();
+                // `performance` — HR-Time §5.  Shares the time origin
+                // (`VmInner::start_instant`) with `Event.timeStamp`.
+                self.register_performance_global();
+                // `location` — WHATWG HTML §7.1.  Reads/writes
+                // `VmInner::navigation` (in-memory only at Phase 2).
+                self.register_location_global();
+                // `history` — WHATWG HTML §7.4.  Shares navigation state
+                // with `location`.
+                self.register_history_global();
+                // `window === globalThis` (WHATWG HTML §7.2.4).
+                self.install_window_self_ref();
+                // `Worker` — dedicated worker constructor (WHATWG HTML §10.2.6).
+                // Window-scope only: a dedicated worker does not currently
+                // spawn nested workers. Chains to `EventTarget.prototype`
+                // (registered above), so it must run after the shared
+                // `register_event_target_prototype()`.
+                self.register_worker_global();
+            }
+            GlobalScopeKind::DedicatedWorker {
+                name,
+                script_url,
+                is_secure_context,
+                // `credentials` is read at `importScripts` time from
+                // `global_scope_kind`, not during globals setup.
+                credentials: _,
+            } => {
+                self.register_worker_global_scope_prototype();
+                self.get_object_mut(self.global_object).prototype = self.worker_scope_prototype;
+                // `navigator` — WorkerNavigator (WHATWG HTML §10.3.2).
+                self.register_worker_navigator_global();
+                // `performance` — HR-Time §5, shared with the Window path.
+                self.register_performance_global();
+                // `location` — WorkerLocation over the worker script URL
+                // (WHATWG HTML §10.3.3).
+                self.register_worker_location_global(&script_url);
+                // `self` / `name` / `isSecureContext` (WHATWG HTML §10.2.1.1).
+                self.register_worker_globals(&name, is_secure_context);
+            }
         }
 
         // `Event.prototype` + `Event` / `CustomEvent` globals (WebIDL §2.2

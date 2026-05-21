@@ -18,9 +18,45 @@ use super::{Vm, VmInner};
 use super::host;
 
 impl Vm {
-    /// Create a new VM with built-in globals registered.
-    #[allow(clippy::too_many_lines)]
+    /// Create a new main-thread (Window) VM with built-in globals registered.
     pub fn new() -> Self {
+        Self::new_with_scope(super::GlobalScopeKind::Window)
+    }
+
+    /// Create a new dedicated-worker VM (WHATWG HTML §10.2.1.1).
+    ///
+    /// The worker realm installs the `WorkerGlobalScope` surface instead of
+    /// `window` / `document`. `name` is the `new Worker(url, { name })` value
+    /// (empty when unnamed); `script_url` backs `WorkerLocation` and labels
+    /// uncaught-error reports; `is_secure_context` is inherited from the
+    /// creator's environment (WHATWG HTML §8.1.3.5 — not derived from
+    /// `script_url`). The caller binds an empty `EcsDom` + worker scope entity
+    /// and installs a worker-side `NetworkHandle` before eval.
+    #[cfg(feature = "engine")]
+    #[must_use]
+    pub fn new_worker(
+        name: String,
+        script_url: url::Url,
+        is_secure_context: bool,
+        credentials: elidex_net::CredentialsMode,
+    ) -> Self {
+        Self::new_with_scope(super::GlobalScopeKind::DedicatedWorker {
+            name,
+            script_url,
+            is_secure_context,
+            credentials,
+        })
+    }
+
+    /// Construct a VM for the given global scope kind, then register globals.
+    ///
+    /// `register_globals` runs at the tail (before any caller can observe the
+    /// VM), so the scope kind must be threaded in here rather than flipped
+    /// afterwards. In non-`engine` builds the kind is unused (no DOM / worker
+    /// surface exists) but accepted to keep one shared construction body.
+    #[allow(clippy::too_many_lines)]
+    #[cfg_attr(not(feature = "engine"), allow(unused_variables))]
+    fn new_with_scope(global_scope_kind: super::GlobalScopeKind) -> Self {
         let mut strings = StringPool::new();
 
         let well_known = WellKnownStrings::intern_all(&mut strings);
@@ -103,6 +139,10 @@ impl Vm {
                 event_target_prototype: None,
                 node_prototype: None,
                 element_prototype: None,
+                #[cfg(feature = "engine")]
+                worker_scope_prototype: None,
+                #[cfg(feature = "engine")]
+                worker_prototype: None,
                 #[cfg(feature = "engine")]
                 character_data_prototype: None,
                 #[cfg(feature = "engine")]
@@ -538,6 +578,16 @@ impl Vm {
                 viewport: host::window::ViewportState::new(),
                 #[cfg(feature = "engine")]
                 window_name: initial_window_name,
+                #[cfg(feature = "engine")]
+                global_scope_kind,
+                #[cfg(feature = "engine")]
+                worker_outgoing: Vec::new(),
+                #[cfg(feature = "engine")]
+                worker_close_requested: false,
+                #[cfg(feature = "engine")]
+                worker_registry: elidex_api_workers::WorkerRegistry::new(),
+                #[cfg(feature = "engine")]
+                worker_entities: HashMap::new(),
             },
         };
 

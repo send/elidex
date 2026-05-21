@@ -62,6 +62,8 @@ pub mod value;
 mod vm_api;
 pub(crate) mod webidl_sequence;
 mod well_known;
+#[cfg(feature = "engine")]
+pub(crate) mod worker_thread;
 
 #[cfg(feature = "engine")]
 pub(crate) use temp_root::VmTempRoot;
@@ -95,7 +97,49 @@ pub(crate) const MAX_BIND_CHAIN_DEPTH: usize = 10_000;
 // Vm (public wrapper) + VmInner (internal state)
 // ---------------------------------------------------------------------------
 
+/// The kind of global scope a [`Vm`] realizes.
+///
+/// Read by `register_globals` to fork the Window-only prototype block: a
+/// Window VM (WHATWG HTML §7.2) installs `window` / `document` / `location` /
+/// `history`, whereas a dedicated worker VM (WHATWG HTML §10.2.1.1) installs
+/// the `WorkerGlobalScope` surface (`self` / `postMessage` / `close` /
+/// `importScripts` / `WorkerLocation` / `WorkerNavigator`) and never binds a
+/// document. Set once at construction, before `register_globals` runs.
+#[derive(Clone, Debug)]
+pub enum GlobalScopeKind {
+    /// Main-thread Window scope (WHATWG HTML §7.2).
+    Window,
+    /// Dedicated worker scope (WHATWG HTML §10.2.1.1), carrying the worker
+    /// name + script URL needed to build `name` / `WorkerLocation` /
+    /// `WorkerNavigator` and to label uncaught-error reports.
+    ///
+    /// `engine`-only: the whole worker surface is feature-gated, and the
+    /// `credentials` field references `elidex_net` (an `engine`-only dep), so
+    /// the variant must not exist in non-`engine` builds.
+    #[cfg(feature = "engine")]
+    DedicatedWorker {
+        /// Worker name (`new Worker(url, { name })`; empty when unnamed).
+        name: String,
+        /// Worker script URL — source for `WorkerLocation` and error filename.
+        script_url: url::Url,
+        /// Whether the worker runs in a secure context (WHATWG HTML §8.1.3.5 /
+        /// W3C Secure Contexts): inherited from the **creator's** environment,
+        /// not derived from `script_url` (a `data:` / `blob:` worker spawned by
+        /// a secure parent is itself secure).
+        is_secure_context: bool,
+        /// Credentials mode for the worker's own subresource fetches
+        /// (`importScripts`, WHATWG HTML §10.2.6.3 `WorkerOptions.credentials`).
+        /// Applied — with the worker's origin — to the `importScripts` request
+        /// so cookie attachment is gated correctly.
+        credentials: elidex_net::CredentialsMode,
+    },
+}
+
 /// The internal state of the VM, exposed to native functions via `NativeContext`.
+// Not an API surface: this is the VM's monolithic interpreter-state struct, not
+// a config object — the `struct_excessive_bools` ergonomics lint (aimed at
+// builder/argument structs) does not apply.
+#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct VmInner {
     pub(crate) stack: Vec<JsValue>,
     pub(crate) frames: Vec<CallFrame>,
@@ -1047,6 +1091,19 @@ pub(crate) struct VmInner {
     /// `register_globals()` (right after `register_event_target_prototype`
     /// so the chain is built bottom-up).
     pub(crate) window_prototype: Option<ObjectId>,
+    /// `WorkerGlobalScope.prototype` — the worker analog of
+    /// [`window_prototype`](Self::window_prototype), chained to
+    /// `EventTarget.prototype`. `None` in a Window VM; set by
+    /// `register_worker_global_scope_prototype()` during the worker fork of
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) worker_scope_prototype: Option<ObjectId>,
+    /// `Worker.prototype` — the main-side `Worker` object's prototype
+    /// (WHATWG HTML §10.2.6), chained to `EventTarget.prototype`. `None` in a
+    /// worker VM; set by `register_worker_global()` during the Window fork of
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) worker_prototype: Option<ObjectId>,
     /// `AbortSignal.prototype` — chained directly to
     /// `EventTarget.prototype` (Node.prototype is **skipped**: WHATWG
     /// DOM §3.1 / §7.2 — AbortSignal is an EventTarget but not a
@@ -1987,6 +2044,43 @@ pub(crate) struct VmInner {
     /// that step lands.
     #[cfg(feature = "engine")]
     pub(crate) window_name: StringId,
+    /// Which global scope this VM realizes (WHATWG HTML §10.2.1.1).
+    /// `register_globals` reads it to fork the Window-only prototype block;
+    /// the worker globals (`postMessage` / `close` / `WorkerLocation`) read
+    /// the embedded name + script URL. Set once at construction.
+    #[cfg(feature = "engine")]
+    pub(crate) global_scope_kind: GlobalScopeKind,
+    /// Worker-side outgoing `postMessage` data (JSON strings), enqueued by the
+    /// worker scope's `postMessage()` (WHATWG HTML §10.2.1.2) and drained by
+    /// the worker thread loop into `WorkerToParent::PostMessage`. Empty in a
+    /// Window VM — workers never route through the window `pending_tasks`
+    /// queue (that is Window-target only).
+    #[cfg(feature = "engine")]
+    pub(crate) worker_outgoing: Vec<String>,
+    /// Set when the worker scope calls `close()` (WHATWG HTML §10.2.1.2 /
+    /// the §10.2.2 closing flag). The worker thread loop observes it and
+    /// exits after the current tick. Always `false` in a Window VM.
+    #[cfg(feature = "engine")]
+    pub(crate) worker_close_requested: bool,
+    /// Main-side registry of spawned dedicated workers
+    /// ([`WorkerId`](elidex_api_workers::WorkerId) → transport handle), keyed
+    /// the same as each `Worker` object's `WorkerRef` ECS component (WHATWG
+    /// HTML §10.2.6). Empty in a worker VM (workers do not currently spawn
+    /// nested workers). Holds only cross-thread channel handles + `JoinHandle`s
+    /// — listener state lives in the `EventListeners` ECS component on the
+    /// `Worker` entity, not here.
+    #[cfg(feature = "engine")]
+    pub(crate) worker_registry: elidex_api_workers::WorkerRegistry,
+    /// Live-worker `WorkerId` → backing `NodeKind::Worker` entity map (main
+    /// mode). The drain iterates **this** (live workers only) rather than
+    /// scanning every `WorkerRef` entity in the world — terminated workers'
+    /// entities are retained for the brand check (so `postMessage` after close
+    /// stays a silent no-op) but removed from here, so the per-frame drain
+    /// stays O(live workers). Lifecycle-synced with [`Self::worker_registry`]:
+    /// inserted by the `Worker` ctor, removed on `terminate()` / close-drain /
+    /// unbind.
+    #[cfg(feature = "engine")]
+    pub(crate) worker_entities: HashMap<elidex_api_workers::WorkerId, elidex_ecs::Entity>,
     /// HTML §8.1.5 same-window task queue.  Currently populated only
     /// by `window.postMessage`; drained at the end of every
     /// `VmInner::eval` after the microtask flush.  See

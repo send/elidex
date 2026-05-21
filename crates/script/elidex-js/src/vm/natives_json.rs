@@ -360,7 +360,29 @@ pub(super) fn native_json_stringify(
     let value = args.first().copied().unwrap_or(JsValue::Undefined);
     let replacer_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let space_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
+    match stringify_to_string(ctx, value, replacer_arg, space_arg)? {
+        Some(s) => Ok(JsValue::String(ctx.intern(&s))),
+        None => Ok(JsValue::Undefined),
+    }
+}
 
+/// JSON-serialize `value` into an owned Rust `String` (ECMA-262 §25.5.2
+/// stringify core — `replacer` / `space` honored), **without interning** the
+/// result into the permanent `StringPool`. `Ok(None)` mirrors `JSON.stringify`
+/// yielding `undefined` (a top-level function / symbol / `undefined`).
+///
+/// [`native_json_stringify`] wraps this and interns the result into a live JS
+/// string. Cross-thread IPC paths (`Worker.postMessage` /
+/// `WorkerGlobalScope.postMessage`, WHATWG HTML §10.2.1.2 / §10.2.6.3) call
+/// this directly: their JSON blobs are transient (copied straight into the
+/// crossbeam channel), so interning them would grow the GC-less `StringPool`
+/// unboundedly for chatty workers.
+pub(in crate::vm) fn stringify_to_string(
+    ctx: &mut NativeContext<'_>,
+    value: JsValue,
+    replacer_arg: JsValue,
+    space_arg: JsValue,
+) -> Result<Option<String>, VmError> {
     // Step 4: Process replacer.
     let mut replacer_fn = None;
     let mut property_list = None;
@@ -423,10 +445,9 @@ pub(super) fn native_json_stringify(
         serializer.serialize_property(ctx, value, wrapper_id, JsValue::String(empty_key))?;
 
     if wrote {
-        let id = ctx.intern(&serializer.output);
-        Ok(JsValue::String(id))
+        Ok(Some(serializer.output))
     } else {
-        Ok(JsValue::Undefined)
+        Ok(None)
     }
 }
 
@@ -923,6 +944,36 @@ fn internalize(
 }
 
 /// Entry point for `JSON.parse(text, reviver?)`.
+/// Rust `&str` helper equivalent to `JSON.parse(text)` with **no reviver**
+/// (ECMA-262 §25.5.1 parse core only), **without interning the transient source
+/// text** into the permanent, deduped `StringPool`. This is *not* the JS-facing
+/// `JSON.parse` entry point — that is [`native_json_parse`] below, which takes
+/// an interned JS string and supports the optional reviver argument.
+///
+/// `native_json_parse` requires its input as an already-interned JS string;
+/// routing high-cardinality transient payloads (the cross-thread worker
+/// `postMessage` JSON blobs, WHATWG HTML §10.2.1.2) through it would intern
+/// every distinct blob permanently → unbounded pool growth. Parsed *string
+/// values* are still interned by the parser (they become live JS strings, which
+/// is correct); only the one-shot wrapper blob is kept out of the pool.
+pub(in crate::vm) fn parse_json_str(
+    vm: &mut super::VmInner,
+    source: &str,
+) -> Result<JsValue, VmError> {
+    let text: Vec<u16> = source.encode_utf16().collect();
+    let mut parser = JsonParser::new(&text);
+    let mut ctx = NativeContext { vm };
+    let result = parser.parse_value(&mut ctx)?;
+    parser.skip_ws();
+    if parser.pos < parser.input.len() {
+        return Err(VmError::syntax_error(format!(
+            "JSON.parse: unexpected character at position {}",
+            parser.pos
+        )));
+    }
+    Ok(result)
+}
+
 pub(super) fn native_json_parse(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,

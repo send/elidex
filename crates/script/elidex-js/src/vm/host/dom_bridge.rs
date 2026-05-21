@@ -236,11 +236,11 @@ impl PreVal {
 ///   from.  Reaching this arm means a HostObject wrapper points at
 ///   a bare entity, which should never escape a brand-checked call
 ///   path.
-/// - `Some(NodeKind::Window)` — Window is an `EventTarget` but
-///   *not* a Node (WHATWG HTML §7.2 / DOM §4.4), and
-///   `node_proto::require_node_arg` rejects it explicitly.  Match
-///   that policy here so the marshalling layer never produces a
-///   Window-shaped wrapper for a "Node-expecting" handler.
+/// - `Some(NodeKind::Window)` / `Some(NodeKind::Worker)` — both are
+///   `EventTarget`s but *not* Nodes (WHATWG HTML §7.2 / §10.2.1.1 /
+///   DOM §4.4), and `node_proto::require_node_arg` rejects them via
+///   `NodeKind::is_node()`.  Match that policy here so the marshalling
+///   layer never produces a Node-shaped wrapper for a non-Node entity.
 ///
 /// Pure function over `Option<NodeKind>` — unit-testable without
 /// constructing an `EcsDom`.
@@ -249,10 +249,10 @@ fn arg_component_kind(node_kind: Option<NodeKind>) -> Result<ComponentKind, DomA
         kind: DomApiErrorKind::TypeError,
         message: "DOM API: argument is not a valid Node".into(),
     })?;
-    if matches!(nk, NodeKind::Window) {
+    if !nk.is_node() {
         return Err(DomApiError {
             kind: DomApiErrorKind::TypeError,
-            message: "DOM API: Window is not a Node".into(),
+            message: "DOM API: argument is not a Node".into(),
         });
     }
     Ok(ComponentKind::from_node_kind(nk))
@@ -606,14 +606,16 @@ mod tests {
     }
 
     #[test]
-    fn arg_component_kind_rejects_window() {
-        // Window is an EventTarget but explicitly NOT a Node; match
-        // `node_proto::require_node_arg`'s policy at the marshalling
-        // layer too so a future native that skips brand check still
-        // fails closed.
-        let err = arg_component_kind(Some(NodeKind::Window)).expect_err("Window must reject");
-        assert!(matches!(err.kind, DomApiErrorKind::TypeError));
-        assert!(err.message.contains("Window"));
+    fn arg_component_kind_rejects_non_node_kinds() {
+        // Window and Worker are EventTargets but explicitly NOT Nodes; match
+        // `node_proto::require_node_arg`'s policy at the marshalling layer too
+        // (via `NodeKind::is_node()`) so a future native that skips the brand
+        // check still fails closed.
+        for kind in [NodeKind::Window, NodeKind::Worker] {
+            let err = arg_component_kind(Some(kind)).expect_err("non-Node must reject");
+            assert!(matches!(err.kind, DomApiErrorKind::TypeError));
+            assert!(err.message.contains("not a Node"));
+        }
     }
 
     #[test]

@@ -422,6 +422,18 @@ pub enum NodeKind {
     /// Window entities carry only this component (no `TreeRelation`,
     /// `Attributes`, etc.) and never participate in tree traversal.
     Window,
+    /// Dedicated worker global scope (WHATWG HTML §10.2.1.1
+    /// `WorkerGlobalScope`).
+    ///
+    /// Like [`NodeKind::Window`], this is not a Node and has no `nodeType`.
+    /// It marks two distinct (non-tree) entities the scripting layer attaches
+    /// `EventListeners` to: on a **worker** `Vm`, the single worker-global-scope
+    /// entity (the realm's Window analog); and on the **main** `Vm`, one entity
+    /// per main-side `Worker` object (the parent's handle, brand-keyed by a
+    /// `WorkerRef` component). So a worker VM has exactly one, but a main VM may
+    /// have many. Such entities carry no `TreeRelation` and never participate in
+    /// tree traversal.
+    Worker,
 }
 
 impl NodeKind {
@@ -442,8 +454,20 @@ impl NodeKind {
             Self::Document => 9,
             Self::DocumentType => 10,
             Self::DocumentFragment => 11,
-            Self::Window => 0,
+            Self::Window | Self::Worker => 0,
         }
+    }
+
+    /// Whether this kind is a Node per WHATWG DOM (has a `nodeType`).
+    ///
+    /// `false` for [`NodeKind::Window`] and [`NodeKind::Worker`] — both are
+    /// EventTargets but **not** Nodes (`nodeType == 0`). Node-argument coercion
+    /// (`appendChild` / `insertBefore` / `ChildNode` / `ParentNode` etc.) must
+    /// reject non-Node kinds so a `window` / `Worker` object cannot be inserted
+    /// into the DOM tree.
+    #[must_use]
+    pub fn is_node(self) -> bool {
+        self.node_type() != 0
     }
 
     /// Create a `NodeKind` from a WHATWG `Node.nodeType` numeric value.
