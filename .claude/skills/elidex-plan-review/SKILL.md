@@ -87,12 +87,14 @@ Output per axes.md Axis <N> "Output format". Use plan-memo §section identifiers
 User が Fix decisions を accept した場合:
 
 1. Plan-memo edit (Step 3.5 block の `Concrete action` に従って)
-2. 変更タイプによる分岐:
-   - **既存 §sub-section の修正のみ** → re-review skip 可、implementation 着手 OR prereq PR carve-out
-   - **新規 design 判断 / plan 構造変化** → **re-review 必須**: 修正 plan-memo で Step 1 から再走
-3. Prerequisite PR carve-out 決定なら別 plan-memo 立てて `/elidex-plan-review`、元 plan は prereq merge 後再 invoke
+2. **適用した各 fix を `workflow.md` § "Step 4.5" の2 trigger で screen**。plan-stage は blast-radius 最大ゆえ **即時**（cumulative でなく — plan fix は後続 design 判断が乗って compound する）: **Trigger A** design-affecting fix → focused 再レビュー（触れた axis × 該当 §section・fresh detect-only agent）/ **Trigger B** symptom-shaped な finding（「X を足せ/handle しろ」型）への fix → root-cause re-derivation（surrounding design まで zoom-out・Copilot framing を無視して根本原因と「そもそも直す場所が正しいか」を問う・fix が clerical に見えても発火）。
+3. 変更タイプによる分岐:
+   - **clerical のみ** (citation / wording / scope-doc) → re-review skip 可、implementation 着手 OR prereq PR carve-out
+   - **design-affecting (localized)** → Step 4.5 focused 再レビュー (clean まで Step 3.5/4 を回す) → 着手
+   - **structural (plan §section 構造変化)** → **full re-review 必須**: 修正 plan-memo で Step 1 から再走
+4. Prerequisite PR carve-out 決定なら別 plan-memo 立てて `/elidex-plan-review`、元 plan は prereq merge 後再 invoke
 
-⚠️ Step 5 の re-review skip は **anti-pattern** (`workflow.md` § "Anti-patterns" 参照、D-29 trial precedent)。
+⚠️ Step 5 の re-review skip (clerical 以外) は **anti-pattern** (`workflow.md` § "Step 4.5" / "Anti-patterns"、D-29 trial precedent)。
 
 ## Recommendation phrasing (skill-specific)
 

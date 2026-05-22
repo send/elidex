@@ -42,6 +42,12 @@ Reuse `/elidex-review` **Step 3.5 "Philosophy alignment"** (SSoT: `<repo>/.claud
 
 Precedent (PR #213, 2026-05-20): R2 flagged nondeterministic `HashMap` callback order; the reactive patch was "add `sort_by_key` at each enumeration site". The philosophy-ideal was a `BTreeMap` keyed by the monotonic observer id — registration-order delivery becomes a *structural* invariant (no sort to forget, the exact omission Copilot flagged). The reactive patch shipped through TERMINAL and needed a follow-up to reach the ideal; this lens at Step 5.1 would have reached `BTreeMap` at R2.
 
+**TERMINAL fix-delta pass (Step 4.5 applied at the R-loop end).** Step 5.1's lens is self-applied by the convergence-biased orchestrator, so it is weak; the R-loop's accumulated fixes also never re-enter the pre-push `/elidex-review` philosophy gate (that gate ran on the *pre-Copilot* diff). The acute Copilot-specific risk is **Trigger B**: Copilot findings are frequently *symptom-shaped* ("add a guard / sort / null-check", "handle this case") and the literal patch is a surface fix to what is really a design matter — which looks clerical and would otherwise skip. So at **TERMINAL (SKILL.md Step 5.5), before surfacing the merge proposal**, screen every R-loop fix per `<repo>/.claude/skills/elidex-review/workflow.md` § "Step 4.5" **both triggers**:
+- **Trigger A**: any fix that was design-affecting (type / data structure / invariant / algorithm / scope / premise).
+- **Trigger B**: any fix that answered a *symptom-shaped* Copilot finding — even if the patch looks clerical.
+
+If either fires for any fix across R1..Rn, run **one cumulative `/elidex-review` pass over the R-loop delta** (`git diff <first-R-loop-commit>^..HEAD`): Trigger-A items get the focused (touched-axis × hunk) re-check; Trigger-B items get the root-cause re-derivation (zoom-out to the surrounding design, fresh agent told to ignore Copilot's framing and ask whether the hunk is even the right place). A new finding → resolve before proposing merge (counts as a normal round). **Only when every fix is clerical AND none answered a symptom-shaped finding** (e.g. PR #222 R3 cfg-gate / R4 stale-comment — both named the actual defect, not symptom-shaped) does the pass skip. Code-stage delta is batched at merge (not per-round) because code fixes are more independent than plan fixes; the irreversible merge is the natural gate.
+
 ## failure_modes
 
 Each line: incident → operative rule that landed in `~/.claude/skills/copilot-review/SKILL.md`.
