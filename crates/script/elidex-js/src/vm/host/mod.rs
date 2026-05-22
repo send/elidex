@@ -107,6 +107,7 @@ pub(super) mod dom_collection;
 pub(crate) mod dom_exception;
 #[cfg(feature = "engine")]
 pub(super) mod dom_inner_html;
+#[cfg(feature = "engine")]
 pub(crate) mod dom_rect;
 #[cfg(feature = "engine")]
 pub(super) mod element_attrs;
