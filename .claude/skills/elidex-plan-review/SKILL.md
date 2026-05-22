@@ -87,7 +87,7 @@ Output per axes.md Axis <N> "Output format". Use plan-memo §section identifiers
 User が Fix decisions を accept した場合:
 
 1. Plan-memo edit (Step 3.5 block の `Concrete action` に従って)
-2. **適用した各 fix を `workflow.md` § "Step 4.5 — Fix-delta re-verification" で分類**。plan-stage は blast-radius 最大ゆえ **design-affecting fix は即 focused 再レビュー**（触れた axis × 該当 §section のみ・fix を書いていない fresh agent・detect-only）。plan fix は plan 内で compound する（後続 design 判断が乗る）ので cumulative でなく即時。
+2. **適用した各 fix を `workflow.md` § "Step 4.5" の2 trigger で screen**。plan-stage は blast-radius 最大ゆえ **即時**（cumulative でなく — plan fix は後続 design 判断が乗って compound する）: **Trigger A** design-affecting fix → focused 再レビュー（触れた axis × 該当 §section・fresh detect-only agent）/ **Trigger B** symptom-shaped な finding（「X を足せ/handle しろ」型）への fix → root-cause re-derivation（surrounding design まで zoom-out・Copilot framing を無視して根本原因と「そもそも直す場所が正しいか」を問う・fix が clerical に見えても発火）。
 3. 変更タイプによる分岐:
    - **clerical のみ** (citation / wording / scope-doc) → re-review skip 可、implementation 着手 OR prereq PR carve-out
    - **design-affecting (localized)** → Step 4.5 focused 再レビュー (clean まで Step 3.5/4 を回す) → 着手

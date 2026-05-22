@@ -117,7 +117,7 @@ Output per axes.md Axis <N> "Output format". Severity per axes.md common calibra
 
 `workflow.md` § "Step 3" / "Step 3.5" / "Step 4" 参照。
 
-User 承認の fix を適用したら **`workflow.md` § "Step 4.5 — Fix-delta re-verification"** を適用: 各 fix を分類し、**design-affecting fix は cumulative に1回 focused 再レビュー**（触れた axis × 変更 hunk のみ・fresh detect-only agent）してから push-ready 宣言。diff-stage は code fix が独立しがちなので即時でなく push 直前に delta 一括。clerical-only は素通し。clean まで Step 3.5/4 を回す。
+User 承認の fix を適用したら **`workflow.md` § "Step 4.5" の2 trigger** を適用してから push-ready 宣言: **Trigger A** design-affecting fix → focused 再レビュー（触れた axis × 変更 hunk・fresh detect-only agent）/ **Trigger B** symptom-shaped finding への fix → root-cause re-derivation（zoom-out・anti-framing・fix が clerical に見えても発火）。diff-stage は code fix が独立しがちなので即時でなく push 直前に delta 一括。clerical かつ symptom-shaped finding 無しなら素通し。clean まで Step 3.5/4 を回す。
 
 ## Recommendation phrasing (skill-specific)
 
