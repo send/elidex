@@ -721,10 +721,12 @@ fn canvas_height_setter(
 }
 
 /// Write a `<canvas>` `width`/`height` IDL attribute (reflected `unsigned long`,
-/// HTML §4.12.5). Coerces via `f64`→`u32` directly (NOT through `f32`, which
-/// loses integer precision above 2²⁴ and would set a wrong bitmap dimension)
-/// and routes through the `set_attribute` chokepoint so the bitmap reset fires
-/// uniformly via `CanvasReconciler` (the `AttributeChange` SoT), not here.
+/// HTML §4.12.5). Coerces via the canonical WebIDL `unsigned long` conversion
+/// (`coerce::to_uint32`, mod-2³²: `-1` → 4294967295, `2³²` → 0), matching the
+/// other numeric-reflect setters and yielding a `u32` directly (no `f32`
+/// round-trip, which would lose integer precision above 2²⁴). Routes through
+/// the `set_attribute` chokepoint so the bitmap reset fires uniformly via
+/// `CanvasReconciler` (the `AttributeChange` SoT), not here.
 fn set_canvas_dim_attr(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -733,13 +735,7 @@ fn set_canvas_dim_attr(
 ) -> Result<JsValue, VmError> {
     let entity = require_canvas_element(ctx, this, name)?;
     let v = args.first().copied().unwrap_or(JsValue::Undefined);
-    let value = coerce::to_number(ctx.vm, v)?;
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let n = if value.is_finite() && value >= 0.0 {
-        value.min(f64::from(u32::MAX)) as u32
-    } else {
-        0
-    };
+    let n = coerce::to_uint32(ctx.vm, v)?;
     ctx.host().dom().set_attribute(entity, name, &n.to_string());
     Ok(JsValue::Undefined)
 }

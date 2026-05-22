@@ -36,8 +36,9 @@ pub fn canvas_dimensions(dom: &EcsDom, entity: Entity) -> (u32, u32) {
 /// Ensure the canvas `entity` carries a [`Canvas2dContext`] component, creating
 /// one at the entity's current attribute-derived dimensions if absent (the lazy
 /// `getContext('2d')` allocation). No-op when one already exists. Returns `true`
-/// if a context is now present (`false` only if the dimensions are unrepresentable,
-/// e.g. zero).
+/// if a context is now present; `false` only if the component insertion fails
+/// (a non-live entity). Dimensions are always representable — zero / huge sizes
+/// clamp to a 1×1 bitmap (see `make_context`), so they never cause `false`.
 pub fn ensure_context(dom: &mut EcsDom, entity: Entity) -> bool {
     if dom.world().get::<&Canvas2dContext>(entity).is_ok() {
         return true;

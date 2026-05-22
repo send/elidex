@@ -75,8 +75,8 @@ pub(crate) enum WrapperKind {
     /// Entity(canvas)`. The wrapper shares the canvas `Element` entity in its
     /// `entity_bits`, so this seam entry doubles as the brand: a HostObject is a
     /// 2D context iff it is the interned `Canvas2dContext` wrapper for its
-    /// entity (`vm/host/canvas.rs`). Weak-through-owner: kept alive while the
-    /// canvas element wrapper is.
+    /// entity (`vm/host/canvas/mod.rs`). Weak-through-owner: kept alive while
+    /// the canvas element wrapper is.
     Canvas2dContext,
     /// `<input>.files` FileList — `owner = Object(input wrapper)`.
     FileList,

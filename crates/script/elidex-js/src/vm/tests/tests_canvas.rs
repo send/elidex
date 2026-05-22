@@ -353,6 +353,24 @@ fn image_data_constructor_rejects_overflow_dims() {
 }
 
 #[test]
+fn canvas_width_setter_uses_to_uint32() {
+    // canvas.width is a reflected WebIDL `unsigned long` → ToUint32 (mod 2^32),
+    // NOT clamp-to-0 / saturate. -1 wraps to u32::MAX; 2^32 wraps to 0.
+    with_vm(|vm, _dom| {
+        assert!(eval_bool(
+            vm,
+            "var c = document.createElement('canvas'); c.width = -1; \
+             c.width === 4294967295;"
+        ));
+        assert!(eval_bool(
+            vm,
+            "var c = document.createElement('canvas'); c.height = 4294967296; \
+             c.height === 0;"
+        ));
+    });
+}
+
+#[test]
 fn get_context_rejects_non_canvas_receiver() {
     // getContext.call(<div>, '2d') must throw Illegal invocation, not attach
     // canvas state to a non-canvas element.
