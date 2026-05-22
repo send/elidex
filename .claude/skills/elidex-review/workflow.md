@@ -105,11 +105,11 @@ The aggregate of these blocks IS the philosophy-aligned fix proposal.  Step 4 re
 
 Auto-fix NG — user decision drives.  ≥1 fix-tier without Step 3.5 block = gate violation, return to Step 3.5.
 
-## Step 4.5 — Fix-delta re-verification (mandatory after fixes applied)
+## Step 4.5 — Fix-delta re-verification (classify every fix; re-check is conditional)
 
 **The gate detects the *original* input; the *fix* it produces is itself unverified.**  A review proposes a fix (Step 3.5), the orchestrator applies it — and nothing independently re-screens the applied fix.  Self-applied re-checks fail here: the orchestrator is biased toward converging.  This is where manual push-back keeps landing (especially plan-stage, where a "fix" is a one-line *design decision* with the widest blast radius and the cheapest re-read).
 
-Two **orthogonal** triggers run on each applied fix.  Trigger A screens the *fix's mechanics*; Trigger B screens the *finding's framing* (a surface fix to a real design matter often looks clerical under A — B catches it).
+**Classification is mandatory for every applied fix; the re-check/re-derivation it triggers is conditional** (clerical fixes classify-then-stop).  Two **orthogonal** triggers screen each fix.  Trigger A screens the *fix's mechanics*; Trigger B screens the *finding's framing* (a surface fix to a real design matter often looks clerical under A — B catches it).
 
 ### Trigger A — fix tier (mechanics of the fix)
 
@@ -139,7 +139,7 @@ When a fix responds to a symptom-shaped finding, run a **root-cause re-derivatio
 - **plan-review**: re-check each design-affecting / symptom-shaped fix **immediately** — plan fixes *compound* (later plan decisions build on the corrected one).
 - **elidex-review (diff) / copilot-review**: batch into **one cumulative pass at the end** (pre-push / pre-merge) — code fixes are more independent and the irreversible step is the natural gate.
 
-A fix set that is clerical under A **and** has no symptom-shaped finding under B skips Step 4.5 entirely.
+When every fix is clerical under A **and** none answered a symptom-shaped finding under B, the **re-check/re-derivation is skipped** — classification itself is always done (that is how you established the fixes are clerical).
 
 ## Anti-patterns (common to both skills)
 
