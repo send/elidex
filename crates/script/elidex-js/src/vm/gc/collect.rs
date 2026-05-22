@@ -884,6 +884,23 @@ impl VmInner {
                 self.event_source_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // M4-12 slot #11-dom-rect-readonly: DOMRectReadOnly /
+                // DOMRect prototypes (W3C Geometry §3).  Both chain to
+                // `Object.prototype`.  Rooted here because the
+                // `VmInner::dom_rect_*_prototype` slots retain a stale
+                // id if the prototype is collected behind a severed
+                // global binding (same `delete globalThis.DOMRect`
+                // invariant as every other intrinsic prototype above) —
+                // load-bearing once a host-side allocator (D-22) mints
+                // DOMRects without a live global ctor.
+                #[cfg(feature = "engine")]
+                self.dom_rect_readonly_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.dom_rect_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,

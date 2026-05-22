@@ -347,6 +347,7 @@ fn read_init_field(
 fn read_rect_init(
     ctx: &mut NativeContext<'_>,
     init: JsValue,
+    interface: &str,
 ) -> Result<(f64, f64, f64, f64), VmError> {
     match init {
         JsValue::Undefined | JsValue::Null => Ok((0.0, 0.0, 0.0, 0.0)),
@@ -356,9 +357,9 @@ fn read_rect_init(
             read_init_field(ctx, id, "width")?,
             read_init_field(ctx, id, "height")?,
         )),
-        _ => Err(VmError::type_error(
-            "Failed to execute 'fromRect': The provided value is not of type 'DOMRectInit'",
-        )),
+        _ => Err(VmError::type_error(format!(
+            "Failed to execute 'fromRect' on '{interface}': The provided value is not of type 'DOMRectInit'."
+        ))),
     }
 }
 
@@ -432,8 +433,16 @@ fn from_rect_impl(
     args: &[JsValue],
     mutable: bool,
 ) -> Result<JsValue, VmError> {
-    let (x, y, width, height) =
-        read_rect_init(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
+    let interface = if mutable {
+        "DOMRect"
+    } else {
+        "DOMRectReadOnly"
+    };
+    let (x, y, width, height) = read_rect_init(
+        ctx,
+        args.first().copied().unwrap_or(JsValue::Undefined),
+        interface,
+    )?;
     Ok(ctx.vm.alloc_dom_rect(DomRectState {
         x,
         y,
