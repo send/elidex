@@ -60,7 +60,7 @@ pub(super) fn native_put_image_data(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let img = args.first().copied().unwrap_or(JsValue::Undefined);
-    let (width, height, data) = read_image_data_object(ctx, img)?;
+    let (width, height, data) = read_image_data_object(ctx, img, "putImageData")?;
     let dx = arg_i32(ctx, args, 1)?;
     let dy = arg_i32(ctx, args, 2)?;
     dispatch_context(ctx, this, "putImageData", true, |c| {
@@ -79,7 +79,7 @@ pub(super) fn native_create_image_data(
     require_canvas_2d_context(ctx, this, "createImageData")?;
     let (w, h) = match args.first().copied() {
         Some(JsValue::Object(_)) => {
-            let (width, height, _) = read_image_data_object(ctx, args[0])?;
+            let (width, height, _) = read_image_data_object(ctx, args[0], "createImageData")?;
             (width, height)
         }
         _ => (
@@ -401,9 +401,13 @@ fn prototype_chain_has_image_data(vm: &VmInner, id: ObjectId) -> bool {
 fn read_image_data_object(
     ctx: &mut NativeContext<'_>,
     value: JsValue,
+    method: &str,
 ) -> Result<(u32, u32, Vec<u8>), VmError> {
-    let not_image_data =
-        || VmError::type_error("parameter is not of type 'ImageData'.".to_string());
+    let not_image_data = || {
+        VmError::type_error(format!(
+            "Failed to execute '{method}' on 'CanvasRenderingContext2D': parameter 1 is not of type 'ImageData'."
+        ))
+    };
     let JsValue::Object(id) = value else {
         return Err(not_image_data());
     };
