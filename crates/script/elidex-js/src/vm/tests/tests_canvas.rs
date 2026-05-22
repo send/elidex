@@ -441,6 +441,26 @@ fn put_image_data_rejects_oversized_branded_object() {
 }
 
 #[test]
+fn put_image_data_rejects_small_dims_huge_data_without_copy() {
+    // Inverse OOM vector to the huge-dims case: a branded object with tiny dims
+    // (1×1 → expected 4 bytes) but a giant `data` array. The view's byte length
+    // is checked BEFORE the copy, so the mismatch rejects it without allocating
+    // gigabytes. 64 MiB is large enough that an accidental copy is observable
+    // yet cheap enough to allocate once for the test.
+    with_vm(|vm, _dom| {
+        assert!(vm
+            .eval(
+                "var ctx = document.createElement('canvas').getContext('2d'); \
+                 var sub = Object.create(ImageData.prototype); \
+                 sub.width = 1; sub.height = 1; \
+                 sub.data = new Uint8ClampedArray(64 * 1024 * 1024); \
+                 ctx.putImageData(sub, 0, 0);"
+            )
+            .is_err());
+    });
+}
+
+#[test]
 fn get_image_data_rejects_oversized_request() {
     // Untrusted JS must not OOM the process: a huge sw*sh is capped → RangeError.
     with_vm(|vm, _dom| {

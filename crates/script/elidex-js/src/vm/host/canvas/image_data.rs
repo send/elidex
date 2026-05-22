@@ -402,15 +402,18 @@ fn read_image_data_object(
     ) {
         return Err(not_image_data());
     }
-    // Cap width*height*4 BEFORE the full-buffer copy below so a branded-but-
-    // oversized ImageData (huge `data` array) can't OOM the process — mirrors
-    // the getImageData / createImageData preflight (RangeError if too large).
+    // Cap width*height*4 BEFORE touching the data buffer so a branded-but-
+    // oversized ImageData (huge dims) can't OOM the process — mirrors the
+    // getImageData / createImageData preflight (RangeError if too large).
     let expected = checked_image_bytes(width, height)?;
-    let bytes = read_typed_array_bytes(ctx.vm, data_id).ok_or_else(not_image_data)?;
-    // Internal-consistency invariant: data.length == width * height * 4.
-    if expected != bytes.len() {
+    // Verify the view's byte length matches the dims BEFORE copying its bytes:
+    // the inverse OOM vector is small dims + a giant `data` array — the copy
+    // below would allocate gigabytes before the consistency check rejects it.
+    // Checking the view length first rejects the spoof without any copy.
+    if typed_array_byte_len(ctx.vm, data_id) != Some(expected) {
         return Err(not_image_data());
     }
+    let bytes = read_typed_array_bytes(ctx.vm, data_id).ok_or_else(not_image_data)?;
     Ok((width, height, bytes))
 }
 

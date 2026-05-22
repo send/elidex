@@ -275,8 +275,11 @@ fn require_canvas_element(
 
 /// `HTMLCanvasElement.getContext(contextId)` (HTML §4.12.5 "2D context creation
 /// algorithm"). Returns the SameObject `CanvasRenderingContext2D` wrapper for
-/// `'2d'`, `null` for any other (unsupported) context type, and `null` if the
-/// canvas bitmap cannot be allocated (e.g. a zero dimension).
+/// `'2d'`, or `null` for any other (unsupported) context type. A `'2d'` context
+/// is never `null` for a zero / unrepresentable dimension — the backing bitmap
+/// clamps to a 1×1 floor (`elidex_api_canvas::ensure_context`), so the only
+/// `null` paths are the unsupported-type case above and the defensive guard for
+/// a non-live entity (which `require_canvas_element` has already ruled out).
 fn native_get_context(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
