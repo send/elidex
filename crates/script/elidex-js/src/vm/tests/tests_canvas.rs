@@ -524,6 +524,25 @@ fn put_image_data_rejects_small_dims_huge_data_without_copy() {
 }
 
 #[test]
+fn get_image_data_normalizes_negative_dimensions() {
+    // HTML getImageData: a negative sw/sh shifts the origin and flips the rect.
+    // Fill x∈[0,5) red; getImageData(5,0,-5,1) must read the SAME region as
+    // getImageData(0,0,5,1) (x∈[0,5)), not x∈[5,10).
+    with_vm(|vm, _dom| {
+        assert!(eval_bool(
+            vm,
+            "var ctx = document.createElement('canvas').getContext('2d'); \
+             ctx.fillStyle = 'rgb(255, 0, 0)'; ctx.fillRect(0, 0, 5, 1); \
+             var neg = ctx.getImageData(5, 0, -5, 1); \
+             var pos = ctx.getImageData(0, 0, 5, 1); \
+             neg.width === 5 && neg.height === 1 \
+             && neg.data[0] === 255 && neg.data[1] === 0 && neg.data[3] === 255 \
+             && Array.from(neg.data).join() === Array.from(pos.data).join();"
+        ));
+    });
+}
+
+#[test]
 fn get_image_data_rejects_oversized_request() {
     // Untrusted JS must not OOM the process: a huge sw*sh is capped → RangeError.
     with_vm(|vm, _dom| {

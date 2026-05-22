@@ -22,15 +22,28 @@ use super::{arg_i32, dispatch_context, require_canvas_2d_context};
 
 /// `getImageData(sx, sy, sw, sh)` — returns a fresh `ImageData` whose `data`
 /// `Uint8ClampedArray` holds the requested region (straight-alpha RGBA8).
+#[allow(clippy::similar_names)]
 pub(super) fn native_get_image_data(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let sx = arg_i32(ctx, args, 0)?;
-    let sy = arg_i32(ctx, args, 1)?;
-    let sw = require_image_data_dim(ctx, args, 2, "getImageData", "width")?;
-    let sh = require_image_data_dim(ctx, args, 3, "getImageData", "height")?;
+    let mut sx = arg_i32(ctx, args, 0)?;
+    let mut sy = arg_i32(ctx, args, 1)?;
+    // HTML §4.12.5.1.16 getImageData: `sw`/`sh` are `long`; zero throws
+    // IndexSizeError; a negative dimension flips the source rectangle — shift
+    // the origin by it and take the magnitude — so the returned region is the
+    // normalized rect (`getImageData(10, 0, -5, 1)` reads x∈[5,10), width 5).
+    let sw_signed = require_image_data_dim_signed(ctx, args, 2, "getImageData", "width")?;
+    let sh_signed = require_image_data_dim_signed(ctx, args, 3, "getImageData", "height")?;
+    if sw_signed < 0 {
+        sx = sx.wrapping_add(sw_signed);
+    }
+    if sh_signed < 0 {
+        sy = sy.wrapping_add(sh_signed);
+    }
+    let sw = sw_signed.unsigned_abs();
+    let sh = sh_signed.unsigned_abs();
     // Cap before the backend's `vec![0; sw*sh*4]` so untrusted JS can't OOM-abort.
     checked_image_bytes(sw, sh)?;
     let pixels = dispatch_context(ctx, this, "getImageData", false, |c| {
@@ -208,6 +221,21 @@ fn require_image_data_dim(
     method: &str,
     dim: &str,
 ) -> Result<u32, VmError> {
+    Ok(require_image_data_dim_signed(ctx, args, i, method, dim)?.unsigned_abs())
+}
+
+/// As [`require_image_data_dim`] but returns the SIGNED `long` (ToInt32, still
+/// throwing IndexSizeError on zero). `getImageData` needs the sign to normalize
+/// its source rectangle (negative dim → shift origin); the magnitude-only
+/// callers (`createImageData`, the `ImageData` ctor) go through the `u32`
+/// wrapper above.
+fn require_image_data_dim_signed(
+    ctx: &mut NativeContext<'_>,
+    args: &[JsValue],
+    i: usize,
+    method: &str,
+    dim: &str,
+) -> Result<i32, VmError> {
     let v = args.get(i).copied().unwrap_or(JsValue::Undefined);
     let n = coerce::to_int32(ctx.vm, v)?;
     if n == 0 {
@@ -218,7 +246,7 @@ fn require_image_data_dim(
             ),
         ));
     }
-    Ok(n.unsigned_abs())
+    Ok(n)
 }
 
 /// Maximum `ImageData` byte length the VM will allocate. Guards untrusted JS
