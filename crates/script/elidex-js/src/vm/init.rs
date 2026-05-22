@@ -253,6 +253,12 @@ impl Vm {
                 html_script_prototype: None,
                 #[cfg(feature = "engine")]
                 html_link_prototype: None,
+                #[cfg(feature = "engine")]
+                html_canvas_prototype: None,
+                #[cfg(feature = "engine")]
+                canvas_rendering_context_2d_prototype: None,
+                #[cfg(feature = "engine")]
+                image_data_prototype: None,
                 // T2b passive head + grouping prototypes
                 // (slot `#11-tags-T2b-passive`).
                 #[cfg(feature = "engine")]

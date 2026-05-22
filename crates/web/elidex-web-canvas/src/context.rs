@@ -108,6 +108,24 @@ impl Canvas2dContext {
         })
     }
 
+    /// Re-allocate the bitmap to `width`×`height` transparent black and
+    /// reset the drawing state (HTML §4.12.5 "set bitmap dimensions": setting
+    /// `canvas.width`/`height` — even to the same value — clears the bitmap and
+    /// resets context state, transform, and path).
+    ///
+    /// Returns `false` if the dimensions are zero or too large for tiny-skia,
+    /// leaving the context unchanged.
+    pub fn reset(&mut self, width: u32, height: u32) -> bool {
+        let Some(pixmap) = Pixmap::new(width, height) else {
+            return false;
+        };
+        self.pixmap = pixmap;
+        self.state_stack.clear();
+        self.current = DrawingState::default();
+        self.path_builder = PathBuilder::new();
+        true
+    }
+
     /// Width of the canvas in pixels.
     #[must_use]
     pub fn width(&self) -> u32 {

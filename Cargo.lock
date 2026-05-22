@@ -1741,6 +1741,11 @@ dependencies = [
 [[package]]
 name = "elidex-api-canvas"
 version = "0.1.0"
+dependencies = [
+ "elidex-ecs",
+ "elidex-web-canvas",
+ "hecs",
+]
 
 [[package]]
 name = "elidex-api-fetch"
@@ -2003,6 +2008,7 @@ dependencies = [
  "bytes",
  "criterion",
  "crossbeam-channel",
+ "elidex-api-canvas",
  "elidex-api-observers",
  "elidex-api-workers",
  "elidex-api-ws",
@@ -2014,6 +2020,7 @@ dependencies = [
  "elidex-plugin",
  "elidex-script-session",
  "elidex-storage-core",
+ "elidex-web-canvas",
  "encoding_rs",
  "getrandom 0.4.2",
  "hashbrown 0.15.5",

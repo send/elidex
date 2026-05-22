@@ -3,11 +3,18 @@
 //! Provides constants and helpers shared across script engine bindings.
 //! The actual rendering logic lives in `elidex-web-canvas`.
 
-/// Default canvas width in pixels (HTML spec §4.12.5.1).
-pub const DEFAULT_WIDTH: u32 = 300;
+mod component;
 
-/// Default canvas height in pixels (HTML spec §4.12.5.1).
-pub const DEFAULT_HEIGHT: u32 = 150;
+pub use component::{
+    canvas_dimensions, ensure_context, mark_dirty, sync_dirty_canvases, with_context, CanvasDirty,
+    CanvasReconciler,
+};
+
+// The canonical canvas default dimensions live in `elidex_web_canvas`
+// (the raster backend) — single source of truth. Re-exported here so this
+// crate's public surface still offers `DEFAULT_WIDTH` / `DEFAULT_HEIGHT`
+// without a second definition that could drift.
+pub use elidex_web_canvas::{DEFAULT_HEIGHT, DEFAULT_WIDTH};
 
 /// Split a 64-bit entity ID into (high, low) 32-bit parts.
 ///
@@ -30,12 +37,6 @@ pub fn join_entity_bits(hi: u32, lo: u32) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn defaults() {
-        assert_eq!(DEFAULT_WIDTH, 300);
-        assert_eq!(DEFAULT_HEIGHT, 150);
-    }
 
     #[test]
     fn split_and_join_roundtrip() {

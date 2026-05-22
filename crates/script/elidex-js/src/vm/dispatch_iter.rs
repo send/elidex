@@ -1,13 +1,7 @@
 //! Iterator-protocol opcode handlers extracted from the main dispatch loop.
 
-use super::coerce::get_property;
+use super::coerce::{get_property, PROTO_CHAIN_LIMIT};
 use super::ops::DENSE_ARRAY_LEN_LIMIT;
-
-/// Prototype-chain depth cap for `for-in` key collection.  Matches the
-/// cap used by `coerce::find_inherited_property` and bind-chain traversal
-/// (10_000); prevents attacker-built deep chains from driving unbounded
-/// iteration.
-const PROTO_CHAIN_LIMIT: usize = 10_000;
 use super::value::{
     ForInState, JsValue, Object, ObjectKind, PropertyKey, PropertyStorage, VmError,
 };

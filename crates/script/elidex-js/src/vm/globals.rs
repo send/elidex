@@ -297,6 +297,13 @@ impl VmInner {
             self.register_html_script_prototype();
             self.register_html_link_prototype();
 
+            // Canvas 2D (slot `#11-canvas-2d-vm`): HTMLCanvasElement.prototype
+            // (chains `HTMLElement.prototype`) + CanvasRenderingContext2D.prototype
+            // + the constructable `ImageData` global (both chain `Object.prototype`).
+            self.register_html_canvas_prototype();
+            self.register_canvas_rendering_context_2d_prototype();
+            self.register_image_data_global();
+
             // T2b passive head + grouping prototypes (slot
             // `#11-tags-T2b-passive`).  Brand-only bundle first so
             // the 14 shared-pattern prototypes land before the 10

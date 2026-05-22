@@ -272,3 +272,27 @@ fn stroke_rect_zero_width_draws_line() {
     assert!(px[0] > 0); // Some red from the line stroke.
     assert!(px[3] > 0);
 }
+
+#[test]
+fn reset_reallocates_and_clears() {
+    let mut ctx = Canvas2dContext::new(10, 10).unwrap();
+    ctx.set_fill_style("red");
+    ctx.fill_rect(0.0, 0.0, 10.0, 10.0);
+    assert!(ctx.pixels().iter().any(|&b| b != 0));
+
+    assert!(ctx.reset(20, 5));
+    assert_eq!(ctx.width(), 20);
+    assert_eq!(ctx.height(), 5);
+    // Bitmap is transparent black again.
+    assert!(ctx.pixels().iter().all(|&b| b == 0));
+    // Drawing state is reset to defaults (fill style back to black).
+    assert_eq!(ctx.fill_style(), elidex_plugin::CssColor::BLACK);
+}
+
+#[test]
+fn reset_invalid_dims_keeps_context() {
+    let mut ctx = Canvas2dContext::new(10, 10).unwrap();
+    assert!(!ctx.reset(0, 0));
+    assert_eq!(ctx.width(), 10);
+    assert_eq!(ctx.height(), 10);
+}

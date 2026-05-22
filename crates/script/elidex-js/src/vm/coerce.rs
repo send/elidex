@@ -935,9 +935,13 @@ pub(crate) enum PropertyResult {
     Getter(ObjectId),
 }
 
-/// Look up a property on an object, following the prototype chain.
-/// Maximum prototype chain depth for property lookups.
-const PROTO_CHAIN_LIMIT: usize = 10_000;
+/// Maximum prototype-chain depth walked by any VM prototype traversal
+/// (property lookup, `instanceof`, iterator-protocol probing, host brand
+/// checks). The canonical VM-wide limit — a hop cap that doubles as the
+/// acyclicity guard, since prototype chains are acyclic in normal operation.
+/// All prototype walks reference this single constant so the bound stays
+/// consistent across the engine.
+pub(crate) const PROTO_CHAIN_LIMIT: usize = 10_000;
 
 pub(crate) fn get_property(
     vm: &VmInner,

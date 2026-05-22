@@ -209,6 +209,9 @@ impl VmInner {
         if host.tag_matches_ascii_case(entity, "link") {
             return self.html_link_prototype;
         }
+        if host.tag_matches_ascii_case(entity, "canvas") {
+            return self.html_canvas_prototype;
+        }
         if host.tag_matches_ascii_case(entity, "label") {
             return self.html_label_prototype;
         }

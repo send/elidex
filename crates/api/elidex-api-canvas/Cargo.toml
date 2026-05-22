@@ -8,6 +8,15 @@ authors.workspace = true
 publish.workspace = true
 
 [dependencies]
+# Canvas 2D raster backend (`Canvas2dContext`) — stored as a per-canvas-entity
+# ECS component; this crate inserts/queries it (engine-independent plumbing).
+elidex-web-canvas.workspace = true
+# `EcsDom` / `Entity` / `ImageData` component + `MutationEvent` /
+# `MutationDispatcher` for the width/height bitmap-reset reconciler.
+elidex-ecs.workspace = true
+
+[dev-dependencies]
+hecs = { workspace = true }
 
 [lints]
 workspace = true
