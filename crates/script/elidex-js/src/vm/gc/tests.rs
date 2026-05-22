@@ -79,13 +79,12 @@ fn gc_traces_prototype_chain() {
     vm.inner.stack.pop();
 }
 
-/// Regression (PR222 Copilot R2): the `DOMRectReadOnly` / `DOMRect`
-/// prototypes must survive GC even after their global constructors are
-/// deleted, because `VmInner` retains their `ObjectId`s for host-side
-/// allocation.  Without a proto-root entry the only strong path is the
-/// (deletable) global → ctor → `.prototype`, so deleting the globals
-/// would leave a dangling id.  Fails (prototype collected) without the
-/// proto_roots entries added alongside this test.
+/// The `DOMRectReadOnly` / `DOMRect` prototypes must survive GC even
+/// after their global constructors are deleted, because `VmInner`
+/// retains their `ObjectId`s for host-side allocation.  Without a
+/// proto-root entry the only strong path is the (deletable) global →
+/// ctor → `.prototype`, so deleting the globals would leave a dangling
+/// id; this guards that the prototypes are in the proto-root set.
 #[cfg(feature = "engine")]
 #[test]
 fn gc_roots_dom_rect_prototypes_after_global_deletion() {
