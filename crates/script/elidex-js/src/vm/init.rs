@@ -345,6 +345,12 @@ impl Vm {
                 dom_exception_prototype: None,
                 #[cfg(feature = "engine")]
                 dom_exception_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                dom_rect_readonly_prototype: None,
+                #[cfg(feature = "engine")]
+                dom_rect_prototype: None,
+                #[cfg(feature = "engine")]
+                dom_rect_states: HashMap::new(),
                 window_prototype: None,
                 event_prototype: None,
                 #[cfg(feature = "engine")]

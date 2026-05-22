@@ -938,6 +938,35 @@ pub(crate) struct VmInner {
     ///   inherit stale `name` / `message`.
     #[cfg(feature = "engine")]
     pub(crate) dom_exception_states: HashMap<ObjectId, host::dom_exception::DomExceptionState>,
+    /// `DOMRectReadOnly.prototype` (W3C Geometry Interfaces Module
+    /// Level 1 §3).  Chains to `Object.prototype`.  Holds the
+    /// getter-only `x` / `y` / `width` / `height` accessors plus the
+    /// computed `top` / `right` / `bottom` / `left` getters and the
+    /// `toJSON` method, all reading [`Self::dom_rect_states`] via
+    /// receiver brand-check.  `None` until `register_dom_rect_globals()`
+    /// runs during `register_globals()` (after `object_prototype`).
+    #[cfg(feature = "engine")]
+    pub(crate) dom_rect_readonly_prototype: Option<ObjectId>,
+    /// `DOMRect.prototype` (W3C Geometry Interfaces Module Level 1 §3).
+    /// Chains to [`Self::dom_rect_readonly_prototype`] (DOMRect is a
+    /// DOMRectReadOnly subclass), re-declaring `x` / `y` / `width` /
+    /// `height` as read-write accessor pairs; `top`/`right`/`bottom`/
+    /// `left`/`toJSON` are inherited from the base prototype.
+    #[cfg(feature = "engine")]
+    pub(crate) dom_rect_prototype: Option<ObjectId>,
+    /// Per-`DOMRectReadOnly` / `DOMRect` out-of-band state, keyed by the
+    /// instance's own `ObjectId` (same value-type pattern as
+    /// [`Self::dom_exception_states`]).  `mutable` distinguishes the
+    /// DOMRect brand (read-write) from DOMRectReadOnly (read-only): the
+    /// `x`/`y`/`width`/`height` setters require `mutable == true`, so a
+    /// cross-called setter on a DOMRectReadOnly receiver throws.
+    ///
+    /// GC contract: the payload is `Copy` (4×`f64` + `bool`) with no
+    /// `ObjectId` fan-out, so no trace pass is needed; the sweep tail
+    /// (`collect_garbage`) prunes entries whose key was collected,
+    /// matching `dom_exception_states` / `abort_signal_states`.
+    #[cfg(feature = "engine")]
+    pub(crate) dom_rect_states: HashMap<ObjectId, host::dom_rect::DomRectState>,
     /// `Window.prototype` — prototype for the `globalThis` / `window`
     /// `HostObject` (WHATWG HTML §7.2).  Inherits from
     /// `EventTarget.prototype` so `window.addEventListener` resolves

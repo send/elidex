@@ -629,6 +629,12 @@ impl VmInner {
         #[cfg(feature = "engine")]
         self.register_dom_exception_global();
 
+        // `DOMRectReadOnly` + `DOMRect` value-type interfaces (W3C
+        // Geometry Interfaces §3).  Both prototypes chain to
+        // `object_prototype`, so this must run after it is populated.
+        #[cfg(feature = "engine")]
+        self.register_dom_rect_globals();
+
         // `AbortController` constructor + `AbortSignal` global +
         // `AbortSignal.prototype` (WHATWG DOM §3.1).  Must run after
         // `register_event_target_prototype` (the prototype chains

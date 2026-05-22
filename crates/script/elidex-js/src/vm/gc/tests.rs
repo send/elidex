@@ -79,6 +79,35 @@ fn gc_traces_prototype_chain() {
     vm.inner.stack.pop();
 }
 
+/// The `DOMRectReadOnly` / `DOMRect` prototypes must survive GC even
+/// after their global constructors are deleted, because `VmInner`
+/// retains their `ObjectId`s for host-side allocation.  Without a
+/// proto-root entry the only strong path is the (deletable) global →
+/// ctor → `.prototype`, so deleting the globals would leave a dangling
+/// id; this guards that the prototypes are in the proto-root set.
+#[cfg(feature = "engine")]
+#[test]
+fn gc_roots_dom_rect_prototypes_after_global_deletion() {
+    let mut vm = test_vm();
+    let ro = vm.inner.dom_rect_readonly_prototype.expect("ro proto set");
+    let rw = vm.inner.dom_rect_prototype.expect("rw proto set");
+    // Sever the only JS-reachable path to the proto↔ctor cycle.
+    let dom_rect = vm.inner.strings.intern("DOMRect");
+    let dom_rect_ro = vm.inner.strings.intern("DOMRectReadOnly");
+    vm.inner.globals.remove(&dom_rect);
+    vm.inner.globals.remove(&dom_rect_ro);
+    vm.inner.gc_enabled = true;
+    vm.inner.collect_garbage();
+    assert!(
+        vm.inner.objects[ro.0 as usize].is_some(),
+        "DOMRectReadOnly.prototype must survive GC via proto-roots"
+    );
+    assert!(
+        vm.inner.objects[rw.0 as usize].is_some(),
+        "DOMRect.prototype must survive GC via proto-roots"
+    );
+}
+
 #[test]
 fn gc_collects_unreachable_upvalue() {
     let mut vm = test_vm();

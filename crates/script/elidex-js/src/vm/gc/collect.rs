@@ -884,6 +884,23 @@ impl VmInner {
                 self.event_source_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // M4-12 slot #11-dom-rect-readonly: DOMRectReadOnly /
+                // DOMRect prototypes (W3C Geometry §3).  Both chain to
+                // `Object.prototype`.  Rooted here because the
+                // `VmInner::dom_rect_*_prototype` slots retain a stale
+                // id if the prototype is collected behind a severed
+                // global binding (same `delete globalThis.DOMRect`
+                // invariant as every other intrinsic prototype above) —
+                // load-bearing once a host-side allocator (D-22) mints
+                // DOMRects without a live global ctor.
+                #[cfg(feature = "engine")]
+                self.dom_rect_readonly_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.dom_rect_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,
@@ -1132,6 +1149,8 @@ impl VmInner {
             // needed during mark, only this post-sweep GC.
             self.dom_exception_states
                 .retain(|id, _| bit_get(marks, id.0));
+            // DOMRect value-type side table (GC contract on the field doc).
+            self.dom_rect_states.retain(|id, _| bit_get(marks, id.0));
             // BeforeUnloadEvent.returnValue side table — pool-permanent
             // StringId payload (no trace step), but the key ObjectId
             // entry must be pruned when the event instance is collected
