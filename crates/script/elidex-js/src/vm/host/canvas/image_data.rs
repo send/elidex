@@ -268,6 +268,13 @@ fn build_image_data(
 /// Set the `data` / `width` / `height` own properties on an `ImageData`
 /// instance from an already-allocated `data` `Uint8ClampedArray` (`data_id`).
 ///
+/// The three attributes are stored as own data props (not prototype accessors
+/// over a side table, the `Blob` / `DOMException` pattern) because `data` is a
+/// child JS object whose reachability + `[SameObject]` identity is carried by
+/// the property itself — own-property tracing keeps it alive with no extra GC
+/// wiring. They are `WEBIDL_RO_PERMANENT` (non-configurable) so `delete` /
+/// redefine cannot corrupt the `data.length == width*height*4` invariant.
+///
 /// Single sink for every ImageData construction. `width*height*4` must be
 /// representable AND equal `data`'s byte length — this rejects the
 /// `Canvas2dContext::create_image_data` / `get_image_data` overflow case (empty
@@ -296,19 +303,19 @@ fn set_image_data_props(
         inst,
         PropertyKey::String(data_sid),
         PropertyValue::Data(JsValue::Object(data_id)),
-        shape::PropertyAttrs::WEBIDL_RO,
+        shape::PropertyAttrs::WEBIDL_RO_PERMANENT,
     );
     ctx.vm.define_shaped_property(
         inst,
         PropertyKey::String(width_sid),
         PropertyValue::Data(JsValue::Number(f64::from(width))),
-        shape::PropertyAttrs::WEBIDL_RO,
+        shape::PropertyAttrs::WEBIDL_RO_PERMANENT,
     );
     ctx.vm.define_shaped_property(
         inst,
         PropertyKey::String(height_sid),
         PropertyValue::Data(JsValue::Number(f64::from(height))),
-        shape::PropertyAttrs::WEBIDL_RO,
+        shape::PropertyAttrs::WEBIDL_RO_PERMANENT,
     );
     Ok(())
 }

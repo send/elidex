@@ -353,6 +353,30 @@ fn image_data_constructor_rejects_overflow_dims() {
 }
 
 #[test]
+fn image_data_props_are_non_configurable() {
+    // data/width/height are non-configurable own props: `delete` cannot remove
+    // them (this VM throws a TypeError on deleting a non-configurable property),
+    // so reads and the data array identity survive intact.
+    with_vm(|vm, _dom| {
+        assert!(eval_bool(
+            vm,
+            "var img = new ImageData(2, 2); var d = img.data; \
+             var threw = false; \
+             try { delete img.width; } catch (e) { threw = e instanceof TypeError; } \
+             threw && img.width === 2 && img.height === 2 && img.data === d \
+             && img.data.length === 16;"
+        ));
+        // Non-configurable → redefining the property throws a TypeError.
+        assert!(eval_bool(
+            vm,
+            "var img = new ImageData(1, 1); \
+             try { Object.defineProperty(img, 'width', {value: 99}); false; } \
+             catch (e) { e instanceof TypeError && img.width === 1; }"
+        ));
+    });
+}
+
+#[test]
 fn canvas_width_setter_uses_to_uint32() {
     // canvas.width is a reflected WebIDL `unsigned long` → ToUint32 (mod 2^32),
     // NOT clamp-to-0 / saturate. -1 wraps to u32::MAX; 2^32 wraps to 0.

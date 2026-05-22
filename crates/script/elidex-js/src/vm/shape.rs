@@ -93,6 +93,20 @@ impl PropertyAttrs {
         is_accessor: false,
     };
 
+    /// Read-only, enumerable, **non-configurable** data property (`{¬W, E, ¬C}`).
+    /// For value-object attributes stored as own data props rather than
+    /// prototype accessors because the value is a child JS object whose
+    /// reachability + identity must be carried by the property itself
+    /// (`ImageData` `data`/`width`/`height`): non-configurable so `delete` /
+    /// redefine cannot corrupt the instance's invariant the way `WEBIDL_RO`
+    /// (configurable) would.
+    pub const WEBIDL_RO_PERMANENT: Self = Self {
+        writable: false,
+        enumerable: true,
+        configurable: false,
+        is_accessor: false,
+    };
+
     /// `WEBIDL_RO` for accessor (getter/setter) properties.
     ///
     /// `writable` is meaningless on accessor properties (§6.1.7.1
