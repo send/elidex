@@ -105,6 +105,29 @@ The aggregate of these blocks IS the philosophy-aligned fix proposal.  Step 4 re
 
 Auto-fix NG — user decision drives.  ≥1 fix-tier without Step 3.5 block = gate violation, return to Step 3.5.
 
+## Step 4.5 — Fix-delta re-verification (mandatory after fixes applied)
+
+**The gate detects the *original* input; the *fix* it produces is itself unverified.**  A review proposes a fix (Step 3.5), the orchestrator applies it — and nothing independently re-screens the applied fix.  Self-applied re-checks fail here: the orchestrator is biased toward converging.  This is where manual push-back keeps landing (especially plan-stage, where a "fix" is a one-line *design decision* with the widest blast radius and the cheapest re-read).
+
+Classify **each applied fix** into one tier (grey cases → resolve to the *higher* tier; a false-positive re-read is cheaper than a missed drift):
+
+| Tier | Definition | Action |
+|---|---|---|
+| **clerical** | citation / wording / section-number / comment / cfg-gate / scope-doc — no behavior or design change | apply, no re-review |
+| **design-affecting** | touches a **type / data structure / invariant / algorithm / control-flow / scope (defer・prereq) / premise** — localized | **focused re-check** (below) |
+| **structural** | changes the input *shape* — plan §section restructure / diff-wide restructure | **full re-review from Step 1** (existing anti-pattern rule) |
+
+**Focused re-check** = the cheap, independent form (precedent: wrapper-identity-seam plan-review "focused Axis 2 re-review = 0/0/0"):
+- **Scope**: only the axis the fix touches × only the changed section/hunk (NOT the whole 5-agent run).
+- **Independence**: a *fresh* sub-agent that did not author the fix (the self-lens is what failed — a 1-agent single-axis re-read is enough to break convergence bias).
+- **Detect-only**: it either surfaces a new finding → one more Step 3.5/4 fix cycle, or is clean → done.  Clerical fixes terminate immediately, so the loop terminates.
+
+**Placement is blast-radius-weighted (NOT uniform):**
+- **plan-review**: re-check each design-affecting fix **immediately** — plan fixes *compound* (later plan decisions build on the corrected one), so deferring is expensive.
+- **elidex-review (diff) / copilot-review**: batch the design-affecting fixes into **one cumulative focused pass at the end** (pre-push / pre-merge) — code fixes are more independent and the irreversible step (push/merge) is the natural gate.
+
+Clerical-only fix sets skip Step 4.5 entirely.
+
 ## Anti-patterns (common to both skills)
 
 - **5-agent 同時起動必須**: sequential = ~5x slow.  All 5 Agent tool calls in a single message.
@@ -118,6 +141,7 @@ Auto-fix NG — user decision drives.  ≥1 fix-tier without Step 3.5 block = ga
 
 ## Change log
 
+- **2026-05-23** — **Step 4.5 Fix-delta re-verification** added (+ wired into all three gates' SKILL.md / copilot overlay `fix_discipline`).  Triggered by a recurring observation across PR #222 and prior work: the gates detect the *original* input but the *applied fix* is never independently re-screened — manual push-back kept landing on review-fixes, **especially plan-stage** (a one-line design decision with the widest blast radius).  Fix: classify each applied fix (clerical / design-affecting / structural); design-affecting → a cheap **focused** re-check (touched axis × changed section, fresh detect-only agent — generalizes the wrapper-identity-seam "focused Axis 2 re-review" precedent); placement is **blast-radius-weighted** (plan-review = immediate per design-fix since plan fixes compound; diff / Copilot = one cumulative pass at push/merge).  Clerical-only fix sets skip.  Subsumes + mechanizes the prior self-assessed "root fix changes input shape → re-review" anti-pattern (now the "structural" tier).
 - **2026-05-20** — `elidex-review` Step 1 diff range switched 2-dot → 3-dot against a *freshened* base (`git fetch --quiet origin main`, then the base resolves to `origin/main` — falling back to a verified local `main`; `git diff <base>...HEAD`) + staleness preflight added.  Triggered by an observer-refactor PR review: a sibling event-handler PR merged to `main` mid-session while the observer branch (forked from the previous `main`) was under review.  Plain 2-dot `main..HEAD` reported the 13 base-only files as phantom "deleted" files, contaminating the 5-agent run (wasted, had to detect + rebase + re-run).  3-dot uses `merge-base($BASE, HEAD)..HEAD` = the branch's own changes (matching the GitHub PR diff), immune to the base advancing; it stays committed-only so the original working-tree-contamination guard is preserved.  Resolving `$BASE` against `origin/main` (fetched) — not a possibly-stale local `main` — keeps the diff and the `git merge-base --is-ancestor $BASE HEAD` preflight (non-blocking "branch is N commits behind $BASE — consider `git rebase`") accurate against *current* remote main (Copilot PR #214 R1 refinement).  (`elidex-plan-review` Step 1 takes a plan-memo path, not a diff, so it is unaffected.)
 - **2026-05-20** — Two skill brush-ups from D-29 PR #209 trial:
   - **B**: Step 1 of both SKILL.md gained `rm -f` of the dry-run output path (`/tmp/elidex-review.dry-run.md` / `/tmp/elidex-plan-review.dry-run.md`).  Triggered by stale-residue friction during D-29 R-loop: prior PR's dry-run sat at the fixed path, Write tool's "Read first" guard tripped the agent.  `rm -f` at Step 1 ensures a clean slate per invocation.

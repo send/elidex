@@ -87,12 +87,14 @@ Output per axes.md Axis <N> "Output format". Use plan-memo §section identifiers
 User が Fix decisions を accept した場合:
 
 1. Plan-memo edit (Step 3.5 block の `Concrete action` に従って)
-2. 変更タイプによる分岐:
-   - **既存 §sub-section の修正のみ** → re-review skip 可、implementation 着手 OR prereq PR carve-out
-   - **新規 design 判断 / plan 構造変化** → **re-review 必須**: 修正 plan-memo で Step 1 から再走
-3. Prerequisite PR carve-out 決定なら別 plan-memo 立てて `/elidex-plan-review`、元 plan は prereq merge 後再 invoke
+2. **適用した各 fix を `workflow.md` § "Step 4.5 — Fix-delta re-verification" で分類**。plan-stage は blast-radius 最大ゆえ **design-affecting fix は即 focused 再レビュー**（触れた axis × 該当 §section のみ・fix を書いていない fresh agent・detect-only）。plan fix は plan 内で compound する（後続 design 判断が乗る）ので cumulative でなく即時。
+3. 変更タイプによる分岐:
+   - **clerical のみ** (citation / wording / scope-doc) → re-review skip 可、implementation 着手 OR prereq PR carve-out
+   - **design-affecting (localized)** → Step 4.5 focused 再レビュー (clean まで Step 3.5/4 を回す) → 着手
+   - **structural (plan §section 構造変化)** → **full re-review 必須**: 修正 plan-memo で Step 1 から再走
+4. Prerequisite PR carve-out 決定なら別 plan-memo 立てて `/elidex-plan-review`、元 plan は prereq merge 後再 invoke
 
-⚠️ Step 5 の re-review skip は **anti-pattern** (`workflow.md` § "Anti-patterns" 参照、D-29 trial precedent)。
+⚠️ Step 5 の re-review skip (clerical 以外) は **anti-pattern** (`workflow.md` § "Step 4.5" / "Anti-patterns"、D-29 trial precedent)。
 
 ## Recommendation phrasing (skill-specific)
 

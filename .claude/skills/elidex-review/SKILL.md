@@ -113,9 +113,11 @@ Output per axes.md Axis <N> "Output format". Severity per axes.md common calibra
 | 4 | Axis 4 — Spec citation |
 | 5 | Axis 5 — Project-context |
 
-### Step 3 / 3.5 / 4
+### Step 3 / 3.5 / 4 / 4.5
 
 `workflow.md` § "Step 3" / "Step 3.5" / "Step 4" 参照。
+
+User 承認の fix を適用したら **`workflow.md` § "Step 4.5 — Fix-delta re-verification"** を適用: 各 fix を分類し、**design-affecting fix は cumulative に1回 focused 再レビュー**（触れた axis × 変更 hunk のみ・fresh detect-only agent）してから push-ready 宣言。diff-stage は code fix が独立しがちなので即時でなく push 直前に delta 一括。clerical-only は素通し。clean まで Step 3.5/4 を回す。
 
 ## Recommendation phrasing (skill-specific)
 
