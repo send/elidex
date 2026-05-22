@@ -353,6 +353,27 @@ fn image_data_constructor_rejects_overflow_dims() {
 }
 
 #[test]
+fn put_image_data_accepts_deep_prototype_chain() {
+    // The ImageData brand walks the prototype chain up to the VM-wide
+    // PROTO_CHAIN_LIMIT (10_000), not a smaller bespoke cap: a valid subclass
+    // whose chain reaches ImageData.prototype only after >64 hops must still be
+    // recognized, not falsely rejected.
+    with_vm(|vm, _dom| {
+        assert!(vm
+            .eval(
+                "var ctx = document.createElement('canvas').getContext('2d'); \
+                 var base = new ImageData(2, 2); \
+                 var proto = ImageData.prototype; \
+                 for (var i = 0; i < 100; i++) { proto = Object.create(proto); } \
+                 var sub = Object.create(proto); \
+                 sub.width = 2; sub.height = 2; sub.data = base.data; \
+                 ctx.putImageData(sub, 0, 0); true;"
+            )
+            .is_ok());
+    });
+}
+
+#[test]
 fn image_data_props_are_non_configurable() {
     // data/width/height are non-configurable own props: `delete` cannot remove
     // them (this VM throws a TypeError on deleting a non-configurable property),

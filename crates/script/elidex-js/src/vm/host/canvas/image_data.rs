@@ -339,14 +339,17 @@ fn typed_array_byte_len(vm: &VmInner, id: ObjectId) -> Option<usize> {
 }
 
 /// Walk `id`'s prototype chain looking for `ImageData.prototype` — the brand
-/// for `ImageData` instances and their subclasses. The hop cap guards against a
-/// pathological cycle (prototype chains are acyclic in normal operation).
+/// for `ImageData` instances and their subclasses. Bounded by the VM-wide
+/// [`coerce::PROTO_CHAIN_LIMIT`] (the same cap property lookup / `instanceof`
+/// use) so a deep-but-valid subclass chain is not falsely rejected; the cap
+/// doubles as the acyclicity guard (prototype chains are acyclic in normal
+/// operation).
 fn prototype_chain_has_image_data(vm: &VmInner, id: ObjectId) -> bool {
     let Some(target) = vm.image_data_prototype else {
         return false;
     };
     let mut cur = vm.get_object(id).prototype;
-    for _ in 0..64 {
+    for _ in 0..coerce::PROTO_CHAIN_LIMIT {
         match cur {
             Some(p) if p == target => return true,
             Some(p) => cur = vm.get_object(p).prototype,
