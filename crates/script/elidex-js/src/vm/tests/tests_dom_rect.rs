@@ -92,6 +92,25 @@ fn dom_rect_setter_reflects_and_recomputes_edges() {
 }
 
 #[test]
+fn dom_rect_setter_coerces_via_to_number() {
+    // The setter parameter is an `unrestricted double` → ES ToNumber:
+    // `undefined` (or a missing arg) → NaN, `null` → 0, strings parse.
+    // This differs from the constructor / DOMRectInit, whose args are
+    // optional-with-default-0.
+    assert!(eval_bool(
+        "var r = new DOMRect(1, 2, 3, 4); r.x = undefined; Number.isNaN(r.x)"
+    ));
+    assert_eq!(
+        eval_number("var r = new DOMRect(1, 2, 3, 4); r.y = null; r.y"),
+        0.0
+    );
+    assert_eq!(
+        eval_number("var r = new DOMRect(1, 2, 3, 4); r.width = '5'; r.width"),
+        5.0
+    );
+}
+
+#[test]
 fn dom_rect_readonly_assignment_throws() {
     // DOMRectReadOnly.x is a getter-only accessor; this VM rejects a
     // [[Set]] against a setter-less inherited accessor with a TypeError

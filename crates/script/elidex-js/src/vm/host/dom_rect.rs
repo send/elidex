@@ -222,10 +222,15 @@ fn set_rect_coord(
         Some(state) if state.mutable => {}
         _ => return Err(set_wrong_brand(coord.name())),
     }
-    let value = match args.first().copied() {
-        Some(JsValue::Undefined) | None => 0.0,
-        Some(v) => super::super::coerce::to_number(ctx.vm, v)?,
-    };
+    // Setter parameter is a (non-optional) `unrestricted double`, so it
+    // goes through ES `ToNumber` — `r.x = undefined` yields NaN, not 0
+    // (unlike the constructor / `DOMRectInit` members, which are
+    // optional-with-default-0).  A missing arg (`.set.call(obj)`)
+    // behaves as `undefined`.
+    let value = super::super::coerce::to_number(
+        ctx.vm,
+        args.first().copied().unwrap_or(JsValue::Undefined),
+    )?;
     // `to_number` may run user `valueOf`; re-fetch in case the entry was
     // dropped mid-conversion (graceful no-op rather than panic).
     if let Some(state) = ctx.vm.dom_rect_states.get_mut(&id) {
