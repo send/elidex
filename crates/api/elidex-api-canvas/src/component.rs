@@ -152,7 +152,14 @@ impl CanvasReconciler {
         let MutationEvent::AttributeChange { node, name, .. } = *event else {
             return;
         };
-        if !name.eq_ignore_ascii_case("width") && !name.eq_ignore_ascii_case("height") {
+        // Exact match (not case-insensitive): every attribute-write path
+        // (Element.setAttribute, the width/height IDL setters, the HTML parser)
+        // lowercases HTML attribute names before storage, so the AttributeChange
+        // name is always lowercase here — matching the case-sensitive read in
+        // `canvas_dimensions` and the `FormControlReconciler` convention. A
+        // case-insensitive check here would match an event the dimension lookup
+        // then misses.
+        if name != "width" && name != "height" {
             return;
         }
         // Before the first getContext there is no bitmap to reset.
