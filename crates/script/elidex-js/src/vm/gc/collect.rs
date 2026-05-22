@@ -1132,6 +1132,8 @@ impl VmInner {
             // needed during mark, only this post-sweep GC.
             self.dom_exception_states
                 .retain(|id, _| bit_get(marks, id.0));
+            // DOMRect value-type side table (GC contract on the field doc).
+            self.dom_rect_states.retain(|id, _| bit_get(marks, id.0));
             // BeforeUnloadEvent.returnValue side table — pool-permanent
             // StringId payload (no trace step), but the key ObjectId
             // entry must be pruned when the event instance is collected
