@@ -1455,10 +1455,10 @@ mod engine_feature {
             // loop in `gc/roots.rs` via the `MarkAgent::StrongRoot` arm
             // (`#11-wrapper-identity-seam`).
             // Three per-kind binding maps × 2 ObjectIds per entry
-            // (`callback`, `instance`) — flat-mapped through
-            // `ObserverBinding::roots` so adding a 4th observer kind
-            // is a single binding-map entry here rather than a new
-            // pair of `chain(...)` calls.
+            // — `[b.callback, b.instance]` is flat-mapped inline so
+            // adding a 4th observer kind is a single entry in the
+            // binding-map array here rather than a new pair of
+            // `chain(...)` calls.
             self.listener_store.values().copied().chain(
                 [
                     &self.mutation_observer_bindings,

@@ -245,8 +245,13 @@ pub(super) fn require_node_arg(
     // `HostData::prototype_kind_for`.  `Window` and `Worker` are
     // `EventTarget`s but not Nodes, so they're rejected via
     // `NodeKind::is_node()`.  Destroyed entities return `None` here
-    // and surface as the brand-check failure.
-    match ctx.host().dom().node_kind_inferred(entity) {
+    // and surface as the brand-check failure.  `host_if_bound` so a
+    // JS caller racing against `Vm::unbind()` gets a `TypeError`
+    // rather than the `host().dom()` panic.
+    let kind = ctx
+        .host_if_bound()
+        .and_then(|h| h.dom().node_kind_inferred(entity));
+    match kind {
         Some(k) if k.is_node() => Ok(entity),
         _ => Err(not_a_node()),
     }
@@ -255,13 +260,13 @@ pub(super) fn require_node_arg(
 /// Missing-arg wrapper over [`require_node_arg`].  The caller hands
 /// over an `Option<JsValue>` instead of a definite value, so the
 /// missing-arg case (`arg.is_none()`) fails first with an
-/// interface-scoped "1 argument required" TypeError, and the
-/// wrong-type case is **re-mapped** to the same interface-scoped
-/// shape — `require_node_arg` itself emits `"…on 'Node': …"`, which
-/// scopes the error to the WebIDL Node interface rather than the
+/// interface-scoped "1 argument required" TypeError, and any error
+/// from `require_node_arg` is re-scoped from `"…on 'Node': …"` to
+/// `"…on '{interface}': …"` — preserving the tail so that both the
+/// wrong-type and detached-entity shapes carry through to the
 /// caller's interface (`ResizeObserver` / `IntersectionObserver` /
-/// `MutationObserver`).  Re-mapping here matches Chrome's actual
-/// wording for `iObs.observe({})` →
+/// `MutationObserver`).  The wrong-type re-scoping matches Chrome's
+/// actual wording for `iObs.observe({})` →
 /// `"Failed to execute 'observe' on 'IntersectionObserver': …"`.
 pub(super) fn require_node_arg_required(
     ctx: &mut NativeContext<'_>,
@@ -274,10 +279,11 @@ pub(super) fn require_node_arg_required(
             "Failed to execute '{method}' on '{interface}': 1 argument required"
         ))
     })?;
-    require_node_arg(ctx, value, method).map_err(|_| {
-        VmError::type_error(format!(
-            "Failed to execute '{method}' on '{interface}': parameter 1 is not of type 'Node'."
-        ))
+    require_node_arg(ctx, value, method).map_err(|mut err| {
+        err.message = err
+            .message
+            .replace("on 'Node':", &format!("on '{interface}':"));
+        err
     })
 }
 

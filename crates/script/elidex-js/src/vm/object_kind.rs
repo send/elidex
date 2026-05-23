@@ -97,8 +97,8 @@ pub enum ObserverKind {
 #[cfg(feature = "engine")]
 impl ObserverKind {
     /// The WebIDL interface name for this observer kind — used by
-    /// brand-check error messages ("Failed to execute '<method>' on
-    /// '<interface>': Illegal invocation").
+    /// brand-check error messages (`"Failed to execute '{method}' on
+    /// '{interface}': Illegal invocation"`).
     #[must_use]
     pub fn interface_name(self) -> &'static str {
         match self {
@@ -811,8 +811,8 @@ pub enum ObjectKind {
     /// Resolution Path Uniformity): the state shape is identical
     /// across kinds (one `u64`), so the brand check parameterises on
     /// `ObserverKind` rather than splitting into three same-shaped
-    /// variants.  See
-    /// [`super::host::observer_common::require_observer_receiver`].
+    /// variants.  See `host::observer_common::require_observer_receiver`
+    /// for the generic brand-check helper.
     ///
     /// GC contract: the variant has no inline `ObjectId`, so the
     /// trace step has nothing to fan out.  The `ObjectId`s carried in
