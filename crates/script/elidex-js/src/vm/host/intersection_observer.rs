@@ -186,7 +186,12 @@ fn native_intersection_observer_constructor(
     let JsValue::Object(this_id) = this else {
         unreachable!("constructor `this` is always an Object after `do_new`");
     };
-    if ctx.host_if_bound().is_none() {
+    // Match sibling `MutationObserver` / `ResizeObserver` ctors — only
+    // `HostData` installation is required at construct time, not a bound
+    // DOM.  A non-null `root` option further requires bound state to
+    // validate the entity, but that is handled by `require_node_arg`
+    // (returns TypeError when unbound, no panic).
+    if ctx.host_opt().is_none() {
         return Err(VmError::type_error(
             "Failed to construct 'IntersectionObserver': host environment is not initialised",
         ));

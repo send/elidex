@@ -130,6 +130,23 @@ impl LayoutBox {
     pub fn margin_box(&self) -> Rect {
         self.border_box().expand(self.margin)
     }
+
+    /// Returns the content rect in element-local coordinates: origin at the
+    /// border-box top-left (i.e. offsets = padding edges), size = content
+    /// size.  Distinct from the public `content` field which is in document
+    /// coordinates.
+    ///
+    /// Used by `ResizeObserverEntry.contentRect` (W3C Resize Observer §4.1)
+    /// — the legacy field is defined relative to the element's own box.
+    #[must_use]
+    pub fn content_rect_local(&self) -> Rect {
+        Rect::new(
+            self.padding.left,
+            self.padding.top,
+            self.content.size.width,
+            self.content.size.height,
+        )
+    }
 }
 
 /// Context available to a layout algorithm.

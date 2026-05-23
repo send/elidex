@@ -250,6 +250,67 @@ fn resize_observer_deliver_fires_callback_with_entry() {
 }
 
 #[test]
+fn resize_observer_content_rect_uses_element_local_coords() {
+    // W3C Resize Observer §4.1: `contentRect` is in the element's own
+    // coordinate space — origin = padding offsets, NOT document
+    // coordinates.  Regression for Copilot R2: passing `lb.content`
+    // (document-coord) directly to `gather_observations` produced
+    // wrong x/y for any positioned-or-padded element.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    let body = dom
+        .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
+        .unwrap();
+    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(body, target));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let target_wrapper = vm.inner.create_element_wrapper(target);
+    vm.set_global("target", JsValue::Object(target_wrapper));
+
+    vm.eval(
+        "globalThis.calls = []; \
+         globalThis.ro = new ResizeObserver(function(entries){ \
+             calls.push(entries[0].contentRect.x + ',' + entries[0].contentRect.y + ',' + \
+                        entries[0].contentRect.width + ',' + entries[0].contentRect.height); \
+         }); \
+         ro.observe(target);",
+    )
+    .unwrap();
+
+    // Element positioned at document (50, 30) with padding {top: 7, left: 11}
+    // and content size (100 x 50).  contentRect must be (11, 7, 100, 50) —
+    // origin = padding offsets, NOT (50, 30, 100, 50).
+    {
+        let dom = vm.host_data().unwrap().dom();
+        let _ = dom
+            .world_mut()
+            .remove_one::<elidex_plugin::LayoutBox>(target);
+        let lb = elidex_plugin::LayoutBox {
+            content: Rect::new(50.0, 30.0, 100.0, 50.0),
+            padding: elidex_plugin::EdgeSizes::new(7.0, 13.0, 17.0, 11.0),
+            ..elidex_plugin::LayoutBox::default()
+        };
+        dom.world_mut().insert_one(target, lb).unwrap();
+    }
+    vm.deliver_resize_observations();
+
+    let out = vm.eval("calls.length + '|' + calls[0]").unwrap();
+    let JsValue::String(sid) = out else {
+        panic!("expected string, got {out:?}")
+    };
+    let got = vm.inner.strings.get_utf8(sid);
+    assert_eq!(got, "1|11,7,100,50");
+
+    vm.unbind();
+}
+
+#[test]
 fn resize_observer_deliver_box_less_target_delivers_initial_zero_once() {
     // No LayoutBox attached → gather's `size_fn` returns None → spec
     // mandates a single initial 0×0 observation (Resize Observer §3.1).

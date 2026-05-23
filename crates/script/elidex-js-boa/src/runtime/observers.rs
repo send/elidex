@@ -97,8 +97,7 @@ impl JsRuntime {
         let observations = self.bridge.with_resize_observers(|reg| {
             reg.gather_observations(dom, &|d, entity| {
                 let lb = d.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
-                let bb = lb.border_box();
-                Some((lb.content, bb.size))
+                Some((lb.content_rect_local(), lb.border_box().size))
             })
         });
 

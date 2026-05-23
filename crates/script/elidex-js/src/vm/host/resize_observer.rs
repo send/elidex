@@ -407,7 +407,7 @@ impl VmInner {
             observers
                 .gather_observations(dom, &|d, entity| {
                     let lb = d.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
-                    Some((lb.content, lb.border_box().size))
+                    Some((lb.content_rect_local(), lb.border_box().size))
                 })
                 .into_iter()
                 .map(|(id, entries)| (id.raw(), entries))
