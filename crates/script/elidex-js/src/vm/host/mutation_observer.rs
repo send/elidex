@@ -664,8 +664,16 @@ fn parse_attribute_filter(
     let len = len_clamped as u32;
     let mut filter = Vec::new();
     for i in 0..len {
-        let item_key = PropertyKey::String(ctx.vm.strings.intern(&i.to_string()));
-        let item = ctx.get_property_value(arr_id, item_key)?;
+        // Numeric key path through `get_element` — the Array /
+        // arguments / TypedArray fast paths in `ops_element` short-
+        // circuit on a `Number` key without ever stringifying it.
+        // The previous `intern(&i.to_string())` flow leaked an
+        // entry into the permanent `StringPool` per index (up to
+        // 65k under the worst-case cap); the same convention used
+        // by `typed_array_ctor` / `natives_json` avoids that.
+        let item = ctx
+            .vm
+            .get_element(JsValue::Object(arr_id), JsValue::Number(f64::from(i)))?;
         let sid = ctx.to_string_val(item)?;
         filter.push(ctx.vm.strings.get_utf8(sid));
     }
