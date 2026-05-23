@@ -20,6 +20,8 @@ pub use super::error::{VmError, VmErrorKind};
 // 1000-line reason).  Re-exported so `value::ObjectKind` keeps
 // resolving for the dozens of host modules and tests that import it.
 pub use super::object_kind::ObjectKind;
+#[cfg(feature = "engine")]
+pub use super::object_kind::ObserverKind;
 
 // ---------------------------------------------------------------------------
 // Handle types (u32 indices into Vm tables)

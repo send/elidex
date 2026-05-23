@@ -429,6 +429,14 @@ impl VmInner {
             // before the Window splice, since the constructor is a
             // top-level global and has no Window dependency.
             self.register_mutation_observer_global();
+            // ResizeObserver / IntersectionObserver (D-22) — same
+            // chain target / ordering rationale as MutationObserver
+            // above; both are top-level globals chaining directly to
+            // `Object.prototype` with no Window dependency.  Order
+            // among the three observers is irrelevant: each prototype
+            // is independent.
+            self.register_resize_observer_global();
+            self.register_intersection_observer_global();
             // Range — WHATWG DOM §4.4.  Chains directly to
             // Object.prototype; no Node-prototype dependency since
             // boundary containers are stored as Entity refs (wrapped

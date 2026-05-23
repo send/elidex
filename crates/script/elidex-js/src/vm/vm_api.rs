@@ -584,19 +584,37 @@ impl Vm {
             // Observer IDs themselves stay live in the registry so brand
             // checks on retained JS instances continue to succeed.
             //
-            // `mutation_observer_callbacks` /
-            // `mutation_observer_instances` are intentionally NOT
-            // cleared here — they are keyed by VM-monotonic
-            // `observer_id` (not by `Entity` or recycled `ObjectId`),
-            // so cross-DOM aliasing does not apply, and a retained
-            // `mo` that re-observes after a rebind needs its callback
-            // intact to fire.  The trade-off is a bounded leak per
-            // `new MutationObserver()` call (callback + instance
-            // wrapper rooted until the VM drops); cleanup belongs to
-            // a future weak-rooting design tracked in
+            // `mutation_observer_bindings` (and its
+            // `resize_observer_bindings` / `intersection_observer_bindings`
+            // siblings) are intentionally NOT cleared here — they are
+            // keyed by per-registry monotonic `observer_id` (not by
+            // `Entity` or recycled `ObjectId`), so cross-DOM aliasing
+            // does not apply, and a retained `mo` / `ro` / `io` that
+            // re-observes after a rebind needs its callback intact to
+            // fire.  The trade-off is a bounded leak per
+            // `new <Observer>()` call (callback + instance wrapper
+            // rooted until the VM drops); cleanup belongs to a future
+            // weak-rooting design tracked in
             // `#11-mutation-observer-extras`.
+            //
+            // Internal-config `Entity` references inside each registry
+            // ARE cross-DOM-aliasing risks though: `IntersectionObserverInit
+            // .root: Option<Entity>` lives on the retained
+            // `RegisteredObserver`, so a script that constructs
+            // `new IntersectionObserver(cb, { root: X })`, survives an
+            // `unbind` (e.g. via global retention), and observes again
+            // after rebind would otherwise have `root` point at a recycled
+            // entity in the new world.  Scrub here to `None` (implicit
+            // viewport) — same defensive pattern as
+            // `clear_pending_records`.  Resize / Mutation registries
+            // store target references as per-entity components, which
+            // drop automatically on entity despawn (no scrub needed).
+            // The world_id discriminator
+            // (`#11-wrapper-cache-cross-dom-discriminator`) will
+            // eventually subsume this.
             if let Some(hd) = self.inner.host_data.as_deref_mut() {
                 hd.mutation_observers.clear_pending_records();
+                hd.intersection_observers.clear_root_entities();
             }
             // (The Attr identity cache — keyed by `(Entity, StringId)`,
             // same cross-DOM aliasing risk — is cleared by the unified
@@ -699,6 +717,49 @@ impl Vm {
     #[cfg(feature = "engine")]
     pub fn deliver_mutation_records(&mut self, records: &[elidex_script_session::MutationRecord]) {
         self.inner.deliver_mutation_records(records);
+    }
+
+    /// Deliver per-frame resize observations to every registered
+    /// `ResizeObserver` (W3C Resize Observer §2 "broadcast active
+    /// resize observations").
+    ///
+    /// Same embedder-API contract as [`Self::deliver_mutation_records`]:
+    /// the VM does not auto-deliver — the shell main loop calls this
+    /// once per layout/paint cycle so callbacks fire as part of the
+    /// "broadcast" step.  Unlike `deliver_mutation_records`, no input
+    /// list is needed: the observation algorithm runs inside the
+    /// engine-independent
+    /// [`elidex_api_observers::resize::ResizeObserverRegistry::gather_observations`]
+    /// against the bound `EcsDom`'s current `LayoutBox` components.
+    ///
+    /// Trailing microtask checkpoint runs so any `.then` chained from
+    /// a callback fires before this call returns.  Post-unbind early-
+    /// returns before any work.  Callbacks that throw are reported via
+    /// `eprintln!` and do not propagate.
+    ///
+    /// Currently a cutover-ready API: the boa-driven shell still
+    /// invokes the boa-side
+    /// `JsRuntime::deliver_resize_observations`; the VM-side wiring
+    /// lands with the boa→VM cutover (M4-12 D-26 / PR7).
+    #[cfg(feature = "engine")]
+    pub fn deliver_resize_observations(&mut self) {
+        self.inner.deliver_resize_observations();
+    }
+
+    /// Deliver per-frame intersection observations to every registered
+    /// `IntersectionObserver` (W3C Intersection Observer §4 "notify
+    /// intersection observers").
+    ///
+    /// Same contract as [`Self::deliver_resize_observations`].  The
+    /// implicit root rect (`window.innerWidth` / `innerHeight` /
+    /// `scrollX` / `scrollY`) and broadcast `time`
+    /// (`performance.now()`) are both sourced from VM state: shell
+    /// maintains the viewport slots through the usual
+    /// `Window.scrollTo` / `resize` paths, so a separate arg would
+    /// just be redundant state.
+    #[cfg(feature = "engine")]
+    pub fn deliver_intersection_observations(&mut self) {
+        self.inner.deliver_intersection_observations();
     }
 
     /// Drain pending network events (broker `FetchResponse` replies)

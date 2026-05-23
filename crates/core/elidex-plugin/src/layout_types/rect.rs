@@ -199,6 +199,31 @@ impl Rect {
         }
     }
 
+    /// Returns the intersection of two rectangles allowing degenerate
+    /// (zero-width or zero-height) overlaps — edge-adjacent rects share
+    /// an edge and yield a 0-area but valid `Rect`.  Returns `None` only
+    /// when the rectangles are entirely disjoint.
+    ///
+    /// IntersectionObserver §3.7 distinguishes "intersection is null"
+    /// (no geometric overlap → `isIntersecting = false`) from
+    /// "intersection is an empty rect" (edge-adjacent or zero-area
+    /// target → `isIntersecting = true`).  Use this variant for spec
+    /// algorithms that need that distinction.  CSS hit-testing /
+    /// clipping that requires strictly-positive area still calls
+    /// [`Self::intersection`].
+    #[must_use]
+    pub fn intersection_inclusive(&self, other: &Self) -> Option<Self> {
+        let x = self.origin.x.max(other.origin.x);
+        let y = self.origin.y.max(other.origin.y);
+        let w = self.right().min(other.right()) - x;
+        let h = self.bottom().min(other.bottom()) - y;
+        if w >= 0.0 && h >= 0.0 {
+            Some(Self::new(x, y, w, h))
+        } else {
+            None
+        }
+    }
+
     /// Map a percentage-based point (0–100 per axis) to absolute coordinates
     /// within this rectangle.
     #[must_use]

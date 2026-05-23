@@ -104,19 +104,13 @@ fn mutation_observer_unbind_retains_callback_maps() {
     vm.eval("globalThis.mo = new MutationObserver(function(){});")
         .unwrap();
     let host = vm.inner.host_data.as_deref().unwrap();
-    assert_eq!(host.mutation_observer_callbacks.len(), 1);
-    assert_eq!(host.mutation_observer_instances.len(), 1);
+    assert_eq!(host.mutation_observer_bindings.len(), 1);
     vm.unbind();
     let host = vm.inner.host_data.as_deref().unwrap();
     assert_eq!(
-        host.mutation_observer_callbacks.len(),
+        host.mutation_observer_bindings.len(),
         1,
-        "callbacks must persist across unbind so retained `mo` can re-observe"
-    );
-    assert_eq!(
-        host.mutation_observer_instances.len(),
-        1,
-        "instance wrapper must persist across unbind"
+        "binding must persist across unbind so retained `mo` can re-observe"
     );
 }
 

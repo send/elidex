@@ -97,8 +97,7 @@ impl JsRuntime {
         let observations = self.bridge.with_resize_observers(|reg| {
             reg.gather_observations(dom, &|d, entity| {
                 let lb = d.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
-                let bb = lb.border_box();
-                Some((lb.content.size, bb.size))
+                Some((lb.content_rect_local(), lb.border_box().size))
             })
         });
 
@@ -287,12 +286,12 @@ fn resize_entry_to_js(
         )
         .property(
             js_string!("contentBoxWidth"),
-            JsValue::from(f64::from(entry.content_box_size.width)),
+            JsValue::from(f64::from(entry.content_rect.size.width)),
             Attribute::all(),
         )
         .property(
             js_string!("contentBoxHeight"),
-            JsValue::from(f64::from(entry.content_box_size.height)),
+            JsValue::from(f64::from(entry.content_rect.size.height)),
             Attribute::all(),
         )
         .property(

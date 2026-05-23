@@ -399,7 +399,16 @@ fn register_intersection_observer(ctx: &mut Context, bridge: &HostBridge) {
                 .sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             init.threshold.dedup();
 
-            let observer_id = bridge.with_intersection_observers(|reg| reg.register(init).raw());
+            // W3C Intersection Observer §3.1 — `SyntaxError` if
+            // `rootMargin` is not a valid `<length-percentage>{1,4}`.
+            let registered = bridge.with_intersection_observers(|reg| {
+                reg.register(init)
+                    .map(elidex_api_observers::intersection::IntersectionObserverId::raw)
+            });
+            let observer_id = registered.map_err(|err| {
+                JsNativeError::syntax()
+                    .with_message(format!("Failed to construct 'IntersectionObserver': {err}"))
+            })?;
 
             let observe_bridge = bridge.clone();
             let unobserve_bridge = bridge.clone();

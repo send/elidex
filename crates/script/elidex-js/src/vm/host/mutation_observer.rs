@@ -19,15 +19,27 @@
 //! - [`super::super::host_data::HostData::mutation_observers`] — the
 //!   [`elidex_api_observers::mutation::MutationObserverRegistry`]
 //!   that owns target lists, init options, and pending records.
-//! - [`super::super::host_data::HostData::mutation_observer_callbacks`]
-//!   — `HashMap<u64, ObjectId>` from observer ID to JS callback
-//!   `ObjectId`.  Rooted via
+//! - [`super::super::host_data::HostData::mutation_observer_bindings`]
+//!   — `HashMap<u64, ObserverBinding>` from observer ID to the
+//!   `(callback, instance)` JS-identity pair.  Both `ObjectId`s in
+//!   each binding are rooted via
 //!   [`super::super::host_data::HostData::gc_root_object_ids`] so
-//!   the callback survives GC for the observer's lifetime.
+//!   they survive GC for the observer's lifetime.
 //!
-//! [`super::super::value::ObjectKind::MutationObserver`] carries the
+//! [`super::super::value::ObjectKind::Observer`] with
+//! [`super::super::value::ObserverKind::Mutation`] carries the
 //! observer ID inline (`observer_id: u64`); the JS object itself
 //! has no other own state.
+//!
+//! ## `native_*` docstring convention
+//!
+//! Per-method native `fn`s here (and in `resize_observer.rs` /
+//! `intersection_observer.rs`) deliberately rely on the constructor's
+//! docstring + the module-level spec citation as their primary
+//! documentation.  Brand-checked function names
+//! (`native_mutation_observer_observe` etc.) are unique enough to
+//! disambiguate without a per-fn docstring; the spec section is
+//! cited inline at the call site where it actually matters.
 //!
 //! ## Lifecycle preconditions
 //!
@@ -48,8 +60,8 @@
 
 use super::super::shape;
 use super::super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
-    PropertyValue, VmError,
+    JsValue, NativeContext, Object, ObjectKind, PropertyKey, PropertyStorage, PropertyValue,
+    VmError,
 };
 use super::super::{NativeFn, VmInner};
 
@@ -130,17 +142,13 @@ fn require_mutation_observer_receiver(
     this: JsValue,
     method: &'static str,
 ) -> Result<MutationObserverId, VmError> {
-    let JsValue::Object(id) = this else {
-        return Err(VmError::type_error(format!(
-            "Failed to execute '{method}' on 'MutationObserver': Illegal invocation"
-        )));
-    };
-    let ObjectKind::MutationObserver { observer_id } = ctx.vm.get_object(id).kind else {
-        return Err(VmError::type_error(format!(
-            "Failed to execute '{method}' on 'MutationObserver': Illegal invocation"
-        )));
-    };
-    Ok(MutationObserverId::from_raw(observer_id))
+    let raw = super::observer_common::require_observer_receiver(
+        ctx,
+        this,
+        super::super::value::ObserverKind::Mutation,
+        method,
+    )?;
+    Ok(MutationObserverId::from_raw(raw))
 }
 
 // ---------------------------------------------------------------------------
@@ -187,12 +195,17 @@ fn native_mutation_observer_constructor(
     // `new.target.prototype` chain installed by `do_new` is preserved
     // (URL/URLSearchParams precedent — PR5a2 R7.2/R7.3 lesson).
     let observer_id = ctx.host().mutation_observers.register().raw();
-    ctx.vm.get_object_mut(this_id).kind = ObjectKind::MutationObserver { observer_id };
-    let host = ctx.host();
-    host.mutation_observer_callbacks
-        .insert(observer_id, callback_id);
-    host.mutation_observer_instances
-        .insert(observer_id, this_id);
+    ctx.vm.get_object_mut(this_id).kind = ObjectKind::Observer {
+        kind: super::super::value::ObserverKind::Mutation,
+        observer_id,
+    };
+    ctx.host().mutation_observer_bindings.insert(
+        observer_id,
+        super::observer_common::ObserverBinding {
+            callback: callback_id,
+            instance: this_id,
+        },
+    );
 
     Ok(JsValue::Object(this_id))
 }
@@ -268,33 +281,16 @@ fn native_mutation_observer_take_records(
 /// Marshal a slice of [`elidex_api_observers::mutation::MutationRecord`]s
 /// into a JS Array of MutationRecord objects (WHATWG DOM §4.3.5).
 ///
-/// Each per-record allocation roots its outgoing addedNodes /
-/// removedNodes / target wrapper sub-objects via `push_temp_root`
-/// before allocating the wrapper Object so a GC triggered between
-/// the array allocation and the property writes does not collect
-/// the embedded element wrappers (Lesson R8).
+/// Delegates to the shared
+/// [`super::observer_common::build_marshalled_array`] for the
+/// outer-array + temp-root + element-push discipline (same shape
+/// used by Resize/Intersection entry array builders); per-record
+/// marshalling stays in [`mutation_record_to_js`].
 pub(super) fn build_mutation_records_array(
     vm: &mut VmInner,
     records: &[elidex_api_observers::mutation::MutationRecord],
 ) -> JsValue {
-    // Allocate the outer array up front so per-record allocations
-    // can be appended directly.  Empty initial elements means the
-    // outer array survives any per-record GC because it has no
-    // intermediate "list-of-pending-objects" buffer that GC could
-    // tear apart.
-    let outer = vm.create_array_object(Vec::with_capacity(records.len()));
-    let mut outer_guard = vm.push_temp_root(JsValue::Object(outer));
-    for record in records {
-        let record_value = mutation_record_to_js(&mut outer_guard, record);
-        // Append into the outer array via direct slot push so the
-        // ObjectId stays consistent across allocations (no `arr.push`
-        // user-visible side effects, no recompute of length).
-        if let ObjectKind::Array { ref mut elements } = outer_guard.get_object_mut(outer).kind {
-            elements.push(record_value);
-        }
-    }
-    drop(outer_guard);
-    JsValue::Object(outer)
+    super::observer_common::build_marshalled_array(vm, records, mutation_record_to_js)
 }
 
 /// Marshal a single [`elidex_api_observers::mutation::MutationRecord`]
@@ -454,39 +450,28 @@ impl VmInner {
             .map(elidex_api_observers::mutation::MutationObserverId::raw)
             .collect();
 
-        for observer_id in observer_ids {
-            let mo_id = elidex_api_observers::mutation::MutationObserverId::from_raw(observer_id);
-            let host = self
-                .host_data
-                .as_deref_mut()
-                .expect("deliver_mutation_records: HostData required when bound");
-            let records = host.mutation_observers.take_records(mo_id);
-            if records.is_empty() {
-                continue;
-            }
-            let (Some(callback_id), Some(observer_obj_id)) = (
-                host.mutation_observer_callbacks.get(&observer_id).copied(),
-                host.mutation_observer_instances.get(&observer_id).copied(),
-            ) else {
-                continue;
-            };
-            let observer_val = JsValue::Object(observer_obj_id);
-            let mut observer_guard = self.push_temp_root(observer_val);
-            let records_arr = build_mutation_records_array(&mut observer_guard, &records);
-            let mut records_guard = observer_guard.push_temp_root(records_arr);
-            let _ = records_guard
-                .call(callback_id, observer_val, &[records_arr, observer_val])
-                .map_err(|err| {
-                    eprintln!("[JS MutationObserver Error] {err:?}");
-                });
-            drop(records_guard);
-            drop(observer_guard);
-        }
-
-        // Microtask checkpoint so `Promise.resolve().then(...)` chained
-        // from a callback fires before the embedder API returns
-        // (WHATWG §8.1.4.3).
-        self.drain_microtasks();
+        super::observer_common::deliver_to_observer_callbacks(
+            self,
+            &observer_ids,
+            |vm, observer_id| {
+                let mo_id =
+                    elidex_api_observers::mutation::MutationObserverId::from_raw(observer_id);
+                let host = vm
+                    .host_data
+                    .as_deref_mut()
+                    .expect("deliver_mutation_records: HostData required when bound");
+                let records = host.mutation_observers.take_records(mo_id);
+                if records.is_empty() {
+                    return None;
+                }
+                let binding = host.mutation_observer_bindings.get(&observer_id).copied()?;
+                // Build the array AFTER releasing the host borrow (via
+                // the function-scope drop here) — the shared helper
+                // re-acquires `vm` to allocate the JS Array.
+                let records_arr = build_mutation_records_array(vm, &records);
+                Some((binding, records_arr))
+            },
+        );
     }
 
     /// Wrapper around `MutationObserverRegistry::notify`, which reads
@@ -513,12 +498,7 @@ fn require_target_node(
     arg: Option<JsValue>,
     method: &'static str,
 ) -> Result<elidex_ecs::Entity, VmError> {
-    let value = arg.ok_or_else(|| {
-        VmError::type_error(format!(
-            "Failed to execute '{method}' on 'MutationObserver': 1 argument required"
-        ))
-    })?;
-    super::node_proto::require_node_arg(ctx, value, method)
+    super::node_proto::require_node_arg_required(ctx, arg, "MutationObserver", method)
 }
 
 /// Parse the `MutationObserverInit` dictionary (WHATWG DOM §4.3 +
@@ -566,74 +546,32 @@ fn parse_mutation_observer_init(
     let mut attributes_explicit = false;
     let mut character_data_explicit = false;
 
-    if let Some(v) = read_dict_field(ctx, opts_id, wk_child_list)? {
+    if let Some(v) = super::observer_common::read_dict_field(ctx, opts_id, wk_child_list)? {
         init.child_list = ctx.to_boolean(v);
     }
-    if let Some(v) = read_dict_field(ctx, opts_id, wk_attributes)? {
+    if let Some(v) = super::observer_common::read_dict_field(ctx, opts_id, wk_attributes)? {
         init.attributes = ctx.to_boolean(v);
         attributes_explicit = true;
     }
-    if let Some(v) = read_dict_field(ctx, opts_id, wk_character_data)? {
+    if let Some(v) = super::observer_common::read_dict_field(ctx, opts_id, wk_character_data)? {
         init.character_data = ctx.to_boolean(v);
         character_data_explicit = true;
     }
-    if let Some(v) = read_dict_field(ctx, opts_id, wk_subtree)? {
+    if let Some(v) = super::observer_common::read_dict_field(ctx, opts_id, wk_subtree)? {
         init.subtree = ctx.to_boolean(v);
     }
-    if let Some(v) = read_dict_field(ctx, opts_id, wk_attribute_old_value)? {
+    if let Some(v) = super::observer_common::read_dict_field(ctx, opts_id, wk_attribute_old_value)?
+    {
         init.attribute_old_value = ctx.to_boolean(v);
     }
-    if let Some(v) = read_dict_field(ctx, opts_id, wk_character_data_old_value)? {
+    if let Some(v) =
+        super::observer_common::read_dict_field(ctx, opts_id, wk_character_data_old_value)?
+    {
         init.character_data_old_value = ctx.to_boolean(v);
     }
-    // WebIDL §3.10.20 sequence conversion: a present `attributeFilter`
-    // member must be an iterable.  Phase 2 simplification — accept any
-    // Object with a numeric `length` (covers Array, NodeList,
-    // arguments-shaped objects).  Reject non-Object values with a
-    // TypeError so misconfigured observers fail loudly instead of
-    // falling through to the "at least one flag" check with a stale
-    // (empty) filter.  Full Symbol.iterator-protocol support is
-    // tracked at `#11-mutation-observer-extras`.
-    if let Some(value) = read_dict_field(ctx, opts_id, wk_attribute_filter)? {
-        let JsValue::Object(arr_id) = value else {
-            return Err(VmError::type_error(
-                "Failed to execute 'observe' on 'MutationObserver': \
-                 'attributeFilter' is not iterable",
-            ));
-        };
-        let len_val = ctx.get_property_value(arr_id, PropertyKey::String(wk_length))?;
-        // WebIDL §3.10.20 sequence conversion uses ToLength
-        // (ES §7.1.20), not ToUint32: ToUint32 wraps negative values
-        // mod-2^32, so `length: -1` becomes `4_294_967_295` and a
-        // subsequent `Vec::with_capacity` would attempt a ~4 GiB
-        // allocation and abort.  ToLength clamps NaN / negative to
-        // 0 and oversize values are surfaced as a RangeError (mirrors
-        // the typed-array `LengthOfArrayLike` pattern in
-        // `typed_array_methods.rs::set_array_like`).  No
-        // pre-allocation: the index-loop pushes incrementally so
-        // even a giant `length` only allocates as items are read.
-        let len_f = ctx.to_number(len_val)?;
-        let len_clamped = if len_f.is_nan() || len_f <= 0.0 {
-            0.0
-        } else {
-            len_f.trunc()
-        };
-        if len_clamped > f64::from(u32::MAX) {
-            return Err(VmError::range_error(
-                "Failed to execute 'observe' on 'MutationObserver': \
-                 'attributeFilter' length exceeds the supported maximum",
-            ));
-        }
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let len = len_clamped as u32;
-        let mut filter = Vec::new();
-        for i in 0..len {
-            let item_key = PropertyKey::String(ctx.vm.strings.intern(&i.to_string()));
-            let item = ctx.get_property_value(arr_id, item_key)?;
-            let sid = ctx.to_string_val(item)?;
-            filter.push(ctx.vm.strings.get_utf8(sid));
-        }
-        init.attribute_filter = Some(filter);
+    if let Some(value) = super::observer_common::read_dict_field(ctx, opts_id, wk_attribute_filter)?
+    {
+        init.attribute_filter = Some(parse_attribute_filter(ctx, value, wk_length)?);
     }
 
     // WHATWG DOM §4.3.2 step 3: if `attributeOldValue` or
@@ -678,19 +616,66 @@ fn parse_mutation_observer_init(
     Ok(init)
 }
 
-/// Look up an own / prototype-chain property by `StringId`,
-/// returning `None` for `undefined` (per WebIDL dictionary semantics
-/// — an `undefined` value means "not present", and the default
-/// applies).  Other values pass through.
-fn read_dict_field(
+/// Cap on the number of `attributeFilter` items accepted; matches
+/// the IntersectionObserver `threshold` cap.  A hostile `length`
+/// (e.g. `4_000_000_000`) would otherwise loop billions of times,
+/// interning each numeric index into the permanent `StringPool` —
+/// unbounded CPU + memory growth on a single observe() call.
+const MAX_ATTRIBUTE_FILTER_LEN: f64 = 65_536.0;
+
+/// Coerce a JS `attributeFilter` value into a `Vec<String>` per
+/// WebIDL §3.10.20 sequence conversion.  Phase 2 simplification —
+/// accepts any Object with a numeric `length` (covers Array,
+/// NodeList, arguments-shaped objects); non-Object values raise
+/// TypeError so misconfigured observers fail loudly.  Full
+/// `Symbol.iterator`-protocol support is tracked at
+/// `#11-mutation-observer-extras`.
+///
+/// `length` conversion uses ToLength (ES §7.1.20), not ToUint32:
+/// negative / NaN clamps to 0; oversize values RangeError (avoids
+/// the prior `length: -1` → ToUint32 wrap → 4 GiB `Vec::with_capacity`
+/// abort).  No pre-allocation: the index-loop pushes incrementally
+/// so even a giant `length` only allocates as items are read.
+fn parse_attribute_filter(
     ctx: &mut NativeContext<'_>,
-    obj_id: ObjectId,
-    name: super::super::value::StringId,
-) -> Result<Option<JsValue>, VmError> {
-    let v = ctx.get_property_value(obj_id, PropertyKey::String(name))?;
-    if matches!(v, JsValue::Undefined) {
-        Ok(None)
+    value: JsValue,
+    wk_length: super::super::value::StringId,
+) -> Result<Vec<String>, VmError> {
+    let JsValue::Object(arr_id) = value else {
+        return Err(VmError::type_error(
+            "Failed to execute 'observe' on 'MutationObserver': \
+             'attributeFilter' is not iterable",
+        ));
+    };
+    let len_val = ctx.get_property_value(arr_id, PropertyKey::String(wk_length))?;
+    let len_f = ctx.to_number(len_val)?;
+    let len_clamped = if len_f.is_nan() || len_f <= 0.0 {
+        0.0
     } else {
-        Ok(Some(v))
+        len_f.trunc()
+    };
+    if len_clamped > MAX_ATTRIBUTE_FILTER_LEN {
+        return Err(VmError::range_error(
+            "Failed to execute 'observe' on 'MutationObserver': \
+             'attributeFilter' length exceeds the supported maximum",
+        ));
     }
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let len = len_clamped as u32;
+    let mut filter = Vec::new();
+    for i in 0..len {
+        // Numeric key path through `get_element` — the Array /
+        // arguments / TypedArray fast paths in `ops_element` short-
+        // circuit on a `Number` key without ever stringifying it.
+        // The previous `intern(&i.to_string())` flow leaked an
+        // entry into the permanent `StringPool` per index (up to
+        // 65k under the worst-case cap); the same convention used
+        // by `typed_array_ctor` / `natives_json` avoids that.
+        let item = ctx
+            .vm
+            .get_element(JsValue::Object(arr_id), JsValue::Number(f64::from(i)))?;
+        let sid = ctx.to_string_val(item)?;
+        filter.push(ctx.vm.strings.get_utf8(sid));
+    }
+    Ok(filter)
 }

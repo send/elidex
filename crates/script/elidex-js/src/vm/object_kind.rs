@@ -66,6 +66,49 @@ pub enum DomTokenListSource {
     OutputHtmlFor = 4,
 }
 
+/// Discriminator for [`ObjectKind::Observer`] identifying which of the
+/// three observer surfaces (WHATWG DOM §4.3 `MutationObserver`, W3C
+/// Resize Observer §3.1 `ResizeObserver`, W3C Intersection Observer §3.1
+/// `IntersectionObserver`) the instance brands as.
+///
+/// All three observer JS-objects share the identical payload shape — a
+/// single per-registry monotonic `observer_id: u64` (each kind's
+/// registry owns its own counter, so the three kinds share the `u64`
+/// keyspace independently — the inline kind discriminator
+/// disambiguates) keyed into per-kind `HostData::*_observer_bindings`
+/// / registry state — so they collapse
+/// into a single `ObjectKind::Observer { kind, observer_id }` variant
+/// per CLAUDE.md "One issue, one way" + lesson #276 (ObjectKind
+/// Resolution Path Uniformity).  Brand check ramifies on this enum;
+/// the rest of the GC / structured-clone / trace machinery treats all
+/// three identically (payload-free, side-table-rooted).
+#[cfg(feature = "engine")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum ObserverKind {
+    /// `MutationObserver` (WHATWG DOM §4.3).
+    Mutation = 0,
+    /// `ResizeObserver` (W3C Resize Observer §3.1).
+    Resize = 1,
+    /// `IntersectionObserver` (W3C Intersection Observer §3.1).
+    Intersection = 2,
+}
+
+#[cfg(feature = "engine")]
+impl ObserverKind {
+    /// The WebIDL interface name for this observer kind — used by
+    /// brand-check error messages (`"Failed to execute '{method}' on
+    /// '{interface}': Illegal invocation"`).
+    #[must_use]
+    pub fn interface_name(self) -> &'static str {
+        match self {
+            Self::Mutation => "MutationObserver",
+            Self::Resize => "ResizeObserver",
+            Self::Intersection => "IntersectionObserver",
+        }
+    }
+}
+
 /// The internal kind of an object.
 pub enum ObjectKind {
     /// Plain `{}` object.
@@ -745,31 +788,51 @@ pub enum ObjectKind {
     /// caller's `cancel()` Promise with the source-cancel result.
     #[cfg(feature = "engine")]
     ReadableStreamCancelStep { promise: ObjectId, is_reject: bool },
-    /// `MutationObserver` instance (WHATWG DOM §4.3) — observes
-    /// childList / attributes / characterData mutations.
-    /// Payload-free at the JS-object level; the per-observer pending
-    /// records live in `HostData::mutation_observers` and the JS
-    /// callback in `HostData::mutation_observer_callbacks`, both keyed
-    /// by `observer_id`.  The observation targets + options live as
-    /// `MutationObservedBy` components on the observed entities.  The observer ID is monotonic per-VM and
-    /// sized at 64 bits to match
-    /// `elidex_api_observers::mutation::MutationObserverId::raw`.
+    /// Observer-family instance — `MutationObserver` (WHATWG DOM §4.3),
+    /// `ResizeObserver` (W3C Resize Observer §3.1), or
+    /// `IntersectionObserver` (W3C Intersection Observer §3.1),
+    /// discriminated by inline [`ObserverKind`].
+    ///
+    /// Payload-free at the JS-object level: the per-observer registry
+    /// state (queued records / target list / init config) lives on
+    /// `HostData::{mutation,resize,intersection}_observers` and the JS
+    /// `(callback, instance)` pair lives on
+    /// `HostData::{mutation,resize,intersection}_observer_bindings`,
+    /// all keyed by the same `observer_id: u64`.  The observation
+    /// targets + options live as `{Mutation,Resize,Intersection}ObservedBy`
+    /// components on the observed entities (ECS-native).  The observer
+    /// ID is per-registry monotonic (each kind's registry owns its
+    /// own `next_id` counter, so kinds share the `u64` keyspace
+    /// independently) and sized at 64 bits to match
+    /// `elidex_api_observers::*::*ObserverId::raw`.
+    ///
+    /// Three observer surfaces share this single variant per
+    /// CLAUDE.md "One issue, one way" + lesson #276 (ObjectKind
+    /// Resolution Path Uniformity): the state shape is identical
+    /// across kinds (one `u64`), so the brand check parameterises on
+    /// `ObserverKind` rather than splitting into three same-shaped
+    /// variants.  See `host::observer_common::require_observer_receiver`
+    /// for the generic brand-check helper.
     ///
     /// GC contract: the variant has no inline `ObjectId`, so the
-    /// trace step has nothing to fan out.  The JS callback
-    /// `ObjectId` stored in
-    /// `HostData::mutation_observer_callbacks` is rooted via
-    /// `HostData::gc_root_object_ids` — it stays alive as long as
-    /// the observer is registered.  `Vm::unbind` drains the
-    /// registry's per-observer target lists (so a rebind to a
-    /// different `EcsDom` cannot match a stale Entity) but
-    /// intentionally retains `mutation_observer_callbacks` and
-    /// `mutation_observer_instances` (both keyed by VM-monotonic
-    /// `observer_id`, no cross-DOM aliasing risk) so a retained
-    /// `mo` reference can re-observe after a rebind with its
-    /// callback intact.
+    /// trace step has nothing to fan out.  The `ObjectId`s carried in
+    /// each `*_observer_bindings` entry are rooted via
+    /// [`super::host_data::HostData::gc_root_object_ids`] — they
+    /// stay alive as long as the observer is registered.  `Vm::unbind`
+    /// drains each registry's per-observer target lists (so a rebind
+    /// to a different `EcsDom` cannot match a stale `Entity`) but
+    /// intentionally retains the binding maps (keyed by per-registry
+    /// monotonic `observer_id`, no cross-DOM aliasing risk) so a
+    /// retained `mo` / `ro` / `io` reference can re-observe after a
+    /// rebind with its callback intact.
     #[cfg(feature = "engine")]
-    MutationObserver { observer_id: u64 },
+    Observer {
+        /// Which observer surface this instance brands as.
+        kind: ObserverKind,
+        /// Per-registry monotonic observer id keying the per-kind
+        /// registry + `*_observer_bindings` map on `HostData`.
+        observer_id: u64,
+    },
     /// `Storage` instance backing `window.localStorage` /
     /// `window.sessionStorage` (WHATWG HTML §11.2).
     ///

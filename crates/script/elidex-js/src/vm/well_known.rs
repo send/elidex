@@ -1372,6 +1372,46 @@ define_well_known_strings! {
         locked_attr => "locked",
         closed_attr => "closed",
     }
+
+    "ResizeObserver / IntersectionObserver (slot #11-resize-observer-vm + #11-intersection-observer-vm)" {
+        // Constructor globals + method names unique to the D-22 observer
+        // pair.  `observe` / `disconnect` / `take_records` /
+        // `attribute_filter` (reused) already live in the MutationObserver
+        // section above and are reused here.  `target` already lives in
+        // the event-base section.  `unobserve` is the new method name.
+        resize_observer_global => "ResizeObserver",
+        intersection_observer_global => "IntersectionObserver",
+        unobserve => "unobserve",
+        // ResizeObserverOptions / ResizeObserverEntry / ResizeObserverSize.
+        // `box` (the WebIDL `box` member of ResizeObserverOptions) is
+        // a JS reserved word as an identifier but legal as a property
+        // key — pre-interned so the parser dictionary read avoids a
+        // per-call intern.  The three `box` enum string values
+        // (`"content-box"` / `"border-box"` / `"device-pixel-content-box"`)
+        // are NOT pre-interned: the host hands the raw string to
+        // `ResizeObserverBoxOptions::from_webidl` crate-side, which
+        // owns the spec-string → enum mapping per the Layering
+        // mandate.
+        box_option_key => "box",
+        content_rect => "contentRect",
+        content_box_size => "contentBoxSize",
+        border_box_size => "borderBoxSize",
+        // `devicePixelContentBoxSize` — entry property name reserved
+        // for the `#11-resize-observer-device-pixel-box` defer slot.
+        device_pixel_content_box_size => "devicePixelContentBoxSize",
+        inline_size => "inlineSize",
+        block_size => "blockSize",
+        // IntersectionObserverInit / IntersectionObserverEntry.
+        root_option_key => "root",
+        root_margin => "rootMargin",
+        threshold => "threshold",
+        bounding_client_rect => "boundingClientRect",
+        intersection_rect => "intersectionRect",
+        root_bounds => "rootBounds",
+        intersection_ratio => "intersectionRatio",
+        is_intersecting => "isIntersecting",
+        time => "time",
+    }
 }
 
 /// Well-known symbol IDs, allocated at VM creation.

@@ -275,7 +275,13 @@ fn classify(kind: &ObjectKind) -> CloneKind {
             CloneKind::Unclonable("CSSRuleStyleDeclaration")
         }
         ObjectKind::StyleSheetList { .. } => CloneKind::Unclonable("StyleSheetList"),
-        ObjectKind::MutationObserver { .. } => CloneKind::Unclonable("MutationObserver"),
+        // Observer instances are not structured-cloneable: none of
+        // MutationObserver / ResizeObserver / IntersectionObserver
+        // carry [Serializable] / [Transferable] in their specs, and
+        // identity is per-VM (the callback / instance ObjectIds live
+        // on HostData side tables).  Surface the spec-correct
+        // interface name from the inline `ObserverKind` discriminator.
+        ObjectKind::Observer { kind, .. } => CloneKind::Unclonable(kind.interface_name()),
         ObjectKind::Storage { .. } => CloneKind::Unclonable("Storage"),
         ObjectKind::StorageEvent => CloneKind::Unclonable("StorageEvent"),
         #[cfg(feature = "engine")]

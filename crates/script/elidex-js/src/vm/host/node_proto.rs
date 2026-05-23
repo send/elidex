@@ -187,11 +187,26 @@ impl VmInner {
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-/// Extract an entity from a `JsValue` expected to be a Node
-/// HostObject.  Used by every Node method that accepts a `Node`
-/// argument — `contains`, `appendChild`, `removeChild`,
-/// `insertBefore`, `replaceChild` — so WebIDL-style conversion and
-/// error messages stay aligned across callers.
+/// Typed failure mode for the shared Node-argument extraction logic
+/// (see [`extract_node_entity`]).  Each shaper —
+/// [`require_node_arg`] and [`require_node_arg_required`] — maps these
+/// variants to its own interface-scoped wording, so the wrong-type
+/// and detached-entity distinctions survive re-scoping by construction
+/// (no string-pattern coupling).
+enum NodeArgFail {
+    /// Value is not a `Node`-typed `HostObject` (primitive / wrong
+    /// `ObjectKind` / canvas-2D context).
+    NotANode,
+    /// `HostObject.entity_bits` does not reconstruct a valid `Entity`
+    /// (truly corrupt / recycled — generation zero, etc.).
+    Detached,
+}
+
+/// Pure extraction of an `Entity` from a `JsValue` expected to be a
+/// Node `HostObject`.  Returns a typed [`NodeArgFail`] so callers can
+/// re-scope the resulting message to their own interface without
+/// parsing strings.  See [`require_node_arg`] /
+/// [`require_node_arg_required`] for the public shapers.
 ///
 /// Rejects:
 /// - values that are not `HostObject` wrappers,
@@ -202,18 +217,13 @@ impl VmInner {
 ///   placeholder).  Window is an `EventTarget` but not a Node in
 ///   WHATWG, so accepting it would let `document.appendChild(window)`
 ///   graft a non-Node into the DOM tree.
-pub(super) fn require_node_arg(
-    ctx: &mut NativeContext<'_>,
-    value: JsValue,
-    method: &str,
-) -> Result<Entity, VmError> {
-    let not_a_node = || -> VmError {
-        VmError::type_error(format!(
-            "Failed to execute '{method}' on 'Node': parameter is not of type 'Node'."
-        ))
-    };
+///
+/// `host_if_bound` so a JS caller racing against `Vm::unbind()` gets
+/// a fail-soft (returns `NotANode`) rather than the `host().dom()`
+/// panic.
+fn extract_node_entity(ctx: &mut NativeContext<'_>, value: JsValue) -> Result<Entity, NodeArgFail> {
     let JsValue::Object(id) = value else {
-        return Err(not_a_node());
+        return Err(NodeArgFail::NotANode);
     };
     // Both Element and ShadowRoot wrappers are `HostObject` now —
     // ShadowRoot is identified by its ECS component, not by an
@@ -223,13 +233,9 @@ pub(super) fn require_node_arg(
     // [`reject_shadow_root_insertion`] separately.
     let entity = match ctx.vm.get_object(id).kind {
         ObjectKind::HostObject { entity_bits } => {
-            Entity::from_bits(entity_bits).ok_or_else(|| {
-                VmError::type_error(format!(
-                    "Failed to execute '{method}' on 'Node': the node is detached (invalid entity)."
-                ))
-            })?
+            Entity::from_bits(entity_bits).ok_or(NodeArgFail::Detached)?
         }
-        _ => return Err(not_a_node()),
+        _ => return Err(NodeArgFail::NotANode),
     };
     // Reverse half of the canvas-2D-context bidirectional brand: a
     // `CanvasRenderingContext2D` wrapper shares its `<canvas>` entity
@@ -237,7 +243,7 @@ pub(super) fn require_node_arg(
     // as a Node argument (e.g. `document.appendChild(ctx)`). Reject it
     // here — it brands as a context, not a node.
     if super::canvas::is_canvas_2d_context_wrapper(ctx.vm, id, entity) {
-        return Err(not_a_node());
+        return Err(NodeArgFail::NotANode);
     }
     // Use the inferred kind so legacy DOM entities (payload present
     // but no explicit `NodeKind` component) are accepted as Nodes —
@@ -246,10 +252,63 @@ pub(super) fn require_node_arg(
     // `EventTarget`s but not Nodes, so they're rejected via
     // `NodeKind::is_node()`.  Destroyed entities return `None` here
     // and surface as the brand-check failure.
-    match ctx.host().dom().node_kind_inferred(entity) {
+    let kind = ctx
+        .host_if_bound()
+        .and_then(|h| h.dom().node_kind_inferred(entity));
+    match kind {
         Some(k) if k.is_node() => Ok(entity),
-        _ => Err(not_a_node()),
+        _ => Err(NodeArgFail::NotANode),
     }
+}
+
+/// Extract an entity from a `JsValue` expected to be a Node
+/// HostObject.  Used by every Node method that accepts a `Node`
+/// argument — `contains`, `appendChild`, `removeChild`,
+/// `insertBefore`, `replaceChild` — so WebIDL-style conversion and
+/// error messages stay aligned across callers.  Errors are scoped to
+/// the WebIDL `Node` interface; callers in a different interface
+/// (observer family) use [`require_node_arg_required`] instead.
+pub(super) fn require_node_arg(
+    ctx: &mut NativeContext<'_>,
+    value: JsValue,
+    method: &str,
+) -> Result<Entity, VmError> {
+    extract_node_entity(ctx, value).map_err(|f| match f {
+        NodeArgFail::NotANode => VmError::type_error(format!(
+            "Failed to execute '{method}' on 'Node': parameter is not of type 'Node'."
+        )),
+        NodeArgFail::Detached => VmError::type_error(format!(
+            "Failed to execute '{method}' on 'Node': the node is detached (invalid entity)."
+        )),
+    })
+}
+
+/// Missing-arg wrapper that emits interface-scoped errors directly
+/// (no post-hoc string rewriting): the typed [`NodeArgFail`] from
+/// [`extract_node_entity`] is mapped per-variant into an error
+/// scoped to the caller interface (`ResizeObserver` /
+/// `IntersectionObserver` / `MutationObserver`).  Matches Chrome's
+/// wording for e.g. `iObs.observe({})` →
+/// `"Failed to execute 'observe' on 'IntersectionObserver': …"`.
+pub(super) fn require_node_arg_required(
+    ctx: &mut NativeContext<'_>,
+    arg: Option<JsValue>,
+    interface: &str,
+    method: &str,
+) -> Result<Entity, VmError> {
+    let value = arg.ok_or_else(|| {
+        VmError::type_error(format!(
+            "Failed to execute '{method}' on '{interface}': 1 argument required"
+        ))
+    })?;
+    extract_node_entity(ctx, value).map_err(|f| match f {
+        NodeArgFail::NotANode => VmError::type_error(format!(
+            "Failed to execute '{method}' on '{interface}': parameter 1 is not of type 'Node'."
+        )),
+        NodeArgFail::Detached => VmError::type_error(format!(
+            "Failed to execute '{method}' on '{interface}': the node is detached (invalid entity)."
+        )),
+    })
 }
 
 // ---------------------------------------------------------------------------
