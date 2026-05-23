@@ -95,8 +95,12 @@ pub enum BlobImageFormat {
     Png,
     /// `image/jpeg` — lossy, honors quality in `[0.0, 1.0]`.
     Jpeg,
-    /// `image/webp` — v1 ships lossless only (default `image` crate features
-    /// expose only the lossless encoder); quality is ignored.
+    /// `image/webp` — v1 ships lossless only; quality is ignored. The
+    /// `image` 0.25 + `image-webp` upstream exposes only the lossless
+    /// encoder API (no lossy variant). Lossy WebP is tracked in defer
+    /// slot `#11-canvas-webp-lossy` (upstream-blocked: needs either an
+    /// `image-webp` upstream release with a lossy encoder, or an
+    /// additional native `webp` crate / libwebp binding).
     Webp,
 }
 
@@ -653,11 +657,13 @@ impl Canvas2dContext {
     /// `image` crate's per-format encoder.
     ///
     /// `quality` is in `[0.0, 1.0]` per spec and applies only to lossy formats
-    /// (JPEG). PNG ignores it (lossless). WebP in v1 is lossless-only (the
-    /// default `image` crate feature set ships only `WebPEncoder::new_lossless`),
-    /// so `quality` is ignored for WebP too — the spec lets a UA produce
-    /// lossless output for any format. Returns `None` if encoding fails (invalid
-    /// dims, encoder error).
+    /// (JPEG). PNG ignores it (lossless). WebP in v1 is lossless-only — the
+    /// `image` 0.25 + `image-webp` upstream exposes only `WebPEncoder::new_lossless`
+    /// (no lossy variant in the dep tree); `quality` is ignored for WebP.
+    /// The spec permits a UA to produce lossless output for any format, so
+    /// this is spec-conformant; lossy WebP support is upstream-blocked and
+    /// tracked in defer slot `#11-canvas-webp-lossy`. Returns `None` if
+    /// encoding fails (invalid dims, encoder error).
     #[must_use]
     pub fn encode_blob(&self, format: BlobImageFormat, quality: f32) -> Option<Vec<u8>> {
         let width = self.pixmap.width();
