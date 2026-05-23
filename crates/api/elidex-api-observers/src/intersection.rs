@@ -105,10 +105,28 @@ impl IntersectionObserverRegistry {
     }
 
     /// Register a new intersection observer, returning its ID.
-    pub fn register(&mut self, init: IntersectionObserverInit) -> IntersectionObserverId {
+    ///
+    /// Parses `init.root_margin` at register-time (W3C Intersection
+    /// Observer §3.1 ctor step — `SyntaxError` if the shorthand is
+    /// not a valid `<length-percentage>{1,4}`); the parsed
+    /// `[MarginComponent; 4]` is cached on the registered observer so
+    /// `gather_observations` does not re-parse on every per-target
+    /// frame tick.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(RootMarginParseError)` if `init.root_margin`
+    /// contains an unrecognised unit (`em` / `vh` / etc.), a
+    /// non-finite numeric, or more than 4 whitespace-split components.
+    /// The host wraps this in an interface-scoped `SyntaxError`
+    /// thrown from the JS constructor.
+    pub fn register(
+        &mut self,
+        init: IntersectionObserverInit,
+    ) -> Result<IntersectionObserverId, RootMarginParseError> {
+        let parsed_root_margin = parse_root_margin(&init.root_margin)?;
         let id = IntersectionObserverId(self.next_id);
         self.next_id += 1;
-        let parsed_root_margin = parse_root_margin(&init.root_margin);
         self.observers.insert(
             id,
             RegisteredObserver {
@@ -116,7 +134,7 @@ impl IntersectionObserverRegistry {
                 parsed_root_margin,
             },
         );
-        id
+        Ok(id)
     }
 
     /// Start observing a target (Intersection Observer §2.2 `observe(target)`).
@@ -231,12 +249,22 @@ impl IntersectionObserverRegistry {
                 } else {
                     &init.threshold
                 };
+                // Compute the overlap rect ONCE and derive both the
+                // ratio and the spec-mandated `intersectionRect` from
+                // it — previously the intersection was computed twice
+                // (once for the ratio, once for the entry's
+                // `intersectionRect`).
                 let (ratio, bounding_client_rect, intersection_rect) = match maybe_rect {
-                    Some(target_rect) => (
-                        compute_intersection_ratio(target_rect, root_rect),
-                        target_rect,
-                        target_rect.intersection(&root_rect).unwrap_or_default(),
-                    ),
+                    Some(target_rect) => {
+                        let inter = target_rect.intersection(&root_rect).unwrap_or_default();
+                        let target_area = target_rect.size.area_f64();
+                        let ratio = if target_area <= 0.0 {
+                            0.0
+                        } else {
+                            (inter.size.area_f64() / target_area).clamp(0.0, 1.0)
+                        };
+                        (ratio, target_rect, inter)
+                    }
                     None => (0.0, Rect::default(), Rect::default()),
                 };
                 let last = obs.last_ratio.unwrap_or(-1.0);
@@ -271,6 +299,12 @@ impl IntersectionObserverRegistry {
 }
 
 /// Compute the intersection ratio between a target rect and root rect.
+/// Test-only: production `gather_observations` computes the overlap
+/// rect once and derives both ratio and `intersectionRect` from it
+/// (avoiding the prior double-intersection cost).  Kept under
+/// `#[cfg(test)]` so the unit tests can exercise the ratio formula
+/// directly without the surrounding gather machinery.
+#[cfg(test)]
 fn compute_intersection_ratio(target: Rect, root: Rect) -> f64 {
     let target_area = target.size.area_f64();
     if target_area <= 0.0 {
@@ -315,34 +349,89 @@ impl MarginComponent {
     }
 }
 
-/// Parse a CSS-margin-shorthand `rootMargin` string into `[top, right, bottom,
-/// left]` components (Intersection Observer §3.1 — `px` and `%` units; 1/2/3/4
-/// value shorthand). Unparsable tokens fall back to 0px (lenient parse — the
-/// IDL-level validation that rejects bad units is a host-side concern).
-fn parse_root_margin(raw: &str) -> [MarginComponent; 4] {
-    let parse_one = |tok: &str| -> MarginComponent {
-        if let Some(num) = tok.strip_suffix('%') {
-            MarginComponent::Pct(num.trim().parse().unwrap_or(0.0))
-        } else if let Some(num) = tok.strip_suffix("px") {
-            MarginComponent::Px(num.trim().parse().unwrap_or(0.0))
+/// `rootMargin` parse failure (W3C Intersection Observer §3.1 ctor
+/// step — "If options.rootMargin is given but is not a valid string
+/// representing a `<length-percentage> [<length-percentage>]{0,3}`,
+/// throw a SyntaxError").  Carries the offending token so the host
+/// can wrap it in an interface-scoped error message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RootMarginParseError {
+    /// The offending whitespace-split token (`em`-suffixed value,
+    /// numeric `NaN`, unrecognised unit, etc).  Empty string if the
+    /// shorthand had too many components.
+    pub token: String,
+}
+
+impl std::fmt::Display for RootMarginParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.token.is_empty() {
+            write!(f, "rootMargin shorthand has too many components (>4)")
         } else {
-            MarginComponent::Px(tok.trim().parse().unwrap_or(0.0))
+            write!(
+                f,
+                "rootMargin token '{}' is not a valid <length-percentage>",
+                self.token
+            )
+        }
+    }
+}
+
+impl std::error::Error for RootMarginParseError {}
+
+/// Parse a CSS-margin-shorthand `rootMargin` string into `[top, right,
+/// bottom, left]` components (Intersection Observer §3.1 — strict
+/// `px` / `%` only; 1/2/3/4 value shorthand).  Anything else
+/// (`em` / `vh` / garbage / NaN) is a SyntaxError per spec.
+fn parse_root_margin(raw: &str) -> Result<[MarginComponent; 4], RootMarginParseError> {
+    let parse_one = |tok: &str| -> Result<MarginComponent, RootMarginParseError> {
+        let invalid = || RootMarginParseError {
+            token: tok.to_owned(),
+        };
+        let parse_finite = |s: &str| -> Result<f32, RootMarginParseError> {
+            let n: f32 = s.trim().parse().map_err(|_| invalid())?;
+            // Reject NaN / ±Infinity per spec — a margin must be a
+            // finite `<length-percentage>`.
+            if n.is_finite() {
+                Ok(n)
+            } else {
+                Err(invalid())
+            }
+        };
+        if let Some(num) = tok.strip_suffix('%') {
+            Ok(MarginComponent::Pct(parse_finite(num)?))
+        } else if let Some(num) = tok.strip_suffix("px") {
+            Ok(MarginComponent::Px(parse_finite(num)?))
+        } else {
+            // The empty token is the empty-string default for an
+            // omitted rootMargin — already filtered by
+            // `split_whitespace`; any non-empty token without
+            // `px` / `%` is an unrecognised unit.
+            Err(invalid())
         }
     };
-    let toks: Vec<MarginComponent> = raw.split_whitespace().map(parse_one).collect();
+    let toks: Vec<MarginComponent> = raw
+        .split_whitespace()
+        .map(parse_one)
+        .collect::<Result<_, _>>()?;
     // CSS shorthand directions (t/r/b/l = top/right/bottom/left) shadow
     // the function param `raw` plus the per-arm helper bindings; clippy
     // tallies them as five single-char names across the match, but the
     // direction names are the conventional CSS spelling.
     #[allow(clippy::many_single_char_names)]
-    match toks.as_slice() {
+    let arr = match toks.as_slice() {
         [] => [MarginComponent::Px(0.0); 4],
         [all] => [*all; 4],
         [v, h] => [*v, *h, *v, *h],
         [t, h, b] => [*t, *h, *b, *h],
-        // 4+ values: take the first four (top, right, bottom, left).
-        [t, r, b, l, ..] => [*t, *r, *b, *l],
-    }
+        [t, r, b, l] => [*t, *r, *b, *l],
+        // 5+ tokens is a syntax error (CSS margin shorthand caps at 4).
+        _ => {
+            return Err(RootMarginParseError {
+                token: String::new(),
+            });
+        }
+    };
+    Ok(arr)
 }
 
 /// Expand `root` outward by the resolved `rootMargin` (top/right/bottom/left).
@@ -413,7 +502,7 @@ mod tests {
             ..Default::default()
         };
         let mut reg = IntersectionObserverRegistry::new();
-        let id = reg.register(init);
+        let id = reg.register(init).expect("test init has valid rootMargin");
         reg.observe(&mut dom, id, el);
 
         let viewport = Rect::new(0.0, 0.0, 1024.0, 768.0);
@@ -444,7 +533,7 @@ mod tests {
             ..Default::default()
         };
         let mut reg = IntersectionObserverRegistry::new();
-        let id = reg.register(init);
+        let id = reg.register(init).expect("test init has valid rootMargin");
         reg.observe(&mut dom, id, el);
 
         let viewport = Rect::new(0.0, 0.0, 1024.0, 768.0);
@@ -472,7 +561,7 @@ mod tests {
 
         let init = IntersectionObserverInit::default();
         let mut reg = IntersectionObserverRegistry::new();
-        let id = reg.register(init);
+        let id = reg.register(init).expect("test init has valid rootMargin");
         reg.observe(&mut dom, id, el);
 
         let viewport = Rect::new(0.0, 0.0, 1024.0, 768.0);
@@ -516,10 +605,12 @@ mod tests {
         let el = elem(&mut dom, "div");
 
         let mut reg = IntersectionObserverRegistry::new();
-        let id = reg.register(IntersectionObserverInit {
-            threshold: vec![0.0],
-            ..Default::default()
-        });
+        let id = reg
+            .register(IntersectionObserverInit {
+                threshold: vec![0.0],
+                ..Default::default()
+            })
+            .expect("test init has valid rootMargin");
         reg.observe(&mut dom, id, el);
 
         let viewport = Rect::new(0.0, 0.0, 1024.0, 768.0);
@@ -544,11 +635,13 @@ mod tests {
         let el = elem(&mut dom, "div");
 
         let mut reg = IntersectionObserverRegistry::new();
-        let id = reg.register(IntersectionObserverInit {
-            root_margin: "100px".to_string(),
-            threshold: vec![0.0],
-            ..Default::default()
-        });
+        let id = reg
+            .register(IntersectionObserverInit {
+                root_margin: "100px".to_string(),
+                threshold: vec![0.0],
+                ..Default::default()
+            })
+            .expect("test init has valid rootMargin");
         reg.observe(&mut dom, id, el);
 
         let viewport = Rect::new(0.0, 0.0, 1000.0, 1000.0);
@@ -570,7 +663,7 @@ mod tests {
     #[test]
     fn parse_root_margin_shorthand() {
         // 2-value: vertical | horizontal.
-        let m = parse_root_margin("10px 20%");
+        let m = parse_root_margin("10px 20%").expect("valid shorthand");
         let root = Rect::new(0.0, 0.0, 200.0, 100.0);
         let expanded = apply_root_margin(root, &m);
         // top/bottom = 10px, left/right = 20% of width(200) = 40px.
@@ -581,16 +674,57 @@ mod tests {
     }
 
     #[test]
+    fn parse_root_margin_rejects_invalid_units() {
+        // W3C Intersection Observer §3.1 — `rootMargin` must be a
+        // valid `<length-percentage>{1,4}`.  `em` / `vh` / bare
+        // numbers / NaN / oversize shorthand are SyntaxError.
+        for bad in [
+            "10em",                 // unsupported unit
+            "10vh 5px",             // mixed: second token ok, first fails
+            "10",                   // bare number, no unit
+            "NaNpx",                // non-finite
+            "10px 5%  3px 2px 1px", // 5-component shorthand
+        ] {
+            assert!(
+                parse_root_margin(bad).is_err(),
+                "expected SyntaxError for rootMargin '{bad}'"
+            );
+        }
+        // Valid examples still parse.
+        for good in ["", "10px", "10px 20%", "0% 0% 0% 0%", "-10px"] {
+            assert!(
+                parse_root_margin(good).is_ok(),
+                "expected '{good}' to parse"
+            );
+        }
+    }
+
+    #[test]
+    fn register_rejects_invalid_root_margin() {
+        let mut reg = IntersectionObserverRegistry::new();
+        let err = reg
+            .register(IntersectionObserverInit {
+                root_margin: "10em".to_string(),
+                threshold: vec![0.0],
+                ..Default::default()
+            })
+            .expect_err("invalid unit must surface as a SyntaxError");
+        assert!(err.to_string().contains("10em"));
+    }
+
+    #[test]
     fn gather_observations_is_id_sorted() {
         let mut dom = EcsDom::new();
         let el = elem(&mut dom, "div");
 
         let mut reg = IntersectionObserverRegistry::new();
         for _ in 0..4 {
-            let id = reg.register(IntersectionObserverInit {
-                threshold: vec![0.0],
-                ..Default::default()
-            });
+            let id = reg
+                .register(IntersectionObserverInit {
+                    threshold: vec![0.0],
+                    ..Default::default()
+                })
+                .expect("test init has valid rootMargin");
             reg.observe(&mut dom, id, el);
         }
 

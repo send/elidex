@@ -16,7 +16,7 @@
 //!
 //! ## State storage
 //!
-//! Observer state is split between three side tables:
+//! Observer state is split between two side tables:
 //!
 //! - [`super::super::host_data::HostData::intersection_observers`] —
 //!   the
@@ -25,20 +25,44 @@
 //!   `IntersectionObserverInit` (root / rootMargin / thresholds).
 //!   Target tracking lives as per-entity `IntersectionObservedBy`
 //!   components, not in the registry.
-//! - [`super::super::host_data::HostData::intersection_observer_callbacks`]
-//!   — `HashMap<u64, ObjectId>` from observer ID to JS callback
-//!   `ObjectId`.
-//! - [`super::super::host_data::HostData::intersection_observer_instances`]
-//!   — `HashMap<u64, ObjectId>` from observer ID to JS observer
-//!   instance.
-//!
-//! Both maps are rooted via
-//! [`super::super::host_data::HostData::gc_root_object_ids`] so the
-//! callback and instance survive GC for the observer's lifetime.
+//! - [`super::super::host_data::HostData::intersection_observer_bindings`]
+//!   — `HashMap<u64, ObserverBinding>` from observer ID to the
+//!   `(callback, instance)` JS-identity pair.  Both `ObjectId`s in
+//!   each binding are rooted via
+//!   [`super::super::host_data::HostData::gc_root_object_ids`] so the
+//!   callback + instance survive GC for the observer's lifetime.
 //!
 //! [`super::super::value::ObjectKind::IntersectionObserver`] carries
 //! the observer ID inline (`observer_id: u64`); the JS object itself
 //! has no other own state.
+//!
+//! ## Per-frame `dom_rect_states` growth
+//!
+//! Each delivered entry mints up to **three** `DOMRectReadOnly`
+//! instances via [`super::super::VmInner::build_dom_rect_readonly`]:
+//! `boundingClientRect`, `intersectionRect`, and (for same-origin
+//! roots) `rootBounds`.  Each mint inserts a row into
+//! [`super::super::VmInner::dom_rect_states`].  Steady-state delivery
+//! without an intervening GC cycle therefore grows that map linearly
+//! in the count of delivered entries — bounded in practice by the GC
+//! sweep tail at `gc/collect.rs::collect_garbage` which prunes rows
+//! whose key `ObjectId` was collected.  Frame-tick allocation pressure
+//! normally triggers periodic GC, so a long-running page with many
+//! intersection callbacks does not accumulate unboundedly.  A pooled
+//! / per-callback-arena reuse strategy is tracked as a possible
+//! follow-up if real-world profiles surface this.
+//!
+//! ## `native_*` docstring convention
+//!
+//! Per-method native `fn`s in this module (and the sibling
+//! `mutation_observer.rs` / `resize_observer.rs`) deliberately rely
+//! on the constructor's docstring + the module-level spec citation
+//! as their primary documentation.  Their brand-checked name
+//! (`native_intersection_observer_observe` etc.) is unique enough to
+//! disambiguate without a per-fn docstring; the spec section is
+//! cited inline at the call site where it actually matters.  This
+//! mirrors the convention already in place across the M4-12 boa→VM
+//! port surfaces (e.g. `vm/host/mutation_observer.rs`).
 
 #![cfg(feature = "engine")]
 
@@ -171,12 +195,27 @@ fn native_intersection_observer_constructor(
     }
 
     let init = parse_intersection_observer_init(ctx, args.get(1).copied())?;
-    let io_id = ctx.host().intersection_observers.register(init).raw();
+    // W3C Intersection Observer §3.1 ctor step — `SyntaxError` if
+    // `rootMargin` is not a valid `<length-percentage>{1,4}`.  The
+    // crate-side `register` returns `RootMarginParseError` (engine-
+    // independent); the host wraps it in an interface-scoped
+    // SyntaxError matching the Chrome / Firefox shape.
+    let io_id = match ctx.host().intersection_observers.register(init) {
+        Ok(id) => id.raw(),
+        Err(err) => {
+            return Err(VmError::syntax_error(format!(
+                "Failed to construct 'IntersectionObserver': {err}"
+            )));
+        }
+    };
     ctx.vm.get_object_mut(this_id).kind = ObjectKind::IntersectionObserver { observer_id: io_id };
-    let host = ctx.host();
-    host.intersection_observer_callbacks
-        .insert(io_id, callback_id);
-    host.intersection_observer_instances.insert(io_id, this_id);
+    ctx.host().intersection_observer_bindings.insert(
+        io_id,
+        super::observer_common::ObserverBinding {
+            callback: callback_id,
+            instance: this_id,
+        },
+    );
 
     Ok(JsValue::Object(this_id))
 }
@@ -432,7 +471,7 @@ impl VmInner {
         if self
             .host_data
             .as_deref()
-            .is_some_and(|hd| hd.intersection_observer_callbacks.is_empty())
+            .is_some_and(|hd| hd.intersection_observer_bindings.is_empty())
         {
             return;
         }
@@ -455,52 +494,38 @@ impl VmInner {
             v.inner_height as f32,
         );
 
-        let observations = {
+        let observations: std::collections::HashMap<u64, _> = {
             let host = self
                 .host_data
                 .as_deref_mut()
                 .expect("deliver_intersection_observations: HostData required when bound");
             let (dom, observers) = host.split_dom_mut_and_intersection_observers();
-            observers.gather_observations(
-                dom,
-                &|d, entity| {
-                    let lb = d.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
-                    Some(lb.border_box())
-                },
-                viewport,
-            )
+            observers
+                .gather_observations(
+                    dom,
+                    &|d, entity| {
+                        let lb = d.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
+                        Some(lb.border_box())
+                    },
+                    viewport,
+                )
+                .into_iter()
+                .map(|(id, entries)| (id.raw(), entries))
+                .collect()
         };
+        let observer_ids: Vec<u64> = observations.keys().copied().collect();
 
-        for (observer_id_typed, entries) in &observations {
-            let observer_id = observer_id_typed.raw();
-            let host = self
+        super::observer_common::deliver_to_observer_callbacks(self, &observer_ids, |vm, id| {
+            let entries = observations.get(&id)?;
+            let binding = vm
                 .host_data
-                .as_deref_mut()
-                .expect("deliver_intersection_observations: HostData required when bound");
-            let (Some(callback_id), Some(observer_obj_id)) = (
-                host.intersection_observer_callbacks
-                    .get(&observer_id)
-                    .copied(),
-                host.intersection_observer_instances
-                    .get(&observer_id)
-                    .copied(),
-            ) else {
-                continue;
-            };
-            let observer_val = JsValue::Object(observer_obj_id);
-            let mut observer_guard = self.push_temp_root(observer_val);
-            let entries_arr = build_intersection_entries_array(&mut observer_guard, entries, time);
-            let mut entries_guard = observer_guard.push_temp_root(entries_arr);
-            let _ = entries_guard
-                .call(callback_id, observer_val, &[entries_arr, observer_val])
-                .map_err(|err| {
-                    eprintln!("[JS IntersectionObserver Error] {err:?}");
-                });
-            drop(entries_guard);
-            drop(observer_guard);
-        }
-
-        self.drain_microtasks();
+                .as_deref()?
+                .intersection_observer_bindings
+                .get(&id)
+                .copied()?;
+            let entries_arr = build_intersection_entries_array(vm, entries, time);
+            Some((binding, entries_arr))
+        });
     }
 }
 

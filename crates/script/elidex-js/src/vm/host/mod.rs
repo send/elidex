@@ -272,6 +272,8 @@ pub(super) mod node_filter_namespace;
 pub(super) mod node_iterator_proto;
 pub(super) mod node_methods_extras;
 pub(super) mod node_proto;
+#[cfg(feature = "engine")]
+pub(super) mod observer_common;
 pub(super) mod parentnode;
 #[cfg(feature = "engine")]
 pub(crate) mod pending_tasks;

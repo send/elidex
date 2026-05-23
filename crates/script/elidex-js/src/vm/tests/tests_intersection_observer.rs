@@ -162,6 +162,23 @@ fn intersection_observer_threshold_out_of_range_throws() {
 }
 
 #[test]
+fn intersection_observer_root_margin_invalid_unit_throws_syntax_error() {
+    // W3C Intersection Observer §3.1 — `rootMargin` must be a valid
+    // `<length-percentage>{1,4}`.  `em` / `vh` / bare numbers fail
+    // SyntaxError, NOT TypeError (regression guard for the strict
+    // crate-side parser).
+    for bad in ["10em", "10vh", "10", "NaNpx"] {
+        let err = run_throws(&format!(
+            "new IntersectionObserver(function(){{}}, {{rootMargin: '{bad}'}});"
+        ));
+        assert!(
+            err.contains("rootMargin token") && err.contains(bad),
+            "expected SyntaxError citing '{bad}', got: {err}"
+        );
+    }
+}
+
+#[test]
 fn intersection_observer_threshold_accepts_single_number_or_sequence() {
     // Spec §3.1 accepts `double` or `sequence<double>` — the parser
     // routes through `webidl_iter_to_vec` (the WebIDL §3.10.16
@@ -458,5 +475,94 @@ fn intersection_observer_disconnect_stops_delivery() {
         panic!("expected string, got {out:?}")
     };
     assert_eq!(vm.inner.strings.get_utf8(sid), "1");
+    vm.unbind();
+}
+
+#[test]
+fn intersection_observer_two_observers_on_same_target_both_fire() {
+    // `IntersectionObservedBy::0: Vec<IntersectionObservation>` design
+    // supports multiple observers per target.  Both callbacks must
+    // fire on a single delivery tick when the target crosses each
+    // observer's threshold.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    let body = dom
+        .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
+        .unwrap();
+    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(body, target));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let wrapper = vm.inner.create_element_wrapper(target);
+    vm.set_global("target", JsValue::Object(wrapper));
+
+    vm.eval(
+        "globalThis.callsA = 0; globalThis.callsB = 0; \
+         globalThis.ioA = new IntersectionObserver(function(){ callsA++; }, {threshold:[0]}); \
+         globalThis.ioB = new IntersectionObserver(function(){ callsB++; }, {threshold:[0]}); \
+         ioA.observe(target); ioB.observe(target);",
+    )
+    .unwrap();
+    set_layout_box(&mut vm, target, Rect::new(10.0, 10.0, 100.0, 100.0));
+    vm.deliver_intersection_observations();
+
+    let out = vm.eval("callsA + '|' + callsB").unwrap();
+    let JsValue::String(sid) = out else {
+        panic!("expected string, got {out:?}")
+    };
+    assert_eq!(vm.inner.strings.get_utf8(sid), "1|1");
+
+    vm.unbind();
+}
+
+#[test]
+fn intersection_observer_callback_survives_gc_via_root_chain() {
+    // No JS-stack ref to `io` — the callback retention path is the
+    // `gc_root_object_ids` chain via
+    // `HostData::intersection_observer_bindings`.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    let body = dom
+        .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
+        .unwrap();
+    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(body, target));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let wrapper = vm.inner.create_element_wrapper(target);
+    vm.set_global("target", JsValue::Object(wrapper));
+
+    vm.eval(
+        "globalThis.calls = 0; \
+         (function(){ \
+             var io = new IntersectionObserver(function(){ calls++; }, {threshold:[0]}); \
+             io.observe(target); \
+         })();",
+    )
+    .unwrap();
+    vm.inner.collect_garbage();
+    set_layout_box(&mut vm, target, Rect::new(10.0, 10.0, 100.0, 100.0));
+    vm.deliver_intersection_observations();
+
+    let out = vm.eval("'' + calls").unwrap();
+    let JsValue::String(sid) = out else {
+        panic!("expected string, got {out:?}")
+    };
+    assert_eq!(
+        vm.inner.strings.get_utf8(sid),
+        "1",
+        "callback must survive GC via HostData::intersection_observer_bindings root"
+    );
+
     vm.unbind();
 }

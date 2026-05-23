@@ -14,26 +14,32 @@
 //!
 //! ## State storage
 //!
-//! Observer state is split between three side tables:
+//! Observer state is split between two side tables:
 //!
 //! - [`super::super::host_data::HostData::resize_observers`] — the
 //!   [`elidex_api_observers::resize::ResizeObserverRegistry`] that
 //!   owns the monotonic observer ID counter (target tracking lives as
 //!   per-entity `ResizeObservedBy` components, not in the registry).
-//! - [`super::super::host_data::HostData::resize_observer_callbacks`]
-//!   — `HashMap<u64, ObjectId>` from observer ID to JS callback
-//!   `ObjectId`.
-//! - [`super::super::host_data::HostData::resize_observer_instances`]
-//!   — `HashMap<u64, ObjectId>` from observer ID to JS observer
-//!   instance.
-//!
-//! Both maps are rooted via
-//! [`super::super::host_data::HostData::gc_root_object_ids`] so the
-//! callback and instance survive GC for the observer's lifetime.
+//! - [`super::super::host_data::HostData::resize_observer_bindings`]
+//!   — `HashMap<u64, ObserverBinding>` from observer ID to the
+//!   `(callback, instance)` JS-identity pair.  Both `ObjectId`s in
+//!   each binding are rooted via
+//!   [`super::super::host_data::HostData::gc_root_object_ids`] so the
+//!   callback + instance survive GC for the observer's lifetime.
 //!
 //! [`super::super::value::ObjectKind::ResizeObserver`] carries the
 //! observer ID inline (`observer_id: u64`); the JS object itself has no
 //! other own state.
+//!
+//! ## `native_*` docstring convention
+//!
+//! Per-method native `fn`s in this module (and the sibling
+//! `mutation_observer.rs` / `intersection_observer.rs`) deliberately
+//! rely on the constructor's docstring + the module-level spec
+//! citation as their primary documentation.  Brand-checked function
+//! names (`native_resize_observer_observe` etc.) are unique enough
+//! to disambiguate without a per-fn docstring; the spec section is
+//! cited inline at the call site where it actually matters.
 //!
 //! ## Lifecycle preconditions
 //!
@@ -168,10 +174,13 @@ fn native_resize_observer_constructor(
     }
     let observer_id = ctx.host().resize_observers.register().raw();
     ctx.vm.get_object_mut(this_id).kind = ObjectKind::ResizeObserver { observer_id };
-    let host = ctx.host();
-    host.resize_observer_callbacks
-        .insert(observer_id, callback_id);
-    host.resize_observer_instances.insert(observer_id, this_id);
+    ctx.host().resize_observer_bindings.insert(
+        observer_id,
+        super::observer_common::ObserverBinding {
+            callback: callback_id,
+            instance: this_id,
+        },
+    );
 
     Ok(JsValue::Object(this_id))
 }
@@ -398,7 +407,7 @@ impl VmInner {
         if self
             .host_data
             .as_deref()
-            .is_some_and(|hd| hd.resize_observer_callbacks.is_empty())
+            .is_some_and(|hd| hd.resize_observer_bindings.is_empty())
         {
             return;
         }
@@ -410,44 +419,34 @@ impl VmInner {
         // manages the borrow life cycle internally.  Layering: the
         // closure only reads layout; box-less targets return `None`
         // and the crate runs the initial-observation step.
-        let observations = {
+        let observations: std::collections::HashMap<u64, _> = {
             let host = self
                 .host_data
                 .as_deref_mut()
                 .expect("deliver_resize_observations: HostData required when bound");
             let (dom, observers) = host.split_dom_mut_and_resize_observers();
-            observers.gather_observations(dom, &|d, entity| {
-                let lb = d.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
-                Some((lb.content, lb.border_box().size))
-            })
+            observers
+                .gather_observations(dom, &|d, entity| {
+                    let lb = d.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
+                    Some((lb.content, lb.border_box().size))
+                })
+                .into_iter()
+                .map(|(id, entries)| (id.raw(), entries))
+                .collect()
         };
+        let observer_ids: Vec<u64> = observations.keys().copied().collect();
 
-        for (observer_id_typed, entries) in &observations {
-            let observer_id = observer_id_typed.raw();
-            let host = self
+        super::observer_common::deliver_to_observer_callbacks(self, &observer_ids, |vm, id| {
+            let entries = observations.get(&id)?;
+            let binding = vm
                 .host_data
-                .as_deref_mut()
-                .expect("deliver_resize_observations: HostData required when bound");
-            let (Some(callback_id), Some(observer_obj_id)) = (
-                host.resize_observer_callbacks.get(&observer_id).copied(),
-                host.resize_observer_instances.get(&observer_id).copied(),
-            ) else {
-                continue;
-            };
-            let observer_val = JsValue::Object(observer_obj_id);
-            let mut observer_guard = self.push_temp_root(observer_val);
-            let entries_arr = build_resize_entries_array(&mut observer_guard, entries);
-            let mut entries_guard = observer_guard.push_temp_root(entries_arr);
-            let _ = entries_guard
-                .call(callback_id, observer_val, &[entries_arr, observer_val])
-                .map_err(|err| {
-                    eprintln!("[JS ResizeObserver Error] {err:?}");
-                });
-            drop(entries_guard);
-            drop(observer_guard);
-        }
-
-        self.drain_microtasks();
+                .as_deref()?
+                .resize_observer_bindings
+                .get(&id)
+                .copied()?;
+            let entries_arr = build_resize_entries_array(vm, entries);
+            Some((binding, entries_arr))
+        });
     }
 }
 

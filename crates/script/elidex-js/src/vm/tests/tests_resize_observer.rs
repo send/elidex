@@ -473,3 +473,98 @@ fn resize_observer_border_box_size_matches_layout() {
 
     vm.unbind();
 }
+
+#[test]
+fn resize_observer_two_observers_on_same_target_both_fire() {
+    // The `ResizeObservedBy::0: Vec<ResizeObservation>` design supports
+    // multiple observers per target.  Both callbacks must fire on a
+    // single delivery tick.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    let body = dom
+        .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
+        .unwrap();
+    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(body, target));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let wrapper = vm.inner.create_element_wrapper(target);
+    vm.set_global("target", JsValue::Object(wrapper));
+
+    vm.eval(
+        "globalThis.callsA = 0; globalThis.callsB = 0; \
+         globalThis.roA = new ResizeObserver(function(){ callsA++; }); \
+         globalThis.roB = new ResizeObserver(function(){ callsB++; }); \
+         roA.observe(target); roB.observe(target);",
+    )
+    .unwrap();
+    set_layout_box(&mut vm, target, Rect::new(0.0, 0.0, 100.0, 50.0));
+    vm.deliver_resize_observations();
+
+    let out = vm.eval("callsA + '|' + callsB").unwrap();
+    let JsValue::String(sid) = out else {
+        panic!("expected string, got {out:?}")
+    };
+    assert_eq!(vm.inner.strings.get_utf8(sid), "1|1");
+
+    vm.unbind();
+}
+
+#[test]
+fn resize_observer_callback_survives_gc_via_root_chain() {
+    // Even with no JS-stack reference to `ro` (assignment to a local
+    // `var` inside a `function` that has returned), the
+    // `gc_root_object_ids` chain via `HostData::resize_observer_bindings`
+    // must keep the callback + instance alive across a GC cycle so the
+    // next deliver tick still fires.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    let body = dom
+        .first_child_with_tag(dom.first_child_with_tag(doc, "html").unwrap(), "body")
+        .unwrap();
+    let target = dom.create_element("div", elidex_ecs::Attributes::default());
+    assert!(dom.append_child(body, target));
+
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    let wrapper = vm.inner.create_element_wrapper(target);
+    vm.set_global("target", JsValue::Object(wrapper));
+
+    // Build the observer inside a scope that drops the local ref
+    // immediately; the callback closes over `globalThis.calls` so the
+    // only retention path is the binding map's GC root.
+    vm.eval(
+        "globalThis.calls = 0; \
+         (function(){ \
+             var ro = new ResizeObserver(function(){ calls++; }); \
+             ro.observe(target); \
+         })();",
+    )
+    .unwrap();
+    // Force a GC immediately, before any delivery would re-root via
+    // the JS-stack `entries`/`observer` args.
+    vm.inner.collect_garbage();
+    set_layout_box(&mut vm, target, Rect::new(0.0, 0.0, 100.0, 50.0));
+    vm.deliver_resize_observations();
+
+    let out = vm.eval("'' + calls").unwrap();
+    let JsValue::String(sid) = out else {
+        panic!("expected string, got {out:?}")
+    };
+    assert_eq!(
+        vm.inner.strings.get_utf8(sid),
+        "1",
+        "callback must survive GC via HostData::resize_observer_bindings root"
+    );
+
+    vm.unbind();
+}
