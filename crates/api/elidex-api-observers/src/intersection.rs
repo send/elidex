@@ -79,11 +79,22 @@ struct IntersectionObservation {
 #[derive(Debug, Default)]
 struct IntersectionObservedBy(Vec<IntersectionObservation>);
 
+/// Internal per-observer config — pairs the user-supplied
+/// [`IntersectionObserverInit`] with its pre-parsed `rootMargin`
+/// shorthand.  `rootMargin` is parsed once at `register` time so
+/// `gather_observations` (a per-frame hot path) does not re-split +
+/// re-parse the string for every observed target.
+#[derive(Debug)]
+struct RegisteredObserver {
+    init: IntersectionObserverInit,
+    parsed_root_margin: [MarginComponent; 4],
+}
+
 /// Registry for active intersection observers.
 #[derive(Debug, Default)]
 pub struct IntersectionObserverRegistry {
     next_id: u64,
-    init: std::collections::HashMap<IntersectionObserverId, IntersectionObserverInit>,
+    observers: std::collections::HashMap<IntersectionObserverId, RegisteredObserver>,
 }
 
 impl IntersectionObserverRegistry {
@@ -97,7 +108,14 @@ impl IntersectionObserverRegistry {
     pub fn register(&mut self, init: IntersectionObserverInit) -> IntersectionObserverId {
         let id = IntersectionObserverId(self.next_id);
         self.next_id += 1;
-        self.init.insert(id, init);
+        let parsed_root_margin = parse_root_margin(&init.root_margin);
+        self.observers.insert(
+            id,
+            RegisteredObserver {
+                init,
+                parsed_root_margin,
+            },
+        );
         id
     }
 
@@ -108,7 +126,7 @@ impl IntersectionObserverRegistry {
         // a stale `IntersectionObservedBy` would be scanned each gather but
         // never delivered (gather skips missing init). Restores the
         // pre-refactor registry-lookup guard.
-        if !self.init.contains_key(&id) {
+        if !self.observers.contains_key(&id) {
             return;
         }
         if let Ok(mut comp) = dom.world_mut().get::<&mut IntersectionObservedBy>(target) {
@@ -161,7 +179,7 @@ impl IntersectionObserverRegistry {
     /// Remove the observer entirely (drops its registrations and config).
     pub fn unregister(&mut self, dom: &mut EcsDom, id: IntersectionObserverId) {
         self.disconnect(dom, id);
-        self.init.remove(&id);
+        self.observers.remove(&id);
     }
 
     /// Gather intersection observations by computing intersection ratios
@@ -198,14 +216,15 @@ impl IntersectionObserverRegistry {
         for (entity, comp) in &mut dom.world().query::<(Entity, &IntersectionObservedBy)>() {
             let maybe_rect = rect_fn(&*dom, entity);
             for obs in &comp.0 {
-                let Some(init) = self.init.get(&obs.observer) else {
+                let Some(reg) = self.observers.get(&obs.observer) else {
                     continue;
                 };
+                let init = &reg.init;
                 let root_rect = apply_root_margin(
                     init.root
                         .and_then(|r| rect_fn(&*dom, r))
                         .unwrap_or(viewport),
-                    &parse_root_margin(&init.root_margin),
+                    &reg.parsed_root_margin,
                 );
                 let thresholds = if init.threshold.is_empty() {
                     &[0.0][..]
@@ -300,7 +319,7 @@ impl MarginComponent {
 /// left]` components (Intersection Observer §3.1 — `px` and `%` units; 1/2/3/4
 /// value shorthand). Unparsable tokens fall back to 0px (lenient parse — the
 /// IDL-level validation that rejects bad units is a host-side concern).
-fn parse_root_margin(s: &str) -> [MarginComponent; 4] {
+fn parse_root_margin(raw: &str) -> [MarginComponent; 4] {
     let parse_one = |tok: &str| -> MarginComponent {
         if let Some(num) = tok.strip_suffix('%') {
             MarginComponent::Pct(num.trim().parse().unwrap_or(0.0))
@@ -310,7 +329,12 @@ fn parse_root_margin(s: &str) -> [MarginComponent; 4] {
             MarginComponent::Px(tok.trim().parse().unwrap_or(0.0))
         }
     };
-    let toks: Vec<MarginComponent> = s.split_whitespace().map(parse_one).collect();
+    let toks: Vec<MarginComponent> = raw.split_whitespace().map(parse_one).collect();
+    // CSS shorthand directions (t/r/b/l = top/right/bottom/left) shadow
+    // the function param `raw` plus the per-arm helper bindings; clippy
+    // tallies them as five single-char names across the match, but the
+    // direction names are the conventional CSS spelling.
+    #[allow(clippy::many_single_char_names)]
     match toks.as_slice() {
         [] => [MarginComponent::Px(0.0); 4],
         [all] => [*all; 4],

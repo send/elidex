@@ -22,12 +22,14 @@
 //! ## Consumers
 //!
 //! Script-side construction goes through the `DOMRectReadOnly` / `DOMRect`
-//! constructors and `fromRect`.  The Rust-facing marshalling seam (a
-//! `DOMRectReadOnly`-from-coordinates builder over `alloc_dom_rect`) is
-//! added by its first consumer — the D-22 observer pair (`contentRect` /
-//! `boundingClientRect` / `intersectionRect` / `rootBounds`), later reused
-//! by `getBoundingClientRect` / `getClientRects` — rather than landing
-//! here unconnected.
+//! constructors and `fromRect`.  The Rust-facing marshalling seam
+//! [`VmInner::build_dom_rect_readonly`] mints a fresh `DOMRectReadOnly`
+//! from four coordinates over [`VmInner::alloc_dom_rect`]; it is the
+//! single chokepoint used by the D-22 observer pair (`contentRect` /
+//! `boundingClientRect` / `intersectionRect` / `rootBounds`) and the
+//! later `getBoundingClientRect` / `getClientRects` consumers, so every
+//! Rust-side rect allocation goes through the same `alloc_dom_rect` →
+//! side-table-insert path.
 
 #![cfg(feature = "engine")]
 
@@ -474,9 +476,8 @@ fn native_dom_rect_from_rect(
 impl VmInner {
     /// Allocate a fresh `DOMRectReadOnly` / `DOMRect` instance and record
     /// its side-table state.  Chokepoint for non-constructor allocation
-    /// (currently `fromRect`; the Rust-facing coordinate builder lands
-    /// with its D-22 consumer).  The constructor path instead reuses its
-    /// `new` receiver.
+    /// (`fromRect` + [`Self::build_dom_rect_readonly`]).  The constructor
+    /// path instead reuses its `new` receiver.
     fn alloc_dom_rect(&mut self, state: DomRectState) -> JsValue {
         let proto = if state.mutable {
             self.dom_rect_prototype
@@ -491,6 +492,31 @@ impl VmInner {
         });
         self.dom_rect_states.insert(id, state);
         JsValue::Object(id)
+    }
+
+    /// Mint a fresh read-only `DOMRectReadOnly` from four `f64` coordinates
+    /// (W3C Geometry §3).  Single chokepoint for Rust-side rect marshalling
+    /// — D-22 `ResizeObserverEntry.contentRect` /
+    /// `IntersectionObserverEntry.{boundingClientRect, intersectionRect,
+    /// rootBounds}`, later reused by `getBoundingClientRect` /
+    /// `getClientRects` — so every host-built rect runs through the same
+    /// [`Self::alloc_dom_rect`] → side-table insert path.  The constructor
+    /// path (`new DOMRectReadOnly(...)`) reuses its own `new` receiver and
+    /// does **not** route through this builder.
+    pub(in crate::vm) fn build_dom_rect_readonly(
+        &mut self,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    ) -> JsValue {
+        self.alloc_dom_rect(DomRectState {
+            x,
+            y,
+            width,
+            height,
+            mutable: false,
+        })
     }
 
     /// Install `DOMRectReadOnly` + `DOMRect` (prototypes + constructors +

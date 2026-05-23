@@ -252,6 +252,8 @@ pub(super) mod html_time_proto;
 pub(super) mod html_title_proto;
 #[cfg(feature = "engine")]
 pub(super) mod idl_coerce;
+#[cfg(feature = "engine")]
+pub(super) mod intersection_observer;
 pub(super) mod location;
 #[cfg(feature = "engine")]
 pub(super) mod multipart;
@@ -282,6 +284,8 @@ pub(super) mod range_proto_mutation;
 pub(crate) mod readable_stream;
 #[cfg(feature = "engine")]
 pub(crate) mod request_response;
+#[cfg(feature = "engine")]
+pub(super) mod resize_observer;
 #[cfg(feature = "engine")]
 pub(super) mod selection_api;
 #[cfg(feature = "engine")]

@@ -19,7 +19,7 @@
 #![cfg(feature = "engine")]
 
 use elidex_ecs::{Attributes, EcsDom, Entity};
-use elidex_plugin::{EventPayload, EventPhase};
+use elidex_plugin::{EventPayload, EventPhase, LayoutBox, Rect};
 use elidex_script_session::event_dispatch::DispatchEvent;
 use elidex_script_session::{EventListeners, SessionCore};
 
@@ -143,6 +143,27 @@ pub fn listeners_on(vm: &mut Vm, entity: Entity) -> EventListeners {
         Ok(r) => (*r).clone(),
         Err(_) => EventListeners::default(),
     }
+}
+
+/// Replace any existing `LayoutBox` on `entity` (via the bound DOM)
+/// with a content-only box sized to `content`.  Test helper for code
+/// paths that drive deliver methods directly without running the full
+/// layout pass — the observer pair (D-22) is the canonical consumer,
+/// `getBoundingClientRect` tests will reuse this next.
+///
+/// Inherits the same bound-state contract as [`listeners_on`]: the VM
+/// must have `HostData` installed and bound; panics otherwise.
+pub fn set_layout_box(vm: &mut crate::vm::Vm, entity: Entity, content: Rect) {
+    let dom = vm
+        .host_data()
+        .expect("set_layout_box: HostData must be installed (call bind_vm first)")
+        .dom();
+    let _ = dom.world_mut().remove_one::<LayoutBox>(entity);
+    let lb = LayoutBox {
+        content,
+        ..LayoutBox::default()
+    };
+    let _ = dom.world_mut().insert_one(entity, lb);
 }
 
 /// Evaluate `src` against `vm` and expect a string result, returning

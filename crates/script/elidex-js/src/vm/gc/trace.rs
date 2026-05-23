@@ -474,6 +474,19 @@ pub(super) fn trace_work_list(
             // no trace pass either.
             #[cfg(feature = "engine")]
             ObjectKind::MutationObserver { .. } => {}
+            // `ResizeObserver` / `IntersectionObserver`: same payload-free
+            // shape as `MutationObserver` above.  Target lists live as
+            // `ResizeObservedBy` / `IntersectionObservedBy` components
+            // on the observed entities (no per-VM `ObjectId` to fan out
+            // to); JS callback + instance `ObjectId`s live on the
+            // `HostData` callbacks/instances maps and are rooted via
+            // `HostData::gc_root_object_ids`.  Inline `observer_id: u64`
+            // carries no `ObjectId`, so trace from this variant is a
+            // no-op.
+            #[cfg(feature = "engine")]
+            ObjectKind::ResizeObserver { .. } => {}
+            #[cfg(feature = "engine")]
+            ObjectKind::IntersectionObserver { .. } => {}
             // `Storage` instances carry only the `is_local: bool`
             // discriminator inline (not an `ObjectId`).  The cached
             // `localStorage` / `sessionStorage` wrappers are rooted

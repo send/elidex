@@ -770,6 +770,35 @@ pub enum ObjectKind {
     /// callback intact.
     #[cfg(feature = "engine")]
     MutationObserver { observer_id: u64 },
+    /// `ResizeObserver` instance (W3C Resize Observer §3.1) — observes
+    /// element box-size changes.  Same payload-free design as
+    /// [`Self::MutationObserver`]: target tracking lives as a
+    /// `ResizeObservedBy` component on each observed entity, the
+    /// per-observer JS callback / instance lives on `HostData`
+    /// (`resize_observer_callbacks` / `resize_observer_instances`) keyed
+    /// by the monotonic `observer_id: u64`.  Inline `observer_id` carries
+    /// no `ObjectId`, so trace fan-out from this variant is a no-op; the
+    /// callback / instance entries are rooted via
+    /// [`super::host_data::HostData::gc_root_object_ids`].  Retained
+    /// across `Vm::unbind` (cross-DOM aliasing risk is zero — the key is
+    /// VM-monotonic, not `Entity` / recycled `ObjectId`).
+    #[cfg(feature = "engine")]
+    ResizeObserver { observer_id: u64 },
+    /// `IntersectionObserver` instance (W3C Intersection Observer §3.1) —
+    /// observes element visibility transitions against a root rect.
+    /// Same payload-free design as [`Self::MutationObserver`]: target
+    /// tracking lives as an `IntersectionObservedBy` component on each
+    /// observed entity, the per-observer JS callback / instance / init
+    /// lives on `HostData` (`intersection_observer_callbacks` /
+    /// `intersection_observer_instances` + the registry's init map)
+    /// keyed by the monotonic `observer_id: u64`.  Inline `observer_id`
+    /// carries no `ObjectId`, so trace fan-out from this variant is a
+    /// no-op; the callback / instance entries are rooted via
+    /// [`super::host_data::HostData::gc_root_object_ids`].  Retained
+    /// across `Vm::unbind` for the same reason as
+    /// [`Self::MutationObserver`].
+    #[cfg(feature = "engine")]
+    IntersectionObserver { observer_id: u64 },
     /// `Storage` instance backing `window.localStorage` /
     /// `window.sessionStorage` (WHATWG HTML §11.2).
     ///

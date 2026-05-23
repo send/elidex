@@ -276,6 +276,11 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         }
         ObjectKind::StyleSheetList { .. } => CloneKind::Unclonable("StyleSheetList"),
         ObjectKind::MutationObserver { .. } => CloneKind::Unclonable("MutationObserver"),
+        // Observer instances are not structured-cloneable (no
+        // [Serializable] / [Transferable] in either spec; broker
+        // identity is per-VM, like MutationObserver above).
+        ObjectKind::ResizeObserver { .. } => CloneKind::Unclonable("ResizeObserver"),
+        ObjectKind::IntersectionObserver { .. } => CloneKind::Unclonable("IntersectionObserver"),
         ObjectKind::Storage { .. } => CloneKind::Unclonable("Storage"),
         ObjectKind::StorageEvent => CloneKind::Unclonable("StorageEvent"),
         #[cfg(feature = "engine")]

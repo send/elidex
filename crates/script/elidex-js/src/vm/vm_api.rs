@@ -701,6 +701,49 @@ impl Vm {
         self.inner.deliver_mutation_records(records);
     }
 
+    /// Deliver per-frame resize observations to every registered
+    /// `ResizeObserver` (W3C Resize Observer §2 "broadcast active
+    /// resize observations").
+    ///
+    /// Same embedder-API contract as [`Self::deliver_mutation_records`]:
+    /// the VM does not auto-deliver — the shell main loop calls this
+    /// once per layout/paint cycle so callbacks fire as part of the
+    /// "broadcast" step.  Unlike `deliver_mutation_records`, no input
+    /// list is needed: the observation algorithm runs inside the
+    /// engine-indep
+    /// [`elidex_api_observers::resize::ResizeObserverRegistry::gather_observations`]
+    /// against the bound `EcsDom`'s current `LayoutBox` components.
+    ///
+    /// Trailing microtask checkpoint runs so any `.then` chained from
+    /// a callback fires before this call returns.  Post-unbind early-
+    /// returns before any work.  Callbacks that throw are reported via
+    /// `eprintln!` and do not propagate.
+    ///
+    /// Currently a cutover-ready API: the boa-driven shell still
+    /// invokes the boa-side
+    /// `JsRuntime::deliver_resize_observations`; the VM-side wiring
+    /// lands with the boa→VM cutover (M4-12 D-26 / PR7).
+    #[cfg(feature = "engine")]
+    pub fn deliver_resize_observations(&mut self) {
+        self.inner.deliver_resize_observations();
+    }
+
+    /// Deliver per-frame intersection observations to every registered
+    /// `IntersectionObserver` (W3C Intersection Observer §4 "notify
+    /// intersection observers").
+    ///
+    /// Same contract as [`Self::deliver_resize_observations`].  The
+    /// implicit root rect (`window.innerWidth` / `innerHeight` /
+    /// `scrollX` / `scrollY`) and broadcast `time`
+    /// (`performance.now()`) are both sourced from VM state: shell
+    /// maintains the viewport slots through the usual
+    /// `Window.scrollTo` / `resize` paths, so a separate arg would
+    /// just be redundant state.
+    #[cfg(feature = "engine")]
+    pub fn deliver_intersection_observations(&mut self) {
+        self.inner.deliver_intersection_observations();
+    }
+
     /// Drain pending network events (broker `FetchResponse` replies)
     /// and dispatch them to the JS side.  For each reply, settles
     /// the associated pending Promise — fulfil with a

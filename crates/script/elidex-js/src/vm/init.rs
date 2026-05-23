@@ -192,6 +192,10 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 mutation_observer_prototype: None,
                 #[cfg(feature = "engine")]
+                resize_observer_prototype: None,
+                #[cfg(feature = "engine")]
+                intersection_observer_prototype: None,
+                #[cfg(feature = "engine")]
                 range_prototype: None,
                 #[cfg(feature = "engine")]
                 static_range_prototype: None,

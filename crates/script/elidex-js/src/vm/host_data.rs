@@ -212,6 +212,44 @@ mod engine_feature {
         /// reference cannot pin the JS wrapper.  Same retain-across-
         /// unbind contract as [`Self::mutation_observer_callbacks`].
         pub(crate) mutation_observer_instances: HashMap<u64, ObjectId>,
+        /// `ResizeObserver` registry (W3C Resize Observer §3) — owns
+        /// the monotonic observer ID counter; observation target lists
+        /// live as `ResizeObservedBy` components on the observed
+        /// entities (same target-tracking model as
+        /// `MutationObservedBy`).  Same `Vm::unbind` contract as
+        /// [`Self::mutation_observers`]: the registry survives unbind
+        /// (its ID space is VM-monotonic, no cross-DOM aliasing), so a
+        /// retained `ro` reference re-observes after a rebind.
+        /// Target-list scrubbing is implicit because the components live
+        /// on entities that are despawned with the outgoing world.
+        pub(crate) resize_observers: elidex_api_observers::resize::ResizeObserverRegistry,
+        /// JS callback `ObjectId` per `ResizeObserver` ID.  Same shape /
+        /// retain-across-unbind contract as
+        /// [`Self::mutation_observer_callbacks`]; rooted via
+        /// [`Self::gc_root_object_ids`].
+        pub(crate) resize_observer_callbacks: HashMap<u64, ObjectId>,
+        /// Reverse lookup from `ResizeObserver` ID to the JS instance
+        /// `ObjectId`, so delivery can pass the same observer object back
+        /// as the callback's `this` and second argument (Resize Observer
+        /// §3.4 / §3.5).  Same shape / retain-across-unbind contract as
+        /// [`Self::mutation_observer_instances`]; rooted via
+        /// [`Self::gc_root_object_ids`].
+        pub(crate) resize_observer_instances: HashMap<u64, ObjectId>,
+        /// `IntersectionObserver` registry (W3C Intersection Observer §3) —
+        /// owns the monotonic observer ID counter + per-observer
+        /// `IntersectionObserverInit` (root / rootMargin / thresholds).
+        /// Same `Vm::unbind` contract as [`Self::mutation_observers`] +
+        /// [`Self::resize_observers`]: registry survives unbind so
+        /// retained `io` references can re-observe after rebind.
+        pub(crate) intersection_observers:
+            elidex_api_observers::intersection::IntersectionObserverRegistry,
+        /// JS callback `ObjectId` per `IntersectionObserver` ID.  Same
+        /// contract as [`Self::resize_observer_callbacks`].
+        pub(crate) intersection_observer_callbacks: HashMap<u64, ObjectId>,
+        /// Reverse lookup from `IntersectionObserver` ID to the JS
+        /// instance `ObjectId`.  Same contract as
+        /// [`Self::resize_observer_instances`].
+        pub(crate) intersection_observer_instances: HashMap<u64, ObjectId>,
         /// Origin-scoped `localStorage` backend (WHATWG HTML §11.2).
         /// Wrapped in `Arc` so multiple `HostData` instances (e.g. one
         /// per browsing-context VM) can share a single per-process
@@ -652,6 +690,13 @@ mod engine_feature {
                 mutation_observers: elidex_api_observers::mutation::MutationObserverRegistry::new(),
                 mutation_observer_callbacks: HashMap::new(),
                 mutation_observer_instances: HashMap::new(),
+                resize_observers: elidex_api_observers::resize::ResizeObserverRegistry::new(),
+                resize_observer_callbacks: HashMap::new(),
+                resize_observer_instances: HashMap::new(),
+                intersection_observers:
+                    elidex_api_observers::intersection::IntersectionObserverRegistry::new(),
+                intersection_observer_callbacks: HashMap::new(),
+                intersection_observer_instances: HashMap::new(),
                 web_storage: None,
                 session_storage: SessionStorageState::new(),
                 opaque_origin_sentinel: next_opaque_origin_id(),
@@ -1181,6 +1226,46 @@ mod engine_feature {
             (dom, &mut self.mutation_observers)
         }
 
+        /// Like [`Self::split_dom_mut_and_observers`] but for the
+        /// `ResizeObserver` registry (W3C Resize Observer §3) — used by
+        /// the VM `resize_observer.rs` host bindings to dispatch
+        /// `observe` / `unobserve` / `disconnect` into the engine-indep
+        /// registry while it inserts / removes per-target
+        /// `ResizeObservedBy` components on the DOM.  Same `dom_ptr`
+        /// aliasing contract as [`Self::split_dom_mut_and_observers`].
+        #[allow(unsafe_code)]
+        pub(crate) fn split_dom_mut_and_resize_observers(
+            &mut self,
+        ) -> (
+            &mut elidex_ecs::EcsDom,
+            &mut elidex_api_observers::resize::ResizeObserverRegistry,
+        ) {
+            assert!(self.is_bound(), "HostData accessed while unbound");
+            // SAFETY: same `dom_ptr` aliasing contract as
+            // `split_dom_mut_and_observers`; `resize_observers` is a
+            // disjoint owned field of `HostData`.
+            let dom = unsafe { &mut *self.dom_ptr };
+            (dom, &mut self.resize_observers)
+        }
+
+        /// Like [`Self::split_dom_mut_and_observers`] but for the
+        /// `IntersectionObserver` registry (W3C Intersection Observer §3).
+        /// Same `dom_ptr` aliasing contract.
+        #[allow(unsafe_code)]
+        pub(crate) fn split_dom_mut_and_intersection_observers(
+            &mut self,
+        ) -> (
+            &mut elidex_ecs::EcsDom,
+            &mut elidex_api_observers::intersection::IntersectionObserverRegistry,
+        ) {
+            assert!(self.is_bound(), "HostData accessed while unbound");
+            // SAFETY: same `dom_ptr` aliasing contract as
+            // `split_dom_mut_and_observers`; `intersection_observers` is
+            // a disjoint owned field of `HostData`.
+            let dom = unsafe { &mut *self.dom_ptr };
+            (dom, &mut self.intersection_observers)
+        }
+
         /// ASCII-case-insensitive tag-name match — used by
         /// `create_element_wrapper`'s per-tag prototype dispatch
         /// (e.g. `<iframe>` → `HTMLIFrameElement.prototype`).
@@ -1400,6 +1485,10 @@ mod engine_feature {
                 .copied()
                 .chain(self.mutation_observer_callbacks.values().copied())
                 .chain(self.mutation_observer_instances.values().copied())
+                .chain(self.resize_observer_callbacks.values().copied())
+                .chain(self.resize_observer_instances.values().copied())
+                .chain(self.intersection_observer_callbacks.values().copied())
+                .chain(self.intersection_observer_instances.values().copied())
         }
 
         /// GC trace fan-out accessor for `TreeWalker.filter_object_id`

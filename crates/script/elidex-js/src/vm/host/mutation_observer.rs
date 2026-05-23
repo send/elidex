@@ -513,12 +513,7 @@ fn require_target_node(
     arg: Option<JsValue>,
     method: &'static str,
 ) -> Result<elidex_ecs::Entity, VmError> {
-    let value = arg.ok_or_else(|| {
-        VmError::type_error(format!(
-            "Failed to execute '{method}' on 'MutationObserver': 1 argument required"
-        ))
-    })?;
-    super::node_proto::require_node_arg(ctx, value, method)
+    super::node_proto::require_node_arg_required(ctx, arg, "MutationObserver", method)
 }
 
 /// Parse the `MutationObserverInit` dictionary (WHATWG DOM §4.3 +

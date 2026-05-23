@@ -48,6 +48,23 @@ pub enum ResizeObserverBoxOptions {
     DevicePixelContentBox,
 }
 
+impl ResizeObserverBoxOptions {
+    /// Map a WebIDL enum string (Resize Observer §3) to the variant, or
+    /// `None` for an unrecognised value. The spec strings live with the
+    /// enum (crate-side) per the Layering mandate — host marshalling
+    /// translates a TypeError on `None`, but the string→variant choice
+    /// is API surface, not engine machinery.
+    #[must_use]
+    pub fn from_webidl(s: &str) -> Option<Self> {
+        match s {
+            "content-box" => Some(Self::ContentBox),
+            "border-box" => Some(Self::BorderBox),
+            "device-pixel-content-box" => Some(Self::DevicePixelContentBox),
+            _ => None,
+        }
+    }
+}
+
 /// Options for `ResizeObserver.observe()`.
 #[derive(Debug, Clone, Default)]
 pub struct ResizeObserverOptions {
