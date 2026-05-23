@@ -26,7 +26,8 @@
 //!   [`super::super::host_data::HostData::gc_root_object_ids`] so
 //!   they survive GC for the observer's lifetime.
 //!
-//! [`super::super::value::ObjectKind::MutationObserver`] carries the
+//! [`super::super::value::ObjectKind::Observer`] with
+//! [`super::super::value::ObserverKind::Mutation`] carries the
 //! observer ID inline (`observer_id: u64`); the JS object itself
 //! has no other own state.
 //!
@@ -141,17 +142,13 @@ fn require_mutation_observer_receiver(
     this: JsValue,
     method: &'static str,
 ) -> Result<MutationObserverId, VmError> {
-    let JsValue::Object(id) = this else {
-        return Err(VmError::type_error(format!(
-            "Failed to execute '{method}' on 'MutationObserver': Illegal invocation"
-        )));
-    };
-    let ObjectKind::MutationObserver { observer_id } = ctx.vm.get_object(id).kind else {
-        return Err(VmError::type_error(format!(
-            "Failed to execute '{method}' on 'MutationObserver': Illegal invocation"
-        )));
-    };
-    Ok(MutationObserverId::from_raw(observer_id))
+    let raw = super::observer_common::require_observer_receiver(
+        ctx,
+        this,
+        super::super::value::ObserverKind::Mutation,
+        method,
+    )?;
+    Ok(MutationObserverId::from_raw(raw))
 }
 
 // ---------------------------------------------------------------------------
@@ -198,7 +195,10 @@ fn native_mutation_observer_constructor(
     // `new.target.prototype` chain installed by `do_new` is preserved
     // (URL/URLSearchParams precedent — PR5a2 R7.2/R7.3 lesson).
     let observer_id = ctx.host().mutation_observers.register().raw();
-    ctx.vm.get_object_mut(this_id).kind = ObjectKind::MutationObserver { observer_id };
+    ctx.vm.get_object_mut(this_id).kind = ObjectKind::Observer {
+        kind: super::super::value::ObserverKind::Mutation,
+        observer_id,
+    };
     ctx.host().mutation_observer_bindings.insert(
         observer_id,
         super::observer_common::ObserverBinding {

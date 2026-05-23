@@ -49,9 +49,48 @@
 #![cfg(feature = "engine")]
 
 use super::super::value::{
-    JsValue, NativeContext, ObjectId, ObjectKind, PropertyKey, StringId, VmError,
+    JsValue, NativeContext, ObjectId, ObjectKind, ObserverKind, PropertyKey, StringId, VmError,
 };
 use super::super::VmInner;
+
+// ---------------------------------------------------------------------------
+// Generic observer brand check
+// ---------------------------------------------------------------------------
+
+/// Brand check for the unified `ObjectKind::Observer { kind, observer_id }`
+/// variant — parameterised on the expected [`ObserverKind`] so the three
+/// observer surfaces (`MutationObserver` / `ResizeObserver` /
+/// `IntersectionObserver`) share one implementation instead of three
+/// near-identical copies.
+///
+/// Returns the inline `observer_id` on success.  The caller wraps it in
+/// the kind-specific newtype (`MutationObserverId::from_raw(_)` etc.) at
+/// the call site — the raw `u64` is the canonical cross-kind handle.
+///
+/// Error wording follows WebIDL "illegal invocation" shape:
+/// `"Failed to execute '<method>' on '<interface>': Illegal invocation"`,
+/// with `<interface>` taken from the *expected* kind (so calling
+/// `mo.observe.call(intersectionObserverInstance, …)` reports the receiver
+/// failed the `MutationObserver` brand check — matches Chrome).
+pub(crate) fn require_observer_receiver(
+    ctx: &NativeContext<'_>,
+    this: JsValue,
+    expect_kind: ObserverKind,
+    method: &'static str,
+) -> Result<u64, VmError> {
+    let interface = expect_kind.interface_name();
+    let JsValue::Object(id) = this else {
+        return Err(VmError::type_error(format!(
+            "Failed to execute '{method}' on '{interface}': Illegal invocation"
+        )));
+    };
+    match ctx.vm.get_object(id).kind {
+        ObjectKind::Observer { kind, observer_id } if kind == expect_kind => Ok(observer_id),
+        _ => Err(VmError::type_error(format!(
+            "Failed to execute '{method}' on '{interface}': Illegal invocation"
+        ))),
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Per-observer binding
@@ -59,18 +98,22 @@ use super::super::VmInner;
 
 /// The per-observer JS-identity pair carried in
 /// `HostData::*_observer_bindings` for each of the three observer
-/// kinds.  Keyed by the monotonic VM-local `observer_id: u64` (the
-/// inline payload of `ObjectKind::{Mutation,Resize,Intersection}Observer`).
+/// kinds.  Keyed by the per-registry monotonic `observer_id: u64` (the
+/// inline payload of `ObjectKind::Observer { kind, observer_id }`).
+/// Each of `mutation_observers` / `resize_observers` /
+/// `intersection_observers` owns its own `next_id` counter, so the
+/// three kinds share the `u64` keyspace independently — the
+/// `ObserverKind` discriminator on the brand-checked variant
+/// disambiguates `(Mutation, 0)` from `(Resize, 0)` etc.
 ///
 /// Both `ObjectId`s are rooted via
 /// [`super::super::host_data::HostData::gc_root_object_ids`] so the
 /// JS callback + observer wrapper survive any GC cycle while the
-/// observer is registered.  Retained across `Vm::unbind` for the same
-/// rationale as the original `mutation_observer_callbacks` /
-/// `mutation_observer_instances` design: the `u64` key is VM-monotonic
-/// (no `Entity` / recycled `ObjectId` aliasing risk) so a retained
-/// `mo` / `ro` / `io` reference can `observe()` again after a rebind
-/// and have its callback fire.
+/// observer is registered.  Retained across `Vm::unbind` because the
+/// `u64` key is per-registry monotonic (no `Entity` / recycled
+/// `ObjectId` aliasing risk) so a retained `mo` / `ro` / `io`
+/// reference can `observe()` again after a rebind and have its
+/// callback fire.
 ///
 /// Always written together (constructor) and read together
 /// (delivery); pairing them into one struct removes the prior

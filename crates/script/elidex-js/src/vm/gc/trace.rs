@@ -462,31 +462,21 @@ pub(super) fn trace_work_list(
             | ObjectKind::CSSStyleRule { .. }
             | ObjectKind::CSSRuleStyleDeclaration { .. }
             | ObjectKind::StyleSheetList { .. } => {}
-            // `MutationObserver` carries only an inline observer ID
-            // (not an `ObjectId`).  The JS callback is stored in
-            // `HostData::mutation_observer_callbacks` keyed by that
-            // ID and reaches GC via [`super::super::host_data::HostData::gc_root_object_ids`]
-            // — every entry there pins its callback for the
-            // observer's lifetime, so trace fan-out from this
-            // variant is a no-op.  The registry's queued
-            // `MutationRecord`s hold only `Entity` / `String`
-            // values (no `ObjectId`), so the registry itself needs
-            // no trace pass either.
+            // Observer-family (MutationObserver / ResizeObserver /
+            // IntersectionObserver) — unified `ObjectKind::Observer`
+            // variant.  Carries only the inline `(kind, observer_id)`,
+            // no `ObjectId`, so trace fan-out from here is a no-op for
+            // all three kinds.  Per-observer state lives crate-side
+            // (queued records / target lists / init config) or as
+            // `*ObservedBy` ECS components on observed entities (no
+            // per-VM `ObjectId` to fan out to); the JS `(callback,
+            // instance)` pair lives on `HostData::*_observer_bindings`
+            // and is rooted via `HostData::gc_root_object_ids` for the
+            // observer's lifetime.  The registries' queued records hold
+            // only `Entity` / `String` values (no `ObjectId`), so they
+            // also need no trace pass.
             #[cfg(feature = "engine")]
-            ObjectKind::MutationObserver { .. } => {}
-            // `ResizeObserver` / `IntersectionObserver`: same payload-free
-            // shape as `MutationObserver` above.  Target lists live as
-            // `ResizeObservedBy` / `IntersectionObservedBy` components
-            // on the observed entities (no per-VM `ObjectId` to fan out
-            // to); JS callback + instance `ObjectId`s live on the
-            // `HostData` callbacks/instances maps and are rooted via
-            // `HostData::gc_root_object_ids`.  Inline `observer_id: u64`
-            // carries no `ObjectId`, so trace from this variant is a
-            // no-op.
-            #[cfg(feature = "engine")]
-            ObjectKind::ResizeObserver { .. } => {}
-            #[cfg(feature = "engine")]
-            ObjectKind::IntersectionObserver { .. } => {}
+            ObjectKind::Observer { .. } => {}
             // `Storage` instances carry only the `is_local: bool`
             // discriminator inline (not an `ObjectId`).  The cached
             // `localStorage` / `sessionStorage` wrappers are rooted

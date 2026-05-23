@@ -122,9 +122,17 @@ impl IntersectionObserverRegistry {
     /// thrown from the JS constructor.
     pub fn register(
         &mut self,
-        init: IntersectionObserverInit,
+        mut init: IntersectionObserverInit,
     ) -> Result<IntersectionObserverId, RootMarginParseError> {
         let parsed_root_margin = parse_root_margin(&init.root_margin)?;
+        // Canonicalise threshold here (spec §3.1: "If options.threshold
+        // is not present, set it to [0]") so `gather_observations`'s
+        // hot path can use the slice unconditionally — the host-side
+        // constructor and any crate-only caller (test harness, future
+        // bindings) both get the same default.
+        if init.threshold.is_empty() {
+            init.threshold = vec![0.0];
+        }
         let id = IntersectionObserverId(self.next_id);
         self.next_id += 1;
         self.observers.insert(
@@ -222,6 +230,16 @@ impl IntersectionObserverRegistry {
         > = std::collections::BTreeMap::new();
         let mut changes: Vec<(Entity, IntersectionObserverId, f64)> = Vec::new();
 
+        // Memoised per-observer (post-rootMargin) root rect.  The
+        // root rect + parsed margin vary by observer, not by target,
+        // so walking N targets × M observers would otherwise call
+        // `apply_root_margin` (and `rect_fn` for the explicit-root
+        // case) N×M times per frame.  Lazy-fill so a registry holding
+        // M observers with only K actually observing anything pays
+        // K × resolve cost, not M.
+        let mut resolved_roots: std::collections::HashMap<IntersectionObserverId, Rect> =
+            std::collections::HashMap::new();
+
         // Phase A: read observations + compute ratios (shared borrows only —
         // the `&IntersectionObservedBy` query and `rect_fn`'s layout reads
         // touch disjoint components, so they coexist).
@@ -237,18 +255,19 @@ impl IntersectionObserverRegistry {
                 let Some(reg) = self.observers.get(&obs.observer) else {
                     continue;
                 };
-                let init = &reg.init;
-                let root_rect = apply_root_margin(
-                    init.root
-                        .and_then(|r| rect_fn(&*dom, r))
-                        .unwrap_or(viewport),
-                    &reg.parsed_root_margin,
-                );
-                let thresholds = if init.threshold.is_empty() {
-                    &[0.0][..]
-                } else {
-                    &init.threshold
-                };
+                let root_rect = *resolved_roots.entry(obs.observer).or_insert_with(|| {
+                    apply_root_margin(
+                        reg.init
+                            .root
+                            .and_then(|r| rect_fn(&*dom, r))
+                            .unwrap_or(viewport),
+                        &reg.parsed_root_margin,
+                    )
+                });
+                // `threshold` is canonicalised to `[0.0]` at register time
+                // (constructor — see `parse_intersection_observer_init`),
+                // so the per-target slice access here is unconditional.
+                let thresholds = reg.init.threshold.as_slice();
                 // Compute the overlap rect ONCE and derive both the
                 // ratio and the spec-mandated `intersectionRect` from
                 // it — previously the intersection was computed twice
@@ -257,12 +276,7 @@ impl IntersectionObserverRegistry {
                 let (ratio, bounding_client_rect, intersection_rect) = match maybe_rect {
                     Some(target_rect) => {
                         let inter = target_rect.intersection(&root_rect).unwrap_or_default();
-                        let target_area = target_rect.size.area_f64();
-                        let ratio = if target_area <= 0.0 {
-                            0.0
-                        } else {
-                            (inter.size.area_f64() / target_area).clamp(0.0, 1.0)
-                        };
+                        let ratio = ratio_from_overlap(target_rect.size.area_f64(), &inter);
                         (ratio, target_rect, inter)
                     }
                     None => (0.0, Rect::default(), Rect::default()),
@@ -298,24 +312,25 @@ impl IntersectionObserverRegistry {
     }
 }
 
-/// Compute the intersection ratio between a target rect and root rect.
-/// Test-only: production `gather_observations` computes the overlap
-/// rect once and derives both ratio and `intersectionRect` from it
-/// (avoiding the prior double-intersection cost).  Kept under
-/// `#[cfg(test)]` so the unit tests can exercise the ratio formula
-/// directly without the surrounding gather machinery.
-#[cfg(test)]
-fn compute_intersection_ratio(target: Rect, root: Rect) -> f64 {
-    let target_area = target.size.area_f64();
+/// Compute the intersection ratio from a pre-resolved target area and
+/// overlap rect.  Single canonical formula shared by
+/// `gather_observations` (production hot path) and the
+/// `#[cfg(test)]` wrapper [`compute_intersection_ratio`], so unit
+/// tests and production can never diverge.
+fn ratio_from_overlap(target_area: f64, overlap: &Rect) -> f64 {
     if target_area <= 0.0 {
         return 0.0;
     }
+    (overlap.size.area_f64() / target_area).clamp(0.0, 1.0)
+}
 
-    let intersection_area = target
-        .intersection(&root)
-        .map_or(0.0, |inter| inter.size.area_f64());
-
-    (intersection_area / target_area).clamp(0.0, 1.0)
+/// Convenience wrapper for unit tests that exercise the ratio formula
+/// directly without the surrounding gather machinery.  Delegates to
+/// the shared [`ratio_from_overlap`] used by production.
+#[cfg(test)]
+fn compute_intersection_ratio(target: Rect, root: Rect) -> f64 {
+    let overlap = target.intersection(&root).unwrap_or_default();
+    ratio_from_overlap(target.size.area_f64(), &overlap)
 }
 
 /// Check if the ratio transition crosses any threshold.
@@ -434,7 +449,9 @@ fn parse_root_margin(raw: &str) -> Result<[MarginComponent; 4], RootMarginParseE
     Ok(arr)
 }
 
-/// Expand `root` outward by the resolved `rootMargin` (top/right/bottom/left).
+/// Expand `root` outward by the resolved `rootMargin` (top/right/bottom/left)
+/// per W3C Intersection Observer §3.1 `rootMargin` (offset applied to the
+/// root intersection rect before the target-vs-root overlap is computed).
 fn apply_root_margin(root: Rect, margin: &[MarginComponent; 4]) -> Rect {
     let top = margin[0].resolve(root.size.height);
     let right = margin[1].resolve(root.size.width);

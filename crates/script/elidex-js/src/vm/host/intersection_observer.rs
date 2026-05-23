@@ -32,8 +32,9 @@
 //!   [`super::super::host_data::HostData::gc_root_object_ids`] so the
 //!   callback + instance survive GC for the observer's lifetime.
 //!
-//! [`super::super::value::ObjectKind::IntersectionObserver`] carries
-//! the observer ID inline (`observer_id: u64`); the JS object itself
+//! [`super::super::value::ObjectKind::Observer`] with
+//! [`super::super::value::ObserverKind::Intersection`] carries the
+//! observer ID inline (`observer_id: u64`); the JS object itself
 //! has no other own state.
 //!
 //! ## Per-frame `dom_rect_states` growth
@@ -76,6 +77,7 @@ use super::super::{NativeFn, VmInner};
 use elidex_api_observers::intersection::{IntersectionObserverId, IntersectionObserverInit};
 
 use super::super::webidl_sequence::webidl_iter_to_vec;
+use super::observer_common::{build_marshalled_array, deliver_to_observer_callbacks};
 
 impl VmInner {
     /// Allocate `IntersectionObserver.prototype` chained to
@@ -150,17 +152,13 @@ fn require_intersection_observer_receiver(
     this: JsValue,
     method: &'static str,
 ) -> Result<IntersectionObserverId, VmError> {
-    let JsValue::Object(id) = this else {
-        return Err(VmError::type_error(format!(
-            "Failed to execute '{method}' on 'IntersectionObserver': Illegal invocation"
-        )));
-    };
-    let ObjectKind::IntersectionObserver { observer_id } = ctx.vm.get_object(id).kind else {
-        return Err(VmError::type_error(format!(
-            "Failed to execute '{method}' on 'IntersectionObserver': Illegal invocation"
-        )));
-    };
-    Ok(IntersectionObserverId::from_raw(observer_id))
+    let raw = super::observer_common::require_observer_receiver(
+        ctx,
+        this,
+        super::super::value::ObserverKind::Intersection,
+        method,
+    )?;
+    Ok(IntersectionObserverId::from_raw(raw))
 }
 
 // ---------------------------------------------------------------------------
@@ -208,7 +206,10 @@ fn native_intersection_observer_constructor(
             )));
         }
     };
-    ctx.vm.get_object_mut(this_id).kind = ObjectKind::IntersectionObserver { observer_id: io_id };
+    ctx.vm.get_object_mut(this_id).kind = ObjectKind::Observer {
+        kind: super::super::value::ObserverKind::Intersection,
+        observer_id: io_id,
+    };
     ctx.host().intersection_observer_bindings.insert(
         io_id,
         super::observer_common::ObserverBinding {
@@ -315,12 +316,13 @@ fn parse_intersection_observer_init(
 ) -> Result<IntersectionObserverInit, VmError> {
     let mut init = IntersectionObserverInit::default();
     let value = match arg {
-        None | Some(JsValue::Undefined | JsValue::Null) => {
-            // No init → spec default threshold = `[0]` (§3.1: "If
-            // options.threshold is not present, set it to [0]").
-            init.threshold = vec![0.0];
-            return Ok(init);
-        }
+        // No init → spec default applies.  `threshold = [0]`
+        // (§3.1: "If options.threshold is not present, set it to [0]")
+        // is canonicalised crate-side in
+        // `IntersectionObserverRegistry::register`, so leaving the
+        // default empty `Vec` here is intentional — registration is
+        // the single canonicalisation point.
+        None | Some(JsValue::Undefined | JsValue::Null) => return Ok(init),
         Some(v) => v,
     };
     let JsValue::Object(opts_id) = value else {
@@ -335,14 +337,20 @@ fn parse_intersection_observer_init(
 
     // `root` — Element | Document | null | undefined.  null/undefined
     // → viewport; an Element/Document arg is marshalled to its Entity.
+    // The wrong-type error is re-scoped to the constructor's "Failed
+    // to construct 'IntersectionObserver'" shape (Chrome parity);
+    // tightening the type to `Element or Document` (vs any Node) is
+    // tracked under the IO spec-correctness defer slots.
     let raw_root = ctx.get_property_value(opts_id, PropertyKey::String(wk_root))?;
     init.root = match raw_root {
         JsValue::Undefined | JsValue::Null => None,
-        v => Some(super::node_proto::require_node_arg(
-            ctx,
-            v,
-            "IntersectionObserver",
-        )?),
+        v => Some(
+            super::node_proto::require_node_arg(ctx, v, "root").map_err(|_| {
+                VmError::type_error(
+                    "Failed to construct 'IntersectionObserver': member 'root' is not of type 'Node'.",
+                )
+            })?,
+        ),
     };
 
     let raw_root_margin = ctx.get_property_value(opts_id, PropertyKey::String(wk_root_margin))?;
@@ -355,13 +363,11 @@ fn parse_intersection_observer_init(
     init.threshold = parse_threshold(ctx, raw_threshold)?;
     // Spec §3.1: thresholds must be sorted ascending + deduplicated +
     // each in [0,1].  Sort+dedup here; range validation per-value
-    // happens in `parse_threshold`.
+    // happens in `parse_threshold`.  Empty-list canonicalisation to
+    // `[0]` lives in `IntersectionObserverRegistry::register`.
     init.threshold
         .sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     init.threshold.dedup();
-    if init.threshold.is_empty() {
-        init.threshold = vec![0.0];
-    }
 
     Ok(init)
 }
@@ -425,29 +431,6 @@ fn validate_threshold(n: f64) -> Result<(), VmError> {
 // Entry marshalling (used by `VmInner::deliver_intersection_observations`)
 // ---------------------------------------------------------------------------
 
-/// Build a JS Array of `IntersectionObserverEntry` objects (W3C
-/// Intersection Observer §3.4) from a slice of crate-side entries.
-/// Each per-entry allocation roots its outgoing wrapper /
-/// DOMRectReadOnly trio via `push_temp_root` so a GC triggered between
-/// the array allocation and the property writes does not collect the
-/// embedded objects (mirrors `mutation_record_to_js`'s discipline).
-pub(super) fn build_intersection_entries_array(
-    vm: &mut VmInner,
-    entries: &[elidex_api_observers::intersection::IntersectionObserverEntry],
-    time: f64,
-) -> JsValue {
-    let outer = vm.create_array_object(Vec::with_capacity(entries.len()));
-    let mut outer_guard = vm.push_temp_root(JsValue::Object(outer));
-    for entry in entries {
-        let entry_value = intersection_entry_to_js(&mut outer_guard, entry, time);
-        if let ObjectKind::Array { ref mut elements } = outer_guard.get_object_mut(outer).kind {
-            elements.push(entry_value);
-        }
-    }
-    drop(outer_guard);
-    JsValue::Object(outer)
-}
-
 // ---------------------------------------------------------------------------
 // Embedder API — `Vm::deliver_intersection_observations` core logic
 // ---------------------------------------------------------------------------
@@ -457,21 +440,16 @@ impl VmInner {
     /// the documented semantics.  Implementation lives here next to
     /// `intersection_entry_to_js`.
     pub(crate) fn deliver_intersection_observations(&mut self) {
+        // Silent no-op post-unbind so a stray late delivery from the
+        // shell does not panic via `host_data.dom()`.  No
+        // bindings-empty fast path: see `deliver_resize_observations`
+        // for the rationale (microtask-drain parity with MO under
+        // `observer_common::deliver_to_observer_callbacks`'s
+        // unconditional-drain contract).
         if !self
             .host_data
             .as_deref()
             .is_some_and(super::super::host_data::HostData::is_bound)
-        {
-            return;
-        }
-        // No-observer fast path (matches `deliver_resize_observations`):
-        // shell broadcasts this every frame, so a page without any
-        // `IntersectionObserver` skips the ECS query and microtask
-        // drain.
-        if self
-            .host_data
-            .as_deref()
-            .is_some_and(|hd| hd.intersection_observer_bindings.is_empty())
         {
             return;
         }
@@ -494,7 +472,10 @@ impl VmInner {
             v.inner_height as f32,
         );
 
-        let observations: std::collections::HashMap<u64, _> = {
+        // `BTreeMap` (not `HashMap`) — preserves the crate-side
+        // id-sorted iteration order pinned by
+        // `gather_observations_is_id_sorted`.
+        let observations: std::collections::BTreeMap<u64, _> = {
             let host = self
                 .host_data
                 .as_deref_mut()
@@ -515,7 +496,7 @@ impl VmInner {
         };
         let observer_ids: Vec<u64> = observations.keys().copied().collect();
 
-        super::observer_common::deliver_to_observer_callbacks(self, &observer_ids, |vm, id| {
+        deliver_to_observer_callbacks(self, &observer_ids, |vm, id| {
             let entries = observations.get(&id)?;
             let binding = vm
                 .host_data
@@ -523,12 +504,21 @@ impl VmInner {
                 .intersection_observer_bindings
                 .get(&id)
                 .copied()?;
-            let entries_arr = build_intersection_entries_array(vm, entries, time);
+            let entries_arr =
+                build_marshalled_array(vm, entries, |vm, e| intersection_entry_to_js(vm, e, time));
             Some((binding, entries_arr))
         });
     }
 }
 
+/// Marshal one [`elidex_api_observers::intersection::IntersectionObserverEntry`]
+/// (W3C Intersection Observer §3.4 `IntersectionObserverEntry`) to a JS Object
+/// with `target`, `time`, `boundingClientRect`, `intersectionRect`,
+/// `rootBounds`, `intersectionRatio`, and `isIntersecting` members.  Mirrors
+/// the per-record temp-root discipline of `mutation_record_to_js`: the
+/// element wrapper + DOMRectReadOnly trio + the partially-filled entry are
+/// each rooted across the next allocation so a GC triggered mid-build cannot
+/// collect them.
 fn intersection_entry_to_js(
     vm: &mut VmInner,
     entry: &elidex_api_observers::intersection::IntersectionObserverEntry,

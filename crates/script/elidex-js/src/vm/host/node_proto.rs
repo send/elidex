@@ -255,12 +255,14 @@ pub(super) fn require_node_arg(
 /// Missing-arg wrapper over [`require_node_arg`].  The caller hands
 /// over an `Option<JsValue>` instead of a definite value, so the
 /// missing-arg case (`arg.is_none()`) fails first with an
-/// interface-scoped "1 argument required" TypeError before the inner
-/// not-a-node check runs.  Used by the three observer surfaces
-/// (`MutationObserver` / `ResizeObserver` / `IntersectionObserver`)
-/// where the WebIDL signature makes the target a required `Node`
-/// parameter and the error wording must scope to the interface name,
-/// not the generic `'Node'` of the inner failure.
+/// interface-scoped "1 argument required" TypeError, and the
+/// wrong-type case is **re-mapped** to the same interface-scoped
+/// shape — `require_node_arg` itself emits `"…on 'Node': …"`, which
+/// scopes the error to the WebIDL Node interface rather than the
+/// caller's interface (`ResizeObserver` / `IntersectionObserver` /
+/// `MutationObserver`).  Re-mapping here matches Chrome's actual
+/// wording for `iObs.observe({})` →
+/// `"Failed to execute 'observe' on 'IntersectionObserver': …"`.
 pub(super) fn require_node_arg_required(
     ctx: &mut NativeContext<'_>,
     arg: Option<JsValue>,
@@ -272,7 +274,11 @@ pub(super) fn require_node_arg_required(
             "Failed to execute '{method}' on '{interface}': 1 argument required"
         ))
     })?;
-    require_node_arg(ctx, value, method)
+    require_node_arg(ctx, value, method).map_err(|_| {
+        VmError::type_error(format!(
+            "Failed to execute '{method}' on '{interface}': parameter 1 is not of type 'Node'."
+        ))
+    })
 }
 
 // ---------------------------------------------------------------------------

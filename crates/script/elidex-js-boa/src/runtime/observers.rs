@@ -287,12 +287,12 @@ fn resize_entry_to_js(
         )
         .property(
             js_string!("contentBoxWidth"),
-            JsValue::from(f64::from(entry.content_box_size.width)),
+            JsValue::from(f64::from(entry.content_rect.size.width)),
             Attribute::all(),
         )
         .property(
             js_string!("contentBoxHeight"),
-            JsValue::from(f64::from(entry.content_box_size.height)),
+            JsValue::from(f64::from(entry.content_rect.size.height)),
             Attribute::all(),
         )
         .property(

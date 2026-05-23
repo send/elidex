@@ -181,7 +181,7 @@ mod engine_feature {
         pub(crate) mutation_observers: elidex_api_observers::mutation::MutationObserverRegistry,
         /// `(callback, instance)` JS-identity binding per `MutationObserver`
         /// ID.  Keyed by the raw `MutationObserverId` u64 (matches the
-        /// inline `ObjectKind::MutationObserver { observer_id }`
+        /// inline `ObjectKind::Observer { kind: Mutation, observer_id }`
         /// payload).  Both `ObjectId`s in each [`ObserverBinding`] are
         /// rooted via [`Self::gc_root_object_ids`] so the callback +
         /// instance wrapper survive any GC cycle while the observer is

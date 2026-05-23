@@ -584,16 +584,17 @@ impl Vm {
             // Observer IDs themselves stay live in the registry so brand
             // checks on retained JS instances continue to succeed.
             //
-            // `mutation_observer_callbacks` /
-            // `mutation_observer_instances` are intentionally NOT
-            // cleared here — they are keyed by VM-monotonic
-            // `observer_id` (not by `Entity` or recycled `ObjectId`),
-            // so cross-DOM aliasing does not apply, and a retained
-            // `mo` that re-observes after a rebind needs its callback
-            // intact to fire.  The trade-off is a bounded leak per
-            // `new MutationObserver()` call (callback + instance
-            // wrapper rooted until the VM drops); cleanup belongs to
-            // a future weak-rooting design tracked in
+            // `mutation_observer_bindings` (and its
+            // `resize_observer_bindings` / `intersection_observer_bindings`
+            // siblings) are intentionally NOT cleared here — they are
+            // keyed by per-registry monotonic `observer_id` (not by
+            // `Entity` or recycled `ObjectId`), so cross-DOM aliasing
+            // does not apply, and a retained `mo` / `ro` / `io` that
+            // re-observes after a rebind needs its callback intact to
+            // fire.  The trade-off is a bounded leak per
+            // `new <Observer>()` call (callback + instance wrapper
+            // rooted until the VM drops); cleanup belongs to a future
+            // weak-rooting design tracked in
             // `#11-mutation-observer-extras`.
             if let Some(hd) = self.inner.host_data.as_deref_mut() {
                 hd.mutation_observers.clear_pending_records();

@@ -27,7 +27,8 @@
 //!   [`super::super::host_data::HostData::gc_root_object_ids`] so the
 //!   callback + instance survive GC for the observer's lifetime.
 //!
-//! [`super::super::value::ObjectKind::ResizeObserver`] carries the
+//! [`super::super::value::ObjectKind::Observer`] with
+//! [`super::super::value::ObserverKind::Resize`] carries the
 //! observer ID inline (`observer_id: u64`); the JS object itself has no
 //! other own state.
 //!
@@ -60,6 +61,7 @@ use super::super::value::{
     VmError,
 };
 use super::super::{NativeFn, VmInner};
+use super::observer_common::{build_marshalled_array, deliver_to_observer_callbacks};
 
 use elidex_api_observers::resize::{
     ResizeObserverBoxOptions, ResizeObserverId, ResizeObserverOptions,
@@ -128,17 +130,13 @@ fn require_resize_observer_receiver(
     this: JsValue,
     method: &'static str,
 ) -> Result<ResizeObserverId, VmError> {
-    let JsValue::Object(id) = this else {
-        return Err(VmError::type_error(format!(
-            "Failed to execute '{method}' on 'ResizeObserver': Illegal invocation"
-        )));
-    };
-    let ObjectKind::ResizeObserver { observer_id } = ctx.vm.get_object(id).kind else {
-        return Err(VmError::type_error(format!(
-            "Failed to execute '{method}' on 'ResizeObserver': Illegal invocation"
-        )));
-    };
-    Ok(ResizeObserverId::from_raw(observer_id))
+    let raw = super::observer_common::require_observer_receiver(
+        ctx,
+        this,
+        super::super::value::ObserverKind::Resize,
+        method,
+    )?;
+    Ok(ResizeObserverId::from_raw(raw))
 }
 
 // ---------------------------------------------------------------------------
@@ -173,7 +171,10 @@ fn native_resize_observer_constructor(
         ));
     }
     let observer_id = ctx.host().resize_observers.register().raw();
-    ctx.vm.get_object_mut(this_id).kind = ObjectKind::ResizeObserver { observer_id };
+    ctx.vm.get_object_mut(this_id).kind = ObjectKind::Observer {
+        kind: super::super::value::ObserverKind::Resize,
+        observer_id,
+    };
     ctx.host().resize_observer_bindings.insert(
         observer_id,
         super::observer_common::ObserverBinding {
@@ -266,9 +267,11 @@ fn parse_resize_observer_options(
         Some(v) => v,
     };
     let JsValue::Object(opts_id) = value else {
-        // Primitives would be ToObject-coerced per WebIDL §3.10.7;
-        // Phase 2 simplification matches `MutationObserver`'s
-        // `parse_mutation_observer_init`.
+        // Primitives would be ToObject-coerced per WebIDL §3.10.7.
+        // Inherits the simplification scope already deferred by
+        // `MutationObserver`'s `parse_mutation_observer_init` under
+        // `#11-mutation-observer-extras` — the observer family
+        // shares the simplification.
         return Err(VmError::type_error(
             "Failed to execute 'observe' on 'ResizeObserver': options is not an object",
         ));
@@ -293,28 +296,6 @@ fn parse_resize_observer_options(
 // Entry marshalling (used by `VmInner::deliver_resize_observations`)
 // ---------------------------------------------------------------------------
 
-/// Build a JS Array of `ResizeObserverEntry` objects (W3C Resize
-/// Observer §4.1) from a slice of crate-side entries.  Each per-entry
-/// allocation roots its outgoing wrapper / DOMRectReadOnly / size
-/// arrays via `push_temp_root` so a GC triggered between the array
-/// allocation and the property writes does not collect the embedded
-/// objects (mirrors `mutation_record_to_js`'s root discipline).
-pub(super) fn build_resize_entries_array(
-    vm: &mut VmInner,
-    entries: &[elidex_api_observers::resize::ResizeObserverEntry],
-) -> JsValue {
-    let outer = vm.create_array_object(Vec::with_capacity(entries.len()));
-    let mut outer_guard = vm.push_temp_root(JsValue::Object(outer));
-    for entry in entries {
-        let entry_value = resize_entry_to_js(&mut outer_guard, entry);
-        if let ObjectKind::Array { ref mut elements } = outer_guard.get_object_mut(outer).kind {
-            elements.push(entry_value);
-        }
-    }
-    drop(outer_guard);
-    JsValue::Object(outer)
-}
-
 /// Marshal one `ResizeObserverEntry` (W3C Resize Observer §4.1) to a
 /// JS Object with `target`, `contentRect` (DOMRectReadOnly), and the
 /// `contentBoxSize` / `borderBoxSize` `FrozenArray<ResizeObserverSize>`
@@ -337,8 +318,8 @@ fn resize_entry_to_js(
     let mut rect_guard = target_guard.push_temp_root(content_rect);
     let content_box_arr = build_resize_size_sequence(
         &mut rect_guard,
-        entry.content_box_size.width,
-        entry.content_box_size.height,
+        entry.content_rect.size.width,
+        entry.content_rect.size.height,
     );
     let mut content_box_guard = rect_guard.push_temp_root(content_box_arr);
     let border_box_arr = build_resize_size_sequence(
@@ -391,23 +372,17 @@ impl VmInner {
     /// `resize_entry_to_js`.
     pub(crate) fn deliver_resize_observations(&mut self) {
         // Silent no-op post-unbind so a stray late delivery from the
-        // shell does not panic via `host_data.dom()`.
+        // shell does not panic via `host_data.dom()`.  No
+        // bindings-empty fast path: per
+        // `observer_common::deliver_to_observer_callbacks`'s
+        // contract, the trailing microtask drain runs even when the
+        // observer_ids slice is empty (HTML §8.1.4.3 — each broadcast
+        // is its own microtask checkpoint).  Matches
+        // `deliver_mutation_records`.
         if !self
             .host_data
             .as_deref()
             .is_some_and(super::super::host_data::HostData::is_bound)
-        {
-            return;
-        }
-        // No-observer fast path: shell broadcasts this every frame,
-        // so for the dominant page-without-any-ResizeObserver case
-        // skip both the ECS query inside `gather_observations` and
-        // the trailing microtask drain (no observer = no user code
-        // could have queued a microtask through this surface).
-        if self
-            .host_data
-            .as_deref()
-            .is_some_and(|hd| hd.resize_observer_bindings.is_empty())
         {
             return;
         }
@@ -418,8 +393,12 @@ impl VmInner {
         // the `&mut EcsDom` inside `gather_observations`; the crate
         // manages the borrow life cycle internally.  Layering: the
         // closure only reads layout; box-less targets return `None`
-        // and the crate runs the initial-observation step.
-        let observations: std::collections::HashMap<u64, _> = {
+        // and the crate runs the initial-observation step.  Use a
+        // `BTreeMap` so iteration follows the crate-side id-sorted
+        // order — `gather_observations_is_id_sorted` (crate test)
+        // pins the contract; a `HashMap` here would silently break
+        // it via non-deterministic `keys()` iteration.
+        let observations: std::collections::BTreeMap<u64, _> = {
             let host = self
                 .host_data
                 .as_deref_mut()
@@ -436,7 +415,7 @@ impl VmInner {
         };
         let observer_ids: Vec<u64> = observations.keys().copied().collect();
 
-        super::observer_common::deliver_to_observer_callbacks(self, &observer_ids, |vm, id| {
+        deliver_to_observer_callbacks(self, &observer_ids, |vm, id| {
             let entries = observations.get(&id)?;
             let binding = vm
                 .host_data
@@ -444,7 +423,7 @@ impl VmInner {
                 .resize_observer_bindings
                 .get(&id)
                 .copied()?;
-            let entries_arr = build_resize_entries_array(vm, entries);
+            let entries_arr = build_marshalled_array(vm, entries, resize_entry_to_js);
             Some((binding, entries_arr))
         });
     }

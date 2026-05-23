@@ -78,9 +78,10 @@ pub struct ResizeObserverEntry {
     /// The observed element.
     pub target: Entity,
     /// `contentRect`: the content box rect (origin = padding offsets).
+    /// The spec's `contentBoxSize` FrozenArray is derived from
+    /// `content_rect.size` at host-marshal time — keeping it as a
+    /// derivation removes the "two fields, must stay in sync" foot-gun.
     pub content_rect: Rect,
-    /// Content box size (`= content_rect.size`).
-    pub content_box_size: Size,
     /// Border box size.
     pub border_box_size: Size,
 }
@@ -239,7 +240,6 @@ impl ResizeObserverRegistry {
                         .push(ResizeObserverEntry {
                             target: entity,
                             content_rect,
-                            content_box_size: content_size,
                             border_box_size: border_size,
                         });
                 }
@@ -288,7 +288,7 @@ mod tests {
         assert_eq!(observations.len(), 1);
         assert_eq!(observations[0].1.len(), 1);
         assert_eq!(
-            observations[0].1[0].content_box_size,
+            observations[0].1[0].content_rect.size,
             Size::new(100.0, 50.0)
         );
         assert_eq!(observations[0].1[0].border_box_size, Size::new(110.0, 60.0));
@@ -307,7 +307,7 @@ mod tests {
 
         let first = reg.gather_observations(&mut dom, &|_, _| None);
         assert_eq!(first.len(), 1, "box-less target delivers once");
-        assert_eq!(first[0].1[0].content_box_size, Size::ZERO);
+        assert_eq!(first[0].1[0].content_rect.size, Size::ZERO);
         assert_eq!(first[0].1[0].content_rect, Rect::default());
 
         // Still box-less → no re-delivery (last_size now 0×0).
@@ -355,7 +355,7 @@ mod tests {
         });
         assert_eq!(observations.len(), 1);
         assert_eq!(
-            observations[0].1[0].content_box_size,
+            observations[0].1[0].content_rect.size,
             Size::new(200.0, 50.0)
         );
     }
