@@ -292,6 +292,25 @@ fn mutation_observer_observe_attribute_filter_oversize_length_throws() {
 }
 
 #[test]
+fn mutation_observer_observe_attribute_filter_dos_length_cap_enforced() {
+    // Regression: prior code accepted any `length` up to `u32::MAX`
+    // and iterated `"0".."N-1"` interning each numeric index into
+    // the permanent `StringPool` — a hostile length (e.g. 4 billion)
+    // would have ballooned CPU + memory on a single observe() call.
+    // The new cap matches the IntersectionObserver threshold cap
+    // (65_536).  A length far below `u32::MAX` but above the cap
+    // must throw RangeError, NOT enter the per-index loop.
+    let err = run_throws(
+        "var mo = new MutationObserver(function(){}); \
+         mo.observe(document, {attributes:true, attributeFilter:{length:100000}});",
+    );
+    assert!(
+        err.contains("supported maximum"),
+        "expected attributeFilter DoS cap RangeError, got: {err}"
+    );
+}
+
+#[test]
 fn mutation_observer_observe_attribute_filter_implies_attributes() {
     let out = run("var mo = new MutationObserver(function(){}); \
          try { mo.observe(document, {attributeFilter: ['class']}); 'ok' } \

@@ -157,9 +157,14 @@ where
     let mut guard = vm.push_temp_root(JsValue::Object(outer));
     for item in items {
         let value = marshal(&mut guard, item);
-        if let ObjectKind::Array { ref mut elements } = guard.get_object_mut(outer).kind {
-            elements.push(value);
-        }
+        let ObjectKind::Array { ref mut elements } = guard.get_object_mut(outer).kind else {
+            // `create_array_object` returns an `ObjectKind::Array` by
+            // construction; a divergence here would silently drop
+            // entries and corrupt observer payloads.  Fail loudly so
+            // a future refactor cannot regress the invariant.
+            unreachable!("create_array_object must yield ObjectKind::Array");
+        };
+        elements.push(value);
     }
     drop(guard);
     JsValue::Object(outer)

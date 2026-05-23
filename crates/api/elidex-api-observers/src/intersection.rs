@@ -587,10 +587,12 @@ mod tests {
         let root = Rect::new(0.0, 0.0, 100.0, 50.0);
         let observations = reg.gather_observations(&mut dom, &|_, _| Some(target), root);
 
-        // No crossing — ratio stays 0 and the entry isn't emitted on the
-        // first gather (initial broadcast only fires when box-less, see
-        // sibling test).  The behaviour we pin: gather doesn't panic and
-        // no spurious intersecting=true entry surfaces.
+        // `crossed_threshold` treats the initial `last_ratio = -1.0`
+        // → `new = 0.0` step as crossing the default `[0]` threshold,
+        // so an initial non-intersecting entry IS emitted (the spec's
+        // first-broadcast step).  What we pin is that any such entry
+        // reports `isIntersecting = false` — gather never spuriously
+        // upgrades a disjoint zero-area target to intersecting.
         assert!(
             observations
                 .iter()

@@ -616,6 +616,13 @@ fn parse_mutation_observer_init(
     Ok(init)
 }
 
+/// Cap on the number of `attributeFilter` items accepted; matches
+/// the IntersectionObserver `threshold` cap.  A hostile `length`
+/// (e.g. `4_000_000_000`) would otherwise loop billions of times,
+/// interning each numeric index into the permanent `StringPool` —
+/// unbounded CPU + memory growth on a single observe() call.
+const MAX_ATTRIBUTE_FILTER_LEN: f64 = 65_536.0;
+
 /// Coerce a JS `attributeFilter` value into a `Vec<String>` per
 /// WebIDL §3.10.20 sequence conversion.  Phase 2 simplification —
 /// accepts any Object with a numeric `length` (covers Array,
@@ -647,7 +654,7 @@ fn parse_attribute_filter(
     } else {
         len_f.trunc()
     };
-    if len_clamped > f64::from(u32::MAX) {
+    if len_clamped > MAX_ATTRIBUTE_FILTER_LEN {
         return Err(VmError::range_error(
             "Failed to execute 'observe' on 'MutationObserver': \
              'attributeFilter' length exceeds the supported maximum",
