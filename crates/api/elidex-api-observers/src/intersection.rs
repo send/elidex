@@ -45,7 +45,7 @@ pub struct IntersectionObserverInit {
     pub threshold: Vec<f64>,
 }
 
-/// An intersection observation entry.
+/// An intersection observation entry (Intersection Observer §3.4).
 #[derive(Debug, Clone)]
 pub struct IntersectionObserverEntry {
     /// The observed element.
@@ -54,6 +54,16 @@ pub struct IntersectionObserverEntry {
     pub intersection_ratio: f64,
     /// Whether the target is intersecting.
     pub is_intersecting: bool,
+    /// `boundingClientRect`: the target's bounding rect (zero-size for a
+    /// box-less / unrendered target).
+    pub bounding_client_rect: Rect,
+    /// `intersectionRect`: target ∩ root-with-margin (zero when disjoint).
+    pub intersection_rect: Rect,
+    /// `rootBounds`: the root intersection rect with `rootMargin` applied.
+    /// `None` only for the cross-origin implicit-root case (deferred slot
+    /// `#11-intersection-observer-cross-origin-rootbounds`); same-origin
+    /// always reports the rect.
+    pub root_bounds: Option<Rect>,
 }
 
 /// A single observation on a node (one per observer watching this entity).
@@ -179,24 +189,37 @@ impl IntersectionObserverRegistry {
         // Phase A: read observations + compute ratios (shared borrows only —
         // the `&IntersectionObservedBy` query and `rect_fn`'s layout reads
         // touch disjoint components, so they coexist).
+        //
+        // A box-less target (`rect_fn` → None: display:none / pre-layout) is
+        // NOT skipped: per Intersection Observer §3.1 (observe) the first
+        // "update intersection observations" run must still deliver an initial
+        // entry (ratio 0 / isIntersecting false / zero rects), so we treat the
+        // missing box as a zero-area target and run the same crossing logic.
         for (entity, comp) in &mut dom.world().query::<(Entity, &IntersectionObservedBy)>() {
-            let Some(target_rect) = rect_fn(&*dom, entity) else {
-                continue;
-            };
+            let maybe_rect = rect_fn(&*dom, entity);
             for obs in &comp.0 {
                 let Some(init) = self.init.get(&obs.observer) else {
                     continue;
                 };
-                let root_rect = init
-                    .root
-                    .and_then(|r| rect_fn(&*dom, r))
-                    .unwrap_or(viewport);
+                let root_rect = apply_root_margin(
+                    init.root
+                        .and_then(|r| rect_fn(&*dom, r))
+                        .unwrap_or(viewport),
+                    &parse_root_margin(&init.root_margin),
+                );
                 let thresholds = if init.threshold.is_empty() {
                     &[0.0][..]
                 } else {
                     &init.threshold
                 };
-                let ratio = compute_intersection_ratio(target_rect, root_rect);
+                let (ratio, bounding_client_rect, intersection_rect) = match maybe_rect {
+                    Some(target_rect) => (
+                        compute_intersection_ratio(target_rect, root_rect),
+                        target_rect,
+                        target_rect.intersection(&root_rect).unwrap_or_default(),
+                    ),
+                    None => (0.0, Rect::default(), Rect::default()),
+                };
                 let last = obs.last_ratio.unwrap_or(-1.0);
                 if crossed_threshold(last, ratio, thresholds) {
                     changes.push((entity, obs.observer, ratio));
@@ -207,6 +230,9 @@ impl IntersectionObserverRegistry {
                             target: entity,
                             intersection_ratio: ratio,
                             is_intersecting: ratio > 0.0,
+                            bounding_client_rect,
+                            intersection_rect,
+                            root_bounds: Some(root_rect),
                         });
                 }
             }
@@ -249,6 +275,64 @@ fn crossed_threshold(old: f64, new: f64, thresholds: &[f64]) -> bool {
         }
     }
     false
+}
+
+/// One `rootMargin` component: an absolute px length or a percentage resolved
+/// against the root dimension (Intersection Observer §3.1 `rootMargin`).
+#[derive(Debug, Clone, Copy)]
+enum MarginComponent {
+    Px(f32),
+    Pct(f32),
+}
+
+impl MarginComponent {
+    /// Resolve to px against `basis` (root width for left/right, root height
+    /// for top/bottom).
+    fn resolve(self, basis: f32) -> f32 {
+        match self {
+            Self::Px(v) => v,
+            Self::Pct(p) => basis * p / 100.0,
+        }
+    }
+}
+
+/// Parse a CSS-margin-shorthand `rootMargin` string into `[top, right, bottom,
+/// left]` components (Intersection Observer §3.1 — `px` and `%` units; 1/2/3/4
+/// value shorthand). Unparsable tokens fall back to 0px (lenient parse — the
+/// IDL-level validation that rejects bad units is a host-side concern).
+fn parse_root_margin(s: &str) -> [MarginComponent; 4] {
+    let parse_one = |tok: &str| -> MarginComponent {
+        if let Some(num) = tok.strip_suffix('%') {
+            MarginComponent::Pct(num.trim().parse().unwrap_or(0.0))
+        } else if let Some(num) = tok.strip_suffix("px") {
+            MarginComponent::Px(num.trim().parse().unwrap_or(0.0))
+        } else {
+            MarginComponent::Px(tok.trim().parse().unwrap_or(0.0))
+        }
+    };
+    let toks: Vec<MarginComponent> = s.split_whitespace().map(parse_one).collect();
+    match toks.as_slice() {
+        [] => [MarginComponent::Px(0.0); 4],
+        [all] => [*all; 4],
+        [v, h] => [*v, *h, *v, *h],
+        [t, h, b] => [*t, *h, *b, *h],
+        // 4+ values: take the first four (top, right, bottom, left).
+        [t, r, b, l, ..] => [*t, *r, *b, *l],
+    }
+}
+
+/// Expand `root` outward by the resolved `rootMargin` (top/right/bottom/left).
+fn apply_root_margin(root: Rect, margin: &[MarginComponent; 4]) -> Rect {
+    let top = margin[0].resolve(root.size.height);
+    let right = margin[1].resolve(root.size.width);
+    let bottom = margin[2].resolve(root.size.height);
+    let left = margin[3].resolve(root.size.width);
+    Rect::new(
+        root.origin.x - left,
+        root.origin.y - top,
+        root.size.width + left + right,
+        root.size.height + top + bottom,
+    )
 }
 
 #[cfg(test)]
@@ -397,6 +481,79 @@ mod tests {
             dom.world().get::<&IntersectionObservedBy>(el).is_err(),
             "observe on an unregistered id must not attach a component"
         );
+    }
+
+    #[test]
+    fn box_less_target_delivers_initial_observation() {
+        // display:none / pre-layout target (rect_fn → None) must still get the
+        // mandated initial observation: ratio 0, isIntersecting false, zero
+        // rects — and only once (no re-delivery while it stays box-less).
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+
+        let mut reg = IntersectionObserverRegistry::new();
+        let id = reg.register(IntersectionObserverInit {
+            threshold: vec![0.0],
+            ..Default::default()
+        });
+        reg.observe(&mut dom, id, el);
+
+        let viewport = Rect::new(0.0, 0.0, 1024.0, 768.0);
+        let first = reg.gather_observations(&mut dom, &|_, _| None, viewport);
+        assert_eq!(first.len(), 1, "box-less target must deliver once");
+        let entry = &first[0].1[0];
+        assert!(!entry.is_intersecting);
+        assert_eq!(entry.intersection_ratio, 0.0);
+        assert_eq!(entry.bounding_client_rect, Rect::default());
+        assert_eq!(entry.intersection_rect, Rect::default());
+
+        // Still box-less → no second delivery (last_ratio now 0).
+        let second = reg.gather_observations(&mut dom, &|_, _| None, viewport);
+        assert!(second.is_empty(), "no re-delivery while still box-less");
+    }
+
+    #[test]
+    fn root_margin_expands_root_bounds() {
+        // A target just outside the viewport becomes intersecting once a
+        // positive rootMargin expands the root bounds to reach it.
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+
+        let mut reg = IntersectionObserverRegistry::new();
+        let id = reg.register(IntersectionObserverInit {
+            root_margin: "100px".to_string(),
+            threshold: vec![0.0],
+            ..Default::default()
+        });
+        reg.observe(&mut dom, id, el);
+
+        let viewport = Rect::new(0.0, 0.0, 1000.0, 1000.0);
+        // Target at y=1050 (50px below viewport bottom) — only reachable with
+        // the 100px bottom margin.
+        let obs = reg.gather_observations(
+            &mut dom,
+            &|_, _| Some(Rect::new(10.0, 1050.0, 100.0, 100.0)),
+            viewport,
+        );
+        assert_eq!(obs.len(), 1);
+        let entry = &obs[0].1[0];
+        assert!(entry.is_intersecting, "rootMargin should pull target in");
+        let rb = entry.root_bounds.expect("same-origin reports rootBounds");
+        assert_eq!(rb.origin.y, -100.0, "top edge expanded by 100px");
+        assert_eq!(rb.size.height, 1200.0, "height grown by top+bottom margin");
+    }
+
+    #[test]
+    fn parse_root_margin_shorthand() {
+        // 2-value: vertical | horizontal.
+        let m = parse_root_margin("10px 20%");
+        let root = Rect::new(0.0, 0.0, 200.0, 100.0);
+        let expanded = apply_root_margin(root, &m);
+        // top/bottom = 10px, left/right = 20% of width(200) = 40px.
+        assert_eq!(expanded.origin.x, -40.0);
+        assert_eq!(expanded.origin.y, -10.0);
+        assert_eq!(expanded.size.width, 200.0 + 80.0);
+        assert_eq!(expanded.size.height, 100.0 + 20.0);
     }
 
     #[test]

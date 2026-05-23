@@ -8,12 +8,15 @@
 //! automatically. The registry holds only the monotonic id counter.
 
 use elidex_ecs::{EcsDom, Entity};
-use elidex_plugin::Size;
+use elidex_plugin::{Rect, Size};
 
 /// Geometry source for `gather_observations`: returns the current
-/// `(content_box_size, border_box_size)` for an entity. Takes `&EcsDom` so it
-/// can read layout without aliasing the `&mut EcsDom` write-back borrow.
-type SizeProvider<'a> = dyn Fn(&EcsDom, Entity) -> Option<(Size, Size)> + 'a;
+/// `(content_rect, border_box_size)` for an entity, where `content_rect` is the
+/// content box rect in the element's own coordinate space (origin = padding
+/// offsets per the Resize Observer `contentRect` legacy field) and its `.size`
+/// is the content box size. Takes `&EcsDom` so it can read layout without
+/// aliasing the `&mut EcsDom` write-back borrow. `None` = box-less / unrendered.
+type SizeProvider<'a> = dyn Fn(&EcsDom, Entity) -> Option<(Rect, Size)> + 'a;
 
 /// A unique identifier for a resize observer registration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -52,12 +55,14 @@ pub struct ResizeObserverOptions {
     pub box_model: ResizeObserverBoxOptions,
 }
 
-/// A resize observation entry delivered to the callback.
+/// A resize observation entry delivered to the callback (Resize Observer §4.1).
 #[derive(Debug, Clone)]
 pub struct ResizeObserverEntry {
     /// The observed element.
     pub target: Entity,
-    /// Content box size.
+    /// `contentRect`: the content box rect (origin = padding offsets).
+    pub content_rect: Rect,
+    /// Content box size (`= content_rect.size`).
     pub content_box_size: Size,
     /// Border box size.
     pub border_box_size: Size,
@@ -195,10 +200,15 @@ impl ResizeObserverRegistry {
         // Phase A: read observations + current sizes (shared borrows only —
         // the `&ResizeObservedBy` query and `size_fn`'s layout reads touch
         // disjoint components, so they coexist).
+        //
+        // A box-less target (`size_fn` → None: display:none / pre-layout) is
+        // NOT skipped: per Resize Observer §3.1 (observe) the first broadcast
+        // must deliver an initial 0×0 entry, so the missing box is treated as a
+        // zero content rect and runs the same change-detection logic.
         for (entity, comp) in &mut dom.world().query::<(Entity, &ResizeObservedBy)>() {
-            let Some((content_size, border_size)) = size_fn(&*dom, entity) else {
-                continue;
-            };
+            let (content_rect, border_size) =
+                size_fn(&*dom, entity).unwrap_or((Rect::default(), Size::ZERO));
+            let content_size = content_rect.size;
             for obs in &comp.0 {
                 let changed = obs.last_size.is_none_or(|last| {
                     (last.width - content_size.width).abs() > f32::EPSILON
@@ -211,6 +221,7 @@ impl ResizeObserverRegistry {
                         .or_default()
                         .push(ResizeObserverEntry {
                             target: entity,
+                            content_rect,
                             content_box_size: content_size,
                             border_box_size: border_size,
                         });
@@ -251,7 +262,7 @@ mod tests {
 
         let observations = reg.gather_observations(&mut dom, &|_, e| {
             if e == el {
-                Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0)))
+                Some((Rect::new(0.0, 0.0, 100.0, 50.0), Size::new(110.0, 60.0)))
             } else {
                 None
             }
@@ -267,6 +278,27 @@ mod tests {
     }
 
     #[test]
+    fn box_less_target_delivers_initial_zero() {
+        // display:none / pre-layout target (size_fn → None) must still get the
+        // mandated initial 0×0 broadcast, exactly once.
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+
+        let mut reg = ResizeObserverRegistry::new();
+        let id = reg.register();
+        reg.observe(&mut dom, id, el, ResizeObserverOptions::default());
+
+        let first = reg.gather_observations(&mut dom, &|_, _| None);
+        assert_eq!(first.len(), 1, "box-less target delivers once");
+        assert_eq!(first[0].1[0].content_box_size, Size::ZERO);
+        assert_eq!(first[0].1[0].content_rect, Rect::default());
+
+        // Still box-less → no re-delivery (last_size now 0×0).
+        let second = reg.gather_observations(&mut dom, &|_, _| None);
+        assert!(second.is_empty(), "no re-delivery while still box-less");
+    }
+
+    #[test]
     fn gather_no_change_no_observation() {
         let mut dom = EcsDom::new();
         let el = elem(&mut dom, "div");
@@ -277,12 +309,12 @@ mod tests {
 
         // First gather — initial observation.
         reg.gather_observations(&mut dom, &|_, _| {
-            Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0)))
+            Some((Rect::new(0.0, 0.0, 100.0, 50.0), Size::new(110.0, 60.0)))
         });
 
         // Same sizes — no observations.
         let observations = reg.gather_observations(&mut dom, &|_, _| {
-            Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0)))
+            Some((Rect::new(0.0, 0.0, 100.0, 50.0), Size::new(110.0, 60.0)))
         });
         assert!(observations.is_empty());
     }
@@ -297,12 +329,12 @@ mod tests {
         reg.observe(&mut dom, id, el, ResizeObserverOptions::default());
 
         reg.gather_observations(&mut dom, &|_, _| {
-            Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0)))
+            Some((Rect::new(0.0, 0.0, 100.0, 50.0), Size::new(110.0, 60.0)))
         });
 
         // Width changed.
         let observations = reg.gather_observations(&mut dom, &|_, _| {
-            Some((Size::new(200.0, 50.0), Size::new(210.0, 60.0)))
+            Some((Rect::new(0.0, 0.0, 200.0, 50.0), Size::new(210.0, 60.0)))
         });
         assert_eq!(observations.len(), 1);
         assert_eq!(
@@ -320,13 +352,13 @@ mod tests {
         let id = reg.register();
         reg.observe(&mut dom, id, el, ResizeObserverOptions::default());
         reg.gather_observations(&mut dom, &|_, _| {
-            Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0)))
+            Some((Rect::new(0.0, 0.0, 100.0, 50.0), Size::new(110.0, 60.0)))
         });
         let _ = dom.destroy_entity(el);
 
         // After despawn, the observation component is gone — no observations.
         let observations = reg.gather_observations(&mut dom, &|_, _| {
-            Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0)))
+            Some((Rect::new(0.0, 0.0, 100.0, 50.0), Size::new(110.0, 60.0)))
         });
         assert!(observations.is_empty());
     }
@@ -342,7 +374,7 @@ mod tests {
         reg.unobserve(&mut dom, id, el);
 
         let observations = reg.gather_observations(&mut dom, &|_, _| {
-            Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0)))
+            Some((Rect::new(0.0, 0.0, 100.0, 50.0), Size::new(110.0, 60.0)))
         });
         assert!(observations.is_empty());
     }
@@ -359,7 +391,7 @@ mod tests {
         }
 
         let result = reg.gather_observations(&mut dom, &|_, _| {
-            Some((Size::new(100.0, 50.0), Size::new(110.0, 60.0)))
+            Some((Rect::new(0.0, 0.0, 100.0, 50.0), Size::new(110.0, 60.0)))
         });
         let got: Vec<u64> = result.iter().map(|(id, _)| id.raw()).collect();
         let mut sorted = got.clone();

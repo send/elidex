@@ -98,7 +98,7 @@ impl JsRuntime {
             reg.gather_observations(dom, &|d, entity| {
                 let lb = d.world().get::<&elidex_plugin::LayoutBox>(entity).ok()?;
                 let bb = lb.border_box();
-                Some((lb.content.size, bb.size))
+                Some((lb.content, bb.size))
             })
         });
 
