@@ -16,6 +16,16 @@ use crate::style::parse_color_string;
 /// formats) receive `(r*a/255, g*a/255, b*a/255)` per pixel.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn composite_rgba_on_black(src: &[u8]) -> Vec<u8> {
+    // Pixmap data is always RGBA8 (4 bytes per pixel) by `tiny_skia::Pixmap`
+    // construction invariant, so `chunks_exact(4)` never drops a partial tail.
+    // Assert it explicitly so a future caller (or a `Pixmap` API change) that
+    // violates the invariant fails loudly in dev rather than silently
+    // truncating the encoded output.
+    debug_assert_eq!(
+        src.len() % 4,
+        0,
+        "composite_rgba_on_black requires RGBA8 input (multiple of 4 bytes)"
+    );
     let mut dst = Vec::with_capacity(src.len() / 4 * 3);
     for chunk in src.chunks_exact(4) {
         let a = f32::from(chunk[3]) / 255.0;

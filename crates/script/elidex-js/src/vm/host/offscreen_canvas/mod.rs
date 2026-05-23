@@ -291,24 +291,42 @@ pub(super) fn require_offscreen_canvas_2d_context(
 // Constructor + getContext
 // ---------------------------------------------------------------------------
 
-/// Coerce a JsValue per WebIDL §3.10.10 `unsigned long long` (the IDL type
-/// declared for the `OffscreenCanvas` ctor args + `width` / `height` setters,
-/// HTML §4.12.5.1.7). Uses [`coerce::f64_to_uint64_loose`] (the canonical
-/// WebIDL `unsigned long long` coercion shared with `ProgressEvent.loaded` /
-/// `.total`, WHATWG XHR §10) then saturates to `u32::MAX` for the backend (the
-/// bitmap dimension range — `Canvas2dContext` allocates `u32` pixmaps and
-/// clamps 0/unrepresentable to 1×1). Differs from `coerce::to_uint32` (used by
-/// `<canvas>.width`/`height` which are WebIDL §3.10.9 `unsigned long`, 32-bit)
-/// in that values in `(2^32, 2^53]` saturate rather than wrap-mod-2³².
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+/// Coerce a JsValue per WebIDL `[EnforceRange] unsigned long long` (the IDL
+/// type declared for the `OffscreenCanvas` ctor args + `width` / `height`
+/// setters, HTML §4.12.5.1.7). Enforces the spec contract via
+/// `[EnforceRange]` (WebIDL §3.10.4): values outside `[0, 2^64-1]` throw
+/// `RangeError`. Implementation: ToNumber → finite check → integer truncate
+/// → range check `[0, u32::MAX]` (the backend allocates `u32` pixmaps; values
+/// in `(u32::MAX, 2^64-1]` are technically valid per IDL but would overflow
+/// the backend, so we throw `RangeError` rather than silently saturate).
+///
+/// The contract is "spec-strict": no clamping, no wrapping. `<canvas>.width`
+/// (D-21) by contrast uses `coerce::to_uint32` (WebIDL §3.10.9 `unsigned
+/// long` without `[EnforceRange]`, mod-2³² wrap) — the difference matches
+/// the spec IDL declarations for the two interfaces.
 fn coerce_oc_dim(vm: &mut VmInner, value: JsValue) -> Result<u32, VmError> {
     let n = coerce::to_number(vm, value)?;
-    let u64_loose = coerce::f64_to_uint64_loose(n);
-    Ok(if u64_loose >= f64::from(u32::MAX) {
-        u32::MAX
-    } else {
-        u64_loose as u32
-    })
+    // `[EnforceRange]` step 1 (WebIDL §3.10.4): NaN / non-finite → throw
+    // TypeError per WebIDL `[EnforceRange]` algorithm. The spec actually
+    // throws TypeError for the non-finite path (not RangeError), distinct
+    // from the out-of-range path which is RangeError.
+    if !n.is_finite() {
+        return Err(VmError::type_error(
+            "Failed to coerce OffscreenCanvas dimension: value is not a finite number",
+        ));
+    }
+    let truncated = n.trunc();
+    // `[EnforceRange]` step 2: out-of-`[0, 2^64-1]` → throw RangeError. We
+    // tighten the upper bound to `u32::MAX` because the backend cannot
+    // represent values above that (pixmap is `u32`-indexed). Browsers
+    // (Chrome, Firefox) throw RangeError at similar practical thresholds.
+    if !(0.0..=f64::from(u32::MAX)).contains(&truncated) {
+        return Err(VmError::range_error(
+            "Failed to coerce OffscreenCanvas dimension: value is out of range [0, 2^32-1]",
+        ));
+    }
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    Ok(truncated as u32)
 }
 
 /// `new OffscreenCanvas(width, height)` (HTML §4.12.5.1.7 constructor steps

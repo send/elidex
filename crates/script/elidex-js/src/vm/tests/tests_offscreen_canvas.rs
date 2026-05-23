@@ -466,3 +466,60 @@ fn offscreen_canvas_rejected_as_node_argument() {
         );
     });
 }
+
+// ---------------------------------------------------------------------------
+// [EnforceRange] unsigned long long coercion (WebIDL §3.10.4)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ctor_throws_range_error_on_overflow() {
+    // Above u32::MAX → RangeError per `[EnforceRange]` (spec strict path).
+    with_vm(|vm| {
+        let err = vm.eval("new OffscreenCanvas(4294967296, 10)").unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("RangeError") || msg.contains("out of range"),
+            "expected RangeError, got {msg}"
+        );
+    });
+}
+
+#[test]
+fn ctor_throws_range_error_on_negative() {
+    // Negative → out of [0, 2^32-1] → RangeError.
+    with_vm(|vm| {
+        let err = vm.eval("new OffscreenCanvas(-1, 10)").unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("RangeError") || msg.contains("out of range"),
+            "expected RangeError, got {msg}"
+        );
+    });
+}
+
+#[test]
+fn ctor_throws_type_error_on_nan() {
+    // NaN / non-finite → TypeError per `[EnforceRange]` step 1.
+    with_vm(|vm| {
+        let err = vm.eval("new OffscreenCanvas(NaN, 10)").unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("TypeError") || msg.contains("finite"),
+            "expected TypeError, got {msg}"
+        );
+    });
+}
+
+#[test]
+fn width_setter_throws_range_error_on_overflow() {
+    with_vm(|vm| {
+        let err = vm
+            .eval("var oc = new OffscreenCanvas(10, 10); oc.width = 4294967296;")
+            .unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("RangeError") || msg.contains("out of range"),
+            "expected RangeError, got {msg}"
+        );
+    });
+}

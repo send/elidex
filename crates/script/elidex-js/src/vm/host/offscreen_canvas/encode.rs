@@ -51,7 +51,11 @@ pub(super) fn native_oc_convert_to_blob(
         .and_then(|hd| with_context(hd.dom(), entity, |c| c.encode_blob(format, quality)))
         .flatten();
 
-    if let Some(bytes) = encoded {
+    // Defensive empty-Vec guard: a successful `encode_blob` returning
+    // `Some(empty)` would silently materialize an empty Blob, which is
+    // never a valid image-format byte stream. Treat empty as encoder
+    // failure even if the encoder reported success.
+    if let Some(bytes) = encoded.filter(|b| !b.is_empty()) {
         // Materialize a Blob whose `type` matches the negotiated format
         // (post-fallback per `from_mime`).
         let type_sid = g.strings.intern(format.mime());
