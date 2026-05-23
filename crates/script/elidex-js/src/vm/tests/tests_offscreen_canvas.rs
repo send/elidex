@@ -325,17 +325,51 @@ fn convert_to_blob_unknown_type_falls_back_to_png() {
 }
 
 #[test]
-fn convert_to_blob_before_get_context_rejects() {
-    // No `getContext('2d')` was called — no `Canvas2dContext` component —
-    // the encode_blob path returns None → reject with InvalidStateError.
+fn convert_to_blob_before_get_context_rejects_invalid_state_error() {
+    // No `getContext('2d')` was called — context mode is set to none — per
+    // HTML §4.12.5.1.7 convertToBlob "If this OffscreenCanvas object's
+    // context mode is set to none" the Promise rejects with InvalidStateError.
     with_vm(|vm| {
-        assert!(eval_global_bool(
-            vm,
-            "globalThis.rejected = false; \
-             var oc = new OffscreenCanvas(4, 4); \
-             oc.convertToBlob().catch(_ => { globalThis.rejected = true; });",
-            "rejected",
-        ));
+        assert_eq!(
+            eval_global_string(
+                vm,
+                "globalThis.errName = ''; \
+                 var oc = new OffscreenCanvas(4, 4); \
+                 oc.convertToBlob().catch(e => { globalThis.errName = e.name; });",
+                "errName",
+            ),
+            "InvalidStateError"
+        );
+    });
+}
+
+#[test]
+fn convert_to_blob_zero_dim_rejects_index_size_error() {
+    // HTML §4.12.5.1.7 convertToBlob "If this OffscreenCanvas object's bitmap
+    // has no pixels (i.e. either its horizontal dimension or its vertical
+    // dimension is zero) then return a promise rejected with an
+    // IndexSizeError DOMException." — exercised on width=0 and height=0.
+    with_vm(|vm| {
+        assert_eq!(
+            eval_global_string(
+                vm,
+                "globalThis.errName = ''; \
+                 var oc = new OffscreenCanvas(0, 4); oc.getContext('2d'); \
+                 oc.convertToBlob().catch(e => { globalThis.errName = e.name; });",
+                "errName",
+            ),
+            "IndexSizeError"
+        );
+        assert_eq!(
+            eval_global_string(
+                vm,
+                "globalThis.errName = ''; \
+                 var oc = new OffscreenCanvas(4, 0); oc.getContext('2d'); \
+                 oc.convertToBlob().catch(e => { globalThis.errName = e.name; });",
+                "errName",
+            ),
+            "IndexSizeError"
+        );
     });
 }
 

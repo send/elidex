@@ -338,8 +338,9 @@ fn coerce_oc_dim(vm: &mut VmInner, value: JsValue) -> Result<u32, VmError> {
 
 /// `new OffscreenCanvas(width, height)` (HTML §4.12.5.1.7 constructor steps
 /// 1-4). Both args are `[EnforceRange] unsigned long long` per IDL; coerced
-/// via [`coerce_oc_dim`] (the IDL `unsigned long long` path, saturating to
-/// `u32::MAX` for the backend). Throws `TypeError` if fewer than 2 args.
+/// via [`coerce_oc_dim`], which enforces `[0, 2^32-1]` and throws `RangeError`
+/// on overflow (the backend pixmap is `u32`-indexed). Throws `TypeError` if
+/// fewer than 2 args.
 fn native_offscreen_canvas_constructor(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
