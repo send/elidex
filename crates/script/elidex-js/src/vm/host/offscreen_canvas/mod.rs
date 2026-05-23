@@ -291,15 +291,15 @@ pub(super) fn require_offscreen_canvas_2d_context(
 // Constructor + getContext
 // ---------------------------------------------------------------------------
 
-/// Coerce a JsValue per WebIDL `unsigned long long` (HTML §4.12.5.1.7 — the
-/// IDL type of the `OffscreenCanvas` ctor args and the `width` / `height` IDL
-/// setters). Uses [`coerce::f64_to_uint64_loose`] (the canonical
-/// `unsigned long long` coercion shared with `ProgressEvent.loaded` /
-/// `.total`) then saturates to `u32::MAX` for the backend (the bitmap
-/// dimension range — `Canvas2dContext` allocates `u32` pixmaps and clamps
-/// 0/unrepresentable to 1×1). Differs from `coerce::to_uint32` (used by
-/// `<canvas>.width`/`height` which are IDL `unsigned long`, 32-bit) in that
-/// values in `(2^32, 2^53]` saturate rather than wrap-mod-2³².
+/// Coerce a JsValue per WebIDL §3.10.10 `unsigned long long` (the IDL type
+/// declared for the `OffscreenCanvas` ctor args + `width` / `height` setters,
+/// HTML §4.12.5.1.7). Uses [`coerce::f64_to_uint64_loose`] (the canonical
+/// WebIDL `unsigned long long` coercion shared with `ProgressEvent.loaded` /
+/// `.total`, WHATWG XHR §10) then saturates to `u32::MAX` for the backend (the
+/// bitmap dimension range — `Canvas2dContext` allocates `u32` pixmaps and
+/// clamps 0/unrepresentable to 1×1). Differs from `coerce::to_uint32` (used by
+/// `<canvas>.width`/`height` which are WebIDL §3.10.9 `unsigned long`, 32-bit)
+/// in that values in `(2^32, 2^53]` saturate rather than wrap-mod-2³².
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn coerce_oc_dim(vm: &mut VmInner, value: JsValue) -> Result<u32, VmError> {
     let n = coerce::to_number(vm, value)?;
