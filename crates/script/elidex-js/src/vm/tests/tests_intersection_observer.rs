@@ -163,10 +163,11 @@ fn intersection_observer_threshold_out_of_range_throws() {
 
 #[test]
 fn intersection_observer_threshold_accepts_single_number_or_sequence() {
-    // Spec §3.1 accepts `double` or `sequence<double>` — the VM matches
-    // boa's lenient shape (any object with numeric `length` is a
-    // sequence; full Symbol.iterator parity tracked at
-    // `#11-mutation-observer-extras`).
+    // Spec §3.1 accepts `double` or `sequence<double>` — the parser
+    // routes through `webidl_iter_to_vec` (the WebIDL §3.10.16
+    // sequence helper, already merged as #11-webidl-sequence-helper-extraction
+    // / #202), so `Array.prototype[@@iterator]` overrides and other
+    // iterables are honoured uniformly.
     let out = run("try { \
             new IntersectionObserver(function(){}, {threshold: 0.5}); \
             new IntersectionObserver(function(){}, {threshold: [0.25, 0.75]}); \
