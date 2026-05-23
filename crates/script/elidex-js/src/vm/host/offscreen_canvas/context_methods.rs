@@ -49,8 +49,22 @@ fn rect_args(
 
 // ---------------------------------------------------------------------------
 // 2D context methods (parallel D-21's CONTEXT_METHODS, brand-checked into OC)
+//
+// Each `native_oc_*` is a 5-line dispatch wrapper that brand-checks via
+// `require_offscreen_canvas_2d_context` and forwards to the shared
+// `dispatch_2d_method` generic. WHATWG HTML §4.12.5.1 sub-sections by group:
+//   §4.12.5.1.2 — canvas state stack: save / restore
+//   §4.12.5.1.5 — building paths: beginPath / closePath / moveTo / lineTo /
+//                                  rect / arc
+//   §4.12.5.1.6 — transforms: translate / rotate / scale
+//   §4.12.5.1.8 — fill/stroke styles: fillStyle / strokeStyle (accessors)
+//   §4.12.5.1.9 — drawing rectangles: fillRect / strokeRect / clearRect
+//   §4.12.5.1.10 — text: measureText
+//   §4.12.5.1.11 — drawing paths: fill / stroke
+//   §4.12.5.1.13 — compositing: globalAlpha (accessor)
 // ---------------------------------------------------------------------------
 
+/// `save()` (HTML §4.12.5.1.2 — canvas state stack push).
 pub(super) fn native_oc_save(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -67,6 +81,7 @@ pub(super) fn native_oc_save(
     Ok(JsValue::Undefined)
 }
 
+/// `restore()` (HTML §4.12.5.1.2 — canvas state stack pop).
 pub(super) fn native_oc_restore(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -83,6 +98,7 @@ pub(super) fn native_oc_restore(
     Ok(JsValue::Undefined)
 }
 
+/// `beginPath()` (HTML §4.12.5.1.5 — clear the current default path).
 pub(super) fn native_oc_begin_path(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -99,6 +115,7 @@ pub(super) fn native_oc_begin_path(
     Ok(JsValue::Undefined)
 }
 
+/// `closePath()` (HTML §4.12.5.1.5 — close the current subpath).
 pub(super) fn native_oc_close_path(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -115,6 +132,7 @@ pub(super) fn native_oc_close_path(
     Ok(JsValue::Undefined)
 }
 
+/// `moveTo(x, y)` (HTML §4.12.5.1.5 — start a new subpath).
 pub(super) fn native_oc_move_to(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -132,6 +150,7 @@ pub(super) fn native_oc_move_to(
     Ok(JsValue::Undefined)
 }
 
+/// `lineTo(x, y)` (HTML §4.12.5.1.5 — add a straight line segment).
 pub(super) fn native_oc_line_to(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -149,6 +168,7 @@ pub(super) fn native_oc_line_to(
     Ok(JsValue::Undefined)
 }
 
+/// `rect(x, y, w, h)` (HTML §4.12.5.1.5 — add a closed rectangle subpath).
 pub(super) fn native_oc_rect(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -166,6 +186,8 @@ pub(super) fn native_oc_rect(
     Ok(JsValue::Undefined)
 }
 
+/// `arc(x, y, radius, startAngle, endAngle, anticlockwise?)` (HTML §4.12.5.1.5
+/// — add a circular arc subpath).
 pub(super) fn native_oc_arc(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -191,6 +213,7 @@ pub(super) fn native_oc_arc(
     Ok(JsValue::Undefined)
 }
 
+/// `fill()` (HTML §4.12.5.1.11 — fill the current default path with fillStyle).
 pub(super) fn native_oc_fill(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -207,6 +230,7 @@ pub(super) fn native_oc_fill(
     Ok(JsValue::Undefined)
 }
 
+/// `stroke()` (HTML §4.12.5.1.11 — stroke the current default path with strokeStyle).
 pub(super) fn native_oc_stroke(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -223,6 +247,7 @@ pub(super) fn native_oc_stroke(
     Ok(JsValue::Undefined)
 }
 
+/// `fillRect(x, y, w, h)` (HTML §4.12.5.1.9 — fill a rectangle with fillStyle).
 pub(super) fn native_oc_fill_rect(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -240,6 +265,7 @@ pub(super) fn native_oc_fill_rect(
     Ok(JsValue::Undefined)
 }
 
+/// `strokeRect(x, y, w, h)` (HTML §4.12.5.1.9 — stroke a rectangle's outline).
 pub(super) fn native_oc_stroke_rect(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -257,6 +283,7 @@ pub(super) fn native_oc_stroke_rect(
     Ok(JsValue::Undefined)
 }
 
+/// `clearRect(x, y, w, h)` (HTML §4.12.5.1.9 — clear a rectangle to transparent black).
 pub(super) fn native_oc_clear_rect(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -274,6 +301,7 @@ pub(super) fn native_oc_clear_rect(
     Ok(JsValue::Undefined)
 }
 
+/// `translate(tx, ty)` (HTML §4.12.5.1.6 — translate the current transform).
 pub(super) fn native_oc_translate(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -291,6 +319,7 @@ pub(super) fn native_oc_translate(
     Ok(JsValue::Undefined)
 }
 
+/// `rotate(angle)` (HTML §4.12.5.1.6 — rotate the current transform, radians).
 pub(super) fn native_oc_rotate(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -308,6 +337,7 @@ pub(super) fn native_oc_rotate(
     Ok(JsValue::Undefined)
 }
 
+/// `scale(sx, sy)` (HTML §4.12.5.1.6 — scale the current transform).
 pub(super) fn native_oc_scale(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -325,10 +355,9 @@ pub(super) fn native_oc_scale(
     Ok(JsValue::Undefined)
 }
 
-/// `measureText(text)` (HTML §4.12.5.1 — `OffscreenCanvasRenderingContext2D`
-/// shares the §4.12.5.1.12 surface). Returns a `TextMetrics`-shaped object
-/// carrying `width` only (full glyph metrics deferred with text rendering,
-/// `#11-canvas-2d-extended-ops`).
+/// `measureText(text)` (HTML §4.12.5.1.10 — measure text width).
+/// Returns a `TextMetrics`-shaped object carrying `width` only (full glyph
+/// metrics deferred with text rendering, `#11-canvas-2d-extended-ops`).
 pub(super) fn native_oc_measure_text(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -367,9 +396,10 @@ pub(super) fn native_oc_measure_text(
 }
 
 // ---------------------------------------------------------------------------
-// Style + back-ref accessors
+// Style + back-ref accessors (HTML §4.12.5.1.8 / §4.12.5.1.13 + §4.12.5.1 IDL)
 // ---------------------------------------------------------------------------
 
+/// `fillStyle` getter (HTML §4.12.5.1.8 — fill style serialized as CSS color string).
 pub(super) fn oc_fill_style_getter(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -390,6 +420,8 @@ pub(super) fn oc_fill_style_getter(
     Ok(JsValue::String(sid))
 }
 
+/// `fillStyle` setter (HTML §4.12.5.1.8 — accepts CSS color string; gradients /
+/// patterns deferred to `#11-canvas-gradient-pattern`).
 pub(super) fn oc_fill_style_setter(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -407,6 +439,7 @@ pub(super) fn oc_fill_style_setter(
     Ok(JsValue::Undefined)
 }
 
+/// `strokeStyle` getter (HTML §4.12.5.1.8 — stroke style serialized as CSS color string).
 pub(super) fn oc_stroke_style_getter(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -427,6 +460,8 @@ pub(super) fn oc_stroke_style_getter(
     Ok(JsValue::String(sid))
 }
 
+/// `strokeStyle` setter (HTML §4.12.5.1.8 — accepts CSS color string; gradients /
+/// patterns deferred to `#11-canvas-gradient-pattern`).
 pub(super) fn oc_stroke_style_setter(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -446,6 +481,7 @@ pub(super) fn oc_stroke_style_setter(
     Ok(JsValue::Undefined)
 }
 
+/// `lineWidth` getter (HTML §4.12.5.1.3 — line-styles state, current stroke width).
 pub(super) fn oc_line_width_getter(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -462,6 +498,7 @@ pub(super) fn oc_line_width_getter(
     Ok(JsValue::Number(f64::from(w)))
 }
 
+/// `lineWidth` setter (HTML §4.12.5.1.3 — non-positive / non-finite silently ignored per spec).
 pub(super) fn oc_line_width_setter(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -479,6 +516,7 @@ pub(super) fn oc_line_width_setter(
     Ok(JsValue::Undefined)
 }
 
+/// `globalAlpha` getter (HTML §4.12.5.1.13 — compositing alpha multiplier).
 pub(super) fn oc_global_alpha_getter(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -495,6 +533,7 @@ pub(super) fn oc_global_alpha_getter(
     Ok(JsValue::Number(f64::from(a)))
 }
 
+/// `globalAlpha` setter (HTML §4.12.5.1.13 — out-of-`[0.0, 1.0]` silently ignored per spec).
 pub(super) fn oc_global_alpha_setter(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -512,9 +551,10 @@ pub(super) fn oc_global_alpha_setter(
     Ok(JsValue::Undefined)
 }
 
-/// Read-only `canvas` back-reference — returns the owning `OffscreenCanvas`
-/// wrapper (the context wrapper shares its OC entity, so the OC wrapper is
-/// just the `cache_wrapper`-cached wrapper for that entity).
+/// Read-only `canvas` back-reference (HTML §4.12.5.1.7 IDL `canvas` attribute
+/// on `OffscreenCanvasRenderingContext2D`) — returns the owning
+/// `OffscreenCanvas` wrapper (the context wrapper shares its OC entity, so the
+/// OC wrapper is just the `cache_wrapper`-cached wrapper for that entity).
 pub(super) fn oc_canvas_back_ref_getter(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
