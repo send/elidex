@@ -434,6 +434,18 @@ pub enum NodeKind {
     /// have many. Such entities carry no `TreeRelation` and never participate in
     /// tree traversal.
     Worker,
+    /// `OffscreenCanvas` object (WHATWG HTML §4.12.5.1.7 "The OffscreenCanvas
+    /// interface").
+    ///
+    /// Like [`NodeKind::Window`] and [`NodeKind::Worker`], this is not a Node
+    /// and has no `nodeType`. It marks an entity that hosts a detached 2D
+    /// rendering target: one entity per `new OffscreenCanvas(w, h)` call OR per
+    /// `HTMLCanvasElement.transferControlToOffscreen()` invocation. Such
+    /// entities carry no `TreeRelation`, never participate in tree traversal,
+    /// and (in v1, main-thread-only scope) live in the main `EcsDom`. The
+    /// scripting layer brand-checks via `(NodeKind::OffscreenCanvas + HostObject
+    /// over the entity)`, mirror of the `NodeKind::Worker` brand pattern.
+    OffscreenCanvas,
 }
 
 impl NodeKind {
@@ -454,17 +466,18 @@ impl NodeKind {
             Self::Document => 9,
             Self::DocumentType => 10,
             Self::DocumentFragment => 11,
-            Self::Window | Self::Worker => 0,
+            Self::Window | Self::Worker | Self::OffscreenCanvas => 0,
         }
     }
 
     /// Whether this kind is a Node per WHATWG DOM (has a `nodeType`).
     ///
-    /// `false` for [`NodeKind::Window`] and [`NodeKind::Worker`] — both are
-    /// EventTargets but **not** Nodes (`nodeType == 0`). Node-argument coercion
-    /// (`appendChild` / `insertBefore` / `ChildNode` / `ParentNode` etc.) must
-    /// reject non-Node kinds so a `window` / `Worker` object cannot be inserted
-    /// into the DOM tree.
+    /// `false` for [`NodeKind::Window`], [`NodeKind::Worker`], and
+    /// [`NodeKind::OffscreenCanvas`] — all three are EventTargets but **not**
+    /// Nodes (`nodeType == 0`). Node-argument coercion (`appendChild` /
+    /// `insertBefore` / `ChildNode` / `ParentNode` etc.) must reject non-Node
+    /// kinds so a `window` / `Worker` / `OffscreenCanvas` object cannot be
+    /// inserted into the DOM tree.
     #[must_use]
     pub fn is_node(self) -> bool {
         self.node_type() != 0

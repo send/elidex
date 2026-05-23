@@ -296,3 +296,88 @@ fn reset_invalid_dims_keeps_context() {
     assert_eq!(ctx.width(), 10);
     assert_eq!(ctx.height(), 10);
 }
+
+#[test]
+fn from_mime_maps_known_types_and_defaults_unknown_to_png() {
+    assert_eq!(
+        BlobImageFormat::from_mime("image/png"),
+        BlobImageFormat::Png
+    );
+    assert_eq!(
+        BlobImageFormat::from_mime("image/jpeg"),
+        BlobImageFormat::Jpeg
+    );
+    assert_eq!(
+        BlobImageFormat::from_mime("image/jpg"),
+        BlobImageFormat::Jpeg
+    );
+    assert_eq!(
+        BlobImageFormat::from_mime("image/webp"),
+        BlobImageFormat::Webp
+    );
+    // Unknown / case-mismatched / empty all fall back to PNG per spec.
+    assert_eq!(
+        BlobImageFormat::from_mime("image/gif"),
+        BlobImageFormat::Png
+    );
+    assert_eq!(
+        BlobImageFormat::from_mime("IMAGE/PNG"),
+        BlobImageFormat::Png
+    );
+    assert_eq!(BlobImageFormat::from_mime(""), BlobImageFormat::Png);
+}
+
+#[test]
+fn encode_blob_png_starts_with_signature_and_round_trips_dims() {
+    let mut ctx = Canvas2dContext::new(8, 4).unwrap();
+    ctx.set_fill_style("rgb(255, 0, 0)");
+    ctx.fill_rect(0.0, 0.0, 8.0, 4.0);
+    let bytes = ctx.encode_blob(BlobImageFormat::Png, 1.0).expect("encode");
+    // PNG magic number.
+    assert_eq!(&bytes[0..8], b"\x89PNG\r\n\x1a\n");
+    // Round-trip dimensions via the image crate's decoder.
+    let decoded = image::load_from_memory(&bytes).expect("png decodes");
+    assert_eq!(decoded.width(), 8);
+    assert_eq!(decoded.height(), 4);
+}
+
+#[test]
+fn encode_blob_jpeg_round_trips_dims_and_honors_quality_band() {
+    let mut ctx = Canvas2dContext::new(16, 16).unwrap();
+    ctx.set_fill_style("rgb(0, 255, 0)");
+    ctx.fill_rect(0.0, 0.0, 16.0, 16.0);
+    // High quality
+    let hi = ctx
+        .encode_blob(BlobImageFormat::Jpeg, 1.0)
+        .expect("jpeg hi");
+    // Low quality (clamped to >=1 internally)
+    let lo = ctx
+        .encode_blob(BlobImageFormat::Jpeg, 0.05)
+        .expect("jpeg lo");
+    // Round-trip dims on both.
+    let decoded_hi = image::load_from_memory(&hi).expect("jpeg hi decodes");
+    let decoded_lo = image::load_from_memory(&lo).expect("jpeg lo decodes");
+    assert_eq!((decoded_hi.width(), decoded_hi.height()), (16, 16));
+    assert_eq!((decoded_lo.width(), decoded_lo.height()), (16, 16));
+    // Low-quality JPEG is typically smaller than high-quality on uniform input;
+    // assert ordering rather than exact size for encoder-version stability.
+    assert!(
+        lo.len() <= hi.len(),
+        "lo-quality jpeg ({}) should be <= hi ({})",
+        lo.len(),
+        hi.len()
+    );
+}
+
+#[test]
+fn encode_blob_webp_round_trips_dims_lossless() {
+    let mut ctx = Canvas2dContext::new(4, 4).unwrap();
+    ctx.set_fill_style("rgb(0, 0, 255)");
+    ctx.fill_rect(0.0, 0.0, 4.0, 4.0);
+    let bytes = ctx.encode_blob(BlobImageFormat::Webp, 0.5).expect("webp");
+    // RIFF / WEBP container magic.
+    assert_eq!(&bytes[0..4], b"RIFF");
+    assert_eq!(&bytes[8..12], b"WEBP");
+    let decoded = image::load_from_memory(&bytes).expect("webp decodes");
+    assert_eq!((decoded.width(), decoded.height()), (4, 4));
+}

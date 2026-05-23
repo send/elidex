@@ -101,6 +101,8 @@ mod tests_node_common;
 mod tests_normalize;
 mod tests_number;
 mod tests_object_complement;
+#[cfg(feature = "engine")]
+mod tests_offscreen_canvas;
 mod tests_parent_node_mixin;
 mod tests_performance;
 mod tests_post_message;
