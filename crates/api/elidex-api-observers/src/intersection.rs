@@ -272,15 +272,26 @@ impl IntersectionObserverRegistry {
                 // ratio and the spec-mandated `intersectionRect` from
                 // it — previously the intersection was computed twice
                 // (once for the ratio, once for the entry's
-                // `intersectionRect`).
-                let (ratio, bounding_client_rect, intersection_rect) = match maybe_rect {
-                    Some(target_rect) => {
-                        let inter = target_rect.intersection(&root_rect).unwrap_or_default();
-                        let ratio = ratio_from_overlap(target_rect.size.area_f64(), &inter);
-                        (ratio, target_rect, inter)
-                    }
-                    None => (0.0, Rect::default(), Rect::default()),
-                };
+                // `intersectionRect`).  IO §3.7: `isIntersecting` is
+                // driven by whether intersection is non-null (edge-
+                // adjacent / zero-area overlaps still count), NOT by
+                // `ratio > 0`; and a zero-area target reports
+                // ratio = 1 when intersecting.
+                let (ratio, is_intersecting, bounding_client_rect, intersection_rect) =
+                    match maybe_rect {
+                        Some(target_rect) => {
+                            let inter_opt = target_rect.intersection_inclusive(&root_rect);
+                            let is_intersecting = inter_opt.is_some();
+                            let inter = inter_opt.unwrap_or_default();
+                            let ratio = ratio_from_overlap(
+                                target_rect.size.area_f64(),
+                                &inter,
+                                is_intersecting,
+                            );
+                            (ratio, is_intersecting, target_rect, inter)
+                        }
+                        None => (0.0, false, Rect::default(), Rect::default()),
+                    };
                 let last = obs.last_ratio.unwrap_or(-1.0);
                 if crossed_threshold(last, ratio, thresholds) {
                     changes.push((entity, obs.observer, ratio));
@@ -290,7 +301,7 @@ impl IntersectionObserverRegistry {
                         .push(IntersectionObserverEntry {
                             target: entity,
                             intersection_ratio: ratio,
-                            is_intersecting: ratio > 0.0,
+                            is_intersecting,
                             bounding_client_rect,
                             intersection_rect,
                             root_bounds: Some(root_rect),
@@ -317,9 +328,14 @@ impl IntersectionObserverRegistry {
 /// `gather_observations` (production hot path) and the
 /// `#[cfg(test)]` wrapper [`compute_intersection_ratio`], so unit
 /// tests and production can never diverge.
-fn ratio_from_overlap(target_area: f64, overlap: &Rect) -> f64 {
+///
+/// IO §3.7: when `target_area == 0` the area-ratio is undefined (0/0);
+/// the spec collapses it to `1.0` if the target is intersecting (a
+/// zero-area point inside the root is fully visible) and `0.0`
+/// otherwise.
+fn ratio_from_overlap(target_area: f64, overlap: &Rect, is_intersecting: bool) -> f64 {
     if target_area <= 0.0 {
-        return 0.0;
+        return if is_intersecting { 1.0 } else { 0.0 };
     }
     (overlap.size.area_f64() / target_area).clamp(0.0, 1.0)
 }
@@ -329,8 +345,10 @@ fn ratio_from_overlap(target_area: f64, overlap: &Rect) -> f64 {
 /// the shared [`ratio_from_overlap`] used by production.
 #[cfg(test)]
 fn compute_intersection_ratio(target: Rect, root: Rect) -> f64 {
-    let overlap = target.intersection(&root).unwrap_or_default();
-    ratio_from_overlap(target.size.area_f64(), &overlap)
+    let inter_opt = target.intersection_inclusive(&root);
+    let is_intersecting = inter_opt.is_some();
+    let overlap = inter_opt.unwrap_or_default();
+    ratio_from_overlap(target.size.area_f64(), &overlap, is_intersecting)
 }
 
 /// Check if the ratio transition crosses any threshold.
@@ -499,6 +517,86 @@ mod tests {
             Rect::new(200.0, 200.0, 100.0, 100.0),
         );
         assert!((ratio - 0.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn edge_adjacent_target_reports_is_intersecting() {
+        // IO §3.7: target sharing an edge with root has a degenerate
+        // (zero-width) intersection; spec says `isIntersecting = true`
+        // even though `intersectionRatio = 0`.
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+        let mut reg = IntersectionObserverRegistry::new();
+        let id = reg.register(IntersectionObserverInit::default()).unwrap();
+        reg.observe(&mut dom, id, el);
+
+        // Target right edge at x=100; root left edge at x=100 → 0-width overlap.
+        let target = Rect::new(0.0, 0.0, 100.0, 50.0);
+        let root = Rect::new(100.0, 0.0, 100.0, 50.0);
+        let observations = reg.gather_observations(&mut dom, &|_, _| Some(target), root);
+
+        assert_eq!(observations.len(), 1);
+        let entry = &observations[0].1[0];
+        assert!(
+            entry.is_intersecting,
+            "edge-adjacent target must report isIntersecting=true"
+        );
+        assert!(
+            (entry.intersection_ratio - 0.0).abs() < 0.001,
+            "edge-adjacent target ratio = 0 (zero-area overlap / positive-area target)"
+        );
+    }
+
+    #[test]
+    fn zero_area_target_inside_root_reports_ratio_one() {
+        // IO §3.7: a zero-area target (e.g. an empty scroll sentinel) that
+        // sits inside the root reports ratio = 1.0, not 0/0 = NaN/0.
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+        let mut reg = IntersectionObserverRegistry::new();
+        let id = reg.register(IntersectionObserverInit::default()).unwrap();
+        reg.observe(&mut dom, id, el);
+
+        let target = Rect::new(50.0, 25.0, 0.0, 0.0); // zero-area point inside root
+        let root = Rect::new(0.0, 0.0, 100.0, 50.0);
+        let observations = reg.gather_observations(&mut dom, &|_, _| Some(target), root);
+
+        assert_eq!(observations.len(), 1);
+        let entry = &observations[0].1[0];
+        assert!(
+            entry.is_intersecting,
+            "zero-area target inside root intersects"
+        );
+        assert!(
+            (entry.intersection_ratio - 1.0).abs() < 0.001,
+            "zero-area target inside root: ratio = 1.0 per spec"
+        );
+    }
+
+    #[test]
+    fn zero_area_target_outside_root_reports_ratio_zero() {
+        // IO §3.7 complement: a zero-area target outside the root is
+        // not intersecting and reports ratio = 0.
+        let mut dom = EcsDom::new();
+        let el = elem(&mut dom, "div");
+        let mut reg = IntersectionObserverRegistry::new();
+        let id = reg.register(IntersectionObserverInit::default()).unwrap();
+        reg.observe(&mut dom, id, el);
+
+        let target = Rect::new(200.0, 200.0, 0.0, 0.0); // zero-area point outside root
+        let root = Rect::new(0.0, 0.0, 100.0, 50.0);
+        let observations = reg.gather_observations(&mut dom, &|_, _| Some(target), root);
+
+        // No crossing — ratio stays 0 and the entry isn't emitted on the
+        // first gather (initial broadcast only fires when box-less, see
+        // sibling test).  The behaviour we pin: gather doesn't panic and
+        // no spurious intersecting=true entry surfaces.
+        assert!(
+            observations
+                .iter()
+                .all(|(_, entries)| entries.iter().all(|e| !e.is_intersecting)),
+            "zero-area target outside root must not report intersecting"
+        );
     }
 
     #[test]
