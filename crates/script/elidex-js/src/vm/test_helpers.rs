@@ -163,7 +163,9 @@ pub fn set_layout_box(vm: &mut crate::vm::Vm, entity: Entity, content: Rect) {
         content,
         ..LayoutBox::default()
     };
-    let _ = dom.world_mut().insert_one(entity, lb);
+    dom.world_mut()
+        .insert_one(entity, lb)
+        .expect("set_layout_box: failed to insert LayoutBox (entity despawned?)");
 }
 
 /// Evaluate `src` against `vm` and expect a string result, returning

@@ -207,16 +207,16 @@ pub(crate) fn deliver_to_observer_callbacks<F>(
         let observer_val = JsValue::Object(binding.instance);
         let mut observer_guard = vm.push_temp_root(observer_val);
         let mut records_guard = observer_guard.push_temp_root(records_arr);
-        let _ = records_guard
-            .call(binding.callback, observer_val, &[records_arr, observer_val])
-            .map_err(|err| {
-                // Embedder-side diagnostic channel is deferred to
-                // `#11-embedder-diagnostic-channel`; until then this
-                // matches the boa-side stderr report path so the
-                // four observer-family callsites (Mutation / Resize
-                // / Intersection / MediaQuery) stay consistent.
-                eprintln!("[JS Observer Error] {err:?}");
-            });
+        if let Err(err) =
+            records_guard.call(binding.callback, observer_val, &[records_arr, observer_val])
+        {
+            // Embedder-side diagnostic channel is deferred to
+            // `#11-embedder-diagnostic-channel`; until then this
+            // matches the boa-side stderr report path so the
+            // four observer-family callsites (Mutation / Resize
+            // / Intersection / MediaQuery) stay consistent.
+            eprintln!("[JS Observer Error] {err:?}");
+        }
         drop(records_guard);
         drop(observer_guard);
     }
