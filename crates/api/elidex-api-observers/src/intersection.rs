@@ -208,6 +208,24 @@ impl IntersectionObserverRegistry {
         self.observers.remove(&id);
     }
 
+    /// Scrub retained explicit-root `Entity` references in every
+    /// registered observer's [`IntersectionObserverInit::root`], reverting
+    /// them to `None` (implicit viewport).  Called by the embedder at
+    /// `Vm::unbind` time so a retained `IntersectionObserver` from the
+    /// previous DOM does not alias an unrelated entity in the rebound
+    /// `EcsDom`'s recycled index space (entity index spaces are shared
+    /// across `EcsDom::new()` worlds — see `Vm::unbind`'s wrapper-store
+    /// retain).  The slot eventually subsumed by the world_id
+    /// discriminator (`#11-wrapper-cache-cross-dom-discriminator`);
+    /// until then this scrub mirrors the per-site pattern used by
+    /// `MutationObserverRegistry::clear_pending_records` and the
+    /// listener-store retain in `HostData`.
+    pub fn clear_root_entities(&mut self) {
+        for reg in self.observers.values_mut() {
+            reg.init.root = None;
+        }
+    }
+
     /// Gather intersection observations by computing intersection ratios
     /// (Intersection Observer §3.2.8 "Run the Update Intersection Observations
     /// Steps").
@@ -598,6 +616,50 @@ mod tests {
                 .iter()
                 .all(|(_, entries)| entries.iter().all(|e| !e.is_intersecting)),
             "zero-area target outside root must not report intersecting"
+        );
+    }
+
+    #[test]
+    fn clear_root_entities_scrubs_explicit_roots_only() {
+        // Vm::unbind hook: retained `IntersectionObserverInit.root: Entity`
+        // would alias an unrelated entity in the rebound DOM (worlds share
+        // index space).  `clear_root_entities` reverts those to `None`
+        // (implicit viewport) without touching the rest of the config.
+        let mut dom = EcsDom::new();
+        let explicit_root = elem(&mut dom, "div");
+
+        let mut reg = IntersectionObserverRegistry::new();
+        let explicit_id = reg
+            .register(IntersectionObserverInit {
+                root: Some(explicit_root),
+                threshold: vec![0.5],
+                ..Default::default()
+            })
+            .unwrap();
+        let implicit_id = reg
+            .register(IntersectionObserverInit {
+                root: None,
+                threshold: vec![0.5],
+                ..Default::default()
+            })
+            .unwrap();
+
+        reg.clear_root_entities();
+
+        assert_eq!(
+            reg.observers.get(&explicit_id).unwrap().init.root,
+            None,
+            "explicit root scrubbed to None"
+        );
+        assert_eq!(
+            reg.observers.get(&implicit_id).unwrap().init.root,
+            None,
+            "implicit-None preserved"
+        );
+        // Threshold (non-Entity config) is left untouched.
+        assert_eq!(
+            reg.observers.get(&explicit_id).unwrap().init.threshold,
+            vec![0.5]
         );
     }
 

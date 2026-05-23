@@ -596,8 +596,25 @@ impl Vm {
             // rooted until the VM drops); cleanup belongs to a future
             // weak-rooting design tracked in
             // `#11-mutation-observer-extras`.
+            //
+            // Internal-config `Entity` references inside each registry
+            // ARE cross-DOM-aliasing risks though: `IntersectionObserverInit
+            // .root: Option<Entity>` lives on the retained
+            // `RegisteredObserver`, so a script that constructs
+            // `new IntersectionObserver(cb, { root: X })`, survives an
+            // `unbind` (e.g. via global retention), and observes again
+            // after rebind would otherwise have `root` point at a recycled
+            // entity in the new world.  Scrub here to `None` (implicit
+            // viewport) — same defensive pattern as
+            // `clear_pending_records`.  Resize / Mutation registries
+            // store target references as per-entity components, which
+            // drop automatically on entity despawn (no scrub needed).
+            // The world_id discriminator
+            // (`#11-wrapper-cache-cross-dom-discriminator`) will
+            // eventually subsume this.
             if let Some(hd) = self.inner.host_data.as_deref_mut() {
                 hd.mutation_observers.clear_pending_records();
+                hd.intersection_observers.clear_root_entities();
             }
             // (The Attr identity cache — keyed by `(Entity, StringId)`,
             // same cross-DOM aliasing risk — is cleared by the unified
