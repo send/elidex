@@ -711,7 +711,7 @@ impl Vm {
     /// once per layout/paint cycle so callbacks fire as part of the
     /// "broadcast" step.  Unlike `deliver_mutation_records`, no input
     /// list is needed: the observation algorithm runs inside the
-    /// engine-indep
+    /// engine-independent
     /// [`elidex_api_observers::resize::ResizeObserverRegistry::gather_observations`]
     /// against the bound `EcsDom`'s current `LayoutBox` components.
     ///
