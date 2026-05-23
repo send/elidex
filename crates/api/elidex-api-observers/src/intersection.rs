@@ -493,11 +493,20 @@ fn apply_root_margin(root: Rect, margin: &[MarginComponent; 4]) -> Rect {
     let right = margin[1].resolve(root.size.width);
     let bottom = margin[2].resolve(root.size.height);
     let left = margin[3].resolve(root.size.width);
+    // Negative `rootMargin` is spec-allowed (shrinks the root rect);
+    // when the shrink exceeds the root dimension (e.g. `rootMargin:
+    // '-100px'` on a 50px root) the naive expansion would yield a
+    // negative width/height.  Clamp to 0 — downstream
+    // `Rect::intersection_inclusive` assumes `right() = origin.x +
+    // width` with non-negative width, and a negative-sized rect
+    // would yield incorrect intersection geometry.  A fully
+    // shrunk-away root reduces to an empty rect at the shrunk
+    // origin, which then never intersects any positive-area target.
     Rect::new(
         root.origin.x - left,
         root.origin.y - top,
-        root.size.width + left + right,
-        root.size.height + top + bottom,
+        (root.size.width + left + right).max(0.0),
+        (root.size.height + top + bottom).max(0.0),
     )
 }
 
@@ -616,6 +625,26 @@ mod tests {
                 .iter()
                 .all(|(_, entries)| entries.iter().all(|e| !e.is_intersecting)),
             "zero-area target outside root must not report intersecting"
+        );
+    }
+
+    #[test]
+    fn apply_root_margin_clamps_oversized_negative_margin_to_empty() {
+        // IO §3.6 (legacy `rootMargin`): negative margins shrink the
+        // root rect; a shrink larger than the dimension must collapse
+        // to 0, not produce a negative-sized rect (which would corrupt
+        // downstream `Rect::intersection_inclusive`).
+        let root = Rect::new(0.0, 0.0, 50.0, 50.0);
+        let neg = MarginComponent::Px(-100.0);
+        let margin = [neg, neg, neg, neg]; // top/right/bottom/left = -100px
+        let out = apply_root_margin(root, &margin);
+        assert_eq!(
+            out.size.width, 0.0,
+            "oversized negative rootMargin must clamp width to 0"
+        );
+        assert_eq!(
+            out.size.height, 0.0,
+            "oversized negative rootMargin must clamp height to 0"
         );
     }
 
