@@ -328,6 +328,13 @@ def main() -> None:
     args = build_parser().parse_args()
     try:
         args.func(args)
+    except NotFound as e:
+        # Centralized: subcommands that use fetch_json (no level fallback) let
+        # NotFound bubble; convert here to a clean CLI exit instead of a Python
+        # traceback for typo / unknown shortname.
+        sys.exit(f"webref: fetch failed: {e}")
+    except json.JSONDecodeError as e:
+        sys.exit(f"webref: invalid JSON from upstream: {e}")
     except KeyboardInterrupt:
         sys.exit(130)
     except BrokenPipeError:
