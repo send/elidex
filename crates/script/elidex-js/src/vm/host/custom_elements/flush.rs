@@ -175,14 +175,32 @@ fn invoke_callback(
     // Resolve `constructor.prototype.<callback_sid>` — present iff the
     // CE class defines the lifecycle method.
     let proto_key = PropertyKey::String(ctx.vm.well_known.prototype);
-    let Ok(JsValue::Object(proto_value)) = ctx.vm.get_property_value(constructor, proto_key) else {
+    let proto_value = match ctx.vm.get_property_value(constructor, proto_key) {
+        Ok(v) => v,
+        Err(err) => {
+            // Throwing prototype accessor / proxy `get` trap — report
+            // via the same eprintln/Window.onerror path as runtime
+            // callback throws below.
+            eprintln!("[CE Callback Error] {}", err.message);
+            return;
+        }
+    };
+    let JsValue::Object(proto_obj) = proto_value else {
+        // Non-Object constructor.prototype — TypeError per
+        // HTML §4.13.5 (upgrade requires constructor.prototype to be
+        // an object). Lifecycle dispatch can't proceed.
+        eprintln!("[CE Callback Error] constructor.prototype is not an object");
         return;
     };
-    let Ok(cb_value) = ctx
+    let cb_value = match ctx
         .vm
-        .get_property_value(proto_value, PropertyKey::String(callback_sid))
-    else {
-        return;
+        .get_property_value(proto_obj, PropertyKey::String(callback_sid))
+    {
+        Ok(v) => v,
+        Err(err) => {
+            eprintln!("[CE Callback Error] {}", err.message);
+            return;
+        }
     };
     let JsValue::Object(cb_id) = cb_value else {
         // Non-object lifecycle property (e.g. `connectedCallback = 1`)

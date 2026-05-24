@@ -58,10 +58,10 @@ pub(crate) fn native_ce_when_defined(
         return Ok(JsValue::Object(promise));
     }
 
-    let name = match args.first().copied() {
-        Some(value) => coerce_to_string(ctx, value)?,
-        None => String::new(),
-    };
+    // WebIDL DOMString: missing arg → `undefined` → ToString gives
+    // "undefined". Avoids the special-case empty-string default and
+    // gives the rejected SyntaxError a more useful identifier.
+    let name = coerce_to_string(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
 
     // Invalid-name path returns a rejected Promise per HTML §4.13.4
     // step 2 — the spec uses a SyntaxError DOMException, not a
@@ -138,18 +138,21 @@ pub(crate) fn native_ce_upgrade(
     let mut candidates: Vec<elidex_ecs::Entity> = Vec::new();
     {
         let host = ctx.host();
-        let registry_arc = std::sync::Arc::clone(&host.ce_registry);
+        // Snapshot the defined-name set once so the per-descendant
+        // closure can do O(1) HashSet::contains instead of locking
+        // `ce_registry` per visited entity. On 1000-element subtrees
+        // this drops 1000 lock/unlocks to 1.
+        let defined: std::collections::HashSet<String> = {
+            let registry = host.ce_registry.lock().expect("CE registry mutex poisoned");
+            registry.names().map(str::to_owned).collect()
+        };
         let dom = host.dom_shared();
         dom.for_each_shadow_inclusive_descendant(root_entity, &mut |e| {
             if let Ok(state) = dom.world().get::<&CustomElementState>(e) {
-                if matches!(state.state, CEState::Undefined) {
-                    // Only enqueue if the definition is registered —
-                    // pure Undefined-with-no-definition entities stay
-                    // pending until the matching `define()` lands.
-                    let registry = registry_arc.lock().expect("CE registry mutex poisoned");
-                    if registry.is_defined(&state.definition_name) {
-                        candidates.push(e);
-                    }
+                if matches!(state.state, CEState::Undefined)
+                    && defined.contains(&state.definition_name)
+                {
+                    candidates.push(e);
                 }
             }
         });

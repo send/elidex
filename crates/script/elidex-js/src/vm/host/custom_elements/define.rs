@@ -36,10 +36,14 @@ pub(crate) fn native_ce_define(
     //    coercion.
     let name = coerce_to_string(ctx, args[0])?;
 
-    // 2. Validate constructor is a callable construct-able object per
-    //    WebIDL CustomElementConstructor (§4.13.4).
+    // 2. Validate constructor has [[Construct]] per WebIDL
+    //    `CustomElementConstructor` (HTML §4.13.4). Routed via the
+    //    project-wide `IsConstructor` abstract-op helper so arrow
+    //    functions / `Function.prototype.bind` of non-ctor targets /
+    //    Promise resolver objects / generator functions all reject
+    //    here (callable ≠ constructable).
     let ctor_id = match args[1] {
-        JsValue::Object(id) if ctx.vm.get_object(id).kind.is_callable() => id,
+        JsValue::Object(id) if super::super::super::object_kind::is_constructor(ctx.vm, id) => id,
         _ => {
             return Err(VmError::type_error(
                 "Failed to execute 'define' on 'CustomElementRegistry': \

@@ -35,7 +35,7 @@ fn run(script: &str) -> String {
     let JsValue::String(sid) = result else {
         panic!("expected string, got {result:?}")
     };
-    let out = vm.inner.strings.get_utf8(sid).clone();
+    let out = vm.inner.strings.get_utf8(sid);
     vm.unbind();
     out
 }
@@ -73,7 +73,7 @@ fn run_then_read(setup: &str, read_expr: &str) -> String {
     let JsValue::String(sid) = result else {
         panic!("expected string from read, got {result:?}")
     };
-    let out = vm.inner.strings.get_utf8(sid).clone();
+    let out = vm.inner.strings.get_utf8(sid);
     vm.unbind();
     out
 }
@@ -159,6 +159,19 @@ fn define_non_constructor_throws() {
     assert!(
         err.contains("not a constructor"),
         "expected non-constructor TypeError, got: {err}"
+    );
+}
+
+#[test]
+fn define_arrow_function_throws_not_constructor() {
+    // Arrow functions are callable but NOT constructable per ES2020
+    // §9.2.1 [[Construct]] — WebIDL CustomElementConstructor requires
+    // [[Construct]], so arrow functions must be rejected here.
+    // (Copilot R2 #1: prior `is_callable` accepted them.)
+    let err = run_throws("customElements.define('my-el', () => {});");
+    assert!(
+        err.contains("not a constructor"),
+        "expected arrow function to be rejected as non-constructor, got: {err}"
     );
 }
 
@@ -437,7 +450,7 @@ fn within_tree_move_fires_both_disconnected_and_connected() {
     let JsValue::String(sid) = result else {
         panic!("expected string");
     };
-    let out = vm.inner.strings.get_utf8(sid).clone();
+    let out = vm.inner.strings.get_utf8(sid);
     vm.unbind();
     assert_eq!(
         out, "D,C",
@@ -596,7 +609,7 @@ fn insert_before_move_fires_both_disconnected_and_connected() {
     let JsValue::String(sid) = vm.eval("globalThis.__log.join(',');").expect("read failed") else {
         panic!("expected string");
     };
-    let out = vm.inner.strings.get_utf8(sid).clone();
+    let out = vm.inner.strings.get_utf8(sid);
     vm.unbind();
     assert_eq!(
         out, "D,C",
@@ -640,7 +653,7 @@ fn replace_child_fires_disconnected_for_replaced_element() {
     let JsValue::String(sid) = vm.eval("globalThis.__log.join(',');").expect("read failed") else {
         panic!("expected string");
     };
-    let out = vm.inner.strings.get_utf8(sid).clone();
+    let out = vm.inner.strings.get_utf8(sid);
     vm.unbind();
     // oldEl was instance 1 (sync upgrade at createElement); newEl is
     // instance 2 (sync upgrade at createElement). replaceChild fires

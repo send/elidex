@@ -75,6 +75,15 @@ impl CustomElementRegistry {
         self.definitions.contains_key(name)
     }
 
+    /// Iterate the registered custom element names. Caller-owned
+    /// snapshot use case: `customElements.upgrade(root)`'s shadow-
+    /// inclusive walk snapshots the name set once before the walk so
+    /// the closure can do O(1) `HashSet::contains` instead of locking
+    /// the registry mutex per descendant.
+    pub fn names(&self) -> impl Iterator<Item = &str> {
+        self.definitions.keys().map(String::as_str)
+    }
+
     /// Queue an entity for upgrade when the definition becomes available.
     ///
     /// Called when an element with a custom element name is created before
