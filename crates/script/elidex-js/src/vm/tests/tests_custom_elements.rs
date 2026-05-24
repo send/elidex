@@ -418,7 +418,7 @@ fn customelements_ctor_returning_different_object_marks_failed() {
     // swallowed at the upgrade-flush boundary (Window.onerror path);
     // the Failed state is observable via subsequent setAttribute on an
     // observed attribute NOT firing attributeChangedCallback (callback
-    // gating per HTML §4.13.3 requires CEState::Custom).
+    // gating per HTML §4.13.6 requires CEState::Custom).
     let out = run_then_read(
         "globalThis.__ctor_attempts = 0; \
          globalThis.__cb_attempts = 0; \

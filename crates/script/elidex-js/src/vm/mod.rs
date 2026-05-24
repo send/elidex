@@ -473,7 +473,7 @@ pub(crate) struct VmInner {
     /// `item` method.
     #[cfg(feature = "engine")]
     pub(crate) style_sheet_list_prototype: Option<ObjectId>,
-    /// `MutationObserver.prototype` (WHATWG DOM §4.3).  Chains to
+    /// `MutationObserver.prototype` (WHATWG DOM §4.3.1).  Chains to
     /// `Object.prototype` and carries the `observe` / `disconnect` /
     /// `takeRecords` methods.  `None` until
     /// `register_mutation_observer_global()` runs during

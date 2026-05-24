@@ -109,7 +109,7 @@ pub(crate) fn convert_fragment_children(
     created
 }
 
-/// HTML §4.13.3 declarative shadow DOM hook.
+/// HTML §4.12.3 `<template shadowrootmode>` declarative shadow DOM hook.
 ///
 /// When the parser encounters a `<template shadowrootmode="open|closed">`
 /// child of `parent`, attach a shadow root to `parent` and route the
@@ -183,7 +183,7 @@ fn try_attach_declarative_shadow(
         clonable,
         serializable,
     };
-    // Spec §4.13.3 silently leaves the template as a normal element when
+    // Spec §4.12.3 silently leaves the template as a normal element when
     // attach fails (e.g. parent tag not allowlisted, or parent already has
     // a shadow root from an earlier declarative template). Returning false
     // routes the caller into the standard element-creation path.
@@ -237,7 +237,7 @@ fn convert_node(handle: &Handle, dom: &mut EcsDom, opts: ParseFragmentOptions) -
                 .ok()
                 .and_then(|a| a.get("is").map(String::from))
             {
-                // Customized built-in element via `is` attribute (WHATWG HTML §4.13.3).
+                // Customized built-in element via `is` attribute (WHATWG HTML §4.13.5 upgrade).
                 if elidex_custom_elements::is_valid_custom_element_name(&is_value) {
                     let ce_state = elidex_custom_elements::CustomElementState::undefined(&is_value);
                     let _ = dom.world_mut().insert_one(entity, ce_state);

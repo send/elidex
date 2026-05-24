@@ -10,7 +10,7 @@ use elidex_ecs::Entity;
 /// A custom element lifecycle reaction to be processed at the next checkpoint.
 ///
 /// Reactions are queued during DOM operations and drained by the JS runtime
-/// at specific checkpoints per WHATWG HTML §4.13.3.
+/// at specific checkpoints per WHATWG HTML §4.13.6.
 #[derive(Clone, Debug)]
 pub enum CustomElementReaction {
     /// Element was inserted into a connected tree (`connectedCallback`).

@@ -175,7 +175,7 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                         });
                     }
 
-                    // Set the `is` attribute on the element per WHATWG spec §4.13.3.
+                    // Set the `is` attribute on the element per WHATWG HTML §4.13.5 upgrade.
                     if let Some(ref is_name) = is_value {
                         bridge.with(|_session, dom| {
                             if let Ok(mut attrs) =

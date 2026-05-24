@@ -45,7 +45,7 @@ pub struct IntersectionObserverInit {
     pub threshold: Vec<f64>,
 }
 
-/// An intersection observation entry (Intersection Observer §3.4).
+/// An intersection observation entry (Intersection Observer §3.2 algorithms).
 #[derive(Debug, Clone)]
 pub struct IntersectionObserverEntry {
     /// The observed element.
@@ -125,7 +125,7 @@ impl IntersectionObserverRegistry {
         mut init: IntersectionObserverInit,
     ) -> Result<IntersectionObserverId, RootMarginParseError> {
         let parsed_root_margin = parse_root_margin(&init.root_margin)?;
-        // Canonicalise threshold here (spec §3.1: "If options.threshold
+        // Canonicalise threshold here (spec §2.4: "If options.threshold
         // is not present, set it to [0]") so `gather_observations`'s
         // hot path can use the slice unconditionally — the host-side
         // constructor and any crate-only caller (test harness, future

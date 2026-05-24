@@ -180,7 +180,7 @@ fn intersection_observer_root_margin_invalid_unit_throws_syntax_error() {
 
 #[test]
 fn intersection_observer_threshold_accepts_single_number_or_sequence() {
-    // Spec §3.1 accepts `double` or `sequence<double>` — the parser
+    // Spec §2.4 accepts `double` or `sequence<double>` — the parser
     // routes through `webidl_iter_to_vec` (the WebIDL §3.10.16
     // sequence helper, already merged as #11-webidl-sequence-helper-extraction
     // / #202), so `Array.prototype[@@iterator]` overrides and other
@@ -385,7 +385,7 @@ fn intersection_observer_threshold_string_coerces_to_double() {
 
 #[test]
 fn intersection_observer_reobserve_after_disconnect() {
-    // W3C Intersection Observer §3.3: `disconnect()` stops observing
+    // W3C Intersection Observer §2.2: `disconnect()` stops observing
     // all targets but the observer stays usable.  Re-observe must
     // re-arm delivery — regression guard against eagerly removing
     // callback / instance maps on disconnect.

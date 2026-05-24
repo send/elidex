@@ -133,7 +133,7 @@ pub(crate) fn native_ce_define(
     resolve_when_defined(ctx, &name, ctor_id);
 
     // 9. Flush queued reactions (Upgrades for the just-defined name
-    //    fire synchronously per HTML §4.13.4 step 16 + §4.13.3 — the
+    //    fire synchronously per HTML §4.13.4 step 16 + §4.13.6 — the
     //    spec gates the entire define() body inside a CE reactions
     //    stack frame).
     ctx.vm.flush_ce_reactions();

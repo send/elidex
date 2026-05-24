@@ -271,7 +271,7 @@ fn native_intersection_observer_disconnect(
     }
     let (dom, observers) = ctx.host().split_dom_mut_and_intersection_observers();
     observers.disconnect(dom, id);
-    // `disconnect()` per W3C Intersection Observer §3.3 only stops
+    // `disconnect()` per W3C Intersection Observer §2.2 only stops
     // observing all targets; the observer stays usable.  Callback /
     // instance maps are NOT removed — same rationale as
     // `ResizeObserver::disconnect`.
@@ -517,7 +517,7 @@ impl VmInner {
 }
 
 /// Marshal one [`elidex_api_observers::intersection::IntersectionObserverEntry`]
-/// (W3C Intersection Observer §3.4 `IntersectionObserverEntry`) to a JS Object
+/// (W3C Intersection Observer §2.3 `IntersectionObserverEntry`) to a JS Object
 /// with `target`, `time`, `boundingClientRect`, `intersectionRect`,
 /// `rootBounds`, `intersectionRatio`, and `isIntersecting` members.  Mirrors
 /// the per-record temp-root discipline of `mutation_record_to_js`: the

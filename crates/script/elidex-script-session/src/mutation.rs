@@ -14,8 +14,8 @@ use elidex_ecs::{Attributes, EcsDom, Entity, InlineStyle, TextContent};
 #[derive(Default, Clone, Copy, Debug)]
 pub struct SetInnerHtmlOptions {
     /// When true, `<template shadowrootmode="open|closed">` children
-    /// attach as a shadow root on the parent host (per HTML §4.13.3
-    /// declarative shadow DOM algorithm). When false (the default,
+    /// attach as a shadow root on the parent host (per HTML §4.12.3
+    /// `<template shadowrootmode>` declarative shadow DOM algorithm). When false (the default,
     /// matching plain `innerHTML` semantics), the templates are left
     /// as ordinary `<template>` elements.
     pub allow_declarative_shadow: bool,
@@ -404,7 +404,7 @@ fn apply_remove_inline_style(
 /// The single `opts` parameter selects between the two JS-visible APIs:
 /// `opts.allow_declarative_shadow = false` (the default) implements
 /// `innerHTML`, while `true` implements `setHTMLUnsafe` (which honours
-/// `<template shadowrootmode>` markup per HTML §4.13.3).
+/// `<template shadowrootmode>` markup per HTML §4.12.3).
 ///
 /// `pub` so VM bindings can invoke the algorithm directly (CLAUDE.md
 /// layering mandate — DOM mutation logic lives engine-indep, not in

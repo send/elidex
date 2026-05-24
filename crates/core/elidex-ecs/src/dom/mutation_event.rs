@@ -155,7 +155,7 @@ pub enum MutationEvent<'a> {
     ///   captured by the dispatcher at the engine fire site prior to
     ///   the `detach` call (so the `get_parent` walk still reaches
     ///   the document root). Per WHATWG DOM §4.4 "connected" and HTML
-    ///   §4.13.3 Custom Element `disconnectedCallback` fires ONLY on
+    ///   §4.13.6 Custom Element `disconnectedCallback` fires ONLY on
     ///   the connected → disconnected transition. Consumers that
     ///   don't need transition tracking ignore the field via the `..`
     ///   destructure.
