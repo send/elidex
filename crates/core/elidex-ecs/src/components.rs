@@ -434,7 +434,7 @@ pub enum NodeKind {
     /// have many. Such entities carry no `TreeRelation` and never participate in
     /// tree traversal.
     Worker,
-    /// `OffscreenCanvas` object (WHATWG HTML §4.12.5.1.7 "The OffscreenCanvas
+    /// `OffscreenCanvas` object (WHATWG HTML §4.12.5.3 "The OffscreenCanvas
     /// interface").
     ///
     /// Like [`NodeKind::Window`] and [`NodeKind::Worker`], this is not a Node

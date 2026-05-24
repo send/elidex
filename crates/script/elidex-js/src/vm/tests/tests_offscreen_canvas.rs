@@ -1,5 +1,5 @@
 //! Slot `#11-offscreen-canvas-vm` — `OffscreenCanvas` + `OffscreenCanvasRenderingContext2D` +
-//! `convertToBlob` + `transferControlToOffscreen` coverage (HTML §4.12.5.1.7).
+//! `convertToBlob` + `transferControlToOffscreen` coverage (HTML §4.12.5.3 / §4.12.5.3.1).
 //! Main-thread side only; worker-side transferable receipt is deferred.
 
 #![cfg(feature = "engine")]
@@ -346,7 +346,7 @@ fn convert_to_blob_type_with_mime_params_maps_essence() {
 #[test]
 fn convert_to_blob_before_get_context_rejects_invalid_state_error() {
     // No `getContext('2d')` was called — context mode is set to none — per
-    // HTML §4.12.5.1.7 convertToBlob "If this OffscreenCanvas object's
+    // HTML §4.12.5.3 convertToBlob "If this OffscreenCanvas object's
     // context mode is set to none" the Promise rejects with InvalidStateError.
     with_vm(|vm| {
         assert_eq!(
@@ -364,7 +364,7 @@ fn convert_to_blob_before_get_context_rejects_invalid_state_error() {
 
 #[test]
 fn convert_to_blob_zero_dim_rejects_index_size_error() {
-    // HTML §4.12.5.1.7 convertToBlob "If this OffscreenCanvas object's bitmap
+    // HTML §4.12.5.3 convertToBlob "If this OffscreenCanvas object's bitmap
     // has no pixels (i.e. either its horizontal dimension or its vertical
     // dimension is zero) then return a promise rejected with an
     // IndexSizeError DOMException." — exercised on width=0 and height=0.

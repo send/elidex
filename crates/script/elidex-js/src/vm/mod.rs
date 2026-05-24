@@ -697,14 +697,14 @@ pub(crate) struct VmInner {
     /// rooted in `gc::collect`.
     #[cfg(feature = "engine")]
     pub(crate) image_data_prototype: Option<ObjectId>,
-    /// `OffscreenCanvas.prototype` (HTML §4.12.5.1.7).  Chains
+    /// `OffscreenCanvas.prototype` (HTML §4.12.5.3).  Chains
     /// `EventTarget.prototype` (OC is an EventTarget but not a Node).
     /// Looked up per `new OffscreenCanvas(w, h)` and per
     /// `transferControlToOffscreen` (host wraps the spawned OC entity),
     /// so rooted in `gc::collect`.
     #[cfg(feature = "engine")]
     pub(crate) offscreen_canvas_prototype: Option<ObjectId>,
-    /// `OffscreenCanvasRenderingContext2D.prototype` (HTML §4.12.5.1.7,
+    /// `OffscreenCanvasRenderingContext2D.prototype` (HTML §4.12.5.3.1,
     /// same surface as §4.12.5.1).  Read on every `oc.getContext('2d')`
     /// to seed the context wrapper's prototype, so rooted in
     /// `gc::collect`.

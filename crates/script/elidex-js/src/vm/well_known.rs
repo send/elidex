@@ -739,7 +739,8 @@ define_well_known_strings! {
         dom_exc_no_modification_allowed_error => "NoModificationAllowedError",
         // Added with D-24 `#11-offscreen-canvas-vm`: `convertToBlob`
         // step 6.2.1 — encoder failure rejects with EncodingError per
-        // WHATWG HTML §4.12.5.1.7 "serialize a bitmap to a file". Modern
+        // WHATWG HTML §4.12.5.5 "serialize a bitmap to a file" (invoked
+        // from §4.12.5.3 `convertToBlob`). Modern
         // DOMException name (no legacy code → `.code === 0`, so not
         // added to `legacy_code_for_name` in dom_exception.rs).
         dom_exc_encoding_error => "EncodingError",

@@ -305,7 +305,7 @@ impl VmInner {
             self.register_image_data_global();
 
             // OffscreenCanvas + OffscreenCanvasRenderingContext2D (slot
-            // `#11-offscreen-canvas-vm`, HTML §4.12.5.1.7). Main-thread side
+            // `#11-offscreen-canvas-vm`, HTML §4.12.5.3 / §4.12.5.3.1). Main-thread side
             // only — worker-side transferable receipt is deferred.
             self.register_offscreen_canvas_global();
             self.register_offscreen_canvas_rendering_context_2d_prototype();
