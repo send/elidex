@@ -141,17 +141,29 @@ Agent prompt は「Read axes.md Axis N → apply `Detect` の `[diff]`/`[plan]`/
 
 ### Verification recipe (webref)
 
-Section number / title / anchor / WebIDL の確認は `.claude/tools/webref` (w3c/webref machine-readable extracts を引く) で行う。WebFetch で spec HTML を取りに行くと長文 truncate されるため citation 整合確認には不向き — webref は per-spec の小さい JSON / IDL 単位なので 1 fetch + grep が安定して効く。
+Section number / title / anchor / WebIDL / AO の確認は `.claude/tools/webref` を使う。Data source 自動切替: WHATWG/W3C は w3c/webref machine-readable extracts、tc39 (ECMA-262 / ECMA-402) は `@tc39/<spec>-biblio` (tc39 公式 publish の machine-readable JSON、jsdelivr CDN 経由)。WebFetch で spec HTML を取りに行くと長文 truncate されるため citation 整合確認には不向き — webref / biblio は per-spec の構造化 JSON / IDL 単位なので 1 fetch + filter で決定的に効く。
 
 Subcommand (詳細 = `.claude/tools/webref --help`):
 
-- `heading <spec> <number-prefix>` — section number → title + anchor (citation 整合確認の主力)
+- `heading <spec> <number-prefix>` — section number → title + anchor (citation 整合確認の主力)。`<spec>` は WHATWG/W3C shortname (`html` / `dom` / `geometry-1` …) または tc39 shortname (`ecma262` / `ecma402`)
   ```bash
   .claude/tools/webref heading html 4.13.4
   # → §4.13.4 The CustomElementRegistry interface #custom-elements-api
   # (well-known 風 cite「§4.13.4 = upgrade queue」は誤 — §4.13.5 Upgrades が正)
+
+  .claude/tools/webref heading ecma262 14.7.5.9
+  # → §14.7.5.9 EnumerateObjectProperties ( obj )  https://tc39.es/ecma262/#sec-enumerate-object-properties
+  # (well-known 風 cite「§14.7.5.9 .return() per abrupt completion」は誤 —
+  #  実体は EnumerateObjectProperties; ES 改版で section 番号 shift)
   ```
-- `dfn <spec> <term>` — concept dfn → 包含 §heading + anchor (exact 失敗時 substring fallback)。**term-based citation の正規 anchor 確認に最強**
+- `aoid <spec> <name>` — **(tc39 専用)** abstract operation 名 → §number + anchor + signature kind。biblio の `op` / `clause` / `built-in function` / `concrete method` entries を `aoid` field で照合、anchor 経由で clause に cross-ref して §number と title を引く。**ECMA-262 cite を書く時は `aoid` を主、`heading` を従** — AO 名は版間で安定、section 番号は不安定
+  ```bash
+  .claude/tools/webref aoid ecma262 ToNumber
+  # → ToNumber §7.1.4 ToNumber ( argument ) (abstract operation) ...#sec-tonumber
+  .claude/tools/webref aoid ecma262 OrdinaryGet
+  # → OrdinaryGet §10.1.8.1 OrdinaryGet ( obj, propertyKey, receiver ) (abstract operation)
+  ```
+- `dfn <spec> <term>` — concept dfn → 包含 §heading + anchor (exact 失敗時 substring fallback)。**term-based citation の正規 anchor 確認に最強** (WHATWG/W3C 専用; tc39 biblio にも `type=term` entry が 385 件あるが現 helper は未公開、必要時に拡張)
   ```bash
   .claude/tools/webref dfn html 'reaction queue'
   # → 'custom element reaction queue' → §4.13.6 Custom element reactions
@@ -162,17 +174,22 @@ Subcommand (詳細 = `.claude/tools/webref --help`):
   ```
 - `element <spec> <tag>` — HTML/SVG element → 対応 interface 名 + href (`<canvas>` → `HTMLCanvasElement`)
 - `css <spec> <name>` — CSS property / @rule / selector / value の metadata (value syntax / initial / inherited / appliesTo / computedValue / `styleDeclaration` IDL 名 等)。CSS plugin crate 新 property 着手時の正規定義引き
-- `specs <keyword>` — spec catalog 検索 (shortname 不明時)
+- `specs <keyword>` — spec catalog 検索 (shortname 不明時、WHATWG/W3C のみ)
+
+**HTTP cache**: 全 fetch は `~/.cache/elidex-webref/` に ETag / Last-Modified ベース conditional GET 経由で保存される (930 KB biblio / WHATWG headings/dfns JSON を毎回再 download しない)。bypass は `ELIDEX_WEBREF_NO_CACHE=1`。
 
 **WebFetch との使い分け**:
-- **webref**: section number / title / anchor / IDL fragment / dfn — 決定論的、grep 可、全 spec 一発取得 (構造化 fact)
-- **WebFetch** (spec.whatwg.org/... の HTML 直): algorithm の step-by-step prose 自然文確認 (webref の `ed/algorithms/` でも近似可だが prose context は spec 直が読みやすい)
+- **webref**: section number / title / anchor / IDL fragment / dfn / AO (aoid) — 決定論的、grep 可、全 spec 一発取得 (構造化 fact)
+- **WebFetch** (spec.whatwg.org/... / tc39.es/ecma262/... の HTML 直): algorithm の step-by-step prose 自然文確認 (webref の `ed/algorithms/` でも近似可だが prose context は spec 直が読みやすい)
 
 ### Detect
 
 - `[both]` Spec citation が docstring (diff) / plan の新規 fn 説明 (plan) に無い
 - `[both]` 既 citation あっても section/step syntax (`§4.2.6 step 3.1`) が不正 / 一貫性無し
-- `[both]` Citation で section number ↔ title pair が並記される箇所 (例: `§4.13.4 upgrade queue` / `§4.12.5.1.7 OffscreenCanvas`) で、agent は **webref `heading <spec> <number>` を実行して number ↔ title 一致を確認**。不一致は **IMP** (例: D-17 で `§4.13.4 upgrade queue` は誤、§4.13.4 = "The CustomElementRegistry interface" / §4.13.5 = "Upgrades" — `feedback memo` `consumer_dispatcher.rs:75` の `reaction queue (HTML §4.13.3)` も §4.13.3 = "Core concepts" であって reaction queue 定義は §4.13.6 が候補 → suspect として flag)。**section number だけが書かれていて title が無い citation は対象外** (title-less cite は drift verifier がない)
+- `[both]` Citation で section number ↔ title pair が並記される箇所 (例: `§4.13.4 upgrade queue` / `§4.12.5.1.7 OffscreenCanvas` / `ECMA-262 §14.7.5.9 .return()`) で、agent は **webref `heading <spec> <number>` を実行して number ↔ title 一致を確認**。不一致は **IMP**:
+  - **WHATWG/W3C 例**: D-17 で `§4.13.4 upgrade queue` は誤、§4.13.4 = "The CustomElementRegistry interface" / §4.13.5 = "Upgrades" — `consumer_dispatcher.rs:75` の `reaction queue (HTML §4.13.3)` も §4.13.3 = "Core concepts" であって reaction queue 定義は §4.13.6 が候補 → suspect として flag
+  - **ECMA-262 例**: `tests_symbol_iter.rs:283` の `Per ECMA-262 §14.7.5.9, .return() is only called for abrupt completions` は誤、§14.7.5.9 = "EnumerateObjectProperties ( obj )" (ES 改版で section shift)。**ECMA-262 cite を見たら必ず `aoid <spec> <name>` で AO 名から番号を引き直す** (AO 名は版間で安定、番号は不安定)
+  - **section number だけが書かれていて title が無い citation は対象外** (title-less cite は drift verifier がない、ただし ECMA-262 で AO 名が文中にあれば aoid lookup で逆引き可能 — その場合は AO 名 → 期待番号 → 実 cite 番号で照合)
 - `[both]` "per WHATWG" / "per HTML" の prose だけで section 番号無し
 - `[both]` Algorithm 実装 (diff) / 実装計画 (plan) に WHATWG step-by-step reference 無く独自実装 (spec drift risk)
 - `[plan]` plan §"Docstring requirement" / §"Spec citation table" 欠落 (新規 fn × spec citation 対応表が plan 内に無いと implementation で抜け落ちる)

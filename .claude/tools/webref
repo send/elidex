@@ -8,22 +8,33 @@ property metadata against w3c/webref (machine-readable extracts of WHATWG /
 W3C specs). More reliable than WebFetch on spec HTML, which truncates on long
 documents — webref ships per-spec JSON / IDL that fits in one fetch + grep.
 
+For tc39 specs (ECMA-262 / ECMA-402) the source is the tc39-published
+biblio JSON (`@tc39/ecma262-biblio`, `@tc39/ecma402-biblio` on npm; served
+via jsdelivr CDN). One file per spec, 4500+ entries, carries `number` /
+`title` / `id` / `aoid` / `kind` / `signature` etc. — strictly better than
+scraping the rendered HTML. All upstream fetches share a single
+~/.cache/elidex-webref/ HTTP cache (ETag + Last-Modified).
+
 Subcommands:
   heading <spec> <number-prefix>   §number → title + anchor
   idl     <spec> <interface>       interface IDL fragment
   dfn     <spec> <term>            concept dfn → §heading + anchor
   element <spec> <element-name>    HTML/SVG element → interface name + href
   css     <spec> <name>            CSS property / @rule / selector / value metadata
+  aoid    <spec> <name>            (tc39) abstract operation aoid → §number + anchor
   specs   <keyword>                shortname lookup (by spec title)
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import re
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 BASE = "https://raw.githubusercontent.com/w3c/webref/main/ed"
 
@@ -39,30 +50,97 @@ Common shortnames:
   webcrypto    Web Cryptography API
   xhr          XMLHttpRequest LS
   webidl       Web IDL
+  ecma262      ECMAScript Language Specification (tc39, biblio.json)
+  ecma402      ECMAScript Internationalization API (tc39, biblio.json)
 
 Examples:
   .claude/tools/webref heading html 4.13                     # all §4.13.x sections
+  .claude/tools/webref heading ecma262 25.5.2                # §25.5.2 JSON.parse
+  .claude/tools/webref aoid ecma262 ToNumber                 # AO → §7.1.4 + anchor
   .claude/tools/webref dfn html 'reaction queue'             # term → §heading + anchor
   .claude/tools/webref idl html CustomElementRegistry
   .claude/tools/webref element html canvas                   # → HTMLCanvasElement
   .claude/tools/webref css css-overflow-3 overflow-x         # property metadata
   .claude/tools/webref specs canvas                          # shortname by keyword
+
+Cache: HTTP responses are cached in ~/.cache/elidex-webref/ with
+       ETag / Last-Modified conditional GET. Set ELIDEX_WEBREF_NO_CACHE=1
+       to bypass.
 """
 
 
 # ---------------------------------------------------------------------------
-# Fetching
+# Fetching (HTTP cache shared by webref + tc39 biblio paths)
 # ---------------------------------------------------------------------------
 
 class NotFound(Exception):
-    """Raised by fetch_bytes() on HTTP 404 so callers can attempt a fallback."""
+    """Raised by cached_fetch_url() on HTTP 404 so callers can attempt a fallback."""
 
 
-def fetch_bytes(path: str) -> bytes:
-    """GET BASE/path. Raises NotFound on 404, exits on other errors."""
-    url = f"{BASE}/{path}"
+def _cache_dir() -> Path:
+    base = os.environ.get("XDG_CACHE_HOME")
+    root = Path(base) if base else Path.home() / ".cache"
+    d = root / "elidex-webref"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def cached_fetch_url(url: str) -> bytes:
+    """GET `url` with conditional-GET caching.
+
+    Stores the response body alongside ETag / Last-Modified in
+    ~/.cache/elidex-webref/. On subsequent calls sends If-None-Match /
+    If-Modified-Since; on 304 returns the cached body. Set
+    ELIDEX_WEBREF_NO_CACHE=1 to bypass entirely (uncached fetch).
+
+    Raises NotFound on 404, exits on other network / HTTP errors.
+    """
+    if os.environ.get("ELIDEX_WEBREF_NO_CACHE"):
+        return _raw_fetch(url, headers={})
+
+    key = hashlib.sha1(url.encode("utf-8")).hexdigest()[:16]
+    body_path = _cache_dir() / key
+    meta_path = _cache_dir() / f"{key}.meta"
+
+    headers: dict[str, str] = {}
+    if body_path.exists() and meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text("utf-8"))
+        except (OSError, json.JSONDecodeError):
+            meta = {}
+        if "etag" in meta:
+            headers["If-None-Match"] = meta["etag"]
+        if "last_modified" in meta:
+            headers["If-Modified-Since"] = meta["last_modified"]
+
+    req = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.urlopen(url, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = resp.read()
+            meta = {}
+            etag = resp.headers.get("ETag")
+            last_mod = resp.headers.get("Last-Modified")
+            if etag:
+                meta["etag"] = etag
+            if last_mod:
+                meta["last_modified"] = last_mod
+            body_path.write_bytes(data)
+            meta_path.write_text(json.dumps(meta), encoding="utf-8")
+            return data
+    except urllib.error.HTTPError as e:
+        if e.code == 304 and body_path.exists():
+            return body_path.read_bytes()
+        if e.code == 404:
+            raise NotFound(url) from e
+        sys.exit(f"webref: HTTP {e.code} fetching {url}")
+    except urllib.error.URLError as e:
+        sys.exit(f"webref: network error fetching {url}: {e.reason}")
+
+
+def _raw_fetch(url: str, headers: dict[str, str]) -> bytes:
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
             return resp.read()
     except urllib.error.HTTPError as e:
         if e.code == 404:
@@ -72,8 +150,42 @@ def fetch_bytes(path: str) -> bytes:
         sys.exit(f"webref: network error fetching {url}: {e.reason}")
 
 
+def fetch_bytes(path: str) -> bytes:
+    """GET BASE/path via cache. Raises NotFound on 404, exits on other errors."""
+    return cached_fetch_url(f"{BASE}/{path}")
+
+
 def fetch_json(path: str) -> dict:
     return json.loads(fetch_bytes(path).decode("utf-8"))
+
+
+# ---------------------------------------------------------------------------
+# TC39 biblio (machine-readable spec internals published by tc39)
+# ---------------------------------------------------------------------------
+
+# tc39 ships `@tc39/<spec>-biblio` on npm; jsdelivr CDN serves the single
+# biblio.json file with proper ETag headers, no tarball extraction needed.
+_TC39_FAMILY = {"ecma262", "ecma402"}
+
+
+def _tc39_biblio(shortname: str) -> dict:
+    """Return parsed biblio.json for `shortname` (ecma262 / ecma402).
+
+    biblio.json shape: `{"location": "https://tc39.es/...", "entries": [...]}`.
+    Each entry has `type` ∈ {clause, op, built-in function, term, production,
+    table, step, concrete method, figure, note} plus per-type fields:
+      - clause:           {id, number, title, titleHTML, [aoid]}
+      - op:               {aoid, refId, kind, signature, ...}
+      - built-in function:{aoid, refId, ...}
+      - term:             {term, refId, ...}
+    Cross-refs use `refId` → clause `id`.
+    """
+    url = f"https://cdn.jsdelivr.net/npm/@tc39/{shortname}-biblio@latest/biblio.json"
+    return json.loads(cached_fetch_url(url).decode("utf-8"))
+
+
+def _tc39_clauses_by_id(entries: list[dict]) -> dict[str, dict]:
+    return {e["id"]: e for e in entries if e.get("type") == "clause" and e.get("id")}
 
 
 def fetch_with_level_fallback(template: str, shortname: str) -> bytes:
@@ -103,6 +215,9 @@ def fetch_with_level_fallback(template: str, shortname: str) -> bytes:
 # ---------------------------------------------------------------------------
 
 def cmd_heading(args: argparse.Namespace) -> None:
+    if args.shortname in _TC39_FAMILY:
+        _cmd_heading_tc39(args)
+        return
     data = fetch_json(f"headings/{args.shortname}.json")
     matches = [h for h in data.get("headings", []) if h.get("number", "").startswith(args.prefix)]
     if not matches:
@@ -113,6 +228,78 @@ def cmd_heading(args: argparse.Namespace) -> None:
         t = h.get("title", "")
         i = h.get("id", "")
         print(f"  §{n:<14} {t:<60} #{i}")
+
+
+def _sec_number_key(num: str) -> tuple[int, ...]:
+    """Sort `25.5.2` and `25.5.10` numerically rather than lexically."""
+    return tuple(int(p) if p.isdigit() else 0 for p in num.split("."))
+
+
+def _cmd_heading_tc39(args: argparse.Namespace) -> None:
+    d = _tc39_biblio(args.shortname)
+    location = d.get("location", "")
+    hits = [
+        e for e in d.get("entries", [])
+        if e.get("type") == "clause" and e.get("number", "").startswith(args.prefix)
+    ]
+    if not hits:
+        sys.exit(f"webref: no headings under §{args.prefix} in {args.shortname}")
+    hits.sort(key=lambda e: _sec_number_key(e.get("number", "")))
+    for e in hits:
+        n = e.get("number", "")
+        t = e.get("title", "")
+        i = e.get("id", "")
+        print(f"  §{n:<14} {t:<60} {location}#{i}")
+
+
+def cmd_aoid(args: argparse.Namespace) -> None:
+    if args.shortname not in _TC39_FAMILY:
+        sys.exit(f"webref: aoid is tc39-only (got shortname {args.shortname!r}); "
+                 f"try ecma262 / ecma402")
+    d = _tc39_biblio(args.shortname)
+    entries = d.get("entries", [])
+    clauses = _tc39_clauses_by_id(entries)
+    location = d.get("location", "")
+    needle = args.name.lower()
+    # Entries that carry `aoid` directly: ops (abstract operations / SDOs /
+    # numeric methods / host-defined), built-in functions, concrete methods,
+    # and AO-defining clauses. Filter by aoid match, then cross-ref to clause
+    # for §number + rendered title.
+    # Same AO often appears twice — once as `type=op` (carrying `kind` and
+    # `signature`) and once as `type=clause` (carrying `title` and `number`).
+    # Group by anchor and prefer the op-style entry (more metadata), then fall
+    # back to the clause.
+    by_ref: dict[str, dict] = {}
+    for e in entries:
+        if (e.get("aoid") or "").lower() != needle:
+            continue
+        if e.get("type") not in {"op", "clause", "built-in function", "concrete method"}:
+            continue
+        ref_id = e.get("refId") or e.get("id") or ""
+        if not ref_id:
+            continue
+        prev = by_ref.get(ref_id)
+        if prev is None or (prev.get("type") == "clause" and e.get("type") != "clause"):
+            by_ref[ref_id] = e
+
+    if not by_ref:
+        sys.exit(f"webref: no AO with aoid={args.name!r} in {args.shortname}")
+
+    rows = [
+        (ref_id, e, clauses.get(ref_id))
+        for ref_id, e in by_ref.items()
+    ]
+    rows.sort(key=lambda r: _sec_number_key((r[2] or {}).get("number", "")))
+
+    for ref_id, e, clause in rows:
+        aoid = e.get("aoid", "")
+        kind = e.get("kind") or e.get("type") or "?"
+        if clause:
+            n = clause.get("number", "?")
+            t = clause.get("title", "?")
+            print(f"  {aoid:<28} §{n:<10} {t:<55} ({kind})  {location}#{ref_id}")
+        else:
+            print(f"  {aoid:<28} ({kind})  {location}#{ref_id}")
 
 
 # IDL block start: optional `partial`, then one of:
@@ -316,6 +503,11 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("shortname")
     c.add_argument("name", help="property / @rule / selector / value name")
     c.set_defaults(func=cmd_css)
+
+    a = sub.add_parser("aoid", help="(tc39) abstract operation aoid → §number + anchor")
+    a.add_argument("shortname", help="ecma262 / ecma402")
+    a.add_argument("name", help="abstract operation name, e.g. ToNumber")
+    a.set_defaults(func=cmd_aoid)
 
     s = sub.add_parser("specs", help="shortname lookup (by spec title)")
     s.add_argument("keyword")

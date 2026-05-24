@@ -27,7 +27,7 @@ Experimental browser engine written in Rust.
 
 ### Spec citation
 
-WHATWG / W3C の section number / anchor / WebIDL 確認は `.claude/tools/webref` (w3c/webref machine-readable extracts) を使う。WebFetch 経由の spec HTML は length truncate で citation 整合確認には不向き — 構造化 fact (number/title/anchor/IDL) は webref、algorithm の prose 自然文は WebFetch (spec 直) で使い分け。「§X.Y.Z = <name>」と書く時の number ↔ title pair は **必ず lookup** (well-known 風 cite を信用しない、D-17 で `§4.13.4 = upgrade queue` 系の drift が landing 後に発覚)。recipe → `.claude/skills/elidex-review/axes.md` § "Axis 4 — Verification recipe (webref)"
+WHATWG / W3C / TC39 (ECMA-262 / ECMA-402) の section number / anchor / WebIDL / AO (aoid) 確認は `.claude/tools/webref` を使う。Data source 自動切替: WHATWG/W3C は w3c/webref machine-readable extracts、tc39 は `@tc39/<spec>-biblio` (tc39 公式 publish の JSON、jsdelivr CDN 経由)。WebFetch 経由の spec HTML は length truncate で citation 整合確認には不向き — 構造化 fact (number/title/anchor/IDL/aoid) は webref/biblio、algorithm の prose 自然文は WebFetch (spec 直) で使い分け。「§X.Y.Z = <name>」と書く時の number ↔ title pair は **必ず lookup** (well-known 風 cite を信用しない、D-17 で `§4.13.4 = upgrade queue` 系の drift が landing 後に発覚、`tests_symbol_iter.rs:283` の `ECMA-262 §14.7.5.9 .return()` も §14.7.5.9 = "EnumerateObjectProperties" の drift)。**ECMA-262 では AO 名が版間で section 番号より安定なので `aoid <spec> <name>` で AO 名から正規番号を引き直すのが推奨**。recipe → `.claude/skills/elidex-review/axes.md` § "Axis 4 — Verification recipe (webref)"
 
 ### Workflow
 
