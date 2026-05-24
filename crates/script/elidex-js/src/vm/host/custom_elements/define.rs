@@ -69,10 +69,12 @@ pub(crate) fn native_ce_define(
 
     // 5. Register the definition (delegates name-validity check +
     //    duplicate-name check + pending-upgrade drain).  Allocate a
-    //    fresh per-VM constructor ID, store the JS callable, and
-    //    rollback the ID + constructor map if `define` returns Err so
-    //    a leaked ID does not survive an InvalidName / AlreadyDefined
-    //    failure.
+    //    fresh per-VM constructor ID, store the JS callable, and on
+    //    `define` Err remove the orphaned constructor from the map.
+    //    `ce_next_constructor_id` is NOT decremented — IDs may be
+    //    skipped on failed defines; the counter is a unique-tag source,
+    //    not a dense-index, so gaps are harmless (every live def holds
+    //    its own ID, no consumer expects monotonic-no-gaps).
     let host = ctx.host();
     let constructor_id_u64 = host.ce_next_constructor_id;
     host.ce_next_constructor_id = host.ce_next_constructor_id.wrapping_add(1);
@@ -146,11 +148,21 @@ fn read_extends_option(
     ctx: &mut NativeContext<'_>,
     opts: Option<JsValue>,
 ) -> Result<Option<String>, VmError> {
+    // WebIDL §3.10.20 "dictionary": null and undefined become an
+    // empty dictionary; non-object non-null values throw TypeError.
+    // (Chrome accepts non-object loosely; spec-strict rejects.)
     let Some(opts_value) = opts else {
         return Ok(None);
     };
-    let JsValue::Object(opts_id) = opts_value else {
-        return Ok(None);
+    let opts_id = match opts_value {
+        JsValue::Undefined | JsValue::Null => return Ok(None),
+        JsValue::Object(id) => id,
+        _ => {
+            return Err(VmError::type_error(
+                "Failed to execute 'define' on 'CustomElementRegistry': \
+                 parameter 3 is not an object.",
+            ));
+        }
     };
     let key = super::super::super::value::PropertyKey::String(ctx.vm.well_known.extends);
     let extends_val = ctx.vm.get_property_value(opts_id, key)?;

@@ -12,10 +12,13 @@
 //!
 //! ## Gating rules (HTML §4.13.3 "Custom element reactions")
 //!
-//! - `Connected` enqueued only on the disconnected → connected
-//!   transition (`!was_connected && now-connected`). Within-connected
-//!   subtree re-parents are no-ops per spec — `was_connected == true`
-//!   skips the enqueue regardless of new parent.
+//! - `Connected` enqueued on every insertion into a connected position
+//!   (`now-connected == true`), regardless of `was_connected`. Both
+//!   Blink and Gecko fire connectedCallback on within-tree moves
+//!   (the companion implicit Remove already fired its Disconnected,
+//!   so suppressing the Insert side would leave the lifecycle in a
+//!   stale disconnected state). `was_connected` is therefore NOT
+//!   consulted in `handle_insert` — see the deliberate `_` binding.
 //! - `Disconnected` enqueued only on the connected → disconnected
 //!   transition (`was_connected == true`). Orphan-to-orphan moves are
 //!   no-ops.

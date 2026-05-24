@@ -91,10 +91,16 @@ pub fn finalize_success(
 ) {
     set_state(dom, entity, CEState::Custom);
     if !observed_attributes.is_empty() {
+        // O(attrs) membership via HashSet — observed_attributes is
+        // bounded by MAX_OBSERVED_ATTRIBUTES=1000 and typical N<20
+        // so a per-upgrade HashSet alloc is cheaper than the O(attrs
+        // × observed) nested linear search.
+        let observed_set: std::collections::HashSet<&str> =
+            observed_attributes.iter().map(String::as_str).collect();
         let to_enqueue: Vec<(String, String)> = match dom.world().get::<&Attributes>(entity) {
             Ok(attrs) => attrs
                 .iter()
-                .filter(|(name, _)| observed_attributes.iter().any(|n| n == *name))
+                .filter(|(name, _)| observed_set.contains(*name))
                 .map(|(name, value)| (name.to_string(), value.to_string()))
                 .collect(),
             Err(_) => Vec::new(),

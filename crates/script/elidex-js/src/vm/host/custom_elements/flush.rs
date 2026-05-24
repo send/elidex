@@ -185,9 +185,16 @@ fn invoke_callback(
         return;
     };
     let JsValue::Object(cb_id) = cb_value else {
+        // Non-object lifecycle property (e.g. `connectedCallback = 1`)
+        // — TypeError per HTML §4.13.4 "invoke a custom element
+        // callback". Reported via the same stderr / Window.onerror
+        // path as runtime callback throws; not propagated because the
+        // reactions-stack frame swallows individual errors.
+        eprintln!("[CE Callback Error] non-callable lifecycle property");
         return;
     };
     if !ctx.vm.get_object(cb_id).kind.is_callable() {
+        eprintln!("[CE Callback Error] non-callable lifecycle property");
         return;
     }
     let wrapper_id = ctx.vm.create_element_wrapper(entity);

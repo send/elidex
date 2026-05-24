@@ -149,12 +149,18 @@ pub fn collect_undefined_entities(
     name: &str,
     skip_already_pending: &[Entity],
 ) -> Vec<Entity> {
+    // O(pending) HashSet build → O(world) walk with O(1) membership
+    // tests, replacing the O(world × pending) `[Entity]::contains`
+    // scan. Pending size can grow with parser-baked + createElement-
+    // queued elements waiting for define() so the structural fix
+    // matters for large CE component pages.
+    let skip: std::collections::HashSet<Entity> = skip_already_pending.iter().copied().collect();
     let mut out = Vec::new();
     let mut query = world.query::<(Entity, &CustomElementState)>();
     for (entity, state) in &mut query {
         if matches!(state.state, CEState::Undefined)
             && state.definition_name == name
-            && !skip_already_pending.contains(&entity)
+            && !skip.contains(&entity)
         {
             out.push(entity);
         }

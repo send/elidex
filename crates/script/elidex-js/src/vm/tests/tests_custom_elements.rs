@@ -511,6 +511,29 @@ fn createelement_mixed_case_tag_still_attaches_ce_state() {
 //  that the regular test fixture doesn't provide; gating verified by
 //  inspection of register_globals.)
 
+// --- Copilot R1 #1: non-callable lifecycle property reports rather than silently drops
+
+#[test]
+fn non_callable_lifecycle_property_does_not_silently_drop_subsequent_callbacks() {
+    // The original silent-return path would also abort the drain loop's
+    // sibling reactions if a follow-up callback was attached to the same
+    // wave. With the eprintln-and-continue fix, the broken element still
+    // fires nothing, but a sibling element's connectedCallback in the
+    // same wave runs normally.
+    let out = run_then_read(
+        "globalThis.__log = []; \
+         class BrokenEl {} \
+         BrokenEl.prototype.connectedCallback = 42; \
+         class GoodEl { connectedCallback() { globalThis.__log.push('good'); } } \
+         customElements.define('broken-el', BrokenEl); \
+         customElements.define('good-el', GoodEl); \
+         document.body.appendChild(document.createElement('broken-el')); \
+         document.body.appendChild(document.createElement('good-el'));",
+        "globalThis.__log.join(',');",
+    );
+    assert_eq!(out, "good");
+}
+
 // --- /review R-LOW6: detached DocumentFragment does NOT fire Connected
 
 #[test]

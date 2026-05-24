@@ -119,12 +119,15 @@ pub enum MutationEvent<'a> {
     /// - `was_connected`: connectedness of `node` BEFORE this mutation
     ///   began — captured by the dispatcher at the engine fire site
     ///   prior to the implicit detach + re-link. Per WHATWG DOM §4.4
-    ///   "connected" (= shadow-including root is a Document). Custom
-    ///   Elements (HTML §4.13.3) gate `connectedCallback` on the
-    ///   `was_connected == false && now-connected` transition; same-
-    ///   tree re-parent within an already-connected subtree must NOT
-    ///   refire. Consumers that don't need transition tracking ignore
-    ///   the field via the `..` destructure.
+    ///   "connected" (= shadow-including root is a Document).
+    ///   Consumers that don't need the pre-mutation snapshot ignore
+    ///   the field via the `..` destructure. The Custom Elements
+    ///   consumer in particular currently fires `connectedCallback`
+    ///   whenever the post-insertion position is connected (matches
+    ///   Blink / Gecko within-tree-move semantics — see
+    ///   `elidex_custom_elements::CustomElementReactionConsumer::
+    ///   handle_insert`); the field is reserved for future consumers
+    ///   that need a transition diff.
     Insert {
         node: Entity,
         parent: Entity,
