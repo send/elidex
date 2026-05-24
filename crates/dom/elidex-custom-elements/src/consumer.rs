@@ -177,7 +177,7 @@ impl CustomElementReactionConsumer {
         // observed_attributes filter — HTML §4.13.4 "attribute change
         // steps". O(1) via the definition's parallel `observed_set`
         // (mutation hot path runs this on every setAttribute).
-        if !def.observed_set.contains(name) {
+        if !def.observes(name) {
             return;
         }
         // Drop the registry guard before acquiring the queue guard

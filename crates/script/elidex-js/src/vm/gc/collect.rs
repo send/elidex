@@ -416,12 +416,12 @@ impl VmInner {
                 self.subtle_crypto_instance,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // D-17 `#11-custom-elements-vm` — `customElements`
-                // singleton prototype + instance. Same rationale as the
-                // crypto pair above: retained because `delete
-                // globalThis.customElements` must not collect the
-                // prototype that retained registered constructors chain
-                // to via their own prototype slot.
+                // 72 + 2 = 74 (D-17 `#11-custom-elements-vm`):
+                // `customElements` singleton prototype + instance. Same
+                // rationale as the crypto pair above: retained because
+                // `delete globalThis.customElements` must not collect
+                // the prototype that retained registered constructors
+                // chain to via their own prototype slot.
                 #[cfg(feature = "engine")]
                 self.custom_element_registry_prototype,
                 #[cfg(not(feature = "engine"))]
@@ -430,7 +430,7 @@ impl VmInner {
                 self.custom_element_registry_instance,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 68 + 13 = 81 — slot `#11-tags-T1-v2` HTML form-control
+                // 74 + 13 = 87 — slot `#11-tags-T1-v2` HTML form-control
                 // prototypes (HTML §4.10).  10 per-tag prototypes + 2
                 // live-collection prototypes (HTMLFormControlsCollection
                 // / HTMLOptionsCollection) + ValidityState.prototype.
@@ -492,7 +492,7 @@ impl VmInner {
                 self.validity_state_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 81 + 1 = 82 (M4-12 slot #11-style-declaration:
+                // 87 + 1 = 88 (M4-12 slot #11-style-declaration:
                 // CSSStyleDeclaration.prototype, CSSOM §6.6).  Chains
                 // to `Object.prototype`.  Same `delete globalThis.<X>`
                 // invariant as every other intrinsic prototype above
@@ -505,7 +505,7 @@ impl VmInner {
                 self.css_style_declaration_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 82 + 4 = 86 (M4-12 slot #11-style-declaration PR-B:
+                // 88 + 4 = 92 (M4-12 slot #11-style-declaration PR-B:
                 // CSSStyleSheet / CSSRuleList / CSSStyleRule /
                 // StyleSheetList prototypes).  Each chains to
                 // `Object.prototype`.  Without these entries the
@@ -530,7 +530,7 @@ impl VmInner {
                 self.style_sheet_list_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 86 + 5 = 91 (M4-12 slot #11-tags-T2a-url-bearing:
+                // 92 + 5 = 97 (M4-12 slot #11-tags-T2a-url-bearing:
                 // HTMLAnchorElement / HTMLAreaElement /
                 // HTMLImageElement / HTMLScriptElement /
                 // HTMLLinkElement prototypes).  Each chains to
@@ -586,7 +586,7 @@ impl VmInner {
                 self.offscreen_canvas_rendering_context_2d_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 91 + 24 = 115 (M4-12 slot #11-tags-T2b-passive:
+                // 97 + 24 = 121 (M4-12 slot #11-tags-T2b-passive:
                 // 7 head + 17 grouping prototypes — h1-h6 share one
                 // HTMLHeadingElement prototype and blockquote+q
                 // share one HTMLQuoteElement prototype, so the field
@@ -688,7 +688,7 @@ impl VmInner {
                 self.html_time_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 115 + 6 = 121 (M4-12 slot #11-tags-T2c-table:
+                // 121 + 6 = 127 (M4-12 slot #11-tags-T2c-table:
                 // HTMLTableElement / HTMLTableSectionElement (shared
                 // thead/tbody/tfoot) / HTMLTableRowElement /
                 // HTMLTableCellElement (shared td/th) /
@@ -719,7 +719,7 @@ impl VmInner {
                 self.html_table_col_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 121 + 7 (slot `#11-tags-T2d-interactive`:
+                // 127 + 7 = 134 (slot `#11-tags-T2d-interactive`:
                 // HTMLDialogElement / HTMLDetailsElement /
                 // HTMLTemplateElement / HTMLDataListElement /
                 // HTMLOutputElement / HTMLProgressElement /
@@ -753,7 +753,7 @@ impl VmInner {
                 self.html_meter_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 128 + 10 = 138 (M4-12 slot `#11-events-misc`:
+                // 134 + 10 = 144 (M4-12 slot `#11-events-misc`:
                 // SubmitEvent / FormDataEvent / ToggleEvent /
                 // CompositionEvent / ClipboardEvent / ProgressEvent /
                 // BeforeUnloadEvent / MessageEvent / WheelEvent /
@@ -803,7 +803,7 @@ impl VmInner {
                 #[cfg(not(feature = "engine"))]
                 None,
                 // D-9 events-modern-input (slot
-                // `#11-events-modern-input`).  138 + 8 = 146.  Eight
+                // `#11-events-modern-input`).  144 + 8 = 152.  Eight
                 // new prototypes — PointerEvent / DragEvent / Touch /
                 // TouchList / TouchEvent / DataTransfer /
                 // DataTransferItem / DataTransferItemList.  Without
@@ -869,8 +869,8 @@ impl VmInner {
                 self.node_iterator_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 150 + 1 (D-8 PR-B `#11-traversal-and-range-pr-b-selection`:
-                // `Selection.prototype`) = 151.  Per-document singleton
+                // 156 + 1 (D-8 PR-B `#11-traversal-and-range-pr-b-selection`:
+                // `Selection.prototype`) = 157.  Per-document singleton
                 // Selection is reached through this prototype slot;
                 // the wrapper itself is held in
                 // `HostData::selection_instance` and traced via
@@ -881,7 +881,7 @@ impl VmInner {
                 self.selection_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 151 + 2 (D-12 slot `#11-net-ws-sse`:
+                // 157 + 2 = 159 (D-12 slot `#11-net-ws-sse`:
                 // `WebSocket.prototype` + `EventSource.prototype`).
                 // Each chains to `Object.prototype` (NOT
                 // `EventTarget.prototype` in this PR — the

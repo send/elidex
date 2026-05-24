@@ -11,15 +11,15 @@ use crate::validation::is_valid_custom_element_name;
 
 /// A registered custom element definition.
 ///
-/// `observed_attributes` is kept as a `Vec<String>` so the synchronous
-/// upgrade path can iterate the definition's attributes in spec-
-/// declared order (HTML §4.13.5 step where the upgrade enqueues
-/// `attributeChangedCallback` for each already-present observed
-/// attribute). `observed_set` parallels it as a `HashSet` for O(1)
-/// membership testing on the **mutation hot path** (every
-/// `setAttribute` runs the consumer's filter, so the prior O(N)
-/// `Vec::contains`-style scan would scale poorly with large
-/// `observedAttributes` declarations).
+/// `observed_attributes` preserves the developer's declared name list
+/// (useful for serialization / external inspection). A parallel private
+/// `observed_set` provides O(1) membership for the **mutation hot path**
+/// (every `setAttribute` runs the consumer's filter, so an O(N)
+/// `Vec::contains` would scale poorly with large `observedAttributes`
+/// declarations). Membership is exposed via [`Self::observes`]; the
+/// `observed_set` field is private so the Vec/Set pair can only desync
+/// inside this module — external code cannot construct
+/// `CustomElementDefinition` via a struct literal.
 #[derive(Clone, Debug)]
 pub struct CustomElementDefinition {
     /// Custom element name (e.g., `"my-element"`).
@@ -32,16 +32,16 @@ pub struct CustomElementDefinition {
     /// `attributeChangedCallback` enqueue (`finalize_success`) walks the
     /// element's own attribute list per HTML §4.13.5 step 12 ("for each
     /// attribute in element's attribute list, in order") and filters by
-    /// membership via [`Self::observed_set`] — so the enqueue order is
+    /// membership via [`Self::observes`] — so the enqueue order is
     /// element-attribute-insertion order, NOT this Vec's declared order.
     pub observed_attributes: Vec<String>,
-    /// Parallel `HashSet` over `observed_attributes` for O(1) hot-
-    /// path membership tests (mutation consumer filter, attribute-
-    /// change reaction enqueue).
-    pub observed_set: HashSet<String>,
     /// Built-in element tag to extend (e.g., `"div"` for customized built-in).
     /// `None` for autonomous custom elements.
     pub extends: Option<String>,
+    /// Parallel `HashSet` over `observed_attributes` for O(1) hot-path
+    /// membership tests. Private: callers must use [`Self::observes`]
+    /// so the Vec/Set pair cannot desync via a struct literal.
+    observed_set: HashSet<String>,
 }
 
 /// Registry of custom element definitions per realm (WHATWG HTML §4.13.4).
@@ -58,11 +58,11 @@ pub struct CustomElementRegistry {
 }
 
 impl CustomElementDefinition {
-    /// Construct a definition with the `observed_set` materialized
-    /// from `observed_attributes`. Single construction site for the
-    /// parallel-`HashSet` invariant — callers should NEVER use the
-    /// struct literal directly (the unsynchronized `observed_set`
-    /// would break the hot-path filter).
+    /// Construct a definition with the private `observed_set`
+    /// materialized from `observed_attributes`. Single construction
+    /// site for the Vec/Set parallel-invariant — the private field
+    /// makes a struct literal a compile error from outside the module,
+    /// so the only way in is via this constructor.
     #[must_use]
     pub fn new(
         name: String,
@@ -75,9 +75,17 @@ impl CustomElementDefinition {
             name,
             constructor_id,
             observed_attributes,
-            observed_set,
             extends,
+            observed_set,
         }
+    }
+
+    /// O(1) `observedAttributes` membership test — the mutation-consumer
+    /// hot path. Delegates to the private parallel `HashSet` so callers
+    /// cannot read the set directly and accidentally drift it.
+    #[must_use]
+    pub fn observes(&self, name: &str) -> bool {
+        self.observed_set.contains(name)
     }
 }
 
