@@ -170,8 +170,18 @@ def cached_fetch_url(url: str) -> bytes:
                 except OSError:
                     pass  # fall through to unconditional refetch
             # Cache eviction race: meta survived but body is gone (manual rm,
-            # cleanup tool between runs, etc.). Retry once unconditionally
-            # instead of exiting with a confusing "HTTP 304" message.
+            # cleanup tool between runs, etc.). Drop the stale meta and recurse
+            # — the next call has no conditional headers, so it does a normal
+            # 200 fetch and rewrites both body and meta. The fallback to
+            # `_raw_fetch` (without cache write) covers the read-only-fs case
+            # where unlink fails; without that guard, the recursion would
+            # loop on the same conditional GET.
+            try:
+                meta_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            if not meta_path.exists():
+                return cached_fetch_url(url)
             return _raw_fetch(url, headers={})
         if e.code == 404:
             raise NotFound(url) from e
