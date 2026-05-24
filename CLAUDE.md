@@ -25,6 +25,10 @@ Experimental browser engine written in Rust.
 
 **VM host/ は engine-bound 責務のみ**: `crates/script/elidex-js/src/vm/host/` は prototype install / brand check / JsValue↔Entity marshalling に限定する。DOM mutation / selector matching / form validation / live-collection walker / label association / constraint validation 等の algorithm は engine-independent crate (`elidex-dom-api` / `elidex-form` / `elidex-css` / `elidex-script-session::DomApiHandler`) 経由で呼ぶ。`EcsDom::*` の direct call は marshalling 用途 (entity 取得 / 単純 attribute read / wrapper 生成) に限定する。新規 algorithm を host/ に書く前に、対応する engine-independent crate に既存実装が無いか確認 + 無ければそちらを拡張。詳細 → `memory/m4-12-architectural-drift-incident.md`
 
+### Spec citation
+
+WHATWG / W3C の section number / anchor / WebIDL 確認は `.claude/tools/webref` (w3c/webref machine-readable extracts) を使う。WebFetch 経由の spec HTML は length truncate で citation 整合確認には不向き — 構造化 fact (number/title/anchor/IDL) は webref、algorithm の prose 自然文は WebFetch (spec 直) で使い分け。「§X.Y.Z = <name>」と書く時の number ↔ title pair は **必ず lookup** (well-known 風 cite を信用しない、D-17 で `§4.13.4 = upgrade queue` 系の drift が landing 後に発覚)。recipe → `.claude/skills/elidex-review/axes.md` § "Axis 4 — Verification recipe (webref)"
+
 ### Workflow
 
 - **コミット前**: `cargo fmt --all`
