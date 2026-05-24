@@ -167,7 +167,7 @@ mod engine_feature {
         /// the setter is a no-op in that case (the
         /// "cookie-averse" path of WHATWG §6.5.2).
         cookie_jar: Option<std::sync::Arc<elidex_net::CookieJar>>,
-        /// `MutationObserver` registry (WHATWG DOM §4.3) — owns the
+        /// `MutationObserver` registry (WHATWG DOM §4.3.1) — owns the
         /// per-observer pending-record queues. The observation targets +
         /// options live as `MutationObservedBy` components on the
         /// observed entities (WHATWG DOM §4.3 registered observer

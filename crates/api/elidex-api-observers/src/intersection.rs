@@ -45,7 +45,7 @@ pub struct IntersectionObserverInit {
     pub threshold: Vec<f64>,
 }
 
-/// An intersection observation entry (Intersection Observer §3.2 algorithms).
+/// An intersection observation entry (Intersection Observer §2.3 `IntersectionObserverEntry`).
 #[derive(Debug, Clone)]
 pub struct IntersectionObserverEntry {
     /// The observed element.
