@@ -113,11 +113,12 @@ impl CustomElementReactionConsumer {
                     enqueued.push(CustomElementReaction::Connected(entity));
                 }
                 UpgradeTarget::Upgrade => {
-                    // Per HTML §4.13.5 "Insertion steps" Otherwise-
-                    // branch: an Undefined element with a registered
-                    // definition gets `try to upgrade` on insertion.
-                    // The Upgrade reaction's invoke_upgrade itself
-                    // enqueues Connected once the constructor returns.
+                    // Per WHATWG DOM §4.2.3 insertion-steps + HTML
+                    // §4.13.3 "try to upgrade element": an Undefined
+                    // element with a registered definition gets
+                    // `try to upgrade` on insertion. The Upgrade
+                    // reaction's invoke_upgrade itself enqueues
+                    // Connected once the constructor returns.
                     enqueued.push(CustomElementReaction::Upgrade(entity));
                 }
                 UpgradeTarget::None => {}
@@ -162,7 +163,7 @@ impl CustomElementReactionConsumer {
         let Some(def) = registry.get(&def_name) else {
             return;
         };
-        // observed_attributes filter — HTML §4.13.2 step 4.1.
+        // observed_attributes filter — HTML §4.13.4 "attribute change steps".
         if !def.observed_attributes.iter().any(|n| n == name) {
             return;
         }
@@ -193,7 +194,7 @@ fn is_custom(entity: Entity, dom: &EcsDom) -> bool {
 
 /// Per-entity classification used by [`CustomElementReactionConsumer::
 /// handle_insert`] to route between `Connected` and `Upgrade` per
-/// HTML §4.13.5 "Insertion steps":
+/// WHATWG DOM §4.2.3 insertion-steps + HTML §4.13.3 reactions:
 ///
 /// - `Connected` — Custom element already upgraded → enqueue
 ///   connectedCallback.

@@ -2,7 +2,7 @@
 //!
 //! Covers WHATWG HTML §4.13.4 (define / get / whenDefined / upgrade) +
 //! §4.13.3 lifecycle callbacks (connectedCallback / disconnectedCallback /
-//! attributeChangedCallback) + CSS Selectors Level 4 §5.4 (`:defined`).
+//! attributeChangedCallback) + CSS Selectors Level 4 §6.3 (`:defined`).
 
 #![cfg(feature = "engine")]
 

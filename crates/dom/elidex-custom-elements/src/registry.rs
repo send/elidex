@@ -6,6 +6,7 @@ use std::collections::HashMap;
 
 use elidex_ecs::Entity;
 
+use crate::state::{CEState, CustomElementState};
 use crate::validation::is_valid_custom_element_name;
 
 /// A registered custom element definition.
@@ -130,3 +131,33 @@ impl std::fmt::Display for DefineError {
 }
 
 impl std::error::Error for DefineError {}
+
+/// World-wide query for every entity carrying
+/// `CustomElementState` with `state == CEState::Undefined` for `name`, minus the entities
+/// in `skip_already_pending`. Used by `customElements.define()` to
+/// drain elements that the parser / cross-document `createElement`
+/// path attached state to but could not enqueue via
+/// [`CustomElementRegistry::queue_for_upgrade`] (the parser cannot
+/// reach the per-VM registry).
+///
+/// Walks the hecs world directly so detached + DocumentFragment
+/// subtrees + future multi-document worlds are covered (a
+/// document-rooted DOM walk would silently miss them).
+#[must_use]
+pub fn collect_undefined_entities(
+    world: &hecs::World,
+    name: &str,
+    skip_already_pending: &[Entity],
+) -> Vec<Entity> {
+    let mut out = Vec::new();
+    let mut query = world.query::<(Entity, &CustomElementState)>();
+    for (entity, state) in &mut query {
+        if matches!(state.state, CEState::Undefined)
+            && state.definition_name == name
+            && !skip_already_pending.contains(&entity)
+        {
+            out.push(entity);
+        }
+    }
+    out
+}

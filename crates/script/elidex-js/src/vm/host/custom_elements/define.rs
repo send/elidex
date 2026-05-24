@@ -238,28 +238,12 @@ fn enqueue_upgrade_walk(
     name: &str,
     skip_already_pending: &[elidex_ecs::Entity],
 ) {
-    use elidex_custom_elements::{CEState, CustomElementState};
     let Some(host) = ctx.host_if_bound() else {
         return;
     };
-    let to_upgrade: Vec<elidex_ecs::Entity> = {
+    let to_upgrade = {
         let dom = host.dom_shared();
-        let mut out = Vec::new();
-        // hecs `query::<(Entity, &T)>` is the canonical way to fold
-        // `Entity` into the iterator yields — bare `query::<&T>().iter()`
-        // returns only the borrowed component without the owning Entity.
-        let mut query = dom
-            .world()
-            .query::<(elidex_ecs::Entity, &CustomElementState)>();
-        for (entity, state) in &mut query {
-            if matches!(state.state, CEState::Undefined)
-                && state.definition_name == name
-                && !skip_already_pending.contains(&entity)
-            {
-                out.push(entity);
-            }
-        }
-        out
+        elidex_custom_elements::collect_undefined_entities(dom.world(), name, skip_already_pending)
     };
     if to_upgrade.is_empty() {
         return;

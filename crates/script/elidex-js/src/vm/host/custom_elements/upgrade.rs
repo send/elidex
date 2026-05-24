@@ -1,5 +1,6 @@
-//! Custom element prototype-chain upgrade — HTML §4.13.2 "upgrade an
-//! element" algorithm.
+//! Custom element prototype-chain upgrade — VM-side glue around the
+//! engine-indep state machine in [`elidex_custom_elements::upgrade`]
+//! (HTML §4.13.5 "upgrade an element").
 //!
 //! Sync dual-path return: callers from `customElements.upgrade(root)`
 //! propagate the `Err(VmError)` to the JS caller, while reaction-queue
@@ -8,12 +9,12 @@
 
 #![cfg(feature = "engine")]
 
-use elidex_custom_elements::{CEState, CustomElementReaction, CustomElementState};
-use elidex_ecs::{Attributes, Entity};
+use elidex_custom_elements::UpgradeResolution;
+use elidex_ecs::Entity;
 
 use super::super::super::value::{JsValue, NativeContext, VmError};
 
-/// Invoke the upgrade algorithm on `entity` per HTML §4.13.2.
+/// Invoke the upgrade algorithm on `entity` per HTML §4.13.5.
 ///
 /// Returns:
 /// - `Ok(())` on a successful upgrade (state transitions to
@@ -23,59 +24,63 @@ use super::super::super::value::{JsValue, NativeContext, VmError};
 /// - `Err(VmError)` on a constructor throw — caller decides whether to
 ///   rethrow (sync `customElements.upgrade(root)` path) or report to
 ///   Window.onerror (reaction-queue flush path).
+///
+/// The state machine itself (resolve definition → enter Precustomized
+/// → mark Custom/Failed → enqueue Connected/AttributeChanged) lives in
+/// the engine-indep crate; this function only sequences the
+/// engine-bound steps (constructor.prototype Object validation,
+/// element-wrapper allocation, `ctx.vm.call`) between
+/// [`elidex_custom_elements::prepare_upgrade`] /
+/// [`enter_constructor`] / [`finalize_success`] /
+/// [`finalize_failure`].
 pub(crate) fn invoke_upgrade(ctx: &mut NativeContext<'_>, entity: Entity) -> Result<(), VmError> {
-    // 1. Resolve the registered definition for `entity`'s state. Skip
-    //    if the entity has already been upgraded or marked Failed
-    //    (Upgrade reactions can be queued multiple times from the
-    //    define-time DOM walk + the pending-upgrade queue drain).
     let Some(host) = ctx.host_if_bound() else {
         return Ok(());
     };
-    let (definition_name, current_state) =
-        match host.dom_shared().world().get::<&CustomElementState>(entity) {
-            Ok(state) => (state.definition_name.clone(), state.state),
-            Err(_) => return Ok(()),
-        };
-    if matches!(current_state, CEState::Custom | CEState::Failed) {
-        return Ok(());
-    }
-    let (constructor_id, observed_attrs) = {
+
+    // Phase 1: resolve via engine-indep prepare_upgrade (early-returns
+    // on Custom/Failed/no-def). Drops the registry lock before any VM
+    // re-borrow.
+    let (constructor_id, observed_attributes) = {
         let registry = host.ce_registry.lock().expect("CE registry mutex poisoned");
-        let Some(def) = registry.get(&definition_name) else {
-            return Ok(());
-        };
-        (def.constructor_id, def.observed_attributes.clone())
+        match elidex_custom_elements::prepare_upgrade(host.dom_shared(), &registry, entity) {
+            UpgradeResolution::Skip => return Ok(()),
+            UpgradeResolution::Proceed {
+                constructor_id,
+                observed_attributes,
+            } => (constructor_id, observed_attributes),
+        }
     };
     let Some(constructor) = host.ce_constructors.get(&constructor_id).copied() else {
         return Ok(());
     };
 
-    // 2. Validate `constructor.prototype` is an Object — even though
-    //    we do NOT splice it into the wrapper's prototype chain in v1
-    //    (see step 3 below), the spec requires the property to be an
-    //    object for the upgrade to proceed. Any throw inside the
-    //    getter (adversarial proxy / Object.defineProperty getter)
-    //    marks the entity Failed before propagating so re-enqueued
-    //    Upgrades short-circuit at the early-return in step 1 rather
-    //    than retrying the same throw.
+    // Phase 2: validate `constructor.prototype` is an Object — even
+    // though we do NOT splice it into the wrapper's prototype chain in
+    // v1 (`#11-html-element-constructor-base` slot), the spec requires
+    // the property to be an object for the upgrade to proceed. Any
+    // throw inside the getter (adversarial proxy / accessor) marks the
+    // entity Failed before propagating so re-enqueued Upgrades short-
+    // circuit at prepare_upgrade's early-return rather than retrying
+    // the same throw.
     let proto_key = super::super::super::value::PropertyKey::String(ctx.vm.well_known.prototype);
     let proto_value = match ctx.vm.get_property_value(constructor, proto_key) {
         Ok(v) => v,
         Err(err) => {
-            mark_failed(ctx, entity);
+            finalize_failure_shim(ctx, entity);
             return Err(err);
         }
     };
     if !matches!(proto_value, JsValue::Object(_)) {
-        mark_failed(ctx, entity);
+        finalize_failure_shim(ctx, entity);
         return Err(VmError::type_error(
             "Custom element upgrade failed: constructor.prototype must be an object.",
         ));
     }
 
-    // 3. Resolve the element wrapper.
+    // Phase 3: resolve the element wrapper.
     //
-    // Spec (HTML §4.13.2 step 5) sets element's [[Prototype]] to
+    // Spec (HTML §4.13.5 step 5) sets element's [[Prototype]] to
     // constructor.prototype, but in v1 elidex `class MyEl extends
     // HTMLElement` is unwired (`HTMLElement` is not a global
     // constructor — `#11-html-element-constructor-base` slot). Without
@@ -85,104 +90,46 @@ pub(crate) fn invoke_upgrade(ctx: &mut NativeContext<'_>, entity: Entity) -> Res
     // Node method. Until that slot lands, the wrapper keeps its
     // standard Element-chain prototype; lifecycle callbacks are looked
     // up on `constructor.prototype` directly by
-    // [`super::flush::invoke_callback`] rather than via the wrapper's
-    // own chain.
+    // [`super::flush::invoke_callback`].
     let wrapper_id = ctx.vm.create_element_wrapper(entity);
 
-    // 4. State transition + construct.
-    set_state(ctx, entity, CEState::Precustomized);
+    // Phase 4: state transition + construct.
+    {
+        let dom = ctx.host().dom();
+        elidex_custom_elements::enter_constructor(dom, entity);
+    }
     let saved_construct = ctx.vm.in_construct;
     ctx.vm.in_construct = true;
     let result = ctx.vm.call(constructor, JsValue::Object(wrapper_id), &[]);
     ctx.vm.in_construct = saved_construct;
     match result {
         Ok(_) => {
-            set_state(ctx, entity, CEState::Custom);
+            let host = ctx.host();
+            // Clone the queue Arc BEFORE the `&mut EcsDom` re-borrow —
+            // the Arc is a disjoint owned field of HostData, so the
+            // MutexGuard projected from the clone shares no aliasing
+            // with the `dom()` re-borrow.
+            let queue_arc = std::sync::Arc::clone(&host.ce_reaction_queue);
+            let dom = host.dom();
+            let mut queue = queue_arc.lock().expect("CE reaction queue mutex poisoned");
+            elidex_custom_elements::finalize_success(dom, &mut queue, entity, &observed_attributes);
         }
         Err(err) => {
-            mark_failed(ctx, entity);
-            // Drop any pending reactions targeting this entity per
-            // HTML §4.13.2 step 8 (Failed elements skip lifecycle
-            // callbacks).
-            scrub_entity_reactions(ctx, entity);
+            finalize_failure_shim(ctx, entity);
             return Err(err);
         }
-    }
-
-    // 5. Enqueue attributeChangedCallback reactions for already-present
-    //    observed attributes (HTML §4.13.2 step 4.1).
-    if !observed_attrs.is_empty() {
-        let host = ctx.host();
-        let to_enqueue: Vec<(String, String)> = {
-            let dom = host.dom_shared();
-            match dom.world().get::<&Attributes>(entity) {
-                Ok(attrs) => attrs
-                    .iter()
-                    .filter(|(name, _)| observed_attrs.iter().any(|n| n == *name))
-                    .map(|(name, value)| (name.to_string(), value.to_string()))
-                    .collect::<Vec<_>>(),
-                Err(_) => Vec::new(),
-            }
-        };
-        if !to_enqueue.is_empty() {
-            let mut queue = host
-                .ce_reaction_queue
-                .lock()
-                .expect("CE reaction queue mutex poisoned");
-            for (name, value) in to_enqueue {
-                queue.push_back(CustomElementReaction::AttributeChanged {
-                    entity,
-                    name,
-                    old_value: None,
-                    new_value: Some(value),
-                });
-            }
-        }
-    }
-
-    // 6. If element is connected, enqueue Connected.
-    let connected = ctx.host().dom_shared().is_connected(entity);
-    if connected {
-        ctx.host()
-            .ce_reaction_queue
-            .lock()
-            .expect("CE reaction queue mutex poisoned")
-            .push_back(CustomElementReaction::Connected(entity));
     }
 
     Ok(())
 }
 
-fn set_state(ctx: &mut NativeContext<'_>, entity: Entity, new_state: CEState) {
+/// Thin shim that locks the per-VM reaction queue + calls into the
+/// engine-indep [`elidex_custom_elements::finalize_failure`] helper
+/// (mark Failed + scrub pending reactions).
+fn finalize_failure_shim(ctx: &mut NativeContext<'_>, entity: Entity) {
     let host = ctx.host();
+    let queue_arc = std::sync::Arc::clone(&host.ce_reaction_queue);
     let dom = host.dom();
-    if let Ok(mut state) = dom.world_mut().get::<&mut CustomElementState>(entity) {
-        state.state = new_state;
-    }
-}
-
-fn mark_failed(ctx: &mut NativeContext<'_>, entity: Entity) {
-    set_state(ctx, entity, CEState::Failed);
-}
-
-/// Drop every queued reaction that targets `entity`. Called after a
-/// Failed upgrade per HTML §4.13.2 step 8 ("empty element's CE
-/// reaction queue").
-fn reaction_target(r: &CustomElementReaction) -> Entity {
-    match r {
-        CustomElementReaction::Upgrade(e)
-        | CustomElementReaction::Connected(e)
-        | CustomElementReaction::Disconnected(e) => *e,
-        CustomElementReaction::AttributeChanged { entity, .. }
-        | CustomElementReaction::Adopted { entity, .. } => *entity,
-    }
-}
-
-fn scrub_entity_reactions(ctx: &mut NativeContext<'_>, entity: Entity) {
-    let mut queue = ctx
-        .host()
-        .ce_reaction_queue
-        .lock()
-        .expect("CE reaction queue mutex poisoned");
-    queue.retain(|r| reaction_target(r) != entity);
+    let mut queue = queue_arc.lock().expect("CE reaction queue mutex poisoned");
+    elidex_custom_elements::finalize_failure(dom, &mut queue, entity);
 }

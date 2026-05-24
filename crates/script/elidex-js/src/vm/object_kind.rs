@@ -1192,8 +1192,9 @@ pub enum ObjectKind {
     /// `VmInner::custom_element_registry_instance`.
     ///
     /// `new CustomElementRegistry()` throws TypeError ("Illegal
-    /// constructor") per WebIDL §4.13.4 — only the constructor identifier
-    /// is exposed.
+    /// constructor") per WebIDL §3.7 (interface object \[\[Construct\]\]) —
+    /// HTML §4.13.4 declares `CustomElementRegistry` as having no
+    /// constructor exposed.
     ///
     /// GC contract: payload-free. The singleton is rooted via
     /// `VmInner::custom_element_registry_instance` (mark-roots step).

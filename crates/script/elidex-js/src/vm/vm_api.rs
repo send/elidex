@@ -251,8 +251,10 @@ impl Vm {
             // `MutationBridge` 2-consumer composer (the
             // `#11-mutation-hook-multiplexer` slot is closed by this
             // structural shift).  Dispatch order = field declaration
-            // order = (live_range → node_iter → base_url →
-            // form_control_reconciler).
+            // order — see `consumer_dispatcher.rs` for the
+            // authoritative 7-field list (live_range → node_iter →
+            // base_url → form_control → event_handler_attrs → canvas
+            // → custom_elements).
             let mut dispatcher = crate::vm::consumer_dispatcher::ConsumerDispatcher::new(
                 live_range,
                 node_iter,
