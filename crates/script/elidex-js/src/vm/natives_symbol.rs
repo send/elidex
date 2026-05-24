@@ -276,7 +276,7 @@ pub(super) fn native_object_prototype_to_locale_string(
         primitive => (super::coerce::to_object(ctx.vm, primitive)?, primitive),
     };
     let to_string_key = PropertyKey::String(ctx.intern("toString"));
-    // GetV(V, P) (§7.3.2): an accessor getter on `toString` must
+    // GetV(V, P) (§7.3.3): an accessor getter on `toString` must
     // see the original primitive `receiver` as `this`, not the
     // boxed wrapper used as the prototype-chain anchor for the
     // lookup.  `try_get_property_value` resolves getters with

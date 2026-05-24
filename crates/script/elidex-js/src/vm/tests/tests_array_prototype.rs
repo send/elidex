@@ -379,7 +379,7 @@ fn array_to_locale_string_passes_exactly_two_args_to_override() {
 
 #[test]
 fn array_to_locale_string_throws_on_non_callable_method() {
-    // Spec `Invoke` (§7.3.16) throws TypeError when the resolved
+    // Spec `Invoke` (§7.3.20) throws TypeError when the resolved
     // method is non-callable; silent ToString fallback would mask
     // the user mistake.
     let result = super::eval(

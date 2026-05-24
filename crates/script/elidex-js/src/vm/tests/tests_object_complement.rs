@@ -750,7 +750,7 @@ fn to_locale_string_returns_string() {
 
 #[test]
 fn to_locale_string_accessor_getter_sees_primitive_receiver() {
-    // §7.3.2 GetV: when `Object.prototype.toLocaleString` resolves
+    // §7.3.3 GetV: when `Object.prototype.toLocaleString` resolves
     // `toString` through an accessor getter on the prototype chain,
     // the getter must receive the original primitive value as `this`,
     // not the throw-away wrapper used for the prototype-chain lookup.

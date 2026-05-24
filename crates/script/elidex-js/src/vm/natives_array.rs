@@ -639,7 +639,7 @@ pub(super) fn native_array_to_locale_string(
             primitive => (super::coerce::to_object(sub_ctx.vm, primitive)?, primitive),
         };
         sub_ctx.vm.stack[wrapper_slot] = JsValue::Object(obj_id);
-        // GetV(V, P) (§7.3.2): an accessor getter must see the
+        // GetV(V, P) (§7.3.3): an accessor getter must see the
         // original primitive `receiver` as `this`, not the boxed
         // wrapper (which is only the prototype-chain anchor for
         // the lookup).  `try_get_property_value` resolves getters
@@ -654,7 +654,7 @@ pub(super) fn native_array_to_locale_string(
                 let ret = sub_ctx.call_function(fn_id, receiver, &invoke_args)?;
                 sub_ctx.to_string_val(ret)?
             }
-            // Per `Invoke` semantics (§7.3.16) `?Call(?GetV(V, P), …)`
+            // Per `Invoke` semantics (§7.3.20) `?Call(?GetV(V, P), …)`
             // throws TypeError when the resolved property is either
             // present-but-non-callable OR absent (GetV returns
             // undefined → Call rejects undefined as not-a-function).
