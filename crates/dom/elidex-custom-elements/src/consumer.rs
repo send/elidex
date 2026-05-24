@@ -109,9 +109,17 @@ impl CustomElementReactionConsumer {
         if !dom.is_connected(node) {
             return;
         }
+        // Snapshot the defined-name set ONCE before the per-descendant
+        // walk so the closure can do O(1) HashSet::contains instead of
+        // re-locking `ce_registry` per visited entity. For large
+        // inserted subtrees this drops O(N) lock/unlock pairs to 1.
+        let defined: std::collections::HashSet<String> = {
+            let registry = self.registry.lock().expect("CE registry mutex poisoned");
+            registry.names().map(str::to_owned).collect()
+        };
         let mut enqueued = Vec::new();
         dom.for_each_shadow_inclusive_descendant(node, &mut |entity| {
-            match try_to_upgrade_target(entity, &self.registry, dom) {
+            match try_to_upgrade_target(entity, &defined, dom) {
                 UpgradeTarget::Connected => {
                     enqueued.push(CustomElementReaction::Connected(entity));
                 }
@@ -216,7 +224,7 @@ enum UpgradeTarget {
 
 fn try_to_upgrade_target(
     entity: Entity,
-    registry: &Mutex<CustomElementRegistry>,
+    defined: &std::collections::HashSet<String>,
     dom: &EcsDom,
 ) -> UpgradeTarget {
     let Ok(state) = dom.world().get::<&CustomElementState>(entity) else {
@@ -225,8 +233,7 @@ fn try_to_upgrade_target(
     match state.state {
         CEState::Custom => UpgradeTarget::Connected,
         CEState::Undefined => {
-            let registry = registry.lock().expect("CE registry mutex poisoned");
-            if registry.is_defined(&state.definition_name) {
+            if defined.contains(&state.definition_name) {
                 UpgradeTarget::Upgrade
             } else {
                 UpgradeTarget::None
