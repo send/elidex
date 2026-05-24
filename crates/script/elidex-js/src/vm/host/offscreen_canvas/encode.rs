@@ -147,8 +147,11 @@ fn parse_convert_options(
         other => {
             let sid = coerce::to_string(ctx.vm, other)?;
             let raw = ctx.vm.strings.get_utf8(sid);
-            let lower = raw.to_ascii_lowercase();
-            BlobImageFormat::from_mime(&lower)
+            // `from_mime` does WHATWG MIME-parser essence extraction +
+            // ASCII case-insensitive compare internally (handles
+            // `"image/jpeg; charset=utf-8"`, leading/trailing whitespace,
+            // mixed case), so callers pass raw user input verbatim.
+            BlobImageFormat::from_mime(&raw)
         }
     };
     #[allow(clippy::cast_possible_truncation)]

@@ -105,19 +105,31 @@ pub enum BlobImageFormat {
 }
 
 impl BlobImageFormat {
-    /// Map a `convertToBlob` `options.type` string (ASCII-lowercased) to a
+    /// Map a `convertToBlob` `options.type` string (raw user input) to a
     /// supported format. Per WHATWG HTML §4.12.5.1.7 `convertToBlob` step 4,
     /// an unsupported / unknown type falls back to `image/png` (the spec
     /// permits the UA to reject, but the more compatible behavior is to
     /// default — matching browsers).
+    ///
+    /// Per the WHATWG MIME Sniffing standard "parse a MIME type" algorithm,
+    /// comparison is on the parsed type's **essence** (`type/subtype`), not
+    /// the raw string: leading / trailing HTTP whitespace is stripped and
+    /// any `;` parameters (e.g. `"image/jpeg; charset=utf-8"`) are removed
+    /// before matching. Essence compare is ASCII case-insensitive so callers
+    /// pass the raw user string verbatim.
     #[must_use]
     pub fn from_mime(s: &str) -> Self {
-        match s {
-            "image/jpeg" | "image/jpg" => Self::Jpeg,
-            "image/webp" => Self::Webp,
-            // Including "image/png" and any unrecognized / case-mismatched
-            // value — both default to PNG per the fallback rule above.
-            _ => Self::Png,
+        // Strip params first, then HTTP-whitespace-trim the essence (spec
+        // order: trim is on the parsed essence, not the raw input).
+        let essence = s.split(';').next().unwrap_or("").trim();
+        if essence.eq_ignore_ascii_case("image/jpeg") || essence.eq_ignore_ascii_case("image/jpg") {
+            Self::Jpeg
+        } else if essence.eq_ignore_ascii_case("image/webp") {
+            Self::Webp
+        } else {
+            // Including "image/png" and any unrecognized value — both
+            // default to PNG per the fallback rule above.
+            Self::Png
         }
     }
 

@@ -315,16 +315,55 @@ fn from_mime_maps_known_types_and_defaults_unknown_to_png() {
         BlobImageFormat::from_mime("image/webp"),
         BlobImageFormat::Webp
     );
-    // Unknown / case-mismatched / empty all fall back to PNG per spec.
+    // Unknown / empty falls back to PNG per spec.
     assert_eq!(
         BlobImageFormat::from_mime("image/gif"),
         BlobImageFormat::Png
+    );
+    assert_eq!(BlobImageFormat::from_mime(""), BlobImageFormat::Png);
+}
+
+#[test]
+fn from_mime_is_ascii_case_insensitive() {
+    // Per WHATWG MIME Sniffing standard, comparison is ASCII case-
+    // insensitive on the parsed essence.
+    assert_eq!(
+        BlobImageFormat::from_mime("IMAGE/JPEG"),
+        BlobImageFormat::Jpeg
+    );
+    assert_eq!(
+        BlobImageFormat::from_mime("Image/WebP"),
+        BlobImageFormat::Webp
     );
     assert_eq!(
         BlobImageFormat::from_mime("IMAGE/PNG"),
         BlobImageFormat::Png
     );
-    assert_eq!(BlobImageFormat::from_mime(""), BlobImageFormat::Png);
+}
+
+#[test]
+fn from_mime_strips_parameters_and_whitespace() {
+    // WHATWG MIME parser: essence = pre-`;`, HTTP-whitespace-trimmed.
+    // `oc.convertToBlob({type: 'image/jpeg; charset=utf-8'})` must map to
+    // JPEG, not silently fall back to PNG.
+    assert_eq!(
+        BlobImageFormat::from_mime("image/jpeg; charset=utf-8"),
+        BlobImageFormat::Jpeg
+    );
+    assert_eq!(
+        BlobImageFormat::from_mime("image/webp;quality=0.9"),
+        BlobImageFormat::Webp
+    );
+    // Leading / trailing whitespace tolerated.
+    assert_eq!(
+        BlobImageFormat::from_mime("  image/jpeg  "),
+        BlobImageFormat::Jpeg
+    );
+    // Whitespace + params + case combined.
+    assert_eq!(
+        BlobImageFormat::from_mime(" Image/JPEG ; q=1 "),
+        BlobImageFormat::Jpeg
+    );
 }
 
 #[test]

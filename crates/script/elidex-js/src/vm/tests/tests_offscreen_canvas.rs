@@ -325,6 +325,25 @@ fn convert_to_blob_unknown_type_falls_back_to_png() {
 }
 
 #[test]
+fn convert_to_blob_type_with_mime_params_maps_essence() {
+    // WHATWG MIME parser: `"image/jpeg; charset=utf-8"` essence is
+    // `image/jpeg` → JPEG encoder. The Blob.type is the canonical encoder
+    // MIME (no params), per spec.
+    with_vm(|vm| {
+        assert_eq!(
+            eval_global_string(
+                vm,
+                "globalThis.r = ''; \
+                 var oc = new OffscreenCanvas(4, 4); oc.getContext('2d'); \
+                 oc.convertToBlob({type: 'image/jpeg; charset=utf-8'}).then(b => { globalThis.r = b.type; });",
+                "r",
+            ),
+            "image/jpeg"
+        );
+    });
+}
+
+#[test]
 fn convert_to_blob_before_get_context_rejects_invalid_state_error() {
     // No `getContext('2d')` was called — context mode is set to none — per
     // HTML §4.12.5.1.7 convertToBlob "If this OffscreenCanvas object's
