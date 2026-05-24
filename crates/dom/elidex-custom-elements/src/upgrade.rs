@@ -69,7 +69,7 @@ pub fn prepare_upgrade(
     };
     UpgradeResolution::Proceed {
         constructor_id: def.constructor_id,
-        observed_attributes: def.observed_attributes.clone(),
+        observed_attributes: def.observed_attributes().to_vec(),
     }
 }
 

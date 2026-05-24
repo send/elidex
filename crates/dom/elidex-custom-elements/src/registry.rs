@@ -11,36 +11,34 @@ use crate::validation::is_valid_custom_element_name;
 
 /// A registered custom element definition.
 ///
-/// `observed_attributes` preserves the developer's declared name list
-/// (useful for serialization / external inspection). A parallel private
-/// `observed_set` provides O(1) membership for the **mutation hot path**
-/// (every `setAttribute` runs the consumer's filter, so an O(N)
-/// `Vec::contains` would scale poorly with large `observedAttributes`
-/// declarations). Membership is exposed via [`Self::observes`]; the
-/// `observed_set` field is private so the Vec/Set pair can only desync
-/// inside this module — external code cannot construct
-/// `CustomElementDefinition` via a struct literal.
+/// The observed-attribute Vec and its parallel `HashSet` are BOTH
+/// private — that is the only seal that holds the Vec/Set invariant.
+/// Read access is exposed via [`Self::observed_attributes`] (returns
+/// `&[String]` so callers cannot mutate the Vec) and
+/// [`Self::observes`] (O(1) membership via the parallel `HashSet`).
+/// The fields are derived from the constructor argument and are
+/// effectively immutable post-`new`; making them `pub` would expose a
+/// `&mut def.observed_attributes` mutation path that could silently
+/// desync the Set (R11 closure of the seal that R9 #2 started).
 #[derive(Clone, Debug)]
 pub struct CustomElementDefinition {
     /// Custom element name (e.g., `"my-element"`).
     pub name: String,
     /// ID referencing the JS constructor stored in `HostBridge`.
     pub constructor_id: u64,
-    /// Attribute names observed by `attributeChangedCallback`, preserved
-    /// in the order the developer returned them from the static
-    /// `observedAttributes` getter. The upgrade-time initial
-    /// `attributeChangedCallback` enqueue (`finalize_success`) walks the
-    /// element's own attribute list per HTML §4.13.5 step 12 ("for each
-    /// attribute in element's attribute list, in order") and filters by
-    /// membership via [`Self::observes`] — so the enqueue order is
-    /// element-attribute-insertion order, NOT this Vec's declared order.
-    pub observed_attributes: Vec<String>,
     /// Built-in element tag to extend (e.g., `"div"` for customized built-in).
     /// `None` for autonomous custom elements.
     pub extends: Option<String>,
+    /// Attribute names observed by `attributeChangedCallback`, in
+    /// the order the developer returned them from the static
+    /// `observedAttributes` getter. Private — read via
+    /// [`Self::observed_attributes`]. Spec (HTML §4.13.5 step 12) for
+    /// the upgrade-time initial enqueue walks the element's own
+    /// attribute list and filters by membership, so enqueue order is
+    /// element-attribute-insertion order, NOT this Vec's order.
+    observed_attributes: Vec<String>,
     /// Parallel `HashSet` over `observed_attributes` for O(1) hot-path
-    /// membership tests. Private: callers must use [`Self::observes`]
-    /// so the Vec/Set pair cannot desync via a struct literal.
+    /// membership tests. Private — read via [`Self::observes`].
     observed_set: HashSet<String>,
 }
 
@@ -74,8 +72,8 @@ impl CustomElementDefinition {
         Self {
             name,
             constructor_id,
-            observed_attributes,
             extends,
+            observed_attributes,
             observed_set,
         }
     }
@@ -86,6 +84,16 @@ impl CustomElementDefinition {
     #[must_use]
     pub fn observes(&self, name: &str) -> bool {
         self.observed_set.contains(name)
+    }
+
+    /// Read-only view of the developer-declared `observedAttributes`
+    /// name list (preserved in declaration order). Returns `&[String]`
+    /// so callers cannot mutate the backing Vec — combined with the
+    /// private struct field, this is the seal that keeps the Vec/Set
+    /// pair from desyncing.
+    #[must_use]
+    pub fn observed_attributes(&self) -> &[String] {
+        &self.observed_attributes
     }
 }
 

@@ -128,7 +128,7 @@ impl HostBridge {
             .borrow()
             .custom_element_registry
             .get(name)
-            .map(|def| def.observed_attributes.clone())
+            .map(|def| def.observed_attributes().to_vec())
             .unwrap_or_default()
     }
 
@@ -138,7 +138,7 @@ impl HostBridge {
             .borrow()
             .custom_element_registry
             .get(ce_name)
-            .is_some_and(|def| def.observed_attributes.iter().any(|a| a == attr_name))
+            .is_some_and(|def| def.observes(attr_name))
     }
 
     /// Store a `whenDefined()` resolve function for a not-yet-defined custom element.
