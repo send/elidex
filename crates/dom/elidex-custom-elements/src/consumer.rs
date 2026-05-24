@@ -1,5 +1,5 @@
 //! [`CustomElementReactionConsumer`] — `MutationEvent` consumer that
-//! enqueues custom element lifecycle reactions per WHATWG HTML §4.13.3.
+//! enqueues custom element lifecycle reactions per WHATWG HTML §4.13.6.
 //!
 //! ECS-native first: lifecycle reactions are derived state — the source
 //! of truth is the mutation stream from [`EcsDom`]. Per ECS first

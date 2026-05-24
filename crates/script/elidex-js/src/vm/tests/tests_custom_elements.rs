@@ -123,7 +123,7 @@ fn define_accepts_valid_name() {
 
 #[test]
 fn define_invalid_name_throws_syntax_error() {
-    // Names without a hyphen are invalid per HTML §4.13.2.
+    // Names without a hyphen are invalid per HTML §4.13.3 `valid custom element name`.
     let err = run_throws("customElements.define('nohyphen', class {});");
     assert!(
         err.contains("SyntaxError") || err.contains("valid custom element name"),
@@ -133,7 +133,7 @@ fn define_invalid_name_throws_syntax_error() {
 
 #[test]
 fn define_reserved_name_throws() {
-    // `font-face` is reserved per §4.13.2.
+    // `font-face` is reserved per §4.13.3 `valid custom element name`.
     let err = run_throws("customElements.define('font-face', class {});");
     assert!(
         err.contains("SyntaxError") || err.contains("valid custom element name"),

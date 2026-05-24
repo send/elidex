@@ -924,7 +924,7 @@ impl VmInner {
                 #[cfg(not(feature = "engine"))]
                 None,
                 // M4-12 slot #11-resize-observer-vm: ResizeObserver.prototype
-                // (W3C Resize Observer §3.1).  Chains to `Object.prototype`.
+                // (W3C Resize Observer §2.1).  Chains to `Object.prototype`.
                 // Same `delete globalThis.ResizeObserver` invariant as
                 // every other intrinsic prototype above — the
                 // `VmInner::resize_observer_prototype` slot retains a

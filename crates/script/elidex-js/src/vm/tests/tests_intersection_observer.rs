@@ -163,7 +163,7 @@ fn intersection_observer_threshold_out_of_range_throws() {
 
 #[test]
 fn intersection_observer_root_margin_invalid_unit_throws_syntax_error() {
-    // W3C Intersection Observer §3.1 — `rootMargin` must be a valid
+    // W3C Intersection Observer §2.2 — `rootMargin` must be a valid
     // `<length-percentage>{1,4}`.  `em` / `vh` / bare numbers fail
     // SyntaxError, NOT TypeError (regression guard for the strict
     // crate-side parser).
@@ -300,7 +300,7 @@ fn intersection_observer_deliver_box_less_target_delivers_initial_zero_once() {
     .unwrap();
 
     // No LayoutBox attached → spec-mandated initial observation
-    // (Intersection Observer §3.1).  Second deliver must not re-fire.
+    // (Intersection Observer §2.2).  Second deliver must not re-fire.
     vm.deliver_intersection_observations();
     vm.deliver_intersection_observations();
 

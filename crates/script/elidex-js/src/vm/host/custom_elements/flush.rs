@@ -1,4 +1,4 @@
-//! Custom element reaction queue drain — HTML §4.13.3 "Invoke custom
+//! Custom element reaction queue drain — HTML §4.13.6 "Invoke custom
 //! element reactions".
 //!
 //! Invoked from `VmInner::flush_ce_reactions` at script-execution /
@@ -6,7 +6,7 @@
 //! empty (callbacks may enqueue more reactions); bounded by
 //! [`MAX_CE_DRAIN_ITERATIONS`] to defend against pathological cycles.
 //!
-//! Exception policy (HTML §4.13.3 step 4): each callback runs inside
+//! Exception policy (HTML §4.13.6 "invoke custom element reactions" step 4): each callback runs inside
 //! its own try/catch — a throw is reported via `eprintln!` (the
 //! VM-side analog of `Window.onerror`) and the drain continues. The
 //! one exception is `Upgrade` reactions, where a constructor throw
@@ -140,7 +140,7 @@ fn invoke_one(vm: &mut VmInner, reaction: CustomElementReaction) -> Result<(), V
 
 /// Look up the named callback on `entity`'s constructor prototype and
 /// invoke it with `args` (this = the element wrapper). Errors are
-/// reported but not propagated — HTML §4.13.3 "Invoke custom element
+/// reported but not propagated — HTML §4.13.6 "Invoke custom element
 /// reactions" routes them to Window.onerror.
 fn invoke_callback(
     ctx: &mut NativeContext<'_>,
@@ -203,7 +203,7 @@ fn invoke_callback(
         }
     };
     // Absent lifecycle property (undefined / null) — silent no-op
-    // per HTML §4.13.4 "invoke custom element callback" step 2
+    // per HTML §4.13.6 "invoke custom element callback" step 2
     // ("If callback is null, then return"). Optional lifecycle hooks
     // (e.g. a class that only defines `connectedCallback`) MUST NOT
     // log a TypeError for the missing siblings; that's the common
@@ -214,7 +214,7 @@ fn invoke_callback(
     let JsValue::Object(cb_id) = cb_value else {
         // Present-but-non-object lifecycle property (e.g.
         // `connectedCallback = 1` / a primitive) — TypeError per
-        // HTML §4.13.4 "invoke a custom element callback". Reported
+        // HTML §4.13.6 "invoke a custom element callback". Reported
         // via the same stderr / Window.onerror path as runtime
         // callback throws; not propagated because the reactions-
         // stack frame swallows individual errors.

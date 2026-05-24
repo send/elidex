@@ -1,4 +1,4 @@
-//! `ResizeObserver` interface (W3C Resize Observer §3.1) — VM thin
+//! `ResizeObserver` interface (W3C Resize Observer §2.1) — VM thin
 //! binding to the engine-independent
 //! [`elidex_api_observers::resize::ResizeObserverRegistry`].
 //!
@@ -296,7 +296,7 @@ fn parse_resize_observer_options(
 // Entry marshalling (used by `VmInner::deliver_resize_observations`)
 // ---------------------------------------------------------------------------
 
-/// Marshal one `ResizeObserverEntry` (W3C Resize Observer §4.1) to a
+/// Marshal one `ResizeObserverEntry` (W3C Resize Observer §2.3) to a
 /// JS Object with `target`, `contentRect` (DOMRectReadOnly), and the
 /// `contentBoxSize` / `borderBoxSize` `FrozenArray<ResizeObserverSize>`
 /// pair.  `devicePixelContentBoxSize` is deferred to

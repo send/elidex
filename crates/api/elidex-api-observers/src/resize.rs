@@ -72,7 +72,7 @@ pub struct ResizeObserverOptions {
     pub box_model: ResizeObserverBoxOptions,
 }
 
-/// A resize observation entry delivered to the callback (Resize Observer §4.1).
+/// A resize observation entry delivered to the callback (Resize Observer §2.3).
 #[derive(Debug, Clone)]
 pub struct ResizeObserverEntry {
     /// The observed element.
@@ -220,7 +220,7 @@ impl ResizeObserverRegistry {
         // disjoint components, so they coexist).
         //
         // A box-less target (`size_fn` → None: display:none / pre-layout) is
-        // NOT skipped: per Resize Observer §3.1 (observe) the first broadcast
+        // NOT skipped: per Resize Observer §2.1 (observe) the first broadcast
         // must deliver an initial 0×0 entry, so the missing box is treated as a
         // zero content rect and runs the same change-detection logic.
         for (entity, comp) in &mut dom.world().query::<(Entity, &ResizeObservedBy)>() {

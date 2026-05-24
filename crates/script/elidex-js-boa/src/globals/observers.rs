@@ -399,7 +399,7 @@ fn register_intersection_observer(ctx: &mut Context, bridge: &HostBridge) {
                 .sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             init.threshold.dedup();
 
-            // W3C Intersection Observer §3.1 — `SyntaxError` if
+            // W3C Intersection Observer §2.2 — `SyntaxError` if
             // `rootMargin` is not a valid `<length-percentage>{1,4}`.
             let registered = bridge.with_intersection_observers(|reg| {
                 reg.register(init)

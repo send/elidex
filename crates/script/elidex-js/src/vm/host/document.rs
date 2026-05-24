@@ -319,7 +319,8 @@ pub(super) fn native_document_create_element(
             if let Some(entity) = elidex_ecs::Entity::from_bits(entity_bits) {
                 let _ = elidex_form::create_form_control_state(ctx.host().dom(), entity);
                 // D-17 `#11-custom-elements-vm` — autonomous custom
-                // element detect (HTML §4.13.2): hyphenated tags
+                // element detect (HTML §4.13.3 `valid custom element name`):
+                // hyphenated tags
                 // receive a `CustomElementState::undefined(tag)`
                 // component, and an Upgrade reaction fires if the
                 // matching definition is already registered (else the
@@ -333,7 +334,7 @@ pub(super) fn native_document_create_element(
 }
 
 /// Attach `CustomElementState` to `entity` when its tag is a valid
-/// autonomous custom element name (HTML §4.13.2). Either enqueue an
+/// autonomous custom element name (HTML §4.13.3). Either enqueue an
 /// Upgrade reaction (definition already registered) or push onto the
 /// pending-upgrade queue (definition lands later).
 ///

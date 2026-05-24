@@ -1,4 +1,4 @@
-//! `MutationObserver` interface (WHATWG DOM §4.3) — VM thin
+//! `MutationObserver` interface (WHATWG DOM §4.3.1) — VM thin
 //! binding to the engine-independent
 //! [`elidex_api_observers::mutation::MutationObserverRegistry`].
 //!
@@ -155,7 +155,7 @@ fn require_mutation_observer_receiver(
 // Constructor
 // ---------------------------------------------------------------------------
 
-/// `new MutationObserver(callback)` (WHATWG DOM §4.3.2).
+/// `new MutationObserver(callback)` (WHATWG DOM §4.3.1).
 fn native_mutation_observer_constructor(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

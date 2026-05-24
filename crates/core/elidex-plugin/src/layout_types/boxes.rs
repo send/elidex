@@ -138,7 +138,7 @@ impl LayoutBox {
     /// content size.  Distinct from the public `content` field which
     /// is in document coordinates.
     ///
-    /// Used by `ResizeObserverEntry.contentRect` (W3C Resize Observer §4.1)
+    /// Used by `ResizeObserverEntry.contentRect` (W3C Resize Observer §2.3)
     /// — the legacy field is defined relative to the element's own box.
     #[must_use]
     pub fn content_rect_local(&self) -> Rect {

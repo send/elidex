@@ -1,4 +1,4 @@
-//! Custom element reaction queue (WHATWG HTML §4.13.3).
+//! Custom element reaction queue (WHATWG HTML §4.13.6).
 //!
 //! Reactions are batched and processed at specific checkpoints
 //! (after script execution, event dispatch, and DOM mutation flush).

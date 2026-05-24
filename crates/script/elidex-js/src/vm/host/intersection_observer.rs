@@ -1,4 +1,4 @@
-//! `IntersectionObserver` interface (W3C Intersection Observer §3.1) —
+//! `IntersectionObserver` interface (W3C Intersection Observer §2.2) —
 //! VM thin binding to the engine-independent
 //! [`elidex_api_observers::intersection::IntersectionObserverRegistry`].
 //!
@@ -198,7 +198,7 @@ fn native_intersection_observer_constructor(
     }
 
     let init = parse_intersection_observer_init(ctx, args.get(1).copied())?;
-    // W3C Intersection Observer §3.1 ctor step — `SyntaxError` if
+    // W3C Intersection Observer §2.2 ctor step — `SyntaxError` if
     // `rootMargin` is not a valid `<length-percentage>{1,4}`.  The
     // crate-side `register` returns `RootMarginParseError` (engine-
     // independent); the host wraps it in an interface-scoped
@@ -377,7 +377,7 @@ fn parse_intersection_observer_init(
     Ok(init)
 }
 
-/// Parse the `threshold` init member (W3C Intersection Observer §3.1).
+/// Parse the `threshold` init member (W3C Intersection Observer §2.4).
 /// WebIDL `(double or sequence<double>)`: probe `@@iterator` to pick
 /// the sequence branch (Array literal, NodeList, custom iterable);
 /// a non-iterable value coerces to a single double via `ToNumber`.
