@@ -638,8 +638,8 @@ impl Vm {
                 //   the outgoing DOM.
                 // - `ce_reaction_queue`: every variant holds an
                 //   `Entity`.
-                // - `ce_constructors` / `ce_when_defined_resolvers` /
-                //   `ce_when_defined_promises`: per-VM `ObjectId`s.
+                // - `ce_constructors` / `ce_when_defined_promises`:
+                //   per-VM `ObjectId`s.
                 // Same cross-DOM-aliasing rationale as the wrapper-
                 // store retain above (`#11-wrapper-cache-cross-dom-
                 // discriminator` — world_id discriminator left-open).
@@ -652,7 +652,6 @@ impl Vm {
                     .expect("CE reaction queue mutex poisoned")
                     .clear();
                 hd.ce_constructors.clear();
-                hd.ce_when_defined_resolvers.clear();
                 hd.ce_when_defined_promises.clear();
                 hd.ce_next_constructor_id = 0;
             }

@@ -95,18 +95,16 @@ pub(crate) fn native_ce_when_defined(
 
     // Pending — return the previously stored Promise if there is one
     // (per spec §4.13.4 step 3 "promise" is reused across calls), else
-    // mint a fresh Promise + register a resolver.
+    // mint a fresh Promise and cache it. `define()` later settles
+    // this Promise directly via `natives_promise::settle_promise`;
+    // no separate resolver-function needs to be retained (the prior
+    // implementation stored a PromiseResolver pair that was never
+    // invoked — pure dead code that's been removed).
     if let Some(cached) = ctx.host().ce_when_defined_promises.get(&name).copied() {
         return Ok(JsValue::Object(cached));
     }
     let promise = natives_promise::create_promise(ctx.vm);
-    let (resolve, _reject) = natives_promise::create_resolver_pair(ctx.vm, promise);
-    let host = ctx.host();
-    host.ce_when_defined_promises.insert(name.clone(), promise);
-    host.ce_when_defined_resolvers
-        .entry(name)
-        .or_default()
-        .push(resolve);
+    ctx.host().ce_when_defined_promises.insert(name, promise);
     Ok(JsValue::Object(promise))
 }
 

@@ -166,8 +166,10 @@ impl CustomElementReactionConsumer {
         let Some(def) = registry.get(&def_name) else {
             return;
         };
-        // observed_attributes filter — HTML §4.13.4 "attribute change steps".
-        if !def.observed_attributes.iter().any(|n| n == name) {
+        // observed_attributes filter — HTML §4.13.4 "attribute change
+        // steps". O(1) via the definition's parallel `observed_set`
+        // (mutation hot path runs this on every setAttribute).
+        if !def.observed_set.contains(name) {
             return;
         }
         // Drop the registry guard before acquiring the queue guard

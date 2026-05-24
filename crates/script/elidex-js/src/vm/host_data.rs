@@ -430,11 +430,6 @@ mod engine_feature {
         /// `feedback_boa-hostbridge-port-is-not-a-registry.md`), so this
         /// stays on HostData not as an ECS component. Cleared on unbind.
         pub(crate) ce_constructors: HashMap<u64, ObjectId>,
-        /// Per-name `whenDefined()` resolver functions, keyed by CE
-        /// name. Each entry is the list of Promise resolve callbacks to
-        /// invoke when `define(name, ...)` lands. Cleared on unbind
-        /// (Promise wrapper `ObjectId`s are per-VM identity).
-        pub(crate) ce_when_defined_resolvers: HashMap<String, Vec<ObjectId>>,
         /// Cached pending `whenDefined()` Promise per CE name — returns
         /// the same Promise for repeated calls with the same name (per
         /// WHATWG §4.13.4 step 3 — "Set promise to a new promise" runs
@@ -745,7 +740,6 @@ mod engine_feature {
                 )),
                 ce_next_constructor_id: 0,
                 ce_constructors: HashMap::new(),
-                ce_when_defined_resolvers: HashMap::new(),
                 ce_when_defined_promises: HashMap::new(),
             }
         }
@@ -1530,15 +1524,10 @@ mod engine_feature {
                 // unresolved whenDefined resolver function must stay GC-
                 // rooted for the registry's lifetime — otherwise an
                 // upgrade after a major GC cycle would dereference a
-                // freed `ObjectId`. All three maps are cleared on
+                // freed `ObjectId`. Both maps are cleared on
                 // `Vm::unbind` so the roots release on rebind.
                 .chain(self.ce_constructors.values().copied())
                 .chain(self.ce_when_defined_promises.values().copied())
-                .chain(
-                    self.ce_when_defined_resolvers
-                        .values()
-                        .flat_map(|v| v.iter().copied()),
-                )
         }
 
         /// GC trace fan-out accessor for `TreeWalker.filter_object_id`

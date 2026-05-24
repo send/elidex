@@ -81,14 +81,17 @@ pub(crate) fn native_ce_define(
     //    its own ID, no consumer expects monotonic-no-gaps).
     let host = ctx.host();
     let constructor_id_u64 = host.ce_next_constructor_id;
-    host.ce_next_constructor_id = host.ce_next_constructor_id.wrapping_add(1);
+    // checked_add (not wrapping) — wrapping at 2^64 would re-use a
+    // live constructor_id and alias the wrong constructor onto an
+    // existing CustomElementDefinition. Practically unreachable, but
+    // an explicit overflow error beats silent corruption.
+    host.ce_next_constructor_id = host
+        .ce_next_constructor_id
+        .checked_add(1)
+        .expect("CE constructor ID counter overflow (2^64 defines in one VM)");
     host.ce_constructors.insert(constructor_id_u64, ctor_id);
-    let definition = CustomElementDefinition {
-        name: name.clone(),
-        constructor_id: constructor_id_u64,
-        observed_attributes,
-        extends: None,
-    };
+    let definition =
+        CustomElementDefinition::new(name.clone(), constructor_id_u64, observed_attributes, None);
     let pending = {
         let mut registry = host.ce_registry.lock().expect("CE registry mutex poisoned");
         registry.define(definition)
@@ -275,20 +278,7 @@ fn enqueue_upgrade_walk(
 
 /// Resolve every pending `whenDefined(name)` Promise with `ctor_id`.
 fn resolve_when_defined(ctx: &mut NativeContext<'_>, name: &str, ctor_id: ObjectId) {
-    let promise_to_resolve = {
-        let host = ctx.host();
-        host.ce_when_defined_resolvers.remove(name);
-        host.ce_when_defined_promises.remove(name)
-    };
-    // The resolver-callbacks map entries hold `PromiseResolver`
-    // function ObjectIds bound to the SAME `promise_to_resolve`
-    // (`lookup.rs::native_ce_when_defined` mints both at once and
-    // never adds a second resolver per name). Settling the promise
-    // directly is sufficient — the resolver function's effect is
-    // identical to `settle_promise` and would no-op via the
-    // already_resolved idempotency flag anyway. We drop the resolvers
-    // map entry above purely to release the GC root on the resolver
-    // function.
+    let promise_to_resolve = ctx.host().ce_when_defined_promises.remove(name);
     if let Some(promise_id) = promise_to_resolve {
         let _ = super::super::super::natives_promise::settle_promise(
             ctx.vm,

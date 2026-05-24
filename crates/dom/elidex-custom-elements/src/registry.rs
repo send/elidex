@@ -2,7 +2,7 @@
 //!
 //! Stores custom element definitions and manages the pending upgrade queue.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use elidex_ecs::Entity;
 
@@ -10,14 +10,31 @@ use crate::state::{CEState, CustomElementState};
 use crate::validation::is_valid_custom_element_name;
 
 /// A registered custom element definition.
+///
+/// `observed_attributes` is kept as a `Vec<String>` so the synchronous
+/// upgrade path can iterate the definition's attributes in spec-
+/// declared order (HTML §4.13.5 step where the upgrade enqueues
+/// `attributeChangedCallback` for each already-present observed
+/// attribute). `observed_set` parallels it as a `HashSet` for O(1)
+/// membership testing on the **mutation hot path** (every
+/// `setAttribute` runs the consumer's filter, so the prior O(N)
+/// `Vec::contains`-style scan would scale poorly with large
+/// `observedAttributes` declarations).
 #[derive(Clone, Debug)]
 pub struct CustomElementDefinition {
     /// Custom element name (e.g., `"my-element"`).
     pub name: String,
     /// ID referencing the JS constructor stored in `HostBridge`.
     pub constructor_id: u64,
-    /// Attribute names observed by `attributeChangedCallback`.
+    /// Attribute names observed by `attributeChangedCallback`, in
+    /// spec-declared order. Used by the synchronous-upgrade walk to
+    /// pre-fire callbacks for already-present attributes in the
+    /// declared order.
     pub observed_attributes: Vec<String>,
+    /// Parallel `HashSet` over `observed_attributes` for O(1) hot-
+    /// path membership tests (mutation consumer filter, attribute-
+    /// change reaction enqueue).
+    pub observed_set: HashSet<String>,
     /// Built-in element tag to extend (e.g., `"div"` for customized built-in).
     /// `None` for autonomous custom elements.
     pub extends: Option<String>,
@@ -34,6 +51,30 @@ pub struct CustomElementRegistry {
     /// Elements awaiting upgrade (created before `define()` was called).
     /// Key: custom element name, Value: entities waiting for that definition.
     pending_upgrade: HashMap<String, Vec<Entity>>,
+}
+
+impl CustomElementDefinition {
+    /// Construct a definition with the `observed_set` materialized
+    /// from `observed_attributes`. Single construction site for the
+    /// parallel-`HashSet` invariant — callers should NEVER use the
+    /// struct literal directly (the unsynchronized `observed_set`
+    /// would break the hot-path filter).
+    #[must_use]
+    pub fn new(
+        name: String,
+        constructor_id: u64,
+        observed_attributes: Vec<String>,
+        extends: Option<String>,
+    ) -> Self {
+        let observed_set: HashSet<String> = observed_attributes.iter().cloned().collect();
+        Self {
+            name,
+            constructor_id,
+            observed_attributes,
+            observed_set,
+            extends,
+        }
+    }
 }
 
 impl CustomElementRegistry {

@@ -40,12 +40,12 @@ impl HostBridge {
         inner.ce_next_constructor_id += 1;
         inner.custom_element_constructors.insert(id, constructor);
 
-        let def = elidex_custom_elements::CustomElementDefinition {
-            name: name.to_string(),
-            constructor_id: id,
-            observed_attributes: observed_attrs,
+        let def = elidex_custom_elements::CustomElementDefinition::new(
+            name.to_string(),
+            id,
+            observed_attrs,
             extends,
-        };
+        );
         inner.custom_element_registry.define(def)
     }
 
