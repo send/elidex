@@ -1,6 +1,6 @@
 //! Tree mutation and navigation methods for [`EcsDom`].
 
-use crate::components::{Attributes, ShadowRoot, TagType, TreeRelation};
+use crate::components::{Attributes, NodeKind, ShadowRoot, TagType, TreeRelation};
 use hecs::Entity;
 
 use super::mutation_event::MutationEvent;
@@ -28,6 +28,13 @@ impl EcsDom {
             return false;
         }
 
+        // Capture pre-mutation connectedness of `child` for
+        // `MutationEvent::Insert.was_connected` (HTML §4.13.3 Custom
+        // Element `connectedCallback` transition gate). MUST be read
+        // BEFORE `detach_with_hook` runs, which itself fires an
+        // implicit Remove whose `was_connected` reflects the same
+        // pre-mutation state.
+        let child_was_connected = self.is_connected(child);
         self.detach_with_hook(child, parent);
 
         let last_child = self.read_rel(parent, |rel| rel.last_child);
@@ -35,7 +42,7 @@ impl EcsDom {
         self.rev_version(parent);
 
         if let Some(new_index) = self.index_in_parent(child) {
-            self.fire_after_insert(child, parent, new_index);
+            self.fire_after_insert(child, parent, new_index, child_was_connected);
         }
 
         true
@@ -54,10 +61,14 @@ impl EcsDom {
             return false;
         }
         let removed_index = self.index_in_parent(child);
+        // Pre-detach connectedness for `MutationEvent::Remove.
+        // was_connected` (HTML §4.13.3 Custom Element
+        // `disconnectedCallback` transition gate).
+        let was_connected = self.is_connected(child);
         self.detach(child);
         self.rev_version(parent);
         if let Some(idx) = removed_index {
-            self.fire_after_remove(child, parent, idx);
+            self.fire_after_remove(child, parent, idx, was_connected);
         }
         true
     }
@@ -82,6 +93,9 @@ impl EcsDom {
             return false;
         }
 
+        // Pre-mutation connectedness for `was_connected` — same
+        // gating rationale as `append_child`.
+        let new_child_was_connected = self.is_connected(new_child);
         // Detach new_child from its current position (fires after_remove
         // on the implicit old-parent removal, per WHATWG insert algorithm).
         self.detach_with_hook(new_child, parent);
@@ -93,7 +107,7 @@ impl EcsDom {
         self.rev_version(parent);
 
         if let Some(new_index) = self.index_in_parent(new_child) {
-            self.fire_after_insert(new_child, parent, new_index);
+            self.fire_after_insert(new_child, parent, new_index, new_child_was_connected);
         }
 
         true
@@ -124,6 +138,13 @@ impl EcsDom {
             return false;
         }
 
+        // Pre-mutation connectedness for both subjects. `old_child` is
+        // connected via `parent` (which is unaffected by the
+        // forthcoming `detach_with_hook(new_child, parent)` — per the
+        // `is_ancestor(new_child, parent)` rejection above, `new_child`
+        // cannot be on `old_child`'s ancestor chain).
+        let new_child_was_connected = self.is_connected(new_child);
+        let old_child_was_connected = self.is_connected(old_child);
         // Detach new_child from its current position (fires after_remove on
         // the implicit old-parent removal, per WHATWG replace algorithm step
         // "If node has a parent, then remove node").
@@ -152,7 +173,7 @@ impl EcsDom {
         self.detach(old_child);
 
         if let Some(idx) = old_index {
-            self.fire_after_remove(old_child, parent, idx);
+            self.fire_after_remove(old_child, parent, idx, old_child_was_connected);
         }
 
         // Now link `new_child` into the slot `old_child` used to occupy.
@@ -160,7 +181,7 @@ impl EcsDom {
         self.rev_version(parent);
 
         if let Some(idx) = old_index {
-            self.fire_after_insert(new_child, parent, idx);
+            self.fire_after_insert(new_child, parent, idx, new_child_was_connected);
         }
 
         true
@@ -221,6 +242,9 @@ impl EcsDom {
         // Capture parent + pre-removal index for hook fire before detach.
         let parent = self.get_parent(entity);
         let removed_index = parent.and_then(|_| self.index_in_parent(entity));
+        // Pre-detach connectedness for `was_connected` — same gating
+        // rationale as `remove_child`.
+        let was_connected = self.is_connected(entity);
 
         self.detach(entity);
 
@@ -240,7 +264,7 @@ impl EcsDom {
         // `(parent, removed_index)` collapse required by WHATWG §5.5
         // remove step 4 (Copilot PR186 R2 #3).
         if let (Some(p), Some(idx)) = (parent, removed_index) {
-            self.fire_after_remove(entity, p, idx);
+            self.fire_after_remove(entity, p, idx, was_connected);
         }
 
         // Orphan all children: clear their parent and sibling links so
@@ -413,7 +437,18 @@ impl EcsDom {
     /// the shadow tree (where `parent` is a normal element inside the
     /// shadow tree) are NOT filtered here — those consumers should
     /// filter by tree root if they want light-tree-only events.
-    fn fire_after_insert(&mut self, node: Entity, parent: Entity, index: usize) {
+    ///
+    /// `was_connected` is the connectedness of `node` BEFORE this
+    /// mutation began (captured by callers via [`Self::is_connected`]
+    /// prior to any implicit detach). Required by Custom Elements
+    /// `connectedCallback` gating (HTML §4.13.3).
+    fn fire_after_insert(
+        &mut self,
+        node: Entity,
+        parent: Entity,
+        index: usize,
+        was_connected: bool,
+    ) {
         if self.is_shadow_root(node) || self.is_shadow_root(parent) {
             return;
         }
@@ -421,13 +456,25 @@ impl EcsDom {
             node,
             parent,
             index,
+            was_connected,
         };
         self.dispatch_event(&event);
     }
 
     /// Centralized `MutationEvent::Remove` fire site for tree mutations.
     /// Suppression rules match [`Self::fire_after_insert`].
-    fn fire_after_remove(&mut self, node: Entity, parent: Entity, removed_index: usize) {
+    ///
+    /// `was_connected` is the connectedness of `node` BEFORE detach
+    /// (captured by callers via [`Self::is_connected`] prior to
+    /// `self.detach(node)`). Required by Custom Elements
+    /// `disconnectedCallback` gating (HTML §4.13.3).
+    fn fire_after_remove(
+        &mut self,
+        node: Entity,
+        parent: Entity,
+        removed_index: usize,
+        was_connected: bool,
+    ) {
         if self.is_shadow_root(node) || self.is_shadow_root(parent) {
             return;
         }
@@ -446,8 +493,89 @@ impl EcsDom {
             parent,
             removed_index,
             descendants: &descendants,
+            was_connected,
         };
         self.dispatch_event(&event);
+    }
+
+    /// Pre-order shadow-including descendant walk (WHATWG DOM §4.2.2
+    /// "shadow-including descendant"). Visits `root`, then every
+    /// light-tree child via [`Self::children_iter`] (skips internal
+    /// `ShadowRoot` entities), then — for elements that host a
+    /// shadow root — recurses into the shadow root's own light-tree
+    /// subtree via [`Self::get_shadow_root`].
+    ///
+    /// Iterative DFS with an explicit `Vec<(Entity, depth)>` work-list
+    /// — matches the explicit-stack pattern used by `nodes_equal` /
+    /// `clone_children_recursive` / `despawn_subtree` so a malicious
+    /// deep DOM cannot blow Rust's call stack from inside synchronous
+    /// mutation chokepoints (`set_attribute` / `append_child`) via the
+    /// `CustomElementReactionConsumer::handle_insert` dispatch path.
+    /// The per-frame depth value still caps at [`MAX_ANCESTOR_DEPTH`]
+    /// to bound the work-list (corrupt parent chains can't generate
+    /// infinite children chains downstream, but the cap defends the
+    /// heap budget against pathological inputs).
+    ///
+    /// Used by Custom Elements `customElements.upgrade(root)` (HTML
+    /// §4.13.4 step 8), by `CustomElementReactionConsumer` for the
+    /// `Connected` / `Disconnected` per-subtree fan-out, and by
+    /// `descendants_shadow_inclusive` in `elidex_dom_api` (which is
+    /// now a thin re-export).
+    pub fn for_each_shadow_inclusive_descendant<F>(&self, root: Entity, visit: &mut F)
+    where
+        F: FnMut(Entity),
+    {
+        let mut stack: Vec<(Entity, usize)> = vec![(root, 0)];
+        while let Some((node, depth)) = stack.pop() {
+            if depth > MAX_ANCESTOR_DEPTH {
+                continue;
+            }
+            visit(node);
+            // Push in REVERSE source order so `pop()` returns siblings
+            // in source order; push shadow children FIRST (they sit
+            // deeper in the stack and therefore visit AFTER the light
+            // children) to preserve the original recursive visit
+            // order: light-tree DFS then shadow-tree DFS.
+            if let Some(sr) = self.get_shadow_root(node) {
+                let shadow_children: Vec<Entity> = self.children_iter(sr).collect();
+                for child in shadow_children.into_iter().rev() {
+                    stack.push((child, depth + 1));
+                }
+            }
+            let children: Vec<Entity> = self.children_iter(node).collect();
+            for child in children.into_iter().rev() {
+                stack.push((child, depth + 1));
+            }
+        }
+    }
+
+    /// Returns `true` if `entity`'s shadow-including root is a
+    /// `Document` (WHATWG DOM §4.4 "connected"). A `Document` entity
+    /// itself counts as connected — its shadow-including root IS a
+    /// Document (self).
+    ///
+    /// Walks via [`Self::get_parent`], which (per the shadow plumbing
+    /// in `shadow.rs`) returns `Some(host)` for a `ShadowRoot`, so the
+    /// walk is shadow-including. Bounded by `MAX_ANCESTOR_DEPTH` to
+    /// guard against corrupted parent chains. Returns `false` for
+    /// orphaned subtrees.
+    #[must_use]
+    pub fn is_connected(&self, entity: Entity) -> bool {
+        let mut current = Some(entity);
+        let mut depth = 0;
+        while let Some(e) = current {
+            if let Ok(kind) = self.world.get::<&NodeKind>(e) {
+                if matches!(*kind, NodeKind::Document) {
+                    return true;
+                }
+            }
+            depth += 1;
+            if depth > MAX_ANCESTOR_DEPTH {
+                return false;
+            }
+            current = self.get_parent(e);
+        }
+        false
     }
 
     /// Light-tree inclusive-descendant walker — collects `node` plus
@@ -495,6 +623,9 @@ impl EcsDom {
             return false;
         };
         let old_index = self.index_in_parent(child);
+        // Pre-detach connectedness for `was_connected` — same gating
+        // rationale as the public `remove_child` path.
+        let was_connected = self.is_connected(child);
         self.detach(child);
         // Only bump the old parent's version when it differs from the
         // new parent. Same-parent moves rely on the caller's
@@ -503,7 +634,7 @@ impl EcsDom {
             self.rev_version(old_parent);
         }
         if let Some(idx) = old_index {
-            self.fire_after_remove(child, old_parent, idx);
+            self.fire_after_remove(child, old_parent, idx, was_connected);
         }
         true
     }

@@ -1196,6 +1196,7 @@ impl NodeIteratorAdjuster {
             parent,
             removed_index,
             descendants,
+            ..
         } = *event
         {
             let mut iterators = self

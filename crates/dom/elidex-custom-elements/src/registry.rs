@@ -2,24 +2,44 @@
 //!
 //! Stores custom element definitions and manages the pending upgrade queue.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use elidex_ecs::Entity;
 
+use crate::state::{CEState, CustomElementState};
 use crate::validation::is_valid_custom_element_name;
 
 /// A registered custom element definition.
+///
+/// The observed-attribute Vec and its parallel `HashSet` are BOTH
+/// private — that is the only seal that holds the Vec/Set invariant.
+/// Read access is exposed via [`Self::observed_attributes`] (returns
+/// `&[String]` so callers cannot mutate the Vec) and
+/// [`Self::observes`] (O(1) membership via the parallel `HashSet`).
+/// The fields are derived from the constructor argument and are
+/// effectively immutable post-`new`; making them `pub` would expose a
+/// `&mut def.observed_attributes` mutation path that could silently
+/// desync the Set (R11 closure of the seal that R9 #2 started).
 #[derive(Clone, Debug)]
 pub struct CustomElementDefinition {
     /// Custom element name (e.g., `"my-element"`).
     pub name: String,
     /// ID referencing the JS constructor stored in `HostBridge`.
     pub constructor_id: u64,
-    /// Attribute names observed by `attributeChangedCallback`.
-    pub observed_attributes: Vec<String>,
     /// Built-in element tag to extend (e.g., `"div"` for customized built-in).
     /// `None` for autonomous custom elements.
     pub extends: Option<String>,
+    /// Attribute names observed by `attributeChangedCallback`, in
+    /// the order the developer returned them from the static
+    /// `observedAttributes` getter. Private — read via
+    /// [`Self::observed_attributes`]. Spec (HTML §4.13.5 step 12) for
+    /// the upgrade-time initial enqueue walks the element's own
+    /// attribute list and filters by membership, so enqueue order is
+    /// element-attribute-insertion order, NOT this Vec's order.
+    observed_attributes: Vec<String>,
+    /// Parallel `HashSet` over `observed_attributes` for O(1) hot-path
+    /// membership tests. Private — read via [`Self::observes`].
+    observed_set: HashSet<String>,
 }
 
 /// Registry of custom element definitions per realm (WHATWG HTML §4.13.4).
@@ -33,6 +53,48 @@ pub struct CustomElementRegistry {
     /// Elements awaiting upgrade (created before `define()` was called).
     /// Key: custom element name, Value: entities waiting for that definition.
     pending_upgrade: HashMap<String, Vec<Entity>>,
+}
+
+impl CustomElementDefinition {
+    /// Construct a definition with the private `observed_set`
+    /// materialized from `observed_attributes`. Single construction
+    /// site for the Vec/Set parallel-invariant — the private field
+    /// makes a struct literal a compile error from outside the module,
+    /// so the only way in is via this constructor.
+    #[must_use]
+    pub fn new(
+        name: String,
+        constructor_id: u64,
+        observed_attributes: Vec<String>,
+        extends: Option<String>,
+    ) -> Self {
+        let observed_set: HashSet<String> = observed_attributes.iter().cloned().collect();
+        Self {
+            name,
+            constructor_id,
+            extends,
+            observed_attributes,
+            observed_set,
+        }
+    }
+
+    /// O(1) `observedAttributes` membership test — the mutation-consumer
+    /// hot path. Delegates to the private parallel `HashSet` so callers
+    /// cannot read the set directly and accidentally drift it.
+    #[must_use]
+    pub fn observes(&self, name: &str) -> bool {
+        self.observed_set.contains(name)
+    }
+
+    /// Read-only view of the developer-declared `observedAttributes`
+    /// name list (preserved in declaration order). Returns `&[String]`
+    /// so callers cannot mutate the backing Vec — combined with the
+    /// private struct field, this is the seal that keeps the Vec/Set
+    /// pair from desyncing.
+    #[must_use]
+    pub fn observed_attributes(&self) -> &[String] {
+        &self.observed_attributes
+    }
 }
 
 impl CustomElementRegistry {
@@ -74,6 +136,15 @@ impl CustomElementRegistry {
         self.definitions.contains_key(name)
     }
 
+    /// Iterate the registered custom element names. Caller-owned
+    /// snapshot use case: `customElements.upgrade(root)`'s shadow-
+    /// inclusive walk snapshots the name set once before the walk so
+    /// the closure can do O(1) `HashSet::contains` instead of locking
+    /// the registry mutex per descendant.
+    pub fn names(&self) -> impl Iterator<Item = &str> {
+        self.definitions.keys().map(String::as_str)
+    }
+
     /// Queue an entity for upgrade when the definition becomes available.
     ///
     /// Called when an element with a custom element name is created before
@@ -83,6 +154,16 @@ impl CustomElementRegistry {
             .entry(name.to_string())
             .or_default()
             .push(entity);
+    }
+
+    /// Drop every definition + pending-upgrade entity. Used by
+    /// `Vm::unbind` to scrub cross-DOM references on the way out of a
+    /// bind cycle (`CustomElementDefinition::constructor_id` indexes
+    /// into per-VM `HostData::ce_constructors`; pending-upgrade
+    /// entities reference the outgoing DOM world).
+    pub fn clear(&mut self) {
+        self.definitions.clear();
+        self.pending_upgrade.clear();
     }
 
     /// Look up a definition by the `is` attribute value and the tag name.
@@ -120,3 +201,39 @@ impl std::fmt::Display for DefineError {
 }
 
 impl std::error::Error for DefineError {}
+
+/// World-wide query for every entity carrying
+/// `CustomElementState` with `state == CEState::Undefined` for `name`, minus the entities
+/// in `skip_already_pending`. Used by `customElements.define()` to
+/// drain elements that the parser / cross-document `createElement`
+/// path attached state to but could not enqueue via
+/// [`CustomElementRegistry::queue_for_upgrade`] (the parser cannot
+/// reach the per-VM registry).
+///
+/// Walks the hecs world directly so detached + DocumentFragment
+/// subtrees + future multi-document worlds are covered (a
+/// document-rooted DOM walk would silently miss them).
+#[must_use]
+pub fn collect_undefined_entities(
+    world: &hecs::World,
+    name: &str,
+    skip_already_pending: &[Entity],
+) -> Vec<Entity> {
+    // O(pending) HashSet build → O(world) walk with O(1) membership
+    // tests, replacing the O(world × pending) `[Entity]::contains`
+    // scan. Pending size can grow with parser-baked + createElement-
+    // queued elements waiting for define() so the structural fix
+    // matters for large CE component pages.
+    let skip: std::collections::HashSet<Entity> = skip_already_pending.iter().copied().collect();
+    let mut out = Vec::new();
+    let mut query = world.query::<(Entity, &CustomElementState)>();
+    for (entity, state) in &mut query {
+        if matches!(state.state, CEState::Undefined)
+            && state.definition_name == name
+            && !skip.contains(&entity)
+        {
+            out.push(entity);
+        }
+    }
+    out
+}

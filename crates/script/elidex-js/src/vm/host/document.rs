@@ -318,10 +318,82 @@ pub(super) fn native_document_create_element(
         {
             if let Some(entity) = elidex_ecs::Entity::from_bits(entity_bits) {
                 let _ = elidex_form::create_form_control_state(ctx.host().dom(), entity);
+                // D-17 `#11-custom-elements-vm` — autonomous custom
+                // element detect (HTML §4.13.2): hyphenated tags
+                // receive a `CustomElementState::undefined(tag)`
+                // component, and an Upgrade reaction fires if the
+                // matching definition is already registered (else the
+                // entity is queued for upgrade pending the next
+                // `customElements.define()`).
+                attach_custom_element_state_if_needed(ctx, entity, tag_sid);
             }
         }
     }
     Ok(result)
+}
+
+/// Attach `CustomElementState` to `entity` when its tag is a valid
+/// autonomous custom element name (HTML §4.13.2). Either enqueue an
+/// Upgrade reaction (definition already registered) or push onto the
+/// pending-upgrade queue (definition lands later).
+///
+/// Parser-baked elements receive the same component via
+/// `elidex_html_parser::convert` — this is the createElement() sibling
+/// path (HTML §4.13.4 step 5 — "If is a valid custom element name,
+/// then ...").
+fn attach_custom_element_state_if_needed(
+    ctx: &mut NativeContext<'_>,
+    entity: elidex_ecs::Entity,
+    tag_sid: crate::vm::value::StringId,
+) {
+    // ASCII case-fold to match the engine-indep `create_element`
+    // handler's TagType storage (HTML §4.4 "create an element" step 3
+    // — local name is ASCII lowercased for HTML documents). Without
+    // this fold, `document.createElement('MY-EL')` would silently
+    // skip CE state attachment because is_valid_custom_element_name
+    // checks the first byte is ASCII lowercase.
+    let tag = ctx.vm.strings.get_utf8(tag_sid).to_ascii_lowercase();
+    if !elidex_custom_elements::is_valid_custom_element_name(&tag) {
+        return;
+    }
+    let host = ctx.host();
+    // Attach the state component (Undefined) on the entity. ECS
+    // component on the entity per the ECS-native side-store rule:
+    // `CustomElementState` is per-entity, Send+Sync, NOT a per-VM
+    // identity handle.
+    {
+        let dom = host.dom();
+        let _ = dom.world_mut().insert_one(
+            entity,
+            elidex_custom_elements::CustomElementState::undefined(&tag),
+        );
+    }
+    // Route per HTML §4.4 "create an element" step 6:
+    // - If the matching definition is already registered: SYNCHRONOUS
+    //   upgrade per spec (the createElement call returns the element
+    //   in `Custom` state directly so subsequent appendChild /
+    //   setAttribute observe the post-upgrade reactions). Errors
+    //   during the synchronous upgrade are eprinted (matching the
+    //   reaction-flush path) — createElement still returns the
+    //   wrapper in `Failed` state.
+    // - Otherwise: push onto the pending-upgrade queue so the next
+    //   `customElements.define('<tag>', ...)` drains and upgrades it.
+    let is_defined = host
+        .ce_registry
+        .lock()
+        .expect("CE registry mutex poisoned")
+        .is_defined(&tag);
+    if is_defined {
+        if let Err(err) = crate::vm::host::custom_elements::upgrade::invoke_upgrade(ctx, entity) {
+            eprintln!("[CE Upgrade Error] {}", err.message);
+        }
+    } else {
+        ctx.host()
+            .ce_registry
+            .lock()
+            .expect("CE registry mutex poisoned")
+            .queue_for_upgrade(&tag, entity);
+    }
 }
 
 pub(super) fn native_document_create_text_node(

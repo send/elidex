@@ -25,6 +25,7 @@ engine = [
     "elidex-api-ws",
     "elidex-api-workers",
     "crossbeam-channel",
+    "elidex-custom-elements",
     "elidex-form",
     "elidex-storage-core",
     "bytes",
@@ -101,6 +102,12 @@ elidex-api-workers = { workspace = true, optional = true }
 # `RecvTimeoutError` for the worker thread loop's `recv_timeout` (Timeout
 # vs Disconnected) — the `elidex-plugin` `LocalChannel` is crossbeam-backed.
 crossbeam-channel = { workspace = true, optional = true }
+# Custom Elements v1 registry + reaction queue + state + validation +
+# `CustomElementReactionConsumer` (WHATWG HTML §4.13) consumed by the
+# VM thin binding (slot `#11-custom-elements-vm` / D-17). Engine-gated
+# because the custom-elements surface depends on the engine-only DOM /
+# Element wrappers / MutationDispatcher seam.
+elidex-custom-elements = { workspace = true, optional = true }
 # Form-control state, label association, validation, selection —
 # consumed by upcoming HTMLFormElement / HTMLInputElement prototype
 # bindings.  Currently dep-only.

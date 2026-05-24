@@ -239,14 +239,27 @@ impl Vm {
             registry.restore_next_id_marker(prev_next_id);
             hd.live_range_registry = registry;
             let node_iter = elidex_dom_api::NodeIteratorAdjuster::new(iter_shared);
+            // D-17 `#11-custom-elements-vm`: clone the HostData-owned
+            // `Arc<Mutex<>>` handles for the CE registry + reaction
+            // queue so the consumer's `handle` writes land in the same
+            // state that the `customElements.*` natives read.
+            let custom_elements = elidex_custom_elements::CustomElementReactionConsumer::new(
+                std::sync::Arc::clone(&hd.ce_registry),
+                std::sync::Arc::clone(&hd.ce_reaction_queue),
+            );
             // D-31: typed `ConsumerDispatcher` replaces the v4-era
             // `MutationBridge` 2-consumer composer (the
             // `#11-mutation-hook-multiplexer` slot is closed by this
             // structural shift).  Dispatch order = field declaration
-            // order = (live_range → node_iter → base_url →
-            // form_control_reconciler).
-            let mut dispatcher =
-                crate::vm::consumer_dispatcher::ConsumerDispatcher::new(live_range, node_iter);
+            // order — see `consumer_dispatcher.rs` for the
+            // authoritative 7-field list (live_range → node_iter →
+            // base_url → form_control → event_handler_attrs → canvas
+            // → custom_elements).
+            let mut dispatcher = crate::vm::consumer_dispatcher::ConsumerDispatcher::new(
+                live_range,
+                node_iter,
+                custom_elements,
+            );
             // D-31 init pass: pre-bind tree state (e.g. parser-
             // created `<base href>`) never went through
             // `MutationEvent::Insert`, so the `BaseUrlMaintainer`
@@ -615,6 +628,32 @@ impl Vm {
             if let Some(hd) = self.inner.host_data.as_deref_mut() {
                 hd.mutation_observers.clear_pending_records();
                 hd.intersection_observers.clear_root_entities();
+                // D-17 `#11-custom-elements-vm` — cross-DOM scrub of
+                // Custom Elements state. Every field below carries
+                // per-VM `ObjectId`s or `Entity` references that would
+                // alias the outgoing world on rebind:
+                // - `ce_registry`: `CustomElementDefinition::
+                //   constructor_id` indexes into `ce_constructors`
+                //   (per-VM); pending-upgrade `Entity` lists reference
+                //   the outgoing DOM.
+                // - `ce_reaction_queue`: every variant holds an
+                //   `Entity`.
+                // - `ce_constructors` / `ce_when_defined_promises`:
+                //   per-VM `ObjectId`s.
+                // Same cross-DOM-aliasing rationale as the wrapper-
+                // store retain above (`#11-wrapper-cache-cross-dom-
+                // discriminator` — world_id discriminator left-open).
+                hd.ce_registry
+                    .lock()
+                    .expect("CE registry mutex poisoned")
+                    .clear();
+                hd.ce_reaction_queue
+                    .lock()
+                    .expect("CE reaction queue mutex poisoned")
+                    .clear();
+                hd.ce_constructors.clear();
+                hd.ce_when_defined_promises.clear();
+                hd.ce_next_constructor_id = 0;
             }
             // (The Attr identity cache — keyed by `(Entity, StringId)`,
             // same cross-DOM aliasing risk — is cleared by the unified
@@ -660,6 +699,13 @@ impl Vm {
             // measure — drops the GC roots so the wrappers can be
             // collected and re-allocated lazily after the next bind.
             self.inner.clear_crypto_instance_cache();
+            // D-17 `#11-custom-elements-vm` — drop the cached
+            // `customElements` singleton wrapper so it can be re-
+            // allocated lazily on the next bind. The registry state
+            // itself (registered constructors, pending upgrades,
+            // reaction queue) is scrubbed alongside the observer
+            // registries above.
+            self.inner.custom_element_registry_instance = None;
             // sessionStorage is per-VM and per-browsing-context.  An
             // unbind boundary expresses the browsing-context
             // teardown — drop entries so a rebind cannot observe

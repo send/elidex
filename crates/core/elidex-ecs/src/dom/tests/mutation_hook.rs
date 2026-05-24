@@ -70,6 +70,7 @@ impl MutationDispatcher for MockHook {
                 node,
                 parent,
                 index,
+                ..
             } => {
                 self.events.lock().unwrap().push(MockEvent::Insert {
                     node,

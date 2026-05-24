@@ -167,6 +167,26 @@ fn match_pseudo_class(name: &str, entity: Entity, dom: &EcsDom) -> bool {
         // Form-related pseudo-classes delegated to a separate function.
         "disabled" | "enabled" | "indeterminate" | "valid" | "invalid" | "checked" | "required"
         | "optional" | "read-only" | "read-write" => match_form_pseudo_class(name, entity, dom),
+        // CSS Selectors Level 4 §6.3 "The Defined Element
+        // Pseudo-class: :defined" (HTML §4.13.5 mirror). Built-in
+        // elements (no `CustomElementState`
+        // component) always match — "the user agent has built-in
+        // knowledge of [them]". Custom elements match iff their state
+        // has transitioned to `Custom` after successful upgrade.
+        // Undefined / Failed / Precustomized / Uncustomized do NOT
+        // match. Same always-walk model as `:hover` above — restyle
+        // invalidation on state transitions is implicit because
+        // `elidex-style::walk::resolve_styles` re-evaluates every
+        // selector each frame.
+        "defined" => {
+            match dom
+                .world()
+                .get::<&elidex_custom_elements::CustomElementState>(entity)
+            {
+                Ok(state) => matches!(state.state, elidex_custom_elements::CEState::Custom),
+                Err(_) => true,
+            }
+        }
         _ => false,
     }
 }

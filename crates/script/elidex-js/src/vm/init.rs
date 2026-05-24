@@ -226,6 +226,10 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 subtle_crypto_instance: None,
                 #[cfg(feature = "engine")]
+                custom_element_registry_prototype: None,
+                #[cfg(feature = "engine")]
+                custom_element_registry_instance: None,
+                #[cfg(feature = "engine")]
                 html_iframe_prototype: None,
                 #[cfg(feature = "engine")]
                 html_label_prototype: None,

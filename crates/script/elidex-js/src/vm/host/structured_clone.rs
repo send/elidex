@@ -347,6 +347,11 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         // with Chrome / Firefox.
         ObjectKind::WebSocket => CloneKind::Unclonable("WebSocket"),
         ObjectKind::EventSource => CloneKind::Unclonable("EventSource"),
+        // D-17 `#11-custom-elements-vm` — `CustomElementRegistry` is a
+        // per-realm singleton (HTML §4.13.4); cloning would require
+        // duplicating registered constructor `ObjectId`s + the
+        // reaction queue across realms, which the spec doesn't model.
+        ObjectKind::CustomElementRegistry => CloneKind::Unclonable("CustomElementRegistry"),
     }
 }
 

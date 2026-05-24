@@ -256,6 +256,32 @@ fn deep_tree() {
 }
 
 #[test]
+fn for_each_shadow_inclusive_descendant_deep_tree_no_overflow() {
+    // Pin the iterative-stack contract: a 5000-deep nesting must
+    // not overflow the Rust call stack. Recursion would crash at
+    // ~2-3k on a default 8 MiB stack — well below the 10_000-frame
+    // MAX_ANCESTOR_DEPTH cap that previously gated the recursive
+    // walker. The CE consumer's handle_insert dispatch path
+    // synchronously walks shadow-inclusive descendants on every
+    // mutation, so an adversarial deep DOM was a reachable
+    // stack-overflow vector before this fix.
+    let mut dom = EcsDom::new();
+    let root = elem(&mut dom, "div");
+    let mut current = root;
+    for _ in 0..5000 {
+        let child = elem(&mut dom, "span");
+        let _ = dom.append_child(current, child);
+        current = child;
+    }
+    let mut visited = 0usize;
+    dom.for_each_shadow_inclusive_descendant(root, &mut |_entity| {
+        visited += 1;
+    });
+    // root + 5000 spans
+    assert_eq!(visited, 5001);
+}
+
+#[test]
 fn helper_methods() {
     let mut dom = EcsDom::new();
     let parent = elem(&mut dom, "div");

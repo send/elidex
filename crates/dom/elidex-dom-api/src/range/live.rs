@@ -116,11 +116,13 @@ impl LiveRangeBridge {
                 parent,
                 removed_index,
                 descendants,
+                ..
             } => self.after_remove_with_descendants(node, parent, removed_index, descendants, dom),
             MutationEvent::Insert {
                 node,
                 parent,
                 index,
+                ..
             } => self.after_insert(node, parent, index),
             MutationEvent::TextChange {
                 node,

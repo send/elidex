@@ -600,6 +600,18 @@ pub(crate) struct VmInner {
     /// `alloc_or_cached_subtle_crypto`.  Cleared on `Vm::unbind`.
     #[cfg(feature = "engine")]
     pub(crate) subtle_crypto_instance: Option<ObjectId>,
+    /// `CustomElementRegistry.prototype` (HTML §4.13.4). Chains to
+    /// `Object.prototype`. `None` until
+    /// `register_custom_element_registry_global()` runs during
+    /// `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) custom_element_registry_prototype: Option<ObjectId>,
+    /// Cached `CustomElementRegistry` singleton wrapper exposed as
+    /// `window.customElements` (per-VM identity per HTML §4.13.4).
+    /// Eager-initialised at `register_custom_element_registry_global()`.
+    /// Cleared on `Vm::unbind`.
+    #[cfg(feature = "engine")]
+    pub(crate) custom_element_registry_instance: Option<ObjectId>,
     /// `HTMLIFrameElement.prototype` — tag-specific intermediate
     /// prototype for `<iframe>` wrappers.  Chains to
     /// [`Self::html_element_prototype`] (after PR5b splice) so

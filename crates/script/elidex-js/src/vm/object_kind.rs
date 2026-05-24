@@ -1183,6 +1183,27 @@ pub enum ObjectKind {
     /// (browsing-context scope).
     #[cfg(feature = "engine")]
     EventSource,
+    /// `CustomElementRegistry` instance (WHATWG HTML §4.13.4) — the
+    /// singleton exposed as `window.customElements`. Payload-free brand;
+    /// the actual registry (definitions / pending-upgrade queue) plus
+    /// the reaction queue plus `whenDefined` pending resolvers live on
+    /// `HostData` (`ce_registry` / `ce_reaction_queue` /
+    /// `ce_when_defined`). Identity preserved via
+    /// `VmInner::custom_element_registry_instance`.
+    ///
+    /// `new CustomElementRegistry()` throws TypeError ("Illegal
+    /// constructor") per WebIDL §3.7 (interface object \[\[Construct\]\]) —
+    /// HTML §4.13.4 declares `CustomElementRegistry` as having no
+    /// constructor exposed.
+    ///
+    /// GC contract: payload-free. The singleton is rooted via
+    /// `VmInner::custom_element_registry_instance` (mark-roots step).
+    /// `Vm::unbind` clears the slot so the wrapper can be collected and
+    /// re-allocated lazily after the next bind. Custom element
+    /// constructor + `whenDefined` resolver `ObjectId`s live on
+    /// `HostData` and are rooted separately via that path.
+    #[cfg(feature = "engine")]
+    CustomElementRegistry,
 }
 
 impl ObjectKind {

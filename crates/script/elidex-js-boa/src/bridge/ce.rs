@@ -40,12 +40,12 @@ impl HostBridge {
         inner.ce_next_constructor_id += 1;
         inner.custom_element_constructors.insert(id, constructor);
 
-        let def = elidex_custom_elements::CustomElementDefinition {
-            name: name.to_string(),
-            constructor_id: id,
-            observed_attributes: observed_attrs,
+        let def = elidex_custom_elements::CustomElementDefinition::new(
+            name.to_string(),
+            id,
+            observed_attrs,
             extends,
-        };
+        );
         inner.custom_element_registry.define(def)
     }
 
@@ -128,7 +128,7 @@ impl HostBridge {
             .borrow()
             .custom_element_registry
             .get(name)
-            .map(|def| def.observed_attributes.clone())
+            .map(|def| def.observed_attributes().to_vec())
             .unwrap_or_default()
     }
 
@@ -138,7 +138,7 @@ impl HostBridge {
             .borrow()
             .custom_element_registry
             .get(ce_name)
-            .is_some_and(|def| def.observed_attributes.iter().any(|a| a == attr_name))
+            .is_some_and(|def| def.observes(attr_name))
     }
 
     /// Store a `whenDefined()` resolve function for a not-yet-defined custom element.

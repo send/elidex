@@ -28,6 +28,7 @@
 #![deny(clippy::significant_drop_tightening)]
 
 use elidex_api_canvas::CanvasReconciler;
+use elidex_custom_elements::CustomElementReactionConsumer;
 use elidex_dom_api::{BaseUrlMaintainer, LiveRangeBridge, NodeIteratorAdjuster};
 use elidex_ecs::{EcsDom, MutationDispatcher, MutationEvent};
 use elidex_form::FormControlReconciler;
@@ -71,6 +72,16 @@ pub struct ConsumerDispatcher {
     /// covered. Order-independent — it only touches the `Canvas2dContext`
     /// component, which no other consumer reads.
     canvas: CanvasReconciler,
+    /// Custom Elements v1 lifecycle reaction queue (HTML §4.13.3). Reads
+    /// the per-VM registry's `observed_attributes` table to gate
+    /// `attributeChangedCallback` and enqueues Connected / Disconnected
+    /// / AttributeChanged reactions for upgraded (CEState::Custom)
+    /// elements on the matching mutation events. Drained by
+    /// `VmInner::flush_ce_reactions` at script-execution / event-
+    /// dispatch / microtask checkpoints. Order-independent — only
+    /// pushes to the side-band reaction queue, which no other consumer
+    /// reads.
+    custom_elements: CustomElementReactionConsumer,
 }
 
 impl ConsumerDispatcher {
@@ -79,7 +90,11 @@ impl ConsumerDispatcher {
     /// from the matching HostData state (LiveRangeRegistry pair,
     /// node_iterator_states_shared) and passes them in.
     #[must_use]
-    pub fn new(live_range: LiveRangeBridge, node_iter: NodeIteratorAdjuster) -> Self {
+    pub fn new(
+        live_range: LiveRangeBridge,
+        node_iter: NodeIteratorAdjuster,
+        custom_elements: CustomElementReactionConsumer,
+    ) -> Self {
         Self {
             live_range,
             node_iter,
@@ -87,6 +102,7 @@ impl ConsumerDispatcher {
             form_control: FormControlReconciler,
             event_handler_attrs: EventHandlerAttributeConsumer,
             canvas: CanvasReconciler,
+            custom_elements,
         }
     }
 
@@ -128,5 +144,6 @@ impl MutationDispatcher for ConsumerDispatcher {
         self.form_control.handle(event, dom);
         self.event_handler_attrs.handle(event, dom);
         self.canvas.handle(event, dom);
+        self.custom_elements.handle(event, dom);
     }
 }

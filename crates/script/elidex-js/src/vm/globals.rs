@@ -493,6 +493,15 @@ impl VmInner {
             // `performance` data-property neighbours.
             self.register_subtle_crypto_global();
             self.register_crypto_global();
+            // D-17 `#11-custom-elements-vm` (HTML §4.13.4). Window
+            // scope only — `WorkerGlobalScope` does NOT expose
+            // `customElements` per HTML §10.2.6. Gated here rather
+            // than inside register_custom_element_registry_global so
+            // the worker VM also skips the singleton alloc + 4 method
+            // installs.
+            if matches!(self.global_scope_kind, super::GlobalScopeKind::Window) {
+                self.register_custom_element_registry_global();
+            }
             // D-12 `#11-net-ws-sse` — realtime constructors
             // (WebSocket / EventSource).  Both chain directly to
             // `Object.prototype` in this PR; the full EventTarget

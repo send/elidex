@@ -7,7 +7,8 @@
 //! live in `elidex-ecs` so layout / parser / WPT runner consumers
 //! see the same WHATWG §4.5 semantics through one entry point.
 
-use elidex_ecs::{EcsDom, Entity, NodeKind, ShadowHost, ShadowInit, ShadowRoot};
+use elidex_custom_elements::{is_valid_custom_element_name, CustomElementState};
+use elidex_ecs::{EcsDom, Entity, NodeKind, ShadowHost, ShadowInit, ShadowRoot, TagType};
 use elidex_plugin::JsValue;
 use elidex_script_session::{
     ComponentKind, DomApiError, DomApiErrorKind, DomApiHandler, SessionCore,
@@ -127,26 +128,70 @@ pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -
     } else {
         dom.clone_node_shallow(src)?
     };
+    // Shallow clone: only the root needs CE state re-attach.
     if !deep {
+        attach_ce_state_on_clone(cloned, dom);
         return Some(cloned);
     }
-    let Some((init, src_shadow_root)) = read_clonable_shadow_init(src, dom) else {
-        return Some(cloned);
-    };
-    // `attach_shadow_with_init` can refuse (e.g. clone is a tag
-    // outside the shadow-host allowlist) — fall through with the base
-    // clone in that case, matching the silent-fallback shape used by
-    // the declarative-shadow parser hook.
-    let Ok(cloned_shadow) = dom.attach_shadow_with_init(cloned, init) else {
-        return Some(cloned);
-    };
-    let source_shadow_children: Vec<Entity> = dom.children(src_shadow_root);
-    for child in source_shadow_children {
-        if let Some(child_clone) = dom.clone_subtree(child) {
-            let _ = dom.append_child(cloned_shadow, child_clone);
+    // Deep clone: handle the shadow tree first so the subsequent
+    // shadow-including descendant walk covers BOTH the light tree AND
+    // the cloned shadow children in one pass — fixes the gap where the
+    // shadow-cloned subtree previously bypassed CE state attach.
+    if let Some((init, src_shadow_root)) = read_clonable_shadow_init(src, dom) {
+        // `attach_shadow_with_init` can refuse (e.g. clone is a tag
+        // outside the shadow-host allowlist) — fall through with the
+        // base clone in that case, matching the silent-fallback shape
+        // used by the declarative-shadow parser hook.
+        if let Ok(cloned_shadow) = dom.attach_shadow_with_init(cloned, init) {
+            let source_shadow_children: Vec<Entity> = dom.children(src_shadow_root);
+            for child in source_shadow_children {
+                if let Some(child_clone) = dom.clone_subtree(child) {
+                    let _ = dom.append_child(cloned_shadow, child_clone);
+                }
+            }
         }
     }
+    // HTML §4.5 "clone a node" step 6: if the source element is a
+    // custom element (any state other than Uncustomized), the clone
+    // must also be queued for upgrade. The engine-indep `clone_subtree`
+    // / `clone_node_shallow` cloners (in elidex-ecs) cannot reach
+    // `elidex-custom-elements` types due to the inverse cargo edge, so
+    // the CE state component is re-attached here at the engine-indep
+    // DOM-api boundary. Always in `Undefined` — the clone goes through
+    // the upgrade pipeline fresh; the source's Custom/Failed state does
+    // NOT carry over.
+    //
+    // Walks shadow-including descendants so the cloned shadow subtree
+    // (attached above) is covered in the same pass — without that, CE
+    // elements nested inside a cloned shadow root would remain CE-
+    // state-less and silently skip upgrade.
+    let mut to_attach: Vec<Entity> = Vec::new();
+    dom.for_each_shadow_inclusive_descendant(cloned, &mut |entity| to_attach.push(entity));
+    for entity in to_attach {
+        attach_ce_state_on_clone(entity, dom);
+    }
     Some(cloned)
+}
+
+/// Re-attach `CustomElementState::undefined(tag)` to a cloned element
+/// whose tag is a valid custom element name (HTML §4.13.2 "valid
+/// custom element name" + WHATWG DOM §4.5 "clone a node" step 6).
+/// No-op for non-Element nodes, non-hyphenated tags, and entities
+/// that already carry the component.
+fn attach_ce_state_on_clone(entity: Entity, dom: &mut EcsDom) {
+    let tag = match dom.world().get::<&TagType>(entity) {
+        Ok(t) => t.0.clone(),
+        Err(_) => return,
+    };
+    if !is_valid_custom_element_name(&tag) {
+        return;
+    }
+    if dom.world().get::<&CustomElementState>(entity).is_ok() {
+        return;
+    }
+    let _ = dom
+        .world_mut()
+        .insert_one(entity, CustomElementState::undefined(&tag));
 }
 
 /// Extract the `ShadowInit` for `entity`'s shadow root if it is a

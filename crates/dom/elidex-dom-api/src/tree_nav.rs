@@ -42,6 +42,20 @@ fn find_element_in_chain(
     None
 }
 
+/// Visit `root` and every shadow-including descendant in pre-order
+/// DFS (WHATWG DOM §4.2.2 "shadow-including descendant"). Thin
+/// re-export of [`EcsDom::for_each_shadow_inclusive_descendant`] kept
+/// here so existing callers stay on the engine-indep dom-api surface.
+///
+/// Used by Custom Elements `customElements.upgrade(root)` (HTML
+/// §4.13.4 step 8).
+pub fn descendants_shadow_inclusive<F>(dom: &EcsDom, root: Entity, visit: &mut F)
+where
+    F: FnMut(Entity),
+{
+    dom.for_each_shadow_inclusive_descendant(root, visit);
+}
+
 // ---------------------------------------------------------------------------
 // parentNode
 // ---------------------------------------------------------------------------
