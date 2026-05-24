@@ -1,6 +1,6 @@
-//! Custom element state tracking (WHATWG HTML §4.13.2).
+//! Custom element state tracking (WHATWG HTML §4.13.3).
 
-/// Custom element lifecycle state per WHATWG HTML §4.13.2.
+/// Custom element lifecycle state per WHATWG HTML §4.13.3.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub enum CEState {
     /// Element created before `customElements.define()` was called.

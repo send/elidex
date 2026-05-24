@@ -1,4 +1,4 @@
-//! `IntersectionObserver` interface (W3C Intersection Observer §3.1) —
+//! `IntersectionObserver` interface (W3C Intersection Observer §2.2) —
 //! VM thin binding to the engine-independent
 //! [`elidex_api_observers::intersection::IntersectionObserverRegistry`].
 //!
@@ -198,7 +198,7 @@ fn native_intersection_observer_constructor(
     }
 
     let init = parse_intersection_observer_init(ctx, args.get(1).copied())?;
-    // W3C Intersection Observer §3.1 ctor step — `SyntaxError` if
+    // W3C Intersection Observer §2.2 ctor step — `SyntaxError` if
     // `rootMargin` is not a valid `<length-percentage>{1,4}`.  The
     // crate-side `register` returns `RootMarginParseError` (engine-
     // independent); the host wraps it in an interface-scoped
@@ -271,7 +271,7 @@ fn native_intersection_observer_disconnect(
     }
     let (dom, observers) = ctx.host().split_dom_mut_and_intersection_observers();
     observers.disconnect(dom, id);
-    // `disconnect()` per W3C Intersection Observer §3.3 only stops
+    // `disconnect()` per W3C Intersection Observer §2.2 only stops
     // observing all targets; the observer stays usable.  Callback /
     // instance maps are NOT removed — same rationale as
     // `ResizeObserver::disconnect`.
@@ -309,7 +309,7 @@ fn require_target_node(
 }
 
 /// Parse the `IntersectionObserverInit` dictionary (W3C Intersection
-/// Observer §3.1).  `undefined` / `null` / missing → default init
+/// Observer §2.4).  `undefined` / `null` / missing → default init
 /// (viewport root, "0px" rootMargin, threshold `[0]`).  The
 /// `rootMargin` CSS shorthand is passed through as a raw string —
 /// parsing into `MarginComponent`s and applying it to the root rect
@@ -322,7 +322,7 @@ fn parse_intersection_observer_init(
     let mut init = IntersectionObserverInit::default();
     let value = match arg {
         // No init → spec default applies.  `threshold = [0]`
-        // (§3.1: "If options.threshold is not present, set it to [0]")
+        // (§2.4: "If options.threshold is not present, set it to [0]")
         // is canonicalised crate-side in
         // `IntersectionObserverRegistry::register`, so leaving the
         // default empty `Vec` here is intentional — registration is
@@ -366,7 +366,7 @@ fn parse_intersection_observer_init(
 
     let raw_threshold = ctx.get_property_value(opts_id, PropertyKey::String(wk_threshold))?;
     init.threshold = parse_threshold(ctx, raw_threshold)?;
-    // Spec §3.1: thresholds must be sorted ascending + deduplicated +
+    // Spec §2.2: thresholds must be sorted ascending + deduplicated +
     // each in [0,1].  Sort+dedup here; range validation per-value
     // happens in `parse_threshold`.  Empty-list canonicalisation to
     // `[0]` lives in `IntersectionObserverRegistry::register`.
@@ -377,7 +377,7 @@ fn parse_intersection_observer_init(
     Ok(init)
 }
 
-/// Parse the `threshold` init member (W3C Intersection Observer §3.1).
+/// Parse the `threshold` init member (W3C Intersection Observer §2.4).
 /// WebIDL `(double or sequence<double>)`: probe `@@iterator` to pick
 /// the sequence branch (Array literal, NodeList, custom iterable);
 /// a non-iterable value coerces to a single double via `ToNumber`.
@@ -517,7 +517,7 @@ impl VmInner {
 }
 
 /// Marshal one [`elidex_api_observers::intersection::IntersectionObserverEntry`]
-/// (W3C Intersection Observer §3.4 `IntersectionObserverEntry`) to a JS Object
+/// (W3C Intersection Observer §2.3 `IntersectionObserverEntry`) to a JS Object
 /// with `target`, `time`, `boundingClientRect`, `intersectionRect`,
 /// `rootBounds`, `intersectionRatio`, and `isIntersecting` members.  Mirrors
 /// the per-record temp-root discipline of `mutation_record_to_js`: the

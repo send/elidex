@@ -33,14 +33,14 @@ pub fn parse_html(html: &str) -> ParseResult {
 
 /// Options controlling [`parse_html_fragment`] semantics.
 ///
-/// The `allow_declarative_shadow` flag selects between HTML §4.4.5
-/// (innerHTML, plain `<template>` semantics) and HTML §4.4.7 +
-/// §4.13.3 (setHTMLUnsafe, where `<template shadowrootmode>` becomes
-/// a shadow root attached to the parent host).
+/// The `allow_declarative_shadow` flag selects between plain `innerHTML`
+/// (no shadow attach) and HTML §8.5.2 `setHTMLUnsafe` + §4.12.3
+/// `<template shadowrootmode>` (where the template becomes a shadow root
+/// attached to the parent host).
 #[derive(Default, Clone, Copy, Debug)]
 pub struct ParseFragmentOptions {
     /// When true, `<template shadowrootmode="open|closed">` children
-    /// are interpreted as declarative shadow root markup (HTML §4.13.3):
+    /// are interpreted as declarative shadow root markup (HTML §4.12.3):
     /// the parent receives a freshly-attached shadow root whose
     /// children come from the template's content, and the `<template>`
     /// element itself is discarded. Per spec, a failed attach (e.g.

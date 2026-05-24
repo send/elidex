@@ -45,7 +45,7 @@ pub struct IntersectionObserverInit {
     pub threshold: Vec<f64>,
 }
 
-/// An intersection observation entry (Intersection Observer §3.4).
+/// An intersection observation entry (Intersection Observer §2.3 `IntersectionObserverEntry`).
 #[derive(Debug, Clone)]
 pub struct IntersectionObserverEntry {
     /// The observed element.
@@ -107,7 +107,7 @@ impl IntersectionObserverRegistry {
     /// Register a new intersection observer, returning its ID.
     ///
     /// Parses `init.root_margin` at register-time (W3C Intersection
-    /// Observer §3.1 ctor step — `SyntaxError` if the shorthand is
+    /// Observer §2.2 ctor step — `SyntaxError` if the shorthand is
     /// not a valid `<length-percentage>{1,4}`); the parsed
     /// `[MarginComponent; 4]` is cached on the registered observer so
     /// `gather_observations` does not re-parse on every per-target
@@ -125,7 +125,7 @@ impl IntersectionObserverRegistry {
         mut init: IntersectionObserverInit,
     ) -> Result<IntersectionObserverId, RootMarginParseError> {
         let parsed_root_margin = parse_root_margin(&init.root_margin)?;
-        // Canonicalise threshold here (spec §3.1: "If options.threshold
+        // Canonicalise threshold here (spec §2.4: "If options.threshold
         // is not present, set it to [0]") so `gather_observations`'s
         // hot path can use the slice unconditionally — the host-side
         // constructor and any crate-only caller (test harness, future
@@ -263,7 +263,7 @@ impl IntersectionObserverRegistry {
         // touch disjoint components, so they coexist).
         //
         // A box-less target (`rect_fn` → None: display:none / pre-layout) is
-        // NOT skipped: per Intersection Observer §3.1 (observe) the first
+        // NOT skipped: per Intersection Observer §2.2 (observe) the first
         // "update intersection observations" run must still deliver an initial
         // entry (ratio 0 / isIntersecting false / zero rects), so we treat the
         // missing box as a zero-area target and run the same crossing logic.
@@ -290,7 +290,7 @@ impl IntersectionObserverRegistry {
                 // ratio and the spec-mandated `intersectionRect` from
                 // it — previously the intersection was computed twice
                 // (once for the ratio, once for the entry's
-                // `intersectionRect`).  IO §3.7: `isIntersecting` is
+                // `intersectionRect`).  IO §3.2.7: `isIntersecting` is
                 // driven by whether intersection is non-null (edge-
                 // adjacent / zero-area overlaps still count), NOT by
                 // `ratio > 0`; and a zero-area target reports
@@ -347,7 +347,7 @@ impl IntersectionObserverRegistry {
 /// `#[cfg(test)]` wrapper [`compute_intersection_ratio`], so unit
 /// tests and production can never diverge.
 ///
-/// IO §3.7: when `target_area == 0` the area-ratio is undefined (0/0);
+/// IO §3.2.7: when `target_area == 0` the area-ratio is undefined (0/0);
 /// the spec collapses it to `1.0` if the target is intersecting (a
 /// zero-area point inside the root is fully visible) and `0.0`
 /// otherwise.
@@ -382,7 +382,7 @@ fn crossed_threshold(old: f64, new: f64, thresholds: &[f64]) -> bool {
 }
 
 /// One `rootMargin` component: an absolute px length or a percentage resolved
-/// against the root dimension (Intersection Observer §3.1 `rootMargin`).
+/// against the root dimension (Intersection Observer §2.2 `rootMargin`).
 #[derive(Debug, Clone, Copy)]
 enum MarginComponent {
     Px(f32),
@@ -400,7 +400,7 @@ impl MarginComponent {
     }
 }
 
-/// `rootMargin` parse failure (W3C Intersection Observer §3.1 ctor
+/// `rootMargin` parse failure (W3C Intersection Observer §2.2 ctor
 /// step — "If options.rootMargin is given but is not a valid string
 /// representing a `<length-percentage> [<length-percentage>]{0,3}`,
 /// throw a SyntaxError").  Carries the offending token so the host
@@ -430,7 +430,7 @@ impl std::fmt::Display for RootMarginParseError {
 impl std::error::Error for RootMarginParseError {}
 
 /// Parse a CSS-margin-shorthand `rootMargin` string into `[top, right,
-/// bottom, left]` components (Intersection Observer §3.1 — strict
+/// bottom, left]` components (Intersection Observer §2.2 — strict
 /// `px` / `%` only; 1/2/3/4 value shorthand).  Anything else
 /// (`em` / `vh` / garbage / NaN) is a SyntaxError per spec.
 fn parse_root_margin(raw: &str) -> Result<[MarginComponent; 4], RootMarginParseError> {
@@ -486,7 +486,7 @@ fn parse_root_margin(raw: &str) -> Result<[MarginComponent; 4], RootMarginParseE
 }
 
 /// Expand `root` outward by the resolved `rootMargin` (top/right/bottom/left)
-/// per W3C Intersection Observer §3.1 `rootMargin` (offset applied to the
+/// per W3C Intersection Observer §2.2 `rootMargin` (offset applied to the
 /// root intersection rect before the target-vs-root overlap is computed).
 fn apply_root_margin(root: Rect, margin: &[MarginComponent; 4]) -> Rect {
     let top = margin[0].resolve(root.size.height);
@@ -548,7 +548,7 @@ mod tests {
 
     #[test]
     fn edge_adjacent_target_reports_is_intersecting() {
-        // IO §3.7: target sharing an edge with root has a degenerate
+        // IO §3.2.7: target sharing an edge with root has a degenerate
         // (zero-width) intersection; spec says `isIntersecting = true`
         // even though `intersectionRatio = 0`.
         let mut dom = EcsDom::new();
@@ -576,7 +576,7 @@ mod tests {
 
     #[test]
     fn zero_area_target_inside_root_reports_ratio_one() {
-        // IO §3.7: a zero-area target (e.g. an empty scroll sentinel) that
+        // IO §3.2.7: a zero-area target (e.g. an empty scroll sentinel) that
         // sits inside the root reports ratio = 1.0, not 0/0 = NaN/0.
         let mut dom = EcsDom::new();
         let el = elem(&mut dom, "div");
@@ -602,7 +602,7 @@ mod tests {
 
     #[test]
     fn zero_area_target_outside_root_reports_ratio_zero() {
-        // IO §3.7 complement: a zero-area target outside the root is
+        // IO §3.2.7 complement: a zero-area target outside the root is
         // not intersecting and reports ratio = 0.
         let mut dom = EcsDom::new();
         let el = elem(&mut dom, "div");
@@ -883,7 +883,7 @@ mod tests {
 
     #[test]
     fn parse_root_margin_rejects_invalid_units() {
-        // W3C Intersection Observer §3.1 — `rootMargin` must be a
+        // W3C Intersection Observer §2.2 — `rootMargin` must be a
         // valid `<length-percentage>{1,4}`.  `em` / `vh` / bare
         // numbers / NaN / oversize shorthand are SyntaxError.
         for bad in [

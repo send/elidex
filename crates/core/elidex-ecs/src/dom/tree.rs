@@ -29,7 +29,7 @@ impl EcsDom {
         }
 
         // Capture pre-mutation connectedness of `child` for
-        // `MutationEvent::Insert.was_connected` (HTML §4.13.3 Custom
+        // `MutationEvent::Insert.was_connected` (HTML §4.13.6 Custom
         // Element `connectedCallback` transition gate). MUST be read
         // BEFORE `detach_with_hook` runs, which itself fires an
         // implicit Remove whose `was_connected` reflects the same
@@ -62,7 +62,7 @@ impl EcsDom {
         }
         let removed_index = self.index_in_parent(child);
         // Pre-detach connectedness for `MutationEvent::Remove.
-        // was_connected` (HTML §4.13.3 Custom Element
+        // was_connected` (HTML §4.13.6 Custom Element
         // `disconnectedCallback` transition gate).
         let was_connected = self.is_connected(child);
         self.detach(child);
@@ -441,7 +441,7 @@ impl EcsDom {
     /// `was_connected` is the connectedness of `node` BEFORE this
     /// mutation began (captured by callers via [`Self::is_connected`]
     /// prior to any implicit detach). Required by Custom Elements
-    /// `connectedCallback` gating (HTML §4.13.3).
+    /// `connectedCallback` gating (HTML §4.13.6).
     fn fire_after_insert(
         &mut self,
         node: Entity,
@@ -467,7 +467,7 @@ impl EcsDom {
     /// `was_connected` is the connectedness of `node` BEFORE detach
     /// (captured by callers via [`Self::is_connected`] prior to
     /// `self.detach(node)`). Required by Custom Elements
-    /// `disconnectedCallback` gating (HTML §4.13.3).
+    /// `disconnectedCallback` gating (HTML §4.13.6).
     fn fire_after_remove(
         &mut self,
         node: Entity,

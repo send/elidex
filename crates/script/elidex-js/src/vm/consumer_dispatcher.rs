@@ -72,7 +72,7 @@ pub struct ConsumerDispatcher {
     /// covered. Order-independent — it only touches the `Canvas2dContext`
     /// component, which no other consumer reads.
     canvas: CanvasReconciler,
-    /// Custom Elements v1 lifecycle reaction queue (HTML §4.13.3). Reads
+    /// Custom Elements v1 lifecycle reaction queue (HTML §4.13.6). Reads
     /// the per-VM registry's `observed_attributes` table to gate
     /// `attributeChangedCallback` and enqueues Connected / Disconnected
     /// / AttributeChanged reactions for upgraded (CEState::Custom)

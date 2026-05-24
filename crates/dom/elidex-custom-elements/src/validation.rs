@@ -1,4 +1,4 @@
-//! Custom element name validation (WHATWG HTML §4.13.2).
+//! Custom element name validation (WHATWG HTML §4.13.3 `valid custom element name`).
 
 /// Reserved element names that cannot be used as custom element names.
 const RESERVED_NAMES: &[&str] = &[
@@ -12,7 +12,7 @@ const RESERVED_NAMES: &[&str] = &[
     "missing-glyph",
 ];
 
-/// Check whether a name is a valid custom element name per WHATWG HTML §4.13.2.
+/// Check whether a name is a valid custom element name per WHATWG HTML §4.13.3.
 ///
 /// Valid custom element names must:
 /// - Start with a lowercase ASCII letter (`a-z`)

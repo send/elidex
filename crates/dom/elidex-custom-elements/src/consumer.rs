@@ -1,5 +1,5 @@
 //! [`CustomElementReactionConsumer`] — `MutationEvent` consumer that
-//! enqueues custom element lifecycle reactions per WHATWG HTML §4.13.3.
+//! enqueues custom element lifecycle reactions per WHATWG HTML §4.13.6.
 //!
 //! ECS-native first: lifecycle reactions are derived state — the source
 //! of truth is the mutation stream from [`EcsDom`]. Per ECS first
@@ -10,7 +10,7 @@
 //! `appendChild` / `removeChild` / `replaceChild` / `innerHTML`
 //! mutations.
 //!
-//! ## Gating rules (HTML §4.13.3 "Custom element reactions")
+//! ## Gating rules (HTML §4.13.6 "Custom element reactions")
 //!
 //! - `Connected` enqueued on every insertion into a connected position
 //!   (`now-connected == true`), regardless of `was_connected`. Both
@@ -23,12 +23,12 @@
 //!   transition (`was_connected == true`). Orphan-to-orphan moves are
 //!   no-ops.
 //! - `AttributeChanged` enqueued only when the attribute name is in
-//!   the element's definition's `observed_attributes` (HTML §4.13.4
+//!   the element's definition's `observed_attributes` (HTML §4.13.6
 //!   "attribute change steps" — "for each attribute in element's
 //!   attribute list that is in observedAttributes").
 //! - All three gates ALSO require the element to be Custom
 //!   ([`CEState::Custom`]) — pre-upgrade elements (`Undefined` /
-//!   `Failed`) do NOT fire lifecycle callbacks per HTML §4.13.3.
+//!   `Failed`) do NOT fire lifecycle callbacks per HTML §4.13.6.
 //!
 //! ## Subtree walk for Connected / Disconnected
 //!
@@ -174,7 +174,7 @@ impl CustomElementReactionConsumer {
         let Some(def) = registry.get(&def_name) else {
             return;
         };
-        // observed_attributes filter — HTML §4.13.4 "attribute change
+        // observed_attributes filter — HTML §4.13.6 "attribute change
         // steps". O(1) via the definition's parallel `observed_set`
         // (mutation hot path runs this on every setAttribute).
         if !def.observes(name) {
@@ -198,7 +198,7 @@ impl CustomElementReactionConsumer {
 
 /// Returns `true` iff `entity` is a Custom element ready for lifecycle
 /// callbacks (CEState::Custom). Pre-upgrade entities (Undefined / Failed)
-/// do NOT receive callbacks per HTML §4.13.3.
+/// do NOT receive callbacks per HTML §4.13.6.
 fn is_custom(entity: Entity, dom: &EcsDom) -> bool {
     dom.world()
         .get::<&CustomElementState>(entity)
@@ -207,7 +207,7 @@ fn is_custom(entity: Entity, dom: &EcsDom) -> bool {
 
 /// Per-entity classification used by [`CustomElementReactionConsumer::
 /// handle_insert`] to route between `Connected` and `Upgrade` per
-/// WHATWG DOM §4.2.3 insertion-steps + HTML §4.13.3 reactions:
+/// WHATWG DOM §4.2.3 insertion-steps + HTML §4.13.6 reactions:
 ///
 /// - `Connected` — Custom element already upgraded → enqueue
 ///   connectedCallback.

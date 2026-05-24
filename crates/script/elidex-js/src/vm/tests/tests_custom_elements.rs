@@ -123,7 +123,7 @@ fn define_accepts_valid_name() {
 
 #[test]
 fn define_invalid_name_throws_syntax_error() {
-    // Names without a hyphen are invalid per HTML §4.13.2.
+    // Names without a hyphen are invalid per HTML §4.13.3 `valid custom element name`.
     let err = run_throws("customElements.define('nohyphen', class {});");
     assert!(
         err.contains("SyntaxError") || err.contains("valid custom element name"),
@@ -133,7 +133,7 @@ fn define_invalid_name_throws_syntax_error() {
 
 #[test]
 fn define_reserved_name_throws() {
-    // `font-face` is reserved per §4.13.2.
+    // `font-face` is reserved per §4.13.3 `valid custom element name`.
     let err = run_throws("customElements.define('font-face', class {});");
     assert!(
         err.contains("SyntaxError") || err.contains("valid custom element name"),
@@ -418,7 +418,7 @@ fn customelements_ctor_returning_different_object_marks_failed() {
     // swallowed at the upgrade-flush boundary (Window.onerror path);
     // the Failed state is observable via subsequent setAttribute on an
     // observed attribute NOT firing attributeChangedCallback (callback
-    // gating per HTML §4.13.3 requires CEState::Custom).
+    // gating per HTML §4.13.6 requires CEState::Custom).
     let out = run_then_read(
         "globalThis.__ctor_attempts = 0; \
          globalThis.__cb_attempts = 0; \

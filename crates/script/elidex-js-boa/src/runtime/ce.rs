@@ -72,7 +72,7 @@ impl JsRuntime {
                         };
 
                         // Verify extends tag match for customized built-in elements
-                        // before upgrading (WHATWG HTML §4.13.3). If the definition
+                        // before upgrading (WHATWG HTML §4.13.5). If the definition
                         // specifies an `extends` tag, the element's actual tag must match.
                         if let Some(ext) = self.bridge.ce_extends_tag(&name) {
                             let tag_matches = self.bridge.with(|_session, dom| {

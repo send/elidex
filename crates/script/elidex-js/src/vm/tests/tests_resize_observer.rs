@@ -251,7 +251,7 @@ fn resize_observer_deliver_fires_callback_with_entry() {
 
 #[test]
 fn resize_observer_content_rect_uses_element_local_coords() {
-    // W3C Resize Observer §4.1: `contentRect` is in the element's own
+    // W3C Resize Observer §2.3: `contentRect` is in the element's own
     // coordinate space — origin = padding offsets, NOT document
     // coordinates.  Regression for Copilot R2: passing `lb.content`
     // (document-coord) directly to `gather_observations` produced
@@ -313,7 +313,7 @@ fn resize_observer_content_rect_uses_element_local_coords() {
 #[test]
 fn resize_observer_deliver_box_less_target_delivers_initial_zero_once() {
     // No LayoutBox attached → gather's `size_fn` returns None → spec
-    // mandates a single initial 0×0 observation (Resize Observer §3.1).
+    // mandates a single initial 0×0 observation (Resize Observer §2.1).
     // The second deliver must not re-fire (last_size == ZERO).
     let mut vm = Vm::new();
     let mut session = SessionCore::new();

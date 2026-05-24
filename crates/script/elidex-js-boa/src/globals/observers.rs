@@ -374,7 +374,7 @@ fn register_intersection_observer(ctx: &mut Context, bridge: &HostBridge) {
                             for i in 0..len {
                                 if let Ok(item) = arr_obj.get(i, ctx) {
                                     if let Ok(n) = item.to_number(ctx) {
-                                        // Per Intersection Observer §3.2: threshold values
+                                        // Per Intersection Observer §2.4: threshold values
                                         // must be in [0.0, 1.0] and finite.
                                         if n.is_finite() && (0.0..=1.0).contains(&n) {
                                             init.threshold.push(n);
@@ -393,13 +393,13 @@ fn register_intersection_observer(ctx: &mut Context, bridge: &HostBridge) {
             if init.threshold.is_empty() {
                 init.threshold.push(0.0);
             }
-            // Per Intersection Observer §3.2: thresholds must be sorted
+            // Per Intersection Observer §2.2: thresholds must be sorted
             // in ascending order and deduplicated.
             init.threshold
                 .sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             init.threshold.dedup();
 
-            // W3C Intersection Observer §3.1 — `SyntaxError` if
+            // W3C Intersection Observer §2.2 — `SyntaxError` if
             // `rootMargin` is not a valid `<length-percentage>{1,4}`.
             let registered = bridge.with_intersection_observers(|reg| {
                 reg.register(init)

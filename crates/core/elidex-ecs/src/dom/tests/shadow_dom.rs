@@ -53,7 +53,7 @@ fn attach_shadow_custom_element() {
 #[test]
 fn attach_shadow_reserved_custom_element_names_rejected() {
     let mut dom = EcsDom::new();
-    // Reserved names per HTML §4.13.2 — contain hyphen but are NOT valid custom elements.
+    // Reserved names per HTML §4.13.3 `valid custom element name` — contain hyphen but are NOT valid custom elements.
     for name in [
         "annotation-xml",
         "color-profile",

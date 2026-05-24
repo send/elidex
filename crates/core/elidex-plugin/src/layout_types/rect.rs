@@ -204,7 +204,7 @@ impl Rect {
     /// an edge and yield a 0-area but valid `Rect`.  Returns `None` only
     /// when the rectangles are entirely disjoint.
     ///
-    /// IntersectionObserver §3.7 distinguishes "intersection is null"
+    /// IntersectionObserver §3.2.7 (Compute the Intersection) distinguishes "intersection is null"
     /// (no geometric overlap → `isIntersecting = false`) from
     /// "intersection is an empty rect" (edge-adjacent or zero-area
     /// target → `isIntersecting = true`).  Use this variant for spec

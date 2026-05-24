@@ -67,8 +67,8 @@ pub enum DomTokenListSource {
 }
 
 /// Discriminator for [`ObjectKind::Observer`] identifying which of the
-/// three observer surfaces (WHATWG DOM §4.3 `MutationObserver`, W3C
-/// Resize Observer §3.1 `ResizeObserver`, W3C Intersection Observer §3.1
+/// three observer surfaces (WHATWG DOM §4.3.1 `MutationObserver`, W3C
+/// Resize Observer §2.1 `ResizeObserver`, W3C Intersection Observer §2.2
 /// `IntersectionObserver`) the instance brands as.
 ///
 /// All three observer JS-objects share the identical payload shape — a
@@ -86,11 +86,11 @@ pub enum DomTokenListSource {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum ObserverKind {
-    /// `MutationObserver` (WHATWG DOM §4.3).
+    /// `MutationObserver` (WHATWG DOM §4.3.1).
     Mutation = 0,
-    /// `ResizeObserver` (W3C Resize Observer §3.1).
+    /// `ResizeObserver` (W3C Resize Observer §2.1).
     Resize = 1,
-    /// `IntersectionObserver` (W3C Intersection Observer §3.1).
+    /// `IntersectionObserver` (W3C Intersection Observer §2.2).
     Intersection = 2,
 }
 
@@ -788,9 +788,9 @@ pub enum ObjectKind {
     /// caller's `cancel()` Promise with the source-cancel result.
     #[cfg(feature = "engine")]
     ReadableStreamCancelStep { promise: ObjectId, is_reject: bool },
-    /// Observer-family instance — `MutationObserver` (WHATWG DOM §4.3),
-    /// `ResizeObserver` (W3C Resize Observer §3.1), or
-    /// `IntersectionObserver` (W3C Intersection Observer §3.1),
+    /// Observer-family instance — `MutationObserver` (WHATWG DOM §4.3.1),
+    /// `ResizeObserver` (W3C Resize Observer §2.1), or
+    /// `IntersectionObserver` (W3C Intersection Observer §2.2),
     /// discriminated by inline [`ObserverKind`].
     ///
     /// Payload-free at the JS-object level: the per-observer registry

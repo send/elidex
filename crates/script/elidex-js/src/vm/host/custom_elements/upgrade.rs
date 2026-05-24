@@ -6,7 +6,7 @@
 //! its own error policy:
 //!
 //! - The reaction-queue drain in [`super::flush`] catches `Err` and
-//!   reports it to `Window.onerror` per HTML §4.13.3 "Invoke custom
+//!   reports it to `Window.onerror` per HTML §4.13.6 "Invoke custom
 //!   element reactions" (errors observable, not thrown).
 //! - The sync `customElements.upgrade(root)` walker in
 //!   [`super::lookup::native_ce_upgrade`] catches `Err` per candidate

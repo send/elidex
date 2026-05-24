@@ -148,7 +148,7 @@ fn shadow_root_inner_html_set_replaces_shadow_children() {
 
 #[test]
 fn element_set_html_unsafe_parses_template_shadowrootmode_as_shadow_root() {
-    // Declarative shadow root attaches via setHTMLUnsafe (HTML §4.13.3).
+    // Declarative shadow root attaches via setHTMLUnsafe (HTML §8.5.2).
     // `firstElementChild` reaches ShadowRoot via the ParentNode mixin
     // installed on `DocumentFragment.prototype`.
     let out = run(
@@ -630,7 +630,7 @@ fn element_get_html_no_args_uses_default_dict_excludes_shadows() {
 fn element_get_html_round_trip_with_set_html_unsafe() {
     // Round-trip discriminator: getHTML output passed back to
     // setHTMLUnsafe must reattach an equivalent declarative shadow
-    // root (HTML §13.5 serialization → §4.13.3 parser hook).
+    // root (HTML §13.5 serialization → §4.12.3 `<template shadowrootmode>` parser hook).
     let out = run(
         "var src = document.createElement('div'); \
          document.body.appendChild(src); \
@@ -651,7 +651,7 @@ fn element_get_html_emits_shadowrootslotassignment_for_manual_mode() {
     // Round-trip lock for `slotAssignment: 'manual'` — the serializer
     // must emit `shadowrootslotassignment="manual"` so a subsequent
     // `setHTMLUnsafe(getHTML(...))` preserves the manual mode (HTML
-    // §4.13.3 / §13.5). Named mode is the default and is intentionally
+    // §4.12.3 / §13.5). Named mode is the default and is intentionally
     // omitted from the serialised attribute set to keep the round-trip
     // terse for the common case.
     let out = run("var named = document.createElement('div'); \

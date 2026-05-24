@@ -167,10 +167,10 @@ mod engine_feature {
         /// the setter is a no-op in that case (the
         /// "cookie-averse" path of WHATWG §6.5.2).
         cookie_jar: Option<std::sync::Arc<elidex_net::CookieJar>>,
-        /// `MutationObserver` registry (WHATWG DOM §4.3) — owns the
+        /// `MutationObserver` registry (WHATWG DOM §4.3.1) — owns the
         /// per-observer pending-record queues. The observation targets +
         /// options live as `MutationObservedBy` components on the
-        /// observed entities (WHATWG DOM §4.3.1 registered observer
+        /// observed entities (WHATWG DOM §4.3 registered observer
         /// list), not in the registry. Held here (rather than on
         /// `VmInner`) so the registry's lifetime tracks the bound DOM
         /// world: `Vm::unbind` drains pending records via
@@ -412,7 +412,7 @@ mod engine_feature {
         /// survives an unbind crossing.
         pub(crate) ce_registry:
             std::sync::Arc<std::sync::Mutex<elidex_custom_elements::CustomElementRegistry>>,
-        /// Per-VM reaction queue (HTML §4.13.3) — pushed to by the
+        /// Per-VM reaction queue (HTML §4.13.6) — pushed to by the
         /// `CustomElementReactionConsumer` on Insert / Remove /
         /// AttributeChange, drained at script-execution / event-
         /// dispatch / microtask checkpoints by `flush_ce_reactions`.
