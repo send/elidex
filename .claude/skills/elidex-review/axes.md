@@ -176,7 +176,7 @@ Subcommand (詳細 = `.claude/tools/webref --help`):
 - `css <spec> <name>` — CSS property / @rule / selector / value の metadata (value syntax / initial / inherited / appliesTo / computedValue / `styleDeclaration` IDL 名 等)。CSS plugin crate 新 property 着手時の正規定義引き
 - `specs <keyword>` — spec catalog 検索 (shortname 不明時、WHATWG/W3C のみ)
 
-**HTTP cache**: 全 fetch は `~/.cache/elidex-webref/` に ETag / Last-Modified ベース conditional GET 経由で保存される (930 KB biblio / WHATWG headings/dfns JSON を毎回再 download しない)。bypass は `ELIDEX_WEBREF_NO_CACHE=1`。
+**HTTP cache**: 全 fetch は `~/.cache/elidex-webref/` (`XDG_CACHE_HOME` 設定時は `$XDG_CACHE_HOME/elidex-webref/`) に ETag / Last-Modified ベース conditional GET 経由で保存される (930 KB biblio / WHATWG headings/dfns JSON を毎回再 download しない)。bypass は `ELIDEX_WEBREF_NO_CACHE=1`。
 
 **WebFetch との使い分け**:
 - **webref**: section number / title / anchor / IDL fragment / dfn / AO (aoid) — 決定論的、grep 可、全 spec 一発取得 (構造化 fact)

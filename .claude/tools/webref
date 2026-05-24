@@ -63,7 +63,8 @@ Examples:
   .claude/tools/webref css css-overflow-3 overflow-x         # property metadata
   .claude/tools/webref specs canvas                          # shortname by keyword
 
-Cache: HTTP responses are cached in ~/.cache/elidex-webref/ with
+Cache: HTTP responses are cached in ~/.cache/elidex-webref/ (or
+       $XDG_CACHE_HOME/elidex-webref/ when XDG_CACHE_HOME is set) with
        ETag / Last-Modified conditional GET. Set ELIDEX_WEBREF_NO_CACHE=1
        to bypass.
 """
@@ -89,9 +90,10 @@ def cached_fetch_url(url: str) -> bytes:
     """GET `url` with conditional-GET caching.
 
     Stores the response body alongside ETag / Last-Modified in
-    ~/.cache/elidex-webref/. On subsequent calls sends If-None-Match /
-    If-Modified-Since; on 304 returns the cached body. Set
-    ELIDEX_WEBREF_NO_CACHE=1 to bypass entirely (uncached fetch).
+    ~/.cache/elidex-webref/ (or $XDG_CACHE_HOME/elidex-webref/ when set).
+    On subsequent calls sends If-None-Match / If-Modified-Since; on 304
+    returns the cached body. Set ELIDEX_WEBREF_NO_CACHE=1 to bypass
+    entirely (uncached fetch).
 
     Raises NotFound on 404, exits on other network / HTTP errors.
     """
@@ -108,10 +110,16 @@ def cached_fetch_url(url: str) -> bytes:
             meta = json.loads(meta_path.read_text("utf-8"))
         except (OSError, json.JSONDecodeError):
             meta = {}
-        if "etag" in meta:
-            headers["If-None-Match"] = meta["etag"]
-        if "last_modified" in meta:
-            headers["If-Modified-Since"] = meta["last_modified"]
+        # Validate types at the trust boundary: a corrupted or older-format
+        # .meta could carry `null` / non-str values which urllib would reject
+        # when assembling the request. Silently drop anything that isn't a
+        # plain string; the next 200 OK response will rewrite the meta.
+        et = meta.get("etag")
+        lm = meta.get("last_modified")
+        if isinstance(et, str):
+            headers["If-None-Match"] = et
+        if isinstance(lm, str):
+            headers["If-Modified-Since"] = lm
 
     req = urllib.request.Request(url, headers=headers)
     try:
@@ -128,8 +136,13 @@ def cached_fetch_url(url: str) -> bytes:
             meta_path.write_text(json.dumps(meta), encoding="utf-8")
             return data
     except urllib.error.HTTPError as e:
-        if e.code == 304 and body_path.exists():
-            return body_path.read_bytes()
+        if e.code == 304:
+            if body_path.exists():
+                return body_path.read_bytes()
+            # Cache eviction race: meta survived but body is gone (manual rm,
+            # cleanup tool between runs, etc.). Retry once unconditionally
+            # instead of exiting with a confusing "HTTP 304" message.
+            return _raw_fetch(url, headers={})
         if e.code == 404:
             raise NotFound(url) from e
         sys.exit(f"webref: HTTP {e.code} fetching {url}")
