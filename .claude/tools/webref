@@ -128,17 +128,18 @@ def cached_fetch_url(url: str) -> bytes:
             meta = {}
         # Trust-boundary defense — `.meta` is on-disk user-mutable input.
         # `json.loads` can return any JSON value (`[]`, `"..."`, `null`); a
-        # corrupted or older-format file could also carry non-str values
-        # under `etag` / `last_modified`. Validate both the container and the
-        # individual values; silently drop anything off-shape — the next
-        # 200 OK response will rewrite the meta.
+        # corrupted or older-format file could also carry non-str values, or
+        # str values with embedded CR/LF that would crash urllib's HTTP-header
+        # writer (RFC 7230 forbids CR/LF in field-values). Validate the
+        # container, the value type, and the absence of CR/LF; silently drop
+        # anything off-shape — the next 200 OK response will rewrite the meta.
         if not isinstance(meta, dict):
             meta = {}
         et = meta.get("etag")
         lm = meta.get("last_modified")
-        if isinstance(et, str):
+        if isinstance(et, str) and "\r" not in et and "\n" not in et:
             headers["If-None-Match"] = et
-        if isinstance(lm, str):
+        if isinstance(lm, str) and "\r" not in lm and "\n" not in lm:
             headers["If-Modified-Since"] = lm
 
     req = urllib.request.Request(url, headers=headers)
