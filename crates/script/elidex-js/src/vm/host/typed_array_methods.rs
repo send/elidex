@@ -281,7 +281,7 @@ pub(crate) fn native_typed_array_slice(
 // ---------------------------------------------------------------------------
 
 /// `%TypedArray%.prototype.values()` (ECMA-262 §23.2.3.35) — installed as
-/// both `.values` and `[Symbol.iterator]` per §23.2.3.33.
+/// both `.values` and `[Symbol.iterator]` per §23.2.3.37.
 pub(crate) fn native_typed_array_values(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
