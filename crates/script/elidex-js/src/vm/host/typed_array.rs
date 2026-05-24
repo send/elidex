@@ -158,7 +158,8 @@ pub(super) fn native_typed_array_get_length(
 ///    allocate buffer, write each element (§23.2.5.1.4).  Any
 ///    throw during body is closed with `IteratorClose` per
 ///    §7.4.11 (but a throw from `iter_next` itself is NOT
-///    closed — §7.4.11, PR5b R13 lesson).
+///    closed — §7.4.9 / §7.4.10 IteratorStep / IteratorStepValue
+///    set `[[Done]] = true` on `.next()` throw, PR5b R13 lesson).
 /// 6. Otherwise → TypeError.
 ///
 /// The pre-allocated receiver carries `new.target.prototype` via

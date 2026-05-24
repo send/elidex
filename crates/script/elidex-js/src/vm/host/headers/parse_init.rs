@@ -194,7 +194,9 @@ fn collect_header_pair_values(
     };
     let mut values: Vec<JsValue> = Vec::with_capacity(2);
     // `iter_next` throw → iterator already considered closed
-    // (§7.4.11); propagate without `.return()`.
+    // (§7.4.9 / §7.4.10 IteratorStep / IteratorStepValue set
+    // `[[Done]] = true` on a throw from `.next()`); propagate
+    // without `.return()`.
     while let Some(v) = ctx.vm.iter_next(iter)? {
         values.push(v);
         if values.len() > 2 {
@@ -211,8 +213,9 @@ fn collect_header_pair_values(
     }
     if values.len() != 2 {
         // Exhaustion with <2 items: the iterator has already
-        // reported `done=true` so it is already closed per
-        // §7.4.11 "normal completion"; no `.return()` call needed.
+        // reported `done=true` so `[[Done]] = true` is set by
+        // §7.4.9 / §7.4.10 (IteratorStep / IteratorStepValue);
+        // no `.return()` call needed.
         return Err(VmError::type_error(format!(
             "{error_prefix}: Sequence header init must contain iterables of length 2"
         )));

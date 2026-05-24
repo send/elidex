@@ -540,7 +540,7 @@ fn yield_star_delegates_to_inner_generator() {
 
 #[test]
 fn yield_star_expression_value_is_inner_return_value() {
-    // Per §14.4.14, the value of a `yield* iter` expression is the inner
+    // Per §15.5.5, the value of a `yield* iter` expression is the inner
     // iterator's return value (from `{done:true, value}`).  Here outer
     // yields the captured value afterwards so we can observe it.
     //
@@ -705,11 +705,11 @@ fn generator_return_on_try_catch_no_finally_completes_cleanly() {
     );
 }
 
-// ─── IteratorClose gating on iter.next throw (§7.4.11 / §14.4.14) ─────────
+// ─── IteratorClose gating on iter.next throw (§7.4.9 / §7.4.10 / §15.5.5) ─
 
 #[test]
 fn yield_star_does_not_close_when_inner_next_throws() {
-    // Spec §14.4.14 step 8.a.ii / §7.4.11: when the delegated iterator's
+    // Spec §15.5.5 (YieldExpression) step 8.a.ii / §7.4.9 / §7.4.10: when the delegated iterator's
     // own `.next()` throws, the iterator is considered "already closed"
     // — IteratorClose (`.return()`) must NOT fire.  Only abrupt
     // completions *after* a successful step (e.g. an outer `.throw()`
