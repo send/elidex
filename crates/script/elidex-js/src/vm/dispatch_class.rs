@@ -22,9 +22,9 @@ impl VmInner {
     /// `new` chain). `Op::NewTarget` handler.
     ///
     /// Returns `JsValue::Object(new_target)` when inside a `new`
-    /// invocation, else `JsValue::Undefined` (per ECMA-262 §9.1.1.2
-    /// `[[GetThisBinding]]` analog for `new.target` in ordinary
-    /// function code).
+    /// invocation, else `JsValue::Undefined` (per ECMA-262 §9.4.5
+    /// `GetNewTarget`, which reads the active Function Environment
+    /// Record's `[[NewTarget]]` slot — §9.1.1.3).
     #[inline]
     pub(super) fn op_new_target(&mut self) {
         let frame_idx = self.frames.len() - 1;

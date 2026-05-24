@@ -117,11 +117,12 @@ impl VmInner {
     ///   (or stack empty); allocate a fresh Ordinary with
     ///   `prototype`.  An explicit receiver passed via
     ///   `F.call(obj, ...)` / `F.apply(obj, ...)` is *not* reused —
-    ///   spec §19.5.1.1 step 2 (OrdinaryCreateFromConstructor) always
+    ///   ECMA-262 §10.1.13 OrdinaryCreateFromConstructor always
     ///   yields a new object.
     ///
-    /// Implements the "callable constructor" shape of §19.5.1.1
-    /// step 1-2.
+    /// Implements the "callable constructor" shape of ECMA-262
+    /// §10.2.2 `[[Construct]]` step 5 + §10.1.13
+    /// OrdinaryCreateFromConstructor.
     ///
     /// PRECONDITION: caller must execute within an active
     /// `[[Construct]]` dispatch (i.e. inside `do_new`'s native-ctor
