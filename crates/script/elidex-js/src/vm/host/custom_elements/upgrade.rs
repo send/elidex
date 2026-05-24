@@ -2,10 +2,17 @@
 //! engine-indep state machine in [`elidex_custom_elements::upgrade`]
 //! (HTML §4.13.5 "upgrade an element").
 //!
-//! Sync dual-path return: callers from `customElements.upgrade(root)`
-//! propagate the `Err(VmError)` to the JS caller, while reaction-queue
-//! drain in [`super::flush`] catches the `Err` and reports it to
-//! `Window.onerror` per HTML §4.13.3 "Invoke custom element reactions".
+//! `invoke_upgrade` returns `Result<(), VmError>` so each caller picks
+//! its own error policy:
+//!
+//! - The reaction-queue drain in [`super::flush`] catches `Err` and
+//!   reports it to `Window.onerror` per HTML §4.13.3 "Invoke custom
+//!   element reactions" (errors observable, not thrown).
+//! - The sync `customElements.upgrade(root)` walker in
+//!   [`super::lookup::native_ce_upgrade`] catches `Err` per candidate
+//!   and `eprintln!`s it (matches Blink's batch isolation — one bad
+//!   constructor doesn't abort the remaining candidates in the
+//!   subtree, and the API does not throw to the JS caller).
 
 #![cfg(feature = "engine")]
 

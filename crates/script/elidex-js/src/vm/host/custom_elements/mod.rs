@@ -29,10 +29,13 @@
 //!
 //! ## Lifecycle preconditions
 //!
-//! All `customElements.*` natives check `ctx.host_if_bound()` first
-//! and silently no-op on retained references that outlived an
-//! `unbind()` boundary — same convention as
-//! [`super::mutation_observer`].
+//! `customElements.*` natives check `ctx.host_if_bound()` first and
+//! silently no-op on retained references that outlived an `unbind()`
+//! boundary — same convention as [`super::mutation_observer`]. One
+//! exception: `whenDefined()` always returns a `Promise` because
+//! script code expects a thenable shape; the unbound path returns a
+//! REJECTED Promise rather than `undefined` so `then` chains still
+//! type-check and route through the rejection handler.
 
 #![cfg(feature = "engine")]
 
