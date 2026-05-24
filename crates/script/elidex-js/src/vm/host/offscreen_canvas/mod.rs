@@ -1,6 +1,6 @@
 //! `OffscreenCanvas` + `OffscreenCanvasRenderingContext2D` host binding
-//! (WHATWG HTML §4.12.5.1.7 "The OffscreenCanvas interface"). Main-thread
-//! side only; worker-side transferable receipt is deferred to
+//! (WHATWG HTML §4.12.5.3 "The OffscreenCanvas interface" + §4.12.5.3.1 OCRC2D).
+//! Main-thread side only; worker-side transferable receipt is deferred to
 //! `#11-offscreen-canvas-worker-transfer`.
 //!
 //! ## Layering
@@ -57,7 +57,7 @@ use context_methods::{
     oc_stroke_style_setter,
 };
 
-/// `OffscreenCanvasRenderingContext2D.prototype` methods (HTML §4.12.5.1.7,
+/// `OffscreenCanvasRenderingContext2D.prototype` methods (HTML §4.12.5.3.1,
 /// shares the §4.12.5.1 surface). Same names as D-21's `CONTEXT_METHODS`;
 /// brand-checked into the OC-context entity instead of a `<canvas>` entity.
 const CONTEXT_METHODS: &[(&str, NativeFn)] = &[
@@ -82,7 +82,7 @@ const CONTEXT_METHODS: &[(&str, NativeFn)] = &[
 
 impl VmInner {
     /// Install `OffscreenCanvas.prototype` (chaining `EventTarget.prototype` —
-    /// OC is an EventTarget but not a Node, HTML §4.12.5.1.7 IDL) and the
+    /// OC is an EventTarget but not a Node, HTML §4.12.5.3 IDL) and the
     /// constructable `OffscreenCanvas` interface object on `globalThis`.
     pub(in crate::vm) fn register_offscreen_canvas_global(&mut self) {
         let event_target_proto = self.event_target_prototype.expect(
@@ -122,7 +122,7 @@ impl VmInner {
         );
     }
 
-    /// Install `OffscreenCanvasRenderingContext2D.prototype` (HTML §4.12.5.1.7
+    /// Install `OffscreenCanvasRenderingContext2D.prototype` (HTML §4.12.5.3.1
     /// — shares the §4.12.5.1 surface) chaining `Object.prototype`, plus the
     /// (non-constructable) `OffscreenCanvasRenderingContext2D` interface object
     /// on `globalThis` so `ctx instanceof OffscreenCanvasRenderingContext2D`
@@ -152,7 +152,7 @@ impl VmInner {
     }
 
     /// IDL `width` / `height` accessor pair on `OffscreenCanvas.prototype`
-    /// (HTML §4.12.5.1.7 IDL: `[EnforceRange] unsigned long long`).
+    /// (HTML §4.12.5.3 IDL: `[EnforceRange] unsigned long long`).
     fn install_offscreen_canvas_accessors(&mut self, proto_id: ObjectId) {
         let width_sid = self.well_known.width;
         let height_sid = self.well_known.height;
@@ -174,7 +174,7 @@ impl VmInner {
 
     /// `fillStyle` / `strokeStyle` / `lineWidth` / `globalAlpha` accessor pairs
     /// plus the read-only `canvas` back-reference on
-    /// `OffscreenCanvasRenderingContext2D.prototype` (HTML §4.12.5.1.7 / §4.12.5.1).
+    /// `OffscreenCanvasRenderingContext2D.prototype` (HTML §4.12.5.3.1 / §4.12.5.1).
     fn install_oc_context_accessors(&mut self, proto_id: ObjectId) {
         let pairs: &[(&str, NativeFn, Option<NativeFn>)] = &[
             (
@@ -300,7 +300,7 @@ pub(super) fn require_offscreen_canvas_2d_context(
 
 /// Coerce a JsValue per WebIDL `[EnforceRange] unsigned long long` (the IDL
 /// type declared for the `OffscreenCanvas` ctor args + `width` / `height`
-/// setters, HTML §4.12.5.1.7). Enforces the spec contract via
+/// setters, HTML §4.12.5.3). Enforces the spec contract via
 /// `[EnforceRange]` (WebIDL §3.10.4): values outside `[0, 2^64-1]` throw
 /// `RangeError`. Implementation: ToNumber → finite check → integer truncate
 /// → range check `[0, u32::MAX]` (the backend allocates `u32` pixmaps; values
@@ -336,7 +336,7 @@ fn coerce_oc_dim(vm: &mut VmInner, value: JsValue) -> Result<u32, VmError> {
     Ok(truncated as u32)
 }
 
-/// `new OffscreenCanvas(width, height)` (HTML §4.12.5.1.7 constructor steps
+/// `new OffscreenCanvas(width, height)` (HTML §4.12.5.3 constructor steps
 /// 1-4). Both args are `[EnforceRange] unsigned long long` per IDL; coerced
 /// via [`coerce_oc_dim`], which enforces `[0, 2^32-1]` and throws `RangeError`
 /// on overflow (the backend pixmap is `u32`-indexed). Throws `TypeError` if
@@ -372,7 +372,7 @@ fn native_offscreen_canvas_constructor(
     Ok(JsValue::Object(inst_id))
 }
 
-/// `OffscreenCanvas.prototype.getContext(contextId)` (HTML §4.12.5.1.7 — "get
+/// `OffscreenCanvas.prototype.getContext(contextId)` (HTML §4.12.5.3 — "get
 /// a context for a canvas" algorithm). Returns the SameObject
 /// `OffscreenCanvasRenderingContext2D` wrapper for `'2d'`, or `null` for any
 /// other (unsupported) context type. `'webgl'` / `'webgl2'` /

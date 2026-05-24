@@ -88,7 +88,7 @@ pub const DEFAULT_HEIGHT: u32 = 150;
 const BYTES_PER_PIXEL: usize = 4;
 
 /// Image format selector for [`Canvas2dContext::encode_blob`]. Maps to the
-/// MIME types accepted by WHATWG HTML §4.12.5.1.7 `convertToBlob` `options.type`.
+/// MIME types accepted by WHATWG HTML §4.12.5.3 `convertToBlob` `options.type`.
 /// Per spec, an unknown / unsupported `type` falls back to `image/png`, which
 /// is what [`Self::from_mime`] returns on miss.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -108,7 +108,7 @@ pub enum BlobImageFormat {
 
 impl BlobImageFormat {
     /// Map a `convertToBlob` `options.type` string (raw user input) to a
-    /// supported format. Per WHATWG HTML §4.12.5.1.7 `convertToBlob` step 4,
+    /// supported format. Per WHATWG HTML §4.12.5.3 `convertToBlob` step 4,
     /// an unsupported / unknown type falls back to `image/png` (the spec
     /// permits the UA to reject, but the more compatible behavior is to
     /// default — matching browsers).
@@ -665,8 +665,8 @@ impl Canvas2dContext {
     }
 
     /// Encode the canvas pixels as a `Blob`-ready byte buffer in the requested
-    /// image format (WHATWG HTML §4.12.5.1.7 `convertToBlob` algorithm — the
-    /// "serialize a bitmap to a file" step). Reads the straight-alpha RGBA8
+    /// image format (WHATWG HTML §4.12.5.3 `convertToBlob` algorithm — the
+    /// "serialize a bitmap to a file" step, §4.12.5.5). Reads the straight-alpha RGBA8
     /// snapshot via [`Self::to_rgba8_straight`], then dispatches to the
     /// `image` crate's per-format encoder.
     ///

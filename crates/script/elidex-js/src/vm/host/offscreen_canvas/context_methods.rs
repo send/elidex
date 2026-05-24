@@ -1,4 +1,4 @@
-//! `OffscreenCanvasRenderingContext2D.prototype` method bodies (HTML §4.12.5.1.7,
+//! `OffscreenCanvasRenderingContext2D.prototype` method bodies (HTML §4.12.5.3.1,
 //! same surface as §4.12.5.1). Split out of [`super`] to keep each file under
 //! the ~1000-line convention.
 //!
@@ -551,7 +551,7 @@ pub(super) fn oc_global_alpha_setter(
     Ok(JsValue::Undefined)
 }
 
-/// Read-only `canvas` back-reference (HTML §4.12.5.1.7 IDL `canvas` attribute
+/// Read-only `canvas` back-reference (HTML §4.12.5.3.1 IDL `canvas` attribute
 /// on `OffscreenCanvasRenderingContext2D`) — returns the owning
 /// `OffscreenCanvas` wrapper (the context wrapper shares its OC entity, so the
 /// OC wrapper is just the `cache_wrapper`-cached wrapper for that entity).

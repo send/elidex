@@ -23,7 +23,7 @@ pub(crate) fn parse_color_string(input: &str) -> Option<CssColor> {
 
 /// Serialize a `CssColor` for Canvas 2D `fillStyle`/`strokeStyle` getter.
 ///
-/// Per WHATWG HTML §4.12.5.1.1:
+/// Per WHATWG HTML §4.12.5.1.10 "Fill and stroke styles":
 /// - Opaque colors → lowercase `#rrggbb`
 /// - Non-opaque colors → `rgba(r, g, b, alpha)` where alpha is 0–1
 pub fn serialize_canvas_color(color: CssColor) -> String {

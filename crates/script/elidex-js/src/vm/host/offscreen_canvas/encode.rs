@@ -1,6 +1,6 @@
-//! `OffscreenCanvas.convertToBlob(options)` (WHATWG HTML §4.12.5.1.7 —
+//! `OffscreenCanvas.convertToBlob(options)` (WHATWG HTML §4.12.5.3 —
 //! "convertToBlob(options)" algorithm, which dispatches to "serialize a bitmap
-//! to a file"). Options parsing + format dispatch + Promise glue ONLY —
+//! to a file" §4.12.5.5). Options parsing + format dispatch + Promise glue ONLY —
 //! the actual encoding lives in `elidex_web_canvas::Canvas2dContext::encode_blob`
 //! per the Layering mandate.
 
@@ -13,11 +13,11 @@ use super::super::super::coerce;
 use super::super::super::value::{JsValue, NativeContext, PropertyKey, VmError};
 use super::require_offscreen_canvas;
 
-/// `OffscreenCanvas.prototype.convertToBlob(options?)` (WHATWG HTML §4.12.5.1.7).
+/// `OffscreenCanvas.prototype.convertToBlob(options?)` (WHATWG HTML §4.12.5.3).
 ///
 /// Returns `Promise<Blob>`. Rejection mapping mirrors the spec algorithm
-/// (steps numbered per HTML §4.12.5.1.7 "convertToBlob(options)" + dispatched
-/// "serialize a bitmap to a file" §4.12.5.1.7.4):
+/// (steps numbered per HTML §4.12.5.3 "convertToBlob(options)" + dispatched
+/// "serialize a bitmap to a file" §4.12.5.5):
 ///
 /// - **`IndexSizeError`** — step "If this OffscreenCanvas object's bitmap has
 ///   no pixels (i.e. either its horizontal dimension or its vertical dimension

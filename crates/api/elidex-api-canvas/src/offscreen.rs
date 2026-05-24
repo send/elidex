@@ -1,4 +1,4 @@
-//! Per-`OffscreenCanvas`-entity 2D context plumbing (WHATWG HTML §4.12.5.1.7
+//! Per-`OffscreenCanvas`-entity 2D context plumbing (WHATWG HTML §4.12.5.3
 //! "The OffscreenCanvas interface", main-thread side).
 //!
 //! Sibling of [`crate::component`] which holds the `<canvas>` Element side.
@@ -37,7 +37,7 @@ use elidex_web_canvas::Canvas2dContext;
 use crate::component::{make_context, reset_canvas_bitmap};
 
 /// Dimensions component for an [`NodeKind::OffscreenCanvas`] entity (WHATWG
-/// HTML §4.12.5.1.7 IDL `width` / `height`). `Send + Sync` per-entity → ECS
+/// HTML §4.12.5.3 IDL `width` / `height`). `Send + Sync` per-entity → ECS
 /// component (audit rule); the IDL setter is the only mutation path, since
 /// OC has no attribute backing.
 #[derive(Clone, Copy, Debug)]
@@ -90,7 +90,7 @@ pub fn offscreen_canvas_dimensions(dom: &EcsDom, entity: Entity) -> (u32, u32) {
 }
 
 /// Spawn a new [`NodeKind::OffscreenCanvas`] entity with
-/// [`OffscreenCanvasDims`] populated atomically (WHATWG HTML §4.12.5.1.7 ctor
+/// [`OffscreenCanvasDims`] populated atomically (WHATWG HTML §4.12.5.3 ctor
 /// plus §4.12.5 `transferControlToOffscreen` algorithm). The single entity-
 /// creation path for OffscreenCanvas — enforces the dim write-path by
 /// construction so callers cannot forget. The `Canvas2dContext` is NOT
@@ -122,7 +122,7 @@ pub fn ensure_offscreen_context(dom: &mut EcsDom, entity: Entity) -> bool {
     dom.world_mut().insert_one(entity, ctx).is_ok()
 }
 
-/// IDL setter `offscreenCanvas.width = N` (WHATWG HTML §4.12.5.1.7). Writes
+/// IDL setter `offscreenCanvas.width = N` (WHATWG HTML §4.12.5.3). Writes
 /// the new dim to [`OffscreenCanvasDims`] then routes through the shared
 /// bitmap-reset chokepoint [`reset_canvas_bitmap`] so the reset semantics
 /// match `<canvas>` exactly (one-issue-one-way). The reset is a no-op when
@@ -140,7 +140,7 @@ pub fn set_offscreen_canvas_width(dom: &mut EcsDom, entity: Entity, width: u32) 
     let _ = reset_canvas_bitmap(dom, entity, width, height);
 }
 
-/// IDL setter `offscreenCanvas.height = N` (WHATWG HTML §4.12.5.1.7).
+/// IDL setter `offscreenCanvas.height = N` (WHATWG HTML §4.12.5.3).
 /// Sibling of [`set_offscreen_canvas_width`]; same shape.
 pub fn set_offscreen_canvas_height(dom: &mut EcsDom, entity: Entity, height: u32) {
     let width = {

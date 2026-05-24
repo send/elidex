@@ -60,7 +60,7 @@ pub enum ComponentKind {
     /// The dedicated worker global scope (WHATWG HTML §10.2.1.1). Not a Node —
     /// no `nodeType`; the worker realm's analog of [`ComponentKind::Window`].
     Worker,
-    /// An `OffscreenCanvas` object (WHATWG HTML §4.12.5.1.7). Not a Node — no
+    /// An `OffscreenCanvas` object (WHATWG HTML §4.12.5.3). Not a Node — no
     /// `nodeType`; like Window/Worker, it is an `EventTarget` that hosts
     /// detached 2D rendering state.
     OffscreenCanvas,
