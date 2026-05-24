@@ -291,7 +291,7 @@ fn init_from_iterable_body(
     // the iterator has already been drained to exhaustion above,
     // so there is nothing to `IteratorClose`.  (IteratorClose is
     // only relevant when we exit MID-iteration — `iter_next`
-    // throw is spec-exempt per §7.4.7, and the full-drain
+    // throw is spec-exempt per §7.4.11, and the full-drain
     // pattern here never leaves the iterator open.)
     {
         let mut g = ctx.vm.push_temp_root(JsValue::Object(buf_id));

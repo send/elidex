@@ -892,7 +892,7 @@ pub(super) fn ensure_empty_transfer_list(
                 // Non-empty iteration is an abrupt completion
                 // from OUR loop body (not the iterator
                 // itself), so `IteratorClose` must run before
-                // surfacing the Phase 2 limitation (§7.4.8
+                // surfacing the Phase 2 limitation (§7.4.11
                 // IteratorClose).  A `.return()` throw takes
                 // precedence over the triggering abrupt.
                 if let Some(close_err) = ctx.vm.iter_close(iter).err() {

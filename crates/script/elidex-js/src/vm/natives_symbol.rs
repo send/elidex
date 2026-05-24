@@ -375,7 +375,7 @@ pub(super) fn native_string_iterator_next(
 
 /// Local wrapper around [`VmInner::create_iter_result`] that fits the
 /// `NativeContext` call shape.  The shared helper on `VmInner` anchors
-/// the prototype at `%Object.prototype%` (§7.4.8) and is used by every
+/// the prototype at `%Object.prototype%` (§7.4.16) and is used by every
 /// IteratorResult-shaped allocation in the VM (generator, array, string
 /// iterators).
 fn create_iter_result(

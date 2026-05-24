@@ -411,7 +411,7 @@ fn filter_user_subclass_preserves_species() {
 fn map_throws_when_constructor_is_non_object() {
     let mut vm = Vm::new();
     // `O.constructor` resolves to a non-Object, non-undefined
-    // value — spec §10.1.13 step 3 throws TypeError before
+    // value — spec §7.3.22 step 3 throws TypeError before
     // `@@species` lookup.
     assert!(vm
         .eval(
@@ -428,7 +428,7 @@ fn map_throws_when_constructor_is_non_object() {
 fn map_throws_when_species_not_constructor() {
     let mut vm = Vm::new();
     // `Ctor[@@species]` resolves to a callable but non-constructor
-    // (arrow functions lack `[[Construct]]`) — spec §10.1.13 step
+    // (arrow functions lack `[[Construct]]`) — spec §7.3.22 step
     // 6/7 throws TypeError.
     assert!(vm
         .eval(
@@ -503,7 +503,7 @@ fn hofs_bind_this_arg_in_callback() {
 fn map_throws_when_constructor_is_null() {
     let mut vm = Vm::new();
     // `null` is non-Object but distinct from `undefined`: spec
-    // §10.1.13 SpeciesConstructor step 2 only short-circuits on
+    // §7.3.22 SpeciesConstructor step 2 only short-circuits on
     // `undefined` (returning the default constructor), step 3
     // rejects everything else that isn't `Object` — including
     // `null` — as a TypeError.  Pairs with
@@ -526,7 +526,7 @@ fn map_default_species_falls_back_when_constructor_undefined() {
     // Shadowing the inherited `Uint8Array.prototype.constructor`
     // with an own data property whose value is `undefined` makes
     // `[[Get]]("constructor")` resolve to `undefined` (the own
-    // property wins over the inherited one) — spec §10.1.13
+    // property wins over the inherited one) — spec §7.3.22
     // SpeciesConstructor step 2 then returns the default
     // constructor (here, `Uint8Array`'s ek).  Note this is
     // distinct from `null`, which spec step 3 rejects as

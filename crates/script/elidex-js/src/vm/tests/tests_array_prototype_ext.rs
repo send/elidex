@@ -27,7 +27,7 @@ fn array_from_with_map() {
 
 #[test]
 fn array_from_map_throw_closes_inner_iterator() {
-    // §7.4.6: `Array.from(iter, mapFn)` where `mapFn` throws must call
+    // §7.4.11: `Array.from(iter, mapFn)` where `mapFn` throws must call
     // `IteratorClose` on the inner iterator before propagating.
     // Observable via a hand-rolled iterator whose `.return()` records
     // it was called.  Regression for the `drain_iterator` abrupt path

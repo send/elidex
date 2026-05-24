@@ -644,11 +644,11 @@ fn yield_star_forwards_throw_closes_inner() {
     );
 }
 
-// ─── Iterator result object prototype chain (§7.4.8) ─────────────────────
+// ─── Iterator result object prototype chain (§7.4.16) ─────────────────────
 
 #[test]
 fn generator_next_result_inherits_object_prototype() {
-    // §7.4.8 CreateIterResultObject: the result object is built via
+    // §7.4.16 CreateIteratorResultObject: the result object is built via
     // OrdinaryObjectCreate(%Object.prototype%), so `.toString` is
     // reachable via the prototype chain.  A previous implementation
     // set `prototype: None` on some IteratorResult flavours, breaking
@@ -662,7 +662,7 @@ fn generator_next_result_inherits_object_prototype() {
 
 #[test]
 fn array_iterator_result_inherits_object_prototype() {
-    // Same §7.4.8 invariant for array iterators (they now share the
+    // Same §7.4.16 invariant for array iterators (they now share the
     // consolidated VmInner::create_iter_result helper).  The previous
     // array-iterator helper set `prototype: None`, so inherited
     // methods weren't reachable.
@@ -705,11 +705,11 @@ fn generator_return_on_try_catch_no_finally_completes_cleanly() {
     );
 }
 
-// ─── IteratorClose gating on iter.next throw (§7.4.6 / §14.4.14) ─────────
+// ─── IteratorClose gating on iter.next throw (§7.4.11 / §14.4.14) ─────────
 
 #[test]
 fn yield_star_does_not_close_when_inner_next_throws() {
-    // Spec §14.4.14 step 8.a.ii / §7.4.6: when the delegated iterator's
+    // Spec §14.4.14 step 8.a.ii / §7.4.11: when the delegated iterator's
     // own `.next()` throws, the iterator is considered "already closed"
     // — IteratorClose (`.return()`) must NOT fire.  Only abrupt
     // completions *after* a successful step (e.g. an outer `.throw()`
@@ -733,7 +733,7 @@ fn yield_star_does_not_close_when_inner_next_throws() {
 
 #[test]
 fn for_of_does_not_close_when_inner_next_throws() {
-    // Same §7.4.6 invariant for plain `for-of` loops (compiled in
+    // Same §7.4.11 invariant for plain `for-of` loops (compiled in
     // stmt.rs).  IteratorNext throw → iterator is already closed,
     // skip IteratorClose; only body-side throws close.
     assert_eq!(

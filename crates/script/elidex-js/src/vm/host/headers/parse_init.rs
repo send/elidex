@@ -134,7 +134,7 @@ pub(in crate::vm::host) fn parse_headers_init_entries(
 /// (plain `[name, value]` arrays, `new Set([name, value])`,
 /// user-defined `[Symbol.iterator]` objects, etc.).  Arity ≠ 2
 /// is TypeError; iteration abrupt completion closes the inner
-/// iterator via `.return()` (§7.4.6) (R22.1).
+/// iterator via `.return()` (§7.4.11) (R22.1).
 fn validate_pair_entry(
     ctx: &mut NativeContext<'_>,
     pair: JsValue,
@@ -194,13 +194,13 @@ fn collect_header_pair_values(
     };
     let mut values: Vec<JsValue> = Vec::with_capacity(2);
     // `iter_next` throw → iterator already considered closed
-    // (§7.4.6); propagate without `.return()`.
+    // (§7.4.11); propagate without `.return()`.
     while let Some(v) = ctx.vm.iter_next(iter)? {
         values.push(v);
         if values.len() > 2 {
             // Early exit on arity overflow.  Closing the iterator
             // lets its `.return()` run; a throw from `.return()`
-            // wins over the triggering arity error (§7.4.6
+            // wins over the triggering arity error (§7.4.11
             // step 6-7).
             let close_err = ctx.vm.iter_close(iter).err();
             let arity_err = VmError::type_error(format!(
@@ -212,7 +212,7 @@ fn collect_header_pair_values(
     if values.len() != 2 {
         // Exhaustion with <2 items: the iterator has already
         // reported `done=true` so it is already closed per
-        // §7.4.6 "normal completion"; no `.return()` call needed.
+        // §7.4.11 "normal completion"; no `.return()` call needed.
         return Err(VmError::type_error(format!(
             "{error_prefix}: Sequence header init must contain iterables of length 2"
         )));

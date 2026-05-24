@@ -577,7 +577,7 @@ fn typed_array_from_array_like_allocates_before_indexed_get() {
 #[test]
 fn typed_array_from_iterator_receives_source_as_this() {
     let mut vm = Vm::new();
-    // Spec §7.4.1 GetIteratorFromMethod calls the iterator
+    // Spec §7.4.3 GetIteratorFromMethod calls the iterator
     // method with `source` as the receiver — `Call(method,
     // source)`.  In this VM, `function () {}` literals default
     // to strict-mode `this` binding (no auto-boxing via

@@ -440,7 +440,7 @@ fn create_array_iterator(
 /// Drain an iterator into a `Vec`, optionally applying a map function.
 /// Delegates to `VmInner::iter_next` for spec-compliant protocol handling.
 ///
-/// §7.4.6: any abrupt completion *after* `.next()` succeeded (e.g.
+/// §7.4.11: any abrupt completion *after* `.next()` succeeded (e.g.
 /// `mapFn` throws, or the result exceeds `DENSE_ARRAY_LEN_LIMIT`) must
 /// call `IteratorClose` on the iterator.  If that `.return()` itself
 /// throws, its error takes precedence over the original abrupt.  An
@@ -476,7 +476,7 @@ fn drain_iterator(
 
 /// Helper: close `iter_val` via `.return()` and return the higher-
 /// precedence error — a throw from `.return()` wins over the triggering
-/// abrupt completion (§7.4.6 IteratorClose step 6-7).
+/// abrupt completion (§7.4.11 IteratorClose step 6-7).
 fn close_with_precedence(
     ctx: &mut NativeContext<'_>,
     iter_val: JsValue,

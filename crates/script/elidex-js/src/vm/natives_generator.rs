@@ -319,12 +319,12 @@ impl VmInner {
         }
     }
 
-    /// Build a `{ value, done }` iterator-result object (§7.4.8
-    /// CreateIterResultObject).  Shared between generator `.next` /
+    /// Build a `{ value, done }` iterator-result object (§7.4.16
+    /// CreateIteratorResultObject).  Shared between generator `.next` /
     /// `.return` / `.throw`, array iterator next, string iterator next,
     /// and any other `IteratorResult`-shaped allocation.
     ///
-    /// Prototype is `%Object.prototype%` per spec (CreateIterResultObject
+    /// Prototype is `%Object.prototype%` per spec (CreateIteratorResultObject
     /// step 1: OrdinaryObjectCreate(%Object.prototype%)), making
     /// `gen.next().toString === Object.prototype.toString`.
     pub(crate) fn create_iter_result(&mut self, value: JsValue, done: bool) -> ObjectId {

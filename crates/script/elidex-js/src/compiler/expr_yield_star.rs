@@ -63,7 +63,7 @@ pub(super) fn compile_yield_star(
     fc.emit_u16(Op::SetLocal, received_slot);
     fc.emit(Op::Pop);
 
-    // close_flag = false initially.  §7.4.6 + §14.4.14: a throw from
+    // close_flag = false initially.  §7.4.11 + §14.4.14: a throw from
     // `iter.next()` itself does NOT trigger IteratorClose (the iterator
     // is already considered closed); only abrupt completions *after* a
     // successful step (e.g. an outer `.throw()` injected at the yield)
@@ -137,7 +137,7 @@ pub(super) fn compile_yield_star(
     // ── Throw handler: gate IteratorClose on close_flag, then rethrow ──
     // close_flag distinguishes "throw from iter.next" (skip close) from
     // "throw after a successful iter.next" (e.g. outer `.throw()` at
-    // the yield → close).  Spec §14.4.14 step 8.a.ii / §7.4.6.
+    // the yield → close).  Spec §14.4.14 step 8.a.ii / §7.4.11.
     let throw_handler = fc.pc();
     fc.emit(Op::PushException);
     fc.emit_u16(Op::GetLocal, close_flag_slot);

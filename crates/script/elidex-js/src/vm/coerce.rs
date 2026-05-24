@@ -415,7 +415,8 @@ pub(crate) fn f64_to_uint16(n: f64) -> u16 {
 }
 
 // ---------------------------------------------------------------------------
-// ToInt8 / ToUint8 / ToUint8Clamp / ToInt16 (ECMA-262 §7.1.9, §7.1.11-.13)
+// ToInt8 (§7.1.11) / ToUint8 (§7.1.12) / ToUint8Clamp (§7.1.13) / ToInt16 (§7.1.9)
+// All ECMA-262 §7.1.
 // ---------------------------------------------------------------------------
 //
 // Engine-feature-only: the helpers below are used exclusively by

@@ -696,7 +696,7 @@ fn allocate_and_write_view(
 /// **above** `elem_start + elems_len` and shrink back on guard
 /// drop, so the rooted element range is undisturbed.
 ///
-/// IteratorClose (§7.4.6) runs on `map_fn` abrupt completion
+/// IteratorClose (§7.4.11) runs on `map_fn` abrupt completion
 /// before the stack scope drops, so the iterator's `.return()`
 /// observes a still-rooted iter; `iter_next` throw is spec-exempt
 /// and propagates without close.
@@ -740,7 +740,7 @@ fn drain_iterator_loop(
             match ctx.call_function(fn_id, this_arg, &[value, idx]) {
                 Ok(v) => v,
                 Err(e) => {
-                    // §7.4.6 IteratorClose: a throw from `mapFn` is
+                    // §7.4.11 IteratorClose: a throw from `mapFn` is
                     // an abrupt completion of the for-of-like body;
                     // close the iterator before propagating.  A
                     // throw from `.return()` itself wins.
@@ -789,7 +789,7 @@ fn lookup_iterator_method(
 
 /// Close `iter_val` via `.return()` and surface the higher-
 /// precedence error — a throw from `.return()` wins over the
-/// triggering abrupt completion (§7.4.6 IteratorClose step 6-7).
+/// triggering abrupt completion (§7.4.11 IteratorClose step 6-7).
 fn close_iterator_with_precedence(
     ctx: &mut NativeContext<'_>,
     iter_val: JsValue,

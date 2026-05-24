@@ -373,7 +373,7 @@ fn ctor_inner_pair_arity_one_throws() {
     let mut vm = Vm::new();
     // Inner iterable yielding only one item (then done) is also a
     // TypeError.  No IteratorClose here — `done` is normal
-    // completion per §7.4.6.
+    // completion per §7.4.11.
     assert!(eval_bool(
         &mut vm,
         "var inner = { [Symbol.iterator]() { \

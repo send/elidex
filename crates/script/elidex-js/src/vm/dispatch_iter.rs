@@ -51,7 +51,7 @@ impl VmInner {
         };
         let result = self.spread_iter_loop(iterator, arr_val);
         if result.is_err() {
-            // IteratorClose (§7.4.6): if .return() also throws, its error
+            // IteratorClose (§7.4.11): if .return() also throws, its error
             // takes precedence over the original iteration error.
             if let JsValue::Object(iter_id) = iterator {
                 let return_key = PropertyKey::String(self.well_known.return_str);
@@ -297,7 +297,7 @@ impl VmInner {
             match self.iter_next(iter_val) {
                 Ok(Some(value)) => {
                     if self.stack.len() - stack_root_base >= DENSE_ARRAY_LEN_LIMIT {
-                        // §7.4.6: close iterator on abrupt completion;
+                        // §7.4.11: close iterator on abrupt completion;
                         // if `.return()` throws, that takes precedence
                         // over the range-error.
                         self.stack.truncate(stack_root_base);
@@ -332,7 +332,7 @@ impl VmInner {
         self.iter_close(iter_val)
     }
 
-    /// IteratorClose (§7.4.6) on an iterator value already held by the
+    /// IteratorClose (§7.4.11) on an iterator value already held by the
     /// caller — does not pop from the stack.  Invokes `iterator.return()`
     /// if present; no-op for non-object iterators.  Used by abrupt
     /// completion paths (e.g. `collect_iterator` / `op_iterator_rest`

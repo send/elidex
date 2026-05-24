@@ -50,7 +50,7 @@ impl VmInner {
             match self.iter_next(iter) {
                 Ok(Some(v)) => {
                     if self.stack.len() - values_start >= DENSE_ARRAY_LEN_LIMIT {
-                        // §7.4.6: abrupt completion during iteration must
+                        // §7.4.11: abrupt completion during iteration must
                         // call IteratorClose (`.return()`).  Drop
                         // collected values first but keep `iter` rooted
                         // for the .return() call; if that call itself
