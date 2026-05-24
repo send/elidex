@@ -6,9 +6,10 @@
 //! empty (callbacks may enqueue more reactions); bounded by
 //! [`MAX_CE_DRAIN_ITERATIONS`] to defend against pathological cycles.
 //!
-//! Exception policy (HTML §4.13.6 "invoke custom element reactions" step 4): each callback runs inside
-//! its own try/catch — a throw is reported via `eprintln!` (the
-//! VM-side analog of `Window.onerror`) and the drain continues. The
+//! Exception policy (HTML §4.13.6 "invoke custom element reactions"
+//! step 4): each callback runs inside its own try/catch — a throw is
+//! reported via `eprintln!` (the VM-side analog of `Window.onerror`)
+//! and the drain continues. The
 //! one exception is `Upgrade` reactions, where a constructor throw
 //! also sets the entity's state to `CEState::Failed` (handled inside
 //! [`super::upgrade::invoke_upgrade`]).

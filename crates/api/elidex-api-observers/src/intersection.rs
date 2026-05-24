@@ -107,7 +107,7 @@ impl IntersectionObserverRegistry {
     /// Register a new intersection observer, returning its ID.
     ///
     /// Parses `init.root_margin` at register-time (W3C Intersection
-    /// Observer §3.1 ctor step — `SyntaxError` if the shorthand is
+    /// Observer §2.2 ctor step — `SyntaxError` if the shorthand is
     /// not a valid `<length-percentage>{1,4}`); the parsed
     /// `[MarginComponent; 4]` is cached on the registered observer so
     /// `gather_observations` does not re-parse on every per-target

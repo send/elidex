@@ -936,7 +936,7 @@ impl VmInner {
                 None,
                 // M4-12 slot #11-intersection-observer-vm:
                 // IntersectionObserver.prototype (W3C Intersection
-                // Observer §3.1).  Same rationale as
+                // Observer §2.2).  Same rationale as
                 // `resize_observer_prototype` above.
                 #[cfg(feature = "engine")]
                 self.intersection_observer_prototype,
