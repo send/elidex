@@ -1419,6 +1419,31 @@ define_well_known_strings! {
         is_intersecting => "isIntersecting",
         time => "time",
     }
+
+    "Custom Elements (HTML §4.13.4 / §4.13.3)" {
+        // Singleton global + constructor identifier.
+        custom_elements_accessor => "customElements",
+        custom_element_registry_global => "CustomElementRegistry",
+        // Method names installed on `CustomElementRegistry.prototype`.
+        // `define` / `get` / `upgrade` are interface-unique;
+        // `when_defined` is unique to this interface too.
+        ce_define => "define",
+        ce_when_defined => "whenDefined",
+        ce_upgrade => "upgrade",
+        // Static `Constructor.observedAttributes` read at define() time
+        // (HTML §4.13.4 step 14.6).
+        observed_attributes => "observedAttributes",
+        // Lifecycle callback method names (HTML §4.13.3) — looked up on
+        // the constructor's prototype chain at flush time.
+        connected_callback => "connectedCallback",
+        disconnected_callback => "disconnectedCallback",
+        attribute_changed_callback => "attributeChangedCallback",
+        adopted_callback => "adoptedCallback",
+        // `customElements.define()` options-bag key (HTML §4.13.4
+        // step 9, customized built-in elements — v1 rejects with
+        // NotSupportedError but still reads the key).
+        extends => "extends",
+    }
 }
 
 /// Well-known symbol IDs, allocated at VM creation.

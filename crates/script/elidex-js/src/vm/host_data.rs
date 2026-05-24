@@ -397,6 +397,49 @@ mod engine_feature {
         /// Monotonic per-VM SSE connection ID counter; resets on
         /// `Vm::unbind`.
         pub(crate) sse_next_conn_id: u64,
+        // -------------------------------------------------------------
+        // D-17 `#11-custom-elements-vm`: Custom Elements v1 state
+        // (WHATWG HTML §4.13)
+        // -------------------------------------------------------------
+        /// Per-realm custom element registry (HTML §4.13.4) — owns the
+        /// `name → CustomElementDefinition` map + the per-name pending-
+        /// upgrade entity queue. Shared via `Arc<Mutex<>>` with
+        /// [`elidex_custom_elements::CustomElementReactionConsumer`]
+        /// (which only reads `observed_attributes`). Cleared on
+        /// `Vm::unbind` because each `CustomElementDefinition`
+        /// references its constructor by a `u64` ID that aliases the
+        /// per-VM `custom_element_constructors` map below — neither
+        /// survives an unbind crossing.
+        pub(crate) ce_registry:
+            std::sync::Arc<std::sync::Mutex<elidex_custom_elements::CustomElementRegistry>>,
+        /// Per-VM reaction queue (HTML §4.13.3) — pushed to by the
+        /// `CustomElementReactionConsumer` on Insert / Remove /
+        /// AttributeChange, drained at script-execution / event-
+        /// dispatch / microtask checkpoints by `flush_ce_reactions`.
+        /// Shared via `Arc<Mutex<>>` with the consumer.
+        pub(crate) ce_reaction_queue: std::sync::Arc<
+            std::sync::Mutex<
+                std::collections::VecDeque<elidex_custom_elements::CustomElementReaction>,
+            >,
+        >,
+        /// VM-monotonic constructor ID counter — assigned in `define()`
+        /// and stored on the `CustomElementDefinition::constructor_id`.
+        pub(crate) ce_next_constructor_id: u64,
+        /// `constructor_id → constructor ObjectId` map. The constructor
+        /// `ObjectId` is per-VM identity (HostData exception (a) — see
+        /// `feedback_boa-hostbridge-port-is-not-a-registry.md`), so this
+        /// stays on HostData not as an ECS component. Cleared on unbind.
+        pub(crate) ce_constructors: HashMap<u64, ObjectId>,
+        /// Per-name `whenDefined()` resolver functions, keyed by CE
+        /// name. Each entry is the list of Promise resolve callbacks to
+        /// invoke when `define(name, ...)` lands. Cleared on unbind
+        /// (Promise wrapper `ObjectId`s are per-VM identity).
+        pub(crate) ce_when_defined_resolvers: HashMap<String, Vec<ObjectId>>,
+        /// Cached pending `whenDefined()` Promise per CE name — returns
+        /// the same Promise for repeated calls with the same name (per
+        /// WHATWG §4.13.4 step 3 — "Set promise to a new promise" runs
+        /// once; later calls return the previously stored promise).
+        pub(crate) ce_when_defined_promises: HashMap<String, ObjectId>,
     }
 
     /// `WebSocket.binaryType` enum (WHATWG WebSockets §9.3).
@@ -694,6 +737,16 @@ mod engine_feature {
                 event_source_states: HashMap::new(),
                 sse_conn_to_object: HashMap::new(),
                 sse_next_conn_id: 0,
+                ce_registry: std::sync::Arc::new(std::sync::Mutex::new(
+                    elidex_custom_elements::CustomElementRegistry::new(),
+                )),
+                ce_reaction_queue: std::sync::Arc::new(std::sync::Mutex::new(
+                    std::collections::VecDeque::new(),
+                )),
+                ce_next_constructor_id: 0,
+                ce_constructors: HashMap::new(),
+                ce_when_defined_resolvers: HashMap::new(),
+                ce_when_defined_promises: HashMap::new(),
             }
         }
 
@@ -1459,16 +1512,33 @@ mod engine_feature {
             // adding a 4th observer kind is a single entry in the
             // binding-map array here rather than a new pair of
             // `chain(...)` calls.
-            self.listener_store.values().copied().chain(
-                [
-                    &self.mutation_observer_bindings,
-                    &self.resize_observer_bindings,
-                    &self.intersection_observer_bindings,
-                ]
-                .into_iter()
-                .flat_map(|m| m.values())
-                .flat_map(|b| [b.callback, b.instance]),
-            )
+            self.listener_store
+                .values()
+                .copied()
+                .chain(
+                    [
+                        &self.mutation_observer_bindings,
+                        &self.resize_observer_bindings,
+                        &self.intersection_observer_bindings,
+                    ]
+                    .into_iter()
+                    .flat_map(|m| m.values())
+                    .flat_map(|b| [b.callback, b.instance]),
+                )
+                // D-17 `#11-custom-elements-vm`: every registered CE
+                // constructor + cached whenDefined Promise + still-
+                // unresolved whenDefined resolver function must stay GC-
+                // rooted for the registry's lifetime — otherwise an
+                // upgrade after a major GC cycle would dereference a
+                // freed `ObjectId`. All three maps are cleared on
+                // `Vm::unbind` so the roots release on rebind.
+                .chain(self.ce_constructors.values().copied())
+                .chain(self.ce_when_defined_promises.values().copied())
+                .chain(
+                    self.ce_when_defined_resolvers
+                        .values()
+                        .flat_map(|v| v.iter().copied()),
+                )
         }
 
         /// GC trace fan-out accessor for `TreeWalker.filter_object_id`

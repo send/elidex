@@ -7,7 +7,8 @@
 //! live in `elidex-ecs` so layout / parser / WPT runner consumers
 //! see the same WHATWG §4.5 semantics through one entry point.
 
-use elidex_ecs::{EcsDom, Entity, NodeKind, ShadowHost, ShadowInit, ShadowRoot};
+use elidex_custom_elements::{is_valid_custom_element_name, CustomElementState};
+use elidex_ecs::{EcsDom, Entity, NodeKind, ShadowHost, ShadowInit, ShadowRoot, TagType};
 use elidex_plugin::JsValue;
 use elidex_script_session::{
     ComponentKind, DomApiError, DomApiErrorKind, DomApiHandler, SessionCore,
@@ -127,6 +128,24 @@ pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -
     } else {
         dom.clone_node_shallow(src)?
     };
+    // HTML §4.5 "clone a node" step 6: if the source element is a
+    // custom element (any state other than Uncustomized), the clone
+    // must also be queued for upgrade. The engine-indep `clone_subtree`
+    // / `clone_node_shallow` cloners (in elidex-ecs) cannot reach
+    // `elidex-custom-elements` types due to the inverse cargo edge, so
+    // the CE state component must be re-attached here at the
+    // engine-indep DOM-api boundary. Always in `Undefined` — the clone
+    // goes through the upgrade pipeline fresh; the source's
+    // Custom/Failed state does NOT carry over. Walk applies to the
+    // root + every descendant for deep clones.
+    attach_ce_state_on_clone(cloned, dom);
+    if deep {
+        let mut to_attach: Vec<Entity> = Vec::new();
+        collect_descendant_elements(cloned, dom, &mut to_attach);
+        for descendant in to_attach {
+            attach_ce_state_on_clone(descendant, dom);
+        }
+    }
     if !deep {
         return Some(cloned);
     }
@@ -147,6 +166,40 @@ pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -
         }
     }
     Some(cloned)
+}
+
+/// Re-attach `CustomElementState::undefined(tag)` to a cloned element
+/// whose tag is a valid custom element name (HTML §4.13.2 +
+/// §4.5 step 6). No-op for non-Element nodes, non-hyphenated tags,
+/// and entities that already carry the component.
+fn attach_ce_state_on_clone(entity: Entity, dom: &mut EcsDom) {
+    let tag = match dom.world().get::<&TagType>(entity) {
+        Ok(t) => t.0.clone(),
+        Err(_) => return,
+    };
+    if !is_valid_custom_element_name(&tag) {
+        return;
+    }
+    if dom.world().get::<&CustomElementState>(entity).is_ok() {
+        return;
+    }
+    let _ = dom
+        .world_mut()
+        .insert_one(entity, CustomElementState::undefined(&tag));
+}
+
+/// Collect every descendant entity reachable via the light-tree
+/// children iterator from `root` (root itself is NOT included).
+/// Bounded by [`elidex_ecs::MAX_ANCESTOR_DEPTH`] via the underlying
+/// children iterator's cap.
+fn collect_descendant_elements(root: Entity, dom: &EcsDom, out: &mut Vec<Entity>) {
+    let mut stack: Vec<Entity> = dom.children_iter(root).collect();
+    while let Some(entity) = stack.pop() {
+        out.push(entity);
+        for child in dom.children_iter(entity) {
+            stack.push(child);
+        }
+    }
 }
 
 /// Extract the `ShadowInit` for `entity`'s shadow root if it is a

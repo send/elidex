@@ -116,10 +116,20 @@ pub enum MutationEvent<'a> {
     ///   DOM §4.2.3 (insertion-steps boundary-adjustment), Range
     ///   boundaries at `(parent, offset)` where `offset > index` need
     ///   `+= 1` (strict comparison).
+    /// - `was_connected`: connectedness of `node` BEFORE this mutation
+    ///   began — captured by the dispatcher at the engine fire site
+    ///   prior to the implicit detach + re-link. Per WHATWG DOM §4.4
+    ///   "connected" (= shadow-including root is a Document). Custom
+    ///   Elements (HTML §4.13.3) gate `connectedCallback` on the
+    ///   `was_connected == false && now-connected` transition; same-
+    ///   tree re-parent within an already-connected subtree must NOT
+    ///   refire. Consumers that don't need transition tracking ignore
+    ///   the field via the `..` destructure.
     Insert {
         node: Entity,
         parent: Entity,
         index: usize,
+        was_connected: bool,
     },
 
     /// A node has been removed from its parent.
@@ -138,6 +148,14 @@ pub enum MutationEvent<'a> {
     ///   falls inside the about-to-be-removed subtree without walking
     ///   parent chains that may be cleared by the time the dispatch
     ///   returns (PR186 R2 #3 / R4 #1 additive pattern).
+    /// - `was_connected`: connectedness of `node` BEFORE detach —
+    ///   captured by the dispatcher at the engine fire site prior to
+    ///   the `detach` call (so the `get_parent` walk still reaches
+    ///   the document root). Per WHATWG DOM §4.4 "connected" and HTML
+    ///   §4.13.3 Custom Element `disconnectedCallback` fires ONLY on
+    ///   the connected → disconnected transition. Consumers that
+    ///   don't need transition tracking ignore the field via the `..`
+    ///   destructure.
     ///
     /// ## Tree shape at fire time
     ///
@@ -153,6 +171,7 @@ pub enum MutationEvent<'a> {
         parent: Entity,
         removed_index: usize,
         descendants: &'a [Entity],
+        was_connected: bool,
     },
 
     /// A Text / CData entity's `TextContent` was rewritten as a

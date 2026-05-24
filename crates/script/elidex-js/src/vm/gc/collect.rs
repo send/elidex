@@ -416,6 +416,20 @@ impl VmInner {
                 self.subtle_crypto_instance,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // D-17 `#11-custom-elements-vm` — `customElements`
+                // singleton prototype + instance. Same rationale as the
+                // crypto pair above: retained because `delete
+                // globalThis.customElements` must not collect the
+                // prototype that retained registered constructors chain
+                // to via their own prototype slot.
+                #[cfg(feature = "engine")]
+                self.custom_element_registry_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.custom_element_registry_instance,
+                #[cfg(not(feature = "engine"))]
+                None,
                 // 68 + 13 = 81 — slot `#11-tags-T1-v2` HTML form-control
                 // prototypes (HTML §4.10).  10 per-tag prototypes + 2
                 // live-collection prototypes (HTMLFormControlsCollection

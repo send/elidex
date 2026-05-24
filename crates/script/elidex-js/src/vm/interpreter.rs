@@ -40,6 +40,16 @@ impl VmInner {
         self.drain_microtasks();
         #[cfg(feature = "engine")]
         self.drain_tasks();
+        // D-17 `#11-custom-elements-vm` — drain any Custom Elements
+        // reactions enqueued during script execution + task delivery
+        // (Insert / Remove / AttributeChange mutations land in the
+        // queue via the `CustomElementReactionConsumer`; pending
+        // upgrades from `customElements.define()` are already flushed
+        // inside `define` itself per HTML §4.13.4 step 16). Reaction
+        // callbacks may enqueue more reactions — `flush_ce_reactions`
+        // iterates until empty (bounded by MAX_CE_DRAIN_ITERATIONS).
+        #[cfg(feature = "engine")]
+        self.flush_ce_reactions();
         result
     }
 

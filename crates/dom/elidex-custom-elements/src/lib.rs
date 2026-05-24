@@ -4,11 +4,13 @@
 //! the `CustomElementReaction` queue for lifecycle callback batching,
 //! and `CustomElementState` for tracking per-element upgrade status.
 
+mod consumer;
 mod reaction;
 mod registry;
 mod state;
 mod validation;
 
+pub use consumer::CustomElementReactionConsumer;
 pub use reaction::CustomElementReaction;
 pub use registry::{CustomElementDefinition, CustomElementRegistry, DefineError};
 pub use state::{CEState, CustomElementState};

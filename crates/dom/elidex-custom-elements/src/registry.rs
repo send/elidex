@@ -85,6 +85,16 @@ impl CustomElementRegistry {
             .push(entity);
     }
 
+    /// Drop every definition + pending-upgrade entity. Used by
+    /// `Vm::unbind` to scrub cross-DOM references on the way out of a
+    /// bind cycle (`CustomElementDefinition::constructor_id` indexes
+    /// into per-VM `HostData::ce_constructors`; pending-upgrade
+    /// entities reference the outgoing DOM world).
+    pub fn clear(&mut self) {
+        self.definitions.clear();
+        self.pending_upgrade.clear();
+    }
+
     /// Look up a definition by the `is` attribute value and the tag name.
     ///
     /// For customized built-in elements: `is="my-div"` on a `<div>` matches

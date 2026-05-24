@@ -15,6 +15,9 @@ categories = ["web-programming"]
 elidex-plugin.workspace = true
 elidex-ecs.workspace = true
 cssparser.workspace = true
+# `CustomElementState` + `CEState` for the `:defined` selector
+# matcher (CSS Selectors Level 4 §5.4 / WHATWG HTML §4.13.2).
+elidex-custom-elements.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true

@@ -493,6 +493,12 @@ pub(super) fn trace_work_list(
             // fan-out is a no-op.
             #[cfg(feature = "engine")]
             ObjectKind::Crypto | ObjectKind::SubtleCrypto => {}
+            // `CustomElementRegistry` is a payload-free singleton.
+            // Registered constructor `ObjectId`s + pending whenDefined
+            // resolvers live on `HostData` (per-VM, traced through the
+            // host-data GC root path), not inline on the wrapper.
+            #[cfg(feature = "engine")]
+            ObjectKind::CustomElementRegistry => {}
             // `StorageEvent` has no inline `ObjectId` payload — the
             // 5 IDL attributes (`key` / `oldValue` / `newValue` /
             // `url` / `storageArea`) live as own-data props on the

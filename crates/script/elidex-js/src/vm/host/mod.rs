@@ -95,6 +95,8 @@ pub(super) mod css_style_declaration;
 #[cfg(feature = "engine")]
 pub(super) mod cssom_sheet;
 #[cfg(feature = "engine")]
+pub(super) mod custom_elements;
+#[cfg(feature = "engine")]
 pub(crate) mod data_view;
 #[cfg(feature = "engine")]
 pub(super) mod dataset;
