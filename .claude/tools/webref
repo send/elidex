@@ -1,0 +1,334 @@
+#!/usr/bin/env python3
+"""webref lookup helper — spec citation verification for elidex.
+
+Backs the Axis 4 (Spec citation discipline) verification recipe in
+.claude/skills/elidex-review/axes.md. Resolves section numbers, anchor IDs,
+WebIDL fragments, concept dfn anchors, element-to-interface mappings, and CSS
+property metadata against w3c/webref (machine-readable extracts of WHATWG /
+W3C specs). More reliable than WebFetch on spec HTML, which truncates on long
+documents — webref ships per-spec JSON / IDL that fits in one fetch + grep.
+
+Subcommands:
+  heading <spec> <number-prefix>   §number → title + anchor
+  idl     <spec> <interface>       interface IDL fragment
+  dfn     <spec> <term>            concept dfn → §heading + anchor
+  element <spec> <element-name>    HTML/SVG element → interface name + href
+  css     <spec> <name>            CSS property / @rule / selector / value metadata
+  specs   <keyword>                shortname lookup (by spec title)
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+import urllib.error
+import urllib.request
+
+BASE = "https://raw.githubusercontent.com/w3c/webref/main/ed"
+
+COMMON_SHORTNAMES = """\
+Common shortnames:
+  html         HTML LS (Custom Elements / Canvas / Workers / Form / Events — monolithic)
+  dom          DOM LS
+  selectors-4  CSS Selectors L4
+  geometry-1   Geometry Interfaces (DOMRect / DOMMatrix)
+  url          URL LS
+  fetch        Fetch LS
+  streams      Streams LS
+  webcrypto    Web Cryptography API
+  xhr          XMLHttpRequest LS
+  webidl       Web IDL
+
+Examples:
+  .claude/tools/webref heading html 4.13                     # all §4.13.x sections
+  .claude/tools/webref dfn html 'reaction queue'             # term → §heading + anchor
+  .claude/tools/webref idl html CustomElementRegistry
+  .claude/tools/webref element html canvas                   # → HTMLCanvasElement
+  .claude/tools/webref css css-overflow-3 overflow-x         # property metadata
+  .claude/tools/webref specs canvas                          # shortname by keyword
+"""
+
+
+# ---------------------------------------------------------------------------
+# Fetching
+# ---------------------------------------------------------------------------
+
+class NotFound(Exception):
+    """Raised by fetch_bytes() on HTTP 404 so callers can attempt a fallback."""
+
+
+def fetch_bytes(path: str) -> bytes:
+    """GET BASE/path. Raises NotFound on 404, exits on other errors."""
+    url = f"{BASE}/{path}"
+    try:
+        with urllib.request.urlopen(url, timeout=30) as resp:
+            return resp.read()
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            raise NotFound(url) from e
+        sys.exit(f"webref: HTTP {e.code} fetching {url}")
+    except urllib.error.URLError as e:
+        sys.exit(f"webref: network error fetching {url}: {e.reason}")
+
+
+def fetch_json(path: str) -> dict:
+    return json.loads(fetch_bytes(path).decode("utf-8"))
+
+
+def fetch_with_level_fallback(template: str, shortname: str) -> bytes:
+    """Fetch `template.format(shortname=...)`; on 404, strip trailing -N and retry.
+
+    webref convention: per-level draft URLs (`headings/css-overflow-3.json`)
+    coexist with version-less stable URLs (`idl/geometry.idl`, `css/css-flexbox.json`).
+    Callers passing the level-suffixed shortname (matching the headings/ convention)
+    still resolve idl/ and css/ via this fallback.
+    """
+    path = template.format(shortname=shortname)
+    try:
+        return fetch_bytes(path)
+    except NotFound:
+        stripped = re.sub(r"-\d+$", "", shortname)
+        if stripped != shortname:
+            path2 = template.format(shortname=stripped)
+            try:
+                return fetch_bytes(path2)
+            except NotFound:
+                sys.exit(f"webref: fetch failed (tried both {BASE}/{path} and {BASE}/{path2})")
+        sys.exit(f"webref: fetch failed: {BASE}/{path}")
+
+
+# ---------------------------------------------------------------------------
+# Subcommands
+# ---------------------------------------------------------------------------
+
+def cmd_heading(args: argparse.Namespace) -> None:
+    data = fetch_json(f"headings/{args.shortname}.json")
+    matches = [h for h in data.get("headings", []) if h.get("number", "").startswith(args.prefix)]
+    if not matches:
+        title = data.get("spec", {}).get("title", args.shortname)
+        sys.exit(f"webref: no headings under §{args.prefix} in {title}")
+    for h in matches:
+        n = h.get("number", "")
+        t = h.get("title", "")
+        i = h.get("id", "")
+        print(f"  §{n:<14} {t:<60} #{i}")
+
+
+# IDL block start: optional `partial`, then one of:
+#   interface [mixin] / dictionary / enum / callback [interface] / namespace
+# followed by whitespace. The interface-name match (\biface\b) is done separately
+# so we can buffer leading [attr] lines until we know whether the block matches.
+_IDL_DECL_RE = re.compile(
+    r"^(?:partial\s+)?"
+    r"(?:interface(?:\s+mixin)?|dictionary|enum|callback(?:\s+interface)?|namespace)"
+    r"\s+"
+)
+
+
+def cmd_idl(args: argparse.Namespace) -> None:
+    text = fetch_with_level_fallback("idl/{shortname}.idl", args.shortname).decode("utf-8")
+    iface_re = re.compile(rf"\b{re.escape(args.iface)}\b")
+
+    out: list[str] = []
+    buf: list[str] = []  # leading [attr] lines awaiting a decl line
+    in_block = False
+
+    for line in text.splitlines():
+        if line.startswith("["):
+            buf.append(line)
+            continue
+        if not in_block:
+            if _IDL_DECL_RE.match(line):
+                if iface_re.search(line):
+                    out.extend(buf)
+                    out.append(line)
+                    in_block = True
+                buf = []
+                continue
+            # Discard any buffered attrs not followed by a matching decl.
+            buf = []
+            continue
+        # Inside a matching block — emit every line through `};`.
+        out.append(line)
+        if line.startswith("};"):
+            in_block = False
+            out.append("")
+
+    if not out:
+        sys.exit(f"webref: no IDL block matching {args.iface!r} in {args.shortname}")
+    print("\n".join(out))
+
+
+def cmd_dfn(args: argparse.Namespace) -> None:
+    data = fetch_json(f"dfns/{args.shortname}.json")
+    dfns = data.get("dfns", [])
+    needle = args.term.lower()
+
+    def texts(d: dict) -> list[str]:
+        return [t.lower() for t in d.get("linkingText", []) + d.get("localLinkingText", [])]
+
+    exact = [d for d in dfns if needle in texts(d)]
+    hits = exact if exact else [d for d in dfns if any(needle in t for t in texts(d))]
+
+    if not hits:
+        sys.exit(f"webref: no dfn matching {args.term!r} in {args.shortname}")
+
+    mode = "exact" if exact else "substring"
+    print(f"  ({len(hits)} {mode} hit{'s' if len(hits) > 1 else ''})")
+    for d in hits[:25]:
+        lt = d.get("linkingText", ["?"])[0]
+        ty = d.get("type", "?")
+        fr = ",".join(d.get("for", [])) or "-"
+        h = d.get("heading") or {}
+        hn = h.get("number", "?")
+        ht = h.get("title", "?")
+        print(f"  {lt!r} (type={ty}, for={fr})  →  §{hn} {ht}  #{d.get('id','?')}")
+    if len(hits) > 25:
+        print(f"  ... ({len(hits)-25} more, narrow the term)")
+
+
+def cmd_element(args: argparse.Namespace) -> None:
+    data = fetch_json(f"elements/{args.shortname}.json")
+    els = data.get("elements", [])
+    hits = [e for e in els if e.get("name") == args.name]
+    if not hits:
+        names = sorted({e.get("name", "") for e in els})
+        msg = (f"webref: element {args.name!r} not in {args.shortname} "
+               f"(catalog has {len(names)} elements)")
+        print(msg, file=sys.stderr)
+        near = [n for n in names
+                if args.name.lower() in n.lower() or n.lower() in args.name.lower()][:8]
+        if near:
+            print(f"  near matches: {', '.join(near)}", file=sys.stderr)
+        sys.exit(1)
+    for e in hits:
+        print(f"  <{e.get('name','?')}>")
+        for k, v in e.items():
+            if k == "name":
+                continue
+            if isinstance(v, (list, dict)):
+                v = json.dumps(v, ensure_ascii=False)
+            print(f"    {k:20} {v}")
+
+
+# Display order for CSS property fields — most-relevant first; trailing href.
+_CSS_FIELDS = (
+    "value", "newValues", "initial", "inherited", "appliesTo",
+    "percentages", "computedValue", "canonicalOrder",
+    "animationType", "logicalPropertyGroup", "media",
+    "styleDeclaration", "descriptors", "syntax", "href",
+)
+_CSS_SECTIONS = (
+    ("properties", "Property"),
+    ("atrules", "At-rule"),
+    ("selectors", "Selector"),
+    ("values", "Value"),
+)
+
+
+def cmd_css(args: argparse.Namespace) -> None:
+    raw = fetch_with_level_fallback("css/{shortname}.json", args.shortname)
+    data = json.loads(raw)
+    found = False
+    for key, label in _CSS_SECTIONS:
+        for item in data.get(key, []):
+            if item.get("name") != args.name:
+                continue
+            found = True
+            print(f"  {label}: {item.get('name','?')}")
+            for k in _CSS_FIELDS:
+                if k in item:
+                    v = item[k]
+                    if isinstance(v, (list, dict)):
+                        v = json.dumps(v, ensure_ascii=False)[:200]
+                    print(f"    {k:18} {v}")
+            print()
+    if not found:
+        title = data.get("spec", {}).get("title", args.shortname)
+        prop_names = sorted(p.get("name", "") for p in data.get("properties", []))
+        print(f"webref: {args.name!r} not found in {title}", file=sys.stderr)
+        if prop_names:
+            near = [n for n in prop_names
+                    if args.name.lower() in n.lower() or n.lower() in args.name.lower()][:8]
+            if near:
+                print(f"  near property matches: {', '.join(near)}", file=sys.stderr)
+            else:
+                preview = ", ".join(prop_names[:10])
+                print(f"  available properties (first 10 of {len(prop_names)}): {preview}",
+                      file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_specs(args: argparse.Namespace) -> None:
+    data = fetch_json("index.json")
+    kw = args.keyword.lower()
+    for r in data.get("results", []):
+        title = r.get("title", "")
+        short = r.get("shortname", "")
+        if kw in title.lower() or kw in short.lower():
+            print(f"  {short:<35} {title}")
+
+
+# ---------------------------------------------------------------------------
+# argparse wiring
+# ---------------------------------------------------------------------------
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog=".claude/tools/webref",
+        description=(
+            "webref lookup helper — spec citation verification for elidex. "
+            "Backs Axis 4 (Spec citation discipline) recipe in "
+            ".claude/skills/elidex-review/axes.md."
+        ),
+        epilog=COMMON_SHORTNAMES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sub = p.add_subparsers(dest="command", required=True, metavar="<command>")
+
+    h = sub.add_parser("heading", help="§number → title + anchor")
+    h.add_argument("shortname", help="e.g. html, dom, css-overflow-3")
+    h.add_argument("prefix", help="section number prefix, e.g. 4.13 or 4.12.5.3")
+    h.set_defaults(func=cmd_heading)
+
+    i = sub.add_parser("idl", help="interface IDL fragment")
+    i.add_argument("shortname")
+    i.add_argument("iface", help="interface / dictionary / enum name")
+    i.set_defaults(func=cmd_idl)
+
+    d = sub.add_parser("dfn", help="concept dfn → §heading + anchor")
+    d.add_argument("shortname")
+    d.add_argument("term", help="dfn term (substring match if exact misses)")
+    d.set_defaults(func=cmd_dfn)
+
+    e = sub.add_parser("element", help="HTML/SVG element → interface name + href")
+    e.add_argument("shortname")
+    e.add_argument("name", help="element tag name, e.g. canvas")
+    e.set_defaults(func=cmd_element)
+
+    c = sub.add_parser("css", help="CSS property / @rule / selector / value metadata")
+    c.add_argument("shortname")
+    c.add_argument("name", help="property / @rule / selector / value name")
+    c.set_defaults(func=cmd_css)
+
+    s = sub.add_parser("specs", help="shortname lookup (by spec title)")
+    s.add_argument("keyword")
+    s.set_defaults(func=cmd_specs)
+
+    return p
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+    try:
+        args.func(args)
+    except KeyboardInterrupt:
+        sys.exit(130)
+    except BrokenPipeError:
+        # Common when piping to `head` — exit quietly.
+        sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()
