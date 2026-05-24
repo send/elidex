@@ -110,7 +110,30 @@ pub(crate) fn invoke_upgrade(ctx: &mut NativeContext<'_>, entity: Entity) -> Res
     let result = ctx.vm.call(constructor, JsValue::Object(wrapper_id), &[]);
     ctx.vm.in_construct = saved_construct;
     match result {
-        Ok(_) => {
+        Ok(value) => {
+            // HTML §4.13.5 "upgrade an element" step 12.2 — if
+            // SameValue(constructResult, element) is false, throw a
+            // "NotSupportedError" DOMException AND mark the element
+            // Failed. Non-object returns are spec-permitted (class
+            // constructors implicitly return `this`; construct
+            // semantics in `ops.rs::OpNew` already fold non-object
+            // returns back to the preallocated instance), so only an
+            // OBJECT return that diverges from the wrapper is a
+            // failure. The vm.call above runs the user constructor
+            // directly (not via OpNew), so the return-value
+            // substitution that OpNew performs for `new` does not
+            // happen here — the SameValue check is the upgrade
+            // algorithm's spec-mandated guard against
+            // `constructor() { return otherObj; }`.
+            if matches!(value, JsValue::Object(id) if id != wrapper_id) {
+                finalize_failure_shim(ctx, entity);
+                let not_supported = ctx.vm.well_known.dom_exc_not_supported_error;
+                return Err(VmError::dom_exception(
+                    not_supported,
+                    "Failed to upgrade custom element: constructor returned a \
+                     different object than the element being upgraded.",
+                ));
+            }
             let host = ctx.host();
             // Clone the queue Arc BEFORE the `&mut EcsDom` re-borrow —
             // the Arc is a disjoint owned field of HostData, so the

@@ -145,7 +145,7 @@ pub(crate) fn native_ce_define(
 /// kinds go through the standard `ToString` algorithm.
 fn coerce_to_string(ctx: &mut NativeContext<'_>, value: JsValue) -> Result<String, VmError> {
     let sid = super::super::super::coerce::to_string(ctx.vm, value)?;
-    Ok(ctx.vm.strings.get_utf8(sid).clone())
+    Ok(ctx.vm.strings.get_utf8(sid))
 }
 
 /// Read `options.extends` if `options` is provided. Returns the

@@ -170,5 +170,5 @@ pub(crate) fn native_ce_upgrade(
 
 fn coerce_to_string(ctx: &mut NativeContext<'_>, value: JsValue) -> Result<String, VmError> {
     let sid = super::super::super::coerce::to_string(ctx.vm, value)?;
-    Ok(ctx.vm.strings.get_utf8(sid).clone())
+    Ok(ctx.vm.strings.get_utf8(sid))
 }

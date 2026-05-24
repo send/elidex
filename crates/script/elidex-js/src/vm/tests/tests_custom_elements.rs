@@ -410,6 +410,31 @@ fn customelements_upgrade_method_requires_node_arg() {
     );
 }
 
+#[test]
+fn customelements_ctor_returning_different_object_marks_failed() {
+    // HTML §4.13.5 "upgrade an element" step 12.2 — if the
+    // constructor returns an object that is not SameValue with the
+    // element, mark Failed + throw NotSupportedError. The throw is
+    // swallowed at the upgrade-flush boundary (Window.onerror path);
+    // the Failed state is observable via subsequent setAttribute on an
+    // observed attribute NOT firing attributeChangedCallback (callback
+    // gating per HTML §4.13.3 requires CEState::Custom).
+    let out = run_then_read(
+        "globalThis.__ctor_attempts = 0; \
+         globalThis.__cb_attempts = 0; \
+         class MyEl { \
+             static get observedAttributes() { return ['x']; } \
+             constructor() { globalThis.__ctor_attempts++; return {}; } \
+             attributeChangedCallback() { globalThis.__cb_attempts++; } \
+         } \
+         var el = document.createElement('my-el'); \
+         customElements.define('my-el', MyEl); \
+         el.setAttribute('x', 'after');",
+        "globalThis.__ctor_attempts + ':' + globalThis.__cb_attempts;",
+    );
+    assert_eq!(out, "1:0");
+}
+
 // --- F1: within-tree moves fire BOTH disconnected + connected -----
 
 #[test]
