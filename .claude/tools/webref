@@ -116,7 +116,7 @@ def cached_fetch_url(url: str) -> bytes:
     if cdir is None:
         return _raw_fetch(url, headers={})
 
-    key = hashlib.sha1(url.encode("utf-8")).hexdigest()[:16]
+    key = hashlib.sha1(url.encode("utf-8")).hexdigest()
     body_path = cdir / key
     meta_path = cdir / f"{key}.meta"
 
