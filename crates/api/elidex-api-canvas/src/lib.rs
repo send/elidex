@@ -4,10 +4,16 @@
 //! The actual rendering logic lives in `elidex-web-canvas`.
 
 mod component;
+mod offscreen;
 
 pub use component::{
-    canvas_dimensions, ensure_context, mark_dirty, sync_dirty_canvases, with_context, CanvasDirty,
-    CanvasReconciler,
+    canvas_dimensions, ensure_context, mark_dirty, reset_canvas_bitmap, sync_dirty_canvases,
+    with_context, CanvasDirty, CanvasReconciler,
+};
+pub use offscreen::{
+    ensure_offscreen_context, is_placeholder, offscreen_canvas_dimensions,
+    set_offscreen_canvas_height, set_offscreen_canvas_width, spawn_offscreen_canvas_entity,
+    transfer_canvas_to_offscreen, OffscreenCanvasDims, PlaceholderCanvas, PlaceholderError,
 };
 
 // The canonical canvas default dimensions live in `elidex_web_canvas`

@@ -564,6 +564,14 @@ impl VmInner {
                 self.image_data_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                #[cfg(feature = "engine")]
+                self.offscreen_canvas_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.offscreen_canvas_rendering_context_2d_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
                 // 91 + 24 = 115 (M4-12 slot #11-tags-T2b-passive:
                 // 7 head + 17 grouping prototypes — h1-h6 share one
                 // HTMLHeadingElement prototype and blockquote+q

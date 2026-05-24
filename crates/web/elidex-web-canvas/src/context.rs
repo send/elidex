@@ -10,6 +10,34 @@ use tiny_skia::{FillRule, Paint, PathBuilder, Pixmap, Rect, Stroke, Transform};
 use crate::path::arc_to_beziers;
 use crate::style::parse_color_string;
 
+/// Extract RGB8 from a premultiplied-RGBA8 buffer by dropping the alpha
+/// byte from each pixel. Per WHATWG HTML §4.12.5.1 "serialize a bitmap to a
+/// file", JPEG (and other alpha-less formats) receive
+/// `(r*a/255, g*a/255, b*a/255)` per pixel — which is *exactly* what
+/// premultiplied storage already holds. So the spec-mandated composite-onto-
+/// black is the identity on premul-stored bytes; this helper is just an
+/// RGB-extracting walker (no per-channel math), avoiding the
+/// unpremultiply+remultiply round-trip and its sub-pixel rounding drift.
+fn rgb_from_premul_rgba(src: &[u8]) -> Vec<u8> {
+    // Pixmap data is always RGBA8 (4 bytes per pixel) by `tiny_skia::Pixmap`
+    // construction invariant, so `chunks_exact(4)` never drops a partial tail.
+    // Assert it explicitly so a future caller (or a `Pixmap` API change) that
+    // violates the invariant fails loudly in dev rather than silently
+    // truncating the encoded output.
+    debug_assert_eq!(
+        src.len() % 4,
+        0,
+        "rgb_from_premul_rgba requires RGBA8 input (multiple of 4 bytes)"
+    );
+    let mut dst = Vec::with_capacity(src.len() / 4 * 3);
+    for chunk in src.chunks_exact(4) {
+        dst.push(chunk[0]);
+        dst.push(chunk[1]);
+        dst.push(chunk[2]);
+    }
+    dst
+}
+
 /// Convert a premultiplied-alpha pixel to straight alpha (RGBA8).
 #[inline]
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -58,6 +86,65 @@ pub const DEFAULT_WIDTH: u32 = 300;
 pub const DEFAULT_HEIGHT: u32 = 150;
 /// Bytes per pixel in RGBA8 format.
 const BYTES_PER_PIXEL: usize = 4;
+
+/// Image format selector for [`Canvas2dContext::encode_blob`]. Maps to the
+/// MIME types accepted by WHATWG HTML §4.12.5.1.7 `convertToBlob` `options.type`.
+/// Per spec, an unknown / unsupported `type` falls back to `image/png`, which
+/// is what [`Self::from_mime`] returns on miss.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BlobImageFormat {
+    /// `image/png` — lossless, ignores quality. Spec default.
+    Png,
+    /// `image/jpeg` — lossy, honors quality in `[0.0, 1.0]`.
+    Jpeg,
+    /// `image/webp` — v1 ships lossless only; quality is ignored. The
+    /// `image` 0.25 + `image-webp` upstream exposes only the lossless
+    /// encoder API (no lossy variant). Lossy WebP is tracked in defer
+    /// slot `#11-canvas-webp-lossy` (upstream-blocked: needs either an
+    /// `image-webp` upstream release with a lossy encoder, or an
+    /// additional native `webp` crate / libwebp binding).
+    Webp,
+}
+
+impl BlobImageFormat {
+    /// Map a `convertToBlob` `options.type` string (raw user input) to a
+    /// supported format. Per WHATWG HTML §4.12.5.1.7 `convertToBlob` step 4,
+    /// an unsupported / unknown type falls back to `image/png` (the spec
+    /// permits the UA to reject, but the more compatible behavior is to
+    /// default — matching browsers).
+    ///
+    /// Per the WHATWG MIME Sniffing standard "parse a MIME type" algorithm,
+    /// comparison is on the parsed type's **essence** (`type/subtype`), not
+    /// the raw string: leading / trailing HTTP whitespace is stripped and
+    /// any `;` parameters (e.g. `"image/jpeg; charset=utf-8"`) are removed
+    /// before matching. Essence compare is ASCII case-insensitive so callers
+    /// pass the raw user string verbatim.
+    #[must_use]
+    pub fn from_mime(s: &str) -> Self {
+        // Strip params first, then HTTP-whitespace-trim the essence (spec
+        // order: trim is on the parsed essence, not the raw input).
+        let essence = s.split(';').next().unwrap_or("").trim();
+        if essence.eq_ignore_ascii_case("image/jpeg") || essence.eq_ignore_ascii_case("image/jpg") {
+            Self::Jpeg
+        } else if essence.eq_ignore_ascii_case("image/webp") {
+            Self::Webp
+        } else {
+            // Including "image/png" and any unrecognized value — both
+            // default to PNG per the fallback rule above.
+            Self::Png
+        }
+    }
+
+    /// The canonical MIME type for the encoded `Blob`'s `type` attribute.
+    #[must_use]
+    pub fn mime(self) -> &'static str {
+        match self {
+            Self::Png => "image/png",
+            Self::Jpeg => "image/jpeg",
+            Self::Webp => "image/webp",
+        }
+    }
+}
 /// Estimated character width in pixels at the default 10px font.
 const ESTIMATED_CHAR_WIDTH: f32 = 6.0;
 
@@ -575,6 +662,81 @@ impl Canvas2dContext {
             dst[i..i + BYTES_PER_PIXEL].copy_from_slice(&pixel);
         }
         dst
+    }
+
+    /// Encode the canvas pixels as a `Blob`-ready byte buffer in the requested
+    /// image format (WHATWG HTML §4.12.5.1.7 `convertToBlob` algorithm — the
+    /// "serialize a bitmap to a file" step). Reads the straight-alpha RGBA8
+    /// snapshot via [`Self::to_rgba8_straight`], then dispatches to the
+    /// `image` crate's per-format encoder.
+    ///
+    /// `quality` is in `[0.0, 1.0]` per spec and applies only to lossy formats
+    /// (JPEG). PNG ignores it (lossless). WebP in v1 is lossless-only — the
+    /// `image` 0.25 + `image-webp` upstream exposes only `WebPEncoder::new_lossless`
+    /// (no lossy variant in the dep tree); `quality` is ignored for WebP.
+    /// The spec permits a UA to produce lossless output for any format, so
+    /// this is spec-conformant; lossy WebP support is upstream-blocked and
+    /// tracked in defer slot `#11-canvas-webp-lossy`. Returns `None` if
+    /// encoding fails (invalid dims, encoder error).
+    #[must_use]
+    pub fn encode_blob(&self, format: BlobImageFormat, quality: f32) -> Option<Vec<u8>> {
+        let width = self.pixmap.width();
+        let height = self.pixmap.height();
+        let mut out: Vec<u8> = Vec::new();
+        match format {
+            BlobImageFormat::Png => {
+                let bytes = self.to_rgba8_straight();
+                let encoder = image::codecs::png::PngEncoder::new(&mut out);
+                image::ImageEncoder::write_image(
+                    encoder,
+                    &bytes,
+                    width,
+                    height,
+                    image::ExtendedColorType::Rgba8,
+                )
+                .ok()?;
+            }
+            BlobImageFormat::Jpeg => {
+                // Quality maps to JPEG's [1, 100] integer band; spec
+                // already substitutes out-of-range input with 1.0 before
+                // this point (the additional clamp is a defensive belt).
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let q = (quality.clamp(0.0, 1.0) * 100.0).round().max(1.0) as u8;
+                // JPEG cannot encode alpha. WHATWG HTML §4.12.5.1 "serialize
+                // a bitmap to a file" specifies "composite onto a fully-
+                // transparent black background" = per pixel `r*a/255` etc.
+                // But tiny-skia's pixmap is ALREADY premultiplied — i.e. it
+                // already stores `(r*a/255, g*a/255, b*a/255, a)`. So the
+                // spec-mandated composite is the identity on premul storage:
+                // drop alpha, take the existing 3 channels verbatim. This
+                // skips the unpremultiply (`to_rgba8_straight`) + remultiply
+                // (`composite_rgba_on_black`) round-trip and preserves exact
+                // channel values (no rounding drift through 1/alpha).
+                let rgb = rgb_from_premul_rgba(self.pixmap.data());
+                let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, q);
+                image::ImageEncoder::write_image(
+                    encoder,
+                    &rgb,
+                    width,
+                    height,
+                    image::ExtendedColorType::Rgb8,
+                )
+                .ok()?;
+            }
+            BlobImageFormat::Webp => {
+                let bytes = self.to_rgba8_straight();
+                let encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut out);
+                image::ImageEncoder::write_image(
+                    encoder,
+                    &bytes,
+                    width,
+                    height,
+                    image::ExtendedColorType::Rgba8,
+                )
+                .ok()?;
+            }
+        }
+        Some(out)
     }
 
     // --- Internal helpers ---

@@ -78,6 +78,18 @@ pub(crate) enum WrapperKind {
     /// entity (`vm/host/canvas/mod.rs`). Weak-through-owner: kept alive while
     /// the canvas element wrapper is.
     Canvas2dContext,
+    /// `offscreenCanvas.getContext('2d')` rendering-context wrapper — `owner =
+    /// Entity(OC entity)`. Mirror of [`Self::Canvas2dContext`] but owned by the
+    /// `NodeKind::OffscreenCanvas` entity instead of a canvas `Element`. The
+    /// wrapper shares the OC entity in its `entity_bits`, so this seam entry
+    /// doubles as the brand: a HostObject is an `OffscreenCanvasRenderingContext2D`
+    /// iff it is the interned `OffscreenCanvas2dContext` wrapper for its entity
+    /// (`vm/host/offscreen_canvas/mod.rs`). Weak-through-owner: kept alive while
+    /// the primary OC wrapper is cached. The primary OC wrapper itself goes
+    /// through `cache_wrapper` / `WrapperKind::Node` (TRUE Worker precedent,
+    /// see `worker.rs:400`) — no separate `WrapperKind::OffscreenCanvas`
+    /// variant.
+    OffscreenCanvas2dContext,
     /// `<input>.files` FileList — `owner = Object(input wrapper)`.
     FileList,
     /// `DataTransferItem` per (DataTransfer wrapper, index) —
@@ -267,7 +279,8 @@ impl WrapperKind {
             | Self::TableRowCells
             | Self::TemplateContent
             | Self::DatalistOptions
-            | Self::Canvas2dContext => MarkAgent::WeakViaOwnerEntity,
+            | Self::Canvas2dContext
+            | Self::OffscreenCanvas2dContext => MarkAgent::WeakViaOwnerEntity,
         }
     }
 

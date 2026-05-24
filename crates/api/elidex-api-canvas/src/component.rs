@@ -15,6 +15,8 @@ use std::sync::Arc;
 use elidex_ecs::{EcsDom, Entity, ImageData, MutationEvent};
 use elidex_web_canvas::{Canvas2dContext, DEFAULT_HEIGHT, DEFAULT_WIDTH};
 
+use crate::offscreen::PlaceholderCanvas;
+
 /// Marker component on a canvas entity whose [`Canvas2dContext`] has been
 /// mutated since the last [`sync_dirty_canvases`] flush. Drained per frame.
 pub struct CanvasDirty;
@@ -55,7 +57,7 @@ pub fn ensure_context(dom: &mut EcsDom, entity: Entity) -> bool {
 /// `canvas.width`/`height` IDL getters still reflect the raw attribute,
 /// unclamped). True 0×0 bitmap support is deferred to
 /// `#11-canvas-zero-dimension-bitmap`.
-fn bitmap_dim(n: u32) -> u32 {
+pub(crate) fn bitmap_dim(n: u32) -> u32 {
     n.max(1)
 }
 
@@ -65,9 +67,45 @@ fn bitmap_dim(n: u32) -> u32 {
 /// requested size that the backend cannot represent must still yield a *fresh*
 /// bitmap (never a stale prior one), so the per-frame sync can't keep publishing
 /// pixels at the old size. 1×1 always succeeds, so this is infallible.
-fn make_context(width: u32, height: u32) -> Canvas2dContext {
+pub(crate) fn make_context(width: u32, height: u32) -> Canvas2dContext {
     Canvas2dContext::new(bitmap_dim(width), bitmap_dim(height))
         .unwrap_or_else(|| Canvas2dContext::new(1, 1).expect("1×1 bitmap is always allocatable"))
+}
+
+/// Shared bitmap-reset chokepoint (WHATWG HTML §4.12.5 "set bitmap dimensions").
+/// Called from two paths: [`CanvasReconciler::handle`] (the
+/// `<canvas>` attribute-change path) and the `OffscreenCanvas` IDL setter
+/// (`crate::offscreen::set_offscreen_canvas_width` / `_height`). One reset
+/// algorithm, two callers — no Drift-class strangler middle state.
+///
+/// Returns `true` if a reset occurred, `false` if the entity has no
+/// [`Canvas2dContext`] (the no-op-before-`ensure_*_context` invariant). The
+/// return is observability-only — callers ignore it in production; tests
+/// assert on the no-op branch. Always re-allocates a *fresh* bitmap (never
+/// keeps a stale prior one) — `bitmap_dim` clamps the low end (0 → 1) and a
+/// 1×1 fallback covers the high end when `reset` fails. Marks the canvas
+/// dirty for re-sync on success.
+///
+/// The (`Canvas2dContext`) XOR (`PlaceholderCanvas`) mutex is NOT asserted
+/// here because both can legitimately be absent on a freshly-spawned
+/// OffscreenCanvas (pre-`ensure_offscreen_context` state). The mutex is
+/// enforced by the write-side gates at
+/// [`crate::offscreen::transfer_canvas_to_offscreen`] (refuses transfer when
+/// `Canvas2dContext` present) and the `<canvas>.getContext` placeholder
+/// guard (refuses when `PlaceholderCanvas` present).
+pub fn reset_canvas_bitmap(dom: &mut EcsDom, entity: Entity, width: u32, height: u32) -> bool {
+    if with_context(dom, entity, |ctx| {
+        if !ctx.reset(bitmap_dim(width), bitmap_dim(height)) {
+            let _ = ctx.reset(1, 1);
+        }
+    })
+    .is_some()
+    {
+        mark_dirty(dom, entity);
+        true
+    } else {
+        false
+    }
 }
 
 /// Run `f` against the canvas entity's [`Canvas2dContext`] component, returning
@@ -162,26 +200,21 @@ impl CanvasReconciler {
         if name != "width" && name != "height" {
             return;
         }
-        // Before the first getContext there is no bitmap to reset.
-        if dom.world().get::<&Canvas2dContext>(node).is_err() {
+        // A placeholder `<canvas>` (post-`transferControlToOffscreen`) has no
+        // `Canvas2dContext` of its own — the OffscreenCanvas entity owns the
+        // bitmap now (spec: HTML §4.12.5 "placeholder canvas element"). The
+        // shared `reset_canvas_bitmap` below would already return false on a
+        // placeholder (no Canvas2dContext = no-op), so this check is
+        // observability-only, not a correctness gate.
+        if dom.world().get::<&PlaceholderCanvas>(node).is_ok() {
             return;
         }
         let (width, height) = canvas_dimensions(dom, node);
-        // A width/height change always re-allocates a *fresh* bitmap, clamping
-        // both ends of the representable range so a stale prior bitmap can never
-        // survive: the low end via `bitmap_dim` (0 → 1×1), and the high end via
-        // a 1×1 fallback when a huge dimension makes the re-allocation fail.
-        // The reset clears to transparent black regardless, so the canvas is
-        // always marked dirty for re-sync.
-        if with_context(dom, node, |ctx| {
-            if !ctx.reset(bitmap_dim(width), bitmap_dim(height)) {
-                let _ = ctx.reset(1, 1);
-            }
-        })
-        .is_some()
-        {
-            mark_dirty(dom, node);
-        }
+        // Delegate to the shared chokepoint so the OC IDL setter and this
+        // reconciler use the same reset algorithm (one-issue-one-way; the
+        // return-bool no-op-before-`ensure_context` branch is documented at
+        // `reset_canvas_bitmap`).
+        let _ = reset_canvas_bitmap(dom, node, width, height);
     }
 }
 

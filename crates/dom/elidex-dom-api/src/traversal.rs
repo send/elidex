@@ -61,9 +61,10 @@ fn node_kind_bit(kind: NodeKind) -> u32 {
         NodeKind::Document => SHOW_DOCUMENT,
         NodeKind::DocumentType => 0x200,
         NodeKind::DocumentFragment => 0x400,
-        // Window / WorkerGlobalScope are not Nodes per WHATWG and are not
-        // exposed through NodeIterator / TreeWalker `whatToShow`.
-        NodeKind::Window | NodeKind::Worker => 0,
+        // Window / WorkerGlobalScope / OffscreenCanvas are not Nodes per
+        // WHATWG and are not exposed through NodeIterator / TreeWalker
+        // `whatToShow`.
+        NodeKind::Window | NodeKind::Worker | NodeKind::OffscreenCanvas => 0,
     }
 }
 

@@ -296,3 +296,157 @@ fn reset_invalid_dims_keeps_context() {
     assert_eq!(ctx.width(), 10);
     assert_eq!(ctx.height(), 10);
 }
+
+#[test]
+fn from_mime_maps_known_types_and_defaults_unknown_to_png() {
+    assert_eq!(
+        BlobImageFormat::from_mime("image/png"),
+        BlobImageFormat::Png
+    );
+    assert_eq!(
+        BlobImageFormat::from_mime("image/jpeg"),
+        BlobImageFormat::Jpeg
+    );
+    assert_eq!(
+        BlobImageFormat::from_mime("image/jpg"),
+        BlobImageFormat::Jpeg
+    );
+    assert_eq!(
+        BlobImageFormat::from_mime("image/webp"),
+        BlobImageFormat::Webp
+    );
+    // Unknown / empty falls back to PNG per spec.
+    assert_eq!(
+        BlobImageFormat::from_mime("image/gif"),
+        BlobImageFormat::Png
+    );
+    assert_eq!(BlobImageFormat::from_mime(""), BlobImageFormat::Png);
+}
+
+#[test]
+fn from_mime_is_ascii_case_insensitive() {
+    // Per WHATWG MIME Sniffing standard, comparison is ASCII case-
+    // insensitive on the parsed essence.
+    assert_eq!(
+        BlobImageFormat::from_mime("IMAGE/JPEG"),
+        BlobImageFormat::Jpeg
+    );
+    assert_eq!(
+        BlobImageFormat::from_mime("Image/WebP"),
+        BlobImageFormat::Webp
+    );
+    assert_eq!(
+        BlobImageFormat::from_mime("IMAGE/PNG"),
+        BlobImageFormat::Png
+    );
+}
+
+#[test]
+fn from_mime_strips_parameters_and_whitespace() {
+    // WHATWG MIME parser: essence = pre-`;`, HTTP-whitespace-trimmed.
+    // `oc.convertToBlob({type: 'image/jpeg; charset=utf-8'})` must map to
+    // JPEG, not silently fall back to PNG.
+    assert_eq!(
+        BlobImageFormat::from_mime("image/jpeg; charset=utf-8"),
+        BlobImageFormat::Jpeg
+    );
+    assert_eq!(
+        BlobImageFormat::from_mime("image/webp;quality=0.9"),
+        BlobImageFormat::Webp
+    );
+    // Leading / trailing whitespace tolerated.
+    assert_eq!(
+        BlobImageFormat::from_mime("  image/jpeg  "),
+        BlobImageFormat::Jpeg
+    );
+    // Whitespace + params + case combined.
+    assert_eq!(
+        BlobImageFormat::from_mime(" Image/JPEG ; q=1 "),
+        BlobImageFormat::Jpeg
+    );
+}
+
+#[test]
+fn encode_blob_png_starts_with_signature_and_round_trips_dims() {
+    let mut ctx = Canvas2dContext::new(8, 4).unwrap();
+    ctx.set_fill_style("rgb(255, 0, 0)");
+    ctx.fill_rect(0.0, 0.0, 8.0, 4.0);
+    let bytes = ctx.encode_blob(BlobImageFormat::Png, 1.0).expect("encode");
+    // PNG magic number.
+    assert_eq!(&bytes[0..8], b"\x89PNG\r\n\x1a\n");
+    // Round-trip dimensions via the image crate's decoder.
+    let decoded = image::load_from_memory(&bytes).expect("png decodes");
+    assert_eq!(decoded.width(), 8);
+    assert_eq!(decoded.height(), 4);
+}
+
+#[test]
+fn encode_blob_jpeg_round_trips_dims_and_honors_quality_band() {
+    let mut ctx = Canvas2dContext::new(16, 16).unwrap();
+    ctx.set_fill_style("rgb(0, 255, 0)");
+    ctx.fill_rect(0.0, 0.0, 16.0, 16.0);
+    // High quality
+    let hi = ctx
+        .encode_blob(BlobImageFormat::Jpeg, 1.0)
+        .expect("jpeg hi");
+    // Low quality (clamped to >=1 internally)
+    let lo = ctx
+        .encode_blob(BlobImageFormat::Jpeg, 0.05)
+        .expect("jpeg lo");
+    // Round-trip dims on both.
+    let decoded_hi = image::load_from_memory(&hi).expect("jpeg hi decodes");
+    let decoded_lo = image::load_from_memory(&lo).expect("jpeg lo decodes");
+    assert_eq!((decoded_hi.width(), decoded_hi.height()), (16, 16));
+    assert_eq!((decoded_lo.width(), decoded_lo.height()), (16, 16));
+    // Low-quality JPEG is typically smaller than high-quality on uniform input;
+    // assert ordering rather than exact size for encoder-version stability.
+    assert!(
+        lo.len() <= hi.len(),
+        "lo-quality jpeg ({}) should be <= hi ({})",
+        lo.len(),
+        hi.len()
+    );
+}
+
+#[test]
+fn encode_blob_jpeg_translucent_pixels_match_composite_on_black() {
+    // JPEG path takes premultiplied RGB bytes directly (no unpremultiply +
+    // re-premultiply round-trip). The spec composite-onto-black for
+    // alpha-less formats is `r*a/255`, which premultiplied storage already
+    // holds verbatim. Lock down: a translucent pixel encodes as the
+    // composite-on-black value, exactly.
+    let mut ctx = Canvas2dContext::new(8, 8).unwrap();
+    // 50% alpha red: composite-on-black ≈ (128, 0, 0).
+    ctx.set_fill_style("rgba(255, 0, 0, 0.5)");
+    ctx.fill_rect(0.0, 0.0, 8.0, 8.0);
+    let bytes = ctx
+        .encode_blob(BlobImageFormat::Jpeg, 1.0)
+        .expect("jpeg encodes");
+    let decoded = image::load_from_memory(&bytes)
+        .expect("jpeg decodes")
+        .to_rgb8();
+    // Center pixel of a solid fill — JPEG block boundaries cause edge
+    // softness, so sample center to avoid bias.
+    let center = decoded.get_pixel(4, 4);
+    // JPEG quantization at q=100 still has ±~2 channel tolerance.
+    assert!(
+        (i32::from(center[0]) - 128).abs() <= 4,
+        "red channel ~128 (actual {})",
+        center[0]
+    );
+    assert!(center[1] <= 4, "green near 0 (actual {})", center[1]);
+    assert!(center[2] <= 4, "blue near 0 (actual {})", center[2]);
+}
+
+#[test]
+fn encode_blob_webp_round_trips_dims_lossless() {
+    let mut ctx = Canvas2dContext::new(4, 4).unwrap();
+    ctx.set_fill_style("rgb(0, 0, 255)");
+    ctx.fill_rect(0.0, 0.0, 4.0, 4.0);
+    let bytes = ctx.encode_blob(BlobImageFormat::Webp, 0.5).expect("webp");
+    // RIFF / WEBP container magic.
+    assert_eq!(&bytes[0..4], b"RIFF");
+    assert_eq!(&bytes[8..12], b"WEBP");
+    let decoded = image::load_from_memory(&bytes).expect("webp decodes");
+    assert_eq!((decoded.width(), decoded.height()), (4, 4));
+}

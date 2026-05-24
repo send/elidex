@@ -28,7 +28,10 @@
 
 #![cfg(feature = "engine")]
 
-use elidex_api_canvas::{ensure_context, mark_dirty, with_context};
+use elidex_api_canvas::{
+    ensure_context, is_placeholder, mark_dirty, transfer_canvas_to_offscreen, with_context,
+    PlaceholderError,
+};
 use elidex_ecs::Entity;
 use elidex_web_canvas::{serialize_canvas_color, Canvas2dContext};
 
@@ -82,7 +85,16 @@ impl VmInner {
             prototype: Some(parent),
             extensible: true,
         });
-        self.install_methods(proto_id, &[("getContext", native_get_context)]);
+        self.install_methods(
+            proto_id,
+            &[
+                ("getContext", native_get_context),
+                (
+                    "transferControlToOffscreen",
+                    native_transfer_control_to_offscreen,
+                ),
+            ],
+        );
         let width_sid = self.well_known.width;
         let height_sid = self.well_known.height;
         self.install_accessor_pair(
@@ -286,6 +298,15 @@ fn native_get_context(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let entity = require_canvas_element(ctx, this, "getContext")?;
+    // Post-`transferControlToOffscreen`, the `<canvas>` is a "placeholder
+    // canvas element" (HTML §4.12.5) and getContext throws InvalidStateError
+    // — the bitmap is owned by the OffscreenCanvas now.
+    if is_placeholder(ctx.host().dom(), entity) {
+        return Err(VmError::dom_exception(
+            ctx.vm.well_known.dom_exc_invalid_state_error,
+            "Failed to execute 'getContext' on 'HTMLCanvasElement': canvas has been transferred to an OffscreenCanvas.",
+        ));
+    }
     let context_type = match args.first().copied() {
         Some(v) => {
             let sid = coerce::to_string(ctx.vm, v)?;
@@ -331,9 +352,27 @@ fn dispatch_context<R>(
     dirty: bool,
     f: impl FnOnce(&mut Canvas2dContext) -> R,
 ) -> Result<R, VmError> {
-    let entity = require_canvas_2d_context(ctx, this, method)?;
+    dispatch_2d_method(ctx, this, method, dirty, require_canvas_2d_context, f)
+}
+
+/// Brand-check via `brand_check`, then run `f` against the entity's
+/// [`Canvas2dContext`] component (marking dirty when `dirty`). Shared by
+/// `<canvas>` (`dispatch_context`, brand=`require_canvas_2d_context`) and
+/// `OffscreenCanvas` (`super::offscreen_canvas::dispatch_oc_context`,
+/// brand=`require_offscreen_canvas_2d_context`) so the 19 2D-context method
+/// bodies are not duplicated between the two interfaces. The component is
+/// guaranteed present at this point — both wrappers only exist post-`ensure_*_context`.
+pub(super) fn dispatch_2d_method<R>(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    method: &str,
+    dirty: bool,
+    brand_check: fn(&mut NativeContext<'_>, JsValue, &str) -> Result<Entity, VmError>,
+    f: impl FnOnce(&mut Canvas2dContext) -> R,
+) -> Result<R, VmError> {
+    let entity = brand_check(ctx, this, method)?;
     let result = with_context(ctx.host().dom(), entity, f)
-        .expect("context wrapper exists ⇒ Canvas2dContext component present");
+        .expect("brand check passed ⇒ Canvas2dContext component present");
     if dirty {
         mark_dirty(ctx.host().dom(), entity);
     }
@@ -748,4 +787,60 @@ fn native_illegal_constructor(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     Err(VmError::type_error("Illegal constructor"))
+}
+
+// ---------------------------------------------------------------------------
+// transferControlToOffscreen
+// ---------------------------------------------------------------------------
+
+/// `HTMLCanvasElement.prototype.transferControlToOffscreen()` (WHATWG HTML
+/// §4.12.5 transfer algorithm steps 1-7). Delegates to the engine-indep atomic
+/// gate [`transfer_canvas_to_offscreen`] which validates + spawns the OC
+/// entity + marks the `<canvas>` as placeholder in one fallible op (no partial
+/// state on Err). Marshals `PlaceholderError` to the spec `InvalidStateError`
+/// DOMException, then `cache_wrapper`s the OC HostObject (mirror of
+/// `worker.rs:400` Worker constructor flow — true Worker precedent for
+/// non-Node EventTarget entities).
+fn native_transfer_control_to_offscreen(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let canvas_entity = require_canvas_element(ctx, this, "transferControlToOffscreen")?;
+    let oc_entity = match transfer_canvas_to_offscreen(ctx.host().dom(), canvas_entity) {
+        Ok(e) => e,
+        Err(PlaceholderError::NoSuchEntity) => {
+            // Wrapper resolution above proves liveness in single-threaded VM
+            // execution, so this branch is unreachable from JS. Marshal to
+            // the spec InvalidStateError for parity with the other refusal
+            // paths (defensive — see PlaceholderError::NoSuchEntity docs).
+            return Err(VmError::dom_exception(
+                ctx.vm.well_known.dom_exc_invalid_state_error,
+                "Failed to execute 'transferControlToOffscreen' on 'HTMLCanvasElement': canvas entity is no longer live.",
+            ));
+        }
+        Err(PlaceholderError::AlreadyHasContext) => {
+            return Err(VmError::dom_exception(
+                ctx.vm.well_known.dom_exc_invalid_state_error,
+                "Failed to execute 'transferControlToOffscreen' on 'HTMLCanvasElement': canvas already has a rendering context.",
+            ));
+        }
+        Err(PlaceholderError::AlreadyPlaceholder) => {
+            return Err(VmError::dom_exception(
+                ctx.vm.well_known.dom_exc_invalid_state_error,
+                "Failed to execute 'transferControlToOffscreen' on 'HTMLCanvasElement': canvas has already been transferred.",
+            ));
+        }
+    };
+    let proto = ctx.vm.offscreen_canvas_prototype;
+    let oc_wrapper = ctx.vm.alloc_object(Object {
+        kind: ObjectKind::HostObject {
+            entity_bits: oc_entity.to_bits().get(),
+        },
+        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+        prototype: proto,
+        extensible: true,
+    });
+    ctx.host().cache_wrapper(oc_entity, oc_wrapper);
+    Ok(JsValue::Object(oc_wrapper))
 }

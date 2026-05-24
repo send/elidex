@@ -8,5 +8,5 @@ mod context;
 mod path;
 mod style;
 
-pub use context::{Canvas2dContext, DEFAULT_HEIGHT, DEFAULT_WIDTH};
+pub use context::{BlobImageFormat, Canvas2dContext, DEFAULT_HEIGHT, DEFAULT_WIDTH};
 pub use style::serialize_canvas_color;
