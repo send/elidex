@@ -20,9 +20,9 @@
 //!   transition (`was_connected == true`). Orphan-to-orphan moves are
 //!   no-ops.
 //! - `AttributeChanged` enqueued only when the attribute name is in
-//!   the element's definition's `observed_attributes` (HTML §4.13.2
-//!   step 4.1 — "for each attribute in element's attribute list that
-//!   is in observedAttributes").
+//!   the element's definition's `observed_attributes` (HTML §4.13.4
+//!   "attribute change steps" — "for each attribute in element's
+//!   attribute list that is in observedAttributes").
 //! - All three gates ALSO require the element to be Custom
 //!   ([`CEState::Custom`]) — pre-upgrade elements (`Undefined` /
 //!   `Failed`) do NOT fire lifecycle callbacks per HTML §4.13.3.
@@ -114,7 +114,7 @@ impl CustomElementReactionConsumer {
                 }
                 UpgradeTarget::Upgrade => {
                     // Per WHATWG DOM §4.2.3 insertion-steps + HTML
-                    // §4.13.3 "try to upgrade element": an Undefined
+                    // §4.13.5 "try to upgrade element": an Undefined
                     // element with a registered definition gets
                     // `try to upgrade` on insertion. The Upgrade
                     // reaction's invoke_upgrade itself enqueues

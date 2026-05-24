@@ -174,7 +174,7 @@ pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -
 }
 
 /// Re-attach `CustomElementState::undefined(tag)` to a cloned element
-/// whose tag is a valid custom element name (HTML §4.13.3 "valid
+/// whose tag is a valid custom element name (HTML §4.13.2 "valid
 /// custom element name" + WHATWG DOM §4.5 "clone a node" step 6).
 /// No-op for non-Element nodes, non-hyphenated tags, and entities
 /// that already carry the component.
