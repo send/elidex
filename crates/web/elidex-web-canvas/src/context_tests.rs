@@ -409,6 +409,36 @@ fn encode_blob_jpeg_round_trips_dims_and_honors_quality_band() {
 }
 
 #[test]
+fn encode_blob_jpeg_translucent_pixels_match_composite_on_black() {
+    // JPEG path takes premultiplied RGB bytes directly (no unpremultiply +
+    // re-premultiply round-trip). The spec composite-onto-black for
+    // alpha-less formats is `r*a/255`, which premultiplied storage already
+    // holds verbatim. Lock down: a translucent pixel encodes as the
+    // composite-on-black value, exactly.
+    let mut ctx = Canvas2dContext::new(8, 8).unwrap();
+    // 50% alpha red: composite-on-black ≈ (128, 0, 0).
+    ctx.set_fill_style("rgba(255, 0, 0, 0.5)");
+    ctx.fill_rect(0.0, 0.0, 8.0, 8.0);
+    let bytes = ctx
+        .encode_blob(BlobImageFormat::Jpeg, 1.0)
+        .expect("jpeg encodes");
+    let decoded = image::load_from_memory(&bytes)
+        .expect("jpeg decodes")
+        .to_rgb8();
+    // Center pixel of a solid fill — JPEG block boundaries cause edge
+    // softness, so sample center to avoid bias.
+    let center = decoded.get_pixel(4, 4);
+    // JPEG quantization at q=100 still has ±~2 channel tolerance.
+    assert!(
+        (i32::from(center[0]) - 128).abs() <= 4,
+        "red channel ~128 (actual {})",
+        center[0]
+    );
+    assert!(center[1] <= 4, "green near 0 (actual {})", center[1]);
+    assert!(center[2] <= 4, "blue near 0 (actual {})", center[2]);
+}
+
+#[test]
 fn encode_blob_webp_round_trips_dims_lossless() {
     let mut ctx = Canvas2dContext::new(4, 4).unwrap();
     ctx.set_fill_style("rgb(0, 0, 255)");

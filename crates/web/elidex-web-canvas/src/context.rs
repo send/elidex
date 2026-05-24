@@ -10,12 +10,15 @@ use tiny_skia::{FillRule, Paint, PathBuilder, Pixmap, Rect, Stroke, Transform};
 use crate::path::arc_to_beziers;
 use crate::style::parse_color_string;
 
-/// Composite a straight-alpha RGBA8 buffer onto fully-transparent black,
-/// dropping the alpha channel to produce an RGB8 buffer. Per WHATWG HTML
-/// §4.12.5.1 "serialize a bitmap to a file", JPEG (and other alpha-less
-/// formats) receive `(r*a/255, g*a/255, b*a/255)` per pixel.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-fn composite_rgba_on_black(src: &[u8]) -> Vec<u8> {
+/// Extract RGB8 from a premultiplied-RGBA8 buffer by dropping the alpha
+/// byte from each pixel. Per WHATWG HTML §4.12.5.1 "serialize a bitmap to a
+/// file", JPEG (and other alpha-less formats) receive
+/// `(r*a/255, g*a/255, b*a/255)` per pixel — which is *exactly* what
+/// premultiplied storage already holds. So the spec-mandated composite-onto-
+/// black is the identity on premul-stored bytes; this helper is just an
+/// RGB-extracting walker (no per-channel math), avoiding the
+/// unpremultiply+remultiply round-trip and its sub-pixel rounding drift.
+fn rgb_from_premul_rgba(src: &[u8]) -> Vec<u8> {
     // Pixmap data is always RGBA8 (4 bytes per pixel) by `tiny_skia::Pixmap`
     // construction invariant, so `chunks_exact(4)` never drops a partial tail.
     // Assert it explicitly so a future caller (or a `Pixmap` API change) that
@@ -24,14 +27,13 @@ fn composite_rgba_on_black(src: &[u8]) -> Vec<u8> {
     debug_assert_eq!(
         src.len() % 4,
         0,
-        "composite_rgba_on_black requires RGBA8 input (multiple of 4 bytes)"
+        "rgb_from_premul_rgba requires RGBA8 input (multiple of 4 bytes)"
     );
     let mut dst = Vec::with_capacity(src.len() / 4 * 3);
     for chunk in src.chunks_exact(4) {
-        let a = f32::from(chunk[3]) / 255.0;
-        dst.push((f32::from(chunk[0]) * a).round() as u8);
-        dst.push((f32::from(chunk[1]) * a).round() as u8);
-        dst.push((f32::from(chunk[2]) * a).round() as u8);
+        dst.push(chunk[0]);
+        dst.push(chunk[1]);
+        dst.push(chunk[2]);
     }
     dst
 }
@@ -680,10 +682,10 @@ impl Canvas2dContext {
     pub fn encode_blob(&self, format: BlobImageFormat, quality: f32) -> Option<Vec<u8>> {
         let width = self.pixmap.width();
         let height = self.pixmap.height();
-        let bytes = self.to_rgba8_straight();
         let mut out: Vec<u8> = Vec::new();
         match format {
             BlobImageFormat::Png => {
+                let bytes = self.to_rgba8_straight();
                 let encoder = image::codecs::png::PngEncoder::new(&mut out);
                 image::ImageEncoder::write_image(
                     encoder,
@@ -695,16 +697,22 @@ impl Canvas2dContext {
                 .ok()?;
             }
             BlobImageFormat::Jpeg => {
-                // Quality maps to JPEG's [1, 100] integer band; spec clamps
-                // out-of-range input to [0.0, 1.0] before this point.
+                // Quality maps to JPEG's [1, 100] integer band; spec
+                // already substitutes out-of-range input with 1.0 before
+                // this point (the additional clamp is a defensive belt).
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let q = (quality.clamp(0.0, 1.0) * 100.0).round().max(1.0) as u8;
-                // JPEG cannot encode alpha. WHATWG HTML §4.12.5.1 "serialize a
-                // bitmap to a file": for formats without alpha support,
-                // composite the bitmap onto a fully-transparent black
-                // background — which premultiplies straight-alpha RGBA onto
-                // (0,0,0), i.e. each channel is multiplied by alpha/255.
-                let rgb = composite_rgba_on_black(&bytes);
+                // JPEG cannot encode alpha. WHATWG HTML §4.12.5.1 "serialize
+                // a bitmap to a file" specifies "composite onto a fully-
+                // transparent black background" = per pixel `r*a/255` etc.
+                // But tiny-skia's pixmap is ALREADY premultiplied — i.e. it
+                // already stores `(r*a/255, g*a/255, b*a/255, a)`. So the
+                // spec-mandated composite is the identity on premul storage:
+                // drop alpha, take the existing 3 channels verbatim. This
+                // skips the unpremultiply (`to_rgba8_straight`) + remultiply
+                // (`composite_rgba_on_black`) round-trip and preserves exact
+                // channel values (no rounding drift through 1/alpha).
+                let rgb = rgb_from_premul_rgba(self.pixmap.data());
                 let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, q);
                 image::ImageEncoder::write_image(
                     encoder,
@@ -716,6 +724,7 @@ impl Canvas2dContext {
                 .ok()?;
             }
             BlobImageFormat::Webp => {
+                let bytes = self.to_rgba8_straight();
                 let encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut out);
                 image::ImageEncoder::write_image(
                     encoder,

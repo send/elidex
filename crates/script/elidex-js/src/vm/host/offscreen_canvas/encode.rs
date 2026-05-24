@@ -117,12 +117,13 @@ pub(super) fn native_oc_convert_to_blob(
 }
 
 /// Parse the optional `{ type, quality }` options dictionary. `type` is
-/// ASCII-lowercased then mapped via [`BlobImageFormat::from_mime`] (unknown →
-/// PNG fallback per spec). `quality` is `unrestricted double` clamped to
-/// `[0.0, 1.0]` here so encoders downstream receive a sanitized value
-/// (non-finite / NaN → defaults to 1.0 per spec wording "if quality is not in
-/// the closed interval [0.0, 1.0], let it be 1.0"). Returns the negotiated
-/// format + quality.
+/// passed raw to [`BlobImageFormat::from_mime`], which does WHATWG MIME
+/// essence extraction + ASCII case-insensitive compare itself (unknown →
+/// PNG fallback per spec). `quality` is `unrestricted double`; per WHATWG
+/// HTML §4.12.5.1 wording "if quality is not in the closed interval
+/// `[0.0, 1.0]`, let it be 1.0", any out-of-range value (including
+/// negative, non-finite, NaN, > 1.0) is substituted with 1.0 — note this
+/// is substitution, NOT clamping. Returns the negotiated format + quality.
 fn parse_convert_options(
     ctx: &mut NativeContext<'_>,
     options: JsValue,
