@@ -135,10 +135,13 @@ def cmd_idl(args: argparse.Namespace) -> None:
     in_block = False
 
     for line in text.splitlines():
-        if line.startswith("["):
-            buf.append(line)
-            continue
         if not in_block:
+            # Buffer leading [attr] lines awaiting a decl. Use lstrip() so an
+            # indented [attr] line between blocks still buffers (and is dropped
+            # by the next non-decl line) rather than silently discarded.
+            if line.lstrip().startswith("["):
+                buf.append(line)
+                continue
             if _IDL_DECL_RE.match(line):
                 if iface_re.search(line):
                     out.extend(buf)
@@ -149,9 +152,11 @@ def cmd_idl(args: argparse.Namespace) -> None:
             # Discard any buffered attrs not followed by a matching decl.
             buf = []
             continue
-        # Inside a matching block — emit every line through `};`.
+        # Inside a matching block — emit every line through `};`. Member-level
+        # [CEReactions] / [SameObject] / etc. flow through here unconditionally
+        # (must NOT be buffered, else they get dropped at the next non-[ line).
         out.append(line)
-        if line.startswith("};"):
+        if line.strip() == "};":
             in_block = False
             out.append("")
 
