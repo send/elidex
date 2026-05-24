@@ -26,10 +26,14 @@ pub struct CustomElementDefinition {
     pub name: String,
     /// ID referencing the JS constructor stored in `HostBridge`.
     pub constructor_id: u64,
-    /// Attribute names observed by `attributeChangedCallback`, in
-    /// spec-declared order. Used by the synchronous-upgrade walk to
-    /// pre-fire callbacks for already-present attributes in the
-    /// declared order.
+    /// Attribute names observed by `attributeChangedCallback`, preserved
+    /// in the order the developer returned them from the static
+    /// `observedAttributes` getter. The upgrade-time initial
+    /// `attributeChangedCallback` enqueue (`finalize_success`) walks the
+    /// element's own attribute list per HTML §4.13.5 step 12 ("for each
+    /// attribute in element's attribute list, in order") and filters by
+    /// membership via [`Self::observed_set`] — so the enqueue order is
+    /// element-attribute-insertion order, NOT this Vec's declared order.
     pub observed_attributes: Vec<String>,
     /// Parallel `HashSet` over `observed_attributes` for O(1) hot-
     /// path membership tests (mutation consumer filter, attribute-
