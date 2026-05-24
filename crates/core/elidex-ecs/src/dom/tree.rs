@@ -505,13 +505,16 @@ impl EcsDom {
     /// shadow root — recurses into the shadow root's own light-tree
     /// subtree via [`Self::get_shadow_root`].
     ///
-    /// Bounded recursion is guarded by the upstream `children_iter`
-    /// cap on sibling chain length plus a `depth` parameter capped at
-    /// [`MAX_ANCESTOR_DEPTH`] to defend against deeply-nested
-    /// adversarial trees that would otherwise blow the Rust stack
-    /// from inside synchronous mutation chokepoints
-    /// (`set_attribute` / `append_child`) via the
+    /// Iterative DFS with an explicit `Vec<(Entity, depth)>` work-list
+    /// — matches the explicit-stack pattern used by `nodes_equal` /
+    /// `clone_children_recursive` / `despawn_subtree` so a malicious
+    /// deep DOM cannot blow Rust's call stack from inside synchronous
+    /// mutation chokepoints (`set_attribute` / `append_child`) via the
     /// `CustomElementReactionConsumer::handle_insert` dispatch path.
+    /// The per-frame depth value still caps at [`MAX_ANCESTOR_DEPTH`]
+    /// to bound the work-list (corrupt parent chains can't generate
+    /// infinite children chains downstream, but the cap defends the
+    /// heap budget against pathological inputs).
     ///
     /// Used by Custom Elements `customElements.upgrade(root)` (HTML
     /// §4.13.4 step 8), by `CustomElementReactionConsumer` for the
@@ -522,23 +525,26 @@ impl EcsDom {
     where
         F: FnMut(Entity),
     {
-        self.walk_shadow_inclusive_bounded(root, visit, 0);
-    }
-
-    fn walk_shadow_inclusive_bounded<F>(&self, root: Entity, visit: &mut F, depth: usize)
-    where
-        F: FnMut(Entity),
-    {
-        if depth > MAX_ANCESTOR_DEPTH {
-            return;
-        }
-        visit(root);
-        for child in self.children_iter(root) {
-            self.walk_shadow_inclusive_bounded(child, visit, depth + 1);
-        }
-        if let Some(sr) = self.get_shadow_root(root) {
-            for child in self.children_iter(sr) {
-                self.walk_shadow_inclusive_bounded(child, visit, depth + 1);
+        let mut stack: Vec<(Entity, usize)> = vec![(root, 0)];
+        while let Some((node, depth)) = stack.pop() {
+            if depth > MAX_ANCESTOR_DEPTH {
+                continue;
+            }
+            visit(node);
+            // Push in REVERSE source order so `pop()` returns siblings
+            // in source order; push shadow children FIRST (they sit
+            // deeper in the stack and therefore visit AFTER the light
+            // children) to preserve the original recursive visit
+            // order: light-tree DFS then shadow-tree DFS.
+            if let Some(sr) = self.get_shadow_root(node) {
+                let shadow_children: Vec<Entity> = self.children_iter(sr).collect();
+                for child in shadow_children.into_iter().rev() {
+                    stack.push((child, depth + 1));
+                }
+            }
+            let children: Vec<Entity> = self.children_iter(node).collect();
+            for child in children.into_iter().rev() {
+                stack.push((child, depth + 1));
             }
         }
     }
