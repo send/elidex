@@ -1,5 +1,5 @@
 //! TypedArray constructor `init_from_*` dispatch helpers
-//! (ES2024 §23.2.5).
+//! (ECMA-262 §23.2.5).
 //!
 //! Split from [`super::typed_array`] to keep both files below the
 //! 1000-line convention (cleanup tranche 2).
@@ -137,7 +137,7 @@ pub(super) fn init_from_typed_array(
         unreachable!("caller confirmed TypedArray kind")
     };
     // Content-type compatibility: BigInt ↔ Number mixing throws
-    // TypeError per ES §23.2.5.1.2 step 17 (subclass check).
+    // TypeError per ECMA-262 §23.2.5.1.2 step 17 (subclass check).
     if src_ek.is_bigint() != dst_ek.is_bigint() {
         return Err(VmError::type_error(format!(
             "Failed to construct '{}': Cannot mix BigInt and other types",
@@ -183,7 +183,7 @@ pub(super) fn init_from_typed_array(
     Ok((dst_buf_id, dst_offset, dst_byte_len))
 }
 
-/// Variant 5: `new Xxx(object)`.  ES §23.2.5.1 steps 7-12: if the
+/// Variant 5: `new Xxx(object)`.  ECMA-262 §23.2.5.1 steps 7-12: if the
 /// source has a callable `@@iterator`, iterate; otherwise fall back
 /// to the array-like path (`length` + integer-indexed `[[Get]]`s).
 pub(super) fn init_from_iterable(

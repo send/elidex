@@ -1,5 +1,5 @@
 //! `%TypedArray%.prototype` higher-order method tests
-//! (ES2024 §23.2.3): `forEach` / `every` / `some` / `find` /
+//! (ECMA-262 §23.2.3): `forEach` / `every` / `some` / `find` /
 //! `findIndex` / `findLast` / `findLastIndex` / `map` / `filter` /
 //! `flatMap` plus the species-resolution and `thisArg`-binding
 //! contracts that the species-allocating HOFs (`map` / `filter` /

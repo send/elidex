@@ -631,7 +631,7 @@ const MAX_ATTRIBUTE_FILTER_LEN: f64 = 65_536.0;
 /// `Symbol.iterator`-protocol support is tracked at
 /// `#11-mutation-observer-extras`.
 ///
-/// `length` conversion uses ToLength (ES §7.1.20), not ToUint32:
+/// `length` conversion uses ToLength (ECMA-262 §7.1.21), not ToUint32:
 /// negative / NaN clamps to 0; oversize values RangeError (avoids
 /// the prior `length: -1` → ToUint32 wrap → 4 GiB `Vec::with_capacity`
 /// abort).  No pre-allocation: the index-loop pushes incrementally

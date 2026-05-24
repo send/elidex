@@ -115,10 +115,10 @@ impl VmInner {
     /// - `F(...)` (call-mode): `in_construct = false`; allocate a
     ///   fresh Ordinary with `prototype`.  An explicit receiver
     ///   passed via `F.call(obj, ...)` / `F.apply(obj, ...)` is *not*
-    ///   reused — spec §19.5.1.1 step 2 (OrdinaryCreateFromConstructor)
+    ///   reused — ECMA-262 §20.5.1.1 step 2 (OrdinaryCreateFromConstructor)
     ///   always yields a new object.
     ///
-    /// Implements the "callable constructor" shape of §19.5.1.1
+    /// Implements the "callable constructor" shape of §20.5.1.1
     /// step 1-2.
     pub(crate) fn ensure_instance_or_alloc(
         &mut self,

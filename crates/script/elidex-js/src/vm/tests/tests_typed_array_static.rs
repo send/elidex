@@ -1,5 +1,5 @@
 //! `%TypedArray%.of` / `%TypedArray%.from` static-method tests
-//! (ES2024 §23.2.2.{1,2}).
+//! (ECMA-262 §23.2.2.{1,2}).
 //!
 //! Split from [`super::tests_typed_array`] (ctor / accessor / brand-
 //! check tests) to keep both files below the 1000-line convention.
@@ -357,7 +357,7 @@ fn typed_array_of_rejects_generator_function_spoof() {
 fn typed_array_of_rejects_bound_arrow_spoof() {
     let mut vm = Vm::new();
     // Bound functions inherit constructability from their target
-    // (ES §10.4.1.2 BoundFunction[[Construct]] is set iff the
+    // (ECMA-262 §10.4.1.2 BoundFunction[[Construct]] is set iff the
     // target has [[Construct]]).  An arrow function target has no
     // `[[Construct]]`, so the bound wrapper must NOT pass the
     // IsConstructor gate even when its `[[Prototype]]` is spoofed

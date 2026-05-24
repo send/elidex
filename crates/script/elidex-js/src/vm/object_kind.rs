@@ -141,21 +141,21 @@ pub enum ObjectKind {
     StringIterator(StringIterState),
     /// The `arguments` array-like object for non-arrow functions.
     Arguments { values: Vec<JsValue> },
-    /// Wrapper object for Number primitives (§9.2.1.2 this-boxing).
+    /// Wrapper object for Number primitives (§10.2.1.2 this-boxing).
     NumberWrapper(f64),
-    /// Wrapper object for String primitives (§9.2.1.2 this-boxing).
+    /// Wrapper object for String primitives (§10.2.1.2 this-boxing).
     StringWrapper(StringId),
-    /// Wrapper object for Boolean primitives (§9.2.1.2 this-boxing).
+    /// Wrapper object for Boolean primitives (§10.2.1.2 this-boxing).
     BooleanWrapper(bool),
     /// Wrapper object for BigInt primitives.
     BigIntWrapper(BigIntId),
     /// Wrapper object for Symbol primitives.
     SymbolWrapper(SymbolId),
-    /// A Promise (ES2020 §25.6).  Holds the state machine (status + result)
+    /// A Promise (ECMA-262 §27.2).  Holds the state machine (status + result)
     /// and reaction lists; reactions are drained via the microtask queue.
     Promise(PromiseState),
     /// Resolve/reject function bound to a specific Promise capability
-    /// (ES2020 §25.6.1.3).  Created synchronously by `new Promise(executor)`
+    /// (ECMA-262 §27.2.1.3).  Created synchronously by `new Promise(executor)`
     /// and handed to the executor; settling is idempotent because subsequent
     /// invocations see `status != Pending` and become no-ops.
     PromiseResolver {
@@ -165,7 +165,7 @@ pub enum ObjectKind {
         is_reject: bool,
     },
     /// Aggregator state for `Promise.all` / `Promise.allSettled` / `Promise.any`
-    /// (ES2020 §25.6.4.1 / §25.6.4.2 / §25.6.4.3).  Shared across every
+    /// (ECMA-262 §27.2.4.1 / §27.2.4.2 / §27.2.4.3).  Shared across every
     /// per-item step; holds the output promise, the values vec (fulfilled
     /// results for all, `{status,value/reason}` objects for allSettled,
     /// rejection reasons for any), and the remaining counter.
@@ -182,7 +182,7 @@ pub enum ObjectKind {
         on_finally: ObjectId,
         is_reject: bool,
     },
-    /// An ES2020 §25.4 Generator object.  Created by a generator function
+    /// An ECMA-262 §27.5 Generator object.  Created by a generator function
     /// call (the function body never runs on the initial call — instead,
     /// the Generator holds the initial suspended frame).  `.next()` /
     /// `.return()` / `.throw()` drive execution.
@@ -356,7 +356,7 @@ pub enum ObjectKind {
     /// `headers_id`, prune state / body entries in the sweep tail.
     #[cfg(feature = "engine")]
     Response,
-    /// `ArrayBuffer` instance (ES2020 §24.1, minimal Phase 2 form).
+    /// `ArrayBuffer` instance (ECMA-262 §25.1, minimal Phase 2 form).
     /// Payload-free; the backing bytes live in the shared
     /// `VmInner::body_data` map (owned `Vec<u8>`) keyed by this
     /// object's `ObjectId`.  `.slice()` allocates a fresh
@@ -610,7 +610,7 @@ pub enum ObjectKind {
     /// collected.
     #[cfg(feature = "engine")]
     Attr,
-    /// `TypedArray` instance view over an `ArrayBuffer` (ES2024 §23.2) —
+    /// `TypedArray` instance view over an `ArrayBuffer` (ECMA-262 §23.2) —
     /// one of the 11 concrete subclasses identified by `element_kind`.
     /// The `[[ViewedArrayBuffer]]` / `[[ByteOffset]]` / `[[ByteLength]]` /
     /// `[[ArrayLength]]` / `[[TypedArrayName]]` / `[[ContentType]]` spec
@@ -637,7 +637,7 @@ pub enum ObjectKind {
         byte_length: u32,
         element_kind: ElementKind,
     },
-    /// `DataView` instance view over an `ArrayBuffer` (ES2024 §25.3) —
+    /// `DataView` instance view over an `ArrayBuffer` (ECMA-262 §25.3) —
     /// endian-aware read / write at byte-level granularity.  Unlike
     /// `TypedArray`, has no element-kind: callers pick the type per
     /// call via `getInt8` / `getFloat64` etc., with an optional
@@ -1241,7 +1241,7 @@ impl ObjectKind {
     }
 }
 
-/// `IsConstructor(value)` (ES §7.2.4): true when the object has
+/// `IsConstructor(value)` (ECMA-262 §7.2.4): true when the object has
 /// a `[[Construct]]` internal slot.  Walks `BoundFunction` chains
 /// up to [`crate::vm::MAX_BIND_CHAIN_DEPTH`] and inspects the
 /// underlying target — a bound chain ending in an arrow function,

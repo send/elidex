@@ -1,4 +1,4 @@
-//! `%TypedArray%` + concrete subclasses (ES2024 §23.2): receiver
+//! `%TypedArray%` + concrete subclasses (ECMA-262 §23.2): receiver
 //! brand-check, generic IDL accessors, the shared constructor
 //! dispatch, and the byte-level element read / write primitives.
 //!
@@ -36,11 +36,12 @@
 //!
 //! TypedArray indexed reads / writes use **little-endian byte order
 //! unconditionally** — an elidex implementation choice for
-//! cross-platform determinism.  `IsLittleEndian()` (ES §25.1.3.1) is
+//! cross-platform determinism.  `isLittleEndian` (ECMA-262 §25.1.3.16
+//! GetValueFromBuffer / §25.1.3.18 SetValueInBuffer) is
 //! implementation-defined, so a constant choice is spec-compliant.
 //! [`super::data_view::DataView`] (PR5-typed-array §C5) exposes both
-//! endiannesses explicitly via its `littleEndian` argument (ES
-//! §25.3.4, default `false`).
+//! endiannesses explicitly via its `littleEndian` argument (ECMA-262
+//! §25.3.4 prototype getters, default `false`).
 //!
 //! ## Backing storage
 //!
@@ -140,11 +141,11 @@ pub(super) fn native_typed_array_get_length(
 }
 
 // ---------------------------------------------------------------------------
-// Shared constructor dispatch (ES §23.2.5)
+// Shared constructor dispatch (ECMA-262 §23.2.5)
 // ---------------------------------------------------------------------------
 
 /// Shared body of every TypedArray subclass ctor.  Dispatches on
-/// `args[0]` shape per ES §23.2.5:
+/// `args[0]` shape per ECMA-262 §23.2.5:
 /// 1. `() / (undefined)` → empty view over fresh zero-byte buffer.
 /// 2. `(number)` → `ToIndex(n)`, fresh zero-filled buffer of
 ///    `n * bpe` bytes (§23.2.5.1.1).

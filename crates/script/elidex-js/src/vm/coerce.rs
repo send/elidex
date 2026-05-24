@@ -10,7 +10,7 @@ use num_bigint::BigInt as BigIntValue;
 use num_bigint::Sign;
 
 // ---------------------------------------------------------------------------
-// ToBoolean (ES2020 §7.1.2)
+// ToBoolean (ECMA-262 §7.1.2)
 // ---------------------------------------------------------------------------
 
 /// ToBoolean. Never throws.
@@ -26,10 +26,10 @@ pub(crate) fn to_boolean(vm: &VmInner, val: JsValue) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// ToNumber (ES2020 §7.1.3)
+// ToNumber (ECMA-262 §7.1.4)
 // ---------------------------------------------------------------------------
 
-/// ToNumber (ES2020 §7.1.4). Symbol → TypeError per spec.
+/// ToNumber (ECMA-262 §7.1.4). Symbol → TypeError per spec.
 ///
 /// Takes `&mut VmInner` because the §7.1.4 step 4 Object path delegates to
 /// `ToPrimitive(val, "number")`, which may invoke user-defined `valueOf` /
@@ -201,10 +201,10 @@ fn string_to_number_u16(units: &[u16]) -> f64 {
 }
 
 // ---------------------------------------------------------------------------
-// ToString (ES2020 §7.1.12)
+// ToString (ECMA-262 §7.1.18)
 // ---------------------------------------------------------------------------
 
-/// ToString (ES2020 §7.1.12). Returns a `StringId` or throws `TypeError`
+/// ToString (ECMA-262 §7.1.18). Returns a `StringId` or throws `TypeError`
 /// for Symbol values, per spec.
 pub(crate) fn to_string(vm: &mut VmInner, val: JsValue) -> Result<StringId, VmError> {
     match val {
@@ -223,7 +223,7 @@ pub(crate) fn to_string(vm: &mut VmInner, val: JsValue) -> Result<StringId, VmEr
         }
         JsValue::Object(id) => {
             // Wrapper fast-path: spec-equivalent shortcut for the
-            // §7.1.12 step 9 → §7.1.1.1 path on primitive wrappers,
+            // §7.1.18 step 9 → §7.1.1.1 path on primitive wrappers,
             // which would invoke their `valueOf` / `toString` and
             // resolve back to the inner primitive anyway.
             match vm.get_object(id).kind {
@@ -237,7 +237,7 @@ pub(crate) fn to_string(vm: &mut VmInner, val: JsValue) -> Result<StringId, VmEr
                 }
                 _ => {}
             }
-            // §7.1.12 step 9: ? ToPrimitive(val, "string") → ? ToString(prim).
+            // §7.1.18 step 9: ? ToPrimitive(val, "string") → ? ToString(prim).
             // The OrdinaryToPrimitive fallback inside `to_primitive` invokes
             // user-defined `toString` / `valueOf` per §7.1.1.1; the recursive
             // `to_string` call below sees a non-Object primitive (TypeError
@@ -272,7 +272,7 @@ pub(crate) fn to_display_string(vm: &mut VmInner, val: JsValue) -> StringId {
 }
 
 /// Convert a number to its string representation and intern it.
-/// Uses ES §7.1.12.1 Number::toString formatting.
+/// Uses ECMA-262 §6.1.6.1.20 Number::toString formatting.
 fn number_to_string_id(vm: &mut VmInner, n: f64) -> StringId {
     if n.is_nan() {
         return vm.well_known.nan;
@@ -293,24 +293,24 @@ fn number_to_string_id(vm: &mut VmInner, n: f64) -> StringId {
 }
 
 // ---------------------------------------------------------------------------
-// ToInt32 / ToUint32 (ES2020 §7.1.6, §7.1.7)
+// ToInt32 / ToUint32 (ECMA-262 §7.1.7, §7.1.8)
 // ---------------------------------------------------------------------------
 
-/// ToInt32 (ES2020 §7.1.6). Used by bitwise operators.
+/// ToInt32 (ECMA-262 §7.1.7). Used by bitwise operators.
 #[inline]
 pub(crate) fn to_int32(vm: &mut VmInner, val: JsValue) -> Result<i32, VmError> {
     let n = to_number(vm, val)?;
     Ok(f64_to_int32(n))
 }
 
-/// ToUint32 (ES2020 §7.1.7). Used by `>>>`.
+/// ToUint32 (ECMA-262 §7.1.8). Used by `>>>`.
 #[inline]
 pub(crate) fn to_uint32(vm: &mut VmInner, val: JsValue) -> Result<u32, VmError> {
     let n = to_number(vm, val)?;
     Ok(f64_to_uint32(n))
 }
 
-/// The modulo-2^32 conversion from f64 to i32 (ES2020 §7.1.6 step 5-6).
+/// The modulo-2^32 conversion from f64 to i32 (ECMA-262 §7.1.7 step 5-6).
 pub(crate) fn f64_to_int32(n: f64) -> i32 {
     if n.is_nan() || n.is_infinite() || n == 0.0 {
         return 0;
@@ -324,7 +324,7 @@ pub(crate) fn f64_to_int32(n: f64) -> i32 {
     }
 }
 
-/// The modulo-2^32 conversion from f64 to u32 (ES2020 §7.1.7 step 5-6).
+/// The modulo-2^32 conversion from f64 to u32 (ECMA-262 §7.1.8 step 5-6).
 pub(super) fn f64_to_uint32(n: f64) -> u32 {
     if n.is_nan() || n.is_infinite() || n == 0.0 {
         return 0;
@@ -387,10 +387,10 @@ pub(crate) fn f64_to_uint64_loose(n: f64) -> f64 {
     truncated.rem_euclid(modulus)
 }
 
-/// ToUint16 (ES2020 §7.1.10 / WebIDL §3.10.5).  Modular truncation
+/// ToUint16 (ECMA-262 §7.1.10 / WebIDL §3.10.5).  Modular truncation
 /// to the `[0, 2^16)` range.  Used by WebIDL `unsigned short`
 /// coercion (`MouseEventInit.buttons`) and by `String.fromCharCode`
-/// ES §22.1.2.1 step 3.
+/// ECMA-262 §22.1.2.1 step 3.
 ///
 /// NaN / ±Infinity / ±0 all map to `0`, matching the behaviour
 /// of the sibling `f64_to_int32` / `f64_to_uint32` helpers.
@@ -415,7 +415,7 @@ pub(crate) fn f64_to_uint16(n: f64) -> u16 {
 }
 
 // ---------------------------------------------------------------------------
-// ToInt8 / ToUint8 / ToUint8Clamp / ToInt16 (ES2020 §7.1.8-.11)
+// ToInt8 / ToUint8 / ToUint8Clamp / ToInt16 (ECMA-262 §7.1.9, §7.1.11-.13)
 // ---------------------------------------------------------------------------
 //
 // Engine-feature-only: the helpers below are used exclusively by
@@ -423,7 +423,7 @@ pub(crate) fn f64_to_uint16(n: f64) -> u16 {
 // behind the same feature keeps non-engine builds dead-code-warning
 // free, matching the sibling `enforce_range_unsigned_short` above.
 
-/// The modulo-2^8 signed conversion from f64 to i8 (ES §7.1.9).
+/// The modulo-2^8 signed conversion from f64 to i8 (ECMA-262 §7.1.11).
 /// Used by `Int8Array` indexed element writes.  NaN / ±∞ / ±0 → 0.
 #[cfg(feature = "engine")]
 #[inline]
@@ -439,7 +439,7 @@ pub(crate) fn f64_to_int8(n: f64) -> i8 {
     as_u8.cast_signed()
 }
 
-/// The modulo-2^8 unsigned conversion from f64 to u8 (ES §7.1.10).
+/// The modulo-2^8 unsigned conversion from f64 to u8 (ECMA-262 §7.1.12).
 /// Used by `Uint8Array` indexed element writes.
 #[cfg(feature = "engine")]
 #[inline]
@@ -453,7 +453,7 @@ pub(crate) fn f64_to_uint8(n: f64) -> u8 {
     result
 }
 
-/// `ToUint8Clamp` (ES §7.1.11) — **not** a modular conversion.
+/// `ToUint8Clamp` (ECMA-262 §7.1.13) — **not** a modular conversion.
 /// NaN → 0, n ≤ 0 → 0, n ≥ 255 → 255, else round with
 /// **roundTiesToEven** (IEEE 754 banker's rounding).  Used by
 /// `Uint8ClampedArray` indexed element writes; diverges from
@@ -479,7 +479,7 @@ pub(crate) fn f64_to_uint8_clamp(n: f64) -> u8 {
     rounded
 }
 
-/// The modulo-2^16 signed conversion from f64 to i16 (ES §7.1.11
+/// The modulo-2^16 signed conversion from f64 to i16 (ECMA-262 §7.1.9
 /// ToInt16).  Used by `Int16Array` indexed element writes.
 #[cfg(feature = "engine")]
 #[inline]
@@ -510,7 +510,7 @@ pub(crate) fn to_uint8(vm: &mut VmInner, val: JsValue) -> Result<u8, VmError> {
 }
 
 /// ToUint8Clamp wrapper — coerces `val` via `ToNumber` then clamps
-/// (ES §7.1.11).
+/// (ECMA-262 §7.1.13).
 #[cfg(feature = "engine")]
 #[inline]
 pub(crate) fn to_uint8_clamp(vm: &mut VmInner, val: JsValue) -> Result<u8, VmError> {
@@ -565,10 +565,10 @@ pub(crate) fn enforce_range_unsigned_short(n: f64, error_prefix: &str) -> Result
 }
 
 // ---------------------------------------------------------------------------
-// Slice / index abstract ops (ES §7.1.5 ToIntegerOrInfinity, §7.1.22 ToIndex)
+// Slice / index abstract ops (ECMA-262 §7.1.5 ToIntegerOrInfinity, §7.1.23 ToIndex)
 // ---------------------------------------------------------------------------
 
-/// ES §7.1.5 `ToIntegerOrInfinity`, **starting from a number**.
+/// ECMA-262 §7.1.5 `ToIntegerOrInfinity`, **starting from a number**.
 /// `NaN → +0`; `±Infinity` preserved; otherwise truncate toward
 /// zero via `f64::trunc`, which is sign-preserving on ±0 (so a
 /// `-0.0` input flows through unchanged).  Returns `f64` so the
@@ -617,7 +617,7 @@ pub(crate) fn relative_index_f64(n: f64, len_f: f64) -> f64 {
     }
 }
 
-/// ES §7.1.22 `ToIndex`, narrowed to `u32`.  Coerces `val` via
+/// ECMA-262 §7.1.23 `ToIndex`, narrowed to `u32`.  Coerces `val` via
 /// `ToNumber`, truncates toward zero per `ToIntegerOrInfinity`, and
 /// rejects negative / non-finite / `> u32::MAX` results with a
 /// `RangeError`.  Used by the TypedArray and DataView constructors
@@ -654,7 +654,7 @@ pub(crate) fn to_index_u32(
     Ok(as_u32)
 }
 
-/// ES §7.1.22 `ToIndex` at full spec width — integer in
+/// ECMA-262 §7.1.23 `ToIndex` at full spec width — integer in
 /// `[0, 2^53)` (`Number.MAX_SAFE_INTEGER + 1`), else `RangeError`.
 /// Used by `BigInt.asIntN` / `asUintN` (`bits` argument) and the
 /// `ArrayBuffer` constructor (`length` argument); each caller wraps
@@ -696,7 +696,7 @@ pub(crate) fn to_index_u64(
 }
 
 // ---------------------------------------------------------------------------
-// ToObject (ES2020 §7.1.13)
+// ToObject (ECMA-262 §7.1.19)
 // ---------------------------------------------------------------------------
 
 /// §6.2.4.5 RequireObjectCoercible: throws TypeError for null/undefined
@@ -768,7 +768,7 @@ pub(super) fn to_object(vm: &mut VmInner, val: JsValue) -> Result<ObjectId, VmEr
 }
 
 // ---------------------------------------------------------------------------
-// Strict Equality (ES2020 §7.2.16)
+// Strict Equality (ECMA-262 §7.2.14)
 // ---------------------------------------------------------------------------
 
 /// Strict equality (`===`). Never throws.
@@ -783,12 +783,12 @@ pub(crate) fn strict_eq(vm: &VmInner, a: JsValue, b: JsValue) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Abstract Equality (ES2020 §7.2.15)
+// Abstract Equality (ECMA-262 §7.2.13)
 // ---------------------------------------------------------------------------
 
 /// Abstract equality (`==`). May need string/number coercions.  Returns
 /// `Err` when a user-defined `@@toPrimitive`/`valueOf`/`toString` throws
-/// (§7.2.15 `?` steps 10-12 require abrupt-completion propagation).
+/// (§7.2.13 `?` steps 10-12 require abrupt-completion propagation).
 pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> Result<bool, VmError> {
     // Empty (sparse hole) is treated as Undefined in all coercions.
     let a = if a.is_empty() { JsValue::Undefined } else { a };
@@ -814,7 +814,7 @@ pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> Result<bo
         }
 
         // BigInt == BigInt handled by same_type above.
-        // BigInt == Number (§7.2.14 step 5/6)
+        // BigInt == Number (§7.2.13 step 5/6)
         (JsValue::BigInt(bi), JsValue::Number(n)) | (JsValue::Number(n), JsValue::BigInt(bi)) => {
             if n.is_nan() || n.is_infinite() {
                 return Ok(false);
@@ -874,7 +874,7 @@ pub(crate) fn abstract_eq(vm: &mut VmInner, a: JsValue, b: JsValue) -> Result<bo
             abstract_eq(vm, a, JsValue::Number(n))?
         }
 
-        // Object == primitive → ? ToPrimitive (§7.2.15 steps 10, 12).
+        // Object == primitive → ? ToPrimitive (§7.2.13 steps 10, 12).
         // Abrupt completion from a user-defined @@toPrimitive / valueOf /
         // toString must propagate per spec `?` mark.
         (JsValue::Object(_), _) => {
@@ -895,7 +895,7 @@ fn same_type(a: JsValue, b: JsValue) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// typeof (ES2020 §12.5.6)
+// typeof (ECMA-262 §13.5.3)
 // ---------------------------------------------------------------------------
 
 /// Returns the typeof string ID for a value.
@@ -981,7 +981,7 @@ pub(crate) fn get_property(
 
 /// Result of looking up an inherited property on the prototype chain.
 ///
-/// Used by `set_property_val` to implement §9.1.9 OrdinarySet:
+/// Used by `set_property_val` to implement §10.1.9 OrdinarySet:
 /// - Setter: invoke the setter.
 /// - WritableFalse: reject the set (TypeError in strict, silent in sloppy).
 /// - AccessorNoSetter: reject the set (same as WritableFalse).
@@ -993,7 +993,7 @@ pub(crate) enum InheritedProperty {
     None,
 }
 
-/// Look up an inherited property on an object's prototype chain (§9.1.9).
+/// Look up an inherited property on an object's prototype chain (§10.1.9).
 ///
 /// Skips the object's own properties and walks prototypes only.
 pub(crate) fn find_inherited_property(

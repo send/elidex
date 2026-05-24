@@ -32,7 +32,7 @@ fn call_this_arg_with_args() {
 
 #[test]
 fn call_no_args_this_undefined() {
-    // §19.2.3.3 step 3: thisArg defaults to undefined.
+    // §20.2.3.3 step 3: thisArg defaults to undefined.
     assert_eq!(
         super::eval_string("function f() { return typeof this; } f.call();"),
         "undefined"
@@ -41,7 +41,7 @@ fn call_no_args_this_undefined() {
 
 #[test]
 fn call_on_non_function_throws() {
-    // §19.2.3.1 step 1: IsCallable(this) must be true, else TypeError.
+    // §20.2.3.1 step 1: IsCallable(this) must be true, else TypeError.
     // Use `Function.prototype.call.call(42)` to bypass property lookup
     // on the primitive and exercise the IsCallable branch directly.
     super::eval_throws("Function.prototype.call.call(42);");
@@ -96,7 +96,7 @@ fn apply_empty_array() {
 
 #[test]
 fn apply_on_non_function_throws() {
-    // §19.2.3.3 step 1: IsCallable(this) must be true.
+    // §20.2.3.3 step 1: IsCallable(this) must be true.
     super::eval_throws("Function.prototype.apply.call({}, null, []);");
 }
 
@@ -144,7 +144,7 @@ fn bind_nested() {
 
 #[test]
 fn bind_on_non_function_throws() {
-    // §19.2.3.2 step 2: IsCallable(Target) must be true.
+    // §20.2.3.2 step 2: IsCallable(Target) must be true.
     super::eval_throws("Function.prototype.bind.call(42, null);");
 }
 
@@ -249,7 +249,7 @@ fn bound_method_keeps_this() {
 
 #[test]
 fn call_with_primitive_this_stays_primitive() {
-    // §9.2.1.2 step 3: strict mode does not box primitive thisArg.
+    // §10.2.1.2 step 3: strict mode does not box primitive thisArg.
     assert_eq!(
         super::eval_string("function f() { return typeof this; } f.call(42);"),
         "number"
@@ -264,7 +264,7 @@ fn apply_with_primitive_this_stays_primitive() {
     );
 }
 
-// ── bind length/name (§19.2.3.2 steps 4-5) ─────────────────────────
+// ── bind length/name (§20.2.3.2 steps 4-5) ─────────────────────────
 
 #[test]
 fn bind_length_reflects_remaining_params() {
@@ -284,7 +284,7 @@ fn bind_length_reflects_remaining_params() {
 
 #[test]
 fn bind_length_coerces_string_length_via_to_number() {
-    // §19.2.3.2 step 4: `? ToIntegerOrInfinity(? Get(target, "length"))`.
+    // §20.2.3.2 step 4: `? ToIntegerOrInfinity(? Get(target, "length"))`.
     // The spec runs ToNumber on the raw `.length` value, so a
     // `String`-typed length (`{value: '5'}`) must coerce via `ToNumber`
     // rather than silently falling back to 0.
@@ -366,7 +366,7 @@ fn set_prototype_of_frozen_throws() {
 
 #[test]
 fn set_prototype_of_frozen_same_proto_ok() {
-    // §19.1.2.21: setting the current [[Prototype]] on a non-extensible
+    // §20.1.2.23: setting the current [[Prototype]] on a non-extensible
     // object is allowed; verify both the return value and the post-state.
     assert!(super::eval_bool(
         "var p = {};

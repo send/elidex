@@ -1,4 +1,4 @@
-//! `ArrayBuffer` interface (ES2020 §24.1, minimal Phase 2 form).
+//! `ArrayBuffer` interface (ECMA-262 §25.1, minimal Phase 2 form).
 //!
 //! `ArrayBuffer` is an ES built-in whose prototype chain is simply:
 //!
@@ -96,7 +96,7 @@ impl VmInner {
     }
 
     /// Install `ArrayBuffer.isView` static on the `ArrayBuffer`
-    /// constructor (ES §25.1.4.3).  Returns `true` for
+    /// constructor (ECMA-262 §25.1.5.1).  Returns `true` for
     /// `ObjectKind::TypedArray` / `ObjectKind::DataView` instances,
     /// `false` for everything else (including plain ArrayBuffers —
     /// the spec is deliberate: `isView(ab)` is `false`).  No throw,
@@ -276,7 +276,7 @@ pub(crate) fn create_typed_array_from_bytes(
     Ok(view_id)
 }
 
-/// ES §7.1.22 `ToIndex` narrowed to `usize` for the `ArrayBuffer`
+/// ECMA-262 §7.1.23 `ToIndex` narrowed to `usize` for the `ArrayBuffer`
 /// `[[ArrayBufferByteLength]]` slot.  Routes the spec-wide
 /// `[0, 2^53)` arithmetic through [`coerce::to_index_u64`] so the
 /// V8-shaped error message and width stays in lockstep with the
@@ -307,7 +307,7 @@ fn to_index_for_array_buffer(
 // Constructor
 // ---------------------------------------------------------------------------
 
-/// `new ArrayBuffer(length)` (ES2020 §24.1.2).
+/// `new ArrayBuffer(length)` (ECMA-262 §25.1.2).
 fn native_array_buffer_constructor(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -345,7 +345,7 @@ fn native_array_buffer_constructor(
 // Statics
 // ---------------------------------------------------------------------------
 
-/// `ArrayBuffer.isView(arg)` (ES §25.1.4.3).  Returns `true` for
+/// `ArrayBuffer.isView(arg)` (ECMA-262 §25.1.5.1).  Returns `true` for
 /// TypedArray / DataView instances, `false` otherwise.  Never
 /// throws; never coerces.
 fn native_array_buffer_is_view(
@@ -383,7 +383,7 @@ fn native_array_buffer_get_byte_length(
 // Methods
 // ---------------------------------------------------------------------------
 
-/// `ArrayBuffer.prototype.slice(begin?, end?)` (ES2020 §24.1.4.3).
+/// `ArrayBuffer.prototype.slice(begin?, end?)` (ECMA-262 §25.1.6.7).
 ///
 /// Index resolution mirrors `Array.prototype.slice`:
 /// - negative indices count from the end (`begin < 0` → `len + begin`).
@@ -432,11 +432,11 @@ fn native_array_buffer_slice(
 }
 
 /// Clamp `n` to `[0, len]`, applying the spec
-/// `ToIntegerOrInfinity` truncation first (ES §7.1.5 —
+/// `ToIntegerOrInfinity` truncation first (ECMA-262 §7.1.5 —
 /// sign-preserving truncation toward zero, NaN → 0) so fractional
 /// arguments match browser semantics: `slice(-1.9)` is `slice(-1)`
 /// not `slice(-1.9)`.  Matches the slice-range helper used by
-/// `ArrayBuffer.prototype.slice` (ES §25.1.5.3) and
+/// `ArrayBuffer.prototype.slice` (ECMA-262 §25.1.6.7) and
 /// `Blob.prototype.slice` (File API §3.2.3).  Shared here so
 /// `blob.rs` doesn't re-implement the same function — both
 /// callers live under `vm::host` (R24.1).  Thin usize-typed wrapper

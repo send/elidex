@@ -190,7 +190,7 @@ impl VmInner {
                 };
                 let name_id = self.strings.intern(error_name);
                 let msg_id = self.strings.intern(&error.message);
-                // Inherit from `Error.prototype` (§19.5.3) so
+                // Inherit from `Error.prototype` (§20.5.3) so
                 // VM-thrown TypeError/RangeError/... satisfy
                 // `e instanceof Error` and pick up
                 // `Error.prototype.toString`.  Fallback to
@@ -204,7 +204,7 @@ impl VmInner {
                     prototype: self.error_prototype.or(self.object_prototype),
                     extensible: true,
                 });
-                // §19.5.1.1 step 3/4: own `.name` + `.message` are
+                // §20.5.1.1 step 3/4: own `.name` + `.message` are
                 // non-enumerable (`{W, ¬E, C}` = METHOD).
                 self.define_shaped_property(
                     error_obj,
@@ -225,11 +225,11 @@ impl VmInner {
 }
 
 // ---------------------------------------------------------------------------
-// ToPrimitive / op_add (ES2020 §7.1.1, §12.8.3)
+// ToPrimitive / op_add (ECMA-262 §7.1.1, §13.8)
 // ---------------------------------------------------------------------------
 
 impl VmInner {
-    /// ToPrimitive (ES2020 §7.1.1). Checks `@@toPrimitive` on objects and calls
+    /// ToPrimitive (ECMA-262 §7.1.1). Checks `@@toPrimitive` on objects and calls
     /// it if present. Falls back to OrdinaryToPrimitive (§7.1.1.1) — invokes
     /// `valueOf` / `toString` in hint-specific order, returning the first
     /// non-Object result. Throws TypeError if neither yields a primitive.
@@ -320,7 +320,7 @@ impl VmInner {
         }
     }
 
-    /// The `+` operator (ES2020 §12.8.3). Handles both addition and string
+    /// The `+` operator (ECMA-262 §13.8). Handles both addition and string
     /// concatenation, calling `ToPrimitive` which may invoke `@@toPrimitive`.
     pub(crate) fn op_add(&mut self, lhs: JsValue, rhs: JsValue) -> Result<JsValue, VmError> {
         let lhs = self.to_primitive(lhs, "default")?;
@@ -397,7 +397,7 @@ impl VmInner {
 // ---------------------------------------------------------------------------
 
 impl VmInner {
-    /// Convert a `JsValue` to a `PropertyKey`, preserving symbols (ES2020 §7.1.14 ToPropertyKey).
+    /// Convert a `JsValue` to a `PropertyKey`, preserving symbols (ECMA-262 §7.1.20 ToPropertyKey).
     pub(crate) fn make_property_key(&mut self, key: JsValue) -> Result<PropertyKey, VmError> {
         match key {
             JsValue::Symbol(sid) => Ok(PropertyKey::Symbol(sid)),
@@ -714,7 +714,7 @@ impl VmInner {
 
         let js_callee = self.extract_js_callee(ctor_id);
 
-        // Arrow functions are not constructors (§9.2.1 [[Construct]]).
+        // Arrow functions are not constructors (§10.2.1 [[Construct]]).
         if let Some(ref callee) = js_callee {
             if callee.this_mode == super::value::ThisMode::Lexical {
                 return Err(VmError::type_error("not a constructor"));
@@ -856,7 +856,7 @@ impl VmInner {
         });
 
         // Non-arrow functions get a `.prototype` property (a plain object with
-        // a `.constructor` back-reference), matching ES2020 §9.2.5.
+        // a `.constructor` back-reference), matching ECMA-262 §10.2.5.
         if !is_arrow {
             // Push func_obj onto the stack to protect it from GC during
             // proto_obj allocation (alloc_object may trigger collection).
@@ -877,7 +877,7 @@ impl VmInner {
                 super::shape::PropertyAttrs::METHOD,
             );
             // Set .prototype on the function object (writable, non-enumerable,
-            // non-configurable per ES2020 §9.2.5).
+            // non-configurable per ECMA-262 §10.2.5).
             let proto_key = PropertyKey::String(self.well_known.prototype);
             self.define_shaped_property(
                 func_obj,

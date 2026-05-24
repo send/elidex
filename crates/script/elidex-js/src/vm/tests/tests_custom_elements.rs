@@ -164,8 +164,8 @@ fn define_non_constructor_throws() {
 
 #[test]
 fn define_arrow_function_throws_not_constructor() {
-    // Arrow functions are callable but NOT constructable per ES2020
-    // §9.2.1 [[Construct]] — WebIDL CustomElementConstructor requires
+    // Arrow functions are callable but NOT constructable per ECMA-262
+    // §10.2.1 [[Construct]] — WebIDL CustomElementConstructor requires
     // [[Construct]], so arrow functions must be rejected here.
     // (Copilot R2 #1: prior `is_callable` accepted them.)
     let err = run_throws("customElements.define('my-el', () => {});");

@@ -286,7 +286,7 @@ fn ctor_iterable_yielding_non_pair_throws() {
 fn ctor_symbol_iterator_null_falls_through_to_record() {
     let mut vm = Vm::new();
     // `[Symbol.iterator]: null` matches `GetMethod`'s
-    // "null/undefined ⇒ no method" rule (ES §7.3.11) and must
+    // "null/undefined ⇒ no method" rule (ECMA-262 §7.3.10) and must
     // therefore be interpreted as a plain record.
     assert_eq!(
         eval_string(
@@ -414,7 +414,7 @@ fn ctor_honours_array_iterator_override() {
 #[test]
 fn ctor_iterable_abrupt_completion_calls_return() {
     let mut vm = Vm::new();
-    // ES §7.4.6 / WebIDL sequence conversion: if a yielded pair
+    // ECMA-262 §7.4.11 / WebIDL sequence conversion: if a yielded pair
     // fails validation (abrupt completion of the for-of-like body),
     // `IteratorClose` must invoke the iterator's `.return()`.  This
     // regression test hands the ctor an iterator whose second value

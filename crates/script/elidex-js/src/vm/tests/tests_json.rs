@@ -29,7 +29,7 @@ fn stringify_number() {
 
 #[test]
 fn stringify_number_exponent() {
-    // 1e20 = 10^20 (21 digits, n=21 ≤ 21): integer form per ES §7.1.12.1 step 6.
+    // 1e20 = 10^20 (21 digits, n=21 ≤ 21): integer form per ECMA-262 §6.1.6.1.20 step 6.
     assert_eq!(eval_string("JSON.stringify(1e20)"), "100000000000000000000");
     // 1e21 = 10^21 (22 digits, n=22 > 21): exponent form with '+'.
     assert_eq!(eval_string("JSON.stringify(1e21)"), "1e+21");
@@ -218,7 +218,7 @@ fn stringify_replacer_array() {
 #[test]
 fn stringify_replacer_array_includes_non_enumerable() {
     // Replacer array includes non-enumerable properties per spec
-    // (§24.5.2.3 uses Get, not filtered by enumerability).
+    // (§25.5.4.5 uses Get, not filtered by enumerability).
     assert_eq!(
         eval_string(
             r#"var obj = {a: 1};
@@ -360,7 +360,7 @@ fn stringify_circular_throws() {
 // ============================================================================
 // Wrapper objects (new Number / new String / new Boolean)
 // ============================================================================
-// §24.5.2.1 step 4: wrapper objects unwrap to their primitive value.
+// §25.5.4.2 step 4: wrapper objects unwrap to their primitive value.
 // `new String(...)` landed in r2; these tests exercise the wrapper-unwrap
 // path in stringify (the full `? ToNumber`/`? ToString` via valueOf
 // override is tracked as a dedicated follow-up PR).
@@ -540,9 +540,9 @@ fn parse_reviver_delete() {
 
 #[test]
 fn parse_reviver_delete_non_configurable_silent() {
-    // §24.5.1.3 step 7.c.i: reviver's `[[Delete]]` must return `false`
+    // §25.5.2.4 step 7.c.i: reviver's `[[Delete]]` must return `false`
     // silently on non-configurable properties, not throw.  The DeleteOperator
-    // (§12.5.3.2) is what throws in strict mode — not the abstract op.
+    // (§13.5.1.2) is what throws in strict mode — not the abstract op.
     // Regression guard: if `try_delete_property` were to throw on
     // non-configurable, `JSON.parse` would erroneously abort.
     assert_eq!(

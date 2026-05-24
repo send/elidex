@@ -560,7 +560,7 @@ fn clone_error(
     // Install memo BEFORE recursive walks so self-referencing Errors
     // (`err.cause = err`) resolve to `new_id` instead of re-cloning.
     memo.insert(src, new_id);
-    // §19.5.1.1 replicates: copy own `.name` and `.message` data
+    // §20.5.1.1 replicates: copy own `.name` and `.message` data
     // properties with METHOD attrs, matching the ctor.  Any other
     // own data properties (incl. `cause`) also copy through —
     // recursively cloned so object values do not leak references
@@ -877,7 +877,7 @@ pub(super) fn ensure_empty_transfer_list(
                 )));
             }
             // A throw from `iter_next` itself means the iterator's
-            // own `.next()` raised — per ES §7.4.5 / §7.4.7
+            // own `.next()` raised — per ECMA-262 §7.4.9 / §7.4.10
             // (IteratorStep / IteratorStepValue), the spec sets
             // `iteratorRecord.[[Done]] = true` and propagates the
             // completion WITHOUT invoking `IteratorClose`.  WebIDL

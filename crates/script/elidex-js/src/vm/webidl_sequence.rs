@@ -110,7 +110,7 @@ where
     let mut out: Vec<T> = Vec::new();
     let mut index = 0usize;
     loop {
-        // `iter_next`'s own throw closes the iterator per ES §7.4.6;
+        // `iter_next`'s own throw closes the iterator per ECMA-262 §7.4.11 IteratorClose;
         // propagate without invoking `.return()`.
         let Some(elem) = ctx.vm.iter_next(iter)? else {
             return Ok(out);

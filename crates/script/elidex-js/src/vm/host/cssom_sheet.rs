@@ -422,7 +422,7 @@ fn native_sheet_disabled_set(
 ) -> Result<JsValue, VmError> {
     // Silent no-op as far as cascade plumbing — see
     // `native_sheet_disabled_get`.  ToBoolean is infallible (Symbol
-    // and every other type coerce to a boolean per ES §7.1.2); we
+    // and every other type coerce to a boolean per ECMA-262 §7.1.2); we
     // still call it for shape consistency with the would-be
     // observable spec algorithm, even though no value is recorded.
     // A real WebIDL strict-boolean conversion path lands with the
@@ -562,7 +562,7 @@ pub(crate) fn try_indexed_get_rule_list(
     };
     let entity = Entity::from_bits(sheet_entity_bits)?;
     let idx = match key {
-        // ES §7.1.21 canonical numeric-index string range is
+        // ECMA-262 §7.1.22 canonical numeric-index string range is
         // `[0, 2^32-2]` — the same bound that
         // `coerce_format::parse_array_index_u32` and
         // `class_list::try_indexed_get` enforce for ES array-index
@@ -717,7 +717,7 @@ pub(crate) fn try_indexed_get_style_sheet_list(
     };
     let document = Entity::from_bits(document_entity_bits)?;
     let idx = match key {
-        // ES §7.1.21 canonical numeric-index string range is
+        // ECMA-262 §7.1.22 canonical numeric-index string range is
         // `[0, 2^32-2]` — the same bound that
         // `coerce_format::parse_array_index_u32` and
         // `class_list::try_indexed_get` enforce for ES array-index

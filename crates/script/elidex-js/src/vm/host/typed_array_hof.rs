@@ -139,7 +139,7 @@ fn iterate_with_callback(
 // Forward HOFs: forEach / every / some / find / findIndex
 // ---------------------------------------------------------------------------
 
-/// `%TypedArray%.prototype.forEach(cb, thisArg?)` (ES §23.2.3.15).
+/// `%TypedArray%.prototype.forEach(cb, thisArg?)` (ECMA-262 §23.2.3.15).
 pub(crate) fn native_typed_array_for_each(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -156,7 +156,7 @@ pub(crate) fn native_typed_array_for_each(
     )
 }
 
-/// `%TypedArray%.prototype.every(cb, thisArg?)` (ES §23.2.3.8).
+/// `%TypedArray%.prototype.every(cb, thisArg?)` (ECMA-262 §23.2.3.8).
 pub(crate) fn native_typed_array_every(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -179,7 +179,7 @@ pub(crate) fn native_typed_array_every(
     )
 }
 
-/// `%TypedArray%.prototype.some(cb, thisArg?)` (ES §23.2.3.28).
+/// `%TypedArray%.prototype.some(cb, thisArg?)` (ECMA-262 §23.2.3.28).
 pub(crate) fn native_typed_array_some(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -202,7 +202,7 @@ pub(crate) fn native_typed_array_some(
     )
 }
 
-/// `%TypedArray%.prototype.find(cb, thisArg?)` (ES §23.2.3.11).
+/// `%TypedArray%.prototype.find(cb, thisArg?)` (ECMA-262 §23.2.3.11).
 pub(crate) fn native_typed_array_find(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -225,7 +225,7 @@ pub(crate) fn native_typed_array_find(
     )
 }
 
-/// `%TypedArray%.prototype.findIndex(cb, thisArg?)` (ES §23.2.3.12).
+/// `%TypedArray%.prototype.findIndex(cb, thisArg?)` (ECMA-262 §23.2.3.12).
 pub(crate) fn native_typed_array_find_index(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -253,7 +253,7 @@ pub(crate) fn native_typed_array_find_index(
 // Reverse HOFs: findLast / findLastIndex
 // ---------------------------------------------------------------------------
 
-/// `%TypedArray%.prototype.findLast(cb, thisArg?)` (ES §23.2.3.13).
+/// `%TypedArray%.prototype.findLast(cb, thisArg?)` (ECMA-262 §23.2.3.13).
 /// Reverse-iterates `[len-1, 0]`; returns the first matching element
 /// or `undefined`.  No allocation.
 pub(crate) fn native_typed_array_find_last(
@@ -279,7 +279,7 @@ pub(crate) fn native_typed_array_find_last(
 }
 
 /// `%TypedArray%.prototype.findLastIndex(cb, thisArg?)`
-/// (ES §23.2.3.14).  Reverse-iterates `[len-1, 0]`; returns the
+/// (ECMA-262 §23.2.3.14).  Reverse-iterates `[len-1, 0]`; returns the
 /// first matching index or `-1`.  No allocation.
 pub(crate) fn native_typed_array_find_last_index(
     ctx: &mut NativeContext<'_>,
@@ -327,9 +327,9 @@ fn destructure_view(vm: &super::super::VmInner, view_id: ObjectId) -> (ObjectId,
 }
 
 /// `%TypedArray%.prototype.map(callbackfn, thisArg?)`
-/// (ES §23.2.3.22).
+/// (ECMA-262 §23.2.3.22).
 ///
-/// Resolves `TypedArraySpeciesCreate(O, ⟨len⟩)` (§22.2.4.7) BEFORE
+/// Resolves `TypedArraySpeciesCreate(O, ⟨len⟩)` (§23.2.4.3) BEFORE
 /// the read/callback/write loop so a hostile species lookup that
 /// throws fires before any element is observed (matching the spec
 /// step ordering 4 → 6).  Reads each source element via
@@ -377,7 +377,7 @@ pub(crate) fn native_typed_array_map(
 }
 
 /// `%TypedArray%.prototype.filter(callbackfn, thisArg?)`
-/// (ES §23.2.3.10).
+/// (ECMA-262 §23.2.3.10).
 ///
 /// Two-phase per spec: (1) iterate `[0, len)` calling `callback` and
 /// collect kept elements onto `vm.stack`; (2) resolve
@@ -568,7 +568,7 @@ pub(crate) fn native_typed_array_flat_map(
 // ---------------------------------------------------------------------------
 
 /// `%TypedArray%.prototype.reduce(callbackfn, initialValue?)`
-/// (ES §23.2.3.23).  Forward iterate, accumulator threaded through.
+/// (ECMA-262 §23.2.3.23).  Forward iterate, accumulator threaded through.
 pub(crate) fn native_typed_array_reduce(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -578,7 +578,7 @@ pub(crate) fn native_typed_array_reduce(
 }
 
 /// `%TypedArray%.prototype.reduceRight(callbackfn, initialValue?)`
-/// (ES §23.2.3.24).  Reverse iterate, accumulator threaded through.
+/// (ECMA-262 §23.2.3.24).  Reverse iterate, accumulator threaded through.
 pub(crate) fn native_typed_array_reduce_right(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -705,7 +705,7 @@ fn reduce_impl(
 // sort (in-place; default numeric / BigInt ordering or compareFn)
 // ---------------------------------------------------------------------------
 
-/// `%TypedArray%.prototype.sort(comparefn?)` (ES §23.2.3.29).
+/// `%TypedArray%.prototype.sort(comparefn?)` (ECMA-262 §23.2.3.29).
 ///
 /// In-place sort, returns receiver.  `comparefn` must be callable
 /// or `undefined` — anything else surfaces TypeError per spec

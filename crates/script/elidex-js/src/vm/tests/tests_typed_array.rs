@@ -1,5 +1,5 @@
 //! `%TypedArray%` + subclass constructor / identity / prototype / brand-check /
-//! indexed-element tests (ES2024 §23.2).
+//! indexed-element tests (ECMA-262 §23.2).
 //!
 //! Covers: constructor dispatch (basic shapes), `BYTES_PER_ELEMENT` on ctor +
 //! prototype, prototype chain identity, `@@species` / `@@toStringTag`,
@@ -302,7 +302,7 @@ fn subclass_ctor_chains_to_abstract_typed_array() {
 fn abstract_typed_array_ctor_throws_on_call() {
     let mut vm = Vm::new();
     // `%TypedArray%()` — call-mode invocation throws TypeError
-    // per ES §23.2.1.1 ("Abstract class TypedArray not directly
+    // per ECMA-262 §23.2.1.1 ("Abstract class TypedArray not directly
     // constructable").
     assert!(eval_bool(
         &mut vm,
@@ -589,7 +589,7 @@ fn bigint64_write_bigint_ok() {
 #[test]
 fn bigint64_write_string_coerces() {
     let mut vm = Vm::new();
-    // String "123" → ToBigInt → 123n (ES §7.1.13 accepts strings).
+    // String "123" → ToBigInt → 123n (ECMA-262 §7.1.14 accepts strings).
     assert_eq!(
         eval_string(
             &mut vm,
@@ -604,7 +604,7 @@ fn bigint64_write_string_coerces() {
 fn out_of_range_read_returns_undefined() {
     let mut vm = Vm::new();
     // `u8[5]` on a length-3 array returns undefined, does NOT
-    // walk the prototype chain (ES §10.4.5.15 step 3).
+    // walk the prototype chain (ECMA-262 §10.4.5.17 step 3).
     assert!(eval_bool(
         &mut vm,
         "var a = new Uint8Array(3); a[5] === undefined;"

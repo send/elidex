@@ -1,4 +1,4 @@
-//! Generator tests (ES2020 §25.4).
+//! Generator tests (ECMA-262 §27.5).
 //!
 //! - `Op::Yield`-based generators (value yielding, received-value
 //!   forwarding via `.next(arg)`, return, iterator protocol).

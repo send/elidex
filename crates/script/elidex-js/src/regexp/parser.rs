@@ -1,6 +1,6 @@
 //! `RegExpParser` — internal regexp pattern parser.
 //!
-//! Implements ES2025 §22.2.1 (main spec) WITHOUT Annex B extensions.
+//! Implements ECMA-262 §22.2.1 (main spec) WITHOUT Annex B extensions.
 //! Non-unicode mode does NOT relax identity escapes, control escapes,
 //! backreference validation, or `\0` + digit handling. See `docs/design`.
 
@@ -12,7 +12,7 @@ use super::{
     RegExpNode,
 };
 
-/// ES §12.7 `IdentifierStartChar`: `ID_Start` or `$` or `_`.
+/// ECMA-262 §12.7 `IdentifierStartChar`: `ID_Start` or `$` or `_`.
 fn is_id_start(c: char) -> bool {
     unicode_ident::is_xid_start(c) || c == '$' || c == '_'
 }

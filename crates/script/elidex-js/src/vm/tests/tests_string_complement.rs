@@ -315,15 +315,15 @@ fn new_string_constructor_property() {
 
 #[test]
 fn string_proto_to_string_and_value_of_have_distinct_names() {
-    // §21.1.3.25: toString and valueOf share implementation, but `.name`
-    // must reflect the registered method name (§19.2.4.2).
+    // ECMA-262 §22.1.3.29: toString and valueOf share implementation, but `.name`
+    // must reflect the registered method name (§20.2.4.2).
     assert_eq!(eval_string("String.prototype.toString.name;"), "toString");
     assert_eq!(eval_string("String.prototype.valueOf.name;"), "valueOf");
 }
 
 #[test]
 fn native_function_name_property() {
-    // §19.2.4.2: built-in functions have a `.name` data property.
+    // §20.2.4.2: built-in functions have a `.name` data property.
     assert_eq!(eval_string("Object.keys.name;"), "keys");
     assert_eq!(eval_string("Array.isArray.name;"), "isArray");
     assert_eq!(eval_string("String.fromCharCode.name;"), "fromCharCode");
@@ -331,7 +331,7 @@ fn native_function_name_property() {
 
 #[test]
 fn native_function_name_descriptor() {
-    // §19.2.4.2: {writable: false, enumerable: false, configurable: true}.
+    // §20.2.4.2: {writable: false, enumerable: false, configurable: true}.
     assert_eq!(
         eval_string(
             "var d = Object.getOwnPropertyDescriptor(Object.keys, 'name');
@@ -434,7 +434,7 @@ fn new_on_nested_bound_chain() {
 
 #[test]
 fn bind_honors_defineproperty_name() {
-    // §19.2.3.2 step 11: bind reads target's current `.name` property via Get,
+    // §20.2.3.2 step 11: bind reads target's current `.name` property via Get,
     // not the internal slot, so defineProperty overrides propagate.
     assert_eq!(
         eval_string(
@@ -448,7 +448,7 @@ fn bind_honors_defineproperty_name() {
 
 #[test]
 fn bind_honors_defineproperty_length() {
-    // §19.2.3.2 steps 4-5: bind reads target's current `.length` property.
+    // §20.2.3.2 steps 4-5: bind reads target's current `.length` property.
     assert_eq!(
         eval_number(
             "function f(a, b, c) {}
@@ -461,7 +461,7 @@ fn bind_honors_defineproperty_length() {
 
 #[test]
 fn new_error_undefined_skips_message_property() {
-    // §19.5.1.1 step 4: `new Error(undefined)` must not install an own
+    // §20.5.1.1 step 4: `new Error(undefined)` must not install an own
     // "message" property (regression: previously set .message = "undefined"
     // by ToString-coercing undefined).
     // Use `in` + Object.getOwnPropertyNames to observe — typing constraints
@@ -477,7 +477,7 @@ fn new_error_undefined_skips_message_property() {
 
 #[test]
 fn bind_length_zero_for_non_number_property() {
-    // §19.2.3.2 step 4-5: non-Number `.length` → 0.
+    // §20.2.3.2 step 4-5: non-Number `.length` → 0.
     assert_eq!(
         eval_number(
             "function f(a, b, c) {}
@@ -540,7 +540,7 @@ fn string_split_limit_non_finite_is_zero() {
 
 #[test]
 fn bind_length_propagates_infinity() {
-    // §19.2.3.2 step 5 (ToIntegerOrInfinity): +Infinity length propagates.
+    // §20.2.3.2 step 5 (ToIntegerOrInfinity): +Infinity length propagates.
     // max(0, Infinity - argCount) = Infinity.
     assert_eq!(
         eval_number(
@@ -554,7 +554,7 @@ fn bind_length_propagates_infinity() {
 
 #[test]
 fn array_to_string_honors_join_override() {
-    // §22.1.3.30: Array.prototype.toString calls Get(O, "join"); if
+    // §23.1.3.36: Array.prototype.toString calls Get(O, "join"); if
     // callable, invokes it.  User-installed .join override must be honored.
     assert_eq!(
         eval_string(
@@ -568,7 +568,7 @@ fn array_to_string_honors_join_override() {
 
 #[test]
 fn array_to_string_non_callable_join_falls_back() {
-    // §22.1.3.30: If Get(O, "join") is not callable, delegate to
+    // §23.1.3.36: If Get(O, "join") is not callable, delegate to
     // Object.prototype.toString which yields kind-specific tags
     // (Array → "[object Array]").
     assert_eq!(
@@ -599,7 +599,7 @@ fn to_primitive_honors_at_to_primitive_on_wrapper() {
 
 #[test]
 fn bind_name_coerces_non_string_via_to_string() {
-    // §19.2.3.2 step 11-13: Get(target, "name") returns arbitrary JsValue;
+    // §20.2.3.2 step 11-13: Get(target, "name") returns arbitrary JsValue;
     // non-Symbol values must be ToString-coerced before the "bound " prefix.
     assert_eq!(
         eval_string(
@@ -613,7 +613,7 @@ fn bind_name_coerces_non_string_via_to_string() {
 
 #[test]
 fn bind_name_symbol_falls_back_to_empty() {
-    // §19.2.3.2 step 13: non-String `name` → targetName = "".
+    // §20.2.3.2 step 13: non-String `name` → targetName = "".
     // (Symbol would otherwise throw in ToString; spec says treat as empty.)
     assert_eq!(
         eval_string(
@@ -639,7 +639,7 @@ fn abstract_eq_propagates_to_primitive_throw() {
 
 #[test]
 fn bind_propagates_name_getter_throw() {
-    // §19.2.3.2 step 11: `Get(target, "name")` is an abrupt completion
+    // §20.2.3.2 step 11: `Get(target, "name")` is an abrupt completion
     // point.  If the getter throws, bind must propagate the exception
     // rather than silently falling back to the internal name.
     eval_throws(
@@ -654,7 +654,7 @@ fn bind_propagates_name_getter_throw() {
 
 #[test]
 fn new_array_reuses_preallocated_instance() {
-    // §22.1.1: `new Array(...)` should return an Array-kind object with the
+    // §23.1.1: `new Array(...)` should return an Array-kind object with the
     // given elements. Regression guard: constructor must reuse do_new's
     // pre-allocated instance rather than leak it.
     assert_eq!(eval_number("new Array(1, 2, 3).length;"), 3.0);
@@ -696,7 +696,7 @@ fn for_in_prototype_chain_cap() {
 
 #[test]
 fn error_to_string_includes_name_and_message() {
-    // §19.5.3.4: Error.prototype.toString returns "name: message".
+    // §20.5.3.4: Error.prototype.toString returns "name: message".
     assert_eq!(eval_string("new Error('oops').toString();"), "Error: oops");
     assert_eq!(
         eval_string("new TypeError('nope').toString();"),
@@ -718,7 +718,7 @@ fn error_to_string_includes_name_and_message() {
 
 #[test]
 fn array_to_locale_string_invokes_per_element() {
-    // §22.1.3.28: each element's own toLocaleString must be called.
+    // §23.1.3.32: each element's own toLocaleString must be called.
     assert_eq!(
         eval_string(
             "var a = {toLocaleString: function() { return 'A'; }};
@@ -731,7 +731,7 @@ fn array_to_locale_string_invokes_per_element() {
 
 #[test]
 fn array_to_locale_string_honors_primitive_prototype_override() {
-    // §22.1.3.28 step 7.c calls `Invoke(element, "toLocaleString")`.
+    // §23.1.3.32 step 7.c calls `Invoke(element, "toLocaleString")`.
     // Invoke = `? Call(? GetV(V, P), V)`, and GetV boxes primitives via
     // ToObject for property lookup — so prototype overrides on
     // Number/String/Boolean must be observed for primitive elements.
@@ -746,7 +746,7 @@ fn array_to_locale_string_honors_primitive_prototype_override() {
 
 #[test]
 fn function_tostring_chain_depth_cap() {
-    // §19.2.3.5: Function.prototype.toString on a deeply-bound chain
+    // §20.2.3.5: Function.prototype.toString on a deeply-bound chain
     // must enforce the same depth cap as call/construct to prevent
     // unbounded "bound " string growth.
     eval_throws(

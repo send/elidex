@@ -51,7 +51,7 @@ use super::value::{
 use super::GlobalScopeKind;
 use super::{NativeFn, VmInner};
 
-/// §19.2.3 Function.prototype — accepts any arguments, returns undefined.
+/// §20.2.3 Function.prototype — accepts any arguments, returns undefined.
 fn native_function_prototype_noop(
     _ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -84,7 +84,7 @@ impl VmInner {
         // Writes through this object are mirrored into the `globals`
         // HashMap, and reads fall back to `globals` so `this.<prop>`
         // stays consistent with bare identifier access in non-strict
-        // functions (§9.2.1.2).
+        // functions (§10.2.1.2).
         let global_obj = self.alloc_object(Object {
             kind: ObjectKind::HostObject { entity_bits: 0 },
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
@@ -684,7 +684,7 @@ impl VmInner {
             self.register_response_global();
         }
 
-        // `ArrayBuffer` (ES2020 §24.1) + `Blob` (File API §3) +
+        // `ArrayBuffer` (ECMA-262 §25.1) + `Blob` (File API §3) +
         // Body-mixin methods (WHATWG Fetch §5 Body).  Must run
         // after `register_request_global` / `register_response_global`
         // so the `request_prototype` / `response_prototype`
@@ -941,7 +941,7 @@ impl VmInner {
         // Function.prototype — prototype for all function objects.
         // Must be registered before any native function is created so that
         // `create_native_function` can set the prototype automatically.
-        // §19.2.3: Function.prototype is a callable function that accepts
+        // §20.2.3: Function.prototype is a callable function that accepts
         // any arguments and returns undefined.
         let fp_name = self.strings.intern("");
         let func_proto = self.alloc_object(Object {
@@ -957,7 +957,7 @@ impl VmInner {
         });
         self.function_prototype = Some(func_proto);
 
-        // Function.prototype methods (ES2020 §19.2.3)
+        // Function.prototype methods (ECMA-262 §20.2.3)
         let fp_methods: &[(&str, NativeFn)] = &[
             ("call", native_function_call),
             ("apply", native_function_apply),
@@ -975,7 +975,7 @@ impl VmInner {
             );
         }
 
-        // Object.prototype methods (ES2020 §19.1.3)
+        // Object.prototype methods (ECMA-262 §20.1.3)
         let op_methods: &[(&str, NativeFn)] = &[
             ("toString", native_object_prototype_to_string),
             ("toLocaleString", native_object_prototype_to_locale_string),
@@ -1025,7 +1025,7 @@ impl VmInner {
             PropertyAttrs::METHOD,
         );
 
-        // Array.prototype methods (ES2020 §22.1.3)
+        // Array.prototype methods (ECMA-262 §23.1.3)
         let methods: &[(&str, NativeFn)] = &[
             ("push", native_array_push),
             ("pop", native_array_pop),

@@ -1,4 +1,4 @@
-//! `%TypedArray%.prototype` non-HOF method tests (ES2024 §23.2.3):
+//! `%TypedArray%.prototype` non-HOF method tests (ECMA-262 §23.2.3):
 //! `fill` / `slice` / `subarray` / `set` / `copyWithin` /
 //! `reverse` / `at` / `join` / `indexOf` / `lastIndexOf` /
 //! `includes` / `keys` / `values` / `entries` / `@@iterator` /

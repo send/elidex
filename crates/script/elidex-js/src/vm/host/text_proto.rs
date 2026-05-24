@@ -110,7 +110,7 @@ fn native_text_split_text(
             "Failed to execute 'splitText' on 'Text': this is not a Text node.",
         ));
     }
-    // WebIDL `unsigned long` conversion (ToUint32, ES2020 §7.1.7).
+    // WebIDL `unsigned long` conversion (ToUint32, ECMA-262 §7.1.8).
     // The DOM range check against `length` runs below.
     let offset_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let offset = super::super::coerce::to_uint32(ctx.vm, offset_arg)? as usize;

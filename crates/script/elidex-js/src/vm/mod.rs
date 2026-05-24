@@ -186,7 +186,7 @@ pub(crate) struct VmInner {
     /// Shared prototype for string iterator objects (next + @@iterator).
     pub(crate) string_iterator_prototype: Option<ObjectId>,
     /// The global object (`globalThis`). Used for `this` coercion in
-    /// non-strict functions (§9.2.1.2).
+    /// non-strict functions (§10.2.1.2).
     pub(crate) global_object: ObjectId,
     /// Completion value for eval: the last value popped by a Pop opcode
     /// at the script (entry) frame level.
@@ -230,7 +230,7 @@ pub(crate) struct VmInner {
     /// independent side enforces the CLAUDE.md "Layering mandate".
     #[cfg(feature = "engine")]
     pub(crate) dom_registry: std::rc::Rc<elidex_dom_api::registry::DomHandlerRegistry>,
-    /// Promise.prototype object (§25.6.5).
+    /// Promise.prototype object (§27.2.5).
     pub(crate) promise_prototype: Option<ObjectId>,
     /// Microtask queue (HTML §8.1.4.3).  Drained at HTML microtask
     /// checkpoints (end of `eval`, end of each event listener).
@@ -242,7 +242,7 @@ pub(crate) struct VmInner {
     /// End-of-drain scan warns on entries still `Rejected && !handled`.
     /// PromiseRejectionEvent dispatch ships with PR3.
     pub(crate) pending_rejections: Vec<ObjectId>,
-    /// Error.prototype (§19.5.3) — shared by Error and the built-in
+    /// Error.prototype (§20.5.3) — shared by Error and the built-in
     /// error subclasses (TypeError, RangeError, …, AggregateError).
     pub(crate) error_prototype: Option<ObjectId>,
     /// AggregateError.prototype (§20.5.7) — chains to Error.prototype
@@ -1488,7 +1488,7 @@ pub(crate) struct VmInner {
     /// collected, same as the other side tables.
     #[cfg(feature = "engine")]
     pub(crate) disturbed: HashSet<ObjectId>,
-    /// `ArrayBuffer.prototype` (ES2020 §24.1, minimal Phase 2 form
+    /// `ArrayBuffer.prototype` (ECMA-262 §25.1, minimal Phase 2 form
     /// — `byteLength` getter + `slice` method only; TypedArray
     /// views are deferred to the next tranche).  Chains to
     /// `Object.prototype`.
@@ -1507,7 +1507,7 @@ pub(crate) struct VmInner {
     /// `register_globals()`.
     #[cfg(feature = "engine")]
     pub(crate) blob_prototype: Option<ObjectId>,
-    /// Abstract `%TypedArray%.prototype` (ES2024 §23.2.3).  Shared
+    /// Abstract `%TypedArray%.prototype` (ECMA-262 §23.2.3).  Shared
     /// parent of all 11 concrete subclass prototypes
     /// (`Uint8Array.prototype` et al., each of which chains here via
     /// `register_typed_array_subclass`).  Chains to `Object.prototype`.
@@ -1519,13 +1519,13 @@ pub(crate) struct VmInner {
     /// during `register_globals()`.
     #[cfg(feature = "engine")]
     pub(crate) typed_array_prototype: Option<ObjectId>,
-    /// `DataView.prototype` (ES2024 §25.3).  Chains directly to
+    /// `DataView.prototype` (ECMA-262 §25.3).  Chains directly to
     /// `Object.prototype` (DataView does NOT inherit from
     /// `%TypedArray%.prototype` — it's a sibling view type).  Method
     /// suite lands with PR5-typed-array §C5.
     #[cfg(feature = "engine")]
     pub(crate) data_view_prototype: Option<ObjectId>,
-    /// Per-subclass TypedArray prototypes (ES §23.2.7), addressed
+    /// Per-subclass TypedArray prototypes (ECMA-262 §23.2.7), addressed
     /// by [`value::ElementKind::index`].  Each entry chains to
     /// [`Self::typed_array_prototype`].  Slots stay `None` until
     /// `register_typed_array_subclass()` runs for the corresponding
@@ -1535,7 +1535,7 @@ pub(crate) struct VmInner {
     /// `proto_roots` / `subclass_array_proto_roots` split).
     #[cfg(feature = "engine")]
     pub(crate) subclass_array_prototypes: [Option<ObjectId>; value::ElementKind::COUNT],
-    /// Per-subclass TypedArray constructors (ES §23.2.6), parallel
+    /// Per-subclass TypedArray constructors (ECMA-262 §23.2.6), parallel
     /// to [`Self::subclass_array_prototypes`] and addressed by the
     /// same [`value::ElementKind::index`].  Reverse mapping
     /// (`ctor ObjectId → ElementKind`) supports the static

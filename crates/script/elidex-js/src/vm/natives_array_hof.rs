@@ -1,4 +1,4 @@
-//! Array.prototype higher-order, iterator, and static methods (ES2020 §22.1).
+//! Array.prototype higher-order, iterator, and static methods (ECMA-262 §23.1).
 //!
 //! Mutator and accessor methods live in `natives_array.rs`.
 
@@ -500,7 +500,7 @@ pub(super) fn native_array_from(
     let this_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
 
     if matches!(items, JsValue::Object(_) | JsValue::String(_)) {
-        // ES2020 §7.3.9 GetMethod: treat null/undefined @@iterator as absent.
+        // ECMA-262 §7.3.10 GetMethod: treat null/undefined @@iterator as absent.
         let has_iterator = match items {
             JsValue::Object(obj_id) => {
                 let iter_key = PropertyKey::Symbol(ctx.vm.well_known_symbols.iterator);

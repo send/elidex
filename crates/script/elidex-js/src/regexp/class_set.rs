@@ -1,4 +1,4 @@
-//! V-flag (`unicodeSets`) class set expression parsing (ES2024 §22.2.2.4).
+//! V-flag (`unicodeSets`) class set expression parsing (ECMA-262 §22.2.1 ClassSetExpression).
 //!
 //! Handles `ClassSetExpression` with set operations (`&&`, `--`),
 //! nested character classes, and `\q{...}` string alternatives.

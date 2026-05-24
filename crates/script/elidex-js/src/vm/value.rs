@@ -198,7 +198,7 @@ impl PartialEq for JsValue {
     }
 }
 
-/// SameValue (ES2020 §7.2.10): differs from strict equality in that
+/// SameValue (ECMA-262 §7.2.9): differs from strict equality in that
 /// `NaN` is considered equal to `NaN` and `+0` is not the same as `-0`.
 pub fn same_value(a: JsValue, b: JsValue) -> bool {
     match (a, b) {
@@ -226,7 +226,7 @@ pub struct Object {
     pub storage: PropertyStorage,
     /// Prototype chain link (`__proto__`).
     pub prototype: Option<ObjectId>,
-    /// Whether new properties can be added (§9.1.1). Starts `true`; set to
+    /// Whether new properties can be added (§10.1.1). Starts `true`; set to
     /// `false` by `Object.preventExtensions`, `Object.seal`, `Object.freeze`.
     pub extensible: bool,
 }
@@ -434,7 +434,7 @@ impl PropertyStorage {
     }
 }
 
-/// Element type discriminator for `ObjectKind::TypedArray` (ES2024 §23.2).
+/// Element type discriminator for `ObjectKind::TypedArray` (ECMA-262 §23.2).
 ///
 /// Each variant identifies both the in-memory byte layout (`bytes_per_element`)
 /// and the JS-visible element-value domain (integer / float / BigInt, signed /
@@ -445,9 +445,10 @@ impl PropertyStorage {
 ///
 /// Byte ordering for TypedArray indexed reads / writes is **little-endian
 /// unconditionally** — an elidex implementation choice for cross-platform
-/// determinism.  `IsLittleEndian()` (ES §25.1.3.1) is implementation-defined
-/// and spec-compliant for any constant choice.  `DataView` exposes both
-/// endiannesses explicitly via the `littleEndian` argument (ES §25.3.4).
+/// determinism.  `isLittleEndian` (ECMA-262 §25.1.3.16 GetValueFromBuffer /
+/// §25.1.3.18 SetValueInBuffer) is implementation-defined and spec-compliant
+/// for any constant choice.  `DataView` exposes both endiannesses explicitly
+/// via the `littleEndian` argument (ECMA-262 §25.3.4 prototype getters).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ElementKind {
     Int8,
@@ -464,7 +465,7 @@ pub enum ElementKind {
 }
 
 impl ElementKind {
-    /// Total number of TypedArray subclasses (ES §23.2 table).
+    /// Total number of TypedArray subclasses (ECMA-262 §23.2 table).
     /// Sized for the per-subclass prototype array stored on
     /// `VmInner` (`subclass_array_prototypes`); GC roots reach those
     /// slots via a borrowed slice (`subclass_array_proto_roots`),
@@ -537,7 +538,7 @@ impl ElementKind {
         }
     }
 
-    /// Byte width of one element — `[[ElementSize]]` per ES §23.2.1 table.
+    /// Byte width of one element — `[[ElementSize]]` per ECMA-262 §23.2.1 table.
     #[inline]
     #[must_use]
     pub const fn bytes_per_element(self) -> u8 {
@@ -552,7 +553,7 @@ impl ElementKind {
     /// `true` when elements are BigInt (i.e. `BigInt64Array` /
     /// `BigUint64Array`).  Used at the indexed-write call site to route
     /// coercion through `ToBigInt64` / `ToBigUint64` instead of `ToIntXx`
-    /// (ES §7.1.15 / .16 vs §7.1.6-.11).
+    /// (ECMA-262 §7.1.16 / .17 vs §7.1.9-.13).
     #[inline]
     #[must_use]
     pub const fn is_bigint(self) -> bool {
@@ -561,7 +562,7 @@ impl ElementKind {
 
     /// Spec-shaped subclass name (e.g. `"Uint8Array"`) used as the
     /// `[[TypedArrayName]]` slot value returned by
-    /// `%TypedArray%.prototype[@@toStringTag]` (ES §23.2.3.32).
+    /// `%TypedArray%.prototype[@@toStringTag]` (ECMA-262 §23.2.3.38).
     #[inline]
     #[must_use]
     pub const fn name(self) -> &'static str {

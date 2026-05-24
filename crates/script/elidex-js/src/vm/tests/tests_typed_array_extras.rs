@@ -1,5 +1,5 @@
 //! Cross-interface TypedArray tests
-//! (ES2024 §23.2.3 / §23.2.5 + WHATWG HTML §2.9 + Fetch §5).
+//! (ECMA-262 §23.2.3 / §23.2.5 + WHATWG HTML §2.9 + Fetch §5).
 //!
 //! Covers the cross-interface surface that doesn't belong with
 //! the per-instance constructor or method tests: C6
@@ -7,7 +7,7 @@
 //! init via TypedArray + `structuredClone` identity preservation,
 //! CanonicalNumericIndexString exotic dispatch on string-keyed
 //! reads / writes, `set(source, offset?)` negative-offset
-//! RangeError (§23.2.3.24), BigInt element equality (pool-based
+//! RangeError (§23.2.3.26), BigInt element equality (pool-based
 //! `strict_eq`), and C7 integration (TypedArray ↔ ArrayBuffer ↔
 //! Blob ↔ Request/Response).
 //!
@@ -269,9 +269,9 @@ fn buffer_getter_brand_check_rejects_foreign() {
 #[test]
 fn canonical_numeric_keys_return_undefined_not_ordinary() {
     let mut vm = Vm::new();
-    // ES §7.1.16.1: `"-0"`, `"Infinity"`, `"-Infinity"`, `"NaN"` are
+    // ECMA-262 §7.1.22: `"-0"`, `"Infinity"`, `"-Infinity"`, `"NaN"` are
     // canonical numeric index strings.  On a TypedArray integer-
-    // indexed exotic they must return `undefined` (§10.4.5.15
+    // indexed exotic they must return `undefined` (§10.4.5.17
     // step 3), NOT fall through to ordinary [[Get]] lookup.
     assert!(eval_bool(
         &mut vm,
@@ -285,7 +285,7 @@ fn canonical_numeric_keys_return_undefined_not_ordinary() {
 #[test]
 fn canonical_numeric_keys_set_is_silent_no_op() {
     let mut vm = Vm::new();
-    // ES §10.4.5.16 step 1: storing on a canonical numeric index
+    // ECMA-262 §10.4.5.18 step 1: storing on a canonical numeric index
     // that is not a valid integer index is a silent no-op — the
     // write doesn't create an own property, so a subsequent read
     // still returns `undefined`.  The in-range integer elements
@@ -350,7 +350,7 @@ fn non_canonical_string_keys_fall_through_to_ordinary() {
 #[test]
 fn at_nan_maps_to_zero_per_to_integer_or_infinity() {
     let mut vm = Vm::new();
-    // ES §23.2.3.3 step 3: `ToIntegerOrInfinity(NaN) = 0`, so
+    // ECMA-262 §23.2.3.1 step 3: `ToIntegerOrInfinity(NaN) = 0`, so
     // `ta.at(NaN)` resolves to index 0 (unless the receiver is
     // empty).  Used to return `undefined` via a premature NaN
     // short-circuit.
@@ -374,13 +374,13 @@ fn at_nan_maps_to_zero_per_to_integer_or_infinity() {
 
 // ---------------------------------------------------------------------------
 // fromIndex / offset coercion edge cases
-// (lastIndexOf §23.2.3.17 + set §23.2.3.24)
+// (lastIndexOf §23.2.3.17 + set §23.2.3.26)
 // ---------------------------------------------------------------------------
 
 #[test]
 fn last_index_of_too_negative_from_index_returns_minus_one() {
     let mut vm = Vm::new();
-    // ES §23.2.3.17 step 5: when `len + fromIndex` < 0, the scan
+    // ECMA-262 §23.2.3.17 step 5: when `len + fromIndex` < 0, the scan
     // has nothing to inspect → return -1.  Must NOT wrap to
     // `max(len + fromIndex, 0)` (the indexOf semantics) — that
     // would surface a false positive at index 0.
@@ -405,7 +405,7 @@ fn last_index_of_too_negative_from_index_returns_minus_one() {
 #[test]
 fn set_non_finite_offset_throws_range_error() {
     let mut vm = Vm::new();
-    // ES §23.2.3.24 step 6: `ToIntegerOrInfinity(Infinity) = +Infinity`,
+    // ECMA-262 §23.2.3.26 step 6: `ToIntegerOrInfinity(Infinity) = +Infinity`,
     // which step 8 always rejects via the `targetOffset + len >
     // ArrayLength` guard.  Clamping to u32::MAX silently accepted
     // the unrepresentable value for empty sources on u32::MAX-sized
@@ -427,7 +427,7 @@ fn set_non_finite_offset_throws_range_error() {
 #[test]
 fn set_negative_offset_throws_range_error() {
     let mut vm = Vm::new();
-    // ES §23.2.3.24 step 6: `ToIntegerOrInfinity(offset)` RangeErrors
+    // ECMA-262 §23.2.3.26 step 6: `ToIntegerOrInfinity(offset)` RangeErrors
     // on any negative result.  Must not silently wrap via `length +
     // offset` (old `relative_index_u32` behavior).
     assert!(eval_bool(
@@ -444,7 +444,7 @@ fn set_negative_offset_throws_range_error() {
 
 #[test]
 fn structured_clone_preserves_wrapper_and_regexp_identity() {
-    // ES §2.9 StructuredSerialize memory-map: every Object in the
+    // WHATWG HTML §2.7.4 StructuredSerialize memory-map: every Object in the
     // input graph must share a single clone even if referenced
     // multiple times.  Wrapper kinds (Number / String / Boolean /
     // BigInt) and RegExp were missing their `memo.insert(src, new)`
@@ -500,7 +500,7 @@ fn structured_clone_preserves_data_view_identity() {
 #[test]
 fn data_view_nan_offset_still_bounds_checks() {
     let mut vm = Vm::new();
-    // ES §25.3.1 GetViewValue step 3-8: `ToIndex(NaN) = 0`, but the
+    // ECMA-262 §25.3.1 GetViewValue step 3-8: `ToIndex(NaN) = 0`, but the
     // `requestIndex + elementSize > viewSize` bounds check still
     // runs — `new DataView(new ArrayBuffer(1)).getInt16(NaN)` must
     // throw RangeError because `0 + 2 > 1`.
@@ -529,7 +529,7 @@ fn data_view_nan_offset_still_bounds_checks() {
 #[test]
 fn typed_array_set_accepts_primitive_source_via_to_object() {
     let mut vm = Vm::new();
-    // ES §23.2.3.24 TypedArraySetArrayElements step 3: `ToObject(source)`.
+    // ECMA-262 §23.2.3.26 TypedArraySetArrayElements step 3: `ToObject(source)`.
     // Primitive strings become StringWrapper whose length + indexed
     // access drive the write loop (each 1-char string ToNumber's to
     // NaN → 0 for Uint8Array).
@@ -541,7 +541,7 @@ fn typed_array_set_accepts_primitive_source_via_to_object() {
         ),
         0.0
     );
-    // Null / undefined still TypeError (§7.1.18 ToObject).
+    // Null / undefined still TypeError (§7.1.19 ToObject).
     assert!(eval_bool(
         &mut vm,
         "var u = new Uint8Array(1); var ok = false; \
@@ -552,7 +552,7 @@ fn typed_array_set_accepts_primitive_source_via_to_object() {
 #[test]
 fn typed_array_ctor_and_set_use_to_length_for_array_like_length() {
     let mut vm = Vm::new();
-    // ES §23.2.5.1 array-like path uses `LengthOfArrayLike`/`ToLength`,
+    // ECMA-262 §23.2.5.1 array-like path uses `LengthOfArrayLike`/`ToLength`,
     // which clamps NaN / negative / -Infinity lengths to `0` — a
     // `{length: -1}` source must yield an empty TypedArray, not a
     // RangeError.
@@ -576,7 +576,7 @@ fn typed_array_ctor_and_set_use_to_length_for_array_like_length() {
 #[test]
 fn typed_array_ctor_accepts_array_like_without_iterator() {
     let mut vm = Vm::new();
-    // ES §23.2.5.1 steps 9-12: when `usingIterator` is undefined
+    // ECMA-262 §23.2.5.1 steps 9-12: when `usingIterator` is undefined
     // (no `@@iterator` / explicitly nulled), the ctor walks
     // `source.length` + `source[i]` as an array-like.
     assert_eq!(
@@ -600,7 +600,7 @@ fn typed_array_ctor_accepts_array_like_without_iterator() {
 #[test]
 fn bigint_ctor_applies_to_primitive_on_object() {
     let mut vm = Vm::new();
-    // ES §21.2.1.1 step 2: `BigInt(Object(1n))` unwraps via
+    // ECMA-262 §21.2.1.1 step 2: `BigInt(Object(1n))` unwraps via
     // `@@toPrimitive`/`valueOf` through `ToPrimitive(value, number)`.
     assert!(eval_bool(
         &mut vm,
@@ -618,7 +618,7 @@ fn bigint_ctor_applies_to_primitive_on_object() {
 #[test]
 fn to_bigint_strict_honors_at_to_primitive_on_object() {
     let mut vm = Vm::new();
-    // ES §7.1.13 ToBigInt step 1 runs ToPrimitive(argument, number).
+    // ECMA-262 §7.1.14 ToBigInt step 1 runs ToPrimitive(argument, number).
     // A `@@toPrimitive` method returning a BigInt must be accepted
     // by TypedArray BigInt element writes — readback verifies via
     // the BigInt64Array's own bit-width-preserving round-trip

@@ -1,4 +1,4 @@
-//! `yield*` (delegating yield) bytecode expansion (ES2020 §14.4.14).
+//! `yield*` (delegating yield) bytecode expansion (ECMA-262 §15.5.5).
 //!
 //! Split from `expr.rs` to keep that file under the project's 1000-line
 //! convention; the emitted layout is large (GetIterator + loop +

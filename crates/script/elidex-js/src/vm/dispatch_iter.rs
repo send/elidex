@@ -159,7 +159,7 @@ impl VmInner {
             let mut keys = Vec::new();
             let mut seen = std::collections::HashSet::new();
             let mut current = Some(obj_id);
-            // ES §13.7.5.15: integer indices in ascending numeric order first,
+            // ECMA-262 §10.1.11.1 OrdinaryOwnPropertyKeys: integer indices in ascending numeric order first,
             // then string keys in insertion order.
             if let Some(obj_ref) = self.objects[obj_id.0 as usize].as_ref() {
                 // Collect integer indices from elements (non-Empty) + storage.

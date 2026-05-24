@@ -1,4 +1,4 @@
-//! `try` / `catch` / `finally` + `throw` tests (ES2020 §13.15).
+//! `try` / `catch` / `finally` + `throw` tests (ECMA-262 §14.14 throw / §14.15 try).
 //!
 //! Includes ordering regression tests that catch the "finally runs
 //! before catch and then again after" bug that value-overwriting tests

@@ -461,7 +461,7 @@ fn append_usv_bytes(out: &mut Vec<u8>, raw: &str, endings: EndingsKind) {
 /// iterables, Sets, Maps).  Non-iterable values produce TypeError.
 /// Abrupt completion (TypeError during `ToString` / `iter_next`
 /// throwing) calls `IteratorClose` on custom iterables to let
-/// `.return()` run cleanup, per ES §7.4.6 — same invariant we
+/// `.return()` run cleanup, per ECMA-262 §7.4.11 IteratorClose — same invariant we
 /// added to `HeadersInit` parsing in R17.1 / R18.1 (R21.1).
 ///
 /// Used by both `Blob` and `File` constructors (the latter via

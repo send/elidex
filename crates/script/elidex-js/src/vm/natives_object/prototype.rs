@@ -33,7 +33,7 @@ pub(in super::super) fn native_object_create(
     Ok(JsValue::Object(obj_id))
 }
 
-/// `Object.is(a, b)` — ES2020 §19.1.2.10
+/// `Object.is(a, b)` — ECMA-262 §20.1.2.15
 pub(in super::super) fn native_object_is(
     _ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -44,7 +44,7 @@ pub(in super::super) fn native_object_is(
     Ok(JsValue::Boolean(super::super::value::same_value(a, b)))
 }
 
-/// `Object.getPrototypeOf(obj)` — ES2020 §19.1.2.9
+/// `Object.getPrototypeOf(obj)` — ECMA-262 §20.1.2.12
 pub(in super::super) fn native_object_get_prototype_of(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -57,7 +57,7 @@ pub(in super::super) fn native_object_get_prototype_of(
     }
 }
 
-/// `Object.setPrototypeOf(obj, proto)` — ES2020 §19.1.2.21
+/// `Object.setPrototypeOf(obj, proto)` — ECMA-262 §20.1.2.23
 pub(in super::super) fn native_object_set_prototype_of(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -65,14 +65,14 @@ pub(in super::super) fn native_object_set_prototype_of(
 ) -> Result<JsValue, VmError> {
     let obj_val = args.first().copied().unwrap_or(JsValue::Undefined);
     let proto_val = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    // §19.1.2.21 step 1: RequireObjectCoercible(O)
+    // §20.1.2.23 step 1: RequireObjectCoercible(O)
     if matches!(obj_val, JsValue::Null | JsValue::Undefined) {
         return Err(VmError::type_error(
             "Cannot convert undefined or null to object",
         ));
     }
     let JsValue::Object(obj_id) = obj_val else {
-        // §19.1.2.21 step 3: Type(O) is not Object → return O
+        // §20.1.2.23 step 3: Type(O) is not Object → return O
         return Ok(obj_val);
     };
     let new_proto = match proto_val {
@@ -84,7 +84,7 @@ pub(in super::super) fn native_object_set_prototype_of(
             ))
         }
     };
-    // §9.1.2 OrdinarySetPrototypeOf step 3: non-extensible objects cannot
+    // §10.1.2 OrdinarySetPrototypeOf step 3: non-extensible objects cannot
     // change their prototype (unless it's the same value).
     let obj = ctx.get_object(obj_id);
     if !obj.extensible && new_proto != obj.prototype {
@@ -115,7 +115,7 @@ pub(in super::super) fn native_object_set_prototype_of(
     Ok(obj_val)
 }
 
-/// `Object.prototype.hasOwnProperty(prop)` — ES2020 §19.1.3.2
+/// `Object.prototype.hasOwnProperty(prop)` — ECMA-262 §20.1.3.2
 pub(in super::super) fn native_object_has_own_property(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -166,7 +166,7 @@ pub(in super::super) fn native_object_has_own_property(
     Ok(JsValue::Boolean(false))
 }
 
-/// `Object.prototype.valueOf()` — ES2020 §19.1.3.7: return ToObject(this).
+/// `Object.prototype.valueOf()` — ECMA-262 §20.1.3.7: return ToObject(this).
 pub(in super::super) fn native_object_value_of(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -176,7 +176,7 @@ pub(in super::super) fn native_object_value_of(
     Ok(JsValue::Object(obj_id))
 }
 
-/// `Object.prototype.isPrototypeOf(obj)` — ES2020 §19.1.3.4
+/// `Object.prototype.isPrototypeOf(obj)` — ECMA-262 §20.1.3.3
 pub(in super::super) fn native_object_is_prototype_of(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -206,7 +206,7 @@ pub(in super::super) fn native_object_is_prototype_of(
     Ok(JsValue::Boolean(false))
 }
 
-/// `Object.prototype.propertyIsEnumerable(prop)` — ES2020 §19.1.3.5
+/// `Object.prototype.propertyIsEnumerable(prop)` — ECMA-262 §20.1.3.4
 pub(in super::super) fn native_object_property_is_enumerable(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

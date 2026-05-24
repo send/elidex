@@ -57,7 +57,7 @@ pub(super) fn native_symbol_prototype_to_string(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // §19.4.3.3 thisSymbolValue: accept both Symbol primitive and a
+    // §20.4.3.4.1 thisSymbolValue: accept both Symbol primitive and a
     // Symbol wrapper object (unwrap `[[SymbolData]]`).
     let sid = match this {
         JsValue::Symbol(sid) => sid,
@@ -202,7 +202,7 @@ pub(super) fn native_array_iterator_next(
     create_iter_result(ctx, value, done)
 }
 
-// -- Object.prototype.toString (ES2020 §19.1.3.6) -------------------------
+// -- Object.prototype.toString (ECMA-262 §20.1.3.6) -----------------------
 
 pub(super) fn native_object_prototype_to_string(
     ctx: &mut NativeContext<'_>,
@@ -253,7 +253,7 @@ pub(super) fn native_object_prototype_to_string(
     Ok(JsValue::String(id))
 }
 
-// -- Object.prototype.toLocaleString (ES2020 §19.1.3.5) -------------------
+// -- Object.prototype.toLocaleString (ECMA-262 §20.1.3.5) -----------------
 //
 // Spec: `Return ? Invoke(O, "toString")`.  Previously wired as an alias of
 // Object.prototype.toString, which bypassed per-type overrides and made
@@ -330,7 +330,7 @@ pub(super) fn native_string_iterator(
 /// `StringIterator.prototype.next()` — returns `{ value, done }`.
 ///
 /// Yields individual code points (combining surrogate pairs for supplementary
-/// characters per ES2020 §21.1.5.2.1).
+/// characters per ECMA-262 §22.1.5.1.1).
 pub(super) fn native_string_iterator_next(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

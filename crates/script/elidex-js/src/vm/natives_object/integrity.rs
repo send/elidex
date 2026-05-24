@@ -16,7 +16,7 @@ fn lock_and_collect_keys(
         .collect()
 }
 
-/// `Object.freeze(obj)` — ES2020 §19.1.2.6
+/// `Object.freeze(obj)` — ECMA-262 §20.1.2.6
 pub(in super::super) fn native_object_freeze(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -40,7 +40,7 @@ pub(in super::super) fn native_object_freeze(
     Ok(obj_val)
 }
 
-/// `Object.seal(obj)` — ES2020 §19.1.2.20
+/// `Object.seal(obj)` — ECMA-262 §20.1.2.22
 pub(in super::super) fn native_object_seal(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -62,7 +62,7 @@ pub(in super::super) fn native_object_seal(
     Ok(obj_val)
 }
 
-/// `Object.preventExtensions(obj)` — ES2020 §19.1.2.18
+/// `Object.preventExtensions(obj)` — ECMA-262 §20.1.2.20
 pub(in super::super) fn native_object_prevent_extensions(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -75,7 +75,7 @@ pub(in super::super) fn native_object_prevent_extensions(
     Ok(obj_val)
 }
 
-/// `Object.isFrozen(obj)` — ES2020 §19.1.2.13
+/// `Object.isFrozen(obj)` — ECMA-262 §20.1.2.17
 pub(in super::super) fn native_object_is_frozen(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -98,7 +98,7 @@ pub(in super::super) fn native_object_is_frozen(
     Ok(JsValue::Boolean(frozen))
 }
 
-/// `Object.isSealed(obj)` — ES2020 §19.1.2.14
+/// `Object.isSealed(obj)` — ECMA-262 §20.1.2.18
 pub(in super::super) fn native_object_is_sealed(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -119,7 +119,7 @@ pub(in super::super) fn native_object_is_sealed(
     Ok(JsValue::Boolean(sealed))
 }
 
-/// `Object.isExtensible(obj)` — ES2020 §19.1.2.11
+/// `Object.isExtensible(obj)` — ECMA-262 §20.1.2.16
 pub(in super::super) fn native_object_is_extensible(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,

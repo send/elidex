@@ -200,7 +200,7 @@ fn ctor_honours_array_iterator_override() {
 #[test]
 fn ctor_blob_parts_abrupt_completion_closes_iterator() {
     let mut vm = Vm::new();
-    // ES §7.4.6: when a yielded part fails conversion (here, a
+    // ECMA-262 §7.4.11 IteratorClose: when a yielded part fails conversion (here, a
     // Symbol which `ToString` rejects), the iterator's `.return()`
     // must be invoked before the TypeError propagates.  Mirrors
     // R18.1's IteratorClose regression for `HeadersInit` (R21.1).

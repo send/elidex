@@ -49,7 +49,7 @@ impl VmInner {
             .object_prototype
             .expect("register_typed_array_prototype_global called before register_prototypes");
 
-        // Abstract `%TypedArray%.prototype` (ES §23.2.3).
+        // Abstract `%TypedArray%.prototype` (ECMA-262 §23.2.3).
         let proto_id = self.alloc_object(Object {
             kind: ObjectKind::Ordinary,
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
@@ -59,7 +59,7 @@ impl VmInner {
         self.typed_array_prototype = Some(proto_id);
         self.install_typed_array_prototype_members(proto_id);
 
-        // Abstract `%TypedArray%` constructor (ES §23.2.1).
+        // Abstract `%TypedArray%` constructor (ECMA-262 §23.2.1).
         // Callable, constructable — but both paths unconditionally
         // throw TypeError per §23.2.1.1 ("Abstract class TypedArray
         // not directly constructable").  The function still exists
@@ -83,7 +83,7 @@ impl VmInner {
         );
 
         // `%TypedArray%[@@species]` accessor — returns `this`
-        // (ES §23.2.2.4).  Enables spec-correct species lookup for
+        // (ECMA-262 §23.2.2.4).  Enables spec-correct species lookup for
         // allocating methods (`map` / `filter` / `slice` — installed
         // in C4), though the current minimal method set uses
         // identity constructor (same subclass as receiver).
@@ -108,7 +108,7 @@ impl VmInner {
             self.register_typed_array_subclass(entry, proto_id, abstract_ctor);
         }
 
-        // Static `%TypedArray%.of` / `.from` (ES §23.2.2.{1,2}) —
+        // Static `%TypedArray%.of` / `.from` (ECMA-262 §23.2.2.{1,2}) —
         // install body lives in [`super::typed_array_static`]
         // alongside the natives' impls + the `subclass_array_ctors`
         // dispatch helper.
@@ -296,7 +296,7 @@ impl VmInner {
         }
 
         // `%TypedArray%.prototype[Symbol.iterator]` — spec-mandated
-        // identity-equal to `.values` (ES §23.2.3.33).  Install
+        // identity-equal to `.values` (ECMA-262 §23.2.3.37).  Install
         // after `values` so we can reuse the same function id.
         let values_slot =
             coerce::get_property(self, proto_id, PropertyKey::String(self.well_known.values));
@@ -310,7 +310,7 @@ impl VmInner {
         }
 
         // `%TypedArray%.prototype.toString` — identity-equal to
-        // `Array.prototype.toString` (ES §23.2.3.31 "same built-in
+        // `Array.prototype.toString` (ECMA-262 §23.2.3.34 "same built-in
         // function object").  Install by copying the existing
         // function id rather than creating a new native, so
         // `Uint8Array.prototype.toString === Array.prototype.toString`.
@@ -357,7 +357,7 @@ impl VmInner {
         let ctor = self.create_constructable_function(entry.name, entry.ctor_fn);
         // Prototype chain between subclass ctor and abstract ctor —
         // `Object.getPrototypeOf(Uint8Array) === %TypedArray%`
-        // (ES §23.2.6).  `create_constructable_function` sets
+        // (ECMA-262 §23.2.6).  `create_constructable_function` sets
         // `function_prototype` by default; override to the abstract
         // ctor.
         self.get_object_mut(ctor).prototype = Some(abstract_ctor);
@@ -379,7 +379,7 @@ impl VmInner {
         );
 
         // `BYTES_PER_ELEMENT` on both prototype and constructor
-        // (ES §23.2.6.1 / §23.2.7.1): `{writable: false,
+        // (ECMA-262 §23.2.6.1 / §23.2.7.1): `{writable: false,
         // enumerable: false, configurable: false}`.
         let bpe_attrs = PropertyAttrs {
             writable: false,
@@ -550,7 +550,7 @@ typed_array_ctor_wrapper!(native_biguint64_array_ctor, ElementKind::BigUint64);
 // Abstract ctor + species/toStringTag getters
 // ---------------------------------------------------------------------------
 
-/// Abstract `%TypedArray%` constructor (ES §23.2.1.1).
+/// Abstract `%TypedArray%` constructor (ECMA-262 §23.2.1.1).
 /// Throws TypeError in BOTH call-mode and new-mode — the spec
 /// explicitly forbids direct invocation of the abstract intrinsic
 /// (step 2: `"Abstract class TypedArray not directly
@@ -566,7 +566,7 @@ fn native_abstract_typed_array_ctor(
     ))
 }
 
-/// `get %TypedArray% [ @@species ]` (ES §23.2.2.4) — returns `this`.
+/// `get %TypedArray% [ @@species ]` (ECMA-262 §23.2.2.4) — returns `this`.
 /// Allocating methods (`map` / `filter` / `slice`) that use
 /// SpeciesConstructor read this accessor; subclasses inherit it
 /// unchanged, so `Uint8Array[Symbol.species] === Uint8Array`.
@@ -578,7 +578,7 @@ fn native_typed_array_species_get(
     Ok(this)
 }
 
-/// `%TypedArray%.prototype[@@toStringTag]` getter (ES §23.2.3.32).
+/// `%TypedArray%.prototype[@@toStringTag]` getter (ECMA-262 §23.2.3.38).
 /// Reads `[[TypedArrayName]]` — the subclass name string derived
 /// from `element_kind`.  Returns `undefined` (NOT throws) if
 /// `this` lacks the TypedArray brand, so
