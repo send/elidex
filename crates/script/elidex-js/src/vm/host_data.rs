@@ -1520,9 +1520,8 @@ mod engine_feature {
                     .flat_map(|b| [b.callback, b.instance]),
                 )
                 // D-17 `#11-custom-elements-vm`: every registered CE
-                // constructor + cached whenDefined Promise + still-
-                // unresolved whenDefined resolver function must stay GC-
-                // rooted for the registry's lifetime — otherwise an
+                // constructor + cached whenDefined Promise must stay
+                // GC-rooted for the registry's lifetime — otherwise an
                 // upgrade after a major GC cycle would dereference a
                 // freed `ObjectId`. Both maps are cleared on
                 // `Vm::unbind` so the roots release on rebind.

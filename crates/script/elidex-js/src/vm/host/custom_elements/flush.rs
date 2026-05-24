@@ -202,12 +202,22 @@ fn invoke_callback(
             return;
         }
     };
+    // Absent lifecycle property (undefined / null) — silent no-op
+    // per HTML §4.13.4 "invoke custom element callback" step 2
+    // ("If callback is null, then return"). Optional lifecycle hooks
+    // (e.g. a class that only defines `connectedCallback`) MUST NOT
+    // log a TypeError for the missing siblings; that's the common
+    // case, not an error.
+    if matches!(cb_value, JsValue::Undefined | JsValue::Null) {
+        return;
+    }
     let JsValue::Object(cb_id) = cb_value else {
-        // Non-object lifecycle property (e.g. `connectedCallback = 1`)
-        // — TypeError per HTML §4.13.4 "invoke a custom element
-        // callback". Reported via the same stderr / Window.onerror
-        // path as runtime callback throws; not propagated because the
-        // reactions-stack frame swallows individual errors.
+        // Present-but-non-object lifecycle property (e.g.
+        // `connectedCallback = 1` / a primitive) — TypeError per
+        // HTML §4.13.4 "invoke a custom element callback". Reported
+        // via the same stderr / Window.onerror path as runtime
+        // callback throws; not propagated because the reactions-
+        // stack frame swallows individual errors.
         eprintln!("[CE Callback Error] non-callable lifecycle property");
         return;
     };

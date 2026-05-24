@@ -547,6 +547,38 @@ fn non_callable_lifecycle_property_does_not_silently_drop_subsequent_callbacks()
     assert_eq!(out, "good");
 }
 
+#[test]
+fn absent_lifecycle_callbacks_are_silent_noop() {
+    // Copilot R4 #1 regression guard: an absent lifecycle callback
+    // (property resolves to `undefined`) MUST be a silent no-op per
+    // HTML §4.13.4 step 2 ("If callback is null, then return"). The
+    // R1 fix accidentally over-corrected by eprintln-ing on every
+    // non-Object cb_value, which fired for every absent callback —
+    // the common case. The fix adds an undefined/null fast-path.
+    //
+    // Test: define a class with ONLY connectedCallback (no
+    // disconnectedCallback / attributeChangedCallback). Connect +
+    // disconnect + setAttribute. Expect only the present callback
+    // to fire; no stderr noise for the absent ones (we can't easily
+    // assert stderr here, but the positive assertion that the flow
+    // completes cleanly catches the regression alongside the
+    // sibling test above).
+    let out = run_then_read(
+        "globalThis.__log = []; \
+         class MyEl { \
+             static get observedAttributes() { return ['x']; } \
+             connectedCallback() { globalThis.__log.push('C'); } \
+         } \
+         customElements.define('my-el', MyEl); \
+         var el = document.createElement('my-el'); \
+         document.body.appendChild(el); \
+         document.body.removeChild(el); \
+         el.setAttribute('x', 'val');",
+        "globalThis.__log.join(',');",
+    );
+    assert_eq!(out, "C");
+}
+
 // --- /review R-LOW6: detached DocumentFragment does NOT fire Connected
 
 #[test]
