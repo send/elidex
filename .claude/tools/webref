@@ -232,8 +232,12 @@ def _tc39_biblio(shortname: str) -> dict:
       - built-in function:{aoid, refId, ...}
       - term:             {term, refId, ...}
     Cross-refs use `refId` → clause `id`.
+
+    Pinned to the `@2` major tag rather than `@latest` so a hypothetical future
+    schema break doesn't silently corrupt audits — the helper degrades visibly
+    (new fields missing) and the bump becomes a deliberate update.
     """
-    url = f"https://cdn.jsdelivr.net/npm/@tc39/{shortname}-biblio@latest/biblio.json"
+    url = f"https://cdn.jsdelivr.net/npm/@tc39/{shortname}-biblio@2/biblio.json"
     return json.loads(cached_fetch_url(url).decode("utf-8"))
 
 
