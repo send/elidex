@@ -34,14 +34,14 @@
 //!
 //! ## Byte-order convention
 //!
-//! TypedArray indexed reads / writes use **little-endian byte order
-//! unconditionally** — an elidex implementation choice for
-//! cross-platform determinism.  `isLittleEndian` (ECMA-262 §25.1.3.16
-//! GetValueFromBuffer / §25.1.3.18 SetValueInBuffer) is
-//! implementation-defined, so a constant choice is spec-compliant.
+//! TypedArray indexed reads / writes use **spec-mandated little-endian
+//! byte order**: ECMA-262 §10.4.5.17 TypedArrayGetElement and §10.4.5.18
+//! TypedArraySetElement invoke §25.1.3.16 GetValueFromBuffer / §25.1.3.18
+//! SetValueInBuffer with `isLittleEndian = true`, so engines must use
+//! little-endian for TypedArray indexed access regardless of host platform.
 //! [`super::data_view::DataView`] (PR5-typed-array §C5) exposes both
-//! endiannesses explicitly via its `littleEndian` argument (ECMA-262
-//! §25.3.4 prototype getters, default `false`).
+//! endiannesses to JS via its `littleEndian` argument on the prototype
+//! getters / setters (ECMA-262 §25.3.4, default `false` = big-endian).
 //!
 //! ## Backing storage
 //!
