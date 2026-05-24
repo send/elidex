@@ -255,6 +255,11 @@ pub enum Op {
     SuperCall,
     /// `[new.target args_array -- this]`
     SuperCallSpread,
+    /// `[child parent -- child]` Set `child.[[Prototype]] = parent`.
+    /// `parent` must be Object or Null; otherwise throws TypeError.
+    /// Used by class-chain setup (\[C16\] ClassDefinitionEvaluation
+    /// constructorParent / protoParent wiring).
+    SetPrototype,
 
     /// Create the `arguments` object from the current frame's actual args. `[ -- arguments_obj]`
     CreateArguments,
@@ -385,6 +390,7 @@ impl Op {
             | Self::ForInIterator
             | Self::ForInNext
             | Self::CreateArguments
+            | Self::SetPrototype
             | Self::Wide => 0,
 
             // 1-byte operand (u8 or i8)

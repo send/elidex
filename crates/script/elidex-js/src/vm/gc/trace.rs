@@ -260,6 +260,12 @@ pub(super) fn trace_work_list(
                     if let Some(id) = susp.frame.new_instance {
                         mark_object(id, obj_marks, work);
                     }
+                    if let Some(id) = susp.frame.new_target {
+                        mark_object(id, obj_marks, work);
+                    }
+                    if let Some(id) = susp.frame.home_class {
+                        mark_object(id, obj_marks, work);
+                    }
                     mark_value(susp.frame.saved_completion, obj_marks, work);
                     match susp.frame.pending_completion.as_deref() {
                         Some(

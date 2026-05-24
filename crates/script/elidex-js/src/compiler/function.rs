@@ -34,6 +34,11 @@ pub struct FunctionCompiler {
     pub is_arrow: bool,
     pub is_strict: bool,
     pub needs_arguments: bool,
+    /// `true` for class constructor bodies — both user-written and
+    /// synthesized default base / derived ctors (D-17b §3.1). Drives
+    /// `CompiledFunction::is_class_ctor` so `push_js_call_frame` can
+    /// thread `CallFrame::home_class` for `super()` resolution.
+    pub is_class_ctor: bool,
     /// Reference to the function scope (local slot assignments).
     pub func_scope_idx: usize,
     /// Current lexical scope index for block-scope-aware resolution.
@@ -87,6 +92,7 @@ impl FunctionCompiler {
             is_arrow: false,
             is_strict,
             needs_arguments: false,
+            is_class_ctor: false,
             func_scope_idx,
             current_scope_idx: initial_scope_idx,
             finally_stack: Vec::new(),
@@ -398,6 +404,8 @@ impl FunctionCompiler {
             is_arrow: self.is_arrow,
             is_strict: self.is_strict,
             needs_arguments: self.needs_arguments,
+            has_rest_param: false, // set by caller after compile completes
+            is_class_ctor: self.is_class_ctor,
             ic_slots: vec![None; self.ic_slot_count as usize],
             call_ic_slots: vec![None; self.call_ic_slot_count as usize],
         }

@@ -4,14 +4,18 @@
 //! the `CustomElementReaction` queue for lifecycle callback batching,
 //! and `CustomElementState` for tracking per-element upgrade status.
 
+mod construction_stack;
 mod consumer;
+mod entity_spawn;
 mod reaction;
 mod registry;
 mod state;
 mod upgrade;
 mod validation;
 
+pub use construction_stack::ConstructionStackEntry;
 pub use consumer::CustomElementReactionConsumer;
+pub use entity_spawn::spawn_custom_element_entity;
 pub use reaction::{scrub_entity_reactions, CustomElementReaction};
 pub use registry::{
     collect_undefined_entities, CustomElementDefinition, CustomElementRegistry, DefineError,

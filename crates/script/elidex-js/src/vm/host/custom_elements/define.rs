@@ -52,6 +52,16 @@ pub(crate) fn native_ce_define(
         }
     };
 
+    // 2b. HTMLConstructor brand check ([C1] §3.2.3 — invoked from
+    // [C3] §4.13.4 `define` algorithm). The ctor's `[[Prototype]]`
+    // chain must reach `globalThis.HTMLElement`; otherwise the
+    // sync-construct + upgrade paths skip the prototype splice and
+    // the resulting wrapper's chain is broken (Test #2
+    // `instanceof_post_upgrade` would fail at upgrade-time despite
+    // define succeeding). Cycle-safe via the depth-bound walk in
+    // `html_element::validate_html_element_constructor_chain`.
+    super::html_element::validate_html_element_constructor_chain(ctx.vm, ctor_id)?;
+
     // 3. options.extends — v1 rejects customized built-in elements via
     //    NotSupportedError (`#11-customized-built-in-elements` defer
     //    slot).  Missing / undefined / null = autonomous custom element.
@@ -119,6 +129,36 @@ pub(crate) fn native_ce_define(
             queue.push_back(CustomElementReaction::Upgrade(*entity));
         }
     }
+
+    // 6b. JS-object brand (D-17b §4.3 — non-enumerable / non-writable
+    // / non-configurable own data property on the ctor JS object).
+    // Read at `native_html_element_ctor` step 2 to reverse-map the
+    // ctor back to its `constructor_id` without a parallel HostData
+    // HashMap. `constructor_id` is u64 → f64 round-trip exact for
+    // values ≤ 2^53 — D-17's counter mints monotonically from 0 so
+    // exhaustion is practically unreachable. Landed after the
+    // host-side bookkeeping so the `host` borrow is no longer live
+    // when we take `ctx.vm` mutably here.
+    debug_assert!(
+        constructor_id_u64 <= (1u64 << 53),
+        "CE constructor_id exceeds f64 mantissa exact range"
+    );
+    // Symbol-keyed brand (D-17b §4.3 + N8 fix) — user code cannot
+    // reach a well-known Symbol slot via any string literal, so a
+    // `static '$$elidexCEConstructorId' = 99` no longer shadows the
+    // brand.
+    let brand_key = super::super::super::value::PropertyKey::Symbol(
+        ctx.vm.well_known_symbols.ce_constructor_id_brand,
+    );
+    #[allow(clippy::cast_precision_loss)]
+    let brand_value =
+        super::super::super::value::PropertyValue::Data(JsValue::Number(constructor_id_u64 as f64));
+    ctx.vm.define_shaped_property(
+        ctor_id,
+        brand_key,
+        brand_value,
+        super::super::super::shape::PropertyAttrs::BUILTIN,
+    );
 
     // 7. Walk every entity in the world carrying
     //    `CustomElementState::undefined(name)` and enqueue Upgrade —

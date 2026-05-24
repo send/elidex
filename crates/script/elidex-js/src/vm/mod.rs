@@ -13,6 +13,7 @@ pub(crate) mod coerce_ops;
 pub mod consumer_dispatcher;
 mod coroutine_types;
 mod dispatch;
+mod dispatch_class;
 mod dispatch_helpers;
 mod dispatch_ic;
 mod dispatch_iter;
@@ -210,9 +211,19 @@ pub(crate) struct VmInner {
     pub(crate) gc_threshold: usize,
     /// GC enabled flag.  `false` during init and native function calls.
     pub(crate) gc_enabled: bool,
-    /// Set while a native function is invoked via `[[Construct]]` (i.e. `new`).
-    /// Read by constructors to distinguish `new F(...)` from `F(...)`.
-    pub(crate) in_construct: bool,
+    /// `globalThis.HTMLElement` constructable function `ObjectId`. Populated
+    /// by `register_html_element_constructor` (D-17b §4.1) at globals init,
+    /// `None` until registered. Read by `native_html_element_ctor`
+    /// (\[C1\] §3.2.3 step 1) to reject direct `new HTMLElement()`.
+    pub(crate) html_element_constructor: Option<ObjectId>,
+    /// Per-native-call construct-mode stack (D-17b §7 — Stage 6 single SoT
+    /// for native-side construct mode). Pushed at every `VmInner::call`
+    /// entry boundary (`Some(new_target)` for construct mode, `None` for
+    /// call mode), popped via RAII `NativeCallGuard` on drop (Err + Ok
+    /// both). Read by `NativeContext::is_construct()` + `new_target()`.
+    /// Empty until Stage 6 wires the guards — Stage 2 introduces the
+    /// field early so GC + frame plumbing can land in one pass.
+    pub(crate) native_construct_stack: Vec<Option<ObjectId>>,
     /// Key bound to the native accessor currently executing — staged from
     /// [`value::NativeFunction::bound_key`] for the duration of the native
     /// call (save/restore around dispatch). A shared backend fn reads it via

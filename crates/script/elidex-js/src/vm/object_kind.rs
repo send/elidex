@@ -186,7 +186,7 @@ pub enum ObjectKind {
     /// call (the function body never runs on the initial call — instead,
     /// the Generator holds the initial suspended frame).  `.next()` /
     /// `.return()` / `.throw()` drive execution.
-    Generator(GeneratorState),
+    Generator(Box<GeneratorState>),
     /// Continuation callback attached to the awaited Promise of an async
     /// function.  When the Promise settles, this step resumes the
     /// associated coroutine with the fulfilment value (or rethrows the

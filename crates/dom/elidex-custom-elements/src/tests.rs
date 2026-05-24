@@ -70,3 +70,136 @@ fn lookup_by_is_attribute() {
     // Non-matching: unknown is value.
     assert!(registry.lookup_by_is("unknown-el", "div").is_none());
 }
+
+// ── lookup_by_constructor ([C1] §3.2.3 step 5 reverse lookup) ───────────
+
+#[test]
+fn lookup_by_constructor_finds_match() {
+    let mut registry = CustomElementRegistry::new();
+    let def_a = CustomElementDefinition::new("el-a".to_string(), 100, Vec::new(), None);
+    let def_b = CustomElementDefinition::new("el-b".to_string(), 200, Vec::new(), None);
+    registry.define(def_a).unwrap();
+    registry.define(def_b).unwrap();
+
+    assert_eq!(registry.lookup_by_constructor(100).unwrap().name, "el-a");
+    assert_eq!(registry.lookup_by_constructor(200).unwrap().name, "el-b");
+}
+
+#[test]
+fn lookup_by_constructor_returns_none_for_unknown() {
+    let mut registry = CustomElementRegistry::new();
+    let def = CustomElementDefinition::new("my-el".to_string(), 1, Vec::new(), None);
+    registry.define(def).unwrap();
+    assert!(registry.lookup_by_constructor(999).is_none());
+}
+
+// ── Construction stack ([C2] / [C1] §3.2.3 / [C4] §4.13.5) ──────────────
+
+#[test]
+fn construction_stack_push_peek_pop() {
+    let mut registry = CustomElementRegistry::new();
+    let mut dom = EcsDom::new();
+    let def = CustomElementDefinition::new("my-el".to_string(), 1, Vec::new(), None);
+    registry.define(def).unwrap();
+
+    // Empty stack peek = None ([C1] step 9 sync-construct trigger).
+    assert!(registry.peek_construction_stack("my-el").is_none());
+
+    let e1 = dom.create_element("my-el", elidex_ecs::Attributes::default());
+    assert!(registry.push_construction_stack("my-el", e1));
+    let top = registry.peek_construction_stack("my-el").unwrap();
+    assert_eq!(top, &ConstructionStackEntry::Element(e1));
+
+    // Pop after constructor cleanup ([C4] step 9).
+    let popped = registry.pop_construction_stack("my-el").unwrap();
+    assert_eq!(popped, ConstructionStackEntry::Element(e1));
+    assert!(registry.peek_construction_stack("my-el").is_none());
+}
+
+#[test]
+fn construction_stack_replace_top_with_marker() {
+    let mut registry = CustomElementRegistry::new();
+    let mut dom = EcsDom::new();
+    let def = CustomElementDefinition::new("my-el".to_string(), 1, Vec::new(), None);
+    registry.define(def).unwrap();
+    let e1 = dom.create_element("my-el", elidex_ecs::Attributes::default());
+    registry.push_construction_stack("my-el", e1);
+
+    // [C1] step 15: replace returns the element that was at the top.
+    let replaced = registry.replace_construction_stack_top_with_marker("my-el");
+    assert_eq!(replaced, Some(e1));
+
+    // Top is now AlreadyConstructed; a second replace returns None
+    // (cannot extract an Entity from a marker — [C1] step 13 throws).
+    let top = registry.peek_construction_stack("my-el").unwrap();
+    assert_eq!(top, &ConstructionStackEntry::AlreadyConstructed);
+    assert_eq!(
+        registry.replace_construction_stack_top_with_marker("my-el"),
+        None,
+    );
+}
+
+#[test]
+fn construction_stack_isolated_per_definition() {
+    // Re-entrant define / upgrade across two definitions must not
+    // share a construction stack ([C2] "per-definition list").
+    let mut registry = CustomElementRegistry::new();
+    let mut dom = EcsDom::new();
+    let def_a = CustomElementDefinition::new("el-a".to_string(), 1, Vec::new(), None);
+    let def_b = CustomElementDefinition::new("el-b".to_string(), 2, Vec::new(), None);
+    registry.define(def_a).unwrap();
+    registry.define(def_b).unwrap();
+    let e_a = dom.create_element("el-a", elidex_ecs::Attributes::default());
+    let e_b = dom.create_element("el-b", elidex_ecs::Attributes::default());
+
+    registry.push_construction_stack("el-a", e_a);
+    registry.push_construction_stack("el-b", e_b);
+
+    assert_eq!(
+        registry.peek_construction_stack("el-a"),
+        Some(&ConstructionStackEntry::Element(e_a)),
+    );
+    assert_eq!(
+        registry.peek_construction_stack("el-b"),
+        Some(&ConstructionStackEntry::Element(e_b)),
+    );
+}
+
+#[test]
+fn construction_stack_push_to_unknown_name_returns_false() {
+    let mut registry = CustomElementRegistry::new();
+    let mut dom = EcsDom::new();
+    let e = dom.create_element("never-defined", elidex_ecs::Attributes::default());
+    assert!(!registry.push_construction_stack("never-defined", e));
+}
+
+// ── spawn_custom_element_entity ([C1] §3.2.3 step 9 sync construct) ─────
+
+#[test]
+fn spawn_custom_element_entity_attaches_all_components() {
+    let mut dom = EcsDom::new();
+    let e = spawn_custom_element_entity(&mut dom, "my-el", "my-el", None);
+
+    // Element shape: TagType + Attributes present, NodeKind reads
+    // as Element through the `EcsDom::node_kind` accessor (the
+    // `TreeRelation` component is internal to elidex-ecs and not
+    // re-exported).
+    assert_eq!(dom.node_kind(e), Some(elidex_ecs::NodeKind::Element));
+    let world = dom.world();
+    assert_eq!(world.get::<&elidex_ecs::TagType>(e).unwrap().0, "my-el");
+    assert!(world.get::<&elidex_ecs::Attributes>(e).is_ok());
+
+    // CE shape.
+    let ce_state = world.get::<&CustomElementState>(e).unwrap();
+    assert_eq!(ce_state.state, CEState::Custom);
+    assert_eq!(ce_state.definition_name, "my-el");
+}
+
+#[test]
+fn spawn_custom_element_entity_disconnected_by_default() {
+    // [C1] step 9: sync-constructed element is not connected to any
+    // tree until script explicitly inserts it.
+    let mut dom = EcsDom::new();
+    let e = spawn_custom_element_entity(&mut dom, "my-el", "my-el", None);
+    assert!(!dom.is_connected(e));
+}

@@ -60,8 +60,63 @@ impl VmInner {
     }
 
     /// Call a JS function object with the given `this` and arguments.
-    #[allow(clippy::too_many_lines)] // dispatch table over every callable ObjectKind variant
+    ///
+    /// Marks the dispatch boundary with a `None` entry on
+    /// [`VmInner::native_construct_stack`] for the duration of the
+    /// call (D-17b §7 SoT — `None` = call mode, `Some(new_target)` =
+    /// construct mode pushed by `do_new`'s native-ctor branch or
+    /// `construct_synchronous`). This is what makes
+    /// `NativeContext::is_construct()` return `false` for a
+    /// `[[Call]]`-mode invocation nested inside an outer construct
+    /// chain (e.g. `Error.call(this)` inside a CE class ctor body —
+    /// the outer CE-upgrade's `Some(constructor)` is shadowed by
+    /// this `None` for the nested native ctor's lifetime, preventing
+    /// wrapper-receiver pollution that the global `in_construct`
+    /// flag could not avoid). Construct-mode callers MUST use
+    /// [`Self::call_construct_native`] instead so the native body's
+    /// `is_construct()` / `new_target()` reads see the right
+    /// invocation context.
     pub fn call(
+        &mut self,
+        func_obj_id: ObjectId,
+        this: JsValue,
+        args: &[JsValue],
+    ) -> Result<JsValue, VmError> {
+        self.native_construct_stack.push(None);
+        let result = self.call_dispatch(func_obj_id, this, args);
+        let popped = self.native_construct_stack.pop();
+        debug_assert!(
+            matches!(popped, Some(None)),
+            "Vm::call native_construct_stack push/pop mismatch (saw {popped:?})"
+        );
+        result
+    }
+
+    /// `[[Construct]]`-mode counterpart to [`Self::call`] for native
+    /// constructor dispatch via `do_new`'s native-ctor branch. Pushes
+    /// `Some(new_target)` onto `native_construct_stack` for the
+    /// duration of the dispatch so the native body's
+    /// `ctx.is_construct()` / `ctx.new_target()` reads see the right
+    /// construct context. Otherwise identical to `Vm::call`.
+    pub(crate) fn call_construct_native(
+        &mut self,
+        func_obj_id: ObjectId,
+        this: JsValue,
+        args: &[JsValue],
+        new_target: ObjectId,
+    ) -> Result<JsValue, VmError> {
+        self.native_construct_stack.push(Some(new_target));
+        let result = self.call_dispatch(func_obj_id, this, args);
+        let popped = self.native_construct_stack.pop();
+        debug_assert!(
+            matches!(popped, Some(Some(_))),
+            "Vm::call_construct_native native_construct_stack push/pop mismatch (saw {popped:?})"
+        );
+        result
+    }
+
+    #[allow(clippy::too_many_lines)] // dispatch table over every callable ObjectKind variant
+    fn call_dispatch(
         &mut self,
         func_obj_id: ObjectId,
         this: JsValue,
@@ -84,7 +139,13 @@ impl VmInner {
                     let resolved_this =
                         Self::compute_this_for_call(fo.this_mode, effective_this, fo.captured_this);
                     let call_args = owned_args.as_deref().unwrap_or(args);
-                    return self.call_internal(func_id, resolved_this, call_args, upvalue_ids);
+                    return self.call_internal(
+                        func_id,
+                        resolved_this,
+                        call_args,
+                        upvalue_ids,
+                        Some(current_id),
+                    );
                 }
                 ObjectKind::NativeFunction(nf) => {
                     let func = nf.func;
@@ -222,13 +283,47 @@ impl VmInner {
         this: JsValue,
         args: &[JsValue],
         upvalue_ids: Arc<[UpvalueId]>,
+        closure_obj_id: Option<ObjectId>,
     ) -> Result<JsValue, VmError> {
+        // ECMA-262 §10.2.1 step 2: class constructors throw a
+        // TypeError when invoked in `[[Call]]` mode (i.e. without
+        // `new`). `call_internal` builds its frame inline rather
+        // than via `push_js_call_frame` (where the equivalent guard
+        // lives for the Op::Call / Op::CallMethod / `Vm::call`
+        // entry paths), so we replicate the check here for the
+        // `Vm::call`-Function-arm + `run_function` entry paths.
+        // Construct mode (`do_new` / `construct_synchronous`) goes
+        // through `push_js_call_frame` directly and never reaches
+        // `call_internal`, so this guard does not gate legitimate
+        // construct paths.
         let compiled = self.get_compiled(func_id);
+        if compiled.is_class_ctor {
+            let name = compiled.name.as_deref().unwrap_or("");
+            let msg = if name.is_empty() {
+                "Class constructor cannot be invoked without 'new'".to_string()
+            } else {
+                format!("Class constructor {name} cannot be invoked without 'new'")
+            };
+            return Err(VmError::type_error(msg));
+        }
         let local_count = compiled.local_count as usize;
         let param_count = compiled.param_count as usize;
         let needs_arguments = compiled.needs_arguments;
         let is_generator = compiled.is_generator;
         let is_async = compiled.is_async;
+        // D-17b §3.1(c) home_class threading: class-ctor frames get
+        // `home_class = Some(closure_obj_id)` so `Op::SuperCall`
+        // resolves super via `home_class.[[Prototype]]`. Non-class
+        // calls + run_function (no closure) leave home_class None.
+        let home_class: Option<ObjectId> = if compiled.is_class_ctor {
+            closure_obj_id
+        } else {
+            None
+        };
+        // Rest-param packing (Stage 0 prereq) — must materialize the
+        // rest array BEFORE the args copy below clobbers slot
+        // (param_count - 1) with the first excess arg only.
+        let has_rest_param = compiled.has_rest_param;
 
         let entry_frames = self.frames.len();
         let base = self.stack.len();
@@ -239,6 +334,25 @@ impl VmInner {
         // Copy args into param slots.
         let copy_count = args.len().min(param_count);
         self.stack[base..base + copy_count].copy_from_slice(&args[..copy_count]);
+
+        // Rest-param packing for the entry-call path (Stage 0
+        // sibling of `push_js_call_frame`'s logic): pack
+        // `args[param_count - 1 ..]` into a fresh Array stored in
+        // slot `param_count - 1`. Mirrors the inline-dispatch
+        // pre-slot-adjust snapshot — call_internal pads with
+        // Undefined first, so we snapshot directly from the `args`
+        // slice (which still holds the actual values, including
+        // any beyond `param_count - 1` that copy_count truncated).
+        if has_rest_param && param_count > 0 {
+            let rest_slot_idx = param_count - 1;
+            let rest_elements: Vec<JsValue> = if args.len() > rest_slot_idx {
+                args[rest_slot_idx..].to_vec()
+            } else {
+                Vec::new()
+            };
+            let arr_id = self.create_array_object(rest_elements);
+            self.stack[base + rest_slot_idx] = JsValue::Object(arr_id);
+        }
 
         // Save and reset completion_value so that ReturnUndefined in nested
         // function calls does not leak the parent scope's completion value.
@@ -269,6 +383,8 @@ impl VmInner {
                     None
                 },
                 new_instance: None,
+                new_target: None,
+                home_class,
                 saved_completion: JsValue::Undefined,
                 generator: None,
                 pending_completion: None,
@@ -303,6 +419,8 @@ impl VmInner {
                     None
                 },
                 new_instance: None,
+                new_target: None,
+                home_class,
                 saved_completion: JsValue::Undefined,
                 generator: None,
                 pending_completion: None,
@@ -314,11 +432,11 @@ impl VmInner {
             };
             let proto = self.generator_prototype;
             let gen_id = self.alloc_object(super::value::Object {
-                kind: super::value::ObjectKind::Generator(super::value::GeneratorState {
+                kind: super::value::ObjectKind::Generator(Box::new(super::value::GeneratorState {
                     status: super::value::GeneratorStatus::SuspendedStart,
                     suspended: Some(suspended),
                     wrapper: None,
-                }),
+                })),
                 storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
                 prototype: proto,
                 extensible: true,
@@ -350,6 +468,8 @@ impl VmInner {
             },
             cleanup_base: base,
             new_instance: None,
+            new_target: None,
+            home_class,
             saved_completion,
             generator: None,
             pending_completion: None,
@@ -377,6 +497,14 @@ impl VmInner {
     /// Args are already on the stack. `cleanup_offset` is the number of
     /// extra slots below the args (1 for callee, 2 for receiver + callee).
     /// Does **not** call `run()` — the caller must `continue` the dispatch loop.
+    ///
+    /// Returns `Err` (without mutating the stack or frame state)
+    /// when invoked in call mode (`new_target = None`) on a class
+    /// constructor — ECMA-262 §10.2.1 step 2 requires throwing a
+    /// `TypeError` at the call boundary. Single chokepoint for this
+    /// check so every Op::Call / Op::CallMethod / Vm::call entry
+    /// path inherits the gate without per-site duplication
+    /// (One-issue-one-way).
     #[allow(clippy::too_many_lines)] // generator + async + regular frame paths
     pub(crate) fn push_js_call_frame(
         &mut self,
@@ -385,13 +513,38 @@ impl VmInner {
         argc: usize,
         cleanup_offset: usize,
         new_instance: Option<ObjectId>,
-    ) {
+        new_target: Option<ObjectId>,
+    ) -> Result<(), VmError> {
         let compiled = self.get_compiled(callee.func_id);
+        // ECMA-262 §10.2.1 step 2 — class constructor in call mode is
+        // a TypeError. Construct-mode entries (`do_new` /
+        // `construct_synchronous`) pass `Some(new_target)` and so
+        // bypass this guard.
+        if compiled.is_class_ctor && new_target.is_none() {
+            let name = compiled.name.as_deref().unwrap_or("");
+            let msg = if name.is_empty() {
+                "Class constructor cannot be invoked without 'new'".to_string()
+            } else {
+                format!("Class constructor {name} cannot be invoked without 'new'")
+            };
+            return Err(VmError::type_error(msg));
+        }
         let local_count = compiled.local_count as usize;
         let param_count = compiled.param_count as usize;
         let needs_arguments = compiled.needs_arguments;
         let is_generator = compiled.is_generator;
         let is_async = compiled.is_async;
+        let has_rest_param = compiled.has_rest_param;
+        // Class-ctor frames carry `home_class = Some(closure_id)` so
+        // `Op::SuperCall` ([C13] SuperCall) resolves the super class
+        // via `home_class.[[Prototype]]`. Regular methods + non-class
+        // functions get `None` (CE-minimal scope per D-17b §3.1(c)
+        // — non-ctor super-property reads stay Step-9-deferred).
+        let home_class: Option<ObjectId> = if compiled.is_class_ctor {
+            Some(callee.callee_obj_id)
+        } else {
+            None
+        };
 
         let base = self.stack.len() - argc;
         let cleanup_base = base - cleanup_offset;
@@ -399,6 +552,22 @@ impl VmInner {
         // Capture actual args before mutating the stack (only when needed).
         let actual_args = if needs_arguments {
             Some(self.stack[base..base + argc].to_vec())
+        } else {
+            None
+        };
+
+        // Snapshot rest-param contents BEFORE slot adjust: the resize below
+        // may drop excess args (argc > local_count) or pad with Undefined
+        // (argc < local_count), either of which would lose the actual rest
+        // values. The packed Array is installed after the resize via the
+        // rest_args_snapshot path below.
+        let rest_args_snapshot: Option<Vec<JsValue>> = if has_rest_param && param_count > 0 {
+            let rest_slot_idx = param_count - 1;
+            Some(if argc > rest_slot_idx {
+                self.stack[base + rest_slot_idx..base + argc].to_vec()
+            } else {
+                Vec::new()
+            })
         } else {
             None
         };
@@ -417,6 +586,16 @@ impl VmInner {
             self.stack.truncate(base + local_count);
         } else {
             self.stack.resize(base + local_count, JsValue::Undefined);
+        }
+
+        // Pack rest args into a fresh Array and install at slot
+        // `param_count - 1`. Performed after the resize so the slot is
+        // guaranteed to exist (local_count >= param_count by construction
+        // in compile_nested_function / compile_arrow_function).
+        if let Some(rest_vec) = rest_args_snapshot {
+            let arr_id = self.create_array_object(rest_vec);
+            let rest_slot_idx = param_count - 1;
+            self.stack[base + rest_slot_idx] = JsValue::Object(arr_id);
         }
 
         let saved_completion = self.completion_value;
@@ -443,6 +622,8 @@ impl VmInner {
                 tdz_overflow,
                 actual_args,
                 new_instance,
+                new_target,
+                home_class,
                 saved_completion: JsValue::Undefined,
                 generator: None,
                 pending_completion: None,
@@ -464,7 +645,7 @@ impl VmInner {
                     self.stack.push(JsValue::Undefined);
                 }
             }
-            return;
+            return Ok(());
         }
 
         // Generator short-circuit: the call returns a Generator object
@@ -495,6 +676,8 @@ impl VmInner {
                 tdz_overflow,
                 actual_args,
                 new_instance,
+                new_target,
+                home_class,
                 saved_completion: JsValue::Undefined,
                 generator: None, // filled in after Generator alloc below
                 pending_completion: None,
@@ -506,11 +689,11 @@ impl VmInner {
             };
             let proto = self.generator_prototype;
             let gen_id = self.alloc_object(super::value::Object {
-                kind: super::value::ObjectKind::Generator(super::value::GeneratorState {
+                kind: super::value::ObjectKind::Generator(Box::new(super::value::GeneratorState {
                     status: super::value::GeneratorStatus::SuspendedStart,
                     suspended: Some(suspended),
                     wrapper: None,
-                }),
+                })),
                 storage: super::value::PropertyStorage::shaped(super::shape::ROOT_SHAPE),
                 prototype: proto,
                 extensible: true,
@@ -524,7 +707,7 @@ impl VmInner {
                 }
             }
             self.stack.push(JsValue::Object(gen_id));
-            return;
+            return Ok(());
         }
 
         self.completion_value = JsValue::Undefined;
@@ -541,10 +724,13 @@ impl VmInner {
             actual_args,
             cleanup_base,
             new_instance,
+            new_target,
+            home_class,
             saved_completion,
             generator: None,
             pending_completion: None,
         });
+        Ok(())
     }
 
     /// Run a function as the initial (or only) frame.
@@ -554,7 +740,7 @@ impl VmInner {
         this: JsValue,
         args: &[JsValue],
     ) -> Result<JsValue, VmError> {
-        self.call_internal(func_id, this, args, Arc::from([]))
+        self.call_internal(func_id, this, args, Arc::from([]), None)
     }
 }
 

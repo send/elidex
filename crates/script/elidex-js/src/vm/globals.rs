@@ -501,6 +501,13 @@ impl VmInner {
             // installs.
             if matches!(self.global_scope_kind, super::GlobalScopeKind::Window) {
                 self.register_custom_element_registry_global();
+                // D-17b `#11-html-element-constructor-base-vm`
+                // (HTML §3.2.3). MUST run after the CE registry is
+                // wired (customElements.define references must work
+                // before any user-defined subclass invokes
+                // `new HTMLElement()` via super()). Window scope
+                // only — Worker scope has no HTMLElement.
+                self.register_html_element_constructor();
             }
             // D-12 `#11-net-ws-sse` — realtime constructors
             // (WebSocket / EventSource).  Both chain directly to

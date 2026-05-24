@@ -757,18 +757,35 @@ impl VmInner {
         self.gc_enabled = saved_gc;
 
         if let Some(callee) = js_callee {
-            self.push_js_call_frame(callee, JsValue::Object(instance), argc, 1, Some(instance));
+            // JS-ctor entry: `new.target` is the originally-invoked
+            // constructor (\[C11\] [[Construct]] step 4). `super()`
+            // inside the user ctor body propagates this unchanged.
+            // Construct mode (new_target = Some), so the
+            // class-ctor-call-mode guard in push_js_call_frame
+            // never fires — the `?` is for signature compatibility.
+            self.push_js_call_frame(
+                callee,
+                JsValue::Object(instance),
+                argc,
+                1,
+                Some(instance),
+                Some(ctor_id),
+            )?;
             Ok(())
         } else {
-            // Native constructor: call synchronously.  Set `in_construct`
-            // so the native implementation can distinguish `new F(...)`
-            // from `F(...)`; the flag is restored after the call.
+            // Native constructor: route through
+            // `Vm::call_construct_native` so the `Some(ctor_id)`
+            // entry is the stack top during the native body's
+            // execution (D-17b §7 single SoT). Using plain
+            // `Vm::call` here would push a `None` for call-mode
+            // boundary on top of any outer construct context AND
+            // would mask the new_target we just established — the
+            // native body's `is_construct()` / `new_target()` reads
+            // would then misreport.
             let ctor_args: Vec<JsValue> = self.stack[args_start..].to_vec();
             self.stack.truncate(args_start - 1);
-            let saved_construct = self.in_construct;
-            self.in_construct = true;
-            let result = self.call(ctor_id, JsValue::Object(instance), &ctor_args);
-            self.in_construct = saved_construct;
+            let result =
+                self.call_construct_native(ctor_id, JsValue::Object(instance), &ctor_args, ctor_id);
             let result = result?;
             let final_val = if matches!(result, JsValue::Object(_)) {
                 result

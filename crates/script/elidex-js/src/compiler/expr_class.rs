@@ -46,17 +46,66 @@ pub(super) fn compile_class(
 
     if let Some(ctor_member) = constructor {
         if let ClassMemberKind::Method { function, .. } = &ctor_member.kind {
-            let child = compile_nested_function(fc, prog, analysis, func_scopes, function, false)?;
+            let mut child =
+                compile_nested_function(fc, prog, analysis, func_scopes, function, false)?;
+            // User-written constructor: mark for home_class threading
+            // ([C16] ClassDefinitionEvaluation — class ctor frames get
+            // `CallFrame::home_class = closure_obj_id`).
+            child.is_class_ctor = true;
             let idx = fc.add_constant(Constant::Function(Box::new(child)));
             fc.emit_u16(Op::Closure, idx);
         }
+    } else if class.super_class.is_some() {
+        // Default DERIVED constructor synthesis ([C16] §15.7.14
+        // default-constructor branch when ClassHeritage is present):
+        // equivalent of `constructor(...args) { super(...args); }`.
+        // Emitted as direct bytecode (no AST round-trip) so we don't
+        // duplicate the parser's NodeId arena. Rest-param packing at
+        // frame entry (Stage 0) materializes the `args` array in
+        // slot 0; SuperCallSpread consumes it and propagates the
+        // outer NewTarget via the dispatch-class core.
+        // NOTE on the explicit `PushUndefined; Return` tail (instead
+        // of `Pop; ReturnUndefined`): the script-level
+        // completion-value-capture path in `Op::Pop` at the entry
+        // frame would otherwise stash the super-call return value as
+        // the frame's completion (dispatch.rs Op::Pop entry-frame
+        // branch), and `Op::ReturnUndefined` at the entry frame
+        // returns that completion rather than Undefined. invoke_upgrade
+        // then sees the super-call's NEW wrapper as the ctor's
+        // return value, the SameValue check at upgrade.rs §4.13.5
+        // step 12.2 fails, and the upgrade aborts. `Pop; PushUndefined;
+        // Return` discards the super result explicitly + returns a
+        // literal Undefined that `Op::Return` (which uses the popped
+        // value, not completion_value) propagates faithfully.
+        let bytecode = vec![
+            Op::GetLocal as u8,
+            0,
+            0, // u16 LE slot 0
+            Op::SuperCallSpread as u8,
+            Op::Pop as u8,
+            Op::PushUndefined as u8,
+            Op::Return as u8,
+        ];
+        let default_derived_ctor = crate::bytecode::compiled::CompiledFunction {
+            bytecode,
+            name: class.name.map(|a| prog.interner.get_utf8(a)),
+            param_count: 1, // (...args)
+            local_count: 1, // slot 0 for args
+            has_rest_param: true,
+            is_class_ctor: true,
+            ..Default::default()
+        };
+        let idx = fc.add_constant(Constant::Function(Box::new(default_derived_ctor)));
+        fc.emit_u16(Op::Closure, idx);
     } else {
-        // Default constructor: an empty function that returns undefined.
-        // Use PushUndefined + Return (not ReturnUndefined) because ReturnUndefined
-        // has special completion-value semantics for script-level eval.
+        // Default BASE constructor ([C16] default-constructor branch
+        // when ClassHeritage is absent): empty body. Use PushUndefined
+        // + Return (not ReturnUndefined) because ReturnUndefined has
+        // special completion-value semantics for script-level eval.
         let default_ctor = crate::bytecode::compiled::CompiledFunction {
             bytecode: vec![Op::PushUndefined as u8, Op::Return as u8],
             name: class.name.map(|a| prog.interner.get_utf8(a)),
+            is_class_ctor: true,
             ..Default::default()
         };
         let idx = fc.add_constant(Constant::Function(Box::new(default_ctor)));
@@ -73,6 +122,50 @@ pub(super) fn compile_class(
     fc.emit_u16(Op::DefineProperty, constructor_name); // [ctor proto]  (proto.constructor = ctor)
     let prototype_name = fc.add_name("prototype");
     fc.emit_u16(Op::DefineProperty, prototype_name); // [ctor]  (ctor.prototype = proto)
+
+    // 2b. Super-class chain setup ([C16] ClassDefinitionEvaluation —
+    // `constructorParent` = super_class for derived classes (so
+    // `MyEl.__proto__ === HTMLElement` & static-method inheritance
+    // works) + `protoParent` = `super_class.prototype` (so
+    // `MyEl.prototype.__proto__ === HTMLElement.prototype` & instance
+    // method inheritance works).
+    if let Some(super_id) = class.super_class {
+        // Stack: [ctor]
+        // First splice ctor.prototype.__proto__ = super_class.prototype.
+        fc.emit(Op::Dup); //                          [ctor ctor]
+        let proto_name = fc.add_name("prototype");
+        let ic1 = fc.alloc_ic_slot();
+        fc.emit_u16_u16(Op::GetProp, proto_name, ic1); // [ctor ctor.prototype]
+        compile_expr(fc, prog, analysis, func_scopes, super_id)?; // [ctor ctor.prototype super]
+        fc.emit(Op::Dup); //                          [ctor ctor.prototype super super]
+        let proto_name2 = fc.add_name("prototype");
+        let ic2 = fc.alloc_ic_slot();
+        fc.emit_u16_u16(Op::GetProp, proto_name2, ic2); // [ctor ctor.prototype super super.prototype]
+                                                        // SetPrototype: [child=ctor.prototype, parent=super.prototype -- ctor.prototype]
+                                                        // We have stack [ctor ctor.prototype super super.prototype]; need to
+                                                        // arrange [ctor super ctor.prototype super.prototype] for the SetPrototype
+                                                        // input. Actually simpler: SetPrototype consumes top two as [child, parent].
+                                                        // Stack order is [..., child, parent]; SetPrototype leaves child on stack.
+                                                        // Current: [..., ctor.prototype, super, super.prototype]; the bottom 2 are
+                                                        // (ctor.prototype, super) and (super, super.prototype). We need
+                                                        // [..., ctor.prototype, super.prototype] for the splice.
+                                                        // Re-arrange: swap super with super.prototype (currently top is super.prototype,
+                                                        // below is super, below is ctor.prototype). We want to drop super.
+                                                        // [ctor ctor.prototype super super.prototype] → Swap →
+                                                        // [ctor ctor.prototype super.prototype super] → Pop →
+                                                        // [ctor ctor.prototype super.prototype] → SetPrototype →
+                                                        // [ctor ctor.prototype]
+        fc.emit(Op::Swap); //                         [ctor ctor.prototype super.prototype super]
+        fc.emit(Op::Pop); //                          [ctor ctor.prototype super.prototype]
+        fc.emit(Op::SetPrototype); //                 [ctor ctor.prototype]
+        fc.emit(Op::Pop); //                          [ctor]
+
+        // Now splice ctor.__proto__ = super_class.
+        fc.emit(Op::Dup); //                          [ctor ctor]
+        compile_expr(fc, prog, analysis, func_scopes, super_id)?; // [ctor ctor super]
+        fc.emit(Op::SetPrototype); //                 [ctor ctor]
+        fc.emit(Op::Pop); //                          [ctor]
+    }
 
     // 3. Define prototype methods.
     for member in &class.body {

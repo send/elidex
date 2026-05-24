@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 use elidex_ecs::Entity;
 
+use crate::construction_stack::ConstructionStackEntry;
 use crate::state::{CEState, CustomElementState};
 use crate::validation::is_valid_custom_element_name;
 
@@ -40,6 +41,13 @@ pub struct CustomElementDefinition {
     /// Parallel `HashSet` over `observed_attributes` for O(1) hot-path
     /// membership tests. Private — read via [`Self::observes`].
     observed_set: HashSet<String>,
+    /// Per-definition construction stack (\[C2\] WHATWG HTML §4.13.3).
+    /// Pushed by the upgrade algorithm (\[C4\] step 6), drained by the
+    /// HTMLElement constructor's upgrade branch (\[C1\] step 15:
+    /// replace-with-marker). Private — read/write only via the
+    /// `*_construction_stack*` registry helpers so the
+    /// element-vs-marker invariant is enforced by construction.
+    construction_stack: Vec<ConstructionStackEntry>,
 }
 
 /// Registry of custom element definitions per realm (WHATWG HTML §4.13.4).
@@ -50,6 +58,15 @@ pub struct CustomElementDefinition {
 pub struct CustomElementRegistry {
     /// Name → definition mapping.
     definitions: HashMap<String, CustomElementDefinition>,
+    /// Reverse index: `constructor_id` → registered name. Maintained
+    /// alongside `definitions` for O(1) reverse lookup ([C1] §3.2.3
+    /// step 5 reverse-mapping is on the hot path of every CE
+    /// `[[Construct]]` — the prior O(N) `values()` scan would scale
+    /// poorly on CE-heavy pages (e.g. SSR rehydration with hundreds
+    /// of definitions). Both maps are private + only mutated through
+    /// `define`/`clear`, so the parallel-invariant is enforced by
+    /// construction (R11 #1 / D-17 R9 #2 sealing precedent).
+    constructor_id_to_name: HashMap<u64, String>,
     /// Elements awaiting upgrade (created before `define()` was called).
     /// Key: custom element name, Value: entities waiting for that definition.
     pending_upgrade: HashMap<String, Vec<Entity>>,
@@ -75,6 +92,7 @@ impl CustomElementDefinition {
             extends,
             observed_attributes,
             observed_set,
+            construction_stack: Vec::new(),
         }
     }
 
@@ -119,7 +137,13 @@ impl CustomElementRegistry {
             return Err(DefineError::AlreadyDefined(definition.name.clone()));
         }
         let name = definition.name.clone();
+        let constructor_id = definition.constructor_id;
         self.definitions.insert(name.clone(), definition);
+        // Maintain reverse index for O(1) lookup_by_constructor.
+        // Both maps are updated under a single fn so the
+        // parallel-invariant holds by construction.
+        self.constructor_id_to_name
+            .insert(constructor_id, name.clone());
         // Return pending upgrades for this name (drain the queue).
         Ok(self.pending_upgrade.remove(&name).unwrap_or_default())
     }
@@ -163,6 +187,7 @@ impl CustomElementRegistry {
     /// entities reference the outgoing DOM world).
     pub fn clear(&mut self) {
         self.definitions.clear();
+        self.constructor_id_to_name.clear();
         self.pending_upgrade.clear();
     }
 
@@ -177,6 +202,75 @@ impl CustomElementRegistry {
                 .as_ref()
                 .is_some_and(|ext| ext.eq_ignore_ascii_case(tag))
         })
+    }
+
+    /// Look up a definition by the `constructor_id` it carries
+    /// (\[C1\] §3.2.3 step 5 + \[C4\] §4.13.5 step 9.3: NewTarget's
+    /// constructor ID identifies the definition during upgrade /
+    /// HTMLElement-constructor brand-check). Reverse of the
+    /// name → definition_id direction served by [`Self::get`].
+    /// O(1) via the private `constructor_id_to_name` parallel
+    /// index — the hot path of every CE `[[Construct]]` on pages
+    /// with many CE definitions. The parallel-invariant is sealed
+    /// by `define` being the only entry path mutating both maps
+    /// (R11 #1 / D-17 R9 #2 sealing precedent).
+    #[must_use]
+    pub fn lookup_by_constructor(&self, constructor_id: u64) -> Option<&CustomElementDefinition> {
+        let name = self.constructor_id_to_name.get(&constructor_id)?;
+        let def = self.definitions.get(name);
+        debug_assert!(
+            def.is_some(),
+            "lookup_by_constructor: reverse-index name '{name}' missing from definitions \
+             (parallel-invariant violated for constructor_id={constructor_id})"
+        );
+        def
+    }
+
+    /// Push an element entry onto `name`'s construction stack
+    /// (\[C2\] field + \[C4\] §4.13.5 step 6). Returns `false` when
+    /// `name` is not a registered definition (caller-error
+    /// short-circuit; the upgrade path holds the registry lock so
+    /// this should never happen in practice).
+    pub fn push_construction_stack(&mut self, name: &str, entity: Entity) -> bool {
+        let Some(def) = self.definitions.get_mut(name) else {
+            return false;
+        };
+        def.construction_stack
+            .push(ConstructionStackEntry::Element(entity));
+        true
+    }
+
+    /// Peek the top entry of `name`'s construction stack (\[C1\]
+    /// §3.2.3 step 12: "Let element be the last entry in
+    /// definition's construction stack"). `None` if the stack is
+    /// empty (sync construct path per \[C1\] step 9) or the
+    /// definition is not registered.
+    #[must_use]
+    pub fn peek_construction_stack(&self, name: &str) -> Option<&ConstructionStackEntry> {
+        self.definitions.get(name)?.construction_stack.last()
+    }
+
+    /// Replace the top entry with [`ConstructionStackEntry::AlreadyConstructed`]
+    /// (\[C1\] §3.2.3 step 15). Returns the entity that was at the
+    /// top (so the caller can correlate against the SameValue
+    /// invariant) or `None` if the stack is empty / definition is
+    /// not registered. Does NOT pop — \[C4\] step 9 cleanup is the
+    /// driver of the final pop.
+    pub fn replace_construction_stack_top_with_marker(&mut self, name: &str) -> Option<Entity> {
+        let stack = &mut self.definitions.get_mut(name)?.construction_stack;
+        let last = stack.last_mut()?;
+        match std::mem::replace(last, ConstructionStackEntry::AlreadyConstructed) {
+            ConstructionStackEntry::Element(entity) => Some(entity),
+            ConstructionStackEntry::AlreadyConstructed => None,
+        }
+    }
+
+    /// Pop the top entry off `name`'s construction stack (\[C4\]
+    /// §4.13.5 step 9 cleanup — runs after the constructor returns
+    /// regardless of Ok / Err). Returns the popped entry so the
+    /// caller can assert against expected shape during testing.
+    pub fn pop_construction_stack(&mut self, name: &str) -> Option<ConstructionStackEntry> {
+        self.definitions.get_mut(name)?.construction_stack.pop()
     }
 }
 

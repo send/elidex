@@ -108,24 +108,34 @@ impl VmInner {
     /// Resolve a constructor's receiver for both `new`-mode and
     /// call-mode invocations.
     ///
-    /// - `new F(...)`: native dispatch sets `self.in_construct = true`
-    ///   and `do_new` supplies a pre-allocated object receiver — we
-    ///   must reuse `this` as-is so the constructor initializes the
-    ///   same instance the caller will receive.
-    /// - `F(...)` (call-mode): `in_construct = false`; allocate a
-    ///   fresh Ordinary with `prototype`.  An explicit receiver
-    ///   passed via `F.call(obj, ...)` / `F.apply(obj, ...)` is *not*
-    ///   reused — spec §19.5.1.1 step 2 (OrdinaryCreateFromConstructor)
-    ///   always yields a new object.
+    /// - `new F(...)`: native dispatch pushes `Some(new_target)` onto
+    ///   `native_construct_stack` (D-17b §7 Stage 6 SoT) and `do_new`
+    ///   supplies a pre-allocated object receiver — we must reuse
+    ///   `this` as-is so the constructor initializes the same
+    ///   instance the caller will receive.
+    /// - `F(...)` (call-mode): `native_construct_stack` top is `None`
+    ///   (or stack empty); allocate a fresh Ordinary with
+    ///   `prototype`.  An explicit receiver passed via
+    ///   `F.call(obj, ...)` / `F.apply(obj, ...)` is *not* reused —
+    ///   spec §19.5.1.1 step 2 (OrdinaryCreateFromConstructor) always
+    ///   yields a new object.
     ///
     /// Implements the "callable constructor" shape of §19.5.1.1
     /// step 1-2.
+    ///
+    /// PRECONDITION: caller must execute within an active
+    /// `[[Construct]]` dispatch (i.e. inside `do_new`'s native-ctor
+    /// branch or `construct_synchronous`'s native arm), both of
+    /// which push `Some(new_target)` onto `native_construct_stack`
+    /// before invoking the native ctor body. Call-mode invocations
+    /// (`F(...)`, `F.call(this, ...)`, etc.) leave the top `None` so
+    /// the construct branch correctly short-circuits.
     pub(crate) fn ensure_instance_or_alloc(
         &mut self,
         this: JsValue,
         prototype: Option<ObjectId>,
     ) -> JsValue {
-        if self.in_construct {
+        if matches!(self.native_construct_stack.last(), Some(Some(_))) {
             if let JsValue::Object(_) = this {
                 return this;
             }

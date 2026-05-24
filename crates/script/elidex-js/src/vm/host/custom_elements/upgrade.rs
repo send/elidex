@@ -16,10 +16,72 @@
 
 #![cfg(feature = "engine")]
 
-use elidex_custom_elements::UpgradeResolution;
+use std::sync::{Arc, Mutex};
+
+use elidex_custom_elements::{ConstructionStackEntry, CustomElementRegistry, UpgradeResolution};
 use elidex_ecs::Entity;
 
 use super::super::super::value::{JsValue, NativeContext, VmError};
+
+/// RAII guard that pushes a construction-stack entry on
+/// construction and pops it on `Drop` — including on panic-unwind.
+///
+/// The pop runs through Drop rather than as an explicit imperative
+/// block so a panic anywhere inside `construct_synchronous` (user
+/// constructor, GC, debug_assert) does NOT leave a stale `Element`
+/// entry that would poison subsequent upgrades of the same
+/// definition name. The HTMLElement constructor's upgrade branch
+/// also replaces the top with an `AlreadyConstructed` marker
+/// ([C1] §3.2.3 step 15) before this guard drops, so the popped
+/// entry can be either the marker (normal path) or the original
+/// `Element` (failure path before the user-ctor body reached
+/// `super()`). The debug-assert below distinguishes only "popped
+/// something" from "popped nothing"; an empty stack would surface
+/// missing push/pop balance (a programming error in the
+/// caller-callee contract).
+struct ConstructionStackGuard {
+    registry: Arc<Mutex<CustomElementRegistry>>,
+    name: String,
+}
+
+impl ConstructionStackGuard {
+    fn push(registry: Arc<Mutex<CustomElementRegistry>>, name: String, entity: Entity) -> Self {
+        {
+            let mut reg = registry.lock().expect("CE registry mutex poisoned");
+            reg.push_construction_stack(&name, entity);
+        }
+        Self { registry, name }
+    }
+}
+
+impl Drop for ConstructionStackGuard {
+    fn drop(&mut self) {
+        // `Mutex::lock` can `Err` if the mutex is poisoned, which
+        // happens when another thread panicked while holding the
+        // lock. The CE registry is per-VM and single-threaded, so
+        // the only poison source is a panic INSIDE one of our own
+        // lock scopes — in which case the lock is already considered
+        // poisoned by `std::sync::Mutex`. Use `into_inner` via
+        // `lock().map_or` so unwinding doesn't double-panic; the
+        // pop is best-effort during unwind.
+        let Ok(mut reg) = self.registry.lock() else {
+            return;
+        };
+        let popped = reg.pop_construction_stack(&self.name);
+        debug_assert!(
+            matches!(
+                popped,
+                Some(
+                    ConstructionStackEntry::AlreadyConstructed
+                        | ConstructionStackEntry::Element(_)
+                )
+            ),
+            "ConstructionStackGuard pop returned {popped:?} (expected Element or AlreadyConstructed) \
+             for definition '{}'",
+            self.name
+        );
+    }
+}
 
 /// Invoke the upgrade algorithm on `entity` per HTML §4.13.5.
 ///
@@ -48,28 +110,51 @@ pub(crate) fn invoke_upgrade(ctx: &mut NativeContext<'_>, entity: Entity) -> Res
     // Phase 1: resolve via engine-indep prepare_upgrade (early-returns
     // on Custom/Failed/no-def). Drops the registry lock before any VM
     // re-borrow.
-    let (constructor_id, observed_attributes) = {
+    let (constructor_id, observed_attributes, definition_name) = {
         let registry = host.ce_registry.lock().expect("CE registry mutex poisoned");
         match elidex_custom_elements::prepare_upgrade(host.dom_shared(), &registry, entity) {
             UpgradeResolution::Skip => return Ok(()),
             UpgradeResolution::Proceed {
                 constructor_id,
                 observed_attributes,
-            } => (constructor_id, observed_attributes),
+            } => {
+                // Definition name needed for the construction-stack
+                // push/peek/replace plumbing (D-17b §6 + \[C4\] step 6).
+                // Resolve via reverse lookup so we don't grow
+                // `UpgradeResolution` with this engine-bound detail.
+                // `prepare_upgrade` already resolved the definition,
+                // so a None here means the registry was mutated
+                // concurrently — surface as VmError::internal so the
+                // invariant violation is visible at the upgrade
+                // boundary rather than silently abandoned (which
+                // would leave the entity in CEState::Undefined,
+                // re-enqueued indefinitely).
+                let name = match registry.lookup_by_constructor(constructor_id) {
+                    Some(def) => def.name.clone(),
+                    None => {
+                        return Err(VmError::internal(
+                            "invoke_upgrade: lookup_by_constructor returned None after \
+                             prepare_upgrade succeeded — registry invariant violated",
+                        ));
+                    }
+                };
+                (constructor_id, observed_attributes, name)
+            }
         }
     };
     let Some(constructor) = host.ce_constructors.get(&constructor_id).copied() else {
         return Ok(());
     };
 
-    // Phase 2: validate `constructor.prototype` is an Object — even
-    // though we do NOT splice it into the wrapper's prototype chain in
-    // v1 (`#11-html-element-constructor-base` slot), the spec requires
-    // the property to be an object for the upgrade to proceed. Any
-    // throw inside the getter (adversarial proxy / accessor) marks the
-    // entity Failed before propagating so re-enqueued Upgrades short-
-    // circuit at prepare_upgrade's early-return rather than retrying
-    // the same throw.
+    // Phase 2: validate `constructor.prototype` is an Object. The
+    // wrapper-prototype splice happens via
+    // [`super::html_element::set_wrapper_prototype`] in Phase 3
+    // (pre-publication invariant per D-17b §6) + again inside the
+    // HTMLElement constructor's upgrade branch (\[C1\] §3.2.3 step 14)
+    // — both writes derive the same `proto_id` so the SoT is single
+    // by construction. The early validation here mirrors the spec's
+    // §4.13.5 prep check so adversarial accessor throws mark the
+    // entity Failed before any state transition.
     let proto_key = super::super::super::value::PropertyKey::String(ctx.vm.well_known.prototype);
     let proto_value = match ctx.vm.get_property_value(constructor, proto_key) {
         Ok(v) => v,
@@ -85,45 +170,81 @@ pub(crate) fn invoke_upgrade(ctx: &mut NativeContext<'_>, entity: Entity) -> Res
         ));
     }
 
-    // Phase 3: resolve the element wrapper.
+    // Phase 3: resolve / pre-publish the element wrapper.
     //
-    // Spec (HTML §4.13.5 step 5) sets element's [[Prototype]] to
-    // constructor.prototype, but in v1 elidex `class MyEl extends
-    // HTMLElement` is unwired (`HTMLElement` is not a global
-    // constructor — `#11-html-element-constructor-base` slot). Without
-    // an HTMLElement super-class, splicing constructor.prototype onto
-    // the wrapper would orphan the wrapper from Element.prototype and
-    // break `el.setAttribute` / `el.appendChild` / every Element /
-    // Node method. Until that slot lands, the wrapper keeps its
-    // standard Element-chain prototype; lifecycle callbacks are looked
-    // up on `constructor.prototype` directly by
-    // [`super::flush::invoke_callback`].
+    // (\[C1\] §3.2.3 step 14 + D-17b §6 pre-publication invariant) —
+    // splice the wrapper's `[[Prototype]]` to `constructor.prototype`
+    // BEFORE pushing the construction stack so any synchronous
+    // observer between this point and the HTMLElement ctor's
+    // matching write inside the user-ctor body (cached-wrapper
+    // lookup, document.querySelector, construction-stack peek) sees
+    // the correct prototype chain. This is a defense-in-depth
+    // idempotent write — the HTMLElement ctor's upgrade branch also
+    // calls `set_wrapper_prototype` and the proto_id derives from
+    // the same `constructor.prototype`, so SoT divergence is
+    // impossible.
     let wrapper_id = ctx.vm.create_element_wrapper(entity);
+    super::html_element::set_wrapper_prototype(ctx.vm, wrapper_id, constructor)?;
 
-    // Phase 4: state transition + construct.
+    // Phase 4: state transition + construction-stack push + construct.
     {
         let dom = ctx.host().dom();
         elidex_custom_elements::enter_constructor(dom, entity);
     }
-    let saved_construct = ctx.vm.in_construct;
-    ctx.vm.in_construct = true;
-    let result = ctx.vm.call(constructor, JsValue::Object(wrapper_id), &[]);
-    ctx.vm.in_construct = saved_construct;
+    // Push the construction-stack entry (\[C2\] field + \[C4\] §4.13.5
+    // step 6) inside an RAII guard so the matching pop fires on
+    // Drop regardless of how this scope exits — `Ok(())`, early
+    // `Err`, or a downstream panic. Without the guard, a panic
+    // unwinding past the explicit pop block (e.g. a debug_assert
+    // tripping inside `construct_synchronous` or the GC trace)
+    // would leave a stale `Element` entry that poisons subsequent
+    // upgrades of the same definition name.
+    let _stack_guard = {
+        let host = ctx.host();
+        ConstructionStackGuard::push(
+            std::sync::Arc::clone(&host.ce_registry),
+            definition_name.clone(),
+            entity,
+        )
+    };
+    // Construct-mode invocation (\[C11\] [[Construct]]) — drives
+    // construct_synchronous so the HTMLElement ctor's upgrade branch
+    // sees `new_target = constructor` (the originally-invoked CE
+    // class) + `native_construct_stack` top = Some(constructor) +
+    // `is_construct() == true`. Routed via the Stage 3 helper
+    // (single SoT for JS-side + native-side construct dispatch).
+    let result = ctx.vm.construct_synchronous(
+        constructor,
+        JsValue::Object(wrapper_id),
+        &[],
+        constructor,
+        Some(wrapper_id),
+    );
+    // `_stack_guard` drops here (whether `result` is Ok or Err) —
+    // its Drop impl pops the construction stack. The matching-shape
+    // assertion lives in the guard's Drop body.
     match result {
         Ok(value) => {
             // HTML §4.13.5 "upgrade an element" step 12.2 — if
             // SameValue(constructResult, element) is false, throw a
             // "NotSupportedError" DOMException AND mark the element
-            // Failed. Non-object returns are spec-permitted (class
-            // constructors implicitly return `this`; construct
-            // semantics in `ops.rs::OpNew` already fold non-object
-            // returns back to the preallocated instance), so only an
-            // OBJECT return that diverges from the wrapper is a
-            // failure. The vm.call above runs the user constructor
-            // directly (not via OpNew), so the return-value
-            // substitution that OpNew performs for `new` does not
-            // happen here — the SameValue check is the upgrade
-            // algorithm's spec-mandated guard against
+            // Failed. D-17b §5 routes the user ctor through
+            // `construct_synchronous`, which DOES apply the
+            // `[[Construct]]` return-substitution (non-Object return
+            // → `Object(pre_alloc_instance)` — dispatch_class.rs
+            // ~225). With `pre_alloc_instance = Some(wrapper_id)`
+            // (passed from Phase 3), a non-Object return from the
+            // user body now arrives here as `Object(wrapper_id)` —
+            // matching wrapper_id, SameValue passes, the primitive-
+            // return branch is dead. Op::ReturnUndefined for class-
+            // ctor frames was also patched (dispatch.rs) to return
+            // Undefined explicitly rather than the trailing
+            // ExpressionStatement's completion value, so a
+            // user body like `constructor() { super(); ({}); }`
+            // returns Undefined → substituted to `Object(wrapper_id)`
+            // → SameValue passes. The check still fires only for an
+            // EXPLICIT `return otherObj;` whose otherObj differs
+            // from the wrapper — the spec-mandated guard against
             // `constructor() { return otherObj; }`.
             if matches!(value, JsValue::Object(id) if id != wrapper_id) {
                 finalize_failure_shim(ctx, entity);

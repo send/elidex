@@ -143,6 +143,35 @@ pub fn compile_expr(
                 let argc = arguments.len() as u8;
                 let call_ic = fc.alloc_call_ic_slot();
                 fc.emit_u8_u16(Op::CallMethod, argc, call_ic);
+            } else if matches!(callee_expr.kind, ExprKind::Super) {
+                // `super(...args)` ([C13] SuperCall) — emit `Op::SuperCall`
+                // (or `SuperCallSpread` when any argument is a spread,
+                // [C19] ArgumentListEvaluation spread variant). The
+                // VM resolves the super constructor via the current
+                // frame's `home_class.[[Prototype]]`; no callee is
+                // pushed onto the stack.
+                let has_spread = arguments.iter().any(|a| matches!(a, Argument::Spread(_)));
+                if has_spread {
+                    // Build an Array of all args, then SuperCallSpread.
+                    fc.emit(Op::CreateArray);
+                    for arg in arguments {
+                        match arg {
+                            Argument::Expression(e) => {
+                                compile_expr(fc, prog, analysis, func_scopes, *e)?;
+                                fc.emit(Op::ArrayPush);
+                            }
+                            Argument::Spread(e) => {
+                                compile_expr(fc, prog, analysis, func_scopes, *e)?;
+                                fc.emit(Op::ArraySpread);
+                            }
+                        }
+                    }
+                    fc.emit(Op::SuperCallSpread);
+                } else {
+                    compile_arguments(fc, prog, analysis, func_scopes, arguments)?;
+                    let argc = arguments.len() as u8;
+                    fc.emit_u8(Op::SuperCall, argc);
+                }
             } else {
                 compile_expr(fc, prog, analysis, func_scopes, *callee)?;
                 compile_arguments(fc, prog, analysis, func_scopes, arguments)?;
@@ -444,8 +473,17 @@ pub fn compile_expr(
             compile_expr(fc, prog, analysis, func_scopes, *inner)?;
         }
 
+        ExprKind::MetaProperty(MetaPropertyKind::NewTarget) => {
+            // `new.target` ([C11] [[Construct]] step 4) — emits the
+            // runtime read of `CallFrame::new_target`.
+            fc.emit(Op::NewTarget);
+        }
         ExprKind::Super | ExprKind::MetaProperty(_) | ExprKind::DynamicImport { .. } => {
-            // Stubs for complex features.
+            // Stubs for complex features. `Super` alone (without a
+            // call wrapper) is a syntax error in ECMA-262 but the
+            // parser may surface it for `super.method()` (Step-9
+            // deferred); leave as Undefined so the GetSuperProp
+            // stub still observes the existing shape.
             fc.emit(Op::PushUndefined);
         }
 

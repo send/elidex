@@ -1,0 +1,196 @@
+//! Tests for the D-17b CE-minimal class machinery: `class extends`
+//! super-class chain, `Op::SuperCall` / `Op::SuperCallSpread` /
+//! `Op::NewTarget`, default-derived constructor synthesis.
+//!
+//! Spec citations: [C13] ECMA-262 §13.3.7.1 SuperCall + [C16]
+//! §15.7.14 ClassDefinitionEvaluation + [C11] §10.2.2 [[Construct]].
+//! Covers the JS-side class layer in isolation; HTMLElement
+//! integration tests live in `tests_custom_elements.rs`.
+
+#[test]
+fn extends_chains_static_to_super() {
+    // [C16] constructorParent: `B.__proto__ === A` (so static
+    // methods inherit from the super class).
+    assert!(super::eval_bool(
+        "class A {} class B extends A {} Object.getPrototypeOf(B) === A;"
+    ));
+}
+
+#[test]
+fn extends_chains_prototype_to_super_prototype() {
+    // [C16] protoParent: `B.prototype.__proto__ === A.prototype` (so
+    // instance methods inherit).
+    assert!(super::eval_bool(
+        "class A {} class B extends A {} \
+         Object.getPrototypeOf(B.prototype) === A.prototype;"
+    ));
+}
+
+#[test]
+fn extends_default_derived_ctor_propagates_args_to_super() {
+    // [C16] default derived ctor = `constructor(...args) { super(...args); }`.
+    // Rest-param packing (Stage 0) + SuperCallSpread (Stage 3)
+    // must propagate the call arguments to the super constructor.
+    assert_eq!(
+        super::eval_number(
+            "class A { constructor(x) { this.x = x; } } \
+             class B extends A {} \
+             let b = new B(42); b.x;"
+        ),
+        42.0
+    );
+}
+
+#[test]
+fn extends_user_ctor_with_explicit_super_call() {
+    // User-written ctor: `super(...)` must reach the super class.
+    assert_eq!(
+        super::eval_number(
+            "class A { constructor(n) { this.value = n * 2; } } \
+             class B extends A { constructor() { super(5); } } \
+             let b = new B(); b.value;"
+        ),
+        10.0
+    );
+}
+
+#[test]
+fn instance_method_on_subclass_calls_super_method() {
+    // Instance method on B reaches A.prototype.method via
+    // B.prototype.__proto__ → A.prototype lookup.
+    assert_eq!(
+        super::eval_number(
+            "class A { foo() { return 7; } } \
+             class B extends A {} \
+             let b = new B(); b.foo();"
+        ),
+        7.0
+    );
+}
+
+#[test]
+fn instance_of_super_class() {
+    // `instanceof` walks the [[Prototype]] chain — derived
+    // instances satisfy both `MyEl instanceof B` and
+    // `instanceof A` ([C16] ClassDefinitionEvaluation chains both
+    // sides).
+    assert!(super::eval_bool(
+        "class A {} class B extends A {} \
+         let b = new B(); b instanceof A && b instanceof B;"
+    ));
+}
+
+#[test]
+fn new_target_inside_ctor_is_callee() {
+    // [C11] step 4 — `new.target` is the constructor invoked at
+    // the top of the `new` chain.
+    assert!(super::eval_bool(
+        "class A { constructor() { globalThis.__nt = new.target; } } \
+         new A(); globalThis.__nt === A;"
+    ));
+}
+
+#[test]
+fn new_target_inside_super_is_outer_class() {
+    // [C13] propagation — `super()` carries the outer
+    // class's NewTarget unchanged, so the inner ctor body sees
+    // the outermost-invoked class.
+    assert!(super::eval_bool(
+        "class A { constructor() { globalThis.__nt = new.target; } } \
+         class B extends A {} \
+         new B(); globalThis.__nt === B;"
+    ));
+}
+
+#[test]
+fn new_target_outside_new_is_undefined() {
+    // Plain `[[Call]]` → no construct context → `new.target`
+    // returns Undefined.
+    assert!(super::eval_bool(
+        "function f() { return new.target === undefined; } f();"
+    ));
+}
+
+#[test]
+fn super_outside_class_ctor_throws_syntax_error() {
+    // `super(...)` only valid in a derived class constructor
+    // body — anywhere else throws (the parser may catch some
+    // cases at parse time; this exercises the runtime
+    // home_class=None branch).
+    super::eval_throws("function f() { super(); } f();");
+}
+
+#[test]
+fn super_call_spread_propagates_argv() {
+    // [C19] ArgumentListEvaluation spread variant — Op::SuperCallSpread.
+    assert_eq!(
+        super::eval_number(
+            "class A { constructor(a, b, c) { this.sum = a + b + c; } } \
+             class B extends A { constructor() { let xs = [1, 2, 3]; super(...xs); } } \
+             let b = new B(); b.sum;"
+        ),
+        6.0
+    );
+}
+
+#[test]
+fn class_without_extends_remains_base() {
+    // Sanity: classes without `extends` get the default base
+    // ctor (existing path, unchanged) — the `__proto__` of the
+    // prototype is Object's prototype (the empty class lives on
+    // the ordinary Object chain). Walk `__proto__` twice and
+    // confirm we reach `null` (proto-of-Object.prototype).
+    assert!(super::eval_bool(
+        "class A {} \
+         let p = Object.getPrototypeOf(A.prototype); \
+         Object.getPrototypeOf(p) === null;"
+    ));
+}
+
+// ---------------------------------------------------------------------------
+// construct_synchronous error-path coverage (D-17b Risk #4 from
+// /review: a user ctor body that throws inside a nested catch must
+// not leave construct_synchronous's frame state inconsistent. The
+// RAII guard in invoke_upgrade closes the CE side; this test
+// exercises the JS-construct-path branch via direct `new`.)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn class_ctor_throws_inside_try_caught_outer() {
+    // class B extends A { constructor() { super(); try { throw 1; } catch (e) {} } }
+    // The ctor body's try/catch swallows the throw — construct
+    // returns normally with `this` substituted.
+    assert!(super::eval_bool(
+        "class A { constructor() { this.x = 1; } } \
+         class B extends A { constructor() { super(); try { throw new Error('inner'); } catch (e) {} } } \
+         let b = new B(); b.x === 1;"
+    ));
+}
+
+#[test]
+fn class_ctor_uncaught_throw_propagates_out_of_new() {
+    // Uncaught throw inside the ctor body propagates through
+    // construct_synchronous → do_new → Op::New → outer try/catch.
+    // Tests that the construct_synchronous error path correctly
+    // unwinds the JS frame + pops native_construct_stack.
+    assert!(super::eval_bool(
+        "let caught = false; \
+         class B extends Error { constructor() { super(); throw new RangeError('boom'); } } \
+         try { new B(); } catch (e) { caught = (e instanceof RangeError); } \
+         caught;"
+    ));
+}
+
+#[test]
+fn nested_class_new_after_outer_throw_recovers() {
+    // After an outer construct throws, a subsequent construct of a
+    // sibling class should succeed cleanly — verifies the global
+    // native_construct_stack / completion_value / GC state was
+    // properly restored on the failure path.
+    assert!(super::eval_bool(
+        "class A {} class B extends A { constructor() { throw 1; } } \
+         try { new B(); } catch (e) {} \
+         class C extends A {} \
+         let c = new C(); c instanceof A;"
+    ));
+}

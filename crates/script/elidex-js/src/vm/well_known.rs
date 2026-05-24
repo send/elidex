@@ -1443,6 +1443,12 @@ define_well_known_strings! {
         // step 9, customized built-in elements — v1 rejects with
         // NotSupportedError but still reads the key).
         extends => "extends",
+        // `globalThis.HTMLElement` constructable function name
+        // (D-17b §4.1). The CE constructor_id brand uses a
+        // well-known **Symbol** key (see WellKnownSymbols::
+        // ce_constructor_id_brand below) so user code cannot
+        // shadow the slot via a string-keyed static property.
+        html_element_global => "HTMLElement",
     }
 }
 
@@ -1456,6 +1462,13 @@ pub(crate) struct WellKnownSymbols {
     pub(crate) to_string_tag: SymbolId,
     pub(crate) species: SymbolId,
     pub(crate) is_concat_spreadable: SymbolId,
+    /// Internal Symbol that brands the CE constructor JS object
+    /// with its `constructor_id` (D-17b §4.3). Symbol-keyed (rather
+    /// than string-keyed) so user code cannot reach the slot via
+    /// any string literal — `static '$$elidexCEConstructorId' = 99`
+    /// would shadow a string-keyed brand but cannot reach a
+    /// well-known Symbol that script never sees.
+    pub(crate) ce_constructor_id_brand: SymbolId,
 }
 
 impl WellKnownSymbols {
@@ -1481,6 +1494,7 @@ impl WellKnownSymbols {
             to_string_tag: alloc("Symbol.toStringTag"),
             species: alloc("Symbol.species"),
             is_concat_spreadable: alloc("Symbol.isConcatSpreadable"),
+            ce_constructor_id_brand: alloc("$$elidexCEConstructorId"),
         };
         (well_known, symbols)
     }

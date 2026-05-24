@@ -361,8 +361,14 @@ fn gc_heap_bounded_in_loop() {
     // accessors install one native getter + setter each across
     // HTMLElement.prototype / Window.prototype / the Document wrapper, a
     // fixed baseline of several hundred extra native-function objects.
+    // Bumped from 2800 with D-17b `#11-html-element-constructor-base-vm`:
+    // `globalThis.HTMLElement` adds the ctor function object + its
+    // prototype-slot link + the `$$elidexCEConstructorId` brand property
+    // alongside the ~280-byte `Generator(Box<GeneratorState>)` enum
+    // variant boxing churn that lands the `clippy::large_enum_variant`
+    // gate. Empirical baseline ~3216 live; 3500 keeps loop headroom.
     assert!(
-        live < 2800,
+        live < 3500,
         "heap should be bounded by GC, got {live} live objects"
     );
 }
