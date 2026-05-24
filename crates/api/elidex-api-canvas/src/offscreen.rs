@@ -58,11 +58,18 @@ pub struct PlaceholderCanvas {
 }
 
 /// Why a `transferControlToOffscreen` call refused (WHATWG HTML §4.12.5
-/// transfer algorithm step 1: "context mode must be `none`"). Both variants
+/// transfer algorithm step 1: "context mode must be `none`"). All variants
 /// map to the spec `InvalidStateError` DOMException at the host marshalling
 /// layer; the distinction is observability-only.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PlaceholderError {
+    /// The supplied entity was not live in the DOM world — guards the
+    /// `dom.world_mut().insert_one(canvas_entity, ...)` write-side claim of
+    /// infallibility (see [`transfer_canvas_to_offscreen`] step 0). VM
+    /// callers can't actually reach this (wrapper resolution proves liveness
+    /// in single-threaded execution); the variant exists so the engine-indep
+    /// API surface stays sound for non-VM consumers.
+    NoSuchEntity,
     /// The `<canvas>` already has a 2D context — `getContext('2d')` was
     /// called before `transferControlToOffscreen` (spec step 1 violation).
     AlreadyHasContext,
@@ -164,6 +171,12 @@ pub fn is_placeholder(dom: &EcsDom, entity: Entity) -> bool {
 /// mutex enforcement point.
 ///
 /// Operation order:
+/// 0. Refuse if `canvas_entity` is not live → `Err(NoSuchEntity)`. Both of
+///    the `world().get::<&Component>` checks below would return
+///    `Err(NoSuchEntity)` for a despawned entity, but we'd interpret them
+///    as "component absent" and fall through to spawn + insert — leaking
+///    the OC. The explicit [`EcsDom::contains`] gate makes the later
+///    `insert_one` infallible by construction (no leak window).
 /// 1. Refuse if `canvas_entity` already has [`Canvas2dContext`] →
 ///    `Err(AlreadyHasContext)` (spec step 1: "context mode must be `none`").
 /// 2. Refuse if `canvas_entity` already has [`PlaceholderCanvas`] →
@@ -180,6 +193,9 @@ pub fn transfer_canvas_to_offscreen(
     dom: &mut EcsDom,
     canvas_entity: Entity,
 ) -> Result<Entity, PlaceholderError> {
+    if !dom.contains(canvas_entity) {
+        return Err(PlaceholderError::NoSuchEntity);
+    }
     if dom.world().get::<&Canvas2dContext>(canvas_entity).is_ok() {
         return Err(PlaceholderError::AlreadyHasContext);
     }
@@ -188,8 +204,9 @@ pub fn transfer_canvas_to_offscreen(
     }
     let (width, height) = crate::component::canvas_dimensions(dom, canvas_entity);
     let oc_entity = spawn_offscreen_canvas_entity(dom, width, height);
-    // Insert is infallible here — canvas_entity is live (we just queried it
-    // above), and PlaceholderCanvas is a fresh-typed component on it.
+    // Infallible per step 0: liveness was established above and OC spawn
+    // does not affect canvas_entity. PlaceholderCanvas is a fresh-typed
+    // component, so no replace-vs-insert race.
     let _ = dom.world_mut().insert_one(
         canvas_entity,
         PlaceholderCanvas {
@@ -322,5 +339,29 @@ mod tests {
         let mut dom = EcsDom::new();
         let canvas = fresh_canvas(&mut dom, "10", "10");
         assert!(!is_placeholder(&dom, canvas));
+    }
+
+    #[test]
+    fn transfer_refuses_despawned_canvas_with_no_such_entity() {
+        // Step 0 liveness gate: a despawned canvas entity would otherwise
+        // pass both component get-checks (both return Err(NoSuchEntity) →
+        // .is_ok() == false) and silently leak an orphan OC. The explicit
+        // gate refuses first so no OC entity is spawned.
+        let mut dom = EcsDom::new();
+        let canvas = fresh_canvas(&mut dom, "10", "10");
+        let _ = dom.world_mut().despawn(canvas);
+        let err = transfer_canvas_to_offscreen(&mut dom, canvas)
+            .expect_err("must refuse despawned entity");
+        assert_eq!(err, PlaceholderError::NoSuchEntity);
+        // No OffscreenCanvas entity was spawned (no leak): scan the world
+        // for any NodeKind::OffscreenCanvas — the only spawn path is via
+        // spawn_offscreen_canvas_entity, which the failing step 0 prevents.
+        let oc_count = dom
+            .world()
+            .query::<(Entity, &NodeKind)>()
+            .iter()
+            .filter(|(_, k)| **k == NodeKind::OffscreenCanvas)
+            .count();
+        assert_eq!(oc_count, 0, "no OC entity should be spawned");
     }
 }

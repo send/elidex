@@ -809,6 +809,16 @@ fn native_transfer_control_to_offscreen(
     let canvas_entity = require_canvas_element(ctx, this, "transferControlToOffscreen")?;
     let oc_entity = match transfer_canvas_to_offscreen(ctx.host().dom(), canvas_entity) {
         Ok(e) => e,
+        Err(PlaceholderError::NoSuchEntity) => {
+            // Wrapper resolution above proves liveness in single-threaded VM
+            // execution, so this branch is unreachable from JS. Marshal to
+            // the spec InvalidStateError for parity with the other refusal
+            // paths (defensive — see PlaceholderError::NoSuchEntity docs).
+            return Err(VmError::dom_exception(
+                ctx.vm.well_known.dom_exc_invalid_state_error,
+                "Failed to execute 'transferControlToOffscreen' on 'HTMLCanvasElement': canvas entity is no longer live.",
+            ));
+        }
         Err(PlaceholderError::AlreadyHasContext) => {
             return Err(VmError::dom_exception(
                 ctx.vm.well_known.dom_exc_invalid_state_error,
