@@ -17,15 +17,16 @@
 //! construct path (\[C1\] step 9: spawn fresh Element entity).
 //!
 //! [`set_wrapper_prototype`] is the one-issue-one-way helper that
-//! splices `wrapper.[[Prototype]] = ctor.prototype` (\[C1\] step 14 +
+//! splices `wrapper.[[Prototype]] = proto_id` (\[C1\] step 14 +
 //! sync-construct internal-create). Called from three sites (D-17b
 //! §5): `invoke_upgrade` Phase 3 pre-publication invariant, this
 //! file's upgrade-path branch (\[C1\] step 14, spec-narrative), and
-//! this file's sync-construct branch. The two idempotent writes of
-//! the same value across the upgrade path's pre-write + in-ctor-body
-//! write are defense-in-depth covering distinct observability
-//! windows (pre-vm.construct vs in-ctor-body), NOT a
-//! One-issue-one-way violation (R5 Step 4.5 framing correction).
+//! this file's sync-construct branch. The helper takes a pre-validated
+//! `proto_id` so each caller does its own `Get(ctor, "prototype")` +
+//! Object-validation locally — `invoke_upgrade` Phase 2 reuses the
+//! already-validated value into Phase 3 instead of re-reading the
+//! user's `ctor.prototype` accessor (D-17b R2 G2, prevents duplicate
+//! side-effects + the 2nd-read-throws-without-Failed-mark gap).
 
 #![cfg(feature = "engine")]
 
@@ -125,54 +126,24 @@ pub(crate) fn native_html_element_ctor(
         ));
     }
 
-    // Step 2 (D-17b §4.3 — JS-object brand reverse lookup): read the
-    // `$$elidexCEConstructorId` brand off `new.target`. **Own
-    // property only** — a chain-walking read would let an
-    // unregistered subclass of a registered CE inherit the parent's
-    // brand and silently impersonate the parent's definition
-    // (`class Child extends MyEl {}` resolving to `<my-el>`); spec
-    // (\[C1\] §3.2.3 step 5) reverse-maps via the realm's CE
-    // registry, not via a property-chain read. Absent / wrong-shape
-    // own value → not a registered CE constructor → TypeError.
-    // Symbol-keyed brand (D-17b §4.3 + N8 fix) — see define.rs
-    // for the rationale. User code cannot reach a well-known
-    // Symbol via any string-key reflection.
-    let brand_key = PropertyKey::Symbol(ctx.vm.well_known_symbols.ce_constructor_id_brand);
-    let constructor_id = {
-        let obj = ctx.vm.get_object(new_target);
-        let own = obj.storage.get(brand_key, &ctx.vm.shapes);
-        match own {
-            Some((super::super::super::value::PropertyValue::Data(JsValue::Number(n)), _))
-                if n.is_finite() && *n >= 0.0 =>
-            {
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                let id = *n as u64;
-                // Symmetric guard with the `<= 2^53` debug_assert at
-                // the brand-write site (define.rs ~143). If a future
-                // change wraps `constructor_id` past the f64 mantissa
-                // boundary the reverse-cast silently truncates; this
-                // assert surfaces the drift in debug builds before it
-                // can alias to a different CE definition.
-                #[allow(clippy::cast_precision_loss)]
-                let id_as_f64 = id as f64;
-                debug_assert!(
-                    id_as_f64 == *n,
-                    "brand round-trip lost precision (n={n}, id={id})"
-                );
-                id
-            }
-            _ => {
-                return Err(VmError::type_error(
-                    "Failed to construct 'HTMLElement': new.target is not a registered custom element",
-                ));
-            }
-        }
-    };
-
-    // Resolve the definition name via the engine-indep registry.
+    // Step 2 (\[C1\] §3.2.3 step 5 — reverse-map new.target → registered
+    // CE definition): read constructor_id from the host-side reverse
+    // map [`HostData::ce_constructor_to_id`]. The map is host Rust
+    // state with no JS-visible counterpart, so spoofing is impossible
+    // by construction: user code cannot synthesize an entry pointing
+    // at an unregistered ctor (D-17b R2 G1 — replaces the earlier
+    // symbol-keyed brand, which was discoverable via
+    // `Object.getOwnPropertySymbols` and copyable onto an arbitrary
+    // ctor object). An unregistered or unrelated ObjectId → not a
+    // registered CE constructor → TypeError.
     let Some(host) = ctx.host_if_bound() else {
         return Err(VmError::type_error(
             "Failed to construct 'HTMLElement': host is not bound",
+        ));
+    };
+    let Some(&constructor_id) = host.ce_constructor_to_id.get(&new_target) else {
+        return Err(VmError::type_error(
+            "Failed to construct 'HTMLElement': new.target is not a registered custom element",
         ));
     };
     let definition_name = {
@@ -217,7 +188,8 @@ pub(crate) fn native_html_element_ctor(
                     "HTMLElement ctor upgrade branch: construction-stack entity has no cached wrapper",
                 ));
             };
-            set_wrapper_prototype(ctx.vm, wrapper_id, new_target)?;
+            let proto_id = resolve_validated_prototype(ctx.vm, new_target)?;
+            set_wrapper_prototype(ctx.vm, wrapper_id, proto_id);
             {
                 let host = ctx.host();
                 let mut registry = host.ce_registry.lock().expect("CE registry mutex poisoned");
@@ -251,24 +223,37 @@ pub(crate) fn native_html_element_ctor(
             // the existing seam — matches how every other
             // sync-constructed Element is exposed to JS.
             let wrapper_id = ctx.vm.create_element_wrapper(entity);
-            set_wrapper_prototype(ctx.vm, wrapper_id, new_target)?;
+            let proto_id = resolve_validated_prototype(ctx.vm, new_target)?;
+            set_wrapper_prototype(ctx.vm, wrapper_id, proto_id);
             Ok(JsValue::Object(wrapper_id))
         }
     }
 }
 
-/// Splice `wrapper.[[Prototype]] = ctor.prototype` (\[C1\] step 14 +
-/// the sync-construct internal-create's prototype derivation, \[C8\]
-/// `Get(NewTarget, "prototype")` semantics).
+/// Splice `wrapper.[[Prototype]] = proto_id` per \[C1\] step 14 +
+/// the sync-construct internal-create's prototype derivation. Pure
+/// mechanical mutation: the caller resolves and validates `proto_id`
+/// itself, either via [`resolve_validated_prototype`] or by reusing
+/// an already-validated value from an earlier `Get`. `invoke_upgrade`
+/// Phase 2 takes the latter path so the user's `ctor.prototype`
+/// accessor runs once per upgrade instead of twice (D-17b R2 G2).
+pub(crate) fn set_wrapper_prototype(vm: &mut VmInner, wrapper_id: ObjectId, proto_id: ObjectId) {
+    vm.get_object_mut(wrapper_id).prototype = Some(proto_id);
+}
+
+/// Helper that performs `Get(ctor_id, "prototype")` + Object-validation.
 ///
-/// Returns `Err` when `ctor.prototype` is not an Object — matches
-/// WebIDL's "must be an object" wording for the
-/// `CustomElementConstructor` callback type.
-pub(crate) fn set_wrapper_prototype(
+/// Returns `Err(TypeError)` when `ctor.prototype` is not an Object —
+/// matches WebIDL's "must be an object" wording for the
+/// `CustomElementConstructor` callback type. Returns the inner
+/// `ObjectId` on success so the caller can pass it directly to
+/// [`set_wrapper_prototype`]. Kept separate so callers that already
+/// have a validated proto_id — `invoke_upgrade` Phase 2 — can skip
+/// the second user-accessor invocation.
+pub(crate) fn resolve_validated_prototype(
     vm: &mut VmInner,
-    wrapper_id: ObjectId,
     ctor_id: ObjectId,
-) -> Result<(), VmError> {
+) -> Result<ObjectId, VmError> {
     let proto_key = PropertyKey::String(vm.well_known.prototype);
     let proto_value = vm.get_property_value(ctor_id, proto_key)?;
     let JsValue::Object(proto_id) = proto_value else {
@@ -276,8 +261,7 @@ pub(crate) fn set_wrapper_prototype(
             "Custom element constructor.prototype must be an object",
         ));
     };
-    vm.get_object_mut(wrapper_id).prototype = Some(proto_id);
-    Ok(())
+    Ok(proto_id)
 }
 
 /// Verify that `ctor_id`'s `[[Prototype]]` chain reaches

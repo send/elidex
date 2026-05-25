@@ -159,19 +159,19 @@ pub(crate) fn invoke_upgrade(ctx: &mut NativeContext<'_>, entity: Entity) -> Res
     // §4.13.5 prep check so adversarial accessor throws mark the
     // entity Failed before any state transition.
     let proto_key = super::super::super::value::PropertyKey::String(ctx.vm.well_known.prototype);
-    let proto_value = match ctx.vm.get_property_value(constructor, proto_key) {
-        Ok(v) => v,
+    let proto_id = match ctx.vm.get_property_value(constructor, proto_key) {
+        Ok(JsValue::Object(id)) => id,
+        Ok(_) => {
+            finalize_failure_shim(ctx, entity);
+            return Err(VmError::type_error(
+                "Custom element upgrade failed: constructor.prototype must be an object.",
+            ));
+        }
         Err(err) => {
             finalize_failure_shim(ctx, entity);
             return Err(err);
         }
     };
-    if !matches!(proto_value, JsValue::Object(_)) {
-        finalize_failure_shim(ctx, entity);
-        return Err(VmError::type_error(
-            "Custom element upgrade failed: constructor.prototype must be an object.",
-        ));
-    }
 
     // Phase 3: resolve / pre-publish the element wrapper.
     //
@@ -181,13 +181,13 @@ pub(crate) fn invoke_upgrade(ctx: &mut NativeContext<'_>, entity: Entity) -> Res
     // observer between this point and the HTMLElement ctor's
     // matching write inside the user-ctor body (cached-wrapper
     // lookup, document.querySelector, construction-stack peek) sees
-    // the correct prototype chain. This is a defense-in-depth
-    // idempotent write — the HTMLElement ctor's upgrade branch also
-    // calls `set_wrapper_prototype` and the proto_id derives from
-    // the same `constructor.prototype`, so SoT divergence is
-    // impossible.
+    // the correct prototype chain. Reuses the `proto_id` validated
+    // by the Phase 2 `Get` above so the user's accessor runs once
+    // per upgrade — re-reading here would duplicate side effects
+    // and (if the second read throws) skip the Failed mark on the
+    // mismatched error path (D-17b R2 G2).
     let wrapper_id = ctx.vm.create_element_wrapper(entity);
-    super::html_element::set_wrapper_prototype(ctx.vm, wrapper_id, constructor)?;
+    super::html_element::set_wrapper_prototype(ctx.vm, wrapper_id, proto_id);
 
     // Phase 4: state transition + construction-stack push + construct.
     {

@@ -769,6 +769,45 @@ fn define_rejects_non_html_element_ctor() {
 }
 
 #[test]
+fn registered_ctor_exposes_no_brand_symbol_to_js() {
+    // [C1] §3.2.3 step 5 reverse-map (new.target → constructor_id)
+    // lives on `HostData::ce_constructor_to_id` (host-side Rust
+    // state). Asserts that NO Symbol-keyed brand leaks onto the
+    // ctor JS object — replaces the earlier symbol-brand which
+    // `Object.getOwnPropertySymbols` could discover + copy to
+    // another ctor for spoofing (D-17b R2 G1).
+    let out = run("class MyEl extends HTMLElement {} \
+         customElements.define('my-el', MyEl); \
+         String(Object.getOwnPropertySymbols(MyEl).length);");
+    assert_eq!(
+        out, "0",
+        "registered CE ctor should expose no brand symbols; got Object.getOwnPropertySymbols length = {out}"
+    );
+}
+
+#[test]
+fn unregistered_ctor_cannot_spoof_registered_definition() {
+    // [C1] §3.2.3 step 5 reverse-map is keyed by host-side ObjectId
+    // with no JS-visible counterpart, so a user cannot copy/synthesize
+    // a brand onto an unregistered ctor to impersonate a registered
+    // one. `new Fake()` where Fake extends HTMLElement but was never
+    // `define`d must TypeError on the brand check (D-17b R2 G1 + G4
+    // joint regression).
+    let err = run_throws(
+        "class MyEl extends HTMLElement {} \
+         customElements.define('my-el', MyEl); \
+         class Fake extends HTMLElement {} \
+         const sym = Symbol('attacker-brand'); \
+         Object.defineProperty(Fake, sym, { value: 0, writable: false, configurable: false }); \
+         new Fake();",
+    );
+    assert!(
+        err.contains("not a registered custom element"),
+        "expected 'not a registered custom element' rejection; got: {err}"
+    );
+}
+
+#[test]
 fn define_accepts_deep_class_extends_chain() {
     // [C1] §3.2.3 HTMLConstructor brand walk is bounded by the
     // VM-wide `coerce::PROTO_CHAIN_LIMIT` (10_000), not a smaller

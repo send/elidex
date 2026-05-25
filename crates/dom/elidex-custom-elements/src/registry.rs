@@ -141,9 +141,21 @@ impl CustomElementRegistry {
         self.definitions.insert(name.clone(), definition);
         // Maintain reverse index for O(1) lookup_by_constructor.
         // Both maps are updated under a single fn so the
-        // parallel-invariant holds by construction.
-        self.constructor_id_to_name
+        // parallel-invariant holds by construction. The reverse
+        // insert MUST return None: callers mint `constructor_id`
+        // monotonically (D-17 binding-layer counter) so duplicates
+        // are unreachable today, but a future refactor that injects
+        // ids from elsewhere would silently overwrite the reverse
+        // index and corrupt `lookup_by_constructor`. Asserting
+        // None here makes the invariant explicit and catches drift
+        // in debug builds before it can alias to a wrong definition.
+        let prev = self
+            .constructor_id_to_name
             .insert(constructor_id, name.clone());
+        debug_assert!(
+            prev.is_none(),
+            "duplicate constructor_id {constructor_id} (previous name {prev:?})"
+        );
         // Return pending upgrades for this name (drain the queue).
         Ok(self.pending_upgrade.remove(&name).unwrap_or_default())
     }
