@@ -279,10 +279,16 @@ def cmd_heading(args: argparse.Namespace) -> None:
         _cmd_heading_tc39(args)
         return
     data = fetch_json(f"headings/{args.shortname}.json")
-    matches = [h for h in data.get("headings", []) if h.get("number", "").startswith(args.prefix)]
-    if not matches:
-        title = data.get("spec", {}).get("title", args.shortname)
-        sys.exit(f"webref: no headings under §{args.prefix} in {title}")
+    if args.exact:
+        matches = [h for h in data.get("headings", []) if h.get("number", "") == args.prefix]
+        if not matches:
+            title = data.get("spec", {}).get("title", args.shortname)
+            sys.exit(f"webref: no exact heading match for §{args.prefix} in {title}")
+    else:
+        matches = [h for h in data.get("headings", []) if h.get("number", "").startswith(args.prefix)]
+        if not matches:
+            title = data.get("spec", {}).get("title", args.shortname)
+            sys.exit(f"webref: no headings under §{args.prefix} in {title}")
     for h in matches:
         n = h.get("number", "")
         t = h.get("title", "")
@@ -310,12 +316,20 @@ def _sec_number_key(num: str) -> tuple:
 def _cmd_heading_tc39(args: argparse.Namespace) -> None:
     d = _tc39_biblio(args.shortname)
     location = d.get("location", "")
-    hits = [
-        e for e in d.get("entries", [])
-        if e.get("type") == "clause" and e.get("number", "").startswith(args.prefix)
-    ]
-    if not hits:
-        sys.exit(f"webref: no headings under §{args.prefix} in {args.shortname}")
+    if args.exact:
+        hits = [
+            e for e in d.get("entries", [])
+            if e.get("type") == "clause" and e.get("number", "") == args.prefix
+        ]
+        if not hits:
+            sys.exit(f"webref: no exact heading match for §{args.prefix} in {args.shortname}")
+    else:
+        hits = [
+            e for e in d.get("entries", [])
+            if e.get("type") == "clause" and e.get("number", "").startswith(args.prefix)
+        ]
+        if not hits:
+            sys.exit(f"webref: no headings under §{args.prefix} in {args.shortname}")
     hits.sort(key=lambda e: _sec_number_key(e.get("number", "")))
     for e in hits:
         n = e.get("number", "")
@@ -588,32 +602,36 @@ def _lookup_section(shortname: str, ref: str) -> tuple[str, str, str] | None:
 
 
 def _lookup_heading(shortname: str, prefix: str) -> tuple[str, str, str] | None:
-    """Return the first (number, title, anchor) for §prefix in `shortname`, or None."""
+    """Return (number, title, anchor) for §prefix in `shortname`, or None.
+
+    **Exact-match-preferred** semantics (drift-catch invariant): if a clause
+    with `number == prefix` exists, return it. Otherwise return None — even
+    if prefix-matches exist (e.g. §prefix.X children). Silently descending
+    to the first child made coverage-map / preflight verify accept drifted
+    or imprecise refs (`§4.13` silently resolving to `§4.13.1`). Callers
+    that want prefix listing should use `cmd_heading` directly (without
+    `--exact`), which preserves the CLI's documented prefix-listing semantics.
+    """
     if shortname in _TC39_FAMILY:
         try:
             d = _tc39_biblio(shortname)
         except NotFound:
             return None
         location = d.get("location", "")
-        hits = [
-            e for e in d.get("entries", [])
-            if e.get("type") == "clause" and e.get("number", "").startswith(prefix)
-        ]
-        if not hits:
-            return None
-        hits.sort(key=lambda e: _sec_number_key(e.get("number", "")))
-        e = hits[0]
-        return (e.get("number", ""), e.get("title", ""), f"{location}#{e.get('id','')}")
+        for e in d.get("entries", []):
+            if e.get("type") != "clause":
+                continue
+            if e.get("number", "") == prefix:
+                return (e.get("number", ""), e.get("title", ""), f"{location}#{e.get('id','')}")
+        return None
     try:
         data = fetch_json(f"headings/{shortname}.json")
     except NotFound:
         return None
-    matches = [h for h in data.get("headings", []) if h.get("number", "").startswith(prefix)]
-    if not matches:
-        return None
-    matches.sort(key=lambda h: _sec_number_key(h.get("number", "")))
-    h = matches[0]
-    return (h.get("number", ""), h.get("title", ""), f"#{h.get('id','')}")
+    for h in data.get("headings", []):
+        if h.get("number", "") == prefix:
+            return (h.get("number", ""), h.get("title", ""), f"#{h.get('id','')}")
+    return None
 
 
 def _lookup_aoid_first(shortname: str, name: str) -> tuple[str, str, str] | None:
@@ -737,6 +755,10 @@ def build_parser() -> argparse.ArgumentParser:
     h = sub.add_parser("heading", help="§number → title + anchor")
     h.add_argument("shortname", help="e.g. html, dom, css-overflow-3")
     h.add_argument("prefix", help="section number prefix, e.g. 4.13 or 4.12.5.3")
+    h.add_argument(
+        "--exact", action="store_true",
+        help="match the section number exactly (no prefix tree); use for drift-verify",
+    )
     h.set_defaults(func=cmd_heading)
 
     i = sub.add_parser("idl", help="interface IDL fragment")

@@ -70,8 +70,11 @@ PLAN_MEMO="$1"  # or substitute the absolute path
 REPO_ROOT=$(git rev-parse --show-toplevel)
 test -f "$REPO_ROOT/.claude/skills/elidex-review/axes.md" || { echo "axes.md missing at $REPO_ROOT/.claude/skills/elidex-review/axes.md" >&2; exit 1; }
 
-# Preflight: §3 Spec coverage map check (hard gate — aborts on missing §3 or citation drift)
-"$REPO_ROOT/.claude/skills/elidex-plan-review/preflight.py" "$PLAN_MEMO" || exit 1
+# Preflight: §3 Spec coverage map check (hard gate — aborts on missing §3 or citation drift).
+# Invoke via `python3` rather than relying on the script's exec bit / shebang
+# so the gate works on environments that don't preserve exec bits (Windows
+# git, some CI runners).
+python3 "$REPO_ROOT/.claude/skills/elidex-plan-review/preflight.py" "$PLAN_MEMO" || exit 1
 ```
 
 Preflight semantics:

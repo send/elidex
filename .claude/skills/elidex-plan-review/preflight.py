@@ -229,12 +229,17 @@ def shortname_from_label(label: str | None) -> str | None:
 
 
 def verify_citation(shortname: str, section: str) -> tuple[bool, str]:
-    """Invoke webref to verify citation. Returns (ok, message)."""
+    """Invoke webref to verify citation. Returns (ok, message).
+
+    Uses `webref heading --exact` so partial citations don't silently pass
+    via prefix-tree matching (e.g. `§4.13` passing because `§4.13.1` exists).
+    The drift-catch invariant is "section number = exact clause".
+    """
     if not WEBREF.is_file():
         return (False, f"webref tool missing at {WEBREF}")
     try:
         result = subprocess.run(
-            [str(WEBREF), "heading", shortname, section],
+            [str(WEBREF), "heading", "--exact", shortname, section],
             capture_output=True, text=True, timeout=30,
         )
     except subprocess.TimeoutExpired:
