@@ -126,6 +126,12 @@ pub(super) fn compile_class(
             local_count: 1, // slot 0 for args
             has_rest_param: true,
             is_class_ctor: true,
+            // Class constructors are always strict (ECMA-262 §15.7
+            // ClassBody is a strict-mode region). The synthesized
+            // body has no strict-vs-loose-divergent ops today, but
+            // setting the flag keeps the spec invariant explicit
+            // and protects against future op additions (D-17b R8).
+            is_strict: true,
             ..Default::default()
         };
         let idx = fc.add_constant(Constant::Function(Box::new(default_derived_ctor)));
@@ -139,6 +145,9 @@ pub(super) fn compile_class(
             bytecode: vec![Op::PushUndefined as u8, Op::Return as u8],
             name: class.name.map(|a| prog.interner.get_utf8(a)),
             is_class_ctor: true,
+            // Class constructors are always strict (ECMA-262 §15.7);
+            // see the matching note on the DERIVED synth above (D-17b R8).
+            is_strict: true,
             ..Default::default()
         };
         let idx = fc.add_constant(Constant::Function(Box::new(default_ctor)));

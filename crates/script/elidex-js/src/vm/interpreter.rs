@@ -108,9 +108,13 @@ impl VmInner {
         self.native_construct_stack.push(Some(new_target));
         let result = self.call_dispatch(func_obj_id, this, args);
         let popped = self.native_construct_stack.pop();
-        debug_assert!(
-            matches!(popped, Some(Some(_))),
-            "Vm::call_construct_native native_construct_stack push/pop mismatch (saw {popped:?})"
+        // Identity-strict pop check (was `matches!(_, Some(Some(_)))` —
+        // weaker form would miss new_target drift if some nested push
+        // mutated the stack-top entry. D-17b R8 strengthen.
+        debug_assert_eq!(
+            popped,
+            Some(Some(new_target)),
+            "Vm::call_construct_native native_construct_stack push/pop identity mismatch"
         );
         result
     }
