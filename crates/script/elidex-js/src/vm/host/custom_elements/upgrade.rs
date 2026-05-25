@@ -182,7 +182,20 @@ pub(crate) fn invoke_upgrade(ctx: &mut NativeContext<'_>, entity: Entity) -> Res
         }
     };
     let Some(constructor) = host.ce_constructors.get(&constructor_id).copied() else {
-        return Ok(());
+        // Invariant violation: registry's `prepare_upgrade` resolved
+        // the definition by `constructor_id`, but the host-side
+        // `ce_constructors` map (which stores the per-VM JS ObjectId
+        // for that id) has no entry. The two maps must move in
+        // lockstep (define.rs:121, vm_api.rs:654 unbind clear). A
+        // missing host entry means an unbind / GC race or a missed
+        // rollback — mark the entity Failed so it does NOT re-enqueue
+        // indefinitely (D-17b R16 G16-1, mirrors R12 G12-1 for the
+        // analogous Phase 1 lookup failure).
+        finalize_failure_shim(ctx, entity);
+        return Err(VmError::internal(
+            "invoke_upgrade: host.ce_constructors missing entry for constructor_id \
+             resolved by prepare_upgrade — registry/host invariant violated",
+        ));
     };
 
     // Phase 2: validate `constructor.prototype` is an Object. The
