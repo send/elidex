@@ -234,12 +234,16 @@ def verify_citation(shortname: str, section: str) -> tuple[bool, str]:
     Uses `webref heading --exact` so partial citations don't silently pass
     via prefix-tree matching (e.g. `§4.13` passing because `§4.13.1` exists).
     The drift-catch invariant is "section number = exact clause".
+
+    Invokes webref via `sys.executable` (mirrors SKILL.md's `python3 path`
+    pattern) so verify works on environments that don't preserve exec bits
+    (Windows git, some CI runners) — same defensive choice as F12.
     """
     if not WEBREF.is_file():
         return (False, f"webref tool missing at {WEBREF}")
     try:
         result = subprocess.run(
-            [str(WEBREF), "heading", "--exact", shortname, section],
+            [sys.executable, str(WEBREF), "heading", "--exact", shortname, section],
             capture_output=True, text=True, timeout=30,
         )
     except subprocess.TimeoutExpired:
@@ -302,39 +306,51 @@ def main() -> int:
               file=sys.stderr)
         return 1
 
+    # Distinguish two unparseable modes:
+    #   - malformed:  row has no `§<number>` reference at all → hard-fail
+    #     candidate (truly malformed §3 cell)
+    #   - unmapped:   row has `§<number>` but the label isn't in
+    #     SPEC_LABEL_REVERSE → soft-warn (verify skipped, but row still
+    #     counts toward breadth so author intent isn't masked)
     specs_seen: dict[str, int] = {}
-    unparseable = 0
-    citations: list[tuple[str, str]] = []  # (shortname, section) per row
+    malformed_rows = 0
+    unmapped_rows = 0
+    citations: list[tuple[str, str]] = []
     unrecognized_labels: list[str] = []
+    unique_specs: set[str] = set()  # K basis (mapped shortname OR unmapped label)
     for row in data_rows:
         if not row:
             continue
         spec_cell = row[0] if row else ""
         label, section_num = parse_spec_cell(spec_cell)
         if section_num is None:
-            unparseable += 1
+            malformed_rows += 1
             continue
         shortname = shortname_from_label(label)
         if shortname is None:
             unrecognized_labels.append(label or "<empty>")
-            unparseable += 1
+            unmapped_rows += 1
+            unique_specs.add(f"unmapped:{label}" if label else "unmapped:<empty>")
             continue
         specs_seen[shortname] = specs_seen.get(shortname, 0) + 1
         citations.append((shortname, section_num))
+        unique_specs.add(shortname)
 
-    # Breadth = author's intent surface (total data rows). Verification
-    # success (parsed_count) is reported separately. A plan with many
-    # unparseable rows still represents wide scope — the split-decision
-    # verdict should reflect that even before the rows are made parseable.
-    K = len(specs_seen)
+    # Breadth = author's intent surface (total data rows). Both verification
+    # success (parsed_count) and unmapped rows are reported separately.
+    # `K` counts unique spec identifiers including unmapped labels — a plan
+    # citing "WHATWG XR §1" alongside "ECMA-262 §15" represents two distinct
+    # specs regardless of whether the labels map to webref shortnames.
+    K = len(unique_specs)
     M = len(data_rows)
     parsed_count = sum(specs_seen.values())
 
-    # Hard-fail when the table has rows but none parsed into a verifiable
-    # citation — this catches malformed §3 tables (missing `§...` in Spec
-    # cell, extra leading column shifting Spec into column 1's tail, etc.)
-    # that would otherwise silently bypass the hard gate.
-    citations_empty_hard_fail = (len(data_rows) > 0 and parsed_count == 0)
+    # Hard-fail only when ALL rows are truly malformed (no `§<number>`
+    # reference at all). Unmapped labels are soft-warn (verify skipped per
+    # row, table still counts toward breadth) — matches the spec-coverage
+    # design intent: the table's structural integrity is the hard gate,
+    # label mapping is a verification depth choice.
+    citations_empty_hard_fail = (len(data_rows) > 0 and malformed_rows == len(data_rows))
 
     verify_failed: list[tuple[str, str, str]] = []
     seen_pairs: set[tuple[str, str]] = set()
@@ -353,9 +369,13 @@ def main() -> int:
     print(f"  heading line:         {heading_line + 1}")
     print(f"  total entries  (M):   {M}  (data rows, breadth basis)")
     print(f"  parsed citations:     {parsed_count}")
-    print(f"  unparseable rows:     {unparseable}")
+    print(f"  malformed rows:       {malformed_rows}  (no §<number> reference)")
+    print(f"  unmapped-label rows:  {unmapped_rows}  (has §<number>, label not in SPEC_LABEL_REVERSE)")
+    displayed_specs = sorted(specs_seen)
+    if unrecognized_labels:
+        displayed_specs.extend(f"<{lbl}>" for lbl in sorted(set(unrecognized_labels)))
     print(f"  unique specs (K):     {K} "
-          f"({', '.join(sorted(specs_seen)) if specs_seen else '-'})")
+          f"({', '.join(displayed_specs) if displayed_specs else '-'})")
 
     if unrecognized_labels:
         print(f"  unrecognized labels:  {sorted(set(unrecognized_labels))}")
@@ -382,13 +402,13 @@ def main() -> int:
             print(f"⚠ citation verification — {len(verify_failed)} failure(s):")
             for shortname, section_num, msg in verify_failed:
                 print(f"  - {shortname} §{section_num}: {msg}")
-        else:
+        elif seen_pairs:
             print(f"  citation verify:      ok ({len(seen_pairs)} unique citation(s) checked)")
 
     if citations_empty_hard_fail:
         print()
-        print(f"preflight: ❌ HARD FAIL — table has {len(data_rows)} data row(s) "
-              f"but 0 parsed citations.", file=sys.stderr)
+        print(f"preflight: ❌ HARD FAIL — all {len(data_rows)} data row(s) "
+              f"missing `§<number>` reference.", file=sys.stderr)
         print("  Spec section cells must contain `§<number>` (e.g. "
               "`ECMA-262 §15.7.14 ...`).", file=sys.stderr)
         print("  Run `.claude/tools/webref coverage-map <spec> <ref> ...` "
