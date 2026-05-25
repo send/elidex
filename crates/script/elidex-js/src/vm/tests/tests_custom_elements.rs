@@ -789,6 +789,24 @@ fn define_rejects_non_html_element_ctor() {
 }
 
 #[test]
+fn define_rejects_html_element_itself() {
+    // [C1] §3.2.3 + HTML §4.13.4 brand check: a registered CE ctor
+    // must EXTEND HTMLElement, not BE HTMLElement itself. The chain
+    // walk trivially finds HTMLElement in its own [[Prototype]] chain
+    // at hop 0, so without an explicit check
+    // `define('x-a', HTMLElement)` would pass and only fail later at
+    // sync-construct / upgrade via the illegal-direct-ctor branch
+    // ([C1] step 1). Surface the constraint at define-time
+    // (D-17b R10 G10-1).
+    let err = run_throws("customElements.define('x-a', HTMLElement);");
+    assert!(
+        err.contains("must extend HTMLElement, not be HTMLElement itself")
+            || err.contains("HTMLElement itself"),
+        "expected reject-HTMLElement-itself TypeError, got: {err}"
+    );
+}
+
+#[test]
 fn registered_ctor_exposes_no_brand_symbol_to_js() {
     // [C1] §3.2.3 step 5 reverse-map (new.target → constructor_id)
     // lives on `HostData::ce_constructor_to_id` (host-side Rust

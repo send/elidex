@@ -292,6 +292,18 @@ pub(crate) fn validate_html_element_constructor_chain(
              (register_html_element_constructor must run before define)",
         )
     })?;
+    // Reject `customElements.define(name, HTMLElement)` at define-time
+    // rather than letting it pass the chain walk (HTMLElement trivially
+    // appears in its own prototype chain at hop 0) only to fail later
+    // at sync-construct / upgrade time via the [\[C1\] step 1
+    // illegal-ctor branch. Surface the constraint where the user can
+    // act on it (D-17b R10 G10-1).
+    if ctor_id == html_ctor {
+        return Err(VmError::type_error(
+            "Failed to execute 'define' on 'CustomElementRegistry': \
+             constructor must extend HTMLElement, not be HTMLElement itself.",
+        ));
+    }
     let mut current = Some(ctor_id);
     for _ in 0..super::super::super::coerce::PROTO_CHAIN_LIMIT {
         match current {

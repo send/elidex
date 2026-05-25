@@ -47,7 +47,16 @@ struct ConstructionStackGuard {
 impl ConstructionStackGuard {
     fn push(registry: Arc<Mutex<CustomElementRegistry>>, name: String, entity: Entity) -> Self {
         {
-            let mut reg = registry.lock().expect("CE registry mutex poisoned");
+            // Poison-tolerant lock, matching the `Drop` branch below:
+            // the CE registry is per-VM and single-threaded so any
+            // poison flag is from our own prior unwinding scope, not a
+            // cross-thread data-race signal. Refusing to push under
+            // poison would defeat the guard (no entry to pop later)
+            // and leave a re-entrant `catch_unwind` embedder stuck.
+            // One-issue-one-way with `Drop` — D-17b R10 G10-2.
+            let mut reg = registry
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             reg.push_construction_stack(&name, entity);
         }
         Self { registry, name }
@@ -311,8 +320,10 @@ mod tests {
         let mut dom = EcsDom::new();
         let entity = dom.create_element("test-el", elidex_ecs::Attributes::default());
 
-        // Push BEFORE poisoning (`push` uses `.expect` on the lock;
-        // the invariant under test is `Drop`, not `push`).
+        // Push BEFORE poisoning — this test pre-dates the R10 G10-2
+        // push-side poison tolerance; for the post-poison push case
+        // see `construction_stack_guard_push_under_poisoned_mutex`
+        // below.
         let guard =
             ConstructionStackGuard::push(Arc::clone(&registry), "test-el".to_string(), entity);
 
@@ -337,6 +348,51 @@ mod tests {
         assert!(
             reg.peek_construction_stack("test-el").is_none(),
             "ConstructionStackGuard::drop must pop even when mutex is poisoned"
+        );
+    }
+
+    #[test]
+    fn construction_stack_guard_push_under_poisoned_mutex() {
+        // R10 G10-2 regression: `push` previously used `.expect()` on
+        // the lock and panicked on poison, while `Drop` had recovery
+        // via `unwrap_or_else(PoisonError::into_inner)`. Asymmetric —
+        // an embedder's `catch_unwind` recovering from a CE-ctor
+        // panic would leave the mutex poisoned, then the next
+        // upgrade attempt's `push` would re-panic instead of running.
+        // After G10-2 both ends recover; this test exercises the push
+        // side specifically.
+        let registry = Arc::new(Mutex::new(CustomElementRegistry::new()));
+        let def = CustomElementDefinition::new("test-el".to_string(), 1, Vec::new(), None);
+        registry.lock().unwrap().define(def).unwrap();
+
+        // Poison FIRST (no prior guard outstanding).
+        let r_clone = Arc::clone(&registry);
+        let _ = catch_unwind(AssertUnwindSafe(|| {
+            let _g = r_clone.lock().unwrap();
+            panic!("intentional poison before push");
+        }));
+        assert!(registry.is_poisoned(), "registry mutex should be poisoned");
+
+        let mut dom = EcsDom::new();
+        let entity = dom.create_element("test-el", elidex_ecs::Attributes::default());
+
+        // `push` MUST recover from poison (no panic) and successfully
+        // record the entry. Drop then pops it.
+        let guard =
+            ConstructionStackGuard::push(Arc::clone(&registry), "test-el".to_string(), entity);
+        {
+            let reg = registry.lock().unwrap_or_else(PoisonError::into_inner);
+            assert_eq!(
+                reg.peek_construction_stack("test-el"),
+                Some(&ConstructionStackEntry::Element(entity)),
+                "push must record the entry even under poisoned mutex"
+            );
+        }
+        drop(guard);
+        let reg = registry.lock().unwrap_or_else(PoisonError::into_inner);
+        assert!(
+            reg.peek_construction_stack("test-el").is_none(),
+            "guard drop must pop the post-poison push"
         );
     }
 }
