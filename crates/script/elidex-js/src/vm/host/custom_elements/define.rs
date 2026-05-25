@@ -12,6 +12,7 @@ use super::require_ce_registry_receiver;
 
 const MAX_OBSERVED_ATTRIBUTES: usize = 1000;
 
+#[allow(clippy::too_many_lines)] // step-by-step HTML §4.13.4 algorithm walk; splitting would obscure the spec correspondence
 pub(crate) fn native_ce_define(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -54,17 +55,47 @@ pub(crate) fn native_ce_define(
         }
     };
 
-    // 2b. HTMLConstructor brand check ([C1] §3.2.3 — invoked from
-    // [C3] §4.13.4 `define` algorithm). The ctor's `[[Prototype]]`
-    // chain must reach `globalThis.HTMLElement`; otherwise the
-    // sync-construct + upgrade paths skip the prototype splice and
-    // the resulting wrapper's chain is broken (Test #2
-    // `instanceof_post_upgrade` would fail at upgrade-time despite
-    // define succeeding). Cycle-safe via the depth-bound walk in
-    // `html_element::validate_html_element_constructor_chain`.
-    super::html_element::validate_html_element_constructor_chain(ctx.vm, ctor_id)?;
+    // 2. HTML §4.13.4 step 2: validate `name` against the custom
+    // element production. Runs BEFORE the brand check (2b) and
+    // duplicate-constructor check (2d) so an invalid name throws
+    // SyntaxError regardless of constructor shape (D-17b R14 G14-1
+    // spec-ordering fix — the brand check would otherwise preempt
+    // and throw TypeError on `define('x', class {})`).
+    if !elidex_custom_elements::is_valid_custom_element_name(&name) {
+        return Err(VmError::dom_exception(
+            ctx.vm.well_known.dom_exc_syntax_error,
+            format!(
+                "Failed to execute 'define' on 'CustomElementRegistry': \
+                 \"{name}\" is not a valid custom element name."
+            ),
+        ));
+    }
 
-    // 2c. HTML §4.13.4 step 4: reject re-use of the same constructor
+    // 2a. HTML §4.13.4 step 3: name already registered → NotSupportedError.
+    // Early peek via `CustomElementRegistry::is_defined` so this fires
+    // BEFORE the brand check (per spec ordering); the registry's own
+    // `AlreadyDefined` check at `registry.define()` below is the
+    // authoritative gate (defense-in-depth — won't fire after this
+    // early peek + the host-bound lock-once discipline).
+    let already_defined = {
+        let registry = ctx
+            .host()
+            .ce_registry
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        registry.is_defined(&name)
+    };
+    if already_defined {
+        return Err(VmError::dom_exception(
+            ctx.vm.well_known.dom_exc_not_supported_error,
+            format!(
+                "Failed to execute 'define' on 'CustomElementRegistry': \
+                 the name \"{name}\" has already been defined as a custom element."
+            ),
+        ));
+    }
+
+    // 2b. HTML §4.13.4 step 4: reject re-use of the same constructor
     // with this registry. The reverse map `ce_constructor_to_id`
     // (D-17b R2 G1) is the SoT for "is this ctor already registered?"
     // — used by `native_html_element_ctor` to resolve `new.target` →
@@ -80,6 +111,19 @@ pub(crate) fn native_ce_define(
              this constructor has already been used with this registry.",
         ));
     }
+
+    // 2c. HTMLConstructor brand check ([C1] §3.2.3 — invoked from
+    // [C3] §4.13.4 `define` algorithm). The ctor's `[[Prototype]]`
+    // chain must reach `globalThis.HTMLElement`; otherwise the
+    // sync-construct + upgrade paths skip the prototype splice and
+    // the resulting wrapper's chain is broken (Test #2
+    // `instanceof_post_upgrade` would fail at upgrade-time despite
+    // define succeeding). Runs AFTER spec steps 2-4 so name /
+    // dup-name / dup-ctor errors surface with the spec-mandated
+    // SyntaxError / NotSupportedError instead of being preempted by
+    // a TypeError (D-17b R14 G14-1). Cycle-safe via the depth-bound
+    // walk in `html_element::validate_html_element_constructor_chain`.
+    super::html_element::validate_html_element_constructor_chain(ctx.vm, ctor_id)?;
 
     // 3. options.extends — v1 rejects customized built-in elements via
     //    NotSupportedError (`#11-customized-built-in-elements` defer
