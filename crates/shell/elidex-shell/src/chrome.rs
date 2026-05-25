@@ -85,15 +85,15 @@ impl ChromeState {
     /// Build the chrome UI and return any action requested by the user.
     pub fn build(
         &mut self,
-        ctx: &egui::Context,
+        ui: &mut egui::Ui,
         can_go_back: bool,
         can_go_forward: bool,
     ) -> Option<ChromeAction> {
         let mut action = None;
 
-        egui::TopBottomPanel::top("chrome_bar")
-            .exact_height(CHROME_HEIGHT)
-            .show(ctx, |ui| {
+        egui::Panel::top("chrome_bar")
+            .exact_size(CHROME_HEIGHT)
+            .show_inside(ui, |ui| {
                 ui.horizontal_centered(|ui| {
                     // Back button.
                     let back_btn = ui.add_enabled(can_go_back, egui::Button::new("<"));
@@ -137,14 +137,14 @@ impl ChromeState {
 ///
 /// Renders either a horizontal top panel or a side panel depending on `position`.
 pub fn build_tab_bar(
-    ctx: &egui::Context,
+    ui: &mut egui::Ui,
     tabs: &[TabBarInfo],
     position: TabBarPosition,
 ) -> Option<ChromeAction> {
     match position {
-        TabBarPosition::Top => build_tab_bar_top(ctx, tabs),
-        TabBarPosition::Left => build_tab_bar_side(ctx, tabs, "tab_sidebar_left", true),
-        TabBarPosition::Right => build_tab_bar_side(ctx, tabs, "tab_sidebar_right", false),
+        TabBarPosition::Top => build_tab_bar_top(ui, tabs),
+        TabBarPosition::Left => build_tab_bar_side(ui, tabs, "tab_sidebar_left", true),
+        TabBarPosition::Right => build_tab_bar_side(ui, tabs, "tab_sidebar_right", false),
     }
 }
 
@@ -169,12 +169,12 @@ fn render_tab_button(
     None
 }
 
-fn build_tab_bar_top(ctx: &egui::Context, tabs: &[TabBarInfo]) -> Option<ChromeAction> {
+fn build_tab_bar_top(ui: &mut egui::Ui, tabs: &[TabBarInfo]) -> Option<ChromeAction> {
     let mut action = None;
 
-    egui::TopBottomPanel::top("tab_bar")
-        .exact_height(TAB_BAR_HEIGHT)
-        .show(ctx, |ui| {
+    egui::Panel::top("tab_bar")
+        .exact_size(TAB_BAR_HEIGHT)
+        .show_inside(ui, |ui| {
             ui.horizontal_centered(|ui| {
                 for tab in tabs {
                     if let Some(a) = render_tab_button(ui, tab, 20) {
@@ -194,7 +194,7 @@ fn build_tab_bar_top(ctx: &egui::Context, tabs: &[TabBarInfo]) -> Option<ChromeA
 }
 
 fn build_tab_bar_side(
-    ctx: &egui::Context,
+    ui: &mut egui::Ui,
     tabs: &[TabBarInfo],
     panel_id: &str,
     is_left: bool,
@@ -203,12 +203,12 @@ fn build_tab_bar_side(
 
     let id = egui::Id::new(panel_id);
     let panel = if is_left {
-        egui::SidePanel::left(id)
+        egui::Panel::left(id)
     } else {
-        egui::SidePanel::right(id)
+        egui::Panel::right(id)
     };
 
-    panel.exact_width(TAB_SIDEBAR_WIDTH).show(ctx, |ui| {
+    panel.exact_size(TAB_SIDEBAR_WIDTH).show_inside(ui, |ui| {
         for tab in tabs {
             ui.horizontal(|ui| {
                 if let Some(a) = render_tab_button(ui, tab, 25) {

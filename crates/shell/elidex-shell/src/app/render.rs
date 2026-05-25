@@ -42,7 +42,7 @@ pub(super) fn try_init_render_state(event_loop: &ActiveEventLoop) -> Option<Rend
     // Now show the window.
     window.set_visible(true);
 
-    let instance = Instance::new(&InstanceDescriptor::default());
+    let instance = Instance::new(InstanceDescriptor::new_without_display_handle_from_env());
     let surface = instance
         .create_surface(Arc::clone(&window))
         .inspect_err(|e| eprintln!("Failed to create wgpu surface: {e}"))
@@ -218,7 +218,7 @@ fn render_egui_output(
 fn with_frame<T: Default>(
     state: &mut RenderState,
     display_list: &DisplayList,
-    egui_fn: impl FnOnce(&egui::Context) -> T,
+    egui_fn: impl FnOnce(&mut egui::Ui) -> T,
 ) -> T {
     let width = state.gpu.surface_config.width;
     let height = state.gpu.surface_config.height;
@@ -243,19 +243,20 @@ fn with_frame<T: Default>(
     };
 
     // Get the surface frame.
+    // wgpu 29: get_current_texture() returns CurrentSurfaceTexture enum (not Result).
     let frame = match state.surface.get_current_texture() {
-        Ok(f) => f,
-        Err(wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost) => {
+        wgpu::CurrentSurfaceTexture::Success(f) | wgpu::CurrentSurfaceTexture::Suboptimal(f) => f,
+        wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
             state.gpu.reconfigure(&state.surface);
             state.window.request_redraw();
             return T::default();
         }
-        Err(wgpu::SurfaceError::Timeout) => {
+        wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
             state.window.request_redraw();
             return T::default();
         }
-        Err(e) => {
-            eprintln!("Surface error: {e}");
+        wgpu::CurrentSurfaceTexture::Validation => {
+            eprintln!("Surface validation error");
             return T::default();
         }
     };
@@ -279,9 +280,9 @@ fn with_frame<T: Default>(
     let raw_input = state.egui_state.take_egui_input(&state.window);
     let mut result = T::default();
     let mut egui_fn = Some(egui_fn);
-    let full_output = state.egui_ctx.run(raw_input, |ctx| {
+    let full_output = state.egui_ctx.run_ui(raw_input, |ui| {
         if let Some(f) = egui_fn.take() {
-            result = f(ctx);
+            result = f(ui);
         }
     });
 
@@ -305,14 +306,14 @@ pub(super) fn handle_redraw_with_tabs(
     tab_infos: &[crate::chrome::TabBarInfo],
     tab_position: crate::chrome::TabBarPosition,
 ) -> Vec<crate::chrome::ChromeAction> {
-    with_frame(state, display_list, |ctx| {
+    with_frame(state, display_list, |ui| {
         let mut actions = Vec::new();
         // Tab bar (must be added before chrome bar for correct Top layout).
-        if let Some(action) = crate::chrome::build_tab_bar(ctx, tab_infos, tab_position) {
+        if let Some(action) = crate::chrome::build_tab_bar(ui, tab_infos, tab_position) {
             actions.push(action);
         }
         // Chrome bar (address + nav buttons).
-        if let Some(action) = chrome.build(ctx, can_go_back, can_go_forward) {
+        if let Some(action) = chrome.build(ui, can_go_back, can_go_forward) {
             actions.push(action);
         }
         actions
@@ -331,7 +332,7 @@ pub(super) fn handle_redraw(
     can_go_back: bool,
     can_go_forward: bool,
 ) -> Option<crate::chrome::ChromeAction> {
-    with_frame(state, display_list, |ctx| {
-        chrome.and_then(|chrome| chrome.build(ctx, can_go_back, can_go_forward))
+    with_frame(state, display_list, |ui| {
+        chrome.and_then(|chrome| chrome.build(ui, can_go_back, can_go_forward))
     })
 }
