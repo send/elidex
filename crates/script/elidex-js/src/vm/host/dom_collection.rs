@@ -737,8 +737,8 @@ pub(crate) fn try_indexed_get(
             }
         }
         JsValue::String(sid) => {
-            // Canonical array-index parse (ES §6.1.7 "array index" /
-            // §7.1.21 CanonicalNumericIndexString): rejects
+            // Canonical array-index parse (ECMA-262 §7.1.22
+            // CanonicalNumericIndexString): rejects
             // non-canonical forms like "01" / "+1" / "1.0" so
             // `coll['01']` does NOT alias `coll[1]`.  Reuses the
             // shared `parse_array_index_u32` helper that already

@@ -1,4 +1,4 @@
-//! Array.prototype higher-order, iterator, and static methods (ES2020 §22.1).
+//! Array.prototype higher-order, iterator, and static methods (ECMA-262 §23.1).
 //!
 //! Mutator and accessor methods live in `natives_array.rs`.
 
@@ -440,7 +440,7 @@ fn create_array_iterator(
 /// Drain an iterator into a `Vec`, optionally applying a map function.
 /// Delegates to `VmInner::iter_next` for spec-compliant protocol handling.
 ///
-/// §7.4.6: any abrupt completion *after* `.next()` succeeded (e.g.
+/// §7.4.11: any abrupt completion *after* `.next()` succeeded (e.g.
 /// `mapFn` throws, or the result exceeds `DENSE_ARRAY_LEN_LIMIT`) must
 /// call `IteratorClose` on the iterator.  If that `.return()` itself
 /// throws, its error takes precedence over the original abrupt.  An
@@ -476,7 +476,7 @@ fn drain_iterator(
 
 /// Helper: close `iter_val` via `.return()` and return the higher-
 /// precedence error — a throw from `.return()` wins over the triggering
-/// abrupt completion (§7.4.6 IteratorClose step 6-7).
+/// abrupt completion (§7.4.11 IteratorClose step 6-7).
 fn close_with_precedence(
     ctx: &mut NativeContext<'_>,
     iter_val: JsValue,
@@ -500,7 +500,7 @@ pub(super) fn native_array_from(
     let this_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
 
     if matches!(items, JsValue::Object(_) | JsValue::String(_)) {
-        // ES2020 §7.3.9 GetMethod: treat null/undefined @@iterator as absent.
+        // ECMA-262 §7.3.10 GetMethod: treat null/undefined @@iterator as absent.
         let has_iterator = match items {
             JsValue::Object(obj_id) => {
                 let iter_key = PropertyKey::Symbol(ctx.vm.well_known_symbols.iterator);

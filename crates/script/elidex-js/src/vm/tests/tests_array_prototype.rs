@@ -1,4 +1,4 @@
-//! Tests for Array.prototype methods and Array static methods (ES2020 §22.1).
+//! Tests for Array.prototype methods and Array static methods (ECMA-262 §23.1).
 
 use super::{eval_bool, eval_number, eval_string, eval_throws};
 
@@ -343,7 +343,7 @@ fn array_to_locale_string() {
 
 #[test]
 fn array_to_locale_string_forwards_reserved_args() {
-    // §22.1.3.30 step 6: per-element `Invoke(elem, "toLocaleString",
+    // §23.1.3.32 step 6: per-element `Invoke(elem, "toLocaleString",
     // « locales, options »)` must forward the reserved args.
     assert_eq!(
         eval_string(
@@ -358,7 +358,7 @@ fn array_to_locale_string_forwards_reserved_args() {
 
 #[test]
 fn array_to_locale_string_passes_exactly_two_args_to_override() {
-    // §22.1.3.30 step 6: per-element `Invoke` always passes
+    // §23.1.3.32 step 6: per-element `Invoke` always passes
     // exactly « locales, options ».  Extra caller args must not
     // reach the override; missing args are undefined-padded.
     assert_eq!(
@@ -379,7 +379,7 @@ fn array_to_locale_string_passes_exactly_two_args_to_override() {
 
 #[test]
 fn array_to_locale_string_throws_on_non_callable_method() {
-    // Spec `Invoke` (§7.3.16) throws TypeError when the resolved
+    // Spec `Invoke` (§7.3.20) throws TypeError when the resolved
     // method is non-callable; silent ToString fallback would mask
     // the user mistake.
     let result = super::eval(

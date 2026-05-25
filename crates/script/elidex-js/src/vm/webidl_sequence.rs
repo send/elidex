@@ -3,7 +3,7 @@
 //! Shared replacement for hand-rolled `sequence<T>` converters. Each
 //! site previously inlined the same four pieces — `@@iterator`
 //! resolution, `iter_next` loop, abrupt-completion `IteratorClose`
-//! (§7.4.6), and a per-call cap — with subtle drift between copies
+//! (§7.4.11), and a per-call cap — with subtle drift between copies
 //! (notably the dense-`ObjectKind::Array` fast path, which skips
 //! `Array.prototype[@@iterator]` overrides in violation of §3.10.16
 //! step 4).
@@ -39,7 +39,7 @@ pub(crate) struct SeqMessages<'a> {
     /// non-Object value (ES `GetIterator` step 5).
     pub iter_not_object: &'a str,
     /// Thrown when the iterator yields more than `cap` items.  Custom
-    /// iterables' `.return()` cleanup runs first per §7.4.6.
+    /// iterables' `.return()` cleanup runs first per §7.4.11.
     pub cap_exceeded: &'a str,
 }
 
@@ -49,7 +49,7 @@ pub(crate) struct SeqMessages<'a> {
 /// `validator` receives `(ctx, index, value)` so per-element errors can
 /// reference the failing index. A validator throw triggers
 /// `IteratorClose` on the iterator before propagation; a `.return()`
-/// throw takes precedence per §7.4.6 step 6-7.
+/// throw takes precedence per §7.4.11 step 6-7.
 ///
 /// **GC invariant.** `validator` must not trigger GC — each `JsValue`
 /// yielded by `iter_next` is held only as a Rust local until the
@@ -110,8 +110,9 @@ where
     let mut out: Vec<T> = Vec::new();
     let mut index = 0usize;
     loop {
-        // `iter_next`'s own throw closes the iterator per ES §7.4.6;
-        // propagate without invoking `.return()`.
+        // `iter_next`'s own throw — per ECMA-262 §7.4.9 / §7.4.10 (IteratorStep /
+        // IteratorStepValue), the spec sets `iteratorRecord.[[Done]] = true` and
+        // propagates the completion WITHOUT invoking `IteratorClose` / `.return()`.
         let Some(elem) = ctx.vm.iter_next(iter)? else {
             return Ok(out);
         };

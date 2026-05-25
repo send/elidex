@@ -1,5 +1,5 @@
 //! `DataView` ctor + accessor / per-type getter / setter tests
-//! (ES2024 §25.3, originally PR5-typed-array C5).
+//! (ECMA-262 §25.3, originally PR5-typed-array C5).
 //!
 //! Covers: ctor argument validation (non-buffer / out-of-range
 //! offset+length → TypeError / RangeError), default-byte-length

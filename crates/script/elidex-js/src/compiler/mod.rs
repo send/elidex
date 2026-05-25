@@ -56,7 +56,7 @@ pub fn compile(
     let mut fc = FunctionCompiler::new(0, 0, is_strict);
     fc.name = Some("<script>".to_string());
 
-    // Initialize var-declared locals to undefined (ES2020 §10.1.1.6).
+    // Initialize var-declared locals to undefined (ECMA-262 §10.2.11 FunctionDeclarationInstantiation).
     // Sort by slot index for deterministic bytecode output.
     let mut var_slots: Vec<u16> = func_scopes[0]
         .locals

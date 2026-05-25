@@ -158,7 +158,7 @@ fn native_byte_length_queuing_strategy_size(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let chunk = args.first().copied().unwrap_or(JsValue::Undefined);
-    // GetV(V, P) (§7.3.2): boxes primitives via ToObject for the
+    // GetV(V, P) (§7.3.3): boxes primitives via ToObject for the
     // property *lookup*, but the call receiver of any accessor
     // getter stays the original primitive.  Mirrors the pattern
     // in `typed_array_methods.rs::to_locale_string`.

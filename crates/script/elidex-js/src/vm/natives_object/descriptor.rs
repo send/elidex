@@ -54,14 +54,14 @@ pub(in super::super) fn native_object_define_property(
         let has_accessor = has_get.is_some() || has_set.is_some();
         let has_data = has_value.is_some() || has_writable.is_some();
 
-        // §9.1.6.3 step 2: mixing accessor and data fields is a TypeError.
+        // §10.1.6.3 step 2: mixing accessor and data fields is a TypeError.
         if has_accessor && has_data {
             return Err(VmError::type_error(
                 "Invalid property descriptor. Cannot both specify accessors and a value or writable attribute",
             ));
         }
 
-        // §9.1.6.3 step 7-8: get/set must be callable or undefined.
+        // §10.1.6.3 step 7-8: get/set must be callable or undefined.
         let validate_accessor =
             |v: JsValue, role: &str| -> Result<Option<super::super::value::ObjectId>, VmError> {
                 match v {
@@ -131,7 +131,7 @@ pub(in super::super) fn native_object_define_property(
         ));
     };
 
-    // §9.1.6.3: Validate attribute changes against existing non-configurable property.
+    // §10.1.6.3: Validate attribute changes against existing non-configurable property.
     if let Some(existing) = ctx
         .get_object(obj_id)
         .storage
@@ -185,7 +185,7 @@ pub(in super::super) fn native_object_define_property(
                     }
                 }
                 // Non-configurable accessor: cannot change getter or setter
-                // unless SameValue (§9.1.6.3 step 11).
+                // unless SameValue (§10.1.6.3 step 11).
                 (
                     super::super::value::PropertyValue::Accessor {
                         getter: eg,
@@ -264,7 +264,7 @@ pub(in super::super) fn native_object_define_property(
             }
         }
     } else {
-        // New property — reject if non-extensible (§9.1.6.3 step 2.a).
+        // New property — reject if non-extensible (§10.1.6.3 step 2.a).
         if !ctx.get_object(obj_id).extensible {
             return Err(VmError::type_error(
                 "Cannot define property on a non-extensible object",
@@ -348,7 +348,7 @@ fn build_data_descriptor(
     desc_id
 }
 
-/// `Object.getOwnPropertyDescriptor(obj, prop)` — ES2020 §19.1.2.8
+/// `Object.getOwnPropertyDescriptor(obj, prop)` — ECMA-262 §20.1.2.8
 pub(in super::super) fn native_object_get_own_property_descriptor(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -452,14 +452,14 @@ pub(in super::super) fn native_object_get_own_property_descriptor(
     Ok(JsValue::Object(desc_id))
 }
 
-/// `Object.getOwnPropertyNames(obj)` — ES2020 §19.1.2.8
+/// `Object.getOwnPropertyNames(obj)` — ECMA-262 §20.1.2.10
 pub(in super::super) fn native_object_get_own_property_names(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let obj_id = to_object_arg(ctx, args)?;
-    // §9.1.11.1 OrdinaryOwnPropertyKeys: array element indices (ascending),
+    // §10.1.11.1 OrdinaryOwnPropertyKeys: array element indices (ascending),
     // then named property indices (ascending), then other string keys
     // (insertion order). Non-string keys (symbols) are excluded.
     let elem_indices: Vec<usize> = match &ctx.get_object(obj_id).kind {

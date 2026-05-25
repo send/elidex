@@ -592,7 +592,7 @@ pub(crate) fn try_indexed_get(
             Some((owner, qname_sid))
         }
         JsValue::String(sid) => {
-            // Canonical array-index parse (ES §6.1.7 / §7.1.21):
+            // Canonical array-index parse (ECMA-262 §7.1.22 CanonicalNumericIndexString):
             // rejects "01" / "+1" / "1.0" so `attrs['01']` falls
             // through to attribute-name lookup rather than aliasing
             // `attrs[1]`.  Mirrors the HTMLCollection / NodeList

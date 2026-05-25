@@ -351,7 +351,7 @@ impl NodeFilterResult {
     ///
     /// The caller (VM-side `node_filter_dispatch.rs` in PR-A2) MUST
     /// apply WebIDL `unsigned short` coercion (see [WebIDL]) BEFORE
-    /// invoking this helper: `ToUint16` per ES2020 §7.1.7 wraps negative numbers
+    /// invoking this helper: `ToUint16` per ECMA-262 §7.1.10 wraps negative numbers
     /// (`-1` → `65535`), `NaN` / `Infinity` → `0`, fractions truncate
     /// toward zero. Values outside the `{1, 2}` accept/reject set map
     /// to `Skip` regardless of the source bit pattern — this function

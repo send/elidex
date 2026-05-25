@@ -31,7 +31,7 @@ pub(crate) fn op_numeric_binary(
         NumericBinaryOp::Div => a / b,
         NumericBinaryOp::Rem => a % b,
         NumericBinaryOp::Exp => {
-            // ES2020 §6.1.6.1.4: deviations from IEEE 754 pow
+            // ECMA-262 §6.1.6.1.3: deviations from IEEE 754 pow
             if b.is_nan() || (a.abs() == 1.0 && b.is_infinite()) {
                 f64::NAN
             } else {
@@ -122,7 +122,7 @@ pub(crate) enum NumericBinaryOp {
 }
 
 // ---------------------------------------------------------------------------
-// Comparison operators (ES2020 §7.2.14)
+// Comparison operators (ECMA-262 §7.2.12 IsLessThan)
 // ---------------------------------------------------------------------------
 
 /// Abstract relational comparison. Returns `Ok(Some(true))` if x < y,

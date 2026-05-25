@@ -50,7 +50,7 @@ pub(in super::super) fn native_object_assign(
         let JsValue::Object(src_id) = source else {
             continue;
         };
-        // §19.1.2.1: OwnPropertyKeys in ES order, then Get per key.
+        // §20.1.2.1: OwnPropertyKeys in ES order, then Get per key.
         // Array element indices (ascending) come before named properties.
         let keys: Vec<PropertyKey> = {
             let elem_indices: Vec<usize> = match &ctx.get_object(src_id).kind {
@@ -97,7 +97,7 @@ pub(in super::super) fn native_object_assign(
         let target_is_array = matches!(ctx.get_object(target_id).kind, ObjectKind::Array { .. });
         for key in keys {
             let value = ctx.get_property_value(src_id, key)?;
-            // §19.1.2.1 step 5.c.iii.2: Set(O, nextKey, propValue, true).
+            // §20.1.2.1 step 5.c.iii.2: Set(O, nextKey, propValue, true).
             // Throw TypeError if target is non-extensible and key is new.
             let target_obj = ctx.get_object(target_id);
             if !target_obj.extensible && !target_obj.storage.has(key, &ctx.vm.shapes) {
@@ -136,7 +136,7 @@ pub(in super::super) fn native_object_assign(
     Ok(target)
 }
 
-/// `Object.entries(obj)` — ES2020 §19.1.2.5
+/// `Object.entries(obj)` — ECMA-262 §20.1.2.5
 pub(in super::super) fn native_object_entries(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -153,7 +153,7 @@ pub(in super::super) fn native_object_entries(
     Ok(create_array(ctx, entries))
 }
 
-/// `Object.fromEntries(iterable)` — ES2020 §19.1.2.7
+/// `Object.fromEntries(iterable)` — ECMA-262 §20.1.2.7
 pub(in super::super) fn native_object_from_entries(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,

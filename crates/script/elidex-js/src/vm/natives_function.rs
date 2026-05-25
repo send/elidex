@@ -1,16 +1,16 @@
-//! Function.prototype methods (ES2020 §19.2.3).
+//! Function.prototype methods (ECMA-262 §20.2.3).
 //!
-//! - `call(thisArg, ...args)` — §19.2.3.3
-//! - `apply(thisArg, argsArray)` — §19.2.3.1
-//! - `bind(thisArg, ...args)` — §19.2.3.2
-//! - `toString()` — §19.2.3.5
+//! - `call(thisArg, ...args)` — §20.2.3.3
+//! - `apply(thisArg, argsArray)` — §20.2.3.1
+//! - `bind(thisArg, ...args)` — §20.2.3.2
+//! - `toString()` — §20.2.3.5
 
 use super::shape::{self, PropertyAttrs};
 use super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, VmError,
 };
 
-/// `{¬W, ¬E, C}` — used for `length` and `name` on bound functions (§19.2.3.2).
+/// `{¬W, ¬E, C}` — used for `length` and `name` on bound functions (§20.2.3.2).
 const NON_WRITABLE_CONFIGURABLE: PropertyAttrs = PropertyAttrs {
     writable: false,
     enumerable: false,
@@ -42,7 +42,7 @@ fn function_display_name_u16(ctx: &NativeContext<'_>, kind: &ObjectKind) -> Vec<
     }
 }
 
-/// `Function.prototype.call(thisArg, ...args)` — ES2020 §19.2.3.3
+/// `Function.prototype.call(thisArg, ...args)` — ECMA-262 §20.2.3.3
 pub(super) fn native_function_call(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -54,7 +54,7 @@ pub(super) fn native_function_call(
     ctx.call_function(callee_id, this_arg, call_args)
 }
 
-/// `Function.prototype.apply(thisArg, argsArray)` — ES2020 §19.2.3.1
+/// `Function.prototype.apply(thisArg, argsArray)` — ECMA-262 §20.2.3.1
 pub(super) fn native_function_apply(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -77,7 +77,7 @@ pub(super) fn native_function_apply(
     ctx.call_function(callee_id, this_arg, &call_args)
 }
 
-/// `Function.prototype.bind(thisArg, ...args)` — ES2020 §19.2.3.2
+/// `Function.prototype.bind(thisArg, ...args)` — ECMA-262 §20.2.3.2
 pub(super) fn native_function_bind(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -91,14 +91,14 @@ pub(super) fn native_function_bind(
         Vec::new()
     };
 
-    // §19.2.3.2 steps 4-11: read target's `length` and `name` via property
+    // §20.2.3.2 steps 4-11: read target's `length` and `name` via property
     // Get so that `defineProperty(fn, 'name', {value: ...})` is honored.  A
     // BoundFunction's own `.name` is already "bound foo" from the prior bind,
     // so this naturally yields "bound bound foo" without walking the chain.
     // Abrupt completions from user-defined getters propagate (spec `?`).
     let (target_length, target_name): (f64, Vec<u16>) =
         target_function_length_name(ctx, target_id)?;
-    // §19.2.3.2 step 8: L = max(0, targetLen - argCount).  Keep as f64
+    // §20.2.3.2 step 8: L = max(0, targetLen - argCount).  Keep as f64
     // so that `+Infinity - argCount` stays `+Infinity` per spec.
     #[allow(clippy::cast_precision_loss)]
     let bound_length = (target_length - bound_args.len() as f64).max(0.0);
@@ -140,7 +140,7 @@ pub(super) fn native_function_bind(
     Ok(JsValue::Object(bound_id))
 }
 
-/// Read the target's effective `length` and `name` per §19.2.3.2 steps 4-11.
+/// Read the target's effective `length` and `name` per §20.2.3.2 steps 4-11.
 /// Uses property `Get` so that `defineProperty(fn, 'length'|'name', ...)`
 /// overrides are honored.  Falls back to the function's internal slots
 /// (`FunctionObject.name`, `NativeFunction.name`, `CompiledFunction.param_count`)
@@ -155,7 +155,7 @@ fn target_function_length_name(
     let length_key = super::value::PropertyKey::String(ctx.vm.well_known.length);
     let name_key = super::value::PropertyKey::String(ctx.vm.well_known.name);
 
-    // §19.2.3.2 step 4-5: `ToIntegerOrInfinity(? Get(target, "length"))`.
+    // §20.2.3.2 step 4-5: `ToIntegerOrInfinity(? Get(target, "length"))`.
     // The spec runs ToNumber on the raw value first (so String/Boolean/etc
     // route through their standard coercions), then applies the
     // integer-or-infinity step: NaN → 0, ±Infinity propagate, otherwise
@@ -185,9 +185,9 @@ fn target_function_length_name(
             }
         }
     };
-    // §19.2.3.2 step 11-13: `targetName` is `? Get(target, "name")`.
+    // §20.2.3.2 step 11-13: `targetName` is `? Get(target, "name")`.
     // Non-String results get `ToString`-coerced (e.g. `{value: 42}` → "42");
-    // Symbols fall back to empty string per §19.2.3.2 step 13 ("If Type is
+    // Symbols fall back to empty string per §20.2.3.2 step 13 ("If Type is
     // not String, let targetName be the empty String").
     // Return WTF-16 units so lone surrogates in the name round-trip losslessly.
     let name: Vec<u16> = match ctx.try_get_property_value(target_id, name_key)? {
@@ -219,7 +219,7 @@ fn internal_function_name_u16(ctx: &NativeContext<'_>, target_id: ObjectId) -> V
     }
 }
 
-/// `Function.prototype.toString()` — ES2020 §19.2.3.5
+/// `Function.prototype.toString()` — ECMA-262 §20.2.3.5
 pub(super) fn native_function_to_string(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

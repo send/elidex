@@ -1,4 +1,4 @@
-//! Math built-in methods and constants (ES2020 §20.2).
+//! Math built-in methods and constants (ECMA-262 §21.3).
 
 use super::coerce::f64_to_uint32;
 use super::value::{JsValue, NativeContext, VmError};
@@ -36,7 +36,7 @@ pub(super) fn native_math_round(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let n = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
-    // ES2020 §20.2.2.28: if n is in [-0.5, 0), result is -0.
+    // ECMA-262 §21.3.2.29: if n is in [-0.5, 0), result is -0.
     let result = if (-0.5..0.0).contains(&n) {
         -0.0_f64
     } else {
@@ -59,7 +59,7 @@ pub(super) fn native_math_max(
         if n.is_nan() {
             return Ok(JsValue::Number(f64::NAN));
         }
-        // §20.2.2.24: +0 is greater than -0
+        // §21.3.2.25: +0 is greater than -0
         if n > result || (n == 0.0 && result == 0.0 && result.is_sign_negative()) {
             result = n;
         }
@@ -81,7 +81,7 @@ pub(super) fn native_math_min(
         if n.is_nan() {
             return Ok(JsValue::Number(f64::NAN));
         }
-        // §20.2.2.25: -0 is less than +0
+        // §21.3.2.26: -0 is less than +0
         if n < result || (n == 0.0 && result == 0.0 && n.is_sign_negative()) {
             result = n;
         }
@@ -124,7 +124,7 @@ pub(super) fn native_math_pow(
 ) -> Result<JsValue, VmError> {
     let base = ctx.to_number(args.first().copied().unwrap_or(JsValue::Undefined))?;
     let exp = ctx.to_number(args.get(1).copied().unwrap_or(JsValue::Undefined))?;
-    // §20.2.2.26: ES2020 diverges from IEEE 754 for abs(base)==1 with infinite exp.
+    // §21.3.2.27: ECMA-262 diverges from IEEE 754 for abs(base)==1 with infinite exp.
     let result = if base.abs() == 1.0 && exp.is_infinite() {
         f64::NAN
     } else {
@@ -275,7 +275,7 @@ pub(super) fn native_math_hypot(
     if args.is_empty() {
         return Ok(JsValue::Number(0.0));
     }
-    // §20.2.2.18: coerce ALL args first (ToNumber may throw), then check
+    // §21.3.2.19: coerce ALL args first (ToNumber may throw), then check
     // infinity (takes precedence over NaN). Scaled-sum avoids overflow.
     let mut has_inf = false;
     let mut has_nan = false;
@@ -312,7 +312,7 @@ pub(super) fn native_math_hypot(
     Ok(JsValue::Number(max_abs * sum.sqrt()))
 }
 
-/// ES2020 §20.2.2.11 — Math.clz32(x)
+/// ECMA-262 §21.3.2.11 — Math.clz32(x)
 pub(super) fn native_math_clz32(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -323,7 +323,7 @@ pub(super) fn native_math_clz32(
     Ok(JsValue::Number(f64::from(i.leading_zeros())))
 }
 
-/// ES2020 §20.2.2.19 — Math.imul(x, y)
+/// ECMA-262 §21.3.2.20 — Math.imul(x, y)
 pub(super) fn native_math_imul(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -336,7 +336,7 @@ pub(super) fn native_math_imul(
     Ok(JsValue::Number(f64::from(result)))
 }
 
-/// ES2020 §20.2.2.17 — Math.fround(x)
+/// ECMA-262 §21.3.2.17 — Math.fround(x)
 pub(super) fn native_math_fround(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,

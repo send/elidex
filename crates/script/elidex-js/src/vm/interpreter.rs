@@ -122,7 +122,7 @@ impl VmInner {
                     current_id = next_id;
                 }
                 ObjectKind::PromiseResolver { promise, is_reject } => {
-                    // ES2020 §25.6.1.3.1 / §25.6.1.3.2: invoking a Promise
+                    // ECMA-262 §27.2.1.3.1 / §27.2.1.3.2: invoking a Promise
                     // resolve/reject function drops its capability slot.  GC
                     // must not run inside the native body since we're about
                     // to mutate the target promise and enqueue reactions.

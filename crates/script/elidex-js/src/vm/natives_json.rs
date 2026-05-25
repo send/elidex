@@ -1,4 +1,4 @@
-//! JSON.stringify and JSON.parse (ES2020 §24.5).
+//! JSON.stringify and JSON.parse (ECMA-262 §25.5).
 
 use std::fmt::Write;
 
@@ -12,7 +12,7 @@ use super::value::{
 };
 
 // ============================================================================
-// JSON.stringify (§24.5.2)
+// JSON.stringify (§25.5.4)
 // ============================================================================
 
 /// Maximum nesting depth for `JSON.stringify` / `JSON.parse` recursion.
@@ -50,7 +50,7 @@ struct JsonSerializer {
 }
 
 impl JsonSerializer {
-    /// §24.5.2.1 SerializeJSONProperty — returns `true` if a value was written,
+    /// §25.5.4.2 SerializeJSONProperty — returns `true` if a value was written,
     /// `false` if the value is `undefined`/Symbol/Function (i.e. should be skipped).
     fn serialize_property(
         &mut self,
@@ -135,7 +135,7 @@ impl JsonSerializer {
         }
     }
 
-    /// §24.5.2.4 SerializeJSONArray
+    /// §25.5.4.6 SerializeJSONArray
     fn serialize_array(
         &mut self,
         ctx: &mut NativeContext<'_>,
@@ -214,7 +214,7 @@ impl JsonSerializer {
         Ok(true)
     }
 
-    /// §24.5.2.3 SerializeJSONObject
+    /// §25.5.4.5 SerializeJSONObject
     fn serialize_object(
         &mut self,
         ctx: &mut NativeContext<'_>,
@@ -231,12 +231,12 @@ impl JsonSerializer {
 
         // Collect keys.
         let keys: Vec<StringId> = if let Some(ref pl) = self.property_list {
-            // Replacer array: §24.5.2.3 step 5.a uses PropertyList as-is.
+            // Replacer array: §25.5.4.5 step 5.a uses PropertyList as-is.
             // Values are retrieved via Get(holder, key), so non-enumerable
             // and inherited properties are included if present in the list.
             pl.clone()
         } else {
-            // §24.5.2.3 step 5: EnumerableOwnPropertyNames / OrdinaryOwnPropertyKeys.
+            // §25.5.4.5 step 5: EnumerableOwnPropertyNames / OrdinaryOwnPropertyKeys.
             // Array-index keys come first in ascending numeric order, then
             // other string keys in insertion order.
             collect_own_keys_es_order(ctx.vm, obj_id)?
@@ -366,7 +366,7 @@ pub(super) fn native_json_stringify(
     }
 }
 
-/// JSON-serialize `value` into an owned Rust `String` (ECMA-262 §25.5.2
+/// JSON-serialize `value` into an owned Rust `String` (ECMA-262 §25.5.4
 /// stringify core — `replacer` / `space` honored), **without interning** the
 /// result into the permanent `StringPool`. `Ok(None)` mirrors `JSON.stringify`
 /// yielding `undefined` (a top-level function / symbol / `undefined`).
@@ -414,7 +414,7 @@ pub(in crate::vm) fn stringify_to_string(
     // Step 5-8: Process space.
     let gap = compute_gap(ctx, space_arg);
 
-    // Build wrapper object: { "": value } (§24.5.2 step 9)
+    // Build wrapper object: { "": value } (§25.5.4 step 9)
     let wrapper_id = ctx.alloc_object(Object {
         kind: ObjectKind::Ordinary,
         storage: PropertyStorage::shaped(ROOT_SHAPE),
@@ -479,7 +479,7 @@ fn compute_gap(ctx: &mut NativeContext<'_>, space: JsValue) -> String {
 }
 
 // ============================================================================
-// JSON.parse (§24.5.1)
+// JSON.parse (§25.5.2)
 // ============================================================================
 
 /// Recursive-descent JSON parser operating on WTF-16 code units.
@@ -826,7 +826,7 @@ impl<'a> JsonParser<'a> {
 
             let val = self.parse_value(ctx)?;
 
-            // Duplicate keys: last value wins (ES2020 §24.5.1 + web compat).
+            // Duplicate keys: last value wins (ECMA-262 §25.5.2 + web compat).
             let pk = PropertyKey::String(key_sid);
             let existing_idx = {
                 let obj = ctx.get_object(obj_id);
@@ -868,7 +868,7 @@ impl<'a> JsonParser<'a> {
     }
 }
 
-/// §24.5.1.1 InternalizeJSONProperty — apply reviver function.
+/// §25.5.2.4 InternalizeJSONProperty — apply reviver function.
 fn internalize(
     ctx: &mut NativeContext<'_>,
     val: JsValue,
@@ -894,7 +894,7 @@ fn internalize(
                             JsValue::Object(obj_id),
                             &[JsValue::String(key_str), new_val],
                         )?;
-                        // Spec §24.5.1.1: reviver returning undefined → [[Delete]].
+                        // Spec §25.5.2.4: reviver returning undefined → [[Delete]].
                         // With JsValue::Empty this creates a proper sparse hole.
                         // JS code cannot produce Empty, so only check Undefined.
                         debug_assert!(!result.is_empty(), "reviver should never return Empty");
@@ -911,7 +911,7 @@ fn internalize(
                     }
                 }
                 ObjectKind::Ordinary | ObjectKind::Arguments { .. } => {
-                    // Snapshot keys in ES spec order (§24.5.1.1 step 5).
+                    // Snapshot keys in ES spec order (§25.5.2.4 step 5).
                     let keys = collect_own_keys_es_order(ctx.vm, obj_id)?;
 
                     for key_sid in keys {
@@ -923,7 +923,7 @@ fn internalize(
                             &[JsValue::String(key_sid), new_val],
                         )?;
                         if matches!(result, JsValue::Undefined) {
-                            // §24.5.1.1 step 3.d: `? O.[[Delete]](P)`.
+                            // §25.5.2.4 step 3.d: `? O.[[Delete]](P)`.
                             // Observable only via Proxy deleteProperty trap
                             // (not yet implemented), but propagate for spec
                             // conformance once Proxy lands.
@@ -945,7 +945,7 @@ fn internalize(
 
 /// Entry point for `JSON.parse(text, reviver?)`.
 /// Rust `&str` helper equivalent to `JSON.parse(text)` with **no reviver**
-/// (ECMA-262 §25.5.1 parse core only), **without interning the transient source
+/// (ECMA-262 §25.5.2 parse core only), **without interning the transient source
 /// text** into the permanent, deduped `StringPool`. This is *not* the JS-facing
 /// `JSON.parse` entry point — that is [`native_json_parse`] below, which takes
 /// an interned JS string and supports the optional reviver argument.
@@ -999,7 +999,7 @@ pub(super) fn native_json_parse(
     let reviver_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     if let JsValue::Object(rev_id) = reviver_arg {
         if ctx.get_object(rev_id).kind.is_callable() {
-            // Build wrapper { "": result } (§24.5.1 step 7)
+            // Build wrapper { "": result } (§25.5.2 step 7)
             let wrapper_id = ctx.alloc_object(Object {
                 kind: ObjectKind::Ordinary,
                 storage: PropertyStorage::shaped(ROOT_SHAPE),

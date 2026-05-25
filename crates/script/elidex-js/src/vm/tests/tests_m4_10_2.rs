@@ -178,7 +178,7 @@ fn boolean_prototype_value_of() {
 
 #[test]
 fn primitive_this_stays_primitive_number() {
-    // §9.2.1.2 step 3: strict mode does not box primitive receivers.
+    // §10.2.1.2 step 3: strict mode does not box primitive receivers.
     assert_eq!(
         eval_str("Number.prototype.peek = function() { return typeof this; }; (5).peek();"),
         "number",

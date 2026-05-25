@@ -1,9 +1,9 @@
-//! Tests for Object.prototype methods and Object static methods (ES2020 §19.1).
+//! Tests for Object.prototype methods and Object static methods (ECMA-262 §20.1).
 
 use super::{eval_bool, eval_number, eval_string, eval_throws};
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Object.prototype.hasOwnProperty (§19.1.3.2)
+// Object.prototype.hasOwnProperty (§20.1.3.2)
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
@@ -43,7 +43,7 @@ fn has_own_property_numeric_string() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Object.prototype.valueOf (§19.1.3.7)
+// Object.prototype.valueOf (§20.1.3.7)
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
@@ -61,7 +61,7 @@ fn value_of_same_reference() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Object.prototype.isPrototypeOf (§19.1.3.4)
+// Object.prototype.isPrototypeOf (§20.1.3.3)
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
@@ -92,7 +92,7 @@ fn is_prototype_of_multi_level() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Object.prototype.propertyIsEnumerable (§19.1.3.5)
+// Object.prototype.propertyIsEnumerable (§20.1.3.4)
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
@@ -121,7 +121,7 @@ fn property_is_enumerable_nonexistent() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Object.entries (§19.1.2.5)
+// Object.entries (§20.1.2.5)
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
@@ -164,7 +164,7 @@ fn entries_skips_non_enumerable() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Object.is (§19.1.2.10)
+// Object.is (§20.1.2.15)
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
@@ -261,7 +261,7 @@ fn get_prototype_of_array() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Object.getOwnPropertyDescriptor (§19.1.2.6)
+// Object.getOwnPropertyDescriptor (§20.1.2.8)
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
@@ -319,7 +319,7 @@ fn get_own_property_descriptor_accessor() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Object.getOwnPropertyNames (§19.1.2.8)
+// Object.getOwnPropertyNames (§20.1.2.10)
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
@@ -352,7 +352,7 @@ fn get_own_property_names_basic() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Object.freeze (§19.1.2.6)
+// Object.freeze (§20.1.2.6)
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
@@ -410,7 +410,7 @@ fn freeze_nested_not_deep() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Object.seal (§19.1.2.20)
+// Object.seal (§20.1.2.22)
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
@@ -459,7 +459,7 @@ fn sealed_cannot_delete() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Object.preventExtensions / isExtensible (§19.1.2.18 / §19.1.2.11)
+// Object.preventExtensions / isExtensible (§20.1.2.20 / §20.1.2.16)
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
@@ -570,7 +570,7 @@ fn get_own_property_names_empty() {
 
 #[test]
 fn get_prototype_of_primitive() {
-    // §19.1.2.9: getPrototypeOf on a primitive wraps via ToObject.
+    // §20.1.2.12: getPrototypeOf on a primitive wraps via ToObject.
     // getPrototypeOf(42) should return Number.prototype (not null).
     assert!(eval_bool("Object.getPrototypeOf(42) !== null;"));
     assert!(eval_bool(
@@ -735,7 +735,7 @@ fn from_entries_non_iterable_throws() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Object.prototype.toLocaleString (§19.1.3.5)
+// Object.prototype.toLocaleString (§20.1.3.5)
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
@@ -750,7 +750,7 @@ fn to_locale_string_returns_string() {
 
 #[test]
 fn to_locale_string_accessor_getter_sees_primitive_receiver() {
-    // §7.3.2 GetV: when `Object.prototype.toLocaleString` resolves
+    // §7.3.3 GetV: when `Object.prototype.toLocaleString` resolves
     // `toString` through an accessor getter on the prototype chain,
     // the getter must receive the original primitive value as `this`,
     // not the throw-away wrapper used for the prototype-chain lookup.

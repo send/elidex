@@ -758,7 +758,7 @@ pub(super) fn select_add_impl(
             _ => resolve_options_index(ctx, entity, before_arg)?,
         },
         // Number / String / Boolean / BigInt all coerce through
-        // `to_int32` (which calls `to_number` first per ES §7.1.4).
+        // `to_int32` (which calls `to_number` first per ECMA-262 §7.1.4).
         _ => resolve_options_index(ctx, entity, before_arg)?,
     };
     // Insert via the underlying DOM; if `before` is provided it

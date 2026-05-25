@@ -1,4 +1,4 @@
-//! `%TypedArray%.prototype` method bodies (ES2024 §23.2.3).
+//! `%TypedArray%.prototype` method bodies (ECMA-262 §23.2.3).
 //!
 //! Split from [`super::typed_array`] to keep both files below the
 //! 1000-line convention (PR5a-fetch lesson).  The install-time
@@ -41,7 +41,7 @@ use super::typed_array::{read_element_raw, write_element_raw};
 use super::typed_array_parts::{require_typed_array_parts, TypedArrayParts};
 
 /// Clamp `n` to `[0, len]`, applying `ToIntegerOrInfinity`
-/// truncation first (ES §7.1.5).  Negative indices count from the
+/// truncation first (ECMA-262 §7.1.5).  Negative indices count from the
 /// end.  Shared by `fill` / `subarray` / `slice`.  Thin u32-typed
 /// wrapper around [`super::super::coerce::relative_index_f64`]; the
 /// clamp at the canonical helper guarantees `0.0 <= clamped <=
@@ -96,7 +96,7 @@ pub(super) fn subclass_prototype_for(vm: &VmInner, ek: ElementKind) -> Option<Ob
 // fill(value, start?, end?)
 // ---------------------------------------------------------------------------
 
-/// `%TypedArray%.prototype.fill(value, start?, end?)` (ES §23.2.3.11).
+/// `%TypedArray%.prototype.fill(value, start?, end?)` (ECMA-262 §23.2.3.9).
 /// Writes `value` to each element across `[start, end)` and returns
 /// the receiver for chaining.  Coerces `value` *once* up front via
 /// [`super::typed_array::coerce_element_to_le_bytes`] and bulk-fills
@@ -167,7 +167,7 @@ pub(crate) fn native_typed_array_fill(
 // subarray(begin?, end?)
 // ---------------------------------------------------------------------------
 
-/// `%TypedArray%.prototype.subarray(begin?, end?)` (ES §23.2.3.27).
+/// `%TypedArray%.prototype.subarray(begin?, end?)` (ECMA-262 §23.2.3.30).
 /// Returns a new TypedArray of the same subclass **sharing the
 /// backing `ArrayBuffer`** — mutations through either view are
 /// visible through the other.  Spec invariant:
@@ -207,7 +207,7 @@ pub(crate) fn native_typed_array_subarray(
 // slice(begin?, end?)
 // ---------------------------------------------------------------------------
 
-/// `%TypedArray%.prototype.slice(begin?, end?)` (ES §23.2.3.25).
+/// `%TypedArray%.prototype.slice(begin?, end?)` (ECMA-262 §23.2.3.27).
 /// Returns a new TypedArray of the same built-in subclass **over a
 /// fresh buffer** — mutations do not propagate between receiver and
 /// slice.  Uses the receiver's `element_kind` as the allocation
@@ -280,8 +280,8 @@ pub(crate) fn native_typed_array_slice(
 // values / keys / entries / @@iterator
 // ---------------------------------------------------------------------------
 
-/// `%TypedArray%.prototype.values()` (ES §23.2.3.34) — installed as
-/// both `.values` and `[Symbol.iterator]` per §23.2.3.33.
+/// `%TypedArray%.prototype.values()` (ECMA-262 §23.2.3.35) — installed as
+/// both `.values` and `[Symbol.iterator]` per §23.2.3.37.
 pub(crate) fn native_typed_array_values(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -290,7 +290,7 @@ pub(crate) fn native_typed_array_values(
     create_typed_array_iterator(ctx, this, 0, "values")
 }
 
-/// `%TypedArray%.prototype.keys()` (ES §23.2.3.20).
+/// `%TypedArray%.prototype.keys()` (ECMA-262 §23.2.3.19).
 pub(crate) fn native_typed_array_keys(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -299,7 +299,7 @@ pub(crate) fn native_typed_array_keys(
     create_typed_array_iterator(ctx, this, 1, "keys")
 }
 
-/// `%TypedArray%.prototype.entries()` (ES §23.2.3.8).
+/// `%TypedArray%.prototype.entries()` (ECMA-262 §23.2.3.7).
 pub(crate) fn native_typed_array_entries(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -339,7 +339,7 @@ fn create_typed_array_iterator(
 // set(source, offset?)
 // ---------------------------------------------------------------------------
 
-/// `%TypedArray%.prototype.set(source, offset?)` (ES §23.2.3.24).
+/// `%TypedArray%.prototype.set(source, offset?)` (ECMA-262 §23.2.3.26).
 ///
 /// Two branches:
 /// - If `source` is a TypedArray, copy its elements into `this`
@@ -365,7 +365,7 @@ pub(crate) fn native_typed_array_set(
         element_kind: dst_ek,
         ..
     } = parts;
-    // ES §23.2.3.24 step 6: `ToIntegerOrInfinity(offset)`; step 8
+    // ECMA-262 §23.2.3.26 step 6: `ToIntegerOrInfinity(offset)`; step 8
     // uses the result in a `targetOffset + len > ArrayLength`
     // comparison which always fails for `±Infinity` / values beyond
     // `u32::MAX`.  Reject those up-front rather than saturating —
@@ -550,7 +550,7 @@ fn set_array_like_body(
 // ---------------------------------------------------------------------------
 
 /// `%TypedArray%.prototype.copyWithin(target, start, end?)`
-/// (ES §23.2.3.6).  In-place byte copy with correct overlap
+/// (ECMA-262 §23.2.3.6).  In-place byte copy with correct overlap
 /// handling — [`super::byte_io::copy_bytes`] snapshots the source
 /// range into an owned `Vec<u8>` before mutating the destination,
 /// so any direction (forward / backward overlap) is sound.
@@ -618,7 +618,7 @@ pub(crate) fn native_typed_array_copy_within(
 // reverse()
 // ---------------------------------------------------------------------------
 
-/// `%TypedArray%.prototype.reverse()` (ES §23.2.3.23).  In-place
+/// `%TypedArray%.prototype.reverse()` (ECMA-262 §23.2.3.25).  In-place
 /// element swap, returns receiver.
 pub(crate) fn native_typed_array_reverse(
     ctx: &mut NativeContext<'_>,
@@ -652,7 +652,7 @@ pub(crate) fn native_typed_array_reverse(
 // ---------------------------------------------------------------------------
 
 /// `%TypedArray%.prototype.indexOf(searchElement, fromIndex?)`
-/// (ES §23.2.3.15).  Strict equality (NaN is never equal to
+/// (ECMA-262 §23.2.3.17).  Strict equality (NaN is never equal to
 /// NaN — unlike `includes`).  Returns `-1` on miss.
 pub(crate) fn native_typed_array_index_of(
     ctx: &mut NativeContext<'_>,
@@ -683,7 +683,7 @@ pub(crate) fn native_typed_array_index_of(
 }
 
 /// `%TypedArray%.prototype.lastIndexOf(searchElement, fromIndex?)`
-/// (ES §23.2.3.17).  Strict equality, reverse scan.
+/// (ECMA-262 §23.2.3.20).  Strict equality, reverse scan.
 pub(crate) fn native_typed_array_last_index_of(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -701,7 +701,7 @@ pub(crate) fn native_typed_array_last_index_of(
     if len_elem == 0 {
         return Ok(JsValue::Number(-1.0));
     }
-    // ES §23.2.3.17 step 5: if the adjusted fromIndex (`len +
+    // ECMA-262 §23.2.3.20 step 5: if the adjusted fromIndex (`len +
     // relativeIndex` when negative) is still < 0, return -1 — the
     // reverse scan has nothing to inspect.  Mirrors
     // `Array.prototype.lastIndexOf`.
@@ -739,7 +739,7 @@ pub(crate) fn native_typed_array_last_index_of(
 }
 
 /// `%TypedArray%.prototype.includes(searchElement, fromIndex?)`
-/// (ES §23.2.3.16).  SameValueZero (NaN equals NaN).
+/// (ECMA-262 §23.2.3.16).  SameValueZero (NaN equals NaN).
 pub(crate) fn native_typed_array_includes(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -767,7 +767,7 @@ pub(crate) fn native_typed_array_includes(
     Ok(JsValue::Boolean(false))
 }
 
-/// `%TypedArray%.prototype.at(index)` (ES §23.2.3.3).  Negative
+/// `%TypedArray%.prototype.at(index)` (ECMA-262 §23.2.3.1).  Negative
 /// index wraps.  Out-of-range → `undefined`.
 pub(crate) fn native_typed_array_at(
     ctx: &mut NativeContext<'_>,
@@ -807,7 +807,7 @@ pub(crate) fn native_typed_array_at(
 // join(separator?)
 // ---------------------------------------------------------------------------
 
-/// `%TypedArray%.prototype.join(separator?)` (ES §23.2.3.19).
+/// `%TypedArray%.prototype.join(separator?)` (ECMA-262 §23.2.3.18).
 /// `separator` defaults to `","`; `undefined` also `,`.  Elements
 /// are coerced via `ToString` (per-subclass number / bigint
 /// formatting — BigInts stringify without the `n` suffix).
@@ -854,7 +854,7 @@ pub(crate) fn native_typed_array_join(
 // ---------------------------------------------------------------------------
 
 /// `%TypedArray%.prototype.toLocaleString(reserved1?, reserved2?)`
-/// (ES §23.2.3.31).  Per-element `? ToString(? Invoke(elem,
+/// (ECMA-262 §23.2.3.31).  Per-element `? ToString(? Invoke(elem,
 /// "toLocaleString", « locales, options »))`, joined with `","`.
 ///
 /// elidex has no `Intl` support yet, so `(locales, options)` flow
@@ -867,7 +867,7 @@ pub(crate) fn native_typed_array_join(
 ///
 /// TypedArray elements are always non-nullish (Number or BigInt),
 /// so the `Array.prototype.toLocaleString` empty-or-nullish skip
-/// (spec §22.1.3.30 step 7.a) doesn't apply here — every index
+/// (spec §23.1.3.32 step 7.a) doesn't apply here — every index
 /// contributes a string segment.
 ///
 /// ## Rooting
@@ -933,7 +933,7 @@ pub(crate) fn native_typed_array_to_locale_string(
             primitive => (coerce::to_object(sub_ctx.vm, primitive)?, primitive),
         };
         sub_ctx.vm.stack[wrapper_slot] = JsValue::Object(obj_id);
-        // GetV(V, P) (§7.3.2): the wrapper is just the prototype-
+        // GetV(V, P) (§7.3.3): the wrapper is just the prototype-
         // chain anchor for the *lookup*; an accessor getter must
         // see the original primitive `receiver` as `this`, not the
         // wrapper.  `try_get_property_value` resolves getters with
@@ -951,7 +951,7 @@ pub(crate) fn native_typed_array_to_locale_string(
                 let ret = sub_ctx.call_function(fn_id, receiver, &invoke_args)?;
                 sub_ctx.to_string_val(ret)?
             }
-            // Per `Invoke` semantics (§7.3.16) `?Call(?GetV(V, P), …)`
+            // Per `Invoke` semantics (§7.3.20) `?Call(?GetV(V, P), …)`
             // throws TypeError when the resolved property is either
             // present-but-non-callable OR absent.  The `None` branch
             // covers the user-reachable case where `toLocaleString`
@@ -978,7 +978,7 @@ pub(crate) fn native_typed_array_to_locale_string(
 // Comparison helpers
 // ---------------------------------------------------------------------------
 
-/// SameValueZero (ES §7.2.12) — used by `includes`.  NaN equals
+/// SameValueZero (ECMA-262 §7.2.10) — used by `includes`.  NaN equals
 /// NaN; `+0` equals `-0`.  BigInt comparison goes through the pool so
 /// freshly-allocated handles with equal mathematical value match
 /// (every TypedArray read for `BigInt64Array`/`BigUint64Array` mints

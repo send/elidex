@@ -1,4 +1,4 @@
-//! Array.prototype mutator and accessor methods (ES2020 §22.1).
+//! Array.prototype mutator and accessor methods (ECMA-262 §23.1).
 //!
 //! Higher-order (callback), iterator, and static methods live in
 //! `natives_array_hof.rs`.
@@ -42,7 +42,7 @@ pub(super) fn array_len(ctx: &NativeContext<'_>, id: ObjectId) -> Result<usize, 
     }
 }
 
-/// Resolve a relative start index, applying ES §7.1.5
+/// Resolve a relative start index, applying ECMA-262 §7.1.5
 /// `ToIntegerOrInfinity` and then clamping: negative wraps as
 /// `max(len + val, 0)`, positive saturates as `min(val, len)`.
 /// Thin usize-typed wrapper around
@@ -178,7 +178,7 @@ pub(super) fn native_array_sort(
         Some(_) => return Err(VmError::type_error("compareFn is not a function")),
     };
 
-    // §22.1.3.27: partition into (defined, undefined, holes). Sort only defined values.
+    // §23.1.3.30: partition into (defined, undefined, holes). Sort only defined values.
     let elements = clone_elements(ctx, id);
     let hole_count = elements.iter().filter(|v| v.is_empty()).count();
     let undef_count = elements
@@ -509,7 +509,7 @@ pub(super) fn native_array_last_index_of(
     Ok(JsValue::Number(-1.0))
 }
 
-/// SameValueZero (ES2020 §7.2.12): NaN == NaN, +0 == -0.
+/// SameValueZero (ECMA-262 §7.2.10): NaN == NaN, +0 == -0.
 fn same_value_zero(a: JsValue, b: JsValue) -> bool {
     match (a, b) {
         (JsValue::Number(x), JsValue::Number(y)) => {
@@ -555,7 +555,7 @@ pub(super) fn native_array_includes(
     Ok(JsValue::Boolean(false))
 }
 
-/// `Array.prototype.toString()` — §22.1.3.30: `Get(O, "join")`, call it
+/// `Array.prototype.toString()` — §23.1.3.36: `Get(O, "join")`, call it
 /// if callable, otherwise fall back to `Object.prototype.toString`.
 /// Honors user-installed `.join` override (`arr.join = () => 'x'; '' + arr`
 /// yields `'x'`).
@@ -574,14 +574,14 @@ pub(super) fn native_array_to_string(
             return ctx.call_function(fn_id, this, &[]);
         }
     }
-    // §22.1.3.30 step 4: Non-callable join → delegate to
+    // §23.1.3.36 step 4: Non-callable join → delegate to
     // Object.prototype.toString, which yields kind-specific tags
     // (e.g. Array → "[object Array]") and honors @@toStringTag.
     super::natives_symbol::native_object_prototype_to_string(ctx, this, &[])
 }
 
 /// `Array.prototype.toLocaleString(locales?, options?)` — locale-
-/// aware string conversion (§22.1.3.30).  Per spec step 6 each
+/// aware string conversion (§23.1.3.32).  Per spec step 6 each
 /// non-nullish element is invoked as `? ToString(? Invoke(elem,
 /// "toLocaleString", « locales, options »))`, then joined with
 /// `","`.  Holes / undefined / null produce empty string per
@@ -594,7 +594,7 @@ pub(super) fn native_array_to_string(
 /// so user overrides on `Number.prototype.toLocaleString` /
 /// `BigInt.prototype.toLocaleString` see them.  Throws TypeError
 /// on a present-but-non-callable `toLocaleString` per `Invoke`
-/// (§7.3.16); the `None` branch covers the user-reachable case
+/// (§7.3.20); the `None` branch covers the user-reachable case
 /// where `toLocaleString` is absent (for example because
 /// `Object.prototype.toLocaleString` was deleted), which is part
 /// of the observable `Invoke` semantics.
@@ -612,7 +612,7 @@ pub(super) fn native_array_to_locale_string(
     array_len(ctx, id)?;
     let elements = clone_elements(ctx, id);
     let to_locale_key = super::value::PropertyKey::String(ctx.vm.well_known.to_locale_string);
-    // §22.1.3.30 step 6 forwards exactly `« locales, options »` to
+    // §23.1.3.32 step 6 forwards exactly `« locales, options »` to
     // each per-element `Invoke` — extra caller-supplied args must
     // not reach the override.  Materialise the pair once outside the
     // loop so every iteration calls with the same fixed-arity slice.
@@ -639,7 +639,7 @@ pub(super) fn native_array_to_locale_string(
             primitive => (super::coerce::to_object(sub_ctx.vm, primitive)?, primitive),
         };
         sub_ctx.vm.stack[wrapper_slot] = JsValue::Object(obj_id);
-        // GetV(V, P) (§7.3.2): an accessor getter must see the
+        // GetV(V, P) (§7.3.3): an accessor getter must see the
         // original primitive `receiver` as `this`, not the boxed
         // wrapper (which is only the prototype-chain anchor for
         // the lookup).  `try_get_property_value` resolves getters
@@ -654,7 +654,7 @@ pub(super) fn native_array_to_locale_string(
                 let ret = sub_ctx.call_function(fn_id, receiver, &invoke_args)?;
                 sub_ctx.to_string_val(ret)?
             }
-            // Per `Invoke` semantics (§7.3.16) `?Call(?GetV(V, P), …)`
+            // Per `Invoke` semantics (§7.3.20) `?Call(?GetV(V, P), …)`
             // throws TypeError when the resolved property is either
             // present-but-non-callable OR absent (GetV returns
             // undefined → Call rejects undefined as not-a-function).

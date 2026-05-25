@@ -1,4 +1,4 @@
-//! `ArrayBuffer` tests (ES2020 §24.1, minimal Phase 2 form).
+//! `ArrayBuffer` tests (ECMA-262 §25.1, minimal Phase 2 form).
 //!
 //! Covers ctor (length coercion / range validation), `byteLength`
 //! getter (authoritative internal slot, delete-resistant), and

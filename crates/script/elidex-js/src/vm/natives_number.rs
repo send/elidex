@@ -261,7 +261,7 @@ pub(super) fn native_number_to_precision(
 
 // -- Number static methods (ES2015+) ------------------------------------------
 
-/// Number.isFinite(value) — §20.1.2.1
+/// Number.isFinite(value) — ECMA-262 §21.1.2.2
 pub(super) fn native_number_is_finite(
     _ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -272,7 +272,7 @@ pub(super) fn native_number_is_finite(
     Ok(JsValue::Boolean(result))
 }
 
-/// Number.isInteger(value) — §20.1.2.3
+/// Number.isInteger(value) — ECMA-262 §21.1.2.3
 pub(super) fn native_number_is_integer(
     _ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -283,7 +283,7 @@ pub(super) fn native_number_is_integer(
     Ok(JsValue::Boolean(result))
 }
 
-/// Number.isNaN(value) — §20.1.2.4
+/// Number.isNaN(value) — ECMA-262 §21.1.2.4
 pub(super) fn native_number_is_nan(
     _ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -294,7 +294,7 @@ pub(super) fn native_number_is_nan(
     Ok(JsValue::Boolean(result))
 }
 
-/// Number.isSafeInteger(value) — §20.1.2.5
+/// Number.isSafeInteger(value) — ECMA-262 §21.1.2.5
 pub(super) fn native_number_is_safe_integer(
     _ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -319,7 +319,7 @@ fn fix_exponential_sign(s: &str) -> String {
 }
 
 /// Format a number with a given number of significant digits (for toPrecision).
-/// Implements ES2020 §20.1.3.5 steps 7-12.
+/// Implements ECMA-262 §21.1.3.5 steps 7-12.
 /// Uses Rust's {:e} formatter to robustly extract the exponent (avoids log10
 /// floating-point imprecision near powers of 10).
 fn format_significant_digits(n: f64, precision: usize) -> String {

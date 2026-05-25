@@ -619,7 +619,7 @@ impl Lexer<'_> {
                     self.record_line_start();
                 }
                 // A3/A8: LS U+2028 / PS U+2029 are line terminators in templates
-                // TV preserves actual LS/PS (ES2023 §12.9.6); TRV preserves original
+                // TV preserves actual LS/PS (ECMA-262 §12.9.6); TRV preserves original
                 Some(0xE2) if self.is_ls_ps() => {
                     // A8: push actual LS/PS char, not '\n' (CR/CRLF normalize, LS/PS do not)
                     let ls_ps_u16 = if self.peek_at(2) == Some(0xA8) {

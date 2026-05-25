@@ -116,7 +116,7 @@ pub fn compile_stmt(
             fc.emit_u16(Op::SetLocal, iter_slot);
             fc.emit(Op::Pop);
 
-            // §7.4.6 + §13.7.5.13: a throw from `IteratorNext` itself
+            // §7.4.11 + §14.7.5.7: a throw from `IteratorNext` itself
             // (i.e. the iterator's own `.next()` threw) does NOT trigger
             // IteratorClose — the iterator is already considered closed.
             // Only abrupt completions *after* a successful step (e.g.
@@ -166,7 +166,7 @@ pub fn compile_stmt(
             // re-throw the original exception.  If IteratorClose
             // itself throws, that new error correctly takes
             // precedence over the original abrupt completion per
-            // §7.4.6 (a throw from Op::IteratorClose skips the
+            // §7.4.11 (a throw from Op::IteratorClose skips the
             // re-throw below).
             let catch_ip = fc.pc();
             fc.emit_u16(Op::GetLocal, close_flag_slot);

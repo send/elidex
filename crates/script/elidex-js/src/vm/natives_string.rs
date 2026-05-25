@@ -765,7 +765,7 @@ pub(crate) fn native_string_constructor(
     }
 }
 
-/// Format a symbol as `"Symbol(<description>)"` per §19.4.3.2.1.
+/// Format a symbol as `"Symbol(<description>)"` per ECMA-262 §20.4.3.3.1 SymbolDescriptiveString.
 /// Builds the output in WTF-16 so that descriptions containing unpaired
 /// surrogates round-trip losslessly (UTF-8 round-trip would corrupt them).
 fn symbol_to_descriptive_string(

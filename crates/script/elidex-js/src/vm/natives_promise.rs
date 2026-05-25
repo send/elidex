@@ -1,4 +1,4 @@
-//! Promise (ES2020 §25.6).
+//! Promise (ECMA-262 §27.2).
 //!
 //! Implements the core Promise state machine — constructor, static
 //! `resolve`/`reject`, and `prototype.then` — with reactions dispatched via
@@ -34,7 +34,7 @@ pub(crate) enum Microtask {
     /// accordingly.  `capability` is `None` for reactions whose derived
     /// promise is never observed (the async-function driver and Promise
     /// combinator per-item subscribers), which skips allocation of that
-    /// otherwise-wasted Promise.  Mirrors ES2020 §25.6.1.3
+    /// otherwise-wasted Promise.  Mirrors ECMA-262 §27.2.1.3
     /// `NewPromiseReactionJob`.
     PromiseReaction {
         kind: ReactionKind,
@@ -108,13 +108,13 @@ pub(super) fn create_resolver_pair(vm: &mut VmInner, promise: ObjectId) -> (Obje
 ///
 /// Idempotent via the promise's `already_resolved` flag — the spec models
 /// this as an `[[AlreadyResolved]]` record shared between the resolve /
-/// reject pair (§25.6.1.3 step 2).  Checking `status == Pending` alone is
+/// reject pair (§27.2.1.3 step 2).  Checking `status == Pending` alone is
 /// not sufficient: when `resolve(p2)` adopts a pending thenable, the
 /// outer promise stays `Pending` until `p2` settles, but any subsequent
 /// resolver call must still be a no-op.
 ///
 /// Promise-value pass-through (`resolve(p2)` where `p2` is a Promise):
-/// the spec (§25.6.1.3.2 PromiseResolveThenableJob) would schedule a
+/// the spec (§27.2.1.3.2 PromiseResolveThenableJob) would schedule a
 /// microtask to call `p2.then(resolve, reject)` asynchronously.  Here we
 /// just register reactions synchronously via `then_impl`, which preserves
 /// the observable "resolve with a pending promise ⇒ stay pending until
@@ -139,7 +139,7 @@ pub(super) fn settle_promise(
         state.already_resolved = true;
     }
 
-    // resolve(thisPromise) — §25.6.1.3.2 step 7: reject with a
+    // resolve(thisPromise) — §27.2.1.3.2 step 7: reject with a
     // SelfResolutionError-ish TypeError (spec step 7.a).
     if !is_reject {
         if let JsValue::Object(resolution_id) = value {
@@ -150,7 +150,7 @@ pub(super) fn settle_promise(
                 return Ok(JsValue::Undefined);
             }
             // If resolution is a Promise, wait for it to settle and then
-            // propagate (equivalent to §25.6.1.3.2 thenable assimilation
+            // propagate (equivalent to §27.2.1.3.2 thenable assimilation
             // for the restricted case where the thenable is a real Promise).
             if matches!(vm.get_object(resolution_id).kind, ObjectKind::Promise(_)) {
                 forward_promise(vm, resolution_id, promise);
@@ -617,7 +617,7 @@ fn run_callback(vm: &mut VmInner, func: ObjectId) {
     }
 }
 
-/// Execute a single PromiseReaction (ES2020 §25.6.1.3 NewPromiseReactionJob).
+/// Execute a single PromiseReaction (ECMA-262 §27.2.1.3 NewPromiseReactionJob).
 ///
 /// - If the reaction has a handler, call `handler(resolution)`:
 ///   - success ⇒ resolve `capability` with the return value
@@ -675,7 +675,7 @@ fn run_reaction(
 // Native functions exposed to JS
 // ---------------------------------------------------------------------------
 
-/// `new Promise(executor)` — §25.6.3.1
+/// `new Promise(executor)` — §27.2.3.1
 pub(super) fn native_promise_constructor(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -714,7 +714,7 @@ pub(super) fn native_promise_constructor(
     };
 
     let (resolve, reject) = create_resolver_pair(ctx.vm, promise_id);
-    // Executor runs synchronously with `this = undefined` (§25.6.3.1 step 9).
+    // Executor runs synchronously with `this = undefined` (§27.2.3.1 step 9).
     let exec_args = [JsValue::Object(resolve), JsValue::Object(reject)];
     let exec_result = ctx.call_function(executor_id, JsValue::Undefined, &exec_args);
     if let Err(e) = exec_result {
@@ -727,15 +727,15 @@ pub(super) fn native_promise_constructor(
     Ok(JsValue::Object(promise_id))
 }
 
-/// `Promise.resolve(value)` — §25.6.4.7 (ES2021; `Promise.any` shifted
-/// this one down from §25.6.4.5 in earlier editions).
+/// `Promise.resolve(value)` — §27.2.4.7 (ES2021; `Promise.any` shifted
+/// this one down from §27.2.4.5 in earlier editions).
 pub(super) fn native_promise_resolve(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let value = args.first().copied().unwrap_or(JsValue::Undefined);
-    // Pass-through for Promise instances (§25.6.4.7.1 step 2 when C === %Promise%).
+    // Pass-through for Promise instances (§27.2.4.7.1 step 2 when C === %Promise%).
     if let JsValue::Object(id) = value {
         if matches!(ctx.get_object(id).kind, ObjectKind::Promise(_)) {
             return Ok(value);
@@ -746,7 +746,7 @@ pub(super) fn native_promise_resolve(
     Ok(JsValue::Object(id))
 }
 
-/// `Promise.reject(reason)` — §25.6.4.6 (ES2021; `Promise.any` at §25.6.4.3
+/// `Promise.reject(reason)` — §27.2.4.6 (ES2021; `Promise.any` at §27.2.4.3
 /// shifted `.reject` / `.resolve` down by two).
 pub(super) fn native_promise_reject(
     ctx: &mut NativeContext<'_>,
@@ -759,7 +759,7 @@ pub(super) fn native_promise_reject(
     Ok(JsValue::Object(id))
 }
 
-/// `Promise.prototype.then(onFulfilled, onRejected)` — §25.6.5.4
+/// `Promise.prototype.then(onFulfilled, onRejected)` — §27.2.5.4
 pub(super) fn native_promise_prototype_then(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -781,7 +781,7 @@ pub(super) fn native_promise_prototype_then(
     then_impl(ctx.vm, src, on_fulfilled, on_rejected)
 }
 
-/// `Promise.prototype.catch(onRejected)` — §25.6.5.1
+/// `Promise.prototype.catch(onRejected)` — §27.2.5.1
 /// Implemented as sugar for `then(undefined, onRejected)`.
 pub(super) fn native_promise_prototype_catch(
     ctx: &mut NativeContext<'_>,
@@ -803,7 +803,7 @@ pub(super) fn native_promise_prototype_catch(
 }
 
 /// Validate a `then` argument: non-callable values are ignored (treated as
-/// `None` which activates the default passthrough).  Spec §25.6.5.4 steps
+/// `None` which activates the default passthrough).  Spec §27.2.5.4 steps
 /// 3–4 use `IsCallable(onFulfilled)` the same way.
 fn coerce_then_handler(
     ctx: &NativeContext<'_>,

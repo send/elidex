@@ -17,7 +17,7 @@
 //!
 //! ## TypedArray key classification
 //!
-//! ES §10.4.5 + §7.1.16.1 (`CanonicalNumericIndexString`) splits
+//! ECMA-262 §10.4.5 + §7.1.22 (`CanonicalNumericIndexString`) splits
 //! property keys against a TypedArray receiver into three buckets:
 //!
 //! - **`IntegerIndex(u32)`** — non-negative integer in `[0, u32::MAX]`.
@@ -25,7 +25,7 @@
 //!   [`super::host::typed_array::write_element_raw`]; reads through
 //!   [`super::host::typed_array::read_element_raw`].  Out-of-range
 //!   reads return `undefined`; out-of-range writes are silent no-ops
-//!   (§10.4.5.16 step 1).
+//!   (§10.4.5.18 step 1).
 //! - **`CanonicalNonInteger`** — canonical numeric string that ISN'T a
 //!   valid integer index (`"-0"` / `"NaN"` / `"Infinity"` /
 //!   `"-Infinity"` / negative integer / fractional / exponential with
@@ -46,7 +46,7 @@ use super::VmInner;
 use super::ops::{parse_array_index_u16, try_as_array_index, DENSE_ARRAY_LEN_LIMIT};
 
 /// Classification of a WTF-16 string key against the TypedArray
-/// integer-indexed exotic object contract (ES §10.4.5 + §7.1.16.1
+/// integer-indexed exotic object contract (ECMA-262 §10.4.5 + §7.1.22
 /// `CanonicalNumericIndexString`).
 #[cfg(feature = "engine")]
 enum TypedArrayStringKey {
@@ -59,8 +59,8 @@ enum TypedArrayStringKey {
     /// (`"-0"`, `"Infinity"`, `"-Infinity"`, `"NaN"`, negative
     /// integer, fractional, exponential with canonical round-trip).
     /// TypedArray Get returns `undefined`; Set is a silent no-op;
-    /// neither creates an ordinary property (§10.4.5.15 step 3 /
-    /// §10.4.5.16 step 1).
+    /// neither creates an ordinary property (§10.4.5.17 step 3 /
+    /// §10.4.5.18 step 1).
     CanonicalNonInteger,
     /// Not a canonical numeric string — falls through to ordinary
     /// property storage.
@@ -117,7 +117,7 @@ fn classify_typed_array_string_key(vm: &mut VmInner, sid: StringId) -> TypedArra
         if let Some(idx) = parse_typed_array_index_u32(units) {
             return TypedArrayStringKey::IntegerIndex(idx);
         }
-        // ES §7.1.16.1 step 1 hard-codes `"-0"` as canonical numeric
+        // ECMA-262 §7.1.22 step 1 hard-codes `"-0"` as canonical numeric
         // (returns -0) even though ToString(-0) = "0" — the round-trip
         // check below would otherwise miss it.
         if units == [u16::from(b'-'), u16::from(b'0')] {
@@ -159,7 +159,7 @@ impl VmInner {
         // §6.2.4.5 RequireObjectCoercible: `null[key]` / `undefined[key]` throw.
         super::coerce::require_object_coercible(obj)?;
         if let JsValue::Object(id) = obj {
-            // TypedArray integer-indexed get (ES §10.4.5.15).  Must
+            // TypedArray integer-indexed get (ECMA-262 §10.4.5.17).  Must
             // run ahead of the generic numeric fast path so any
             // CanonicalNumericIndexString Number key — including
             // `NaN` / ±`Infinity` / negative / fractional /
@@ -409,9 +409,9 @@ impl VmInner {
                     }
                 }
             }
-            // String numeric key on TypedArray — ES §10.4.5 integer-
+            // String numeric key on TypedArray — ECMA-262 §10.4.5 integer-
             // indexed exotic dispatch.  Any CanonicalNumericIndexString
-            // (§7.1.16.1) — including `"-0"` / `"Infinity"` / `"NaN"` /
+            // (§7.1.22) — including `"-0"` / `"Infinity"` / `"NaN"` /
             // negative integer / fractional — short-circuits to
             // `undefined` rather than falling through to ordinary
             // property access.
@@ -564,8 +564,8 @@ impl VmInner {
         None
     }
 
-    /// TypedArray integer-indexed-write fast path (ES §10.4.5.16
-    /// `IntegerIndexedElementSet`).  Returns `Some(Ok(()))` when the
+    /// TypedArray integer-indexed-write fast path (ECMA-262 §10.4.5.18
+    /// `TypedArraySetElement`).  Returns `Some(Ok(()))` when the
     /// receiver is a TypedArray and `key` resolves to a canonical
     /// integer index (in-range write or silent out-of-range no-op);
     /// `Some(Err(…))` on coercion failure; `None` to defer to the
@@ -690,7 +690,7 @@ impl VmInner {
                     }
                 }
             }
-            // Symbol key → §9.1.9 OrdinarySet directly (no string conversion).
+            // Symbol key → §10.1.9 OrdinarySet directly (no string conversion).
             if let JsValue::Symbol(sid) = key {
                 let pk = PropertyKey::Symbol(sid);
                 self.ordinary_set(id, pk, val, obj)?;
@@ -764,7 +764,7 @@ impl VmInner {
 
         // Primitive base (after RequireObjectCoercible): box for descriptor
         // lookup per §6.2.4.8 PutValue step 5.a, keeping the original base
-        // as Receiver so `ordinary_set` rejects data writes via §9.1.9.2
+        // as Receiver so `ordinary_set` rejects data writes via §10.1.9.2
         // step 2.b.  (Array-style fast paths don't apply: primitive
         // wrappers are never `ObjectKind::Array`.)
         if let JsValue::Symbol(sid) = key {

@@ -1,4 +1,4 @@
-//! Promise tests (ES2020 §25.6).
+//! Promise tests (ECMA-262 §27.2).
 //!
 //! Covers the commit-1 surface: Promise constructor, static `resolve`/`reject`,
 //! `prototype.then`/`catch`, and microtask-driven reaction dispatch at
@@ -174,7 +174,7 @@ fn promise_constructor_executor_throw_rejects() {
 
 #[test]
 fn promise_idempotent_settle() {
-    // Spec §25.6.1.3: once settled, subsequent resolve/reject are no-ops.
+    // Spec §27.2.1.3: once settled, subsequent resolve/reject are no-ops.
     assert_eq!(
         eval_global_number(
             "globalThis.x = 0; \
@@ -188,7 +188,7 @@ fn promise_idempotent_settle() {
 
 #[test]
 fn promise_self_resolution_rejects_with_typeerror() {
-    // §25.6.1.3.2 step 7: resolving a promise with itself ⇒ the promise
+    // §27.2.1.3.2 step 7: resolving a promise with itself ⇒ the promise
     // rejects with a fresh TypeError.  Verify both the `.name` and the
     // message shape.
     assert_eq!(
@@ -515,7 +515,7 @@ fn promise_any_aggregate_error_has_own_name_matching_ctor_path() {
     // Regression for PR2.5 round 7: `build_aggregate_error` (used by
     // Promise.any's internal rejection) now installs own `.name` as
     // METHOD, matching what `new AggregateError(...)` produces via
-    // the constructor path.  Per §25.6.4.3 step 3.c Promise.any
+    // the constructor path.  Per §27.2.4.3 step 3.c Promise.any
     // invokes `Construct(%AggregateError%, ...)`, so this parity is
     // observable via own-property reflection.
     assert_eq!(
@@ -616,7 +616,7 @@ fn aggregate_error_accepts_any_iterable() {
 
 #[test]
 fn error_instance_name_and_message_are_non_enumerable() {
-    // §19.5.1.1 step 3/4: own `.name` and `.message` on Error
+    // §20.5.1.1 step 3/4: own `.name` and `.message` on Error
     // instances are `{W, ¬E, C}`.  Observable via `Object.keys`
     // (returns []) and `JSON.stringify` (returns "{}").  Covers the
     // same-pattern audit for Copilot's `.errors` finding on
@@ -655,7 +655,7 @@ fn aggregate_error_errors_own_property_is_non_enumerable() {
 #[test]
 fn vm_thrown_type_error_inherits_from_error_prototype() {
     // `vm_error_to_thrown` now uses `Error.prototype` as the
-    // instance's prototype (§19.5.3), so VM-thrown errors satisfy
+    // instance's prototype (§20.5.3), so VM-thrown errors satisfy
     // `instanceof Error` and inherit `Error.prototype.toString`.
     // Regression for Copilot PR2.5 round 4 finding.
     assert!(eval_bool(
@@ -674,7 +674,7 @@ fn vm_thrown_type_error_inherits_from_error_prototype() {
 
 #[test]
 fn error_call_with_explicit_receiver_does_not_mutate_it() {
-    // `Error.call(obj, 'msg')` must NOT mutate `obj` — spec §19.5.1.1
+    // `Error.call(obj, 'msg')` must NOT mutate `obj` — spec §20.5.1.1
     // step 2 (OrdinaryCreateFromConstructor) always yields a fresh
     // instance.  Before the `in_construct` gate on
     // `ensure_instance_or_alloc`, the constructor would have mutated
@@ -716,7 +716,7 @@ fn aggregate_error_callable_without_new() {
 #[test]
 fn error_constructors_callable_without_new() {
     // Same call-mode invariant for the rest of the Error family
-    // (§19.5.1.1 step 1-2).  `error_ctor_impl` uses
+    // (§20.5.1.1 step 1-2).  `error_ctor_impl` uses
     // `ensure_instance_or_alloc(error_prototype)` so every subclass
     // gets a fresh instance in call-mode.
     assert!(eval_bool(
@@ -781,7 +781,7 @@ fn promise_finally_runs_on_reject_and_preserves_reason() {
 
 #[test]
 fn promise_finally_throw_overrides_reason() {
-    // Spec §25.6.5.3: if `onFinally` itself throws, the derived promise
+    // Spec §27.2.5.3: if `onFinally` itself throws, the derived promise
     // rejects with that error, overriding the original outcome.
     assert_eq!(
         eval_global_number(
@@ -877,7 +877,7 @@ fn promise_chain_dispatched_in_separate_microtasks() {
     );
 }
 
-// ─── [[AlreadyResolved]] semantics (§25.6.1.3 step 2) ────────────────────
+// ─── [[AlreadyResolved]] semantics (§27.2.1.3 step 2) ────────────────────
 
 #[test]
 fn resolver_reject_after_resolve_of_pending_thenable_is_noop() {
@@ -885,7 +885,7 @@ fn resolver_reject_after_resolve_of_pending_thenable_is_noop() {
     // Pending until p settles.  Any *subsequent* call to either resolver
     // must be a no-op, even though `status` is still Pending.  Without the
     // AlreadyResolved flag, the late `reject('late')` would incorrectly
-    // reject the outer promise (spec §25.6.1.3 step 2).
+    // reject the outer promise (spec §27.2.1.3 step 2).
     assert_eq!(
         eval_global_string(
             "globalThis.log = 'pending'; \

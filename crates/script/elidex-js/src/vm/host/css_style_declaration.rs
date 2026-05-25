@@ -467,7 +467,7 @@ pub(crate) fn try_indexed_get(
     let recv = decode_receiver(vm, id)?;
     let idx_u32 = match key {
         JsValue::Number(n) if n.is_finite() => {
-            // Exact-integer round-trip per ECMA §7.1.21
+            // Exact-integer round-trip per ECMA-262 §7.1.22
             // canonical-numeric-index-string — same gate as
             // `class_list::try_indexed_get`.
             if !(n >= 0.0 && n <= f64::from(u32::MAX - 1)) {
@@ -549,7 +549,7 @@ fn decode_receiver(vm: &VmInner, id: ObjectId) -> Option<StyleReceiver> {
     }
 }
 
-/// Whether `sid` is a canonical numeric-index string per ES §7.1.21
+/// Whether `sid` is a canonical numeric-index string per ECMA-262 §7.1.22
 /// (an integer in `[0, 2^32-2]` whose `ToString` round-trips).  Used
 /// to peel off `style[0]` / `style["0"]` shaped writes / deletes from
 /// the named-property exotic so they fall through to the indexed-

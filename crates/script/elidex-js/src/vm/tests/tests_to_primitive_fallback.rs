@@ -1,4 +1,4 @@
-//! Spec coverage for ES §7.1.1 ToPrimitive / §7.1.1.1 OrdinaryToPrimitive
+//! Spec coverage for ECMA-262 §7.1.1 ToPrimitive / §7.1.1.1 OrdinaryToPrimitive
 //! on plain Objects.  Slot #10.7 replaces the prior `"[object Object]"` /
 //! `NaN` shortcuts in `coerce::to_string` / `coerce::to_number` with a
 //! full §7.1.1.1 walk through `valueOf` / `toString`, so the same tests

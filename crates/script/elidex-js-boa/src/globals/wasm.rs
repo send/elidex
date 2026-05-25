@@ -433,7 +433,7 @@ fn build_exports_object(
     Ok(exports_obj.into())
 }
 
-/// ECMAScript §7.1.6 `ToInt32`: modular conversion of f64 to i32.
+/// ECMA-262 §7.1.7 `ToInt32`: modular conversion of f64 to i32.
 ///
 /// Unlike Rust's saturating `n as i32`, this wraps via 2^32 modular arithmetic.
 /// Example: `4294967296.0` → `0`, `2147483648.0` → `-2147483648`.
