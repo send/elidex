@@ -58,7 +58,11 @@ SPEC_LABEL_REVERSE = {
 HEADING_RE = re.compile(r"^(#{1,6})\s+.*spec\s+coverage\s+map", re.IGNORECASE)
 TABLE_ROW_RE = re.compile(r"^\|(.+)\|\s*$")
 SEPARATOR_CELL_RE = re.compile(r"^:?-+:?$")
-SECTION_REF_RE = re.compile(r"§([\d.A-B]+)")
+# Section numbers contain only digits, dots, and uppercase annex letters
+# (A through Z — tc39 annexes A-G, W3C/WHATWG occasionally further). AO
+# names always have lowercase (CamelCase) so won't match. Don't enumerate
+# specific annex letters — that drifts when a spec adds annex H+.
+SECTION_REF_RE = re.compile(r"§([\d.A-Z]+)")
 
 EXPECTED_COLUMNS = ["spec section", "step", "branch", "touch", "full enum", "user-input flow"]
 
@@ -241,9 +245,15 @@ def main() -> int:
     K = len(specs_seen)
     M = sum(specs_seen.values())
 
+    # Hard-fail when the table has rows but none parsed into a verifiable
+    # citation — this catches malformed §3 tables (missing `§...` in Spec
+    # cell, extra leading column shifting Spec into column 1's tail, etc.)
+    # that would otherwise silently bypass the hard gate.
+    citations_empty_hard_fail = (len(data_rows) > 0 and M == 0)
+
     verify_failed: list[tuple[str, str, str]] = []
+    seen_pairs: set[tuple[str, str]] = set()
     if not args.no_verify and citations:
-        seen_pairs: set[tuple[str, str]] = set()
         for shortname, section_num in citations:
             key = (shortname, section_num)
             if key in seen_pairs:
@@ -289,7 +299,17 @@ def main() -> int:
             for shortname, section_num, msg in verify_failed:
                 print(f"  - {shortname} §{section_num}: {msg}")
         else:
-            print(f"  citation verify:      ok ({len(citations)} citation(s) checked)")
+            print(f"  citation verify:      ok ({len(seen_pairs)} unique citation(s) checked)")
+
+    if citations_empty_hard_fail:
+        print()
+        print(f"preflight: ❌ HARD FAIL — table has {len(data_rows)} data row(s) "
+              f"but 0 parsed citations.", file=sys.stderr)
+        print("  Spec section cells must contain `§<number>` (e.g. "
+              "`ECMA-262 §15.7.14 ...`).", file=sys.stderr)
+        print("  Run `.claude/tools/webref coverage-map <spec> <ref> ...` "
+              "to regenerate the table.", file=sys.stderr)
+        return 1
 
     if verify_failed or breadth_hard_fail:
         return 1

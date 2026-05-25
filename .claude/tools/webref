@@ -567,16 +567,18 @@ def _spec_label(shortname: str) -> str:
 def _lookup_section(shortname: str, ref: str) -> tuple[str, str, str] | None:
     """Resolve (shortname, ref) → (number, title, anchor) or None.
 
-    `ref` discriminator:
-      - Starts with a digit (or `A`/`B` annex letter for tc39): treated as
-        §number prefix, dispatched through the heading path.
-      - Otherwise (alphabetic AO name like ClassDefinitionEvaluation): tc39
-        aoid lookup. Only tc39 specs support aoid — for other specs the
-        caller must pass a section number.
+    `ref` discriminator (structural, not enumerated):
+      - Digit-leading (e.g. `15.7.14`) OR single uppercase annex letter
+        followed by `.`/digit/end (e.g. `A.1`, `C.2.3`, `B`): §-number path,
+        heading lookup. Covers any tc39 annex letter (A-Z) and W3C/WHATWG
+        annexes without per-letter enumeration.
+      - Anything else (alphabetic AO name like `ClassDefinitionEvaluation`,
+        always CamelCase with at least one lowercase letter): tc39 aoid
+        lookup. Only tc39 specs support aoid — for other specs the caller
+        must pass a section number.
     """
     ref = ref.lstrip("§")
-    if re.match(r"^[0-9A-B]", ref) and not (ref[:1].isalpha() and len(ref) > 1 and ref[1:2].isalpha()):
-        # Section-number path (digit, or single annex letter A/B/...)
+    if re.match(r"^(\d|[A-Z]([.0-9]|$))", ref):
         return _lookup_heading(shortname, ref)
     return _lookup_aoid_first(shortname, ref)
 
