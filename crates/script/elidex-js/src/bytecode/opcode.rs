@@ -269,6 +269,13 @@ pub enum Op {
     /// Used by class-chain setup (\[C16\] ClassDefinitionEvaluation
     /// constructorParent / protoParent wiring).
     SetPrototype,
+    /// `[value -- ]` Pop `value`; throw TypeError if it is not a
+    /// constructor. Used by class-heritage validation (ECMA-262
+    /// §15.7.14 ClassDefinitionEvaluation step 6.f) to reject
+    /// `class B extends Symbol {}` / `class B extends BigInt {}` —
+    /// callable natives that lack `[[Construct]]` — at definition
+    /// time, before any prototype splice fires.
+    AssertConstructor,
 
     /// Create the `arguments` object from the current frame's actual args. `[ -- arguments_obj]`
     CreateArguments,
@@ -400,6 +407,7 @@ impl Op {
             | Self::ForInNext
             | Self::CreateArguments
             | Self::SetPrototype
+            | Self::AssertConstructor
             | Self::Wide => 0,
 
             // 1-byte operand (u8 or i8)

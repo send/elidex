@@ -227,7 +227,14 @@ pub(super) fn compile_class(
                                                                       // `[value -- value]`), so an explicit `Pop` is needed to
                                                                       // discard the duplicate.
             fc.emit_u16(Op::SetLocal, super_slot); //                    [ctor super]
-            fc.emit(Op::Pop); //                                          [ctor]
+                                                   // ECMA-262 §15.7.14 step 6.f ClassDefinitionEvaluation:
+                                                   // if the heritage value is not a constructor (callable but
+                                                   // [[Construct]]-less, e.g. Symbol / BigInt / arrow fn),
+                                                   // throw TypeError at class-definition time — NOT later at
+                                                   // super() dispatch (D-17b R17 G17-1). `Op::AssertConstructor`
+                                                   // pops the duplicate left by `SetLocal` so the splice phase
+                                                   // below reads the validated value via `GetLocal super_slot`.
+            fc.emit(Op::AssertConstructor); //                            [ctor]
 
             // First splice: ctor.prototype.__proto__ = super.prototype.
             fc.emit(Op::Dup); //                          [ctor ctor]
