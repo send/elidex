@@ -935,8 +935,14 @@ impl VmInner {
                         JsValue::Object(id) => Some(id),
                         JsValue::Null => None,
                         _ => {
+                            // Spec-aligned class-heritage wording (ECMA-262
+                            // §15.7.14 ClassDefinitionEvaluation step 6.f
+                            // throws TypeError when the heritage value is
+                            // neither a constructor nor null). Mirrors
+                            // V8 / SpiderMonkey error text for
+                            // `class A extends 1 {}`.
                             let e = VmError::type_error(
-                                "SetPrototype: parent must be an object or null",
+                                "Class extends value is not a constructor or null",
                             );
                             self.throw_error(e, entry_frame_depth)?;
                             continue;
