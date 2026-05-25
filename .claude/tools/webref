@@ -567,9 +567,14 @@ def cmd_specs(args: argparse.Namespace) -> None:
 def _tc39_resolve_body_url(shortname: str, anchor: str) -> tuple[str, str] | None:
     """Resolve tc39 (shortname, anchor) → (multipage_url, anchor) or None.
 
-    Looks up the clause in biblio, finds its top-level chapter, and derives
-    the chapter HTML file. Returns None if the anchor doesn't match any
-    clause (caller should fall back to single-page).
+    Accepts ANY biblio-known id, not just `type=clause`. Non-clause entries
+    (`table-*`, `figure-*`, `prod-*`, `step-*`, `term-*`, etc.) carry a
+    `refId` pointing into their enclosing clause; we walk that chain up to
+    the first ancestor clause and derive the chapter file from its
+    top-level §-number. This way every anchor biblio tracks resolves —
+    the resolver invariant "biblio-known id → multipage URL" holds by
+    construction, rather than being limited to a single entry-type subset.
+    Returns None if the anchor isn't in biblio at all.
     """
     try:
         d = _tc39_biblio(shortname)
@@ -578,17 +583,53 @@ def _tc39_resolve_body_url(shortname: str, anchor: str) -> tuple[str, str] | Non
     location = d.get("location", "")
     entries = d.get("entries", [])
 
-    # Find clause with the requested anchor
-    target = None
+    # Build id → entry index across ALL entry types. biblio uses string `id`
+    # uniquely across the file (clause / op / table / figure / term / prod /
+    # step), and refId always points to another such id, so a single dict
+    # supports both direct lookup and the refId walk below.
+    by_id: dict[str, dict] = {}
     for e in entries:
-        if e.get("type") == "clause" and e.get("id") == anchor:
-            target = e
-            break
+        eid = e.get("id")
+        if eid and eid not in by_id:
+            by_id[eid] = e
+
+    target = by_id.get(anchor)
     if target is None:
         return None
-    number = target.get("number", "")
+
+    # Locate the containing clause for chapter routing. Direct clause uses
+    # its own number; otherwise walk refId up until we hit a clause. Some
+    # entry types (`table` / `figure`) have no `refId` in biblio — we can't
+    # route them to a multipage chapter, so we fall back to the single-page
+    # URL further below. (The biblio still knows the anchor, so the caller
+    # gets a working URL — it's just the 3 MB single-page chapter file
+    # rather than a 200-800 KB multipage chapter.)
+    if target.get("type") == "clause":
+        clause = target
+    else:
+        clause = None
+        cur = target
+        guard = 32  # paranoia: cap walk depth to detect any refId cycle
+        while cur is not None and guard > 0:
+            guard -= 1
+            ref = cur.get("refId")
+            if not ref:
+                break
+            cur = by_id.get(ref)
+            if cur is not None and cur.get("type") == "clause":
+                clause = cur
+                break
+
+    # Single-page fallback when biblio lacks the chapter routing info.
+    # Distinct from the "not in biblio at all" None return above — here we
+    # know the anchor is valid; we just can't pick a smaller chapter file
+    # to fetch.
+    if clause is None:
+        return (location, anchor)
+
+    number = clause.get("number", "")
     if not number:
-        return None
+        return (location, anchor)
 
     # Top-level chapter §-prefix is the first component (digit chapter, e.g. "7"
     # from "7.4.11"; annex letter, e.g. "B" from "B.3.1").
@@ -599,14 +640,14 @@ def _tc39_resolve_body_url(shortname: str, anchor: str) -> tuple[str, str] | Non
             top_clause = e
             break
     if top_clause is None:
-        return None
+        return (location, anchor)
     top_id = top_clause.get("id", "")
     # Strip the canonical "sec-" prefix to get the chapter file slug. Falls
     # back to the raw id if a chapter ever lacks the prefix (defensive — all
     # current ecma262/ecma402 top-level clauses have it).
     chapter = top_id[4:] if top_id.startswith("sec-") else top_id
     if not chapter:
-        return None
+        return (location, anchor)
     return (f"{location}multipage/{chapter}.html", anchor)
 
 
@@ -746,6 +787,13 @@ class _SectionExtractor(html.parser.HTMLParser):
         self._parts: list[str] = []
         self._capturing = False
         self._done = False
+        # Anchor-found state — flipped True the first time we see an element
+        # carrying the target id, regardless of which strategy fires (container
+        # / heading / open-ended). Distinct from `_capturing` because callers
+        # need to discriminate "anchor never encountered" (probably a typo or
+        # biblio→HTML drift) from "anchor encountered but extracted text is
+        # empty" (a table/figure-only section the extractor renders as blank).
+        self._found = False
         # Container strategy state
         self._container_tag: str | None = None
         self._container_depth = 0
@@ -765,7 +813,13 @@ class _SectionExtractor(html.parser.HTMLParser):
 
     # -- public API ---------------------------------------------------------
 
-    def extract(self, html_text: str) -> str:
+    def extract(self, html_text: str) -> tuple[bool, str]:
+        """Parse `html_text`. Returns (found, text).
+
+        `found` indicates whether an element with the target id was
+        encountered (regardless of whether the resulting text is empty —
+        useful for distinguishing "anchor missing" from "empty section").
+        """
         try:
             self.feed(html_text)
         except _ExtractDone:
@@ -773,7 +827,7 @@ class _SectionExtractor(html.parser.HTMLParser):
         # Post-process: collapse 3+ blank lines, strip leading/trailing whitespace.
         text = "".join(self._parts)
         text = re.sub(r"\n{3,}", "\n\n", text)
-        return text.strip()
+        return self._found, text.strip()
 
     # -- HTMLParser hooks ---------------------------------------------------
 
@@ -792,6 +846,9 @@ class _SectionExtractor(html.parser.HTMLParser):
         # Discovery: not yet capturing — looking for the element with target id.
         if not self._capturing:
             if elem_id == self._anchor:
+                # Anchor encountered — record this BEFORE strategy dispatch so
+                # the `_found` signal is set even if (somehow) no text emits.
+                self._found = True
                 # Strategy selection — container > heading > inline (open-ended).
                 if tag in self._CONTAINER_TAGS:
                     self._capturing = True
@@ -926,8 +983,13 @@ class _ExtractDone(Exception):
     """Internal sentinel — break out of HTMLParser.feed once section closes."""
 
 
-def _extract_section_body(html_bytes: bytes, anchor: str) -> str:
-    """Parse `html_bytes` and return the section body for `anchor` as plain text."""
+def _extract_section_body(html_bytes: bytes, anchor: str) -> tuple[bool, str]:
+    """Parse `html_bytes` and return (found, text) for `anchor`.
+
+    `found` is True iff an element with the requested id was encountered
+    during parsing — distinct from `text != ""`. See `_SectionExtractor`
+    for the rationale (table/figure-only sections render empty).
+    """
     text = html_bytes.decode("utf-8", errors="replace")
     ext = _SectionExtractor(anchor)
     return ext.extract(text)
@@ -939,29 +1001,73 @@ def cmd_body(args: argparse.Namespace) -> None:
     if not raw:
         sys.exit("webref: body needs a non-empty anchor")
 
-    # tc39 AO-name shortcut: CamelCase input that doesn't look like a section
-    # anchor → resolve via aoid lookup first. Section anchors in ECMA-262/402
-    # universally start with "sec-", so anything else is treated as an AO name.
+    # Resolution order — anchor first, AO-name as fallback:
+    #
+    #   1. Direct anchor lookup against biblio (tc39) / headings+dfns
+    #      (WHATWG/W3C). Covers `sec-*` clauses + non-clause anchors like
+    #      `table-*` / `figure-*` / `prod-*` / `term-*` etc. for tc39, and
+    #      heading + dfn id space for WHATWG/W3C.
+    #   2. ONLY if (a) no anchor match AND (b) input is a single CamelCase
+    #      identifier (tc39 only): attempt AO-name lookup, then resolve the
+    #      resulting `sec-*` anchor via the same flow. The CamelCase filter
+    #      prevents bogus rejection of valid non-CamelCase anchors that
+    #      happen not to be in biblio (typo → clean "anchor not found"
+    #      instead of misleading "not an AO" error).
     anchor = raw
-    if args.shortname in _TC39_FAMILY and not raw.startswith("sec-"):
-        resolved = _lookup_aoid_first(args.shortname, raw)
-        if resolved is None:
-            sys.exit(
-                f"webref: {raw!r} is neither a known section anchor "
-                f"(sec-*) nor an abstract operation in {args.shortname}"
-            )
-        _, _, full_anchor = resolved
-        anchor = full_anchor.split("#", 1)[-1]
+    fetch_url: str | None = None
+    file_anchor: str | None = None
 
-    fetch_url, file_anchor = _resolve_body_source(args.shortname, anchor)
+    if args.shortname in _TC39_FAMILY:
+        direct = _tc39_resolve_body_url(args.shortname, raw)
+        if direct is not None:
+            fetch_url, file_anchor = direct
+        elif re.match(r"^[A-Z][A-Za-z0-9]*$", raw):
+            resolved = _lookup_aoid_first(args.shortname, raw)
+            if resolved is None:
+                sys.exit(
+                    f"webref: {raw!r} is neither a known anchor (no id match "
+                    f"in {args.shortname} biblio across clause / op / table / "
+                    f"figure / term / production entries) nor a recognized "
+                    f"abstract operation"
+                )
+            _, _, full_anchor = resolved
+            anchor = full_anchor.split("#", 1)[-1]
+            direct = _tc39_resolve_body_url(args.shortname, anchor)
+            if direct is None:
+                sys.exit(
+                    f"webref: AO {raw} resolved to #{anchor} but biblio "
+                    f"chapter routing failed (unexpected — please report)"
+                )
+            fetch_url, file_anchor = direct
+        else:
+            sys.exit(
+                f"webref: anchor {raw!r} not found in {args.shortname} biblio "
+                f"(checked clause / op / table / figure / term / production "
+                f"entries; if you meant an abstract operation, use the "
+                f"CamelCase name like `IteratorClose`)"
+            )
+    else:
+        fetch_url, file_anchor = _resolve_body_source(args.shortname, anchor)
+
     html_bytes = cached_fetch_url(fetch_url)
-    text = _extract_section_body(html_bytes, file_anchor)
-    if not text:
+    found, text = _extract_section_body(html_bytes, file_anchor)
+    if not found:
         sys.exit(
-            f"webref: anchor #{file_anchor} not found in {fetch_url} "
-            f"(check the anchor spelling, or the section may be in a "
-            f"different chapter file)"
+            f"webref: anchor #{file_anchor} not encountered in {fetch_url} "
+            f"(biblio/webref pointed here but the rendered chapter HTML "
+            f"doesn't carry that id — possibly a multipage drift or a "
+            f"stale biblio entry)"
         )
+    if not text:
+        # Anchor was found but the section is text-empty (e.g. a section
+        # whose only content is a <emu-table> or <emu-figure> that the
+        # extractor renders as nothing). Surface this as a *distinct* state
+        # from "not found" so the user knows to look at the source directly.
+        print(f"# {fetch_url}#{file_anchor}")
+        print()
+        print(f"(section found but extractor produced no text — likely "
+              f"a table/figure-only section; view source at {fetch_url}#{file_anchor})")
+        return
     # Header line for orientation (URL is the canonical citation).
     print(f"# {fetch_url}#{file_anchor}")
     print()
