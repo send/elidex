@@ -730,9 +730,12 @@ impl VmInner {
         self.gc_enabled = saved_gc;
 
         if let Some(callee) = js_callee {
-            // JS-ctor entry: `new.target` is the originally-invoked
-            // constructor (\[C11\] [[Construct]] step 4). `super()`
-            // inside the user ctor body propagates this unchanged.
+            // JS-ctor entry: `new.target` is the constructor reaching
+            // this frame (\[C11\] [[Construct]] step 4) — `do_new` may
+            // have already remapped it once if the entry constructor
+            // was a BoundFunction chain (ECMA-262 §10.4.1.2 step 5).
+            // `super()` inside the user ctor body propagates this
+            // unchanged.
             // Construct mode (new_target = Some), so the
             // class-ctor-call-mode guard in push_js_call_frame
             // never fires — the `?` is for signature compatibility.

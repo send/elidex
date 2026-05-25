@@ -127,28 +127,20 @@ pub(super) fn compile_class(
         // duplicate the parser's NodeId arena. Rest-param packing at
         // frame entry (Stage 0) materializes the `args` array in
         // slot 0; SuperCallSpread consumes it and propagates the
-        // outer NewTarget via the dispatch-class core.
-        // NOTE on the explicit `PushUndefined; Return` tail (instead
-        // of `Pop; ReturnUndefined`): the script-level
-        // completion-value-capture path in `Op::Pop` at the entry
-        // frame would otherwise stash the super-call return value as
-        // the frame's completion (dispatch.rs Op::Pop entry-frame
-        // branch), and `Op::ReturnUndefined` at the entry frame
-        // returns that completion rather than Undefined. invoke_upgrade
-        // then sees the super-call's NEW wrapper as the ctor's
-        // return value, the SameValue check at upgrade.rs §4.13.5
-        // step 12.2 fails, and the upgrade aborts. `Pop; PushUndefined;
-        // Return` discards the super result explicitly + returns a
-        // literal Undefined that `Op::Return` (which uses the popped
-        // value, not completion_value) propagates faithfully.
+        // outer NewTarget via the dispatch-class core. Trailing
+        // `Pop; ReturnUndefined`: discard the super-call return value
+        // and yield literal Undefined — the `is_class_ctor` carve-out
+        // in `Op::ReturnUndefined` (dispatch.rs) overrides the
+        // entry-frame completion-value path so the upgrade.rs §4.13.5
+        // step 12.2 SameValue check sees the constructed instance,
+        // not the super-call's return.
         let bytecode = vec![
             Op::GetLocal as u8,
             0,
             0, // u16 LE slot 0
             Op::SuperCallSpread as u8,
             Op::Pop as u8,
-            Op::PushUndefined as u8,
-            Op::Return as u8,
+            Op::ReturnUndefined as u8,
         ];
         let default_derived_ctor = synthesize_default_class_ctor(
             bytecode,
@@ -161,11 +153,12 @@ pub(super) fn compile_class(
         fc.emit_u16(Op::Closure, idx);
     } else {
         // Default BASE constructor ([C16] default-constructor branch
-        // when ClassHeritage is absent): empty body. Use PushUndefined
-        // + Return (not ReturnUndefined) because ReturnUndefined has
-        // special completion-value semantics for script-level eval.
+        // when ClassHeritage is absent): empty body. `ReturnUndefined`
+        // yields literal Undefined because the `is_class_ctor` carve-
+        // out (dispatch.rs `Op::ReturnUndefined`) overrides the
+        // entry-frame completion-value path.
         let default_ctor = synthesize_default_class_ctor(
-            vec![Op::PushUndefined as u8, Op::Return as u8],
+            vec![Op::ReturnUndefined as u8],
             class.name.map(|a| prog.interner.get_utf8(a)),
             /* param_count */ 0,
             /* local_count */ 0,
