@@ -42,7 +42,7 @@ pub(super) fn try_init_render_state(event_loop: &ActiveEventLoop) -> Option<Rend
     // Now show the window.
     window.set_visible(true);
 
-    let instance = Instance::new(&InstanceDescriptor::default());
+    let instance = Instance::new(InstanceDescriptor::new_without_display_handle_from_env());
     let surface = instance
         .create_surface(Arc::clone(&window))
         .inspect_err(|e| eprintln!("Failed to create wgpu surface: {e}"))
@@ -243,19 +243,20 @@ fn with_frame<T: Default>(
     };
 
     // Get the surface frame.
+    // wgpu 29: get_current_texture() returns CurrentSurfaceTexture enum (not Result).
     let frame = match state.surface.get_current_texture() {
-        Ok(f) => f,
-        Err(wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost) => {
+        wgpu::CurrentSurfaceTexture::Success(f) | wgpu::CurrentSurfaceTexture::Suboptimal(f) => f,
+        wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
             state.gpu.reconfigure(&state.surface);
             state.window.request_redraw();
             return T::default();
         }
-        Err(wgpu::SurfaceError::Timeout) => {
+        wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
             state.window.request_redraw();
             return T::default();
         }
-        Err(e) => {
-            eprintln!("Surface error: {e}");
+        wgpu::CurrentSurfaceTexture::Validation => {
+            eprintln!("Surface validation error");
             return T::default();
         }
     };
