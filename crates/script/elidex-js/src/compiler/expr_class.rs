@@ -47,6 +47,37 @@ fn classify_heritage(prog: &Program, super_class: Option<NodeId<Expr>>) -> Class
     }
 }
 
+/// Build a synthesized default-class-constructor `CompiledFunction`
+/// with the spec-required common attributes (class-ctor flag, strict
+/// mode) auto-filled. Callers supply only the body bytecode + the
+/// 3 shape parameters that differ between DERIVED (1 rest param) and
+/// BASE (no params) (D-17b R9 G9-helper extraction — Copilot /review
+/// Sug#4 close).
+///
+/// `is_class_ctor: true` makes the dispatch class-ctor carve-outs fire
+/// (see `dispatch.rs` Op::ReturnUndefined). `is_strict: true` reflects
+/// ECMA-262 §15.7 ClassBody strict-mode region — synthesized bodies
+/// today have no strict-vs-loose-divergent ops but the flag keeps the
+/// spec invariant explicit (D-17b R8 G8-1/G8-2 alignment).
+fn synthesize_default_class_ctor(
+    bytecode: Vec<u8>,
+    name: Option<String>,
+    param_count: u16,
+    local_count: u16,
+    has_rest_param: bool,
+) -> crate::bytecode::compiled::CompiledFunction {
+    crate::bytecode::compiled::CompiledFunction {
+        bytecode,
+        name,
+        param_count,
+        local_count,
+        has_rest_param,
+        is_class_ctor: true,
+        is_strict: true,
+        ..Default::default()
+    }
+}
+
 /// Compile a class declaration or expression.
 ///
 /// Desugars the class into existing opcodes:
@@ -119,21 +150,13 @@ pub(super) fn compile_class(
             Op::PushUndefined as u8,
             Op::Return as u8,
         ];
-        let default_derived_ctor = crate::bytecode::compiled::CompiledFunction {
+        let default_derived_ctor = synthesize_default_class_ctor(
             bytecode,
-            name: class.name.map(|a| prog.interner.get_utf8(a)),
-            param_count: 1, // (...args)
-            local_count: 1, // slot 0 for args
-            has_rest_param: true,
-            is_class_ctor: true,
-            // Class constructors are always strict (ECMA-262 §15.7
-            // ClassBody is a strict-mode region). The synthesized
-            // body has no strict-vs-loose-divergent ops today, but
-            // setting the flag keeps the spec invariant explicit
-            // and protects against future op additions (D-17b R8).
-            is_strict: true,
-            ..Default::default()
-        };
+            class.name.map(|a| prog.interner.get_utf8(a)),
+            /* param_count */ 1, // (...args)
+            /* local_count */ 1, // slot 0 for args
+            /* has_rest_param */ true,
+        );
         let idx = fc.add_constant(Constant::Function(Box::new(default_derived_ctor)));
         fc.emit_u16(Op::Closure, idx);
     } else {
@@ -141,15 +164,13 @@ pub(super) fn compile_class(
         // when ClassHeritage is absent): empty body. Use PushUndefined
         // + Return (not ReturnUndefined) because ReturnUndefined has
         // special completion-value semantics for script-level eval.
-        let default_ctor = crate::bytecode::compiled::CompiledFunction {
-            bytecode: vec![Op::PushUndefined as u8, Op::Return as u8],
-            name: class.name.map(|a| prog.interner.get_utf8(a)),
-            is_class_ctor: true,
-            // Class constructors are always strict (ECMA-262 §15.7);
-            // see the matching note on the DERIVED synth above (D-17b R8).
-            is_strict: true,
-            ..Default::default()
-        };
+        let default_ctor = synthesize_default_class_ctor(
+            vec![Op::PushUndefined as u8, Op::Return as u8],
+            class.name.map(|a| prog.interner.get_utf8(a)),
+            /* param_count */ 0,
+            /* local_count */ 0,
+            /* has_rest_param */ false,
+        );
         let idx = fc.add_constant(Constant::Function(Box::new(default_ctor)));
         fc.emit_u16(Op::Closure, idx);
     }
