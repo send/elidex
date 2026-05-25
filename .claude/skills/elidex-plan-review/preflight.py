@@ -56,13 +56,33 @@ SPEC_LABEL_REVERSE = {
 }
 
 HEADING_RE = re.compile(r"^(#{1,6})\s+.*spec\s+coverage\s+map", re.IGNORECASE)
-TABLE_ROW_RE = re.compile(r"^\|(.+)\|\s*$")
+FENCE_RE = re.compile(r"^\s*(```|~~~)")
 SEPARATOR_CELL_RE = re.compile(r"^:?-+:?$")
 # Section numbers contain only digits, dots, and uppercase annex letters
 # (A through Z — tc39 annexes A-G, W3C/WHATWG occasionally further). AO
 # names always have lowercase (CamelCase) so won't match. Don't enumerate
 # specific annex letters — that drifts when a spec adds annex H+.
 SECTION_REF_RE = re.compile(r"§([\d.A-Z]+)")
+
+
+def _parse_table_row(line: str) -> list[str] | None:
+    """Return GFM table row cells, or None if `line` isn't a table row.
+
+    Accepts both forms:
+      - With outer pipes: `| a | b | c |`
+      - Without outer pipes: `a | b | c`
+    A row must contain at least one `|` and split into ≥ 2 cells. Outer
+    `|`s and surrounding whitespace are stripped before splitting.
+    """
+    stripped = line.strip()
+    if not stripped or "|" not in stripped:
+        return None
+    if stripped.startswith("|"):
+        stripped = stripped[1:]
+    if stripped.endswith("|"):
+        stripped = stripped[:-1]
+    cells = [c.strip() for c in stripped.split("|")]
+    return cells if len(cells) >= 2 else None
 
 EXPECTED_COLUMNS = ["spec section", "step", "branch", "touch", "full enum", "user-input flow"]
 
@@ -72,6 +92,9 @@ def find_coverage_map_section(lines: list[str]) -> tuple[int, int, int] | None:
 
     Returns (heading_line, body_start, body_end) where body covers lines
     after the heading until the next heading at same/shallower level.
+    Fenced code blocks (``` / ~~~) are tracked so `#` lines inside fences
+    are not treated as heading terminators — common false-positive when
+    §3 narrative includes shell / python snippets with `# comment` lines.
     Returns None if no Spec coverage map heading found.
     """
     for i, line in enumerate(lines):
@@ -81,11 +104,22 @@ def find_coverage_map_section(lines: list[str]) -> tuple[int, int, int] | None:
         heading_level = len(m.group(1))
         body_start = i + 1
         body_end = len(lines)
+        in_fence = False
+        fence_marker: str | None = None
         for j in range(body_start, len(lines)):
             line_j = lines[j]
-            if not line_j.startswith("#"):
+            fence_m = FENCE_RE.match(line_j)
+            if fence_m:
+                marker = fence_m.group(1)
+                if not in_fence:
+                    in_fence = True
+                    fence_marker = marker
+                elif fence_marker == marker:
+                    in_fence = False
+                    fence_marker = None
                 continue
-            # Count leading '#'s
+            if in_fence or not line_j.startswith("#"):
+                continue
             level = len(line_j) - len(line_j.lstrip("#"))
             if 0 < level <= heading_level:
                 body_end = j
@@ -95,22 +129,44 @@ def find_coverage_map_section(lines: list[str]) -> tuple[int, int, int] | None:
 
 
 def find_table(lines: list[str], start: int, end: int) -> list[list[str]] | None:
-    """Find the first markdown table in lines[start:end], return parsed rows."""
-    table_start = None
-    for i in range(start, end):
-        if TABLE_ROW_RE.match(lines[i]):
-            table_start = i
-            break
-    if table_start is None:
-        return None
-    rows = []
-    for i in range(table_start, end):
-        m = TABLE_ROW_RE.match(lines[i])
-        if not m:
-            break
-        cells = [c.strip() for c in m.group(1).split("|")]
-        rows.append(cells)
-    return rows if len(rows) >= 2 else None
+    """Find the first GFM table in lines[start:end].
+
+    A GFM table is identified by a header row followed by a separator row
+    (cells matching `^:?-+:?$`). This is the unambiguous GFM marker and
+    avoids false positives on prose containing `|`. Both outer-pipe and
+    no-outer-pipe forms are accepted via `_parse_table_row()`.
+    Fenced code blocks are skipped so embedded markdown samples don't get
+    treated as tables.
+    """
+    in_fence = False
+    fence_marker: str | None = None
+    for i in range(start, end - 1):
+        fence_m = FENCE_RE.match(lines[i])
+        if fence_m:
+            marker = fence_m.group(1)
+            if not in_fence:
+                in_fence = True
+                fence_marker = marker
+            elif fence_marker == marker:
+                in_fence = False
+                fence_marker = None
+            continue
+        if in_fence:
+            continue
+        header_cells = _parse_table_row(lines[i])
+        if header_cells is None:
+            continue
+        sep_cells = _parse_table_row(lines[i + 1])
+        if sep_cells is None or not is_separator_row(sep_cells):
+            continue
+        rows = [header_cells, sep_cells]
+        for j in range(i + 2, end):
+            row = _parse_table_row(lines[j])
+            if row is None:
+                break
+            rows.append(row)
+        return rows
+    return None
 
 
 def is_separator_row(row: list[str]) -> bool:

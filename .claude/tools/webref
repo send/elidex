@@ -680,6 +680,9 @@ def cmd_coverage_map(args: argparse.Namespace) -> None:
         rows.append((spec_cell, anchor))
         specs_seen.add(shortname)
 
+    # stdout = the copy/paste-friendly markdown artifact (table + anchors +
+    # breadth verdict). stderr = diagnostics (verification failures). Matches
+    # webref's other subcommands' stderr-for-errors convention.
     print("| Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |")
     print("|---|---|---|---|---|---|")
     for spec_cell, _anchor in rows:
@@ -691,12 +694,6 @@ def cmd_coverage_map(args: argparse.Namespace) -> None:
         for spec_cell, anchor in rows:
             print(f"  {spec_cell}")
             print(f"    {anchor}")
-
-    if failed:
-        print()
-        print(f"⚠ {len(failed)} entry/entries failed verification:")
-        for shortname, ref, reason in failed:
-            print(f"  - {shortname} {ref}: {reason}")
 
     K = len(specs_seen)
     M = len(rows)
@@ -710,6 +707,9 @@ def cmd_coverage_map(args: argparse.Namespace) -> None:
         print("**Split decision**: ok → single PR scope")
 
     if failed:
+        print(f"\n⚠ {len(failed)} entry/entries failed verification:", file=sys.stderr)
+        for shortname, ref, reason in failed:
+            print(f"  - {shortname} {ref}: {reason}", file=sys.stderr)
         sys.exit(1)
 
 
