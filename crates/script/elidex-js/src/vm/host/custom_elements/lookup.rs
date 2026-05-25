@@ -3,6 +3,8 @@
 
 #![cfg(feature = "engine")]
 
+use std::sync::PoisonError;
+
 use elidex_custom_elements::{CEState, CustomElementState};
 
 use super::super::super::natives_promise;
@@ -24,7 +26,10 @@ pub(crate) fn native_ce_get(
     };
     let host = ctx.host();
     let constructor_id_u64 = {
-        let registry = host.ce_registry.lock().expect("CE registry mutex poisoned");
+        let registry = host
+            .ce_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         match registry.get(&name) {
             Some(def) => def.constructor_id,
             None => return Ok(JsValue::Undefined),
@@ -81,7 +86,10 @@ pub(crate) fn native_ce_when_defined(
     // constructor.
     let ctor_id_opt: Option<super::super::super::value::ObjectId> = {
         let host = ctx.host();
-        let registry = host.ce_registry.lock().expect("CE registry mutex poisoned");
+        let registry = host
+            .ce_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         registry
             .get(&name)
             .map(|d| d.constructor_id)
@@ -141,7 +149,10 @@ pub(crate) fn native_ce_upgrade(
         // `ce_registry` per visited entity. On 1000-element subtrees
         // this drops 1000 lock/unlocks to 1.
         let defined: std::collections::HashSet<String> = {
-            let registry = host.ce_registry.lock().expect("CE registry mutex poisoned");
+            let registry = host
+                .ce_registry
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
             registry.names().map(str::to_owned).collect()
         };
         let dom = host.dom_shared();

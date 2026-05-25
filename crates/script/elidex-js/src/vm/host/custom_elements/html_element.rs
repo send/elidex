@@ -30,6 +30,8 @@
 
 #![cfg(feature = "engine")]
 
+use std::sync::PoisonError;
+
 use elidex_custom_elements::ConstructionStackEntry;
 
 use super::super::super::shape::PropertyAttrs;
@@ -147,7 +149,10 @@ pub(crate) fn native_html_element_ctor(
         ));
     };
     let definition_name = {
-        let registry = host.ce_registry.lock().expect("CE registry mutex poisoned");
+        let registry = host
+            .ce_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         match registry.lookup_by_constructor(constructor_id) {
             Some(def) => def.name.clone(),
             None => {
@@ -160,7 +165,10 @@ pub(crate) fn native_html_element_ctor(
 
     // Step 3 (\[C1\] step 12 — peek construction stack): upgrade path.
     let stack_top = {
-        let registry = host.ce_registry.lock().expect("CE registry mutex poisoned");
+        let registry = host
+            .ce_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         registry.peek_construction_stack(&definition_name).cloned()
     };
     match stack_top {
@@ -192,7 +200,10 @@ pub(crate) fn native_html_element_ctor(
             set_wrapper_prototype(ctx.vm, wrapper_id, proto_id);
             {
                 let host = ctx.host();
-                let mut registry = host.ce_registry.lock().expect("CE registry mutex poisoned");
+                let mut registry = host
+                    .ce_registry
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner);
                 let popped = registry.replace_construction_stack_top_with_marker(&definition_name);
                 debug_assert_eq!(
                     popped,

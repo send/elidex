@@ -3,6 +3,8 @@
 
 #![cfg(feature = "engine")]
 
+use std::sync::PoisonError;
+
 use elidex_custom_elements::{CustomElementDefinition, CustomElementReaction, DefineError};
 
 use super::super::super::value::{JsValue, NativeContext, ObjectId, VmError};
@@ -126,7 +128,10 @@ pub(crate) fn native_ce_define(
     let definition =
         CustomElementDefinition::new(name.clone(), constructor_id_u64, observed_attributes, None);
     let pending = {
-        let mut registry = host.ce_registry.lock().expect("CE registry mutex poisoned");
+        let mut registry = host
+            .ce_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         registry.define(definition)
     };
     let pending_entities = match pending {
@@ -148,7 +153,7 @@ pub(crate) fn native_ce_define(
         let mut queue = host
             .ce_reaction_queue
             .lock()
-            .expect("CE reaction queue mutex poisoned");
+            .unwrap_or_else(PoisonError::into_inner);
         for entity in &pending_entities {
             queue.push_back(CustomElementReaction::Upgrade(*entity));
         }
@@ -304,7 +309,7 @@ fn enqueue_upgrade_walk(
     let mut queue = host
         .ce_reaction_queue
         .lock()
-        .expect("CE reaction queue mutex poisoned");
+        .unwrap_or_else(PoisonError::into_inner);
     for entity in to_upgrade {
         queue.push_back(CustomElementReaction::Upgrade(entity));
     }

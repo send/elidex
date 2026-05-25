@@ -123,7 +123,10 @@ pub(crate) fn invoke_upgrade(ctx: &mut NativeContext<'_>, entity: Entity) -> Res
     // on Custom/Failed/no-def). Drops the registry lock before any VM
     // re-borrow.
     let (constructor_id, observed_attributes, definition_name) = {
-        let registry = host.ce_registry.lock().expect("CE registry mutex poisoned");
+        let registry = host
+            .ce_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         match elidex_custom_elements::prepare_upgrade(host.dom_shared(), &registry, entity) {
             UpgradeResolution::Skip => return Ok(()),
             UpgradeResolution::Proceed {
@@ -274,7 +277,7 @@ pub(crate) fn invoke_upgrade(ctx: &mut NativeContext<'_>, entity: Entity) -> Res
             // with the `dom()` re-borrow.
             let queue_arc = std::sync::Arc::clone(&host.ce_reaction_queue);
             let dom = host.dom();
-            let mut queue = queue_arc.lock().expect("CE reaction queue mutex poisoned");
+            let mut queue = queue_arc.lock().unwrap_or_else(PoisonError::into_inner);
             elidex_custom_elements::finalize_success(dom, &mut queue, entity, &observed_attributes);
         }
         Err(err) => {
@@ -293,7 +296,7 @@ fn finalize_failure_shim(ctx: &mut NativeContext<'_>, entity: Entity) {
     let host = ctx.host();
     let queue_arc = std::sync::Arc::clone(&host.ce_reaction_queue);
     let dom = host.dom();
-    let mut queue = queue_arc.lock().expect("CE reaction queue mutex poisoned");
+    let mut queue = queue_arc.lock().unwrap_or_else(PoisonError::into_inner);
     elidex_custom_elements::finalize_failure(dom, &mut queue, entity);
 }
 
