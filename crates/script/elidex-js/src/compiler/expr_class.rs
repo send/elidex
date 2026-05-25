@@ -182,28 +182,38 @@ pub(super) fn compile_class(
             fc.emit(Op::Pop); //                          [ctor]
         }
         ClassHeritage::Expr(super_id) => {
+            // ECMA-262 §15.7.14 step 6 ClassDefinitionEvaluation: the
+            // ClassHeritage expression is evaluated **exactly once**.
+            // Stash the super value in a temp local so both prototype
+            // splices below read from it instead of re-emitting (and
+            // re-evaluating) the expression — fixes the duplicate
+            // side-effect bug Copilot R6-1 flagged.
+            let super_slot = func_scopes[fc.func_scope_idx].next_local;
+            func_scopes[fc.func_scope_idx].next_local += 1;
+
             // Stack: [ctor]
-            // First splice ctor.prototype.__proto__ = super_class.prototype.
+            compile_expr(fc, prog, analysis, func_scopes, super_id)?; // [ctor super]
+                                                                      // `Op::SetLocal` is peek-then-store (stack effect
+                                                                      // `[value -- value]`), so an explicit `Pop` is needed to
+                                                                      // discard the duplicate.
+            fc.emit_u16(Op::SetLocal, super_slot); //                    [ctor super]
+            fc.emit(Op::Pop); //                                          [ctor]
+
+            // First splice: ctor.prototype.__proto__ = super.prototype.
             fc.emit(Op::Dup); //                          [ctor ctor]
             let proto_name = fc.add_name("prototype");
             let ic1 = fc.alloc_ic_slot();
             fc.emit_u16_u16(Op::GetProp, proto_name, ic1); // [ctor ctor.prototype]
-            compile_expr(fc, prog, analysis, func_scopes, super_id)?; // [ctor ctor.prototype super]
-            fc.emit(Op::Dup); //                          [ctor ctor.prototype super super]
+            fc.emit_u16(Op::GetLocal, super_slot); //       [ctor ctor.prototype super]
             let proto_name2 = fc.add_name("prototype");
             let ic2 = fc.alloc_ic_slot();
-            fc.emit_u16_u16(Op::GetProp, proto_name2, ic2); // [ctor ctor.prototype super super.prototype]
-                                                            // SetPrototype: [child=ctor.prototype, parent=super.prototype -- ctor.prototype].
-                                                            // Re-arrange via Swap+Pop to drop the intermediate `super` and leave
-                                                            // [ctor ctor.prototype super.prototype] for the splice.
-            fc.emit(Op::Swap); //                         [ctor ctor.prototype super.prototype super]
-            fc.emit(Op::Pop); //                          [ctor ctor.prototype super.prototype]
+            fc.emit_u16_u16(Op::GetProp, proto_name2, ic2); // [ctor ctor.prototype super.prototype]
             fc.emit(Op::SetPrototype); //                 [ctor ctor.prototype]
             fc.emit(Op::Pop); //                          [ctor]
 
-            // Now splice ctor.__proto__ = super_class.
+            // Second splice: ctor.__proto__ = super.
             fc.emit(Op::Dup); //                          [ctor ctor]
-            compile_expr(fc, prog, analysis, func_scopes, super_id)?; // [ctor ctor super]
+            fc.emit_u16(Op::GetLocal, super_slot); //       [ctor ctor super]
             fc.emit(Op::SetPrototype); //                 [ctor ctor]
             fc.emit(Op::Pop); //                          [ctor]
         }

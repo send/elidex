@@ -277,6 +277,25 @@ fn extends_bound_constructor_throws_on_undefined_prototype() {
 }
 
 #[test]
+fn extends_heritage_expression_evaluated_once() {
+    // ECMA-262 §15.7.14 step 6 ClassDefinitionEvaluation: the
+    // ClassHeritage expression must be evaluated exactly once. The
+    // compiler previously emitted `compile_expr(super_id)` twice —
+    // once for `ctor.prototype.__proto__ = super.prototype` and
+    // once for `ctor.__proto__ = super` — duplicating side effects
+    // for non-trivial heritage expressions like a call (D-17b R6 G6-1).
+    assert_eq!(
+        super::eval_number(
+            "let count = 0; \
+             function H() { count++; return class A {}; } \
+             class B extends H() {} \
+             count;"
+        ),
+        1.0
+    );
+}
+
+#[test]
 fn new_bound_constructor_via_do_new_still_works() {
     // `new BoundCtor(...)` itself (no class heritage) continues to
     // unwrap via `do_new` → `unwrap_bound_function_chain` and
