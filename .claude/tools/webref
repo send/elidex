@@ -560,8 +560,10 @@ def cmd_specs(args: argparse.Namespace) -> None:
 # tc39 multipage chapter file derivation is purely structural: the top-level
 # clause's `id` (always "sec-X" by convention) maps to `X.html`. Verified
 # across all 38 ecma262 chapters + annexes — no per-spec carve-outs needed.
-# If tc39 ever introduces an irregular chapter file, the fetch returns 404
-# and the body lookup falls back to the single-page URL.
+# If tc39 ever introduces an irregular chapter file, `cmd_body` catches the
+# 404 from the multipage fetch and retries against the single-page URL
+# (`<location>#<anchor>`), which serves every anchor regardless of chapter
+# layout. See the NotFound-handling block at the end of cmd_body.
 
 
 def _tc39_resolve_body_url(shortname: str, anchor: str) -> tuple[str, str] | None:
@@ -807,7 +809,12 @@ class _SectionExtractor(html.parser.HTMLParser):
         # whether to prefix "N." or "*", and increment the counter.
         self._list_stack: list[list] = []  # [[tag, counter], ...]
         # <pre> preserves whitespace; track depth so nested <pre> still works.
+        # `_had_pre` records "ever entered a <pre>" for the post-processing
+        # gate — when True, we skip the cosmetic `\n{3,}` collapse + `.strip()`
+        # in `extract()` so <pre> content remains byte-for-byte verbatim, as
+        # the class docstring promises.
         self._pre_depth = 0
+        self._had_pre = False
         # Skip-content depth (script/style)
         self._skip_depth = 0
 
@@ -824,10 +831,19 @@ class _SectionExtractor(html.parser.HTMLParser):
             self.feed(html_text)
         except _ExtractDone:
             pass
-        # Post-process: collapse 3+ blank lines, strip leading/trailing whitespace.
         text = "".join(self._parts)
-        text = re.sub(r"\n{3,}", "\n\n", text)
-        return self._found, text.strip()
+        # When `_had_pre`, skip the newline-collapse to honor the verbatim
+        # promise — <pre> with intentional blank lines must round-trip
+        # unchanged. Otherwise collapse 3+ blank lines (purely cosmetic;
+        # block-tag open/close emits stack newlines that pile up).
+        if not self._had_pre:
+            text = re.sub(r"\n{3,}", "\n\n", text)
+        # Strip only leading/trailing newlines — NOT spaces. List items emit
+        # leading-indent ("  1. step") that whole-string `.strip()` would
+        # erode when an <ol>/<ul> is the very first emitted block (e.g. when
+        # anchor lands directly on <ol id=X>). Newlines are always safe to
+        # trim from the boundary because block emissions add them lazily.
+        return self._found, text.strip("\n")
 
     # -- HTMLParser hooks ---------------------------------------------------
 
@@ -869,8 +885,16 @@ class _SectionExtractor(html.parser.HTMLParser):
                 # on): open-ended capture. Terminates at the next heading of
                 # any level; works for algorithm / concept dfn anchors where
                 # the dfn introduces an algorithm that follows in siblings.
+                #
+                # Initialize block state for the anchor-bearing element via
+                # _open_block so anchors landing on structural tags (<pre> /
+                # <ol> / <ul> / <li>) get pre_depth / list_stack initialized
+                # correctly — without this, content inside an anchored <pre>
+                # would lose verbatim whitespace, and items inside an
+                # anchored <ol>/<ul> would render without numbering / bullets.
                 self._capturing = True
                 self._open_ended = True
+                self._open_block(tag, attrs_d)
                 return
             return
 
@@ -933,6 +957,7 @@ class _SectionExtractor(html.parser.HTMLParser):
     def _open_block(self, tag: str, attrs_d: dict) -> None:
         if tag == "pre":
             self._pre_depth += 1
+            self._had_pre = True
             self._parts.append("\n")
             return
         if tag in ("ol", "ul"):
@@ -1049,7 +1074,28 @@ def cmd_body(args: argparse.Namespace) -> None:
     else:
         fetch_url, file_anchor = _resolve_body_source(args.shortname, anchor)
 
-    html_bytes = cached_fetch_url(fetch_url)
+    # Multipage chapter 404 → single-page URL fallback (tc39 only). Rare:
+    # would require an irregular tc39 chapter file the biblio-derived slug
+    # doesn't match. The single-page URL (<location>) serves every anchor
+    # regardless of chapter layout, so the fallback always works as a last
+    # resort. WHATWG/W3C hrefs come from webref directly and are kept in
+    # sync upstream, so no analogous fallback is wired there.
+    try:
+        html_bytes = cached_fetch_url(fetch_url)
+    except NotFound:
+        if args.shortname in _TC39_FAMILY:
+            try:
+                d = _tc39_biblio(args.shortname)
+            except NotFound:
+                sys.exit(f"webref: fetch failed: {fetch_url}")
+            single_page = d.get("location", "")
+            if single_page and fetch_url != single_page:
+                fetch_url = single_page
+                html_bytes = cached_fetch_url(fetch_url)
+            else:
+                sys.exit(f"webref: fetch failed: {fetch_url}")
+        else:
+            sys.exit(f"webref: fetch failed: {fetch_url}")
     found, text = _extract_section_body(html_bytes, file_anchor)
     if not found:
         sys.exit(
