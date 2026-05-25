@@ -296,9 +296,15 @@ impl VmInner {
                 )),
             };
             let popped = self.native_construct_stack.pop();
-            debug_assert!(
-                matches!(popped, Some(Some(_))),
-                "construct_synchronous JS path: native_construct_stack push/pop mismatch"
+            // Identity-strict pop check (mirrors R8 G8-3 on
+            // `Vm::call_construct_native`); a weaker
+            // `matches!(_, Some(Some(_)))` would miss new_target
+            // identity drift if a nested push mutated the stack-top
+            // entry mid-dispatch. D-17b R9 G9-2.
+            debug_assert_eq!(
+                popped,
+                Some(Some(new_target)),
+                "construct_synchronous JS path: native_construct_stack push/pop identity mismatch"
             );
             r
         } else {

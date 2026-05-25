@@ -143,13 +143,7 @@ impl VmInner {
                     let resolved_this =
                         Self::compute_this_for_call(fo.this_mode, effective_this, fo.captured_this);
                     let call_args = owned_args.as_deref().unwrap_or(args);
-                    return self.call_internal(
-                        func_id,
-                        resolved_this,
-                        call_args,
-                        upvalue_ids,
-                        Some(current_id),
-                    );
+                    return self.call_internal(func_id, resolved_this, call_args, upvalue_ids);
                 }
                 ObjectKind::NativeFunction(nf) => {
                     let func = nf.func;
@@ -287,7 +281,6 @@ impl VmInner {
         this: JsValue,
         args: &[JsValue],
         upvalue_ids: Arc<[UpvalueId]>,
-        closure_obj_id: Option<ObjectId>,
     ) -> Result<JsValue, VmError> {
         // ECMA-262 §10.2.1 step 2: class constructors throw a
         // TypeError when invoked in `[[Call]]` mode (i.e. without
@@ -315,15 +308,16 @@ impl VmInner {
         let needs_arguments = compiled.needs_arguments;
         let is_generator = compiled.is_generator;
         let is_async = compiled.is_async;
-        // D-17b §3.1(c) home_class threading: class-ctor frames get
-        // `home_class = Some(closure_obj_id)` so `Op::SuperCall`
-        // resolves super via `home_class.[[Prototype]]`. Non-class
-        // calls + run_function (no closure) leave home_class None.
-        let home_class: Option<ObjectId> = if compiled.is_class_ctor {
-            closure_obj_id
-        } else {
-            None
-        };
+        // `home_class` is always `None` on the `call_internal` entry
+        // path: class-ctor invocations (`new ClassCtor(...)`) go
+        // through `push_js_call_frame` (which threads
+        // `Some(closure_obj_id)` itself); any class-ctor frame that
+        // reached here would have been rejected by the
+        // `is_class_ctor` early-return above. Kept as an explicit
+        // local so the `push_js_call_frame`-call below stays uniform
+        // with its construct-mode siblings — D-17b R9 G9-1 dead-
+        // branch + dead-parameter removal.
+        let home_class: Option<ObjectId> = None;
         // Rest-param packing (Stage 0 prereq) — must materialize the
         // rest array BEFORE the args copy below clobbers slot
         // (param_count - 1) with the first excess arg only.
@@ -745,7 +739,7 @@ impl VmInner {
         this: JsValue,
         args: &[JsValue],
     ) -> Result<JsValue, VmError> {
-        self.call_internal(func_id, this, args, Arc::from([]), None)
+        self.call_internal(func_id, this, args, Arc::from([]))
     }
 }
 
