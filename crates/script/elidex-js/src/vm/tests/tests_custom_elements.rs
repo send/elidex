@@ -117,14 +117,14 @@ fn customelements_method_brand_check_get() {
 
 #[test]
 fn define_accepts_valid_name() {
-    let out = run("customElements.define('my-el', class {}); typeof customElements.get('my-el');");
+    let out = run("customElements.define('my-el', class extends HTMLElement {}); typeof customElements.get('my-el');");
     assert_eq!(out, "function");
 }
 
 #[test]
 fn define_invalid_name_throws_syntax_error() {
     // Names without a hyphen are invalid per HTML §4.13.3 `valid custom element name`.
-    let err = run_throws("customElements.define('nohyphen', class {});");
+    let err = run_throws("customElements.define('nohyphen', class extends HTMLElement {});");
     assert!(
         err.contains("SyntaxError") || err.contains("valid custom element name"),
         "expected SyntaxError for invalid name, got: {err}"
@@ -132,9 +132,23 @@ fn define_invalid_name_throws_syntax_error() {
 }
 
 #[test]
+fn define_invalid_name_preempts_brand_check() {
+    // HTML §4.13.4 step ordering: invalid name (step 2 → SyntaxError) must
+    // fire BEFORE the HTMLConstructor brand check (out-of-spec addition).
+    // Otherwise `define('nohyphen', class {})` returns TypeError
+    // ("must extend HTMLElement") instead of SyntaxError
+    // ("not a valid custom element name"). D-17b R14 G14-1 regression.
+    let err = run_throws("customElements.define('nohyphen', class {});");
+    assert!(
+        err.contains("SyntaxError") || err.contains("valid custom element name"),
+        "invalid name must throw SyntaxError before brand check fires; got: {err}"
+    );
+}
+
+#[test]
 fn define_reserved_name_throws() {
     // `font-face` is reserved per §4.13.3 `valid custom element name`.
-    let err = run_throws("customElements.define('font-face', class {});");
+    let err = run_throws("customElements.define('font-face', class extends HTMLElement {});");
     assert!(
         err.contains("SyntaxError") || err.contains("valid custom element name"),
         "expected SyntaxError for reserved name, got: {err}"
@@ -142,10 +156,30 @@ fn define_reserved_name_throws() {
 }
 
 #[test]
+fn define_duplicate_constructor_throws_not_supported_error() {
+    // HTML §4.13.4 step 4: same ctor passed under two different names
+    // must throw NotSupportedError on the second call. Otherwise the
+    // host-side reverse map (`HostData::ce_constructor_to_id`) would
+    // overwrite the FIRST definition's binding and `new.target` from
+    // a `new FirstCtor()` would resolve to the SECOND definition's
+    // name (D-17b R5 G5-1).
+    let err = run_throws(
+        "class MyEl extends HTMLElement {} \
+         customElements.define('a-el', MyEl); \
+         customElements.define('b-el', MyEl);",
+    );
+    assert!(
+        err.contains("NotSupportedError")
+            || err.contains("has already been used with this registry"),
+        "expected NotSupportedError for duplicate constructor, got: {err}"
+    );
+}
+
+#[test]
 fn define_duplicate_throws_not_supported_error() {
     let err = run_throws(
-        "customElements.define('my-el', class {}); \
-         customElements.define('my-el', class {});",
+        "customElements.define('my-el', class extends HTMLElement {}); \
+         customElements.define('my-el', class extends HTMLElement {});",
     );
     assert!(
         err.contains("NotSupportedError") || err.contains("already been defined"),
@@ -180,7 +214,9 @@ fn define_extends_rejected_as_not_supported() {
     // Customized built-in elements are defer slot `#11-customized-
     // built-in-elements` — reject with NotSupportedError per spec
     // (subset declaration in plan §1).
-    let err = run_throws("customElements.define('my-button', class {}, { extends: 'button' });");
+    let err = run_throws(
+        "customElements.define('my-button', class extends HTMLElement {}, { extends: 'button' });",
+    );
     assert!(
         err.contains("NotSupportedError") || err.contains("customized built-in"),
         "expected customized-built-in NotSupportedError, got: {err}"
@@ -197,7 +233,7 @@ fn get_returns_undefined_for_unknown() {
 
 #[test]
 fn get_returns_constructor_after_define() {
-    let out = run("class MyEl {} \
+    let out = run("class MyEl extends HTMLElement {} \
          customElements.define('my-el', MyEl); \
          (customElements.get('my-el') === MyEl) ? 'same' : 'different';");
     assert_eq!(out, "same");
@@ -208,7 +244,7 @@ fn get_returns_constructor_after_define() {
 #[test]
 fn whendefined_resolved_for_defined_name() {
     let out = run_then_read(
-        "globalThis.MyEl = class {}; \
+        "globalThis.MyEl = class extends HTMLElement {}; \
          customElements.define('my-el', MyEl); \
          globalThis.__result = 'pending'; \
          customElements.whenDefined('my-el').then(function(ctor){ \
@@ -238,7 +274,7 @@ fn whendefined_invalid_name_rejects() {
 #[test]
 fn whendefined_pending_resolves_on_define() {
     let out = run_then_read(
-        "globalThis.MyEl = class {}; \
+        "globalThis.MyEl = class extends HTMLElement {}; \
          globalThis.__status = 'pending'; \
          customElements.whenDefined('my-el').then(function(ctor){ \
              globalThis.__status = (ctor === MyEl) ? 'resolved-same' : 'resolved-other'; \
@@ -267,7 +303,7 @@ fn createelement_hyphenated_tag_gets_pending_state() {
     let out = run_then_read(
         "var el = document.createElement('my-el'); \
          globalThis.__upgraded = 'no'; \
-         class MyEl { constructor() { globalThis.__upgraded = 'yes'; } } \
+         class MyEl extends HTMLElement { constructor() { globalThis.__upgraded = 'yes'; } } \
          customElements.define('my-el', MyEl);",
         "globalThis.__upgraded;",
     );
@@ -278,7 +314,7 @@ fn createelement_hyphenated_tag_gets_pending_state() {
 fn createelement_after_define_upgrades_immediately() {
     let out = run_then_read(
         "globalThis.__upgraded = 'no'; \
-         class MyEl { constructor() { globalThis.__upgraded = 'yes'; } } \
+         class MyEl extends HTMLElement { constructor() { globalThis.__upgraded = 'yes'; } } \
          customElements.define('my-el', MyEl); \
          document.createElement('my-el');",
         "globalThis.__upgraded;",
@@ -291,7 +327,7 @@ fn createelement_non_hyphenated_not_a_custom_element() {
     // Plain `<div>` should not be classified as a custom element —
     // no state component, no upgrade reactions.
     let out = run("var defined_called = 'no'; \
-         class MyEl { constructor() { defined_called = 'yes'; } } \
+         class MyEl extends HTMLElement { constructor() { defined_called = 'yes'; } } \
          customElements.define('my-el', MyEl); \
          var d = document.createElement('div'); \
          defined_called;");
@@ -304,7 +340,7 @@ fn createelement_non_hyphenated_not_a_custom_element() {
 fn connected_callback_fires_on_append() {
     let out = run_then_read(
         "globalThis.__log = []; \
-         class MyEl { connectedCallback() { globalThis.__log.push('connected'); } } \
+         class MyEl extends HTMLElement { connectedCallback() { globalThis.__log.push('connected'); } } \
          customElements.define('my-el', MyEl); \
          var el = document.createElement('my-el'); \
          document.body.appendChild(el);",
@@ -317,7 +353,7 @@ fn connected_callback_fires_on_append() {
 fn disconnected_callback_fires_on_remove() {
     let out = run_then_read(
         "globalThis.__log = []; \
-         class MyEl { disconnectedCallback() { globalThis.__log.push('disconnected'); } } \
+         class MyEl extends HTMLElement { disconnectedCallback() { globalThis.__log.push('disconnected'); } } \
          customElements.define('my-el', MyEl); \
          var el = document.createElement('my-el'); \
          document.body.appendChild(el); \
@@ -331,7 +367,7 @@ fn disconnected_callback_fires_on_remove() {
 fn attribute_changed_callback_fires_for_observed() {
     let out = run_then_read(
         "globalThis.__log = []; \
-         class MyEl { \
+         class MyEl extends HTMLElement { \
              static get observedAttributes() { return ['x']; } \
              attributeChangedCallback(name, oldVal, newVal) { \
                  globalThis.__log.push(name + ':' + (oldVal === null ? 'null' : oldVal) + '->' + (newVal === null ? 'null' : newVal)); \
@@ -351,7 +387,7 @@ fn attribute_changed_callback_fires_for_observed() {
 fn attribute_changed_callback_skipped_for_unobserved() {
     let out = run_then_read(
         "globalThis.__fired = 'no'; \
-         class MyEl { \
+         class MyEl extends HTMLElement { \
              static get observedAttributes() { return ['x']; } \
              attributeChangedCallback() { globalThis.__fired = 'yes'; } \
          } \
@@ -370,7 +406,7 @@ fn attribute_changed_callback_skipped_for_unobserved() {
 fn customelements_upgrade_walks_descendants() {
     let out = run_then_read(
         "globalThis.__log = []; \
-         class MyEl { constructor() { globalThis.__log.push('upgraded'); } } \
+         class MyEl extends HTMLElement { constructor() { globalThis.__log.push('upgraded'); } } \
          var el = document.createElement('my-el'); \
          document.body.appendChild(el); \
          customElements.define('my-el', MyEl);",
@@ -385,7 +421,7 @@ fn customelements_upgrade_handles_constructor_throw_as_failed() {
     // setAttribute on observed attr should not fire callback.
     let out = run_then_read(
         "globalThis.__ctor_attempts = 0; \
-         class MyEl { \
+         class MyEl extends HTMLElement { \
              static get observedAttributes() { return ['x']; } \
              constructor() { globalThis.__ctor_attempts++; throw new Error('boom'); } \
              attributeChangedCallback() { globalThis.__ctor_attempts = 99; } \
@@ -422,7 +458,7 @@ fn customelements_ctor_returning_different_object_marks_failed() {
     let out = run_then_read(
         "globalThis.__ctor_attempts = 0; \
          globalThis.__cb_attempts = 0; \
-         class MyEl { \
+         class MyEl extends HTMLElement { \
              static get observedAttributes() { return ['x']; } \
              constructor() { globalThis.__ctor_attempts++; return {}; } \
              attributeChangedCallback() { globalThis.__cb_attempts++; } \
@@ -457,7 +493,7 @@ fn within_tree_move_fires_both_disconnected_and_connected() {
     }
     vm.eval(
         "globalThis.__log = []; \
-         class MyEl { \
+         class MyEl extends HTMLElement { \
              connectedCallback() { globalThis.__log.push('C'); } \
              disconnectedCallback() { globalThis.__log.push('D'); } \
          } \
@@ -495,7 +531,7 @@ fn re_insert_after_define_triggers_upgrade() {
         "globalThis.__upgraded = 'no'; \
          var el = document.createElement('my-el'); \
          document.body.removeChild(document.body.appendChild(el)); \
-         class MyEl { constructor() { globalThis.__upgraded = 'yes'; } } \
+         class MyEl extends HTMLElement { constructor() { globalThis.__upgraded = 'yes'; } } \
          customElements.define('my-el', MyEl); \
          document.body.appendChild(el);",
         "globalThis.__upgraded;",
@@ -514,7 +550,7 @@ fn clone_node_attaches_ce_state_so_upgrade_fires() {
     // it.
     let out = run_then_read(
         "globalThis.__count = 0; \
-         class MyEl { constructor() { globalThis.__count++; } } \
+         class MyEl extends HTMLElement { constructor() { globalThis.__count++; } } \
          customElements.define('my-el', MyEl); \
          var src = document.createElement('my-el'); \
          var clone = src.cloneNode(); \
@@ -536,7 +572,7 @@ fn createelement_mixed_case_tag_still_attaches_ce_state() {
     // mixed-case input would silently skip CE state attachment.
     let out = run_then_read(
         "globalThis.__upgraded = 'no'; \
-         class MyEl { constructor() { globalThis.__upgraded = 'yes'; } } \
+         class MyEl extends HTMLElement { constructor() { globalThis.__upgraded = 'yes'; } } \
          customElements.define('my-el', MyEl); \
          document.createElement('MY-EL');",
         "globalThis.__upgraded;",
@@ -560,9 +596,9 @@ fn non_callable_lifecycle_property_does_not_silently_drop_subsequent_callbacks()
     // same wave runs normally.
     let out = run_then_read(
         "globalThis.__log = []; \
-         class BrokenEl {} \
+         class BrokenEl extends HTMLElement {} \
          BrokenEl.prototype.connectedCallback = 42; \
-         class GoodEl { connectedCallback() { globalThis.__log.push('good'); } } \
+         class GoodEl extends HTMLElement { connectedCallback() { globalThis.__log.push('good'); } } \
          customElements.define('broken-el', BrokenEl); \
          customElements.define('good-el', GoodEl); \
          document.body.appendChild(document.createElement('broken-el')); \
@@ -590,7 +626,7 @@ fn absent_lifecycle_callbacks_are_silent_noop() {
     // sibling test above).
     let out = run_then_read(
         "globalThis.__log = []; \
-         class MyEl { \
+         class MyEl extends HTMLElement { \
              static get observedAttributes() { return ['x']; } \
              connectedCallback() { globalThis.__log.push('C'); } \
          } \
@@ -616,7 +652,7 @@ fn document_fragment_subtree_upgrade_without_connected_callback() {
     // disconnected gate suppresses the Connected enqueue.
     let out = run_then_read(
         "globalThis.__log = []; \
-         class MyEl { \
+         class MyEl extends HTMLElement { \
              constructor() { globalThis.__log.push('U'); } \
              connectedCallback() { globalThis.__log.push('C'); } \
          } \
@@ -649,7 +685,7 @@ fn insert_before_move_fires_both_disconnected_and_connected() {
     }
     vm.eval(
         "globalThis.__log = []; \
-         class MyEl { \
+         class MyEl extends HTMLElement { \
              connectedCallback() { globalThis.__log.push('C'); } \
              disconnectedCallback() { globalThis.__log.push('D'); } \
          } \
@@ -690,7 +726,7 @@ fn replace_child_fires_disconnected_for_replaced_element() {
     vm.eval(
         "globalThis.__log = []; \
          globalThis.__nextId = 0; \
-         class MyEl { \
+         class MyEl extends HTMLElement { \
              constructor() { globalThis.__nextId++; this._id = globalThis.__nextId; } \
              connectedCallback() { globalThis.__log.push('C' + this._id); } \
              disconnectedCallback() { globalThis.__log.push('D' + this._id); } \
@@ -716,4 +752,248 @@ fn replace_child_fires_disconnected_for_replaced_element() {
     // instance 2 (sync upgrade at createElement). replaceChild fires
     // Remove(oldEl)→D1, Insert(newEl)→C2.
     assert_eq!(out, "D1,C2");
+}
+
+// ---------------------------------------------------------------------------
+// D-17b CE / HTMLElement integration tests (slot
+// `#11-html-element-constructor-base-vm`). Covers wrapper-prototype
+// splice ([C1] §3.2.3 step 14), HTMLElement-on-globalThis ([C1] step
+// 1 illegal-ctor + WebIDL §3.7.1 Interface object), the HTMLConstructor
+// chain check at define time ([C3] §4.13.4), and `this.method()`
+// reachability inside lifecycle callbacks after upgrade.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn html_element_installed_as_global_constructor() {
+    let out = run("typeof HTMLElement === 'function' ? 'yes' : 'no';");
+    assert_eq!(out, "yes");
+}
+
+#[test]
+fn new_html_element_direct_throws() {
+    // [C1] §3.2.3 step 1 — `new HTMLElement()` with `NewTarget`
+    // pointing at the HTMLElement constructor itself throws TypeError.
+    let err = run_throws("new HTMLElement();");
+    assert!(
+        err.contains("Illegal constructor"),
+        "expected Illegal constructor TypeError, got: {err}"
+    );
+}
+
+#[test]
+fn define_accepts_html_element_ctor() {
+    // Positive base case — sibling of `define_rejects_non_html_element_ctor`.
+    let out = run(
+        "customElements.define('my-el', class extends HTMLElement {}); \
+         typeof customElements.get('my-el');",
+    );
+    assert_eq!(out, "function");
+}
+
+#[test]
+fn define_rejects_non_html_element_ctor() {
+    // [C1] §3.2.3 HTMLConstructor brand check invoked from
+    // [C3] §4.13.4 — the constructor's `[[Prototype]]` chain must
+    // reach `globalThis.HTMLElement`.
+    let err = run_throws("customElements.define('my-el', class {});");
+    assert!(
+        err.contains("must extend HTMLElement") || err.contains("HTMLElement"),
+        "expected HTMLElement chain-check TypeError, got: {err}"
+    );
+}
+
+#[test]
+fn define_rejects_html_element_itself() {
+    // [C1] §3.2.3 + HTML §4.13.4 brand check: a registered CE ctor
+    // must EXTEND HTMLElement, not BE HTMLElement itself. The chain
+    // walk trivially finds HTMLElement in its own [[Prototype]] chain
+    // at hop 0, so without an explicit check
+    // `define('x-a', HTMLElement)` would pass and only fail later at
+    // sync-construct / upgrade via the illegal-direct-ctor branch
+    // ([C1] step 1). Surface the constraint at define-time
+    // (D-17b R10 G10-1).
+    let err = run_throws("customElements.define('x-a', HTMLElement);");
+    assert!(
+        err.contains("must extend HTMLElement, not be HTMLElement itself")
+            || err.contains("HTMLElement itself"),
+        "expected reject-HTMLElement-itself TypeError, got: {err}"
+    );
+}
+
+#[test]
+fn registered_ctor_exposes_no_brand_symbol_to_js() {
+    // [C1] §3.2.3 step 5 reverse-map (new.target → constructor_id)
+    // lives on `HostData::ce_constructor_to_id` (host-side Rust
+    // state). Asserts that NO Symbol-keyed brand leaks onto the
+    // ctor JS object — replaces the earlier symbol-brand which
+    // `Object.getOwnPropertySymbols` could discover + copy to
+    // another ctor for spoofing (D-17b R2 G1).
+    let out = run("class MyEl extends HTMLElement {} \
+         customElements.define('my-el', MyEl); \
+         String(Object.getOwnPropertySymbols(MyEl).length);");
+    assert_eq!(
+        out, "0",
+        "registered CE ctor should expose no brand symbols; got Object.getOwnPropertySymbols length = {out}"
+    );
+}
+
+#[test]
+fn unregistered_ctor_cannot_spoof_registered_definition() {
+    // [C1] §3.2.3 step 5 reverse-map is keyed by host-side ObjectId
+    // with no JS-visible counterpart, so a user cannot copy/synthesize
+    // a brand onto an unregistered ctor to impersonate a registered
+    // one. `new Fake()` where Fake extends HTMLElement but was never
+    // `define`d must TypeError on the brand check (D-17b R2 G1 + G4
+    // joint regression).
+    let err = run_throws(
+        "class MyEl extends HTMLElement {} \
+         customElements.define('my-el', MyEl); \
+         class Fake extends HTMLElement {} \
+         const sym = Symbol('attacker-brand'); \
+         Object.defineProperty(Fake, sym, { value: 0, writable: false, configurable: false }); \
+         new Fake();",
+    );
+    assert!(
+        err.contains("not a registered custom element"),
+        "expected 'not a registered custom element' rejection; got: {err}"
+    );
+}
+
+#[test]
+fn define_accepts_deep_class_extends_chain() {
+    // [C1] §3.2.3 HTMLConstructor brand walk is bounded by the
+    // VM-wide `coerce::PROTO_CHAIN_LIMIT` (10_000), not a smaller
+    // bespoke cap. A valid `class extends` chain reaching
+    // `HTMLElement` only after many hops must still be accepted at
+    // `customElements.define` time. Mirrors `tests_canvas.rs::
+    // put_image_data_accepts_deep_prototype_chain` for the sibling
+    // brand-check (ImageData).
+    let out = run("var Base = HTMLElement; \
+         for (var i = 0; i < 100; i++) { Base = class extends Base { }; } \
+         customElements.define('deep-el', Base); \
+         typeof customElements.get('deep-el');");
+    assert_eq!(out, "function");
+}
+
+#[test]
+fn instanceof_post_upgrade_via_parser_baked() {
+    // [C1] §3.2.3 step 14 + D-17b §6 pre-publication invariant —
+    // after upgrade the wrapper's prototype chain reaches
+    // `MyEl.prototype`, so `instanceof MyEl` returns true.
+    let out = run_then_read(
+        "globalThis.MyEl = class extends HTMLElement {}; \
+         customElements.define('my-el', globalThis.MyEl); \
+         var el = document.createElement('my-el'); \
+         globalThis.__r = (el instanceof globalThis.MyEl) ? 'yes' : 'no';",
+        "globalThis.__r;",
+    );
+    assert_eq!(out, "yes");
+}
+
+#[test]
+fn callback_this_dot_helper_method_resolves() {
+    // [C1] §3.2.3 step 14 + D-17b §6 pre-publication — the wrapper
+    // has `MyEl.prototype` in its chain after upgrade, so
+    // `this.helper()` inside a lifecycle callback reaches the
+    // class-declared method (Copilot D-17 R6 #1 / R12 #1 closure).
+    let out = run_then_read(
+        "globalThis.__log = []; \
+         class MyEl extends HTMLElement { \
+             connectedCallback() { this.helper(); } \
+             helper() { globalThis.__log.push('helper-called'); } \
+         } \
+         customElements.define('my-el', MyEl); \
+         var el = document.createElement('my-el'); \
+         document.body.appendChild(el);",
+        "globalThis.__log.join(',');",
+    );
+    assert_eq!(out, "helper-called");
+}
+
+#[test]
+fn user_ctor_super_call_works() {
+    // `class extends HTMLElement { constructor() { super(); ... } }`
+    // — user-written derived ctor calling super() reaches the
+    // HTMLElement constructor's upgrade branch ([C1] step 12+) and
+    // produces a fully-upgraded wrapper.
+    let out = run_then_read(
+        "globalThis.__log = []; \
+         class MyEl extends HTMLElement { \
+             constructor() { super(); globalThis.__log.push('ctor-ran'); } \
+         } \
+         customElements.define('my-el', MyEl); \
+         document.createElement('my-el');",
+        "globalThis.__log.join(',');",
+    );
+    assert_eq!(out, "ctor-ran");
+}
+
+#[test]
+fn error_dot_call_does_not_pollute_construct_mode() {
+    // Copilot D-17 R6 #1 / R12 #1 closure — `Error.call(this)`
+    // inside a class ctor body that was invoked via `new MyEl()`
+    // must NOT enter Error's construct branch (no `is_construct()
+    // === true` leak from an outer construct frame's
+    // `native_construct_stack` entry). Verifies that `Vm::call`'s
+    // call-mode entry boundary correctly pushes `None` onto the
+    // stack so Error's native ctor sees call mode — without this
+    // push, the outer CE-upgrade's `Some(MyEl)` push would still
+    // be the stack top when ensure_instance_or_alloc reads it,
+    // causing Error to reuse the wrapper as the Error instance
+    // and write `name='Error'` / `message='...'` onto the CE
+    // wrapper.
+    //
+    // Probes BOTH the side-effect (constructor ran to completion)
+    // AND the wrapper itself (no Error-shaped contamination on
+    // the CE entity / wrapper). Earlier draft only checked
+    // `__upgraded === 'yes'`, which would silently pass even if
+    // the wrapper got polluted — that assertion was orthogonal to
+    // the test's docstring claim.
+    let out = run_then_read(
+        "globalThis.__upgraded = 'no'; \
+         globalThis.__poll = 'unset'; \
+         class MyEl extends HTMLElement { \
+             constructor() { \
+                 super(); \
+                 try { Error.call(this, 'should not pollute'); } catch (e) {} \
+                 globalThis.__upgraded = 'yes'; \
+             } \
+         } \
+         customElements.define('my-el', MyEl); \
+         var el = document.createElement('my-el'); \
+         globalThis.__poll = (el.message === undefined && el.name === undefined) \
+             ? 'clean' : 'polluted:' + el.message + '/' + el.name;",
+        "globalThis.__upgraded + '|' + globalThis.__poll;",
+    );
+    assert_eq!(out, "yes|clean");
+}
+
+#[test]
+fn new_target_inside_ce_ctor_is_constructor() {
+    // [C11] [[Construct]] step 4 — inside a CE class ctor body
+    // (post-`super()`), `new.target` is the MyEl constructor
+    // (the originally-invoked class).
+    let out = run_then_read(
+        "globalThis.MyEl = class extends HTMLElement { \
+             constructor() { super(); globalThis.__nt = new.target; } \
+         }; \
+         customElements.define('my-el', globalThis.MyEl); \
+         document.createElement('my-el');",
+        "(globalThis.__nt === globalThis.MyEl) ? 'same' : 'different';",
+    );
+    assert_eq!(out, "same");
+}
+
+#[test]
+fn html_element_call_mode_throws() {
+    // `HTMLElement()` invoked as a call (no `new`) — WebIDL
+    // constructable-only function requires `new`; rejects with
+    // TypeError per D-17b §4.2 step 0.
+    let err = run_throws("HTMLElement();");
+    assert!(
+        err.contains("'new' operator")
+            || err.contains("'new' is required")
+            || err.contains("Illegal constructor"),
+        "expected call-without-new TypeError, got: {err}"
+    );
 }

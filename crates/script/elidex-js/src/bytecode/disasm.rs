@@ -179,6 +179,8 @@ mod tests {
             is_arrow: false,
             is_strict: false,
             needs_arguments: false,
+            has_rest_param: false,
+            is_class_ctor: false,
             ic_slots: Vec::new(),
             call_ic_slots: Vec::new(),
         }

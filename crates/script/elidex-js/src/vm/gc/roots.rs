@@ -43,6 +43,18 @@ pub(super) struct GcRoots<'a> {
     /// builds.
     pub(super) subclass_array_ctor_roots: &'a [Option<ObjectId>],
     pub(super) global_object: ObjectId,
+    /// `globalThis.HTMLElement` constructable function (D-17b §3.4 /
+    /// §4.1). Held as a strong root so the user-observable identity
+    /// check (`native_html_element_ctor` step 1 `new_target ==
+    /// html_element_constructor`) cannot fire against a collected
+    /// slot if script ever deletes `globalThis.HTMLElement`.
+    pub(super) html_element_constructor: Option<ObjectId>,
+    /// Per-native-call construct-mode stack (D-17b §7 — Stage 6
+    /// SoT). Marked here so transient `new.target` ObjectIds at the
+    /// native-call boundary survive a GC fired by their own ctor
+    /// body (the only window where the stack carries entries that
+    /// are not also reachable via a JS call frame).
+    pub(super) native_construct_stack: &'a [Option<ObjectId>],
     pub(super) upvalues: &'a [Upvalue],
     pub(super) objects: &'a [Option<Object>],
     /// Host-data (listeners, wrappers) if installed.
@@ -269,6 +281,12 @@ pub(super) fn mark_roots(
         if let Some(id) = frame.new_instance {
             mark_object(id, obj_marks, work);
         }
+        if let Some(id) = frame.new_target {
+            mark_object(id, obj_marks, work);
+        }
+        if let Some(id) = frame.home_class {
+            mark_object(id, obj_marks, work);
+        }
         mark_value(frame.saved_completion, obj_marks, work);
         if let Some(gen_id) = frame.generator {
             mark_object(gen_id, obj_marks, work);
@@ -310,6 +328,14 @@ pub(super) fn mark_roots(
         mark_object(id, obj_marks, work);
     }
     mark_object(roots.global_object, obj_marks, work);
+    if let Some(id) = roots.html_element_constructor {
+        mark_object(id, obj_marks, work);
+    }
+    for &entry in roots.native_construct_stack {
+        if let Some(id) = entry {
+            mark_object(id, obj_marks, work);
+        }
+    }
 
     if let Some(hd) = roots.host_data {
         for id in hd.gc_root_object_ids() {

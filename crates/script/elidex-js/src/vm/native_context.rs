@@ -125,9 +125,30 @@ impl NativeContext<'_> {
     /// Returns `true` if the current native function is being invoked via
     /// `[[Construct]]` (i.e. `new F(...)`).  Used by constructors to choose
     /// between wrapper-object and primitive return paths.
+    ///
+    /// Reads from `VmInner::native_construct_stack` top (D-17b §7
+    /// Stage 6 SoT) — pushed by `do_new`'s native-ctor branch and
+    /// `construct_synchronous`'s native arm, popped on return (Err +
+    /// Ok). `None` entries on the stack signal call-mode boundaries
+    /// (nested native call inside a construct chain); the outer
+    /// construct semantics still hold for the matching frame.
     #[inline]
     pub fn is_construct(&self) -> bool {
-        self.vm.in_construct
+        matches!(self.vm.native_construct_stack.last(), Some(Some(_)))
+    }
+
+    /// The `new.target` (\[C11\] `[[Construct]]` step 4) of the
+    /// currently executing native ctor, if invoked via
+    /// `[[Construct]]`. Reads from `VmInner::native_construct_stack`
+    /// (top of stack) — populated when the ctor was invoked through
+    /// `construct_synchronous`, the inner of `Op::SuperCall`'s
+    /// dispatch, or `do_new`'s native-ctor branch (Stage 4+ wiring).
+    /// Returns `None` when the call is in `[[Call]]` mode (e.g.
+    /// `F(...)` without `new`) — distinguishes `new HTMLElement()`
+    /// (Some) from `HTMLElement.call(this)` (None).
+    #[inline]
+    pub fn new_target(&self) -> Option<value::ObjectId> {
+        self.vm.native_construct_stack.last().copied().flatten()
     }
 
     /// The key bound to the native accessor currently executing, if any.

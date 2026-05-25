@@ -1,5 +1,6 @@
 //! Class compilation: class declarations and expressions.
 
+use crate::arena::NodeId;
 #[allow(clippy::wildcard_imports)]
 use crate::ast::*;
 use crate::bytecode::compiled::Constant;
@@ -14,6 +15,68 @@ use super::expr::compile_expr;
 use super::expr_function::compile_nested_function;
 
 // ── Class compilation ──────────────────────────────────────────────
+
+/// Class-heritage classification (ECMA-262 §15.7.14
+/// ClassDefinitionEvaluation step 6).
+///
+/// Three syntactic forms, three runtime shapes:
+/// - `None`: no `extends` clause → base class. `ctor.__proto__ =
+///   %Function.prototype%` (default), `ctor.prototype.__proto__ =
+///   %Object.prototype%` (default), default ctor is BASE.
+/// - `Null`: `extends null` (literal). `ctor.__proto__ =
+///   %Function.prototype%` (default), `ctor.prototype.__proto__ =
+///   null`, default ctor is BASE (no super call). A user `super()`
+///   call resolves to %Function.prototype%, which is not constructable
+///   → spec-mandated TypeError at runtime.
+/// - `Expr(super_id)`: derived class with constructor heritage.
+///   `ctor.__proto__ = super`, `ctor.prototype.__proto__ =
+///   super.prototype`, default ctor is DERIVED (`super(...args)`).
+enum ClassHeritage {
+    None,
+    Null,
+    Expr(NodeId<Expr>),
+}
+
+fn classify_heritage(prog: &Program, super_class: Option<NodeId<Expr>>) -> ClassHeritage {
+    let Some(super_id) = super_class else {
+        return ClassHeritage::None;
+    };
+    match &prog.exprs.get(super_id).kind {
+        ExprKind::Literal(Literal::Null) => ClassHeritage::Null,
+        _ => ClassHeritage::Expr(super_id),
+    }
+}
+
+/// Build a synthesized default-class-constructor `CompiledFunction`
+/// with the spec-required common attributes (class-ctor flag, strict
+/// mode) auto-filled. Callers supply only the body bytecode + the
+/// 3 shape parameters that differ between DERIVED (1 rest param) and
+/// BASE (no params) (D-17b R9 G9-helper extraction — Copilot /review
+/// Sug#4 close).
+///
+/// `is_class_ctor: true` makes the dispatch class-ctor carve-outs fire
+/// (see `dispatch.rs` Op::ReturnUndefined). `is_strict: true` reflects
+/// ECMA-262 §15.7 ClassBody strict-mode region — synthesized bodies
+/// today have no strict-vs-loose-divergent ops but the flag keeps the
+/// spec invariant explicit (D-17b R8 G8-1/G8-2 alignment).
+fn synthesize_default_class_ctor(
+    bytecode: Vec<u8>,
+    name: Option<String>,
+    param_count: u16,
+    local_count: u16,
+    has_rest_param: bool,
+) -> crate::bytecode::compiled::CompiledFunction {
+    crate::bytecode::compiled::CompiledFunction {
+        bytecode,
+        name,
+        param_count,
+        local_count,
+        has_rest_param,
+        is_class_ctor: true,
+        is_strict: true,
+        ..Default::default()
+    }
+}
 
 /// Compile a class declaration or expression.
 ///
@@ -44,21 +107,63 @@ pub(super) fn compile_class(
         )
     });
 
+    let heritage = classify_heritage(prog, class.super_class);
     if let Some(ctor_member) = constructor {
         if let ClassMemberKind::Method { function, .. } = &ctor_member.kind {
-            let child = compile_nested_function(fc, prog, analysis, func_scopes, function, false)?;
+            let mut child =
+                compile_nested_function(fc, prog, analysis, func_scopes, function, false)?;
+            // User-written constructor: mark for home_class threading
+            // ([C16] ClassDefinitionEvaluation — class ctor frames get
+            // `CallFrame::home_class = closure_obj_id`).
+            child.is_class_ctor = true;
             let idx = fc.add_constant(Constant::Function(Box::new(child)));
             fc.emit_u16(Op::Closure, idx);
         }
+    } else if matches!(heritage, ClassHeritage::Expr(_)) {
+        // Default DERIVED constructor synthesis ([C16] §15.7.14
+        // default-constructor branch when ClassHeritage is present):
+        // equivalent of `constructor(...args) { super(...args); }`.
+        // Emitted as direct bytecode (no AST round-trip) so we don't
+        // duplicate the parser's NodeId arena. Rest-param packing at
+        // frame entry (Stage 0) materializes the `args` array in
+        // slot 0; SuperCallSpread consumes it and propagates the
+        // outer NewTarget via the dispatch-class core. Trailing
+        // `Pop; ReturnUndefined`: discard the super-call return value
+        // and yield literal Undefined — the `is_class_ctor` carve-out
+        // in `Op::ReturnUndefined` (dispatch.rs) overrides the
+        // entry-frame completion-value path so the upgrade.rs §4.13.5
+        // step 12.2 SameValue check sees the constructed instance,
+        // not the super-call's return.
+        let bytecode = vec![
+            Op::GetLocal as u8,
+            0,
+            0, // u16 LE slot 0
+            Op::SuperCallSpread as u8,
+            Op::Pop as u8,
+            Op::ReturnUndefined as u8,
+        ];
+        let default_derived_ctor = synthesize_default_class_ctor(
+            bytecode,
+            class.name.map(|a| prog.interner.get_utf8(a)),
+            /* param_count */ 1, // (...args)
+            /* local_count */ 1, // slot 0 for args
+            /* has_rest_param */ true,
+        );
+        let idx = fc.add_constant(Constant::Function(Box::new(default_derived_ctor)));
+        fc.emit_u16(Op::Closure, idx);
     } else {
-        // Default constructor: an empty function that returns undefined.
-        // Use PushUndefined + Return (not ReturnUndefined) because ReturnUndefined
-        // has special completion-value semantics for script-level eval.
-        let default_ctor = crate::bytecode::compiled::CompiledFunction {
-            bytecode: vec![Op::PushUndefined as u8, Op::Return as u8],
-            name: class.name.map(|a| prog.interner.get_utf8(a)),
-            ..Default::default()
-        };
+        // Default BASE constructor ([C16] default-constructor branch
+        // when ClassHeritage is absent): empty body. `ReturnUndefined`
+        // yields literal Undefined because the `is_class_ctor` carve-
+        // out (dispatch.rs `Op::ReturnUndefined`) overrides the
+        // entry-frame completion-value path.
+        let default_ctor = synthesize_default_class_ctor(
+            vec![Op::ReturnUndefined as u8],
+            class.name.map(|a| prog.interner.get_utf8(a)),
+            /* param_count */ 0,
+            /* local_count */ 0,
+            /* has_rest_param */ false,
+        );
         let idx = fc.add_constant(Constant::Function(Box::new(default_ctor)));
         fc.emit_u16(Op::Closure, idx);
     }
@@ -73,6 +178,105 @@ pub(super) fn compile_class(
     fc.emit_u16(Op::DefineProperty, constructor_name); // [ctor proto]  (proto.constructor = ctor)
     let prototype_name = fc.add_name("prototype");
     fc.emit_u16(Op::DefineProperty, prototype_name); // [ctor]  (ctor.prototype = proto)
+
+    // 2b. Super-class chain setup ([C16] ClassDefinitionEvaluation —
+    // `constructorParent` = super_class for derived classes (so
+    // `MyEl.__proto__ === HTMLElement` & static-method inheritance
+    // works) + `protoParent` = `super_class.prototype` (so
+    // `MyEl.prototype.__proto__ === HTMLElement.prototype` & instance
+    // method inheritance works).
+    match heritage {
+        ClassHeritage::None => {} // default proto chain inherited from %Object.prototype%.
+        ClassHeritage::Null => {
+            // `extends null` (ECMA-262 §15.7.14 step 6.f): protoParent
+            // = null, constructorParent = %Function.prototype%. The
+            // closure's `[[Prototype]]` already defaults to
+            // %Function.prototype%, so we only splice
+            // `ctor.prototype.[[Prototype]] = null`. A user-written
+            // `super()` then resolves to %Function.prototype% via
+            // GetSuperConstructor and throws TypeError on Construct —
+            // spec-mandated.
+            fc.emit(Op::Dup); //                          [ctor ctor]
+            let proto_name = fc.add_name("prototype");
+            let ic1 = fc.alloc_ic_slot();
+            fc.emit_u16_u16(Op::GetProp, proto_name, ic1); // [ctor ctor.prototype]
+            fc.emit(Op::PushNull); //                     [ctor ctor.prototype null]
+            fc.emit(Op::SetPrototype); //                 [ctor ctor.prototype]
+            fc.emit(Op::Pop); //                          [ctor]
+        }
+        ClassHeritage::Expr(super_id) => {
+            // ECMA-262 §15.7.14 step 6 ClassDefinitionEvaluation: the
+            // ClassHeritage expression is evaluated **exactly once**.
+            // Stash the super value in a temp local so both prototype
+            // splices below read from it instead of re-emitting (and
+            // re-evaluating) the expression — fixes the duplicate
+            // side-effect bug Copilot R6-1 flagged.
+            let super_slot = func_scopes[fc.func_scope_idx].next_local;
+            func_scopes[fc.func_scope_idx].next_local += 1;
+
+            // Stack: [ctor]
+            compile_expr(fc, prog, analysis, func_scopes, super_id)?; // [ctor super]
+                                                                      // `Op::SetLocal` is peek-then-store (stack effect
+                                                                      // `[value -- value]`), so an explicit `Pop` is needed to
+                                                                      // discard the duplicate.
+            fc.emit_u16(Op::SetLocal, super_slot); //                    [ctor super]
+                                                   // ECMA-262 §15.7.14 step 6.f ClassDefinitionEvaluation:
+                                                   // the heritage value must be either `null` (step 6.f.i)
+                                                   // or a constructor (step 6.f.iii). Non-constructable
+                                                   // callables (Symbol / BigInt / arrow fn) throw TypeError
+                                                   // at class-definition time — NOT later at super()
+                                                   // dispatch (D-17b R17 G17-1, null-acceptance added in
+                                                   // R20 G20-1). `Op::AssertConstructor` pops the duplicate
+                                                   // left by `SetLocal` so the splice phase below reads
+                                                   // the validated value via `GetLocal super_slot`.
+            fc.emit(Op::AssertConstructor); //                            [ctor]
+
+            // Runtime null-branch: if heritage evaluated to null, take
+            // the same path as `ClassHeritage::Null` (protoParent =
+            // null, constructorParent defaults to %Function.prototype%).
+            // JumpIfNullish leaves the value on the stack so each
+            // branch independently discards it (D-17b R20 G20-1).
+            fc.emit_u16(Op::GetLocal, super_slot); //                     [ctor super]
+            let null_branch = fc.emit_jump(Op::JumpIfNullish); //         [ctor super]
+
+            // Non-null branch: super is a constructor.
+            fc.emit(Op::Pop); //                          [ctor]
+                              // First splice: ctor.prototype.__proto__ = super.prototype.
+            fc.emit(Op::Dup); //                          [ctor ctor]
+            let proto_name = fc.add_name("prototype");
+            let ic1 = fc.alloc_ic_slot();
+            fc.emit_u16_u16(Op::GetProp, proto_name, ic1); // [ctor ctor.prototype]
+            fc.emit_u16(Op::GetLocal, super_slot); //       [ctor ctor.prototype super]
+            let proto_name2 = fc.add_name("prototype");
+            let ic2 = fc.alloc_ic_slot();
+            fc.emit_u16_u16(Op::GetProp, proto_name2, ic2); // [ctor ctor.prototype super.prototype]
+            fc.emit(Op::SetPrototype); //                 [ctor ctor.prototype]
+            fc.emit(Op::Pop); //                          [ctor]
+
+            // Second splice: ctor.__proto__ = super.
+            fc.emit(Op::Dup); //                          [ctor ctor]
+            fc.emit_u16(Op::GetLocal, super_slot); //       [ctor ctor super]
+            fc.emit(Op::SetPrototype); //                 [ctor ctor]
+            fc.emit(Op::Pop); //                          [ctor]
+
+            let end_jump = fc.emit_jump(Op::Jump);
+
+            // Null branch (jump target from JumpIfNullish).
+            fc.patch_jump(null_branch);
+            fc.emit(Op::Pop); //                          [ctor]  (drop super=null)
+                              // ctor.prototype.[[Prototype]] = null; ctor.__proto__
+                              // defaults to %Function.prototype% so no second splice.
+            fc.emit(Op::Dup); //                          [ctor ctor]
+            let proto_name3 = fc.add_name("prototype");
+            let ic3 = fc.alloc_ic_slot();
+            fc.emit_u16_u16(Op::GetProp, proto_name3, ic3); // [ctor ctor.prototype]
+            fc.emit(Op::PushNull); //                     [ctor ctor.prototype null]
+            fc.emit(Op::SetPrototype); //                 [ctor ctor.prototype]
+            fc.emit(Op::Pop); //                          [ctor]
+
+            fc.patch_jump(end_jump);
+        }
+    }
 
     // 3. Define prototype methods.
     for member in &class.body {

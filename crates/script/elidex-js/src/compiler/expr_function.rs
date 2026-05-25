@@ -174,6 +174,7 @@ pub(super) fn compile_nested_function(
 
     let mut compiled = child_fc.finish(&func_scopes[child_func_idx]);
     compiled.param_count = func.params.len() as u16;
+    compiled.has_rest_param = func.params.last().is_some_and(|p| p.rest);
     Ok(compiled)
 }
 
@@ -252,5 +253,6 @@ pub(super) fn compile_arrow_function(
 
     let mut compiled = child_fc.finish(&func_scopes[child_func_idx]);
     compiled.param_count = arrow.params.len() as u16;
+    compiled.has_rest_param = arrow.params.last().is_some_and(|p| p.rest);
     Ok(compiled)
 }

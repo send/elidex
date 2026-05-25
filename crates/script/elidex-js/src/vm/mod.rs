@@ -13,6 +13,7 @@ pub(crate) mod coerce_ops;
 pub mod consumer_dispatcher;
 mod coroutine_types;
 mod dispatch;
+mod dispatch_class;
 mod dispatch_helpers;
 mod dispatch_ic;
 mod dispatch_iter;
@@ -210,9 +211,34 @@ pub(crate) struct VmInner {
     pub(crate) gc_threshold: usize,
     /// GC enabled flag.  `false` during init and native function calls.
     pub(crate) gc_enabled: bool,
-    /// Set while a native function is invoked via `[[Construct]]` (i.e. `new`).
-    /// Read by constructors to distinguish `new F(...)` from `F(...)`.
-    pub(crate) in_construct: bool,
+    /// `globalThis.HTMLElement` constructable function `ObjectId`. Populated
+    /// by `register_html_element_constructor` (D-17b §4.1) at globals init,
+    /// `None` until registered. Read by `native_html_element_ctor`
+    /// (\[C1\] §3.2.3 step 1) to reject direct `new HTMLElement()`.
+    pub(crate) html_element_constructor: Option<ObjectId>,
+    /// Per-native-call construct-mode stack (D-17b §7 — Stage 6 single SoT
+    /// for native-side construct mode). Three push sites, each balanced by
+    /// a manual `pop()` with a `debug_assert!` that the popped value matches
+    /// the variant just pushed:
+    ///
+    /// 1. [`VmInner::call`] pushes `None` (`[[Call]]` mode).
+    /// 2. [`VmInner::call_construct_native`] pushes `Some(new_target)`
+    ///    (`[[Construct]]` mode for native ctors via `do_new`).
+    /// 3. The JS-class-ctor branch in
+    ///    [`VmInner::construct_synchronous`] pushes `Some(new_target)` for
+    ///    the lifetime of the inner dispatch.
+    ///
+    /// Push/pop is balanced for both `Ok` and `Err` returns because
+    /// `call_dispatch`/`run_function` propagate errors as `Result` rather
+    /// than panic. The only panic source is the `debug_assert!` itself
+    /// (test/debug builds), which the per-VM single-threaded design
+    /// tolerates without state corruption. Read by
+    /// [`value::NativeContext::is_construct`] /
+    /// [`value::NativeContext::new_target`] to distinguish `new F(...)`
+    /// from `F(...)` for a given native invocation, with the stack-top
+    /// scoping making nested `[[Call]]`-mode invocations inside an outer
+    /// `[[Construct]]` chain correctly observe `is_construct() == false`.
+    pub(crate) native_construct_stack: Vec<Option<ObjectId>>,
     /// Key bound to the native accessor currently executing — staged from
     /// [`value::NativeFunction::bound_key`] for the duration of the native
     /// call (save/restore around dispatch). A shared backend fn reads it via

@@ -41,6 +41,7 @@
 
 pub(super) mod define;
 pub(super) mod flush;
+pub(super) mod html_element;
 pub(super) mod lookup;
 pub(super) mod upgrade;
 

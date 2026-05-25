@@ -1443,6 +1443,13 @@ define_well_known_strings! {
         // step 9, customized built-in elements — v1 rejects with
         // NotSupportedError but still reads the key).
         extends => "extends",
+        // `globalThis.HTMLElement` constructable function name
+        // (D-17b §4.1). The CE constructor_id reverse-map lives
+        // on [`super::host_data::HostData::ce_constructor_to_id`]
+        // (host-side state with no JS-visible counterpart, so user
+        // code cannot spoof the brand by copying a discovered
+        // symbol onto an arbitrary ctor — D-17b R2 G1).
+        html_element_global => "HTMLElement",
     }
 }
 

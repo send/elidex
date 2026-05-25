@@ -553,11 +553,11 @@ pub(crate) fn make_async_coroutine_and_drive(
     let wrapper = super::natives_promise::create_promise(vm);
     let proto = vm.generator_prototype;
     let gen_id = vm.alloc_object(Object {
-        kind: ObjectKind::Generator(super::value::GeneratorState {
+        kind: ObjectKind::Generator(Box::new(super::value::GeneratorState {
             status: GeneratorStatus::SuspendedStart,
             suspended: Some(suspended),
             wrapper: Some(wrapper),
-        }),
+        })),
         storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
         prototype: proto,
         extensible: true,

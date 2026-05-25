@@ -667,49 +667,22 @@ impl VmInner {
             return Err(VmError::type_error("not a constructor"));
         };
 
-        // §9.4.1.2 BoundFunction [[Construct]]: unwrap chain and prepend
-        // bound_args.  bound_this is ignored (step 2) — the instance's
-        // receiver comes from new_target.  Chains are acyclic by construction
-        // (target is captured at bind time), but an attacker can build
-        // chains of arbitrary length; cap via MAX_BIND_CHAIN_DEPTH.
-        let mut chain_segments: Vec<Vec<JsValue>> = Vec::new();
-        for _ in 0..crate::vm::MAX_BIND_CHAIN_DEPTH {
-            let ObjectKind::BoundFunction {
-                target, bound_args, ..
-            } = &self.get_object(ctor_id).kind
-            else {
-                break;
-            };
-            let next = *target;
-            if !bound_args.is_empty() {
-                chain_segments.push(bound_args.clone());
-            }
-            ctor_id = next;
-        }
-        if matches!(
-            self.get_object(ctor_id).kind,
-            ObjectKind::BoundFunction { .. }
-        ) {
-            return Err(VmError::range_error("Maximum bind chain depth exceeded"));
-        }
-        if !chain_segments.is_empty() {
-            // The unwrap loop pushes segments outer-to-inner (the user-visible
-            // wrapper first, then each nested target).  Spec-correct call
-            // order is `[first-bind-args, ..., last-bind-args, call-args]`,
-            // i.e. the innermost (earliest) bind's args come first.  Reverse
-            // the segment iteration so `extend_from_slice` appends in
-            // innermost→outermost order.
-            let total: usize = chain_segments.iter().map(Vec::len).sum();
-            let mut prepended: Vec<JsValue> = Vec::with_capacity(total);
-            for seg in chain_segments.iter().rev() {
-                prepended.extend_from_slice(seg);
-            }
+        // §10.4.1.2 Bound Function Exotic Objects [[Construct]]: unwrap chain and prepend
+        // bound_args. bound_this is ignored (step 2) — the instance's
+        // receiver comes from new_target. Shared SoT with
+        // `construct_synchronous` via `unwrap_bound_function_chain`
+        // (D-17b R4 G4-4) so `new BoundCtor()` and `class B extends
+        // BoundCtor { ... super() ... }` resolve identically.
+        let (unwrapped_id, prepended) = self.unwrap_bound_function_chain(ctor_id)?;
+        ctor_id = unwrapped_id;
+        let prepended_len = prepended.len();
+        if !prepended.is_empty() {
             // Replace the constructor slot with the unwrapped target and
             // splice prepended args in front of the call args in one memmove.
             self.stack[args_start - 1] = JsValue::Object(ctor_id);
             self.stack.splice(args_start..args_start, prepended);
         }
-        let argc = argc + chain_segments.iter().map(Vec::len).sum::<usize>();
+        let argc = argc + prepended_len;
         let args_start = self.stack.len() - argc;
 
         let js_callee = self.extract_js_callee(ctor_id);
@@ -757,18 +730,38 @@ impl VmInner {
         self.gc_enabled = saved_gc;
 
         if let Some(callee) = js_callee {
-            self.push_js_call_frame(callee, JsValue::Object(instance), argc, 1, Some(instance));
+            // JS-ctor entry: `new.target` is the constructor reaching
+            // this frame (\[C11\] [[Construct]] step 4) — `do_new` may
+            // have already remapped it once if the entry constructor
+            // was a BoundFunction chain (ECMA-262 §10.4.1.2 step 5).
+            // `super()` inside the user ctor body propagates this
+            // unchanged.
+            // Construct mode (new_target = Some), so the
+            // class-ctor-call-mode guard in push_js_call_frame
+            // never fires — the `?` is for signature compatibility.
+            self.push_js_call_frame(
+                callee,
+                JsValue::Object(instance),
+                argc,
+                1,
+                Some(instance),
+                Some(ctor_id),
+            )?;
             Ok(())
         } else {
-            // Native constructor: call synchronously.  Set `in_construct`
-            // so the native implementation can distinguish `new F(...)`
-            // from `F(...)`; the flag is restored after the call.
+            // Native constructor: route through
+            // `Vm::call_construct_native` so the `Some(ctor_id)`
+            // entry is the stack top during the native body's
+            // execution (D-17b §7 single SoT). Using plain
+            // `Vm::call` here would push a `None` for call-mode
+            // boundary on top of any outer construct context AND
+            // would mask the new_target we just established — the
+            // native body's `is_construct()` / `new_target()` reads
+            // would then misreport.
             let ctor_args: Vec<JsValue> = self.stack[args_start..].to_vec();
             self.stack.truncate(args_start - 1);
-            let saved_construct = self.in_construct;
-            self.in_construct = true;
-            let result = self.call(ctor_id, JsValue::Object(instance), &ctor_args);
-            self.in_construct = saved_construct;
+            let result =
+                self.call_construct_native(ctor_id, JsValue::Object(instance), &ctor_args, ctor_id);
             let result = result?;
             let final_val = if matches!(result, JsValue::Object(_)) {
                 result

@@ -430,6 +430,19 @@ mod engine_feature {
         /// `feedback_boa-hostbridge-port-is-not-a-registry.md`), so this
         /// stays on HostData not as an ECS component. Cleared on unbind.
         pub(crate) ce_constructors: HashMap<u64, ObjectId>,
+        /// Reverse of [`Self::ce_constructors`]: `constructor ObjectId →
+        /// constructor_id`. Populated + cleared in lockstep with the
+        /// forward map. This is the **single SoT** for reverse-mapping
+        /// `new.target` back to its registered `constructor_id` inside
+        /// [`super::custom_elements::html_element::native_html_element_ctor`]
+        /// (\[C1\] §3.2.3 step 5). Keeping the map host-side instead of
+        /// stamping a JS-visible property on the ctor makes spoofing
+        /// impossible by construction — user code with access to a
+        /// registered ctor can no longer copy a brand to a different
+        /// object to impersonate the registered definition. No extra GC
+        /// roots: the values (ObjectIds) are the same set as
+        /// `ce_constructors.values()` already rooted in `cf_ce_roots`.
+        pub(crate) ce_constructor_to_id: HashMap<ObjectId, u64>,
         /// Cached pending `whenDefined()` Promise per CE name — returns
         /// the same Promise for repeated calls with the same name (per
         /// WHATWG §4.13.4 step 3 — "Set promise to a new promise" runs
@@ -740,6 +753,7 @@ mod engine_feature {
                 )),
                 ce_next_constructor_id: 0,
                 ce_constructors: HashMap::new(),
+                ce_constructor_to_id: HashMap::new(),
                 ce_when_defined_promises: HashMap::new(),
             }
         }

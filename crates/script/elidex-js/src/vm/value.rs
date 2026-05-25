@@ -614,6 +614,12 @@ pub struct JsCalleeInfo {
     pub upvalue_ids: Arc<[UpvalueId]>,
     pub this_mode: ThisMode,
     pub captured_this: Option<JsValue>,
+    /// The closure JS object being invoked. Carried so
+    /// `push_js_call_frame` can derive `CallFrame::home_class` from
+    /// the closure's `is_class_ctor` flag without an extra trailing
+    /// parameter at every call site (D-17b §3.1(c) home_class
+    /// threading).
+    pub callee_obj_id: ObjectId,
 }
 
 /// A native function callable from JS.
@@ -791,6 +797,26 @@ pub struct CallFrame {
     /// does not return an object. Not ECMAScript `new.target` (which refers
     /// to the constructor function).
     pub new_instance: Option<ObjectId>,
+    /// ECMA-262 `new.target` for this call frame (\[C11\]
+    /// `[[Construct]]` step 4 — the constructor that started this
+    /// `new` chain).
+    /// Propagated unchanged through nested `super()` invocations so
+    /// `Op::NewTarget` always reads the outermost-invoked class
+    /// (\[C13\] SuperCall "GetNewTarget"). `None` outside a `new`
+    /// chain. Distinct from `new_instance`: `new_instance` is the
+    /// pre-allocated receiver hint; `new_target` is the spec-level
+    /// constructor function.
+    pub new_target: Option<ObjectId>,
+    /// Enclosing class for `super()` resolution (\[C13\] §13.3.7.2
+    /// GetSuperConstructor — `super.[[Prototype]]` is the super
+    /// class). Set on class-ctor frames only; `None` for ordinary
+    /// function frames and non-ctor methods (CE-minimal scope per
+    /// D-17b §3.4 — `Op::GetSuperProp` support is Step-9-deferred,
+    /// defer slot `#11-step9-class-extras`). The CE-minimal contract is
+    /// fail-closed-by-construction: a non-ctor method frame has
+    /// `home_class = None`, so any future super-property reader
+    /// trips a SyntaxError fallback rather than consuming wrong data.
+    pub home_class: Option<ObjectId>,
     /// Saved `completion_value` from the parent scope, restored on return.
     pub saved_completion: JsValue,
     /// If set, this frame belongs to a generator; `Op::Yield` suspends

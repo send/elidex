@@ -108,24 +108,35 @@ impl VmInner {
     /// Resolve a constructor's receiver for both `new`-mode and
     /// call-mode invocations.
     ///
-    /// - `new F(...)`: native dispatch sets `self.in_construct = true`
-    ///   and `do_new` supplies a pre-allocated object receiver — we
-    ///   must reuse `this` as-is so the constructor initializes the
-    ///   same instance the caller will receive.
-    /// - `F(...)` (call-mode): `in_construct = false`; allocate a
-    ///   fresh Ordinary with `prototype`.  An explicit receiver
-    ///   passed via `F.call(obj, ...)` / `F.apply(obj, ...)` is *not*
-    ///   reused — ECMA-262 §20.5.1.1 step 2 (OrdinaryCreateFromConstructor)
-    ///   always yields a new object.
+    /// - `new F(...)`: native dispatch pushes `Some(new_target)` onto
+    ///   `native_construct_stack` (D-17b §7 Stage 6 SoT) and `do_new`
+    ///   supplies a pre-allocated object receiver — we must reuse
+    ///   `this` as-is so the constructor initializes the same
+    ///   instance the caller will receive.
+    /// - `F(...)` (call-mode): `native_construct_stack` top is `None`
+    ///   (or stack empty); allocate a fresh Ordinary with
+    ///   `prototype`.  An explicit receiver passed via
+    ///   `F.call(obj, ...)` / `F.apply(obj, ...)` is *not* reused —
+    ///   ECMA-262 §10.1.13 OrdinaryCreateFromConstructor always
+    ///   yields a new object.
     ///
-    /// Implements the "callable constructor" shape of §20.5.1.1
-    /// step 1-2.
+    /// Implements the "callable constructor" shape of ECMA-262
+    /// §10.2.2 `[[Construct]]` step 5 + §10.1.13
+    /// OrdinaryCreateFromConstructor.
+    ///
+    /// PRECONDITION: caller must execute inside a native invocation
+    /// whose entry frame pushed the appropriate
+    /// `native_construct_stack` slot — `Some(new_target)` for
+    /// construct mode (via `do_new`'s native-ctor branch or
+    /// `construct_synchronous`'s native arm) or `None` for call mode
+    /// (via `Self::call`). The stack-top read distinguishes the two:
+    /// `Some` reuses `this`, `None`/empty allocates a fresh receiver.
     pub(crate) fn ensure_instance_or_alloc(
         &mut self,
         this: JsValue,
         prototype: Option<ObjectId>,
     ) -> JsValue {
-        if self.in_construct {
+        if matches!(self.native_construct_stack.last(), Some(Some(_))) {
             if let JsValue::Object(_) = this {
                 return this;
             }

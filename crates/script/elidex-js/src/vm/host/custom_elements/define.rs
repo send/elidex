@@ -3,6 +3,8 @@
 
 #![cfg(feature = "engine")]
 
+use std::sync::PoisonError;
+
 use elidex_custom_elements::{CustomElementDefinition, CustomElementReaction, DefineError};
 
 use super::super::super::value::{JsValue, NativeContext, ObjectId, VmError};
@@ -10,6 +12,7 @@ use super::require_ce_registry_receiver;
 
 const MAX_OBSERVED_ATTRIBUTES: usize = 1000;
 
+#[allow(clippy::too_many_lines)] // step-by-step HTML §4.13.4 algorithm walk; splitting would obscure the spec correspondence
 pub(crate) fn native_ce_define(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -52,6 +55,76 @@ pub(crate) fn native_ce_define(
         }
     };
 
+    // 2. HTML §4.13.4 step 2: validate `name` against the custom
+    // element production. Runs BEFORE the brand check (2b) and
+    // duplicate-constructor check (2d) so an invalid name throws
+    // SyntaxError regardless of constructor shape (D-17b R14 G14-1
+    // spec-ordering fix — the brand check would otherwise preempt
+    // and throw TypeError on `define('x', class {})`).
+    if !elidex_custom_elements::is_valid_custom_element_name(&name) {
+        return Err(VmError::dom_exception(
+            ctx.vm.well_known.dom_exc_syntax_error,
+            format!(
+                "Failed to execute 'define' on 'CustomElementRegistry': \
+                 \"{name}\" is not a valid custom element name."
+            ),
+        ));
+    }
+
+    // 2a. HTML §4.13.4 step 3: name already registered → NotSupportedError.
+    // Early peek via `CustomElementRegistry::is_defined` so this fires
+    // BEFORE the brand check (per spec ordering); the registry's own
+    // `AlreadyDefined` check at `registry.define()` below is the
+    // authoritative gate (defense-in-depth — won't fire after this
+    // early peek + the host-bound lock-once discipline).
+    let already_defined = {
+        let registry = ctx
+            .host()
+            .ce_registry
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        registry.is_defined(&name)
+    };
+    if already_defined {
+        return Err(VmError::dom_exception(
+            ctx.vm.well_known.dom_exc_not_supported_error,
+            format!(
+                "Failed to execute 'define' on 'CustomElementRegistry': \
+                 the name \"{name}\" has already been defined as a custom element."
+            ),
+        ));
+    }
+
+    // 2b. HTML §4.13.4 step 4: reject re-use of the same constructor
+    // with this registry. The reverse map `ce_constructor_to_id`
+    // (D-17b R2 G1) is the SoT for "is this ctor already registered?"
+    // — used by `native_html_element_ctor` to resolve `new.target` →
+    // `constructor_id`, so an overwrite here would silently alias
+    // `new.target` from the FIRST define call to the SECOND
+    // definition. Fires BEFORE any host bookkeeping (no rollback
+    // needed). Mirrors the registry's own name-uniqueness check
+    // (`DefineError::AlreadyDefined`) for the constructor axis.
+    if ctx.host().ce_constructor_to_id.contains_key(&ctor_id) {
+        return Err(VmError::dom_exception(
+            ctx.vm.well_known.dom_exc_not_supported_error,
+            "Failed to execute 'define' on 'CustomElementRegistry': \
+             this constructor has already been used with this registry.",
+        ));
+    }
+
+    // 2c. HTMLConstructor brand check ([C1] §3.2.3 — invoked from
+    // [C3] §4.13.4 `define` algorithm). The ctor's `[[Prototype]]`
+    // chain must reach `globalThis.HTMLElement`; otherwise the
+    // sync-construct + upgrade paths skip the prototype splice and
+    // the resulting wrapper's chain is broken (Test #2
+    // `instanceof_post_upgrade` would fail at upgrade-time despite
+    // define succeeding). Runs AFTER spec steps 2-4 so name /
+    // dup-name / dup-ctor errors surface with the spec-mandated
+    // SyntaxError / NotSupportedError instead of being preempted by
+    // a TypeError (D-17b R14 G14-1). Cycle-safe via the depth-bound
+    // walk in `html_element::validate_html_element_constructor_chain`.
+    super::html_element::validate_html_element_constructor_chain(ctx.vm, ctor_id)?;
+
     // 3. options.extends — v1 rejects customized built-in elements via
     //    NotSupportedError (`#11-customized-built-in-elements` defer
     //    slot).  Missing / undefined / null = autonomous custom element.
@@ -90,16 +163,26 @@ pub(crate) fn native_ce_define(
         .checked_add(1)
         .expect("CE constructor ID counter overflow (2^64 defines in one VM)");
     host.ce_constructors.insert(constructor_id_u64, ctor_id);
+    // Reverse map for native_html_element_ctor's `new.target → constructor_id`
+    // resolution. Populated + rolled back in lockstep with the forward map
+    // so the bijection holds by construction (D-17b R2 G1 — replaces the
+    // earlier JS-visible symbol brand to remove the spoofing surface).
+    host.ce_constructor_to_id
+        .insert(ctor_id, constructor_id_u64);
     let definition =
         CustomElementDefinition::new(name.clone(), constructor_id_u64, observed_attributes, None);
     let pending = {
-        let mut registry = host.ce_registry.lock().expect("CE registry mutex poisoned");
+        let mut registry = host
+            .ce_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         registry.define(definition)
     };
     let pending_entities = match pending {
         Ok(entities) => entities,
         Err(err) => {
             host.ce_constructors.remove(&constructor_id_u64);
+            host.ce_constructor_to_id.remove(&ctor_id);
             return Err(define_error_to_vm_error(&ctx.vm.well_known, err));
         }
     };
@@ -114,7 +197,7 @@ pub(crate) fn native_ce_define(
         let mut queue = host
             .ce_reaction_queue
             .lock()
-            .expect("CE reaction queue mutex poisoned");
+            .unwrap_or_else(PoisonError::into_inner);
         for entity in &pending_entities {
             queue.push_back(CustomElementReaction::Upgrade(*entity));
         }
@@ -270,7 +353,7 @@ fn enqueue_upgrade_walk(
     let mut queue = host
         .ce_reaction_queue
         .lock()
-        .expect("CE reaction queue mutex poisoned");
+        .unwrap_or_else(PoisonError::into_inner);
     for entity in to_upgrade {
         queue.push_back(CustomElementReaction::Upgrade(entity));
     }

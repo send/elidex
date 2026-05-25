@@ -16,6 +16,8 @@
 
 #![cfg(feature = "engine")]
 
+use std::sync::PoisonError;
+
 use elidex_custom_elements::{CustomElementReaction, CustomElementState};
 use elidex_ecs::Entity;
 
@@ -58,7 +60,7 @@ impl VmInner {
                 let mut queue = host
                     .ce_reaction_queue
                     .lock()
-                    .expect("CE reaction queue mutex poisoned");
+                    .unwrap_or_else(PoisonError::into_inner);
                 if queue.is_empty() {
                     return;
                 }
@@ -164,7 +166,10 @@ fn invoke_callback(
         return;
     }
     let constructor_id_u64 = {
-        let registry = host.ce_registry.lock().expect("CE registry mutex poisoned");
+        let registry = host
+            .ce_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         match registry.get(&definition_name) {
             Some(def) => def.constructor_id,
             None => return,

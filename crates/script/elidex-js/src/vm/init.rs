@@ -120,7 +120,8 @@ impl Vm {
                 gc_bytes_since_last: 0,
                 gc_threshold: 65536,
                 gc_enabled: false,
-                in_construct: false,
+                html_element_constructor: None,
+                native_construct_stack: Vec::new(),
                 active_bound_key: None,
                 host_data: None,
                 #[cfg(feature = "engine")]

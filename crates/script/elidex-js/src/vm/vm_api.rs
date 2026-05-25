@@ -652,6 +652,7 @@ impl Vm {
                     .expect("CE reaction queue mutex poisoned")
                     .clear();
                 hd.ce_constructors.clear();
+                hd.ce_constructor_to_id.clear();
                 hd.ce_when_defined_promises.clear();
                 hd.ce_next_constructor_id = 0;
             }

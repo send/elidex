@@ -952,6 +952,8 @@ impl VmInner {
             #[cfg(not(feature = "engine"))]
             subclass_array_ctor_roots: &[],
             global_object: self.global_object,
+            html_element_constructor: self.html_element_constructor,
+            native_construct_stack: &self.native_construct_stack,
             upvalues: &self.upvalues,
             objects: &self.objects,
             host_data: self.host_data.as_deref(),

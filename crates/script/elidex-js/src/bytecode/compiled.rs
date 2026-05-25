@@ -63,6 +63,19 @@ pub struct CompiledFunction {
     pub is_strict: bool,
     /// Whether this function uses `arguments` (has `CreateArguments` opcode).
     pub needs_arguments: bool,
+    /// Whether the last formal parameter is a rest parameter (`...args`).
+    /// When true, `push_js_call_frame` packs incoming args beyond
+    /// `param_count - 1` into a fresh Array stored in the rest slot.
+    pub has_rest_param: bool,
+    /// Whether this function is a class constructor (declared body
+    /// or synthesized default — both base and derived). Frames whose
+    /// callee carries this flag get `CallFrame::home_class` set to
+    /// the closure's own `ObjectId`, so `Op::SuperCall` (\[C13\]
+    /// SuperCall) and (future, defer slot `#11-step9-class-extras`)
+    /// `Op::GetSuperProp` resolve the super
+    /// class via `home_class.\[\[Prototype\]\]`. `false` for regular
+    /// methods + non-class functions (CE-minimal scope, D-17b §3.1).
+    pub is_class_ctor: bool,
     /// Inline cache slots for property access (GetProp/SetProp).
     /// Allocated by the compiler; populated at runtime.
     pub ic_slots: Vec<Option<crate::vm::ic::PropertyIC>>,
@@ -88,6 +101,8 @@ impl CompiledFunction {
             is_arrow: false,
             is_strict: false,
             needs_arguments: false,
+            has_rest_param: false,
+            is_class_ctor: false,
             ic_slots: Vec::new(),
             call_ic_slots: Vec::new(),
         }

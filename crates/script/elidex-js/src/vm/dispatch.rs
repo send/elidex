@@ -8,7 +8,7 @@ use crate::bytecode::opcode::Op;
 use super::coerce::{abstract_eq, strict_eq, to_boolean, to_number, typeof_str};
 use super::coerce_ops::{op_bitnot, op_neg, op_not, op_pos, op_void, BitwiseOp, NumericBinaryOp};
 use super::ops::{parse_array_index_u16, try_as_array_index, EndFinallyAction};
-use super::value::{JsValue, ObjectKind, PropertyKey, VmError, VmErrorKind};
+use super::value::{JsValue, ObjectId, ObjectKind, PropertyKey, VmError, VmErrorKind};
 use super::VmInner;
 
 /// §12.5.3.2 DeleteExpression: strict-mode TypeError message when
@@ -507,10 +507,27 @@ impl VmInner {
                 }
                 Op::ReturnUndefined => {
                     if frame_idx == entry_frame_depth {
-                        let completion = self.completion_value;
+                        // Class-ctor frames returning implicitly must
+                        // yield Undefined (per ECMA-262 §10.2.1 / [C16]
+                        // implicit-return-undefined for class bodies),
+                        // NOT the trailing ExpressionStatement's
+                        // completion-value. Without this carve-out, a
+                        // user ctor like `constructor() { super(); ({});
+                        // }` would leak `{}` into construct_synchronous's
+                        // return path, tripping the HTML §4.13.5 step
+                        // 12.2 SameValue check in invoke_upgrade. Script-
+                        // entry top-level (non-class) eval continues to
+                        // observe completion_value as the eval result.
+                        let is_class_ctor =
+                            self.compiled_functions[func_id.0 as usize].is_class_ctor;
+                        let return_val = if is_class_ctor {
+                            JsValue::Undefined
+                        } else {
+                            self.completion_value
+                        };
                         self.pop_frame();
                         self.completion_value = JsValue::Undefined;
-                        return Ok(completion);
+                        return Ok(return_val);
                     }
                     self.complete_inline_frame(JsValue::Undefined);
                 }
@@ -839,10 +856,13 @@ impl VmInner {
                 }
 
                 // ── Stubs for remaining opcodes ─────────────────────
-                Op::CallSpread | Op::NewSpread | Op::SuperCallSpread => {
+                Op::CallSpread | Op::NewSpread => {
                     self.pop()?; // args array
                     self.pop()?; // callee/constructor
                     self.stack.push(JsValue::Undefined);
+                }
+                Op::SuperCallSpread => {
+                    self.op_super_call_spread(entry_frame_depth)?;
                 }
                 Op::TaggedTemplate => {
                     let _count = self.read_u8_op();
@@ -897,8 +917,70 @@ impl VmInner {
                                  // Leave class on stack.
                 }
                 Op::SuperCall => {
-                    let _argc = self.read_u8_op();
-                    self.stack.push(JsValue::Undefined);
+                    let argc = self.read_u8_op();
+                    self.op_super_call(argc, entry_frame_depth)?;
+                }
+                Op::SetPrototype => {
+                    // `[child parent -- child]` — set child.[[Prototype]] = parent.
+                    // parent must be Object or Null. Used by class-chain setup
+                    // (\[C16\] constructorParent / protoParent wiring). Narrow
+                    // fast path: `child` is always a freshly-allocated, extensible
+                    // ctor or prototype object emitted within compile_class, so
+                    // the OrdinarySetPrototypeOf non-extensible + cycle checks
+                    // can't fire here by construction. User-facing
+                    // `Object.setPrototypeOf` takes the full spec path via
+                    // `native_object_set_prototype_of` (which performs both
+                    // checks) — do NOT reuse this opcode for user-controlled
+                    // receivers.
+                    let parent = self.pop()?;
+                    let child = self.peek()?;
+                    let JsValue::Object(child_id) = child else {
+                        let e = VmError::type_error("SetPrototype: receiver must be an object");
+                        self.throw_error(e, entry_frame_depth)?;
+                        continue;
+                    };
+                    let new_proto: Option<ObjectId> = match parent {
+                        JsValue::Object(id) => Some(id),
+                        JsValue::Null => None,
+                        _ => {
+                            // Spec-aligned class-heritage wording (ECMA-262
+                            // §15.7.14 ClassDefinitionEvaluation step 6.f
+                            // throws TypeError when the heritage value is
+                            // neither a constructor nor null). Mirrors
+                            // V8 / SpiderMonkey error text for
+                            // `class A extends 1 {}`.
+                            let e = VmError::type_error(
+                                "Class extends value is not a constructor or null",
+                            );
+                            self.throw_error(e, entry_frame_depth)?;
+                            continue;
+                        }
+                    };
+                    self.get_object_mut(child_id).prototype = new_proto;
+                }
+                Op::AssertConstructor => {
+                    // `[value -- ]` ECMA-262 §15.7.14 step 6.f
+                    // ClassDefinitionEvaluation: the heritage value
+                    // must be either `null` (step 6.f.i — protoParent
+                    // = null, constructorParent = %Function.prototype%)
+                    // or a constructor (step 6.f.iii). Other values
+                    // (non-constructable callables like Symbol /
+                    // BigInt / arrow functions, primitives, ordinary
+                    // objects) throw TypeError at class-definition
+                    // time — NOT later at `super()` dispatch (D-17b
+                    // R17 G17-1, null-acceptance added in R20 G20-1).
+                    // Emitted by `compile_class` for the Expr arm
+                    // BEFORE the prototype splices; the splice phase
+                    // then runtime-branches on Null so the null path
+                    // matches `ClassHeritage::Null`.
+                    let value = self.pop()?;
+                    let ok = matches!(value, JsValue::Null)
+                        || matches!(value, JsValue::Object(id) if super::object_kind::is_constructor(self, id));
+                    if !ok {
+                        let e =
+                            VmError::type_error("Class extends value is not a constructor or null");
+                        self.throw_error(e, entry_frame_depth)?;
+                    }
                 }
 
                 // ── For-in iteration ────────────────────────────────
@@ -955,7 +1037,10 @@ impl VmInner {
                     // the next loop iteration.
                 }
                 // ── Misc stubs ──────────────────────────────────────
-                Op::NewTarget | Op::ImportMeta => {
+                Op::NewTarget => {
+                    self.op_new_target();
+                }
+                Op::ImportMeta => {
                     self.stack.push(JsValue::Undefined);
                 }
                 Op::DynamicImport => {
