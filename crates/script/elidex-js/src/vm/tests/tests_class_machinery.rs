@@ -194,3 +194,101 @@ fn nested_class_new_after_outer_throw_recovers() {
          let c = new C(); c instanceof A;"
     ));
 }
+
+// ---------------------------------------------------------------------------
+// D-17b R4 G4-2 / G4-3: `extends null` (ECMA-262 §15.7.14 step 6.f).
+// `protoParent = null`, `constructorParent = %Function.prototype%`.
+// Default ctor is BASE (no super call); user-written super() resolves
+// to %Function.prototype% and throws TypeError on Construct.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn extends_null_default_ctor_is_base() {
+    // `class X extends null {}` with no user ctor must construct
+    // cleanly via a BASE default ctor (no super() call). Previously
+    // synthesized a DERIVED ctor that called super(...args) on null
+    // → TypeError at runtime.
+    assert!(super::eval_bool(
+        "class X extends null {} let x = new X(); x instanceof X;"
+    ));
+}
+
+#[test]
+fn extends_null_prototype_proto_is_null() {
+    // [C16] step 6.f.iii: protoParent = null →
+    // `Object.getPrototypeOf(X.prototype) === null`.
+    assert!(super::eval_bool(
+        "class X extends null {} Object.getPrototypeOf(X.prototype) === null;"
+    ));
+}
+
+#[test]
+fn extends_null_ctor_proto_is_function_prototype() {
+    // [C16] step 6.f.ii: constructorParent = %Function.prototype% →
+    // `Object.getPrototypeOf(X) === Function.prototype` (NOT null).
+    // The VM doesn't install a `Function` global, so probe
+    // %Function.prototype% via a function literal's [[Prototype]].
+    assert!(super::eval_bool(
+        "class X extends null {} \
+         Object.getPrototypeOf(X) === Object.getPrototypeOf(function(){});"
+    ));
+}
+
+#[test]
+fn extends_null_user_super_call_throws() {
+    // [C13] GetSuperConstructor resolves home_class.[[Prototype]] =
+    // %Function.prototype%; Construct(%Function.prototype%, ...)
+    // throws TypeError (Function.prototype is not constructable).
+    assert!(super::eval_bool(
+        "class X extends null { constructor() { super(); } } \
+         let caught = false; \
+         try { new X(); } catch (e) { caught = (e instanceof TypeError); } \
+         caught;"
+    ));
+}
+
+// ---------------------------------------------------------------------------
+// D-17b R4 G4-4: BoundFunction in [[Construct]] dispatch. `do_new`
+// and `construct_synchronous` share `unwrap_bound_function_chain`
+// (ECMA-262 §9.4.1.2 BoundFunction [[Construct]]) so the two paths
+// can't drift on bound-chain unwrapping. The user-visible surface
+// for the divergence today is small — `class B extends Bound`
+// throws at class-def time per spec (Bound has no `prototype`
+// property → protoParent is undefined → TypeError), matching V8 —
+// so the shared helper protects against future construct callers
+// (e.g. a `Reflect.construct(Bound, args, NewTarget)` path) seeing
+// the inconsistency.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn extends_bound_constructor_throws_on_undefined_prototype() {
+    // Spec/V8 alignment: `class B extends A.bind(null, 7)` throws
+    // TypeError because BoundFunction objects have no `prototype`
+    // own property; `Get(Bound, "prototype")` returns undefined,
+    // which fails the protoParent Object/Null check (ECMA-262
+    // §15.7.14 step 6.f.ii). The SetPrototype dispatcher surfaces
+    // a spec-aligned "Class extends value is not a constructor or
+    // null" diagnostic.
+    super::eval_throws(
+        "class A { constructor(x, y) { this.sum = x + y; } } \
+         class B extends A.bind(null, 7) { constructor(y) { super(y); } } \
+         new B(3);",
+    );
+}
+
+#[test]
+fn new_bound_constructor_via_do_new_still_works() {
+    // `new BoundCtor(...)` itself (no class heritage) continues to
+    // unwrap via `do_new` → `unwrap_bound_function_chain` and
+    // dispatch to the inner constructor with bound args prepended.
+    // Regression for the shared-helper refactor: `do_new`'s
+    // existing behavior must survive the extraction.
+    assert_eq!(
+        super::eval_number(
+            "class A { constructor(x, y) { this.sum = x + y; } } \
+             let Bound = A.bind(null, 7); \
+             let b = new Bound(3); b.sum;"
+        ),
+        10.0
+    );
+}

@@ -251,9 +251,18 @@ pub enum Op {
     DefineMethod,
     /// Operand: u16 (name constant), u8 (flags). `[class value -- class]`
     DefineField,
-    /// Operand: u8 (argc). `[new.target arg0..argN -- this]`
+    /// Operand: u8 (argc). `[arg0..argN -- this]`
+    ///
+    /// `new.target` is NOT a stack operand — the dispatcher reads it
+    /// from [`super::super::vm::value::CallFrame::new_target`]
+    /// (threaded through `construct_synchronous`); the super class is
+    /// resolved via [`super::super::vm::value::CallFrame::home_class`]'s
+    /// `[[Prototype]]` per ECMA-262 §15.7.15 GetSuperConstructor.
     SuperCall,
-    /// `[new.target args_array -- this]`
+    /// `[args_array -- this]`
+    ///
+    /// As [`Self::SuperCall`]: `new.target` / super constructor come
+    /// from the call frame, not the operand stack.
     SuperCallSpread,
     /// `[child parent -- child]` Set `child.[[Prototype]] = parent`.
     /// `parent` must be Object or Null; otherwise throws TypeError.

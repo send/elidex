@@ -668,48 +668,21 @@ impl VmInner {
         };
 
         // §9.4.1.2 BoundFunction [[Construct]]: unwrap chain and prepend
-        // bound_args.  bound_this is ignored (step 2) — the instance's
-        // receiver comes from new_target.  Chains are acyclic by construction
-        // (target is captured at bind time), but an attacker can build
-        // chains of arbitrary length; cap via MAX_BIND_CHAIN_DEPTH.
-        let mut chain_segments: Vec<Vec<JsValue>> = Vec::new();
-        for _ in 0..crate::vm::MAX_BIND_CHAIN_DEPTH {
-            let ObjectKind::BoundFunction {
-                target, bound_args, ..
-            } = &self.get_object(ctor_id).kind
-            else {
-                break;
-            };
-            let next = *target;
-            if !bound_args.is_empty() {
-                chain_segments.push(bound_args.clone());
-            }
-            ctor_id = next;
-        }
-        if matches!(
-            self.get_object(ctor_id).kind,
-            ObjectKind::BoundFunction { .. }
-        ) {
-            return Err(VmError::range_error("Maximum bind chain depth exceeded"));
-        }
-        if !chain_segments.is_empty() {
-            // The unwrap loop pushes segments outer-to-inner (the user-visible
-            // wrapper first, then each nested target).  Spec-correct call
-            // order is `[first-bind-args, ..., last-bind-args, call-args]`,
-            // i.e. the innermost (earliest) bind's args come first.  Reverse
-            // the segment iteration so `extend_from_slice` appends in
-            // innermost→outermost order.
-            let total: usize = chain_segments.iter().map(Vec::len).sum();
-            let mut prepended: Vec<JsValue> = Vec::with_capacity(total);
-            for seg in chain_segments.iter().rev() {
-                prepended.extend_from_slice(seg);
-            }
+        // bound_args. bound_this is ignored (step 2) — the instance's
+        // receiver comes from new_target. Shared SoT with
+        // `construct_synchronous` via `unwrap_bound_function_chain`
+        // (D-17b R4 G4-4) so `new BoundCtor()` and `class B extends
+        // BoundCtor { ... super() ... }` resolve identically.
+        let (unwrapped_id, prepended) = self.unwrap_bound_function_chain(ctor_id)?;
+        ctor_id = unwrapped_id;
+        let prepended_len = prepended.len();
+        if !prepended.is_empty() {
             // Replace the constructor slot with the unwrapped target and
             // splice prepended args in front of the call args in one memmove.
             self.stack[args_start - 1] = JsValue::Object(ctor_id);
             self.stack.splice(args_start..args_start, prepended);
         }
-        let argc = argc + chain_segments.iter().map(Vec::len).sum::<usize>();
+        let argc = argc + prepended_len;
         let args_start = self.stack.len() - argc;
 
         let js_callee = self.extract_js_callee(ctor_id);

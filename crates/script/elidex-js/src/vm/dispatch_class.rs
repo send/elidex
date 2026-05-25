@@ -145,6 +145,56 @@ impl VmInner {
         Ok(())
     }
 
+    /// Unwrap a BoundFunction chain on `ctor_id` (ECMA-262 §9.4.1.2
+    /// BoundFunction `[[Construct]]`). Returns the innermost
+    /// non-bound callable's `ObjectId` plus the bound-args segments
+    /// concatenated in innermost→outermost order, ready to splice in
+    /// front of the user's call args.
+    ///
+    /// Returns `Err(RangeError)` when the chain exceeds
+    /// [`super::MAX_BIND_CHAIN_DEPTH`]. The chain itself is acyclic
+    /// by construction (each `BoundFunction::target` is captured at
+    /// bind-time and cannot be mutated), but an attacker can build
+    /// arbitrarily long chains.
+    ///
+    /// Shared SoT for [[Construct]] BoundFunction unwrapping: called
+    /// by both [`super::VmInner::do_new`] (the user-visible `new`
+    /// path) and [`Self::construct_synchronous`] (the `super(...)` /
+    /// invoke_upgrade path). Keeping the logic in one place ensures
+    /// `new BoundCtor()` and `class B extends BoundCtor { ... }` /
+    /// `super()` behave consistently — D-17b R4 G4-4 fix for the
+    /// divergence where `construct_synchronous` rejected BoundFunction
+    /// outright.
+    pub(crate) fn unwrap_bound_function_chain(
+        &self,
+        ctor_id: ObjectId,
+    ) -> Result<(ObjectId, Vec<JsValue>), VmError> {
+        let mut id = ctor_id;
+        let mut segments: Vec<Vec<JsValue>> = Vec::new();
+        for _ in 0..super::MAX_BIND_CHAIN_DEPTH {
+            let ObjectKind::BoundFunction {
+                target, bound_args, ..
+            } = &self.get_object(id).kind
+            else {
+                break;
+            };
+            let next = *target;
+            if !bound_args.is_empty() {
+                segments.push(bound_args.clone());
+            }
+            id = next;
+        }
+        if matches!(self.get_object(id).kind, ObjectKind::BoundFunction { .. }) {
+            return Err(VmError::range_error("Maximum bind chain depth exceeded"));
+        }
+        let total: usize = segments.iter().map(Vec::len).sum();
+        let mut prepended: Vec<JsValue> = Vec::with_capacity(total);
+        for seg in segments.iter().rev() {
+            prepended.extend_from_slice(seg);
+        }
+        Ok((id, prepended))
+    }
+
     /// Synchronous `[[Construct]]` dispatch (\[C11\]) used by
     /// `Op::SuperCall` and the upcoming `vm.construct` API (Stage 5).
     /// Threads `new_target` through both the native-call path
@@ -153,6 +203,13 @@ impl VmInner {
     /// explicit-Object-return-wins-else-pre-alloc substitution that
     /// matches `[[Construct]]`'s OrdinaryCreateFromConstructor
     /// completion semantics.
+    ///
+    /// BoundFunction superclasses (`class B extends A.bind(null) {
+    /// ... super() ... }`) are unwrapped via
+    /// [`Self::unwrap_bound_function_chain`] so the inner callable is
+    /// dispatched with the chain's bound args prepended — matches
+    /// `do_new`'s behavior so the two construct paths stay
+    /// consistent.
     pub(crate) fn construct_synchronous(
         &mut self,
         ctor_id: ObjectId,
@@ -161,6 +218,20 @@ impl VmInner {
         new_target: ObjectId,
         pre_alloc_instance: Option<ObjectId>,
     ) -> Result<JsValue, VmError> {
+        // Unwrap BoundFunction chain before checking constructability —
+        // a BoundFunction targeting a constructable callable is itself
+        // constructable (ECMA-262 §9.4.1.2).
+        let (ctor_id, prepended) = self.unwrap_bound_function_chain(ctor_id)?;
+        let combined_args: Vec<JsValue> = if prepended.is_empty() {
+            args.to_vec()
+        } else {
+            let mut v = Vec::with_capacity(prepended.len() + args.len());
+            v.extend_from_slice(&prepended);
+            v.extend_from_slice(args);
+            v
+        };
+        let args = combined_args.as_slice();
+
         let is_js = matches!(&self.get_object(ctor_id).kind, ObjectKind::Function(_));
         let is_native_ctor = match &self.get_object(ctor_id).kind {
             ObjectKind::NativeFunction(nf) => nf.constructable,

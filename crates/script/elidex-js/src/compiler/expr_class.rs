@@ -1,5 +1,6 @@
 //! Class compilation: class declarations and expressions.
 
+use crate::arena::NodeId;
 #[allow(clippy::wildcard_imports)]
 use crate::ast::*;
 use crate::bytecode::compiled::Constant;
@@ -14,6 +15,37 @@ use super::expr::compile_expr;
 use super::expr_function::compile_nested_function;
 
 // ── Class compilation ──────────────────────────────────────────────
+
+/// Class-heritage classification (ECMA-262 §15.7.14
+/// ClassDefinitionEvaluation step 6).
+///
+/// Three syntactic forms, three runtime shapes:
+/// - `None`: no `extends` clause → base class. `ctor.__proto__ =
+///   %Function.prototype%` (default), `ctor.prototype.__proto__ =
+///   %Object.prototype%` (default), default ctor is BASE.
+/// - `Null`: `extends null` (literal). `ctor.__proto__ =
+///   %Function.prototype%` (default), `ctor.prototype.__proto__ =
+///   null`, default ctor is BASE (no super call). A user `super()`
+///   call resolves to %Function.prototype%, which is not constructable
+///   → spec-mandated TypeError at runtime.
+/// - `Expr(super_id)`: derived class with constructor heritage.
+///   `ctor.__proto__ = super`, `ctor.prototype.__proto__ =
+///   super.prototype`, default ctor is DERIVED (`super(...args)`).
+enum ClassHeritage {
+    None,
+    Null,
+    Expr(NodeId<Expr>),
+}
+
+fn classify_heritage(prog: &Program, super_class: Option<NodeId<Expr>>) -> ClassHeritage {
+    let Some(super_id) = super_class else {
+        return ClassHeritage::None;
+    };
+    match &prog.exprs.get(super_id).kind {
+        ExprKind::Literal(Literal::Null) => ClassHeritage::Null,
+        _ => ClassHeritage::Expr(super_id),
+    }
+}
 
 /// Compile a class declaration or expression.
 ///
@@ -44,6 +76,7 @@ pub(super) fn compile_class(
         )
     });
 
+    let heritage = classify_heritage(prog, class.super_class);
     if let Some(ctor_member) = constructor {
         if let ClassMemberKind::Method { function, .. } = &ctor_member.kind {
             let mut child =
@@ -55,7 +88,7 @@ pub(super) fn compile_class(
             let idx = fc.add_constant(Constant::Function(Box::new(child)));
             fc.emit_u16(Op::Closure, idx);
         }
-    } else if class.super_class.is_some() {
+    } else if matches!(heritage, ClassHeritage::Expr(_)) {
         // Default DERIVED constructor synthesis ([C16] §15.7.14
         // default-constructor branch when ClassHeritage is present):
         // equivalent of `constructor(...args) { super(...args); }`.
@@ -129,42 +162,51 @@ pub(super) fn compile_class(
     // works) + `protoParent` = `super_class.prototype` (so
     // `MyEl.prototype.__proto__ === HTMLElement.prototype` & instance
     // method inheritance works).
-    if let Some(super_id) = class.super_class {
-        // Stack: [ctor]
-        // First splice ctor.prototype.__proto__ = super_class.prototype.
-        fc.emit(Op::Dup); //                          [ctor ctor]
-        let proto_name = fc.add_name("prototype");
-        let ic1 = fc.alloc_ic_slot();
-        fc.emit_u16_u16(Op::GetProp, proto_name, ic1); // [ctor ctor.prototype]
-        compile_expr(fc, prog, analysis, func_scopes, super_id)?; // [ctor ctor.prototype super]
-        fc.emit(Op::Dup); //                          [ctor ctor.prototype super super]
-        let proto_name2 = fc.add_name("prototype");
-        let ic2 = fc.alloc_ic_slot();
-        fc.emit_u16_u16(Op::GetProp, proto_name2, ic2); // [ctor ctor.prototype super super.prototype]
-                                                        // SetPrototype: [child=ctor.prototype, parent=super.prototype -- ctor.prototype]
-                                                        // We have stack [ctor ctor.prototype super super.prototype]; need to
-                                                        // arrange [ctor super ctor.prototype super.prototype] for the SetPrototype
-                                                        // input. Actually simpler: SetPrototype consumes top two as [child, parent].
-                                                        // Stack order is [..., child, parent]; SetPrototype leaves child on stack.
-                                                        // Current: [..., ctor.prototype, super, super.prototype]; the bottom 2 are
-                                                        // (ctor.prototype, super) and (super, super.prototype). We need
-                                                        // [..., ctor.prototype, super.prototype] for the splice.
-                                                        // Re-arrange: swap super with super.prototype (currently top is super.prototype,
-                                                        // below is super, below is ctor.prototype). We want to drop super.
-                                                        // [ctor ctor.prototype super super.prototype] → Swap →
-                                                        // [ctor ctor.prototype super.prototype super] → Pop →
-                                                        // [ctor ctor.prototype super.prototype] → SetPrototype →
-                                                        // [ctor ctor.prototype]
-        fc.emit(Op::Swap); //                         [ctor ctor.prototype super.prototype super]
-        fc.emit(Op::Pop); //                          [ctor ctor.prototype super.prototype]
-        fc.emit(Op::SetPrototype); //                 [ctor ctor.prototype]
-        fc.emit(Op::Pop); //                          [ctor]
+    match heritage {
+        ClassHeritage::None => {} // default proto chain inherited from %Object.prototype%.
+        ClassHeritage::Null => {
+            // `extends null` (ECMA-262 §15.7.14 step 6.f): protoParent
+            // = null, constructorParent = %Function.prototype%. The
+            // closure's `[[Prototype]]` already defaults to
+            // %Function.prototype%, so we only splice
+            // `ctor.prototype.[[Prototype]] = null`. A user-written
+            // `super()` then resolves to %Function.prototype% via
+            // GetSuperConstructor and throws TypeError on Construct —
+            // spec-mandated.
+            fc.emit(Op::Dup); //                          [ctor ctor]
+            let proto_name = fc.add_name("prototype");
+            let ic1 = fc.alloc_ic_slot();
+            fc.emit_u16_u16(Op::GetProp, proto_name, ic1); // [ctor ctor.prototype]
+            fc.emit(Op::PushNull); //                     [ctor ctor.prototype null]
+            fc.emit(Op::SetPrototype); //                 [ctor ctor.prototype]
+            fc.emit(Op::Pop); //                          [ctor]
+        }
+        ClassHeritage::Expr(super_id) => {
+            // Stack: [ctor]
+            // First splice ctor.prototype.__proto__ = super_class.prototype.
+            fc.emit(Op::Dup); //                          [ctor ctor]
+            let proto_name = fc.add_name("prototype");
+            let ic1 = fc.alloc_ic_slot();
+            fc.emit_u16_u16(Op::GetProp, proto_name, ic1); // [ctor ctor.prototype]
+            compile_expr(fc, prog, analysis, func_scopes, super_id)?; // [ctor ctor.prototype super]
+            fc.emit(Op::Dup); //                          [ctor ctor.prototype super super]
+            let proto_name2 = fc.add_name("prototype");
+            let ic2 = fc.alloc_ic_slot();
+            fc.emit_u16_u16(Op::GetProp, proto_name2, ic2); // [ctor ctor.prototype super super.prototype]
+                                                            // SetPrototype: [child=ctor.prototype, parent=super.prototype -- ctor.prototype].
+                                                            // Re-arrange via Swap+Pop to drop the intermediate `super` and leave
+                                                            // [ctor ctor.prototype super.prototype] for the splice.
+            fc.emit(Op::Swap); //                         [ctor ctor.prototype super.prototype super]
+            fc.emit(Op::Pop); //                          [ctor ctor.prototype super.prototype]
+            fc.emit(Op::SetPrototype); //                 [ctor ctor.prototype]
+            fc.emit(Op::Pop); //                          [ctor]
 
-        // Now splice ctor.__proto__ = super_class.
-        fc.emit(Op::Dup); //                          [ctor ctor]
-        compile_expr(fc, prog, analysis, func_scopes, super_id)?; // [ctor ctor super]
-        fc.emit(Op::SetPrototype); //                 [ctor ctor]
-        fc.emit(Op::Pop); //                          [ctor]
+            // Now splice ctor.__proto__ = super_class.
+            fc.emit(Op::Dup); //                          [ctor ctor]
+            compile_expr(fc, prog, analysis, func_scopes, super_id)?; // [ctor ctor super]
+            fc.emit(Op::SetPrototype); //                 [ctor ctor]
+            fc.emit(Op::Pop); //                          [ctor]
+        }
     }
 
     // 3. Define prototype methods.
