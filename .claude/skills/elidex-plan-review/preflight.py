@@ -55,14 +55,22 @@ SPEC_LABEL_REVERSE = {
     "URL": "url",
 }
 
-HEADING_RE = re.compile(r"^(#{1,6})\s+.*spec\s+coverage\s+map", re.IGNORECASE)
+# Require a §-number marker in the heading so a section titled e.g.
+# "Quick Reference: spec coverage map" doesn't accidentally pick up.
+# Number flexibility: §3 / §2.5 / §3.1 / annex letters are all accepted
+# per `feedback_plan-scope-re-evaluation.md`'s "§3 (or §2.5)" wording.
+HEADING_RE = re.compile(
+    r"^(#{1,6})\s+§[\d.A-Z]+\.?\s+.*spec\s+coverage\s+map", re.IGNORECASE
+)
 FENCE_RE = re.compile(r"^\s*(```|~~~)")
 SEPARATOR_CELL_RE = re.compile(r"^:?-+:?$")
 # Section numbers contain only digits, dots, and uppercase annex letters
 # (A through Z — tc39 annexes A-G, W3C/WHATWG occasionally further). AO
 # names always have lowercase (CamelCase) so won't match. Don't enumerate
 # specific annex letters — that drifts when a spec adds annex H+.
-SECTION_REF_RE = re.compile(r"§([\d.A-Z]+)")
+# `\s*` after `§` tolerates copy/paste with a space after the section
+# mark (`§ 15.7.14`); webref `_lookup_section` does the same normalization.
+SECTION_REF_RE = re.compile(r"§\s*([\d.A-Z]+)")
 
 
 def _fence_state_array(lines: list[str]) -> list[bool]:
