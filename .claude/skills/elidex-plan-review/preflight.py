@@ -65,6 +65,37 @@ SEPARATOR_CELL_RE = re.compile(r"^:?-+:?$")
 SECTION_REF_RE = re.compile(r"§([\d.A-Z]+)")
 
 
+def _fence_state_array(lines: list[str]) -> list[bool]:
+    """Per-line bool: True iff `lines[i]` is inside (or is a marker of) a
+    fenced code block.
+
+    Single SoT for fence tracking shared by `find_coverage_map_section` and
+    `find_table` — fence markers (``` / ~~~) start/end blocks, and only
+    matching markers close. Both the opener and closer lines themselves
+    are flagged True so heading/table detection skips them.
+    """
+    state = [False] * len(lines)
+    in_fence = False
+    marker: str | None = None
+    for i, line in enumerate(lines):
+        m = FENCE_RE.match(line)
+        if m:
+            current = m.group(1)
+            if not in_fence:
+                in_fence = True
+                marker = current
+                state[i] = True
+            elif marker == current:
+                in_fence = False
+                marker = None
+                state[i] = True
+            else:
+                state[i] = True
+        else:
+            state[i] = in_fence
+    return state
+
+
 def _parse_table_row(line: str) -> list[str] | None:
     """Return GFM table row cells, or None if `line` isn't a table row.
 
@@ -87,38 +118,33 @@ def _parse_table_row(line: str) -> list[str] | None:
 EXPECTED_COLUMNS = ["spec section", "step", "branch", "touch", "full enum", "user-input flow"]
 
 
-def find_coverage_map_section(lines: list[str]) -> tuple[int, int, int] | None:
-    """Locate Spec coverage map section.
+def find_coverage_map_section(
+    lines: list[str], fence_state: list[bool]
+) -> tuple[int, int, int] | None:
+    """Locate Spec coverage map section, skipping fenced code blocks.
 
     Returns (heading_line, body_start, body_end) where body covers lines
     after the heading until the next heading at same/shallower level.
-    Fenced code blocks (``` / ~~~) are tracked so `#` lines inside fences
-    are not treated as heading terminators — common false-positive when
-    §3 narrative includes shell / python snippets with `# comment` lines.
-    Returns None if no Spec coverage map heading found.
+    `fence_state[i]` (from `_fence_state_array`) gates BOTH the outer
+    heading scan (a §3 template inside an earlier fenced block won't be
+    picked up as a real heading) and the body terminator scan (a `#`
+    comment inside a python/bash snippet won't end the §3 body early).
+    Returns None if no Spec coverage map heading found outside fences.
     """
     for i, line in enumerate(lines):
+        if fence_state[i]:
+            continue
         m = HEADING_RE.match(line)
         if not m:
             continue
         heading_level = len(m.group(1))
         body_start = i + 1
         body_end = len(lines)
-        in_fence = False
-        fence_marker: str | None = None
         for j in range(body_start, len(lines)):
-            line_j = lines[j]
-            fence_m = FENCE_RE.match(line_j)
-            if fence_m:
-                marker = fence_m.group(1)
-                if not in_fence:
-                    in_fence = True
-                    fence_marker = marker
-                elif fence_marker == marker:
-                    in_fence = False
-                    fence_marker = None
+            if fence_state[j]:
                 continue
-            if in_fence or not line_j.startswith("#"):
+            line_j = lines[j]
+            if not line_j.startswith("#"):
                 continue
             level = len(line_j) - len(line_j.lstrip("#"))
             if 0 < level <= heading_level:
@@ -128,30 +154,20 @@ def find_coverage_map_section(lines: list[str]) -> tuple[int, int, int] | None:
     return None
 
 
-def find_table(lines: list[str], start: int, end: int) -> list[list[str]] | None:
-    """Find the first GFM table in lines[start:end].
+def find_table(
+    lines: list[str], start: int, end: int, fence_state: list[bool]
+) -> list[list[str]] | None:
+    """Find the first GFM table in lines[start:end], skipping fenced blocks.
 
     A GFM table is identified by a header row followed by a separator row
     (cells matching `^:?-+:?$`). This is the unambiguous GFM marker and
     avoids false positives on prose containing `|`. Both outer-pipe and
     no-outer-pipe forms are accepted via `_parse_table_row()`.
-    Fenced code blocks are skipped so embedded markdown samples don't get
-    treated as tables.
+    `fence_state[i]` skips fenced code blocks so embedded markdown samples
+    don't get treated as tables.
     """
-    in_fence = False
-    fence_marker: str | None = None
     for i in range(start, end - 1):
-        fence_m = FENCE_RE.match(lines[i])
-        if fence_m:
-            marker = fence_m.group(1)
-            if not in_fence:
-                in_fence = True
-                fence_marker = marker
-            elif fence_marker == marker:
-                in_fence = False
-                fence_marker = None
-            continue
-        if in_fence:
+        if fence_state[i]:
             continue
         header_cells = _parse_table_row(lines[i])
         if header_cells is None:
@@ -161,6 +177,8 @@ def find_table(lines: list[str], start: int, end: int) -> list[list[str]] | None
             continue
         rows = [header_cells, sep_cells]
         for j in range(i + 2, end):
+            if fence_state[j]:
+                break
             row = _parse_table_row(lines[j])
             if row is None:
                 break
@@ -244,8 +262,9 @@ def main() -> int:
         return 1
 
     lines = plan_path.read_text(encoding="utf-8").splitlines()
+    fence_state = _fence_state_array(lines)
 
-    section = find_coverage_map_section(lines)
+    section = find_coverage_map_section(lines, fence_state)
     if section is None:
         print("preflight: ❌ HARD FAIL — no 'Spec coverage map' heading in plan-memo.",
               file=sys.stderr)
@@ -257,7 +276,7 @@ def main() -> int:
         return 1
 
     heading_line, body_start, body_end = section
-    table = find_table(lines, body_start, body_end)
+    table = find_table(lines, body_start, body_end, fence_state)
     if table is None:
         print(f"preflight: ❌ HARD FAIL — Spec coverage map heading at line "
               f"{heading_line + 1} but no markdown table follows it "
@@ -298,14 +317,19 @@ def main() -> int:
         specs_seen[shortname] = specs_seen.get(shortname, 0) + 1
         citations.append((shortname, section_num))
 
+    # Breadth = author's intent surface (total data rows). Verification
+    # success (parsed_count) is reported separately. A plan with many
+    # unparseable rows still represents wide scope — the split-decision
+    # verdict should reflect that even before the rows are made parseable.
     K = len(specs_seen)
-    M = sum(specs_seen.values())
+    M = len(data_rows)
+    parsed_count = sum(specs_seen.values())
 
     # Hard-fail when the table has rows but none parsed into a verifiable
     # citation — this catches malformed §3 tables (missing `§...` in Spec
     # cell, extra leading column shifting Spec into column 1's tail, etc.)
     # that would otherwise silently bypass the hard gate.
-    citations_empty_hard_fail = (len(data_rows) > 0 and M == 0)
+    citations_empty_hard_fail = (len(data_rows) > 0 and parsed_count == 0)
 
     verify_failed: list[tuple[str, str, str]] = []
     seen_pairs: set[tuple[str, str]] = set()
@@ -322,12 +346,11 @@ def main() -> int:
     # Summary
     print(f"§3 Spec coverage map preflight — {plan_path.name}")
     print(f"  heading line:         {heading_line + 1}")
-    print(f"  data rows:            {len(data_rows)}")
-    print(f"  parsed citations:     {M}")
+    print(f"  total entries  (M):   {M}  (data rows, breadth basis)")
+    print(f"  parsed citations:     {parsed_count}")
     print(f"  unparseable rows:     {unparseable}")
     print(f"  unique specs (K):     {K} "
           f"({', '.join(sorted(specs_seen)) if specs_seen else '-'})")
-    print(f"  total entries  (M):   {M}")
 
     if unrecognized_labels:
         print(f"  unrecognized labels:  {sorted(set(unrecognized_labels))}")

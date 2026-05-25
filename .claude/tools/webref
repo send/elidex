@@ -577,7 +577,11 @@ def _lookup_section(shortname: str, ref: str) -> tuple[str, str, str] | None:
         lookup. Only tc39 specs support aoid — for other specs the caller
         must pass a section number.
     """
-    ref = ref.lstrip("§")
+    # Normalize: strip leading `§` AND surrounding whitespace.
+    # `"§ 15.7.14"` (copy/paste with space after the section mark) is a
+    # common author input shape — without the .strip() it would silently
+    # misroute to AOID lookup.
+    ref = ref.lstrip("§").strip()
     if re.match(r"^(\d|[A-Z]([.0-9]|$))", ref):
         return _lookup_heading(shortname, ref)
     return _lookup_aoid_first(shortname, ref)
