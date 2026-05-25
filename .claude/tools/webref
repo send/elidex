@@ -687,12 +687,19 @@ def cmd_coverage_map(args: argparse.Namespace) -> None:
         sys.exit("webref: coverage-map needs at least one (spec, ref) pair")
 
     rows: list[tuple[str, str]] = []  # (spec_cell, anchor)
-    specs_seen: set[str] = set()
+    specs_seen: set[str] = set()  # verified shortnames
     failed: list[tuple[str, str, str]] = []
+    # Requested scope = input pairs as-given. Breadth/verdict are computed
+    # from this (author intent) rather than only the verified subset so a
+    # plan with 1 verified + 1 unresolved doesn't appear narrower than it
+    # is. Verified subset is reported separately for transparency.
+    requested_shortnames: set[str] = set()
+    requested_pairs = len(pairs) // 2
 
     for i in range(0, len(pairs), 2):
         shortname = pairs[i]
         ref = pairs[i + 1]
+        requested_shortnames.add(shortname)
         resolved = _lookup_section(shortname, ref)
         if resolved is None:
             failed.append((shortname, ref, "no heading / AO match"))
@@ -717,10 +724,18 @@ def cmd_coverage_map(args: argparse.Namespace) -> None:
             print(f"  {spec_cell}")
             print(f"    {anchor}")
 
-    K = len(specs_seen)
-    M = len(rows)
+    # Breadth + verdict reflect *requested* scope (author intent), not just
+    # successfully verified rows — a failure-verify pair is still part of
+    # the plan's surface, it just needs the ref corrected before landing.
+    K = len(requested_shortnames)
+    M = requested_pairs
     print()
-    print(f"**Breadth**: spec={K} ({', '.join(sorted(specs_seen)) if specs_seen else '-'}), step={M} entries")
+    print(f"**Breadth (requested)**: spec={K} "
+          f"({', '.join(sorted(requested_shortnames)) if requested_shortnames else '-'}), "
+          f"step={M} entries")
+    if len(rows) != M or len(specs_seen) != K:
+        print(f"  verified subset:        spec={len(specs_seen)}, step={len(rows)} "
+              f"({len(failed)} failed)")
     if K >= 6 or M >= 30:
         print("**Split decision**: ⚠ K≥6 or M≥30 → 分割 default (split-into-multiple-PRs を真剣に検討)")
     elif K >= 4 or M >= 20:

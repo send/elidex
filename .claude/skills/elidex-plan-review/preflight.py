@@ -314,17 +314,22 @@ def main() -> int:
     #     counts toward breadth so author intent isn't masked)
     specs_seen: dict[str, int] = {}
     malformed_rows = 0
+    malformed_row_details: list[tuple[int, str]] = []  # (1-based row idx, cell preview)
     unmapped_rows = 0
     citations: list[tuple[str, str]] = []
     unrecognized_labels: list[str] = []
     unique_specs: set[str] = set()  # K basis (mapped shortname OR unmapped label)
-    for row in data_rows:
+    for idx, row in enumerate(data_rows, start=1):
         if not row:
+            malformed_rows += 1
+            malformed_row_details.append((idx, "<empty row>"))
             continue
         spec_cell = row[0] if row else ""
         label, section_num = parse_spec_cell(spec_cell)
         if section_num is None:
             malformed_rows += 1
+            preview = spec_cell.strip()[:80] if spec_cell.strip() else "<empty>"
+            malformed_row_details.append((idx, preview))
             continue
         shortname = shortname_from_label(label)
         if shortname is None:
@@ -345,12 +350,14 @@ def main() -> int:
     M = len(data_rows)
     parsed_count = sum(specs_seen.values())
 
-    # Hard-fail only when ALL rows are truly malformed (no `§<number>`
-    # reference at all). Unmapped labels are soft-warn (verify skipped per
-    # row, table still counts toward breadth) — matches the spec-coverage
-    # design intent: the table's structural integrity is the hard gate,
-    # label mapping is a verification depth choice.
-    citations_empty_hard_fail = (len(data_rows) > 0 and malformed_rows == len(data_rows))
+    # Hard-fail on ANY malformed row (no `§<number>` reference): the §3
+    # table's structural-integrity invariant is "every row contains
+    # §<number>". A single malformed row would let that row's intended
+    # citation slip past the verify gate. Unmapped labels are still
+    # soft-warn (verify skipped per row, table still counts toward
+    # breadth) — the label-map is a verification-depth choice, not a
+    # structural invariant.
+    malformed_hard_fail = malformed_rows > 0
 
     verify_failed: list[tuple[str, str, str]] = []
     seen_pairs: set[tuple[str, str]] = set()
@@ -405,12 +412,14 @@ def main() -> int:
         elif seen_pairs:
             print(f"  citation verify:      ok ({len(seen_pairs)} unique citation(s) checked)")
 
-    if citations_empty_hard_fail:
+    if malformed_hard_fail:
         print()
-        print(f"preflight: ❌ HARD FAIL — all {len(data_rows)} data row(s) "
-              f"missing `§<number>` reference.", file=sys.stderr)
+        print(f"preflight: ❌ HARD FAIL — {malformed_rows} of {len(data_rows)} "
+              f"row(s) missing `§<number>` reference.", file=sys.stderr)
         print("  Spec section cells must contain `§<number>` (e.g. "
               "`ECMA-262 §15.7.14 ...`).", file=sys.stderr)
+        for row_idx, preview in malformed_row_details:
+            print(f"  - row {row_idx}: {preview!r}", file=sys.stderr)
         print("  Run `.claude/tools/webref coverage-map <spec> <ref> ...` "
               "to regenerate the table.", file=sys.stderr)
         return 1
