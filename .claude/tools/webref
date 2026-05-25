@@ -16,13 +16,14 @@ scraping the rendered HTML. All upstream fetches share a single
 ~/.cache/elidex-webref/ HTTP cache (ETag + Last-Modified).
 
 Subcommands:
-  heading <spec> <number-prefix>   §number → title + anchor
-  idl     <spec> <interface>       interface IDL fragment
-  dfn     <spec> <term>            concept dfn → §heading + anchor
-  element <spec> <element-name>    HTML/SVG element → interface name + href
-  css     <spec> <name>            CSS property / @rule / selector / value metadata
-  aoid    <spec> <name>            (tc39) abstract operation aoid → §number + anchor
-  specs   <keyword>                shortname lookup (by spec title)
+  heading      <spec> <number-prefix>   §number → title + anchor
+  idl          <spec> <interface>       interface IDL fragment
+  dfn          <spec> <term>            concept dfn → §heading + anchor
+  element      <spec> <element-name>    HTML/SVG element → interface name + href
+  css          <spec> <name>            CSS property / @rule / selector / value metadata
+  aoid         <spec> <name>            (tc39) abstract operation aoid → §number + anchor
+  specs        <keyword>                shortname lookup (by spec title)
+  coverage-map <spec> <ref> ...         plan-memo §3 Spec coverage map skeleton + breadth verdict
 """
 from __future__ import annotations
 
@@ -62,6 +63,8 @@ Examples:
   .claude/tools/webref element html canvas                   # → HTMLCanvasElement
   .claude/tools/webref css css-overflow-3 overflow-x         # property metadata
   .claude/tools/webref specs canvas                          # shortname by keyword
+  .claude/tools/webref coverage-map ecma262 15.7.14 html 4.13.4 ecma262 ClassDefinitionEvaluation
+                                                             # plan-memo §3 skeleton
 
 Cache: HTTP responses are cached in ~/.cache/elidex-webref/ (or
        $XDG_CACHE_HOME/elidex-webref/ when XDG_CACHE_HOME is set) with
@@ -532,6 +535,183 @@ def cmd_specs(args: argparse.Namespace) -> None:
 
 
 # ---------------------------------------------------------------------------
+# coverage-map (plan-memo §3 skeleton generator)
+# ---------------------------------------------------------------------------
+
+# Human-readable spec label for the first column of §3 table rows. Falls back
+# to UPPER(shortname-with-dashes-as-spaces) for unmapped shortnames — extend
+# the map when a new spec becomes frequently cited (cosmetic only, not load-
+# bearing for verification).
+_SPEC_LABEL_MAP = {
+    "ecma262": "ECMA-262",
+    "ecma402": "ECMA-402",
+    "html": "WHATWG HTML",
+    "dom": "WHATWG DOM",
+    "url": "WHATWG URL",
+    "fetch": "WHATWG Fetch",
+    "streams": "WHATWG Streams",
+    "xhr": "WHATWG XHR",
+    "webcrypto": "Web Cryptography API",
+    "webidl": "Web IDL",
+    "selectors-4": "CSS Selectors L4",
+    "geometry-1": "Geometry Interfaces L1",
+}
+
+
+def _spec_label(shortname: str) -> str:
+    if shortname in _SPEC_LABEL_MAP:
+        return _SPEC_LABEL_MAP[shortname]
+    return shortname.upper().replace("-", " ")
+
+
+def _lookup_section(shortname: str, ref: str) -> tuple[str, str, str] | None:
+    """Resolve (shortname, ref) → (number, title, anchor) or None.
+
+    `ref` discriminator:
+      - Starts with a digit (or `A`/`B` annex letter for tc39): treated as
+        §number prefix, dispatched through the heading path.
+      - Otherwise (alphabetic AO name like ClassDefinitionEvaluation): tc39
+        aoid lookup. Only tc39 specs support aoid — for other specs the
+        caller must pass a section number.
+    """
+    ref = ref.lstrip("§")
+    if re.match(r"^[0-9A-B]", ref) and not (ref[:1].isalpha() and len(ref) > 1 and ref[1:2].isalpha()):
+        # Section-number path (digit, or single annex letter A/B/...)
+        return _lookup_heading(shortname, ref)
+    return _lookup_aoid_first(shortname, ref)
+
+
+def _lookup_heading(shortname: str, prefix: str) -> tuple[str, str, str] | None:
+    """Return the first (number, title, anchor) for §prefix in `shortname`, or None."""
+    if shortname in _TC39_FAMILY:
+        try:
+            d = _tc39_biblio(shortname)
+        except NotFound:
+            return None
+        location = d.get("location", "")
+        hits = [
+            e for e in d.get("entries", [])
+            if e.get("type") == "clause" and e.get("number", "").startswith(prefix)
+        ]
+        if not hits:
+            return None
+        hits.sort(key=lambda e: _sec_number_key(e.get("number", "")))
+        e = hits[0]
+        return (e.get("number", ""), e.get("title", ""), f"{location}#{e.get('id','')}")
+    try:
+        data = fetch_json(f"headings/{shortname}.json")
+    except NotFound:
+        return None
+    matches = [h for h in data.get("headings", []) if h.get("number", "").startswith(prefix)]
+    if not matches:
+        return None
+    matches.sort(key=lambda h: _sec_number_key(h.get("number", "")))
+    h = matches[0]
+    return (h.get("number", ""), h.get("title", ""), f"#{h.get('id','')}")
+
+
+def _lookup_aoid_first(shortname: str, name: str) -> tuple[str, str, str] | None:
+    """Return the first (number, title, anchor) for tc39 AO name, or None."""
+    if shortname not in _TC39_FAMILY:
+        return None
+    try:
+        d = _tc39_biblio(shortname)
+    except NotFound:
+        return None
+    entries = d.get("entries", [])
+    clauses = _tc39_clauses_by_id(entries)
+    location = d.get("location", "")
+    needle = name.lower()
+    by_ref: dict[str, dict] = {}
+    for e in entries:
+        if (e.get("aoid") or "").lower() != needle:
+            continue
+        if e.get("type") not in {"op", "clause", "built-in function", "concrete method"}:
+            continue
+        ref_id = e.get("refId") or e.get("id") or ""
+        if not ref_id:
+            continue
+        prev = by_ref.get(ref_id)
+        if prev is None or (prev.get("type") == "clause" and e.get("type") != "clause"):
+            by_ref[ref_id] = e
+    if not by_ref:
+        return None
+    rows = [(ref_id, clauses.get(ref_id)) for ref_id in by_ref]
+    rows.sort(key=lambda r: _sec_number_key((r[1] or {}).get("number", "")))
+    ref_id, clause = rows[0]
+    if not clause:
+        return None
+    return (clause.get("number", ""), clause.get("title", ""), f"{location}#{ref_id}")
+
+
+def cmd_coverage_map(args: argparse.Namespace) -> None:
+    """Generate plan-memo §3 Spec coverage map skeleton from (spec, ref) pairs.
+
+    Each (shortname, ref) pair is verified via webref/tc39-biblio. Verified
+    cell goes into the Spec section column; remaining columns are blanked
+    out for the plan author to fill (Step / Branch / Touch / Full enum? /
+    User-input flow). Prints breadth (unique specs, total entries) and the
+    split-decision verdict per `feedback_plan-scope-re-evaluation.md`:
+      K≥6 OR M≥30 → 分割 default
+      K≥4 OR M≥20 → 分割推奨
+      else        → single PR OK
+    """
+    pairs = args.pairs
+    if len(pairs) % 2 != 0:
+        sys.exit("webref: coverage-map needs (spec, ref) pairs — got odd-count args")
+    if not pairs:
+        sys.exit("webref: coverage-map needs at least one (spec, ref) pair")
+
+    rows: list[tuple[str, str]] = []  # (spec_cell, anchor)
+    specs_seen: set[str] = set()
+    failed: list[tuple[str, str, str]] = []
+
+    for i in range(0, len(pairs), 2):
+        shortname = pairs[i]
+        ref = pairs[i + 1]
+        resolved = _lookup_section(shortname, ref)
+        if resolved is None:
+            failed.append((shortname, ref, "no heading / AO match"))
+            continue
+        number, title, anchor = resolved
+        spec_cell = f"{_spec_label(shortname)} §{number} {title}"
+        rows.append((spec_cell, anchor))
+        specs_seen.add(shortname)
+
+    print("| Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |")
+    print("|---|---|---|---|---|---|")
+    for spec_cell, _anchor in rows:
+        print(f"| {spec_cell} | <step> | <branch> | <site> | ✗ | <yes/no> |")
+
+    if rows:
+        print()
+        print("Anchors (for cross-reference, drop into plan-memo §0.5 Spec citation table):")
+        for spec_cell, anchor in rows:
+            print(f"  {spec_cell}")
+            print(f"    {anchor}")
+
+    if failed:
+        print()
+        print(f"⚠ {len(failed)} entry/entries failed verification:")
+        for shortname, ref, reason in failed:
+            print(f"  - {shortname} {ref}: {reason}")
+
+    K = len(specs_seen)
+    M = len(rows)
+    print()
+    print(f"**Breadth**: spec={K} ({', '.join(sorted(specs_seen)) if specs_seen else '-'}), step={M} entries")
+    if K >= 6 or M >= 30:
+        print("**Split decision**: ⚠ K≥6 or M≥30 → 分割 default (split-into-multiple-PRs を真剣に検討)")
+    elif K >= 4 or M >= 20:
+        print("**Split decision**: K≥4 or M≥20 → 分割推奨 (per-PR scope を再評価)")
+    else:
+        print("**Split decision**: ok → single PR scope")
+
+    if failed:
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
 # argparse wiring
 # ---------------------------------------------------------------------------
 
@@ -581,6 +761,25 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("specs", help="shortname lookup (by spec title)")
     s.add_argument("keyword")
     s.set_defaults(func=cmd_specs)
+
+    cm = sub.add_parser(
+        "coverage-map",
+        help="plan-memo §3 Spec coverage map skeleton + breadth verdict",
+        description=(
+            "Generate plan-memo §3 Spec coverage map starter rows from a list of "
+            "(spec, ref) pairs. `ref` is a §number (e.g. 15.7.14) for any spec, "
+            "or an abstract-operation name (e.g. ClassDefinitionEvaluation) for "
+            "tc39 specs. Each pair is verified via webref / tc39-biblio. Prints "
+            "the verified table + anchors + breadth count + split-decision "
+            "verdict per feedback_plan-scope-re-evaluation.md."
+        ),
+    )
+    cm.add_argument(
+        "pairs", nargs="+",
+        metavar="<spec> <ref>",
+        help="pairs of spec shortname + §number-or-AO-name (even count)",
+    )
+    cm.set_defaults(func=cmd_coverage_map)
 
     return p
 
