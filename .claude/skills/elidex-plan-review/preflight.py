@@ -393,8 +393,13 @@ def main() -> int:
           f"({', '.join(displayed_specs) if displayed_specs else '-'})")
 
     if unrecognized_labels:
-        print(f"  unrecognized labels:  {sorted(set(unrecognized_labels))}")
-        print(f"    (extend SPEC_LABEL_REVERSE in preflight.py to add coverage)")
+        # Soft-warn → stderr (matches the docstring's "unmapped labels =
+        # soft-warn" semantics and keeps stdout copy-paste-clean for
+        # consumers that just want the summary).
+        print(f"  ⚠ unrecognized labels: {sorted(set(unrecognized_labels))}",
+              file=sys.stderr)
+        print("    (extend SPEC_LABEL_REVERSE in preflight.py to add coverage)",
+              file=sys.stderr)
 
     breadth_hard_fail = False
     if K >= 6 or M >= 30:
@@ -413,10 +418,12 @@ def main() -> int:
 
     if not args.no_verify:
         if verify_failed:
-            print()
-            print(f"⚠ citation verification — {len(verify_failed)} failure(s):")
+            # Stderr + explicit HARD FAIL header — matches malformed_hard_fail
+            # diagnostic shape so CI grepping for "HARD FAIL" catches both.
+            print(f"\npreflight: ❌ HARD FAIL — citation verification: "
+                  f"{len(verify_failed)} failure(s)", file=sys.stderr)
             for shortname, section_num, msg in verify_failed:
-                print(f"  - {shortname} §{section_num}: {msg}")
+                print(f"  - {shortname} §{section_num}: {msg}", file=sys.stderr)
         elif seen_pairs:
             print(f"  citation verify:      ok ({len(seen_pairs)} unique citation(s) checked)")
 
@@ -432,7 +439,12 @@ def main() -> int:
               "to regenerate the table.", file=sys.stderr)
         return 1
 
-    if verify_failed or breadth_hard_fail:
+    if breadth_hard_fail:
+        print("\npreflight: ❌ HARD FAIL — breadth split-default "
+              "(K>=6 or M>=30) with --strict-breadth",
+              file=sys.stderr)
+        return 1
+    if verify_failed:
         return 1
     return 0
 
