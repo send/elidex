@@ -221,15 +221,27 @@ pub(super) fn compile_class(
                                                                       // discard the duplicate.
             fc.emit_u16(Op::SetLocal, super_slot); //                    [ctor super]
                                                    // ECMA-262 §15.7.14 step 6.f ClassDefinitionEvaluation:
-                                                   // if the heritage value is not a constructor (callable but
-                                                   // [[Construct]]-less, e.g. Symbol / BigInt / arrow fn),
-                                                   // throw TypeError at class-definition time — NOT later at
-                                                   // super() dispatch (D-17b R17 G17-1). `Op::AssertConstructor`
-                                                   // pops the duplicate left by `SetLocal` so the splice phase
-                                                   // below reads the validated value via `GetLocal super_slot`.
+                                                   // the heritage value must be either `null` (step 6.f.i)
+                                                   // or a constructor (step 6.f.iii). Non-constructable
+                                                   // callables (Symbol / BigInt / arrow fn) throw TypeError
+                                                   // at class-definition time — NOT later at super()
+                                                   // dispatch (D-17b R17 G17-1, null-acceptance added in
+                                                   // R20 G20-1). `Op::AssertConstructor` pops the duplicate
+                                                   // left by `SetLocal` so the splice phase below reads
+                                                   // the validated value via `GetLocal super_slot`.
             fc.emit(Op::AssertConstructor); //                            [ctor]
 
-            // First splice: ctor.prototype.__proto__ = super.prototype.
+            // Runtime null-branch: if heritage evaluated to null, take
+            // the same path as `ClassHeritage::Null` (protoParent =
+            // null, constructorParent defaults to %Function.prototype%).
+            // JumpIfNullish leaves the value on the stack so each
+            // branch independently discards it (D-17b R20 G20-1).
+            fc.emit_u16(Op::GetLocal, super_slot); //                     [ctor super]
+            let null_branch = fc.emit_jump(Op::JumpIfNullish); //         [ctor super]
+
+            // Non-null branch: super is a constructor.
+            fc.emit(Op::Pop); //                          [ctor]
+                              // First splice: ctor.prototype.__proto__ = super.prototype.
             fc.emit(Op::Dup); //                          [ctor ctor]
             let proto_name = fc.add_name("prototype");
             let ic1 = fc.alloc_ic_slot();
@@ -246,6 +258,23 @@ pub(super) fn compile_class(
             fc.emit_u16(Op::GetLocal, super_slot); //       [ctor ctor super]
             fc.emit(Op::SetPrototype); //                 [ctor ctor]
             fc.emit(Op::Pop); //                          [ctor]
+
+            let end_jump = fc.emit_jump(Op::Jump);
+
+            // Null branch (jump target from JumpIfNullish).
+            fc.patch_jump(null_branch);
+            fc.emit(Op::Pop); //                          [ctor]  (drop super=null)
+                              // ctor.prototype.[[Prototype]] = null; ctor.__proto__
+                              // defaults to %Function.prototype% so no second splice.
+            fc.emit(Op::Dup); //                          [ctor ctor]
+            let proto_name3 = fc.add_name("prototype");
+            let ic3 = fc.alloc_ic_slot();
+            fc.emit_u16_u16(Op::GetProp, proto_name3, ic3); // [ctor ctor.prototype]
+            fc.emit(Op::PushNull); //                     [ctor ctor.prototype null]
+            fc.emit(Op::SetPrototype); //                 [ctor ctor.prototype]
+            fc.emit(Op::Pop); //                          [ctor]
+
+            fc.patch_jump(end_jump);
         }
     }
 

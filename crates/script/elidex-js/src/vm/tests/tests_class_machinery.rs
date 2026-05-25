@@ -248,6 +248,60 @@ fn extends_null_user_super_call_throws() {
 }
 
 // ---------------------------------------------------------------------------
+// D-17b R20 G20-1: dynamic-null class heritage. Per ECMA-262 §15.7.14
+// step 6.f, a heritage value that evaluates to `null` at runtime must
+// be accepted (treated as `extends null`'s prototype chain) even
+// though the parser classified the heritage as `Expr` (not the literal
+// `Null` arm). `Op::AssertConstructor` now accepts `JsValue::Null` and
+// `compile_class`'s Expr arm runtime-branches on null so the splice
+// phase mirrors `ClassHeritage::Null`.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn extends_paren_null_does_not_throw_at_class_definition() {
+    // `class X extends (null) {}`: parser sees a Paren expression
+    // wrapping Null → classifies as Expr (not Null literal). Must not
+    // throw at definition — pre-fix `Op::AssertConstructor` rejected
+    // null as "not a constructor".
+    assert!(super::eval_bool("class X extends (null) {} true;"));
+}
+
+#[test]
+fn extends_dynamic_null_prototype_proto_is_null() {
+    // [C16] step 6.f.i: protoParent = null even via the Expr path.
+    assert!(super::eval_bool(
+        "let h = null; class X extends (h) {} \
+         Object.getPrototypeOf(X.prototype) === null;"
+    ));
+}
+
+#[test]
+fn extends_dynamic_null_ctor_proto_is_function_prototype() {
+    // [C16] step 6.f.ii: constructorParent = %Function.prototype% so
+    // the splice phase MUST NOT set X.__proto__ to null. Probe via a
+    // function literal's [[Prototype]].
+    assert!(super::eval_bool(
+        "let h = null; class X extends (h) {} \
+         Object.getPrototypeOf(X) === Object.getPrototypeOf(function(){});"
+    ));
+}
+
+#[test]
+fn extends_conditional_null_takes_constructor_path() {
+    // Same compiled bytecode handles both heritage values — the
+    // runtime null-branch must NOT fire when the expression evaluates
+    // to a constructor.
+    assert_eq!(
+        super::eval_number(
+            "class A { constructor(x) { this.x = x; } } \
+             class B extends (true ? A : null) {} \
+             let b = new B(7); b.x;"
+        ),
+        7.0
+    );
+}
+
+// ---------------------------------------------------------------------------
 // D-17b R4 G4-4: BoundFunction in [[Construct]] dispatch. `do_new`
 // and `construct_synchronous` share `unwrap_bound_function_chain`
 // (ECMA-262 §10.4.1.2 Bound Function Exotic Objects [[Construct]]) so the two paths

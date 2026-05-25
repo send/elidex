@@ -952,16 +952,23 @@ impl VmInner {
                 }
                 Op::AssertConstructor => {
                     // `[value -- ]` ECMA-262 §15.7.14 step 6.f
-                    // ClassDefinitionEvaluation: throw TypeError if
-                    // the heritage value is not a constructor.
+                    // ClassDefinitionEvaluation: the heritage value
+                    // must be either `null` (step 6.f.i — protoParent
+                    // = null, constructorParent = %Function.prototype%)
+                    // or a constructor (step 6.f.iii). Other values
+                    // (non-constructable callables like Symbol /
+                    // BigInt / arrow functions, primitives, ordinary
+                    // objects) throw TypeError at class-definition
+                    // time — NOT later at `super()` dispatch (D-17b
+                    // R17 G17-1, null-acceptance added in R20 G20-1).
                     // Emitted by `compile_class` for the Expr arm
-                    // BEFORE the SetPrototype splices so non-
-                    // constructable callables (Symbol, BigInt, arrow
-                    // functions, etc.) reject at definition time —
-                    // not later at `super()` dispatch (D-17b R17 G17-1).
+                    // BEFORE the prototype splices; the splice phase
+                    // then runtime-branches on Null so the null path
+                    // matches `ClassHeritage::Null`.
                     let value = self.pop()?;
-                    let is_ctor = matches!(value, JsValue::Object(id) if super::object_kind::is_constructor(self, id));
-                    if !is_ctor {
+                    let ok = matches!(value, JsValue::Null)
+                        || matches!(value, JsValue::Object(id) if super::object_kind::is_constructor(self, id));
+                    if !ok {
                         let e =
                             VmError::type_error("Class extends value is not a constructor or null");
                         self.throw_error(e, entry_frame_depth)?;
