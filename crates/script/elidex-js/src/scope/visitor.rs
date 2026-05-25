@@ -467,7 +467,7 @@ fn visit_function(prog: &Program, state: &mut ScopeState, func: &Function, is_ex
         }
     }
 
-    // ES2023 §10.2.3: non-arrow functions have an implicit `arguments` binding.
+    // ECMA-262 §10.2.11 FunctionDeclarationInstantiation: non-arrow functions have an implicit `arguments` binding.
     {
         let scope = state.current_scope();
         let arguments_atom = prog.interner.lookup("arguments");
@@ -502,7 +502,7 @@ fn visit_class(prog: &Program, state: &mut ScopeState, class: &Class) {
     }
 
     // B26: create inner scope for class name (visible within class body).
-    // B9: class bodies are always strict (ES2023 §15.7.1).
+    // B9: class bodies are always strict (ECMA-262 §15.7.1).
     state.push_scope(ScopeKind::Block, true, class.span);
     if let Some(name) = class.name {
         let scope = state.current_scope();

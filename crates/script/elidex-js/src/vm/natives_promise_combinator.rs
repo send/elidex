@@ -1,4 +1,4 @@
-//! Promise combinators (ES2020 §25.6.4.1-3) + `Promise.prototype.finally`.
+//! Promise combinators (ECMA-262 §27.2.4.1-3) + `Promise.prototype.finally`.
 //!
 //! Core state machine (settle / then / drain / queueMicrotask) lives in
 //! `natives_promise`; this file owns the aggregator-style combinators
@@ -268,10 +268,10 @@ fn build_aggregate_error(vm: &mut VmInner, errors: Vec<JsValue>) -> JsValue {
     // many rejected inputs), and `obj` is otherwise only held in this
     // Rust local.
     vm.stack.push(JsValue::Object(obj));
-    // §25.6.4.3 Promise.any step 3.c creates the AggregateError via
+    // §27.2.4.3 Promise.any step 3.c creates the AggregateError via
     // `Construct(%AggregateError%, ...)` which goes through the
     // constructor body and sets own `.name` / `.message` as
-    // non-enumerable (§19.5.1.1 step 3/4).  Mirror that here so a
+    // non-enumerable (§20.5.1.1 step 3/4).  Mirror that here so a
     // `Promise.any` rejection's shape matches `new AggregateError(...)`
     // for own-property reflection (Copilot PR2.5 round 7).
     // `.name` + `.message` both `{W, ¬E, C}` = METHOD.
@@ -460,7 +460,7 @@ fn subscribe(
 /// Run the `finally` step: invoke `on_finally()`, then pass through the
 /// original value (fulfill path) or re-throw the original reason (reject
 /// path).  If `on_finally` itself throws, its error propagates as the
-/// reaction result and the capability rejects with it — spec §25.6.5.3.1/2
+/// reaction result and the capability rejects with it — ECMA-262 §27.2.5.3
 /// semantics under the simplification that the `on_finally` return value
 /// is not awaited (see PR2 plan "Test262 alignment").
 pub(super) fn run_finally_step(
@@ -483,7 +483,7 @@ pub(super) fn run_finally_step(
 // Native entry points
 // ---------------------------------------------------------------------------
 
-/// `Promise.all(iterable)` — §25.6.4.1
+/// `Promise.all(iterable)` — §27.2.4.1
 pub(super) fn native_promise_all(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -492,7 +492,7 @@ pub(super) fn native_promise_all(
     run_combinator(ctx, args, Some(CombinatorKind::All))
 }
 
-/// `Promise.allSettled(iterable)` — §25.6.4.2
+/// `Promise.allSettled(iterable)` — §27.2.4.2
 pub(super) fn native_promise_all_settled(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -501,7 +501,7 @@ pub(super) fn native_promise_all_settled(
     run_combinator(ctx, args, Some(CombinatorKind::AllSettled))
 }
 
-/// `Promise.race(iterable)` — §25.6.4.5
+/// `Promise.race(iterable)` — §27.2.4.5
 pub(super) fn native_promise_race(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -510,7 +510,7 @@ pub(super) fn native_promise_race(
     run_combinator(ctx, args, None)
 }
 
-/// `Promise.any(iterable)` — §25.6.4.3
+/// `Promise.any(iterable)` — §27.2.4.3
 pub(super) fn native_promise_any(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -519,7 +519,7 @@ pub(super) fn native_promise_any(
     run_combinator(ctx, args, Some(CombinatorKind::Any))
 }
 
-/// `Promise.prototype.finally(onFinally)` — §25.6.5.3
+/// `Promise.prototype.finally(onFinally)` — §27.2.5.3
 pub(super) fn native_promise_prototype_finally(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

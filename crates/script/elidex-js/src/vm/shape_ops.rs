@@ -453,7 +453,7 @@ impl VmInner {
             prototype: self.function_prototype,
             extensible: true,
         });
-        // §19.2.4.2: `name` is a non-enumerable, non-writable, configurable
+        // §20.2.4.2: `name` is a non-enumerable, non-writable, configurable
         // data property on every built-in function.
         let name_key = value::PropertyKey::String(self.well_known.name);
         self.define_shaped_property(

@@ -20,7 +20,7 @@ pub(super) fn native_parse_int(
     let s_id = ctx.to_string_val(val)?;
     let s = super::coerce::trim_js(&ctx.get_utf8(s_id)).to_string();
 
-    // ES2020 §18.2.5: strip sign first, then detect 0x prefix.
+    // ECMA-262 §19.2.5: strip sign first, then detect 0x prefix.
     let mut negative = false;
     let mut rest = s.as_str();
     if let Some(r) = rest.strip_prefix('-') {
@@ -41,7 +41,7 @@ pub(super) fn native_parse_int(
         let r = ctx.to_number(radix_arg)?;
         #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
         let ri = r as i32;
-        // ES2020 §18.2.5: radix 0 (or undefined) → default (10, with 0x prefix detection).
+        // ECMA-262 §19.2.5: radix 0 (or undefined) → default (10, with 0x prefix detection).
         if ri == 0 {
             if let Some(r2) = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X")) {
                 (16u32, r2)
@@ -191,7 +191,7 @@ pub(super) fn native_is_finite(
     Ok(JsValue::Boolean(n.is_finite()))
 }
 
-// -- URI encoding/decoding (§18.2.6) ----------------------------------------
+// -- URI encoding/decoding (§19.2.6) ----------------------------------------
 
 /// Characters that encodeURI does NOT encode (by code point value).
 fn is_uri_unescaped(cp: u32) -> bool {
@@ -260,7 +260,7 @@ pub(super) fn native_decode_uri_component(
     Ok(JsValue::String(id))
 }
 
-/// Encode a WTF-16 string per ES2020 §18.2.6.1. Lone surrogates throw URIError.
+/// Encode a WTF-16 string per ECMA-262 §19.2.6.5 (Encode). Lone surrogates throw URIError.
 fn encode_uri_wtf16(units: &[u16], is_unescaped: impl Fn(u32) -> bool) -> Result<String, VmError> {
     let mut out = String::with_capacity(units.len());
     let mut i = 0;
@@ -302,7 +302,7 @@ fn encode_uri_wtf16(units: &[u16], is_unescaped: impl Fn(u32) -> bool) -> Result
     Ok(out)
 }
 
-/// Decode a percent-encoded WTF-16 string per ES2020 §18.2.6.2.
+/// Decode a percent-encoded WTF-16 string per ECMA-262 §19.2.6.6 (Decode).
 fn decode_uri_wtf16(
     units: &[u16],
     keep_encoded: impl Fn(u32) -> bool,
@@ -394,7 +394,7 @@ fn decode_hex_u16(unit: u16) -> Option<u8> {
 
 // -- Error constructors -----------------------------------------------------
 
-/// §19.5.3.4 Error.prototype.toString.
+/// §20.5.3.4 Error.prototype.toString.
 /// Build `"<name>: <message>"` from the instance's own `.name` / `.message`
 /// properties (falling back to "Error" / "").  Each field goes through
 /// `ToString` so that non-String values (e.g. `name = 42`) coerce per spec.
@@ -420,7 +420,7 @@ pub(super) fn native_error_to_string(
     };
     let name_units = ctx.vm.strings.get(name_sid).to_vec();
     let msg_units = ctx.vm.strings.get(msg_sid).to_vec();
-    // §19.5.3.4 steps 7-9: empty name → msg; empty msg → name; else name + ": " + msg.
+    // §20.5.3.4 steps 7-9: empty name → msg; empty msg → name; else name + ": " + msg.
     let result_id = if name_units.is_empty() {
         msg_sid
     } else if msg_units.is_empty() {
@@ -448,7 +448,7 @@ fn error_ctor_impl(
     error_name: &str,
 ) -> Result<JsValue, VmError> {
     if let JsValue::Object(id) = this {
-        // §19.5.1.1 step 3/4 specifies own `.name` and `.message` as
+        // §20.5.1.1 step 3/4 specifies own `.name` and `.message` as
         // `{W, ¬E, C}` (CreateNonEnumerableDataPropertyOrThrow); that
         // matches `PropertyAttrs::METHOD`.  Observable via
         // `JSON.stringify(new Error(...))` and `Object.keys(...)`.
@@ -460,7 +460,7 @@ fn error_ctor_impl(
             super::value::PropertyValue::Data(name_val),
             super::shape::PropertyAttrs::METHOD,
         );
-        // §19.5.1.1 step 4: only set `message` when the argument is not
+        // §20.5.1.1 step 4: only set `message` when the argument is not
         // undefined.  Otherwise, `.message` falls through to
         // Error.prototype.message (which is the empty string).
         if let Some(&msg) = args.first() {
@@ -622,7 +622,7 @@ pub(super) fn native_aggregate_error_constructor(
 
 // -- Array constructor & static methods --------------------------------------
 
-/// `Array(n)` / `Array(a, b, c)` constructor (ES2020 §22.1.1).
+/// `Array(n)` / `Array(a, b, c)` constructor (ECMA-262 §23.1.1).
 use super::ops::DENSE_ARRAY_LEN_LIMIT;
 
 pub(super) fn native_array_constructor(

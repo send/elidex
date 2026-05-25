@@ -1,4 +1,4 @@
-//! `%TypedArray%.prototype` non-HOF method tests (ES2024 §23.2.3):
+//! `%TypedArray%.prototype` non-HOF method tests (ECMA-262 §23.2.3):
 //! `fill` / `slice` / `subarray` / `set` / `copyWithin` /
 //! `reverse` / `at` / `join` / `indexOf` / `lastIndexOf` /
 //! `includes` / `keys` / `values` / `entries` / `@@iterator` /
@@ -842,7 +842,7 @@ fn to_locale_string_preserves_lone_surrogate_from_override() {
 #[test]
 fn to_locale_string_accessor_getter_sees_primitive_receiver() {
     let mut vm = Vm::new();
-    // §7.3.2 GetV(V, P): when `toLocaleString` resolves through
+    // §7.3.3 GetV(V, P): when `toLocaleString` resolves through
     // an accessor getter on the prototype chain, the getter
     // receives the *original* primitive value as `this`, not the
     // throw-away wrapper used for the prototype-chain lookup.
@@ -869,7 +869,7 @@ fn to_locale_string_accessor_getter_sees_primitive_receiver() {
 #[test]
 fn to_locale_string_throws_on_non_callable_method() {
     let mut vm = Vm::new();
-    // Per `Invoke` semantics (§7.3.16) a present-but-non-callable
+    // Per `Invoke` semantics (§7.3.20) a present-but-non-callable
     // `toLocaleString` is a TypeError, not a silent fallback to
     // `ToString(receiver)` — the prior behaviour masked user
     // mistakes like the assignment below.

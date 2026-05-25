@@ -246,7 +246,7 @@ fn write_double_attr(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }
-    // ES Number ToString (ES2020 §7.1.12) — diverges from Rust's
+    // ES Number ToString (ECMA-262 §7.1.18) — diverges from Rust's
     // Display in `-0` (ES → "0", Rust → "-0") and exponent edge cases.
     // Routing through `coerce::to_string` keeps reflected attribute
     // values matching browser JS semantics.

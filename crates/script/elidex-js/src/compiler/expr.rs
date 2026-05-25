@@ -229,7 +229,7 @@ pub fn compile_expr(
                 match prop.kind {
                     PropertyKind::Init => {
                         let is_computed = matches!(&prop.key, PropertyKey::Computed(_));
-                        // Evaluate key first if computed (ES2020 §13.1.5.7).
+                        // Evaluate key first if computed (ECMA-262 §13.2.5.6).
                         if is_computed {
                             if let PropertyKey::Computed(e) = &prop.key {
                                 compile_expr(fc, prog, analysis, func_scopes, *e)?;
@@ -679,7 +679,7 @@ fn compile_assignment(
             let target = prog.exprs.get(*target_id);
             match &target.kind {
                 ExprKind::Identifier(atom) => {
-                    // Handle logical assignment operators with short-circuit (ES2020 §13.15.3).
+                    // Handle logical assignment operators with short-circuit (ECMA-262 §13.15.2).
                     if matches!(
                         op,
                         AssignOp::AndAssign | AssignOp::OrAssign | AssignOp::NullCoalAssign
@@ -804,7 +804,7 @@ fn compile_identifier_store(
                 fc.current_scope_idx,
                 analysis,
             ) {
-                // Check for const assignment (ES2020 §13.15.2 — TypeError).
+                // Check for const assignment (ECMA-262 §13.15.2 — TypeError).
                 if info.kind == BindingKind::Const {
                     return Err(CompileError {
                         message: format!(
@@ -827,7 +827,7 @@ fn compile_identifier_store(
             fc.emit_u16(Op::SetGlobal, idx);
         }
         VarLocation::Module(_) => {
-            unreachable!("assignment to import binding is not allowed (ES2020 §16.2.3.7)");
+            unreachable!("assignment to import binding is not allowed (ECMA-262 §16.2.3.7)");
         }
     }
     Ok(())

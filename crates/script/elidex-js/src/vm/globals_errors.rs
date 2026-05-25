@@ -21,7 +21,7 @@ impl VmInner {
     /// `aggregate_error_prototype` on `VmInner` so later registrations
     /// (Promise.any, AggregateError constructor) can chain to them.
     pub(super) fn register_error_constructors(&mut self) {
-        // §19.5.3 Error.prototype — shared by Error and the built-in
+        // §20.5.3 Error.prototype — shared by Error and the built-in
         // error subclasses (TypeError, RangeError, …) in elidex.  Not
         // fully spec-compliant (each subclass should have its own
         // prototype chained to Error.prototype), but sufficient for

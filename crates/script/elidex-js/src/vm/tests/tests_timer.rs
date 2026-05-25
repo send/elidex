@@ -144,7 +144,7 @@ fn clear_timeout_string_handle_is_coerced_via_to_number() {
 
 #[test]
 fn clear_timeout_symbol_handle_throws_type_error() {
-    // ToNumber(Symbol) throws TypeError per ES2020 §7.1.3; the WebIDL
+    // ToNumber(Symbol) throws TypeError per ECMA-262 §7.1.4; the WebIDL
     // long coercion surfaces that same exception to the caller.
     let mut vm = installed_vm();
     let result = vm.eval("clearTimeout(Symbol());");

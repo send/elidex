@@ -349,7 +349,7 @@ fn unary_operators() {
 }
 
 // ---------------------------------------------------------------------------
-// `to_integer_or_infinity` (ES §7.1.5) and `relative_index_f64` (the §7.1.5
+// `to_integer_or_infinity` (ECMA-262 §7.1.5) and `relative_index_f64` (the §7.1.5
 // + clamp pipeline used by Array / TypedArray / ArrayBuffer / Blob slice
 // methods).  Pure-arithmetic helpers, no Vm setup needed.
 // ---------------------------------------------------------------------------
@@ -429,7 +429,7 @@ fn relative_index_f64_zero_length() {
 }
 
 // ---------------------------------------------------------------------------
-// `to_index_u64` (ES §7.1.22) — full-width `[0, 2^53)` ToIndex.  Drives both
+// `to_index_u64` (ECMA-262 §7.1.23) — full-width `[0, 2^53)` ToIndex.  Drives both
 // the `ArrayBuffer(length)` and `BigInt.asIntN/asUintN(bits)` callers, so
 // the boundary semantics are locked here rather than re-asserted at each
 // caller's integration tests.

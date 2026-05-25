@@ -294,13 +294,13 @@ impl VmInner {
         }
     }
 
-    /// §9.1.10 [[Delete]] — delete a named property from an object.
+    /// §10.1.10 [[Delete]] — delete a named property from an object.
     /// Returns `Ok(true)` if deleted or absent, `Ok(false)` if the property
     /// exists but is non-configurable.  Spec `[[Delete]]` never throws
     /// TypeError on non-configurable; the strict-mode throw is the `delete`
-    /// operator's responsibility (§12.5.3.2), applied by the DeleteProp /
+    /// operator's responsibility (§13.5.1.2), applied by the DeleteProp /
     /// DeleteElem opcodes.  Callers that implement spec abstract ops
-    /// (e.g. `JSON.parse` reviver §24.5.1.3 step 7.c.i) must honor the
+    /// (e.g. `JSON.parse` reviver §25.5.2.4 step 7.c.i) must honor the
     /// `false` return rather than treating it as an error.
     pub(crate) fn try_delete_property(
         &mut self,
@@ -381,9 +381,9 @@ impl VmInner {
         Ok(true)
     }
 
-    /// §9.1.9.2 OrdinarySetWithOwnDescriptor: dispatch a set based on the own
+    /// §10.1.9.2 OrdinarySetWithOwnDescriptor: dispatch a set based on the own
     /// descriptor on the target, falling back to the prototype chain.  Writes
-    /// funnel through `write_data_to_receiver`, which enforces §9.1.9.2
+    /// funnel through `write_data_to_receiver`, which enforces §10.1.9.2
     /// step 2.b / 2.e (Receiver must be an Object).
     ///
     /// `id` is the target `O` (the lookup object, possibly a primitive
@@ -447,13 +447,13 @@ impl VmInner {
             ),
             InheritedProperty::None => {
                 // Step 3: nothing blocks — create an own data property on
-                // Receiver (§9.1.9.2 step 2.e CreateDataProperty).
+                // Receiver (§10.1.9.2 step 2.e CreateDataProperty).
                 self.write_data_to_receiver(pk, val, receiver)
             }
         }
     }
 
-    /// Write `val` onto `receiver` as a data property (§9.1.9.2 step 2.b-e).
+    /// Write `val` onto `receiver` as a data property (§10.1.9.2 step 2.b-e).
     /// Rejects non-Object receivers (covers the primitive-base case where
     /// PutValue routed `O := ToObject(primitive)` into `ordinary_set` while
     /// keeping `receiver` as the primitive).

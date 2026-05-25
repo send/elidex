@@ -804,7 +804,7 @@ define_well_known_strings! {
         response_type_opaqueredirect => "opaqueredirect",
     }
 
-    "ArrayBuffer / Blob / Body mixin (ES2020 §24.1 / File API §3 / WHATWG Fetch §5 Body mixin)" {
+    "ArrayBuffer / Blob / Body mixin (ECMA-262 §25.1 / File API §3 / WHATWG Fetch §5 Body mixin)" {
         // Constructor global names are separate fields from the
         // camelCase attribute / method names to sidestep the name
         // collision the Headers ctor ran into (`"Headers"` ctor name
@@ -818,7 +818,7 @@ define_well_known_strings! {
         array_buffer => "arrayBuffer",
     }
 
-    "TypedArray + DataView (ES2024 §23.2 / §25.3)" {
+    "TypedArray + DataView (ECMA-262 §23.2 / §25.3)" {
         // Constructor name StringIds.  `data_view_global` and the 11
         // concrete-subclass entries back the real globals; the abstract
         // `%TypedArray%` intrinsic has no globalThis binding per

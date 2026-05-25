@@ -1,5 +1,5 @@
 //! `%TypedArray%.prototype.{reduce, reduceRight, sort}` tests
-//! (ES2024 §23.2.3.23/.24/.29).  Accumulator HOFs and the
+//! (ECMA-262 §23.2.3.23/.24/.29).  Accumulator HOFs and the
 //! in-place sort kept together because they share the
 //! "atomic-on-throw" + GC-rooted-accumulator contracts that
 //! Copilot review iteratively hardened during SP8c-A

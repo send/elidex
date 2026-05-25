@@ -105,7 +105,7 @@ pub(super) fn compile_nested_function(
                 // Emit: CreateArguments → SetLocal → Pop → PushUndefined → Pop
                 // The extra PushUndefined → Pop resets the completion_value
                 // to Undefined, preventing the arguments object from being
-                // returned as the constructor's result (§9.2.5).
+                // returned as the constructor's result (§10.2.5 MakeConstructor).
                 child_fc.needs_arguments = true;
                 child_fc.emit(Op::CreateArguments);
                 child_fc.emit_u16(Op::SetLocal, info.slot);

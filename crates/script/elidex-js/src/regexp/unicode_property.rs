@@ -1,4 +1,4 @@
-//! ES2024 §22.2.2.9 — Unicode property name/value validation for `\p{...}` / `\P{...}`.
+//! ECMA-262 §22.2.2.9 — Unicode property name/value validation for `\p{...}` / `\P{...}`.
 //!
 //! Tables derived from Unicode 16.0 specification files:
 //! - PropertyAliases.txt  <https://www.unicode.org/Public/16.0.0/ucd/PropertyAliases.txt>
@@ -131,7 +131,7 @@ const BINARY_PROPERTIES: &[&str] = &[
     "XIDS",
 ];
 
-/// v-flag (unicodeSets) sequence properties (ES2024 §22.2.2.4).
+/// v-flag (unicodeSets) sequence properties (ECMA-262 §22.2.1 ClassSetExpression).
 /// Only valid with the `v` flag, not the `u` flag.
 const SEQUENCE_PROPERTIES: &[&str] = &[
     "Basic_Emoji",

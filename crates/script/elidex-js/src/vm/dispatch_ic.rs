@@ -181,7 +181,7 @@ impl VmInner {
         }
     }
 
-    /// §9.2.1.2 OrdinaryCallBindThis: resolve `this` for a call given the
+    /// §10.2.1.2 OrdinaryCallBindThis: resolve `this` for a call given the
     /// callee's `ThisMode`.  Arrow functions use their captured `this`;
     /// strict functions receive the caller-provided receiver verbatim.
     #[inline]

@@ -1,4 +1,4 @@
-//! `yield*` (delegating yield) bytecode expansion (ES2020 §14.4.14).
+//! `yield*` (delegating yield) bytecode expansion (ECMA-262 §15.5.5).
 //!
 //! Split from `expr.rs` to keep that file under the project's 1000-line
 //! convention; the emitted layout is large (GetIterator + loop +
@@ -24,7 +24,7 @@ use super::CompileError;
 /// Abrupt completion forwarding (simplified):
 /// - Outer `.throw(e)` at a yield* suspend point: the catch handler calls
 ///   `IteratorClose` on the inner iterator, then re-throws `e`.
-///   Note: spec §14.4.14 step 8.b has a more elaborate "try `iter.throw`
+///   Note: spec §15.5.5 step 8.b has a more elaborate "try `iter.throw`
 ///   method first" path; the current implementation treats a missing
 ///   throw method and a throwing throw method identically (close + throw).
 ///   Proper `iter.throw` method forwarding is a future spec-alignment
@@ -32,7 +32,7 @@ use super::CompileError;
 /// - Outer `.return(v)` at a yield* suspend point: the finally handler
 ///   calls `IteratorClose` then resumes the pending `Return(v)`
 ///   completion via `Op::EndFinally`, which walks further outer
-///   finallies or performs the return.  Spec §14.4.14 step 8.c's
+///   finallies or performs the return.  Spec §15.5.5 step 8.c's
 ///   "try `iter.return` method with the value" is reduced to a plain
 ///   `IteratorClose` here (same caveat as above).
 pub(super) fn compile_yield_star(
@@ -63,7 +63,7 @@ pub(super) fn compile_yield_star(
     fc.emit_u16(Op::SetLocal, received_slot);
     fc.emit(Op::Pop);
 
-    // close_flag = false initially.  §7.4.6 + §14.4.14: a throw from
+    // close_flag = false initially.  §7.4.9 / §7.4.10 + §15.5.5: a throw from
     // `iter.next()` itself does NOT trigger IteratorClose (the iterator
     // is already considered closed); only abrupt completions *after* a
     // successful step (e.g. an outer `.throw()` injected at the yield)
@@ -137,7 +137,7 @@ pub(super) fn compile_yield_star(
     // ── Throw handler: gate IteratorClose on close_flag, then rethrow ──
     // close_flag distinguishes "throw from iter.next" (skip close) from
     // "throw after a successful iter.next" (e.g. outer `.throw()` at
-    // the yield → close).  Spec §14.4.14 step 8.a.ii / §7.4.6.
+    // the yield → close).  Spec §15.5.5 step 8.a.ii / §7.4.9 / §7.4.10 (no Close on `.next()` throw).
     let throw_handler = fc.pc();
     fc.emit(Op::PushException);
     fc.emit_u16(Op::GetLocal, close_flag_slot);

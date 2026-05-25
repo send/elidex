@@ -1,5 +1,5 @@
 //! `DataView` — endian-aware byte-level view over an `ArrayBuffer`
-//! (ES2024 §25.3).
+//! (ECMA-262 §25.3).
 //!
 //! Unlike [`super::typed_array`], `DataView` has no fixed element
 //! kind: callers select the type + endianness per call via
@@ -158,7 +158,7 @@ impl VmInner {
 // Constructor
 // ---------------------------------------------------------------------------
 
-/// `new DataView(buffer, byteOffset?, byteLength?)` (ES §25.3.2.1).
+/// `new DataView(buffer, byteOffset?, byteLength?)` (ECMA-262 §25.3.2.1).
 fn native_data_view_constructor(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

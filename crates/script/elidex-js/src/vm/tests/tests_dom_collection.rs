@@ -526,7 +526,7 @@ fn node_list_numeric_string_index_returns_element() {
 
 // ---------------------------------------------------------------------------
 // Copilot R3 #3 regression — non-canonical numeric strings ("01" /
-// "+1" / "1.0") MUST NOT route through the indexed path.  ES §7.1.21
+// "+1" / "1.0") MUST NOT route through the indexed path.  ECMA-262 §7.1.22
 // only treats canonical array-index strings as indices; others fall
 // through to the named / prototype lookup.
 // ---------------------------------------------------------------------------

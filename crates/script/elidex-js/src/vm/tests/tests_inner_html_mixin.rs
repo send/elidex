@@ -485,7 +485,7 @@ fn element_get_html_shadow_roots_honours_array_iterator_override() {
 
 #[test]
 fn element_get_html_shadow_roots_iter_close_runs_on_validator_throw() {
-    // §7.4.6: validator throw triggers IteratorClose; custom .return()
+    // §7.4.11: validator throw triggers IteratorClose; custom .return()
     // must fire before the TypeError propagates.
     let out = run(
         "var host = document.createElement('div'); \

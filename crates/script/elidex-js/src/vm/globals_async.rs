@@ -8,7 +8,7 @@ use super::value::{JsValue, PropertyKey, PropertyValue};
 use super::{NativeFn, VmInner};
 
 impl VmInner {
-    /// Promise constructor + prototype (ES2020 §25.6).
+    /// Promise constructor + prototype (ECMA-262 §27.2).
     ///
     /// Registers `Promise` as a constructable native function with static
     /// methods (`resolve`, `reject`, `all`, `allSettled`, `race`, `any`)

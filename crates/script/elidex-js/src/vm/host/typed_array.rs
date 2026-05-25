@@ -1,4 +1,4 @@
-//! `%TypedArray%` + concrete subclasses (ES2024 §23.2): receiver
+//! `%TypedArray%` + concrete subclasses (ECMA-262 §23.2): receiver
 //! brand-check, generic IDL accessors, the shared constructor
 //! dispatch, and the byte-level element read / write primitives.
 //!
@@ -34,13 +34,14 @@
 //!
 //! ## Byte-order convention
 //!
-//! TypedArray indexed reads / writes use **little-endian byte order
-//! unconditionally** — an elidex implementation choice for
-//! cross-platform determinism.  `IsLittleEndian()` (ES §25.1.3.1) is
-//! implementation-defined, so a constant choice is spec-compliant.
+//! TypedArray indexed reads / writes use **spec-mandated little-endian
+//! byte order**: ECMA-262 §10.4.5.17 TypedArrayGetElement and §10.4.5.18
+//! TypedArraySetElement invoke §25.1.3.16 GetValueFromBuffer / §25.1.3.18
+//! SetValueInBuffer with `isLittleEndian = true`, so engines must use
+//! little-endian for TypedArray indexed access regardless of host platform.
 //! [`super::data_view::DataView`] (PR5-typed-array §C5) exposes both
-//! endiannesses explicitly via its `littleEndian` argument (ES
-//! §25.3.4, default `false`).
+//! endiannesses to JS via its `littleEndian` argument on the prototype
+//! getters / setters (ECMA-262 §25.3.4, default `false` = big-endian).
 //!
 //! ## Backing storage
 //!
@@ -140,11 +141,11 @@ pub(super) fn native_typed_array_get_length(
 }
 
 // ---------------------------------------------------------------------------
-// Shared constructor dispatch (ES §23.2.5)
+// Shared constructor dispatch (ECMA-262 §23.2.5)
 // ---------------------------------------------------------------------------
 
 /// Shared body of every TypedArray subclass ctor.  Dispatches on
-/// `args[0]` shape per ES §23.2.5:
+/// `args[0]` shape per ECMA-262 §23.2.5:
 /// 1. `() / (undefined)` → empty view over fresh zero-byte buffer.
 /// 2. `(number)` → `ToIndex(n)`, fresh zero-filled buffer of
 ///    `n * bpe` bytes (§23.2.5.1.1).
@@ -156,8 +157,9 @@ pub(super) fn native_typed_array_get_length(
 /// 5. `(iterable)` where `@@iterator` resolves → consume iterator,
 ///    allocate buffer, write each element (§23.2.5.1.4).  Any
 ///    throw during body is closed with `IteratorClose` per
-///    §7.4.6 (but a throw from `iter_next` itself is NOT
-///    closed — §7.4.7, PR5b R13 lesson).
+///    §7.4.11 (but a throw from `iter_next` itself is NOT
+///    closed — §7.4.9 / §7.4.10 IteratorStep / IteratorStepValue
+///    set `[[Done]] = true` on `.next()` throw, PR5b R13 lesson).
 /// 6. Otherwise → TypeError.
 ///
 /// The pre-allocated receiver carries `new.target.prototype` via

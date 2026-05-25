@@ -1,16 +1,16 @@
 //! ES spec formatting and key enumeration utilities.
 //!
-//! - `write_number_es`: ES §7.1.12.1 Number::toString
-//! - `collect_own_keys_es_order`: ES §9.1.11.1 OrdinaryOwnPropertyKeys
+//! - `write_number_es`: ECMA-262 §6.1.6.1.20 Number::toString
+//! - `collect_own_keys_es_order`: ECMA-262 §10.1.11.1 OrdinaryOwnPropertyKeys
 
 use super::value::{ObjectId, PropertyKey, StringId, VmError};
 use super::VmInner;
 
 // ---------------------------------------------------------------------------
-// ES key enumeration order (§9.1.11.1 OrdinaryOwnPropertyKeys)
+// ES key enumeration order (§10.1.11.1 OrdinaryOwnPropertyKeys)
 // ---------------------------------------------------------------------------
 
-/// Collect own enumerable string keys in ES spec order (§9.1.11.1):
+/// Collect own enumerable string keys in ES spec order (§10.1.11.1):
 /// array-index keys in ascending numeric order, then other string keys
 /// in insertion order.
 ///

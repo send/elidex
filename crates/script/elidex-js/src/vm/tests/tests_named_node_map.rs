@@ -540,7 +540,7 @@ fn named_node_map_numeric_string_index_returns_attr() {
 
 // ---------------------------------------------------------------------------
 // Copilot R3 #1 regression — non-canonical numeric strings ("01" /
-// "+1" / "1.0") MUST NOT alias attribute indices.  ES §7.1.21
+// "+1" / "1.0") MUST NOT alias attribute indices.  ECMA-262 §7.1.22
 // canonical-numeric-index-string parsing rejects leading zeros
 // (except "0"), so `attrs['01']` must fall through to
 // attribute-name lookup.

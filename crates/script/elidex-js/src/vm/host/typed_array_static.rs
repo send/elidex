@@ -1,5 +1,5 @@
 //! `%TypedArray%.of` / `%TypedArray%.from` static method bodies
-//! (ES2024 §23.2.2).
+//! (ECMA-262 §23.2.2).
 //!
 //! Both natives are installed on the abstract `%TypedArray%`
 //! constructor — subclass ctors (`Uint8Array`, `Float64Array`, …)
@@ -226,7 +226,7 @@ fn resolve_typed_array_constructor_in_chain(
 }
 
 /// Resolve `TypedArraySpeciesCreate`'s constructor lookup
-/// (ES §22.2.4.7 step 1-2 + §10.1.13 SpeciesConstructor) for an
+/// (ECMA-262 §23.2.4.3 TypedArraySpeciesCreate + §7.3.22 SpeciesConstructor) for an
 /// existing TypedArray `receiver`.  Returns `(dst_ek,
 /// proto_override)` mirroring [`require_subclass_ctor`]'s shape so
 /// the [`super::typed_array_hof`] map / filter callers can hand
@@ -298,7 +298,7 @@ pub(super) fn species_constructor_for_typed_array(
 
 /// Resolve the species default-fallback `(ek, proto_override)`
 /// pair for `default_ek` when `SpeciesConstructor` returns the
-/// default constructor (per ES §10.1.13 step 2 / step 5 — receiver
+/// default constructor (per ECMA-262 §7.3.22 step 2 / step 5 — receiver
 /// `.constructor` undefined, or species `@@species` undefined /
 /// null).  Per spec, `TypedArrayCreate(defaultConstructor, args)`
 /// runs `Construct(defaultCtor, args)` →
@@ -362,7 +362,7 @@ fn receiver_prototype(
 /// Allocate a fresh `<ek>Array(len)`-shaped TypedArray instance:
 /// new buffer of `len * bpe` bytes, fresh view at `byte_offset = 0`
 /// covering the whole buffer.  Approximates the spec's
-/// `TypedArrayCreate(constructor, ⟨len⟩)` (§22.2.4.2.1).
+/// `TypedArrayCreateFromConstructor(constructor, ⟨len⟩)` (ECMA-262 §23.2.4.1).
 ///
 /// `proto_override` selects the new instance's `[[Prototype]]`:
 /// `Some(p)` uses `p` directly — this is the usual result of
@@ -423,7 +423,7 @@ pub(super) fn create_typed_array_for_length(
     Ok(view_id)
 }
 
-/// `%TypedArray%.of(...items)` (ES §23.2.2.2).
+/// `%TypedArray%.of(...items)` (ECMA-262 §23.2.2.2).
 ///
 /// Allocates `new this(items.length)` and writes each `items[k]`
 /// into the new TypedArray's `[k]` slot via the spec-mandated
@@ -468,7 +468,7 @@ pub(crate) fn native_typed_array_of(
     Ok(JsValue::Object(view_id))
 }
 
-/// `%TypedArray%.from(source, mapFn?, thisArg?)` (ES §23.2.2.1).
+/// `%TypedArray%.from(source, mapFn?, thisArg?)` (ECMA-262 §23.2.2.1).
 ///
 /// Iterates `source` (callable `@@iterator` first, falling back
 /// to the array-like `length` + integer-indexed `[[Get]]` path),
@@ -585,7 +585,7 @@ pub(crate) fn native_typed_array_from(
 /// and write each value directly through the destination's
 /// `[[Set]]` coercion.  Allocate-then-loop preserves the
 /// spec-observable ordering for `%TypedArray%.from`'s array-like
-/// path (ES §23.2.2.1 step 8.d): `TypedArrayCreate(C, ⟨len⟩)` runs
+/// path (ECMA-262 §23.2.2.1 step 8.d): `TypedArrayCreate(C, ⟨len⟩)` runs
 /// BEFORE any per-index `Get(arrayLike, k)` or `mapFn` side effect,
 /// so a length-overflow `RangeError` from
 /// [`create_typed_array_for_length`] fires first — matching the
@@ -696,7 +696,7 @@ fn allocate_and_write_view(
 /// **above** `elem_start + elems_len` and shrink back on guard
 /// drop, so the rooted element range is undisturbed.
 ///
-/// IteratorClose (§7.4.6) runs on `map_fn` abrupt completion
+/// IteratorClose (§7.4.11) runs on `map_fn` abrupt completion
 /// before the stack scope drops, so the iterator's `.return()`
 /// observes a still-rooted iter; `iter_next` throw is spec-exempt
 /// and propagates without close.
@@ -740,7 +740,7 @@ fn drain_iterator_loop(
             match ctx.call_function(fn_id, this_arg, &[value, idx]) {
                 Ok(v) => v,
                 Err(e) => {
-                    // §7.4.6 IteratorClose: a throw from `mapFn` is
+                    // §7.4.11 IteratorClose: a throw from `mapFn` is
                     // an abrupt completion of the for-of-like body;
                     // close the iterator before propagating.  A
                     // throw from `.return()` itself wins.
@@ -789,7 +789,7 @@ fn lookup_iterator_method(
 
 /// Close `iter_val` via `.return()` and surface the higher-
 /// precedence error — a throw from `.return()` wins over the
-/// triggering abrupt completion (§7.4.6 IteratorClose step 6-7).
+/// triggering abrupt completion (§7.4.11 IteratorClose step 6-7).
 fn close_iterator_with_precedence(
     ctx: &mut NativeContext<'_>,
     iter_val: JsValue,

@@ -38,7 +38,7 @@ pub struct GeneratorState {
     pub wrapper: Option<ObjectId>,
 }
 
-/// An abrupt completion flowing through a call frame (ES2020 §6.2.3).
+/// An abrupt completion flowing through a call frame (ECMA-262 §6.2.4).
 ///
 /// Used in two roles:
 ///
@@ -85,7 +85,7 @@ pub struct SuspendedFrame {
     pub upvalue_slots: Vec<(UpvalueId, u16)>,
 }
 
-/// Shared state for a Promise combinator (§25.6.4.1–3).  `values` doubles
+/// Shared state for a Promise combinator (§27.2.4.1–3).  `values` doubles
 /// as the output array for `all`/`allSettled` and as the rejection-reasons
 /// array for `any`; a single field keeps the variant compact.
 pub struct PromiseCombinatorState {
@@ -130,7 +130,7 @@ pub enum PromiseCombinatorStep {
     AnyReject { state: ObjectId, index: u32 },
 }
 
-/// State of a Promise (ES2020 §25.6.6).
+/// State of a Promise (ECMA-262 §27.2.6).
 ///
 /// - `status` is the `[[PromiseState]]` internal slot.
 /// - `result` is the `[[PromiseResult]]` (fulfilment value or rejection reason).
@@ -142,7 +142,7 @@ pub enum PromiseCombinatorStep {
 ///   end-of-microtask-drain scan in `natives_promise` uses it to decide
 ///   whether to emit an unhandled-rejection warning.
 /// - `already_resolved` models the spec's `[[AlreadyResolved]]` record
-///   (§25.6.1.3 step 2) shared by the resolve/reject pair: once the first
+///   (§27.2.1.3 step 2) shared by the resolve/reject pair: once the first
 ///   resolver call fires, all later calls become no-ops — even if the
 ///   status is still `Pending` because we adopted a pending thenable.
 pub struct PromiseState {
@@ -154,7 +154,7 @@ pub struct PromiseState {
     pub already_resolved: bool,
 }
 
-/// `[[PromiseState]]` (ES2020 §25.6.6): Pending until the first resolve/reject,
+/// `[[PromiseState]]` (ECMA-262 §27.2.6): Pending until the first resolve/reject,
 /// then latched to Fulfilled or Rejected.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PromiseStatus {
@@ -170,7 +170,7 @@ pub enum ReactionKind {
     Reject,
 }
 
-/// A PromiseReaction Record (ES2020 §25.6.1.2).
+/// A PromiseReaction Record (ECMA-262 §27.2.1.2).
 ///
 /// - `handler` is the user callback; `None` indicates the default passthrough
 ///   (identity for Fulfill, rethrow for Reject) used when `.then()` omits an

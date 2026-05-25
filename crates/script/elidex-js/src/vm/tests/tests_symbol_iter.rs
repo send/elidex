@@ -229,7 +229,7 @@ fn eval_symbol_to_primitive_string_concat() {
     );
 }
 
-// -- Symbol.toStringTag (§19.1.3.6) ----------------------------------------
+// -- Symbol.toStringTag (§20.1.3.6) ----------------------------------------
 
 #[test]
 fn eval_object_prototype_to_string_default() {
@@ -280,7 +280,7 @@ fn eval_for_of_break_without_return_method() {
 #[test]
 fn eval_for_of_normal_completion_does_not_close() {
     // Normal completion (exhausting iterator) should NOT call IteratorClose.
-    // Per ECMA-262 §14.7.5.9, .return() is only called for abrupt completions.
+    // Per ECMA-262 §14.7.5.7, .return() is only called for abrupt completions.
     assert_eq!(
         eval_number(
             "var closed = 0; var obj = { [Symbol.iterator]() { var i = 0; return { next() { i++; return { value: i, done: i > 2 }; }, return() { closed = 1; return { done: true }; } }; } }; for (var x of obj) {} closed;",

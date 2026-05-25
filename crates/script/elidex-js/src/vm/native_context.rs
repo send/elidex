@@ -54,8 +54,8 @@ impl NativeContext<'_> {
         self.vm.get_object_mut(id)
     }
 
-    /// Convert a value to f64 using ES2020 ToNumber.
-    /// Returns `Err(VmError)` for Symbol values (ES2020 §7.1.4).
+    /// Convert a value to f64 using ECMA-262 ToNumber.
+    /// Returns `Err(VmError)` for Symbol values (ECMA-262 §7.1.4).
     ///
     /// Takes `&mut self` because the §7.1.4 step 4 Object path delegates
     /// to `ToPrimitive(val, "number")`, which may invoke user-defined
@@ -65,8 +65,8 @@ impl NativeContext<'_> {
         coerce::to_number(self.vm, val)
     }
 
-    /// Convert a value to an interned string using ES2020 ToString.
-    /// Returns `Err(VmError)` for Symbol values (ES2020 §7.1.12).
+    /// Convert a value to an interned string using ECMA-262 ToString.
+    /// Returns `Err(VmError)` for Symbol values (ECMA-262 §7.1.18).
     #[inline]
     pub fn to_string_val(&mut self, val: JsValue) -> Result<StringId, VmError> {
         coerce::to_string(self.vm, val)

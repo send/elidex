@@ -109,7 +109,7 @@ pub(super) fn native_bigint_value_of(
     }
 }
 
-/// Coerce a value to a non-negative integer index (ES §7.1.22
+/// Coerce a value to a non-negative integer index (ECMA-262 §7.1.23
 /// `ToIndex`).  `Undefined → 0` is the per-method default the
 /// `BigInt.asIntN` / `asUintN` callers rely on (their `bits` arg
 /// is the only consumer); the spec arithmetic itself routes through
@@ -123,7 +123,7 @@ fn to_index(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<u64, VmError> {
     super::coerce::to_index_u64(ctx, val, "BigInt", "bits")
 }
 
-/// Coerce a value to BigInt via ToBigInt (§7.1.13).
+/// Coerce a value to BigInt via ToBigInt (§7.1.14).
 fn to_bigint(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<JsValue, VmError> {
     match val {
         JsValue::BigInt(_) => Ok(val),
@@ -131,11 +131,11 @@ fn to_bigint(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<JsValue, VmErr
     }
 }
 
-/// ES §7.1.13 `ToBigInt` — strict variant that rejects `Number`
+/// ECMA-262 §7.1.14 `ToBigInt` — strict variant that rejects `Number`
 /// input with TypeError (vs the inner `to_bigint` helper above
 /// which mirrors the `BigInt()` constructor and coerces integer
 /// numbers).  Required by TypedArray / DataView BigInt setter
-/// paths: `bi64[0] = 1` must throw TypeError per spec §10.4.5.16
+/// paths: `bi64[0] = 1` must throw TypeError per spec §10.4.5.18
 /// step 1 (ToBigInt rejects the Number argument), even though
 /// `BigInt(1) === 1n` succeeds.
 ///
@@ -158,7 +158,7 @@ fn to_bigint_strict(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<JsValue
     }
 }
 
-/// ES §7.1.15 `ToBigInt64` — coerce `val` to BigInt (strict, so
+/// ECMA-262 §7.1.16 `ToBigInt64` — coerce `val` to BigInt (strict, so
 /// Number rejects), then reduce modulo 2^64 and reinterpret the
 /// high-bit-set half as negative.  Used by `BigInt64Array` indexed
 /// writes + `DataView.setBigInt64`.  Strings / booleans / bigints
@@ -185,7 +185,7 @@ pub(crate) fn to_bigint64(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<i
     Ok(signed_to_i64(&signed))
 }
 
-/// ES §7.1.16 `ToBigUint64` — coerce `val` to BigInt (strict, so
+/// ECMA-262 §7.1.17 `ToBigUint64` — coerce `val` to BigInt (strict, so
 /// Number rejects) then reduce modulo 2^64.  Used by
 /// `BigUint64Array` indexed writes + `DataView.setBigUint64`.
 #[cfg(feature = "engine")]

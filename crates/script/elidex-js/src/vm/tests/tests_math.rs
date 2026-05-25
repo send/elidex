@@ -256,14 +256,14 @@ fn math_constant_sqrt1_2() {
 
 #[test]
 fn math_max_negative_zero() {
-    // §20.2.2.24: Math.max(-0, +0) should be +0
+    // §21.3.2.25: Math.max(-0, +0) should be +0
     assert!(eval_bool("1 / Math.max(-0, 0) === Infinity;"));
     assert!(eval_bool("1 / Math.max(0, -0) === Infinity;"));
 }
 
 #[test]
 fn math_min_negative_zero() {
-    // §20.2.2.25: Math.min(+0, -0) should be -0
+    // §21.3.2.26: Math.min(+0, -0) should be -0
     assert!(eval_bool("1 / Math.min(0, -0) === -Infinity;"));
     assert!(eval_bool("1 / Math.min(-0, 0) === -Infinity;"));
 }
@@ -291,7 +291,7 @@ fn math_hypot_nan_and_infinity() {
 
 #[test]
 fn math_pow_one_infinity() {
-    // §20.2.2.26: ES2020 diverges from IEEE 754 — pow(1, ±Infinity) = NaN
+    // §21.3.2.27: ECMA-262 diverges from IEEE 754 — pow(1, ±Infinity) = NaN
     assert!(eval_bool("isNaN(Math.pow(1, Infinity));"));
     assert!(eval_bool("isNaN(Math.pow(1, -Infinity));"));
     assert!(eval_bool("isNaN(Math.pow(-1, Infinity));"));

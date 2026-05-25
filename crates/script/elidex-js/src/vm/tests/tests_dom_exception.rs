@@ -262,7 +262,7 @@ fn dom_exception_tostring_with_name_and_message() {
 
 #[test]
 fn dom_exception_tostring_default_message_empty() {
-    // Spec §19.5.3.4 step 8. when message is the empty string, the
+    // Spec §20.5.3.4 step 8. when message is the empty string, the
     // separator + message is omitted, producing just the name.
     // The default DOMException name is "Error" (matches `new
     // DOMException().name`).

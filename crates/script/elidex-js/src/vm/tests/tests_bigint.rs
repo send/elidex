@@ -1,4 +1,4 @@
-//! BigInt tests (ES2020 §6.1.6.2).
+//! BigInt tests (ECMA-262 §6.1.6.2).
 
 use super::{eval_bool, eval_string, eval_throws};
 

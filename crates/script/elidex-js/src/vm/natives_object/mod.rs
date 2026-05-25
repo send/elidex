@@ -1,4 +1,4 @@
-//! Object built-in methods (ES2020 §19.1).
+//! Object built-in methods (ECMA-262 §20.1).
 //!
 //! Covers Object static methods (keys, values, entries, assign, create,
 //! defineProperty, freeze, seal, etc.) and Object.prototype methods
@@ -17,14 +17,14 @@ mod prototype;
 
 use super::value::{JsValue, NativeContext, ObjectId, PropertyKey, VmError};
 
-/// §7.1.13 ToObject on first argument — throw TypeError for null/undefined,
+/// §7.1.19 ToObject on first argument — throw TypeError for null/undefined,
 /// wrap primitives into wrapper objects, pass through objects.
 fn to_object_arg(ctx: &mut NativeContext<'_>, args: &[JsValue]) -> Result<ObjectId, VmError> {
     let val = args.first().copied().unwrap_or(JsValue::Undefined);
     super::coerce::to_object(ctx.vm, val)
 }
 
-/// Convert a JS value to a `PropertyKey` (ES2020 §7.1.14 ToPropertyKey).
+/// Convert a JS value to a `PropertyKey` (ECMA-262 §7.1.20 ToPropertyKey).
 fn to_property_key(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<PropertyKey, VmError> {
     if let JsValue::Symbol(s) = val {
         return Ok(PropertyKey::Symbol(s));
