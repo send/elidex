@@ -114,6 +114,17 @@ impl Drop for ConstructionStackGuard {
 /// [`elidex_custom_elements::prepare_upgrade`] /
 /// [`enter_constructor`] / [`finalize_success`] /
 /// [`finalize_failure`].
+/// Phase 1 resolution outcome — bridges the registry-lock scope
+/// (where `prepare_upgrade` + `lookup_by_constructor` run) and the
+/// post-lock scope (where `ctx`-borrowing helpers like
+/// `finalize_failure_shim` can run). Local to `invoke_upgrade`.
+enum Phase1Outcome {
+    Skip,
+    Proceed(u64, Vec<String>, String),
+    LookupFailed,
+}
+
+#[allow(clippy::too_many_lines)] // 5-phase orchestration (resolve / validate / pre-publish / construct / finalize)
 pub(crate) fn invoke_upgrade(ctx: &mut NativeContext<'_>, entity: Entity) -> Result<(), VmError> {
     let Some(host) = ctx.host_if_bound() else {
         return Ok(());
@@ -121,14 +132,17 @@ pub(crate) fn invoke_upgrade(ctx: &mut NativeContext<'_>, entity: Entity) -> Res
 
     // Phase 1: resolve via engine-indep prepare_upgrade (early-returns
     // on Custom/Failed/no-def). Drops the registry lock before any VM
-    // re-borrow.
-    let (constructor_id, observed_attributes, definition_name) = {
+    // re-borrow. `Phase1Outcome` (above) escapes the registry-lock
+    // scope BEFORE we call `finalize_failure_shim` (R12 G12-1) — the
+    // shim acquires its own host borrow via `ctx`, which conflicts
+    // with `host`/`registry` still being live in this block.
+    let phase1 = {
         let registry = host
             .ce_registry
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         match elidex_custom_elements::prepare_upgrade(host.dom_shared(), &registry, entity) {
-            UpgradeResolution::Skip => return Ok(()),
+            UpgradeResolution::Skip => Phase1Outcome::Skip,
             UpgradeResolution::Proceed {
                 constructor_id,
                 observed_attributes,
@@ -137,24 +151,34 @@ pub(crate) fn invoke_upgrade(ctx: &mut NativeContext<'_>, entity: Entity) -> Res
                 // push/peek/replace plumbing (D-17b §6 + \[C4\] step 6).
                 // Resolve via reverse lookup so we don't grow
                 // `UpgradeResolution` with this engine-bound detail.
-                // `prepare_upgrade` already resolved the definition,
-                // so a None here means the registry was mutated
-                // concurrently — surface as VmError::internal so the
-                // invariant violation is visible at the upgrade
-                // boundary rather than silently abandoned (which
-                // would leave the entity in CEState::Undefined,
-                // re-enqueued indefinitely).
-                let name = match registry.lookup_by_constructor(constructor_id) {
-                    Some(def) => def.name.clone(),
-                    None => {
-                        return Err(VmError::internal(
-                            "invoke_upgrade: lookup_by_constructor returned None after \
-                             prepare_upgrade succeeded — registry invariant violated",
-                        ));
-                    }
-                };
-                (constructor_id, observed_attributes, name)
+                match registry.lookup_by_constructor(constructor_id) {
+                    Some(def) => Phase1Outcome::Proceed(
+                        constructor_id,
+                        observed_attributes,
+                        def.name.clone(),
+                    ),
+                    None => Phase1Outcome::LookupFailed,
+                }
             }
+        }
+    };
+    let (constructor_id, observed_attributes, definition_name) = match phase1 {
+        Phase1Outcome::Skip => return Ok(()),
+        Phase1Outcome::Proceed(cid, observed, name) => (cid, observed, name),
+        Phase1Outcome::LookupFailed => {
+            // `prepare_upgrade` already resolved the definition, so a
+            // None here means the registry was mutated concurrently —
+            // surface as VmError::internal AND mark the entity Failed
+            // so a re-enqueue loop cannot form (D-17b R12 G12-1).
+            // Without the Failed transition, the entity would stay in
+            // CEState::Undefined and re-eligible for upgrade →
+            // reaction-queue churn bounded only by
+            // MAX_CE_DRAIN_ITERATIONS.
+            finalize_failure_shim(ctx, entity);
+            return Err(VmError::internal(
+                "invoke_upgrade: lookup_by_constructor returned None after \
+                 prepare_upgrade succeeded — registry invariant violated",
+            ));
         }
     };
     let Some(constructor) = host.ce_constructors.get(&constructor_id).copied() else {

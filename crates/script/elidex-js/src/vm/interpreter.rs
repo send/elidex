@@ -82,14 +82,7 @@ impl VmInner {
         this: JsValue,
         args: &[JsValue],
     ) -> Result<JsValue, VmError> {
-        self.native_construct_stack.push(None);
-        let result = self.call_dispatch(func_obj_id, this, args);
-        let popped = self.native_construct_stack.pop();
-        debug_assert!(
-            matches!(popped, Some(None)),
-            "Vm::call native_construct_stack push/pop mismatch (saw {popped:?})"
-        );
-        result
+        self.dispatch_with_construct_entry(None, |vm| vm.call_dispatch(func_obj_id, this, args))
     }
 
     /// `[[Construct]]`-mode counterpart to [`Self::call`] for native
@@ -105,18 +98,53 @@ impl VmInner {
         args: &[JsValue],
         new_target: ObjectId,
     ) -> Result<JsValue, VmError> {
-        self.native_construct_stack.push(Some(new_target));
-        let result = self.call_dispatch(func_obj_id, this, args);
+        self.dispatch_with_construct_entry(Some(new_target), |vm| {
+            vm.call_dispatch(func_obj_id, this, args)
+        })
+    }
+
+    /// Push `entry` onto [`Self::native_construct_stack`], run `f`,
+    /// then pop — under a `catch_unwind` guard so the pop runs even
+    /// if `f` panics (the panic is then re-raised). Re-raising
+    /// preserves the original failure shape for upstream
+    /// `catch_unwind` embedders while keeping
+    /// [`super::value::NativeContext::is_construct`] /
+    /// [`super::value::NativeContext::new_target`] observations from
+    /// a subsequent call from leaking the entry.
+    ///
+    /// Single SoT for the three push/pop sites driving
+    /// `native_construct_stack` (D-17b R12 G12-2 unification):
+    /// [`Self::call`] (pushes `None`), [`Self::call_construct_native`]
+    /// (pushes `Some(new_target)`), and the JS-construct branch of
+    /// [`Self::construct_synchronous`] (pushes `Some(new_target)`).
+    /// The debug-assert that the popped entry matches the pushed
+    /// value runs only on non-panicking paths
+    /// (`!std::thread::panicking()`) so an in-flight unwind doesn't
+    /// trip an "expected vs got" mismatch against a half-rolled-back
+    /// stack and double-panic.
+    pub(crate) fn dispatch_with_construct_entry<F>(
+        &mut self,
+        entry: Option<ObjectId>,
+        f: F,
+    ) -> Result<JsValue, VmError>
+    where
+        F: FnOnce(&mut Self) -> Result<JsValue, VmError>,
+    {
+        use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
+        self.native_construct_stack.push(entry);
+        let result = catch_unwind(AssertUnwindSafe(|| f(self)));
         let popped = self.native_construct_stack.pop();
-        // Identity-strict pop check (was `matches!(_, Some(Some(_)))` —
-        // weaker form would miss new_target drift if some nested push
-        // mutated the stack-top entry. D-17b R8 strengthen.
-        debug_assert_eq!(
-            popped,
-            Some(Some(new_target)),
-            "Vm::call_construct_native native_construct_stack push/pop identity mismatch"
-        );
-        result
+        if !std::thread::panicking() {
+            debug_assert_eq!(
+                popped,
+                Some(entry),
+                "native_construct_stack push/pop identity mismatch"
+            );
+        }
+        match result {
+            Ok(r) => r,
+            Err(payload) => resume_unwind(payload),
+        }
     }
 
     #[allow(clippy::too_many_lines)] // dispatch table over every callable ObjectKind variant
@@ -759,5 +787,71 @@ impl VmInner {
             .last()
             .copied()
             .ok_or_else(|| VmError::internal("stack underflow on peek"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    use super::super::Vm;
+
+    /// D-17b R12 G12-2 regression: a panic inside the closure passed
+    /// to `dispatch_with_construct_entry` must not leak the pushed
+    /// `native_construct_stack` entry past a `catch_unwind` boundary.
+    /// Without the guard's pop-on-Drop equivalent (catch_unwind +
+    /// resume_unwind), the stack would retain a stale `Some` (or
+    /// `None`) entry and subsequent `NativeContext::is_construct` /
+    /// `new_target` reads would misreport.
+    #[test]
+    fn dispatch_with_construct_entry_pops_on_panic() {
+        let mut vm = Vm::new();
+        assert!(
+            vm.inner.native_construct_stack.is_empty(),
+            "precondition: stack starts empty"
+        );
+
+        // Suppress the intentional panic's stderr trace.
+        let prev_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+
+        // Catch the panic; helper must still pop the entry before
+        // resume_unwind propagates the panic out of dispatch_with_construct_entry.
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = vm.inner.dispatch_with_construct_entry(None, |_vm| {
+                panic!("intentional panic for R12 G12-2 regression")
+            });
+        }));
+
+        std::panic::set_hook(prev_hook);
+
+        assert!(result.is_err(), "panic should propagate via resume_unwind");
+        assert!(
+            vm.inner.native_construct_stack.is_empty(),
+            "stack must be popped despite panic; got len = {}",
+            vm.inner.native_construct_stack.len()
+        );
+    }
+
+    /// Round-trip: a successful (non-panicking) dispatch under the
+    /// helper still pushes + pops the right entry, leaving the stack
+    /// in the same state as before.
+    #[test]
+    fn dispatch_with_construct_entry_round_trip_ok() {
+        use super::JsValue;
+        let mut vm = Vm::new();
+        let len_before = vm.inner.native_construct_stack.len();
+
+        let result = vm.inner.dispatch_with_construct_entry(None, |_vm| {
+            // Closure does no work; helper push/pop should still balance.
+            Ok(JsValue::Undefined)
+        });
+
+        assert!(result.is_ok());
+        assert_eq!(
+            vm.inner.native_construct_stack.len(),
+            len_before,
+            "stack length must round-trip"
+        );
     }
 }

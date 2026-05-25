@@ -263,50 +263,38 @@ impl VmInner {
         // `None` and broken `ctx.is_construct()` / `ctx.new_target()`
         // reads inside the native body).
         let raw_result = if is_js {
-            self.native_construct_stack.push(Some(new_target));
             // JS construct: push frame + re-entrant `run()` until the
             // pushed frame returns. push_js_call_frame consumes
             // [callee, arg0..argN] from the stack (cleanup_offset=1),
             // matching `Op::Call`'s shape — so we lay it out then
-            // hand off to the dispatcher.
-            let r = match self.extract_js_callee(ctor_id) {
-                Some(callee) => {
-                    self.stack.push(JsValue::Object(ctor_id));
-                    for &a in args {
-                        self.stack.push(a);
+            // hand off to the dispatcher. Routed through
+            // `dispatch_with_construct_entry` (D-17b R12 G12-2) so
+            // a panic during `run()` does not leak the pushed
+            // `Some(new_target)` past a `catch_unwind` boundary.
+            self.dispatch_with_construct_entry(Some(new_target), |vm| {
+                match vm.extract_js_callee(ctor_id) {
+                    Some(callee) => {
+                        vm.stack.push(JsValue::Object(ctor_id));
+                        for &a in args {
+                            vm.stack.push(a);
+                        }
+                        // Construct mode (new_target = Some), so the
+                        // class-ctor-call-mode guard never fires.
+                        vm.push_js_call_frame(
+                            callee,
+                            receiver,
+                            args.len(),
+                            1,
+                            pre_alloc_instance,
+                            Some(new_target),
+                        )?;
+                        vm.run()
                     }
-                    // Construct mode (new_target = Some), so the
-                    // class-ctor-call-mode guard never fires; map
-                    // the `?` shape here for compile parity.
-                    if let Err(e) = self.push_js_call_frame(
-                        callee,
-                        receiver,
-                        args.len(),
-                        1,
-                        pre_alloc_instance,
-                        Some(new_target),
-                    ) {
-                        Err(e)
-                    } else {
-                        self.run()
-                    }
+                    None => Err(VmError::internal(
+                        "construct_synchronous: ObjectKind::Function lost between probe and dispatch",
+                    )),
                 }
-                None => Err(VmError::internal(
-                    "construct_synchronous: ObjectKind::Function lost between probe and dispatch",
-                )),
-            };
-            let popped = self.native_construct_stack.pop();
-            // Identity-strict pop check (mirrors R8 G8-3 on
-            // `Vm::call_construct_native`); a weaker
-            // `matches!(_, Some(Some(_)))` would miss new_target
-            // identity drift if a nested push mutated the stack-top
-            // entry mid-dispatch. D-17b R9 G9-2.
-            debug_assert_eq!(
-                popped,
-                Some(Some(new_target)),
-                "construct_synchronous JS path: native_construct_stack push/pop identity mismatch"
-            );
-            r
+            })
         } else {
             debug_assert!(is_native_ctor);
             // `call_construct_native` owns the push/pop discipline
