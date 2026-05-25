@@ -142,6 +142,26 @@ fn define_reserved_name_throws() {
 }
 
 #[test]
+fn define_duplicate_constructor_throws_not_supported_error() {
+    // HTML §4.13.4 step 4: same ctor passed under two different names
+    // must throw NotSupportedError on the second call. Otherwise the
+    // host-side reverse map (`HostData::ce_constructor_to_id`) would
+    // overwrite the FIRST definition's binding and `new.target` from
+    // a `new FirstCtor()` would resolve to the SECOND definition's
+    // name (D-17b R5 G5-1).
+    let err = run_throws(
+        "class MyEl extends HTMLElement {} \
+         customElements.define('a-el', MyEl); \
+         customElements.define('b-el', MyEl);",
+    );
+    assert!(
+        err.contains("NotSupportedError")
+            || err.contains("has already been used with this registry"),
+        "expected NotSupportedError for duplicate constructor, got: {err}"
+    );
+}
+
+#[test]
 fn define_duplicate_throws_not_supported_error() {
     let err = run_throws(
         "customElements.define('my-el', class extends HTMLElement {}); \

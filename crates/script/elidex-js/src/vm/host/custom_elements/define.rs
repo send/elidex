@@ -62,6 +62,23 @@ pub(crate) fn native_ce_define(
     // `html_element::validate_html_element_constructor_chain`.
     super::html_element::validate_html_element_constructor_chain(ctx.vm, ctor_id)?;
 
+    // 2c. HTML §4.13.4 step 4: reject re-use of the same constructor
+    // with this registry. The reverse map `ce_constructor_to_id`
+    // (D-17b R2 G1) is the SoT for "is this ctor already registered?"
+    // — used by `native_html_element_ctor` to resolve `new.target` →
+    // `constructor_id`, so an overwrite here would silently alias
+    // `new.target` from the FIRST define call to the SECOND
+    // definition. Fires BEFORE any host bookkeeping (no rollback
+    // needed). Mirrors the registry's own name-uniqueness check
+    // (`DefineError::AlreadyDefined`) for the constructor axis.
+    if ctx.host().ce_constructor_to_id.contains_key(&ctor_id) {
+        return Err(VmError::dom_exception(
+            ctx.vm.well_known.dom_exc_not_supported_error,
+            "Failed to execute 'define' on 'CustomElementRegistry': \
+             this constructor has already been used with this registry.",
+        ));
+    }
+
     // 3. options.extends — v1 rejects customized built-in elements via
     //    NotSupportedError (`#11-customized-built-in-elements` defer
     //    slot).  Missing / undefined / null = autonomous custom element.
