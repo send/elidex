@@ -36,7 +36,6 @@ import os
 import re
 import sys
 import urllib.error
-import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -679,7 +678,8 @@ def _resolve_body_source(shortname: str, anchor: str) -> tuple[str, str]:
         return mp
     sys.exit(
         f"webref: no multipage URL known for {shortname}#{anchor} "
-        f"(WHATWG/W3C: anchor must appear in headings/{shortname}.json)"
+        f"(WHATWG/W3C: anchor must appear in headings/{shortname}.json "
+        f"or dfns/{shortname}.json)"
     )
 
 
@@ -698,16 +698,19 @@ class _SectionExtractor(html.parser.HTMLParser):
         heading through the next heading of equal-or-higher level. Used
         for the common WHATWG/W3C single-page layout (flat HTML5 outline
         without section wrappers).
-      - **Open-ended** (inline tag — dfn / a / span / code / var / ...):
-        emit text starting from the inline element through the next
-        heading of any level. Used for algorithm / concept dfn anchors
-        (`#concept-X`, `#dom-Y-Z`) where the anchor sits inside a `<dfn>`
-        introducing an algorithm or term definition. Captures the dfn
-        text + the algorithm steps + remainder of the containing section.
+      - **Open-ended** (any other tag — inline `<dfn>` / `<a>` / `<span>`
+        / `<code>` / `<var>` / ..., or list items `<dt>` / `<dd>` / `<td>`,
+        or any tag the spec attaches an id to that isn't structural):
+        emit text starting from the element through the next heading of
+        any level. Used for algorithm / concept dfn anchors (`#concept-X`,
+        `#dom-Y-Z`) where the anchor sits inside a `<dfn>` introducing
+        an algorithm or term definition. Captures the dfn text + the
+        algorithm steps + remainder of the containing section.
 
-    Strategy is auto-detected by tag class: container > heading > open-ended.
-    The first matching id wins. If both an outer `<section id=X>` and an
-    inner `<h2 id=X>` exist (rare, but legal), the section wins.
+    Strategy is auto-detected by tag class: container > heading > anything
+    else (open-ended). The first matching id wins. If both an outer
+    `<section id=X>` and an inner `<h2 id=X>` exist (rare, but legal),
+    the section wins.
 
     Output preserves block-level structure:
       - One blank line between adjacent block elements.
@@ -733,14 +736,6 @@ class _SectionExtractor(html.parser.HTMLParser):
     _CONTAINER_TAGS = frozenset({
         "section", "article", "aside", "nav", "div",
         "emu-clause", "emu-annex", "emu-intro",
-    })
-    # Tags treated as "this is just a text marker, not a section boundary".
-    # When the anchor id sits on one of these, open-ended capture is used
-    # (capture from the anchor through the next heading of any level).
-    _INLINE_TAGS = frozenset({
-        "dfn", "a", "span", "code", "var", "b", "i", "em", "strong",
-        "cite", "kbd", "samp", "sub", "sup", "mark", "small", "time",
-        "abbr", "q", "ins", "del", "u", "s",
     })
     _SKIP_TAGS = frozenset({"script", "style"})
     _HEADING_TAGS = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
@@ -806,10 +801,15 @@ class _SectionExtractor(html.parser.HTMLParser):
                 if tag in self._HEADING_TAGS:
                     self._capturing = True
                     self._heading_level = int(tag[1])
-                    self._parts.append("# ")
+                    # Emit the heading's actual level (#### for <h4>, etc.)
+                    # so the opening prefix matches the level format used by
+                    # nested headings inside this section — readers don't get
+                    # a "# 7.4.11" followed by "##### 7.4.11.1" jump.
+                    self._parts.append("#" * self._heading_level + " ")
                     return
-                # Inline-class tags (dfn / a / span / code / ...) or unknown
-                # tags: open-ended capture. Terminates at the next heading of
+                # Any other tag (inline <dfn> / <a> / <code> / ..., or list
+                # items <dt> / <dd> / <td>, or any tag the spec hangs an id
+                # on): open-ended capture. Terminates at the next heading of
                 # any level; works for algorithm / concept dfn anchors where
                 # the dfn introduces an algorithm that follows in siblings.
                 self._capturing = True
