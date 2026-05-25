@@ -124,13 +124,13 @@ impl VmInner {
     /// §10.2.2 `[[Construct]]` step 5 + §10.1.13
     /// OrdinaryCreateFromConstructor.
     ///
-    /// PRECONDITION: caller must execute within an active
-    /// `[[Construct]]` dispatch (i.e. inside `do_new`'s native-ctor
-    /// branch or `construct_synchronous`'s native arm), both of
-    /// which push `Some(new_target)` onto `native_construct_stack`
-    /// before invoking the native ctor body. Call-mode invocations
-    /// (`F(...)`, `F.call(this, ...)`, etc.) leave the top `None` so
-    /// the construct branch correctly short-circuits.
+    /// PRECONDITION: caller must execute inside a native invocation
+    /// whose entry frame pushed the appropriate
+    /// `native_construct_stack` slot — `Some(new_target)` for
+    /// construct mode (via `do_new`'s native-ctor branch or
+    /// `construct_synchronous`'s native arm) or `None` for call mode
+    /// (via `Self::call`). The stack-top read distinguishes the two:
+    /// `Some` reuses `this`, `None`/empty allocates a fresh receiver.
     pub(crate) fn ensure_instance_or_alloc(
         &mut self,
         this: JsValue,

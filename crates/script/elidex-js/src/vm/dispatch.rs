@@ -923,7 +923,15 @@ impl VmInner {
                 Op::SetPrototype => {
                     // `[child parent -- child]` — set child.[[Prototype]] = parent.
                     // parent must be Object or Null. Used by class-chain setup
-                    // (\[C16\] constructorParent / protoParent wiring).
+                    // (\[C16\] constructorParent / protoParent wiring). Narrow
+                    // fast path: `child` is always a freshly-allocated, extensible
+                    // ctor or prototype object emitted within compile_class, so
+                    // the OrdinarySetPrototypeOf non-extensible + cycle checks
+                    // can't fire here by construction. User-facing
+                    // `Object.setPrototypeOf` takes the full spec path via
+                    // `native_object_set_prototype_of` (which performs both
+                    // checks) — do NOT reuse this opcode for user-controlled
+                    // receivers.
                     let parent = self.pop()?;
                     let child = self.peek()?;
                     let JsValue::Object(child_id) = child else {
