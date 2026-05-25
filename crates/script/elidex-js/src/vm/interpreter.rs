@@ -118,10 +118,13 @@ impl VmInner {
     /// (pushes `Some(new_target)`), and the JS-construct branch of
     /// [`Self::construct_synchronous`] (pushes `Some(new_target)`).
     /// The debug-assert that the popped entry matches the pushed
-    /// value runs only on non-panicking paths
-    /// (`!std::thread::panicking()`) so an in-flight unwind doesn't
-    /// trip an "expected vs got" mismatch against a half-rolled-back
-    /// stack and double-panic.
+    /// value runs only on the `Ok` (non-panicking) branch — gating on
+    /// `result.is_ok()` (NOT `std::thread::panicking()`, which is
+    /// false here because `catch_unwind` swallowed the unwind) so a
+    /// mismatch during a caught panic can't double-panic over the
+    /// original payload and break the "preserves the original failure
+    /// shape" guarantee for upstream `catch_unwind` embedders
+    /// (D-17b R19).
     pub(crate) fn dispatch_with_construct_entry<F>(
         &mut self,
         entry: Option<ObjectId>,
@@ -134,7 +137,7 @@ impl VmInner {
         self.native_construct_stack.push(entry);
         let result = catch_unwind(AssertUnwindSafe(|| f(self)));
         let popped = self.native_construct_stack.pop();
-        if !std::thread::panicking() {
+        if result.is_ok() {
             debug_assert_eq!(
                 popped,
                 Some(entry),
@@ -852,6 +855,43 @@ mod tests {
             vm.inner.native_construct_stack.len(),
             len_before,
             "stack length must round-trip"
+        );
+    }
+
+    /// D-17b R19 regression: when the closure panics AND the
+    /// push/pop identity check would fail, the helper must surface
+    /// the closure's original panic payload — not double-panic
+    /// from the debug-assert. Pre-fix the assert was gated on
+    /// `!std::thread::panicking()`, which `catch_unwind` made always-
+    /// false on the panic path; a mismatched pop then aborted the
+    /// thread with an "expected vs got" message, clobbering the
+    /// upstream-observable failure shape.
+    #[test]
+    fn dispatch_with_construct_entry_panic_preserves_original_payload_on_pop_mismatch() {
+        let mut vm = Vm::new();
+        let prev_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+
+        // Closure manipulates `native_construct_stack` so the helper's
+        // pop sees the wrong entry, then panics with a known marker.
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = vm.inner.dispatch_with_construct_entry(None, |vm| {
+                vm.native_construct_stack.push(None); // force pop != Some(entry)
+                panic!("R19_original_marker");
+            });
+        }));
+
+        std::panic::set_hook(prev_hook);
+
+        let payload = result.expect_err("closure panicked; helper must re-raise");
+        let msg = payload
+            .downcast_ref::<&'static str>()
+            .copied()
+            .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+            .unwrap_or("<non-string payload>");
+        assert_eq!(
+            msg, "R19_original_marker",
+            "original panic must survive; got {msg:?}"
         );
     }
 }
