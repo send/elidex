@@ -769,6 +769,22 @@ fn define_rejects_non_html_element_ctor() {
 }
 
 #[test]
+fn define_accepts_deep_class_extends_chain() {
+    // [C1] §3.2.3 HTMLConstructor brand walk is bounded by the
+    // VM-wide `coerce::PROTO_CHAIN_LIMIT` (10_000), not a smaller
+    // bespoke cap. A valid `class extends` chain reaching
+    // `HTMLElement` only after many hops must still be accepted at
+    // `customElements.define` time. Mirrors `tests_canvas.rs::
+    // put_image_data_accepts_deep_prototype_chain` for the sibling
+    // brand-check (ImageData).
+    let out = run("var Base = HTMLElement; \
+         for (var i = 0; i < 100; i++) { Base = class extends Base { }; } \
+         customElements.define('deep-el', Base); \
+         typeof customElements.get('deep-el');");
+    assert_eq!(out, "function");
+}
+
+#[test]
 fn instanceof_post_upgrade_via_parser_baked() {
     // [C1] §3.2.3 step 14 + D-17b §6 pre-publication invariant —
     // after upgrade the wrapper's prototype chain reaches

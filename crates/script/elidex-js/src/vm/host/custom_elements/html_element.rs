@@ -280,26 +280,24 @@ pub(crate) fn set_wrapper_prototype(
     Ok(())
 }
 
-/// Maximum depth of the `[[Prototype]]` chain walk performed by
-/// [`validate_html_element_constructor_chain`]. Bounds the cost of
-/// user-constructed cycles (`Object.setPrototypeOf(ctor, ctor)` is
-/// blocked by spec, but `setPrototypeOf` chains of arbitrary depth
-/// — including indirect cycles — are reachable). 32 levels comfortably
-/// exceed the deepest real CE chain (typically 2-3:
-/// `MyEl → HTMLElement` or `MySpecialEl → MyEl → HTMLElement`).
-const MAX_PROTO_DEPTH: usize = 32;
-
 /// Verify that `ctor_id`'s `[[Prototype]]` chain reaches
 /// `vm.html_element_constructor` — the HTMLConstructor brand-check
 /// semantics per \[C1\] §3.2.3 invoked from \[C3\] §4.13.4 `define`
 /// algorithm (HTML §4.13.4 step 10 verifies the constructor extends
 /// HTMLElement).
 ///
-/// Implementation is a depth-bound chain walk (cycle-safe up to
-/// [`MAX_PROTO_DEPTH`]). Reaching `vm.html_element_constructor`
-/// before exhausting the budget = pass; otherwise TypeError so the
-/// user observes a clear "must extend HTMLElement" failure rather
-/// than a silent succeed-at-define-but-broken-at-upgrade path.
+/// Bounded by the VM-wide [`coerce::PROTO_CHAIN_LIMIT`] — the same
+/// cap used by property lookup, `instanceof`, and the canvas
+/// `ImageData` brand walk (`host/canvas/image_data.rs::prototype_chain_has_image_data`).
+/// Reusing the shared constant keeps brand-check surfaces consistent:
+/// a deep-but-valid subclass chain reachable to any other brand check
+/// is also reachable here, and the cap doubles as the acyclicity
+/// guard (prototype chains are acyclic in normal operation; user
+/// `Object.setPrototypeOf` cycles are bounded by the same budget).
+/// Reaching `vm.html_element_constructor` before exhausting the
+/// budget = pass; otherwise TypeError so the user observes a clear
+/// "must extend HTMLElement" failure rather than a silent
+/// succeed-at-define-but-broken-at-upgrade path.
 pub(crate) fn validate_html_element_constructor_chain(
     vm: &VmInner,
     ctor_id: ObjectId,
@@ -311,7 +309,7 @@ pub(crate) fn validate_html_element_constructor_chain(
         )
     })?;
     let mut current = Some(ctor_id);
-    for _ in 0..MAX_PROTO_DEPTH {
+    for _ in 0..super::super::super::coerce::PROTO_CHAIN_LIMIT {
         match current {
             Some(id) if id == html_ctor => return Ok(()),
             Some(id) => {

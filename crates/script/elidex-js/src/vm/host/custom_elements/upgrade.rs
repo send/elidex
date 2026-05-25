@@ -16,7 +16,7 @@
 
 #![cfg(feature = "engine")]
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use elidex_custom_elements::{ConstructionStackEntry, CustomElementRegistry, UpgradeResolution};
 use elidex_ecs::Entity;
@@ -56,17 +56,20 @@ impl ConstructionStackGuard {
 
 impl Drop for ConstructionStackGuard {
     fn drop(&mut self) {
-        // `Mutex::lock` can `Err` if the mutex is poisoned, which
-        // happens when another thread panicked while holding the
-        // lock. The CE registry is per-VM and single-threaded, so
-        // the only poison source is a panic INSIDE one of our own
-        // lock scopes — in which case the lock is already considered
-        // poisoned by `std::sync::Mutex`. Use `into_inner` via
-        // `lock().map_or` so unwinding doesn't double-panic; the
-        // pop is best-effort during unwind.
-        let Ok(mut reg) = self.registry.lock() else {
-            return;
-        };
+        // `Mutex::lock` returns `Err` if the mutex is poisoned, i.e.
+        // a prior holder panicked. The CE registry is per-VM and
+        // single-threaded, so the only realistic poison source is a
+        // panic inside one of our own lock scopes — exactly the
+        // scenario this guard exists to recover from (running the pop
+        // during unwind so a subsequent upgrade of the same definition
+        // does not see a stale entry). `unwrap_or_else(|e|
+        // e.into_inner())` consumes the `PoisonError` and recovers the
+        // underlying guard, letting the pop run regardless of poison
+        // state. The recovered data is still consistent: only the CE
+        // registry's interior is observed, and the registry is local
+        // to this VM, so no cross-VM invariant rides on the poison
+        // flag.
+        let mut reg = self.registry.lock().unwrap_or_else(PoisonError::into_inner);
         let popped = reg.pop_construction_stack(&self.name);
         debug_assert!(
             matches!(
@@ -283,4 +286,57 @@ fn finalize_failure_shim(ctx: &mut NativeContext<'_>, entity: Entity) {
     let dom = host.dom();
     let mut queue = queue_arc.lock().expect("CE reaction queue mutex poisoned");
     elidex_custom_elements::finalize_failure(dom, &mut queue, entity);
+}
+
+#[cfg(test)]
+mod tests {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    use elidex_custom_elements::CustomElementDefinition;
+    use elidex_ecs::EcsDom;
+
+    use super::*;
+
+    #[test]
+    fn construction_stack_guard_pops_under_poisoned_mutex() {
+        // Regression for `ConstructionStackGuard::drop` previously
+        // early-returning on `Mutex::lock()` poison — the exact
+        // panic-inside-our-own-lock-scope case the guard exists to
+        // recover from would skip the pop, leaving a stale entry that
+        // would corrupt a subsequent upgrade of the same definition.
+        let registry = Arc::new(Mutex::new(CustomElementRegistry::new()));
+        let def = CustomElementDefinition::new("test-el".to_string(), 1, Vec::new(), None);
+        registry.lock().unwrap().define(def).unwrap();
+
+        let mut dom = EcsDom::new();
+        let entity = dom.create_element("test-el", elidex_ecs::Attributes::default());
+
+        // Push BEFORE poisoning (`push` uses `.expect` on the lock;
+        // the invariant under test is `Drop`, not `push`).
+        let guard =
+            ConstructionStackGuard::push(Arc::clone(&registry), "test-el".to_string(), entity);
+
+        // Poison via panic-while-holding-lock under `catch_unwind`.
+        // `MutexGuard::drop` during the unwind flips the poison flag,
+        // mirroring the production-relevant case where a `debug_assert!`
+        // panic inside a guarded scope poisons the per-VM registry.
+        let r_clone = Arc::clone(&registry);
+        let _ = catch_unwind(AssertUnwindSafe(|| {
+            let _g = r_clone.lock().unwrap();
+            panic!("intentional poison for ConstructionStackGuard regression test");
+        }));
+        assert!(
+            registry.is_poisoned(),
+            "registry mutex should be poisoned after panic-while-holding"
+        );
+
+        // Drop the guard. The Drop impl MUST run pop despite poison.
+        drop(guard);
+
+        let reg = registry.lock().unwrap_or_else(PoisonError::into_inner);
+        assert!(
+            reg.peek_construction_stack("test-el").is_none(),
+            "ConstructionStackGuard::drop must pop even when mutex is poisoned"
+        );
+    }
 }
