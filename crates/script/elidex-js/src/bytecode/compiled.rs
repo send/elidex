@@ -71,7 +71,8 @@ pub struct CompiledFunction {
     /// or synthesized default — both base and derived). Frames whose
     /// callee carries this flag get `CallFrame::home_class` set to
     /// the closure's own `ObjectId`, so `Op::SuperCall` (\[C13\]
-    /// SuperCall) and (future) `Op::GetSuperProp` resolve the super
+    /// SuperCall) and (future, defer slot `#11-step9-class-extras`)
+    /// `Op::GetSuperProp` resolve the super
     /// class via `home_class.\[\[Prototype\]\]`. `false` for regular
     /// methods + non-class functions (CE-minimal scope, D-17b §3.1).
     pub is_class_ctor: bool,

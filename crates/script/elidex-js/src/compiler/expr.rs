@@ -482,8 +482,9 @@ pub fn compile_expr(
             // Stubs for complex features. `Super` alone (without a
             // call wrapper) is a syntax error in ECMA-262 but the
             // parser may surface it for `super.method()` (Step-9
-            // deferred); leave as Undefined so the GetSuperProp
-            // stub still observes the existing shape.
+            // deferred, slot `#11-step9-class-extras`); leave as
+            // Undefined so the GetSuperProp stub still observes the
+            // existing shape.
             fc.emit(Op::PushUndefined);
         }
 

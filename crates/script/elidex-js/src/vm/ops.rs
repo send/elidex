@@ -667,7 +667,7 @@ impl VmInner {
             return Err(VmError::type_error("not a constructor"));
         };
 
-        // §9.4.1.2 BoundFunction [[Construct]]: unwrap chain and prepend
+        // §10.4.1.2 Bound Function Exotic Objects [[Construct]]: unwrap chain and prepend
         // bound_args. bound_this is ignored (step 2) — the instance's
         // receiver comes from new_target. Shared SoT with
         // `construct_synchronous` via `unwrap_bound_function_chain`

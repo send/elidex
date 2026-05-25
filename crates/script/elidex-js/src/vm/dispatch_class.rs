@@ -117,7 +117,7 @@ impl VmInner {
         let home = self.frames[frame_idx]
             .home_class
             .ok_or_else(|| VmError::syntax_error("'super' keyword unexpected here"))?;
-        // Resolve super class = home.[[Prototype]] (§13.3.7.1 GetSuperConstructor).
+        // Resolve super class = home.[[Prototype]] (§13.3.7.2 GetSuperConstructor).
         let super_class = self
             .get_object(home)
             .prototype
@@ -145,8 +145,8 @@ impl VmInner {
         Ok(())
     }
 
-    /// Unwrap a BoundFunction chain on `ctor_id` (ECMA-262 §9.4.1.2
-    /// BoundFunction `[[Construct]]`). Returns the innermost
+    /// Unwrap a BoundFunction chain on `ctor_id` (ECMA-262 §10.4.1.2
+    /// Bound Function Exotic Objects `[[Construct]]`). Returns the innermost
     /// non-bound callable's `ObjectId` plus the bound-args segments
     /// concatenated in innermost→outermost order, ready to splice in
     /// front of the user's call args.
@@ -220,7 +220,7 @@ impl VmInner {
     ) -> Result<JsValue, VmError> {
         // Unwrap BoundFunction chain before checking constructability —
         // a BoundFunction targeting a constructable callable is itself
-        // constructable (ECMA-262 §9.4.1.2).
+        // constructable (ECMA-262 §10.4.1.2).
         let (ctor_id, prepended) = self.unwrap_bound_function_chain(ctor_id)?;
         let combined_args: Vec<JsValue> = if prepended.is_empty() {
             args.to_vec()

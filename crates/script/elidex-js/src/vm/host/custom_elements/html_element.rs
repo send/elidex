@@ -90,7 +90,7 @@ impl VmInner {
         self.globals.insert(global_name, JsValue::Object(ctor_id));
 
         // Stash the ObjectId for the \[C1\] step 1 illegal-ctor check
-        // + the §4.3 HTMLConstructor chain check in
+        // + the §3.2.3 HTMLConstructor chain check in
         // `customElements.define`.
         self.html_element_constructor = Some(ctor_id);
     }

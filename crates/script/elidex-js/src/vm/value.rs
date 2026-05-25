@@ -804,11 +804,12 @@ pub struct CallFrame {
     /// pre-allocated receiver hint; `new_target` is the spec-level
     /// constructor function.
     pub new_target: Option<ObjectId>,
-    /// Enclosing class for `super()` resolution (\[C13\] §13.3.7.1 —
-    /// `super.[[Prototype]]` is the super class). Set on class-ctor
-    /// frames only; `None` for ordinary function frames and non-ctor
-    /// methods (CE-minimal scope per D-17b §3.4 — `Op::GetSuperProp`
-    /// support is Step-9-deferred). The CE-minimal contract is
+    /// Enclosing class for `super()` resolution (\[C13\] §13.3.7.2
+    /// GetSuperConstructor — `super.[[Prototype]]` is the super
+    /// class). Set on class-ctor frames only; `None` for ordinary
+    /// function frames and non-ctor methods (CE-minimal scope per
+    /// D-17b §3.4 — `Op::GetSuperProp` support is Step-9-deferred,
+    /// defer slot `#11-step9-class-extras`). The CE-minimal contract is
     /// fail-closed-by-construction: a non-ctor method frame has
     /// `home_class = None`, so any future super-property reader
     /// trips a SyntaxError fallback rather than consuming wrong data.

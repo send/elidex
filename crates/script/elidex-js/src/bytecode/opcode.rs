@@ -257,7 +257,7 @@ pub enum Op {
     /// from [`super::super::vm::value::CallFrame::new_target`]
     /// (threaded through `construct_synchronous`); the super class is
     /// resolved via [`super::super::vm::value::CallFrame::home_class`]'s
-    /// `[[Prototype]]` per ECMA-262 §15.7.15 GetSuperConstructor.
+    /// `[[Prototype]]` per ECMA-262 §13.3.7.2 GetSuperConstructor.
     SuperCall,
     /// `[args_array -- this]`
     ///

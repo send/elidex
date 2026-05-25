@@ -543,7 +543,8 @@ impl VmInner {
         // `Op::SuperCall` ([C13] SuperCall) resolves the super class
         // via `home_class.[[Prototype]]`. Regular methods + non-class
         // functions get `None` (CE-minimal scope per D-17b §3.1(c)
-        // — non-ctor super-property reads stay Step-9-deferred).
+        // — non-ctor super-property reads stay Step-9-deferred, defer
+        // slot `#11-step9-class-extras`).
         let home_class: Option<ObjectId> = if compiled.is_class_ctor {
             Some(callee.callee_obj_id)
         } else {

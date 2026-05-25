@@ -250,7 +250,7 @@ fn extends_null_user_super_call_throws() {
 // ---------------------------------------------------------------------------
 // D-17b R4 G4-4: BoundFunction in [[Construct]] dispatch. `do_new`
 // and `construct_synchronous` share `unwrap_bound_function_chain`
-// (ECMA-262 §9.4.1.2 BoundFunction [[Construct]]) so the two paths
+// (ECMA-262 §10.4.1.2 Bound Function Exotic Objects [[Construct]]) so the two paths
 // can't drift on bound-chain unwrapping. The user-visible surface
 // for the divergence today is small — `class B extends Bound`
 // throws at class-def time per spec (Bound has no `prototype`
