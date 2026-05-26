@@ -28,4 +28,9 @@ output-*/
 .claude/*
 !.claude/skills/
 !.claude/tools/
+
+# Python bytecode (.claude/tools/_webref/ is a Python package)
+__pycache__/
+*.pyc
+
 rust_out
