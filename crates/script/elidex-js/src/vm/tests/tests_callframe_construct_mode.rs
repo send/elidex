@@ -107,8 +107,10 @@ fn native_ctx_mode_baked_at_construct_time() {
 fn native_ctx_mode_call_in_plain_native_call() {
     // `Error('msg')` without `new` — call mode. `ensure_instance_or_alloc`
     // allocates a fresh Ordinary with `error_prototype` (Error is one of
-    // the few ctors that's callable, per §20.5.1.1 step 2). The receiver
-    // is the freshly-allocated instance, NOT `globalThis`.
+    // the few ctors that's callable — §20.5.1.1 step 1 conditionally
+    // accepts `undefined` NewTarget by falling back to the active
+    // function object). The receiver is the freshly-allocated instance,
+    // NOT `globalThis`.
     let mut vm = Vm::new();
     let v = vm
         .eval(

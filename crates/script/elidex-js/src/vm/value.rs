@@ -713,6 +713,16 @@ impl<'a> NativeContext<'a> {
     /// re-entrant callbacks the dispatcher spawns inside a native body
     /// (the construct context belongs to the entry frame, not to a
     /// nested helper).
+    ///
+    /// **Pre-D-17b-r1 vs post-r1**: pre-r1 sub-contexts implicitly
+    /// inherited the outer construct mode via `native_construct_stack.last()`
+    /// top-of-stack read at observation time. Post-r1 this default is
+    /// a deliberate semantic narrowing matching ECMA-262 §10.2.1 — a
+    /// callback fired from inside a `[[Construct]]`-mode native body
+    /// is itself a fresh `[[Call]]`, not `[[Construct]]`. Only the
+    /// primary native-dispatch site (`call_dispatch`'s NativeFunction
+    /// arm) bakes the outer mode via [`Self::new_construct`]; every
+    /// other sub-context site (~70) uses this `Call` default.
     #[inline]
     pub(crate) fn new_call(vm: &'a mut super::VmInner) -> Self {
         Self {
