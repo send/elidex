@@ -632,7 +632,7 @@ impl VmInner {
         }
         // In-range: coerce through `write_element_raw` (handles
         // ToBigInt / ToInt* / float encoding per `element_kind`).
-        let mut ctx = super::value::NativeContext { vm: self };
+        let mut ctx = super::value::NativeContext::new_call(self);
         Some(super::host::typed_array::write_element_raw(
             &mut ctx,
             buffer_id,

@@ -736,8 +736,8 @@ impl VmInner {
             // was a BoundFunction chain (ECMA-262 §10.4.1.2 step 5).
             // `super()` inside the user ctor body propagates this
             // unchanged.
-            // Construct mode (new_target = Some), so the
-            // class-ctor-call-mode guard in push_js_call_frame
+            // Construct mode (`CallMode::Construct { new_target: ctor_id }`),
+            // so the class-ctor-call-mode guard in `push_js_call_frame`
             // never fires — the `?` is for signature compatibility.
             self.push_js_call_frame(
                 callee,
@@ -745,7 +745,9 @@ impl VmInner {
                 argc,
                 1,
                 Some(instance),
-                Some(ctor_id),
+                super::value::CallMode::Construct {
+                    new_target: ctor_id,
+                },
             )?;
             Ok(())
         } else {

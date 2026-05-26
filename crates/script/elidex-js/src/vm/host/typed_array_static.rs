@@ -404,7 +404,7 @@ pub(super) fn create_typed_array_for_length(
     if let Some(p) = proto_override {
         frame.stack.push(JsValue::Object(p));
     }
-    let mut sub_ctx = NativeContext { vm: &mut frame };
+    let mut sub_ctx = NativeContext::new_call(&mut frame);
     let (buf_id, _, _) = allocate_fresh_buffer(&mut sub_ctx, byte_len)?;
     sub_ctx.vm.stack.push(JsValue::Object(buf_id));
     let prototype = proto_override.or_else(|| subclass_prototype_for(sub_ctx.vm, ek));
@@ -450,7 +450,7 @@ pub(crate) fn native_typed_array_of(
     // currently never trigger GC inside natives, but the rooting
     // matches the wider invariant).
     let mut g = ctx.vm.push_temp_root(JsValue::Object(view_id));
-    let mut sub_ctx = NativeContext { vm: &mut g };
+    let mut sub_ctx = NativeContext::new_call(&mut g);
     let ObjectKind::TypedArray {
         buffer_id: buf_id,
         byte_offset,
@@ -606,7 +606,7 @@ fn allocate_and_write_view_from_array_like(
 ) -> Result<JsValue, VmError> {
     let view_id = create_typed_array_for_length(ctx, ek, proto_override, elems_len)?;
     let mut g = ctx.vm.push_temp_root(JsValue::Object(view_id));
-    let mut sub_ctx = NativeContext { vm: &mut g };
+    let mut sub_ctx = NativeContext::new_call(&mut g);
     let ObjectKind::TypedArray {
         buffer_id: buf_id,
         byte_offset,
@@ -655,7 +655,7 @@ fn allocate_and_write_view(
     })?;
     let view_id = create_typed_array_for_length(ctx, ek, proto_override, len)?;
     let mut g = ctx.vm.push_temp_root(JsValue::Object(view_id));
-    let mut sub_ctx = NativeContext { vm: &mut g };
+    let mut sub_ctx = NativeContext::new_call(&mut g);
     let ObjectKind::TypedArray {
         buffer_id: buf_id,
         byte_offset,
@@ -714,7 +714,7 @@ where
     let iter_slot = frame.saved_len();
     frame.stack.push(iter_val);
     let elem_start = iter_slot + 1;
-    let mut sub_ctx = NativeContext { vm: &mut frame };
+    let mut sub_ctx = NativeContext::new_call(&mut frame);
     drain_iterator_loop(&mut sub_ctx, iter_val, map_fn, this_arg, elem_start)?;
     let elems_len = sub_ctx.vm.stack.len() - elem_start;
     let result = body(&mut sub_ctx, elem_start, elems_len);

@@ -263,6 +263,11 @@ impl VmInner {
             shape_id,
             slots,
             true,
+            // Worker error event is dispatched from VM-internal
+            // task plumbing, not a user `new ErrorEvent(...)` call —
+            // `mode = Call`. (Reparented to `ErrorEvent.prototype`
+            // below regardless.)
+            super::super::value::CallMode::Call,
         );
         // Reparent onto `ErrorEvent.prototype` so `e instanceof ErrorEvent`
         // holds (the call-mode `create_fresh_event_object` seeds
@@ -274,7 +279,7 @@ impl VmInner {
 
         let mut g = self.push_temp_root(JsValue::Object(event_id));
         g.dispatched_events.insert(event_id);
-        let mut ctx = NativeContext { vm: &mut g };
+        let mut ctx = NativeContext::new_call(&mut g);
         let _ =
             super::event_target_dispatch::dispatch_script_event(&mut ctx, event_id, target_entity);
         g.dispatched_events.remove(&event_id);

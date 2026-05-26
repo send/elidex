@@ -262,14 +262,17 @@ pub(crate) fn invoke_upgrade(ctx: &mut NativeContext<'_>, entity: Entity) -> Res
     // Construct-mode invocation (\[C11\] [[Construct]]) — drives
     // construct_synchronous so the HTMLElement ctor's upgrade branch
     // sees `new_target = constructor` (the originally-invoked CE
-    // class) + `native_construct_stack` top = Some(constructor) +
-    // `is_construct() == true`. Routed via the Stage 3 helper
-    // (single SoT for JS-side + native-side construct dispatch).
+    // class) baked into the frame's `CallMode::Construct` +
+    // `is_construct() == true` on the `NativeContext`. Routed via
+    // the Stage 3 helper (single SoT for JS-side + native-side
+    // construct dispatch).
     let result = ctx.vm.construct_synchronous(
         constructor,
         JsValue::Object(wrapper_id),
         &[],
-        constructor,
+        super::super::super::value::CallMode::Construct {
+            new_target: constructor,
+        },
         Some(wrapper_id),
     );
     // `_stack_guard` drops here (whether `result` is Ok or Err) —

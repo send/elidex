@@ -962,7 +962,7 @@ pub(in crate::vm) fn parse_json_str(
 ) -> Result<JsValue, VmError> {
     let text: Vec<u16> = source.encode_utf16().collect();
     let mut parser = JsonParser::new(&text);
-    let mut ctx = NativeContext { vm };
+    let mut ctx = NativeContext::new_call(vm);
     let result = parser.parse_value(&mut ctx)?;
     parser.skip_ws();
     if parser.pos < parser.input.len() {

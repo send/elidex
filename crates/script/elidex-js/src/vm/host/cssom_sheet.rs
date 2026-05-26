@@ -591,7 +591,7 @@ pub(crate) fn try_indexed_get_rule_list(
     {
         return Some(Ok(JsValue::Null));
     }
-    let mut ctx = NativeContext { vm };
+    let mut ctx = NativeContext::new_call(vm);
     let id_value = match invoke_dom_api(
         &mut ctx,
         "cssRules.itemId",

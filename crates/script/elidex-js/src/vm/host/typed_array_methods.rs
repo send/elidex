@@ -912,7 +912,7 @@ pub(crate) fn native_typed_array_to_locale_string(
     let mut frame = ctx.vm.push_stack_scope();
     let wrapper_slot = frame.saved_len();
     frame.stack.push(JsValue::Undefined);
-    let mut sub_ctx = NativeContext { vm: &mut frame };
+    let mut sub_ctx = NativeContext::new_call(&mut frame);
 
     // WTF-16 accumulation preserves lone surrogates: a user
     // override returning `'\uD800'` must round-trip exactly,

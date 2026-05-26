@@ -337,7 +337,7 @@ fn dispatch_post_message(
     // already be present; the outer `native_event_target_dispatch_event`
     // does the same insert/remove dance.
     g.dispatched_events.insert(event_id);
-    let mut ctx = NativeContext { vm: &mut g };
+    let mut ctx = NativeContext::new_call(&mut g);
     let dispatch_result = dispatch_script_event(&mut ctx, event_id, target_entity);
     g.dispatched_events.remove(&event_id);
     // VM-level errors (allocation failure etc.) are very rare and

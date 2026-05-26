@@ -473,6 +473,7 @@ fn native_touch_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let mode = ctx.mode;
     check_construct(ctx, "TouchEvent")?;
     let type_sid = type_arg(ctx, args, "TouchEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
@@ -541,7 +542,8 @@ fn native_touch_event_constructor(
     let touch_event_proto = g
         .touch_event_prototype
         .expect("TouchEvent.prototype must be registered before ctor");
-    let id = g.build_ui_event_instance(this, type_sid, ui, shape_id, touch_event_proto, slots);
+    let id =
+        g.build_ui_event_instance(this, type_sid, ui, shape_id, touch_event_proto, slots, mode);
     drop(g);
     drop(g1);
     drop(g0);

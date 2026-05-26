@@ -287,7 +287,7 @@ fn build_image_data(
         extensible: true,
     });
     let mut g = ctx.vm.push_temp_root(JsValue::Object(inst));
-    let mut ctx2 = NativeContext { vm: &mut g };
+    let mut ctx2 = NativeContext::new_call(&mut g);
     let data_id = make_uint8_clamped_array(&mut ctx2, pixels)?;
     set_image_data_props(&mut ctx2, inst, width, height, data_id)?;
     Ok(JsValue::Object(inst))

@@ -436,7 +436,7 @@ fn relative_index_f64_zero_length() {
 // ---------------------------------------------------------------------------
 
 fn try_to_index_u64(vm: &mut Vm, val: JsValue) -> Result<u64, super::super::value::VmError> {
-    let mut ctx = NativeContext { vm: &mut vm.inner };
+    let mut ctx = NativeContext::new_call(&mut vm.inner);
     to_index_u64(&mut ctx, val, "Test", "arg")
 }
 

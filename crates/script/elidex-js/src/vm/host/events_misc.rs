@@ -291,6 +291,7 @@ fn native_submit_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let mode = ctx.mode;
     check_construct(ctx, "SubmitEvent")?;
     let type_sid = type_arg(ctx, args, "SubmitEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
@@ -314,7 +315,7 @@ fn native_submit_event_constructor(
     let _proto = g
         .submit_event_prototype
         .expect("SubmitEvent.prototype must be registered before ctor");
-    let id = g.create_fresh_event_object(this, type_sid, base, shape_id, slots, false);
+    let id = g.create_fresh_event_object(this, type_sid, base, shape_id, slots, false, mode);
     drop(g);
     Ok(JsValue::Object(id))
 }
@@ -328,6 +329,7 @@ fn native_formdata_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let mode = ctx.mode;
     check_construct(ctx, "FormDataEvent")?;
     let type_sid = type_arg(ctx, args, "FormDataEvent")?;
     // FormDataEventInit has `required formData` — missing 2nd arg or
@@ -393,7 +395,7 @@ fn native_formdata_event_constructor(
     let _proto = g
         .formdata_event_prototype
         .expect("FormDataEvent.prototype must be registered before ctor");
-    let id = g.create_fresh_event_object(this, type_sid, base, shape_id, slots, false);
+    let id = g.create_fresh_event_object(this, type_sid, base, shape_id, slots, false, mode);
     drop(g);
     Ok(JsValue::Object(id))
 }
@@ -407,6 +409,7 @@ fn native_toggle_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let mode = ctx.mode;
     check_construct(ctx, "ToggleEvent")?;
     let type_sid = type_arg(ctx, args, "ToggleEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
@@ -440,7 +443,7 @@ fn native_toggle_event_constructor(
         .expect("ToggleEvent.prototype must be registered before ctor");
     let id = ctx
         .vm
-        .create_fresh_event_object(this, type_sid, base, shape_id, slots, false);
+        .create_fresh_event_object(this, type_sid, base, shape_id, slots, false, mode);
     Ok(JsValue::Object(id))
 }
 
@@ -453,6 +456,7 @@ fn native_composition_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let mode = ctx.mode;
     check_construct(ctx, "CompositionEvent")?;
     let type_sid = type_arg(ctx, args, "CompositionEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
@@ -476,7 +480,7 @@ fn native_composition_event_constructor(
         .expect("CompositionEvent.prototype must be registered before ctor");
     let id = ctx
         .vm
-        .build_ui_event_instance(this, type_sid, ui, shape_id, proto, slots);
+        .build_ui_event_instance(this, type_sid, ui, shape_id, proto, slots, mode);
     Ok(JsValue::Object(id))
 }
 
@@ -489,6 +493,7 @@ fn native_clipboard_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let mode = ctx.mode;
     check_construct(ctx, "ClipboardEvent")?;
     let type_sid = type_arg(ctx, args, "ClipboardEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
@@ -521,7 +526,7 @@ fn native_clipboard_event_constructor(
     let _proto = g
         .clipboard_event_prototype
         .expect("ClipboardEvent.prototype must be registered before ctor");
-    let id = g.create_fresh_event_object(this, type_sid, base, shape_id, slots, false);
+    let id = g.create_fresh_event_object(this, type_sid, base, shape_id, slots, false, mode);
     drop(g);
     Ok(JsValue::Object(id))
 }
@@ -535,6 +540,7 @@ fn native_progress_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let mode = ctx.mode;
     check_construct(ctx, "ProgressEvent")?;
     let type_sid = type_arg(ctx, args, "ProgressEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
@@ -578,7 +584,7 @@ fn native_progress_event_constructor(
         .expect("ProgressEvent.prototype must be registered before ctor");
     let id = ctx
         .vm
-        .create_fresh_event_object(this, type_sid, base, shape_id, slots, false);
+        .create_fresh_event_object(this, type_sid, base, shape_id, slots, false, mode);
     Ok(JsValue::Object(id))
 }
 
@@ -655,6 +661,7 @@ fn native_message_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let mode = ctx.mode;
     check_construct(ctx, "MessageEvent")?;
     let type_sid = type_arg(ctx, args, "MessageEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
@@ -722,7 +729,7 @@ fn native_message_event_constructor(
     let _proto = g
         .message_event_prototype
         .expect("MessageEvent.prototype must be registered before ctor");
-    let id = g.create_fresh_event_object(this, type_sid, base, shape_id, slots, false);
+    let id = g.create_fresh_event_object(this, type_sid, base, shape_id, slots, false, mode);
     drop(g);
     drop(g1);
     drop(g0);
@@ -743,6 +750,7 @@ fn native_wheel_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let mode = ctx.mode;
     check_construct(ctx, "WheelEvent")?;
     let type_sid = type_arg(ctx, args, "WheelEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
@@ -783,7 +791,7 @@ fn native_wheel_event_constructor(
     let wheel_proto = g
         .wheel_event_prototype
         .expect("WheelEvent.prototype must be registered before ctor");
-    let id = g.build_ui_event_instance(this, type_sid, ui, shape_id, wheel_proto, slots);
+    let id = g.build_ui_event_instance(this, type_sid, ui, shape_id, wheel_proto, slots, mode);
     drop(g);
     Ok(JsValue::Object(id))
 }
@@ -797,6 +805,7 @@ fn native_page_transition_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let mode = ctx.mode;
     check_construct(ctx, "PageTransitionEvent")?;
     let type_sid = type_arg(ctx, args, "PageTransitionEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
@@ -822,6 +831,6 @@ fn native_page_transition_event_constructor(
         .expect("PageTransitionEvent.prototype must be registered before ctor");
     let id = ctx
         .vm
-        .create_fresh_event_object(this, type_sid, base, shape_id, slots, false);
+        .create_fresh_event_object(this, type_sid, base, shape_id, slots, false, mode);
     Ok(JsValue::Object(id))
 }

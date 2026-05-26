@@ -239,7 +239,7 @@ impl VmInner {
                 JsValue::Undefined,
                 callee.captured_this,
             );
-            self.push_js_call_frame(callee, this, argc, 1, None, None)?;
+            self.push_js_call_frame(callee, this, argc, 1, None, super::value::CallMode::Call)?;
             return Ok(());
         }
 
@@ -251,7 +251,7 @@ impl VmInner {
                 callee.captured_this,
             );
             self.populate_call_ic(caller_func_id, call_ic_idx, callee_val);
-            self.push_js_call_frame(callee, this, argc, 1, None, None)?;
+            self.push_js_call_frame(callee, this, argc, 1, None, super::value::CallMode::Call)?;
             return Ok(());
         }
 
@@ -287,7 +287,14 @@ impl VmInner {
                 receiver,
                 callee_info.captured_this,
             );
-            self.push_js_call_frame(callee_info, this, argc, 2, None, None)?;
+            self.push_js_call_frame(
+                callee_info,
+                this,
+                argc,
+                2,
+                None,
+                super::value::CallMode::Call,
+            )?;
             return Ok(());
         }
 
@@ -299,7 +306,14 @@ impl VmInner {
                 callee_info.captured_this,
             );
             self.populate_call_ic(caller_func_id, call_ic_idx, callee);
-            self.push_js_call_frame(callee_info, this, argc, 2, None, None)?;
+            self.push_js_call_frame(
+                callee_info,
+                this,
+                argc,
+                2,
+                None,
+                super::value::CallMode::Call,
+            )?;
             return Ok(());
         }
 

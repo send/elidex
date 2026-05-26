@@ -418,7 +418,7 @@ pub(in crate::vm) fn dispatch_pending_slotchange_signals(vm: &mut VmInner) -> us
         {
             continue;
         }
-        let mut ctx = NativeContext { vm };
+        let mut ctx = NativeContext::new_call(vm);
         let _ = super::event_target_dispatch::dispatch_simple_event(
             &mut ctx, slot, type_sid, true, false,
         );

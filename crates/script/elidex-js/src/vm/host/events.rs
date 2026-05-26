@@ -269,6 +269,7 @@ impl VmInner {
     /// variant) — length of the combined slot vec must equal
     /// `shape.property_count()`, otherwise
     /// `define_with_precomputed_shape` debug-asserts.
+    #[allow(clippy::too_many_arguments)] // event-construction inputs (this + type + EventInit + shape + payload + is_trusted + mode) are non-collapsible per the WebIDL surface
     pub(crate) fn create_fresh_event_object(
         &mut self,
         this: JsValue,
@@ -277,14 +278,19 @@ impl VmInner {
         shape_id: ShapeId,
         payload_slots: Vec<PropertyValue>,
         is_trusted: bool,
+        mode: super::super::value::CallMode,
     ) -> ObjectId {
         // `ensure_instance_or_alloc` in construct-mode returns `this`
         // as-is (already allocated by `do_new` with the subclass
         // prototype); in call-mode it allocates a fresh Ordinary
         // whose prototype is `Event.prototype`.  Constructors gate
         // call-mode out via `is_construct()` before reaching here,
-        // so call-mode only runs through tests / assertions.
-        let receiver = self.ensure_instance_or_alloc(this, self.event_prototype);
+        // so call-mode only runs through tests / assertions. `mode`
+        // is caller-supplied from the entry frame's
+        // `NativeContext::mode` so the construct discipline matches
+        // the outer ctor (D-17b-r1 Phase 4 — replaces the pre-r1
+        // implicit read of `native_construct_stack` top).
+        let receiver = self.ensure_instance_or_alloc(this, self.event_prototype, mode);
         let JsValue::Object(id) = receiver else {
             unreachable!("ensure_instance_or_alloc always yields an Object");
         };
@@ -661,9 +667,10 @@ fn native_event_constructor(
         .as_ref()
         .expect("precomputed_event_shapes missing — register_globals did not run")
         .core;
-    let id = ctx
-        .vm
-        .create_fresh_event_object(this, type_sid, init, shape_id, Vec::new(), false);
+    let mode = ctx.mode;
+    let id =
+        ctx.vm
+            .create_fresh_event_object(this, type_sid, init, shape_id, Vec::new(), false, mode);
     Ok(JsValue::Object(id))
 }
 
@@ -723,9 +730,11 @@ fn native_custom_event_constructor(
     // could collect it between here and the slot write without a
     // root.  The guard also borrows the VM mutably, so subsequent
     // ops go through the guard's `Deref<Target = VmInner>`.
+    let mode = ctx.mode;
     let mut g = ctx.vm.push_temp_root(detail);
     let payload_slots = vec![PropertyValue::Data(detail)];
-    let id = g.create_fresh_event_object(this, type_sid, base, shape_id, payload_slots, false);
+    let id =
+        g.create_fresh_event_object(this, type_sid, base, shape_id, payload_slots, false, mode);
     drop(g);
     Ok(JsValue::Object(id))
 }

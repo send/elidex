@@ -64,7 +64,7 @@ fn prevent_default_sets_flag_on_cancelable_non_passive() {
     let id = alloc_event(
         &mut vm, /* cancelable */ true, /* passive */ false,
     );
-    let mut ctx = NativeContext { vm: &mut vm.inner };
+    let mut ctx = NativeContext::new_call(&mut vm.inner);
     native_event_prevent_default(&mut ctx, JsValue::Object(id), &[]).unwrap();
     assert_eq!(event_flags(&vm, id), (true, false, false));
 }
@@ -75,7 +75,7 @@ fn prevent_default_is_noop_when_not_cancelable() {
     let id = alloc_event(
         &mut vm, /* cancelable */ false, /* passive */ false,
     );
-    let mut ctx = NativeContext { vm: &mut vm.inner };
+    let mut ctx = NativeContext::new_call(&mut vm.inner);
     native_event_prevent_default(&mut ctx, JsValue::Object(id), &[]).unwrap();
     assert_eq!(event_flags(&vm, id), (false, false, false));
 }
@@ -84,7 +84,7 @@ fn prevent_default_is_noop_when_not_cancelable() {
 fn prevent_default_is_noop_on_passive_listener() {
     let mut vm = Vm::new();
     let id = alloc_event(&mut vm, /* cancelable */ true, /* passive */ true);
-    let mut ctx = NativeContext { vm: &mut vm.inner };
+    let mut ctx = NativeContext::new_call(&mut vm.inner);
     native_event_prevent_default(&mut ctx, JsValue::Object(id), &[]).unwrap();
     assert_eq!(event_flags(&vm, id), (false, false, false));
 }
@@ -95,7 +95,7 @@ fn prevent_default_silent_noop_on_detached_this() {
     // Detached-method invocation (`const pd = e.preventDefault; pd()`)
     // passes `this === undefined`.  Browser engines silently no-op —
     // matching that keeps user-land code observing the same behaviour.
-    let mut ctx = NativeContext { vm: &mut vm.inner };
+    let mut ctx = NativeContext::new_call(&mut vm.inner);
     let res = native_event_prevent_default(&mut ctx, JsValue::Undefined, &[]);
     assert!(res.is_ok());
 }
@@ -104,7 +104,7 @@ fn prevent_default_silent_noop_on_detached_this() {
 fn stop_propagation_sets_only_outer_flag() {
     let mut vm = Vm::new();
     let id = alloc_event(&mut vm, true, false);
-    let mut ctx = NativeContext { vm: &mut vm.inner };
+    let mut ctx = NativeContext::new_call(&mut vm.inner);
     native_event_stop_propagation(&mut ctx, JsValue::Object(id), &[]).unwrap();
     assert_eq!(event_flags(&vm, id), (false, true, false));
 }
@@ -113,7 +113,7 @@ fn stop_propagation_sets_only_outer_flag() {
 fn stop_immediate_propagation_sets_both_flags() {
     let mut vm = Vm::new();
     let id = alloc_event(&mut vm, true, false);
-    let mut ctx = NativeContext { vm: &mut vm.inner };
+    let mut ctx = NativeContext::new_call(&mut vm.inner);
     native_event_stop_immediate_propagation(&mut ctx, JsValue::Object(id), &[]).unwrap();
     // WHATWG DOM §2.9: stopImmediatePropagation() sets BOTH flags
     // (propagation_stopped and immediate_propagation_stopped).  Setting
@@ -131,7 +131,7 @@ fn composed_path_lazy_caches_empty_array_on_first_call() {
     let id = alloc_event(&mut vm, true, false);
 
     let first = {
-        let mut ctx = NativeContext { vm: &mut vm.inner };
+        let mut ctx = NativeContext::new_call(&mut vm.inner);
         native_event_composed_path(&mut ctx, JsValue::Object(id), &[]).unwrap()
     };
     let JsValue::Object(arr_id) = first else {
@@ -146,7 +146,7 @@ fn composed_path_lazy_caches_empty_array_on_first_call() {
 
     // Second call: must return the SAME ObjectId (cached in slot).
     let second = {
-        let mut ctx = NativeContext { vm: &mut vm.inner };
+        let mut ctx = NativeContext::new_call(&mut vm.inner);
         native_event_composed_path(&mut ctx, JsValue::Object(id), &[]).unwrap()
     };
     assert_eq!(
@@ -181,7 +181,7 @@ fn composed_path_returns_cached_array_when_present() {
         panic!("expected Event variant");
     }
 
-    let mut ctx = NativeContext { vm: &mut vm.inner };
+    let mut ctx = NativeContext::new_call(&mut vm.inner);
     let result = native_event_composed_path(&mut ctx, JsValue::Object(id), &[]).unwrap();
     assert_eq!(
         result,

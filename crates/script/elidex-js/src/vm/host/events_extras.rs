@@ -232,6 +232,7 @@ impl VmInner {
     /// registration panics at ctor entry instead of producing a
     /// latent wrong-chain bug) but the value itself is no longer
     /// applied.
+    #[allow(clippy::too_many_arguments)] // mirrors create_fresh_event_object's surface + descendant proto registration handle
     fn build_event_subclass_instance(
         &mut self,
         this: JsValue,
@@ -240,8 +241,9 @@ impl VmInner {
         shape_id: ShapeId,
         _descendant_proto: ObjectId,
         payload_slots: Vec<PropertyValue>,
+        mode: super::super::value::CallMode,
     ) -> ObjectId {
-        self.create_fresh_event_object(this, type_sid, base, shape_id, payload_slots, false)
+        self.create_fresh_event_object(this, type_sid, base, shape_id, payload_slots, false, mode)
     }
 }
 
@@ -274,6 +276,7 @@ fn native_promise_rejection_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let mode = ctx.mode;
     check_construct(ctx, "PromiseRejectionEvent")?;
     let type_sid = type_arg(ctx, args, "PromiseRejectionEvent")?;
     // WHATWG HTML §8.1.7.3.4 + WebIDL §3.10.23 dictionary coercion:
@@ -348,7 +351,7 @@ fn native_promise_rejection_event_constructor(
     let proto = g
         .promise_rejection_event_prototype
         .expect("PromiseRejectionEvent.prototype must be registered before ctor");
-    let id = g.build_event_subclass_instance(this, type_sid, base, shape_id, proto, slots);
+    let id = g.build_event_subclass_instance(this, type_sid, base, shape_id, proto, slots, mode);
     drop(g);
     Ok(JsValue::Object(id))
 }
@@ -362,6 +365,7 @@ fn native_error_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let mode = ctx.mode;
     check_construct(ctx, "ErrorEvent")?;
     let type_sid = type_arg(ctx, args, "ErrorEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
@@ -405,7 +409,7 @@ fn native_error_event_constructor(
     let proto = g
         .error_event_prototype
         .expect("ErrorEvent.prototype must be registered before ctor");
-    let id = g.build_event_subclass_instance(this, type_sid, base, shape_id, proto, slots);
+    let id = g.build_event_subclass_instance(this, type_sid, base, shape_id, proto, slots, mode);
     drop(g);
     Ok(JsValue::Object(id))
 }
@@ -419,6 +423,7 @@ fn native_hash_change_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let mode = ctx.mode;
     check_construct(ctx, "HashChangeEvent")?;
     let type_sid = type_arg(ctx, args, "HashChangeEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
@@ -452,7 +457,7 @@ fn native_hash_change_event_constructor(
         .expect("HashChangeEvent.prototype must be registered before ctor");
     let id = ctx
         .vm
-        .build_event_subclass_instance(this, type_sid, base, shape_id, proto, slots);
+        .build_event_subclass_instance(this, type_sid, base, shape_id, proto, slots, mode);
     Ok(JsValue::Object(id))
 }
 
@@ -465,6 +470,7 @@ fn native_pop_state_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let mode = ctx.mode;
     check_construct(ctx, "PopStateEvent")?;
     let type_sid = type_arg(ctx, args, "PopStateEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
@@ -490,7 +496,7 @@ fn native_pop_state_event_constructor(
     let proto = g
         .pop_state_event_prototype
         .expect("PopStateEvent.prototype must be registered before ctor");
-    let id = g.build_event_subclass_instance(this, type_sid, base, shape_id, proto, slots);
+    let id = g.build_event_subclass_instance(this, type_sid, base, shape_id, proto, slots, mode);
     drop(g);
     Ok(JsValue::Object(id))
 }
@@ -504,6 +510,7 @@ fn native_animation_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let mode = ctx.mode;
     check_construct(ctx, "AnimationEvent")?;
     let type_sid = type_arg(ctx, args, "AnimationEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
@@ -540,7 +547,7 @@ fn native_animation_event_constructor(
         .expect("AnimationEvent.prototype must be registered before ctor");
     let id = ctx
         .vm
-        .build_event_subclass_instance(this, type_sid, base, shape_id, proto, slots);
+        .build_event_subclass_instance(this, type_sid, base, shape_id, proto, slots, mode);
     Ok(JsValue::Object(id))
 }
 
@@ -553,6 +560,7 @@ fn native_transition_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let mode = ctx.mode;
     check_construct(ctx, "TransitionEvent")?;
     let type_sid = type_arg(ctx, args, "TransitionEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
@@ -589,7 +597,7 @@ fn native_transition_event_constructor(
         .expect("TransitionEvent.prototype must be registered before ctor");
     let id = ctx
         .vm
-        .build_event_subclass_instance(this, type_sid, base, shape_id, proto, slots);
+        .build_event_subclass_instance(this, type_sid, base, shape_id, proto, slots, mode);
     Ok(JsValue::Object(id))
 }
 
@@ -602,6 +610,7 @@ fn native_close_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let mode = ctx.mode;
     check_construct(ctx, "CloseEvent")?;
     let type_sid = type_arg(ctx, args, "CloseEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
@@ -639,6 +648,6 @@ fn native_close_event_constructor(
         .expect("CloseEvent.prototype must be registered before ctor");
     let id = ctx
         .vm
-        .build_event_subclass_instance(this, type_sid, base, shape_id, proto, slots);
+        .build_event_subclass_instance(this, type_sid, base, shape_id, proto, slots, mode);
     Ok(JsValue::Object(id))
 }

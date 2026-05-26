@@ -493,6 +493,7 @@ impl VmInner {
     /// descendant prototype afterwards so the chain ends
     /// `instance → <Descendant>.prototype → UIEvent.prototype →
     /// Event.prototype`.
+    #[allow(clippy::too_many_arguments)] // UIEvent surface = base event params + view/detail + descendant proto + slots + mode; non-collapsible
     pub(super) fn build_ui_event_instance(
         &mut self,
         this: JsValue,
@@ -501,6 +502,7 @@ impl VmInner {
         shape_id: ShapeId,
         _descendant_proto: ObjectId,
         variant_slots: Vec<PropertyValue>,
+        mode: super::super::value::CallMode,
     ) -> ObjectId {
         // `view` / `detail` precede the descendant's own slots (matches
         // the shape chain `core → +view → +detail → +<variant keys>`).
@@ -520,7 +522,7 @@ impl VmInner {
         // signature as a load-bearing registration-check
         // (`.expect()` at the call site catches a missed prototype
         // install) but the value itself is no longer applied.
-        self.create_fresh_event_object(this, type_sid, init.base, shape_id, payload, false)
+        self.create_fresh_event_object(this, type_sid, init.base, shape_id, payload, false, mode)
     }
 }
 
@@ -552,6 +554,7 @@ fn native_ui_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let mode = ctx.mode;
     check_construct(ctx, "UIEvent")?;
     let type_sid = type_arg(ctx, args, "UIEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
@@ -567,9 +570,9 @@ fn native_ui_event_constructor(
         .vm
         .ui_event_prototype
         .expect("UIEvent.prototype must be registered before native_ui_event_constructor");
-    let id = ctx
-        .vm
-        .build_ui_event_instance(this, type_sid, init, shape_id, ui_proto, Vec::new());
+    let id =
+        ctx.vm
+            .build_ui_event_instance(this, type_sid, init, shape_id, ui_proto, Vec::new(), mode);
     Ok(JsValue::Object(id))
 }
 
@@ -582,6 +585,7 @@ fn native_mouse_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let mode = ctx.mode;
     check_construct(ctx, "MouseEvent")?;
     let type_sid = type_arg(ctx, args, "MouseEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
@@ -602,7 +606,15 @@ fn native_mouse_event_constructor(
     let mouse_proto = g
         .mouse_event_prototype
         .expect("MouseEvent.prototype must be registered before native_mouse_event_constructor");
-    let id = g.build_ui_event_instance(this, type_sid, ui, shape_id, mouse_proto, members.slots);
+    let id = g.build_ui_event_instance(
+        this,
+        type_sid,
+        ui,
+        shape_id,
+        mouse_proto,
+        members.slots,
+        mode,
+    );
     drop(g);
     Ok(JsValue::Object(id))
 }
@@ -616,6 +628,7 @@ fn native_keyboard_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let mode = ctx.mode;
     check_construct(ctx, "KeyboardEvent")?;
     let type_sid = type_arg(ctx, args, "KeyboardEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
@@ -666,7 +679,7 @@ fn native_keyboard_event_constructor(
     );
     let id = ctx
         .vm
-        .build_ui_event_instance(this, type_sid, ui, shape_id, kb_proto, slots);
+        .build_ui_event_instance(this, type_sid, ui, shape_id, kb_proto, slots, mode);
     Ok(JsValue::Object(id))
 }
 
@@ -679,6 +692,7 @@ fn native_focus_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let mode = ctx.mode;
     check_construct(ctx, "FocusEvent")?;
     let type_sid = type_arg(ctx, args, "FocusEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
@@ -704,7 +718,7 @@ fn native_focus_event_constructor(
     let focus_proto = g
         .focus_event_prototype
         .expect("FocusEvent.prototype must be registered before native_focus_event_constructor");
-    let id = g.build_ui_event_instance(this, type_sid, ui, shape_id, focus_proto, slots);
+    let id = g.build_ui_event_instance(this, type_sid, ui, shape_id, focus_proto, slots, mode);
     drop(g);
     Ok(JsValue::Object(id))
 }
@@ -718,6 +732,7 @@ fn native_input_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let mode = ctx.mode;
     check_construct(ctx, "InputEvent")?;
     let type_sid = type_arg(ctx, args, "InputEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
@@ -786,7 +801,7 @@ fn native_input_event_constructor(
     let in_proto = g
         .input_event_prototype
         .expect("InputEvent.prototype must be registered before native_input_event_constructor");
-    let id = g.build_ui_event_instance(this, type_sid, ui, shape_id, in_proto, slots);
+    let id = g.build_ui_event_instance(this, type_sid, ui, shape_id, in_proto, slots, mode);
     drop(g);
     Ok(JsValue::Object(id))
 }
