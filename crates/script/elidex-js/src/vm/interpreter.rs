@@ -232,14 +232,16 @@ impl VmInner {
         // below are no-ops (asserted above), so this loop only does
         // real work on the Err and panic paths.
         while self.frames.len() > entry_frames {
-            // Snapshot local_upvalue_ids before pop so close_upvalues
-            // operates on a stable list while the stack is still
-            // intact (close reads `self.stack[frame_base + slot]`).
-            let upvalues = self.frames.last().map(|f| f.local_upvalue_ids.clone());
-            if let Some(uvs) = upvalues {
-                self.close_upvalues(&uvs);
-            }
-            self.frames.pop();
+            // Pop first so the owned `frame.local_upvalue_ids` Vec
+            // can be passed to `close_upvalues` without cloning.
+            // `close_upvalues` reads `self.stack[frame_base + slot]`
+            // by absolute index, so doing the pop before the stack
+            // truncate (which happens after the loop) is still safe.
+            let frame = self
+                .frames
+                .pop()
+                .expect("frames.len() > entry_frames per loop guard");
+            self.close_upvalues(&frame.local_upvalue_ids);
         }
         self.stack.truncate(entry_stack_depth);
         // Outer restore for the fields whose inner save/restore
