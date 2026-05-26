@@ -30,11 +30,15 @@ Agent prompt は「Read axes.md Axis N → apply `Detect` の `[diff]`/`[plan]`/
 
 ## Axis 1 — Layering mandate
 
-**Purpose**: `vm/host/*` は engine-bound 責務のみ。DOM algorithm は `elidex-dom-api` / `elidex-form` / `elidex-css` / `elidex-script-session::DomApiHandler` 経由。
+**Purpose**: 2 つの layering 軸を扱う:
+- (a) **Engine vs Host**: `vm/host/*` は engine-bound 責務のみ。DOM algorithm は `elidex-dom-api` / `elidex-form` / `elidex-css` / `elidex-script-session::DomApiHandler` 経由
+- (b) **Core vs Compat**: elidex-js **core** = ES2020+ strict-mode-only baseline。LegacySemantics (sloppy mode / Annex B / sloppy direct-eval / var hoisting quirks / `arguments.callee` `.caller` / `with` 文 / `__proto__` accessor 等) は compat plugin 領域、core VM では実装しない (design doc §14.1)
 
-**Reference**: `CLAUDE.md` § "Layering mandate (2026-05-04 incident 由来)" / `memory/m4-12-architectural-drift-incident.md` (PR #151: 4 R-loop × 17 IMP findings before drift detected)
+**Reference**: `CLAUDE.md` § "Layering mandate (2026-05-04 incident 由来)" / `memory/m4-12-architectural-drift-incident.md` (PR #151: 4 R-loop × 17 IMP findings before drift detected) / `memory/reference_elidex-js-core-strict-only.md` (D-17b-r2 由来、core/compat split judgment axis)
 
 ### Detect
+
+**(a) Engine vs Host**:
 
 - `[both]` `vm/host/*.rs` に 10+ LoC の loop / walker / state machine / coercion algorithm を新規追加または拡張 (diff: 該当行、plan: §Body/§Implementation 記述)
 - `[both]` `EcsDom::traverse_descendants` / `find_by_id` / `with_attribute` 等の direct call が marshalling 用途 (entity 取得 / 単純 attribute read / wrapper 生成) を超える
@@ -42,7 +46,15 @@ Agent prompt は「Read axes.md Axis N → apply `Detect` の `[diff]`/`[plan]`/
 - `[both]` 既存 engine-indep crate (`elidex-dom-api` / `elidex-form` / `elidex-css` / `elidex-script-session::DomApiHandler`) に類似 API があるかの確認・経由明示の有無
 - `[plan]` plan §"Layering check" / §"Architecture" に既存 crate API への mapping 表が欠落 (MIN)
 
-**Acceptable exceptions**: engine 自体 (boa_engine / hecs 等 low-level) / legacy code 変更無し
+**(b) Core vs Compat (design doc §14.1)**:
+
+- `[both]` core VM (`crates/script/elidex-js/src/vm/` 内、`host/` 除く) で LegacySemantics 機能 (sloppy mode coercion / Annex B / sloppy direct-eval scope injection / var hoisting quirks / `arguments.callee` `.caller` / `with` 文 / `__proto__` accessor / RegExp legacy / 文字列HTMLメソッド) を実装 → **CRIT/IMP** (compat plugin 領域に移管 OR drop)
+- `[plan]` plan-memo で **direct/indirect eval 区別 / sloppy mode flag / Annex B 専用 dispatch path / var hoisting quirks 専用 opcode** 等の motivation で defer slot 立てる案が出ている → **IMP** (core では不要、compat plugin 着手まで slot 不要)
+- `[plan]` plan-memo の `FrameKind` / opcode / dispatch path 拡張案が "direct/indirect eval semantic 区別" "sloppy this auto-boxing" 等 LegacySemantics 機能を motivation にしている → **IMP** (core scope 外、`memory/reference_elidex-js-core-strict-only.md` 参照)
+
+**Acceptable exceptions**:
+- (a) engine 自体 (boa_engine / hecs 等 low-level) / legacy code 変更無し
+- (b) motivation が "compat plugin 設計時の hand-off note" として明示されている (= "本 slot は LegacySemantics plugin 着手時に再評価" と書かれている) → FP-allowed
 
 ### Output format
 
