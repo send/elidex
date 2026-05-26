@@ -7,9 +7,9 @@
 //! invariant under `VmInner::completion_value`.
 //!
 //! Coverage matches the plan-memo §7.9 Phase 8 test plan: Eval-frame
-//! completion capture + Function-frame implicit-fall-through-Undefined
-//! + class-ctor instance return (carve-out absorption regression) +
-//! nested `eval` isolation + native re-entry isolation + cross-frame
+//! completion capture, Function-frame implicit-fall-through-Undefined,
+//! class-ctor instance return (carve-out absorption regression),
+//! nested `eval` isolation, native re-entry isolation, and cross-frame
 //! Op::Throw unwind safety.
 //!
 //! Spec citations via the plan-memo §0.5 table:
@@ -237,8 +237,7 @@ fn saved_completion_stack_roots_displaced_object_through_gc() {
         extensible: true,
     });
     vm.inner.completion_value = JsValue::Object(displaced_id);
-    let _ = vm
-        .inner
+    vm.inner
         .with_call_mode(CallMode::Call, |inner, _mode| {
             // Inner-Eval-shaped overwrite: now `completion_value` no
             // longer references `displaced_id`; the only live
@@ -259,7 +258,7 @@ fn saved_completion_stack_roots_displaced_object_through_gc() {
     // Slot must still be alive — `get_object` would panic on a freed
     // slot. The successful read proves `saved_completion_stack` was
     // walked during the mid-closure GC.
-    let _ = vm.inner.get_object(displaced_id);
+    let _ignored = vm.inner.get_object(displaced_id);
 }
 
 #[test]
