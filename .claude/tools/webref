@@ -810,9 +810,13 @@ class _SectionExtractor(html.parser.HTMLParser):
         self._list_stack: list[list] = []  # [[tag, counter], ...]
         # <pre> preserves whitespace; track depth so nested <pre> still works.
         # `_had_pre` records "ever entered a <pre>" for the post-processing
-        # gate — when True, we skip the cosmetic `\n{3,}` collapse + `.strip()`
-        # in `extract()` so <pre> content remains byte-for-byte verbatim, as
-        # the class docstring promises.
+        # gate — when True, we skip the cosmetic `\n{3,}` collapse in
+        # `extract()` so any intentional blank lines inside <pre> survive.
+        # Boundary newlines (very start / very end of the captured region)
+        # are still trimmed via `.strip("\n")` because they originate from
+        # block-tag open/close emissions, not from <pre> content; this
+        # preserves the in-pre content unchanged while keeping the output
+        # free of leading/trailing blank lines.
         self._pre_depth = 0
         self._had_pre = False
         # Skip-content depth (script/style)
@@ -1050,9 +1054,8 @@ def cmd_body(args: argparse.Namespace) -> None:
             resolved = _lookup_aoid_first(args.shortname, raw)
             if resolved is None:
                 sys.exit(
-                    f"webref: {raw!r} is neither a known anchor (no id match "
-                    f"in {args.shortname} biblio across clause / op / table / "
-                    f"figure / term / production entries) nor a recognized "
+                    f"webref: {raw!r} is neither a known anchor (no id "
+                    f"match in {args.shortname} biblio) nor a recognized "
                     f"abstract operation"
                 )
             _, _, full_anchor = resolved
@@ -1066,10 +1069,10 @@ def cmd_body(args: argparse.Namespace) -> None:
             fetch_url, file_anchor = direct
         else:
             sys.exit(
-                f"webref: anchor {raw!r} not found in {args.shortname} biblio "
-                f"(checked clause / op / table / figure / term / production "
-                f"entries; if you meant an abstract operation, use the "
-                f"CamelCase name like `IteratorClose`)"
+                f"webref: anchor {raw!r} not found in {args.shortname} "
+                f"biblio (no id match across any entry type; if you meant "
+                f"an abstract operation, use the CamelCase name like "
+                f"`IteratorClose`)"
             )
     else:
         fetch_url, file_anchor = _resolve_body_source(args.shortname, anchor)
