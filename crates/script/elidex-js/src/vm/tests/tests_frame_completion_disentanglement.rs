@@ -200,48 +200,66 @@ fn inner_function_expressions_do_not_leak_to_outer_completion() {
 
 // ---------------------------------------------------------------------------
 // GC root coverage for `with_call_mode`'s saved completion_value —
-// regression for the D-17b-r2 review F1 finding: the post-r2 outer
+// regression for the D-17b-r2 review F1 finding: the outer
 // save/restore lives in `VmInner::saved_completion_stack` (walked by
 // `gc/roots.rs::mark_roots`), not a Rust local, so a heap Object
 // displaced from `self.completion_value` by an inner Eval body's
-// `Op::Pop` survives a mid-closure GC.
+// `Op::Pop` survives a mid-closure GC. Verified directly at the
+// VmInner level — pure-JS exercise is not viable because elidex-js
+// does not expose a JS-level `eval()` global (per design doc §14.1
+// strict-only baseline), so an inner Eval body can only be entered
+// via the host API `Vm::eval`.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn nested_eval_under_gc_preserves_outer_completion_object() {
-    // Outer eval body: stash an Object identity in `globalThis.outer`,
-    // then run a nested re-entry-shaped construct (`if` condition
-    // consumes via Op::JumpIfFalse, no Op::Pop overwrite afterward)
-    // and end the script with a fresh read of `globalThis.outer`.
-    // The Object identity must survive even when the inner eval body
-    // forces a GC cycle (`allocLots()` shape, expressed here with a
-    // large array literal to bump `gc_bytes_since_last`). The strong
-    // root through `globalThis.outer` is the test's anchor — but the
-    // r2 fix specifically widens GC root coverage to `with_call_mode`'s
-    // saved value, so the test additionally exercises an inner
-    // `Vm::eval`-shaped path via a synchronously-evaluated nested eval
-    // (no host re-entry needed: the spec-level outer is an
-    // ExpressionStatement whose result lands in `completion_value`,
-    // and the inner construct overwrites and then doesn't overwrite
-    // again before script end).
+fn saved_completion_stack_roots_displaced_object_through_gc() {
+    // Direct VmInner exercise: simulate the inner-Eval scenario by
+    // (1) placing a heap Object in `completion_value`,
+    // (2) entering `with_call_mode` (which pushes that Object onto
+    //     `saved_completion_stack`),
+    // (3) overwriting `completion_value` from inside the closure with
+    //     an unrelated value AND triggering a full GC cycle,
+    // (4) confirming the Object is still alive (not swept) and the
+    //     cleanup restore writes it back to `completion_value`.
     //
-    // Test contract: `globalThis.outer === capturedOuter` after the
-    // script returns. Pre-fix this could fail under GC pressure
-    // because the slot held by `completion_value` would have been
-    // collected and reused; post-fix the slot is reachable via
-    // `saved_completion_stack` for the duration of every
-    // `with_call_mode` closure.
+    // The closure body uses `VmInner` mutation rather than running
+    // bytecode so the test isolates the GC-root invariant from the
+    // dispatch loop. The `force_collect_garbage` path runs the same
+    // mark phase that an alloc-driven cycle would, exercising
+    // `gc/roots.rs:mark_roots`'s walk of `saved_completion_stack`.
+    use super::super::value::{CallMode, Object, ObjectKind, PropertyStorage};
+    use super::super::Vm;
     let mut vm = Vm::new();
-    let setup = vm
-        .eval(
-            "let captured = ({tag:'outer'}); \
-             globalThis.outer = captured; \
-             let arr = new Array(1024); \
-             for (let i = 0; i < arr.length; i++) arr[i] = ({slot:i}); \
-             globalThis.outer === captured",
-        )
+    let displaced_id = vm.inner.alloc_object(Object {
+        kind: ObjectKind::Ordinary,
+        storage: PropertyStorage::shaped(super::super::shape::ROOT_SHAPE),
+        prototype: vm.inner.object_prototype,
+        extensible: true,
+    });
+    vm.inner.completion_value = JsValue::Object(displaced_id);
+    let _ = vm
+        .inner
+        .with_call_mode(CallMode::Call, |inner, _mode| {
+            // Inner-Eval-shaped overwrite: now `completion_value` no
+            // longer references `displaced_id`; the only live
+            // reference is `saved_completion_stack`'s top entry.
+            inner.completion_value = JsValue::Number(0.0);
+            // Force a full mark/sweep cycle. Without
+            // `saved_completion_stack` in `GcRoots`, the displaced
+            // Object would be marked dead and its slot reclaimed.
+            inner.collect_garbage();
+            Ok::<(), super::super::value::VmError>(())
+        })
         .unwrap();
-    assert_eq!(setup, JsValue::Boolean(true));
+    assert_eq!(
+        vm.inner.completion_value,
+        JsValue::Object(displaced_id),
+        "cleanup must restore the displaced Object",
+    );
+    // Slot must still be alive — `get_object` would panic on a freed
+    // slot. The successful read proves `saved_completion_stack` was
+    // walked during the mid-closure GC.
+    let _ = vm.inner.get_object(displaced_id);
 }
 
 #[test]

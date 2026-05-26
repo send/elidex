@@ -55,7 +55,7 @@ fn classify_heritage(prog: &Program, super_class: Option<NodeId<Expr>>) -> Class
 /// Sug#4 close).
 ///
 /// `is_class_ctor: true` is consumed by
-/// `VmInner::push_js_call_frame` for the ECMA-262 §10.2.1 step 2
+/// `VmInner::push_js_call_frame` for the ECMA-262 §10.2.1 step 4
 /// "class constructor invoked without `new`" TypeError guard and to
 /// thread `CallFrame::home_class` for `super()` resolution ([C16]
 /// ClassDefinitionEvaluation). The function/ctor body's implicit
@@ -139,7 +139,7 @@ pub(super) fn compile_class(
         // [`FrameKind::Function`], so `Op::ReturnUndefined` returns
         // literal Undefined and `construct_synchronous` substitutes
         // the constructed instance per §10.2.2 step 12-13. The
-        // upgrade.rs §4.13.5 step 12.2 SameValue check thus sees the
+        // upgrade.rs §4.13.5 step 9.4 SameValue check thus sees the
         // constructed instance, not the super-call's return.
         let bytecode = vec![
             Op::GetLocal as u8,

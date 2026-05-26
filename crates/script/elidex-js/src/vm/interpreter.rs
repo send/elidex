@@ -463,7 +463,7 @@ impl VmInner {
         upvalue_ids: Arc<[UpvalueId]>,
         kind: FrameKind,
     ) -> Result<JsValue, VmError> {
-        // ECMA-262 §10.2.1 step 2: class constructors throw a
+        // ECMA-262 §10.2.1 step 4: class constructors throw a
         // TypeError when invoked in `[[Call]]` mode (i.e. without
         // `new`). `call_internal` builds its frame inline rather
         // than via `push_js_call_frame` (where the equivalent guard
@@ -684,7 +684,7 @@ impl VmInner {
     ///
     /// Returns `Err` (without mutating the stack or frame state)
     /// when invoked in [`CallMode::Call`] mode on a class
-    /// constructor — ECMA-262 §10.2.1 step 2 requires throwing a
+    /// constructor — ECMA-262 §10.2.1 step 4 requires throwing a
     /// `TypeError` at the call boundary. Single chokepoint for this
     /// check so every Op::Call / Op::CallMethod / Vm::call entry
     /// path inherits the gate without per-site duplication
@@ -700,7 +700,7 @@ impl VmInner {
         mode: super::value::CallMode,
     ) -> Result<(), VmError> {
         let compiled = self.get_compiled(callee.func_id);
-        // ECMA-262 §10.2.1 step 2 — class constructor in call mode is
+        // ECMA-262 §10.2.1 step 4 — class constructor in call mode is
         // a TypeError. Construct-mode entries (`do_new` /
         // `construct_synchronous`) pass [`CallMode::Construct`] and so
         // bypass this guard.
