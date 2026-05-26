@@ -242,9 +242,9 @@ pub(super) fn trace_work_list(
                 }
                 if let Some(susp) = &state.suspended {
                     // The suspended frame carries its own set of roots —
-                    // this_value, upvalue_ids, actual_args, saved_completion,
-                    // new_instance, and the stack slice that was taken off
-                    // the VM stack at yield time.
+                    // this_value, upvalue_ids, actual_args, new_instance,
+                    // and the stack slice that was taken off the VM stack
+                    // at yield time.
                     mark_value(susp.frame.this_value, obj_marks, work);
                     for &uv_id in susp.frame.upvalue_ids.iter() {
                         mark_upvalue(uv_id, upvalues, uv_marks, obj_marks, work);
@@ -267,7 +267,6 @@ pub(super) fn trace_work_list(
                     if let Some(id) = susp.frame.home_class {
                         mark_object(id, obj_marks, work);
                     }
-                    mark_value(susp.frame.saved_completion, obj_marks, work);
                     match susp.frame.pending_completion.as_deref() {
                         Some(
                             super::super::value::FrameCompletion::Return(v)

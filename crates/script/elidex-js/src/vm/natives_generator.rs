@@ -27,11 +27,15 @@ use super::VmInner;
 ///
 /// Semantics captured here:
 /// - Pop the current frame out of `vm.frames` and drain its stack slice.
-/// - Restore the caller's `completion_value`.
 /// - Close every open upvalue pointing at this frame's locals (save the
 ///   `(uv_id, slot)` pairs so `resume_generator` can reopen).
 /// - Rebase frame-relative handler depths.
 /// - Mark the generator `SuspendedYield` with the built [`SuspendedFrame`].
+///
+/// Generator frames are [`super::value::FrameKind::Function`], so the
+/// body's `Op::Pop` / `Op::ReturnUndefined` arms never touch
+/// `VmInner::completion_value` — the caller's value is preserved
+/// invariantly across the yield without an explicit save/restore.
 pub(crate) fn op_yield_suspend(
     vm: &mut VmInner,
     frame_idx: usize,
@@ -43,7 +47,6 @@ pub(crate) fn op_yield_suspend(
 
     let mut frame = vm.frames.pop().expect("frame for Yield");
     let stack_slice: Vec<JsValue> = vm.stack.drain(frame.base..).collect();
-    vm.completion_value = frame.saved_completion;
 
     // Close open upvalues; remember their slots for the later reopen.
     let mut upvalue_slots = Vec::with_capacity(frame.local_upvalue_ids.len());
@@ -188,10 +191,6 @@ impl VmInner {
             // stack_depth was made frame-relative in Op::Yield; restore.
             h.stack_depth += new_base;
         }
-        // Preserve the caller's completion_value across the resumed body.
-        let saved_completion = self.completion_value;
-        self.completion_value = JsValue::Undefined;
-        frame.saved_completion = saved_completion;
 
         let mark_completed = |vm: &mut Self| {
             if let ObjectKind::Generator(state) = &mut vm.get_object_mut(gen_id).kind {
@@ -234,7 +233,6 @@ impl VmInner {
                         self.upvalues[uv_id.0 as usize].state = UpvalueState::Closed(val);
                     }
                     self.stack.truncate(new_base);
-                    self.completion_value = saved_completion;
                     mark_completed(self);
                     return Ok((v, true));
                 }
@@ -268,7 +266,6 @@ impl VmInner {
                     }
                     self.stack.truncate(new_base);
                     self.frames.pop();
-                    self.completion_value = saved_completion;
                     mark_completed(self);
                     return Err(VmError::throw(reason));
                 }
@@ -294,7 +291,6 @@ impl VmInner {
         // Taking the yield marker tells us whether to treat run_result as
         // a yield value (discard) or a return value (propagate).
         let yielded = self.generator_yielded.take();
-        self.completion_value = saved_completion;
 
         match run_result {
             Ok(_) if yielded.is_some() => {

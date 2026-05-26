@@ -862,6 +862,37 @@ pub enum UpvalueState {
 // CallFrame
 // ---------------------------------------------------------------------------
 
+/// Frame-level discriminator separating script/`eval` completion-value
+/// semantics (ECMA-262 §16.1.6 ScriptEvaluation step 13.a + 13.b + 17 /
+/// §19.2.1.1 PerformEval step 29.a + 30.a + 33) from function/ctor body
+/// return semantics (§10.2.1 `[[Call]]` step 8 / §10.2.2 `[[Construct]]`
+/// step 11-13/15-17, with the body completion modeled by §10.2.1.4
+/// OrdinaryCallEvaluateBody + §15.2.3 EvaluateFunctionBody step 4
+/// `ReturnCompletion(undefined)`).
+///
+/// Frames with `kind = Eval` write the last ExpressionStatement value to
+/// `VmInner::completion_value` via the entry-gated `Op::Pop` arm and
+/// return that value on implicit fall-through; frames with
+/// `kind = Function` never touch `completion_value` (Op::Pop discards,
+/// Op::ReturnUndefined returns literal Undefined). The type-level split
+/// dissolves the pre-D-17b-r2 `is_class_ctor` carve-out and the
+/// `CallFrame::saved_completion` save/restore plumbing.
+///
+/// Generators and async function bodies remain `Function` — their
+/// completion machinery (§27.5.3.3 GeneratorResume /
+/// §27.7.5.1 AsyncFunctionStart) is a separate concern and does not
+/// observe `completion_value`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FrameKind {
+    /// Top-level script body or `eval` body — the entry-gated `Op::Pop`
+    /// captures the last ExpressionStatement value into
+    /// `completion_value`, returned on implicit fall-through.
+    Eval,
+    /// Function / method / class-ctor / generator / async body —
+    /// `completion_value` is invariant across the frame's run.
+    Function,
+}
+
 /// A single call frame on the VM's call stack.
 pub struct CallFrame {
     /// The compiled function being executed.
@@ -915,8 +946,19 @@ pub struct CallFrame {
     /// `home_class = None`, so any future super-property reader
     /// trips a SyntaxError fallback rather than consuming wrong data.
     pub home_class: Option<ObjectId>,
-    /// Saved `completion_value` from the parent scope, restored on return.
-    pub saved_completion: JsValue,
+    /// Frame-kind discriminator (Eval / Function); see [`FrameKind`].
+    /// Drives the entry-frame `Op::Pop` gate and `Op::ReturnUndefined`
+    /// branch so script/`eval` completion-value semantics stay confined
+    /// to `Eval` frames; the only `Eval` push site is the private
+    /// `VmInner::run_function`, reached via the public `Vm::eval` /
+    /// `Vm::run_script` host entry points. elidex-js core does not
+    /// expose a JS-level `eval()` global (per design doc §14.1
+    /// strict-only baseline at `docs/design/ja/14-script-engines-webapi.md`),
+    /// so all `FrameKind::Eval` frames originate at the Rust-level
+    /// host boundary; sloppy direct-eval is LegacySemantics compat-
+    /// plugin territory and would not need its own `FrameKind`
+    /// variant (same dispatch shape, plugin-level scope injection).
+    pub kind: FrameKind,
     /// If set, this frame belongs to a generator; `Op::Yield` suspends
     /// into this generator object instead of completing normally.  `None`
     /// for ordinary (non-generator) frames.

@@ -8,7 +8,7 @@ use crate::bytecode::opcode::Op;
 use super::coerce::{abstract_eq, strict_eq, to_boolean, to_number, typeof_str};
 use super::coerce_ops::{op_bitnot, op_neg, op_not, op_pos, op_void, BitwiseOp, NumericBinaryOp};
 use super::ops::{parse_array_index_u16, try_as_array_index, EndFinallyAction};
-use super::value::{JsValue, ObjectId, ObjectKind, PropertyKey, VmError, VmErrorKind};
+use super::value::{FrameKind, JsValue, ObjectId, ObjectKind, PropertyKey, VmError, VmErrorKind};
 use super::VmInner;
 
 /// §12.5.3.2 DeleteExpression: strict-mode TypeError message when
@@ -44,9 +44,23 @@ impl VmInner {
             if ip >= bytecode.len() {
                 // Fell off the end → implicit ReturnUndefined.
                 if frame_idx == entry_frame_depth {
-                    let completion = self.completion_value;
+                    let completion = match self.frames[frame_idx].kind {
+                        // ECMA-262 §16.1.6 ScriptEvaluation step 13.a + 13.b +
+                        // 17 / §19.2.1.1 PerformEval step 29.a + 30.a + 33 —
+                        // script/eval bodies surface the last
+                        // ExpressionStatement value captured by the entry-
+                        // gated `Op::Pop` arm.
+                        FrameKind::Eval => {
+                            let v = self.completion_value;
+                            self.completion_value = JsValue::Undefined;
+                            v
+                        }
+                        // ECMA-262 §10.2.1.4 OrdinaryCallEvaluateBody +
+                        // §15.2.3 step 4 — function bodies implicit-return
+                        // `ReturnCompletion(undefined)`.
+                        FrameKind::Function => JsValue::Undefined,
+                    };
                     self.pop_frame();
-                    self.completion_value = JsValue::Undefined;
                     return Ok(completion);
                 }
                 self.complete_inline_frame(JsValue::Undefined);
@@ -80,8 +94,18 @@ impl VmInner {
                 }
                 Op::Pop => {
                     let val = self.pop()?;
-                    // At script (entry) level, capture completion value for eval.
-                    if frame_idx == entry_frame_depth {
+                    // Capture the last ExpressionStatement value into
+                    // `completion_value` only for script/`eval` bodies
+                    // (ECMA-262 §16.1.6 step 13.a / §19.2.1.1 step 29.a).
+                    // Function/class-ctor/generator/async bodies discard:
+                    // §10.2.1.4 OCEB + §15.2.3 step 4 yield
+                    // `ReturnCompletion(undefined)` regardless of any
+                    // trailing expression's value. The entry-depth check
+                    // pairs the gate to the only frame whose
+                    // `completion_value` write is observable on return.
+                    if frame_idx == entry_frame_depth
+                        && self.frames[frame_idx].kind == FrameKind::Eval
+                    {
                         self.completion_value = val;
                     }
                 }
@@ -507,26 +531,32 @@ impl VmInner {
                 }
                 Op::ReturnUndefined => {
                     if frame_idx == entry_frame_depth {
-                        // Class-ctor frames returning implicitly must
-                        // yield Undefined (per ECMA-262 §10.2.1 / [C16]
-                        // implicit-return-undefined for class bodies),
-                        // NOT the trailing ExpressionStatement's
-                        // completion-value. Without this carve-out, a
-                        // user ctor like `constructor() { super(); ({});
-                        // }` would leak `{}` into construct_synchronous's
-                        // return path, tripping the HTML §4.13.5 step
-                        // 12.2 SameValue check in invoke_upgrade. Script-
-                        // entry top-level (non-class) eval continues to
-                        // observe completion_value as the eval result.
-                        let is_class_ctor =
-                            self.compiled_functions[func_id.0 as usize].is_class_ctor;
-                        let return_val = if is_class_ctor {
-                            JsValue::Undefined
-                        } else {
-                            self.completion_value
+                        let return_val = match self.frames[frame_idx].kind {
+                            // ECMA-262 §16.1.6 ScriptEvaluation step 13.a +
+                            // 13.b + 17 / §19.2.1.1 PerformEval step 29.a +
+                            // 30.a + 33 — script/`eval` bodies surface the
+                            // last ExpressionStatement value captured by
+                            // the entry-gated `Op::Pop` arm.
+                            FrameKind::Eval => {
+                                let v = self.completion_value;
+                                self.completion_value = JsValue::Undefined;
+                                v
+                            }
+                            // ECMA-262 §10.2.1.4 OrdinaryCallEvaluateBody +
+                            // §15.2.3 step 4 — function / class-ctor /
+                            // generator / async bodies implicit-return
+                            // `ReturnCompletion(undefined)`. The class-ctor
+                            // [[Construct]]-observable substitute (§10.2.2
+                            // step 12-13 thisArgument or step 15-17
+                            // thisBinding) happens out-of-band after this
+                            // Undefined surfaces: `do_new` /
+                            // `complete_inline_frame` for the common `new
+                            // X(...)` path, `construct_synchronous` for
+                            // `super(...)` / CE upgrade / native-ctor
+                            // entries — no `is_class_ctor` carve-out here.
+                            FrameKind::Function => JsValue::Undefined,
                         };
                         self.pop_frame();
-                        self.completion_value = JsValue::Undefined;
                         return Ok(return_val);
                     }
                     self.complete_inline_frame(JsValue::Undefined);
@@ -767,7 +797,6 @@ impl VmInner {
                     while self.frames.len() > entry_frame_depth + 1 {
                         let frame = self.frames.pop().unwrap();
                         self.close_upvalues(&frame.local_upvalue_ids);
-                        self.completion_value = frame.saved_completion;
                         self.stack.truncate(frame.cleanup_base);
                     }
                     return Err(VmError {
@@ -1066,7 +1095,6 @@ impl VmInner {
     pub(crate) fn complete_inline_frame(&mut self, return_value: JsValue) {
         let frame = self.frames.pop().unwrap();
         self.close_upvalues(&frame.local_upvalue_ids);
-        self.completion_value = frame.saved_completion;
         let final_val = if let Some(instance_id) = frame.new_instance {
             if matches!(return_value, JsValue::Object(_)) {
                 return_value

@@ -448,7 +448,7 @@ fn customelements_upgrade_method_requires_node_arg() {
 
 #[test]
 fn customelements_ctor_returning_different_object_marks_failed() {
-    // HTML §4.13.5 "upgrade an element" step 12.2 — if the
+    // HTML §4.13.5 "upgrade an element" step 9.4 — if the
     // constructor returns an object that is not SameValue with the
     // element, mark Failed + throw NotSupportedError. The throw is
     // swallowed at the upgrade-flush boundary (Window.onerror path);

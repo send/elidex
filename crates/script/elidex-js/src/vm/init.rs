@@ -97,6 +97,7 @@ impl Vm {
                 // Placeholder — immediately replaced by register_globals().
                 global_object: ObjectId(0),
                 completion_value: JsValue::Undefined,
+                saved_completion_stack: Vec::new(),
                 current_exception: JsValue::Undefined,
                 rng_state: {
                     // Seed from OS-RNG via RandomState so each Vm gets a

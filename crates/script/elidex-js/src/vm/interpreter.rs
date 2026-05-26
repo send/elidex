@@ -8,7 +8,8 @@ use crate::bytecode::compiled::CompiledScript;
 use std::sync::Arc;
 
 use super::value::{
-    CallFrame, FuncId, JsCalleeInfo, JsValue, ObjectId, ObjectKind, UpvalueId, VmError, VmErrorKind,
+    CallFrame, FrameKind, FuncId, JsCalleeInfo, JsValue, ObjectId, ObjectKind, UpvalueId, VmError,
+    VmErrorKind,
 };
 use super::VmInner;
 
@@ -133,22 +134,24 @@ impl VmInner {
     ///   `self.gc_enabled`, `self.active_bound_key`, and
     ///   `self.completion_value` are saved on entry and restored
     ///   unconditionally on every exit path (Ok/Err return + panic
-    ///   re-raise). This is a safety net that wraps each
-    ///   per-frame `saved_*` restore (`call_internal`'s
-    ///   `completion_value = saved_completion`, NativeFunction arm's
+    ///   re-raise). For `gc_enabled` / `active_bound_key` this is a
+    ///   safety net that wraps the NativeFunction arm's per-call
     ///   `gc_enabled = saved_gc` / `active_bound_key =
-    ///   saved_bound_key`) — if a panic skips the inner restores,
-    ///   the outer restore here puts each field back to its
+    ///   saved_bound_key` — if a panic skips the inner restore, the
+    ///   outer restore here puts the field back to its
     ///   pre-`with_call_mode` value, preventing `gc_enabled = false`
     ///   from persisting (which would silently disable GC for the
-    ///   rest of the VM's lifetime), `active_bound_key` from
+    ///   rest of the VM's lifetime) and `active_bound_key` from
     ///   leaking a stale bound-key into the next bound-accessor
-    ///   invocation, and `completion_value` from corrupting the
-    ///   caller's evaluation state across a nested `run()` /
-    ///   `push_js_call_frame` dispatch (e.g. the
-    ///   `construct_synchronous` JS branch). The redundant Ok-path
-    ///   restores are no-ops (same value the inner restores already
-    ///   wrote).
+    ///   invocation. For `completion_value` this **is** the save /
+    ///   restore (no inner pair after D-17b-r2
+    ///   `#11-frame-completion-disentanglement`): the
+    ///   [`super::value::FrameKind`] split makes Function-kind frames
+    ///   leave `completion_value` invariant, so the only writes are
+    ///   Eval-kind frames inside a `with_call_mode` boundary, and
+    ///   this outer restore preserves the caller's value across the
+    ///   inner Eval body (nested `Vm::eval`, `construct_synchronous`
+    ///   JS branch, or any native callback that re-enters).
     /// * **Leaked-but-acceptable on panic**: `exception_handlers`
     ///   on popped frames (handlers belong to the truncated frames
     ///   and die with them — no leak).
@@ -163,30 +166,39 @@ impl VmInner {
         use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
         let entry_frames = self.frames.len();
         let entry_stack_depth = self.stack.len();
-        // Snapshot VmInner fields that inner save/restore patterns
-        // (`call_internal`'s `saved_completion`, NativeFunction
-        // arm's `saved_gc` / `saved_bound_key`) may skip on a Rust
-        // panic. `cleanup` below restores each field to its
-        // pre-with_call_mode value unconditionally — preventing
-        // `gc_enabled = false` from persisting (and disabling GC
-        // for the VM's remaining lifetime), `active_bound_key`
-        // leaking a stale bound-key into the next bound-accessor
-        // invocation, and `completion_value` corrupting the
-        // caller's evaluation state across a nested `run()` /
-        // `push_js_call_frame` dispatch (e.g. the
-        // `construct_synchronous` JS branch). Redundant on Ok/Err
-        // return paths (inner restores already wrote the same value).
+        // Snapshot VmInner fields restored unconditionally on every
+        // exit path below. For `gc_enabled` / `active_bound_key`
+        // this wraps the NativeFunction arm's per-call save/restore
+        // (`saved_gc` / `saved_bound_key`), guarding against panics
+        // that skip the inner restore. For `completion_value` this
+        // **is** the save/restore — the [`super::value::FrameKind`]
+        // split makes Function-kind frames invariant under
+        // `completion_value`, so this boundary preserves the
+        // caller's value across any Eval body re-entered inside the
+        // closure (D-17b-r2 `#11-frame-completion-disentanglement`).
+        //
+        // `completion_value` is pushed onto `saved_completion_stack`
+        // (walked by `gc/roots.rs::mark_roots`) rather than kept in
+        // a Rust local — without that, an outer-scope heap Object
+        // held only by the Rust local would be unreachable to GC
+        // when the closure overwrites `self.completion_value` (e.g.
+        // an inner Eval body's entry-gated `Op::Pop` write), so a
+        // collection mid-closure would sweep the slot and the
+        // cleanup restore below would write a dangling ObjectId back
+        // into VmInner. Pre-r2 the analogous root was
+        // `CallFrame::saved_completion` (walked by
+        // `super::gc::roots::mark_roots`'s frame loop before this PR).
         let saved_gc_enabled = self.gc_enabled;
         let saved_active_bound_key = self.active_bound_key;
-        let saved_completion_value = self.completion_value;
+        self.saved_completion_stack.push(self.completion_value);
         let result = catch_unwind(AssertUnwindSafe(|| f(self, mode)));
         // R19 spirit preserved via three-way split debug_assert:
         //   (a) no panic + inner Ok: strict `==` — normal return must
         //       restore the exact entry frame depth (push/pop balance).
         //   (b) no panic + inner Err: weak `>=` — an uncaught JS throw
         //       may leave the pushed call frame on the stack (matches
-        //       pre-r1 `call_internal:511` cleanup), `frames.truncate`
-        //       below cleans it.
+        //       `call_internal`'s post-`run()` error-cleanup), and
+        //       the truncate below cleans it.
         //   (c) panic (catch_unwind Err): weak `>=` — panic-recovery
         //       may have pushed-but-stuck entries the truncate cleans.
         // Shared `>=` bound on the value stack catches underflow in
@@ -244,13 +256,18 @@ impl VmInner {
             self.close_upvalues(&frame.local_upvalue_ids);
         }
         self.stack.truncate(entry_stack_depth);
-        // Outer restore for the fields whose inner save/restore
-        // (call_internal's saved_completion / NativeFunction arm's
-        // saved_gc + saved_bound_key) may have been skipped on a
-        // Rust panic (see docstring). Runs on Ok/Err/panic equally.
+        // Outer restore (Ok/Err/panic equally). `gc_enabled` /
+        // `active_bound_key` wrap the NativeFunction arm's
+        // per-invocation inner save/restore; `completion_value` is
+        // the sole save/restore boundary (see docstring), kept
+        // alive via `saved_completion_stack` so GC sees it across
+        // any inner Eval write.
         self.gc_enabled = saved_gc_enabled;
         self.active_bound_key = saved_active_bound_key;
-        self.completion_value = saved_completion_value;
+        self.completion_value = self
+            .saved_completion_stack
+            .pop()
+            .expect("with_call_mode push/pop balance");
         match result {
             Ok(r) => r,
             Err(payload) => resume_unwind(payload),
@@ -282,7 +299,13 @@ impl VmInner {
                     let resolved_this =
                         Self::compute_this_for_call(fo.this_mode, effective_this, fo.captured_this);
                     let call_args = owned_args.as_deref().unwrap_or(args);
-                    return self.call_internal(func_id, resolved_this, call_args, upvalue_ids);
+                    return self.call_internal(
+                        func_id,
+                        resolved_this,
+                        call_args,
+                        upvalue_ids,
+                        FrameKind::Function,
+                    );
                 }
                 ObjectKind::NativeFunction(nf) => {
                     let func = nf.func;
@@ -425,6 +448,12 @@ impl VmInner {
     ///
     /// Used by the public `call()` API and `NativeContext` re-entrant calls.
     /// The inline dispatch path uses `push_js_call_frame` instead.
+    ///
+    /// `kind` discriminates script/`eval` body entries (only reached
+    /// via `run_function` from `Vm::eval` / `Vm::run_script`) from
+    /// every other entry; async + generator bodies are always
+    /// `Function`-kind regardless of caller (§27.5/§27.7 completion
+    /// machinery is not script-completion-value-shaped).
     #[allow(clippy::too_many_lines)] // generator + async + regular frame paths
     pub(crate) fn call_internal(
         &mut self,
@@ -432,8 +461,9 @@ impl VmInner {
         this: JsValue,
         args: &[JsValue],
         upvalue_ids: Arc<[UpvalueId]>,
+        kind: FrameKind,
     ) -> Result<JsValue, VmError> {
-        // ECMA-262 §10.2.1 step 2: class constructors throw a
+        // ECMA-262 §10.2.1 step 4: class constructors throw a
         // TypeError when invoked in `[[Call]]` mode (i.e. without
         // `new`). `call_internal` builds its frame inline rather
         // than via `push_js_call_frame` (where the equivalent guard
@@ -459,6 +489,20 @@ impl VmInner {
         let needs_arguments = compiled.needs_arguments;
         let is_generator = compiled.is_generator;
         let is_async = compiled.is_async;
+        // Eval-kind callers (top-level script via `run_function`) must
+        // not target an async or generator FuncId — the suspended-
+        // frame arms below hardcode `FrameKind::Function` and a
+        // mismatched `kind` would be silently dropped. Top-level
+        // script bodies are never async/generator in elidex-js core
+        // (per `docs/design/ja/14-script-engines-webapi.md` §14.1
+        // strict-only baseline + top-level await deferred), so this
+        // is a sanity guard against future refactors that route an
+        // async/generator FuncId through `run_function`.
+        debug_assert!(
+            matches!(kind, FrameKind::Function) || !(is_async || is_generator),
+            "call_internal: FrameKind::Eval requested for async/generator FuncId — \
+             top-level script must be a non-async non-generator function",
+        );
         // `home_class` is always `None` on the `call_internal` entry
         // path: class-ctor invocations (`new ClassCtor(...)`) go
         // through `push_js_call_frame` (which threads
@@ -503,10 +547,6 @@ impl VmInner {
             self.stack[base + rest_slot_idx] = JsValue::Object(arr_id);
         }
 
-        // Save and reset completion_value so that ReturnUndefined in nested
-        // function calls does not leak the parent scope's completion value.
-        let saved_completion = self.completion_value;
-        self.completion_value = JsValue::Undefined;
         let (tdz_bits, tdz_overflow) = CallFrame::tdz_init(local_count);
 
         // Async function re-entry via `call()`: same treatment as the
@@ -514,7 +554,6 @@ impl VmInner {
         // drive one step, returning the wrapper Promise.
         if is_async {
             let stack_slice: Vec<JsValue> = self.stack.drain(base..).collect();
-            self.completion_value = saved_completion;
             let initial_frame = CallFrame {
                 func_id,
                 ip: 0,
@@ -534,7 +573,7 @@ impl VmInner {
                 new_instance: None,
                 mode: super::value::CallMode::Call,
                 home_class,
-                saved_completion: JsValue::Undefined,
+                kind: FrameKind::Function,
                 generator: None,
                 pending_completion: None,
             };
@@ -550,7 +589,6 @@ impl VmInner {
         // object directly — body runs only when `.next()` resumes.
         if is_generator {
             let stack_slice: Vec<JsValue> = self.stack.drain(base..).collect();
-            self.completion_value = saved_completion;
             let initial_frame = CallFrame {
                 func_id,
                 ip: 0,
@@ -570,7 +608,7 @@ impl VmInner {
                 new_instance: None,
                 mode: super::value::CallMode::Call,
                 home_class,
-                saved_completion: JsValue::Undefined,
+                kind: FrameKind::Function,
                 generator: None,
                 pending_completion: None,
             };
@@ -619,7 +657,7 @@ impl VmInner {
             new_instance: None,
             mode: super::value::CallMode::Call,
             home_class,
-            saved_completion,
+            kind,
             generator: None,
             pending_completion: None,
         });
@@ -635,9 +673,6 @@ impl VmInner {
             self.pop_frame();
         }
 
-        // Restore the parent scope's completion value.
-        self.completion_value = saved_completion;
-
         result
     }
 
@@ -649,7 +684,7 @@ impl VmInner {
     ///
     /// Returns `Err` (without mutating the stack or frame state)
     /// when invoked in [`CallMode::Call`] mode on a class
-    /// constructor — ECMA-262 §10.2.1 step 2 requires throwing a
+    /// constructor — ECMA-262 §10.2.1 step 4 requires throwing a
     /// `TypeError` at the call boundary. Single chokepoint for this
     /// check so every Op::Call / Op::CallMethod / Vm::call entry
     /// path inherits the gate without per-site duplication
@@ -665,7 +700,7 @@ impl VmInner {
         mode: super::value::CallMode,
     ) -> Result<(), VmError> {
         let compiled = self.get_compiled(callee.func_id);
-        // ECMA-262 §10.2.1 step 2 — class constructor in call mode is
+        // ECMA-262 §10.2.1 step 4 — class constructor in call mode is
         // a TypeError. Construct-mode entries (`do_new` /
         // `construct_synchronous`) pass [`CallMode::Construct`] and so
         // bypass this guard.
@@ -748,7 +783,6 @@ impl VmInner {
             self.stack[base + rest_slot_idx] = JsValue::Object(arr_id);
         }
 
-        let saved_completion = self.completion_value;
         let (tdz_bits, tdz_overflow) = CallFrame::tdz_init(local_count);
 
         // Async function short-circuit: treated as a Promise-wrapping
@@ -757,7 +791,6 @@ impl VmInner {
         // body yields / returns / throws.
         if is_async {
             let stack_slice: Vec<JsValue> = self.stack.drain(base..).collect();
-            self.completion_value = saved_completion;
             self.stack.truncate(cleanup_base);
             let initial_frame = CallFrame {
                 func_id: callee.func_id,
@@ -774,7 +807,7 @@ impl VmInner {
                 new_instance,
                 mode,
                 home_class,
-                saved_completion: JsValue::Undefined,
+                kind: FrameKind::Function,
                 generator: None,
                 pending_completion: None,
             };
@@ -805,8 +838,6 @@ impl VmInner {
         if is_generator {
             // Take the just-prepared locals as the initial stack slice.
             let stack_slice: Vec<JsValue> = self.stack.drain(base..).collect();
-            // Restore caller's completion_value — we never started the body.
-            self.completion_value = saved_completion;
             // Drop the callee (+ receiver for method calls) that are
             // still sitting below `base` on the stack.
             self.stack.truncate(cleanup_base);
@@ -828,7 +859,7 @@ impl VmInner {
                 new_instance,
                 mode,
                 home_class,
-                saved_completion: JsValue::Undefined,
+                kind: FrameKind::Function,
                 generator: None, // filled in after Generator alloc below
                 pending_completion: None,
             };
@@ -860,7 +891,6 @@ impl VmInner {
             return Ok(());
         }
 
-        self.completion_value = JsValue::Undefined;
         self.frames.push(CallFrame {
             func_id: callee.func_id,
             ip: 0,
@@ -876,7 +906,7 @@ impl VmInner {
             new_instance,
             mode,
             home_class,
-            saved_completion,
+            kind: FrameKind::Function,
             generator: None,
             pending_completion: None,
         });
@@ -884,13 +914,36 @@ impl VmInner {
     }
 
     /// Run a function as the initial (or only) frame.
+    ///
+    /// Sole [`FrameKind::Eval`] push site: top-level script or `eval`
+    /// body invoked via [`Self::eval`] / [`Self::run_script`].
+    /// Wrapping in [`Self::with_call_mode`] (with
+    /// [`super::value::CallMode::Call`]) makes the entry an outer
+    /// save/restore boundary for `completion_value`, so nested
+    /// `Vm::eval` / native re-entry preserves the outer Eval frame's
+    /// script-completion value across the inner body's
+    /// [`super::value::FrameKind::Eval`] writes (ECMA-262 §16.1.6
+    /// step 13.a + 17 / §19.2.1.1 step 29.a + 33). Mirrors `Vm::call`
+    /// / `Vm::call_construct_native`'s panic-safety contract for the
+    /// Eval entry path.
     fn run_function(
         &mut self,
         func_id: FuncId,
         this: JsValue,
         args: &[JsValue],
     ) -> Result<JsValue, VmError> {
-        self.call_internal(func_id, this, args, Arc::from([]))
+        self.with_call_mode(super::value::CallMode::Call, |vm, _mode| {
+            // ECMA-262 §16.1.6 ScriptEvaluation step 13.b — the body's
+            // initial completion is `empty`, surfaced as
+            // `NormalCompletion(undefined)` when no entry-frame
+            // `Op::Pop` write fires (empty source, or last statement
+            // is not an ExpressionStatement). The outer caller's
+            // value is already preserved on `saved_completion_stack`
+            // by `with_call_mode`'s entry push, so resetting here
+            // does not corrupt nested re-entry.
+            vm.completion_value = JsValue::Undefined;
+            vm.call_internal(func_id, this, args, Arc::from([]), FrameKind::Eval)
+        })
     }
 }
 
@@ -946,7 +999,7 @@ mod tests {
                 // Forge a pushed frame, then panic — the helper
                 // must truncate the frames Vec back to
                 // `entry_frames` before resume_unwind.
-                use super::super::value::{CallFrame, FuncId};
+                use super::super::value::{CallFrame, FrameKind, FuncId};
                 use std::sync::Arc;
                 vm.frames.push(CallFrame {
                     func_id: FuncId(0),
@@ -963,7 +1016,7 @@ mod tests {
                     new_instance: None,
                     mode: CallMode::Call,
                     home_class: None,
-                    saved_completion: JsValue::Undefined,
+                    kind: FrameKind::Function,
                     generator: None,
                     pending_completion: None,
                 });
@@ -1028,7 +1081,7 @@ mod tests {
     /// D-17b-r1 code review.
     #[test]
     fn with_call_mode_closes_open_upvalues_on_panic() {
-        use super::super::value::{CallFrame, FuncId, Upvalue, UpvalueId, UpvalueState};
+        use super::super::value::{CallFrame, FrameKind, FuncId, Upvalue, UpvalueId, UpvalueState};
         use std::sync::Arc;
 
         let mut vm = Vm::new();
@@ -1076,7 +1129,7 @@ mod tests {
                     new_instance: None,
                     mode: CallMode::Call,
                     home_class: None,
-                    saved_completion: JsValue::Undefined,
+                    kind: FrameKind::Function,
                     generator: None,
                     pending_completion: None,
                 });
