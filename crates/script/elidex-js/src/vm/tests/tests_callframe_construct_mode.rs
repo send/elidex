@@ -234,9 +234,16 @@ fn with_call_mode_threads_construct_into_closure() {
     // `NativeContext::new_*` threading.
     let mut vm = Vm::new();
     let inner = &mut vm.inner;
-    let nt = inner
-        .error_prototype
-        .unwrap_or(super::super::value::ObjectId(0));
+    // Allocate a fresh sentinel object as new_target so the test
+    // does not depend on which builtin prototypes `Vm::new()` has
+    // already registered (and so an off-by-one `ObjectId(0)`
+    // fallback can't silently mask an initialization regression).
+    let nt = inner.alloc_object(super::super::value::Object {
+        kind: super::super::value::ObjectKind::Ordinary,
+        storage: super::super::value::PropertyStorage::shaped(super::super::shape::ROOT_SHAPE),
+        prototype: None,
+        extensible: true,
+    });
     let result: Result<CallMode, _> =
         inner.with_call_mode(CallMode::Construct { new_target: nt }, |_vm, mode| Ok(mode));
     assert_eq!(result.unwrap(), CallMode::Construct { new_target: nt });

@@ -130,14 +130,21 @@ impl VmInner {
     ///   without this step, an Upvalue in `Open { frame_base, slot }`
     ///   would point at a stack index the truncate just dropped,
     ///   causing OOB or silent slot reuse on subsequent reads.
+    ///   `self.gc_enabled` + `self.active_bound_key` are saved on
+    ///   entry and restored unconditionally on every exit path
+    ///   (Ok/Err return + panic re-raise). This is a safety net that
+    ///   wraps the NativeFunction arm's own save/restore — if a
+    ///   panic skips the inner restore, the outer restore here puts
+    ///   the flag back to its pre-`with_call_mode` value, preventing
+    ///   `gc_enabled = false` from persisting (which would silently
+    ///   disable GC for the rest of the VM's lifetime) or
+    ///   `active_bound_key` from leaking a stale bound-key into the
+    ///   next bound-accessor invocation. The redundant Ok-path
+    ///   restore is a no-op (same value the inner restore already
+    ///   wrote).
     /// * **Leaked-but-acceptable on panic**: `self.completion_value`
     ///   (eval-frame completion is meaningless under a caught panic;
     ///   D-17b-r2 will field-separate so this can be tightened),
-    ///   `gc_enabled` flag + `active_bound_key` (NativeFunction call
-    ///   save/restore is local to that arm — if a panic skips its
-    ///   restore, callers that re-use the VM after `catch_unwind` may
-    ///   observe a wrong-state flag; defer slot
-    ///   `#11-vm-gc-state-save-restore`),
     ///   `exception_handlers` on popped frames (handlers belong to
     ///   the truncated frames and die with them — no leak).
     pub(crate) fn with_call_mode<F, R>(
@@ -151,6 +158,17 @@ impl VmInner {
         use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
         let entry_frames = self.frames.len();
         let entry_stack_depth = self.stack.len();
+        // Snapshot VmInner flags that the NativeFunction arm
+        // (`call_dispatch`) mutates + restores around `func()`. If a
+        // panic from the native body skips the inner restore,
+        // `cleanup` below puts the flag back to its pre-with_call_mode
+        // value — preventing `gc_enabled = false` from persisting and
+        // disabling GC for the VM's remaining lifetime, or
+        // `active_bound_key` leaking a stale bound-key into the next
+        // bound-accessor invocation. Redundant on Ok/Err return paths
+        // (NativeFunction arm already restored to the same value).
+        let saved_gc_enabled = self.gc_enabled;
+        let saved_active_bound_key = self.active_bound_key;
         let result = catch_unwind(AssertUnwindSafe(|| f(self, mode)));
         // R19 spirit preserved via three-way split debug_assert:
         //   (a) no panic + inner Ok: strict `==` — normal return must
@@ -214,6 +232,11 @@ impl VmInner {
             self.frames.pop();
         }
         self.stack.truncate(entry_stack_depth);
+        // Outer restore for the flags the NativeFunction arm's own
+        // save/restore may have skipped on a Rust panic (see
+        // docstring). Runs on Ok/Err/panic equally.
+        self.gc_enabled = saved_gc_enabled;
+        self.active_bound_key = saved_active_bound_key;
         match result {
             Ok(r) => r,
             Err(payload) => resume_unwind(payload),
@@ -1074,6 +1097,51 @@ mod tests {
                 "upvalue still Open after panic-truncate: frame_base={frame_base}, slot={slot}"
             ),
         }
+    }
+
+    /// D-17b-r1 Copilot R2: `with_call_mode` saves `gc_enabled` +
+    /// `active_bound_key` at entry and restores them on every exit
+    /// path (including panic), so a panicked native body that skips
+    /// the NativeFunction arm's inner restore does NOT leak
+    /// `gc_enabled = false` (which would silently disable GC for
+    /// the VM's remaining lifetime) or a stale `active_bound_key`
+    /// (which would mis-attribute bound accessors).
+    #[test]
+    fn with_call_mode_restores_gc_and_bound_key_on_panic() {
+        use super::super::value::StringId;
+
+        let mut vm = Vm::new();
+        let saved_gc = true;
+        let saved_key: Option<StringId> = None;
+        vm.inner.gc_enabled = saved_gc;
+        vm.inner.active_bound_key = saved_key;
+
+        let prev_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _: Result<JsValue, _> = vm.inner.with_call_mode(CallMode::Call, |vm, _mode| {
+                // Simulate the mid-body state the NativeFunction arm
+                // sets up: gc_enabled flipped to false and
+                // active_bound_key set to a forged sentinel — then
+                // panic before either is restored.
+                vm.gc_enabled = false;
+                vm.active_bound_key = Some(super::super::value::StringId(u32::MAX));
+                panic!("intentional panic for with_call_mode flag-restore regression")
+            });
+        }));
+
+        std::panic::set_hook(prev_hook);
+
+        assert!(result.is_err(), "panic should propagate via resume_unwind");
+        assert_eq!(
+            vm.inner.gc_enabled, saved_gc,
+            "gc_enabled must be restored to entry value despite panic"
+        );
+        assert_eq!(
+            vm.inner.active_bound_key, saved_key,
+            "active_bound_key must be restored to entry value despite panic"
+        );
     }
 
     /// Round-trip: a successful (non-panicking) dispatch under the
