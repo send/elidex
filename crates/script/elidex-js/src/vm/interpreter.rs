@@ -186,8 +186,8 @@ impl VmInner {
         // collection mid-closure would sweep the slot and the
         // cleanup restore below would write a dangling ObjectId back
         // into VmInner. Pre-r2 the analogous root was
-        // `CallFrame::saved_completion` (walked at `gc/roots.rs:284`
-        // before this PR).
+        // `CallFrame::saved_completion` (walked by
+        // `super::gc::roots::mark_roots`'s frame loop before this PR).
         let saved_gc_enabled = self.gc_enabled;
         let saved_active_bound_key = self.active_bound_key;
         self.saved_completion_stack.push(self.completion_value);
