@@ -951,8 +951,13 @@ pub struct CallFrame {
     /// branch so script/`eval` completion-value semantics stay confined
     /// to `Eval` frames; the only `Eval` push site is the private
     /// `VmInner::run_function`, reached via the public `Vm::eval` /
-    /// `Vm::run_script` entry points (top-level script / direct or
-    /// indirect `eval`).
+    /// `Vm::run_script` host entry points. elidex-js core does not
+    /// expose a JS-level `eval()` global (per `docs/design/ja/14-
+    /// script-engines-webapi.md` §14.1 strict-only baseline), so all
+    /// `FrameKind::Eval` frames originate at the Rust-level host
+    /// boundary; sloppy direct-eval is LegacySemantics compat-plugin
+    /// territory and would not need its own `FrameKind` variant
+    /// (same dispatch shape, plugin-level scope injection).
     pub kind: FrameKind,
     /// If set, this frame belongs to a generator; `Op::Yield` suspends
     /// into this generator object instead of completing normally.  `None`

@@ -262,6 +262,42 @@ fn saved_completion_stack_roots_displaced_object_through_gc() {
 }
 
 #[test]
+fn empty_source_eval_does_not_leak_outer_completion_value() {
+    // ECMA-262 §16.1.6 ScriptEvaluation step 13.b — when the body's
+    // `result.[[Value]]` is empty (no ExpressionStatement was
+    // evaluated), the script completion is
+    // `NormalCompletion(undefined)`. Pre-fix, `run_function` did not
+    // reset `self.completion_value` on entry; a host-level re-entry
+    // pattern (outer code populates `completion_value` via its own
+    // Op::Pop entry-Eval write, then a native callback calls
+    // `Vm::eval("")` while the outer is still running) would leak
+    // the outer value as the inner script's completion.
+    //
+    // Simulated here by pre-seeding `vm.inner.completion_value` to
+    // a non-Undefined sentinel before invoking `Vm::eval("")`. The
+    // outer value must NOT surface as the inner eval's result; the
+    // inner `with_call_mode` boundary preserves it via
+    // `saved_completion_stack` and restores after the inner returns
+    // (verified by reading `completion_value` post-eval).
+    let mut vm = Vm::new();
+    vm.inner.completion_value = JsValue::Number(42.0);
+    let inner_result = vm.eval("").unwrap();
+    assert_eq!(
+        inner_result,
+        JsValue::Undefined,
+        "empty source must produce NormalCompletion(undefined) — \
+         outer scope's completion_value must not leak through the \
+         Eval frame's implicit-end arm",
+    );
+    assert_eq!(
+        vm.inner.completion_value,
+        JsValue::Number(42.0),
+        "outer scope's completion_value must be restored after the \
+         inner Vm::eval returns",
+    );
+}
+
+#[test]
 fn uncaught_throw_from_inner_function_propagates_as_error() {
     // The throw escapes the Function-kind frame and bubbles to the
     // Vm::eval caller as Err — `completion_value` perturbation along

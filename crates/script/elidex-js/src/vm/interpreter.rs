@@ -933,6 +933,15 @@ impl VmInner {
         args: &[JsValue],
     ) -> Result<JsValue, VmError> {
         self.with_call_mode(super::value::CallMode::Call, |vm, _mode| {
+            // ECMA-262 §16.1.6 ScriptEvaluation step 13.b — the body's
+            // initial completion is `empty`, surfaced as
+            // `NormalCompletion(undefined)` when no entry-frame
+            // `Op::Pop` write fires (empty source, or last statement
+            // is not an ExpressionStatement). The outer caller's
+            // value is already preserved on `saved_completion_stack`
+            // by `with_call_mode`'s entry push, so resetting here
+            // does not corrupt nested re-entry.
+            vm.completion_value = JsValue::Undefined;
             vm.call_internal(func_id, this, args, Arc::from([]), FrameKind::Eval)
         })
     }
