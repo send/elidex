@@ -130,23 +130,28 @@ impl VmInner {
     ///   without this step, an Upvalue in `Open { frame_base, slot }`
     ///   would point at a stack index the truncate just dropped,
     ///   causing OOB or silent slot reuse on subsequent reads.
-    ///   `self.gc_enabled` + `self.active_bound_key` are saved on
-    ///   entry and restored unconditionally on every exit path
-    ///   (Ok/Err return + panic re-raise). This is a safety net that
-    ///   wraps the NativeFunction arm's own save/restore — if a
-    ///   panic skips the inner restore, the outer restore here puts
-    ///   the flag back to its pre-`with_call_mode` value, preventing
-    ///   `gc_enabled = false` from persisting (which would silently
-    ///   disable GC for the rest of the VM's lifetime) or
-    ///   `active_bound_key` from leaking a stale bound-key into the
-    ///   next bound-accessor invocation. The redundant Ok-path
-    ///   restore is a no-op (same value the inner restore already
+    ///   `self.gc_enabled`, `self.active_bound_key`, and
+    ///   `self.completion_value` are saved on entry and restored
+    ///   unconditionally on every exit path (Ok/Err return + panic
+    ///   re-raise). This is a safety net that wraps each
+    ///   per-frame `saved_*` restore (`call_internal`'s
+    ///   `completion_value = saved_completion`, NativeFunction arm's
+    ///   `gc_enabled = saved_gc` / `active_bound_key =
+    ///   saved_bound_key`) — if a panic skips the inner restores,
+    ///   the outer restore here puts each field back to its
+    ///   pre-`with_call_mode` value, preventing `gc_enabled = false`
+    ///   from persisting (which would silently disable GC for the
+    ///   rest of the VM's lifetime), `active_bound_key` from
+    ///   leaking a stale bound-key into the next bound-accessor
+    ///   invocation, and `completion_value` from corrupting the
+    ///   caller's evaluation state across a nested `run()` /
+    ///   `push_js_call_frame` dispatch (e.g. the
+    ///   `construct_synchronous` JS branch). The redundant Ok-path
+    ///   restores are no-ops (same value the inner restores already
     ///   wrote).
-    /// * **Leaked-but-acceptable on panic**: `self.completion_value`
-    ///   (eval-frame completion is meaningless under a caught panic;
-    ///   D-17b-r2 will field-separate so this can be tightened),
-    ///   `exception_handlers` on popped frames (handlers belong to
-    ///   the truncated frames and die with them — no leak).
+    /// * **Leaked-but-acceptable on panic**: `exception_handlers`
+    ///   on popped frames (handlers belong to the truncated frames
+    ///   and die with them — no leak).
     pub(crate) fn with_call_mode<F, R>(
         &mut self,
         mode: super::value::CallMode,
@@ -158,17 +163,22 @@ impl VmInner {
         use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
         let entry_frames = self.frames.len();
         let entry_stack_depth = self.stack.len();
-        // Snapshot VmInner flags that the NativeFunction arm
-        // (`call_dispatch`) mutates + restores around `func()`. If a
-        // panic from the native body skips the inner restore,
-        // `cleanup` below puts the flag back to its pre-with_call_mode
-        // value — preventing `gc_enabled = false` from persisting and
-        // disabling GC for the VM's remaining lifetime, or
-        // `active_bound_key` leaking a stale bound-key into the next
-        // bound-accessor invocation. Redundant on Ok/Err return paths
-        // (NativeFunction arm already restored to the same value).
+        // Snapshot VmInner fields that inner save/restore patterns
+        // (`call_internal`'s `saved_completion`, NativeFunction
+        // arm's `saved_gc` / `saved_bound_key`) may skip on a Rust
+        // panic. `cleanup` below restores each field to its
+        // pre-with_call_mode value unconditionally — preventing
+        // `gc_enabled = false` from persisting (and disabling GC
+        // for the VM's remaining lifetime), `active_bound_key`
+        // leaking a stale bound-key into the next bound-accessor
+        // invocation, and `completion_value` corrupting the
+        // caller's evaluation state across a nested `run()` /
+        // `push_js_call_frame` dispatch (e.g. the
+        // `construct_synchronous` JS branch). Redundant on Ok/Err
+        // return paths (inner restores already wrote the same value).
         let saved_gc_enabled = self.gc_enabled;
         let saved_active_bound_key = self.active_bound_key;
+        let saved_completion_value = self.completion_value;
         let result = catch_unwind(AssertUnwindSafe(|| f(self, mode)));
         // R19 spirit preserved via three-way split debug_assert:
         //   (a) no panic + inner Ok: strict `==` — normal return must
@@ -232,11 +242,13 @@ impl VmInner {
             self.frames.pop();
         }
         self.stack.truncate(entry_stack_depth);
-        // Outer restore for the flags the NativeFunction arm's own
-        // save/restore may have skipped on a Rust panic (see
-        // docstring). Runs on Ok/Err/panic equally.
+        // Outer restore for the fields whose inner save/restore
+        // (call_internal's saved_completion / NativeFunction arm's
+        // saved_gc + saved_bound_key) may have been skipped on a
+        // Rust panic (see docstring). Runs on Ok/Err/panic equally.
         self.gc_enabled = saved_gc_enabled;
         self.active_bound_key = saved_active_bound_key;
+        self.completion_value = saved_completion_value;
         match result {
             Ok(r) => r,
             Err(payload) => resume_unwind(payload),
@@ -1099,34 +1111,43 @@ mod tests {
         }
     }
 
-    /// D-17b-r1 Copilot R2: `with_call_mode` saves `gc_enabled` +
-    /// `active_bound_key` at entry and restores them on every exit
-    /// path (including panic), so a panicked native body that skips
-    /// the NativeFunction arm's inner restore does NOT leak
+    /// D-17b-r1 Copilot R2 + R3: `with_call_mode` saves
+    /// `gc_enabled`, `active_bound_key`, and `completion_value` at
+    /// entry and restores all three on every exit path (including
+    /// panic), so a panicked dispatch that skips the inner per-arm
+    /// restores (NativeFunction arm's `gc_enabled` / `bound_key`,
+    /// `call_internal`'s `completion_value`) does NOT leak
     /// `gc_enabled = false` (which would silently disable GC for
-    /// the VM's remaining lifetime) or a stale `active_bound_key`
-    /// (which would mis-attribute bound accessors).
+    /// the VM's remaining lifetime), a stale `active_bound_key`
+    /// (which would mis-attribute bound accessors), or a stale
+    /// `completion_value` (which would corrupt the caller's
+    /// evaluation state across a nested dispatch like
+    /// `construct_synchronous`'s JS branch).
     #[test]
-    fn with_call_mode_restores_gc_and_bound_key_on_panic() {
+    fn with_call_mode_restores_vm_flags_on_panic() {
         use super::super::value::StringId;
 
         let mut vm = Vm::new();
         let saved_gc = true;
         let saved_key: Option<StringId> = None;
+        let saved_completion = JsValue::Number(42.0);
         vm.inner.gc_enabled = saved_gc;
         vm.inner.active_bound_key = saved_key;
+        vm.inner.completion_value = saved_completion;
 
         let prev_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(|_| {}));
 
         let result = catch_unwind(AssertUnwindSafe(|| {
             let _: Result<JsValue, _> = vm.inner.with_call_mode(CallMode::Call, |vm, _mode| {
-                // Simulate the mid-body state the NativeFunction arm
-                // sets up: gc_enabled flipped to false and
-                // active_bound_key set to a forged sentinel — then
-                // panic before either is restored.
+                // Simulate the mid-body state inner save/restore
+                // patterns set up: gc_enabled flipped to false,
+                // active_bound_key set to a forged sentinel, and
+                // completion_value advanced to a different value —
+                // then panic before any inner restore fires.
                 vm.gc_enabled = false;
                 vm.active_bound_key = Some(super::super::value::StringId(u32::MAX));
+                vm.completion_value = JsValue::Number(-1.0);
                 panic!("intentional panic for with_call_mode flag-restore regression")
             });
         }));
@@ -1141,6 +1162,10 @@ mod tests {
         assert_eq!(
             vm.inner.active_bound_key, saved_key,
             "active_bound_key must be restored to entry value despite panic"
+        );
+        assert_eq!(
+            vm.inner.completion_value, saved_completion,
+            "completion_value must be restored to entry value despite panic"
         );
     }
 
