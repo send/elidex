@@ -992,7 +992,7 @@ pub(in crate::vm) fn dispatch_selectionchange_if_pending(vm: &mut VmInner) -> bo
     g.define_with_precomputed_shape(event_id, core_shape, slots);
     g.dispatched_events.insert(event_id);
     {
-        let mut ctx = NativeContext { vm: &mut g };
+        let mut ctx = NativeContext::new_call(&mut g);
         let _ = super::event_target_dispatch::dispatch_script_event(
             &mut ctx,
             event_id,

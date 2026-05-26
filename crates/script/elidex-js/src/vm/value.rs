@@ -607,6 +607,58 @@ pub enum ThisMode {
     Strict,
 }
 
+/// How the active call frame was invoked: `[[Call]]` mode (plain
+/// `F(...)`) or `[[Construct]]` mode (`new F(...)`), with `new.target`
+/// carried inside the `Construct` variant per ECMA-262 §10.2.2 step 4
+/// (`[[Construct]]` threads `newTarget` through `PrepareForOrdinaryCall`).
+///
+/// Single SoT for per-frame construct discipline: the `Construct`
+/// variant's `new_target` field is the spec-level constructor function
+/// (the outermost-invoked class on a `new` chain, propagated unchanged
+/// through nested `super()` per §13.3.7.1 step 1). Encoding it inside
+/// the enum makes the "construct iff new.target is set" invariant
+/// type-level — `Call` cannot carry a new_target by construction.
+///
+/// Frame-level field on `CallFrame::mode`; mirrored on `NativeContext::mode`
+/// (baked at the construct-time of the context via
+/// `NativeContext::new_call` / `new_construct` helpers) so native
+/// builtins observe the same construct/call discipline a JS callee
+/// frame would.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CallMode {
+    /// `[[Call]]` mode — invoked without `new`. `NewTarget` is
+    /// undefined per §9.4.5 `GetNewTarget`.
+    Call,
+    /// `[[Construct]]` mode — invoked via `new F(...)` /
+    /// `super(...)` / a native ctor branch. `new_target` is the
+    /// outermost-invoked constructor (§10.2.2 step 4).
+    Construct {
+        /// The `new.target` value for this construct chain
+        /// (§13.3.7.1 step 1 — propagated unchanged through nested
+        /// `super()` invocations).
+        new_target: ObjectId,
+    },
+}
+
+impl CallMode {
+    /// Returns `Some(new_target)` for `Construct`, `None` for `Call`.
+    /// Matches the pre-CallMode `Option<ObjectId>` surface so callers
+    /// that only need the new_target ObjectId stay terse.
+    #[inline]
+    pub fn new_target(self) -> Option<ObjectId> {
+        match self {
+            CallMode::Construct { new_target } => Some(new_target),
+            CallMode::Call => None,
+        }
+    }
+
+    /// Returns `true` when invoked via `[[Construct]]`.
+    #[inline]
+    pub fn is_construct(self) -> bool {
+        matches!(self, CallMode::Construct { .. })
+    }
+}
+
 /// Extracted callee info for JS function calls via the single dispatcher.
 /// Produced by `extract_js_callee`, consumed by `push_js_call_frame`.
 pub struct JsCalleeInfo {
@@ -642,8 +694,53 @@ pub struct NativeFunction {
 
 /// Context passed to native functions, providing mutable access to the VM.
 /// Defined here, implemented in `mod.rs`.
+///
+/// `mode` is baked at construction time (via `NativeContext::new_call`
+/// or `NativeContext::new_construct` — both `pub(crate)`) so the
+/// public `is_construct` / `new_target` reads do not depend on an
+/// out-of-band side channel — the same construct discipline that
+/// drives [`CallFrame::mode`] is mirrored here for native builtins.
+/// Sub-contexts spawned by callbacks default to [`CallMode::Call`]
+/// (re-entrant native body lives in its own scope; the outer construct
+/// context belongs to the entry frame the dispatcher set up).
 pub struct NativeContext<'a> {
     pub(crate) vm: &'a mut super::VmInner,
+    pub(crate) mode: CallMode,
+}
+
+impl<'a> NativeContext<'a> {
+    /// Build a `NativeContext` in `[[Call]]` mode — the default for
+    /// re-entrant callbacks the dispatcher spawns inside a native body
+    /// (the construct context belongs to the entry frame, not to a
+    /// nested helper).
+    ///
+    /// **Pre-D-17b-r1 vs post-r1**: pre-r1 sub-contexts implicitly
+    /// inherited the outer construct mode via `native_construct_stack.last()`
+    /// top-of-stack read at observation time. Post-r1 this default is
+    /// a deliberate semantic narrowing matching ECMA-262 §10.2.1 — a
+    /// callback fired from inside a `[[Construct]]`-mode native body
+    /// is itself a fresh `[[Call]]`, not `[[Construct]]`. Only the
+    /// primary native-dispatch site (`call_dispatch`'s NativeFunction
+    /// arm) bakes the outer mode via [`Self::new_construct`]; every
+    /// other sub-context site (~70) uses this `Call` default.
+    #[inline]
+    pub(crate) fn new_call(vm: &'a mut super::VmInner) -> Self {
+        Self {
+            vm,
+            mode: CallMode::Call,
+        }
+    }
+
+    /// Build a `NativeContext` in `[[Construct]]` mode — used by the
+    /// primary native-dispatch site when the outer `with_call_mode`
+    /// boundary supplied `CallMode::Construct { new_target }`.
+    #[inline]
+    pub(crate) fn new_construct(vm: &'a mut super::VmInner, new_target: ObjectId) -> Self {
+        Self {
+            vm,
+            mode: CallMode::Construct { new_target },
+        }
+    }
 }
 
 /// The value slot of a property: either a data value or an accessor pair.
@@ -797,16 +894,17 @@ pub struct CallFrame {
     /// does not return an object. Not ECMAScript `new.target` (which refers
     /// to the constructor function).
     pub new_instance: Option<ObjectId>,
-    /// ECMA-262 `new.target` for this call frame (\[C11\]
-    /// `[[Construct]]` step 4 — the constructor that started this
-    /// `new` chain).
-    /// Propagated unchanged through nested `super()` invocations so
-    /// `Op::NewTarget` always reads the outermost-invoked class
-    /// (\[C13\] SuperCall "GetNewTarget"). `None` outside a `new`
-    /// chain. Distinct from `new_instance`: `new_instance` is the
-    /// pre-allocated receiver hint; `new_target` is the spec-level
-    /// constructor function.
-    pub new_target: Option<ObjectId>,
+    /// `[[Call]]` vs `[[Construct]]` discipline for this frame
+    /// (ECMA-262 §10.2.1 / §10.2.2). Replaces the pre-D-17b-r1
+    /// `new_target: Option<ObjectId>` field: encoding
+    /// "construct iff new_target is set" inside [`CallMode::Construct`]'s
+    /// data makes the invariant type-level. Propagated unchanged
+    /// through nested `super()` invocations so `Op::NewTarget` always
+    /// reads the outermost-invoked class (\[C13\] §13.3.7.1 step 1).
+    /// Distinct from `new_instance`: `new_instance` is the
+    /// pre-allocated receiver hint; `mode`'s `Construct.new_target`
+    /// is the spec-level constructor function.
+    pub mode: CallMode,
     /// Enclosing class for `super()` resolution (\[C13\] §13.3.7.2
     /// GetSuperConstructor — `super.[[Prototype]]` is the super
     /// class). Set on class-ctor frames only; `None` for ordinary

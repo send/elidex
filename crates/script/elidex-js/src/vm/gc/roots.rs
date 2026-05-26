@@ -49,12 +49,6 @@ pub(super) struct GcRoots<'a> {
     /// html_element_constructor`) cannot fire against a collected
     /// slot if script ever deletes `globalThis.HTMLElement`.
     pub(super) html_element_constructor: Option<ObjectId>,
-    /// Per-native-call construct-mode stack (D-17b §7 — Stage 6
-    /// SoT). Marked here so transient `new.target` ObjectIds at the
-    /// native-call boundary survive a GC fired by their own ctor
-    /// body (the only window where the stack carries entries that
-    /// are not also reachable via a JS call frame).
-    pub(super) native_construct_stack: &'a [Option<ObjectId>],
     pub(super) upvalues: &'a [Upvalue],
     pub(super) objects: &'a [Option<Object>],
     /// Host-data (listeners, wrappers) if installed.
@@ -281,8 +275,8 @@ pub(super) fn mark_roots(
         if let Some(id) = frame.new_instance {
             mark_object(id, obj_marks, work);
         }
-        if let Some(id) = frame.new_target {
-            mark_object(id, obj_marks, work);
+        if let super::super::value::CallMode::Construct { new_target } = frame.mode {
+            mark_object(new_target, obj_marks, work);
         }
         if let Some(id) = frame.home_class {
             mark_object(id, obj_marks, work);
@@ -331,12 +325,6 @@ pub(super) fn mark_roots(
     if let Some(id) = roots.html_element_constructor {
         mark_object(id, obj_marks, work);
     }
-    for &entry in roots.native_construct_stack {
-        if let Some(id) = entry {
-            mark_object(id, obj_marks, work);
-        }
-    }
-
     if let Some(hd) = roots.host_data {
         for id in hd.gc_root_object_ids() {
             mark_object(id, obj_marks, work);

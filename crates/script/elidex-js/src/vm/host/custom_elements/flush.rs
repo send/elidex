@@ -99,7 +99,7 @@ impl VmInner {
 }
 
 fn invoke_one(vm: &mut VmInner, reaction: CustomElementReaction) -> Result<(), VmError> {
-    let mut ctx = NativeContext { vm };
+    let mut ctx = NativeContext::new_call(vm);
     match reaction {
         CustomElementReaction::Upgrade(entity) => {
             if let Err(err) = super::upgrade::invoke_upgrade(&mut ctx, entity) {

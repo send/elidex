@@ -690,7 +690,7 @@ pub(crate) fn try_indexed_get(
         // which is what an empty token list yields for every index).
         return Some(Ok(JsValue::Undefined));
     }
-    let mut ctx = NativeContext { vm };
+    let mut ctx = NativeContext::new_call(vm);
     let result = invoke_dom_api(
         &mut ctx,
         dispatch_method(source, TokenListOp::Item),

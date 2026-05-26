@@ -260,8 +260,9 @@ pub(super) fn trace_work_list(
                     if let Some(id) = susp.frame.new_instance {
                         mark_object(id, obj_marks, work);
                     }
-                    if let Some(id) = susp.frame.new_target {
-                        mark_object(id, obj_marks, work);
+                    if let super::super::value::CallMode::Construct { new_target } = susp.frame.mode
+                    {
+                        mark_object(new_target, obj_marks, work);
                     }
                     if let Some(id) = susp.frame.home_class {
                         mark_object(id, obj_marks, work);

@@ -173,7 +173,7 @@ pub(super) fn init_from_typed_array(
         let mut g = ctx.vm.push_temp_root(JsValue::Object(dst_buf_id));
         for i in 0..src_len_elem {
             let elem = read_element_raw(&mut g, src_buf_id, src_offset, i, src_ek);
-            let mut sub_ctx = NativeContext { vm: &mut g };
+            let mut sub_ctx = NativeContext::new_call(&mut g);
             write_element_raw(&mut sub_ctx, dst_buf_id, dst_offset, i, dst_ek, elem)?;
         }
         // Guard `g` drops here, restoring the stack to the
@@ -232,7 +232,7 @@ pub(super) fn init_from_iterable(
     let iter_slot = frame.saved_len();
     frame.stack.push(iter);
     let elem_start = iter_slot + 1;
-    let mut sub_ctx = NativeContext { vm: &mut frame };
+    let mut sub_ctx = NativeContext::new_call(&mut frame);
     init_from_iterable_body(&mut sub_ctx, iter, elem_start, ek)
     // `frame` drops here, restoring `stack.len()` to `iter_slot`
     // (releases the rooted iter + any drained elements remaining
@@ -299,7 +299,7 @@ fn init_from_iterable_body(
         let mut g = ctx.vm.push_temp_root(JsValue::Object(buf_id));
         for i in 0..count_u32 {
             let elem = g.stack[elem_start + i as usize];
-            let mut sub_ctx = NativeContext { vm: &mut g };
+            let mut sub_ctx = NativeContext::new_call(&mut g);
             write_element_raw(&mut sub_ctx, buf_id, offset, i, ek, elem)?;
         }
         // Guard `g` drops here, restoring stack to the
@@ -368,7 +368,7 @@ fn init_from_array_like(
             // prototype chain), matching what a plain `source[i]` would
             // see from user code.
             let elem = g.get_element(source, JsValue::Number(f64::from(i)))?;
-            let mut sub_ctx = NativeContext { vm: &mut g };
+            let mut sub_ctx = NativeContext::new_call(&mut g);
             write_element_raw(&mut sub_ctx, buf_id, offset, i, ek, elem)?;
         }
         // Guard `g` drops here, restoring stack.

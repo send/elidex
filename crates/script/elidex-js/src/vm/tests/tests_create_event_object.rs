@@ -127,7 +127,7 @@ fn default_prevented_is_accessor_and_reflects_flag_live() {
 
     // Pre-mutation: getter returns false.
     {
-        let mut ctx = NativeContext { vm: &mut vm.inner };
+        let mut ctx = NativeContext::new_call(&mut vm.inner);
         let got = match &ctx.vm.get_object(getter_id).kind {
             ObjectKind::NativeFunction(nf) => {
                 (nf.func)(&mut ctx, JsValue::Object(obj), &[]).unwrap()
@@ -148,7 +148,7 @@ fn default_prevented_is_accessor_and_reflects_flag_live() {
 
     // Post-mutation: getter returns true (live, not stale).
     {
-        let mut ctx = NativeContext { vm: &mut vm.inner };
+        let mut ctx = NativeContext::new_call(&mut vm.inner);
         let got = match &ctx.vm.get_object(getter_id).kind {
             ObjectKind::NativeFunction(nf) => {
                 (nf.func)(&mut ctx, JsValue::Object(obj), &[]).unwrap()

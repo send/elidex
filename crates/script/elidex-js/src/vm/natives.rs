@@ -492,7 +492,7 @@ fn error_entry(
 ) -> Result<JsValue, VmError> {
     let receiver = ctx
         .vm
-        .ensure_instance_or_alloc(this, ctx.vm.error_prototype);
+        .ensure_instance_or_alloc(this, ctx.vm.error_prototype, ctx.mode);
     error_ctor_impl(ctx, receiver, args, error_name)
 }
 
@@ -587,9 +587,9 @@ pub(super) fn native_aggregate_error_constructor(
     // don't leak temp roots on the VM stack when ToString throws.
     let stack_root = ctx.vm.stack.len();
     ctx.vm.stack.push(JsValue::Object(errors_array));
-    let receiver = ctx
-        .vm
-        .ensure_instance_or_alloc(this, ctx.vm.aggregate_error_prototype);
+    let receiver =
+        ctx.vm
+            .ensure_instance_or_alloc(this, ctx.vm.aggregate_error_prototype, ctx.mode);
     ctx.vm.stack.push(receiver);
 
     let JsValue::Object(id) = receiver else {

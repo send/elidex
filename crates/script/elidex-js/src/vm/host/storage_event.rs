@@ -125,6 +125,7 @@ fn native_storage_event_constructor(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     check_construct(ctx, "StorageEvent")?;
+    let mode = ctx.mode;
     // Pre-`install_host_data` reachability: every `host()` access is
     // gated by `host_if_bound` further down.  The constructor itself
     // does not touch HostData (no DOM wrappers, no per-VM side table),
@@ -166,7 +167,7 @@ fn native_storage_event_constructor(
     let mut g2 = g1.push_temp_root(new_val);
     let mut g3 = g2.push_temp_root(url_val);
     let mut g = g3.push_temp_root(storage_area_val);
-    let id = g.create_fresh_event_object(this, type_sid, base, shape_id, slots, false);
+    let id = g.create_fresh_event_object(this, type_sid, base, shape_id, slots, false, mode);
     g.get_object_mut(id).kind = ObjectKind::StorageEvent;
     drop(g);
     drop(g3);

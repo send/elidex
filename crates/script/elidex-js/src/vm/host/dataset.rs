@@ -118,7 +118,7 @@ pub(crate) fn try_has(
     if !is_bound(vm) {
         return None;
     }
-    let mut ctx = NativeContext { vm };
+    let mut ctx = NativeContext::new_call(vm);
     let result = invoke_dom_api(&mut ctx, "dataset.get", entity, &[JsValue::String(sid)]);
     match result {
         Ok(JsValue::Undefined) => None,
@@ -155,7 +155,7 @@ pub(crate) fn try_get(
     if !is_bound(vm) {
         return None;
     }
-    let mut ctx = NativeContext { vm };
+    let mut ctx = NativeContext::new_call(vm);
     let result = invoke_dom_api(&mut ctx, "dataset.get", entity, &[JsValue::String(sid)]);
     match result {
         Ok(JsValue::Undefined) => None,
@@ -188,7 +188,7 @@ pub(crate) fn try_set(
     if !is_bound(vm) {
         return Some(Ok(()));
     }
-    let mut ctx = NativeContext { vm };
+    let mut ctx = NativeContext::new_call(vm);
     let result = invoke_dom_api(
         &mut ctx,
         "dataset.set",
@@ -219,7 +219,7 @@ pub(crate) fn try_delete(
     if !is_bound(vm) {
         return Some(Ok(true));
     }
-    let mut ctx = NativeContext { vm };
+    let mut ctx = NativeContext::new_call(vm);
     let result = invoke_dom_api(
         &mut ctx,
         "dataset.delete",
@@ -243,7 +243,7 @@ pub(crate) fn collect_keys(
     if !is_bound(vm) {
         return Some(Ok(Vec::new()));
     }
-    let mut ctx = NativeContext { vm };
+    let mut ctx = NativeContext::new_call(vm);
     let result = invoke_dom_api(&mut ctx, "dataset.keys", entity, &[]);
     Some(result.and_then(|raw| match raw {
         JsValue::String(sid) => {

@@ -840,7 +840,7 @@ pub(in crate::vm) fn internal_abort_signal(
     signal_id: ObjectId,
     reason: JsValue,
 ) -> Result<(), VmError> {
-    let mut ctx = super::super::value::NativeContext { vm };
+    let mut ctx = super::super::value::NativeContext::new_call(vm);
     abort_signal(&mut ctx, signal_id, reason)
 }
 

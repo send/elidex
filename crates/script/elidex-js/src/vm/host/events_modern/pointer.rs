@@ -180,6 +180,7 @@ fn native_pointer_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let mode = ctx.mode;
     check_construct(ctx, "PointerEvent")?;
     let type_sid = type_arg(ctx, args, "PointerEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
@@ -202,7 +203,7 @@ fn native_pointer_event_constructor(
     let pointer_proto = g
         .pointer_event_prototype
         .expect("PointerEvent.prototype must be registered before ctor");
-    let id = g.build_ui_event_instance(this, type_sid, ui, shape_id, pointer_proto, slots);
+    let id = g.build_ui_event_instance(this, type_sid, ui, shape_id, pointer_proto, slots, mode);
     drop(g);
     Ok(JsValue::Object(id))
 }

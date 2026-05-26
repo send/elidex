@@ -35,6 +35,7 @@ fn native_drag_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    let mode = ctx.mode;
     check_construct(ctx, "DragEvent")?;
     let type_sid = type_arg(ctx, args, "DragEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
@@ -67,7 +68,7 @@ fn native_drag_event_constructor(
     let drag_proto = g
         .drag_event_prototype
         .expect("DragEvent.prototype must be registered before ctor");
-    let id = g.build_ui_event_instance(this, type_sid, ui, shape_id, drag_proto, slots);
+    let id = g.build_ui_event_instance(this, type_sid, ui, shape_id, drag_proto, slots, mode);
     drop(g);
     drop(g0);
     Ok(JsValue::Object(id))

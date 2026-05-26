@@ -310,7 +310,7 @@ impl VmInner {
         g.define_with_precomputed_shape(event_id, message_shape, slots);
 
         g.dispatched_events.insert(event_id);
-        let mut ctx = NativeContext { vm: &mut g };
+        let mut ctx = NativeContext::new_call(&mut g);
         let _ = dispatch_script_event(&mut ctx, event_id, target_entity);
         g.dispatched_events.remove(&event_id);
     }

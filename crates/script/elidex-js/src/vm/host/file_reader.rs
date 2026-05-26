@@ -667,7 +667,7 @@ pub(crate) fn dispatch_file_read_task(
     // `target_blob` populated through the event-fire sequence so
     // `ProgressEvent.loaded` / `.total` can read the blob's byte
     // length; cleared after `loadend` returns.
-    let mut ctx = super::super::value::NativeContext { vm };
+    let mut ctx = super::super::value::NativeContext::new_call(vm);
     if let Some(d) = ctx.vm.file_reader_data.get_mut(&reader_id) {
         d.state = ReadyState::Done;
         d.result = result;
@@ -771,6 +771,11 @@ fn fire_progress_event(
         shape_id,
         payload_slots,
         true,
+        // Task-dispatch (FileReader load progress) — not a JS
+        // construct call, so `mode = Call`. `ensure_instance_or_alloc`
+        // would only short-circuit on Object `this`; we pass
+        // `Undefined`, so this is purely a documentation choice.
+        super::super::value::CallMode::Call,
     );
     // Override prototype to ProgressEvent.prototype so
     // `e instanceof ProgressEvent` holds; `create_fresh_event_object`

@@ -338,7 +338,7 @@ fn native_subtle_crypto_digest(
     // Root the promise across allocations below (algorithm
     // normalization can trigger ToString → allocator).
     let mut g = ctx.vm.push_temp_root(JsValue::Object(promise));
-    let mut rooted = NativeContext { vm: &mut g };
+    let mut rooted = NativeContext::new_call(&mut g);
     let ctx = &mut rooted;
 
     let algorithm_arg = args.first().copied().unwrap_or(JsValue::Undefined);

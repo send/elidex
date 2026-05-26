@@ -131,7 +131,7 @@ pub(super) fn pull_if_needed(vm: &mut VmInner, stream_id: ObjectId) {
     // `pull() { this.enqueue(...) }` works.
     let this_arg = underlying_source.unwrap_or(JsValue::Undefined);
     let result = {
-        let mut ctx = NativeContext { vm };
+        let mut ctx = NativeContext::new_call(vm);
         ctx.call_function(pull_fn_id, this_arg, &[JsValue::Object(controller_id)])
     };
     match result {
@@ -213,7 +213,7 @@ fn controller_enqueue(
             return Err(VmError::type_error("size algorithm is not callable"));
         };
         let res = {
-            let mut ctx = NativeContext { vm };
+            let mut ctx = NativeContext::new_call(vm);
             ctx.call_function(fn_id, JsValue::Undefined, &[chunk])
         };
         match res {

@@ -396,7 +396,7 @@ fn construct_rect(
     };
     // Reuse the `new`-allocated receiver so a subclass `this` keeps its
     // prototype (mirrors the DOMException constructor).
-    let receiver = ctx.vm.ensure_instance_or_alloc(this, proto);
+    let receiver = ctx.vm.ensure_instance_or_alloc(this, proto, ctx.mode);
     let JsValue::Object(id) = receiver else {
         return Err(VmError::internal(
             "DOMRect constructor: receiver allocation did not yield an object",

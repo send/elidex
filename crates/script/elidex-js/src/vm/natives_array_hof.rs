@@ -175,7 +175,7 @@ pub(super) fn native_array_reduce(
     let mut frame = ctx.vm.push_stack_scope();
     let acc_slot = frame.saved_len();
     frame.stack.push(initial_accumulator);
-    let mut sub_ctx = NativeContext { vm: &mut frame };
+    let mut sub_ctx = NativeContext::new_call(&mut frame);
 
     #[allow(clippy::needless_range_loop)]
     for i in start_idx..elements.len() {
@@ -227,7 +227,7 @@ pub(super) fn native_array_reduce_right(
     let mut frame = ctx.vm.push_stack_scope();
     let acc_slot = frame.saved_len();
     frame.stack.push(initial_accumulator);
-    let mut sub_ctx = NativeContext { vm: &mut frame };
+    let mut sub_ctx = NativeContext::new_call(&mut frame);
 
     #[allow(clippy::needless_range_loop)]
     for i in (0..start_idx).rev() {

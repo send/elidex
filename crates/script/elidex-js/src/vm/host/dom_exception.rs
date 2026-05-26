@@ -235,7 +235,7 @@ fn native_dom_exception_constructor(
     // instance (as `AbortController` does) so the ECS / shape state
     // lines up with the receiver the caller will see.
     let proto = ctx.vm.dom_exception_prototype;
-    let receiver = ctx.vm.ensure_instance_or_alloc(this, proto);
+    let receiver = ctx.vm.ensure_instance_or_alloc(this, proto, ctx.mode);
     let JsValue::Object(id) = receiver else {
         // `ensure_instance_or_alloc` always returns Object — this
         // arm is unreachable in practice, but keeps the match

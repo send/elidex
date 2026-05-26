@@ -8,8 +8,7 @@ use crate::bytecode::compiled::CompiledScript;
 use std::sync::Arc;
 
 use super::value::{
-    CallFrame, FuncId, JsCalleeInfo, JsValue, NativeContext, ObjectId, ObjectKind, UpvalueId,
-    VmError, VmErrorKind,
+    CallFrame, FuncId, JsCalleeInfo, JsValue, ObjectId, ObjectKind, UpvalueId, VmError, VmErrorKind,
 };
 use super::VmInner;
 
@@ -61,36 +60,35 @@ impl VmInner {
 
     /// Call a JS function object with the given `this` and arguments.
     ///
-    /// Marks the dispatch boundary with a `None` entry on
-    /// [`VmInner::native_construct_stack`] for the duration of the
-    /// call (D-17b §7 SoT — `None` = call mode, `Some(new_target)` =
-    /// construct mode pushed by `do_new`'s native-ctor branch or
-    /// `construct_synchronous`). This is what makes
-    /// `NativeContext::is_construct()` return `false` for a
-    /// `[[Call]]`-mode invocation nested inside an outer construct
-    /// chain (e.g. `Error.call(this)` inside a CE class ctor body —
-    /// the outer CE-upgrade's `Some(constructor)` is shadowed by
-    /// this `None` for the nested native ctor's lifetime, preventing
-    /// wrapper-receiver pollution that the global `in_construct`
-    /// flag could not avoid). Construct-mode callers MUST use
-    /// [`Self::call_construct_native`] instead so the native body's
-    /// `is_construct()` / `new_target()` reads see the right
-    /// invocation context.
+    /// Wrapped in [`Self::with_call_mode`] with [`super::value::CallMode::Call`]
+    /// so the `NativeContext` the dispatcher builds for the
+    /// NativeFunction arm bakes call-mode (the body's
+    /// `ctx.is_construct()` returns `false` and `ctx.new_target()`
+    /// returns `None`), and so a panic mid-dispatch truncates the
+    /// frame + value stacks back to the entry depth before re-raise
+    /// (D-17b-r1 R2 CRIT-1 pre-existing-issue fix). Construct-mode
+    /// callers MUST use [`Self::call_construct_native`] instead so
+    /// the native body's `is_construct()` / `new_target()` reads see
+    /// the right invocation context.
     pub fn call(
         &mut self,
         func_obj_id: ObjectId,
         this: JsValue,
         args: &[JsValue],
     ) -> Result<JsValue, VmError> {
-        self.dispatch_with_construct_entry(None, |vm| vm.call_dispatch(func_obj_id, this, args))
+        self.with_call_mode(super::value::CallMode::Call, |vm, mode| {
+            vm.call_dispatch(func_obj_id, this, args, mode)
+        })
     }
 
     /// `[[Construct]]`-mode counterpart to [`Self::call`] for native
-    /// constructor dispatch via `do_new`'s native-ctor branch. Pushes
-    /// `Some(new_target)` onto `native_construct_stack` for the
-    /// duration of the dispatch so the native body's
-    /// `ctx.is_construct()` / `ctx.new_target()` reads see the right
-    /// construct context. Otherwise identical to `Vm::call`.
+    /// constructor dispatch via `do_new`'s native-ctor branch. Wraps
+    /// the dispatch in [`Self::with_call_mode`] with
+    /// `CallMode::Construct { new_target }` so the `NativeContext`
+    /// for the entry frame bakes the right construct context — the
+    /// body's `ctx.is_construct()` / `ctx.new_target()` then read
+    /// from [`super::value::NativeContext::mode`] instead of an
+    /// out-of-band side channel. Otherwise identical to `Vm::call`.
     pub(crate) fn call_construct_native(
         &mut self,
         func_obj_id: ObjectId,
@@ -98,52 +96,161 @@ impl VmInner {
         args: &[JsValue],
         new_target: ObjectId,
     ) -> Result<JsValue, VmError> {
-        self.dispatch_with_construct_entry(Some(new_target), |vm| {
-            vm.call_dispatch(func_obj_id, this, args)
-        })
+        self.with_call_mode(
+            super::value::CallMode::Construct { new_target },
+            |vm, mode| vm.call_dispatch(func_obj_id, this, args, mode),
+        )
     }
 
-    /// Push `entry` onto [`Self::native_construct_stack`], run `f`,
-    /// then pop — under a `catch_unwind` guard so the pop runs even
-    /// if `f` panics (the panic is then re-raised). Re-raising
-    /// preserves the original failure shape for upstream
-    /// `catch_unwind` embedders while keeping
-    /// [`super::value::NativeContext::is_construct`] /
-    /// [`super::value::NativeContext::new_target`] observations from
-    /// a subsequent call from leaking the entry.
+    /// Single `catch_unwind` boundary for a VM dispatch invocation.
+    /// Records the entry frame + value-stack depths, runs `f(self,
+    /// mode)`, and on either return path truncates both stacks back
+    /// to the entry depth so `VmInner` stays consistent for any
+    /// outer dispatch (in the panic case the truncate runs **before**
+    /// `resume_unwind`, so the upstream catch sees a clean VM).
     ///
-    /// Single SoT for the three push/pop sites driving
-    /// `native_construct_stack` (D-17b R12 G12-2 unification):
-    /// [`Self::call`] (pushes `None`), [`Self::call_construct_native`]
-    /// (pushes `Some(new_target)`), and the JS-construct branch of
-    /// [`Self::construct_synchronous`] (pushes `Some(new_target)`).
-    /// The debug-assert that the popped entry matches the pushed
-    /// value runs only on the `Ok` (non-panicking) branch — gating on
-    /// `result.is_ok()` (NOT `std::thread::panicking()`, which is
-    /// false here because `catch_unwind` swallowed the unwind) so a
-    /// mismatch during a caught panic can't double-panic over the
-    /// original payload and break the "preserves the original failure
-    /// shape" guarantee for upstream `catch_unwind` embedders
-    /// (D-17b R19).
-    pub(crate) fn dispatch_with_construct_entry<F>(
+    /// Replaces the pre-D-17b-r1 `dispatch_with_construct_entry`
+    /// (D-17b R12 G12-2 origin) — the per-invocation construct mode
+    /// it tracked via a `Vec<Option<ObjectId>>` side channel is now
+    /// a type-level [`super::value::CallMode`] threaded through the
+    /// `mode` parameter into both the JS path
+    /// ([`Self::push_js_call_frame`] → `CallFrame::mode`) and the
+    /// native path ([`super::value::NativeContext::new_call`] /
+    /// `::new_construct`). Same machinery, new purpose
+    /// (one-issue-one-way full unification).
+    ///
+    /// **Catch_unwind contract** (AssertUnwindSafe rationale per
+    /// D-17b-r1 Phase 0b step 4):
+    /// * **Manually restored on panic**: `self.frames` length +
+    ///   `self.stack` length (both truncated back to entry depth
+    ///   before re-raise so a subsequent dispatch sees a clean state).
+    ///   Open upvalues on the truncated frames are `close_upvalues`'d
+    ///   before the truncate so any escaped closure that captured a
+    ///   parent-frame local sees the snapshotted `Closed(value)` —
+    ///   without this step, an Upvalue in `Open { frame_base, slot }`
+    ///   would point at a stack index the truncate just dropped,
+    ///   causing OOB or silent slot reuse on subsequent reads.
+    ///   `self.gc_enabled`, `self.active_bound_key`, and
+    ///   `self.completion_value` are saved on entry and restored
+    ///   unconditionally on every exit path (Ok/Err return + panic
+    ///   re-raise). This is a safety net that wraps each
+    ///   per-frame `saved_*` restore (`call_internal`'s
+    ///   `completion_value = saved_completion`, NativeFunction arm's
+    ///   `gc_enabled = saved_gc` / `active_bound_key =
+    ///   saved_bound_key`) — if a panic skips the inner restores,
+    ///   the outer restore here puts each field back to its
+    ///   pre-`with_call_mode` value, preventing `gc_enabled = false`
+    ///   from persisting (which would silently disable GC for the
+    ///   rest of the VM's lifetime), `active_bound_key` from
+    ///   leaking a stale bound-key into the next bound-accessor
+    ///   invocation, and `completion_value` from corrupting the
+    ///   caller's evaluation state across a nested `run()` /
+    ///   `push_js_call_frame` dispatch (e.g. the
+    ///   `construct_synchronous` JS branch). The redundant Ok-path
+    ///   restores are no-ops (same value the inner restores already
+    ///   wrote).
+    /// * **Leaked-but-acceptable on panic**: `exception_handlers`
+    ///   on popped frames (handlers belong to the truncated frames
+    ///   and die with them — no leak).
+    pub(crate) fn with_call_mode<F, R>(
         &mut self,
-        entry: Option<ObjectId>,
+        mode: super::value::CallMode,
         f: F,
-    ) -> Result<JsValue, VmError>
+    ) -> Result<R, VmError>
     where
-        F: FnOnce(&mut Self) -> Result<JsValue, VmError>,
+        F: FnOnce(&mut Self, super::value::CallMode) -> Result<R, VmError>,
     {
         use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
-        self.native_construct_stack.push(entry);
-        let result = catch_unwind(AssertUnwindSafe(|| f(self)));
-        let popped = self.native_construct_stack.pop();
-        if result.is_ok() {
-            debug_assert_eq!(
-                popped,
-                Some(entry),
-                "native_construct_stack push/pop identity mismatch"
-            );
+        let entry_frames = self.frames.len();
+        let entry_stack_depth = self.stack.len();
+        // Snapshot VmInner fields that inner save/restore patterns
+        // (`call_internal`'s `saved_completion`, NativeFunction
+        // arm's `saved_gc` / `saved_bound_key`) may skip on a Rust
+        // panic. `cleanup` below restores each field to its
+        // pre-with_call_mode value unconditionally — preventing
+        // `gc_enabled = false` from persisting (and disabling GC
+        // for the VM's remaining lifetime), `active_bound_key`
+        // leaking a stale bound-key into the next bound-accessor
+        // invocation, and `completion_value` corrupting the
+        // caller's evaluation state across a nested `run()` /
+        // `push_js_call_frame` dispatch (e.g. the
+        // `construct_synchronous` JS branch). Redundant on Ok/Err
+        // return paths (inner restores already wrote the same value).
+        let saved_gc_enabled = self.gc_enabled;
+        let saved_active_bound_key = self.active_bound_key;
+        let saved_completion_value = self.completion_value;
+        let result = catch_unwind(AssertUnwindSafe(|| f(self, mode)));
+        // R19 spirit preserved via three-way split debug_assert:
+        //   (a) no panic + inner Ok: strict `==` — normal return must
+        //       restore the exact entry frame depth (push/pop balance).
+        //   (b) no panic + inner Err: weak `>=` — an uncaught JS throw
+        //       may leave the pushed call frame on the stack (matches
+        //       pre-r1 `call_internal:511` cleanup), `frames.truncate`
+        //       below cleans it.
+        //   (c) panic (catch_unwind Err): weak `>=` — panic-recovery
+        //       may have pushed-but-stuck entries the truncate cleans.
+        // Shared `>=` bound on the value stack catches underflow in
+        // all three cases.
+        match &result {
+            Ok(Ok(_)) => {
+                debug_assert_eq!(
+                    self.frames.len(),
+                    entry_frames,
+                    "Ok return leaked {} frame(s) above entry {}",
+                    self.frames.len().saturating_sub(entry_frames),
+                    entry_frames,
+                );
+                debug_assert_eq!(
+                    self.stack.len(),
+                    entry_stack_depth,
+                    "Ok return leaked {} value-stack slot(s) above entry {}",
+                    self.stack.len().saturating_sub(entry_stack_depth),
+                    entry_stack_depth,
+                );
+            }
+            Ok(Err(_)) | Err(_) => debug_assert!(
+                self.frames.len() >= entry_frames,
+                "frame stack underflow: length {} below entry {}",
+                self.frames.len(),
+                entry_frames,
+            ),
         }
+        debug_assert!(
+            self.stack.len() >= entry_stack_depth,
+            "value-stack length {} below entry {} — underflow",
+            self.stack.len(),
+            entry_stack_depth,
+        );
+        // Close upvalues on any frames above the entry depth BEFORE
+        // truncating — otherwise an Upvalue still in
+        // `UpvalueState::Open { frame_base, slot }` would point at a
+        // stack index the `stack.truncate` drops, causing OOB or
+        // silent slot reuse on subsequent reads. Iterate from the top
+        // (`frames.last()`) downward so a closure escaped from frame
+        // N capturing frame N-1's local still observes the snapshot
+        // taken at frame N-1's close. The `Ok(Ok(_))` arm's truncates
+        // below are no-ops (asserted above), so this loop only does
+        // real work on the Err and panic paths.
+        while self.frames.len() > entry_frames {
+            // Pop first so the owned `frame.local_upvalue_ids` Vec
+            // can be passed to `close_upvalues` without cloning.
+            // `close_upvalues` reads `self.stack[frame_base + slot]`
+            // by absolute index, so doing the pop before the stack
+            // truncate (which happens after the loop) is still safe.
+            let frame = self
+                .frames
+                .pop()
+                .expect("frames.len() > entry_frames per loop guard");
+            self.close_upvalues(&frame.local_upvalue_ids);
+        }
+        self.stack.truncate(entry_stack_depth);
+        // Outer restore for the fields whose inner save/restore
+        // (call_internal's saved_completion / NativeFunction arm's
+        // saved_gc + saved_bound_key) may have been skipped on a
+        // Rust panic (see docstring). Runs on Ok/Err/panic equally.
+        self.gc_enabled = saved_gc_enabled;
+        self.active_bound_key = saved_active_bound_key;
+        self.completion_value = saved_completion_value;
         match result {
             Ok(r) => r,
             Err(payload) => resume_unwind(payload),
@@ -151,11 +258,12 @@ impl VmInner {
     }
 
     #[allow(clippy::too_many_lines)] // dispatch table over every callable ObjectKind variant
-    fn call_dispatch(
+    pub(super) fn call_dispatch(
         &mut self,
         func_obj_id: ObjectId,
         this: JsValue,
         args: &[JsValue],
+        mode: super::value::CallMode,
     ) -> Result<JsValue, VmError> {
         // Unwrap BoundFunction chain iteratively to avoid stack overflow
         // on deeply nested .bind() chains.  MAX_BIND_CHAIN_DEPTH caps O(N²)
@@ -185,7 +293,19 @@ impl VmInner {
                     self.active_bound_key = nf.bound_key;
                     self.gc_enabled = false;
                     let call_args = owned_args.as_deref().unwrap_or(args);
-                    let mut ctx = NativeContext { vm: self };
+                    // Primary native dispatch site: bake `mode` from
+                    // the outer [`Self::with_call_mode`] boundary into
+                    // [`super::value::NativeContext::mode`] so the
+                    // body's `ctx.is_construct()` / `ctx.new_target()`
+                    // reads see the entry-frame's construct discipline
+                    // (D-17b-r1 §7.2 — replaces the pre-r1
+                    // `native_construct_stack` top-of-stack read).
+                    let mut ctx = match mode {
+                        super::value::CallMode::Construct { new_target } => {
+                            super::value::NativeContext::new_construct(self, new_target)
+                        }
+                        super::value::CallMode::Call => super::value::NativeContext::new_call(self),
+                    };
                     let result = func(&mut ctx, effective_this, call_args);
                     ctx.vm.gc_enabled = saved_gc;
                     ctx.vm.active_bound_key = saved_bound_key;
@@ -412,7 +532,7 @@ impl VmInner {
                     None
                 },
                 new_instance: None,
-                new_target: None,
+                mode: super::value::CallMode::Call,
                 home_class,
                 saved_completion: JsValue::Undefined,
                 generator: None,
@@ -448,7 +568,7 @@ impl VmInner {
                     None
                 },
                 new_instance: None,
-                new_target: None,
+                mode: super::value::CallMode::Call,
                 home_class,
                 saved_completion: JsValue::Undefined,
                 generator: None,
@@ -497,7 +617,7 @@ impl VmInner {
             },
             cleanup_base: base,
             new_instance: None,
-            new_target: None,
+            mode: super::value::CallMode::Call,
             home_class,
             saved_completion,
             generator: None,
@@ -528,7 +648,7 @@ impl VmInner {
     /// Does **not** call `run()` — the caller must `continue` the dispatch loop.
     ///
     /// Returns `Err` (without mutating the stack or frame state)
-    /// when invoked in call mode (`new_target = None`) on a class
+    /// when invoked in [`CallMode::Call`] mode on a class
     /// constructor — ECMA-262 §10.2.1 step 2 requires throwing a
     /// `TypeError` at the call boundary. Single chokepoint for this
     /// check so every Op::Call / Op::CallMethod / Vm::call entry
@@ -542,14 +662,14 @@ impl VmInner {
         argc: usize,
         cleanup_offset: usize,
         new_instance: Option<ObjectId>,
-        new_target: Option<ObjectId>,
+        mode: super::value::CallMode,
     ) -> Result<(), VmError> {
         let compiled = self.get_compiled(callee.func_id);
         // ECMA-262 §10.2.1 step 2 — class constructor in call mode is
         // a TypeError. Construct-mode entries (`do_new` /
-        // `construct_synchronous`) pass `Some(new_target)` and so
+        // `construct_synchronous`) pass [`CallMode::Construct`] and so
         // bypass this guard.
-        if compiled.is_class_ctor && new_target.is_none() {
+        if compiled.is_class_ctor && !mode.is_construct() {
             let name = compiled.name.as_deref().unwrap_or("");
             let msg = if name.is_empty() {
                 "Class constructor cannot be invoked without 'new'".to_string()
@@ -652,7 +772,7 @@ impl VmInner {
                 tdz_overflow,
                 actual_args,
                 new_instance,
-                new_target,
+                mode,
                 home_class,
                 saved_completion: JsValue::Undefined,
                 generator: None,
@@ -706,7 +826,7 @@ impl VmInner {
                 tdz_overflow,
                 actual_args,
                 new_instance,
-                new_target,
+                mode,
                 home_class,
                 saved_completion: JsValue::Undefined,
                 generator: None, // filled in after Generator alloc below
@@ -754,7 +874,7 @@ impl VmInner {
             actual_args,
             cleanup_base,
             new_instance,
-            new_target,
+            mode,
             home_class,
             saved_completion,
             generator: None,
@@ -797,86 +917,308 @@ impl VmInner {
 mod tests {
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
+    use super::super::value::CallMode;
     use super::super::Vm;
+    use super::JsValue;
 
-    /// D-17b R12 G12-2 regression: a panic inside the closure passed
-    /// to `dispatch_with_construct_entry` must not leak the pushed
-    /// `native_construct_stack` entry past a `catch_unwind` boundary.
-    /// Without the guard's pop-on-Drop equivalent (catch_unwind +
-    /// resume_unwind), the stack would retain a stale `Some` (or
-    /// `None`) entry and subsequent `NativeContext::is_construct` /
-    /// `new_target` reads would misreport.
+    /// D-17b-r1 Phase 0b/Phase 7 positive assertion: a panic inside
+    /// `with_call_mode`'s closure must leave `VmInner.frames` /
+    /// `VmInner.stack` at exactly the entry depth before the panic
+    /// is re-raised. This replaces the pre-r1
+    /// `dispatch_with_construct_entry_pops_on_panic` test (the
+    /// `native_construct_stack` it pushed-and-popped no longer
+    /// exists) — and crucially, it also covers a pre-r1
+    /// frame-stack-stuck regression: `call_internal`'s
+    /// `result.is_err()` cleanup gate did not run on a Rust panic
+    /// mid-dispatch, leaving the pushed frame stuck (R2 CRIT-1
+    /// discovery).
     #[test]
-    fn dispatch_with_construct_entry_pops_on_panic() {
+    fn with_call_mode_truncates_frame_stack_on_panic() {
         let mut vm = Vm::new();
-        assert!(
-            vm.inner.native_construct_stack.is_empty(),
-            "precondition: stack starts empty"
-        );
+        let entry_frames = vm.inner.frames.len();
 
         // Suppress the intentional panic's stderr trace.
         let prev_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(|_| {}));
 
-        // Catch the panic; helper must still pop the entry before
-        // resume_unwind propagates the panic out of dispatch_with_construct_entry.
         let result = catch_unwind(AssertUnwindSafe(|| {
-            let _ = vm.inner.dispatch_with_construct_entry(None, |_vm| {
-                panic!("intentional panic for R12 G12-2 regression")
+            let _: Result<JsValue, _> = vm.inner.with_call_mode(CallMode::Call, |vm, _mode| {
+                // Forge a pushed frame, then panic — the helper
+                // must truncate the frames Vec back to
+                // `entry_frames` before resume_unwind.
+                use super::super::value::{CallFrame, FuncId};
+                use std::sync::Arc;
+                vm.frames.push(CallFrame {
+                    func_id: FuncId(0),
+                    ip: 0,
+                    base: vm.stack.len(),
+                    upvalue_ids: Arc::from([] as [super::super::value::UpvalueId; 0]),
+                    local_upvalue_ids: Vec::new(),
+                    this_value: JsValue::Undefined,
+                    exception_handlers: Vec::new(),
+                    tdz_bits: 0,
+                    tdz_overflow: Box::default(),
+                    actual_args: None,
+                    cleanup_base: vm.stack.len(),
+                    new_instance: None,
+                    mode: CallMode::Call,
+                    home_class: None,
+                    saved_completion: JsValue::Undefined,
+                    generator: None,
+                    pending_completion: None,
+                });
+                panic!("intentional panic for with_call_mode frame-truncate regression")
             });
         }));
 
         std::panic::set_hook(prev_hook);
 
         assert!(result.is_err(), "panic should propagate via resume_unwind");
-        assert!(
-            vm.inner.native_construct_stack.is_empty(),
-            "stack must be popped despite panic; got len = {}",
-            vm.inner.native_construct_stack.len()
+        assert_eq!(
+            vm.inner.frames.len(),
+            entry_frames,
+            "frames must be truncated back to entry depth despite panic; got len = {}",
+            vm.inner.frames.len()
+        );
+    }
+
+    /// Sibling assertion for the value stack: a panic mid-dispatch
+    /// must leave `VmInner.stack` at exactly the entry depth so any
+    /// outer dispatch the caller resumes (after the catch_unwind)
+    /// sees a clean stack.
+    #[test]
+    fn with_call_mode_truncates_value_stack_on_panic() {
+        let mut vm = Vm::new();
+        let entry_stack_depth = vm.inner.stack.len();
+
+        let prev_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _: Result<JsValue, _> = vm.inner.with_call_mode(CallMode::Call, |vm, _mode| {
+                vm.stack.push(JsValue::Boolean(true));
+                vm.stack.push(JsValue::Number(42.0));
+                panic!("intentional panic for with_call_mode value-stack-truncate regression")
+            });
+        }));
+
+        std::panic::set_hook(prev_hook);
+
+        assert!(result.is_err(), "panic should propagate via resume_unwind");
+        assert_eq!(
+            vm.inner.stack.len(),
+            entry_stack_depth,
+            "value stack must be truncated back to entry depth despite panic; got len = {}",
+            vm.inner.stack.len()
+        );
+    }
+
+    /// D-17b-r1 panic-path upvalue-safety regression: a Rust panic
+    /// mid-dispatch that triggers `with_call_mode`'s frame truncate
+    /// must `close_upvalues` on every dropped frame's
+    /// `local_upvalue_ids` BEFORE the stack is truncated, so an
+    /// Upvalue still in `UpvalueState::Open { frame_base, slot }`
+    /// gets its slot value snapshotted as `Closed(value)`. Without
+    /// the close, the upvalue would point at a truncated-away stack
+    /// region and subsequent reads (via a closure that escaped the
+    /// panicked frame and survived the upstream `catch_unwind`)
+    /// would return stale slot values or OOB-panic.
+    ///
+    /// Closed-via-upvalue invariant covers the F1 finding from the
+    /// D-17b-r1 code review.
+    #[test]
+    fn with_call_mode_closes_open_upvalues_on_panic() {
+        use super::super::value::{CallFrame, FuncId, Upvalue, UpvalueId, UpvalueState};
+        use std::sync::Arc;
+
+        let mut vm = Vm::new();
+        let entry_frames = vm.inner.frames.len();
+        let entry_stack_depth = vm.inner.stack.len();
+
+        let prev_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+
+        // Stash an UpvalueId before the panic so we can read its
+        // post-panic state after with_call_mode runs.
+        let captured_uv_id: UpvalueId = {
+            let id = UpvalueId(vm.inner.upvalues.len() as u32);
+            vm.inner.upvalues.push(Upvalue {
+                state: UpvalueState::Open {
+                    frame_base: entry_stack_depth,
+                    slot: 0,
+                },
+            });
+            id
+        };
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _: Result<JsValue, _> = vm.inner.with_call_mode(CallMode::Call, |vm, _mode| {
+                // Push the slot the upvalue references onto the value
+                // stack BEFORE pushing the frame that owns it.
+                let captured_value = JsValue::Number(123.0);
+                vm.stack.push(captured_value);
+                // Push a forged frame whose `local_upvalue_ids` lists
+                // the upvalue captured above; with_call_mode must
+                // close it before stack.truncate drops slot at
+                // `entry_stack_depth`.
+                vm.frames.push(CallFrame {
+                    func_id: FuncId(0),
+                    ip: 0,
+                    base: entry_stack_depth + 1,
+                    upvalue_ids: Arc::from([] as [UpvalueId; 0]),
+                    local_upvalue_ids: vec![captured_uv_id],
+                    this_value: JsValue::Undefined,
+                    exception_handlers: Vec::new(),
+                    tdz_bits: 0,
+                    tdz_overflow: Box::default(),
+                    actual_args: None,
+                    cleanup_base: entry_stack_depth + 1,
+                    new_instance: None,
+                    mode: CallMode::Call,
+                    home_class: None,
+                    saved_completion: JsValue::Undefined,
+                    generator: None,
+                    pending_completion: None,
+                });
+                panic!("intentional panic for close_upvalues regression")
+            });
+        }));
+
+        std::panic::set_hook(prev_hook);
+
+        assert!(result.is_err(), "panic should propagate via resume_unwind");
+        assert_eq!(
+            vm.inner.frames.len(),
+            entry_frames,
+            "frame stack must be truncated"
+        );
+        assert_eq!(
+            vm.inner.stack.len(),
+            entry_stack_depth,
+            "value stack must be truncated"
+        );
+
+        // F1 invariant: the upvalue captured by the truncated frame
+        // must be Closed(captured_value), NOT still Open into a
+        // now-dropped stack region.
+        match vm.inner.upvalues[captured_uv_id.0 as usize].state {
+            UpvalueState::Closed(v) => assert_eq!(
+                v,
+                JsValue::Number(123.0),
+                "upvalue must snapshot the pre-truncate slot value"
+            ),
+            UpvalueState::Open { frame_base, slot } => panic!(
+                "upvalue still Open after panic-truncate: frame_base={frame_base}, slot={slot}"
+            ),
+        }
+    }
+
+    /// D-17b-r1 Copilot R2 + R3: `with_call_mode` saves
+    /// `gc_enabled`, `active_bound_key`, and `completion_value` at
+    /// entry and restores all three on every exit path (including
+    /// panic), so a panicked dispatch that skips the inner per-arm
+    /// restores (NativeFunction arm's `gc_enabled` / `bound_key`,
+    /// `call_internal`'s `completion_value`) does NOT leak
+    /// `gc_enabled = false` (which would silently disable GC for
+    /// the VM's remaining lifetime), a stale `active_bound_key`
+    /// (which would mis-attribute bound accessors), or a stale
+    /// `completion_value` (which would corrupt the caller's
+    /// evaluation state across a nested dispatch like
+    /// `construct_synchronous`'s JS branch).
+    #[test]
+    fn with_call_mode_restores_vm_flags_on_panic() {
+        use super::super::value::StringId;
+
+        let mut vm = Vm::new();
+        let saved_gc = true;
+        let saved_key: Option<StringId> = None;
+        let saved_completion = JsValue::Number(42.0);
+        vm.inner.gc_enabled = saved_gc;
+        vm.inner.active_bound_key = saved_key;
+        vm.inner.completion_value = saved_completion;
+
+        let prev_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _: Result<JsValue, _> = vm.inner.with_call_mode(CallMode::Call, |vm, _mode| {
+                // Simulate the mid-body state inner save/restore
+                // patterns set up: gc_enabled flipped to false,
+                // active_bound_key set to a forged sentinel, and
+                // completion_value advanced to a different value —
+                // then panic before any inner restore fires.
+                vm.gc_enabled = false;
+                vm.active_bound_key = Some(super::super::value::StringId(u32::MAX));
+                vm.completion_value = JsValue::Number(-1.0);
+                panic!("intentional panic for with_call_mode flag-restore regression")
+            });
+        }));
+
+        std::panic::set_hook(prev_hook);
+
+        assert!(result.is_err(), "panic should propagate via resume_unwind");
+        assert_eq!(
+            vm.inner.gc_enabled, saved_gc,
+            "gc_enabled must be restored to entry value despite panic"
+        );
+        assert_eq!(
+            vm.inner.active_bound_key, saved_key,
+            "active_bound_key must be restored to entry value despite panic"
+        );
+        assert_eq!(
+            vm.inner.completion_value, saved_completion,
+            "completion_value must be restored to entry value despite panic"
         );
     }
 
     /// Round-trip: a successful (non-panicking) dispatch under the
-    /// helper still pushes + pops the right entry, leaving the stack
-    /// in the same state as before.
+    /// helper leaves the frame + value stacks at exactly the entry
+    /// depth — the `Ok`-arm `debug_assert_eq` enforces push/pop
+    /// balance, and `truncate` is a no-op.
     #[test]
-    fn dispatch_with_construct_entry_round_trip_ok() {
-        use super::JsValue;
+    fn with_call_mode_round_trip_ok() {
         let mut vm = Vm::new();
-        let len_before = vm.inner.native_construct_stack.len();
+        let frames_before = vm.inner.frames.len();
+        let stack_before = vm.inner.stack.len();
 
-        let result = vm.inner.dispatch_with_construct_entry(None, |_vm| {
-            // Closure does no work; helper push/pop should still balance.
+        let result = vm.inner.with_call_mode(CallMode::Call, |_vm, _mode| {
+            // Closure does no work; helper bookkeeping should balance.
             Ok(JsValue::Undefined)
         });
 
         assert!(result.is_ok());
         assert_eq!(
-            vm.inner.native_construct_stack.len(),
-            len_before,
-            "stack length must round-trip"
+            vm.inner.frames.len(),
+            frames_before,
+            "frames length must round-trip"
+        );
+        assert_eq!(
+            vm.inner.stack.len(),
+            stack_before,
+            "value stack length must round-trip"
         );
     }
 
-    /// D-17b R19 regression: when the closure panics AND the
-    /// push/pop identity check would fail, the helper must surface
-    /// the closure's original panic payload — not double-panic
-    /// from the debug-assert. Pre-fix the assert was gated on
-    /// `!std::thread::panicking()`, which `catch_unwind` made always-
-    /// false on the panic path; a mismatched pop then aborted the
-    /// thread with an "expected vs got" message, clobbering the
-    /// upstream-observable failure shape.
+    /// D-17b R19 spirit preserved: when the closure panics, the
+    /// helper must surface the closure's original panic payload
+    /// rather than double-panic from a debug-assert. Pre-D-17b-r1
+    /// the assert was gated on `!std::thread::panicking()`, which
+    /// `catch_unwind` made always-false on the panic path; a
+    /// mismatched pop then aborted the thread with an "expected vs
+    /// got" message, clobbering the upstream-observable failure
+    /// shape. The r1 helper splits its frames-length assertion by
+    /// result arm (strict `==` on `Ok`, weaker `>=` on `Err`) and
+    /// truncates either way before `resume_unwind` — so even when a
+    /// closure leaves the frames Vec in an unbalanced state, the
+    /// original panic still surfaces.
     #[test]
-    fn dispatch_with_construct_entry_panic_preserves_original_payload_on_pop_mismatch() {
+    fn with_call_mode_panic_preserves_original_payload() {
         let mut vm = Vm::new();
         let prev_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(|_| {}));
 
-        // Closure manipulates `native_construct_stack` so the helper's
-        // pop sees the wrong entry, then panics with a known marker.
         let result = catch_unwind(AssertUnwindSafe(|| {
-            let _ = vm.inner.dispatch_with_construct_entry(None, |vm| {
-                vm.native_construct_stack.push(None); // force pop != Some(entry)
+            let _: Result<JsValue, _> = vm.inner.with_call_mode(CallMode::Call, |_vm, _mode| {
                 panic!("R19_original_marker");
             });
         }));

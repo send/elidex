@@ -496,7 +496,7 @@ pub(crate) fn try_indexed_get(
         // behaviour for any index.  All sources share this default.
         return Some(Ok(JsValue::String(vm.well_known.empty)));
     }
-    let mut ctx = NativeContext { vm };
+    let mut ctx = NativeContext::new_call(vm);
     let result = match recv {
         StyleReceiver::Inline(entity) => invoke_dom_api(
             &mut ctx,
@@ -588,7 +588,7 @@ pub(crate) fn try_get(
         // string).
         return Some(Ok(JsValue::String(vm.well_known.empty)));
     }
-    let mut ctx = NativeContext { vm };
+    let mut ctx = NativeContext::new_call(vm);
     let result = match recv {
         StyleReceiver::Inline(entity) => invoke_dom_api(
             &mut ctx,
@@ -649,7 +649,7 @@ pub(crate) fn try_set(
     if !is_bound(vm) {
         return Some(Ok(()));
     }
-    let mut ctx = NativeContext { vm };
+    let mut ctx = NativeContext::new_call(vm);
     let result = match recv {
         StyleReceiver::Inline(entity) => invoke_dom_api(
             &mut ctx,
@@ -686,7 +686,7 @@ pub(crate) fn try_delete(
     if !is_bound(vm) {
         return Some(Ok(true));
     }
-    let mut ctx = NativeContext { vm };
+    let mut ctx = NativeContext::new_call(vm);
     let result = match recv {
         StyleReceiver::Inline(entity) => invoke_dom_api(
             &mut ctx,

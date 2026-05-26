@@ -108,35 +108,31 @@ impl VmInner {
     /// Resolve a constructor's receiver for both `new`-mode and
     /// call-mode invocations.
     ///
-    /// - `new F(...)`: native dispatch pushes `Some(new_target)` onto
-    ///   `native_construct_stack` (D-17b §7 Stage 6 SoT) and `do_new`
-    ///   supplies a pre-allocated object receiver — we must reuse
-    ///   `this` as-is so the constructor initializes the same
-    ///   instance the caller will receive.
-    /// - `F(...)` (call-mode): `native_construct_stack` top is `None`
-    ///   (or stack empty); allocate a fresh Ordinary with
-    ///   `prototype`.  An explicit receiver passed via
-    ///   `F.call(obj, ...)` / `F.apply(obj, ...)` is *not* reused —
-    ///   ECMA-262 §10.1.13 OrdinaryCreateFromConstructor always
-    ///   yields a new object.
+    /// - `new F(...)`: caller passes [`super::value::CallMode::Construct`]
+    ///   and `do_new` supplies a pre-allocated object receiver — we
+    ///   must reuse `this` as-is so the constructor initializes the
+    ///   same instance the caller will receive.
+    /// - `F(...)` (call-mode): caller passes [`super::value::CallMode::Call`];
+    ///   allocate a fresh Ordinary with `prototype`. An explicit
+    ///   receiver passed via `F.call(obj, ...)` / `F.apply(obj, ...)`
+    ///   is *not* reused — ECMA-262 §10.1.13
+    ///   OrdinaryCreateFromConstructor always yields a new object.
     ///
     /// Implements the "callable constructor" shape of ECMA-262
     /// §10.2.2 `[[Construct]]` step 5 + §10.1.13
     /// OrdinaryCreateFromConstructor.
     ///
-    /// PRECONDITION: caller must execute inside a native invocation
-    /// whose entry frame pushed the appropriate
-    /// `native_construct_stack` slot — `Some(new_target)` for
-    /// construct mode (via `do_new`'s native-ctor branch or
-    /// `construct_synchronous`'s native arm) or `None` for call mode
-    /// (via `Self::call`). The stack-top read distinguishes the two:
-    /// `Some` reuses `this`, `None`/empty allocates a fresh receiver.
+    /// `mode` comes from the entry frame's `NativeContext::mode`
+    /// (baked by `Vm::with_call_mode` at the outer dispatch boundary)
+    /// — caller-supplied so the precondition is type-level rather
+    /// than depending on an out-of-band side channel.
     pub(crate) fn ensure_instance_or_alloc(
         &mut self,
         this: JsValue,
         prototype: Option<ObjectId>,
+        mode: super::value::CallMode,
     ) -> JsValue {
-        if matches!(self.native_construct_stack.last(), Some(Some(_))) {
+        if mode.is_construct() {
             if let JsValue::Object(_) = this {
                 return this;
             }

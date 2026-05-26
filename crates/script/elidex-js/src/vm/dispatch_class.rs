@@ -13,7 +13,7 @@
 //! - \[C19\] ECMA-262 §13.3.8.1 ArgumentListEvaluation (spread variant)
 //!   — `Op::SuperCallSpread` consumes a pre-built args array.
 
-use super::value::{JsValue, ObjectId, ObjectKind, VmError};
+use super::value::{CallMode, JsValue, ObjectId, ObjectKind, VmError};
 use super::VmInner;
 
 impl VmInner {
@@ -28,9 +28,9 @@ impl VmInner {
     #[inline]
     pub(super) fn op_new_target(&mut self) {
         let frame_idx = self.frames.len() - 1;
-        let val = match self.frames[frame_idx].new_target {
-            Some(id) => JsValue::Object(id),
-            None => JsValue::Undefined,
+        let val = match self.frames[frame_idx].mode {
+            CallMode::Construct { new_target } => JsValue::Object(new_target),
+            CallMode::Call => JsValue::Undefined,
         };
         self.stack.push(val);
     }
@@ -124,13 +124,25 @@ impl VmInner {
             .ok_or_else(|| VmError::type_error("Super constructor null is not a constructor"))?;
         // Propagate the outer frame's new_target unchanged — \[C13\]
         // SuperCall "GetNewTarget" returns the outermost-invoked
-        // class regardless of nesting.
-        let new_target = self.frames[frame_idx].new_target.unwrap_or(home);
+        // class regardless of nesting. Derived-ctor frames carry
+        // `CallMode::Construct { new_target }` by construction (the
+        // `Call` fallback is defensive only — a `super()` reached
+        // via a non-ctor frame would already be a SyntaxError at the
+        // `home_class` check above).
+        let new_target = match self.frames[frame_idx].mode {
+            CallMode::Construct { new_target } => new_target,
+            CallMode::Call => home,
+        };
         let receiver = self.frames[frame_idx].this_value;
         let pre_alloc = self.frames[frame_idx].new_instance;
 
-        let result =
-            self.construct_synchronous(super_class, receiver, args, new_target, pre_alloc)?;
+        let result = self.construct_synchronous(
+            super_class,
+            receiver,
+            args,
+            CallMode::Construct { new_target },
+            pre_alloc,
+        )?;
 
         // Substitute the outer frame's `this`/`new_instance` to the
         // super-returned object so subsequent reads (e.g.
@@ -197,12 +209,19 @@ impl VmInner {
 
     /// Synchronous `[[Construct]]` dispatch (\[C11\]) used by
     /// `Op::SuperCall` and the upcoming `vm.construct` API (Stage 5).
-    /// Threads `new_target` through both the native-call path
-    /// (via `native_construct_stack`) and the JS-call path (via
-    /// `CallFrame::new_target`), then applies the
-    /// explicit-Object-return-wins-else-pre-alloc substitution that
-    /// matches `[[Construct]]`'s OrdinaryCreateFromConstructor
-    /// completion semantics.
+    /// Threads `mode` through both the native-call path (via the
+    /// outer `with_call_mode` boundary that bakes `NativeContext::mode`
+    /// for the entry frame) and the JS-call path (via the
+    /// `push_js_call_frame` `mode` arg → `CallFrame::mode`), then
+    /// applies the explicit-Object-return-wins-else-pre-alloc
+    /// substitution that matches `[[Construct]]`'s
+    /// OrdinaryCreateFromConstructor completion semantics.
+    ///
+    /// Always invoked with [`CallMode::Construct`] in current callers
+    /// (`do_new`'s JS branch, `dispatch_super_inner`); the `mode`
+    /// parameter keeps the signature symmetric with
+    /// [`super::VmInner::push_js_call_frame`] and primes the path for
+    /// a future native-`Function.construct`-via-this-helper caller.
     ///
     /// BoundFunction superclasses (`class B extends A.bind(null) {
     /// ... super() ... }`) are unwrapped via
@@ -215,9 +234,22 @@ impl VmInner {
         ctor_id: ObjectId,
         receiver: JsValue,
         args: &[JsValue],
-        new_target: ObjectId,
+        mode: CallMode,
         pre_alloc_instance: Option<ObjectId>,
     ) -> Result<JsValue, VmError> {
+        // [[Construct]] precondition: the post-call substitution at
+        // the tail of this function (Object-return-wins-else-pre-alloc)
+        // is OrdinaryCreateFromConstructor-shaped — meaningless under
+        // Call mode. Document the still-load-bearing precondition as
+        // a type-level assert until a Call-mode caller is wired
+        // intentionally (the signature accepts `CallMode` for symmetry
+        // with `push_js_call_frame` per the docstring — current
+        // callers all pass `Construct`).
+        debug_assert!(
+            mode.is_construct(),
+            "construct_synchronous called with CallMode::Call; \
+             post-call substitution would silently apply Construct semantics"
+        );
         // Unwrap BoundFunction chain before checking constructability —
         // a BoundFunction targeting a constructable callable is itself
         // constructable (ECMA-262 §10.4.1.2).
@@ -248,45 +280,41 @@ impl VmInner {
             return Err(VmError::type_error("not a constructor"));
         }
 
-        // Push the per-invocation `new_target` onto the native-call
-        // stack so any native ctor reached by this construct (either
-        // directly when ctor is native, or via nested `do_new` /
-        // `super` inside the JS body) sees the right NewTarget.
-        // Single SoT for native-side construct mode (D-17b §7) — the
-        // stack-top read in `NativeContext::is_construct()` +
-        // `ensure_instance_or_alloc` derives the same boolean the
-        // legacy `in_construct` flag did, plus the new_target ObjectId
-        // that flag couldn't express. The native-ctor path delegates
-        // its push to `Vm::call_construct_native` so the entry stays
-        // on top during the dispatch body (using plain `Vm::call`
-        // here would have shadowed our `Some(new_target)` with a
-        // `None` and broken `ctx.is_construct()` / `ctx.new_target()`
-        // reads inside the native body).
-        let raw_result = if is_js {
-            // JS construct: push frame + re-entrant `run()` until the
-            // pushed frame returns. push_js_call_frame consumes
-            // [callee, arg0..argN] from the stack (cleanup_offset=1),
-            // matching `Op::Call`'s shape — so we lay it out then
-            // hand off to the dispatcher. Routed through
-            // `dispatch_with_construct_entry` (D-17b R12 G12-2) so
-            // a panic during `run()` does not leak the pushed
-            // `Some(new_target)` past a `catch_unwind` boundary.
-            self.dispatch_with_construct_entry(Some(new_target), |vm| {
+        // Thread `mode` through both the JS and native dispatch
+        // branches via the outer `with_call_mode` boundary
+        // (D-17b-r1 §7.3): the JS branch threads `mode` into
+        // `push_js_call_frame` so `CallFrame::mode` matches, and the
+        // native branch threads it into `NativeContext::new_construct`
+        // so the body's `ctx.is_construct()` / `ctx.new_target()` see
+        // the right context. Single SoT for per-invocation construct
+        // mode (replaces D-17b §7 `native_construct_stack`).
+        let raw_result = self.with_call_mode(mode, |vm, mode| {
+            if is_js {
+                // JS construct: push frame + re-entrant `run()` until the
+                // pushed frame returns. push_js_call_frame consumes
+                // [callee, arg0..argN] from the stack (cleanup_offset=1),
+                // matching `Op::Call`'s shape — so we lay it out then
+                // hand off to the dispatcher. The `with_call_mode`
+                // closure binds the catch_unwind boundary so a panic
+                // during `run()` is caught and the frame/value stacks
+                // are truncated back to the entry depth before
+                // re-raise (D-17b-r1 R2 CRIT-1 fix).
                 match vm.extract_js_callee(ctor_id) {
                     Some(callee) => {
                         vm.stack.push(JsValue::Object(ctor_id));
                         for &a in args {
                             vm.stack.push(a);
                         }
-                        // Construct mode (new_target = Some), so the
-                        // class-ctor-call-mode guard never fires.
+                        // Construct mode threads `mode` directly; the
+                        // class-ctor-call-mode guard never fires when
+                        // `mode = CallMode::Construct { .. }`.
                         vm.push_js_call_frame(
                             callee,
                             receiver,
                             args.len(),
                             1,
                             pre_alloc_instance,
-                            Some(new_target),
+                            mode,
                         )?;
                         vm.run()
                     }
@@ -294,13 +322,14 @@ impl VmInner {
                         "construct_synchronous: ObjectKind::Function lost between probe and dispatch",
                     )),
                 }
-            })
-        } else {
-            debug_assert!(is_native_ctor);
-            // `call_construct_native` owns the push/pop discipline
-            // for the native-dispatch boundary.
-            self.call_construct_native(ctor_id, receiver, args, new_target)
-        };
+            } else {
+                debug_assert!(is_native_ctor);
+                // Native construct: dispatch directly inside the
+                // boundary so the `NativeContext` built at
+                // `call_dispatch` time bakes the outer `mode`.
+                vm.call_dispatch(ctor_id, receiver, args, mode)
+            }
+        });
 
         let raw = raw_result?;
         // [[Construct]] return: explicit Object wins, else the

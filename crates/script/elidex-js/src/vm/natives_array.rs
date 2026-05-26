@@ -624,7 +624,7 @@ pub(super) fn native_array_to_locale_string(
     let mut frame = ctx.vm.push_stack_scope();
     let wrapper_slot = frame.saved_len();
     frame.stack.push(JsValue::Undefined);
-    let mut sub_ctx = NativeContext { vm: &mut frame };
+    let mut sub_ctx = NativeContext::new_call(&mut frame);
 
     let mut result: Vec<u16> = Vec::new();
     for (i, v) in elements.iter().enumerate() {

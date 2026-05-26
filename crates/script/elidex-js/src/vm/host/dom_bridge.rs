@@ -674,7 +674,7 @@ mod tests {
     fn prepare_arg_rejects_symbol_directly() {
         use crate::vm::value::SymbolId;
         let mut vm = crate::vm::Vm::new();
-        let mut ctx = NativeContext { vm: &mut vm.inner };
+        let mut ctx = NativeContext::new_call(&mut vm.inner);
         let Err(err) = prepare_arg(&mut ctx, JsValue::Symbol(SymbolId(0))) else {
             panic!("Symbol must reject at the bridge");
         };
@@ -691,7 +691,7 @@ mod tests {
     fn prepare_arg_rejects_bigint_directly() {
         use crate::vm::value::BigIntId;
         let mut vm = crate::vm::Vm::new();
-        let mut ctx = NativeContext { vm: &mut vm.inner };
+        let mut ctx = NativeContext::new_call(&mut vm.inner);
         let Err(err) = prepare_arg(&mut ctx, JsValue::BigInt(BigIntId(0))) else {
             panic!("BigInt must reject at the bridge");
         };

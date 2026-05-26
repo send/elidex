@@ -362,7 +362,7 @@ pub(crate) fn native_typed_array_map(
         species_constructor_for_typed_array(ctx, receiver_id, src_ek, "map")?;
     let dst_view_id = create_typed_array_for_length(ctx, dst_ek, proto_override, len_elem)?;
     let mut g = ctx.vm.push_temp_root(JsValue::Object(dst_view_id));
-    let mut sub_ctx = NativeContext { vm: &mut g };
+    let mut sub_ctx = NativeContext::new_call(&mut g);
     let (dst_buf, dst_off) = destructure_view(sub_ctx.vm, dst_view_id);
     for i in 0..len_elem {
         let elem = read_element_raw(sub_ctx.vm, src_buf, src_off, i, src_ek);
@@ -411,7 +411,7 @@ pub(crate) fn native_typed_array_filter(
 
     let mut frame = ctx.vm.push_stack_scope();
     let elem_start = frame.saved_len();
-    let mut sub_ctx = NativeContext { vm: &mut frame };
+    let mut sub_ctx = NativeContext::new_call(&mut frame);
     for i in 0..len_elem {
         let elem = read_element_raw(sub_ctx.vm, src_buf, src_off, i, src_ek);
         #[allow(clippy::cast_precision_loss)]
@@ -439,7 +439,7 @@ pub(crate) fn native_typed_array_filter(
     let dst_view_id =
         create_typed_array_for_length(&mut sub_ctx, dst_ek, proto_override, kept_u32)?;
     let mut g = sub_ctx.vm.push_temp_root(JsValue::Object(dst_view_id));
-    let mut deeper = NativeContext { vm: &mut g };
+    let mut deeper = NativeContext::new_call(&mut g);
     let (dst_buf, dst_off) = destructure_view(deeper.vm, dst_view_id);
     for i in 0..kept_len {
         // `JsValue` is `Copy`; this snapshot ends before the
@@ -502,7 +502,7 @@ pub(crate) fn native_typed_array_flat_map(
 
     let mut frame = ctx.vm.push_stack_scope();
     let elem_start = frame.saved_len();
-    let mut sub_ctx = NativeContext { vm: &mut frame };
+    let mut sub_ctx = NativeContext::new_call(&mut frame);
     for i in 0..len_elem {
         let elem = read_element_raw(sub_ctx.vm, src_buf, src_off, i, src_ek);
         #[allow(clippy::cast_precision_loss)]
@@ -550,7 +550,7 @@ pub(crate) fn native_typed_array_flat_map(
     let dst_view_id =
         create_typed_array_for_length(&mut sub_ctx, dst_ek, proto_override, kept_u32)?;
     let mut g = sub_ctx.vm.push_temp_root(JsValue::Object(dst_view_id));
-    let mut deeper = NativeContext { vm: &mut g };
+    let mut deeper = NativeContext::new_call(&mut g);
     let (dst_buf, dst_off) = destructure_view(deeper.vm, dst_view_id);
     for i in 0..kept_len {
         let value = deeper.vm.stack[elem_start + i];
@@ -671,7 +671,7 @@ fn reduce_impl(
     let mut frame = ctx.vm.push_stack_scope();
     let acc_slot = frame.saved_len();
     frame.stack.push(initial_acc);
-    let mut sub_ctx = NativeContext { vm: &mut frame };
+    let mut sub_ctx = NativeContext::new_call(&mut frame);
 
     while k_signed != limit {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
