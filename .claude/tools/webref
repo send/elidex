@@ -576,12 +576,17 @@ def _tc39_resolve_body_url(shortname: str, anchor: str) -> tuple[str, str] | Non
     top-level §-number. This way every anchor biblio tracks resolves —
     the resolver invariant "biblio-known id → multipage URL" holds by
     construction, rather than being limited to a single entry-type subset.
-    Returns None if the anchor isn't in biblio at all.
+
+    Error contract (split deliberately so callers and main()'s NotFound
+    handler can surface the right diagnostic):
+
+      - `tuple[str, str]` — anchor resolved to a URL
+      - `None`            — anchor not present in biblio (typo / unknown)
+      - raises `NotFound` — biblio fetch itself failed (upstream/CDN
+        outage, URL drift); reserved by intent — do NOT swallow here,
+        or downstream callers see a misleading "anchor not found" path.
     """
-    try:
-        d = _tc39_biblio(shortname)
-    except NotFound:
-        return None
+    d = _tc39_biblio(shortname)
     location = d.get("location", "")
     entries = d.get("entries", [])
 
