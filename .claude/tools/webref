@@ -22,6 +22,7 @@ Subcommands:
   element      <spec> <element-name>    HTML/SVG element → interface name + href
   css          <spec> <name>            CSS property / @rule / selector / value metadata
   aoid         <spec> <name>            (tc39) abstract operation aoid → §number + anchor
+  body         <spec> <anchor-or-ao>    fetch + extract section prose by anchor (or AO name for tc39)
   specs        <keyword>                shortname lookup (by spec title)
   coverage-map <spec> <ref> ...         plan-memo §3 Spec coverage map skeleton + breadth verdict
 """
@@ -29,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html.parser
 import json
 import os
 import re
@@ -62,6 +64,9 @@ Examples:
   .claude/tools/webref idl html CustomElementRegistry
   .claude/tools/webref element html canvas                   # → HTMLCanvasElement
   .claude/tools/webref css css-overflow-3 overflow-x         # property metadata
+  .claude/tools/webref body ecma262 sec-iteratorclose        # §7.4.11 IteratorClose prose (multipage)
+  .claude/tools/webref body ecma262 IteratorClose            # AO name resolves to anchor first
+  .claude/tools/webref body html the-iframe-element          # §4.8.5 prose (multipage chapter)
   .claude/tools/webref specs canvas                          # shortname by keyword
   .claude/tools/webref coverage-map ecma262 15.7.14 html 4.13.4 ecma262 ClassDefinitionEvaluation
                                                              # plan-memo §3 skeleton
@@ -549,6 +554,634 @@ def cmd_specs(args: argparse.Namespace) -> None:
 
 
 # ---------------------------------------------------------------------------
+# body (fetch + extract section prose by anchor)
+# ---------------------------------------------------------------------------
+
+# tc39 multipage chapter file derivation is purely structural: the top-level
+# clause's `id` (always "sec-X" by convention) maps to `X.html`. Verified
+# across all 38 ecma262 chapters + annexes — no per-spec carve-outs needed.
+# If tc39 ever introduces an irregular chapter file, `cmd_body` catches the
+# 404 from the multipage fetch and retries against the single-page URL
+# (`<location>#<anchor>`), which serves every anchor regardless of chapter
+# layout. See the NotFound-handling block at the end of cmd_body.
+
+
+def _tc39_resolve_body_url(shortname: str, anchor: str) -> tuple[str, str] | None:
+    """Resolve tc39 (shortname, anchor) → (multipage_url, anchor) or None.
+
+    Accepts ANY biblio-known id, not just `type=clause`. Non-clause entries
+    (`table-*`, `figure-*`, `prod-*`, `step-*`, `term-*`, etc.) carry a
+    `refId` pointing into their enclosing clause; we walk that chain up to
+    the first ancestor clause and derive the chapter file from its
+    top-level §-number. This way every anchor biblio tracks resolves —
+    the resolver invariant "biblio-known id → multipage URL" holds by
+    construction, rather than being limited to a single entry-type subset.
+
+    Error contract (split deliberately so callers and main()'s NotFound
+    handler can surface the right diagnostic):
+
+      - `tuple[str, str]` — anchor resolved to a URL
+      - `None`            — anchor not present in biblio (typo / unknown)
+      - raises `NotFound` — biblio fetch itself failed (upstream/CDN
+        outage, URL drift); reserved by intent — do NOT swallow here,
+        or downstream callers see a misleading "anchor not found" path.
+    """
+    d = _tc39_biblio(shortname)
+    location = d.get("location", "")
+    entries = d.get("entries", [])
+
+    # Build id → entry index across ALL entry types. biblio uses string `id`
+    # uniquely across the file (clause / op / table / figure / term / prod /
+    # step), and refId always points to another such id, so a single dict
+    # supports both direct lookup and the refId walk below.
+    by_id: dict[str, dict] = {}
+    for e in entries:
+        eid = e.get("id")
+        if eid and eid not in by_id:
+            by_id[eid] = e
+
+    target = by_id.get(anchor)
+    if target is None:
+        return None
+
+    # Locate the containing clause for chapter routing. Direct clause uses
+    # its own number; otherwise walk refId up until we hit a clause. Some
+    # entry types (`table` / `figure`) have no `refId` in biblio — we can't
+    # route them to a multipage chapter, so we fall back to the single-page
+    # URL further below. (The biblio still knows the anchor, so the caller
+    # gets a working URL — it's just the 3 MB single-page chapter file
+    # rather than a 200-800 KB multipage chapter.)
+    if target.get("type") == "clause":
+        clause = target
+    else:
+        clause = None
+        cur = target
+        guard = 32  # paranoia: cap walk depth to detect any refId cycle
+        while cur is not None and guard > 0:
+            guard -= 1
+            ref = cur.get("refId")
+            if not ref:
+                break
+            cur = by_id.get(ref)
+            if cur is not None and cur.get("type") == "clause":
+                clause = cur
+                break
+
+    # Single-page fallback when biblio lacks the chapter routing info.
+    # Distinct from the "not in biblio at all" None return above — here we
+    # know the anchor is valid; we just can't pick a smaller chapter file
+    # to fetch.
+    if clause is None:
+        return (location, anchor)
+
+    number = clause.get("number", "")
+    if not number:
+        return (location, anchor)
+
+    # Top-level chapter §-prefix is the first component (digit chapter, e.g. "7"
+    # from "7.4.11"; annex letter, e.g. "B" from "B.3.1").
+    top_prefix = number.split(".", 1)[0]
+    top_clause = None
+    for e in entries:
+        if e.get("type") == "clause" and e.get("number", "") == top_prefix:
+            top_clause = e
+            break
+    if top_clause is None:
+        return (location, anchor)
+    top_id = top_clause.get("id", "")
+    # Strip the canonical "sec-" prefix to get the chapter file slug. Falls
+    # back to the raw id if a chapter ever lacks the prefix (defensive — all
+    # current ecma262/ecma402 top-level clauses have it).
+    chapter = top_id[4:] if top_id.startswith("sec-") else top_id
+    if not chapter:
+        return (location, anchor)
+    return (f"{location}multipage/{chapter}.html", anchor)
+
+
+def _webref_resolve_body_url(shortname: str, anchor: str) -> tuple[str, str] | None:
+    """Resolve WHATWG/W3C (shortname, anchor) → (multipage_url, anchor) or None.
+
+    Two-step lookup:
+      1. `headings/<spec>.json` for section anchors (heading-style ids).
+      2. `dfns/<spec>.json` for algorithm / concept / IDL-attribute anchors
+         (the WHATWG `concept-X`, `dom-Y-Z` family). Both carry a full
+         multipage `href`.
+
+    The fragment is split off so the cache key is the chapter HTML URL.
+    Returns None only when both lookups miss; callers then surface an error.
+    """
+    try:
+        data = fetch_json(f"headings/{shortname}.json")
+    except NotFound:
+        data = None
+    if data is not None:
+        for h in data.get("headings", []):
+            if h.get("id") == anchor:
+                href = h.get("href", "")
+                if href:
+                    return (href.split("#", 1)[0], anchor)
+
+    try:
+        ddata = fetch_json(f"dfns/{shortname}.json")
+    except NotFound:
+        return None
+    for d in ddata.get("dfns", []):
+        if d.get("id") == anchor:
+            href = d.get("href", "")
+            if href:
+                return (href.split("#", 1)[0], anchor)
+    return None
+
+
+def _resolve_body_source(shortname: str, anchor: str) -> tuple[str, str]:
+    """Resolve (shortname, anchor) → (fetch_url, anchor).
+
+    Order:
+      1. tc39 multipage (deterministic chapter derivation from biblio)
+      2. WHATWG/W3C multipage (href from webref headings/)
+      3. tc39 single-page fallback (3 MB cached spec.html)
+
+    Single-page non-tc39 fallback is intentionally NOT supported: webref
+    `href` is universal across WHATWG/W3C specs that webref tracks, and
+    untracked specs (zero `headings/<x>.json`) lack the citation metadata
+    body extraction depends on anyway.
+    """
+    if shortname in _TC39_FAMILY:
+        mp = _tc39_resolve_body_url(shortname, anchor)
+        if mp is not None:
+            return mp
+        # tc39 single-page fallback (rare — would mean biblio is missing
+        # the clause but the anchor is real, e.g. proposal-stage drafts).
+        try:
+            d = _tc39_biblio(shortname)
+        except NotFound:
+            sys.exit(f"webref: cannot resolve body URL for {shortname}#{anchor}")
+        location = d.get("location", "")
+        if not location:
+            sys.exit(f"webref: tc39 biblio for {shortname} missing location field")
+        return (location, anchor)
+
+    mp = _webref_resolve_body_url(shortname, anchor)
+    if mp is not None:
+        return mp
+    sys.exit(
+        f"webref: no multipage URL known for {shortname}#{anchor} "
+        f"(WHATWG/W3C: anchor must appear in headings/{shortname}.json "
+        f"or dfns/{shortname}.json)"
+    )
+
+
+class _SectionExtractor(html.parser.HTMLParser):
+    """Stream-parse HTML to extract one section's body as plain text.
+
+    Three delimitation strategies — selected by the element that carries the
+    target id:
+
+      - **Container** (emu-clause / section / div / article / aside / nav
+        with the id): emit text from the opening tag through its matching
+        closing tag, tracked by a depth counter on the same tag name. The
+        whole subtree is the section. Used for tc39 (emu-clause) and any
+        WHATWG/W3C spec that wraps sections in <section> blocks.
+      - **Heading** (h1-h6 with the id): emit text starting from the
+        heading through the next heading of equal-or-higher level. Used
+        for the common WHATWG/W3C single-page layout (flat HTML5 outline
+        without section wrappers).
+      - **Open-ended** (any other tag — inline `<dfn>` / `<a>` / `<span>`
+        / `<code>` / `<var>` / ..., or list items `<dt>` / `<dd>` / `<td>`,
+        or any tag the spec attaches an id to that isn't structural):
+        emit text starting from the element through the next heading of
+        any level. Used for algorithm / concept dfn anchors (`#concept-X`,
+        `#dom-Y-Z`) where the anchor sits inside a `<dfn>` introducing
+        an algorithm or term definition. Captures the dfn text + the
+        algorithm steps + remainder of the containing section.
+
+    Strategy is auto-detected by tag class: container > heading > anything
+    else (open-ended). The first matching id wins. If both an outer
+    `<section id=X>` and an inner `<h2 id=X>` exist (rare, but legal),
+    the section wins.
+
+    Output preserves block-level structure:
+      - One blank line between adjacent block elements.
+      - `<ol>` / `<ul>` items are prefixed with "  1." / "  * "; nesting
+        adds two more leading spaces per level.
+      - `<pre>` content is verbatim (no whitespace collapsing).
+      - Inline tags (`<code>`, `<var>`, `<em>`, `<a>`, `<emu-xref>`, etc.)
+        contribute their text only.
+      - `<script>` / `<style>` data is discarded.
+    """
+
+    # Block-level tags that introduce newlines on close. emu-* tags are
+    # tc39-specific; including them here keeps tc39 algorithm output readable.
+    _BLOCK_TAGS = frozenset({
+        "p", "div", "section", "article", "aside", "header", "footer",
+        "main", "nav", "ul", "ol", "dl", "li", "dt", "dd", "table",
+        "tr", "td", "th", "blockquote", "figure", "figcaption", "pre",
+        "h1", "h2", "h3", "h4", "h5", "h6",
+        "emu-clause", "emu-alg", "emu-grammar", "emu-eqn", "emu-note",
+        "emu-table", "emu-figure", "emu-example", "emu-import",
+        "emu-intro", "emu-annex", "emu-production",
+    })
+    _CONTAINER_TAGS = frozenset({
+        "section", "article", "aside", "nav", "div",
+        "emu-clause", "emu-annex", "emu-intro",
+    })
+    _SKIP_TAGS = frozenset({"script", "style"})
+    _HEADING_TAGS = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
+
+    def __init__(self, anchor: str) -> None:
+        super().__init__(convert_charrefs=True)
+        self._anchor = anchor
+        self._parts: list[str] = []
+        self._capturing = False
+        self._done = False
+        # Anchor-found state — flipped True the first time we see an element
+        # carrying the target id, regardless of which strategy fires (container
+        # / heading / open-ended). Distinct from `_capturing` because callers
+        # need to discriminate "anchor never encountered" (probably a typo or
+        # biblio→HTML drift) from "anchor encountered but extracted text is
+        # empty" (a table/figure-only section the extractor renders as blank).
+        self._found = False
+        # Container strategy state
+        self._container_tag: str | None = None
+        self._container_depth = 0
+        # Heading strategy state
+        self._heading_level: int | None = None  # 1-6, the heading that bears the id
+        # Open-ended strategy: any heading terminates. No additional state needed
+        # beyond the flag self._open_ended.
+        self._open_ended = False
+        # List-rendering state — list_stack carries (tag, item_counter) frames
+        # for each open <ol>/<ul>. <li> opens look at the top frame to know
+        # whether to prefix "N." or "*", and increment the counter.
+        self._list_stack: list[list] = []  # [[tag, counter], ...]
+        # <pre> preserves whitespace; track depth so nested <pre> still works.
+        # `_had_pre` records "ever entered a <pre>" for the post-processing
+        # gate — when True, we skip the cosmetic `\n{3,}` collapse in
+        # `extract()` so any intentional blank lines inside <pre> survive.
+        # Boundary newlines (very start / very end of the captured region)
+        # are still trimmed via `.strip("\n")` because they originate from
+        # block-tag open/close emissions, not from <pre> content; this
+        # preserves the in-pre content unchanged while keeping the output
+        # free of leading/trailing blank lines.
+        self._pre_depth = 0
+        self._had_pre = False
+        # Suppress the newline that `_open_block("p", ...)` would otherwise
+        # emit immediately after a `<li>` open. Set True when emitting a list
+        # bullet; consumed (and cleared) by the next `<p>` open, or cleared
+        # by any other block open / non-whitespace text. Keeps the common
+        # `<li><p>text</p></li>` markup (Bikeshed / WHATWG) rendering as
+        # "1. text" instead of "1.\ntext" — the bullet and its text stay on
+        # the same line by construction.
+        self._suppress_next_p_newline = False
+        # Skip-content depth (script/style)
+        self._skip_depth = 0
+
+    # -- public API ---------------------------------------------------------
+
+    def extract(self, html_text: str) -> tuple[bool, str]:
+        """Parse `html_text`. Returns (found, text).
+
+        `found` indicates whether an element with the target id was
+        encountered (regardless of whether the resulting text is empty —
+        useful for distinguishing "anchor missing" from "empty section").
+        """
+        try:
+            self.feed(html_text)
+        except _ExtractDone:
+            pass
+        text = "".join(self._parts)
+        # When `_had_pre`, skip the newline-collapse to honor the verbatim
+        # promise — <pre> with intentional blank lines must round-trip
+        # unchanged. Otherwise collapse 3+ blank lines (purely cosmetic;
+        # block-tag open/close emits stack newlines that pile up).
+        if not self._had_pre:
+            text = re.sub(r"\n{3,}", "\n\n", text)
+        # Strip only leading/trailing newlines — NOT spaces. List items emit
+        # leading-indent ("  1. step") that whole-string `.strip()` would
+        # erode when an <ol>/<ul> is the very first emitted block (e.g. when
+        # anchor lands directly on <ol id=X>). Newlines are always safe to
+        # trim from the boundary because block emissions add them lazily.
+        return self._found, text.strip("\n")
+
+    # -- HTMLParser hooks ---------------------------------------------------
+
+    def handle_starttag(self, tag: str, attrs: list) -> None:
+        if self._done:
+            return
+        if tag in self._SKIP_TAGS:
+            self._skip_depth += 1
+            return
+        if self._skip_depth > 0:
+            return
+
+        attrs_d = dict(attrs)
+        elem_id = attrs_d.get("id")
+
+        # Discovery: not yet capturing — looking for the element with target id.
+        if not self._capturing:
+            # Pre-capture list-context tracking. tc39 algorithm steps carry
+            # ids on individual <li> elements (e.g. `step-iteratorclose-3`);
+            # when the anchor lands on such an <li>, `_open_block("li", ...)`
+            # in the open-ended branch needs an already-populated _list_stack
+            # to emit the correct ordered-list bullet ("3." not "*"). Without
+            # this tracking the parser ignores all <ol>/<ul>/<li> markup that
+            # precedes the anchor, breaking step-anchor numbering.
+            #
+            # Skip the bookkeeping for the anchor-carrying element itself —
+            # _open_block (called from the open-ended strategy below) does
+            # the push/increment, so duplicating it here would double-count.
+            if elem_id != self._anchor:
+                if tag in ("ol", "ul"):
+                    self._list_stack.append([tag, 0])
+                elif tag == "li" and self._list_stack:
+                    self._list_stack[-1][1] += 1
+            if elem_id == self._anchor:
+                # Anchor encountered — record this BEFORE strategy dispatch so
+                # the `_found` signal is set even if (somehow) no text emits.
+                self._found = True
+                # Strategy selection — container > heading > inline (open-ended).
+                if tag in self._CONTAINER_TAGS:
+                    self._capturing = True
+                    self._container_tag = tag
+                    self._container_depth = 1
+                    return
+                if tag in self._HEADING_TAGS:
+                    self._capturing = True
+                    self._heading_level = int(tag[1])
+                    # Emit the heading's actual level (#### for <h4>, etc.)
+                    # so the opening prefix matches the level format used by
+                    # nested headings inside this section — readers don't get
+                    # a "# 7.4.11" followed by "##### 7.4.11.1" jump.
+                    self._parts.append("#" * self._heading_level + " ")
+                    return
+                # Any other tag (inline <dfn> / <a> / <code> / ..., or list
+                # items <dt> / <dd> / <td>, or any tag the spec hangs an id
+                # on): open-ended capture. Terminates at the next heading of
+                # any level; works for algorithm / concept dfn anchors where
+                # the dfn introduces an algorithm that follows in siblings.
+                #
+                # Initialize block state for the anchor-bearing element via
+                # _open_block so anchors landing on structural tags (<pre> /
+                # <ol> / <ul> / <li>) get pre_depth / list_stack initialized
+                # correctly — without this, content inside an anchored <pre>
+                # would lose verbatim whitespace, and items inside an
+                # anchored <ol>/<ul> would render without numbering / bullets.
+                self._capturing = True
+                self._open_ended = True
+                self._open_block(tag, attrs_d)
+                return
+            return
+
+        # Already capturing:
+        # Container strategy — track depth of the wrapping tag.
+        if self._container_tag is not None and tag == self._container_tag:
+            self._container_depth += 1
+        # Heading strategy — a same-or-higher-level heading terminates.
+        elif self._heading_level is not None and tag in self._HEADING_TAGS:
+            level = int(tag[1])
+            if level <= self._heading_level:
+                self._done = True
+                raise _ExtractDone
+        # Open-ended strategy — any heading terminates.
+        elif self._open_ended and tag in self._HEADING_TAGS:
+            self._done = True
+            raise _ExtractDone
+
+        # Inside capture: emit block-level newlines + list bullets.
+        self._open_block(tag, attrs_d)
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._done:
+            return
+        if tag in self._SKIP_TAGS:
+            if self._skip_depth > 0:
+                self._skip_depth -= 1
+            return
+        if self._skip_depth > 0:
+            return
+        if not self._capturing:
+            # Pre-capture list-context tracking — pop the matching frame
+            # on </ol>/</ul> close so the stack reflects sibling-list
+            # context at anchor-discovery time. Match by tag name on top
+            # of stack so malformed HTML (unmatched closes) is tolerated.
+            if (
+                tag in ("ol", "ul")
+                and self._list_stack
+                and self._list_stack[-1][0] == tag
+            ):
+                self._list_stack.pop()
+            return
+
+        # Container close — decrement depth, stop on outermost close.
+        if self._container_tag is not None and tag == self._container_tag:
+            self._container_depth -= 1
+            if self._container_depth <= 0:
+                self._done = True
+                raise _ExtractDone
+
+        # Heading-level header close: nothing special (the heading content
+        # already flowed through handle_data). Add a newline if it's a
+        # heading inside the captured section (subsection heading).
+        self._close_block(tag)
+
+    def handle_data(self, data: str) -> None:
+        if not self._capturing or self._done:
+            return
+        if self._skip_depth > 0:
+            return
+        if self._pre_depth > 0:
+            self._parts.append(data)
+            return
+        # Collapse runs of whitespace to single space. Preserve the data even
+        # if it's all whitespace — block-level newlines come from _open_block.
+        cleaned = re.sub(r"\s+", " ", data)
+        # Non-whitespace text after a list bullet means the bullet has its
+        # inline content already; a later <p> in the same <li> should break
+        # to a new paragraph. Clear the suppression flag.
+        if cleaned.strip():
+            self._suppress_next_p_newline = False
+        self._parts.append(cleaned)
+
+    # -- internal helpers ---------------------------------------------------
+
+    def _open_block(self, tag: str, attrs_d: dict) -> None:
+        if tag == "pre":
+            self._pre_depth += 1
+            self._had_pre = True
+            self._suppress_next_p_newline = False
+            self._parts.append("\n")
+            return
+        if tag in ("ol", "ul"):
+            self._suppress_next_p_newline = False
+            self._list_stack.append([tag, 0])
+            self._parts.append("\n")
+            return
+        if tag == "li":
+            indent = "  " * len(self._list_stack)
+            if self._list_stack:
+                frame = self._list_stack[-1]
+                frame[1] += 1
+                bullet = f"{frame[1]}." if frame[0] == "ol" else "*"
+            else:
+                bullet = "*"
+            self._parts.append(f"\n{indent}{bullet} ")
+            # Arm the suppression flag — the next <p> opening (typical
+            # WHATWG/Bikeshed pattern `<li><p>text</p></li>`) should render
+            # inline with the bullet, not break to a new line.
+            self._suppress_next_p_newline = True
+            return
+        if tag in self._HEADING_TAGS:
+            self._suppress_next_p_newline = False
+            level = int(tag[1])
+            self._parts.append("\n\n" + ("#" * level) + " ")
+            return
+        if tag in self._BLOCK_TAGS:
+            if tag == "p" and self._suppress_next_p_newline:
+                # Consume the flag without emitting a newline — keeps
+                # `<li><p>text</p></li>` on one line.
+                self._suppress_next_p_newline = False
+                return
+            self._suppress_next_p_newline = False
+            self._parts.append("\n")
+            return
+        # Inline tags: no structural effect, no flag change.
+
+    def _close_block(self, tag: str) -> None:
+        if tag == "pre":
+            if self._pre_depth > 0:
+                self._pre_depth -= 1
+            self._parts.append("\n")
+            return
+        if tag in ("ol", "ul"):
+            if self._list_stack and self._list_stack[-1][0] == tag:
+                self._list_stack.pop()
+            self._parts.append("\n")
+            return
+        if tag == "li":
+            return  # newline added on next <li> or list close
+        if tag in self._HEADING_TAGS:
+            self._parts.append("\n")
+            return
+        if tag in self._BLOCK_TAGS:
+            self._parts.append("\n")
+            return
+
+
+class _ExtractDone(Exception):
+    """Internal sentinel — break out of HTMLParser.feed once section closes."""
+
+
+def _extract_section_body(html_bytes: bytes, anchor: str) -> tuple[bool, str]:
+    """Parse `html_bytes` and return (found, text) for `anchor`.
+
+    `found` is True iff an element with the requested id was encountered
+    during parsing — distinct from `text != ""`. See `_SectionExtractor`
+    for the rationale (table/figure-only sections render empty).
+    """
+    text = html_bytes.decode("utf-8", errors="replace")
+    ext = _SectionExtractor(anchor)
+    return ext.extract(text)
+
+
+def cmd_body(args: argparse.Namespace) -> None:
+    """Fetch + extract section prose by anchor (or AO name for tc39)."""
+    raw = args.anchor.lstrip("#").strip()
+    if not raw:
+        sys.exit("webref: body needs a non-empty anchor")
+
+    # Resolution order — anchor first, AO-name as fallback:
+    #
+    #   1. Direct anchor lookup against biblio (tc39) / headings+dfns
+    #      (WHATWG/W3C). Covers `sec-*` clauses + non-clause anchors like
+    #      `table-*` / `figure-*` / `prod-*` / `term-*` etc. for tc39, and
+    #      heading + dfn id space for WHATWG/W3C.
+    #   2. ONLY if (a) no anchor match AND (b) input is a single CamelCase
+    #      identifier (tc39 only): attempt AO-name lookup, then resolve the
+    #      resulting `sec-*` anchor via the same flow. The CamelCase filter
+    #      prevents bogus rejection of valid non-CamelCase anchors that
+    #      happen not to be in biblio (typo → clean "anchor not found"
+    #      instead of misleading "not an AO" error).
+    anchor = raw
+    fetch_url: str | None = None
+    file_anchor: str | None = None
+
+    if args.shortname in _TC39_FAMILY:
+        direct = _tc39_resolve_body_url(args.shortname, raw)
+        if direct is not None:
+            fetch_url, file_anchor = direct
+        elif re.match(r"^[A-Z][A-Za-z0-9]*$", raw):
+            resolved = _lookup_aoid_first(args.shortname, raw)
+            if resolved is None:
+                sys.exit(
+                    f"webref: {raw!r} is neither a known anchor (no id "
+                    f"match in {args.shortname} biblio) nor a recognized "
+                    f"abstract operation"
+                )
+            _, _, full_anchor = resolved
+            anchor = full_anchor.split("#", 1)[-1]
+            direct = _tc39_resolve_body_url(args.shortname, anchor)
+            if direct is None:
+                sys.exit(
+                    f"webref: AO {raw} resolved to #{anchor} but biblio "
+                    f"chapter routing failed (unexpected — please report)"
+                )
+            fetch_url, file_anchor = direct
+        else:
+            sys.exit(
+                f"webref: anchor {raw!r} not found in {args.shortname} "
+                f"biblio (no id match across any entry type; if you meant "
+                f"an abstract operation, use the CamelCase name like "
+                f"`IteratorClose`)"
+            )
+    else:
+        fetch_url, file_anchor = _resolve_body_source(args.shortname, anchor)
+
+    # Multipage chapter 404 → single-page URL fallback (tc39 only). Rare:
+    # would require an irregular tc39 chapter file the biblio-derived slug
+    # doesn't match. The single-page URL (<location>) serves every anchor
+    # regardless of chapter layout, so the fallback always works as a last
+    # resort. WHATWG/W3C hrefs come from webref directly and are kept in
+    # sync upstream, so no analogous fallback is wired there.
+    try:
+        html_bytes = cached_fetch_url(fetch_url)
+    except NotFound:
+        if args.shortname in _TC39_FAMILY:
+            try:
+                d = _tc39_biblio(args.shortname)
+            except NotFound:
+                sys.exit(f"webref: fetch failed: {fetch_url}")
+            single_page = d.get("location", "")
+            if single_page and fetch_url != single_page:
+                fetch_url = single_page
+                html_bytes = cached_fetch_url(fetch_url)
+            else:
+                sys.exit(f"webref: fetch failed: {fetch_url}")
+        else:
+            sys.exit(f"webref: fetch failed: {fetch_url}")
+    found, text = _extract_section_body(html_bytes, file_anchor)
+    if not found:
+        sys.exit(
+            f"webref: anchor #{file_anchor} not encountered in {fetch_url} "
+            f"(biblio/webref pointed here but the rendered chapter HTML "
+            f"doesn't carry that id — possibly a multipage drift or a "
+            f"stale biblio entry)"
+        )
+    if not text:
+        # Anchor was found but the section is text-empty (e.g. a section
+        # whose only content is a <emu-table> or <emu-figure> that the
+        # extractor renders as nothing). Surface this as a *distinct* state
+        # from "not found" so the user knows to look at the source directly.
+        print(f"# {fetch_url}#{file_anchor}")
+        print()
+        print(f"(section found but extractor produced no text — likely "
+              f"a table/figure-only section; view source at {fetch_url}#{file_anchor})")
+        return
+    # Header line for orientation (URL is the canonical citation).
+    print(f"# {fetch_url}#{file_anchor}")
+    print()
+    print(text)
+
+
+# ---------------------------------------------------------------------------
 # coverage-map (plan-memo §3 skeleton generator)
 # ---------------------------------------------------------------------------
 
@@ -800,6 +1433,28 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("shortname", help="ecma262 / ecma402")
     a.add_argument("name", help="abstract operation name, e.g. ToNumber")
     a.set_defaults(func=cmd_aoid)
+
+    b = sub.add_parser(
+        "body",
+        help="fetch + extract section prose by anchor (or AO name for tc39)",
+        description=(
+            "Fetch the spec chapter HTML for `<shortname>` (multipage URL "
+            "via webref href or tc39 biblio derivation), extract the section "
+            "rooted at the given anchor, and print it as plain text. For "
+            "tc39 specs (ecma262/ecma402), an abstract operation name "
+            "(e.g. IteratorClose) is auto-resolved to its sec-* anchor. "
+            "Output preserves <ol>/<ul> numbering and headings; cross-ref "
+            "tags are kept as text only. Cached chapter HTML lives in the "
+            "shared ~/.cache/elidex-webref/ HTTP cache (conditional GET)."
+        ),
+    )
+    b.add_argument("shortname", help="e.g. html, dom, ecma262")
+    b.add_argument(
+        "anchor",
+        help="section anchor (e.g. sec-iteratorclose, the-iframe-element) "
+        "or tc39 abstract operation name (e.g. IteratorClose)",
+    )
+    b.set_defaults(func=cmd_body)
 
     s = sub.add_parser("specs", help="shortname lookup (by spec title)")
     s.add_argument("keyword")

@@ -141,7 +141,7 @@ Agent prompt は「Read axes.md Axis N → apply `Detect` の `[diff]`/`[plan]`/
 
 ### Verification recipe (webref)
 
-Section number / title / anchor / WebIDL / AO の確認は `.claude/tools/webref` を使う。Data source 自動切替: WHATWG/W3C は w3c/webref machine-readable extracts、tc39 (ECMA-262 / ECMA-402) は `@tc39/<spec>-biblio` (tc39 公式 publish の machine-readable JSON、jsdelivr CDN 経由)。WebFetch で spec HTML を取りに行くと長文 truncate されるため citation 整合確認には不向き — webref / biblio は per-spec の構造化 JSON / IDL 単位なので 1 fetch + filter で決定的に効く。
+Section number / title / anchor / WebIDL / AO / **algorithm prose** の確認は `.claude/tools/webref` を使う。Data source 自動切替: WHATWG/W3C は w3c/webref machine-readable extracts、tc39 (ECMA-262 / ECMA-402) は `@tc39/<spec>-biblio` (tc39 公式 publish の machine-readable JSON、jsdelivr CDN 経由)、prose 本文は spec multipage chapter HTML (webref `href` / tc39 chapter-file 導出で URL 自動解決、HTTP cache 共有)。WebFetch で spec HTML を取りに行くと長文 truncate されるため citation 整合確認・algorithm prose 確認には不向き — webref / biblio / `body` は per-spec の構造化 JSON / IDL / multipage chapter 単位なので 1 fetch + filter で決定的に効く。
 
 Subcommand (詳細 = `.claude/tools/webref --help`):
 
@@ -174,13 +174,19 @@ Subcommand (詳細 = `.claude/tools/webref --help`):
   ```
 - `element <spec> <tag>` — HTML/SVG element → 対応 interface 名 + href (`<canvas>` → `HTMLCanvasElement`)
 - `css <spec> <name>` — CSS property / @rule / selector / value の metadata (value syntax / initial / inherited / appliesTo / computedValue / `styleDeclaration` IDL 名 等)。CSS plugin crate 新 property 着手時の正規定義引き
+- `body <spec> <anchor-or-AO>` — section / algorithm の **本文 prose** を抽出 (multipage chapter HTML 経由、truncate なし)。tc39 は `sec-X` anchor (e.g. `sec-iteratorclose`) または AO 名 (e.g. `IteratorClose`、自動 anchor 解決) どちらも可。WHATWG/W3C は heading anchor (`the-iframe-element`) または dfn anchor (`concept-upgrade-an-element`) どちらも可 — algorithm dfn は dfn 直後の `<ol>` step を `1. 2. 3.` でレンダリング。section 番号 → title pair の cross-check は `heading` / `aoid`、step の semantic 一致確認は `body`
+  ```bash
+  .claude/tools/webref body ecma262 IteratorClose           # AO 名 → §7.4.11 step list
+  .claude/tools/webref body html concept-upgrade-an-element # custom-elements upgrade algorithm step list
+  ```
 - `specs <keyword>` — spec catalog 検索 (shortname 不明時、WHATWG/W3C のみ)
 
 **HTTP cache**: 全 fetch は `~/.cache/elidex-webref/` (`XDG_CACHE_HOME` 設定時は `$XDG_CACHE_HOME/elidex-webref/`) に ETag / Last-Modified ベース conditional GET 経由で保存される (930 KB biblio / WHATWG headings/dfns JSON を毎回再 download しない)。bypass は `ELIDEX_WEBREF_NO_CACHE=1`。
 
 **WebFetch との使い分け**:
-- **webref**: section number / title / anchor / IDL fragment / dfn / AO (aoid) — 決定論的、grep 可、全 spec 一発取得 (構造化 fact)
-- **WebFetch** (spec.whatwg.org/... / tc39.es/ecma262/... の HTML 直): algorithm の step-by-step prose 自然文確認 (webref の `ed/algorithms/` でも近似可だが prose context は spec 直が読みやすい)
+- **webref (構造化)**: section number / title / anchor / IDL fragment / dfn / AO (aoid) — 決定論的、grep 可、全 spec 一発取得 (構造化 fact)
+- **webref `body` (prose)**: algorithm step / 概念定義の prose 本文 — multipage chapter HTML cache、truncate なし、`<ol>` step は `1. 2. 3.` でレンダリング、tc39 AO 名は anchor 自動解決
+- **WebFetch**: 上記でカバーできない外形(spec 全体俯瞰、issue thread、blog post、tc39 proposal-stage README 等)。spec.whatwg.org / tc39.es の section prose は `body` で取れるので WebFetch は不要
 
 ### Detect
 
