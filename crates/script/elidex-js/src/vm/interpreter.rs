@@ -221,7 +221,7 @@ impl VmInner {
     }
 
     #[allow(clippy::too_many_lines)] // dispatch table over every callable ObjectKind variant
-    pub(crate) fn call_dispatch(
+    pub(super) fn call_dispatch(
         &mut self,
         func_obj_id: ObjectId,
         this: JsValue,

@@ -283,13 +283,19 @@ impl VmInner {
         // `ensure_instance_or_alloc` in construct-mode returns `this`
         // as-is (already allocated by `do_new` with the subclass
         // prototype); in call-mode it allocates a fresh Ordinary
-        // whose prototype is `Event.prototype`.  Constructors gate
-        // call-mode out via `is_construct()` before reaching here,
-        // so call-mode only runs through tests / assertions. `mode`
-        // is caller-supplied from the entry frame's
-        // `NativeContext::mode` so the construct discipline matches
-        // the outer ctor (D-17b-r1 Phase 4 — replaces the pre-r1
-        // implicit read of `native_construct_stack` top).
+        // whose prototype is `Event.prototype`. User-facing
+        // constructors gate call-mode out via `is_construct()` before
+        // reaching here, BUT VM-internal task-plumbing event
+        // dispatchers (worker error events / FileReader progress
+        // events / future task-side event sources) also call this
+        // helper with `mode = CallMode::Call` + `this = Undefined` and
+        // then manually reparent the receiver to the descendant
+        // prototype — so call-mode is hit on production paths, not
+        // only tests / assertions. `mode` is caller-supplied from the
+        // entry frame's `NativeContext::mode` (for user-facing
+        // ctors) so the construct discipline matches the outer ctor
+        // (D-17b-r1 Phase 4 — replaces the pre-r1 implicit read of
+        // `native_construct_stack` top).
         let receiver = self.ensure_instance_or_alloc(this, self.event_prototype, mode);
         let JsValue::Object(id) = receiver else {
             unreachable!("ensure_instance_or_alloc always yields an Object");
