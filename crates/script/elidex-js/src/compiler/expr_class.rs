@@ -54,11 +54,17 @@ fn classify_heritage(prog: &Program, super_class: Option<NodeId<Expr>>) -> Class
 /// BASE (no params) (D-17b R9 G9-helper extraction — Copilot /review
 /// Sug#4 close).
 ///
-/// `is_class_ctor: true` makes the dispatch class-ctor carve-outs fire
-/// (see `dispatch.rs` Op::ReturnUndefined). `is_strict: true` reflects
-/// ECMA-262 §15.7 ClassBody strict-mode region — synthesized bodies
-/// today have no strict-vs-loose-divergent ops but the flag keeps the
-/// spec invariant explicit (D-17b R8 G8-1/G8-2 alignment).
+/// `is_class_ctor: true` is consumed by
+/// `VmInner::push_js_call_frame` for the ECMA-262 §10.2.1 step 2
+/// "class constructor invoked without `new`" TypeError guard and to
+/// thread `CallFrame::home_class` for `super()` resolution ([C16]
+/// ClassDefinitionEvaluation). The function/ctor body's implicit
+/// fall-through return goes through [`FrameKind::Function`]'s
+/// `Op::ReturnUndefined` arm (returns literal Undefined regardless
+/// of `is_class_ctor`); the [[Construct]]-observable substitution
+/// (§10.2.2 step 12-13/15-17) happens in `construct_synchronous` /
+/// `do_new` after that Undefined surfaces. `is_strict: true`
+/// reflects ECMA-262 §15.7 ClassBody strict-mode region.
 fn synthesize_default_class_ctor(
     bytecode: Vec<u8>,
     name: Option<String>,
@@ -129,11 +135,12 @@ pub(super) fn compile_class(
         // slot 0; SuperCallSpread consumes it and propagates the
         // outer NewTarget via the dispatch-class core. Trailing
         // `Pop; ReturnUndefined`: discard the super-call return value
-        // and yield literal Undefined — the `is_class_ctor` carve-out
-        // in `Op::ReturnUndefined` (dispatch.rs) overrides the
-        // entry-frame completion-value path so the upgrade.rs §4.13.5
-        // step 12.2 SameValue check sees the constructed instance,
-        // not the super-call's return.
+        // and yield literal Undefined — class-ctor frames push as
+        // [`FrameKind::Function`], so `Op::ReturnUndefined` returns
+        // literal Undefined and `construct_synchronous` substitutes
+        // the constructed instance per §10.2.2 step 12-13. The
+        // upgrade.rs §4.13.5 step 12.2 SameValue check thus sees the
+        // constructed instance, not the super-call's return.
         let bytecode = vec![
             Op::GetLocal as u8,
             0,
@@ -154,9 +161,10 @@ pub(super) fn compile_class(
     } else {
         // Default BASE constructor ([C16] default-constructor branch
         // when ClassHeritage is absent): empty body. `ReturnUndefined`
-        // yields literal Undefined because the `is_class_ctor` carve-
-        // out (dispatch.rs `Op::ReturnUndefined`) overrides the
-        // entry-frame completion-value path.
+        // yields literal Undefined because the frame pushes as
+        // [`FrameKind::Function`] (`construct_synchronous` then
+        // substitutes the constructed instance per §10.2.2 step
+        // 12-13).
         let default_ctor = synthesize_default_class_ctor(
             vec![Op::ReturnUndefined as u8],
             class.name.map(|a| prog.interner.get_utf8(a)),

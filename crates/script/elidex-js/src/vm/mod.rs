@@ -192,6 +192,17 @@ pub(crate) struct VmInner {
     /// Completion value for eval: the last value popped by a Pop opcode
     /// at the script (entry) frame level.
     pub(crate) completion_value: JsValue,
+    /// Stack of saved `completion_value`s pushed by
+    /// [`VmInner::with_call_mode`] on entry and popped on cleanup.
+    /// Kept on `VmInner` (rather than in a Rust local) so
+    /// [`super::gc::roots::mark_roots`] can walk it as a GC root —
+    /// otherwise an outer-scope heap Object displaced from
+    /// `completion_value` by an inner Eval body's `Op::Pop` would
+    /// have no live reference for the duration of the closure and
+    /// could be swept mid-flight, leaving a dangling ObjectId for
+    /// the cleanup restore to write back. Pre-D-17b-r2 the analogous
+    /// root was `CallFrame::saved_completion`.
+    pub(crate) saved_completion_stack: Vec<JsValue>,
     /// The most recently thrown/caught exception value (for PushException).
     pub(crate) current_exception: JsValue,
     /// xorshift64 PRNG state for `Math.random()`.

@@ -23,6 +23,15 @@ pub(super) struct GcRoots<'a> {
     pub(super) frames: &'a [CallFrame],
     pub(super) globals: &'a HashMap<StringId, JsValue>,
     pub(super) completion_value: JsValue,
+    /// Stack of `completion_value`s saved by
+    /// [`super::super::VmInner::with_call_mode`] for the duration of
+    /// nested dispatch invocations. Walked here so an outer-scope
+    /// heap Object displaced from `completion_value` by an inner
+    /// Eval body's `Op::Pop` write stays reachable to the mark
+    /// phase. Pre-D-17b-r2 the analogous root was
+    /// `CallFrame::saved_completion`; the field-level migration
+    /// moved the storage to this dedicated stack.
+    pub(super) saved_completion_stack: &'a [JsValue],
     pub(super) current_exception: JsValue,
     pub(super) proto_roots: [Option<ObjectId>; 171],
     /// Per-subclass TypedArray prototype slots, addressed by
@@ -281,7 +290,6 @@ pub(super) fn mark_roots(
         if let Some(id) = frame.home_class {
             mark_object(id, obj_marks, work);
         }
-        mark_value(frame.saved_completion, obj_marks, work);
         if let Some(gen_id) = frame.generator {
             mark_object(gen_id, obj_marks, work);
         }
@@ -306,6 +314,9 @@ pub(super) fn mark_roots(
 
     // (d) Completion and exception
     mark_value(roots.completion_value, obj_marks, work);
+    for &val in roots.saved_completion_stack {
+        mark_value(val, obj_marks, work);
+    }
     mark_value(roots.current_exception, obj_marks, work);
 
     // (e) Prototype ObjectIds + global object.  Subclass TypedArray

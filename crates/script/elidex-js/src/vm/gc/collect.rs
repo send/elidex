@@ -54,6 +54,7 @@ impl VmInner {
             frames: &self.frames,
             globals: &self.globals,
             completion_value: self.completion_value,
+            saved_completion_stack: &self.saved_completion_stack,
             current_exception: self.current_exception,
             proto_roots: [
                 self.string_prototype,
