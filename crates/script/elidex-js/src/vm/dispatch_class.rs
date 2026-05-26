@@ -237,6 +237,19 @@ impl VmInner {
         mode: CallMode,
         pre_alloc_instance: Option<ObjectId>,
     ) -> Result<JsValue, VmError> {
+        // [[Construct]] precondition: the post-call substitution at
+        // the tail of this function (Object-return-wins-else-pre-alloc)
+        // is OrdinaryCreateFromConstructor-shaped — meaningless under
+        // Call mode. Document the still-load-bearing precondition as
+        // a type-level assert until a Call-mode caller is wired
+        // intentionally (the signature accepts `CallMode` for symmetry
+        // with `push_js_call_frame` per the docstring — current
+        // callers all pass `Construct`).
+        debug_assert!(
+            mode.is_construct(),
+            "construct_synchronous called with CallMode::Call; \
+             post-call substitution would silently apply Construct semantics"
+        );
         // Unwrap BoundFunction chain before checking constructability —
         // a BoundFunction targeting a constructable callable is itself
         // constructable (ECMA-262 §10.4.1.2).

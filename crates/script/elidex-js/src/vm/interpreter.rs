@@ -124,13 +124,20 @@ impl VmInner {
     /// * **Manually restored on panic**: `self.frames` length +
     ///   `self.stack` length (both truncated back to entry depth
     ///   before re-raise so a subsequent dispatch sees a clean state).
+    ///   Open upvalues on the truncated frames are `close_upvalues`'d
+    ///   before the truncate so any escaped closure that captured a
+    ///   parent-frame local sees the snapshotted `Closed(value)` —
+    ///   without this step, an Upvalue in `Open { frame_base, slot }`
+    ///   would point at a stack index the truncate just dropped,
+    ///   causing OOB or silent slot reuse on subsequent reads.
     /// * **Leaked-but-acceptable on panic**: `self.completion_value`
     ///   (eval-frame completion is meaningless under a caught panic;
     ///   D-17b-r2 will field-separate so this can be tightened),
-    ///   `gc_enabled` flag (NativeFunction call save/restore is local
-    ///   to that arm — if a panic skips its restore, callers that
-    ///   re-use the VM after `catch_unwind` may observe a wrong-state
-    ///   flag; defer slot `#11-vm-gc-state-save-restore`),
+    ///   `gc_enabled` flag + `active_bound_key` (NativeFunction call
+    ///   save/restore is local to that arm — if a panic skips its
+    ///   restore, callers that re-use the VM after `catch_unwind` may
+    ///   observe a wrong-state flag; defer slot
+    ///   `#11-vm-gc-state-save-restore`),
     ///   `exception_handlers` on popped frames (handlers belong to
     ///   the truncated frames and die with them — no leak).
     pub(crate) fn with_call_mode<F, R>(
@@ -157,13 +164,22 @@ impl VmInner {
         // Shared `>=` bound on the value stack catches underflow in
         // all three cases.
         match &result {
-            Ok(Ok(_)) => debug_assert_eq!(
-                self.frames.len(),
-                entry_frames,
-                "Ok return leaked {} frame(s) above entry {}",
-                self.frames.len().saturating_sub(entry_frames),
-                entry_frames,
-            ),
+            Ok(Ok(_)) => {
+                debug_assert_eq!(
+                    self.frames.len(),
+                    entry_frames,
+                    "Ok return leaked {} frame(s) above entry {}",
+                    self.frames.len().saturating_sub(entry_frames),
+                    entry_frames,
+                );
+                debug_assert_eq!(
+                    self.stack.len(),
+                    entry_stack_depth,
+                    "Ok return leaked {} value-stack slot(s) above entry {}",
+                    self.stack.len().saturating_sub(entry_stack_depth),
+                    entry_stack_depth,
+                );
+            }
             Ok(Err(_)) | Err(_) => debug_assert!(
                 self.frames.len() >= entry_frames,
                 "frame stack underflow: length {} below entry {}",
@@ -177,10 +193,26 @@ impl VmInner {
             self.stack.len(),
             entry_stack_depth,
         );
-        // Truncate on either path (`Ok` is a no-op per the
-        // debug_assert_eq above; panic path cleans pushed-but-stuck
-        // entries before `resume_unwind`).
-        self.frames.truncate(entry_frames);
+        // Close upvalues on any frames above the entry depth BEFORE
+        // truncating — otherwise an Upvalue still in
+        // `UpvalueState::Open { frame_base, slot }` would point at a
+        // stack index the `stack.truncate` drops, causing OOB or
+        // silent slot reuse on subsequent reads. Iterate from the top
+        // (`frames.last()`) downward so a closure escaped from frame
+        // N capturing frame N-1's local still observes the snapshot
+        // taken at frame N-1's close. The `Ok(Ok(_))` arm's truncates
+        // below are no-ops (asserted above), so this loop only does
+        // real work on the Err and panic paths.
+        while self.frames.len() > entry_frames {
+            // Snapshot local_upvalue_ids before pop so close_upvalues
+            // operates on a stable list while the stack is still
+            // intact (close reads `self.stack[frame_base + slot]`).
+            let upvalues = self.frames.last().map(|f| f.local_upvalue_ids.clone());
+            if let Some(uvs) = upvalues {
+                self.close_upvalues(&uvs);
+            }
+            self.frames.pop();
+        }
         self.stack.truncate(entry_stack_depth);
         match result {
             Ok(r) => r,
@@ -942,6 +974,106 @@ mod tests {
             "value stack must be truncated back to entry depth despite panic; got len = {}",
             vm.inner.stack.len()
         );
+    }
+
+    /// D-17b-r1 panic-path upvalue-safety regression: a Rust panic
+    /// mid-dispatch that triggers `with_call_mode`'s frame truncate
+    /// must `close_upvalues` on every dropped frame's
+    /// `local_upvalue_ids` BEFORE the stack is truncated, so an
+    /// Upvalue still in `UpvalueState::Open { frame_base, slot }`
+    /// gets its slot value snapshotted as `Closed(value)`. Without
+    /// the close, the upvalue would point at a truncated-away stack
+    /// region and subsequent reads (via a closure that escaped the
+    /// panicked frame and survived the upstream `catch_unwind`)
+    /// would return stale slot values or OOB-panic.
+    ///
+    /// Closed-via-upvalue invariant covers the F1 finding from the
+    /// D-17b-r1 code review.
+    #[test]
+    fn with_call_mode_closes_open_upvalues_on_panic() {
+        use super::super::value::{CallFrame, FuncId, Upvalue, UpvalueId, UpvalueState};
+        use std::sync::Arc;
+
+        let mut vm = Vm::new();
+        let entry_frames = vm.inner.frames.len();
+        let entry_stack_depth = vm.inner.stack.len();
+
+        let prev_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+
+        // Stash an UpvalueId before the panic so we can read its
+        // post-panic state after with_call_mode runs.
+        let captured_uv_id: UpvalueId = {
+            let id = UpvalueId(vm.inner.upvalues.len() as u32);
+            vm.inner.upvalues.push(Upvalue {
+                state: UpvalueState::Open {
+                    frame_base: entry_stack_depth,
+                    slot: 0,
+                },
+            });
+            id
+        };
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _: Result<JsValue, _> = vm.inner.with_call_mode(CallMode::Call, |vm, _mode| {
+                // Push the slot the upvalue references onto the value
+                // stack BEFORE pushing the frame that owns it.
+                let captured_value = JsValue::Number(123.0);
+                vm.stack.push(captured_value);
+                // Push a forged frame whose `local_upvalue_ids` lists
+                // the upvalue captured above; with_call_mode must
+                // close it before stack.truncate drops slot at
+                // `entry_stack_depth`.
+                vm.frames.push(CallFrame {
+                    func_id: FuncId(0),
+                    ip: 0,
+                    base: entry_stack_depth + 1,
+                    upvalue_ids: Arc::from([] as [UpvalueId; 0]),
+                    local_upvalue_ids: vec![captured_uv_id],
+                    this_value: JsValue::Undefined,
+                    exception_handlers: Vec::new(),
+                    tdz_bits: 0,
+                    tdz_overflow: Box::default(),
+                    actual_args: None,
+                    cleanup_base: entry_stack_depth + 1,
+                    new_instance: None,
+                    mode: CallMode::Call,
+                    home_class: None,
+                    saved_completion: JsValue::Undefined,
+                    generator: None,
+                    pending_completion: None,
+                });
+                panic!("intentional panic for close_upvalues regression")
+            });
+        }));
+
+        std::panic::set_hook(prev_hook);
+
+        assert!(result.is_err(), "panic should propagate via resume_unwind");
+        assert_eq!(
+            vm.inner.frames.len(),
+            entry_frames,
+            "frame stack must be truncated"
+        );
+        assert_eq!(
+            vm.inner.stack.len(),
+            entry_stack_depth,
+            "value stack must be truncated"
+        );
+
+        // F1 invariant: the upvalue captured by the truncated frame
+        // must be Closed(captured_value), NOT still Open into a
+        // now-dropped stack region.
+        match vm.inner.upvalues[captured_uv_id.0 as usize].state {
+            UpvalueState::Closed(v) => assert_eq!(
+                v,
+                JsValue::Number(123.0),
+                "upvalue must snapshot the pre-truncate slot value"
+            ),
+            UpvalueState::Open { frame_base, slot } => panic!(
+                "upvalue still Open after panic-truncate: frame_base={frame_base}, slot={slot}"
+            ),
+        }
     }
 
     /// Round-trip: a successful (non-panicking) dispatch under the
