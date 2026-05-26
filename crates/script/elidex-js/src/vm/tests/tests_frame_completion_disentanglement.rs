@@ -224,8 +224,8 @@ fn saved_completion_stack_roots_displaced_object_through_gc() {
     //
     // The closure body uses `VmInner` mutation rather than running
     // bytecode so the test isolates the GC-root invariant from the
-    // dispatch loop. The `force_collect_garbage` path runs the same
-    // mark phase that an alloc-driven cycle would, exercising
+    // dispatch loop. The `collect_garbage()` call below runs the
+    // same mark phase that an alloc-driven cycle would, exercising
     // `gc/roots.rs:mark_roots`'s walk of `saved_completion_stack`.
     use super::super::value::{CallMode, Object, ObjectKind, PropertyStorage};
     use super::super::Vm;

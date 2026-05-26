@@ -949,9 +949,10 @@ pub struct CallFrame {
     /// Frame-kind discriminator (Eval / Function); see [`FrameKind`].
     /// Drives the entry-frame `Op::Pop` gate and `Op::ReturnUndefined`
     /// branch so script/`eval` completion-value semantics stay confined
-    /// to `Eval` frames; the only `Eval` push site is
-    /// `Vm::run_function` (top-level script / direct or indirect
-    /// `eval`).
+    /// to `Eval` frames; the only `Eval` push site is the private
+    /// `VmInner::run_function`, reached via the public `Vm::eval` /
+    /// `Vm::run_script` entry points (top-level script / direct or
+    /// indirect `eval`).
     pub kind: FrameKind,
     /// If set, this frame belongs to a generator; `Op::Yield` suspends
     /// into this generator object instead of completing normally.  `None`

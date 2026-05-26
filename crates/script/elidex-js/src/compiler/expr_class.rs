@@ -59,11 +59,12 @@ fn classify_heritage(prog: &Program, super_class: Option<NodeId<Expr>>) -> Class
 /// "class constructor invoked without `new`" TypeError guard and to
 /// thread `CallFrame::home_class` for `super()` resolution ([C16]
 /// ClassDefinitionEvaluation). The function/ctor body's implicit
-/// fall-through return goes through [`FrameKind::Function`]'s
-/// `Op::ReturnUndefined` arm (returns literal Undefined regardless
-/// of `is_class_ctor`); the [[Construct]]-observable substitution
-/// (§10.2.2 step 12-13/15-17) happens in `construct_synchronous` /
-/// `do_new` after that Undefined surfaces. `is_strict: true`
+/// fall-through return goes through
+/// [`crate::vm::value::FrameKind::Function`]'s `Op::ReturnUndefined`
+/// arm (returns literal Undefined regardless of `is_class_ctor`); the
+/// [[Construct]]-observable substitution (§10.2.2 step 12-13/15-17)
+/// happens in `construct_synchronous` / `do_new` after that Undefined
+/// surfaces. `is_strict: true`
 /// reflects ECMA-262 §15.7 ClassBody strict-mode region.
 fn synthesize_default_class_ctor(
     bytecode: Vec<u8>,
