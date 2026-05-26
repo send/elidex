@@ -865,6 +865,22 @@ class _SectionExtractor(html.parser.HTMLParser):
 
         # Discovery: not yet capturing — looking for the element with target id.
         if not self._capturing:
+            # Pre-capture list-context tracking. tc39 algorithm steps carry
+            # ids on individual <li> elements (e.g. `step-iteratorclose-3`);
+            # when the anchor lands on such an <li>, `_open_block("li", ...)`
+            # in the open-ended branch needs an already-populated _list_stack
+            # to emit the correct ordered-list bullet ("3." not "*"). Without
+            # this tracking the parser ignores all <ol>/<ul>/<li> markup that
+            # precedes the anchor, breaking step-anchor numbering.
+            #
+            # Skip the bookkeeping for the anchor-carrying element itself —
+            # _open_block (called from the open-ended strategy below) does
+            # the push/increment, so duplicating it here would double-count.
+            if elem_id != self._anchor:
+                if tag in ("ol", "ul"):
+                    self._list_stack.append([tag, 0])
+                elif tag == "li" and self._list_stack:
+                    self._list_stack[-1][1] += 1
             if elem_id == self._anchor:
                 # Anchor encountered — record this BEFORE strategy dispatch so
                 # the `_found` signal is set even if (somehow) no text emits.
@@ -930,6 +946,16 @@ class _SectionExtractor(html.parser.HTMLParser):
         if self._skip_depth > 0:
             return
         if not self._capturing:
+            # Pre-capture list-context tracking — pop the matching frame
+            # on </ol>/</ul> close so the stack reflects sibling-list
+            # context at anchor-discovery time. Match by tag name on top
+            # of stack so malformed HTML (unmatched closes) is tolerated.
+            if (
+                tag in ("ol", "ul")
+                and self._list_stack
+                and self._list_stack[-1][0] == tag
+            ):
+                self._list_stack.pop()
             return
 
         # Container close — decrement depth, stop on outermost close.
