@@ -548,9 +548,12 @@ impl VmInner {
                             // `ReturnCompletion(undefined)`. The class-ctor
                             // [[Construct]]-observable substitute (§10.2.2
                             // step 12-13 thisArgument or step 15-17
-                            // thisBinding) happens out-of-band in
-                            // `construct_synchronous` after this Undefined
-                            // surfaces — no `is_class_ctor` carve-out here.
+                            // thisBinding) happens out-of-band after this
+                            // Undefined surfaces: `do_new` /
+                            // `complete_inline_frame` for the common `new
+                            // X(...)` path, `construct_synchronous` for
+                            // `super(...)` / CE upgrade / native-ctor
+                            // entries — no `is_class_ctor` carve-out here.
                             FrameKind::Function => JsValue::Undefined,
                         };
                         self.pop_frame();

@@ -159,15 +159,42 @@ fn nested_vm_eval_does_not_leak_inner_completion_to_outer() {
 #[test]
 fn function_called_via_vm_call_returns_undefined_on_fall_through() {
     // The host `Vm::call` path wraps in `with_call_mode` and pushes a
-    // Function-kind frame via `call_internal(..., FrameKind::Function)`
-    // — its Op::ReturnUndefined arm returns literal Undefined,
-    // regardless of any prior `completion_value` written by an outer
-    // Eval frame. The plan-memo test invokes the function via JS to
-    // exercise the same dispatch path (Vm::call_dispatch → JS
-    // Function arm → call_internal).
+    // Function-kind frame via `call_dispatch` → `call_internal(...,
+    // FrameKind::Function)` — its Op::ReturnUndefined arm returns
+    // literal Undefined, regardless of any prior `completion_value`
+    // written by an outer Eval frame. Distinct from inline `Op::Call`
+    // (which routes through `push_js_call_frame` without entering a
+    // new `with_call_mode` boundary), so exercised here via the host
+    // `Vm::call` entry directly.
     let mut vm = Vm::new();
-    let v = vm.eval("42; (function () { 7; })();").unwrap();
-    assert_eq!(v, JsValue::Undefined);
+    // Compile + bind the function, then expose it as the script's
+    // completion value so we can retrieve its `ObjectId` for
+    // `vm.call`. The trailing `f` ExpressionStatement leaves the
+    // closure on completion_value (Eval-kind Op::Pop entry write).
+    let closure = vm.eval("function f() { 7; } f").unwrap();
+    let JsValue::Object(closure_id) = closure else {
+        panic!("expected function object, got {closure:?}");
+    };
+    // Seed `completion_value` to a non-Undefined sentinel so a leak
+    // through the Function-kind body's implicit fall-through would
+    // be observable in the post-call return value.
+    vm.inner.completion_value = JsValue::Number(123.0);
+    let v = vm.call(closure_id, JsValue::Undefined, &[]).unwrap();
+    assert_eq!(
+        v,
+        JsValue::Undefined,
+        "Function-kind body's Op::ReturnUndefined arm must return \
+         literal Undefined regardless of outer completion_value",
+    );
+    // The host call wraps in `with_call_mode` (per `Vm::call`), which
+    // preserves the caller's `completion_value` via
+    // `saved_completion_stack`. Post-call observation confirms the
+    // outer sentinel is intact.
+    assert_eq!(
+        vm.inner.completion_value,
+        JsValue::Number(123.0),
+        "outer completion_value must be preserved across Vm::call",
+    );
 }
 
 // ---------------------------------------------------------------------------
