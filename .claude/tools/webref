@@ -824,6 +824,14 @@ class _SectionExtractor(html.parser.HTMLParser):
         # free of leading/trailing blank lines.
         self._pre_depth = 0
         self._had_pre = False
+        # Suppress the newline that `_open_block("p", ...)` would otherwise
+        # emit immediately after a `<li>` open. Set True when emitting a list
+        # bullet; consumed (and cleared) by the next `<p>` open, or cleared
+        # by any other block open / non-whitespace text. Keeps the common
+        # `<li><p>text</p></li>` markup (Bikeshed / WHATWG) rendering as
+        # "1. text" instead of "1.\ntext" — the bullet and its text stay on
+        # the same line by construction.
+        self._suppress_next_p_newline = False
         # Skip-content depth (script/style)
         self._skip_depth = 0
 
@@ -985,7 +993,13 @@ class _SectionExtractor(html.parser.HTMLParser):
             return
         # Collapse runs of whitespace to single space. Preserve the data even
         # if it's all whitespace — block-level newlines come from _open_block.
-        self._parts.append(re.sub(r"\s+", " ", data))
+        cleaned = re.sub(r"\s+", " ", data)
+        # Non-whitespace text after a list bullet means the bullet has its
+        # inline content already; a later <p> in the same <li> should break
+        # to a new paragraph. Clear the suppression flag.
+        if cleaned.strip():
+            self._suppress_next_p_newline = False
+        self._parts.append(cleaned)
 
     # -- internal helpers ---------------------------------------------------
 
@@ -993,9 +1007,11 @@ class _SectionExtractor(html.parser.HTMLParser):
         if tag == "pre":
             self._pre_depth += 1
             self._had_pre = True
+            self._suppress_next_p_newline = False
             self._parts.append("\n")
             return
         if tag in ("ol", "ul"):
+            self._suppress_next_p_newline = False
             self._list_stack.append([tag, 0])
             self._parts.append("\n")
             return
@@ -1008,15 +1024,26 @@ class _SectionExtractor(html.parser.HTMLParser):
             else:
                 bullet = "*"
             self._parts.append(f"\n{indent}{bullet} ")
+            # Arm the suppression flag — the next <p> opening (typical
+            # WHATWG/Bikeshed pattern `<li><p>text</p></li>`) should render
+            # inline with the bullet, not break to a new line.
+            self._suppress_next_p_newline = True
             return
         if tag in self._HEADING_TAGS:
+            self._suppress_next_p_newline = False
             level = int(tag[1])
             self._parts.append("\n\n" + ("#" * level) + " ")
             return
         if tag in self._BLOCK_TAGS:
+            if tag == "p" and self._suppress_next_p_newline:
+                # Consume the flag without emitting a newline — keeps
+                # `<li><p>text</p></li>` on one line.
+                self._suppress_next_p_newline = False
+                return
+            self._suppress_next_p_newline = False
             self._parts.append("\n")
             return
-        # Inline tags: no structural effect.
+        # Inline tags: no structural effect, no flag change.
 
     def _close_block(self, tag: str) -> None:
         if tag == "pre":
