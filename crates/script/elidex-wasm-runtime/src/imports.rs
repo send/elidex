@@ -2,9 +2,10 @@
 //!
 //! WASM JS API §5.2 Instance ctor step 4 ("Read the imports") reads a
 //! user-provided record-of-records (`{ module_name: { name: value } }`)
-//! and matches it against the module's import list. Inside this crate
-//! we represent that input as a flat `(module, name) -> value` map —
-//! the JS host (D-16) is responsible for flattening the user-facing
+//! and matches it against the module's import list. The storage shape
+//! mirrors that spec input exactly — an outer module → inner name → value
+//! nesting — so `get(&str, &str)` is alloc-free and `define` writes into
+//! the natural bucket. The JS host (D-16) flattens the user-facing
 //! record-of-records into `ImportObject::define` calls.
 //!
 //! Tier-A engine-indep semantic file: no wasmtime token appears here.
@@ -28,13 +29,13 @@ pub enum WasmImportValue {
     Global(WasmGlobal),
 }
 
-/// Builder for the `(module, name) → WasmImportValue` map used by
+/// Builder for the record-of-records import map used by
 /// `WasmRuntime::instantiate`. Per WASM JS API §5.2 step 4 — the
 /// `Default` impl yields an empty import set (used when a module
 /// declares no imports).
 #[derive(Default, Clone, Debug)]
 pub struct ImportObject {
-    entries: HashMap<(String, String), WasmImportValue>,
+    entries: HashMap<String, HashMap<String, WasmImportValue>>,
 }
 
 impl ImportObject {
@@ -46,28 +47,35 @@ impl ImportObject {
     /// `(module, name)`.
     pub fn define(&mut self, module: &str, name: &str, value: WasmImportValue) {
         self.entries
-            .insert((module.to_string(), name.to_string()), value);
+            .entry(module.to_string())
+            .or_default()
+            .insert(name.to_string(), value);
     }
 
-    /// Look up an import by `(module, name)`.
+    /// Look up an import by `(module, name)`. Alloc-free — borrows the
+    /// `&str` arguments directly into the nested map.
     pub fn get(&self, module: &str, name: &str) -> Option<&WasmImportValue> {
-        self.entries.get(&(module.to_string(), name.to_string()))
+        self.entries.get(module)?.get(name)
     }
 
-    /// Iterate `((module, name), value)` pairs. Used by
+    /// Iterate `(module, name, value)` triples. Used by
     /// `WasmRuntime::instantiate` to walk the import set and convert
     /// each value to a wasmtime `Extern` via `engine_conv`.
-    pub(crate) fn iter(&self) -> impl Iterator<Item = (&(String, String), &WasmImportValue)> {
-        self.entries.iter()
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&str, &str, &WasmImportValue)> {
+        self.entries.iter().flat_map(|(module, inner)| {
+            inner
+                .iter()
+                .map(move |(name, value)| (module.as_str(), name.as_str(), value))
+        })
     }
 
-    /// Number of import entries currently defined.
+    /// Number of import entries currently defined (sum across modules).
     pub fn len(&self) -> usize {
-        self.entries.len()
+        self.entries.values().map(HashMap::len).sum()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.entries.values().all(HashMap::is_empty)
     }
 }
 

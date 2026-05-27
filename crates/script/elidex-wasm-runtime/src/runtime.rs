@@ -125,7 +125,7 @@ impl WasmRuntime {
         // to other instances. `Linker::clone()` is cheap (shares the
         // host-fn entries via internal Arc per wasmtime API).
         let mut linker = self.linker_template.clone();
-        for ((module_name, name), value) in imports.iter() {
+        for (module_name, name, value) in imports.iter() {
             let ext = import_value_to_extern(value.clone());
             linker
                 .define(&mut store, module_name, name, ext)

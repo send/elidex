@@ -96,10 +96,11 @@ fn wasmtime_heap_type_from(h: HeapType) -> wasmtime::HeapType {
 // ---------------------------------------------------------------------------
 
 /// Reads a wasmtime `Val` and returns the engine-indep `WasmValue`. The
-/// `store` parameter is the (locked) wasmtime store backing the value;
-/// `store_handle` is a clone-source for any fresh `WasmFunc` / handle
-/// attached to the result (so the new handle shares the same
-/// `Arc<Mutex<Store>>`).
+/// `store` parameter is the wasmtime store backing the value (borrowed
+/// from the `WasmStoreHandle`'s `RefCell`); `store_handle` is a
+/// clone-source for any fresh `WasmFunc` / handle attached to the
+/// result (so the new handle shares the same
+/// `Rc<RefCell<Store<HostState>>>` per `handle.rs` D-ii).
 pub(crate) fn wasm_value_from_wasmtime(
     v: Val,
     store: &Store<HostState>,

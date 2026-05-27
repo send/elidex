@@ -15,7 +15,7 @@
 //! | E. Documented exception | `error.rs` | `pub source: Option<wasmtime::Error>` + `pub fn source_err` | error chain inspection at engine-bridge layer |
 //!
 //! Trip-wires for the tier discipline live in
-//! `tools/wasm-runtime-trip-wire-verify.sh` at the workspace root.
+//! `.claude/tools/wasm-runtime-trip-wire.sh` at the workspace root.
 
 mod engine_conv;
 mod error;
