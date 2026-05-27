@@ -75,4 +75,4 @@ mise run fmt         # cargo fmt --all
 
 ## CI
 
-4 jobs gated by a `changes` path filter (`dorny/paths-filter@v4`、`.github/workflows/**` 含む = workflow-only edit でも発火): `check` (ubuntu/macos/windows: fmt + clippy + nextest + doc-tests、全 `--all-features`) / `doc` (cargo doc `--all-features -D warnings`) / `deny` (license + supply chain)。**Push to main always runs all jobs** (path filter bypass)。詳細 (Actions pinning、toolchain) は `.github/workflows/`。
+`changes` path filter (`dorny/paths-filter@v4`、`.github/workflows/**` 含む) で以下 3 job を gate: `check` (3 OS × `cargo fmt --check` + clippy + nextest + doc-tests、後 3 つは `--all-features`) / `doc` (`cargo doc` + `RUSTDOCFLAGS=-D warnings`) / `deny` (license + supply chain)。**Push to main は path filter bypass で常時全 job 実行**。コマンド詳細 = `.github/workflows/ci.yml`。
