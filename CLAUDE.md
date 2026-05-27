@@ -36,7 +36,7 @@ WHATWG / W3C / TC39 (ECMA-262 / ECMA-402) の section number / anchor / WebIDL /
 ### Workflow
 
 - **コミット前**: `cargo fmt --all`
-- **Push 前**: `mise run ci` (check + lint + test-all + doc + deny + ci-sweep cleanup)
+- **Push 前**: `mise run ci` (check + lint + test-all + doc + deny + ci-sweep cleanup; ci-sweep は `cargo-sweep` 未インストール時 no-op)
 - **テストは変更クレートに絞る**: `cargo test -p <crate> --all-features`。`--workspace` / `mise run test` は最終検証時のみ
 - **Git**: main 直接 push 禁止、PR 経由必須。`gh pr merge --auto` 禁止。CI 全 pass を目視確認してから squash merge
 
