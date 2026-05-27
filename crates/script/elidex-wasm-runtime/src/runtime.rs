@@ -32,13 +32,15 @@ use crate::imports::ImportObject;
 use crate::instance::WasmInstance;
 use crate::module::WasmModule;
 
-/// Default fuel budget reset on every `WasmInstance::call_func` —
-/// 1 billion instructions is roughly a few seconds on modern hardware,
-/// guarding against runaway wasm modules during host dispatch. Reset
-/// happens inside `instantiate` (initial budget) and per-call via the
-/// instance's `set_fuel` (not currently exposed; future D-16 work may
-/// surface a configurable knob).
-const DEFAULT_FUEL: u64 = 1_000_000_000;
+/// Default fuel budget — 1 billion instructions is roughly a few
+/// seconds on modern hardware, guarding against runaway wasm modules
+/// during host dispatch. The store is seeded with this budget at
+/// `instantiate` time, and `WasmInstance::call_func` resets the budget
+/// to this value at the start of every call so a single long-running
+/// call cannot deplete the budget for subsequent calls on the same
+/// instance. Exposed `pub(crate)` so `instance.rs` can perform the
+/// per-call reset.
+pub(crate) const DEFAULT_FUEL: u64 = 1_000_000_000;
 
 /// Compiles and instantiates wasm modules with DOM host functions.
 ///
@@ -111,9 +113,13 @@ impl WasmRuntime {
     ) -> Result<WasmInstance, WasmError> {
         let host_state = HostState::new(self.dom_registry.clone(), self.cssom_registry.clone());
         let mut store = Store::new(&self.engine, host_state);
+        // Initial fuel for the new store. This runs at instantiate
+        // time, not during wasm execution — surface any error as
+        // `Link` (instance-setup failure) rather than `Runtime`
+        // (which is reserved for wasm-level traps).
         store
             .set_fuel(DEFAULT_FUEL)
-            .map_err(|e| wasm_error_from_wasmtime(e, WasmErrorKind::Runtime))?;
+            .map_err(|e| wasm_error_from_wasmtime(e, WasmErrorKind::Link))?;
 
         // Fresh linker per call — user imports added here cannot leak
         // to other instances. `Linker::clone()` is cheap (shares the

@@ -123,11 +123,16 @@ pub(crate) fn wasm_value_from_wasmtime(
             store: store_handle.clone(),
         })),
         Val::ExternRef(None) => WasmValue::Ref(WasmRef::Null(HeapType::Extern)),
-        Val::ExternRef(Some(rooted)) => {
-            let handle =
-                extern_ref_from_wasmtime(&rooted, store).unwrap_or_else(|| ExternRefHandle::new(0));
-            WasmValue::Ref(WasmRef::Extern(handle))
-        }
+        // For Some(rooted): if the payload is a host-issued u64, surface
+        // it as ExternRefHandle. If the payload is anything else
+        // (foreign / GC'd / non-u64 — host bypass), surface as
+        // Null(Extern) rather than fabricating a sentinel handle that
+        // would collide with the legitimate `ExternRefHandle::new(0)`.
+        // Information loss is preferable to silent aliasing.
+        Val::ExternRef(Some(rooted)) => match extern_ref_from_wasmtime(&rooted, store) {
+            Some(handle) => WasmValue::Ref(WasmRef::Extern(handle)),
+            None => WasmValue::Ref(WasmRef::Null(HeapType::Extern)),
+        },
     }
 }
 
@@ -174,11 +179,13 @@ pub(crate) fn wasm_ref_from_wasmtime(
             store: store_handle.clone(),
         }),
         wasmtime::Ref::Extern(None) => WasmRef::Null(HeapType::Extern),
-        wasmtime::Ref::Extern(Some(rooted)) => {
-            let handle =
-                extern_ref_from_wasmtime(rooted, store).unwrap_or_else(|| ExternRefHandle::new(0));
-            WasmRef::Extern(handle)
-        }
+        // See `wasm_value_from_wasmtime` for the rationale on Null(Extern)
+        // fallback instead of `ExternRefHandle::new(0)` (avoiding
+        // collision with the legitimate host-issued zero handle).
+        wasmtime::Ref::Extern(Some(rooted)) => match extern_ref_from_wasmtime(rooted, store) {
+            Some(handle) => WasmRef::Extern(handle),
+            None => WasmRef::Null(HeapType::Extern),
+        },
     }
 }
 

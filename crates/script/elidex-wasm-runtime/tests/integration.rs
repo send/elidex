@@ -107,7 +107,7 @@ fn module_imports_exports_introspection() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn memory_grow_signals_invalidation_or_keeps_capacity() {
+fn memory_grow_signals_unconditional_invalidation() {
     let rt = rt();
     let module = compile(
         &rt,
@@ -122,18 +122,17 @@ fn memory_grow_signals_invalidation_or_keeps_capacity() {
     let initial_size = mem.byte_size();
     assert_eq!(initial_size, 64 * 1024); // 1 page = 64 KiB
 
-    // Per WASM JS API §5.3 grow algorithm. Whether the backing store
-    // moves on grow is engine-defined; the contract is that
-    // `buffer_handle_invalidated == true` ⇒ aliased host buffers must
-    // be detached. We assert the API returns a well-formed result for
-    // both outcomes.
+    // Per WASM JS API §5.3 grow algorithm, the buffer is
+    // unconditionally detached on every successful grow regardless of
+    // whether wasmtime relocated the backing store.
     let result = mem.grow(1).expect("grow failed");
     assert_eq!(result.pre_pages, 1);
     let post_size = mem.byte_size();
     assert_eq!(post_size, 2 * 64 * 1024);
-    // Either the buffer pointer changed (invalidated) or wasmtime
-    // grew in-place; both are spec-valid outcomes.
-    let _ = result.buffer_handle_invalidated;
+    assert!(
+        result.buffer_handle_invalidated,
+        "spec §5.3 requires unconditional detach on grow"
+    );
 }
 
 #[test]

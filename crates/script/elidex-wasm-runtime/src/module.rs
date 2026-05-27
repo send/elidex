@@ -163,11 +163,24 @@ fn custom_section_payloads(bytes: &[u8], target_name: &str) -> Vec<Vec<u8>> {
 
 /// Decode an unsigned LEB128 (up to 5 bytes for u32) at the start of
 /// `buf`. Returns `(value, bytes_consumed)` or `None` on overflow /
-/// truncation.
+/// truncation / invalid encoding.
+///
+/// Per WebAssembly Core Spec §5.2.2 ("Integers"), a u32 LEB128
+/// encoding is at most 5 bytes, and the 5th byte must use only the
+/// low 4 bits (the remaining bits would overflow `u32`). An encoding
+/// where the 5th byte has bits 4-6 set is invalid; we reject such
+/// over-long encodings rather than silently truncating via `u32`
+/// shift overflow.
 fn read_leb128_u32(buf: &[u8]) -> Option<(u32, usize)> {
     let mut result: u32 = 0;
     let mut shift = 0_u32;
     for (i, &b) in buf.iter().enumerate().take(5) {
+        // On the last allowed byte (i == 4, shift == 28), only the low
+        // 4 bits of the 7 payload bits are valid; bits 4-6 set would
+        // mean the encoded value exceeds u32::MAX.
+        if i == 4 && (b & 0x70) != 0 {
+            return None;
+        }
         let chunk = u32::from(b & 0x7f);
         result = result.checked_add(chunk.checked_shl(shift)?)?;
         if b & 0x80 == 0 {
@@ -334,5 +347,26 @@ mod tests {
     #[test]
     fn read_leb128_truncated_returns_none() {
         assert_eq!(read_leb128_u32(&[0x80]), None);
+    }
+
+    #[test]
+    fn read_leb128_u32_max_accepted() {
+        // u32::MAX = 0xFFFF_FFFF encodes as `0xff 0xff 0xff 0xff 0x0f`
+        // (4 continuation bytes of 0x7f payload + final byte with the
+        // top 4 bits = 0x0f, which is valid per spec).
+        assert_eq!(
+            read_leb128_u32(&[0xff, 0xff, 0xff, 0xff, 0x0f]),
+            Some((u32::MAX, 5))
+        );
+    }
+
+    #[test]
+    fn read_leb128_overlong_5th_byte_rejected() {
+        // 5th byte 0x70 has bits 4-6 set with no continuation — the
+        // decoded value would exceed u32::MAX. Spec mandates rejection;
+        // pre-fix code silently truncated to 0 via u32 shift overflow.
+        assert_eq!(read_leb128_u32(&[0x80, 0x80, 0x80, 0x80, 0x70]), None);
+        // 0x10 (bit 4 set only) also overflows u32 (1 << 32).
+        assert_eq!(read_leb128_u32(&[0x80, 0x80, 0x80, 0x80, 0x10]), None);
     }
 }

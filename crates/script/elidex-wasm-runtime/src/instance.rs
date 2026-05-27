@@ -20,6 +20,7 @@ use crate::engine_conv;
 use crate::error::{WasmError, WasmErrorKind};
 use crate::handle::{WasmFunc, WasmGlobal, WasmMemory, WasmStoreHandle, WasmTable};
 use crate::host::state::UnbindGuard;
+use crate::runtime::DEFAULT_FUEL;
 use crate::value::WasmValue;
 
 /// Engine-indep representation of one exported item from a
@@ -145,6 +146,16 @@ impl WasmInstance {
             document,
         } = bridge;
         let mut guard = UnbindGuard::new(&mut store_mut, session, dom, document);
+
+        // Reset the fuel budget for this call. Without this, cumulative
+        // fuel consumption across calls eventually exhausts the budget
+        // and every subsequent call_func — even trivial ones — traps
+        // with out-of-fuel. Per-call reset bounds runaway risk to a
+        // single call rather than the instance lifetime.
+        guard
+            .store()
+            .set_fuel(DEFAULT_FUEL)
+            .map_err(|e| engine_conv::wasm_error_from_wasmtime(e, WasmErrorKind::Runtime))?;
 
         // Coerce args. Non-ExternRef paths go through the plain
         // `wasm_value_to_wasmtime`; ExternRef construction needs the

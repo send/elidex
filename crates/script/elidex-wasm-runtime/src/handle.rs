@@ -130,20 +130,25 @@ impl WasmMemory {
         self.inner.data_size(&*store)
     }
 
-    /// Grow the memory by `delta` pages. Returns the previous size and a
-    /// signal indicating whether any `ArrayBuffer` aliasing the old backing
-    /// store must be detached / re-allocated — per WASM JS API §5.3's
-    /// "create a fixed length memory buffer" / "create a resizable memory
-    /// buffer" prose, host buffers are invalidated when wasmtime moves the
-    /// backing allocation (detected by comparing `data_ptr` pre/post).
+    /// Grow the memory by `delta` pages. Returns the previous size and
+    /// a signal indicating that any `ArrayBuffer` aliasing the old
+    /// backing store must be detached.
+    ///
+    /// Per WASM JS API §5.3 Memory.prototype.grow algorithm, the spec
+    /// unconditionally detaches `memory.[[BufferObject]]` and replaces
+    /// it with a new buffer on every successful grow — independent of
+    /// whether wasmtime relocated the backing allocation. We therefore
+    /// always signal invalidation; the host (D-16) is responsible for
+    /// detaching the JS ArrayBuffer per spec. (An earlier draft
+    /// optimized this via `data_ptr` pre/post compare, but that yields
+    /// spec-violating false-negatives when wasmtime grows in-place
+    /// while the spec demands detach.)
     pub fn grow(&mut self, delta: u32) -> Result<GrowResult, WasmError> {
         let mut store = self.store.borrow_mut();
-        let pre_ptr = self.inner.data_ptr(&*store);
         let pre_pages = self
             .inner
             .grow(&mut *store, u64::from(delta))
             .map_err(|e| engine_conv::wasm_error_from_wasmtime(e, WasmErrorKind::Runtime))?;
-        let post_ptr = self.inner.data_ptr(&*store);
         let pre_pages_u32 = u32::try_from(pre_pages).map_err(|_| {
             WasmError::new(
                 WasmErrorKind::Runtime,
@@ -152,7 +157,7 @@ impl WasmMemory {
         })?;
         Ok(GrowResult {
             pre_pages: pre_pages_u32,
-            buffer_handle_invalidated: pre_ptr != post_ptr,
+            buffer_handle_invalidated: true,
         })
     }
 

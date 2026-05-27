@@ -110,13 +110,16 @@ pub struct WasmFuncType {
 }
 
 /// Outcome of a `WasmMemory::grow` call per WASM JS API §5.3
-/// "Memory.prototype.grow" + "create a memory buffer" prose.
+/// Memory.prototype.grow algorithm.
 ///
 /// `buffer_handle_invalidated` signals that any host-issued
 /// `ArrayBuffer` aliasing the previous backing store must be detached
-/// and re-allocated before further byte access (current spec models
-/// this via "create a fixed length memory buffer" / "create a
-/// resizable memory buffer").
+/// and re-allocated. Per spec §5.3 the buffer is unconditionally
+/// replaced on every successful grow, so `WasmMemory::grow` always
+/// sets this field to `true`. It is kept as a struct field (rather
+/// than removed) for future extensions where additional signals may
+/// be packed in (e.g. resize-vs-replace once the resizable-buffer
+/// proposal lands).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GrowResult {
     pub pre_pages: u32,
