@@ -100,11 +100,11 @@ impl WasmRuntime {
     }
 
     /// Per WASM JS API §5.2 Instance ctor algorithm steps 1-6 + step 4
-    /// "Read the imports". `imports` is the engine-indep flat
-    /// `(module, name) → value` map; the host (D-16) flattens the JS
-    /// record-of-records before calling. Single canonical form —
-    /// callers pass `ImportObject::default()` for the empty-imports
-    /// case rather than calling a dual API.
+    /// "Read the imports". `imports` is the engine-indep
+    /// record-of-records (`HashMap<module-name, HashMap<name, value>>`,
+    /// see `imports.rs`); callers populate it via `ImportObject::define`
+    /// or pass `ImportObject::default()` for the empty-imports case.
+    /// Single canonical form — no dual API for empty vs non-empty.
     pub fn instantiate(
         &self,
         module: &WasmModule,
