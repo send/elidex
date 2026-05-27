@@ -45,8 +45,10 @@ impl_empty_trace!(WasmCaptures);
 ///
 /// Stores the resolved `WasmFunc` directly so that each call avoids the
 /// `instance.get_func(name)` lookup. The function carries its own
-/// `WasmStoreHandle` clone (per WASM JS API §5.6 `[[Store]]` model), so
-/// the instance reference is not needed for dispatch.
+/// `WasmStoreHandle` clone (per WASM JS API §5.6 — each Exported Function
+/// has a `[[FunctionAddress]]` interpreted relative to its agent's
+/// associated store, §4.1), so the instance reference is not needed for
+/// dispatch.
 ///
 /// `params` is cached at `build_exports_object` time so the per-call
 /// path skips `WasmFunc::func_type()` — that walk borrows the wasmtime
@@ -557,9 +559,10 @@ fn call_wasm_export(
 
     // Call the export through the bridge (which is already bound
     // during JS eval). Dispatching via `WasmFunc::call` per WASM JS API
-    // §5.6 — the function carries its own `[[Store]]`, so cross-store
-    // mismatch is structurally impossible (no `instance.call_func(&func,
-    // ...)` API to mix instances on).
+    // §5.6 — each Exported Function's `[[FunctionAddress]]` is
+    // interpreted relative to its agent's associated store (§4.1), so
+    // cross-store mismatch is structurally impossible (no
+    // `instance.call_func(&func, ...)` API to mix instances on).
     let results = captures.bridge.with(|session, dom| {
         let document = captures.bridge.document_entity();
         captures.func.call(

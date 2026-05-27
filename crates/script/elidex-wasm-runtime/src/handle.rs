@@ -127,9 +127,11 @@ impl WasmFunc {
     }
 
     /// Invoke this function per WASM JS API §5.6 Exported Functions —
-    /// the spec model attaches `[[Store]]` to each Exported Function, so
+    /// the spec model gives each Exported Function a `[[FunctionAddress]]`
+    /// interpreted relative to the surrounding agent's associated store
+    /// (§4.1 "Interaction of the WebAssembly Store with JavaScript"). By
     /// dispatching via `self.store` (rather than a separate instance's
-    /// store) makes cross-store mismatch structurally impossible.
+    /// store), cross-store mismatch is structurally impossible.
     ///
     /// `args` must be arity- and type-matched to `self.func_type()` —
     /// the host (D-16) coerces JS arguments to `WasmValue` before

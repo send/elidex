@@ -117,7 +117,9 @@ impl WasmRuntime {
         // cross-store mismatch at `Linker::define`, surfacing as a
         // confusing wasmtime error. Fail fast with a clear `LinkError`
         // until D-16 host-fn-builder lands the shared-store wiring
-        // (per WASM JS API §5.2 Realm-shared engine model).
+        // (per WASM JS API §4.1 "Interaction of the WebAssembly Store
+        // with JavaScript" — each agent has an associated store, and
+        // cross-store import handles violate the per-agent invariant).
         if !imports.is_empty() {
             return Err(WasmError::new(
                 WasmErrorKind::Link,

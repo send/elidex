@@ -61,12 +61,16 @@ fn wasm_heap_type_from_wasmtime(h: &wasmtime::HeapType) -> Result<HeapType, Wasm
     match h {
         wasmtime::HeapType::Func => Ok(HeapType::Func),
         wasmtime::HeapType::Extern => Ok(HeapType::Extern),
-        // Per WASM JS API §5.10: the only callers of this conversion are
-        // type-introspection paths (`WasmFunc::func_type`,
+        // Elidex error-class convention (§5.10 defines the classes but
+        // not this dispatch rule): the only callers of this conversion
+        // are type-introspection paths (`WasmFunc::func_type`,
         // `WasmGlobal::value_type`, `WasmInstance::exports`) — i.e. the
-        // JS↔wasm type-system boundary, not a wasm trap. Classify as
-        // `Link` so the JS-side mapping (boa `wasm_error_to_js`) surfaces
-        // a `TypeError` (`LinkError`), not `RangeError` (`RuntimeError`).
+        // JS↔wasm type-system boundary, not a wasm trap. The closest
+        // spec-anchored category is §5.2 `instantiate the core of a
+        // WebAssembly module` step 3's "LinkError for most cases during
+        // linking" (linking = module-↔-JS-type boundary). Map to `Link`
+        // so the JS-side `wasm_error_to_js` surfaces `TypeError`
+        // (LinkError), not `RangeError` (RuntimeError).
         other => Err(WasmError::new(
             WasmErrorKind::Link,
             format!("unsupported HeapType variant: {other:?}"),
@@ -118,13 +122,7 @@ pub(crate) fn wasm_value_from_wasmtime(
         Val::F32(bits) => WasmValue::F32(f32::from_bits(bits)),
         Val::F64(bits) => WasmValue::F64(f64::from_bits(bits)),
         Val::V128(b) => WasmValue::V128(b.as_u128().to_le_bytes()),
-        // Func null + future proposals (anyref / exnref / contref) — all
-        // surface as a Null(Func) fallback for now; proposal-landing PRs
-        // will add explicit `HeapType::Any` / `Exn` variants and route
-        // them here.
-        Val::FuncRef(None) | Val::AnyRef(_) | Val::ExnRef(_) | Val::ContRef(_) => {
-            WasmValue::Ref(WasmRef::Null(HeapType::Func))
-        }
+        Val::FuncRef(None) => WasmValue::Ref(WasmRef::Null(HeapType::Func)),
         Val::FuncRef(Some(f)) => WasmValue::Ref(WasmRef::Func(WasmFunc {
             inner: f,
             store: store_handle.clone(),
@@ -140,6 +138,24 @@ pub(crate) fn wasm_value_from_wasmtime(
             Some(handle) => WasmValue::Ref(WasmRef::Extern(handle)),
             None => WasmValue::Ref(WasmRef::Null(HeapType::Extern)),
         },
+        // Future-proposal ref kinds. wasmtime cannot produce these
+        // under the current `Engine` config (GC / Exception Handling /
+        // Stack Switching proposals are not enabled in `WasmRuntime::new`),
+        // so the arms are structurally unreachable today. Hard-fail
+        // rather than silently aliasing to `Null(Func)` — a future
+        // config change that enables one of these proposals must come
+        // with explicit `WasmValue` variants + `HeapType` plumbing,
+        // and panicking here surfaces the gap immediately at the
+        // conversion boundary rather than producing data corruption
+        // downstream.
+        Val::AnyRef(_) => {
+            unreachable!("Val::AnyRef requires GC proposal wiring (HeapType::Any not yet plumbed)")
+        }
+        Val::ExnRef(_) => unreachable!(
+            "Val::ExnRef requires Exception Handling proposal wiring \
+             (tracked: #11-wasm-exception-handling)"
+        ),
+        Val::ContRef(_) => unreachable!("Val::ContRef requires Stack Switching proposal wiring"),
     }
 }
 
@@ -175,12 +191,7 @@ pub(crate) fn wasm_ref_from_wasmtime(
     store_handle: &WasmStoreHandle,
 ) -> WasmRef {
     match r {
-        // GC / exception proposals not yet plumbed — fall back to null
-        // funcref. Real variants land additively when those proposals
-        // are wired through `HeapType`.
-        wasmtime::Ref::Func(None) | wasmtime::Ref::Any(_) | wasmtime::Ref::Exn(_) => {
-            WasmRef::Null(HeapType::Func)
-        }
+        wasmtime::Ref::Func(None) => WasmRef::Null(HeapType::Func),
         wasmtime::Ref::Func(Some(f)) => WasmRef::Func(WasmFunc {
             inner: *f,
             store: store_handle.clone(),
@@ -193,6 +204,19 @@ pub(crate) fn wasm_ref_from_wasmtime(
             Some(handle) => WasmRef::Extern(handle),
             None => WasmRef::Null(HeapType::Extern),
         },
+        // Future-proposal ref kinds. wasmtime cannot produce these
+        // under the current `Engine` config (GC / Exception Handling
+        // proposals not enabled in `WasmRuntime::new`), so the arms
+        // are structurally unreachable today. Hard-fail rather than
+        // silently aliasing to `Null(Func)` — see the parallel
+        // rationale in `wasm_value_from_wasmtime`.
+        wasmtime::Ref::Any(_) => unreachable!(
+            "wasmtime::Ref::Any requires GC proposal wiring (HeapType::Any not yet plumbed)"
+        ),
+        wasmtime::Ref::Exn(_) => unreachable!(
+            "wasmtime::Ref::Exn requires Exception Handling proposal wiring \
+             (tracked: #11-wasm-exception-handling)"
+        ),
     }
 }
 
@@ -297,11 +321,11 @@ pub(crate) fn export_item_from_wasmtime_extern(
 
 /// Maps wasmtime `Error` → `WasmError` with Trap detection promoting to
 /// `WasmErrorKind::Runtime`. The trap-to-RuntimeError rule itself comes
-/// from WASM JS API §5.2 `initialize an Instance object` step 3 ("throw
-/// an appropriate exception type … RuntimeError for most errors which
-/// occur from WebAssembly"). Error class definitions live in §5.10
-/// (`CompileError` / `LinkError` / `RuntimeError`); OOM and stack
-/// overflow have their own special-case clauses in §7.1 and §7.2.
+/// from WASM JS API §5.2 `instantiate the core of a WebAssembly module`
+/// step 3 ("throw an appropriate exception type … RuntimeError for most
+/// errors which occur from WebAssembly"). Error class definitions live
+/// in §5.10 (`CompileError` / `LinkError` / `RuntimeError`); OOM and
+/// stack overflow have their own special-case clauses in §7.1 and §7.2.
 ///
 /// Heuristic: if the error chain contains a `wasmtime::Trap`, the
 /// classification is `Runtime` regardless of the supplied default —
@@ -389,9 +413,10 @@ mod tests {
 
     #[test]
     fn val_type_unsupported_heap_type_returns_err() {
-        // Per §5.10 boundary classification: unsupported HeapType at
-        // introspection is `Link` (JS↔wasm type-system boundary), not
-        // `Runtime` (wasm trap).
+        // Elidex error-class convention: unsupported HeapType at
+        // introspection is `Link` (JS↔wasm type-system boundary, closest
+        // anchor §5.2 `instantiate the core` step 3 LinkError prose),
+        // not `Runtime` (which is for wasm traps).
         let src = wasmtime::ValType::Ref(wasmtime::RefType::new(true, wasmtime::HeapType::Any));
         let err = wasm_value_type_from_wasmtime(src).unwrap_err();
         assert!(matches!(err.kind, WasmErrorKind::Link));
