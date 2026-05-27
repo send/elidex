@@ -35,11 +35,10 @@ use crate::module::WasmModule;
 /// Default fuel budget — 1 billion instructions is roughly a few
 /// seconds on modern hardware, guarding against runaway wasm modules
 /// during host dispatch. The store is seeded with this budget at
-/// `instantiate` time, and `WasmInstance::call_func` resets the budget
-/// to this value at the start of every call so a single long-running
-/// call cannot deplete the budget for subsequent calls on the same
-/// instance. Exposed `pub(crate)` so `instance.rs` can perform the
-/// per-call reset.
+/// `instantiate` time, and `WasmFunc::call` resets the budget to this
+/// value at the start of every call so a single long-running call
+/// cannot deplete the budget for subsequent calls on the same instance.
+/// Exposed `pub(crate)` so `handle.rs` can perform the per-call reset.
 pub(crate) const DEFAULT_FUEL: u64 = 1_000_000_000;
 
 /// Compiles and instantiates wasm modules with DOM host functions.

@@ -138,7 +138,7 @@ pub fn register_wasm(ctx: &mut Context, bridge: &HostBridge) {
 /// etc. are not standard JS built-ins); once boa adds WebIDL/custom error
 /// class support, these can be replaced with proper subclass instances.
 fn wasm_error_to_js(e: &WasmError) -> JsNativeError {
-    match e.kind {
+    match e.kind() {
         WasmErrorKind::Compile => {
             JsNativeError::typ().with_message(format!("CompileError: {}", e.message()))
         }
@@ -503,6 +503,36 @@ fn js_to_wasm_val(
     expected: Option<&WasmValueType>,
     ctx: &mut Context,
 ) -> JsResult<WasmValue> {
+    // V128 / Ref must be handled before `to_number` — these types have
+    // no numeric round-trip and the JS-side spec contract is a
+    // synchronous TypeError (per WASM JS API §5.6 ToWebAssemblyValue
+    // for unsupported types), not a downstream wasmtime link/runtime
+    // error. The numeric arms below fall through to `to_number`.
+    if let Some(WasmValueType::V128) = expected {
+        return Err(JsNativeError::typ()
+            .with_message(
+                "TypeError: V128 parameters are not yet supported \
+                 (Phase 3.5 deferral: requires WebAssembly.Global / \
+                 SIMD value wrapper)",
+            )
+            .into());
+    }
+    if let Some(WasmValueType::Ref(rt)) = expected {
+        // Nullable RefType accepts JS `null` / `undefined` per spec
+        // ToWebAssemblyValue null-handling. Other JS values cannot
+        // coerce to a wasm ref without a WebAssembly.Function /
+        // ExternRef wrapper (deferred to D-16).
+        if rt.nullable && (arg.is_null() || arg.is_undefined()) {
+            return Ok(WasmValue::Ref(WasmRef::Null(rt.heap)));
+        }
+        return Err(JsNativeError::typ()
+            .with_message(
+                "TypeError: Ref parameters require a WebAssembly.Function \
+                 / ExternRef wrapper (deferred to D-16 host-fn-builder)",
+            )
+            .into());
+    }
+
     let n = arg.to_number(ctx)?;
     Ok(match expected {
         Some(WasmValueType::I32) => WasmValue::I32(to_int32(n)),
@@ -517,10 +547,9 @@ fn js_to_wasm_val(
             WasmValue::F32(n as f32)
         }
         Some(WasmValueType::F64) => WasmValue::F64(n),
-        // V128 / Ref types — Phase 3.5 doesn't expose these from JS;
-        // fall back to a numeric heuristic so simple modules still
-        // work.  Real reference / SIMD support requires JS-side
-        // wrapper objects, deferred to a future milestone.
+        // None (excess JS arg vs declared params) — wasm spec ignores
+        // excess args; defensive numeric heuristic. V128 / Ref are
+        // unreachable here due to the early returns above.
         _ => {
             if n.fract() == 0.0 && n >= f64::from(i32::MIN) && n <= f64::from(i32::MAX) {
                 WasmValue::I32(to_int32(n))

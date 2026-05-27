@@ -53,12 +53,17 @@ impl fmt::Display for WasmErrorKind {
 /// A WebAssembly error with classification, message, and (when the
 /// error originated inside wasmtime) the original `wasmtime::Error` for
 /// chain inspection. See module-level docs for the tier-E exception
-/// rationale on `source`.
+/// rationale on `source` — that is the ONLY pub field per plan §4.2
+/// trip-wire #1; `kind` / `message` are private to keep construction
+/// confined to `new()` / `with_source()` and reads to the accessors.
+/// `#[non_exhaustive]` future-proofs adding new fields (e.g. proposal-
+/// specific cause kinds) without a semver break.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct WasmError {
-    pub kind: WasmErrorKind,
+    pub(crate) kind: WasmErrorKind,
     pub source: Option<wasmtime::Error>,
-    pub message: String,
+    pub(crate) message: String,
 }
 
 impl WasmError {

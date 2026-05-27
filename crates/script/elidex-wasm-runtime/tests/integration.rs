@@ -180,7 +180,7 @@ fn unreachable_trap_maps_to_runtime_error() {
     // Per WASM JS API §5.2 `instantiate the core of a WebAssembly module`
     // step 3: traps become RuntimeError regardless of the call-site's
     // default kind. Error class definitions are in §5.10.
-    assert!(matches!(err.kind, WasmErrorKind::Runtime));
+    assert!(matches!(err.kind(), WasmErrorKind::Runtime));
     // Source preserved (D-9 + deviation D-iii: Option<wasmtime::Error>
     // is Some for any wasmtime-originated error).
     assert!(err.source_err().is_some());
@@ -249,7 +249,7 @@ fn instantiate_rejects_non_empty_imports_with_link_error() {
         )"#,
     );
     let err = rt.instantiate(&target, &imports).unwrap_err();
-    assert!(matches!(err.kind, WasmErrorKind::Link));
+    assert!(matches!(err.kind(), WasmErrorKind::Link));
     assert!(
         err.message().contains("ImportObject"),
         "expected guard message, got: {}",
