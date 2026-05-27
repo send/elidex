@@ -74,7 +74,7 @@ Diff size > 5000 行なら user 確認 (5-agent token cost 過大)。
 |---|---|
 | `<INPUT_TAG>` | `[diff]` |
 | `<INPUT_PATH>` | `/tmp/elidex-review.diff` (stat at `/tmp/elidex-review.stat`) |
-| `<INPUT_CONTEXT>` | `the branch's own changes vs the resolved base, 3-dot \`$BASE...HEAD\` where \`$BASE\` = current \`origin/main\`` |
+| `<INPUT_CONTEXT>` | the branch's own changes vs the resolved base, 3-dot `$BASE...HEAD` where `$BASE` = current `origin/main` |
 | `<DRYRUN_PATH>` | `/tmp/elidex-review.dry-run.md` |
 | `<LOC_RULE>` | `file:line` |
 

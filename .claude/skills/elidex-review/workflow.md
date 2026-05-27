@@ -44,9 +44,9 @@ Each SKILL.md supplies five variables before dispatching the agents (substitute 
 |---|---|---|
 | `<INPUT_TAG>` | `[diff]` | `[plan]` |
 | `<INPUT_PATH>` — what each agent reads | `/tmp/elidex-review.diff` (stat at `/tmp/elidex-review.stat`) | the plan-memo absolute path |
-| `<INPUT_CONTEXT>` — one-line description for the agent prompt | `the branch's own changes vs the resolved base, 3-dot \`$BASE...HEAD\` where \`$BASE\` = current \`origin/main\`` | `the plan-memo before implementation` |
+| `<INPUT_CONTEXT>` — one-line description for the agent prompt | the branch's own changes vs the resolved base, 3-dot `$BASE...HEAD` where `$BASE` = current `origin/main` | the plan-memo before implementation |
 | `<DRYRUN_PATH>` — Agent 2 only | `/tmp/elidex-review.dry-run.md` | `/tmp/elidex-plan-review.dry-run.md` |
-| `<LOC_RULE>` — how each finding cites location | `file:line` | `plan-memo §section identifiers (e.g. \`plan-memo §C-3\`)` |
+| `<LOC_RULE>` — how each finding cites location | `file:line` | plan-memo §section identifiers (e.g. `plan-memo §C-3`) |
 
 Shared prompt template (one Agent tool call per axis, all 5 in a single message):
 
