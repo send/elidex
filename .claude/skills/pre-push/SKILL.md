@@ -10,7 +10,7 @@ The elidex pre-push gate is five stages run in a fixed order. The trap is reachi
 
 ## Hard rules
 
-- **No skipping.** Every stage is mandatory unless the whole-skill Skip-OK clause fires. Do not invent per-stage skip conditions here — defer to each sub-skill's own clause (e.g. `/elidex-review`'s doc-only / <30 LoC). Record any skip in the landing memo.
+- **No skipping.** Every stage must be invoked. The only exception is the whole-skill Skip-OK clause below (pure-doc PR → don't invoke Stages 3–5). Sub-skills have their own internal skip clauses that may fire *during* invocation (e.g. `/elidex-review`'s doc-only / <30 LoC) — that's the sub-skill's concern, not a reason to skip invoking it from pre-push. Do not invent new per-stage skip conditions here. Record any skip in the landing memo.
 - **No substitution.** `/elidex-review` does NOT replace `/code-review` + `/review`. Run all three.
 - **Fix → re-verify.** If *any* stage produces code edits (a `/code-review` fix, an accepted review finding, etc.) → re-run Stage 2 before continuing. Later stages and the eventual push must see green, formatted code. (This covers Stages 3/4/5 — no per-stage repeat below.)
 - This skill stops **before** `git push` / `gh pr create`. Pushing is a separate authorized action — confirm per the usual remote/shared-state rules.
