@@ -40,8 +40,7 @@ fn end_to_end_i32_const_returns_42() {
 
     let main = instance.get_func("main").expect("export 'main' not found");
 
-    // Spec coverage: §5.6 Exported Functions invocation. We bypass
-    // ScriptHostBinding by going through call_func with a stub session
+    // Spec coverage: §5.6 Exported Functions invocation. Stub session
     // / dom — host fn callbacks aren't invoked by this wasm so the
     // pointers stay unused throughout the call.
     let mut session = elidex_script_session::SessionCore::new();
@@ -52,7 +51,7 @@ fn end_to_end_i32_const_returns_42() {
         dom: &mut dom,
         document,
     };
-    let results = instance.call_func(&main, &[], bridge).unwrap();
+    let results = main.call(&[], bridge).unwrap();
     assert_eq!(results.len(), 1);
     match &results[0] {
         WasmValue::I32(42) => {}
@@ -176,7 +175,7 @@ fn unreachable_trap_maps_to_runtime_error() {
         document,
     };
 
-    let err = instance.call_func(&boom, &[], bridge).unwrap_err();
+    let err = boom.call(&[], bridge).unwrap_err();
     // Per WASM JS API §5.2 `initialize an Instance object` step 3:
     // traps become RuntimeError regardless of the call-site's default
     // kind. Error class definitions are in §5.10.

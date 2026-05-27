@@ -150,7 +150,7 @@ impl Default for WasmRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::instance::ScriptHostBinding;
+    use crate::handle::ScriptHostBinding;
     use crate::value::WasmValue;
     use elidex_ecs::{EcsDom, Entity};
     use elidex_script_session::SessionCore;
@@ -196,7 +196,7 @@ mod tests {
                 dom: &mut self.dom,
                 document: self.doc,
             };
-            instance.call_func(&func, args, bridge)
+            func.call(args, bridge)
         }
     }
 

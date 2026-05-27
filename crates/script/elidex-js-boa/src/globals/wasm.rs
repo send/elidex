@@ -44,12 +44,11 @@ impl_empty_trace!(WasmCaptures);
 /// State for a single Wasm export function closure.
 ///
 /// Stores the resolved `WasmFunc` directly so that each call avoids the
-/// `instance.get_func(name)` lookup, and keeps a shared-clone of the
-/// `WasmInstance` (cheap — Clone shares the inner `WasmStoreHandle` via
-/// `Rc<RefCell<Store>>` so all exports observe the same store).
+/// `instance.get_func(name)` lookup. The function carries its own
+/// `WasmStoreHandle` clone (per WASM JS API §5.6 `[[Store]]` model), so
+/// the instance reference is not needed for dispatch.
 #[derive(Clone)]
 struct ExportCaptures {
-    instance: WasmInstance,
     func: WasmFunc,
     bridge: HostBridge,
 }
@@ -383,7 +382,16 @@ fn build_exports_object(
     for (name, item) in exports {
         match item {
             WasmExportItem::Func(f) => {
-                let param_count = f.func_type().params.len();
+                // `func_type()` may surface an `Err` if a future-proposal
+                // `HeapType` (Any/Eq/I31/Struct/Array/Exn/...) lands in the
+                // module signature before its host wrapper does. Propagate
+                // synchronously as a TypeError per WASM JS API §5.2 IDL
+                // (unknown-shape export → TypeError on instance build).
+                let param_count = f
+                    .func_type()
+                    .map_err(|e| wasm_error_to_js(&e))?
+                    .params
+                    .len();
                 func_exports.push((name, f, param_count));
             }
             WasmExportItem::Memory(m) => {
@@ -426,7 +434,6 @@ fn build_exports_object(
     // Function exports.
     for (name, func, param_count) in func_exports {
         let captures = ExportCaptures {
-            instance: instance.clone(),
             func,
             bridge: bridge.clone(),
         };
@@ -523,7 +530,13 @@ fn call_wasm_export(
     // Resolve the function's parameter types from its stored signature.
     // `WasmFunc::func_type()` clones a `WasmFuncType` — cheap (Vec of
     // 4-byte enums) and avoids re-querying wasmtime on every call.
-    let func_type = captures.func.func_type();
+    // The `?` propagates any future-proposal `HeapType` conversion
+    // error as a JS error at call time (mapped to TypeError per
+    // `wasm_error_to_js`).
+    let func_type = captures
+        .func
+        .func_type()
+        .map_err(|e| wasm_error_to_js(&e))?;
     let param_types = &func_type.params;
 
     // Per JS API §5.6 (Exported Functions): missing args → undefined,
@@ -538,11 +551,14 @@ fn call_wasm_export(
         })
         .collect::<JsResult<Vec<_>>>()?;
 
-    // Call the export through the bridge (which is already bound during JS eval).
+    // Call the export through the bridge (which is already bound
+    // during JS eval). Dispatching via `WasmFunc::call` per WASM JS API
+    // §5.6 — the function carries its own `[[Store]]`, so cross-store
+    // mismatch is structurally impossible (no `instance.call_func(&func,
+    // ...)` API to mix instances on).
     let results = captures.bridge.with(|session, dom| {
         let document = captures.bridge.document_entity();
-        captures.instance.call_func(
-            &captures.func,
+        captures.func.call(
             &wasm_args,
             ScriptHostBinding {
                 session,
