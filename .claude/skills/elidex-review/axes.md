@@ -2,9 +2,9 @@
 
 5 axis 定義、`elidex-review` (post-impl diff) + `elidex-plan-review` (pre-impl plan-memo) 共有。
 
-Lifecycle (Step 1.5 / 3 / 3.5 / 4 + anti-patterns + change log) は `./workflow.md`。SKILL.md は axes.md + workflow.md を参照する thin wrapper。
+Lifecycle (Step 1.5 / 2 agent prompt template / 3 / 3.5 / 4 / 4.5 + anti-patterns) は `./workflow.md`。SKILL.md は axes.md + workflow.md を参照する thin wrapper。
 
-Agent prompt は「Read axes.md Axis N → apply `Detect` の `[diff]`/`[plan]`/`[both]` context tag に該当する entry を input に適用 → output format で結果」。Section-header tag (e.g. `Sub-check 2b [both]`) は section 内全 entry / procedure step に inherit。Axis 番号は安定 (renumbering NG、SKILL.md が参照)。
+Agent prompt は「Read axes.md Axis N → apply `Detect` の `[diff]`/`[plan]`/`[both]` context tag に該当する entry を input に適用 → output format で結果」。Section-header tag (e.g. `Sub-check 2b [both]`) は section 内 entry の **default**、per-entry tag (e.g. `- [plan] ...`) が付いている entry はそちらが override する。Axis 番号は安定 (renumbering NG、SKILL.md が参照)。
 
 **Fix 提案禁止 (Step 3.5 で行う) — output format の `Suggested fix` field の意味**: 各 axis の Output format には `Suggested fix` / `ECS-native alternative` / `Recommended action` 等の field が含まれるが、これらは **agent が input を読んで発見した raw suggestion** であって philosophy-aligned な user-facing 推奨 fix ではない。User-facing 推奨 fix は Step 3.5 (philosophy alignment re-evaluation) で構築される。Agent は raw suggestion を input として記録するに留め、「これが推奨 fix です」と endorse しない (smallest-patch bias 防止)。
 
@@ -24,43 +24,43 @@ Agent prompt は「Read axes.md Axis N → apply `Detect` の `[diff]`/`[plan]`/
 - **Test drop / workaround を pragmatic shortcut として選択** → Axis 3 専属 (the response choice — broken assumption 自体は Axis 2 が catch)
 - **Symptom-level patch when root fix is in-context** → Axis 3 専属 (Axis 2 で data-flow gap 検出 → Axis 3 が対応方法を評価)
 - **Past lesson 違反** (lesson #235 trait cascade 等) → Axis 5 (lesson #276 を除く)
-- **Host-side OO inheritance** → Axis 1 + Axis 2 両 flag (genuine overlap、Step 3.5 で subsumption)
+- **Host-side OO inheritance** → Axis 1 sub-check 1a + Axis 2 sub-check 2a 両 flag (genuine overlap、Step 3.5 で subsumption)
 
 ---
 
 ## Axis 1 — Layering mandate
 
-**Purpose**: 2 つの layering 軸を扱う:
-- (a) **Engine vs Host**: `vm/host/*` は engine-bound 責務のみ。DOM algorithm は `elidex-dom-api` / `elidex-form` / `elidex-css` / `elidex-script-session::DomApiHandler` 経由
-- (b) **Core vs Compat**: elidex-js **core** = ES2020+ strict-mode-only baseline。LegacySemantics (sloppy mode / Annex B / sloppy direct-eval / var hoisting quirks / `arguments.callee` `.caller` / `with` 文 / `__proto__` accessor 等) は compat plugin 領域、core VM では実装しない (design doc §14.1)
+**Purpose**: 2 つの layering 軸を扱う (Sub-check 1a + 1b、独立判定)。Axis 2 の 2a/2b と同じ shape。
 
 **Reference**: `CLAUDE.md` § "Layering mandate (2026-05-04 incident 由来)" / `memory/m4-12-architectural-drift-incident.md` (PR #151: 4 R-loop × 17 IMP findings before drift detected) / `memory/reference_elidex-js-core-strict-only.md` (D-17b-r2 由来、core/compat split judgment axis)
 
-### Detect
+### Sub-check 1a: Engine vs Host `[both]`
 
-**(a) Engine vs Host**:
+`vm/host/*` は engine-bound 責務 (prototype install / brand check / `JsValue` ↔ `Entity` marshalling) のみ。DOM algorithm は engine-indep crate (`elidex-dom-api` / `elidex-form` / `elidex-css` / `elidex-script-session::DomApiHandler`) 経由。
 
 - `[both]` `vm/host/*.rs` に 10+ LoC の loop / walker / state machine / coercion algorithm を新規追加または拡張 (diff: 該当行、plan: §Body/§Implementation 記述)
 - `[both]` `EcsDom::traverse_descendants` / `find_by_id` / `with_attribute` 等の direct call が marshalling 用途 (entity 取得 / 単純 attribute read / wrapper 生成) を超える
 - `[both]` 新規 fn が DOM mutation / selector matching / form validation / live-collection walker / label association / constraint validation 等を `vm/host/` で実装
-- `[both]` 既存 engine-indep crate (`elidex-dom-api` / `elidex-form` / `elidex-css` / `elidex-script-session::DomApiHandler`) に類似 API があるかの確認・経由明示の有無
+- `[both]` 既存 engine-indep crate に類似 API があるかの確認・経由明示の有無
 - `[plan]` plan §"Layering check" / §"Architecture" に既存 crate API への mapping 表が欠落 (MIN)
 
-**(b) Core vs Compat (design doc §14.1)**:
+**Acceptable exceptions (1a)**: engine 自体 (boa_engine / hecs 等 low-level) / legacy code 変更無し
+
+### Sub-check 1b: Core vs Compat `[both]` (design doc §14.1)
+
+elidex-js **core** = ES2020+ strict-mode-only baseline。LegacySemantics (sloppy mode / Annex B / sloppy direct-eval / var hoisting quirks / `arguments.callee` `.caller` / `with` 文 / `__proto__` accessor 等) は compat plugin 領域、core VM では実装しない。
 
 - `[both]` core VM (`crates/script/elidex-js/src/vm/` 内、`host/` 除く) で LegacySemantics 機能 (sloppy mode coercion / Annex B / sloppy direct-eval scope injection / var hoisting quirks / `arguments.callee` `.caller` / `with` 文 / `__proto__` accessor / RegExp legacy / 文字列HTMLメソッド) を実装 → **CRIT/IMP** (compat plugin 領域に移管 OR drop)
-- `[plan]` plan-memo で **direct/indirect eval 区別 / sloppy mode flag / Annex B 専用 dispatch path / var hoisting quirks 専用 opcode** 等の motivation で defer slot 立てる案が出ている → **IMP** (core では不要、compat plugin 着手まで slot 不要)
+- `[plan]` plan-memo で **direct/indirect eval 区別 / sloppy mode flag / Annex B 専用 dispatch path / var hoisting quirks 専用 opcode** 等の motivation で defer slot 立てる案 → **IMP** (core では不要、compat plugin 着手まで slot 不要)
 - `[plan]` plan-memo の `FrameKind` / opcode / dispatch path 拡張案が "direct/indirect eval semantic 区別" "sloppy this auto-boxing" 等 LegacySemantics 機能を motivation にしている → **IMP** (core scope 外、`memory/reference_elidex-js-core-strict-only.md` 参照)
 
-**Acceptable exceptions**:
-- (a) engine 自体 (boa_engine / hecs 等 low-level) / legacy code 変更無し
-- (b) motivation が "compat plugin 設計時の hand-off note" として明示されている (= "本 slot は LegacySemantics plugin 着手時に再評価" と書かれている) → FP-allowed
+**Acceptable exceptions (1b)**: motivation が "compat plugin 設計時の hand-off note" として明示されている (= "本 slot は LegacySemantics plugin 着手時に再評価" と書かれている) → FP-allowed
 
 ### Output format
 
 ```
-[CRIT|IMP|MIN|FP] <file:line | plan-memo §section> — <violation summary>
-  Suggested fix: <which engine-indep crate API OR new helper>
+[CRIT|IMP|MIN|FP] <file:line | plan-memo §section> — <sub-check 1a/1b short label> in <context>
+  Suggested fix: <which engine-indep crate API OR new helper, OR compat-plugin hand-off>
 ```
 
 ---
@@ -151,54 +151,15 @@ Agent prompt は「Read axes.md Axis N → apply `Detect` の `[diff]`/`[plan]`/
 
 **Reference**: CLAUDE.md § "Design philosophy" (spec-faithful, html5ever 非依存) / 各 spec docs
 
-### Verification recipe (webref)
+### Verification tool
 
-Section number / title / anchor / WebIDL / AO / **algorithm prose** の確認は `.claude/tools/webref` を使う。Data source 自動切替: WHATWG/W3C は w3c/webref machine-readable extracts、tc39 (ECMA-262 / ECMA-402) は `@tc39/<spec>-biblio` (tc39 公式 publish の machine-readable JSON、jsdelivr CDN 経由)、prose 本文は spec multipage chapter HTML (webref `href` / tc39 chapter-file 導出で URL 自動解決、HTTP cache 共有)。WebFetch で spec HTML を取りに行くと長文 truncate されるため citation 整合確認・algorithm prose 確認には不向き — webref / biblio / `body` は per-spec の構造化 JSON / IDL / multipage chapter 単位なので 1 fetch + filter で決定的に効く。
+Citation 整合 (§number ↔ title)・WebIDL fragment・dfn anchor・AO 名 → 正規 §number・algorithm prose の確認は `.claude/tools/webref` を使う (subcommand 一覧 + cache + WebFetch との使い分けは `.claude/tools/webref --help`、CLAUDE.md § "Spec citation" も同 tool を mandate)。
 
-Subcommand (詳細 = `.claude/tools/webref --help`):
-
-- `heading <spec> <number-prefix>` — section number → title + anchor (citation 整合確認の主力)。`<spec>` は WHATWG/W3C shortname (`html` / `dom` / `geometry-1` …) または tc39 shortname (`ecma262` / `ecma402`)
-  ```bash
-  .claude/tools/webref heading html 4.13.4
-  # → §4.13.4 The CustomElementRegistry interface #custom-elements-api
-  # (well-known 風 cite「§4.13.4 = upgrade queue」は誤 — §4.13.5 Upgrades が正)
-
-  .claude/tools/webref heading ecma262 14.7.5.9
-  # → §14.7.5.9 EnumerateObjectProperties ( obj )  https://tc39.es/ecma262/#sec-enumerate-object-properties
-  # (well-known 風 cite「§14.7.5.9 .return() per abrupt completion」は誤 —
-  #  実体は EnumerateObjectProperties; ES 改版で section 番号 shift)
-  ```
-- `aoid <spec> <name>` — **(tc39 専用)** abstract operation 名 → §number + anchor + signature kind。biblio の `op` / `clause` / `built-in function` / `concrete method` entries を `aoid` field で照合、anchor 経由で clause に cross-ref して §number と title を引く。**ECMA-262 cite を書く時は `aoid` を主、`heading` を従** — AO 名は版間で安定、section 番号は不安定
-  ```bash
-  .claude/tools/webref aoid ecma262 ToNumber
-  # → ToNumber §7.1.4 ToNumber ( argument ) (abstract operation) ...#sec-tonumber
-  .claude/tools/webref aoid ecma262 OrdinaryGet
-  # → OrdinaryGet §10.1.8.1 OrdinaryGet ( obj, propertyKey, receiver ) (abstract operation)
-  ```
-- `dfn <spec> <term>` — concept dfn → 包含 §heading + anchor (exact 失敗時 substring fallback)。**term-based citation の正規 anchor 確認に最強** (WHATWG/W3C 専用; tc39 biblio にも `type=term` entry が 385 件あるが現 helper は未公開、必要時に拡張)
-  ```bash
-  .claude/tools/webref dfn html 'reaction queue'
-  # → 'custom element reaction queue' → §4.13.6 Custom element reactions
-  ```
-- `idl <spec> <interface>` — interface IDL fragment (WebIDL 直 grep、属性 / メソッド signature 確認)
-  ```bash
-  .claude/tools/webref idl html CustomElementRegistry
-  ```
-- `element <spec> <tag>` — HTML/SVG element → 対応 interface 名 + href (`<canvas>` → `HTMLCanvasElement`)
-- `css <spec> <name>` — CSS property / @rule / selector / value の metadata (value syntax / initial / inherited / appliesTo / computedValue / `styleDeclaration` IDL 名 等)。CSS plugin crate 新 property 着手時の正規定義引き
-- `body <spec> <anchor-or-AO>` — section / algorithm の **本文 prose** を抽出 (multipage chapter HTML 経由、truncate なし)。tc39 は `sec-X` anchor (e.g. `sec-iteratorclose`) または AO 名 (e.g. `IteratorClose`、自動 anchor 解決) どちらも可。WHATWG/W3C は heading anchor (`the-iframe-element`) または dfn anchor (`concept-upgrade-an-element`) どちらも可 — algorithm dfn は dfn 直後の `<ol>` step を `1. 2. 3.` でレンダリング。section 番号 → title pair の cross-check は `heading` / `aoid`、step の semantic 一致確認は `body`
-  ```bash
-  .claude/tools/webref body ecma262 IteratorClose           # AO 名 → §7.4.11 step list
-  .claude/tools/webref body html concept-upgrade-an-element # custom-elements upgrade algorithm step list
-  ```
-- `specs <keyword>` — spec catalog 検索 (shortname 不明時、WHATWG/W3C のみ)
-
-**HTTP cache**: 全 fetch は `~/.cache/elidex-webref/` (`XDG_CACHE_HOME` 設定時は `$XDG_CACHE_HOME/elidex-webref/`) に ETag / Last-Modified ベース conditional GET 経由で保存される (930 KB biblio / WHATWG headings/dfns JSON を毎回再 download しない)。bypass は `ELIDEX_WEBREF_NO_CACHE=1`。
-
-**WebFetch との使い分け**:
-- **webref (構造化)**: section number / title / anchor / IDL fragment / dfn / AO (aoid) — 決定論的、grep 可、全 spec 一発取得 (構造化 fact)
-- **webref `body` (prose)**: algorithm step / 概念定義の prose 本文 — multipage chapter HTML cache、truncate なし、`<ol>` step は `1. 2. 3.` でレンダリング、tc39 AO 名は anchor 自動解決
-- **WebFetch**: 上記でカバーできない外形(spec 全体俯瞰、issue thread、blog post、tc39 proposal-stage README 等)。spec.whatwg.org / tc39.es の section prose は `body` で取れるので WebFetch は不要
+要点だけ:
+- **ECMA-262** は section 番号が版間で不安定 → `aoid <spec> <name>` で AO 名から正規 §number を引き直す。`heading` は従。
+- **WHATWG/W3C** は `heading <spec> <number>` で §number ↔ title 確認、term 引きは `dfn <spec> <term>`。
+- **Algorithm prose** 一致確認は `body <spec> <anchor-or-AO>` (multipage chapter cache、truncate なし)。
+- WebFetch は spec HTML truncate するので citation/prose 確認には不向き — webref 一択。
 
 ### Detect
 
@@ -252,7 +213,7 @@ Subcommand (詳細 = `.claude/tools/webref --help`):
 
 ## Maintenance
 
-Axis 番号は安定。新 sub-check 追加時はインライン引用 (例: Sub-check 2b は 2026-05-19 D-29 trial 由来)。詳細 change log は `./workflow.md` § "Change log"。
+Axis 番号は安定 (SKILL.md / 5-agent split が依拠)。新 sub-check 追加時はインライン引用 (例: Sub-check 2b は 2026-05-19 D-29 trial 由来)。
 
 ### Future expansion candidates (field-test 待ち、premature な追加は避ける)
 
