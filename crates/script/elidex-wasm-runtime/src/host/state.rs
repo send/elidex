@@ -8,6 +8,7 @@ use std::sync::Arc;
 use elidex_dom_api::registry::{CssomHandlerRegistry, DomHandlerRegistry};
 use elidex_ecs::{EcsDom, Entity};
 use elidex_script_session::SessionCore;
+use wasmtime::Store;
 
 /// User data stored in `wasmtime::Store<HostState>`.
 ///
@@ -99,6 +100,40 @@ impl HostState {
     pub fn document_entity(&self) -> Entity {
         self.document_entity
             .expect("HostState::document_entity() called while unbound")
+    }
+}
+
+/// RAII guard binding `HostState` raw pointers to live references for the
+/// duration of a single Wasm call. Constructed via `UnbindGuard::new`, which
+/// calls `HostState::bind`; `Drop` invokes `HostState::unbind` so the
+/// invariant holds on `Ok`, `Err`, and panic paths.
+///
+/// Owns `&mut Store<HostState>` so the call-site can re-borrow it through
+/// `store()` for the wasm function dispatch without conflicting with the
+/// `data_mut()` borrow used at construction.
+pub(crate) struct UnbindGuard<'a> {
+    store: &'a mut Store<HostState>,
+}
+
+impl<'a> UnbindGuard<'a> {
+    pub(crate) fn new(
+        store: &'a mut Store<HostState>,
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+        document: Entity,
+    ) -> Self {
+        store.data_mut().bind(session, dom, document);
+        Self { store }
+    }
+
+    pub(crate) fn store(&mut self) -> &mut Store<HostState> {
+        self.store
+    }
+}
+
+impl Drop for UnbindGuard<'_> {
+    fn drop(&mut self) {
+        self.store.data_mut().unbind();
     }
 }
 

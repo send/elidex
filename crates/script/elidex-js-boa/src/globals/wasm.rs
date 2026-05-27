@@ -11,7 +11,10 @@ use boa_engine::object::builtins::{JsArray, JsPromise};
 use boa_engine::object::{IntegrityLevel, ObjectInitializer};
 use boa_engine::property::{Attribute, PropertyDescriptorBuilder};
 use boa_engine::{js_string, Context, JsNativeError, JsResult, JsSymbol, JsValue, NativeFunction};
-use elidex_wasm_runtime::{WasmError, WasmErrorKind, WasmInstance, WasmModule, WasmRuntime};
+use elidex_wasm_runtime::{
+    HeapType, ImportObject, ScriptHostBinding, WasmError, WasmErrorKind, WasmExportItem, WasmFunc,
+    WasmInstance, WasmModule, WasmRef, WasmRuntime, WasmValue, WasmValueType,
+};
 
 use crate::bridge::HostBridge;
 
@@ -39,10 +42,24 @@ struct WasmCaptures {
 impl_empty_trace!(WasmCaptures);
 
 /// State for a single Wasm export function closure.
+///
+/// Stores the resolved `WasmFunc` directly so that each call avoids the
+/// `instance.get_func(name)` lookup. The function carries its own
+/// `WasmStoreHandle` clone (per WASM JS API §5.6 — each Exported Function
+/// has a `[[FunctionAddress]]` interpreted relative to its agent's
+/// associated store, §4.1), so the instance reference is not needed for
+/// dispatch.
+///
+/// `params` is cached at `build_exports_object` time so the per-call
+/// path skips `WasmFunc::func_type()` — that walk borrows the wasmtime
+/// store (`RefCell::borrow_mut`) and re-traverses the engine type table
+/// on every call. Caching also moves any future-proposal HeapType
+/// conversion error from per-call to module-load time, matching the
+/// fail-fast intent.
 #[derive(Clone)]
 struct ExportCaptures {
-    instance: Rc<RefCell<WasmInstance>>,
-    export_name: String,
+    func: WasmFunc,
+    params: Vec<WasmValueType>,
     bridge: HostBridge,
 }
 
@@ -121,7 +138,7 @@ pub fn register_wasm(ctx: &mut Context, bridge: &HostBridge) {
 /// etc. are not standard JS built-ins); once boa adds WebIDL/custom error
 /// class support, these can be replaced with proper subclass instances.
 fn wasm_error_to_js(e: &WasmError) -> JsNativeError {
-    match e.kind {
+    match e.kind() {
         WasmErrorKind::Compile => {
             JsNativeError::typ().with_message(format!("CompileError: {}", e.message()))
         }
@@ -131,6 +148,9 @@ fn wasm_error_to_js(e: &WasmError) -> JsNativeError {
         WasmErrorKind::Runtime => {
             JsNativeError::range().with_message(format!("RuntimeError: {}", e.message()))
         }
+        // Future proposal-driven kinds (Exception Handling etc.) — fall
+        // back to a generic TypeError until the host machinery lands.
+        _ => JsNativeError::typ().with_message(format!("WebAssembly: {}", e.message())),
     }
 }
 
@@ -233,7 +253,7 @@ fn extract_wasm_bytes(args: &[JsValue], ctx: &mut Context) -> JsResult<Vec<u8>> 
 
 /// `WebAssembly.instantiate(bufferSource | Module)` implementation.
 ///
-/// Per JS API spec §4.5.4:
+/// Per JS API spec §5.2 (Instances) — `WebAssembly.instantiate` overloads:
 /// - `instantiate(bufferSource)` → `Promise<{module, instance}>`
 /// - `instantiate(Module)`       → `Promise<Instance>`
 ///
@@ -256,23 +276,28 @@ fn wasm_instantiate(
         // Treat as bufferSource — extract bytes and compile.
         // Argument validation — TypeError thrown synchronously (per spec).
         let bytes = extract_wasm_bytes(args, ctx)?;
-        // CompileError — returned as rejected promise (per spec §4.5.4).
+        // CompileError — returned as rejected promise (per spec §5.2).
         match captures.runtime.compile(&bytes) {
             Ok(m) => m,
             Err(e) => return reject_wasm_error(&e, ctx),
         }
     };
 
-    // LinkError — returned as rejected promise (per spec §4.5.4).
-    let instance = match captures.runtime.instantiate(&module) {
+    // LinkError — returned as rejected promise (per spec §5.2).
+    // Empty imports for Phase 3.5 — wasm modules with declared imports
+    // currently fail at link time, which matches Phase 3.5 scope.
+    let instance = match captures
+        .runtime
+        .instantiate(&module, &ImportObject::default())
+    {
         Ok(i) => i,
         Err(e) => return reject_wasm_error(&e, ctx),
     };
 
-    let instance_rc = Rc::new(RefCell::new(instance));
-
-    // Build the exports object by iterating wasmtime exports.
-    let exports_obj = build_exports_object(&instance_rc, &captures.bridge, ctx)?;
+    // Build the exports object — `WasmInstance` is Clone (shares the
+    // inner `WasmStoreHandle`), so each export-fn closure receives a
+    // shared clone instead of going through `Rc<RefCell<…>>`.
+    let exports_obj = build_exports_object(&instance, &captures.bridge, ctx)?;
 
     // Build the instance object.
     let instance_obj: JsValue = ObjectInitializer::new(ctx)
@@ -285,10 +310,10 @@ fn wasm_instantiate(
         .into();
 
     let result = if is_module_arg {
-        // §4.5.4 overload: instantiate(Module) → Promise<Instance>
+        // §5.2 overload: instantiate(Module) → Promise<Instance>
         instance_obj
     } else {
-        // §4.5.4 overload: instantiate(bufferSource) → Promise<{module, instance}>
+        // §5.2 overload: instantiate(bufferSource) → Promise<{module, instance}>
         let module_id = store_module(captures, module);
         let module_js = build_module_object(module_id, ctx);
         ObjectInitializer::new(ctx)
@@ -313,13 +338,13 @@ fn wasm_instantiate(
 
 /// `WebAssembly.compile(bufferSource)` implementation.
 ///
-/// Per spec §4.5.1: `TypeError` for invalid arguments is thrown synchronously.
-/// `CompileError` is returned as a rejected promise.
+/// Per spec §5.1 (Modules): `TypeError` for invalid arguments is thrown
+/// synchronously. `CompileError` is returned as a rejected promise.
 fn wasm_compile(args: &[JsValue], captures: &WasmCaptures, ctx: &mut Context) -> JsResult<JsValue> {
     // Argument validation — TypeError thrown synchronously (per spec).
     let bytes = extract_wasm_bytes(args, ctx)?;
 
-    // Compile errors — returned as rejected promise (per spec §4.5.1).
+    // Compile errors — returned as rejected promise (per spec §5.1).
     let module = match captures.runtime.compile(&bytes) {
         Ok(m) => m,
         Err(e) => return reject_wasm_error(&e, ctx),
@@ -334,7 +359,8 @@ fn wasm_compile(args: &[JsValue], captures: &WasmCaptures, ctx: &mut Context) ->
 
 /// `WebAssembly.validate(bufferSource)` implementation.
 ///
-/// Per JS API spec §4.5.2: returns `true` if the bytes form a valid Wasm module.
+/// Per JS API spec §5 (Namespace `WebAssembly` — `validate(bytes)`):
+/// returns `true` if the bytes form a valid Wasm module.
 ///
 /// `TypeError` is thrown for non-`BufferSource` arguments (via `WebIDL` binding).
 fn wasm_validate(
@@ -348,32 +374,45 @@ fn wasm_validate(
 
 /// Build a JS object mapping exported names to callable wrappers / memory objects.
 ///
-/// The returned exports object is frozen per WebAssembly JS API spec §4.5.4.
+/// The returned exports object is frozen per WebAssembly JS API spec §5.2.
 fn build_exports_object(
-    instance_rc: &Rc<RefCell<WasmInstance>>,
+    instance: &WasmInstance,
     bridge: &HostBridge,
     ctx: &mut Context,
 ) -> JsResult<JsValue> {
-    // Categorize exports in a single borrow.
-    let (func_exports, memory_exports) = {
-        let mut inst = instance_rc.borrow_mut();
-        let names = inst.export_names();
-        let mut funcs: Vec<(String, usize)> = Vec::new();
-        let mut memories = Vec::new();
-        for name in names {
-            if let Some(param_count) = inst.export_param_types(&name).map(|types| types.len()) {
-                funcs.push((name, param_count));
-            } else if let Some(size) = inst.memory_byte_size(&name) {
-                memories.push((name, size));
+    // Single engine-indep enumeration of exports.
+    let exports = instance.exports();
+
+    // Categorize: function exports keep the WasmFunc + the cached
+    // params signature (used both for boa's `param_count` builder arg
+    // and the per-call arg marshalling — see `ExportCaptures.params`).
+    // Memory exports keep the byte_size for the JS .buffer.byteLength
+    // shim. Table / Global exports are not currently exposed (Phase
+    // 3.5 deferral — matches the historic behavior of this file).
+    let mut func_exports: Vec<(String, WasmFunc, Vec<WasmValueType>)> = Vec::new();
+    let mut memory_exports: Vec<(String, usize)> = Vec::new();
+    for (name, item) in exports {
+        match item {
+            WasmExportItem::Func(f) => {
+                // `func_type()` may surface an `Err` if a future-proposal
+                // `HeapType` (Any/Eq/I31/Struct/Array/Exn/...) lands in the
+                // module signature before its host wrapper does. Propagate
+                // synchronously as a TypeError per WASM JS API §5.2 IDL
+                // (unknown-shape export → TypeError on instance build).
+                let func_type = f.func_type().map_err(|e| wasm_error_to_js(&e))?;
+                func_exports.push((name, f, func_type.params));
             }
-            // Known limitation: Wasm globals and tables are not exposed as
-            // exports. These are uncommon in practice (most modules export
-            // only functions and memory). Supporting them requires mapping
-            // wasmtime Global/Table types to JS wrapper objects with get/set
-            // semantics, which is deferred to a future milestone.
+            WasmExportItem::Memory(m) => {
+                memory_exports.push((name, m.byte_size()));
+            }
+            WasmExportItem::Table(_) | WasmExportItem::Global(_) => {
+                // Phase 3.5 deferral: tables and globals not surfaced
+                // yet — exposing them requires JS WebAssembly.Table /
+                // WebAssembly.Global wrapper objects, deferred to a
+                // future milestone.
+            }
         }
-        (funcs, memories)
-    };
+    }
 
     // Build memory wrapper objects first (before the exports builder borrows ctx).
     let memory_objs: Vec<(String, JsValue)> = memory_exports
@@ -401,19 +440,20 @@ fn build_exports_object(
     let mut builder = ObjectInitializer::new(ctx);
 
     // Function exports.
-    for (name, param_count) in func_exports {
+    for (name, func, params) in func_exports {
+        let param_count = params.len();
         let captures = ExportCaptures {
-            instance: instance_rc.clone(),
-            export_name: name.clone(),
+            func,
+            params,
             bridge: bridge.clone(),
         };
 
-        let func = NativeFunction::from_copy_closure_with_captures(
+        let native = NativeFunction::from_copy_closure_with_captures(
             move |_this, args, captures, ctx| call_wasm_export(args, captures, ctx),
             captures,
         );
 
-        builder.function(func, js_string!(name.as_str()), param_count);
+        builder.function(native, js_string!(name.as_str()), param_count);
     }
 
     // Memory exports — exposed as WebAssembly.Memory-like objects.
@@ -452,36 +492,69 @@ fn to_int32(n: f64) -> i32 {
     }
 }
 
-/// Convert a boa `JsValue` to a wasmtime `Val` using the expected type from
-/// the function signature.
+/// Convert a boa `JsValue` to an engine-indep `WasmValue` using the
+/// expected type from the function signature.
 ///
-/// Uses JS `ToNumber` coercion (§7.1.4) so that strings like `"42"` and
-/// booleans are correctly converted, matching the WebAssembly JS API spec.
+/// Uses JS `ToNumber` coercion (ECMA-262 §7.1.4) so that strings like
+/// `"42"` and booleans are correctly converted, matching the
+/// WebAssembly JS API spec.
 fn js_to_wasm_val(
     arg: &JsValue,
-    expected: Option<&wasmtime::ValType>,
+    expected: Option<&WasmValueType>,
     ctx: &mut Context,
-) -> JsResult<wasmtime::Val> {
+) -> JsResult<WasmValue> {
+    // V128 / Ref must be handled before `to_number` — these types have
+    // no numeric round-trip and the JS-side spec contract is a
+    // synchronous TypeError (per WASM JS API §5.6 ToWebAssemblyValue
+    // for unsupported types), not a downstream wasmtime link/runtime
+    // error. The numeric arms below fall through to `to_number`.
+    if let Some(WasmValueType::V128) = expected {
+        return Err(JsNativeError::typ()
+            .with_message(
+                "TypeError: V128 parameters are not yet supported \
+                 (Phase 3.5 deferral: requires WebAssembly.Global / \
+                 SIMD value wrapper)",
+            )
+            .into());
+    }
+    if let Some(WasmValueType::Ref(rt)) = expected {
+        // Nullable RefType accepts JS `null` / `undefined` per spec
+        // ToWebAssemblyValue null-handling. Other JS values cannot
+        // coerce to a wasm ref without a WebAssembly.Function /
+        // ExternRef wrapper (deferred to D-16).
+        if rt.nullable && (arg.is_null() || arg.is_undefined()) {
+            return Ok(WasmValue::Ref(WasmRef::Null(rt.heap)));
+        }
+        return Err(JsNativeError::typ()
+            .with_message(
+                "TypeError: Ref parameters require a WebAssembly.Function \
+                 / ExternRef wrapper (deferred to D-16 host-fn-builder)",
+            )
+            .into());
+    }
+
     let n = arg.to_number(ctx)?;
     Ok(match expected {
-        Some(wasmtime::ValType::I32) => wasmtime::Val::I32(to_int32(n)),
-        Some(wasmtime::ValType::I64) =>
+        Some(WasmValueType::I32) => WasmValue::I32(to_int32(n)),
+        Some(WasmValueType::I64) =>
         {
             #[allow(clippy::cast_possible_truncation)]
-            wasmtime::Val::I64(n as i64)
+            WasmValue::I64(n as i64)
         }
-        Some(wasmtime::ValType::F32) =>
+        Some(WasmValueType::F32) =>
         {
             #[allow(clippy::cast_possible_truncation)]
-            wasmtime::Val::F32((n as f32).to_bits())
+            WasmValue::F32(n as f32)
         }
-        Some(wasmtime::ValType::F64) => wasmtime::Val::F64(n.to_bits()),
+        Some(WasmValueType::F64) => WasmValue::F64(n),
+        // None (excess JS arg vs declared params) — wasm spec ignores
+        // excess args; defensive numeric heuristic. V128 / Ref are
+        // unreachable here due to the early returns above.
         _ => {
-            // Fallback heuristic for unknown/unsupported types.
             if n.fract() == 0.0 && n >= f64::from(i32::MIN) && n <= f64::from(i32::MAX) {
-                wasmtime::Val::I32(to_int32(n))
+                WasmValue::I32(to_int32(n))
             } else {
-                wasmtime::Val::F64(n.to_bits())
+                WasmValue::F64(n)
             }
         }
     })
@@ -493,28 +566,42 @@ fn call_wasm_export(
     captures: &ExportCaptures,
     ctx: &mut Context,
 ) -> JsResult<JsValue> {
-    // Get parameter types from the function signature (separate borrow).
-    let param_types = {
-        let mut inst = captures.instance.borrow_mut();
-        inst.export_param_types(&captures.export_name)
-    };
+    // Read the function's parameter types from the cached signature
+    // (computed once at `build_exports_object` time). This skips the
+    // per-call `WasmFunc::func_type()` walk — `Func::ty()` borrows the
+    // wasmtime store under `RefCell::borrow_mut` and re-traverses the
+    // engine type table, which is non-trivial per-call cost on the
+    // hot dispatch path.
+    let param_types = &captures.params;
 
-    // Per JS API §4.4.7 steps 6-7: missing args → undefined, extra args ignored.
-    let param_count = param_types.as_ref().map_or(0, Vec::len);
+    // Per JS API §5.6 (Exported Functions): missing args → undefined,
+    // extra args ignored; both follow from the JS ArgumentList → wasm
+    // params marshalling defined in the Exported Function call algorithm.
     let undefined = JsValue::undefined();
-    let wasm_args: Vec<wasmtime::Val> = (0..param_count)
+    let wasm_args: Vec<WasmValue> = (0..param_types.len())
         .map(|i| {
             let arg = args.get(i).unwrap_or(&undefined);
-            let expected = param_types.as_ref().and_then(|types| types.get(i));
+            let expected = param_types.get(i);
             js_to_wasm_val(arg, expected, ctx)
         })
         .collect::<JsResult<Vec<_>>>()?;
 
-    // Call the export through the bridge (which is already bound during JS eval).
+    // Call the export through the bridge (which is already bound
+    // during JS eval). Dispatching via `WasmFunc::call` per WASM JS API
+    // §5.6 — each Exported Function's `[[FunctionAddress]]` is
+    // interpreted relative to its agent's associated store (§4.1), so
+    // cross-store mismatch is structurally impossible (no
+    // `instance.call_func(&func, ...)` API to mix instances on).
     let results = captures.bridge.with(|session, dom| {
-        let doc = captures.bridge.document_entity();
-        let mut inst = captures.instance.borrow_mut();
-        inst.call_export(&captures.export_name, &wasm_args, session, dom, doc)
+        let document = captures.bridge.document_entity();
+        captures.func.call(
+            &wasm_args,
+            ScriptHostBinding {
+                session,
+                dom,
+                document,
+            },
+        )
     });
 
     match results {
@@ -523,13 +610,13 @@ fn call_wasm_export(
     }
 }
 
-/// Convert wasmtime result `Val`s to a boa `JsValue`.
+/// Convert engine-indep result `WasmValue`s to a boa `JsValue`.
 ///
-/// Per WebAssembly JS API spec §4.4.7:
+/// Per WebAssembly JS API spec §5.6 (Exported Functions):
 /// - 0 results → `undefined`
 /// - 1 result  → `ToJSValue(val)`
 /// - 2+ results → JS Array of converted values (multi-value proposal)
-fn wasm_vals_to_js(vals: &[wasmtime::Val], ctx: &mut Context) -> JsValue {
+fn wasm_vals_to_js(vals: &[WasmValue], ctx: &mut Context) -> JsValue {
     match vals.len() {
         0 => JsValue::undefined(),
         1 => wasm_val_to_js(&vals[0]),
@@ -543,18 +630,22 @@ fn wasm_vals_to_js(vals: &[wasmtime::Val], ctx: &mut Context) -> JsValue {
     }
 }
 
-/// Convert a single wasmtime `Val` to a boa `JsValue`.
+/// Convert a single engine-indep `WasmValue` to a boa `JsValue`.
 ///
 /// NOTE: `I64` values are converted to `f64`, losing precision beyond 2^53.
-/// The WebAssembly JS API spec requires `BigInt` for I64 values, but boa 0.20
+/// The WebAssembly JS API spec requires `BigInt` for I64 values, but boa 0.21
 /// does not support `BigInt`. TODO: use `BigInt` when boa adds support.
-fn wasm_val_to_js(val: &wasmtime::Val) -> JsValue {
+fn wasm_val_to_js(val: &WasmValue) -> JsValue {
     match val {
-        wasmtime::Val::I32(n) => JsValue::from(*n),
+        WasmValue::I32(n) => JsValue::from(*n),
         #[allow(clippy::cast_precision_loss)]
-        wasmtime::Val::I64(n) => JsValue::from(*n as f64),
-        wasmtime::Val::F32(n) => JsValue::from(f64::from(f32::from_bits(*n))),
-        wasmtime::Val::F64(n) => JsValue::from(f64::from_bits(*n)),
-        _ => JsValue::undefined(),
+        WasmValue::I64(n) => JsValue::from(*n as f64),
+        WasmValue::F32(n) => JsValue::from(f64::from(*n)),
+        WasmValue::F64(n) => JsValue::from(*n),
+        // V128 / Ref — Phase 3.5 doesn't surface these; null
+        // funcrefs and externrefs round-trip as `null`-ish, anything
+        // else is `undefined`.
+        WasmValue::Ref(WasmRef::Null(HeapType::Func | HeapType::Extern)) => JsValue::null(),
+        WasmValue::V128(_) | WasmValue::Ref(_) => JsValue::undefined(),
     }
 }

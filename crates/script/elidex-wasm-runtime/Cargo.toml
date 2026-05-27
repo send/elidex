@@ -16,6 +16,7 @@ elidex-ecs.workspace = true
 elidex-script-session.workspace = true
 elidex-dom-api.workspace = true
 wasmtime.workspace = true
+static_assertions.workspace = true
 
 [dev-dependencies]
 wat.workspace = true

@@ -1,47 +1,67 @@
-//! `WasmRuntime` — compiles and instantiates Wasm modules with DOM host functions.
+//! `WasmRuntime` — engine + linker template + compile / validate /
+//! instantiate facade.
+//!
+//! Holds a single `Engine` and a `linker_template` (populated once with
+//! the DOM/CSSOM host functions). Each `instantiate` call clones the
+//! linker template (cheap — wasmtime `Linker: Clone` shares the
+//! per-host-fn entries via internal `Arc`), adds the per-call user
+//! imports, then dispatches `wasmtime::Linker::instantiate`. This
+//! eliminates cross-instance import leak by construction: user imports
+//! added by instance A never reach instance B because B's `instantiate`
+//! starts from a fresh clone (per plan §2 D-6).
+//!
+//! Spec anchors:
+//! - WASM JS API §5.1 Module ctor + §5 `validate(bytes, options)` anchor
+//!   `#dom-webassembly-validate`
+//! - WASM JS API §5.2 Instance ctor algorithm steps 1-6 + step 4
+//!   ("Read the imports")
 
 use std::sync::Arc;
 
 use elidex_dom_api::registry::{
     create_cssom_registry, create_dom_registry, CssomHandlerRegistry, DomHandlerRegistry,
 };
-use elidex_ecs::{EcsDom, Entity};
-use elidex_script_session::SessionCore;
-use wasmtime::{Config, Engine, Instance, Linker, Module, Store, Val, ValType};
+use wasmtime::{Config, Engine, Linker, Module, Store};
 
-use crate::error::{classify_wasmtime_error, WasmError, WasmErrorKind};
-use crate::host_funcs::register_host_functions;
-use crate::host_state::HostState;
+use crate::engine_conv::{import_value_to_extern, wasm_error_from_wasmtime};
+use crate::error::{WasmError, WasmErrorKind};
+use crate::handle::WasmStoreHandle;
+use crate::host::funcs::register_host_functions;
+use crate::host::state::HostState;
+use crate::imports::ImportObject;
+use crate::instance::WasmInstance;
+use crate::module::WasmModule;
 
-/// A compiled Wasm module (engine-independent, reusable).
-#[derive(Clone)]
-pub struct WasmModule {
-    module: Module,
-}
+/// Default fuel budget — 1 billion instructions is roughly a few
+/// seconds on modern hardware, guarding against runaway wasm modules
+/// during host dispatch. The store is seeded with this budget at
+/// `instantiate` time, and `WasmFunc::call` resets the budget to this
+/// value at the start of every call so a single long-running call
+/// cannot deplete the budget for subsequent calls on the same instance.
+/// Exposed `pub(crate)` so `handle.rs` can perform the per-call reset.
+pub(crate) const DEFAULT_FUEL: u64 = 1_000_000_000;
 
-/// Default fuel budget per `call_export()` invocation.
+/// Compiles and instantiates wasm modules with DOM host functions.
 ///
-/// 1 billion instructions is roughly equivalent to a few seconds of execution
-/// on modern hardware. Prevents infinite loops / runaway Wasm modules.
-const DEFAULT_FUEL: u64 = 1_000_000_000;
-
-/// A Wasm runtime that compiles and instantiates modules with DOM host functions.
+/// Per plan §2 D-6: holds a `linker_template` that is `Clone`d on each
+/// `instantiate` call. User imports are added to the clone, never to
+/// the original — instance B cannot inherit instance A's user imports.
 pub struct WasmRuntime {
     engine: Engine,
-    linker: Linker<HostState>,
+    linker_template: Linker<HostState>,
     dom_registry: Arc<DomHandlerRegistry>,
     cssom_registry: Arc<CssomHandlerRegistry>,
 }
 
 impl WasmRuntime {
-    /// Create a new runtime with default DOM/CSSOM registries.
+    /// Create a runtime with default DOM/CSSOM registries.
     pub fn new() -> Result<Self, WasmError> {
         let dom_registry = Arc::new(create_dom_registry());
         let cssom_registry = Arc::new(create_cssom_registry());
         Self::with_registries(dom_registry, cssom_registry)
     }
 
-    /// Create a new runtime with custom registries.
+    /// Create a runtime with custom registries.
     pub fn with_registries(
         dom_registry: Arc<DomHandlerRegistry>,
         cssom_registry: Arc<CssomHandlerRegistry>,
@@ -49,41 +69,93 @@ impl WasmRuntime {
         let mut config = Config::new();
         config.consume_fuel(true);
         let engine = Engine::new(&config)
-            .map_err(|e| WasmError::new(WasmErrorKind::Compile, e.to_string()))?;
-        let mut linker = Linker::new(&engine);
-        register_host_functions(&mut linker)
-            .map_err(|e| WasmError::new(WasmErrorKind::Link, e.to_string()))?;
+            .map_err(|e| wasm_error_from_wasmtime(e, WasmErrorKind::Compile))?;
+        let mut linker_template = Linker::new(&engine);
+        register_host_functions(&mut linker_template)
+            .map_err(|e| wasm_error_from_wasmtime(e, WasmErrorKind::Link))?;
         Ok(Self {
             engine,
-            linker,
+            linker_template,
             dom_registry,
             cssom_registry,
         })
     }
 
-    /// Compile a Wasm module from bytes.
+    /// Per WASM JS API §5.1 `Module` ctor algorithm — compile wasm
+    /// bytes into a reusable `WasmModule`.
     pub fn compile(&self, wasm_bytes: &[u8]) -> Result<WasmModule, WasmError> {
-        let module = Module::new(&self.engine, wasm_bytes)
-            .map_err(|e| classify_wasmtime_error(&e, WasmErrorKind::Compile))?;
-        Ok(WasmModule { module })
+        let inner = Module::new(&self.engine, wasm_bytes)
+            .map_err(|e| wasm_error_from_wasmtime(e, WasmErrorKind::Compile))?;
+        Ok(WasmModule {
+            inner,
+            source_bytes: Arc::from(wasm_bytes),
+        })
     }
 
-    /// Validate a Wasm module without compiling it.
-    ///
-    /// Per WebAssembly JS API §4.5.2 `WebAssembly.validate(bufferSource)`.
+    /// Per WASM JS API §5 `validate(bytes, options)` anchor
+    /// `#dom-webassembly-validate` — bytecode validation without
+    /// compilation side effects.
     pub fn validate(&self, wasm_bytes: &[u8]) -> bool {
         Module::validate(&self.engine, wasm_bytes).is_ok()
     }
 
-    /// Instantiate a compiled module, linking host functions.
-    pub fn instantiate(&self, module: &WasmModule) -> Result<WasmInstance, WasmError> {
+    /// Per WASM JS API §5.2 Instance ctor algorithm steps 1-6 + step 4
+    /// "Read the imports". `imports` is the engine-indep
+    /// record-of-records (`HashMap<module-name, HashMap<name, value>>`,
+    /// see `imports.rs`); callers populate it via `ImportObject::define`
+    /// or pass `ImportObject::default()` for the empty-imports case.
+    /// Single canonical form — no dual API for empty vs non-empty.
+    pub fn instantiate(
+        &self,
+        module: &WasmModule,
+        imports: &ImportObject,
+    ) -> Result<WasmInstance, WasmError> {
+        // D-16 deferral: every `instantiate` creates a fresh `Store`,
+        // and `WasmImportValue::{Func,Memory,Table,Global}` handles are
+        // store-tied — passing non-empty imports today guarantees a
+        // cross-store mismatch at `Linker::define`, surfacing as a
+        // confusing wasmtime error. Fail fast with a clear `LinkError`
+        // until D-16 host-fn-builder lands the shared-store wiring
+        // (per WASM JS API §4.1 "Interaction of the WebAssembly Store
+        // with JavaScript" — each agent has an associated store, and
+        // cross-store import handles violate the per-agent invariant).
+        if !imports.is_empty() {
+            return Err(WasmError::new(
+                WasmErrorKind::Link,
+                "non-empty ImportObject not yet supported \
+                 (cross-store import handles deferred to D-16 \
+                 host-fn-builder)"
+                    .to_string(),
+            ));
+        }
+
         let host_state = HostState::new(self.dom_registry.clone(), self.cssom_registry.clone());
         let mut store = Store::new(&self.engine, host_state);
-        let instance = self
-            .linker
-            .instantiate(&mut store, &module.module)
-            .map_err(|e| classify_wasmtime_error(&e, WasmErrorKind::Link))?;
-        Ok(WasmInstance { store, instance })
+        // Initial fuel for the new store. This runs at instantiate
+        // time, not during wasm execution — surface any error as
+        // `Link` (instance-setup failure) rather than `Runtime`
+        // (which is reserved for wasm-level traps).
+        store
+            .set_fuel(DEFAULT_FUEL)
+            .map_err(|e| wasm_error_from_wasmtime(e, WasmErrorKind::Link))?;
+
+        // Fresh linker per call — user imports added here cannot leak
+        // to other instances. `Linker::clone()` is cheap (shares the
+        // host-fn entries via internal Arc per wasmtime API).
+        let mut linker = self.linker_template.clone();
+        for (module_name, name, value) in imports.iter() {
+            let ext = import_value_to_extern(value.clone());
+            linker
+                .define(&mut store, module_name, name, ext)
+                .map_err(|e| wasm_error_from_wasmtime(e, WasmErrorKind::Link))?;
+        }
+
+        let inst = linker
+            .instantiate(&mut store, &module.inner)
+            .map_err(|e| wasm_error_from_wasmtime(e, WasmErrorKind::Link))?;
+
+        let store_handle = WasmStoreHandle::new(store);
+        Ok(WasmInstance::new(inst, store_handle))
     }
 }
 
@@ -93,84 +165,13 @@ impl Default for WasmRuntime {
     }
 }
 
-/// A live Wasm module instance with its own store.
-pub struct WasmInstance {
-    store: Store<HostState>,
-    instance: Instance,
-}
-
-/// Drop guard that calls `HostState::unbind()` on drop.
-struct UnbindGuard<'a>(&'a mut Store<HostState>);
-impl Drop for UnbindGuard<'_> {
-    fn drop(&mut self) {
-        self.0.data_mut().unbind();
-    }
-}
-
-impl WasmInstance {
-    /// Collect the names of exported items.
-    pub fn export_names(&mut self) -> Vec<String> {
-        self.instance
-            .exports(&mut self.store)
-            .map(|export| export.name().to_owned())
-            .collect()
-    }
-
-    /// Look up an exported function by name (without binding).
-    pub fn get_func(&mut self, name: &str) -> Option<wasmtime::Func> {
-        self.instance.get_func(&mut self.store, name)
-    }
-
-    /// Get the parameter types of an exported function.
-    pub fn export_param_types(&mut self, name: &str) -> Option<Vec<ValType>> {
-        let func = self.instance.get_func(&mut self.store, name)?;
-        let ty = func.ty(&self.store);
-        Some(ty.params().collect())
-    }
-
-    /// Get the byte size of an exported memory.
-    pub fn memory_byte_size(&mut self, name: &str) -> Option<usize> {
-        let mem = self.instance.get_memory(&mut self.store, name)?;
-        Some(mem.data_size(&self.store))
-    }
-
-    /// Call an exported function by name.
-    ///
-    /// The `session` and `dom` are bound for the duration of the call.
-    pub fn call_export(
-        &mut self,
-        name: &str,
-        args: &[Val],
-        session: &mut SessionCore,
-        dom: &mut EcsDom,
-        document: Entity,
-    ) -> Result<Vec<Val>, WasmError> {
-        self.store.data_mut().bind(session, dom, document);
-        // UnbindGuard ensures unbind even on early return or panic.
-        let guard = UnbindGuard(&mut self.store);
-        guard
-            .0
-            .set_fuel(DEFAULT_FUEL)
-            .map_err(|e| WasmError::new(WasmErrorKind::Runtime, e.to_string()))?;
-
-        let export_func = self.instance.get_func(&mut *guard.0, name).ok_or_else(|| {
-            WasmError::new(WasmErrorKind::Link, format!("export '{name}' not found"))
-        })?;
-
-        let ty = export_func.ty(&*guard.0);
-        let mut results = vec![Val::I32(0); ty.results().len()];
-        export_func
-            .call(&mut *guard.0, args, &mut results)
-            .map_err(|e| classify_wasmtime_error(&e, WasmErrorKind::Runtime))?;
-
-        drop(guard);
-        Ok(results)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::handle::ScriptHostBinding;
+    use crate::value::WasmValue;
+    use elidex_ecs::{EcsDom, Entity};
+    use elidex_script_session::SessionCore;
 
     /// Test fixture: runtime + session + dom + document root.
     struct TestEnv {
@@ -196,21 +197,28 @@ mod tests {
         fn compile_and_instantiate(&self, wat_src: &str) -> WasmInstance {
             let wasm = wat::parse_str(wat_src).unwrap();
             let module = self.runtime.compile(&wasm).unwrap();
-            self.runtime.instantiate(&module).unwrap()
+            self.runtime
+                .instantiate(&module, &ImportObject::default())
+                .unwrap()
         }
 
         fn call(
             &mut self,
-            instance: &mut WasmInstance,
+            instance: &WasmInstance,
             name: &str,
-            args: &[Val],
-        ) -> Result<Vec<Val>, WasmError> {
-            instance.call_export(name, args, &mut self.session, &mut self.dom, self.doc)
+            args: &[WasmValue],
+        ) -> Result<Vec<WasmValue>, WasmError> {
+            let func = instance.get_func(name).expect("export not found");
+            let bridge = ScriptHostBinding {
+                session: &mut self.session,
+                dom: &mut self.dom,
+                document: self.doc,
+            };
+            func.call(args, bridge)
         }
     }
 
     /// WAT fragment: bump allocator starting at offset 1024.
-    /// Include inside a `(module ...)` that exports `memory`.
     const WAT_BUMP_ALLOC: &str = r#"
                 (global $alloc_ptr (mut i32) (i32.const 1024))
                 (func (export "__alloc") (param $len i32) (result i32)
@@ -228,15 +236,18 @@ mod tests {
         (ptr, len)
     }
 
-    /// Read a packed string result from Wasm linear memory.
-    fn read_wasm_string(instance: &mut WasmInstance, packed: i64) -> String {
+    /// Read a packed string from the instance's exported memory.
+    fn read_wasm_string(instance: &WasmInstance, packed: i64) -> String {
         let (ptr, len) = unpack_wasm_string(packed);
-        let memory = instance
-            .instance
-            .get_memory(&mut instance.store, "memory")
-            .unwrap();
-        let data = memory.data(&instance.store);
-        String::from_utf8(data[ptr..ptr + len].to_vec()).unwrap()
+        let mem = instance.get_memory("memory").unwrap();
+        mem.with_data(|data| String::from_utf8(data[ptr..ptr + len].to_vec()).unwrap())
+    }
+
+    fn expect_i64(v: &WasmValue) -> i64 {
+        match v {
+            WasmValue::I64(x) => *x,
+            _ => panic!("expected WasmValue::I64, got {v:?}"),
+        }
     }
 
     #[test]
@@ -255,7 +266,7 @@ mod tests {
     #[test]
     fn call_get_document() {
         let mut env = TestEnv::new();
-        let mut instance = env.compile_and_instantiate(
+        let instance = env.compile_and_instantiate(
             r#"(module
                 (import "elidex" "get_document" (func $get_doc (result i64)))
                 (func (export "test_get_doc") (result i64)
@@ -264,18 +275,18 @@ mod tests {
             )"#,
         );
 
-        let results = env.call(&mut instance, "test_get_doc", &[]).unwrap();
+        let results = env.call(&instance, "test_get_doc", &[]).unwrap();
 
         #[allow(clippy::cast_possible_wrap)]
         let expected = env.doc.to_bits().get() as i64;
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0].unwrap_i64(), expected);
+        assert_eq!(expect_i64(&results[0]), expected);
     }
 
     #[test]
     fn create_element_and_append() {
         let mut env = TestEnv::new();
-        let mut instance = env.compile_and_instantiate(
+        let instance = env.compile_and_instantiate(
             r#"(module
                 (import "elidex" "get_document" (func $get_doc (result i64)))
                 (import "elidex" "create_element" (func $create_elem (param i32 i32) (result i64)))
@@ -295,9 +306,9 @@ mod tests {
             )"#,
         );
 
-        let results = env.call(&mut instance, "test", &[]).unwrap();
+        let results = env.call(&instance, "test", &[]).unwrap();
 
-        let div_i64 = results[0].unwrap_i64();
+        let div_i64 = expect_i64(&results[0]);
         assert_ne!(div_i64, 0);
 
         #[allow(clippy::cast_sign_loss)]
@@ -328,18 +339,16 @@ mod tests {
                 )
             )"#
         );
-        let mut instance = env.compile_and_instantiate(&wat);
+        let instance = env.compile_and_instantiate(&wat);
 
-        let results = env.call(&mut instance, "test", &[]).unwrap();
+        let results = env.call(&instance, "test", &[]).unwrap();
 
-        let packed = results[0].unwrap_i64();
+        let packed = expect_i64(&results[0]);
         assert_ne!(
             packed, 0,
             "get_attribute should return non-zero packed string"
         );
-
-        let returned = read_wasm_string(&mut instance, packed);
-        assert_eq!(returned, "myid");
+        assert_eq!(read_wasm_string(&instance, packed), "myid");
     }
 
     #[test]
@@ -364,21 +373,19 @@ mod tests {
                 )
             )"#
         );
-        let mut instance = env.compile_and_instantiate(&wat);
+        let instance = env.compile_and_instantiate(&wat);
 
-        let results = env.call(&mut instance, "test", &[]).unwrap();
+        let results = env.call(&instance, "test", &[]).unwrap();
 
-        let packed = results[0].unwrap_i64();
+        let packed = expect_i64(&results[0]);
         assert_ne!(packed, 0);
-
-        let returned = read_wasm_string(&mut instance, packed);
-        assert_eq!(returned, "hello world");
+        assert_eq!(read_wasm_string(&instance, packed), "hello world");
     }
 
     #[test]
     fn null_entity_returns_zero() {
         let mut env = TestEnv::new();
-        let mut instance = env.compile_and_instantiate(
+        let instance = env.compile_and_instantiate(
             r#"(module
                 (import "elidex" "set_attribute" (func $set_attr (param i64 i32 i32 i32 i32)))
                 (memory (export "memory") 1)
@@ -391,7 +398,7 @@ mod tests {
             )"#,
         );
 
-        env.call(&mut instance, "test", &[]).unwrap();
+        env.call(&instance, "test", &[]).unwrap();
     }
 
     #[test]
@@ -436,14 +443,12 @@ mod tests {
                 )
             )"#
         );
-        let mut instance = env.compile_and_instantiate(&wat);
+        let instance = env.compile_and_instantiate(&wat);
 
-        let results = env.call(&mut instance, "test", &[]).unwrap();
+        let results = env.call(&instance, "test", &[]).unwrap();
 
-        let packed = results[0].unwrap_i64();
+        let packed = expect_i64(&results[0]);
         assert_ne!(packed, 0);
-
-        let returned = read_wasm_string(&mut instance, packed);
-        assert_eq!(returned, "Hello!");
+        assert_eq!(read_wasm_string(&instance, packed), "Hello!");
     }
 }
