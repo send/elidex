@@ -76,7 +76,15 @@ impl WasmError {
     /// Construct an error preserving the wasmtime cause. The message is
     /// derived from the source if not supplied explicitly. Used by the
     /// `engine_conv::wasm_error_from_wasmtime` classifier.
-    pub fn with_source(kind: WasmErrorKind, source: wasmtime::Error) -> Self {
+    ///
+    /// `pub(crate)` to keep `wasmtime::Error` off the engine-bridge public
+    /// surface — external callers should receive `WasmError` already
+    /// constructed by `engine_conv` and inspect the cause through
+    /// `source_err()` rather than wrap raw `wasmtime::Error` themselves.
+    /// Plan §4.2 tier-E enumerates exactly `pub source` + `pub fn source_err`
+    /// as the intentional engine-bridge pub-surface that mentions
+    /// `wasmtime::Error`.
+    pub(crate) fn with_source(kind: WasmErrorKind, source: wasmtime::Error) -> Self {
         let message = source.to_string();
         Self {
             kind,

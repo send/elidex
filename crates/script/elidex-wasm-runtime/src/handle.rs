@@ -51,7 +51,6 @@ pub(crate) struct WasmStoreHandle {
 }
 
 impl WasmStoreHandle {
-    #[allow(dead_code)] // Consumed by Stage 7 (instance.rs `WasmInstance::new`) when wrapping a fresh Store.
     pub(crate) fn new(store: Store<HostState>) -> Self {
         Self {
             inner: Rc::new(RefCell::new(store)),
@@ -114,10 +113,7 @@ impl WasmFunc {
     /// `WasmInstance::call_func` where the store is already borrowed
     /// mutably (calling `result_count` directly would panic on
     /// `RefCell::borrow` while the outer `borrow_mut` is held).
-    pub(crate) fn result_count_with_store(
-        &self,
-        store: &wasmtime::Store<HostState>,
-    ) -> usize {
+    pub(crate) fn result_count_with_store(&self, store: &wasmtime::Store<HostState>) -> usize {
         self.inner.ty(store).results().len()
     }
 }
@@ -146,15 +142,19 @@ impl WasmMemory {
     /// a signal indicating that any `ArrayBuffer` aliasing the old
     /// backing store must be detached.
     ///
-    /// Per WASM JS API §5.3 Memory.prototype.grow algorithm, the spec
-    /// unconditionally detaches `memory.[[BufferObject]]` and replaces
-    /// it with a new buffer on every successful grow — independent of
-    /// whether wasmtime relocated the backing allocation. We therefore
-    /// always signal invalidation; the host (D-16) is responsible for
-    /// detaching the JS ArrayBuffer per spec. (An earlier draft
-    /// optimized this via `data_ptr` pre/post compare, but that yields
-    /// spec-violating false-negatives when wasmtime grows in-place
-    /// while the spec demands detach.)
+    /// Per WASM JS API §5.3 `refresh the Memory buffer` step 5, the spec
+    /// detaches `memory.[[BufferObject]]` and rebinds a fresh ArrayBuffer
+    /// on every successful grow **for fixed-length backing buffers**
+    /// (`IsFixedLengthArrayBuffer(buffer)` true) — independent of whether
+    /// wasmtime relocated the backing allocation. Step 6 (resizable
+    /// buffers) refreshes in-place without detach; elidex MVP does not
+    /// surface resizable ArrayBuffer support, so the fixed-length branch
+    /// is the only observable path. We therefore always signal
+    /// invalidation; the host (D-16) is responsible for detaching the JS
+    /// ArrayBuffer per spec. (An earlier draft optimized this via
+    /// `data_ptr` pre/post compare, but that yields spec-violating
+    /// false-negatives in the fixed-length branch — a successful grow
+    /// with unchanged base pointer must still detach.)
     pub fn grow(&mut self, delta: u32) -> Result<GrowResult, WasmError> {
         let mut store = self.store.borrow_mut();
         let pre_pages = self

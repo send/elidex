@@ -31,8 +31,12 @@ fail=0
 
 echo "trip-wire #1: public surface wasmtime:: leak"
 # Allowed: error.rs documented exception (pub source: Option<wasmtime::Error>,
-# pub fn source_err).  Reject anything else matching `^pub [^(].*wasmtime::`.
-leak=$(grep -REn '^pub [^(].*wasmtime::' "$SRC" || true)
+# pub fn source_err).  Reject anything else matching `pub [^(].*wasmtime::`.
+# Anchor allows leading whitespace — `pub fn` / `pub const` items inside
+# `impl` blocks are indented and would otherwise slip past column-0
+# `^pub` (a previous F2 finding: with_source pub fn inside `impl WasmError`
+# evaded the wire silently because of the column-0 anchor).
+leak=$(grep -REn '^[[:space:]]*pub [^(].*wasmtime::' "$SRC" || true)
 filtered=$(echo "$leak" | grep -v 'error\.rs:.*pub source: Option<wasmtime::Error>' \
                        | grep -v 'error\.rs:.*pub fn source_err' \
                        | grep -v '^$' || true)

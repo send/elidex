@@ -244,7 +244,7 @@ fn extract_wasm_bytes(args: &[JsValue], ctx: &mut Context) -> JsResult<Vec<u8>> 
 
 /// `WebAssembly.instantiate(bufferSource | Module)` implementation.
 ///
-/// Per JS API spec §4.5.4:
+/// Per JS API spec §5.2 (Instances) — `WebAssembly.instantiate` overloads:
 /// - `instantiate(bufferSource)` → `Promise<{module, instance}>`
 /// - `instantiate(Module)`       → `Promise<Instance>`
 ///
@@ -267,14 +267,14 @@ fn wasm_instantiate(
         // Treat as bufferSource — extract bytes and compile.
         // Argument validation — TypeError thrown synchronously (per spec).
         let bytes = extract_wasm_bytes(args, ctx)?;
-        // CompileError — returned as rejected promise (per spec §4.5.4).
+        // CompileError — returned as rejected promise (per spec §5.2).
         match captures.runtime.compile(&bytes) {
             Ok(m) => m,
             Err(e) => return reject_wasm_error(&e, ctx),
         }
     };
 
-    // LinkError — returned as rejected promise (per spec §4.5.4).
+    // LinkError — returned as rejected promise (per spec §5.2).
     // Empty imports for Phase 3.5 — wasm modules with declared imports
     // currently fail at link time, which matches Phase 3.5 scope.
     let instance = match captures
@@ -301,10 +301,10 @@ fn wasm_instantiate(
         .into();
 
     let result = if is_module_arg {
-        // §4.5.4 overload: instantiate(Module) → Promise<Instance>
+        // §5.2 overload: instantiate(Module) → Promise<Instance>
         instance_obj
     } else {
-        // §4.5.4 overload: instantiate(bufferSource) → Promise<{module, instance}>
+        // §5.2 overload: instantiate(bufferSource) → Promise<{module, instance}>
         let module_id = store_module(captures, module);
         let module_js = build_module_object(module_id, ctx);
         ObjectInitializer::new(ctx)
@@ -329,13 +329,13 @@ fn wasm_instantiate(
 
 /// `WebAssembly.compile(bufferSource)` implementation.
 ///
-/// Per spec §4.5.1: `TypeError` for invalid arguments is thrown synchronously.
-/// `CompileError` is returned as a rejected promise.
+/// Per spec §5.1 (Modules): `TypeError` for invalid arguments is thrown
+/// synchronously. `CompileError` is returned as a rejected promise.
 fn wasm_compile(args: &[JsValue], captures: &WasmCaptures, ctx: &mut Context) -> JsResult<JsValue> {
     // Argument validation — TypeError thrown synchronously (per spec).
     let bytes = extract_wasm_bytes(args, ctx)?;
 
-    // Compile errors — returned as rejected promise (per spec §4.5.1).
+    // Compile errors — returned as rejected promise (per spec §5.1).
     let module = match captures.runtime.compile(&bytes) {
         Ok(m) => m,
         Err(e) => return reject_wasm_error(&e, ctx),
@@ -350,7 +350,8 @@ fn wasm_compile(args: &[JsValue], captures: &WasmCaptures, ctx: &mut Context) ->
 
 /// `WebAssembly.validate(bufferSource)` implementation.
 ///
-/// Per JS API spec §4.5.2: returns `true` if the bytes form a valid Wasm module.
+/// Per JS API spec §5 (Namespace `WebAssembly` — `validate(bytes)`):
+/// returns `true` if the bytes form a valid Wasm module.
 ///
 /// `TypeError` is thrown for non-`BufferSource` arguments (via `WebIDL` binding).
 fn wasm_validate(
@@ -364,7 +365,7 @@ fn wasm_validate(
 
 /// Build a JS object mapping exported names to callable wrappers / memory objects.
 ///
-/// The returned exports object is frozen per WebAssembly JS API spec §4.5.4.
+/// The returned exports object is frozen per WebAssembly JS API spec §5.2.
 fn build_exports_object(
     instance: &WasmInstance,
     bridge: &HostBridge,
@@ -525,7 +526,9 @@ fn call_wasm_export(
     let func_type = captures.func.func_type();
     let param_types = &func_type.params;
 
-    // Per JS API §4.4.7 steps 6-7: missing args → undefined, extra args ignored.
+    // Per JS API §5.6 (Exported Functions): missing args → undefined,
+    // extra args ignored; both follow from the JS ArgumentList → wasm
+    // params marshalling defined in the Exported Function call algorithm.
     let undefined = JsValue::undefined();
     let wasm_args: Vec<WasmValue> = (0..param_types.len())
         .map(|i| {
@@ -557,7 +560,7 @@ fn call_wasm_export(
 
 /// Convert engine-indep result `WasmValue`s to a boa `JsValue`.
 ///
-/// Per WebAssembly JS API spec §4.4.7:
+/// Per WebAssembly JS API spec §5.6 (Exported Functions):
 /// - 0 results → `undefined`
 /// - 1 result  → `ToJSValue(val)`
 /// - 2+ results → JS Array of converted values (multi-value proposal)

@@ -57,7 +57,6 @@ impl ImportObject {
     /// Iterate `((module, name), value)` pairs. Used by
     /// `WasmRuntime::instantiate` to walk the import set and convert
     /// each value to a wasmtime `Extern` via `engine_conv`.
-    #[allow(dead_code)] // Consumed by Stage 8 `WasmRuntime::instantiate` rewrite.
     pub(crate) fn iter(&self) -> impl Iterator<Item = (&(String, String), &WasmImportValue)> {
         self.entries.iter()
     }

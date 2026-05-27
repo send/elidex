@@ -9,9 +9,11 @@
 //! - WASM JS API §5.2 Instance ctor (instance is the output of
 //!   `WasmRuntime::instantiate`)
 //! - WASM JS API §5.6 Exported Functions invocation (`call_func`)
-//! - WASM JS API §5.2 `[[Exports]]` semantic SameObject (engine-indep
-//!   `exports()` returns the listing; SameObject identity is a host
-//!   concern handled by the wrapper-cache layer in D-16)
+//! - WASM JS API §5.2 `initialize an Instance object` step 3
+//!   (`instanceObject.[[Exports]]` set to the exportsObject). The IDL
+//!   for `Instance.exports` has no `[SameObject]` attribute; stable
+//!   wrapper identity is an elidex implementation choice (the
+//!   wrapper-cache layer in D-16), not a spec mandate.
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_script_session::SessionCore;

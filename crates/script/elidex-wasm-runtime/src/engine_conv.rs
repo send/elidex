@@ -243,7 +243,6 @@ pub(crate) fn extern_ref_from_wasmtime(
 /// inner handle is moved out — call-sites must clone the value first
 /// if they need to keep it. Per WASM JS API §5.2 Instance ctor step 4
 /// ("Read the imports").
-#[allow(dead_code)] // Consumed by Stage 8 `WasmRuntime::instantiate` rewrite.
 pub(crate) fn import_value_to_extern(value: WasmImportValue) -> wasmtime::Extern {
     match value {
         WasmImportValue::Func(f) => wasmtime::Extern::Func(f.inner),
@@ -290,8 +289,12 @@ pub(crate) fn export_item_from_wasmtime_extern(
 // ---------------------------------------------------------------------------
 
 /// Maps wasmtime `Error` → `WasmError` with Trap detection promoting to
-/// `WasmErrorKind::Runtime` per WASM JS API §5.10 + §7.1 / §7.2 trap
-/// mapping.
+/// `WasmErrorKind::Runtime`. The trap-to-RuntimeError rule itself comes
+/// from WASM JS API §5.2 `initialize an Instance object` step 3 ("throw
+/// an appropriate exception type … RuntimeError for most errors which
+/// occur from WebAssembly"). Error class definitions live in §5.10
+/// (`CompileError` / `LinkError` / `RuntimeError`); OOM and stack
+/// overflow have their own special-case clauses in §7.1 and §7.2.
 ///
 /// Heuristic: if the error chain contains a `wasmtime::Trap`, the
 /// classification is `Runtime` regardless of the supplied default —

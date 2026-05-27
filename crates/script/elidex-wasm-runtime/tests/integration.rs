@@ -177,8 +177,9 @@ fn unreachable_trap_maps_to_runtime_error() {
     };
 
     let err = instance.call_func(&boom, &[], bridge).unwrap_err();
-    // Per WASM JS API §5.10 + §7.1 trap mapping: traps become
-    // RuntimeError regardless of the call-site's default kind.
+    // Per WASM JS API §5.2 `initialize an Instance object` step 3:
+    // traps become RuntimeError regardless of the call-site's default
+    // kind. Error class definitions are in §5.10.
     assert!(matches!(err.kind, WasmErrorKind::Runtime));
     // Source preserved (D-9 + deviation D-iii: Option<wasmtime::Error>
     // is Some for any wasmtime-originated error).

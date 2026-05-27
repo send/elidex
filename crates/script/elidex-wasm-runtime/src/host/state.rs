@@ -111,12 +111,10 @@ impl HostState {
 /// Owns `&mut Store<HostState>` so the call-site can re-borrow it through
 /// `store()` for the wasm function dispatch without conflicting with the
 /// `data_mut()` borrow used at construction.
-#[allow(dead_code)] // Consumed by `instance::WasmInstance::call_func` (added in Stage 7).
 pub(crate) struct UnbindGuard<'a> {
     store: &'a mut Store<HostState>,
 }
 
-#[allow(dead_code)] // See struct-level allow.
 impl<'a> UnbindGuard<'a> {
     pub(crate) fn new(
         store: &'a mut Store<HostState>,

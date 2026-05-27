@@ -64,10 +64,11 @@ impl WasmModule {
 
     /// Per WASM JS API §5.1 `Module.customSections(sectionName)` static
     /// method — returns the payload bytes of every custom section whose
-    /// name matches `name`. Order matches the module binary order
-    /// (spec: "in their original order in the module"). A module may
-    /// declare multiple custom sections with the same name, so the
-    /// return type is a `Vec` of payloads, not `Option`.
+    /// name matches `name`. Order follows module binary order (the spec
+    /// `customSections` step 3 iterates over each custom section of bytes
+    /// per the module grammar). A module may declare multiple custom
+    /// sections with the same name, so the return type is a `Vec` of
+    /// payloads, not `Option`.
     pub fn custom_sections(&self, name: &str) -> Vec<Vec<u8>> {
         custom_section_payloads(&self.source_bytes, name)
     }
@@ -121,10 +122,13 @@ fn import_export_kind_from(ty: &wasmtime::ExternType) -> Option<ImportExportKind
 /// Walk the WASM binary section list and collect payloads of custom
 /// sections (section ID 0) whose name matches `target_name`.
 ///
-/// Format reference (WebAssembly Core Spec §5.1 / §5.5 / §5.6):
-/// - Header: 8 bytes (`\0asm` + `\x01\0\0\0` version)
+/// Format reference (WebAssembly Core Spec):
+/// - Header: 8 bytes (`\0asm` + `\x01\0\0\0` version) — §5.5 Modules
 /// - Sections: section_id (u8) + payload_size (LEB128 u32) + payload
+///   — §5.5.2 Sections
 /// - Custom section payload: name_size (LEB128 u32) + name + data
+///   — §5.5.3 Custom Section
+/// - LEB128 integer encoding — §5.2.2 Integers
 fn custom_section_payloads(bytes: &[u8], target_name: &str) -> Vec<Vec<u8>> {
     let mut out = Vec::new();
     if bytes.len() < 8 || &bytes[0..4] != b"\0asm" {

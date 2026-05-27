@@ -11,7 +11,7 @@
 //! - WebAssembly JS API §5.3 Memory `grow` algorithm (`GrowResult`)
 //! - WebAssembly JS API §5.6 Exported Functions (`WasmValue` / `WasmRef`
 //!   argument/result types, `externref` opaque payload)
-//! - WebAssembly Core Spec §2.3.1 Reference Types (typed null
+//! - WebAssembly Core Spec §2.3.5 Reference Types (typed null
 //!   `(ref null T)` vs `(ref T)`; the JS API enum flattens this, but the
 //!   distinction is preserved on the Rust side via `RefType.nullable` and
 //!   `WasmRef::Null(HeapType)`)
@@ -21,7 +21,7 @@ use crate::handle::WasmFunc;
 /// Structured value type per WASM JS API §5.5 (numeric + `Ref`).
 ///
 /// `Ref(RefType)` carries `(nullable, heap)`, capturing the typed-null
-/// distinction from WebAssembly Core Spec §2.3.1 Reference Types — the JS
+/// distinction from WebAssembly Core Spec §2.3.5 Reference Types — the JS
 /// API `ValueType` enum flattens to `funcref` / `externref`, but the
 /// structured form lets Exception Handling / GC / Function References
 /// proposals land as additive `HeapType` variants without breaking the
@@ -36,7 +36,7 @@ pub enum WasmValueType {
     Ref(RefType),
 }
 
-/// Reference type per WebAssembly Core Spec §2.3.1: a `HeapType` plus a
+/// Reference type per WebAssembly Core Spec §2.3.5: a `HeapType` plus a
 /// nullability bit (`(ref null T)` vs `(ref T)`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RefType {
@@ -71,7 +71,7 @@ pub enum WasmValue {
 
 /// Reference value with explicit typed-null encoding. `Null(HeapType)`
 /// distinguishes a null funcref from a null externref per WebAssembly
-/// Core Spec §2.3.1 (typed null `(ref null T)`); future typed-null
+/// Core Spec §2.3.5 (typed null `(ref null T)`); future typed-null
 /// proposals (Function References' `(ref null $T)`) fit the same enum.
 #[derive(Clone, Debug)]
 pub enum WasmRef {
