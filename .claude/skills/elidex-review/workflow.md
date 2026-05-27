@@ -38,7 +38,7 @@ For each **new/changed test case** AND **new code path that reads ECS components
 
 **同一 message 内 5 並列 Agent tool call** (sequential / inline self-review NG、§ "Anti-patterns" 参照)。
 
-Each SKILL.md supplies three variables before dispatching the agents (substitute the literal values into the prompt below):
+Each SKILL.md supplies five variables before dispatching the agents (substitute the literal values into the prompt below):
 
 | Variable | `elidex-review` (diff) | `elidex-plan-review` (plan) |
 |---|---|---|
