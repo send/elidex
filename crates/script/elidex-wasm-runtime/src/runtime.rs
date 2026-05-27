@@ -10,8 +10,8 @@ use elidex_script_session::SessionCore;
 use wasmtime::{Config, Engine, Instance, Linker, Module, Store, Val, ValType};
 
 use crate::error::{classify_wasmtime_error, WasmError, WasmErrorKind};
-use crate::host_funcs::register_host_functions;
-use crate::host_state::HostState;
+use crate::host::funcs::register_host_functions;
+use crate::host::state::HostState;
 
 /// A compiled Wasm module (engine-independent, reusable).
 #[derive(Clone)]

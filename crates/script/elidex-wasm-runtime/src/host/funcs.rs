@@ -10,7 +10,7 @@ use elidex_plugin::JsValue;
 use elidex_script_session::{ComponentKind, JsObjectRef};
 use wasmtime::{AsContextMut, Caller, Linker};
 
-use crate::host_state::HostState;
+use crate::host::state::HostState;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -245,7 +245,7 @@ fn get_memory(caller: &mut Caller<'_, HostState>) -> Option<wasmtime::Memory> {
 // ---------------------------------------------------------------------------
 
 /// Register all host functions in the `"elidex"` namespace.
-pub fn register_host_functions(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
+pub(crate) fn register_host_functions(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
     register_query_functions(linker)?;
     register_creation_functions(linker)?;
     register_tree_functions(linker)?;
