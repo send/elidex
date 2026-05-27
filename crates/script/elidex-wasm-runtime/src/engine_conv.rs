@@ -61,8 +61,14 @@ fn wasm_heap_type_from_wasmtime(h: &wasmtime::HeapType) -> Result<HeapType, Wasm
     match h {
         wasmtime::HeapType::Func => Ok(HeapType::Func),
         wasmtime::HeapType::Extern => Ok(HeapType::Extern),
+        // Per WASM JS API §5.10: the only callers of this conversion are
+        // type-introspection paths (`WasmFunc::func_type`,
+        // `WasmGlobal::value_type`, `WasmInstance::exports`) — i.e. the
+        // JS↔wasm type-system boundary, not a wasm trap. Classify as
+        // `Link` so the JS-side mapping (boa `wasm_error_to_js`) surfaces
+        // a `TypeError` (`LinkError`), not `RangeError` (`RuntimeError`).
         other => Err(WasmError::new(
-            WasmErrorKind::Runtime,
+            WasmErrorKind::Link,
             format!("unsupported HeapType variant: {other:?}"),
         )),
     }
@@ -383,9 +389,12 @@ mod tests {
 
     #[test]
     fn val_type_unsupported_heap_type_returns_err() {
+        // Per §5.10 boundary classification: unsupported HeapType at
+        // introspection is `Link` (JS↔wasm type-system boundary), not
+        // `Runtime` (wasm trap).
         let src = wasmtime::ValType::Ref(wasmtime::RefType::new(true, wasmtime::HeapType::Any));
         let err = wasm_value_type_from_wasmtime(src).unwrap_err();
-        assert!(matches!(err.kind, WasmErrorKind::Runtime));
+        assert!(matches!(err.kind, WasmErrorKind::Link));
         assert!(err.message().contains("unsupported HeapType"));
     }
 
