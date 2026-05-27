@@ -34,6 +34,5 @@ pub use instance::{ScriptHostBinding, WasmExportItem, WasmInstance};
 pub use module::{ImportExportKind, ModuleExportDescriptor, ModuleImportDescriptor, WasmModule};
 pub use runtime::WasmRuntime;
 pub use value::{
-    ExternRefHandle, GrowResult, HeapType, RefType, WasmFuncType, WasmRef, WasmValue,
-    WasmValueType,
+    ExternRefHandle, GrowResult, HeapType, RefType, WasmFuncType, WasmRef, WasmValue, WasmValueType,
 };

@@ -300,4 +300,3 @@ const _: () = {
     assert_not_impl_any!(WasmTable: Send, Sync);
     assert_not_impl_any!(WasmGlobal: Send, Sync);
 };
-

@@ -173,7 +173,9 @@ mod tests {
         fn compile_and_instantiate(&self, wat_src: &str) -> WasmInstance {
             let wasm = wat::parse_str(wat_src).unwrap();
             let module = self.runtime.compile(&wasm).unwrap();
-            self.runtime.instantiate(&module, &ImportObject::default()).unwrap()
+            self.runtime
+                .instantiate(&module, &ImportObject::default())
+                .unwrap()
         }
 
         fn call(
@@ -318,7 +320,10 @@ mod tests {
         let results = env.call(&instance, "test", &[]).unwrap();
 
         let packed = expect_i64(&results[0]);
-        assert_ne!(packed, 0, "get_attribute should return non-zero packed string");
+        assert_ne!(
+            packed, 0,
+            "get_attribute should return non-zero packed string"
+        );
         assert_eq!(read_wasm_string(&instance, packed), "myid");
     }
 

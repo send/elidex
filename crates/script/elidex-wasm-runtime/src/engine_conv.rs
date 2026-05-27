@@ -222,7 +222,9 @@ pub(crate) fn extern_ref_from_wasmtime(
     store: &Store<HostState>,
 ) -> Option<ExternRefHandle> {
     let data = rooted.data(store).ok()??;
-    data.downcast_ref::<u64>().copied().map(ExternRefHandle::new)
+    data.downcast_ref::<u64>()
+        .copied()
+        .map(ExternRefHandle::new)
 }
 
 // ---------------------------------------------------------------------------
@@ -354,8 +356,7 @@ mod tests {
 
     #[test]
     fn val_type_round_trip_ref_extern_nonnull() {
-        let src =
-            wasmtime::ValType::Ref(wasmtime::RefType::new(false, wasmtime::HeapType::Extern));
+        let src = wasmtime::ValType::Ref(wasmtime::RefType::new(false, wasmtime::HeapType::Extern));
         let mid = wasm_value_type_from_wasmtime(src).unwrap();
         assert_eq!(
             mid,

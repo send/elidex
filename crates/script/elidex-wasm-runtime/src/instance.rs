@@ -181,4 +181,3 @@ impl WasmInstance {
         // guard drops here: HostState::unbind() runs on Ok / Err / panic.
     }
 }
-

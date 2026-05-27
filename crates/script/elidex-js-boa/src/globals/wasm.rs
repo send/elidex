@@ -277,7 +277,10 @@ fn wasm_instantiate(
     // LinkError — returned as rejected promise (per spec §4.5.4).
     // Empty imports for Phase 3.5 — wasm modules with declared imports
     // currently fail at link time, which matches Phase 3.5 scope.
-    let instance = match captures.runtime.instantiate(&module, &ImportObject::default()) {
+    let instance = match captures
+        .runtime
+        .instantiate(&module, &ImportObject::default())
+    {
         Ok(i) => i,
         Err(e) => return reject_wasm_error(&e, ctx),
     };
@@ -485,11 +488,13 @@ fn js_to_wasm_val(
     let n = arg.to_number(ctx)?;
     Ok(match expected {
         Some(WasmValueType::I32) => WasmValue::I32(to_int32(n)),
-        Some(WasmValueType::I64) => {
+        Some(WasmValueType::I64) =>
+        {
             #[allow(clippy::cast_possible_truncation)]
             WasmValue::I64(n as i64)
         }
-        Some(WasmValueType::F32) => {
+        Some(WasmValueType::F32) =>
+        {
             #[allow(clippy::cast_possible_truncation)]
             WasmValue::F32(n as f32)
         }
