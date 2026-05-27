@@ -1,12 +1,12 @@
 ---
 name: elidex-review
-description: elidex project-specific pre-push design review (5-agent parallel). Checks Layering mandate / ECS-native lens (with component data-flow integrity) / pragmatic shortcut / spec citation / project-context beyond what generic /simplify + /review cover. Run BEFORE `git push` to compress Copilot R-loop.
+description: elidex project-specific pre-push design review (5-agent parallel). Checks Layering mandate / ECS-native lens (with component data-flow integrity) / pragmatic shortcut / spec citation / project-context beyond what generic /code-review + /review cover. Run BEFORE `git push` to compress Copilot R-loop.
 user-invocable: true
 ---
 
 # elidex-review — pre-push diff review
 
-`/simplify` (code reuse / quality / efficiency) と `/review` (一般 PR review) **の上に重ねる** elidex 専門 design review。Pre-push 5 段 gate の最終段 (`/pre-push` Stage 5) で Copilot R-loop の flag を圧縮する。
+`/code-review` (correctness bugs) と `/review` (一般 PR review) **の上に重ねる** elidex 専門 design review。Pre-push 5 段 gate の最終段 (`/pre-push` Stage 5) で Copilot R-loop の flag を圧縮する。
 
 - **Axis SSoT**: `./axes.md` (5 axis 定義、`elidex-plan-review` と共有)
 - **Workflow SSoT**: `./workflow.md` (Step 1.5 / 2 agent prompt template / 3 / 3.5 / 4 / 4.5 + anti-patterns)
@@ -15,7 +15,7 @@ user-invocable: true
 
 ## When to invoke
 
-- **Pre-push 必須段 (順序固定)**: `cargo fmt` → `mise run ci` → `/simplify` → `/review` → **本 skill (`/elidex-review`)** で全 PR 実施推奨。本 skill は 5 段目 = 最終 design gate
+- **Pre-push 必須段 (順序固定)**: `cargo fmt` → `mise run ci` → `/code-review` → `/review` → **本 skill (`/elidex-review`)** で全 PR 実施推奨。本 skill は 5 段目 = 最終 design gate
 - generic `/review` だけでは elidex-specific design 原則違反は漏れる (Layering mandate / ideal-over-pragmatic 等)
 
 ## Skip OK

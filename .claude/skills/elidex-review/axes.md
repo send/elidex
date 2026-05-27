@@ -36,7 +36,7 @@ Agent prompt は「Read axes.md Axis N → apply `Detect` の `[diff]`/`[plan]`/
 
 ### Sub-check 1a: Engine vs Host `[both]`
 
-`vm/host/*` は engine-bound 責務 (prototype install / brand check / `JsValue` ↔ `Entity` marshalling) のみ。DOM algorithm は engine-indep crate (`elidex-dom-api` / `elidex-form` / `elidex-css` / `elidex-script-session::DomApiHandler`) 経由。
+Rule: CLAUDE.md § "Layering mandate" — `vm/host/*` は engine-bound 責務のみ、DOM algorithm は engine-indep crate 経由。
 
 - `[both]` `vm/host/*.rs` に 10+ LoC の loop / walker / state machine / coercion algorithm を新規追加または拡張 (diff: 該当行、plan: §Body/§Implementation 記述)
 - `[both]` `EcsDom::traverse_descendants` / `find_by_id` / `with_attribute` 等の direct call が marshalling 用途 (entity 取得 / 単純 attribute read / wrapper 生成) を超える
@@ -48,7 +48,7 @@ Agent prompt は「Read axes.md Axis N → apply `Detect` の `[diff]`/`[plan]`/
 
 ### Sub-check 1b: Core vs Compat `[both]` (design doc §14.1)
 
-elidex-js **core** = ES2020+ strict-mode-only baseline。LegacySemantics (sloppy mode / Annex B / sloppy direct-eval / var hoisting quirks / `arguments.callee` `.caller` / `with` 文 / `__proto__` accessor 等) は compat plugin 領域、core VM では実装しない。
+Rule: CLAUDE.md § "Layering mandate" 2nd paragraph — elidex-js core = ES2020+ strict-only baseline、LegacySemantics は compat plugin 領域 (core VM 実装 NG)。
 
 - `[both]` core VM (`crates/script/elidex-js/src/vm/` 内、`host/` 除く) で LegacySemantics 機能 (sloppy mode coercion / Annex B / sloppy direct-eval scope injection / var hoisting quirks / `arguments.callee` `.caller` / `with` 文 / `__proto__` accessor / RegExp legacy / 文字列HTMLメソッド) を実装 → **CRIT/IMP** (compat plugin 領域に移管 OR drop)
 - `[plan]` plan-memo で **direct/indirect eval 区別 / sloppy mode flag / Annex B 専用 dispatch path / var hoisting quirks 専用 opcode** 等の motivation で defer slot 立てる案 → **IMP** (core では不要、compat plugin 着手まで slot 不要)
@@ -77,7 +77,7 @@ elidex-js **core** = ES2020+ strict-mode-only baseline。LegacySemantics (sloppy
 - Inheritance hierarchy 風 trait + single concrete impl (over-abstracted; ECS では component pattern が natural)
 - `ObjectKind` variant 追加で state shape が unique でないもの (ECS component + brand-check 統一が原則、**lesson #276 専属**)
 - Class-owned mutable state を struct member field で保持 (ECS では Component-on-Entity が natural)
-- **per-entity 状態を entity-keyed side-store/registry (HostData `*_cache` / `*Registry` / `HashMap<entity, _>`) に持たせ、その値が `Send + Sync` かつ per-VM identity handle でない** → ECS component on the entity が正。boa `HostBridge` side-store の VM 直訳が典型 (lesson: D-21 R3 CRIT)。`Send+Sync` は hecs 適格条件 (= component に *できる*) であって *すべき* とは別 — **side-store 許容の例外 (FP)** は2つ: **(a) per-VM identity handle** = VM `ObjectId` (JS wrapper / callback) を保持 — 値は Send (`ObjectId(u32)`) だが per-VM 意味で、component 化すると cross-DOM aliasing (EcsDom が VM 間で entity-index 共有 + rebind、`vm_api.rs` `Vm::unbind` cache-clear 参照)。`world_id` discriminator 解禁まで HostData が正 (= `#11-wrapper-cache-cross-dom-discriminator` / `-component-migration`)。**`Send+Sync` だが component にしないのが正しいので、wrapper-cache 群 (~25) を violation と flag しないこと。** **(b) shared cross-cutting state** = cookie jar / `NetworkHandle` 等、per-entity でない browsing-context/session 資源。詳細 → `memory/feedback_boa-hostbridge-port-is-not-a-registry.md` / `memory/ecs-native-side-store-audit-2026-05-21.md`
+- **per-entity 状態を entity-keyed side-store/registry (HostData `*_cache` / `*Registry` / `HashMap<entity, _>`) に持たせる** で `Send + Sync` かつ per-VM identity handle でない → ECS component が正 (CLAUDE.md § "Side-store→component 判定ルール")。boa `HostBridge` side-store の VM 直訳が典型罠 (D-21 R3 CRIT)。**例外 (FP-allowed)**: (a) per-VM identity handle (VM `ObjectId` 保持の wrapper-cache 群 ~25 — `world_id` discriminator 解禁まで HostData が正) / (b) shared cross-cutting state (cookie jar / `NetworkHandle` 等 per-entity でない session 資源)。詳細 = CLAUDE.md 参照
 - OO → ECS idiom 翻訳が抜け (subscriber registry → marker component + system query、observer fan-out → version counter + lazy detection、virtual dispatch → typed entity ECS query)
 
 ### Sub-check 2b: Component data-flow integrity `[both]`
