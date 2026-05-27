@@ -24,7 +24,7 @@ cargo fmt --all
 
 ### Stage 2 — Verify
 ```sh
-mise run ci   # check + lint + test-all + doc + deny — CLAUDE.md "Push 前"
+mise run ci   # check + lint + test-all + doc + deny + ci-sweep cleanup — CLAUDE.md "Push 前"
 ```
 All jobs must be green. (`test-all` includes doc-tests; cargo tasks are `--all-features`-gated, so feature-gated code is covered.)
 

@@ -36,7 +36,7 @@ WHATWG / W3C / TC39 (ECMA-262 / ECMA-402) の section number / anchor / WebIDL /
 ### Workflow
 
 - **コミット前**: `cargo fmt --all`
-- **Push 前**: `mise run ci` (check + lint + test-all + doc + deny)
+- **Push 前**: `mise run ci` (check + lint + test-all + doc + deny + ci-sweep cleanup)
 - **テストは変更クレートに絞る**: `cargo test -p <crate> --all-features`。`--workspace` / `mise run test` は最終検証時のみ
 - **Git**: main 直接 push 禁止、PR 経由必須。`gh pr merge --auto` 禁止。CI 全 pass を目視確認してから squash merge
 
@@ -75,4 +75,4 @@ mise run fmt         # cargo fmt --all
 
 ## CI
 
-`changes` path filter (`dorny/paths-filter@v4`、`.github/workflows/**` 含む) で以下 3 job を gate: `check` (3 OS × `cargo fmt --check` + clippy + nextest + doc-tests、後 3 つは `--all-features`) / `doc` (`cargo doc` + `RUSTDOCFLAGS=-D warnings`) / `deny` (license + supply chain)。**Push to main は path filter bypass で常時全 job 実行**。コマンド詳細 = `.github/workflows/ci.yml`。
+`changes` path filter (`dorny/paths-filter@v4`、`.github/workflows/**` 含む) で以下 3 job を gate: `check` (3 OS × `cargo fmt --all -- --check` + clippy + nextest + doc-tests、後 3 つは `--all-features`) / `doc` (`cargo doc --workspace --no-deps --all-features` + `RUSTDOCFLAGS=-D warnings`) / `deny` (license + supply chain)。**Push to main は path filter bypass で常時全 job 実行**。コマンド詳細 = `.github/workflows/ci.yml`。
