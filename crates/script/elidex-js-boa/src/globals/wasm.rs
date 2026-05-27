@@ -47,9 +47,17 @@ impl_empty_trace!(WasmCaptures);
 /// `instance.get_func(name)` lookup. The function carries its own
 /// `WasmStoreHandle` clone (per WASM JS API §5.6 `[[Store]]` model), so
 /// the instance reference is not needed for dispatch.
+///
+/// `params` is cached at `build_exports_object` time so the per-call
+/// path skips `WasmFunc::func_type()` — that walk borrows the wasmtime
+/// store (`RefCell::borrow_mut`) and re-traverses the engine type table
+/// on every call. Caching also moves any future-proposal HeapType
+/// conversion error from per-call to module-load time, matching the
+/// fail-fast intent.
 #[derive(Clone)]
 struct ExportCaptures {
     func: WasmFunc,
+    params: Vec<WasmValueType>,
     bridge: HostBridge,
 }
 
@@ -373,11 +381,13 @@ fn build_exports_object(
     // Single engine-indep enumeration of exports.
     let exports = instance.exports();
 
-    // Categorize: function exports keep the WasmFunc + param count;
-    // memory exports keep the byte_size for the JS .buffer.byteLength
+    // Categorize: function exports keep the WasmFunc + the cached
+    // params signature (used both for boa's `param_count` builder arg
+    // and the per-call arg marshalling — see `ExportCaptures.params`).
+    // Memory exports keep the byte_size for the JS .buffer.byteLength
     // shim. Table / Global exports are not currently exposed (Phase
     // 3.5 deferral — matches the historic behavior of this file).
-    let mut func_exports: Vec<(String, WasmFunc, usize)> = Vec::new();
+    let mut func_exports: Vec<(String, WasmFunc, Vec<WasmValueType>)> = Vec::new();
     let mut memory_exports: Vec<(String, usize)> = Vec::new();
     for (name, item) in exports {
         match item {
@@ -387,12 +397,8 @@ fn build_exports_object(
                 // module signature before its host wrapper does. Propagate
                 // synchronously as a TypeError per WASM JS API §5.2 IDL
                 // (unknown-shape export → TypeError on instance build).
-                let param_count = f
-                    .func_type()
-                    .map_err(|e| wasm_error_to_js(&e))?
-                    .params
-                    .len();
-                func_exports.push((name, f, param_count));
+                let func_type = f.func_type().map_err(|e| wasm_error_to_js(&e))?;
+                func_exports.push((name, f, func_type.params));
             }
             WasmExportItem::Memory(m) => {
                 memory_exports.push((name, m.byte_size()));
@@ -432,9 +438,11 @@ fn build_exports_object(
     let mut builder = ObjectInitializer::new(ctx);
 
     // Function exports.
-    for (name, func, param_count) in func_exports {
+    for (name, func, params) in func_exports {
+        let param_count = params.len();
         let captures = ExportCaptures {
             func,
+            params,
             bridge: bridge.clone(),
         };
 
@@ -527,17 +535,13 @@ fn call_wasm_export(
     captures: &ExportCaptures,
     ctx: &mut Context,
 ) -> JsResult<JsValue> {
-    // Resolve the function's parameter types from its stored signature.
-    // `WasmFunc::func_type()` clones a `WasmFuncType` — cheap (Vec of
-    // 4-byte enums) and avoids re-querying wasmtime on every call.
-    // The `?` propagates any future-proposal `HeapType` conversion
-    // error as a JS error at call time (mapped to TypeError per
-    // `wasm_error_to_js`).
-    let func_type = captures
-        .func
-        .func_type()
-        .map_err(|e| wasm_error_to_js(&e))?;
-    let param_types = &func_type.params;
+    // Read the function's parameter types from the cached signature
+    // (computed once at `build_exports_object` time). This skips the
+    // per-call `WasmFunc::func_type()` walk — `Func::ty()` borrows the
+    // wasmtime store under `RefCell::borrow_mut` and re-traverses the
+    // engine type table, which is non-trivial per-call cost on the
+    // hot dispatch path.
+    let param_types = &captures.params;
 
     // Per JS API §5.6 (Exported Functions): missing args → undefined,
     // extra args ignored; both follow from the JS ArgumentList → wasm
