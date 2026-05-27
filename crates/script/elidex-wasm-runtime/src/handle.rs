@@ -108,6 +108,18 @@ impl WasmFunc {
         let store = self.store.borrow();
         self.inner.ty(&*store).results().len()
     }
+
+    /// Same as `result_count` but takes the wasmtime store by reference
+    /// instead of borrowing through `self.store`. Used by
+    /// `WasmInstance::call_func` where the store is already borrowed
+    /// mutably (calling `result_count` directly would panic on
+    /// `RefCell::borrow` while the outer `borrow_mut` is held).
+    pub(crate) fn result_count_with_store(
+        &self,
+        store: &wasmtime::Store<HostState>,
+    ) -> usize {
+        self.inner.ty(store).results().len()
+    }
 }
 
 /// Opaque linear memory reference per WASM JS API §5.3.

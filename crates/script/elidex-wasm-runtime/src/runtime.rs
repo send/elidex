@@ -89,7 +89,7 @@ impl WasmRuntime {
             .map_err(|e| wasm_error_from_wasmtime(e, WasmErrorKind::Compile))?;
         Ok(WasmModule {
             inner,
-            source_bytes: Arc::from(wasm_bytes.to_vec().into_boxed_slice()),
+            source_bytes: Arc::from(wasm_bytes),
         })
     }
 

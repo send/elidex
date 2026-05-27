@@ -168,10 +168,9 @@ impl WasmInstance {
         }
 
         // Size the result buffer from the function's type signature.
-        // We avoid `func.result_count()` here because that would call
-        // `self.store.borrow()` while we already hold `borrow_mut()`,
-        // panicking on the second-borrow. Use the in-store helper.
-        let result_count = func.inner.ty(&*guard.store()).results().len();
+        // `result_count_with_store` takes the locked store directly so
+        // we don't `RefCell::borrow` while already holding `borrow_mut`.
+        let result_count = func.result_count_with_store(guard.store());
         let mut results_buf = vec![wasmtime::Val::null_func_ref(); result_count];
 
         func.inner
