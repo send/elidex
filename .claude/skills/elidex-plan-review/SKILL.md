@@ -108,7 +108,7 @@ Plan-memo size > 1000 行なら user 確認 (通常 ~200-500 行)。
 | Variable | Value |
 |---|---|
 | `<INPUT_TAG>` | `[plan]` |
-| `<INPUT_PATH>` | `$PLAN_MEMO` (Step 0 で受け取った plan-memo absolute path) |
+| `<INPUT_PATH>` | the expanded value of `$PLAN_MEMO` (the plan-memo absolute path the user supplied in Step 0) — substitute the actual path, not the literal `$PLAN_MEMO` string |
 | `<INPUT_CONTEXT>` | `the plan-memo before implementation` |
 | `<DRYRUN_PATH>` | `/tmp/elidex-plan-review.dry-run.md` |
 | `<LOC_RULE>` | plan-memo §section identifiers (e.g. `plan-memo §C-3`) |

@@ -4,7 +4,7 @@
 
 Lifecycle (Step 1.5 / 2 agent prompt template / 3 / 3.5 / 4 / 4.5 + anti-patterns) は `./workflow.md`。SKILL.md は axes.md + workflow.md を参照する thin wrapper。
 
-Agent prompt は「Read axes.md Axis N → apply `Detect` の `[diff]`/`[plan]`/`[both]` context tag に該当する entry を input に適用 → output format で結果」。Section-header tag (e.g. `Sub-check 2b [both]`) は section 内全 entry / procedure step に inherit。Axis 番号は安定 (renumbering NG、SKILL.md が参照)。
+Agent prompt は「Read axes.md Axis N → apply `Detect` の `[diff]`/`[plan]`/`[both]` context tag に該当する entry を input に適用 → output format で結果」。Section-header tag (e.g. `Sub-check 2b [both]`) は section 内 entry の **default**、per-entry tag (e.g. `- [plan] ...`) が付いている entry はそちらが override する。Axis 番号は安定 (renumbering NG、SKILL.md が参照)。
 
 **Fix 提案禁止 (Step 3.5 で行う) — output format の `Suggested fix` field の意味**: 各 axis の Output format には `Suggested fix` / `ECS-native alternative` / `Recommended action` 等の field が含まれるが、これらは **agent が input を読んで発見した raw suggestion** であって philosophy-aligned な user-facing 推奨 fix ではない。User-facing 推奨 fix は Step 3.5 (philosophy alignment re-evaluation) で構築される。Agent は raw suggestion を input として記録するに留め、「これが推奨 fix です」と endorse しない (smallest-patch bias 防止)。
 
