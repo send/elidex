@@ -293,10 +293,19 @@ impl std::fmt::Debug for WasmTable {
 }
 
 impl WasmTable {
-    /// Current size in entries.
-    pub fn length(&self) -> u32 {
+    /// Current size in entries per WASM JS API §5.4
+    /// Table.prototype.length. Fallible to match the u32-overflow
+    /// classification in `WasmTable::grow` and `WasmMemory::grow` — a
+    /// 64-bit table (Memory64 proposal) with entry count exceeding
+    /// `u32::MAX` surfaces a `WasmError` rather than silently saturating.
+    pub fn length(&self) -> Result<u32, WasmError> {
         let store = self.store.borrow();
-        u32::try_from(self.inner.size(&*store)).unwrap_or(u32::MAX)
+        u32::try_from(self.inner.size(&*store)).map_err(|_| {
+            WasmError::new(
+                WasmErrorKind::Runtime,
+                "table entry count exceeds u32::MAX".to_string(),
+            )
+        })
     }
 
     /// Read entry at `index`; `None` if out of bounds.
