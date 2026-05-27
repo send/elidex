@@ -111,6 +111,23 @@ impl WasmRuntime {
         module: &WasmModule,
         imports: &ImportObject,
     ) -> Result<WasmInstance, WasmError> {
+        // D-16 deferral: every `instantiate` creates a fresh `Store`,
+        // and `WasmImportValue::{Func,Memory,Table,Global}` handles are
+        // store-tied — passing non-empty imports today guarantees a
+        // cross-store mismatch at `Linker::define`, surfacing as a
+        // confusing wasmtime error. Fail fast with a clear `LinkError`
+        // until D-16 host-fn-builder lands the shared-store wiring
+        // (per WASM JS API §5.2 Realm-shared engine model).
+        if !imports.is_empty() {
+            return Err(WasmError::new(
+                WasmErrorKind::Link,
+                "non-empty ImportObject not yet supported \
+                 (cross-store import handles deferred to D-16 \
+                 host-fn-builder)"
+                    .to_string(),
+            ));
+        }
+
         let host_state = HostState::new(self.dom_registry.clone(), self.cssom_registry.clone());
         let mut store = Store::new(&self.engine, host_state);
         // Initial fuel for the new store. This runs at instantiate

@@ -9,7 +9,8 @@
 //! Rust-closure path is tracked as `#11-wasm-user-import-host-fn-builder`).
 
 use elidex_wasm_runtime::{
-    ImportExportKind, ImportObject, WasmErrorKind, WasmExportItem, WasmRuntime, WasmValue,
+    ImportExportKind, ImportObject, WasmErrorKind, WasmExportItem, WasmImportValue, WasmRuntime,
+    WasmValue,
 };
 
 fn rt() -> WasmRuntime {
@@ -217,4 +218,41 @@ fn instance_exports_yields_engine_indep_items() {
     assert!(saw_func, "expected Func export 'f'");
     assert!(saw_memory, "expected Memory export 'm'");
     assert!(saw_global, "expected Global export 'g'");
+}
+
+// ---------------------------------------------------------------------------
+// 6. Non-empty ImportObject fails fast with LinkError (D-16 deferral)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn instantiate_rejects_non_empty_imports_with_link_error() {
+    let rt = rt();
+    // Donor module: produces a `WasmFunc` we can stash in an
+    // `ImportObject`. Its store is private to this instance — passing
+    // the func to a *second* `instantiate` is the cross-store case the
+    // D-16 deferral guard rejects.
+    let donor = compile(
+        &rt,
+        r#"(module (func (export "f") (result i32) i32.const 0))"#,
+    );
+    let donor_inst = rt.instantiate(&donor, &ImportObject::default()).unwrap();
+    let donor_func = donor_inst.get_func("f").expect("donor 'f' missing");
+
+    let mut imports = ImportObject::new();
+    imports.define("env", "f", WasmImportValue::Func(donor_func));
+
+    let target = compile(
+        &rt,
+        r#"(module
+            (import "env" "f" (func (result i32)))
+            (func (export "wrap") (result i32) call 0)
+        )"#,
+    );
+    let err = rt.instantiate(&target, &imports).unwrap_err();
+    assert!(matches!(err.kind, WasmErrorKind::Link));
+    assert!(
+        err.message().contains("ImportObject"),
+        "expected guard message, got: {}",
+        err.message()
+    );
 }

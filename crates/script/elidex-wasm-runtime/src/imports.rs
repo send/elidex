@@ -10,7 +10,8 @@
 //!
 //! Tier-A engine-indep semantic file: no wasmtime token appears here.
 //! The conversion `WasmImportValue → wasmtime::Extern` lives in
-//! `engine_conv.rs` (`ImportObject::to_extern`).
+//! `engine_conv.rs` (`import_value_to_extern` free function — consumed
+//! by `WasmRuntime::instantiate` when walking the import set).
 
 use std::collections::HashMap;
 
