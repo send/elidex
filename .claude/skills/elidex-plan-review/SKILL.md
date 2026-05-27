@@ -103,39 +103,26 @@ Plan-memo size > 1000 行なら user 確認 (通常 ~200-500 行)。
 
 ### Step 2 — Launch 5 agents in parallel
 
-**同一 message 内 5 並列**。各 agent prompt:
+`workflow.md` § "Step 2" の prompt template + variable table を使う。本 skill の変数:
 
-```
-Agent <N> — Axis <name> review (plan-memo).
+| Variable | Value |
+|---|---|
+| `<INPUT_TAG>` | `[plan]` |
+| `<INPUT_PATH>` | `$PLAN_MEMO` (Step 0 で受け取った plan-memo absolute path) |
+| `<INPUT_CONTEXT>` | `the plan-memo before implementation` |
+| `<DRYRUN_PATH>` | `/tmp/elidex-plan-review.dry-run.md` |
+| `<LOC_RULE>` | `plan-memo §section identifiers (e.g. \`plan-memo §C-3\`)` |
 
-Read ${REPO_ROOT}/.claude/skills/elidex-review/axes.md Axis <N> section.
-(${REPO_ROOT} resolved in Step 1 via `git rev-parse --show-toplevel`; substitute the concrete absolute path before dispatching the agent.)
+### Step 3 / 3.5 / 4 / 4.5
 
-Apply Axis <N> Detect entries tagged [plan] or [both] to <plan-memo path>.
-
-<Agent 2 only>: Also read /tmp/elidex-plan-review.dry-run.md and incorporate gaps into Sub-check 2b findings.
-
-Output per axes.md Axis <N> "Output format". Use plan-memo §section identifiers (e.g. `plan-memo §C-3`) instead of file:line where the finding refers to a plan section. Severity per axes.md common calibration. Acceptable exceptions per axis. Do NOT propose fixes. Report findings count by severity at end.
-```
-
-| Agent | Axis |
-|-------|------|
-| 1 | Axis 1 — Layering mandate |
-| 2 | Axis 2 — ECS-native lens (+ dry-run) |
-| 3 | Axis 3 — Pragmatic shortcut |
-| 4 | Axis 4 — Spec citation |
-| 5 | Axis 5 — Project-context |
-
-### Step 3 / 3.5 / 4
-
-`workflow.md` § "Step 3" / "Step 3.5" / "Step 4" 参照。Step 3.5 の `Fix decision F<N>` block の `Concrete action` 欄は plan-memo edit OR prerequisite PR carve-out のいずれか。
+`workflow.md` § "Step 3" / "Step 3.5" / "Step 4" / "Step 4.5" 参照。Step 3.5 の `Fix decision F<N>` block の `Concrete action` 欄は plan-memo edit OR prerequisite PR carve-out のいずれか。
 
 ### Step 5 (plan-review specific) — Plan-memo edit + re-review
 
 User が Fix decisions を accept した場合:
 
 1. Plan-memo edit (Step 3.5 block の `Concrete action` に従って)
-2. **適用した各 fix を `workflow.md` § "Step 4.5" の2 trigger で screen**。plan-stage は blast-radius 最大ゆえ **即時**（cumulative でなく — plan fix は後続 design 判断が乗って compound する）: **Trigger A** design-affecting fix → focused 再レビュー（触れた axis × 該当 §section・fresh detect-only agent）/ **Trigger B** symptom-shaped な finding（「X を足せ/handle しろ」型）への fix → root-cause re-derivation（surrounding design まで zoom-out・Copilot framing を無視して根本原因と「そもそも直す場所が正しいか」を問う・fix が clerical に見えても発火）。
+2. 適用した各 fix を `workflow.md` § "Step 4.5" の 2 trigger (A: design-affecting / B: symptom-shaped) で screen。**plan-stage は blast-radius 最大ゆえ即時** (workflow.md "Placement" 節参照、plan fix は後続 design 判断が乗って compound する)。
 3. 変更タイプによる分岐:
    - **clerical のみ** (citation / wording / scope-doc) → re-review skip 可、implementation 着手 OR prereq PR carve-out
    - **design-affecting (localized)** → Step 4.5 focused 再レビュー (clean まで Step 3.5/4 を回す) → 着手

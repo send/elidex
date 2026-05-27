@@ -3,11 +3,11 @@
 Shared lifecycle for `elidex-review` (post-impl diff) and `elidex-plan-review` (pre-impl plan-memo).  Each skill's `SKILL.md` is a thin wrapper providing:
 
 - Input collection (Step 1 — `git diff` vs plan-memo path)
-- Step 2 agent invocation table (axis × axes.md `Detect` entries tagged `[diff]`/`[plan]`/`[both]` × dry-run file path)
+- Per-skill variables (input type tag / dry-run file path / location identifier) consumed by the shared Step 2 prompt template below
 - Recommendation phrasing specific to that gate (push gate vs implementation gate)
 - Skill-specific extras (e.g., plan-review Step 5)
 
-This file owns the rest: Step 1.5 methodology / Step 3 aggregation / Step 3.5 philosophy alignment / Step 4 confirmation / anti-patterns / change log.
+This file owns the rest: Step 1.5 methodology / Step 2 agent prompt template / Step 3 aggregation / Step 3.5 philosophy alignment / Step 4 confirmation / Step 4.5 fix-delta re-verification / anti-patterns.
 
 ## Step 1.5 — Mental dry-run (mandatory)
 
@@ -33,6 +33,45 @@ For each **new/changed test case** AND **new code path that reads ECS components
 
 5. Output to `<dry-run-file>` (path specified per skill — `/tmp/elidex-review.dry-run.md` or `/tmp/elidex-plan-review.dry-run.md`).
 6. Step 2 Agent 2 prompt receives `<dry-run-file>` path and incorporates gaps into Sub-check 2b findings.
+
+## Step 2 — Agent invocation (5-agent parallel)
+
+**同一 message 内 5 並列 Agent tool call** (sequential / inline self-review NG、§ "Anti-patterns" 参照)。
+
+Each SKILL.md supplies three variables before dispatching the agents (substitute the literal values into the prompt below):
+
+| Variable | `elidex-review` (diff) | `elidex-plan-review` (plan) |
+|---|---|---|
+| `<INPUT_TAG>` | `[diff]` | `[plan]` |
+| `<INPUT_PATH>` — what each agent reads | `/tmp/elidex-review.diff` (stat at `/tmp/elidex-review.stat`) | the plan-memo absolute path |
+| `<INPUT_CONTEXT>` — one-line description for the agent prompt | `the branch's own changes vs the resolved base, 3-dot \`$BASE...HEAD\` where \`$BASE\` = current \`origin/main\`` | `the plan-memo before implementation` |
+| `<DRYRUN_PATH>` — Agent 2 only | `/tmp/elidex-review.dry-run.md` | `/tmp/elidex-plan-review.dry-run.md` |
+| `<LOC_RULE>` — how each finding cites location | `file:line` | `plan-memo §section identifiers (e.g. \`plan-memo §C-3\`)` |
+
+Shared prompt template (one Agent tool call per axis, all 5 in a single message):
+
+```
+Agent <N> — Axis <name> review.
+
+Read ${REPO_ROOT}/.claude/skills/elidex-review/axes.md Axis <N> section.
+(${REPO_ROOT} resolved in Step 1 via `git rev-parse --show-toplevel`; substitute the concrete absolute path before dispatching the agent.)
+
+Apply Axis <N> Detect entries tagged <INPUT_TAG> or [both] to <INPUT_PATH> (<INPUT_CONTEXT>).
+
+<Agent 2 only>: Also read <DRYRUN_PATH> and incorporate gaps into Sub-check 2b findings.
+
+Output per axes.md Axis <N> "Output format", using <LOC_RULE> for the location field. Severity per axes.md common calibration. Acceptable exceptions per axis. Do NOT propose fixes — list raw suggestion only. Report total findings count by severity at end.
+```
+
+Axis ↔ agent mapping (stable, both skills):
+
+| Agent | Axis |
+|-------|------|
+| 1 | Axis 1 — Layering mandate |
+| 2 | Axis 2 — ECS-native lens (+ dry-run) |
+| 3 | Axis 3 — Pragmatic shortcut |
+| 4 | Axis 4 — Spec citation |
+| 5 | Axis 5 — Project-context |
 
 ## Step 3 — Aggregate
 
@@ -152,12 +191,4 @@ When every fix is clerical under A **and** none answered a symptom-shaped findin
 - **Generic `/review` との重複避ける**: `/review` (built-in) は一般 PR 観点。本 skill 群は elidex 専門 axis 限定。重複指摘は context-aware な本 skill finding 優先。
 - **/simplify と相補**: cover axis 異なる (reuse/quality/efficiency vs design/project-context)。
 
-## Change log
-
-- **2026-05-23** — **Step 4.5 Fix-delta re-verification** added (+ wired into all three gates' SKILL.md / copilot overlay `fix_discipline`).  Triggered by a recurring observation across PR #222 and prior work: the gates detect the *original* input but the *applied fix* is never independently re-screened — manual push-back kept landing on review-fixes, **especially plan-stage** (widest blast radius).  **Two orthogonal triggers**: **A (fix mechanics)** — clerical / design-affecting / structural; design-affecting → cheap **focused** re-check (touched axis × hunk, fresh detect-only agent; generalizes the wrapper-identity-seam "focused Axis 2 re-review").  **B (finding framing)** — a *symptom-shaped* finding ("add a guard / sort", "handle X") answered by a literal surface patch that *looks clerical under A but masks a design matter*; → **root-cause re-derivation** (zoom **out** to surrounding design, fresh agent briefed to ignore the surface framing, overrides clerical-skip).  B was added same-PR after noticing A alone misses surface-fixes-to-design-matters (their root sits outside the hunk, so the narrow focused re-check is blind).  Placement **blast-radius-weighted** (plan = immediate; diff / Copilot = cumulative at push/merge).  Subsumes the prior self-assessed "input-shape-change → re-review" anti-pattern (now the "structural" tier).  v1 — calibrate B's symptom-shaped heuristic with use.
-- **2026-05-20** — `elidex-review` Step 1 diff range switched 2-dot → 3-dot against a *freshened* base (`git fetch --quiet origin main`, then the base resolves to `origin/main` — falling back to a verified local `main`; `git diff <base>...HEAD`) + staleness preflight added.  Triggered by an observer-refactor PR review: a sibling event-handler PR merged to `main` mid-session while the observer branch (forked from the previous `main`) was under review.  Plain 2-dot `main..HEAD` reported the 13 base-only files as phantom "deleted" files, contaminating the 5-agent run (wasted, had to detect + rebase + re-run).  3-dot uses `merge-base($BASE, HEAD)..HEAD` = the branch's own changes (matching the GitHub PR diff), immune to the base advancing; it stays committed-only so the original working-tree-contamination guard is preserved.  Resolving `$BASE` against `origin/main` (fetched) — not a possibly-stale local `main` — keeps the diff and the `git merge-base --is-ancestor $BASE HEAD` preflight (non-blocking "branch is N commits behind $BASE — consider `git rebase`") accurate against *current* remote main (Copilot PR #214 R1 refinement).  (`elidex-plan-review` Step 1 takes a plan-memo path, not a diff, so it is unaffected.)
-- **2026-05-20** — Two skill brush-ups from D-29 PR #209 trial:
-  - **B**: Step 1 of both SKILL.md gained `rm -f` of the dry-run output path (`/tmp/elidex-review.dry-run.md` / `/tmp/elidex-plan-review.dry-run.md`).  Triggered by stale-residue friction during D-29 R-loop: prior PR's dry-run sat at the fixed path, Write tool's "Read first" guard tripped the agent.  `rm -f` at Step 1 ensures a clean slate per invocation.
-  - **C**: axes.md Axis 5 Detect first bullet (orphan defer slot citation) gained an explicit "Acceptable exception (FP, not IMP)" carve-out for slots whose plan-memo carries a quoted **ship-time registration commitment** (e.g. `D-N ship 時に登録`).  Triggered by recurring noise: `#11-form-navigation` was flagged as IMP by both `/elidex-plan-review` (pre-impl) and `/elidex-review` (pre-push) for D-29, despite the plan-memo explicitly scheduling slot registration at ship-time.  Pre-agreed admin debt should fold into Step 3.5's landing-memo reminder, not gate the push.
-- **2026-05-19** — Initial extraction (axes.md + workflow.md SSoT).  Triggered by D-29 plan-review trial-run failure: self-review (single perspective, inline) missed Axis 2 sub-check 2b component data-flow integrity → IDL setter patches + dropped tests + TODO punt 場当たり cascade.  Structural fix: (a) axes.md SSoT, (b) Axis 2 sub-check 2b added explicitly, (c) Step 1.5 mental dry-run mandatory, (d) plan-review skill created consuming same axes.md, (e) workflow.md SSoT extracted to dedupe both SKILL.md.
-- **2026-05-18** — `/elidex-review` skill initial creation + D-31 PR trial-run (Step 3.5 philosophy-alignment block added after user pushback on polish-dominated F10 fix options).
+History → `git log -- .claude/skills/`。Past-incident lessons (philosophy / calibration) は `memory/feedback_*.md` 参照。
