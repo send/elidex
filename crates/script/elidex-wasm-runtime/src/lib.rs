@@ -8,12 +8,16 @@ mod engine_conv;
 mod error;
 mod handle;
 mod host;
+mod imports;
+mod module;
 mod runtime;
 mod value;
 
 pub use error::{WasmError, WasmErrorKind};
 pub use handle::{WasmFunc, WasmGlobal, WasmMemory, WasmTable};
-pub use runtime::{WasmInstance, WasmModule, WasmRuntime};
+pub use imports::{ImportObject, WasmImportValue};
+pub use module::{ImportExportKind, ModuleExportDescriptor, ModuleImportDescriptor, WasmModule};
+pub use runtime::{WasmInstance, WasmRuntime};
 pub use value::{
     ExternRefHandle, GrowResult, HeapType, RefType, WasmFuncType, WasmRef, WasmValue,
     WasmValueType,

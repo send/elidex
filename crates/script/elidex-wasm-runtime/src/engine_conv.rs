@@ -25,9 +25,10 @@
 
 use wasmtime::{ExternRef, Rooted, Store, Val};
 
-use crate::error::{classify_wasmtime_error, WasmError, WasmErrorKind};
-use crate::handle::{WasmFunc, WasmStoreHandle};
+use crate::error::{WasmError, WasmErrorKind};
+use crate::handle::{WasmFunc, WasmGlobal, WasmMemory, WasmStoreHandle, WasmTable};
 use crate::host::state::HostState;
+use crate::imports::WasmImportValue;
 use crate::value::{ExternRefHandle, HeapType, RefType, WasmRef, WasmValue, WasmValueType};
 
 // ---------------------------------------------------------------------------
@@ -208,7 +209,7 @@ pub(crate) fn extern_ref_to_wasmtime(
     store: &mut Store<HostState>,
 ) -> Result<Rooted<ExternRef>, WasmError> {
     ExternRef::new(&mut *store, handle.payload())
-        .map_err(|e| wasm_error_from_wasmtime(&e, WasmErrorKind::Runtime))
+        .map_err(|e| wasm_error_from_wasmtime(e, WasmErrorKind::Runtime))
 }
 
 /// Read path: extract the `u64` payload from a `Rooted<ExternRef>`.
@@ -225,17 +226,91 @@ pub(crate) fn extern_ref_from_wasmtime(
 }
 
 // ---------------------------------------------------------------------------
+// Import / Export Extern conversions
+// ---------------------------------------------------------------------------
+
+/// Convert an engine-indep `WasmImportValue` into the wasmtime `Extern`
+/// used by `Linker::define`. The function / memory / table / global
+/// inner handle is moved out — call-sites must clone the value first
+/// if they need to keep it. Per WASM JS API §5.2 Instance ctor step 4
+/// ("Read the imports").
+#[allow(dead_code)] // Consumed by Stage 8 `WasmRuntime::instantiate` rewrite.
+pub(crate) fn import_value_to_extern(value: WasmImportValue) -> wasmtime::Extern {
+    match value {
+        WasmImportValue::Func(f) => wasmtime::Extern::Func(f.inner),
+        WasmImportValue::Memory(m) => wasmtime::Extern::Memory(m.inner),
+        WasmImportValue::Table(t) => wasmtime::Extern::Table(t.inner),
+        WasmImportValue::Global(g) => wasmtime::Extern::Global(g.inner),
+    }
+}
+
+/// Engine-indep representation of an exported item, returned by
+/// `WasmInstance::exports()`. Consumed by Stage 7 dispatch.
+#[derive(Clone, Debug)]
+#[allow(dead_code)] // Consumed by Stage 7 `WasmInstance::exports()`.
+pub(crate) enum WasmExportItem {
+    Func(WasmFunc),
+    Memory(WasmMemory),
+    Table(WasmTable),
+    Global(WasmGlobal),
+}
+
+/// Convert a wasmtime `Extern` into the engine-indep `WasmExportItem`,
+/// attaching `store_handle` so produced handles share the store.
+/// Returns `None` for variants outside the MVP scope
+/// (`Tag` requires Exception Handling host machinery; `SharedMemory`
+/// requires the Threads proposal). Stage 7 export iteration skips
+/// such entries.
+#[allow(dead_code)] // Consumed by Stage 7 `WasmInstance::exports()`.
+pub(crate) fn export_item_from_wasmtime_extern(
+    e: &wasmtime::Extern,
+    store_handle: &WasmStoreHandle,
+) -> Option<WasmExportItem> {
+    match e {
+        wasmtime::Extern::Func(f) => Some(WasmExportItem::Func(WasmFunc {
+            inner: *f,
+            store: store_handle.clone(),
+        })),
+        wasmtime::Extern::Memory(m) => Some(WasmExportItem::Memory(WasmMemory {
+            inner: *m,
+            store: store_handle.clone(),
+        })),
+        wasmtime::Extern::Table(t) => Some(WasmExportItem::Table(WasmTable {
+            inner: *t,
+            store: store_handle.clone(),
+        })),
+        wasmtime::Extern::Global(g) => Some(WasmExportItem::Global(WasmGlobal {
+            inner: *g,
+            store: store_handle.clone(),
+        })),
+        wasmtime::Extern::Tag(_) | wasmtime::Extern::SharedMemory(_) => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Error classification
 // ---------------------------------------------------------------------------
 
 /// Maps wasmtime `Error` → `WasmError` with Trap detection promoting to
 /// `WasmErrorKind::Runtime` per WASM JS API §5.10 + §7.1 / §7.2 trap
 /// mapping.
+///
+/// Heuristic: if the error chain contains a `wasmtime::Trap`, the
+/// classification is `Runtime` regardless of the supplied default —
+/// traps are always runtime failures. Otherwise the call-site's
+/// `default_kind` is used (compile / link / runtime). The owned
+/// `wasmtime::Error` is preserved in `WasmError::source` for chain
+/// inspection by the host (D-16 surfaces it as a JS error cause).
 pub(crate) fn wasm_error_from_wasmtime(
-    err: &wasmtime::Error,
+    err: wasmtime::Error,
     default_kind: WasmErrorKind,
 ) -> WasmError {
-    classify_wasmtime_error(err, default_kind)
+    let kind = if err.downcast_ref::<wasmtime::Trap>().is_some() {
+        WasmErrorKind::Runtime
+    } else {
+        default_kind
+    };
+    WasmError::with_source(kind, err)
 }
 
 // ---------------------------------------------------------------------------

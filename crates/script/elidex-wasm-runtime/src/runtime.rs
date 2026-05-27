@@ -9,15 +9,11 @@ use elidex_ecs::{EcsDom, Entity};
 use elidex_script_session::SessionCore;
 use wasmtime::{Config, Engine, Instance, Linker, Module, Store, Val, ValType};
 
-use crate::error::{classify_wasmtime_error, WasmError, WasmErrorKind};
+use crate::engine_conv::wasm_error_from_wasmtime;
+use crate::error::{WasmError, WasmErrorKind};
 use crate::host::funcs::register_host_functions;
 use crate::host::state::HostState;
-
-/// A compiled Wasm module (engine-independent, reusable).
-#[derive(Clone)]
-pub struct WasmModule {
-    module: Module,
-}
+use crate::module::WasmModule;
 
 /// Default fuel budget per `call_export()` invocation.
 ///
@@ -63,9 +59,12 @@ impl WasmRuntime {
 
     /// Compile a Wasm module from bytes.
     pub fn compile(&self, wasm_bytes: &[u8]) -> Result<WasmModule, WasmError> {
-        let module = Module::new(&self.engine, wasm_bytes)
-            .map_err(|e| classify_wasmtime_error(&e, WasmErrorKind::Compile))?;
-        Ok(WasmModule { module })
+        let inner = Module::new(&self.engine, wasm_bytes)
+            .map_err(|e| wasm_error_from_wasmtime(e, WasmErrorKind::Compile))?;
+        Ok(WasmModule {
+            inner,
+            source_bytes: Arc::from(wasm_bytes.to_vec().into_boxed_slice()),
+        })
     }
 
     /// Validate a Wasm module without compiling it.
@@ -81,8 +80,8 @@ impl WasmRuntime {
         let mut store = Store::new(&self.engine, host_state);
         let instance = self
             .linker
-            .instantiate(&mut store, &module.module)
-            .map_err(|e| classify_wasmtime_error(&e, WasmErrorKind::Link))?;
+            .instantiate(&mut store, &module.inner)
+            .map_err(|e| wasm_error_from_wasmtime(e, WasmErrorKind::Link))?;
         Ok(WasmInstance { store, instance })
     }
 }
@@ -161,7 +160,7 @@ impl WasmInstance {
         let mut results = vec![Val::I32(0); ty.results().len()];
         export_func
             .call(&mut *guard.0, args, &mut results)
-            .map_err(|e| classify_wasmtime_error(&e, WasmErrorKind::Runtime))?;
+            .map_err(|e| wasm_error_from_wasmtime(e, WasmErrorKind::Runtime))?;
 
         drop(guard);
         Ok(results)

@@ -3,19 +3,40 @@
 //! Maps wasmtime errors to the three WebAssembly JS API error classes:
 //! `CompileError`, `LinkError`, `RuntimeError`.
 //!
-//! JS engines use `WasmErrorKind` to construct the correct JS error type,
-//! avoiding engine-specific classification logic.
+//! Per WASM JS API §5.10 "Error Objects" the spec defines three error
+//! constructor classes; JS engines use `WasmErrorKind` to construct the
+//! correct JS error type, avoiding engine-specific classification logic.
+//!
+//! ## Tier E — documented `wasmtime::Error` exception
+//!
+//! `WasmError::source` exposes `Option<wasmtime::Error>` as a public
+//! field; this is the only `wasmtime::*` token allowed on the crate's
+//! public surface (see `lib.rs` tier table). Justification: the
+//! engine-bridge layer owns `wasmtime` as a direct dependency, and
+//! preserving the source error lets D-16 host code chain-inspect
+//! (downcast to `wasmtime::Trap`, etc.) when surfacing JS errors.
+//! `Option<_>` (rather than the plan's literal non-Option shape) is a
+//! deviation noted in the landing memo: native-only error paths
+//! (overflow on `u32::try_from(grow_result_u64)`) have no wasmtime
+//! cause, and synthesizing a placeholder would be a reactive
+//! anti-pattern.
 
 use std::fmt;
 
-/// Classification of WebAssembly errors per JS API spec §3.
+/// Classification of WebAssembly errors per WASM JS API §5.10
+/// "Error Objects". `#[non_exhaustive]` carries additive room for
+/// future proposals (e.g. Exception Handling's `WebAssembly.Exception`
+/// would surface as a new kind once host machinery lands).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum WasmErrorKind {
-    /// Module validation/compilation failed (§3.1 `CompileError`).
+    /// Module validation / compilation failed (§5.10 `CompileError`).
     Compile,
-    /// Module instantiation failed — e.g. missing imports (§3.2 `LinkError`).
+    /// Module instantiation failed — e.g. missing imports (§5.10
+    /// `LinkError`).
     Link,
-    /// Runtime execution error — trap, fuel exhaustion (§3.3 `RuntimeError`).
+    /// Runtime execution error — trap, fuel exhaustion, stack overflow
+    /// (§5.10 `RuntimeError` + §7.1 stack-overflow + §7.2 out-of-memory).
     Runtime,
 }
 
@@ -29,23 +50,54 @@ impl fmt::Display for WasmErrorKind {
     }
 }
 
-/// A WebAssembly error with classification and message.
+/// A WebAssembly error with classification, message, and (when the
+/// error originated inside wasmtime) the original `wasmtime::Error` for
+/// chain inspection. See module-level docs for the tier-E exception
+/// rationale on `source`.
 #[derive(Debug)]
 pub struct WasmError {
     pub kind: WasmErrorKind,
-    message: String,
+    pub source: Option<wasmtime::Error>,
+    pub message: String,
 }
 
 impl WasmError {
+    /// Construct an error with no wasmtime source — used by native-only
+    /// validation paths (e.g. overflow checks after `wasmtime::Memory::grow`
+    /// returns a `u64` that exceeds `u32::MAX`).
     pub fn new(kind: WasmErrorKind, message: impl Into<String>) -> Self {
         Self {
             kind,
+            source: None,
             message: message.into(),
         }
     }
 
+    /// Construct an error preserving the wasmtime cause. The message is
+    /// derived from the source if not supplied explicitly. Used by the
+    /// `engine_conv::wasm_error_from_wasmtime` classifier.
+    pub fn with_source(kind: WasmErrorKind, source: wasmtime::Error) -> Self {
+        let message = source.to_string();
+        Self {
+            kind,
+            source: Some(source),
+            message,
+        }
+    }
+
+    pub fn kind(&self) -> &WasmErrorKind {
+        &self.kind
+    }
+
     pub fn message(&self) -> &str {
         &self.message
+    }
+
+    /// Returns the underlying wasmtime cause for error-chain inspection,
+    /// `None` when the error originated from a native-only validation
+    /// path.
+    pub fn source_err(&self) -> Option<&wasmtime::Error> {
+        self.source.as_ref()
     }
 }
 
@@ -55,19 +107,8 @@ impl fmt::Display for WasmError {
     }
 }
 
-impl std::error::Error for WasmError {}
-
-/// Classify a wasmtime error into a `WasmErrorKind`.
-///
-/// Heuristic: if the error chain contains a `wasmtime::Trap`, it's a runtime
-/// error. Otherwise, we rely on the call site to pass the correct kind.
-pub(crate) fn classify_wasmtime_error(
-    error: &wasmtime::Error,
-    default_kind: WasmErrorKind,
-) -> WasmError {
-    // Check for Trap in the error chain (runtime error).
-    if error.downcast_ref::<wasmtime::Trap>().is_some() {
-        return WasmError::new(WasmErrorKind::Runtime, error.to_string());
+impl std::error::Error for WasmError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.source.as_ref().map(AsRef::as_ref)
     }
-    WasmError::new(default_kind, error.to_string())
 }

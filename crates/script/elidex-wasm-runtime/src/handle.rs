@@ -142,7 +142,7 @@ impl WasmMemory {
         let pre_pages = self
             .inner
             .grow(&mut *store, u64::from(delta))
-            .map_err(|e| engine_conv::wasm_error_from_wasmtime(&e, WasmErrorKind::Runtime))?;
+            .map_err(|e| engine_conv::wasm_error_from_wasmtime(e, WasmErrorKind::Runtime))?;
         let post_ptr = self.inner.data_ptr(&*store);
         let pre_pages_u32 = u32::try_from(pre_pages).map_err(|_| {
             WasmError::new(
@@ -213,7 +213,7 @@ impl WasmTable {
         let r = engine_conv::wasm_ref_to_wasmtime(value, &mut store)?;
         self.inner
             .set(&mut *store, u64::from(index), r)
-            .map_err(|e| engine_conv::wasm_error_from_wasmtime(&e, WasmErrorKind::Runtime))
+            .map_err(|e| engine_conv::wasm_error_from_wasmtime(e, WasmErrorKind::Runtime))
     }
 
     /// Grow by `delta` entries, filling new slots with `init`. Returns
@@ -224,7 +224,7 @@ impl WasmTable {
         let prev = self
             .inner
             .grow(&mut *store, u64::from(delta), init)
-            .map_err(|e| engine_conv::wasm_error_from_wasmtime(&e, WasmErrorKind::Runtime))?;
+            .map_err(|e| engine_conv::wasm_error_from_wasmtime(e, WasmErrorKind::Runtime))?;
         u32::try_from(prev).map_err(|_| {
             WasmError::new(
                 WasmErrorKind::Runtime,
@@ -280,7 +280,7 @@ impl WasmGlobal {
         let v = engine_conv::wasm_value_to_wasmtime(value, &mut store)?;
         self.inner
             .set(&mut *store, v)
-            .map_err(|e| engine_conv::wasm_error_from_wasmtime(&e, WasmErrorKind::Runtime))
+            .map_err(|e| engine_conv::wasm_error_from_wasmtime(e, WasmErrorKind::Runtime))
     }
 }
 
