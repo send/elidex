@@ -244,28 +244,17 @@ pub(crate) fn import_value_to_extern(value: WasmImportValue) -> wasmtime::Extern
     }
 }
 
-/// Engine-indep representation of an exported item, returned by
-/// `WasmInstance::exports()`. Consumed by Stage 7 dispatch.
-#[derive(Clone, Debug)]
-#[allow(dead_code)] // Consumed by Stage 7 `WasmInstance::exports()`.
-pub(crate) enum WasmExportItem {
-    Func(WasmFunc),
-    Memory(WasmMemory),
-    Table(WasmTable),
-    Global(WasmGlobal),
-}
-
-/// Convert a wasmtime `Extern` into the engine-indep `WasmExportItem`,
-/// attaching `store_handle` so produced handles share the store.
-/// Returns `None` for variants outside the MVP scope
-/// (`Tag` requires Exception Handling host machinery; `SharedMemory`
-/// requires the Threads proposal). Stage 7 export iteration skips
-/// such entries.
-#[allow(dead_code)] // Consumed by Stage 7 `WasmInstance::exports()`.
+/// Convert a wasmtime `Extern` into the engine-indep
+/// `instance::WasmExportItem`, attaching `store_handle` so produced
+/// handles share the store. Returns `None` for variants outside the
+/// MVP scope (`Tag` requires Exception Handling host machinery;
+/// `SharedMemory` requires the Threads proposal). Stage 7 export
+/// iteration skips such entries.
 pub(crate) fn export_item_from_wasmtime_extern(
     e: &wasmtime::Extern,
     store_handle: &WasmStoreHandle,
-) -> Option<WasmExportItem> {
+) -> Option<crate::instance::WasmExportItem> {
+    use crate::instance::WasmExportItem;
     match e {
         wasmtime::Extern::Func(f) => Some(WasmExportItem::Func(WasmFunc {
             inner: *f,
