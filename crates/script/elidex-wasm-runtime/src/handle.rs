@@ -396,10 +396,12 @@ impl WasmMemoryView {
     /// Linear-memory byte length per WASM JS API §5.3 — returns `Err`
     /// once detached, matching `read` / `write`. Returned as `u32` to
     /// align with the JS-visible `ArrayBuffer.byteLength` shape D-16
-    /// wraps over this view (ECMA-262 `[[ArrayBufferByteLength]]` is a
-    /// 32-bit integer in browser engines); values exceeding `u32::MAX`
-    /// (Memory64 future) surface as `Runtime`-kind error rather than
-    /// silently saturating, mirroring `WasmTable::length`.
+    /// wraps over this view (ECMA-262 §25.1.7 leaves
+    /// `[[ArrayBufferByteLength]]` as an unconstrained non-negative
+    /// integer; browser engines cap it at `u32::MAX` by convention);
+    /// values exceeding `u32::MAX` (Memory64 future) surface as
+    /// `Runtime`-kind error rather than silently saturating, mirroring
+    /// `WasmTable::length`.
     pub fn byte_size(&self) -> Result<u32, WasmError> {
         self.ensure_attached()?;
         let store = self.store.borrow();
