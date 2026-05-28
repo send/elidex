@@ -74,8 +74,10 @@ impl WasmInstance {
     /// API §5.2 `[[Exports]]`. Unsupported variants (Tag, SharedMemory)
     /// are skipped silently; they only appear when future proposals
     /// (Exception Handling / Threads) land additively. Memory entries
-    /// are routed through `get_memory` so they share the cache (and
-    /// thus the `view_flags`) with prior / subsequent direct lookups.
+    /// reuse the `memory_cache` `Rc` so they share the `view_flags`
+    /// with prior / subsequent direct `get_memory` lookups; construction
+    /// is done inline from the matched `Extern::Memory` to avoid a
+    /// second store borrow + lookup.
     pub fn exports(&self) -> Vec<(String, WasmExportItem)> {
         let mut store = self.store.borrow_mut();
         let raw: Vec<(String, wasmtime::Extern)> = self
@@ -86,9 +88,15 @@ impl WasmInstance {
         drop(store);
         raw.into_iter()
             .filter_map(|(name, ext)| match ext {
-                wasmtime::Extern::Memory(_) => self
-                    .get_memory(&name)
-                    .map(|m| (name, WasmExportItem::Memory(m))),
+                wasmtime::Extern::Memory(m) => {
+                    let wm = self
+                        .memory_cache
+                        .borrow_mut()
+                        .entry(name.clone())
+                        .or_insert_with(|| WasmMemory::from_parts(m, self.store.clone()))
+                        .clone();
+                    Some((name, WasmExportItem::Memory(wm)))
+                }
                 _ => engine_conv::export_item_from_wasmtime_extern(&ext, &self.store)
                     .map(|item| (name, item)),
             })

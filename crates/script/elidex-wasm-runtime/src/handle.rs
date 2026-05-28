@@ -674,8 +674,10 @@ mod view_tests {
     #[test]
     fn view_flags_opportunistic_cleanup_bounds_growth() {
         // Allocate 200 views without growing; each is dropped before the
-        // next is allocated, so all Weaks dangle. After the 65th view
-        // alloc the cleanup path runs and trims dead entries.
+        // next is allocated, so all Weaks dangle. `view()` runs cleanup
+        // when `view_flags.len() > THRESHOLD` (strict `>`), so with
+        // THRESHOLD=64 the first cleanup fires inside the 66th call
+        // (when `len()` has just become 65 from the 65th push).
         let mem = alloc_memory(1, None);
         for _ in 0..200 {
             let _view = mem.view();
