@@ -29,12 +29,14 @@ Experimental browser engine written in Rust.
 
 ### Spec citation
 
-WHATWG / W3C / TC39 (ECMA-262 / ECMA-402) の section number / anchor / WebIDL / AO (aoid) / **algorithm prose** 確認は `.claude/tools/webref` を使う。Data source 自動切替: WHATWG/W3C は w3c/webref machine-readable extracts、tc39 は `@tc39/<spec>-biblio` (tc39 公式 publish の JSON、jsdelivr CDN 経由)、algorithm prose は spec multipage chapter HTML (webref `href` / tc39 chapter-file 導出経由、HTTP cache 共有)。「§X.Y.Z = <name>」と書く時の number ↔ title pair は **必ず lookup** (well-known 風 cite を信用しない、D-17 で `§4.13.4 = upgrade queue` 系の drift が landing 後に発覚、`tests_symbol_iter.rs:283` の `ECMA-262 §14.7.5.9 .return()` も §14.7.5.9 = "EnumerateObjectProperties" の drift)。**ECMA-262 では AO 名が版間で section 番号より安定なので `aoid <spec> <name>` で AO 名から正規番号を引き直すのが推奨**。algorithm step の prose 確認には `body <spec> <anchor-or-AO-name>` (multipage chapter cache 経由、truncate なし)。recipe → `.claude/skills/elidex-review/axes.md` Axis 4 § "Verification tool"
+WHATWG / W3C / TC39 (ECMA-262 / ECMA-402) の section number / anchor / WebIDL / AO (aoid) / **algorithm prose** 確認は `.claude/tools/webref` を使う (subcommand 詳細 = `.claude/tools/webref --help`)。Data source 自動切替: WHATWG/W3C は w3c/webref machine-readable extracts、tc39 は `@tc39/<spec>-biblio` (jsdelivr CDN 経由)、algorithm prose は spec multipage chapter HTML (HTTP cache 共有)。
+
+「§X.Y.Z = <name>」と書く時の number ↔ title pair は **必ず lookup** (well-known 風 cite を信用しない、D-17 で `§4.13.4 = upgrade queue` 系の drift が landing 後に発覚、`tests_symbol_iter.rs:283` の `ECMA-262 §14.7.5.9 .return()` も §14.7.5.9 = "EnumerateObjectProperties" の drift)。**ECMA-262 では AO 名が版間で section 番号より安定なので `aoid <spec> <name>` で AO 名から正規番号を引き直すのが推奨**。algorithm step の prose 確認には `body <spec> <anchor-or-AO-name>` (multipage chapter cache 経由、truncate なし)。
 
 ### Workflow
 
 - **コミット前**: `cargo fmt --all`
-- **Push 前**: `mise run ci`（check + lint + test-all + doc + deny）。cargo を呼ぶ task (`check` / `test` / `test-doc` / `test-all` / `lint-clippy` / `doc`) は `--all-features` で gate されているので feature-gated code (`#![cfg(feature = "engine")]` 等) も含めて回る (`lint-fmt` / `deny` は feature と無関係のため対象外)
+- **Push 前**: `mise run ci` (check + lint + test-all + doc + deny + ci-sweep cleanup; ci-sweep は `cargo-sweep` 未インストール時 no-op)
 - **テストは変更クレートに絞る**: `cargo test -p <crate> --all-features`。`--workspace` / `mise run test` は最終検証時のみ
 - **Git**: main 直接 push 禁止、PR 経由必須。`gh pr merge --auto` 禁止。CI 全 pass を目視確認してから squash merge
 
@@ -47,7 +49,7 @@ mise run lint        # clippy + fmt check
 mise run fmt         # cargo fmt --all
 ```
 
-その他: `test-all` (+ doc-tests) / `test-doc` / `doc` (RUSTDOCFLAGS=-D warnings) / `bench` (CSS / style / layout)
+その他: `test-all` (+ doc-tests) / `test-doc` / `doc` (RUSTDOCFLAGS=-D warnings) / `bench` (CSS / style / layout)。cargo を呼ぶ task (`check` / `test` / `test-doc` / `test-all` / `lint-clippy` / `doc`) は `--all-features` で gate (feature-gated code 含む)。`lint-fmt` / `deny` は feature と無関係。
 
 ## Architecture
 
@@ -73,4 +75,4 @@ mise run fmt         # cargo fmt --all
 
 ## CI
 
-4 jobs: `changes` (path filter via `dorny/paths-filter@v4` — includes `.github/workflows/**` so workflow-only edits trigger the gate) / `check` (ubuntu/macos/windows: fmt check + clippy `--all-features` + nextest `--all-features` + doc-tests `--all-features`; cargo-nextest installed via `taiki-e/install-action@v2`) / `doc` (cargo doc `--all-features` -D warnings) / `deny` (standalone). Push to main always runs all jobs. Actions pinned (`actions/checkout@v6`, `Swatinem/rust-cache@v2`, `taiki-e/install-action@v2`). Toolchain stable (`rust-toolchain.toml`).
+`changes` path filter (`dorny/paths-filter@v4`、`.github/workflows/**` 含む) で以下 3 job を gate: `check` (3 OS × `cargo fmt --all -- --check` + clippy + nextest + doc-tests、後 3 つは `--all-features`) / `doc` (`cargo doc --workspace --no-deps --all-features` + `RUSTDOCFLAGS=-D warnings`) / `deny` (license + supply chain)。**Push to main は path filter bypass で常時全 job 実行**。コマンド詳細 = `.github/workflows/ci.yml`。
