@@ -9,8 +9,9 @@
 //! Rust-closure path is tracked as `#11-wasm-user-import-host-fn-builder`).
 
 use elidex_wasm_runtime::{
-    ImportExportKind, ImportObject, WasmErrorKind, WasmExportItem, WasmImportValue, WasmRuntime,
-    WasmValue,
+    HeapType, ImportExportKind, ImportObject, RefType, WasmErrorKind, WasmExportItem,
+    WasmGlobalDescriptor, WasmImportValue, WasmMemoryDescriptor, WasmRef, WasmRuntime,
+    WasmTableDescriptor, WasmValue, WasmValueType,
 };
 
 fn rt() -> WasmRuntime {
@@ -255,4 +256,88 @@ fn instantiate_rejects_non_empty_imports_with_link_error() {
         "expected guard message, got: {}",
         err.message()
     );
+}
+
+// ---------------------------------------------------------------------------
+// F2 standalone surface — Memory ctor + view detach interlock + Table /
+// Global ctors. Mirrors WASM JS API §5.3 / §5.4 / §5.5 engine-side
+// behaviour that D-16 will wrap JS-side.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn standalone_memory_view_round_trip_with_grow_detach() {
+    let rt = rt();
+    let mut mem = rt
+        .new_memory(WasmMemoryDescriptor {
+            initial: 1,
+            maximum: Some(4),
+        })
+        .unwrap();
+    let view = mem.view();
+    assert!(!view.is_detached());
+    assert_eq!(view.byte_size().unwrap(), 64 * 1024);
+
+    view.write(0, b"hello").unwrap();
+    assert_eq!(view.read(0, 5).unwrap(), b"hello".to_vec());
+
+    let g = mem.grow(1).unwrap();
+    assert_eq!(g.pre_pages, 1);
+    assert!(g.buffer_handle_invalidated);
+
+    // Pre-grow view is detached; post-grow view is live and observes
+    // the new size + the prior writes (wasmtime resizes the backing
+    // store in-place when possible, but spec-side the view aliasing
+    // must use a fresh view post-grow).
+    assert!(view.is_detached());
+    let fresh = mem.view();
+    assert!(!fresh.is_detached());
+    assert_eq!(fresh.byte_size().unwrap(), 2 * 64 * 1024);
+    assert_eq!(fresh.read(0, 5).unwrap(), b"hello".to_vec());
+}
+
+#[test]
+fn standalone_table_and_global_round_trip() {
+    let rt = rt();
+
+    let table = rt
+        .new_table(
+            WasmTableDescriptor {
+                element: RefType {
+                    nullable: true,
+                    heap: HeapType::Func,
+                },
+                initial: 2,
+                maximum: None,
+            },
+            WasmRef::Null(HeapType::Func),
+        )
+        .unwrap();
+    assert_eq!(table.length().unwrap(), 2);
+    assert_eq!(
+        table.element_kind().unwrap(),
+        WasmValueType::Ref(RefType {
+            nullable: true,
+            heap: HeapType::Func,
+        })
+    );
+
+    let mut g = rt
+        .new_global(
+            WasmGlobalDescriptor {
+                value_type: WasmValueType::I64,
+                mutable: true,
+            },
+            WasmValue::I64(123),
+        )
+        .unwrap();
+    assert!(g.mutable());
+    match g.get() {
+        WasmValue::I64(v) => assert_eq!(v, 123),
+        other => panic!("expected I64, got {other:?}"),
+    }
+    g.set(WasmValue::I64(456)).unwrap();
+    match g.get() {
+        WasmValue::I64(v) => assert_eq!(v, 456),
+        other => panic!("expected I64, got {other:?}"),
+    }
 }

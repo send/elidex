@@ -23,14 +23,21 @@ use elidex_dom_api::registry::{
 };
 use wasmtime::{Config, Engine, Linker, Module, Store};
 
-use crate::engine_conv::{import_value_to_extern, wasm_error_from_wasmtime};
+use crate::engine_conv::{
+    import_value_to_extern, wasm_error_from_wasmtime, wasm_ref_to_wasmtime, wasm_value_to_wasmtime,
+    wasmtime_val_type_from,
+};
 use crate::error::{WasmError, WasmErrorKind};
-use crate::handle::WasmStoreHandle;
+use crate::handle::{WasmGlobal, WasmMemory, WasmStoreHandle, WasmTable};
 use crate::host::funcs::register_host_functions;
 use crate::host::state::HostState;
 use crate::imports::ImportObject;
 use crate::instance::WasmInstance;
 use crate::module::WasmModule;
+use crate::value::{
+    WasmGlobalDescriptor, WasmMemoryDescriptor, WasmRef, WasmTableDescriptor, WasmValue,
+    WasmValueType,
+};
 
 /// Default fuel budget — 1 billion instructions is roughly a few
 /// seconds on modern hardware, guarding against runaway wasm modules
@@ -110,21 +117,25 @@ impl WasmRuntime {
         module: &WasmModule,
         imports: &ImportObject,
     ) -> Result<WasmInstance, WasmError> {
-        // D-16 deferral: every `instantiate` creates a fresh `Store`,
-        // and `WasmImportValue::{Func,Memory,Table,Global}` handles are
+        // Deferred to `#11-wasm-user-import-host-fn-builder` (D-16
+        // surface): every `instantiate` creates a fresh `Store`, and
+        // `WasmImportValue::{Func,Memory,Table,Global}` handles are
         // store-tied — passing non-empty imports today guarantees a
         // cross-store mismatch at `Linker::define`, surfacing as a
         // confusing wasmtime error. Fail fast with a clear `LinkError`
-        // until D-16 host-fn-builder lands the shared-store wiring
+        // until the host-fn-builder slot lands the shared-store wiring
         // (per WASM JS API §4.1 "Interaction of the WebAssembly Store
         // with JavaScript" — each agent has an associated store, and
         // cross-store import handles violate the per-agent invariant).
         if !imports.is_empty() {
+            // User-facing message stays actionable (no internal slot /
+            // plan IDs); the deferral citation lives in the surrounding
+            // comment above for ledger discipline.
             return Err(WasmError::new(
                 WasmErrorKind::Link,
                 "non-empty ImportObject not yet supported \
-                 (cross-store import handles deferred to D-16 \
-                 host-fn-builder)"
+                 (cross-store import handles are not yet wired through \
+                 the engine bridge)"
                     .to_string(),
             ));
         }
@@ -156,6 +167,98 @@ impl WasmRuntime {
 
         let store_handle = WasmStoreHandle::new(store);
         Ok(WasmInstance::new(inst, store_handle))
+    }
+
+    /// Standalone Memory ctor per WASM JS API §5.3 Memory ctor algorithm
+    /// — engine-side portion (`#11-wasm-user-import-host-fn-builder`,
+    /// D-16 surface, wraps this JS-side). Allocates a fresh per-handle
+    /// `Store<HostState>` (mirrors `instantiate` precedent in this file)
+    /// so standalone Memory/Table/Global handles are store-isolated from
+    /// each other and from any instance. Per WASM JS API §4.1
+    /// "Interaction of the WebAssembly Store with JavaScript" the spec
+    /// model is one associated store per agent; per-handle store
+    /// isolation is an elidex engine-bridge implementation choice (not a
+    /// spec-mandated per-item slot) that maps each `WasmStoreHandle`
+    /// into its own associated store until the host-fn-builder lands
+    /// shared-store wiring.
+    pub fn new_memory(&self, desc: WasmMemoryDescriptor) -> Result<WasmMemory, WasmError> {
+        let host_state = HostState::new(self.dom_registry.clone(), self.cssom_registry.clone());
+        let mut store = Store::new(&self.engine, host_state);
+        // `wasmtime::MemoryType::new` panics if `min > max` (or addressable-
+        // size overflow) — its doc explicitly says so. Per WASM JS API §5.3
+        // Memory(descriptor) ctor step 5 (RangeError when memtype is not
+        // valid) / step 7 (RangeError on allocation failure) those
+        // conditions must surface as `RangeError`, not abort the process.
+        // `MemoryTypeBuilder::build` returns `Result` for the same
+        // validations, so we route through the builder + propagate.
+        let ty = wasmtime::MemoryTypeBuilder::default()
+            .min(u64::from(desc.initial))
+            .max(desc.maximum.map(u64::from))
+            .build()
+            .map_err(|e| wasm_error_from_wasmtime(e, WasmErrorKind::Runtime))?;
+        let inner = wasmtime::Memory::new(&mut store, ty)
+            .map_err(|e| wasm_error_from_wasmtime(e, WasmErrorKind::Runtime))?;
+        let store_handle = WasmStoreHandle::new(store);
+        Ok(WasmMemory::from_parts(inner, store_handle))
+    }
+
+    /// Standalone Table ctor per WASM JS API §5.4 Table ctor algorithm —
+    /// engine-side portion (`#11-wasm-user-import-host-fn-builder`, D-16
+    /// surface, wraps this JS-side). `init` is the
+    /// funcref/externref/typed-null used to fill the initial entries
+    /// (the D-16 host applies the §5.4 step 8-9 default selection when
+    /// the JS-side `value` parameter is absent).
+    pub fn new_table(
+        &self,
+        desc: WasmTableDescriptor,
+        init: WasmRef,
+    ) -> Result<WasmTable, WasmError> {
+        let host_state = HostState::new(self.dom_registry.clone(), self.cssom_registry.clone());
+        let mut store = Store::new(&self.engine, host_state);
+        let wasmtime::ValType::Ref(element_ty) =
+            wasmtime_val_type_from(WasmValueType::Ref(desc.element))
+        else {
+            unreachable!("WasmValueType::Ref converts to wasmtime::ValType::Ref")
+        };
+        let ty = wasmtime::TableType::new(element_ty, desc.initial, desc.maximum);
+        let init_ref = wasm_ref_to_wasmtime(init, &mut store)?;
+        let inner = wasmtime::Table::new(&mut store, ty, init_ref)
+            .map_err(|e| wasm_error_from_wasmtime(e, WasmErrorKind::Runtime))?;
+        let store_handle = WasmStoreHandle::new(store);
+        Ok(WasmTable {
+            inner,
+            store: store_handle,
+        })
+    }
+
+    /// Standalone Global ctor per WASM JS API §5.5 Global ctor algorithm
+    /// — engine-side portion (`#11-wasm-user-import-host-fn-builder`,
+    /// D-16 surface, wraps this JS-side). The D-16 host is responsible
+    /// for the §5.5 step 3 `v128` / `exnref` rejection at the JS
+    /// boundary; the engine here simply forwards `desc.value_type` to
+    /// wasmtime and lets the linker reject any type↔init mismatch.
+    pub fn new_global(
+        &self,
+        desc: WasmGlobalDescriptor,
+        init: WasmValue,
+    ) -> Result<WasmGlobal, WasmError> {
+        let host_state = HostState::new(self.dom_registry.clone(), self.cssom_registry.clone());
+        let mut store = Store::new(&self.engine, host_state);
+        let val_ty = wasmtime_val_type_from(desc.value_type);
+        let mutability = if desc.mutable {
+            wasmtime::Mutability::Var
+        } else {
+            wasmtime::Mutability::Const
+        };
+        let ty = wasmtime::GlobalType::new(val_ty, mutability);
+        let init_val = wasm_value_to_wasmtime(init, &mut store)?;
+        let inner = wasmtime::Global::new(&mut store, ty, init_val)
+            .map_err(|e| wasm_error_from_wasmtime(e, WasmErrorKind::Runtime))?;
+        let store_handle = WasmStoreHandle::new(store);
+        Ok(WasmGlobal {
+            inner,
+            store: store_handle,
+        })
     }
 }
 
@@ -450,5 +553,254 @@ mod tests {
         let packed = expect_i64(&results[0]);
         assert_ne!(packed, 0);
         assert_eq!(read_wasm_string(&instance, packed), "Hello!");
+    }
+
+    // ---------------------------------------------------------------
+    // Standalone ctor coverage (WASM JS API §5.3 / §5.4 / §5.5).
+    // ---------------------------------------------------------------
+
+    use crate::value::{
+        HeapType, RefType, WasmGlobalDescriptor, WasmMemoryDescriptor, WasmRef,
+        WasmTableDescriptor, WasmValueType,
+    };
+
+    #[test]
+    fn new_memory_round_trip_basic() {
+        let runtime = WasmRuntime::new().unwrap();
+        let mem = runtime
+            .new_memory(WasmMemoryDescriptor {
+                initial: 1,
+                maximum: Some(2),
+            })
+            .unwrap();
+        // 1 page = 64 KiB.
+        assert_eq!(mem.byte_size(), 64 * 1024);
+    }
+
+    #[test]
+    fn new_memory_with_no_maximum() {
+        let runtime = WasmRuntime::new().unwrap();
+        let mem = runtime
+            .new_memory(WasmMemoryDescriptor {
+                initial: 0,
+                maximum: None,
+            })
+            .unwrap();
+        assert_eq!(mem.byte_size(), 0);
+    }
+
+    #[test]
+    fn new_memory_grow_succeeds() {
+        let runtime = WasmRuntime::new().unwrap();
+        let mut mem = runtime
+            .new_memory(WasmMemoryDescriptor {
+                initial: 1,
+                maximum: Some(4),
+            })
+            .unwrap();
+        let g = mem.grow(2).unwrap();
+        assert_eq!(g.pre_pages, 1);
+        assert!(g.buffer_handle_invalidated);
+        assert_eq!(mem.byte_size(), 3 * 64 * 1024);
+    }
+
+    #[test]
+    fn new_table_round_trip_funcref_null_init() {
+        let runtime = WasmRuntime::new().unwrap();
+        let table = runtime
+            .new_table(
+                WasmTableDescriptor {
+                    element: RefType {
+                        nullable: true,
+                        heap: HeapType::Func,
+                    },
+                    initial: 3,
+                    maximum: Some(5),
+                },
+                WasmRef::Null(HeapType::Func),
+            )
+            .unwrap();
+        assert_eq!(table.length().unwrap(), 3);
+        assert_eq!(
+            table.element_kind().unwrap(),
+            WasmValueType::Ref(RefType {
+                nullable: true,
+                heap: HeapType::Func,
+            })
+        );
+    }
+
+    #[test]
+    fn new_table_externref_null_init() {
+        let runtime = WasmRuntime::new().unwrap();
+        let table = runtime
+            .new_table(
+                WasmTableDescriptor {
+                    element: RefType {
+                        nullable: true,
+                        heap: HeapType::Extern,
+                    },
+                    initial: 1,
+                    maximum: None,
+                },
+                WasmRef::Null(HeapType::Extern),
+            )
+            .unwrap();
+        assert_eq!(table.length().unwrap(), 1);
+        let kind = table.element_kind().unwrap();
+        assert_eq!(
+            kind,
+            WasmValueType::Ref(RefType {
+                nullable: true,
+                heap: HeapType::Extern,
+            })
+        );
+    }
+
+    #[test]
+    fn new_global_immutable_i32() {
+        let runtime = WasmRuntime::new().unwrap();
+        let g = runtime
+            .new_global(
+                WasmGlobalDescriptor {
+                    value_type: WasmValueType::I32,
+                    mutable: false,
+                },
+                WasmValue::I32(42),
+            )
+            .unwrap();
+        assert!(!g.mutable());
+        match g.get() {
+            WasmValue::I32(x) => assert_eq!(x, 42),
+            other => panic!("expected I32, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn new_global_mutable_f64_set() {
+        let runtime = WasmRuntime::new().unwrap();
+        let mut g = runtime
+            .new_global(
+                WasmGlobalDescriptor {
+                    value_type: WasmValueType::F64,
+                    mutable: true,
+                },
+                WasmValue::F64(1.5),
+            )
+            .unwrap();
+        assert!(g.mutable());
+        g.set(WasmValue::F64(2.25)).unwrap();
+        match g.get() {
+            WasmValue::F64(x) => assert!((x - 2.25).abs() < f64::EPSILON),
+            other => panic!("expected F64, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn new_global_immutable_set_errors() {
+        let runtime = WasmRuntime::new().unwrap();
+        let mut g = runtime
+            .new_global(
+                WasmGlobalDescriptor {
+                    value_type: WasmValueType::I32,
+                    mutable: false,
+                },
+                WasmValue::I32(7),
+            )
+            .unwrap();
+        // WASM JS API §5.5 setter step 5 — engine surfaces as Runtime;
+        // D-16 maps to JS TypeError.
+        let err = g.set(WasmValue::I32(8)).unwrap_err();
+        assert!(matches!(err.kind(), WasmErrorKind::Runtime));
+    }
+
+    #[test]
+    fn instance_get_memory_cross_lookup_shares_view_flags() {
+        // Regression for the cross-handle detach gap (PR F2 /simplify
+        // gate, 3-angle convergent CRIT): two `inst.get_memory("m")`
+        // lookups returned independent `WasmMemory` wrappers with
+        // separate `view_flags`, so a grow via one failed to detach
+        // views allocated via the other — violating WASM JS API §5.3
+        // "refresh the Memory buffer" step 5.1. The instance-level
+        // memory cache routes both lookups (and `exports()`) through
+        // the same shared wrapper.
+        let env = TestEnv::new();
+        let instance = env.compile_and_instantiate(
+            r#"(module
+                (memory (export "mem") 1 4)
+                (func (export "grow_one") (drop (memory.grow (i32.const 1))))
+            )"#,
+        );
+        let mut mem_a = instance.get_memory("mem").unwrap();
+        let mem_b = instance.get_memory("mem").unwrap();
+        let view_b = mem_b.view();
+        assert!(!view_b.is_detached());
+        mem_a.grow(1).unwrap();
+        assert!(
+            view_b.is_detached(),
+            "cross-lookup view_b must be detached after mem_a.grow"
+        );
+
+        // `exports()` must also route through the same cache so
+        // memories returned from iteration share view_flags with
+        // direct `get_memory` lookups.
+        let view_c = match instance
+            .exports()
+            .into_iter()
+            .find(|(name, _)| name == "mem")
+            .expect("export 'mem' missing")
+            .1
+        {
+            crate::WasmExportItem::Memory(m) => m.view(),
+            other => panic!("expected Memory, got {other:?}"),
+        };
+        assert!(!view_c.is_detached());
+        mem_a.grow(1).unwrap();
+        assert!(
+            view_c.is_detached(),
+            "exports()-derived view_c must be detached after mem_a.grow"
+        );
+    }
+
+    #[test]
+    fn new_memory_min_greater_than_max_returns_err() {
+        // Regression: wasmtime's `MemoryType::new` panics on `min > max`;
+        // F2 must surface this as `Err` so D-16 maps it to RangeError per
+        // WASM JS API §5.3 Memory(descriptor) ctor step 5 (RangeError
+        // when memtype is not valid).
+        let runtime = WasmRuntime::new().unwrap();
+        let err = runtime
+            .new_memory(WasmMemoryDescriptor {
+                initial: 5,
+                maximum: Some(2),
+            })
+            .unwrap_err();
+        assert!(matches!(err.kind(), WasmErrorKind::Runtime));
+    }
+
+    #[test]
+    fn standalone_handles_independent_stores() {
+        // Sanity: two standalone Memories live in different stores so a
+        // grow on one cannot perturb the other's byte_size. Per WASM JS
+        // API §4.1 "Interaction of the WebAssembly Store with
+        // JavaScript" the spec model is one associated store per agent;
+        // per-handle store isolation here is an elidex engine-bridge
+        // implementation choice (not a spec-mandated per-item slot).
+        let runtime = WasmRuntime::new().unwrap();
+        let mut a = runtime
+            .new_memory(WasmMemoryDescriptor {
+                initial: 1,
+                maximum: Some(8),
+            })
+            .unwrap();
+        let b = runtime
+            .new_memory(WasmMemoryDescriptor {
+                initial: 1,
+                maximum: Some(8),
+            })
+            .unwrap();
+        a.grow(2).unwrap();
+        assert_eq!(a.byte_size(), 3 * 64 * 1024);
+        assert_eq!(b.byte_size(), 64 * 1024);
     }
 }
