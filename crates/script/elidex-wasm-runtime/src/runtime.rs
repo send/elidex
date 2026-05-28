@@ -128,11 +128,14 @@ impl WasmRuntime {
         // with JavaScript" — each agent has an associated store, and
         // cross-store import handles violate the per-agent invariant).
         if !imports.is_empty() {
+            // User-facing message stays actionable (no internal slot /
+            // plan IDs); the deferral citation lives in the surrounding
+            // comment above for ledger discipline.
             return Err(WasmError::new(
                 WasmErrorKind::Link,
                 "non-empty ImportObject not yet supported \
-                 (cross-store import handles deferred to \
-                 #11-wasm-user-import-host-fn-builder, D-16 surface)"
+                 (cross-store import handles are not yet wired through \
+                 the engine bridge)"
                     .to_string(),
             ));
         }

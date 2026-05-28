@@ -208,9 +208,9 @@ impl WasmFunc {
 /// Memory so that `grow` can detach them per WASM JS API §5.3 "refresh
 /// the Memory buffer" step 5.1. The tracking lives in an `Rc<RefCell<…>>`
 /// so the `#[derive(Clone)]` impl shares it across all clones of the
-/// same Memory — required for spec correctness, because `WasmMemory:
-/// Clone` shares the underlying wasmtime backing, so a grow via *any*
-/// clone must invalidate views allocated via *any* clone.
+/// same Memory — required for spec correctness, because the `Clone` impl
+/// for `WasmMemory` shares the underlying wasmtime backing, so a grow
+/// via *any* clone must invalidate views allocated via *any* clone.
 #[derive(Clone)]
 pub struct WasmMemory {
     pub(crate) inner: wasmtime::Memory,
@@ -395,9 +395,11 @@ impl WasmMemoryView {
 
     /// Linear-memory byte length per WASM JS API §5.3 — returns `Err`
     /// once detached, matching `read` / `write`. Returned as `u32` to
-    /// match `WasmMemoryDescriptor::initial` units; values exceeding
-    /// `u32::MAX` (Memory64 future) surface as `Runtime`-kind error
-    /// rather than silently saturating, mirroring `WasmTable::length`.
+    /// align with the JS-visible `ArrayBuffer.byteLength` shape D-16
+    /// wraps over this view (ECMA-262 `[[ArrayBufferByteLength]]` is a
+    /// 32-bit integer in browser engines); values exceeding `u32::MAX`
+    /// (Memory64 future) surface as `Runtime`-kind error rather than
+    /// silently saturating, mirroring `WasmTable::length`.
     pub fn byte_size(&self) -> Result<u32, WasmError> {
         self.ensure_attached()?;
         let store = self.store.borrow();
