@@ -109,6 +109,42 @@ pub struct WasmFuncType {
     pub results: Vec<WasmValueType>,
 }
 
+/// Engine-indep descriptor for `WasmRuntime::new_memory` — mirrors the JS
+/// `MemoryDescriptor` dictionary per WASM JS API §5.3 (initial / maximum
+/// pages, `shared` deferred behind `#11-wasm-threads`). The JS-side host
+/// (D-16) coerces the JS dictionary into this struct before calling the
+/// engine-bridge ctor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WasmMemoryDescriptor {
+    pub initial: u32,
+    pub maximum: Option<u32>,
+}
+
+/// Engine-indep descriptor for `WasmRuntime::new_table` — mirrors the JS
+/// `TableDescriptor` dictionary per WASM JS API §5.4 (`element` ref-type +
+/// initial / maximum entry counts). `element` carries the full structured
+/// `RefType` (nullable + heap) rather than the flattened JS `TableKind`
+/// enum so future Function-References-proposal concrete func types fit
+/// additively.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WasmTableDescriptor {
+    pub element: RefType,
+    pub initial: u32,
+    pub maximum: Option<u32>,
+}
+
+/// Engine-indep descriptor for `WasmRuntime::new_global` — mirrors the JS
+/// `GlobalDescriptor` dictionary per WASM JS API §5.5 (`value` valuetype +
+/// `mutable` flag). Step 3 of the §5.5 ctor algorithm rejects `v128` /
+/// `exnref` at the JS boundary; D-16 enforces that before constructing
+/// this descriptor, so the engine-bridge ctor accepts any `WasmValueType`
+/// and lets wasmtime validate the type↔init pairing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WasmGlobalDescriptor {
+    pub value_type: WasmValueType,
+    pub mutable: bool,
+}
+
 /// Outcome of a `WasmMemory::grow` call per WASM JS API §5.3
 /// Memory.prototype.grow algorithm.
 ///

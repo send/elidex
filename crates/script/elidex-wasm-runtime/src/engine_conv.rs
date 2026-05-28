@@ -299,10 +299,10 @@ pub(crate) fn export_item_from_wasmtime_extern(
             inner: *f,
             store: store_handle.clone(),
         })),
-        wasmtime::Extern::Memory(m) => Some(WasmExportItem::Memory(WasmMemory {
-            inner: *m,
-            store: store_handle.clone(),
-        })),
+        wasmtime::Extern::Memory(m) => Some(WasmExportItem::Memory(WasmMemory::from_parts(
+            *m,
+            store_handle.clone(),
+        ))),
         wasmtime::Extern::Table(t) => Some(WasmExportItem::Table(WasmTable {
             inner: *t,
             store: store_handle.clone(),

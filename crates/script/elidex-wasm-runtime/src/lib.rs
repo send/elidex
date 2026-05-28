@@ -28,11 +28,12 @@ mod runtime;
 mod value;
 
 pub use error::{WasmError, WasmErrorKind};
-pub use handle::{ScriptHostBinding, WasmFunc, WasmGlobal, WasmMemory, WasmTable};
+pub use handle::{ScriptHostBinding, WasmFunc, WasmGlobal, WasmMemory, WasmMemoryView, WasmTable};
 pub use imports::{ImportObject, WasmImportValue};
 pub use instance::{WasmExportItem, WasmInstance};
 pub use module::{ImportExportKind, ModuleExportDescriptor, ModuleImportDescriptor, WasmModule};
 pub use runtime::WasmRuntime;
 pub use value::{
-    ExternRefHandle, GrowResult, HeapType, RefType, WasmFuncType, WasmRef, WasmValue, WasmValueType,
+    ExternRefHandle, GrowResult, HeapType, RefType, WasmFuncType, WasmGlobalDescriptor,
+    WasmMemoryDescriptor, WasmRef, WasmTableDescriptor, WasmValue, WasmValueType,
 };

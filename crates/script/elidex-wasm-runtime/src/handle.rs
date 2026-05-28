@@ -23,8 +23,8 @@
 //! - WebAssembly JS API §5.6 Exported Functions (`WasmFunc` + funcref
 //!   value carrier)
 
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::cell::{Cell, RefCell};
+use std::rc::{Rc, Weak};
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_script_session::SessionCore;
@@ -203,11 +203,28 @@ impl WasmFunc {
 }
 
 /// Opaque linear memory reference per WASM JS API §5.3.
+///
+/// `view_flags` tracks every live `WasmMemoryView` issued from this
+/// Memory so that `grow` can detach them per WASM JS API §5.3 "refresh
+/// the Memory buffer" step 5.1. The tracking lives in an `Rc<RefCell<…>>`
+/// so the `#[derive(Clone)]` impl shares it across all clones of the
+/// same Memory — required for spec correctness, because `WasmMemory:
+/// Clone` shares the underlying wasmtime backing, so a grow via *any*
+/// clone must invalidate views allocated via *any* clone.
 #[derive(Clone)]
 pub struct WasmMemory {
     pub(crate) inner: wasmtime::Memory,
     pub(crate) store: WasmStoreHandle,
+    pub(crate) view_flags: Rc<RefCell<Vec<Weak<Cell<bool>>>>>,
 }
+
+/// Threshold for opportunistic cleanup of dead `Weak<Cell<bool>>` entries
+/// in `WasmMemory::view_flags`. The cleanup runs at `view()` time when the
+/// vector length exceeds this value — bounds unbounded growth when JS
+/// allocates many views without growing the memory (each `m.buffer` access
+/// in D-16 may issue a fresh view + drop it). Threshold-only knob: only
+/// affects cleanup batch frequency, not detach correctness.
+const VIEW_FLAGS_CLEANUP_THRESHOLD: usize = 64;
 
 impl std::fmt::Debug for WasmMemory {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -216,6 +233,41 @@ impl std::fmt::Debug for WasmMemory {
 }
 
 impl WasmMemory {
+    /// Internal ctor used by `runtime::WasmRuntime::new_memory` and by
+    /// `engine_conv::export_item_from_wasmtime_extern` — centralises
+    /// construction so `view_flags` is initialised in one place rather
+    /// than at every struct-literal call site.
+    pub(crate) fn from_parts(inner: wasmtime::Memory, store: WasmStoreHandle) -> Self {
+        Self {
+            inner,
+            store,
+            view_flags: Rc::new(RefCell::new(Vec::new())),
+        }
+    }
+
+    /// Issue a fresh `WasmMemoryView` aliasing this Memory's current
+    /// backing per WASM JS API §5.3 "create a fixed length memory buffer"
+    /// (the view's detach flag corresponds to the `[[ArrayBufferDetachKey]]`
+    /// "WebAssembly.Memory" state). The returned view is live
+    /// (`is_detached()` is `false`) until the next
+    /// successful `grow` on this Memory (or any clone of it). The view's
+    /// detach flag is tracked via a `Weak<Cell<bool>>` so the Memory →
+    /// view edge is non-owning (dropping the view does not require
+    /// touching `view_flags`).
+    pub fn view(&self) -> WasmMemoryView {
+        let flag = Rc::new(Cell::new(false));
+        let mut flags = self.view_flags.borrow_mut();
+        if flags.len() > VIEW_FLAGS_CLEANUP_THRESHOLD {
+            flags.retain(|w| w.strong_count() > 0);
+        }
+        flags.push(Rc::downgrade(&flag));
+        WasmMemoryView {
+            inner: self.inner,
+            store: self.store.clone(),
+            detached: flag,
+        }
+    }
+
     /// Linear memory size in bytes (page-aligned to 64 KiB).
     pub fn byte_size(&self) -> usize {
         let store = self.store.borrow();
@@ -251,6 +303,26 @@ impl WasmMemory {
                 "memory page count exceeds u32::MAX".to_string(),
             )
         })?;
+        // Drop the store borrow before walking view_flags. `WasmMemoryView`
+        // does not touch the store during detach (only flips its own
+        // `Cell<bool>`), so this isn't strictly required for soundness —
+        // but releasing the borrow keeps the surface contract narrow.
+        drop(store);
+        // Flip-after-Ok: per WASM JS API §5.3 "grow the memory buffer
+        // associated with" algorithm step 6 ("Refresh the memory buffer")
+        // / "refresh the Memory buffer" step 5.1, buffer detach runs only
+        // after a successful underlying grow. The wasmtime grow returns
+        // `Err` on failure (e.g. maximum exceeded) and the `?` above
+        // short-circuits — views remain live, matching spec ordering.
+        let mut flags = self.view_flags.borrow_mut();
+        flags.retain(|w| {
+            if let Some(cell) = w.upgrade() {
+                cell.set(true);
+                true
+            } else {
+                false
+            }
+        });
         Ok(GrowResult {
             pre_pages: pre_pages_u32,
             buffer_handle_invalidated: true,
@@ -281,6 +353,116 @@ impl WasmMemory {
     }
 }
 
+/// Stable byte-view alias to a `WasmMemory`'s backing per WASM JS API
+/// §5.3 Memory `[[BufferObject]]` aliasing — the engine-indep counterpart
+/// to a host-side `ArrayBuffer`. The view holds a `Cell<bool>` detach
+/// flag tracked weakly by the owning `WasmMemory` so a successful `grow`
+/// invalidates the view per §5.3 step 5.1 `DetachArrayBuffer(buffer,
+/// "WebAssembly.Memory")`.
+///
+/// `read` / `write` / `byte_size` short-circuit with `WasmErrorKind::Runtime`
+/// once detached — D-16 maps those to the JS `TypeError` raised by
+/// detached-`ArrayBuffer` access. The detach flag is host-side only
+/// (the wasmtime backing is unchanged); detach is a JS-API observable
+/// detail, not a Wasm-execution effect.
+///
+/// Methods take `&self` so a wrapper that has multiple JS aliases can
+/// dispatch through any of them without ownership friction. Concurrent
+/// reentrant `write` (e.g. via a nested host callback) double-borrows
+/// the underlying `RefCell<Store<…>>` and panics — JS's single-thread
+/// model makes this unreachable in practice but the surface is honest
+/// about the failure mode.
+pub struct WasmMemoryView {
+    pub(crate) inner: wasmtime::Memory,
+    pub(crate) store: WasmStoreHandle,
+    pub(crate) detached: Rc<Cell<bool>>,
+}
+
+impl std::fmt::Debug for WasmMemoryView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WasmMemoryView")
+            .field("detached", &self.detached.get())
+            .finish_non_exhaustive()
+    }
+}
+
+impl WasmMemoryView {
+    /// `true` once a `WasmMemory::grow` on the issuing Memory (or any
+    /// clone of it) succeeded after this view was constructed.
+    pub fn is_detached(&self) -> bool {
+        self.detached.get()
+    }
+
+    /// Linear-memory byte length per WASM JS API §5.3 — returns `Err`
+    /// once detached, matching `read` / `write`. Returned as `u32` to
+    /// match `WasmMemoryDescriptor::initial` units; values exceeding
+    /// `u32::MAX` (Memory64 future) surface as `Runtime`-kind error
+    /// rather than silently saturating, mirroring `WasmTable::length`.
+    pub fn byte_size(&self) -> Result<u32, WasmError> {
+        self.ensure_attached()?;
+        let store = self.store.borrow();
+        u32::try_from(self.inner.data_size(&*store)).map_err(|_| {
+            WasmError::new(
+                WasmErrorKind::Runtime,
+                "memory byte size exceeds u32::MAX".to_string(),
+            )
+        })
+    }
+
+    /// Read `len` bytes starting at `offset`. Returns `Err` if detached
+    /// or if `offset + len` exceeds the current byte length (bounds
+    /// check matches `DataView.prototype.get*` per WASM JS API
+    /// §5.3-derived JS-side surface that D-16 wraps).
+    pub fn read(&self, offset: u32, len: u32) -> Result<Vec<u8>, WasmError> {
+        self.ensure_attached()?;
+        let store = self.store.borrow();
+        let data = self.inner.data(&*store);
+        let start = offset as usize;
+        let end = start
+            .checked_add(len as usize)
+            .ok_or_else(Self::oob_error)?;
+        if end > data.len() {
+            return Err(Self::oob_error());
+        }
+        Ok(data[start..end].to_vec())
+    }
+
+    /// Write `src` starting at `offset`. Returns `Err` if detached or
+    /// out of bounds. Uses `&self` (interior mutability via the shared
+    /// `WasmStoreHandle::borrow_mut`) so JS-side wrappers that share
+    /// the view through `Rc` / Boa `JsObject` can write without
+    /// `&mut self` plumbing.
+    pub fn write(&self, offset: u32, src: &[u8]) -> Result<(), WasmError> {
+        self.ensure_attached()?;
+        let mut store = self.store.borrow_mut();
+        let data = self.inner.data_mut(&mut *store);
+        let start = offset as usize;
+        let end = start.checked_add(src.len()).ok_or_else(Self::oob_error)?;
+        if end > data.len() {
+            return Err(Self::oob_error());
+        }
+        data[start..end].copy_from_slice(src);
+        Ok(())
+    }
+
+    fn ensure_attached(&self) -> Result<(), WasmError> {
+        if self.is_detached() {
+            return Err(WasmError::new(
+                WasmErrorKind::Runtime,
+                "WasmMemoryView is detached (memory was grown)".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn oob_error() -> WasmError {
+        WasmError::new(
+            WasmErrorKind::Runtime,
+            "WasmMemoryView access out of bounds".to_string(),
+        )
+    }
+}
+
 /// Opaque table reference per WASM JS API §5.4.
 #[derive(Clone)]
 pub struct WasmTable {
@@ -295,6 +477,21 @@ impl std::fmt::Debug for WasmTable {
 }
 
 impl WasmTable {
+    /// Engine-indep element type per WASM JS API §5.4 — the type
+    /// reported by `table_type(store, this.[[Table]])` for this Table's
+    /// `[[Table]]` internal slot (§5.4 only defines `[[Table]]` — there
+    /// is no `[[Type]]` slot). Fallible because
+    /// `engine_conv::wasm_value_type_from_wasmtime` returns `Err` for
+    /// future-proposal `HeapType` variants — propagating keeps the
+    /// surface aligned with `WasmGlobal::value_type` (handle.rs nearby)
+    /// and `WasmFunc::func_type` (handle.rs above).
+    pub fn element_kind(&self) -> Result<WasmValueType, WasmError> {
+        let store = self.store.borrow();
+        let ty = self.inner.ty(&*store);
+        let element = ty.element();
+        engine_conv::wasm_value_type_from_wasmtime(wasmtime::ValType::Ref(element.clone()))
+    }
+
     /// Current size in entries per WASM JS API §5.4
     /// Table.prototype.length. Fallible to match the u32-overflow
     /// classification in `WasmTable::grow` and `WasmMemory::grow` — a
@@ -407,6 +604,118 @@ const _: () = {
     assert_not_impl_any!(WasmStoreHandle: Send, Sync);
     assert_not_impl_any!(WasmFunc: Send, Sync);
     assert_not_impl_any!(WasmMemory: Send, Sync);
+    assert_not_impl_any!(WasmMemoryView: Send, Sync);
     assert_not_impl_any!(WasmTable: Send, Sync);
     assert_not_impl_any!(WasmGlobal: Send, Sync);
 };
+
+#[cfg(test)]
+mod view_tests {
+    use crate::runtime::WasmRuntime;
+    use crate::value::WasmMemoryDescriptor;
+
+    fn alloc_memory(initial: u32, maximum: Option<u32>) -> super::WasmMemory {
+        let runtime = WasmRuntime::new().unwrap();
+        runtime
+            .new_memory(WasmMemoryDescriptor { initial, maximum })
+            .unwrap()
+    }
+
+    #[test]
+    fn basic_detach_on_grow() {
+        let mut mem = alloc_memory(1, Some(4));
+        let view = mem.view();
+        assert!(!view.is_detached());
+        view.write(0, &[1, 2, 3, 4]).unwrap();
+        assert_eq!(view.read(0, 4).unwrap(), vec![1, 2, 3, 4]);
+        mem.grow(1).unwrap();
+        assert!(view.is_detached());
+        assert!(view.write(0, &[5]).is_err());
+        assert!(view.read(0, 1).is_err());
+        assert!(view.byte_size().is_err());
+    }
+
+    #[test]
+    fn fresh_view_post_grow_is_live() {
+        let mut mem = alloc_memory(1, Some(4));
+        mem.grow(1).unwrap();
+        let view = mem.view();
+        assert!(!view.is_detached());
+        // 2 pages = 128 KiB
+        assert_eq!(view.byte_size().unwrap(), 2 * 64 * 1024);
+        view.write(0, &[9]).unwrap();
+        assert_eq!(view.read(0, 1).unwrap(), vec![9]);
+    }
+
+    #[test]
+    fn chained_grow_detaches_all_pre_grow_views() {
+        let mut mem = alloc_memory(1, Some(8));
+        let view_a = mem.view();
+        mem.grow(1).unwrap();
+        let view_b = mem.view();
+        mem.grow(1).unwrap();
+        assert!(view_a.is_detached());
+        assert!(view_b.is_detached());
+    }
+
+    #[test]
+    fn clone_and_grow_detach_symmetry() {
+        // Regression for the plan-stage Axis-2 CRIT: WasmMemory: Clone
+        // shares the underlying wasmtime backing, so a grow on one clone
+        // must detach views allocated via any other clone.
+        let mut mem_a = alloc_memory(1, Some(8));
+        let mem_b = mem_a.clone();
+        let view_b = mem_b.view();
+        assert!(!view_b.is_detached());
+        mem_a.grow(1).unwrap();
+        assert!(view_b.is_detached());
+    }
+
+    #[test]
+    fn view_flags_opportunistic_cleanup_bounds_growth() {
+        // Allocate 200 views without growing; each is dropped before the
+        // next is allocated, so all Weaks dangle. After the 65th view
+        // alloc the cleanup path runs and trims dead entries.
+        let mem = alloc_memory(1, None);
+        for _ in 0..200 {
+            let _view = mem.view();
+        }
+        // Bound is the cleanup threshold + 1 (we push the new entry
+        // after the retain).
+        let len = mem.view_flags.borrow().len();
+        assert!(
+            len <= super::VIEW_FLAGS_CLEANUP_THRESHOLD + 1,
+            "view_flags grew unbounded: {len}"
+        );
+    }
+
+    #[test]
+    fn grow_err_leaves_views_live() {
+        // Regression for the plan-stage Stage 2.3 flip-after-Ok ordering:
+        // a failed grow (maximum exceeded) must NOT detach views, per
+        // WASM JS API §5.3 Memory.grow algorithm step 4 RangeError
+        // short-circuit.
+        let mut mem = alloc_memory(1, Some(1));
+        let view = mem.view();
+        let err = mem.grow(1).unwrap_err();
+        assert!(
+            matches!(err.kind(), crate::error::WasmErrorKind::Runtime),
+            "expected Runtime kind, got {:?}",
+            err.kind()
+        );
+        assert!(!view.is_detached(), "view must remain live after grow Err");
+        view.write(0, &[42]).unwrap();
+        assert_eq!(view.read(0, 1).unwrap(), vec![42]);
+    }
+
+    #[test]
+    fn read_write_out_of_bounds_errors() {
+        let mem = alloc_memory(1, None);
+        let view = mem.view();
+        let len = view.byte_size().unwrap();
+        assert!(view.read(len - 1, 2).is_err());
+        assert!(view.write(len - 1, &[1, 2]).is_err());
+        // Overflow path on offset+len addition.
+        assert!(view.read(u32::MAX, 1).is_err());
+    }
+}

@@ -16,6 +16,10 @@
 //!   wrapper identity is an elidex implementation choice (the
 //!   wrapper-cache layer in D-16), not a spec mandate.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+
 use crate::engine_conv;
 use crate::handle::{WasmFunc, WasmGlobal, WasmMemory, WasmStoreHandle, WasmTable};
 
@@ -34,10 +38,21 @@ pub enum WasmExportItem {
 /// via `WasmStoreHandle` — dropping the last `WasmInstance` (and the
 /// last export referencing the same store) drops the underlying
 /// wasmtime `Store<HostState>`.
+///
+/// `memory_cache` keeps `WasmMemory` wrappers stable across re-lookups
+/// (`get_memory("m")` twice + `exports()`) so the shared
+/// `WasmMemory::view_flags` `Rc` is preserved. Without this, two
+/// independent lookups of the same exported memory would receive
+/// `WasmMemory` wrappers with *separate* `view_flags`, and a `grow`
+/// via one would fail to detach views allocated via the other —
+/// violating WASM JS API §5.3 "refresh the Memory buffer" step 5.1
+/// (`DetachArrayBuffer`) at the engine-bridge layer. Table / Global /
+/// Func have no aliasing state, so they don't need caching.
 #[derive(Clone)]
 pub struct WasmInstance {
     pub(crate) inner: wasmtime::Instance,
     pub(crate) store: WasmStoreHandle,
+    memory_cache: Rc<RefCell<HashMap<String, WasmMemory>>>,
 }
 
 impl std::fmt::Debug for WasmInstance {
@@ -48,22 +63,34 @@ impl std::fmt::Debug for WasmInstance {
 
 impl WasmInstance {
     pub(crate) fn new(inner: wasmtime::Instance, store: WasmStoreHandle) -> Self {
-        Self { inner, store }
+        Self {
+            inner,
+            store,
+            memory_cache: Rc::new(RefCell::new(HashMap::new())),
+        }
     }
 
     /// Iterate exports of this instance — engine-indep view per WASM JS
     /// API §5.2 `[[Exports]]`. Unsupported variants (Tag, SharedMemory)
     /// are skipped silently; they only appear when future proposals
-    /// (Exception Handling / Threads) land additively.
+    /// (Exception Handling / Threads) land additively. Memory entries
+    /// are routed through `get_memory` so they share the cache (and
+    /// thus the `view_flags`) with prior / subsequent direct lookups.
     pub fn exports(&self) -> Vec<(String, WasmExportItem)> {
         let mut store = self.store.borrow_mut();
-        self.inner
+        let raw: Vec<(String, wasmtime::Extern)> = self
+            .inner
             .exports(&mut *store)
-            .filter_map(|exp| {
-                let name = exp.name().to_string();
-                let ext = exp.into_extern();
-                engine_conv::export_item_from_wasmtime_extern(&ext, &self.store)
-                    .map(|item| (name, item))
+            .map(|exp| (exp.name().to_string(), exp.into_extern()))
+            .collect();
+        drop(store);
+        raw.into_iter()
+            .filter_map(|(name, ext)| match ext {
+                wasmtime::Extern::Memory(_) => self
+                    .get_memory(&name)
+                    .map(|m| (name, WasmExportItem::Memory(m))),
+                _ => engine_conv::export_item_from_wasmtime_extern(&ext, &self.store)
+                    .map(|item| (name, item)),
             })
             .collect()
     }
@@ -78,12 +105,17 @@ impl WasmInstance {
     }
 
     pub fn get_memory(&self, name: &str) -> Option<WasmMemory> {
+        if let Some(m) = self.memory_cache.borrow().get(name) {
+            return Some(m.clone());
+        }
         let mut store = self.store.borrow_mut();
         let m = self.inner.get_memory(&mut *store, name)?;
-        Some(WasmMemory {
-            inner: m,
-            store: self.store.clone(),
-        })
+        drop(store);
+        let wasm_mem = WasmMemory::from_parts(m, self.store.clone());
+        self.memory_cache
+            .borrow_mut()
+            .insert(name.to_string(), wasm_mem.clone());
+        Some(wasm_mem)
     }
 
     pub fn get_table(&self, name: &str) -> Option<WasmTable> {
