@@ -459,6 +459,38 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 detached_buffers: HashSet::new(),
                 #[cfg(feature = "engine")]
+                wasm_module_storage: HashMap::new(),
+                #[cfg(feature = "engine")]
+                wasm_instance_storage: HashMap::new(),
+                #[cfg(feature = "engine")]
+                wasm_memory_storage: HashMap::new(),
+                #[cfg(feature = "engine")]
+                wasm_table_storage: HashMap::new(),
+                #[cfg(feature = "engine")]
+                wasm_global_storage: HashMap::new(),
+                #[cfg(feature = "engine")]
+                wasm_exported_func_storage: HashMap::new(),
+                #[cfg(feature = "engine")]
+                wasm_backed_buffers: HashMap::new(),
+                #[cfg(feature = "engine")]
+                wasm_runtime: std::cell::OnceCell::new(),
+                #[cfg(feature = "engine")]
+                wasm_module_prototype: None,
+                #[cfg(feature = "engine")]
+                wasm_instance_prototype: None,
+                #[cfg(feature = "engine")]
+                wasm_memory_prototype: None,
+                #[cfg(feature = "engine")]
+                wasm_table_prototype: None,
+                #[cfg(feature = "engine")]
+                wasm_global_prototype: None,
+                #[cfg(feature = "engine")]
+                wasm_compile_error_prototype: None,
+                #[cfg(feature = "engine")]
+                wasm_link_error_prototype: None,
+                #[cfg(feature = "engine")]
+                wasm_runtime_error_prototype: None,
+                #[cfg(feature = "engine")]
                 array_buffer_prototype: None,
                 #[cfg(feature = "engine")]
                 blob_prototype: None,

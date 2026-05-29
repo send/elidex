@@ -352,6 +352,22 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         // duplicating registered constructor `ObjectId`s + the
         // reaction queue across realms, which the spec doesn't model.
         ObjectKind::CustomElementRegistry => CloneKind::Unclonable("CustomElementRegistry"),
+        // D-16 `#11-wasm-vm` — WebAssembly `Module` / `Instance` /
+        // `Memory` / `Table` / `Global` / exported function are
+        // unclonable per WASM JS API §5: each wrapper carries an
+        // engine-bridge `Wasm{Module,Instance,Memory,Table,Global,Func}`
+        // handle whose `WasmStoreHandle` clone (F1 D-ii) belongs to the
+        // owning agent's store (§4.1).  No `[Transferable]` IDL extended
+        // attribute on any of them.  Chrome / Firefox throw
+        // `DataCloneError` on `structuredClone(memory)` etc.; matches
+        // here (the helper turns `Unclonable` into `DataCloneError`
+        // upstream).
+        ObjectKind::WasmModule => CloneKind::Unclonable("WebAssembly.Module"),
+        ObjectKind::WasmInstance => CloneKind::Unclonable("WebAssembly.Instance"),
+        ObjectKind::WasmMemory => CloneKind::Unclonable("WebAssembly.Memory"),
+        ObjectKind::WasmTable => CloneKind::Unclonable("WebAssembly.Table"),
+        ObjectKind::WasmGlobal => CloneKind::Unclonable("WebAssembly.Global"),
+        ObjectKind::WasmExportedFunction => CloneKind::Unclonable("WebAssembly.Function"),
     }
 }
 

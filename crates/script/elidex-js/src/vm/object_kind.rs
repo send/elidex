@@ -1204,6 +1204,95 @@ pub enum ObjectKind {
     /// `HostData` and are rooted separately via that path.
     #[cfg(feature = "engine")]
     CustomElementRegistry,
+    /// `WebAssembly.Module` instance (WASM JS API §5.1).  Payload-free
+    /// brand; the compiled `WasmModule` engine-indep handle lives in
+    /// `VmInner::wasm_module_storage` keyed by this `ObjectId`.  Identity
+    /// preserved by the storage entry; the wrapper is plain JS object,
+    /// brand-checked by this variant on each static-method consumer.
+    ///
+    /// GC contract: payload-free in the trace step (the engine-indep
+    /// `WasmModule` handle holds no `ObjectId` references — its source
+    /// bytes are an `Arc<[u8]>` owned internally).  The sweep tail
+    /// prunes `wasm_module_storage` entries whose key was collected.
+    #[cfg(feature = "engine")]
+    WasmModule,
+    /// `WebAssembly.Instance` instance (WASM JS API §5.2).  Payload-free
+    /// brand; the engine-indep `WasmInstance` handle plus the
+    /// `module_id` / `exports_id` cache live in
+    /// `VmInner::wasm_instance_storage` keyed by this `ObjectId`.
+    ///
+    /// GC contract: the trace step marks `module_id` (always set —
+    /// keeps the parent Module alive while instances exist) and
+    /// `exports_id` if `Some` (the lazily-allocated exports namespace
+    /// per WASM JS API §5 `initialize an instance object` step 3; see
+    /// the `WasmInstancePayload` struct in `crate::vm::wasm_payload`).
+    /// The sweep tail prunes `wasm_instance_storage` entries whose
+    /// key was collected.
+    #[cfg(feature = "engine")]
+    WasmInstance,
+    /// `WebAssembly.Memory` instance (WASM JS API §5.3).  Payload-free
+    /// brand; the engine-indep `WasmMemory` handle plus the cached
+    /// `.buffer` ArrayBuffer ObjectId + the live `WasmMemoryView`
+    /// backing that buffer live in `VmInner::wasm_memory_storage`.
+    ///
+    /// GC contract: the trace step marks `buffer_id` if `Some` (the
+    /// JS-visible `ArrayBuffer` aliasing wasm linear memory — must
+    /// survive while the Memory is reachable so the SameObject-style
+    /// `mem.buffer === mem.buffer` ergonomics hold; IDL has no
+    /// `[SameObject]` attribute on `Memory.buffer`, this is an
+    /// elidex impl choice).  The stashed `view: Option<WasmMemoryView>`
+    /// is not a JS ObjectId reference (holds wasmtime store + view
+    /// flags Rc only), so no GC mark needed.  Sweep tail prunes
+    /// `wasm_memory_storage` + the `wasm_backed_buffers` reverse-lookup
+    /// entries whose ArrayBuffer key was collected.
+    #[cfg(feature = "engine")]
+    WasmMemory,
+    /// `WebAssembly.Table` instance (WASM JS API §5.4).  Payload-free
+    /// brand; the engine-indep `WasmTable` handle plus the cached
+    /// `element_kind` (read once at ctor / exports-wrap time via
+    /// F2 `WasmTable::element_kind()`) live in
+    /// `VmInner::wasm_table_storage`.
+    ///
+    /// GC contract: no internal `ObjectId` references — element values
+    /// (funcref / externref) flow through the engine-bridge handle's
+    /// internal store; the JS side reaches them through `.get(idx)`
+    /// which freshly wraps each access.  Sweep tail prunes
+    /// `wasm_table_storage` entries whose key was collected.
+    #[cfg(feature = "engine")]
+    WasmTable,
+    /// `WebAssembly.Global` instance (WASM JS API §5.5).  Payload-free
+    /// brand; the engine-indep `WasmGlobal` handle lives in
+    /// `VmInner::wasm_global_storage`.  `value_type` / `mutable` are
+    /// read on demand via `WasmGlobal::value_type()` / `mutable()`
+    /// per the plan-memo §2.2 sentinel discipline (no duplicate
+    /// metadata fields).
+    ///
+    /// GC contract: no internal `ObjectId` references.  Sweep tail
+    /// prunes `wasm_global_storage` entries whose key was collected.
+    #[cfg(feature = "engine")]
+    WasmGlobal,
+    /// Exported wasm function exotic (WASM JS API §5.6).  The instance-
+    /// owned `WasmFunc` engine-indep handle (carrying its `WasmStoreHandle`
+    /// clone — `[[FunctionAddress]]` interpreted relative to the
+    /// surrounding agent's associated store per §4.1) plus the cached
+    /// per-param `Vec<WasmValueType>` for arg coerce + the parent
+    /// `instance_id` for GC trace live in
+    /// `VmInner::wasm_exported_func_storage` keyed by this `ObjectId`.
+    ///
+    /// Distinct from `Function` / `NativeFunction` because the call
+    /// dispatch + lifetime semantics differ structurally: standard JS
+    /// Function objects route through `vm_inner.functions` and the
+    /// standard bytecode / Native call paths, whereas WasmExported
+    /// routes through `WasmFunc::call(args, ScriptHostBinding)` with
+    /// JS↔wasm value coerce per F1 marshalling boundary.
+    ///
+    /// GC contract: the trace step marks `instance_id` so the parent
+    /// `WasmInstance` (and through it, the wasm module + linker state
+    /// that keeps the exported function callable) survives as long as
+    /// any exported function exists.  Sweep tail prunes
+    /// `wasm_exported_func_storage` entries whose key was collected.
+    #[cfg(feature = "engine")]
+    WasmExportedFunction,
 }
 
 impl ObjectKind {

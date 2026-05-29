@@ -2034,6 +2034,7 @@ dependencies = [
  "elidex-plugin",
  "elidex-script-session",
  "elidex-storage-core",
+ "elidex-wasm-runtime",
  "elidex-web-canvas",
  "encoding_rs",
  "getrandom 0.4.2",

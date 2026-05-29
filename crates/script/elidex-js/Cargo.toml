@@ -28,6 +28,7 @@ engine = [
     "elidex-custom-elements",
     "elidex-form",
     "elidex-storage-core",
+    "elidex-wasm-runtime",
     "bytes",
     "encoding_rs",
     "base64",
@@ -117,6 +118,16 @@ elidex-form = { workspace = true, optional = true }
 # Engine-gated because the Storage surface depends on the
 # engine-only Window prototype + DOMException mapping.
 elidex-storage-core = { workspace = true, optional = true }
+# WebAssembly engine-bridge crate (wasmtime backend behind engine-indep
+# `WasmRuntime` / `WasmModule` / `WasmInstance` / `WasmMemory` / `WasmTable` /
+# `WasmGlobal` / `WasmFunc` / `WasmMemoryView` / `WasmError` surface) consumed
+# by the `WebAssembly` namespace + 5 ctor + 3 error class VM thin binding
+# (slot `#11-wasm-vm` / D-16).  Engine-gated because the WebAssembly surface
+# depends on the engine-only ArrayBuffer / TypedArray / DataView wrappers +
+# DOM bridge.  Per CLAUDE.md "Layering mandate" + plan-memo §4.3 trip-wires
+# #1-#3, no `wasmtime::` token may appear in the elidex-js crate — the
+# engine-bridge crate encapsulates wasmtime internally.
+elidex-wasm-runtime = { workspace = true, optional = true }
 # WebCrypto §10 / §14 backing for the `Crypto` + `SubtleCrypto`
 # VM thin bindings (slot `#11-crypto-subtle-min`).
 # - `sha1` / `sha2`: digest algorithms backing
