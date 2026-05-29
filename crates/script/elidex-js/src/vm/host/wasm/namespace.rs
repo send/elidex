@@ -218,6 +218,134 @@ impl VmInner {
         });
         self.wasm_global_prototype = Some(global_proto);
 
+        // §5.3 Memory accessors + ctor.
+        let buffer_sid = self.strings.intern("buffer");
+        self.install_accessor_pair(
+            memory_proto,
+            buffer_sid,
+            super::memory::native_wasm_memory_buffer_get,
+            None,
+            PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
+        let grow_sid = self.strings.intern("grow");
+        self.install_native_method(
+            memory_proto,
+            grow_sid,
+            super::memory::native_wasm_memory_grow,
+            PropertyAttrs::METHOD,
+        );
+        let memory_ctor = self
+            .create_constructable_function("Memory", super::memory::native_wasm_memory_constructor);
+        self.define_shaped_property(
+            memory_ctor,
+            proto_key,
+            PropertyValue::Data(JsValue::Object(memory_proto)),
+            PropertyAttrs::BUILTIN,
+        );
+        self.define_shaped_property(
+            memory_proto,
+            ctor_key,
+            PropertyValue::Data(JsValue::Object(memory_ctor)),
+            PropertyAttrs::BUILTIN,
+        );
+        let memory_name_sid = self.strings.intern("Memory");
+        self.define_shaped_property(
+            namespace_id,
+            PropertyKey::String(memory_name_sid),
+            PropertyValue::Data(JsValue::Object(memory_ctor)),
+            PropertyAttrs::METHOD,
+        );
+
+        // §5.4 Table accessors + ctor.
+        let length_sid = self.strings.intern("length");
+        self.install_accessor_pair(
+            table_proto,
+            length_sid,
+            super::table::native_wasm_table_length_get,
+            None,
+            PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
+        let get_sid = self.strings.intern("get");
+        let set_sid = self.strings.intern("set");
+        let table_grow_sid = self.strings.intern("grow");
+        self.install_native_method(
+            table_proto,
+            get_sid,
+            super::table::native_wasm_table_get,
+            PropertyAttrs::METHOD,
+        );
+        self.install_native_method(
+            table_proto,
+            set_sid,
+            super::table::native_wasm_table_set,
+            PropertyAttrs::METHOD,
+        );
+        self.install_native_method(
+            table_proto,
+            table_grow_sid,
+            super::table::native_wasm_table_grow,
+            PropertyAttrs::METHOD,
+        );
+        let table_ctor = self
+            .create_constructable_function("Table", super::table::native_wasm_table_constructor);
+        self.define_shaped_property(
+            table_ctor,
+            proto_key,
+            PropertyValue::Data(JsValue::Object(table_proto)),
+            PropertyAttrs::BUILTIN,
+        );
+        self.define_shaped_property(
+            table_proto,
+            ctor_key,
+            PropertyValue::Data(JsValue::Object(table_ctor)),
+            PropertyAttrs::BUILTIN,
+        );
+        let table_name_sid = self.strings.intern("Table");
+        self.define_shaped_property(
+            namespace_id,
+            PropertyKey::String(table_name_sid),
+            PropertyValue::Data(JsValue::Object(table_ctor)),
+            PropertyAttrs::METHOD,
+        );
+
+        // §5.5 Global accessors + valueOf + ctor.
+        let value_sid = self.strings.intern("value");
+        self.install_accessor_pair(
+            global_proto,
+            value_sid,
+            super::global::native_wasm_global_value_get,
+            Some(super::global::native_wasm_global_value_set),
+            PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
+        let value_of_sid = self.strings.intern("valueOf");
+        self.install_native_method(
+            global_proto,
+            value_of_sid,
+            super::global::native_wasm_global_value_of,
+            PropertyAttrs::METHOD,
+        );
+        let global_ctor = self
+            .create_constructable_function("Global", super::global::native_wasm_global_constructor);
+        self.define_shaped_property(
+            global_ctor,
+            proto_key,
+            PropertyValue::Data(JsValue::Object(global_proto)),
+            PropertyAttrs::BUILTIN,
+        );
+        self.define_shaped_property(
+            global_proto,
+            ctor_key,
+            PropertyValue::Data(JsValue::Object(global_ctor)),
+            PropertyAttrs::BUILTIN,
+        );
+        let global_name_sid = self.strings.intern("Global");
+        self.define_shaped_property(
+            namespace_id,
+            PropertyKey::String(global_name_sid),
+            PropertyValue::Data(JsValue::Object(global_ctor)),
+            PropertyAttrs::METHOD,
+        );
+
         // §5.10 — install `CompileError` / `LinkError` / `RuntimeError`
         // on the namespace + populate `wasm_*_error_prototype` slots.
         self.install_wasm_error_classes(namespace_id);

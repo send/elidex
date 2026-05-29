@@ -429,3 +429,238 @@ fn instantiate_module_overload_resolves_with_instance() {
     ));
     vm.unbind();
 }
+
+// ===========================================================================
+// Stage 4 — Memory + Table + Global standalone ctors + DR-11 routing
+// ===========================================================================
+
+/// WASM JS API §5 — Memory/Table/Global ctors are exposed on the
+/// namespace.
+#[test]
+fn stage4_ctors_exposed_on_namespace() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "typeof WebAssembly.Memory === 'function' \
+         && typeof WebAssembly.Table === 'function' \
+         && typeof WebAssembly.Global === 'function'"
+    ));
+}
+
+/// WASM JS API §5.3 — `new WebAssembly.Memory({initial: 1})` succeeds
+/// and `mem.buffer.byteLength` reports the 64 KiB page size.
+#[test]
+fn memory_ctor_and_buffer_reports_page_size() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var m = new WebAssembly.Memory({initial: 1}); \
+         m instanceof WebAssembly.Memory \
+         && m.buffer instanceof ArrayBuffer \
+         && m.buffer.byteLength === 65536"
+    ));
+}
+
+/// WASM JS API §5.3 / DR-11 — `mem.buffer === mem.buffer` (cached
+/// wrapper-identity-stable per elidex impl choice).
+#[test]
+fn memory_buffer_is_identity_stable() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var m = new WebAssembly.Memory({initial: 1}); \
+         m.buffer === m.buffer"
+    ));
+}
+
+/// WASM JS API §5.3 / DR-11 — writes through a TypedArray view over
+/// `mem.buffer` are visible through subsequent reads.  This exercises
+/// the byte_io routing wrappers (write_at_with_routing →
+/// read_into_with_routing).
+#[test]
+fn memory_buffer_typed_array_round_trip() {
+    let mut vm = Vm::new();
+    let val = match vm
+        .eval(
+            "var m = new WebAssembly.Memory({initial: 1}); \
+             var u8 = new Uint8Array(m.buffer); \
+             u8[0] = 42; \
+             u8[1] = 7; \
+             u8[0] + u8[1] * 256",
+        )
+        .unwrap()
+    {
+        JsValue::Number(n) => n,
+        other => panic!("expected number, got {other:?}"),
+    };
+    assert!((val - (42.0 + 7.0 * 256.0)).abs() < 1e-9);
+}
+
+/// WASM JS API §5.3 / refresh the Memory buffer step 5.1 — `.grow()`
+/// detaches the cached ArrayBuffer.  Post-grow `.buffer` returns a
+/// fresh ArrayBuffer with the new byte length; the previously cached
+/// wrapper reports `byteLength === 0` per F3 detach semantics.
+#[test]
+fn memory_grow_detaches_buffer_and_yields_fresh() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var m = new WebAssembly.Memory({initial: 1, maximum: 4}); \
+         var b0 = m.buffer; \
+         var pre = m.grow(2); \
+         var b1 = m.buffer; \
+         pre === 1 \
+         && b0 !== b1 \
+         && b0.byteLength === 0 \
+         && b1.byteLength === 3 * 65536"
+    ));
+}
+
+/// WASM JS API §5.4 — `new WebAssembly.Table({element: 'anyfunc',
+/// initial: 4})` succeeds and `.length === 4`.
+#[test]
+fn table_ctor_and_length() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        match vm
+            .eval(
+                "var t = new WebAssembly.Table({element: 'anyfunc', initial: 4}); \
+                 t.length"
+            )
+            .unwrap()
+        {
+            JsValue::Number(n) => n,
+            other => panic!("expected number, got {other:?}"),
+        },
+        4.0
+    );
+}
+
+/// WASM JS API §5.4 — `table.get(idx)` on a fresh table returns
+/// `null` (typed-null funcref).  OOB `get` throws RangeError.
+#[test]
+fn table_get_yields_null_and_oob_throws() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var t = new WebAssembly.Table({element: 'anyfunc', initial: 2}); \
+         t.get(0) === null \
+         && (function() { try { t.get(99); return false; } \
+                          catch (e) { return e instanceof RangeError; } })()"
+    ));
+}
+
+/// WASM JS API §5.4 — `.grow(delta)` returns previous size.
+#[test]
+fn table_grow_returns_previous_size() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        match vm
+            .eval(
+                "var t = new WebAssembly.Table({element: 'anyfunc', initial: 1}); \
+                 t.grow(3)"
+            )
+            .unwrap()
+        {
+            JsValue::Number(n) => n,
+            other => panic!("expected number, got {other:?}"),
+        },
+        1.0
+    );
+}
+
+/// WASM JS API §5.5 — `new WebAssembly.Global({value: 'i32',
+/// mutable: true}, 7).value` reads back as 7.
+#[test]
+fn global_ctor_and_value_round_trip() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        match vm
+            .eval(
+                "var g = new WebAssembly.Global({value: 'i32', mutable: true}, 7); \
+                 g.value"
+            )
+            .unwrap()
+        {
+            JsValue::Number(n) => n,
+            other => panic!("expected number, got {other:?}"),
+        },
+        7.0
+    );
+}
+
+/// WASM JS API §5.5 — mutable global accepts setter; immutable
+/// global rejects setter with TypeError per setter step 5.
+#[test]
+fn global_setter_respects_mutability() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var g = new WebAssembly.Global({value: 'i32', mutable: true}, 1); \
+         g.value = 99; \
+         g.value === 99"
+    ));
+    assert!(eval_bool(
+        &mut vm,
+        "var g2 = new WebAssembly.Global({value: 'i32', mutable: false}, 5); \
+         try { g2.value = 10; false } \
+         catch (e) { e instanceof TypeError && g2.value === 5 }"
+    ));
+}
+
+/// WASM JS API §5.5 — `.valueOf()` mirrors `.value` per IDL
+/// `[[ToPrimitive]]` impl convention so `Number(g)` / `g + 1` work.
+#[test]
+fn global_value_of_mirrors_value() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var g = new WebAssembly.Global({value: 'i32', mutable: false}, 41); \
+         g.valueOf() === 41 && (g + 1) === 42"
+    ));
+}
+
+/// Hand-crafted wasm bytes for:
+/// ```text
+/// (module
+///   (memory (export "mem") 1)
+///   (func (export "write") (param i32)
+///     i32.const 0  ;; offset
+///     local.get 0  ;; param value
+///     i32.store8))
+/// ```
+/// Sections: type / func / memory / export (2 exports) / code.
+/// type[0]: `(param i32) -> ()` => 0x60 0x01 0x7f 0x00 (4 bytes
+/// content).  Section body: count(1) + 4 = 5 bytes; section size = 5.
+const MEM_WRITE_MODULE_BYTES: &str = "new Uint8Array([\
+     0,0x61,0x73,0x6d,1,0,0,0,\
+     1,5,1,0x60,1,0x7f,0,\
+     3,2,1,0,\
+     5,3,1,0,1,\
+     7,15,2,3,0x6d,0x65,0x6d,2,0,5,0x77,0x72,0x69,0x74,0x65,0,0,\
+     10,11,1,9,0,0x41,0,0x20,0,0x3a,0,0,0x0b\
+     ]).buffer";
+
+/// DR-11 + WASM JS API §5.6 — an exported wasm function reads/writes
+/// linear memory; JS reads via `new Uint8Array(memory.buffer)` should
+/// observe the wasm-side writes (DR-11 routing live-view path).
+#[test]
+fn exported_memory_visible_through_typed_array_view() {
+    let (mut vm, mut session, mut dom, doc) = setup_bound_vm();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    let result = vm.eval(&format!(
+        "var m = new WebAssembly.Module({MEM_WRITE_MODULE_BYTES}); \
+         var i = new WebAssembly.Instance(m); \
+         i.exports.write(42); \
+         var u8 = new Uint8Array(i.exports.mem.buffer); \
+         u8[0]"
+    ));
+    assert_eq!(
+        match result.unwrap() {
+            JsValue::Number(n) => n,
+            other => panic!("expected number, got {other:?}"),
+        },
+        42.0
+    );
+    vm.unbind();
+}

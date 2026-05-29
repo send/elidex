@@ -340,7 +340,7 @@ fn native_crypto_get_random_values(
              OS CSPRNG failure ({e})"
         ))
     })?;
-    super::byte_io::write_at(&mut ctx.vm.body_data, buffer_id, abs, &bytes);
+    super::byte_io::write_at_with_routing(ctx.vm, buffer_id, abs, &bytes);
 
     // §11.1 step 5 — return the SAME view receiver (identity per
     // IDL `ArrayBufferView getRandomValues(ArrayBufferView array)`).

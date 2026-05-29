@@ -663,7 +663,16 @@ fn clone_array_buffer(
     // source, satisfying HTML §2.7.3 step 13.2.4 (the clone owns
     // its bytes; a later mutation through the source ArrayBuffer
     // must not propagate to the clone).
-    let new_bytes: Vec<u8> = vm.body_data.get(&src).cloned().unwrap_or_default();
+    //
+    // **DR-11 routing extension** (D-16 `#11-wasm-vm` plan §5
+    // Stage 4.1): wasm-backed source ArrayBuffers — surfacing here
+    // via `structuredClone(memory.buffer)` per HTML §2.7 "Safe
+    // Passing of Structured Data" — must clone the actual current
+    // wasm bytes rather than the (empty) `body_data` entry.  The
+    // cloned ArrayBuffer is plain (non-wasm-backed) holding the
+    // snapshot in standard `body_data`; no recursive routing
+    // concern.
+    let new_bytes: Vec<u8> = super::array_buffer::array_buffer_bytes(vm, src);
     let new_id = super::array_buffer::create_array_buffer_from_bytes(vm, new_bytes);
     memo.insert(src, new_id);
     Ok(new_id)

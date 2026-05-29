@@ -422,7 +422,7 @@ fn native_text_encoder_encode_into(
         read += ch.len_utf16();
     }
     if written > 0 {
-        super::byte_io::write_at(&mut ctx.vm.body_data, buffer_id, dest_offset, &scratch);
+        super::byte_io::write_at_with_routing(ctx.vm, buffer_id, dest_offset, &scratch);
     }
 
     // Build the `{read, written}` result object.  Data properties

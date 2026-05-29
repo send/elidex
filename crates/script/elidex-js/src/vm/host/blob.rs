@@ -429,15 +429,34 @@ fn append_blob_part_bytes(
                 // `array_buffer_view_bytes` helpers materialise an
                 // owned Vec, which is wasted when the consumer is
                 // an `extend_from_slice` into an existing buffer).
-                let start = byte_offset as usize;
-                let end = start.saturating_add(byte_length as usize);
-                if let Some(slice) = ctx
-                    .vm
-                    .body_data
-                    .get(&buffer_id)
-                    .and_then(|src| src.get(start..end))
-                {
-                    out.extend_from_slice(slice);
+                //
+                // **DR-11 routing extension** (D-16 `#11-wasm-vm`
+                // plan §5 Stage 4.1): wasm-backed views surface via
+                // `new Blob([new Uint8Array(memory.buffer)])` — a
+                // legitimate JS pattern.  Without the
+                // `wasm_backed_buffers` consultation the path would
+                // silently produce an empty Blob over wasm memory.
+                // Keep the perf-inline body_data fast path for
+                // non-wasm-backed cases (the typical input).
+                if ctx.vm.wasm_backed_buffers.contains_key(&buffer_id) {
+                    let bytes = super::array_buffer::array_buffer_view_bytes(
+                        ctx.vm,
+                        buffer_id,
+                        byte_offset,
+                        byte_length,
+                    );
+                    out.extend_from_slice(&bytes);
+                } else {
+                    let start = byte_offset as usize;
+                    let end = start.saturating_add(byte_length as usize);
+                    if let Some(slice) = ctx
+                        .vm
+                        .body_data
+                        .get(&buffer_id)
+                        .and_then(|src| src.get(start..end))
+                    {
+                        out.extend_from_slice(slice);
+                    }
                 }
             }
             _ => {

@@ -35,9 +35,12 @@
 
 pub(super) mod errors;
 pub(in crate::vm) mod exported_func;
+pub(super) mod global;
 pub(super) mod instance;
+pub(super) mod memory;
 pub(super) mod module;
 pub(super) mod namespace;
+pub(super) mod table;
 
 use std::sync::Arc;
 

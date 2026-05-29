@@ -192,7 +192,25 @@ fn require_array_buffer_this(
 /// Length of the backing bytes for an ArrayBuffer.  Missing map
 /// entry ⇒ zero-length, which matches a freshly allocated but
 /// uninstalled instance (defensive — should not happen).
+///
+/// **DR-11 routing extension** (D-16 `#11-wasm-vm` plan §5 Stage
+/// 4.1): wasm-backed ArrayBuffers report the current `WasmMemoryView`
+/// byte size (live; reflects post-grow size).  Detached buffers
+/// short-circuit via [`is_detached_buffer`] in the caller
+/// (`native_array_buffer_get_byte_length`) BEFORE this fn runs, so
+/// the wasm-backed branch only fires on non-detached state.
 pub(crate) fn array_buffer_byte_length(vm: &VmInner, id: ObjectId) -> usize {
+    if let Some(&mem_id) = vm.wasm_backed_buffers.get(&id) {
+        let payload = vm
+            .wasm_memory_storage
+            .get(&mem_id)
+            .expect("wasm_backed_buffers → wasm_memory_storage coupling invariant");
+        let view = payload
+            .view
+            .as_ref()
+            .expect("wasm_backed_buffers → view Some coupling invariant");
+        return view.byte_size().unwrap_or(0) as usize;
+    }
     vm.body_data.get(&id).map_or(0, std::vec::Vec::len)
 }
 
@@ -260,7 +278,25 @@ pub(crate) fn array_buffer_require_attached(vm: &VmInner, id: ObjectId) -> Resul
 /// own `body_data` entry, wraps it in `Arc<[u8]>` for shared pools
 /// like `BlobData`, or feeds it into a stream / decoder).  Missing
 /// entry ⇒ empty Vec.
+///
+/// **DR-11 routing extension** (D-16 `#11-wasm-vm` plan §5 Stage
+/// 4.1): wasm-backed ArrayBuffers route through the live
+/// [`WasmMemoryView::read`] so consumers (BlobInit / fetch /
+/// TextDecoder / ImageData) observe actual wasm bytes rather than
+/// silently reading from an empty `body_data` entry.
 pub(crate) fn array_buffer_bytes(vm: &VmInner, id: ObjectId) -> Vec<u8> {
+    if let Some(&mem_id) = vm.wasm_backed_buffers.get(&id) {
+        let payload = vm
+            .wasm_memory_storage
+            .get(&mem_id)
+            .expect("wasm_backed_buffers → wasm_memory_storage coupling invariant");
+        let view = payload
+            .view
+            .as_ref()
+            .expect("wasm_backed_buffers → view Some coupling invariant");
+        let byte_size = view.byte_size().unwrap_or(0);
+        return view.read(0, byte_size).unwrap_or_default();
+    }
     vm.body_data.get(&id).cloned().unwrap_or_default()
 }
 
@@ -278,6 +314,18 @@ pub(crate) fn array_buffer_view_bytes(
     byte_offset: u32,
     byte_length: u32,
 ) -> Vec<u8> {
+    // DR-11 routing extension (D-16 `#11-wasm-vm` plan §5 Stage 4.1).
+    if let Some(&mem_id) = vm.wasm_backed_buffers.get(&buffer_id) {
+        let payload = vm
+            .wasm_memory_storage
+            .get(&mem_id)
+            .expect("wasm_backed_buffers → wasm_memory_storage coupling invariant");
+        let view = payload
+            .view
+            .as_ref()
+            .expect("wasm_backed_buffers → view Some coupling invariant");
+        return view.read(byte_offset, byte_length).unwrap_or_default();
+    }
     let start = byte_offset as usize;
     let end = start.saturating_add(byte_length as usize);
     vm.body_data
@@ -306,6 +354,34 @@ pub(crate) fn create_array_buffer_from_bytes(vm: &mut VmInner, bytes: Vec<u8>) -
         vm.body_data.insert(id, bytes);
     }
     id
+}
+
+/// Allocate a fresh `ArrayBuffer` wrapper backed by a wasm
+/// `WasmMemoryView` (D-16 `#11-wasm-vm` plan §5 Stage 4.1).
+///
+/// Unlike [`create_array_buffer_from_bytes`], this helper does NOT
+/// populate [`VmInner::body_data`] — the wasm-backed routing
+/// invariant relies on `body_data.contains_key(&id) == false` so
+/// that `body_data` lookups fall through to the
+/// `wasm_backed_buffers` reverse-lookup path on every accessor /
+/// hot-path consumer.
+///
+/// The caller (typically `memory::native_wasm_memory_buffer_get`)
+/// is responsible for the paired:
+/// - `vm.wasm_memory_storage[mem_id].buffer_id = Some(buf_id)`
+/// - `vm.wasm_memory_storage[mem_id].view = Some(view)`
+/// - `vm.wasm_backed_buffers.insert(buf_id, mem_id)`
+///
+/// writes to maintain the coupling invariant.
+pub(crate) fn create_wasm_backed_array_buffer(vm: &mut VmInner) -> ObjectId {
+    let proto = vm.array_buffer_prototype;
+    vm.alloc_object(Object {
+        kind: ObjectKind::ArrayBuffer,
+        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+        prototype: proto,
+        extensible: true,
+    })
+    // Intentionally NO `body_data` insert — see fn docstring.
 }
 
 /// Allocate a TypedArray of element kind `ek` whose fresh backing `ArrayBuffer`
@@ -528,14 +604,22 @@ fn native_array_buffer_slice(
     // its own buffer (per-view mutability is a spec invariant for
     // ArrayBuffer.slice — the new buffer is independent of the
     // source).
+    //
+    // **DR-11 routing** (D-16 `#11-wasm-vm` plan §5 Stage 4.1):
+    // route through [`array_buffer_view_bytes`] so wasm-backed
+    // sources surface actual current wasm bytes rather than the
+    // empty-`body_data` zero-byte snapshot they would otherwise
+    // yield.  The newly-allocated slice ArrayBuffer is a plain
+    // (non-wasm-backed) buffer holding a snapshot copy in standard
+    // `body_data` — no recursive routing concern.
     let bytes: Vec<u8> = if final_len == 0 {
         Vec::new()
     } else {
-        ctx.vm
-            .body_data
-            .get(&id)
-            .map(|src| src[start..stop].to_vec())
-            .unwrap_or_default()
+        #[allow(clippy::cast_possible_truncation)]
+        let bo = start as u32;
+        #[allow(clippy::cast_possible_truncation)]
+        let bl = final_len as u32;
+        array_buffer_view_bytes(ctx.vm, id, bo, bl)
     };
     let new_id = create_array_buffer_from_bytes(ctx.vm, bytes);
     Ok(JsValue::Object(new_id))

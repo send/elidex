@@ -28,6 +28,7 @@
 use std::collections::HashMap;
 
 use super::super::value::ObjectId;
+use super::super::VmInner;
 
 /// Read up to `N` bytes from `body_data[buffer_id]` starting at
 /// absolute byte offset `abs`.  Returns a fixed-size array
@@ -215,5 +216,188 @@ pub(super) fn fill_pattern(
             let dst_start = abs + i * plen;
             dst[dst_start..dst_start + plen].copy_from_slice(pattern);
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DR-11 wasm-backed routing wrappers (D-16 `#11-wasm-vm` plan §5
+// Stage 4.1)
+// ---------------------------------------------------------------------------
+//
+// These wrappers consult [`VmInner::wasm_backed_buffers`] before
+// touching `body_data`.  When the buffer is wasm-backed, the access
+// is dispatched through the live [`elidex_wasm_runtime::WasmMemoryView`]
+// stashed at
+// [`super::super::wasm_payload::WasmMemoryPayload::view`]; otherwise
+// the standard `body_data` path runs unchanged.
+//
+// Coupling invariant (plan §5 Stage 4.1):
+//   `vm.wasm_backed_buffers[buf_id] = Some(mem_id)
+//    ⇔ vm.wasm_memory_storage[mem_id].view = Some(_)`
+// Both writes (insert + Some) at `.buffer` first-fire are paired in
+// the same control-flow block; both removes (clear + None) at
+// detach time are paired in the same block.  Future code that
+// touches either field MUST preserve the biconditional or refactor
+// the `view.as_ref().unwrap()` sites to `.expect("coupling invariant")`
+// with clear panic discipline.
+
+/// Routing wrapper over [`read_into`] that consults
+/// [`VmInner::wasm_backed_buffers`] for wasm-backed ArrayBuffers.
+///
+/// Wasm-backed reads dispatch through the stashed
+/// [`elidex_wasm_runtime::WasmMemoryView::read`]; non-wasm-backed
+/// reads fall through to [`read_into`] against `vm.body_data`.
+/// Partial-read semantics (zero-pad past buffer end) match the
+/// underlying primitive in both arms.
+pub(super) fn read_into_with_routing<const N: usize>(
+    vm: &VmInner,
+    buffer_id: ObjectId,
+    abs: usize,
+) -> [u8; N] {
+    if let Some(&mem_id) = vm.wasm_backed_buffers.get(&buffer_id) {
+        let mut out = [0_u8; N];
+        let payload = vm
+            .wasm_memory_storage
+            .get(&mem_id)
+            .expect("wasm_backed_buffers → wasm_memory_storage coupling invariant");
+        let view = payload
+            .view
+            .as_ref()
+            .expect("wasm_backed_buffers → view Some coupling invariant");
+        // Bound by the view's current byte size — out-of-range bytes
+        // are zero-padded to match `read_into`'s contract.
+        let byte_size = view.byte_size().unwrap_or(0) as usize;
+        if abs < byte_size {
+            let avail = byte_size.saturating_sub(abs).min(N);
+            #[allow(clippy::cast_possible_truncation)]
+            if let Ok(bytes) = view.read(abs as u32, avail as u32) {
+                out[..avail].copy_from_slice(&bytes);
+            }
+        }
+        out
+    } else {
+        read_into(&vm.body_data, buffer_id, abs)
+    }
+}
+
+/// Routing wrapper over [`write_at`].
+pub(super) fn write_at_with_routing(
+    vm: &mut VmInner,
+    buffer_id: ObjectId,
+    abs: usize,
+    bytes: &[u8],
+) {
+    if let Some(&mem_id) = vm.wasm_backed_buffers.get(&buffer_id) {
+        if bytes.is_empty() {
+            return;
+        }
+        let payload = vm
+            .wasm_memory_storage
+            .get(&mem_id)
+            .expect("wasm_backed_buffers → wasm_memory_storage coupling invariant");
+        let view = payload
+            .view
+            .as_ref()
+            .expect("wasm_backed_buffers → view Some coupling invariant");
+        #[allow(clippy::cast_possible_truncation)]
+        // Silent no-op on OOB matches `write_at`'s contract — call
+        // sites pre-validate against the view's byte length.
+        let _ = view.write(abs as u32, bytes);
+    } else {
+        write_at(&mut vm.body_data, buffer_id, abs, bytes);
+    }
+}
+
+/// Routing wrapper over [`copy_bytes`].
+///
+/// Handles all 4 combinations of `(src wasm-backed, dst wasm-backed)`:
+/// - both standard: delegate to [`copy_bytes`]
+/// - src wasm-backed, dst standard: read via view, write via `write_at`
+/// - src standard, dst wasm-backed: read via `body_data`, write via view
+/// - both wasm-backed: read via src view, write via dst view (may be
+///   the same view when `src_id == dst_id`)
+///
+/// The src snapshot is taken into a fresh `Vec<u8>` before the dst
+/// write to handle overlapping ranges correctly (matches
+/// [`copy_bytes`] semantics).
+pub(super) fn copy_bytes_with_routing(
+    vm: &mut VmInner,
+    src_id: ObjectId,
+    src_abs: usize,
+    dst_id: ObjectId,
+    dst_abs: usize,
+    len: usize,
+) {
+    if len == 0 {
+        return;
+    }
+    if src_abs.checked_add(len).is_none() || dst_abs.checked_add(len).is_none() {
+        return;
+    }
+    let src_is_wasm = vm.wasm_backed_buffers.contains_key(&src_id);
+    let dst_is_wasm = vm.wasm_backed_buffers.contains_key(&dst_id);
+    if !src_is_wasm && !dst_is_wasm {
+        copy_bytes(&mut vm.body_data, src_id, src_abs, dst_id, dst_abs, len);
+        return;
+    }
+    // Snapshot from src (routing if wasm-backed) into a fresh Vec.
+    let src_snapshot: Vec<u8> = if src_is_wasm {
+        let mem_id = vm.wasm_backed_buffers[&src_id];
+        let payload = &vm.wasm_memory_storage[&mem_id];
+        let view = payload
+            .view
+            .as_ref()
+            .expect("wasm_backed_buffers → view Some coupling invariant");
+        let byte_size = view.byte_size().unwrap_or(0) as usize;
+        let mut buf = vec![0_u8; len];
+        if src_abs < byte_size {
+            let avail = byte_size.saturating_sub(src_abs).min(len);
+            #[allow(clippy::cast_possible_truncation)]
+            if let Ok(bytes) = view.read(src_abs as u32, avail as u32) {
+                buf[..avail].copy_from_slice(&bytes);
+            }
+        }
+        buf
+    } else {
+        let mut buf = vec![0_u8; len];
+        if let Some(bytes) = vm.body_data.get(&src_id) {
+            let buf_len = bytes.len();
+            if src_abs < buf_len {
+                let avail = buf_len.saturating_sub(src_abs).min(len);
+                buf[..avail].copy_from_slice(&bytes[src_abs..src_abs + avail]);
+            }
+        }
+        buf
+    };
+    write_at_with_routing(vm, dst_id, dst_abs, &src_snapshot);
+}
+
+/// Routing wrapper over [`fill_pattern`].
+pub(super) fn fill_pattern_with_routing(
+    vm: &mut VmInner,
+    buffer_id: ObjectId,
+    abs: usize,
+    pattern: &[u8],
+    count: usize,
+) {
+    let Some(total_len) = pattern.len().checked_mul(count) else {
+        return;
+    };
+    if total_len == 0 {
+        return;
+    }
+    if vm.wasm_backed_buffers.contains_key(&buffer_id) {
+        // Materialise the pattern × count into a fresh Vec and
+        // dispatch via the view writer.  Allocates O(total_len)
+        // memory (same as the routed write path's intermediate
+        // buffer); the alternative would be N small view.write()
+        // calls each of which incurs the store-borrow cost.
+        let mut filled = Vec::with_capacity(total_len);
+        for _ in 0..count {
+            filled.extend_from_slice(pattern);
+        }
+        write_at_with_routing(vm, buffer_id, abs, &filled);
+    } else {
+        fill_pattern(&mut vm.body_data, buffer_id, abs, pattern, count);
     }
 }

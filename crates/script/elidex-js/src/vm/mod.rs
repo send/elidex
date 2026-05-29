@@ -1639,28 +1639,23 @@ pub(crate) struct VmInner {
     pub(crate) wasm_module_prototype: Option<ObjectId>,
     /// `WebAssembly.Instance.prototype` (WASM JS API §5.2).  Chains
     /// to `Object.prototype`.  Holds the `exports` accessor.
-    /// `None` until `register_wasm_namespace()` runs.  Stage 3 wires
-    /// the ctor + `exports` accessor that read this slot.
+    /// `None` until `register_wasm_namespace()` runs.
     #[cfg(feature = "engine")]
-    #[allow(dead_code)] // Stage 3 wires the ctor + accessor that read this slot.
     pub(crate) wasm_instance_prototype: Option<ObjectId>,
     /// `WebAssembly.Memory.prototype` (WASM JS API §5.3).  Chains
     /// to `Object.prototype`.  Holds the `buffer` accessor + `grow`
     /// method.  `None` until `register_wasm_namespace()` runs.
     #[cfg(feature = "engine")]
-    #[allow(dead_code)] // Stage 4 wires the ctor + accessors that read this slot.
     pub(crate) wasm_memory_prototype: Option<ObjectId>,
     /// `WebAssembly.Table.prototype` (WASM JS API §5.4).  Chains to
     /// `Object.prototype`.  Holds `length` accessor + `get` / `set` /
     /// `grow` methods.  `None` until `register_wasm_namespace()` runs.
     #[cfg(feature = "engine")]
-    #[allow(dead_code)] // Stage 4 wires the ctor + accessors that read this slot.
     pub(crate) wasm_table_prototype: Option<ObjectId>,
     /// `WebAssembly.Global.prototype` (WASM JS API §5.5).  Chains to
     /// `Object.prototype`.  Holds `value` accessor pair + `valueOf`
     /// method.  `None` until `register_wasm_namespace()` runs.
     #[cfg(feature = "engine")]
-    #[allow(dead_code)] // Stage 4 wires the ctor + accessors that read this slot.
     pub(crate) wasm_global_prototype: Option<ObjectId>,
     /// `WebAssembly.CompileError.prototype` (WASM JS API §5.10).
     /// Chains to `Error.prototype` so `instanceof Error` holds.
