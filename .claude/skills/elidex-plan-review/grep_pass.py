@@ -37,13 +37,18 @@ from pathlib import Path
 
 FILE_PATH_RE = re.compile(r"`?(crates/[^\s`:)]+\.rs)(?::(\d+))?`?")
 
-# Match `path::fn` / `mod::Type` / `Type::method`. Single `foo` skipped
-# to avoid false-positive noise on common prose words. `::` chain required.
+# Match `path::fn` / `mod::Type` / `Type::method` / `Type::Variant` /
+# `Type::CONST`. Single `foo` skipped to avoid false-positive noise on
+# common prose words. `::` chain required. The `Type::*` alternative's
+# post-`::` part accepts both upper and lower case (PR #243 Copilot R3
+# IMP): original required lowercase, silently excluding the very common
+# enum-variant shape (`Op::AssertConstructor`, `NodeKind::Element`, etc.)
+# which is heavy in elidex's opcode/AST code.
 RUST_SYMBOL_RE = re.compile(
     r"`("
     r"[a-z_][a-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)+"  # path::fn / mod::Type
     r"|"
-    r"[A-Z][A-Za-z0-9_]*::[a-z_][A-Za-z0-9_]*"        # Type::method
+    r"[A-Z][A-Za-z0-9_]*::[A-Za-z_][A-Za-z0-9_]*"     # Type::method / Type::Variant / Type::CONST
     r")`"
 )
 

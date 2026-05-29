@@ -229,6 +229,36 @@ class Check2RustSymbolTests(unittest.TestCase):
             self.assertEqual(
                 [f for f in findings if "X::do_thing" in f[1]], [])
 
+    def test_type_variant_shape_extracted(self):
+        # `Type::Variant` (CamelCase post-::) is the canonical enum-variant
+        # shape in Rust. Original regex required lowercase post-::, silently
+        # skipping the entire class — phantom variant references were
+        # never detected (PR #243 Copilot R3 IMP).
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            _mk_repo(tmp, {"crates/foo.rs": "fn other() {}\n"})
+            plan = _mk_plan(tmp,
+                "Stage 1: invoke `Op::NewVariant` from the dispatcher.\n")
+            findings = run_grep_pass(plan, tmp)
+            self.assertTrue(
+                any("Op::NewVariant" in msg for _sev, msg in findings),
+                f"Type::Variant shape should be extracted + checked, got {findings}",
+            )
+
+    def test_type_const_shape_extracted(self):
+        # `Type::CONST` (SCREAMING_SNAKE_CASE post-::) — also valid Rust
+        # associated-constant shape. Same regex broadening covers it.
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            _mk_repo(tmp, {"crates/foo.rs": "fn other() {}\n"})
+            plan = _mk_plan(tmp,
+                "Stage 1: read `MyType::MAX_CAPACITY` from the config.\n")
+            findings = run_grep_pass(plan, tmp)
+            self.assertTrue(
+                any("MyType::MAX_CAPACITY" in msg for _sev, msg in findings),
+                f"Type::CONST shape should be extracted + checked, got {findings}",
+            )
+
     def test_NEW_annotation_anywhere_exempts(self):
         # Author intent for (NEW) is global — annotation on later mention
         # must exempt the symbol even if earlier mentions are bare.
