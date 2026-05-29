@@ -440,7 +440,7 @@ pub(crate) struct VmInner {
     /// observers").  Each `<slot>` entity appended here gets a
     /// `slotchange` Event fired at it (bubbles=true, composed=false)
     /// at the next microtask checkpoint.  Drained from
-    /// [`super::host::html_slot_proto::dispatch_pending_slotchange_signals`]
+    /// [`crate::vm::host::html_slot_proto::dispatch_pending_slotchange_signals`]
     /// at the end of `drain_microtasks`.
     ///
     /// `VecDeque` for O(1) front-pop in FIFO drain order; dedup on
@@ -452,7 +452,7 @@ pub(crate) struct VmInner {
     pub(crate) pending_slot_change_signals: std::collections::VecDeque<elidex_ecs::Entity>,
     /// Coalescing flag for the "notify mutation observers" microtask
     /// (WHATWG DOM §4.3.4 step 1).  Set to `true` when
-    /// [`super::host::html_slot_proto::VmInner::signal_slot_change`]
+    /// [`crate::vm::host::html_slot_proto::VmInner::signal_slot_change`]
     /// enqueues the first signal of a tick and resets to `false`
     /// when the microtask dispatches.  Ensures exactly one
     /// `slotchange` checkpoint per microtask burst, ordered at
@@ -1448,7 +1448,7 @@ pub(crate) struct VmInner {
     /// pivot on which side table owns the bytes.  Keyed by the
     /// owning object's `ObjectId`; the value is an owned
     /// `Vec<u8>`, so TypedArray / DataView writes mutate it in
-    /// place via [`super::host::byte_io`] (single-threaded VM,
+    /// place via [`crate::vm::host::byte_io`] (single-threaded VM,
     /// no shared mutability needed inside `body_data`).  Cross-
     /// subsystem callers that need to ferry bytes across an
     /// ownership boundary (`fetch` HTTP handoff,
@@ -1507,7 +1507,7 @@ pub(crate) struct VmInner {
     /// Membership ⇒ `IsDetachedBuffer(obj)` (§25.1.3.4) returns `true`;
     /// the corresponding `body_data` entry is also dropped at detach
     /// time so that byte-length reads through
-    /// [`super::host::array_buffer::array_buffer_byte_length`]
+    /// [`crate::vm::host::array_buffer::array_buffer_byte_length`]
     /// naturally observe `0`.  Distinct from "missing `body_data` entry"
     /// (which means freshly-allocated-but-empty) so that the
     /// spec-prescribed TypeError at `ArrayBuffer.prototype.slice` /
