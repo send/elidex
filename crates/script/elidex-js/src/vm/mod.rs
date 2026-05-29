@@ -1502,6 +1502,26 @@ pub(crate) struct VmInner {
     /// collected, same as the other side tables.
     #[cfg(feature = "engine")]
     pub(crate) disturbed: HashSet<ObjectId>,
+    /// ObjectIds of `ArrayBuffer` instances whose `[[ArrayBufferData]]`
+    /// has been detached per ECMA-262 §25.1.3.5 `DetachArrayBuffer`.
+    /// Membership ⇒ `IsDetachedBuffer(obj)` (§25.1.3.4) returns `true`;
+    /// the corresponding `body_data` entry is also dropped at detach
+    /// time so that byte-length reads through
+    /// [`super::host::array_buffer::array_buffer_byte_length`]
+    /// naturally observe `0`.  Distinct from "missing `body_data` entry"
+    /// (which means freshly-allocated-but-empty) so that the
+    /// spec-prescribed TypeError at `ArrayBuffer.prototype.slice` /
+    /// `DataView` ops / TypedArray ctor on detached buffers can be
+    /// distinguished from a zero-byte but attached buffer.
+    ///
+    /// GC contract: sweep tail prunes entries whose key was
+    /// collected, matching `disturbed` / `body_data` pattern.  Kept
+    /// across `Vm::unbind` (ObjectId-keyed, same as `body_data` —
+    /// detach is permanent per spec, so a JS-visible detached buffer
+    /// surviving an unbind/bind cycle must still observe TypeError on
+    /// slice / view ops).
+    #[cfg(feature = "engine")]
+    pub(crate) detached_buffers: HashSet<ObjectId>,
     /// `ArrayBuffer.prototype` (ECMA-262 §25.1, minimal Phase 2 form
     /// — `byteLength` getter + `slice` method only; TypedArray
     /// views are deferred to the next tranche).  Chains to

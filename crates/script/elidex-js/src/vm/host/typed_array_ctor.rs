@@ -73,6 +73,16 @@ pub(super) fn init_from_array_buffer(
             ek.name()
         )));
     }
+    // ECMA-262 §23.2.5.1.3 `InitializeTypedArrayFromArrayBuffer`
+    // step 6: "If IsDetachedBuffer(buffer) is true, throw a
+    // TypeError exception".  Spec ordering puts this check AFTER
+    // offset coercion (step 2) + modulo check (step 3) but BEFORE
+    // the buffer-length range checks (steps 9-10).  Throwing here
+    // ensures `new Uint8Array(detached)` / `new Uint8Array(detached,
+    // 4)` surfaces TypeError instead of either a spurious zero-length
+    // view (offset = 0 case) or a misleading RangeError (offset > 0
+    // case from `byte_offset > buf_len` with `buf_len = 0`).
+    super::array_buffer::array_buffer_require_attached(ctx.vm, buffer_id)?;
     if byte_offset > buf_len {
         return Err(VmError::range_error(format!(
             "Failed to construct '{}': byteOffset {byte_offset} exceeds ArrayBuffer length {buf_len}",
@@ -136,6 +146,18 @@ pub(super) fn init_from_typed_array(
     else {
         unreachable!("caller confirmed TypedArray kind")
     };
+    // ECMA-262 §23.2.5.1.2 `InitializeTypedArrayFromTypedArray`
+    // step 8: "If IsTypedArrayOutOfBounds(srcRecord) is true, throw
+    // a TypeError exception" — IsTypedArrayOutOfBounds returns true
+    // when the source view's `[[ViewedArrayBuffer]]` is detached
+    // (via MakeTypedArrayWithBufferWitnessRecord).  Without this
+    // check, the per-element copy below would observe
+    // `read_element_raw` returning `JsValue::Undefined` on every
+    // index (F3 Stage 3 silent fall-through per
+    // §10.4.5.16 IsValidIntegerIndex) and silently build a
+    // zero-filled destination — divergent from the spec-mandated
+    // TypeError.
+    super::array_buffer::array_buffer_require_attached(ctx.vm, src_buf_id)?;
     // Content-type compatibility: BigInt ↔ Number mixing throws
     // TypeError per ECMA-262 §23.2.5.1.2 step 17 (subclass check).
     if src_ek.is_bigint() != dst_ek.is_bigint() {

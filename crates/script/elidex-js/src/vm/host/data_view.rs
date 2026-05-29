@@ -194,6 +194,13 @@ fn native_data_view_constructor(
         JsValue::Undefined => 0,
         other => coerce::to_index_u32(ctx, other, "DataView", "byteOffset")?,
     };
+    // ECMA-262 §25.3.2.1 `DataView ( buffer [, byteOffset [, byteLength ]] )`
+    // step 4: "If IsDetachedBuffer(buffer) is true, throw a
+    // TypeError exception".  Throwing here keeps the spec-mandated
+    // TypeError ahead of the `byte_offset > buf_len` RangeError that
+    // would otherwise mask the detach (a detached buffer has
+    // `buf_len == 0`, so any nonzero offset surfaces RangeError).
+    super::array_buffer::array_buffer_require_attached(ctx.vm, buffer_id)?;
     if byte_offset > buf_len {
         return Err(VmError::range_error(format!(
             "Failed to construct 'DataView': byteOffset {byte_offset} exceeds ArrayBuffer length {buf_len}"
@@ -249,6 +256,33 @@ fn require_data_view_parts(
     }
 }
 
+/// Brand-check + IsViewOutOfBounds detach check.  Wraps
+/// [`require_data_view_parts`] with the ECMA-262 §25.3.1.4
+/// `IsViewOutOfBounds` step 3 detach branch and throws TypeError if
+/// the view's backing buffer is detached — the spec hot path for
+/// DataView `getInt8` / `setInt8` / `byteLength` / `byteOffset`
+/// (called via §25.3.1.5 step 8 `GetViewValue` / §25.3.1.6 step 10
+/// `SetViewValue` / §25.3.1.2 `MakeDataViewWithBufferWitnessRecord`).
+///
+/// Not consumed by `DataView.prototype.buffer` (§25.3.4.1), which
+/// the spec defines as a bare `[[ViewedArrayBuffer]]` read with no
+/// detach branch — JS code uses `.buffer` to discover that a
+/// DataView's backing buffer became detached, so throwing there
+/// would be observably wrong.
+fn data_view_require_attached(
+    ctx: &NativeContext<'_>,
+    this: JsValue,
+    method: &str,
+) -> Result<(ObjectId, u32, u32), VmError> {
+    let parts = require_data_view_parts(ctx, this, method)?;
+    if super::array_buffer::is_detached_buffer(ctx.vm, parts.0) {
+        return Err(VmError::type_error(format!(
+            "DataView.prototype.{method} called on a DataView whose buffer is detached"
+        )));
+    }
+    Ok(parts)
+}
+
 // ---------------------------------------------------------------------------
 // Accessors
 // ---------------------------------------------------------------------------
@@ -267,7 +301,13 @@ fn native_data_view_get_byte_offset(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (_, byte_offset, _) = require_data_view_parts(ctx, this, "byteOffset")?;
+    // ECMA-262 §25.3.4.3 `get DataView.prototype.byteOffset` →
+    // step 5 calls `MakeDataViewWithBufferWitnessRecord` (§25.3.1.2)
+    // → step 6 checks `IsViewOutOfBounds` (§25.3.1.4) which throws
+    // TypeError when the backing buffer is detached.  Differs from
+    // the TypedArray `byteOffset` getter, which returns `+0𝔽`
+    // instead of throwing (different witness AO).
+    let (_, byte_offset, _) = data_view_require_attached(ctx, this, "byteOffset")?;
     Ok(JsValue::Number(f64::from(byte_offset)))
 }
 
@@ -276,7 +316,9 @@ fn native_data_view_get_byte_length(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let (_, _, byte_length) = require_data_view_parts(ctx, this, "byteLength")?;
+    // ECMA-262 §25.3.4.2 — same `IsViewOutOfBounds` detach branch
+    // as `byteOffset` above.
+    let (_, _, byte_length) = data_view_require_attached(ctx, this, "byteLength")?;
     Ok(JsValue::Number(f64::from(byte_length)))
 }
 
@@ -296,7 +338,13 @@ fn read_bytes<const N: usize>(
     method: &str,
     offset_f: f64,
 ) -> Result<[u8; N], VmError> {
-    let (buffer_id, dv_offset, dv_len) = require_data_view_parts(ctx, this, method)?;
+    // ECMA-262 §25.3.1.5 `GetViewValue` step 8 — IsViewOutOfBounds
+    // (which itself checks IsDetachedBuffer per §25.3.1.4 step 3)
+    // throws TypeError on detached buffer.  Routing through
+    // `data_view_require_attached` covers every
+    // `getInt8`/`getInt16`/.../`getBigUint64` method via the macro
+    // expansion at the bottom of this file.
+    let (buffer_id, dv_offset, dv_len) = data_view_require_attached(ctx, this, method)?;
     let rel_offset = ensure_in_range(offset_f, dv_len, N as u32, method)?;
     let abs = (dv_offset + rel_offset) as usize;
     Ok(super::byte_io::read_into::<N>(
@@ -319,7 +367,12 @@ fn write_bytes<const N: usize>(
     offset_f: f64,
     bytes: [u8; N],
 ) -> Result<(), VmError> {
-    let (buffer_id, dv_offset, dv_len) = require_data_view_parts(ctx, this, method)?;
+    // ECMA-262 §25.3.1.6 `SetViewValue` step 10 — same
+    // IsViewOutOfBounds detach branch as `GetViewValue` above.  All
+    // `setInt8`/`setInt16`/.../`setBigUint64` methods funnel through
+    // this helper via the `dv_set!` macro expansion at the bottom of
+    // this file.
+    let (buffer_id, dv_offset, dv_len) = data_view_require_attached(ctx, this, method)?;
     let rel_offset = ensure_in_range(offset_f, dv_len, N as u32, method)?;
     let abs = (dv_offset + rel_offset) as usize;
     super::byte_io::write_at(&mut ctx.vm.body_data, buffer_id, abs, &bytes);

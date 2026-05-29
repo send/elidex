@@ -457,6 +457,8 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 disturbed: HashSet::new(),
                 #[cfg(feature = "engine")]
+                detached_buffers: HashSet::new(),
+                #[cfg(feature = "engine")]
                 array_buffer_prototype: None,
                 #[cfg(feature = "engine")]
                 blob_prototype: None,

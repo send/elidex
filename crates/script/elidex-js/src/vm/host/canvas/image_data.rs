@@ -126,6 +126,21 @@ pub(super) fn native_image_data_constructor(
                 }
             ) =>
         {
+            // WebIDL BufferSource boundary detach check per
+            // ECMA-262 §25.1.3.4 — without this, a detached
+            // Uint8ClampedArray (whose stored `byte_length` field
+            // still reads the original size) would silently surface
+            // as `byte_len == 0` and trip the
+            // "non-zero multiple of 4" InvalidStateError below —
+            // wrong error class for a spec-correct WebIDL violation.
+            let ObjectKind::TypedArray { buffer_id, .. } = ctx.vm.get_object(id).kind else {
+                unreachable!("match arm guard")
+            };
+            if super::super::array_buffer::is_detached_buffer(ctx.vm, buffer_id) {
+                return Err(VmError::type_error(
+                    "Failed to construct 'ImageData': The input data is a view onto a detached ArrayBuffer.",
+                ));
+            }
             let byte_len = typed_array_byte_len(ctx.vm, id).unwrap_or(0);
             // Data length must be a nonzero integral multiple of 4 (RGBA).
             if byte_len == 0 || !byte_len.is_multiple_of(4) {
@@ -435,14 +450,24 @@ fn read_image_data_object(
         return Err(not_image_data());
     };
     // `data` must be a `Uint8ClampedArray` (not just any TypedArray).
-    if !matches!(
-        ctx.vm.get_object(data_id).kind,
-        ObjectKind::TypedArray {
-            element_kind: ElementKind::Uint8Clamped,
-            ..
-        }
-    ) {
+    let ObjectKind::TypedArray {
+        element_kind: ElementKind::Uint8Clamped,
+        buffer_id: data_buffer_id,
+        ..
+    } = ctx.vm.get_object(data_id).kind
+    else {
         return Err(not_image_data());
+    };
+    // WebIDL BufferSource boundary detach check per
+    // ECMA-262 §25.1.3.4 — `putImageData` / consumer paths must
+    // not silently process zero bytes when the backing
+    // ArrayBuffer of `ImageData.data` has been detached between
+    // construction and consumption.
+    if super::super::array_buffer::is_detached_buffer(ctx.vm, data_buffer_id) {
+        return Err(VmError::type_error(format!(
+            "Failed to execute '{method}' on 'CanvasRenderingContext2D': \
+             The ImageData's data is a view onto a detached ArrayBuffer."
+        )));
     }
     // Cap width*height*4 BEFORE touching the data buffer so a branded-but-
     // oversized ImageData (huge dims) can't OOM the process — mirrors the

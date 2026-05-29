@@ -1260,6 +1260,14 @@ impl VmInner {
             self.response_states.retain(|id, _| bit_get(marks, id.0));
             self.body_data.retain(|id, _| bit_get(marks, id.0));
             self.disturbed.retain(|id| bit_get(marks, id.0));
+            // `detached_buffers` — same shape as `disturbed`: each
+            // entry is an `ObjectId` of an `ArrayBuffer` whose
+            // `[[ArrayBufferData]]` was nulled per ECMA-262 §25.1.3.5
+            // `DetachArrayBuffer`.  Prune entries whose key
+            // `ObjectId` was collected so a recycled slot can't
+            // inherit a stale detach flag (which would surface
+            // spec-divergent TypeError on a freshly-allocated buffer).
+            self.detached_buffers.retain(|id| bit_get(marks, id.0));
             // `readable_stream_states` / `readable_stream_reader_states`
             // — payload references (queue chunks, source callbacks,
             // controller / reader back-refs, pending read promises,

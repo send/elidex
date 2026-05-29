@@ -812,6 +812,7 @@ define_well_known_strings! {
         array_buffer_global => "ArrayBuffer",
         blob_global => "Blob",
         byte_length => "byteLength",
+        detached => "detached",
         size => "size",
         slice => "slice",
         text => "text",
