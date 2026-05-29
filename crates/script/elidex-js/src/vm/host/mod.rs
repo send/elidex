@@ -330,7 +330,7 @@ pub(crate) mod url_search_params;
 #[cfg(feature = "engine")]
 pub(super) mod validity_state;
 #[cfg(feature = "engine")]
-pub(super) mod wasm;
+pub(in crate::vm) mod wasm;
 #[cfg(feature = "engine")]
 pub(super) mod websocket;
 #[cfg(feature = "engine")]

@@ -34,6 +34,8 @@
 #![cfg(feature = "engine")]
 
 pub(super) mod errors;
+pub(in crate::vm) mod exported_func;
+pub(super) mod instance;
 pub(super) mod module;
 pub(super) mod namespace;
 

@@ -19,12 +19,12 @@ use super::super::super::error::VmError;
 use super::super::super::natives_promise::{create_promise, settle_promise};
 use super::super::super::shape::{self, PropertyAttrs};
 use super::super::super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
-    PropertyValue,
+    JsValue, NativeContext, Object, ObjectKind, PropertyKey, PropertyStorage, PropertyValue,
 };
 use super::super::super::VmInner;
 use super::super::text_encoding::extract_buffer_source_bytes;
 use super::errors::wasm_error_to_js_value;
+use super::instance::{native_wasm_instance_constructor, native_wasm_instance_exports_get};
 use super::module::{
     native_wasm_module_constructor, native_wasm_module_custom_sections, native_wasm_module_exports,
     native_wasm_module_imports,
@@ -52,6 +52,7 @@ impl VmInner {
     ///
     /// Panics if `object_prototype` / `error_prototype` is `None`
     /// (mis-ordered registration pass).
+    #[allow(clippy::too_many_lines)] // one-shot registration: every prototype slot landed in this single pass
     pub(in crate::vm) fn register_wasm_namespace(&mut self) {
         let object_proto = self
             .object_prototype
@@ -67,6 +68,7 @@ impl VmInner {
         // §5 namespace 3 static methods.
         let validate_sid = self.strings.intern("validate");
         let compile_sid = self.strings.intern("compile");
+        let instantiate_sid = self.strings.intern("instantiate");
         self.install_native_method(
             namespace_id,
             validate_sid,
@@ -79,7 +81,12 @@ impl VmInner {
             native_wasm_compile,
             PropertyAttrs::METHOD,
         );
-        // `instantiate` is wired in Stage 3 alongside `Instance` ctor.
+        self.install_native_method(
+            namespace_id,
+            instantiate_sid,
+            native_wasm_instantiate,
+            PropertyAttrs::METHOD,
+        );
 
         // §5.1 Module constructor + prototype.
         let module_proto = self.alloc_object(Object {
@@ -135,6 +142,81 @@ impl VmInner {
             PropertyValue::Data(JsValue::Object(module_ctor)),
             PropertyAttrs::METHOD,
         );
+
+        // §5.2 Instance constructor + prototype.  Holds the
+        // `exports` accessor (lazily-allocated wrapper-identity-stable
+        // namespace per DR-4).  The accessor lives on the prototype
+        // rather than as an own data property so `delete i.exports`
+        // cannot break the `[[Exports]]` slot reading per WebIDL
+        // `Instance` interface IDL.
+        let instance_proto = self.alloc_object(Object {
+            kind: ObjectKind::Ordinary,
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: Some(object_proto),
+            extensible: true,
+        });
+        self.wasm_instance_prototype = Some(instance_proto);
+        let exports_accessor_sid = self.strings.intern("exports");
+        self.install_accessor_pair(
+            instance_proto,
+            exports_accessor_sid,
+            native_wasm_instance_exports_get,
+            None,
+            PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
+        let instance_ctor =
+            self.create_constructable_function("Instance", native_wasm_instance_constructor);
+        self.define_shaped_property(
+            instance_ctor,
+            proto_key,
+            PropertyValue::Data(JsValue::Object(instance_proto)),
+            PropertyAttrs::BUILTIN,
+        );
+        self.define_shaped_property(
+            instance_proto,
+            ctor_key,
+            PropertyValue::Data(JsValue::Object(instance_ctor)),
+            PropertyAttrs::BUILTIN,
+        );
+        let instance_name_sid = self.strings.intern("Instance");
+        self.define_shaped_property(
+            namespace_id,
+            PropertyKey::String(instance_name_sid),
+            PropertyValue::Data(JsValue::Object(instance_ctor)),
+            PropertyAttrs::METHOD,
+        );
+
+        // §5.3 / §5.4 / §5.5 — Memory / Table / Global prototype
+        // shells.  Stage 4 will install the ctors (`new
+        // WebAssembly.Memory({initial})` etc.) on the namespace and
+        // populate accessors (`.buffer` / `.grow` / `.length` / `.value`
+        // / etc.).  Stage 3 needs the prototypes installed already
+        // because the exports-namespace walker wraps each
+        // `WasmExportItem::{Memory,Table,Global}` export with the
+        // matching `*_prototype` ObjectId — having `None` here would
+        // produce JS objects with no prototype chain, breaking even
+        // basic property reads on exported instances.
+        let memory_proto = self.alloc_object(Object {
+            kind: ObjectKind::Ordinary,
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: Some(object_proto),
+            extensible: true,
+        });
+        self.wasm_memory_prototype = Some(memory_proto);
+        let table_proto = self.alloc_object(Object {
+            kind: ObjectKind::Ordinary,
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: Some(object_proto),
+            extensible: true,
+        });
+        self.wasm_table_prototype = Some(table_proto);
+        let global_proto = self.alloc_object(Object {
+            kind: ObjectKind::Ordinary,
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: Some(object_proto),
+            extensible: true,
+        });
+        self.wasm_global_prototype = Some(global_proto);
 
         // §5.10 — install `CompileError` / `LinkError` / `RuntimeError`
         // on the namespace + populate `wasm_*_error_prototype` slots.
@@ -255,6 +337,137 @@ pub(super) fn native_wasm_compile(
     Ok(JsValue::Object(promise))
 }
 
-// Suppress unused-import warning until Stage 3 lands `instantiate`.
-#[allow(dead_code)]
-fn _unused_object_id(_: ObjectId) {}
+/// `WebAssembly.instantiate(...)` — WASM JS API §5 namespace, two
+/// overloads:
+///
+/// 1. `instantiate(bytes, importObject?)` → Promise<{module,
+///    instance}>: compile-then-instantiate combined.  Resolves with a
+///    `WebAssemblyInstantiatedSource` dict (`{module: WebAssembly.Module,
+///    instance: WebAssembly.Instance}`).  Rejects with `CompileError`
+///    on parse/compile failure, `LinkError` on import resolution
+///    failure, `RuntimeError` on initialisation trap.
+/// 2. `instantiate(Module, importObject?)` → Promise<Instance>:
+///    instantiate-only.  Resolves with a `WebAssembly.Instance`.
+///
+/// The overload split is by `args[0]` brand check:
+/// `ObjectKind::WasmModule` → overload 2, anything else → overload 1
+/// (where overload 1's bytes-coerce surfaces TypeError for non-
+/// BufferSource arguments per WebIDL §3.2.21).
+///
+/// `_options` parameter is currently ignored — the WebIDL surface
+/// defines no observable behaviour for it pre-`builtins` proposal,
+/// per `body wasm-js-api-2 dom-webassembly-instantiate` step 2 +
+/// the IDL `optional dictionary options`.  Stage 5 will sweep any
+/// `String Builtins` proposal landing per `#11-wasm-builtins-proposal`
+/// defer slot if it ever fires.
+pub(super) fn native_wasm_instantiate(
+    ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let promise = create_promise(ctx.vm);
+    let first_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+    let import_object_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+
+    // Overload split — Module instance vs bytes.
+    let module_id_for_overload2 = if let JsValue::Object(id) = first_arg {
+        if matches!(ctx.vm.get_object(id).kind, ObjectKind::WasmModule) {
+            Some(id)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let module_id = if let Some(id) = module_id_for_overload2 {
+        id
+    } else {
+        // Overload 1 — bytes path.  Coerce BufferSource, compile, then
+        // proceed to instantiate.
+        let bytes = match extract_buffer_source_bytes(
+            ctx,
+            first_arg,
+            "Failed to execute 'instantiate' on 'WebAssembly'",
+            1,
+            false,
+        ) {
+            Ok(b) => b,
+            Err(e) => {
+                let reason = ctx.vm.vm_error_to_thrown(&e);
+                let _ = settle_promise(ctx.vm, promise, true, reason);
+                return Ok(JsValue::Object(promise));
+            }
+        };
+        let runtime = match ctx.vm.vm_wasm_runtime() {
+            Ok(rt) => rt.clone(),
+            Err(e) => {
+                let reason = wasm_error_to_js_value(ctx, &e);
+                let _ = settle_promise(ctx.vm, promise, true, reason);
+                return Ok(JsValue::Object(promise));
+            }
+        };
+        let module = match runtime.compile(&bytes) {
+            Ok(m) => m,
+            Err(e) => {
+                let reason = wasm_error_to_js_value(ctx, &e);
+                let _ = settle_promise(ctx.vm, promise, true, reason);
+                return Ok(JsValue::Object(promise));
+            }
+        };
+        let proto = ctx
+            .vm
+            .wasm_module_prototype
+            .expect("wasm_module_prototype populated in register_wasm_namespace");
+        let id = ctx.vm.alloc_object(Object {
+            kind: ObjectKind::WasmModule,
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: Some(proto),
+            extensible: true,
+        });
+        ctx.vm.wasm_module_storage.insert(
+            id,
+            super::super::super::wasm_payload::WasmModulePayload { module },
+        );
+        id
+    };
+
+    // Instantiate.  Shared between both overloads.
+    let instance_id = match super::instance::instantiate_module(ctx, module_id, import_object_arg) {
+        Ok(id) => id,
+        Err(reason) => {
+            let _ = settle_promise(ctx.vm, promise, true, reason);
+            return Ok(JsValue::Object(promise));
+        }
+    };
+
+    // Overload 1 resolves with `{module, instance}` dict; overload 2
+    // resolves with `Instance` directly.
+    let resolution_value = if module_id_for_overload2.is_some() {
+        JsValue::Object(instance_id)
+    } else {
+        let dict = ctx.vm.alloc_object(Object {
+            kind: ObjectKind::Ordinary,
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: ctx.vm.object_prototype,
+            extensible: true,
+        });
+        let module_key_sid = ctx.vm.strings.intern("module");
+        let instance_key_sid = ctx.vm.strings.intern("instance");
+        ctx.vm.define_shaped_property(
+            dict,
+            PropertyKey::String(module_key_sid),
+            PropertyValue::Data(JsValue::Object(module_id)),
+            PropertyAttrs::DATA,
+        );
+        ctx.vm.define_shaped_property(
+            dict,
+            PropertyKey::String(instance_key_sid),
+            PropertyValue::Data(JsValue::Object(instance_id)),
+            PropertyAttrs::DATA,
+        );
+        JsValue::Object(dict)
+    };
+    let _ = settle_promise(ctx.vm, promise, false, resolution_value);
+    Ok(JsValue::Object(promise))
+}

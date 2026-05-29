@@ -1309,6 +1309,7 @@ impl ObjectKind {
                     Self::ReadableStreamStartStep { .. }
                         | Self::ReadableStreamPullStep { .. }
                         | Self::ReadableStreamCancelStep { .. }
+                        | Self::WasmExportedFunction
                 )
             }
             #[cfg(not(feature = "engine"))]
