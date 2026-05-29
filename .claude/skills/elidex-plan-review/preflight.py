@@ -1,26 +1,35 @@
 #!/usr/bin/env python3
-"""elidex-plan-review Step 0 preflight — Spec coverage map check.
+"""elidex-plan-review Step 0 preflight — Spec coverage map + grep-pass.
 
-Verifies that a plan-memo includes a §3-style "Spec coverage map" section
-with a markdown table conforming to the schema in
-`feedback_plan-scope-re-evaluation.md`. Counts breadth (K=unique specs,
-M=total entries), runs webref verification on each parsed citation, and
-prints a split-decision verdict.
+Two preflight gates:
+
+  1. Spec coverage map (§3 table) — structural + breadth + citation
+     verification. See `feedback_plan-scope-re-evaluation.md`.
+  2. Grep-pass (§3-§7 structural references) — file path existence /
+     Rust symbol grep / enumeration claim verification artifact. See
+     `memory/m4-12-pr-elidex-plan-review-grep-pass-spec.md`.
 
 Hard-fail conditions (exit 1):
   - No "Spec coverage map" heading found in plan-memo
   - Heading found but no markdown table follows it
   - Table has 0 data rows
   - Any citation fails webref verification (use --no-verify to skip)
+  - Grep-pass Check 1: `crates/.../*.rs` reference doesn't exist
+  - Grep-pass Check 2 (with --strict-symbols): unknown Rust symbol
+  - Grep-pass Check 3 (with --strict-enum): enumeration without artifact
 
 Soft-warn conditions (exit 0 with warning):
   - K >= 6 OR M >= 30 → SPLIT-DEFAULT (single-PR needs explicit justification)
   - K >= 4 OR M >= 20 → SPLIT-RECOMMENDED
   - Header columns differ from expected schema
   - Spec label not recognized (warns + skips verify for that row)
+  - Grep-pass Check 1: `:N` line out of range
+  - Grep-pass Check 2 (default): backticked symbol not in codebase
+  - Grep-pass Check 3 (default): N+ {callers|sites|...} claim lacks artifact
 
 Sibling rule: `feedback_plan-memo-pre-verify-grep.md` covers impl-side
-verification (Op/fn/handler grep); this script covers the spec side.
+verification (Op/fn/handler grep); this script covers the spec side AND
+(via grep-pass) the structural-reference side at plan-stage.
 """
 from __future__ import annotations
 
@@ -29,6 +38,8 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+
+from grep_pass import run_grep_pass
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WEBREF = REPO_ROOT / ".claude" / "tools" / "webref"
@@ -271,6 +282,16 @@ def main() -> int:
                    help="skip webref citation verify (structure + breadth only)")
     p.add_argument("--strict-breadth", action="store_true",
                    help="treat SPLIT-DEFAULT (K>=6 or M>=30) as hard fail")
+    p.add_argument("--no-grep-pass", dest="grep_pass", action="store_false",
+                   default=True,
+                   help="skip grep-pass checks (file paths / Rust symbols / "
+                        "enumeration claims) — useful offline or for WIP plan-memo")
+    p.add_argument("--strict-symbols", action="store_true",
+                   help="treat grep-pass Check 2 (backticked Rust symbol not "
+                        "in codebase, no NEW annotation) as hard fail")
+    p.add_argument("--strict-enum", action="store_true",
+                   help="treat grep-pass Check 3 (`N callers` claim without "
+                        "verification artifact) as hard fail")
     args = p.parse_args()
 
     plan_path = Path(args.plan_memo)
@@ -427,6 +448,29 @@ def main() -> int:
         elif seen_pairs:
             print(f"  citation verify:      ok ({len(seen_pairs)} unique citation(s) checked)")
 
+    # --- Grep-pass (§3-§7 structural reference verification) -------------
+    grep_hard_fail = False
+    if args.grep_pass:
+        grep_findings = run_grep_pass(
+            plan_path,
+            REPO_ROOT,
+            strict_symbols=args.strict_symbols,
+            strict_enum=args.strict_enum,
+        )
+        hard_findings = [m for sev, m in grep_findings if sev == "HARD"]
+        soft_findings = [m for sev, m in grep_findings if sev == "SOFT"]
+        print(f"  grep-pass:            "
+              f"{len(hard_findings)} hard, {len(soft_findings)} soft "
+              f"(spec: m4-12-pr-elidex-plan-review-grep-pass-spec.md)")
+        for msg in soft_findings:
+            print(f"  ⚠ {msg}", file=sys.stderr)
+        if hard_findings:
+            grep_hard_fail = True
+            print(f"\npreflight: ❌ HARD FAIL — grep-pass: "
+                  f"{len(hard_findings)} hard finding(s)", file=sys.stderr)
+            for msg in hard_findings:
+                print(f"  - {msg}", file=sys.stderr)
+
     if malformed_hard_fail:
         print()
         print(f"preflight: ❌ HARD FAIL — {malformed_rows} of {len(data_rows)} "
@@ -445,6 +489,8 @@ def main() -> int:
               file=sys.stderr)
         return 1
     if verify_failed:
+        return 1
+    if grep_hard_fail:
         return 1
     return 0
 
