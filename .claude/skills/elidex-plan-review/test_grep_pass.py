@@ -138,6 +138,25 @@ class Check1FilePathTests(unittest.TestCase):
                 "(NEW) annotation should exempt Check 1 hard-fail",
             )
 
+    def test_missing_path_NEW_annotation_anywhere_exempts(self):
+        # Author intent for (NEW) is global — annotation on later mention
+        # must exempt the path even if earlier mentions are bare. PR #243
+        # Copilot R2 IMP (same bug shape as Check 2, audit hit).
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            _mk_repo(tmp, {})
+            plan = _mk_plan(tmp,
+                "Stage 1: prose mentions `crates/script/elidex-js/src/vm/"
+                "wasm_payload.rs` casually before the formal declaration.\n\n"
+                "## §4. Architecture\n\n"
+                "Create `crates/script/elidex-js/src/vm/wasm_payload.rs` "
+                "(NEW) for payloads.\n")
+            findings = run_grep_pass(plan, tmp)
+            self.assertEqual(
+                [f for f in findings if "wasm_payload.rs" in f[1]], [],
+                "(NEW) on later mention should exempt path globally",
+            )
+
 
 class Check2RustSymbolTests(unittest.TestCase):
     """Check 2 — Rust symbol grep + NEW-annotation exemption."""
@@ -209,6 +228,24 @@ class Check2RustSymbolTests(unittest.TestCase):
             findings = run_grep_pass(plan, tmp)
             self.assertEqual(
                 [f for f in findings if "X::do_thing" in f[1]], [])
+
+    def test_NEW_annotation_anywhere_exempts(self):
+        # Author intent for (NEW) is global — annotation on later mention
+        # must exempt the symbol even if earlier mentions are bare.
+        # Original logic was first-occurrence-only and got the order
+        # backwards in this case (PR #243 Copilot R2 IMP).
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            _mk_repo(tmp, {"crates/foo.rs": "fn other() {}\n"})
+            plan = _mk_plan(tmp,
+                "Stage 1: prose mentions `X::do_thing` casually.\n\n"
+                "## §4. Architecture\n\n"
+                "Add `X::do_thing` (NEW) as the dispatcher entry.\n")
+            findings = run_grep_pass(plan, tmp)
+            self.assertEqual(
+                [f for f in findings if "X::do_thing" in f[1]], [],
+                "(NEW) on later mention should exempt symbol globally",
+            )
 
     def test_symbol_in_code_block_skipped(self):
         with tempfile.TemporaryDirectory() as td:

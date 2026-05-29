@@ -100,6 +100,22 @@ def run_grep_pass(
     code_block_spans = _code_block_spans(content)
     coverage_map_span = _coverage_map_span(content)
 
+    # Document-wide NEW-annotation exemption sets. Author intent for
+    # "(NEW)" / "(planned)" / "(<PR-ID> surface)" is global to the document
+    # (one canonical declaration site, possibly later than casual prose
+    # references), so we pre-scan ALL occurrences once and exempt by
+    # token value at check time. Original per-occurrence vicinity check
+    # was order-dependent — if the first textual mention was bare and
+    # later mentions added (NEW), the symbol/path was still flagged
+    # (PR #243 Copilot R2 IMP). Applied uniformly to Check 1 and Check 2
+    # since both shared the same per-occurrence bug shape.
+    new_annotated_paths = _collect_new_annotated_tokens(
+        content, FILE_PATH_RE, code_block_spans,
+    )
+    new_annotated_symbols = _collect_new_annotated_tokens(
+        content, RUST_SYMBOL_RE, code_block_spans,
+    )
+
     # --- Check 1: file path existence -------------------------------------
     for m in FILE_PATH_RE.finditer(content):
         if _in_spans(m.start(), code_block_spans):
@@ -121,12 +137,7 @@ def run_grep_pass(
             continue
         full = repo_root / path_str
         if not full.exists():
-            # NEW exemption (mirrors Check 2): planned new files are a
-            # valid reason to reference a non-existent path. Spec missed
-            # this — only required for `(NEW)` / `(planned)` / `(<PR-ID>
-            # surface)` annotations, matching Check 2's exemption pattern.
-            vicinity = content[max(0, m.start() - 100): m.end() + 100]
-            if NEW_ANNOTATION_RE.search(vicinity):
+            if path_str in new_annotated_paths:
                 continue
             findings.append((
                 "HARD",
@@ -164,8 +175,7 @@ def run_grep_pass(
             if symbol in seen_symbols:
                 continue
             seen_symbols.add(symbol)
-            vicinity = content[max(0, m.start() - 100): m.end() + 100]
-            if NEW_ANNOTATION_RE.search(vicinity):
+            if symbol in new_annotated_symbols:
                 continue
             candidates.append(symbol)
         if candidates:
@@ -274,6 +284,33 @@ def _coverage_map_span(content: str) -> tuple[int, int] | None:
 
 def _in_spans(pos: int, spans: list[tuple[int, int]]) -> bool:
     return any(s <= pos < e for s, e in spans)
+
+
+def _collect_new_annotated_tokens(
+    content: str,
+    token_re: re.Pattern[str],
+    code_block_spans: list[tuple[int, int]],
+) -> set[str]:
+    """Return tokens (from `token_re.group(1)`) that have a NEW annotation
+    within ±100-char vicinity of ANY of their occurrences in `content`.
+
+    Used by both Check 1 (paths) and Check 2 (symbols) so the "NEW
+    exemption applies if author marks it anywhere" semantic holds
+    document-wide rather than only at the first textual mention.
+
+    Skips occurrences inside fenced code blocks (template examples don't
+    declare anything). Does NOT skip §3 coverage map occurrences — a
+    `(NEW)` annotation inside the coverage map still expresses author
+    intent that the token is planned.
+    """
+    annotated: set[str] = set()
+    for m in token_re.finditer(content):
+        if _in_spans(m.start(), code_block_spans):
+            continue
+        vicinity = content[max(0, m.start() - 100): m.end() + 100]
+        if NEW_ANNOTATION_RE.search(vicinity):
+            annotated.add(m.group(1))
+    return annotated
 
 
 def _grep_repo_bulk(symbols: list[str], crates_dir: Path) -> set[str]:
