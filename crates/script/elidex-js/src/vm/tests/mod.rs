@@ -7,6 +7,7 @@ mod tests_abort_signal_option;
 mod tests_abort_statics;
 mod tests_add_event_listener;
 mod tests_array_buffer;
+mod tests_array_buffer_detach;
 mod tests_array_prototype;
 mod tests_array_prototype_ext;
 mod tests_associated_document;

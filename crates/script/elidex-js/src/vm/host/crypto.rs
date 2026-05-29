@@ -288,6 +288,22 @@ fn native_crypto_get_random_values(
         }
     };
 
+    // WebIDL `BufferSource` boundary detach check per ECMA-262
+    // §25.1.3.4 — `getRandomValues` accepts an `ArrayBufferView`
+    // (typedef `[AllowShared] ArrayBufferView`) whose
+    // `[[ViewedArrayBuffer]]` must not be detached.  Without this
+    // check, the call would silently no-op on a zero-length
+    // detached view, divergent from browser behaviour (Chrome /
+    // Firefox both throw).  Placed before the §11.1 step 2 quota
+    // check so a detached view does not surface a misleading
+    // `QuotaExceededError` on the `byte_length == 0` path.
+    if super::array_buffer::is_detached_buffer(ctx.vm, buffer_id) {
+        return Err(VmError::type_error(
+            "Failed to execute 'getRandomValues' on 'Crypto': \
+             The provided ArrayBufferView is detached.",
+        ));
+    }
+
     // §11.1 step 2 — quota check.  Boundary value is allowed.
     if byte_length > QUOTA_EXCEEDED_LIMIT {
         return Err(VmError::dom_exception(

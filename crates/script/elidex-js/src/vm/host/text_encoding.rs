@@ -728,7 +728,21 @@ pub(super) fn extract_buffer_source_bytes(
     match input_arg {
         JsValue::Undefined if allow_undefined_as_empty => Ok(Vec::new()),
         JsValue::Object(id) => match ctx.vm.get_object(id).kind {
-            ObjectKind::ArrayBuffer => Ok(super::array_buffer::array_buffer_bytes(ctx.vm, id)),
+            ObjectKind::ArrayBuffer => {
+                // Web IDL §4.2 `BufferSource` typedef + ECMA-262
+                // §25.1.3.4 IsDetachedBuffer at the WebIDL conversion
+                // boundary: a detached ArrayBuffer must surface
+                // TypeError before any byte read.  Without this
+                // check, `array_buffer_bytes` would return an empty
+                // `Vec` and the consumer would silently process zero
+                // bytes — divergent from browser behaviour.
+                if super::array_buffer::is_detached_buffer(ctx.vm, id) {
+                    return Err(VmError::type_error(format!(
+                        "{error_prefix}: parameter {param_index} is a detached ArrayBuffer"
+                    )));
+                }
+                Ok(super::array_buffer::array_buffer_bytes(ctx.vm, id))
+            }
             ObjectKind::TypedArray {
                 buffer_id,
                 byte_offset,
@@ -739,12 +753,21 @@ pub(super) fn extract_buffer_source_bytes(
                 buffer_id,
                 byte_offset,
                 byte_length,
-            } => Ok(super::array_buffer::array_buffer_view_bytes(
-                ctx.vm,
-                buffer_id,
-                byte_offset,
-                byte_length,
-            )),
+            } => {
+                // Same WebIDL-boundary detach check, applied to the
+                // view's `[[ViewedArrayBuffer]]`.
+                if super::array_buffer::is_detached_buffer(ctx.vm, buffer_id) {
+                    return Err(VmError::type_error(format!(
+                        "{error_prefix}: parameter {param_index} is a view onto a detached ArrayBuffer"
+                    )));
+                }
+                Ok(super::array_buffer::array_buffer_view_bytes(
+                    ctx.vm,
+                    buffer_id,
+                    byte_offset,
+                    byte_length,
+                ))
+            }
             _ => Err(VmError::type_error(format!(
                 "{error_prefix}: parameter {param_index} is not of type 'BufferSource'"
             ))),

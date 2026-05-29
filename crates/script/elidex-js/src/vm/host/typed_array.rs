@@ -60,6 +60,7 @@
 use super::super::coerce;
 use super::super::value::{ElementKind, JsValue, NativeContext, ObjectId, ObjectKind, VmError};
 use super::super::VmInner;
+use super::array_buffer::is_detached_buffer;
 use super::typed_array_ctor::{init_from_array_buffer, init_from_iterable, init_from_typed_array};
 
 // ---------------------------------------------------------------------------
@@ -103,9 +104,22 @@ pub(super) fn native_typed_array_get_byte_offset(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_typed_array_this(ctx, this, "byteOffset")?;
-    let ObjectKind::TypedArray { byte_offset, .. } = ctx.vm.get_object(id).kind else {
+    let ObjectKind::TypedArray {
+        buffer_id,
+        byte_offset,
+        ..
+    } = ctx.vm.get_object(id).kind
+    else {
         unreachable!("brand-check passed");
     };
+    // ECMA-262 §23.2.3.4 `get %TypedArray%.prototype.byteOffset`
+    // — `MakeTypedArrayWithBufferWitnessRecord` detects detached
+    // backing buffer via `IsDetachedBuffer`; subsequent
+    // `IsTypedArrayOutOfBounds(taRecord)` returns `true`, so the
+    // getter step 6 returns `+0𝔽` instead of the stored offset.
+    if is_detached_buffer(ctx.vm, buffer_id) {
+        return Ok(JsValue::Number(0.0));
+    }
     Ok(JsValue::Number(f64::from(byte_offset)))
 }
 
@@ -115,9 +129,21 @@ pub(super) fn native_typed_array_get_byte_length(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_typed_array_this(ctx, this, "byteLength")?;
-    let ObjectKind::TypedArray { byte_length, .. } = ctx.vm.get_object(id).kind else {
+    let ObjectKind::TypedArray {
+        buffer_id,
+        byte_length,
+        ..
+    } = ctx.vm.get_object(id).kind
+    else {
         unreachable!("brand-check passed");
     };
+    // ECMA-262 §23.2.3.3 — same detached-buffer return-`+0𝔽` path
+    // as `byteOffset` above (both via
+    // `MakeTypedArrayWithBufferWitnessRecord` +
+    // `IsTypedArrayOutOfBounds`).
+    if is_detached_buffer(ctx.vm, buffer_id) {
+        return Ok(JsValue::Number(0.0));
+    }
     Ok(JsValue::Number(f64::from(byte_length)))
 }
 
@@ -128,6 +154,7 @@ pub(super) fn native_typed_array_get_length(
 ) -> Result<JsValue, VmError> {
     let id = require_typed_array_this(ctx, this, "length")?;
     let ObjectKind::TypedArray {
+        buffer_id,
         byte_length,
         element_kind,
         ..
@@ -135,6 +162,12 @@ pub(super) fn native_typed_array_get_length(
     else {
         unreachable!("brand-check passed");
     };
+    // ECMA-262 §23.2.3.21 `get %TypedArray%.prototype.length`
+    // — same detached-buffer return-`+0𝔽` path as `byteLength` /
+    // `byteOffset` above.
+    if is_detached_buffer(ctx.vm, buffer_id) {
+        return Ok(JsValue::Number(0.0));
+    }
     let bpe = u32::from(element_kind.bytes_per_element());
     let len = byte_length / bpe;
     Ok(JsValue::Number(f64::from(len)))
@@ -259,6 +292,18 @@ pub(crate) fn read_element_raw(
     index: u32,
     ek: ElementKind,
 ) -> JsValue {
+    // ECMA-262 §10.4.5.16 `IsValidIntegerIndex` step 1: "If
+    // `IsDetachedBuffer(O.[[ViewedArrayBuffer]])` is true, return
+    // false".  The TypedArray exotic `[[Get]]` (§10.4.5.5 →
+    // `TypedArrayGetElement` §10.4.5.17) returns `undefined` whenever
+    // `IsValidIntegerIndex` is false — so on a detached buffer the
+    // spec-correct response is silent fall-through to `undefined`,
+    // NOT TypeError.  This contrasts with `.slice` (§25.1.6.7 step 4)
+    // and the DataView ops which DO throw; the divergence is the
+    // spec choice baked into `IsValidIntegerIndex`.
+    if is_detached_buffer(vm, buffer_id) {
+        return JsValue::Undefined;
+    }
     let bpe = u32::from(ek.bytes_per_element());
     let abs = (byte_offset + index * bpe) as usize;
     // Snapshot exactly `bpe` bytes per element kind so each
@@ -428,8 +473,28 @@ pub(crate) fn write_element_raw(
     // and throw.  Scratch buffer holds the encoded little-endian
     // bytes; the actual write (mutating the backing `Vec<u8>` in
     // place) only runs if coercion succeeds.
+    //
+    // Coercion runs even when the buffer is detached: ECMA-262
+    // §10.4.5.18 `TypedArraySetElement` steps 1-2 perform
+    // `ToBigInt` / `ToNumber` on `value` BEFORE step 3 checks
+    // `IsValidIntegerIndex`, so a detached-buffer write still
+    // observes the side-effecting numeric coercion (and any
+    // `valueOf` / `Symbol.toPrimitive` throw).  Only the byte-level
+    // write itself is the no-op-success on detach.
     let mut scratch = [0_u8; 8];
     let written_len = coerce_element_to_le_bytes(ctx, ek, value, &mut scratch)?;
+
+    // ECMA-262 §10.4.5.16 `IsValidIntegerIndex` step 1 → §10.4.5.6
+    // `[[Set]]` (via `TypedArraySetElement` §10.4.5.18 step 3)
+    // silently succeeds with no write when `IsValidIntegerIndex` is
+    // false.  So a write to a detached TypedArray is a
+    // spec-prescribed no-op-success — NOT a TypeError.  See the
+    // parallel comment on `read_element_raw` above for the spec
+    // rationale.  Check AFTER coercion to preserve observable
+    // side-effects of `ToNumber` / `ToBigInt`.
+    if is_detached_buffer(&*ctx.vm, buffer_id) {
+        return Ok(());
+    }
 
     super::byte_io::write_at(
         &mut ctx.vm.body_data,

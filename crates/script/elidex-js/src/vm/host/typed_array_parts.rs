@@ -75,10 +75,23 @@ impl TypedArrayParts {
     }
 }
 
-/// WebIDL brand-check for `%TypedArray%.prototype` methods.
-/// Extracts the four immutable [`ObjectKind::TypedArray`] spec
-/// slots inline in one pattern-match and returns them alongside
-/// the receiver's id as a [`TypedArrayParts`] snapshot.
+/// WebIDL brand-check + ValidateTypedArray for
+/// `%TypedArray%.prototype` methods.  Extracts the four immutable
+/// [`ObjectKind::TypedArray`] spec slots inline in one pattern-match
+/// and returns them alongside the receiver's id as a
+/// [`TypedArrayParts`] snapshot.
+///
+/// Enforces ECMA-262 §23.2.4.4 `ValidateTypedArray` step 4 — "If
+/// `IsTypedArrayOutOfBounds(taRecord)` is true, throw a TypeError
+/// exception" — by checking
+/// [`super::array_buffer::is_detached_buffer`] on the view's backing
+/// buffer right after the brand check.  Auto-propagates the detach
+/// check to every `%TypedArray%.prototype` method that funnels
+/// through this helper (currently 22 callers per
+/// `typed_array_methods.rs` + `typed_array_hof.rs`).  The
+/// one-issue-one-way alternative — a parallel
+/// `require_attached_typed_array` helper alongside this one — was
+/// rejected at plan-review R2 Cluster T as a SoT-fragmenting seam.
 pub(super) fn require_typed_array_parts(
     ctx: &NativeContext<'_>,
     this: JsValue,
@@ -89,21 +102,29 @@ pub(super) fn require_typed_array_parts(
             "TypedArray.prototype.{method} called on non-TypedArray"
         )));
     };
-    match ctx.vm.get_object(id).kind {
+    let parts = match ctx.vm.get_object(id).kind {
         ObjectKind::TypedArray {
             buffer_id,
             byte_offset,
             byte_length,
             element_kind,
-        } => Ok(TypedArrayParts {
+        } => TypedArrayParts {
             id,
             buffer_id,
             byte_offset,
             byte_length,
             element_kind,
-        }),
-        _ => Err(VmError::type_error(format!(
-            "TypedArray.prototype.{method} called on non-TypedArray"
-        ))),
+        },
+        _ => {
+            return Err(VmError::type_error(format!(
+                "TypedArray.prototype.{method} called on non-TypedArray"
+            )));
+        }
+    };
+    if super::array_buffer::is_detached_buffer(ctx.vm, parts.buffer_id) {
+        return Err(VmError::type_error(format!(
+            "TypedArray.prototype.{method} called on a TypedArray whose buffer is detached"
+        )));
     }
+    Ok(parts)
 }

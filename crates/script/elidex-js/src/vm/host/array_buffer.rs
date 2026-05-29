@@ -29,9 +29,14 @@
 //!
 //! ## Deferred
 //!
-//! - `SharedArrayBuffer` / detached state / `resizable` ctor
-//!   option (ES2024).
-//! - `.transfer()` / `.transferToFixedLength()` / `.resize()`.
+//! - `SharedArrayBuffer` (gated by `#11-wasm-threads`) — including its
+//!   own `IsDetachedBuffer` branch (SAB has no detach per spec, but
+//!   several methods need a conditional carve-out).
+//! - `resizable` / `maxByteLength` (ES2024 — requires resizable backing
+//!   infrastructure, separate concern from detach state).
+//! - `.transfer()` / `.transferToFixedLength()` / `.resize()` — ES2024,
+//!   require source-buffer detach + new-buffer alloc + key-paired
+//!   detach state.
 //! - TypedArray views (`Uint8Array` / `DataView` / …) — next tranche.
 //! - `ArrayBuffer.isView` static (pointless without any views).
 
@@ -136,6 +141,22 @@ impl VmInner {
             PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );
 
+        // `ArrayBuffer.prototype.detached` getter — ECMA-262
+        // §25.1.6.3 (anchor `#sec-get-arraybuffer.prototype.detached`).
+        // Trivial accessor over `VmInner::detached_buffers`; ships in
+        // F3 v1 because shipping `IsDetachedBuffer` infrastructure
+        // without exposing the spec getter would be artificial.
+        // The other ES2024 ArrayBuffer accessors
+        // (`.resizable` / `.maxByteLength`) remain deferred — they
+        // require resizable-backing infrastructure, separate concern.
+        self.install_accessor_pair(
+            proto_id,
+            self.well_known.detached,
+            native_array_buffer_get_detached,
+            None,
+            PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
+
         self.install_native_method(
             proto_id,
             self.well_known.slice,
@@ -173,6 +194,63 @@ fn require_array_buffer_this(
 /// uninstalled instance (defensive — should not happen).
 pub(crate) fn array_buffer_byte_length(vm: &VmInner, id: ObjectId) -> usize {
     vm.body_data.get(&id).map_or(0, std::vec::Vec::len)
+}
+
+/// `IsDetachedBuffer(arrayBuffer)` per ECMA-262 §25.1.3.4
+/// (anchor `#sec-isdetachedbuffer`).  Spec step 1: "If
+/// `arrayBuffer.[[ArrayBufferData]]` is `null`, return `true`; otherwise
+/// return `false`".  In elidex the `[[ArrayBufferData]]`-null state is
+/// encoded by membership in `VmInner::detached_buffers`.
+pub(crate) fn is_detached_buffer(vm: &VmInner, id: ObjectId) -> bool {
+    vm.detached_buffers.contains(&id)
+}
+
+/// `DetachArrayBuffer(arrayBuffer, [, key])` per ECMA-262 §25.1.3.5
+/// (anchor `#sec-detacharraybuffer`).  Effect of spec steps 4-5: sets
+/// `[[ArrayBufferData]]` to `null` + `[[ArrayBufferByteLength]]` to
+/// `0`; in elidex this is encoded as `detached_buffers.insert(id)` +
+/// `body_data.remove(&id)`.  Subsequent
+/// [`array_buffer_byte_length`] then returns `0` naturally via the
+/// missing-entry path, while membership in `detached_buffers` lets
+/// the slice / DataView / TypedArray hot paths short-circuit with
+/// the spec-prescribed TypeError / undefined / silent-no-op.
+///
+/// Idempotent — re-detaching is a no-op (the second
+/// `body_data.remove` is also a no-op).
+///
+/// **Optional `key` parameter elided in v1**: spec signature is
+/// `DetachArrayBuffer(arrayBuffer, [, key])` where the optional key
+/// is matched against `[[ArrayBufferDetachKey]]` per spec steps 2-3.
+/// No v1 elidex caller uses paired-key detach (that's for
+/// `ArrayBuffer.prototype.transfer` ES2024 + HTML postMessage
+/// transfer — both deferred).  Reintroduce `key: Option<JsValue>`
+/// when the first paired-detach caller lands.
+///
+/// `#[allow(dead_code)]` for the F3 landing window: the v1 caller
+/// (`WebAssembly.Memory.grow`) is wired in by D-16 — F3 ships the
+/// infrastructure first per plan-memo §0 P0-4 (D-16 §5 Stage 4.1
+/// consumes this helper).  Test-side callers under `cfg(test)`
+/// don't satisfy the non-test build's `dead_code` lint, so the
+/// allow is the bridge until D-16 lands.
+#[allow(dead_code)]
+pub(crate) fn array_buffer_detach(vm: &mut VmInner, id: ObjectId) {
+    vm.detached_buffers.insert(id);
+    vm.body_data.remove(&id);
+}
+
+/// Throw `TypeError` if `id` refers to a detached ArrayBuffer per
+/// [`is_detached_buffer`], else `Ok(())`.  Used at spec sites that
+/// require buffer-attached witness before touching backing bytes /
+/// length state — currently the TypedArray ctor
+/// (ECMA-262 §23.2.5.1.3 step 6) and the DataView ctor
+/// (ECMA-262 §25.3.2.1 step 4).  Mirrors the same single-helper
+/// pattern as `data_view_require_attached` (see `data_view.rs`) —
+/// one canonical brand-+-attach check site per spec consumer.
+pub(crate) fn array_buffer_require_attached(vm: &VmInner, id: ObjectId) -> Result<(), VmError> {
+    if is_detached_buffer(vm, id) {
+        return Err(VmError::type_error("operation on a detached ArrayBuffer"));
+    }
+    Ok(())
 }
 
 /// Return a snapshot of the full backing byte slice as an owned
@@ -374,9 +452,30 @@ fn native_array_buffer_get_byte_length(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_array_buffer_this(ctx, this, "byteLength")?;
+    // ECMA-262 §25.1.6.1 step 4: "If IsDetachedBuffer(O) is true,
+    // return +0𝔽".  Structurally redundant given that
+    // `array_buffer_detach` also drops the `body_data` entry (so the
+    // length read below would naturally return 0), but kept for
+    // spec-prose fidelity + future-safety against `body_data`
+    // semantics drift.
+    if is_detached_buffer(ctx.vm, id) {
+        return Ok(JsValue::Number(0.0));
+    }
     #[allow(clippy::cast_precision_loss)]
     let len = array_buffer_byte_length(ctx.vm, id) as f64;
     Ok(JsValue::Number(len))
+}
+
+/// `get ArrayBuffer.prototype.detached` per ECMA-262 §25.1.6.3
+/// (anchor `#sec-get-arraybuffer.prototype.detached`).  Spec step 4:
+/// "Return IsDetachedBuffer(O)".
+fn native_array_buffer_get_detached(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_array_buffer_this(ctx, this, "detached")?;
+    Ok(JsValue::Boolean(is_detached_buffer(ctx.vm, id)))
 }
 
 // ---------------------------------------------------------------------------
@@ -395,6 +494,17 @@ fn native_array_buffer_slice(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_array_buffer_this(ctx, this, "slice")?;
+    // ECMA-262 §25.1.6.7 step 4: "If IsDetachedBuffer(O) is true,
+    // throw a TypeError exception".  Short-circuit before the
+    // begin / end coercion + range math so a detached buffer cannot
+    // surface a 0-byte fresh ArrayBuffer (which would happen if we
+    // relied on the missing-`body_data` path through
+    // `array_buffer_byte_length`).
+    if is_detached_buffer(ctx.vm, id) {
+        return Err(VmError::type_error(
+            "ArrayBuffer.prototype.slice called on detached ArrayBuffer",
+        ));
+    }
     let len = array_buffer_byte_length(ctx.vm, id);
     #[allow(clippy::cast_precision_loss)]
     let len_f = len as f64;

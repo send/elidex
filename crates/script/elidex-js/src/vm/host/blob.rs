@@ -378,6 +378,18 @@ fn append_blob_part_bytes(
         }
         JsValue::Object(part_id) => match ctx.vm.get_object(part_id).kind {
             ObjectKind::ArrayBuffer => {
+                // WHATWG File API §3.2 BlobPart processing: an
+                // `ArrayBuffer` part contributes its backing bytes.
+                // A detached buffer must throw TypeError at the
+                // WebIDL BufferSource conversion boundary per
+                // ECMA-262 §25.1.3.4 — otherwise the Blob would
+                // silently absorb zero bytes from the detached
+                // part, divergent from browser behaviour.
+                if super::array_buffer::is_detached_buffer(ctx.vm, part_id) {
+                    return Err(VmError::type_error(
+                        "Failed to construct 'Blob': a blobParts element is a detached ArrayBuffer",
+                    ));
+                }
                 let bytes = super::array_buffer::array_buffer_bytes(ctx.vm, part_id);
                 out.extend_from_slice(&bytes);
             }
@@ -402,6 +414,14 @@ fn append_blob_part_bytes(
                 byte_offset,
                 byte_length,
             } => {
+                // Same detach-at-WebIDL-boundary check as the
+                // bare-`ArrayBuffer` arm above, applied to the
+                // view's `[[ViewedArrayBuffer]]`.
+                if super::array_buffer::is_detached_buffer(ctx.vm, buffer_id) {
+                    return Err(VmError::type_error(
+                        "Failed to construct 'Blob': a blobParts element is a view onto a detached ArrayBuffer",
+                    ));
+                }
                 // Read `body_data[buffer_id]` once and extend
                 // directly from the requested sub-range — avoids
                 // cloning the full backing buffer just to copy a

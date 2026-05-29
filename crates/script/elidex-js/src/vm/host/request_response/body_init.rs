@@ -40,10 +40,23 @@ pub(in crate::vm::host) fn extract_body_bytes(
             Ok(Some((raw.into_bytes(), None)))
         }
         JsValue::Object(obj_id) => match ctx.vm.get_object(obj_id).kind {
-            ObjectKind::ArrayBuffer => Ok(Some((
-                super::super::array_buffer::array_buffer_bytes(ctx.vm, obj_id),
-                None,
-            ))),
+            ObjectKind::ArrayBuffer => {
+                // WHATWG Fetch §5.2 BodyInit extract — WebIDL
+                // BufferSource conversion throws TypeError on a
+                // detached ArrayBuffer per ECMA-262 §25.1.3.4.
+                // Required so `new Request(url, { body: detachedAb })`
+                // surfaces TypeError rather than silently posting
+                // zero bytes.
+                if super::super::array_buffer::is_detached_buffer(ctx.vm, obj_id) {
+                    return Err(VmError::type_error(
+                        "Failed to extract body: body is a detached ArrayBuffer",
+                    ));
+                }
+                Ok(Some((
+                    super::super::array_buffer::array_buffer_bytes(ctx.vm, obj_id),
+                    None,
+                )))
+            }
             ObjectKind::Blob => {
                 // `BlobData.bytes` is the source of truth as
                 // `Arc<[u8]>` (per-spec immutable).  Snapshot the
@@ -68,15 +81,25 @@ pub(in crate::vm::host) fn extract_body_bytes(
                 buffer_id,
                 byte_offset,
                 byte_length,
-            } => Ok(Some((
-                super::super::array_buffer::array_buffer_view_bytes(
-                    ctx.vm,
-                    buffer_id,
-                    byte_offset,
-                    byte_length,
-                ),
-                None,
-            ))),
+            } => {
+                // Same WebIDL-boundary detach check as the
+                // bare-`ArrayBuffer` arm above, applied to the
+                // view's `[[ViewedArrayBuffer]]`.
+                if super::super::array_buffer::is_detached_buffer(ctx.vm, buffer_id) {
+                    return Err(VmError::type_error(
+                        "Failed to extract body: body is a view onto a detached ArrayBuffer",
+                    ));
+                }
+                Ok(Some((
+                    super::super::array_buffer::array_buffer_view_bytes(
+                        ctx.vm,
+                        buffer_id,
+                        byte_offset,
+                        byte_length,
+                    ),
+                    None,
+                )))
+            }
             ObjectKind::URLSearchParams => {
                 // Always serialise via the `serialize_for_body`
                 // helper so the wire bytes match `toString()`'s
