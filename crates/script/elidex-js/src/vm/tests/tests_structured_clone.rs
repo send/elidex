@@ -303,6 +303,63 @@ fn data_clone_error_propagates_from_nested_member() {
 }
 
 // ---------------------------------------------------------------------------
+// Detached buffer — HTML §2.7.3 StructuredSerializeInternal step
+// 13.2.1 (direct ArrayBuffer) + step 14.1 (TypedArray / DataView via
+// `IsArrayBufferViewOutOfBounds`, which in v1 elidex reduces to
+// `IsDetachedBuffer` on the underlying buffer since no resizable AB).
+//
+// `array_buffer_detach` is the Rust-side helper (no JS `.detach()`
+// surface in v1 — see `vm/host/array_buffer.rs` Deferred list); the
+// eventual D-16 `WebAssembly.Memory.grow` is the first production
+// caller.  Tests drive the helper directly through `vm.inner.*` to
+// reach the spec-mandated DataCloneError branch.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn data_clone_error_for_detached_array_buffer() {
+    let mut vm = Vm::new();
+    let id = match vm
+        .eval("globalThis.ab = new ArrayBuffer(8); globalThis.ab;")
+        .unwrap()
+    {
+        JsValue::Object(id) => id,
+        other => panic!("expected ArrayBuffer object, got {other:?}"),
+    };
+    super::super::host::array_buffer::array_buffer_detach(&mut vm.inner, id);
+    assert_data_clone_error(&mut vm, "globalThis.ab");
+}
+
+#[test]
+fn data_clone_error_for_typed_array_with_detached_buffer() {
+    let mut vm = Vm::new();
+    let buf_id = match vm
+        .eval("globalThis.ab = new ArrayBuffer(8); globalThis.ta = new Uint8Array(ab); globalThis.ab;")
+        .unwrap()
+    {
+        JsValue::Object(id) => id,
+        other => panic!("expected ArrayBuffer object, got {other:?}"),
+    };
+    super::super::host::array_buffer::array_buffer_detach(&mut vm.inner, buf_id);
+    assert_data_clone_error(&mut vm, "globalThis.ta");
+}
+
+#[test]
+fn data_clone_error_for_data_view_with_detached_buffer() {
+    let mut vm = Vm::new();
+    let buf_id = match vm
+        .eval(
+            "globalThis.ab = new ArrayBuffer(8); globalThis.dv = new DataView(ab); globalThis.ab;",
+        )
+        .unwrap()
+    {
+        JsValue::Object(id) => id,
+        other => panic!("expected ArrayBuffer object, got {other:?}"),
+    };
+    super::super::host::array_buffer::array_buffer_detach(&mut vm.inner, buf_id);
+    assert_data_clone_error(&mut vm, "globalThis.dv");
+}
+
+// ---------------------------------------------------------------------------
 // Binding-level validation
 // ---------------------------------------------------------------------------
 

@@ -170,10 +170,10 @@ fn clone_recursive(
             vm.bigint_prototype,
             memo,
         ))),
-        CloneKind::ArrayBuffer => Ok(JsValue::Object(clone_array_buffer(vm, src_id, memo))),
+        CloneKind::ArrayBuffer => Ok(JsValue::Object(clone_array_buffer(vm, src_id, memo)?)),
         CloneKind::Blob => Ok(JsValue::Object(clone_blob(vm, src_id, memo))),
-        CloneKind::TypedArray => Ok(JsValue::Object(clone_typed_array(vm, src_id, memo))),
-        CloneKind::DataView => Ok(JsValue::Object(clone_data_view(vm, src_id, memo))),
+        CloneKind::TypedArray => Ok(JsValue::Object(clone_typed_array(vm, src_id, memo)?)),
+        CloneKind::DataView => Ok(JsValue::Object(clone_data_view(vm, src_id, memo)?)),
         CloneKind::Unclonable(label) => Err(data_clone_error(vm, label)),
     }
 }
@@ -615,31 +615,42 @@ fn alloc_wrapper(vm: &mut VmInner, kind: ObjectKind, proto: Option<ObjectId>) ->
 /// (no `Arc::clone` sharing) so mutations through one buffer cannot
 /// be observed through the other — the defining contract of
 /// StructuredSerialize for transferable ArrayBuffers when no
-/// `transfer` list is present (spec §2.9 step 12).
+/// `transfer` list is present (HTML §2.7.3 StructuredSerializeInternal
+/// step 13.2.4 `CopyDataBlockBytes`).
 ///
 /// Memo-threaded: two TypedArray / DataView views over the same
 /// underlying ArrayBuffer must clone to two views over the SAME
-/// cloned ArrayBuffer (spec §2.9 step 4: "If memory[value] exists,
-/// return memory[value]").  Callers insert `(src → new_id)` into
+/// cloned ArrayBuffer (HTML §2.7.3 step 2: "If memory[value] exists,
+/// then return memory[value]").  Callers insert `(src → new_id)` into
 /// the memo after construction — this function does it once, so
 /// later siblings hit the memo lookup in `clone_recursive`.
+///
+/// Throws `DataCloneError DOMException` when `src` is detached per
+/// HTML §2.7.3 step 13.2.1 ("If `IsDetachedBuffer(value)` is true,
+/// then throw a 'DataCloneError' DOMException").  Pre-F3 this branch
+/// was unreachable (detach was unrepresentable); post-F3 + post-D-16
+/// `WebAssembly.Memory.grow` makes a detached `ArrayBuffer`
+/// observable to `structuredClone`.
 fn clone_array_buffer(
     vm: &mut VmInner,
     src: ObjectId,
     memo: &mut HashMap<ObjectId, ObjectId>,
-) -> ObjectId {
+) -> Result<ObjectId, VmError> {
     if let Some(&cached) = memo.get(&src) {
-        return cached;
+        return Ok(cached);
+    }
+    if super::array_buffer::is_detached_buffer(vm, src) {
+        return Err(data_clone_error(vm, "detached ArrayBuffer"));
     }
     // `body_data.get(&src).cloned()` snapshots the source bytes
     // into a fresh owned `Vec<u8>` — independent memory from the
-    // source, satisfying StructuredSerialize §2.9 step 12 (the
-    // clone owns its bytes; a later mutation through the source
-    // ArrayBuffer must not propagate to the clone).
+    // source, satisfying HTML §2.7.3 step 13.2.4 (the clone owns
+    // its bytes; a later mutation through the source ArrayBuffer
+    // must not propagate to the clone).
     let new_bytes: Vec<u8> = vm.body_data.get(&src).cloned().unwrap_or_default();
     let new_id = super::array_buffer::create_array_buffer_from_bytes(vm, new_bytes);
     memo.insert(src, new_id);
-    new_id
+    Ok(new_id)
 }
 
 /// Deep-copy a Blob.  Bytes are `to_vec()`-copied for the same
@@ -668,13 +679,23 @@ fn clone_blob(vm: &mut VmInner, src: ObjectId, memo: &mut HashMap<ObjectId, Obje
 /// `byte_length` / `element_kind` pointing at the cloned buffer.
 /// Two views of the same source buffer observably share the same
 /// cloned buffer (identity preserved).
+///
+/// Throws `DataCloneError DOMException` when the underlying buffer
+/// is detached per HTML §2.7.3 step 14.1 ("If
+/// `IsArrayBufferViewOutOfBounds(value)` is true, then throw a
+/// 'DataCloneError' DOMException").  In v1 elidex the
+/// `IsArrayBufferViewOutOfBounds` predicate (ECMA-262 §10.4.5.19)
+/// reduces to `IsDetachedBuffer(buffer)` because no resizable
+/// `ArrayBuffer` exists (`.maxByteLength` / `.resize` deferred); the
+/// inner `clone_array_buffer` call is the SoT for that branch and
+/// propagates the error via `?` here.
 fn clone_typed_array(
     vm: &mut VmInner,
     src: ObjectId,
     memo: &mut HashMap<ObjectId, ObjectId>,
-) -> ObjectId {
+) -> Result<ObjectId, VmError> {
     if let Some(&cached) = memo.get(&src) {
-        return cached;
+        return Ok(cached);
     }
     let ObjectKind::TypedArray {
         buffer_id,
@@ -685,7 +706,7 @@ fn clone_typed_array(
     else {
         unreachable!("clone_typed_array called on non-TypedArray")
     };
-    let cloned_buffer = clone_array_buffer(vm, buffer_id, memo);
+    let cloned_buffer = clone_array_buffer(vm, buffer_id, memo)?;
     // Pick the subclass-specific prototype.  Falls back to the
     // abstract `%TypedArray%.prototype` if any subclass field is
     // unexpectedly missing.
@@ -702,18 +723,20 @@ fn clone_typed_array(
         extensible: true,
     });
     memo.insert(src, new_id);
-    new_id
+    Ok(new_id)
 }
 
 /// Clone a `DataView` — same pattern as `clone_typed_array`, no
-/// `element_kind` slot.
+/// `element_kind` slot.  Detached-buffer handling: see
+/// `clone_typed_array` docstring (HTML §2.7.3 step 14.1 + v1
+/// `IsArrayBufferViewOutOfBounds` reduction).
 fn clone_data_view(
     vm: &mut VmInner,
     src: ObjectId,
     memo: &mut HashMap<ObjectId, ObjectId>,
-) -> ObjectId {
+) -> Result<ObjectId, VmError> {
     if let Some(&cached) = memo.get(&src) {
-        return cached;
+        return Ok(cached);
     }
     let ObjectKind::DataView {
         buffer_id,
@@ -723,7 +746,7 @@ fn clone_data_view(
     else {
         unreachable!("clone_data_view called on non-DataView")
     };
-    let cloned_buffer = clone_array_buffer(vm, buffer_id, memo);
+    let cloned_buffer = clone_array_buffer(vm, buffer_id, memo)?;
     let new_id = vm.alloc_object(Object {
         kind: ObjectKind::DataView {
             buffer_id: cloned_buffer,
@@ -735,7 +758,7 @@ fn clone_data_view(
         extensible: true,
     });
     memo.insert(src, new_id);
-    new_id
+    Ok(new_id)
 }
 
 // ---------------------------------------------------------------------------
