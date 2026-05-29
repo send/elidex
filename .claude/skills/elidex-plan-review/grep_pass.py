@@ -11,8 +11,9 @@ than via reactive R-loop discovery. Three checks:
     Extract backticked `path::fn` / `Type::method` symbols; soft-warn if
     grep finds 0 hits in crates/ AND no `(NEW)` / `(planned)` /
     `(<PR-ID> surface)` annotation in ±100-char vicinity. Skip symbols
-    inside fenced code blocks and inside the §3 Spec coverage map (spec
-    citation domain).
+    inside fenced code blocks (``` or ~~~) and inside the §3 Spec
+    coverage map span (heading → next heading at same-or-shallower
+    level, includes ### §3.x subheadings per SKILL.md template).
 
   Check 3 — Enumeration claim verification artifact audit (SOFT warn)
     Extract `\\d+\\+? (callers|sites|modules|...)`; soft-warn if no
@@ -79,7 +80,6 @@ COVERAGE_MAP_HEADING_RE = re.compile(
     r"^(#{1,6})\s+§[\d.A-Z]+\.?\s+.*spec\s+coverage\s+map",
     re.IGNORECASE | re.MULTILINE,
 )
-NEXT_HEADING_RE = re.compile(r"^#{1,6}\s+§[\d.A-Z]", re.MULTILINE)
 
 
 def run_grep_pass(
@@ -149,6 +149,10 @@ def run_grep_pass(
     # --- Check 2: Rust symbol grep verification ---------------------------
     crates_dir = repo_root / "crates"
     if crates_dir.exists():
+        # Two-pass: collect candidate symbols first (after exclusions), then
+        # bulk-grep in a single subprocess call so crates/ is walked once
+        # rather than once per symbol. Order-preserving via seen-set.
+        candidates: list[str] = []
         seen_symbols: set[str] = set()
         for m in RUST_SYMBOL_RE.finditer(content):
             if _in_spans(m.start(), code_block_spans):
@@ -163,13 +167,17 @@ def run_grep_pass(
             vicinity = content[max(0, m.start() - 100): m.end() + 100]
             if NEW_ANNOTATION_RE.search(vicinity):
                 continue
-            if not _grep_repo(symbol, crates_dir):
-                severity = "HARD" if strict_symbols else "SOFT"
-                findings.append((
-                    severity,
-                    f"symbol `{symbol}` not found in codebase; "
-                    f"annotate (NEW) if planned",
-                ))
+            candidates.append(symbol)
+        if candidates:
+            found = _grep_repo_bulk(candidates, crates_dir)
+            for symbol in candidates:
+                if symbol not in found:
+                    severity = "HARD" if strict_symbols else "SOFT"
+                    findings.append((
+                        severity,
+                        f"symbol `{symbol}` not found in codebase; "
+                        f"annotate (NEW) if planned",
+                    ))
 
     # --- Check 3: enumeration claim audit ---------------------------------
     for m in ENUM_CLAIM_RE.finditer(content):
@@ -193,39 +201,73 @@ def run_grep_pass(
 
 # --- Helpers --------------------------------------------------------------
 
+# Fence marker at start of line (optionally indented), matching preflight.py
+# `FENCE_RE`. Both ``` and ~~~ are supported (GFM-compliant), and only a
+# matching marker closes the block (so ~~~ inside a ```-fenced block is
+# treated as content, not a closer).
+_FENCE_MARKER_RE = re.compile(r"^[ \t]*(```|~~~)", re.MULTILINE)
+
+
 def _code_block_spans(content: str) -> list[tuple[int, int]]:
-    """Return (start, end) spans of fenced code blocks (triple backtick).
+    """Return (start, end) spans of fenced code blocks (``` and ~~~).
 
     Same fence-tracking shape as preflight.py `_fence_state_array`, but
-    span-based rather than per-line. Tracks only ``` (not ~~~) since
-    plan-memos predominantly use backtick fences; extending to ~~~ is
-    trivial if needed.
+    span-based rather than per-line. Mirrors preflight.py in 3 respects:
+      1. Both ``` and ~~~ fences are recognized
+      2. Only a matching marker closes the block (mismatched marker is content)
+      3. Fence must appear at line start (optionally indented)
+
+    If a fence is opened but never closed (unclosed fence at EOF), the span
+    extends to `len(content)` so subsequent content stays treated as fenced
+    — preflight.py's per-line tracker has the same effect via its
+    `in_fence` state being True at EOF.
     """
     spans: list[tuple[int, int]] = []
     in_block = False
+    marker: str | None = None
     block_start = 0
-    for m in re.finditer(r"```", content):
+    for m in _FENCE_MARKER_RE.finditer(content):
+        current = m.group(1)
         if not in_block:
-            block_start = m.start()
             in_block = True
-        else:
-            spans.append((block_start, m.end()))
+            marker = current
+            block_start = m.start()
+        elif marker == current:
             in_block = False
+            marker = None
+            spans.append((block_start, m.end()))
+        # else: mismatched marker (~~~ inside ```-block, or vice versa) — content
+    if in_block:
+        # Unclosed fence at EOF — extend the open span to end of content.
+        spans.append((block_start, len(content)))
     return spans
 
 
 def _coverage_map_span(content: str) -> tuple[int, int] | None:
-    """Return (start, end) span of §3 Spec coverage map (heading → next §).
+    """Return (start, end) span of §3 Spec coverage map (heading → next heading
+    at same-or-shallower level).
 
     Returns None if no Spec coverage map heading found. The end boundary is
-    the start of the next `## §<N>` heading at same/shallower level (or
-    end-of-file if none follows).
+    the start of the next heading whose `#` count is ≤ the coverage-map
+    heading's level (regardless of § prefix) — so `### §3.1 ...`
+    subheadings inside §3 (mandated by SKILL.md template) remain inside the
+    span, while the next top-level `## §4 ...` (or any `# ...`) terminates
+    it. Mirrors preflight.py `find_coverage_map_section` heading-level
+    tracking — both files implement the same rule (line-based in preflight,
+    char-based here).
     """
     m = COVERAGE_MAP_HEADING_RE.search(content)
     if not m:
         return None
+    heading_level = len(m.group(1))  # count of `#` chars in the heading marker
     start = m.start()
-    nxt = NEXT_HEADING_RE.search(content, pos=m.end())
+    # Match any heading at level ≤ heading_level (no § requirement — a
+    # non-§ heading like `## Conclusion` also terminates the section).
+    next_re = re.compile(
+        rf"^#{{1,{heading_level}}}\s+",
+        re.MULTILINE,
+    )
+    nxt = next_re.search(content, pos=m.end())
     end = nxt.start() if nxt else len(content)
     return (start, end)
 
@@ -234,23 +276,43 @@ def _in_spans(pos: int, spans: list[tuple[int, int]]) -> bool:
     return any(s <= pos < e for s, e in spans)
 
 
-def _grep_repo(symbol: str, crates_dir: Path) -> bool:
-    """Return True iff `symbol` is found in any file under `crates_dir`.
+def _grep_repo_bulk(symbols: list[str], crates_dir: Path) -> set[str]:
+    """Return the subset of `symbols` found in any `.rs` file under `crates_dir`.
 
-    Uses `grep -rln -F` (fixed string, no regex) so `::` etc don't need
-    escaping. 30s timeout — way more than enough for a single grep over
-    crates/, but bounds the worst case if filesystem hangs.
+    Single subprocess call (vs one grep per symbol): all symbols passed as
+    `-e <pat>` arguments + `--include='*.rs' --exclude-dir=target` so
+    `crates/` is walked once and build artifacts are skipped. Matched files
+    are then read into memory and each symbol checked with Python `in` so
+    per-symbol hit/miss is recovered (grep alone can't tell which `-e`
+    matched). Fixed-string match (`-F`) so `::` doesn't need escaping.
+
+    Falls open (returns the full input set as "found") on subprocess
+    failure — preflight is best-effort, not a hard correctness gate.
     """
+    if not symbols:
+        return set()
+    cmd = [
+        "grep", "-rln", "-F",
+        "--include=*.rs", "--exclude-dir=target",
+    ]
+    for s in symbols:
+        cmd.extend(["-e", s])
+    cmd.append(str(crates_dir))
     try:
         result = subprocess.run(
-            ["grep", "-rln", "-F", symbol, str(crates_dir)],
-            capture_output=True,
-            text=True,
-            timeout=30,
+            cmd, capture_output=True, text=True, timeout=60,
         )
     except (subprocess.TimeoutExpired, FileNotFoundError):
-        # On timeout or missing grep binary, fall open (don't generate
-        # spurious findings). Preflight is best-effort; the goal is to
-        # catch obvious drift, not to be a hard correctness gate.
-        return True
-    return result.returncode == 0
+        return set(symbols)
+    matched_files = [f for f in result.stdout.splitlines() if f]
+    if not matched_files:
+        return set()
+    contents: list[str] = []
+    for fp in matched_files:
+        try:
+            contents.append(
+                Path(fp).read_text(encoding="utf-8", errors="ignore")
+            )
+        except OSError:
+            continue
+    return {sym for sym in symbols if any(sym in c for c in contents)}

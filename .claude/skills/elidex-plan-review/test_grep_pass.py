@@ -223,6 +223,35 @@ class Check2RustSymbolTests(unittest.TestCase):
                 "symbols inside fenced code blocks should be skipped",
             )
 
+    def test_symbol_in_tilde_fence_skipped(self):
+        # ~~~ fences are GFM-valid. Mirrored from preflight.py's FENCE_RE
+        # (PR #243 Copilot R1 MIN).
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            _mk_repo(tmp, {"crates/foo.rs": "fn other() {}\n"})
+            plan = _mk_plan(tmp,
+                "~~~rust\nlet _ = `X::do_thing`(arg);\n~~~\n")
+            findings = run_grep_pass(plan, tmp)
+            self.assertEqual(
+                [f for f in findings if "X::do_thing" in f[1]],
+                [],
+                "symbols inside ~~~-fenced blocks should be skipped",
+            )
+
+    def test_unclosed_fence_extends_to_eof(self):
+        # Unclosed fence at EOF must extend span to len(content) so
+        # subsequent content stays treated as fenced (PR #243 Copilot R1 MIN).
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            _mk_repo(tmp, {"crates/foo.rs": "fn other() {}\n"})
+            plan = _mk_plan(tmp,
+                "Some text.\n```\n// unclosed fence — `X::do_thing` should be skipped\n")
+            findings = run_grep_pass(plan, tmp)
+            self.assertEqual(
+                [f for f in findings if "X::do_thing" in f[1]], [],
+                "unclosed fence should extend span to EOF",
+            )
+
     def test_symbol_in_coverage_map_skipped(self):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
@@ -239,6 +268,45 @@ class Check2RustSymbolTests(unittest.TestCase):
                 [f for f in findings if "Op::AssertConstructor" in f[1]],
                 [],
                 "symbols inside §3 coverage map should be skipped",
+            )
+
+    def test_coverage_map_subsection_preserved(self):
+        # SKILL.md template mandates `### §3.1 User-input touch audit` inside
+        # §3. Coverage-map span must include subheadings, not terminate at
+        # the first `### §3.x` (PR #243 Copilot R1 IMP).
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            _mk_repo(tmp, {"crates/foo.rs": "fn other() {}\n"})
+            plan = _mk_plan(tmp,
+                "## §3. Spec coverage map\n\n"
+                "| Spec | Step |\n|---|---|\n| ECMA-262 §15 | step 1 |\n\n"
+                "### §3.1 User-input touch audit\n\n"
+                "- `Op::SuperCall`: user-controlled heritage (citation, not a real symbol)\n\n"
+                "## §4. Architecture\n")
+            findings = run_grep_pass(plan, tmp)
+            self.assertEqual(
+                [f for f in findings if "Op::SuperCall" in f[1]], [],
+                "symbol inside §3.1 (within §3 span) should be skipped",
+            )
+
+    def test_coverage_map_terminates_at_same_level_heading(self):
+        # Span ends at next heading at same-or-shallower level regardless of
+        # § prefix — original NEXT_HEADING_RE required §, so a non-§ `##`
+        # heading didn't terminate, silently exempting later symbols (PR
+        # #243 Copilot R1 IMP, consequence #2).
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            _mk_repo(tmp, {"crates/foo.rs": "fn other() {}\n"})
+            plan = _mk_plan(tmp,
+                "## §3. Spec coverage map\n\n"
+                "| Spec | Step |\n|---|---|\n| ECMA-262 §15 | step 1 |\n\n"
+                "## Implementation notes\n\n"
+                "- `Y::missing_method` is referenced here but not in repo\n")
+            findings = run_grep_pass(plan, tmp)
+            self.assertTrue(
+                any("Y::missing_method" in msg for _sev, msg in findings),
+                f"symbol after `## Implementation notes` should be Check 2'd, "
+                f"got {findings}",
             )
 
     def test_single_token_skipped(self):
