@@ -694,16 +694,68 @@ fn uint16_view_over_uint8_buffer_reads_little_endian() {
 
 // ---------------------------------------------------------------------------
 // `[Constructor]` gate regression — every TypedArray subclass ctor is
-// installed via `create_constructor_only_function` (ECMA-262 §23.2.6),
-// so bare-call on each fires the canonical
-// `CallShape::ConstructorOnly` TypeError at the dispatch site.  Plan-
-// memo `m4-12-pr-vm-native-constructor-only-flag-plan.md` §5 site
-// #56 — `Uint8Array` stands as the witness; the abstract `%TypedArray%`
-// is `Ordinary` (call-and-construct both throw inside per §23.2.1.1)
-// so isn't a `ConstructorOnly` site.
+// installed via `create_constructor_only_function` (ECMA-262 §23.2.6,
+// `register_typed_array_subclass`), so bare-call on each fires the
+// canonical `CallShape::ConstructorOnly` TypeError at the dispatch
+// site.  Plan-memo `m4-12-pr-vm-native-constructor-only-flag-plan.md`
+// §5 site #56 fans out to all 11 subclasses; each needs its own
+// regression assertion per the plan-memo §6 "full coverage" mandate.
+// The abstract `%TypedArray%` is `Ordinary` (call-and-construct both
+// throw inside per §23.2.1.1) so isn't a `ConstructorOnly` site and
+// is intentionally excluded.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn typed_array_ctor_requires_new() {
+fn typed_array_ctor_requires_new_uint8() {
     super::assert_ctor_requires_new("Uint8Array(8)", "Uint8Array");
+}
+
+#[test]
+fn typed_array_ctor_requires_new_int8() {
+    super::assert_ctor_requires_new("Int8Array(8)", "Int8Array");
+}
+
+#[test]
+fn typed_array_ctor_requires_new_uint8_clamped() {
+    super::assert_ctor_requires_new("Uint8ClampedArray(8)", "Uint8ClampedArray");
+}
+
+#[test]
+fn typed_array_ctor_requires_new_int16() {
+    super::assert_ctor_requires_new("Int16Array(8)", "Int16Array");
+}
+
+#[test]
+fn typed_array_ctor_requires_new_uint16() {
+    super::assert_ctor_requires_new("Uint16Array(8)", "Uint16Array");
+}
+
+#[test]
+fn typed_array_ctor_requires_new_int32() {
+    super::assert_ctor_requires_new("Int32Array(8)", "Int32Array");
+}
+
+#[test]
+fn typed_array_ctor_requires_new_uint32() {
+    super::assert_ctor_requires_new("Uint32Array(8)", "Uint32Array");
+}
+
+#[test]
+fn typed_array_ctor_requires_new_float32() {
+    super::assert_ctor_requires_new("Float32Array(8)", "Float32Array");
+}
+
+#[test]
+fn typed_array_ctor_requires_new_float64() {
+    super::assert_ctor_requires_new("Float64Array(8)", "Float64Array");
+}
+
+#[test]
+fn typed_array_ctor_requires_new_bigint64() {
+    super::assert_ctor_requires_new("BigInt64Array(8)", "BigInt64Array");
+}
+
+#[test]
+fn typed_array_ctor_requires_new_biguint64() {
+    super::assert_ctor_requires_new("BigUint64Array(8)", "BigUint64Array");
 }

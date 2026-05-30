@@ -44,13 +44,12 @@ pub(super) fn native_wasm_module_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // The historic `if !ctx.is_construct()` entry guard has been moved
-    // to `vm/interpreter.rs::call_dispatch` NativeFunction arm under the
+    // The historic `if !ctx.is_construct()` entry guard lives at
+    // `vm/interpreter.rs::call_dispatch` NativeFunction arm under the
     // `CallShape::ConstructorOnly` discriminant (installed via
     // `create_constructor_only_function` in `register_wasm_namespace`).
-    // Stage 2 of #11-vm-native-constructor-only-flag: this is the
-    // pilot ctor migrated to validate the dispatch-side mechanism;
-    // Stage 3 migrates the remaining 65 sites en masse.
+    // Per slot `#11-vm-native-constructor-only-flag` this body trusts
+    // the dispatch gate to have rejected bare-call already.
     let bytes_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     // §5.1 step 1 stableBytes — `extract_buffer_source_bytes` returns
     // a freshly-owned `Vec<u8>` so the copy is structural.  The
