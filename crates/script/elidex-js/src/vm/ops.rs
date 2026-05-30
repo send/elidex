@@ -696,7 +696,7 @@ impl VmInner {
         if js_callee.is_none() {
             let obj = self.get_object(ctor_id);
             match &obj.kind {
-                ObjectKind::NativeFunction(ref nf) if !nf.constructable => {
+                ObjectKind::NativeFunction(ref nf) if !nf.shape.can_construct() => {
                     let name_str = self.strings.get_utf8(nf.name);
                     return Err(VmError::type_error(format!(
                         "{name_str} is not a constructor"

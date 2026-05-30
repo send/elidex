@@ -257,25 +257,46 @@ impl VmInner {
 
     // -- Native function helpers ---------------------------------------------
 
-    /// Helper: create a native function object (non-constructable by default,
-    /// matching the ES2020 spec for most built-in functions).
+    /// Helper: create a [`CallShape::CallableOnly`] native function object —
+    /// callable with `Foo(...)`, `new Foo(...)` throws "not a constructor"
+    /// via the existing `do_new` path (ECMA-262 §10.2.2 catch-all).  Used
+    /// for ordinary built-in methods and pseudo-ctors like `Symbol` /
+    /// `BigInt` whose spec mandates `[[Call]]`-only semantics.
     pub(crate) fn create_native_function(
         &mut self,
         name: &str,
         func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
     ) -> ObjectId {
         let name_id = self.strings.intern(name);
-        self.create_native_function_impl(name_id, func, false)
+        self.create_native_function_impl(name_id, func, super::value::CallShape::CallableOnly)
     }
 
-    /// Helper: create a constructable native function object (for Error, etc.).
+    /// Helper: create a [`CallShape::Ordinary`] native function object —
+    /// accepts both `Foo(...)` and `new Foo(...)`.  ECMA-262 §10.3
+    /// built-ins like `Array`, `Object`, `Error` and most legacy DOM
+    /// pseudo-constructors land here.
     pub(crate) fn create_constructable_function(
         &mut self,
         name: &str,
         func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
     ) -> ObjectId {
         let name_id = self.strings.intern(name);
-        self.create_native_function_impl(name_id, func, true)
+        self.create_native_function_impl(name_id, func, super::value::CallShape::Ordinary)
+    }
+
+    /// Helper: create a [`CallShape::ConstructorOnly`] native function
+    /// object — `new Foo(...)` accepted, bare `Foo(...)` throws the
+    /// canonical WebIDL §3.7.1 step 1.2 TypeError at the dispatch site.
+    /// Used by every WebIDL Interface-object ctor; replaces the historic
+    /// per-ctor `if !ctx.is_construct() { ... }` entry guard.
+    #[cfg(feature = "engine")]
+    pub(crate) fn create_constructor_only_function(
+        &mut self,
+        name: &str,
+        func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
+    ) -> ObjectId {
+        let name_id = self.strings.intern(name);
+        self.create_native_function_impl(name_id, func, super::value::CallShape::ConstructorOnly)
     }
 
     /// Helper: create a native function whose `name` is already interned
@@ -290,7 +311,7 @@ impl VmInner {
         name_id: StringId,
         func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
     ) -> ObjectId {
-        self.create_native_function_impl(name_id, func, false)
+        self.create_native_function_impl(name_id, func, super::value::CallShape::CallableOnly)
     }
 
     /// Install a getter (and optional setter) as an accessor property
@@ -346,7 +367,15 @@ impl VmInner {
         key_sid: StringId,
     ) -> ObjectId {
         let name_id = self.strings.intern(name);
-        self.create_native_function_keyed(name_id, func, false, Some(key_sid))
+        // WebIDL §3.7.6 attribute accessors are method-shaped: callable via
+        // get/set, never `new`-able.  `CallableOnly` matches the historic
+        // `false` constructable flag.
+        self.create_native_function_keyed(
+            name_id,
+            func,
+            super::value::CallShape::CallableOnly,
+            Some(key_sid),
+        )
     }
 
     /// Install a getter (and optional setter) accessor (keyed by `name_sid`)
@@ -427,9 +456,9 @@ impl VmInner {
         &mut self,
         name_id: StringId,
         func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
-        constructable: bool,
+        shape: super::value::CallShape,
     ) -> ObjectId {
-        self.create_native_function_keyed(name_id, func, constructable, None)
+        self.create_native_function_keyed(name_id, func, shape, None)
     }
 
     /// Core native-function allocator; `bound_key` carries the per-accessor
@@ -439,14 +468,14 @@ impl VmInner {
         &mut self,
         name_id: StringId,
         func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
-        constructable: bool,
+        shape: super::value::CallShape,
         bound_key: Option<StringId>,
     ) -> ObjectId {
         let obj = self.alloc_object(Object {
             kind: ObjectKind::NativeFunction(NativeFunction {
                 name: name_id,
                 func,
-                constructable,
+                shape,
                 bound_key,
             }),
             storage: value::PropertyStorage::shaped(shape::ROOT_SHAPE),

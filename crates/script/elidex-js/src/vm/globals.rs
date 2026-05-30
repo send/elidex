@@ -968,7 +968,7 @@ impl VmInner {
             kind: ObjectKind::NativeFunction(super::NativeFunction {
                 name: fp_name,
                 func: native_function_prototype_noop,
-                constructable: false,
+                shape: super::value::CallShape::CallableOnly,
                 bound_key: None,
             }),
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
