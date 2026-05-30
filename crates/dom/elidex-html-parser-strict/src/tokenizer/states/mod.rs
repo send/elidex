@@ -344,13 +344,17 @@ impl Tokenizer {
             if self.eof_emitted {
                 return Ok(Token::EndOfFile);
             }
-            if let Err(err) = self.step() {
-                return Err(self.abort(err));
-            }
+            let step_result = self.step();
             // §13.2.3.5: a control / noncharacter in the input stream is a
-            // parse error; strict mode rejects at the point it is consumed.
+            // parse error raised as the character enters the stream — i.e.
+            // *before* any state-level error raised while processing that
+            // same character — so it takes priority over `step_result`'s
+            // error. Strict rejects at the point it is consumed.
             if let Some(name) = self.pending_input_error.take() {
                 let err = self.parse_error(name);
+                return Err(self.abort(err));
+            }
+            if let Err(err) = step_result {
                 return Err(self.abort(err));
             }
         }
@@ -508,13 +512,20 @@ impl Tokenizer {
         self.state = state;
     }
 
-    /// Peek the next `s.len()` characters and compare ASCII-case-
-    /// insensitively (or sensitively when `ci` is false) against `s`
-    /// without consuming. Used by the markup-declaration-open lookahead
+    /// Peek the next `s.len()` characters from the cursor and compare
+    /// ASCII-case-insensitively (or sensitively when `ci` is false) against
+    /// `s` without consuming. Used by the markup-declaration-open lookahead
     /// (§13.2.5.42).
     pub(super) fn matches_ahead(&self, s: &str, ci: bool) -> bool {
+        self.matches_ahead_at(self.pos, s, ci)
+    }
+
+    /// As [`Self::matches_ahead`] but starting from an explicit index, so a
+    /// state can match a keyword that begins at an already-consumed
+    /// character without rewinding the cursor (§13.2.5.56).
+    pub(super) fn matches_ahead_at(&self, start: usize, s: &str, ci: bool) -> bool {
         for (offset, want) in s.chars().enumerate() {
-            match self.input.get(self.pos + offset) {
+            match self.input.get(start + offset) {
                 Some(&got) => {
                     let eq = if ci {
                         got.eq_ignore_ascii_case(&want)
@@ -529,6 +540,12 @@ impl Tokenizer {
             }
         }
         true
+    }
+
+    /// Set the cursor to an absolute index (commit a
+    /// [`Self::matches_ahead_at`] lookahead).
+    pub(super) fn set_pos(&mut self, pos: usize) {
+        self.pos = pos;
     }
 
     /// Advance the cursor by `n` characters (commit a [`Self::matches_ahead`]
@@ -946,5 +963,27 @@ mod tests {
             let again = t.next_token().expect_err("error is terminal");
             assert_eq!(again.errors, err.errors, "no token may leak after abort");
         }
+    }
+
+    /// Copilot R6: a §13.2.3.5 input-stream error (here a control character
+    /// in the after-DOCTYPE-name position) is raised as the character
+    /// enters the stream, so it takes priority over the state-level
+    /// `invalid-character-sequence-after-doctype-name` error that the same
+    /// character would otherwise trigger.
+    #[test]
+    fn input_stream_error_takes_priority_over_state_error() {
+        let mut t = Tokenizer::new("<!DOCTYPE html \u{000B}>");
+        let err = loop {
+            match t.next_token() {
+                Ok(Token::EndOfFile) => panic!("expected strict reject"),
+                Ok(_) => {}
+                Err(e) => break e,
+            }
+        };
+        assert!(
+            err.errors[0].contains("control-character-in-input-stream"),
+            "input-stream error must win over the state error: {:?}",
+            err.errors
+        );
     }
 }

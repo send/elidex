@@ -65,14 +65,17 @@ impl Tokenizer {
             }
             None => return Err(self.parse_error("eof-in-doctype")),
             Some(_) => {
-                // The six-character keyword match starts at the current
-                // input character, so step back over the char we consumed.
-                self.pos -= 1;
-                if self.matches_ahead("PUBLIC", true) {
-                    self.advance(6);
+                // §13.2.5.56: the six-character PUBLIC/SYSTEM keyword starts
+                // at the current input character (the one just consumed, at
+                // `pos - 1`). Match from there without rewinding the cursor,
+                // so we don't re-trigger input-stream-error detection on an
+                // already-seen character or desync the error offset.
+                let start = self.pos - 1;
+                if self.matches_ahead_at(start, "PUBLIC", true) {
+                    self.set_pos(start + 6);
                     self.switch_to(State::AfterDoctypePublicKeyword);
-                } else if self.matches_ahead("SYSTEM", true) {
-                    self.advance(6);
+                } else if self.matches_ahead_at(start, "SYSTEM", true) {
+                    self.set_pos(start + 6);
                     self.switch_to(State::AfterDoctypeSystemKeyword);
                 } else {
                     return Err(self.parse_error("invalid-character-sequence-after-doctype-name"));
