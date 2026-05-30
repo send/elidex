@@ -44,7 +44,7 @@ pub(super) mod table;
 
 use std::sync::Arc;
 
-use elidex_wasm_runtime::{WasmError, WasmRuntime};
+use elidex_wasm_runtime::{WasmError, WasmErrorKind, WasmRuntime};
 
 use super::super::VmInner;
 
@@ -60,12 +60,15 @@ impl VmInner {
     ///
     /// # Errors
     ///
-    /// Surfaces [`WasmError::Runtime`] when the underlying wasmtime
-    /// engine cannot be constructed (engine-bridge concern — e.g. on
-    /// platforms where the wasmtime cranelift backend is unavailable).
-    /// All 3 namespace methods (`validate` / `compile` / `instantiate`) +
-    /// 5 ctors propagate this as a JS `WebAssembly.RuntimeError` via
-    /// [`errors::wasm_error_to_js_value`].
+    /// Surfaces a [`WasmError`] whose `kind` reflects the underlying
+    /// wasmtime failure: typically [`WasmErrorKind::Compile`] (e.g.
+    /// platforms where the wasmtime cranelift backend is unavailable
+    /// to construct the engine) or [`WasmErrorKind::Link`] (host
+    /// function registration failure during `with_registries`).  All
+    /// 3 namespace methods (`validate` / `compile` / `instantiate`) +
+    /// 5 ctors propagate this via [`errors::wasm_error_to_js_value`],
+    /// which is **kind-based**: `Compile → WebAssembly.CompileError`,
+    /// `Link → WebAssembly.LinkError`, `Runtime → WebAssembly.RuntimeError`.
     pub(crate) fn vm_wasm_runtime(&self) -> Result<&Arc<WasmRuntime>, WasmError> {
         if let Some(rt) = self.wasm_runtime.get() {
             return Ok(rt);

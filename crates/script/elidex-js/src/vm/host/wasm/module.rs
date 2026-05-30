@@ -65,9 +65,12 @@ pub(super) fn native_wasm_module_constructor(
     )?;
 
     // §5.1 steps 2-3: compile via the engine-bridge `WasmRuntime`.
-    // Compile failure → CompileError; engine-bridge ctor failure →
-    // RuntimeError (covers the rare case where the runtime singleton
-    // construction itself fails on this platform).
+    // Compile failure → CompileError (kind-based marshal).  Engine-
+    // bridge runtime-singleton ctor failure surfaces with a kind from
+    // `WasmRuntime::new`'s set (`Compile` for engine build / unavailable
+    // cranelift, `Link` for host-fn registration); `wasm_error_to_vm_error`
+    // is kind-based so the JS class follows the underlying failure mode
+    // (`Compile → CompileError`, `Link → LinkError`, `Runtime → RuntimeError`).
     let runtime = match ctx.vm.vm_wasm_runtime() {
         Ok(rt) => rt.clone(),
         Err(e) => return Err(super::errors::wasm_error_to_vm_error(ctx, &e)),

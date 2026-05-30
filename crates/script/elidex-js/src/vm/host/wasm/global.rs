@@ -106,7 +106,9 @@ pub(super) fn native_wasm_global_value_get(
 /// `Global.prototype.value` setter — WASM JS API §5.5 IDL.
 /// - Step 4: v128/exnref → TypeError.
 /// - Step 5: immutable → TypeError (surfaced via `WasmGlobal::set`
-///   returning `WasmError::Runtime`, marshalled here).
+///   returning a `WasmError` whose `kind` is `WasmErrorKind::Runtime`,
+///   marshalled here as `WebAssembly.RuntimeError` by the kind-based
+///   dispatch in `wasm_error_to_vm_error`).
 pub(super) fn native_wasm_global_value_set(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
