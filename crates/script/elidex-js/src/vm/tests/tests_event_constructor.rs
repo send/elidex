@@ -321,3 +321,13 @@ fn core_9_slot_order_is_locked() {
     assert_eq!(entries[7], PropertyKey::String(wk.composed));
     assert_eq!(entries[8], PropertyKey::String(wk.is_trusted));
 }
+
+#[test]
+fn event_ctor_requires_new() {
+    super::assert_ctor_requires_new("Event('test')", "Event");
+}
+
+#[test]
+fn custom_event_ctor_requires_new() {
+    super::assert_ctor_requires_new("CustomEvent('test')", "CustomEvent");
+}

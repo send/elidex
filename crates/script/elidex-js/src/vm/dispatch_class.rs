@@ -266,7 +266,7 @@ impl VmInner {
 
         let is_js = matches!(&self.get_object(ctor_id).kind, ObjectKind::Function(_));
         let is_native_ctor = match &self.get_object(ctor_id).kind {
-            ObjectKind::NativeFunction(nf) => nf.constructable,
+            ObjectKind::NativeFunction(nf) => nf.shape.can_construct(),
             _ => false,
         };
         if !is_js && !is_native_ctor {

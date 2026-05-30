@@ -35,7 +35,7 @@ use super::super::super::value::{
 };
 use super::super::super::wrapper_intern::{WrapperKey, WrapperKind, WrapperOwner, WrapperSubkey};
 use super::super::super::VmInner;
-use super::super::events::{check_construct, install_ctor};
+use super::super::events::install_ctor;
 use super::{DataTransferEntry, DataTransferState, DropEffect, EffectAllowed};
 
 // ---------------------------------------------------------------------------
@@ -59,6 +59,7 @@ pub(in crate::vm) fn register_data_transfer_global(vm: &mut VmInner) {
         "DataTransfer",
         native_data_transfer_constructor,
         vm.well_known.data_transfer_global,
+        super::super::super::value::CallShape::ConstructorOnly,
     );
     install_data_transfer_accessors(vm, proto_id);
     install_data_transfer_methods(vm, proto_id);
@@ -81,6 +82,7 @@ pub(in crate::vm) fn register_data_transfer_item_global(vm: &mut VmInner) {
         "DataTransferItem",
         native_dt_item_illegal_constructor,
         vm.well_known.data_transfer_item_global,
+        super::super::super::value::CallShape::Ordinary,
     );
     // `kind` / `type` readonly accessors + `getAsString` /
     // `getAsFile` methods.  StringId fields are Copy — snapshot
@@ -135,6 +137,7 @@ pub(in crate::vm) fn register_data_transfer_item_list_global(vm: &mut VmInner) {
         "DataTransferItemList",
         native_dt_item_list_illegal_constructor,
         vm.well_known.data_transfer_item_list_global,
+        super::super::super::value::CallShape::Ordinary,
     );
     let k_length = vm.well_known.length;
     let k_add = vm.well_known.add;
@@ -326,7 +329,6 @@ fn native_data_transfer_constructor(
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    check_construct(ctx, "DataTransfer")?;
     let proto = ctx
         .vm
         .data_transfer_prototype

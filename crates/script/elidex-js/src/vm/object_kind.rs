@@ -1375,7 +1375,7 @@ pub(crate) fn is_constructor(vm: &super::VmInner, id: super::value::ObjectId) ->
                 let compiled = vm.get_compiled(fo.func_id);
                 return !compiled.is_async && !compiled.is_generator;
             }
-            ObjectKind::NativeFunction(nf) => return nf.constructable,
+            ObjectKind::NativeFunction(nf) => return nf.shape.can_construct(),
             ObjectKind::BoundFunction { target, .. } => current = *target,
             _ => return false,
         }

@@ -27,9 +27,10 @@
 //!
 //! ## Constructor gate
 //!
-//! Every ctor starts with `ctx.is_construct()` (WebIDL `[Constructor]`
-//! §2.2) → call-mode `UIEvent('x')` throws TypeError matching all major
-//! browsers.
+//! Every ctor in this file is installed via `events::install_ctor` with
+//! `CallShape::ConstructorOnly`, so the WebIDL §3.7.1 step 1.2 bare-call
+//! TypeError (`UIEvent('x')` etc.) fires at the dispatch-side gate in
+//! `vm/interpreter.rs::call_dispatch` — no per-body guard is needed.
 
 #![cfg(feature = "engine")]
 
@@ -39,7 +40,7 @@ use super::super::value::{
     PropertyValue, StringId, VmError,
 };
 use super::super::{NativeFn, VmInner};
-use super::events::{check_construct, install_ctor, parse_event_init, type_arg, EventInit};
+use super::events::{install_ctor, parse_event_init, type_arg, EventInit};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -411,6 +412,7 @@ impl VmInner {
             "UIEvent",
             native_ui_event_constructor,
             self.well_known.ui_event_global,
+            super::super::value::CallShape::ConstructorOnly,
         );
     }
 
@@ -542,7 +544,14 @@ pub(super) fn register_descendant(
         extensible: true,
     });
     store(vm, proto_id);
-    install_ctor(vm, proto_id, name, func, global_sid);
+    install_ctor(
+        vm,
+        proto_id,
+        name,
+        func,
+        global_sid,
+        super::super::value::CallShape::ConstructorOnly,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -555,7 +564,6 @@ fn native_ui_event_constructor(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let mode = ctx.mode;
-    check_construct(ctx, "UIEvent")?;
     let type_sid = type_arg(ctx, args, "UIEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let init = parse_ui_event_init(ctx, init_arg, "UIEvent")?;
@@ -586,7 +594,6 @@ fn native_mouse_event_constructor(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let mode = ctx.mode;
-    check_construct(ctx, "MouseEvent")?;
     let type_sid = type_arg(ctx, args, "MouseEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let ui = parse_ui_event_init(ctx, init_arg, "MouseEvent")?;
@@ -629,7 +636,6 @@ fn native_keyboard_event_constructor(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let mode = ctx.mode;
-    check_construct(ctx, "KeyboardEvent")?;
     let type_sid = type_arg(ctx, args, "KeyboardEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let ui = parse_ui_event_init(ctx, init_arg, "KeyboardEvent")?;
@@ -693,7 +699,6 @@ fn native_focus_event_constructor(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let mode = ctx.mode;
-    check_construct(ctx, "FocusEvent")?;
     let type_sid = type_arg(ctx, args, "FocusEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let ui = parse_ui_event_init(ctx, init_arg, "FocusEvent")?;
@@ -733,7 +738,6 @@ fn native_input_event_constructor(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let mode = ctx.mode;
-    check_construct(ctx, "InputEvent")?;
     let type_sid = type_arg(ctx, args, "InputEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let ui = parse_ui_event_init(ctx, init_arg, "InputEvent")?;

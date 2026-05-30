@@ -348,7 +348,7 @@ impl VmInner {
         let proto_id = self
             .event_prototype
             .expect("register_event_global called before register_event_prototype");
-        let ctor = self.create_constructable_function("Event", native_event_constructor);
+        let ctor = self.create_constructor_only_function("Event", native_event_constructor);
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             ctor,
@@ -404,7 +404,7 @@ impl VmInner {
         self.custom_event_prototype = Some(proto_id);
 
         let ctor =
-            self.create_constructable_function("CustomEvent", native_custom_event_constructor);
+            self.create_constructor_only_function("CustomEvent", native_custom_event_constructor);
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             ctor,
@@ -427,21 +427,6 @@ impl VmInner {
 // ---------------------------------------------------------------------
 // Constructors + init-dict parsers
 // ---------------------------------------------------------------------
-
-/// Shared WebIDL `[Constructor]` gate — every Event family ctor
-/// must reject call-mode invocation (`Event('click')` without `new`)
-/// before reaching any argument coercion.  Returns `Err(TypeError)`
-/// in call mode, `Ok(())` in construct mode.  Error message format
-/// matches the `Event` / `CustomEvent` ctors originally in this file.
-pub(super) fn check_construct(ctx: &NativeContext<'_>, interface: &str) -> Result<(), VmError> {
-    if ctx.is_construct() {
-        Ok(())
-    } else {
-        Err(VmError::type_error(format!(
-            "Failed to construct '{interface}': Please use the 'new' operator",
-        )))
-    }
-}
 
 /// Extract the required `type` first-argument from a ctor call.
 /// Absent arg → TypeError; Symbol or other non-string values pass
@@ -560,14 +545,41 @@ fn receiver_chains_to(
 /// `ctor.prototype = proto_id` with BUILTIN attrs, set
 /// `proto_id.constructor = ctor` with METHOD attrs, expose on
 /// `globals[name]`.
+///
+/// `shape` selects the [`CallShape`] for the underlying NativeFunction:
+/// [`CallShape::ConstructorOnly`] for WebIDL Interface ctors (`new`-only,
+/// bare-call rejected at dispatch via WebIDL §3.7.1 step 1.2), or
+/// [`CallShape::Ordinary`] for the few illegal-ctor wrappers reused for
+/// IDL types with no public constructor (`TouchList` / `FileList` /
+/// `DataTransferItem` / `DataTransferItemList`) where the ctor body
+/// throws "Illegal constructor" in both call modes.
 pub(super) fn install_ctor(
     vm: &mut VmInner,
     proto_id: ObjectId,
     name: &str,
     func: NativeFn,
     global_sid: StringId,
+    shape: super::super::value::CallShape,
 ) {
-    let ctor = vm.create_constructable_function(name, func);
+    let ctor = match shape {
+        super::super::value::CallShape::ConstructorOnly => {
+            vm.create_constructor_only_function(name, func)
+        }
+        super::super::value::CallShape::Ordinary => vm.create_constructable_function(name, func),
+        super::super::value::CallShape::CallableOnly => {
+            // install_ctor builds the `ctor.prototype` / `proto_id.constructor`
+            // back-edge below, which is structurally meaningless on a
+            // CallableOnly function (`new Foo()` would be rejected by
+            // `do_new`'s `can_construct() == false` check).  Reject at
+            // install-time rather than producing a half-formed interface
+            // object — if a CallableOnly Interface lands in future, give
+            // it a sibling helper with no prototype back-edge.
+            unreachable!(
+                "install_ctor with CallShape::CallableOnly — \
+                 use a CallableOnly-specific installer instead",
+            );
+        }
+    };
     let proto_key = PropertyKey::String(vm.well_known.prototype);
     vm.define_shaped_property(
         ctor,
@@ -653,11 +665,6 @@ fn native_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'Event': Please use the 'new' operator",
-        ));
-    }
     let type_arg = args.first().copied().ok_or_else(|| {
         VmError::type_error("Failed to construct 'Event': 1 argument required, but only 0 present.")
     })?;
@@ -692,11 +699,6 @@ fn native_custom_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'CustomEvent': Please use the 'new' operator",
-        ));
-    }
     let type_arg = args.first().copied().ok_or_else(|| {
         VmError::type_error(
             "Failed to construct 'CustomEvent': 1 argument required, but only 0 present.",

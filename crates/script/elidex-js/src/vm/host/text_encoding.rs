@@ -162,7 +162,7 @@ impl VmInner {
         self.install_text_encoder_members(proto_id);
         self.text_encoder_prototype = Some(proto_id);
 
-        let ctor = self.create_constructable_function("TextEncoder", native_text_encoder_ctor);
+        let ctor = self.create_constructor_only_function("TextEncoder", native_text_encoder_ctor);
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             ctor,
@@ -228,7 +228,7 @@ impl VmInner {
         self.install_text_decoder_members(proto_id);
         self.text_decoder_prototype = Some(proto_id);
 
-        let ctor = self.create_constructable_function("TextDecoder", native_text_decoder_ctor);
+        let ctor = self.create_constructor_only_function("TextDecoder", native_text_decoder_ctor);
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             ctor,
@@ -324,11 +324,6 @@ fn native_text_encoder_ctor(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'TextEncoder': Please use the 'new' operator",
-        ));
-    }
     let JsValue::Object(inst_id) = this else {
         unreachable!("constructor `this` is always an Object after `do_new`");
     };
@@ -464,11 +459,6 @@ fn native_text_decoder_ctor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'TextDecoder': Please use the 'new' operator",
-        ));
-    }
     let JsValue::Object(inst_id) = this else {
         unreachable!("constructor `this` is always an Object after `do_new`");
     };

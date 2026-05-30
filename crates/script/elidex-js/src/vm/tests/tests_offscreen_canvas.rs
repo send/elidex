@@ -112,14 +112,7 @@ fn ctor_requires_two_args() {
 
 #[test]
 fn ctor_requires_new_operator() {
-    with_vm(|vm| {
-        let err = vm.eval("OffscreenCanvas(100, 100)").unwrap_err();
-        let msg = format!("{err:?}");
-        assert!(
-            msg.contains("'new' operator"),
-            "expected 'new' operator TypeError, got {msg}"
-        );
-    });
+    super::assert_ctor_requires_new("OffscreenCanvas(100, 100)", "OffscreenCanvas");
 }
 
 #[test]

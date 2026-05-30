@@ -49,6 +49,20 @@ fn run(script: &str) -> String {
     out
 }
 
+// --- Constructor gate (CallShape::ConstructorOnly) ---------------
+
+/// WebIDL §3.7.1 step 1.2 + HTML `[HTMLConstructor]` — bare
+/// `HTMLElement()` (no `new`) throws the canonical TypeError at the
+/// dispatch-side `CallShape::ConstructorOnly` gate.  Site #67 in
+/// plan-memo §5 (added per `/code-review` F1 2026-05-30 after the
+/// 3-pattern audit missed the `let Some(...) = ctx.new_target() else`
+/// guard idiom HTMLElement used pre-migration).
+#[test]
+fn html_element_ctor_requires_new() {
+    use super::helpers::assert_ctor_requires_new;
+    assert_ctor_requires_new("HTMLElement()", "HTMLElement");
+}
+
 // --- Prototype chain --------------------------------------------
 
 #[test]

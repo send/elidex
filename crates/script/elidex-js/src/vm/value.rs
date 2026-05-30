@@ -674,6 +674,50 @@ pub struct JsCalleeInfo {
     pub callee_obj_id: ObjectId,
 }
 
+/// Which call modes a native function accepts.  Three-valued
+/// discriminator replacing the older `constructable: bool` — the new
+/// `ConstructorOnly` variant captures the WebIDL `[Constructor]`-only
+/// mandate (NewTarget-required) that the bool form could not express,
+/// which is what allowed the 67 per-body `if !ctx.is_construct()`
+/// guards to drift independently before this refactor.
+///
+/// * [`CallShape::Ordinary`] — both `[[Call]]` and `[[Construct]]` are
+///   accepted (ECMA-262 §10.3 built-in functions; `Array`, `Object`,
+///   `Error`, etc.).
+/// * [`CallShape::CallableOnly`] — `[[Call]]` only; `[[Construct]]`
+///   throws TypeError because the function has no `[[Construct]]`
+///   (ECMA-262 §10.3 — "A built-in function object has a
+///   `[[Construct]]` internal method if and only if it is described
+///   as a 'constructor'") and §7.2.4 IsConstructor's precondition at
+///   the `new` evaluation site raises "not a constructor".
+///   `Symbol`, `BigInt`.
+/// * [`CallShape::ConstructorOnly`] — `[[Construct]]` only; `[[Call]]`
+///   throws TypeError per WebIDL §3.7.1 step 1.2 ("If NewTarget is
+///   undefined, then throw a TypeError").  Every Interface-object ctor
+///   plus the core-VM Promise ctor (ECMA-262 §27.2.3.1 step 1).
+///
+/// Deliberately NOT `Default`-derived — every `NativeFunction` literal
+/// site must spell out its `shape:` explicitly so an accidental
+/// `..Default::default()` cannot silently fall back to a more
+/// permissive variant and bypass the dispatch gate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CallShape {
+    Ordinary,
+    CallableOnly,
+    ConstructorOnly,
+}
+
+impl CallShape {
+    /// Whether `new` is accepted (i.e. the function is a constructor for
+    /// the purposes of `IsConstructor` / `[[Construct]]` admission).
+    /// `true` for [`Self::Ordinary`] and [`Self::ConstructorOnly`];
+    /// `false` only for [`Self::CallableOnly`].
+    #[inline]
+    pub const fn can_construct(self) -> bool {
+        matches!(self, Self::Ordinary | Self::ConstructorOnly)
+    }
+}
+
 /// A native function callable from JS.
 ///
 /// The signature takes `&mut Vm` (via a wrapper in interpreter.rs) so that
@@ -682,8 +726,12 @@ pub struct JsCalleeInfo {
 pub struct NativeFunction {
     pub name: StringId,
     pub func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
-    /// Whether `new` can be used on this function. `false` for Symbol etc.
-    pub constructable: bool,
+    /// Which call modes are accepted (see [`CallShape`]).  `[[Call]]` /
+    /// `[[Construct]]` mismatches are detected and rejected at the
+    /// `vm/interpreter.rs::call_dispatch` NativeFunction arm, so per-ctor
+    /// bodies never need an entry-guard for the WebIDL §3.7.1 step 1.2
+    /// mandate.
+    pub shape: CallShape,
     /// Key bound to this native accessor (e.g. the handler-name SID for an
     /// event-handler IDL attribute). The native call path stages it into the
     /// VM (`active_bound_key`) so a single shared backend fn recovers which

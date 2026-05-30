@@ -157,6 +157,7 @@ impl VmInner {
             "WebSocket",
             native_websocket_constructor,
             global_sid,
+            super::super::value::CallShape::ConstructorOnly,
         );
 
         install_ws_readystate_constants(self, proto_id, global_sid);
@@ -348,12 +349,6 @@ fn native_websocket_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'WebSocket': Please use the 'new' operator",
-        ));
-    }
-
     // Step 1: required `url` arg + parse.
     let url_arg = args.first().copied().ok_or_else(|| {
         VmError::type_error(

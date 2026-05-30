@@ -84,11 +84,6 @@ pub(super) fn native_request_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'Request': Please use the 'new' operator",
-        ));
-    }
     if args.is_empty() {
         return Err(VmError::type_error(
             "Failed to construct 'Request': 1 argument required, but only 0 present.",

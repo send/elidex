@@ -101,7 +101,7 @@ impl VmInner {
         self.resize_observer_prototype = Some(proto_id);
 
         let ctor = self
-            .create_constructable_function("ResizeObserver", native_resize_observer_constructor);
+            .create_constructor_only_function("ResizeObserver", native_resize_observer_constructor);
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             ctor,
@@ -148,11 +148,6 @@ fn native_resize_observer_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'ResizeObserver': Please use the 'new' operator",
-        ));
-    }
     let callback_id = match args.first().copied() {
         Some(JsValue::Object(id)) if ctx.vm.get_object(id).kind.is_callable() => id,
         _ => {

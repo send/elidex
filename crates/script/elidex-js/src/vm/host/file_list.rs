@@ -119,6 +119,7 @@ impl VmInner {
             "FileList",
             native_file_list_illegal_constructor,
             global_sid,
+            super::super::value::CallShape::Ordinary,
         );
     }
 

@@ -101,11 +101,6 @@ fn native_count_queuing_strategy_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'CountQueuingStrategy': Please use the 'new' operator",
-        ));
-    }
     let JsValue::Object(inst_id) = this else {
         unreachable!("ctor `this` always Object after `do_new`");
     };
@@ -120,11 +115,6 @@ fn native_byte_length_queuing_strategy_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'ByteLengthQueuingStrategy': Please use the 'new' operator",
-        ));
-    }
     let JsValue::Object(inst_id) = this else {
         unreachable!("ctor `this` always Object after `do_new`");
     };
@@ -202,7 +192,7 @@ impl VmInner {
             PropertyAttrs::METHOD,
         );
         self.count_queuing_strategy_prototype = Some(count_proto);
-        let count_ctor = self.create_constructable_function(
+        let count_ctor = self.create_constructor_only_function(
             "CountQueuingStrategy",
             native_count_queuing_strategy_constructor,
         );
@@ -239,7 +229,7 @@ impl VmInner {
             PropertyAttrs::METHOD,
         );
         self.byte_length_queuing_strategy_prototype = Some(byte_proto);
-        let byte_ctor = self.create_constructable_function(
+        let byte_ctor = self.create_constructor_only_function(
             "ByteLengthQueuingStrategy",
             native_byte_length_queuing_strategy_constructor,
         );

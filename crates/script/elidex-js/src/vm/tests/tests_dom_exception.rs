@@ -314,3 +314,8 @@ fn dom_exception_from_vm_error_has_correct_name_via_dispatch() {
         "HierarchyRequestError"
     );
 }
+
+#[test]
+fn dom_exception_ctor_requires_new() {
+    super::assert_ctor_requires_new("DOMException()", "DOMException");
+}

@@ -31,7 +31,7 @@ use super::super::value::{
 };
 use super::super::VmInner;
 
-use super::events::{check_construct, parse_event_init, type_arg};
+use super::events::{parse_event_init, type_arg};
 use super::events_extras::register_event_subclass;
 
 impl VmInner {
@@ -124,7 +124,6 @@ fn native_storage_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    check_construct(ctx, "StorageEvent")?;
     let mode = ctx.mode;
     // Pre-`install_host_data` reachability: every `host()` access is
     // gated by `host_if_bound` further down.  The constructor itself

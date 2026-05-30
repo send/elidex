@@ -139,6 +139,7 @@ impl VmInner {
             "CanvasRenderingContext2D",
             native_illegal_constructor,
             global_sid,
+            super::super::value::CallShape::Ordinary,
         );
     }
 
@@ -164,6 +165,7 @@ impl VmInner {
             "ImageData",
             image_data::native_image_data_constructor,
             global_sid,
+            super::super::value::CallShape::ConstructorOnly,
         );
     }
 

@@ -169,6 +169,26 @@ fn module_ctor_throws_compile_error_on_invalid_bytes() {
     ));
 }
 
+/// WebIDL §3.7.1 step 1.2 (NewTarget undefined → throw TypeError),
+/// enforced for native `[Constructor]` Interface objects at the
+/// `vm/interpreter.rs::call_dispatch` `NativeFunction` arm under
+/// `CallShape::ConstructorOnly` (#11-vm-native-constructor-only-flag
+/// Stage 2 pilot — Module is the first ctor migrated to validate the
+/// dispatch-side gate; Stage 3 will migrate the remaining 65 sites).
+/// Asserts canonical error message form for bare-call regression.
+#[test]
+fn module_ctor_requires_new() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "try { WebAssembly.Module(new Uint8Array([0,0x61,0x73,0x6d,1,0,0,0]).buffer); \
+             'no throw' } catch (e) { e.message }"
+        ),
+        "Failed to construct 'Module': Please use the 'new' operator"
+    );
+}
+
 /// WASM JS API §5.1 Module ctor — empty module bytes succeed; the
 /// returned object brand-checks as `WebAssembly.Module` (via the
 /// constructor's prototype chain).
@@ -1183,4 +1203,43 @@ fn immutable_global_setter_skips_coerce_side_effects() {
          try { g.value = arg; } catch (_) { /* immutable throws */ } \
          observed === false"
     ));
+}
+
+// ---------------------------------------------------------------------------
+// `[Constructor]` gate regression — WASM JS API §5 ctors (Global /
+// Instance / Memory / Table) all fire the canonical
+// `CallShape::ConstructorOnly` TypeError at the dispatch site when
+// invoked without `new` (WebIDL §3.7.1 step 1.2).  Plan-memo
+// `m4-12-pr-vm-native-constructor-only-flag-plan.md` §5 sites #59-63
+// minus #62 (Module is already covered by `module_ctor_requires_new`
+// above — Stage 2 pilot regression).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn global_ctor_requires_new() {
+    super::assert_ctor_requires_new(
+        "WebAssembly.Global({value:'i32', mutable:false}, 0)",
+        "Global",
+    );
+}
+
+#[test]
+fn instance_ctor_requires_new() {
+    // Gate fires at dispatch before arg coercion, so the missing
+    // required `WebAssembly.Module` argument never reaches its
+    // brand check.
+    super::assert_ctor_requires_new("WebAssembly.Instance()", "Instance");
+}
+
+#[test]
+fn memory_ctor_requires_new() {
+    super::assert_ctor_requires_new("WebAssembly.Memory({initial: 1})", "Memory");
+}
+
+#[test]
+fn table_ctor_requires_new() {
+    super::assert_ctor_requires_new(
+        "WebAssembly.Table({element: 'anyfunc', initial: 0})",
+        "Table",
+    );
 }

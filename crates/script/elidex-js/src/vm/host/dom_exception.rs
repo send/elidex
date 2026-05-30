@@ -211,16 +211,6 @@ fn native_dom_exception_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // WebIDL §3.7 + browser parity: DOMException is `[Constructor]`
-    // only — `DOMException("m")` without `new` throws TypeError in
-    // every major browser.  Matches the `AbortController` and
-    // `Promise` constructor contract in this crate.
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'DOMException': Please use the 'new' operator",
-        ));
-    }
-
     let message_sid = match args.first().copied() {
         Some(JsValue::Undefined) | None => ctx.vm.well_known.empty,
         Some(v) => super::super::coerce::to_string(ctx.vm, v)?,
@@ -302,7 +292,7 @@ impl VmInner {
 
         // ---- DOMException constructor + global ----
         let ctor =
-            self.create_constructable_function("DOMException", native_dom_exception_constructor);
+            self.create_constructor_only_function("DOMException", native_dom_exception_constructor);
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             ctor,

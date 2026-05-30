@@ -54,8 +54,7 @@ fn ctor_empty() {
 
 #[test]
 fn ctor_requires_new() {
-    let mut vm = Vm::new();
-    assert!(vm.eval("FormData();").is_err());
+    super::assert_ctor_requires_new("FormData()", "FormData");
 }
 
 #[test]

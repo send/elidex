@@ -292,3 +292,8 @@ fn data_view_bigint_set_number_throws_type_error() {
          catch (e) { ok = e instanceof TypeError; } ok;"
     ));
 }
+
+#[test]
+fn data_view_ctor_requires_new() {
+    super::assert_ctor_requires_new("DataView(new ArrayBuffer(8))", "DataView");
+}

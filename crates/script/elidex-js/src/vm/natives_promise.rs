@@ -681,11 +681,6 @@ pub(super) fn native_promise_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Promise constructor cannot be invoked without 'new'",
-        ));
-    }
     let executor = args.first().copied().unwrap_or(JsValue::Undefined);
     let JsValue::Object(executor_id) = executor else {
         return Err(VmError::type_error("Promise resolver is not a function"));

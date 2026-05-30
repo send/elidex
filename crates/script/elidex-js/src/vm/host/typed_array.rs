@@ -206,12 +206,6 @@ pub(super) fn construct_typed_array(
     args: &[JsValue],
     ek: ElementKind,
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(format!(
-            "Failed to construct '{}': Please use the 'new' operator",
-            ek.name()
-        )));
-    }
     let JsValue::Object(inst_id) = this else {
         unreachable!("constructor `this` is always an Object after `do_new`");
     };

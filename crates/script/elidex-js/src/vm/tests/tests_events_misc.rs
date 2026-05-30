@@ -888,3 +888,57 @@ fn ua_brand_fix_existing_form_invalid_event_brand_check() {
          classOk ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
 }
+
+// ---------------------------------------------------------------------------
+// `[Constructor]` gate regression — each of the 9 events-misc ctors fires
+// the canonical `CallShape::ConstructorOnly` TypeError at the dispatch
+// site when invoked without `new` (WebIDL §3.7.1 step 1.2).  Plan-memo
+// `m4-12-pr-vm-native-constructor-only-flag-plan.md` §5 sites #18-26.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn submit_event_ctor_requires_new() {
+    super::assert_ctor_requires_new("SubmitEvent('submit')", "SubmitEvent");
+}
+
+#[test]
+fn form_data_event_ctor_requires_new() {
+    // Gate fires at dispatch before arg coercion, so the missing
+    // required `{formData}` member doesn't reach its validation.
+    super::assert_ctor_requires_new("FormDataEvent('formdata')", "FormDataEvent");
+}
+
+#[test]
+fn toggle_event_ctor_requires_new() {
+    super::assert_ctor_requires_new("ToggleEvent('toggle')", "ToggleEvent");
+}
+
+#[test]
+fn composition_event_ctor_requires_new() {
+    super::assert_ctor_requires_new("CompositionEvent('compositionend')", "CompositionEvent");
+}
+
+#[test]
+fn clipboard_event_ctor_requires_new() {
+    super::assert_ctor_requires_new("ClipboardEvent('copy')", "ClipboardEvent");
+}
+
+#[test]
+fn progress_event_ctor_requires_new() {
+    super::assert_ctor_requires_new("ProgressEvent('progress')", "ProgressEvent");
+}
+
+#[test]
+fn message_event_ctor_requires_new() {
+    super::assert_ctor_requires_new("MessageEvent('message')", "MessageEvent");
+}
+
+#[test]
+fn wheel_event_ctor_requires_new() {
+    super::assert_ctor_requires_new("WheelEvent('wheel')", "WheelEvent");
+}
+
+#[test]
+fn page_transition_event_ctor_requires_new() {
+    super::assert_ctor_requires_new("PageTransitionEvent('pageshow')", "PageTransitionEvent");
+}

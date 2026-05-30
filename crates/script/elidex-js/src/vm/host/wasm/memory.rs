@@ -44,11 +44,6 @@ pub(super) fn native_wasm_memory_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'Memory' on 'WebAssembly': Please use the 'new' operator",
-        ));
-    }
     let descriptor_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let (initial, maximum) = coerce_memory_descriptor(ctx, descriptor_arg)?;
 

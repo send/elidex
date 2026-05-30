@@ -17,7 +17,7 @@
 use super::super::super::shape;
 use super::super::super::value::{JsValue, NativeContext, ObjectId, PropertyValue, VmError};
 use super::super::super::VmInner;
-use super::super::events::{check_construct, type_arg};
+use super::super::events::type_arg;
 use super::super::events_extras::{read_bool, read_number};
 use super::super::events_ui::{
     opts_object_id, parse_mouse_event_members, parse_ui_event_init, register_descendant,
@@ -181,7 +181,6 @@ fn native_pointer_event_constructor(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let mode = ctx.mode;
-    check_construct(ctx, "PointerEvent")?;
     let type_sid = type_arg(ctx, args, "PointerEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let ui = parse_ui_event_init(ctx, init_arg, "PointerEvent")?;

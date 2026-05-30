@@ -197,7 +197,7 @@ impl VmInner {
         self.headers_prototype = Some(proto_id);
 
         let ctor =
-            self.create_constructable_function("Headers", methods::native_headers_constructor);
+            self.create_constructor_only_function("Headers", methods::native_headers_constructor);
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             ctor,

@@ -63,8 +63,7 @@ fn ctor_invalid_base_throws_type_error() {
 
 #[test]
 fn ctor_requires_new() {
-    let mut vm = Vm::new();
-    assert!(vm.eval("URL('https://example.com');").is_err());
+    super::assert_ctor_requires_new("URL('https://example.com')", "URL");
 }
 
 #[test]

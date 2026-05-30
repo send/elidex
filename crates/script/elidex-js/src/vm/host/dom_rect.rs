@@ -375,16 +375,6 @@ fn construct_rect(
     args: &[JsValue],
     mutable: bool,
 ) -> Result<JsValue, VmError> {
-    let interface = if mutable {
-        "DOMRect"
-    } else {
-        "DOMRectReadOnly"
-    };
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(format!(
-            "Failed to construct '{interface}': Please use the 'new' operator"
-        )));
-    }
     let x = coerce_coord_arg(ctx, args, 0)?;
     let y = coerce_coord_arg(ctx, args, 1)?;
     let width = coerce_coord_arg(ctx, args, 2)?;
@@ -654,7 +644,7 @@ impl VmInner {
         from_rect_fn: NativeFn,
         from_rect_sid: StringId,
     ) -> ObjectId {
-        let ctor = self.create_constructable_function(name, ctor_fn);
+        let ctor = self.create_constructor_only_function(name, ctor_fn);
         self.define_shaped_property(
             ctor,
             PropertyKey::String(self.well_known.prototype),

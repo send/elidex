@@ -206,3 +206,26 @@ fn stream_cancel_invokes_source_cancel_with_reason() {
     "#;
     assert_eq!(eval_global_string(source, "result"), "user-reason");
 }
+
+// ---------------------------------------------------------------------------
+// `[Constructor]` gate regression — `ReadableStream` and
+// `ReadableStreamDefaultReader` fire the canonical
+// `CallShape::ConstructorOnly` TypeError at the dispatch site when
+// invoked without `new` (WebIDL §3.7.1 step 1.2).  Plan-memo
+// `m4-12-pr-vm-native-constructor-only-flag-plan.md` §5 sites #45-46.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn readable_stream_ctor_requires_new() {
+    super::super::assert_ctor_requires_new("ReadableStream()", "ReadableStream");
+}
+
+#[test]
+fn readable_stream_default_reader_ctor_requires_new() {
+    // Reader ctor takes a stream arg; the gate fires before that
+    // coercion runs, so any expression that parses suffices.
+    super::super::assert_ctor_requires_new(
+        "ReadableStreamDefaultReader(new ReadableStream())",
+        "ReadableStreamDefaultReader",
+    );
+}

@@ -18,6 +18,7 @@ mod tests_bigint;
 mod tests_blob;
 mod tests_body_mixin;
 mod tests_bound_accessor;
+mod tests_call_shape_sanity;
 mod tests_callframe_construct_mode;
 #[cfg(feature = "engine")]
 mod tests_canvas;

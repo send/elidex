@@ -44,11 +44,12 @@ pub(super) fn native_wasm_module_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'Module' on 'WebAssembly': Please use the 'new' operator",
-        ));
-    }
+    // The historic `if !ctx.is_construct()` entry guard lives at
+    // `vm/interpreter.rs::call_dispatch` NativeFunction arm under the
+    // `CallShape::ConstructorOnly` discriminant (installed via
+    // `create_constructor_only_function` in `register_wasm_namespace`).
+    // Per slot `#11-vm-native-constructor-only-flag` this body trusts
+    // the dispatch gate to have rejected bare-call already.
     let bytes_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     // §5.1 step 1 stableBytes — `extract_buffer_source_bytes` returns
     // a freshly-owned `Vec<u8>` so the copy is structural.  The

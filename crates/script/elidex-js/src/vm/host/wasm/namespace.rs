@@ -104,7 +104,7 @@ impl VmInner {
         });
         self.wasm_module_prototype = Some(module_proto);
         let module_ctor =
-            self.create_constructable_function("Module", native_wasm_module_constructor);
+            self.create_constructor_only_function("Module", native_wasm_module_constructor);
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             module_ctor,
@@ -172,7 +172,7 @@ impl VmInner {
             PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );
         let instance_ctor =
-            self.create_constructable_function("Instance", native_wasm_instance_constructor);
+            self.create_constructor_only_function("Instance", native_wasm_instance_constructor);
         self.define_shaped_property(
             instance_ctor,
             proto_key,
@@ -241,8 +241,10 @@ impl VmInner {
             super::memory::native_wasm_memory_grow,
             PropertyAttrs::METHOD,
         );
-        let memory_ctor = self
-            .create_constructable_function("Memory", super::memory::native_wasm_memory_constructor);
+        let memory_ctor = self.create_constructor_only_function(
+            "Memory",
+            super::memory::native_wasm_memory_constructor,
+        );
         self.define_shaped_property(
             memory_ctor,
             proto_key,
@@ -294,7 +296,7 @@ impl VmInner {
             PropertyAttrs::METHOD,
         );
         let table_ctor = self
-            .create_constructable_function("Table", super::table::native_wasm_table_constructor);
+            .create_constructor_only_function("Table", super::table::native_wasm_table_constructor);
         self.define_shaped_property(
             table_ctor,
             proto_key,
@@ -331,8 +333,10 @@ impl VmInner {
             super::global::native_wasm_global_value_of,
             PropertyAttrs::METHOD,
         );
-        let global_ctor = self
-            .create_constructable_function("Global", super::global::native_wasm_global_constructor);
+        let global_ctor = self.create_constructor_only_function(
+            "Global",
+            super::global::native_wasm_global_constructor,
+        );
         self.define_shaped_property(
             global_ctor,
             proto_key,

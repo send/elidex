@@ -165,16 +165,7 @@ fn ctor_rejects_missing_url_arg() {
 
 #[test]
 fn ctor_requires_new_operator() {
-    with_es_vm(|vm| {
-        let err = vm
-            .eval("EventSource('https://example.com/events');")
-            .unwrap_err();
-        let msg = format!("{err:?}");
-        assert!(
-            msg.contains("new") || msg.contains("Type"),
-            "expected TypeError for bare call, got: {msg}"
-        );
-    });
+    super::assert_ctor_requires_new("EventSource('https://example.com/events')", "EventSource");
 }
 
 #[test]

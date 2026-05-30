@@ -13,7 +13,7 @@ use super::super::super::value::{
     JsValue, NativeContext, ObjectKind, PropertyKey, PropertyValue, VmError,
 };
 use super::super::super::VmInner;
-use super::super::events::{check_construct, type_arg};
+use super::super::events::type_arg;
 use super::super::events_ui::{
     opts_object_id, parse_mouse_event_members, parse_ui_event_init, register_descendant,
     MouseEventMembers,
@@ -36,7 +36,6 @@ fn native_drag_event_constructor(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let mode = ctx.mode;
-    check_construct(ctx, "DragEvent")?;
     let type_sid = type_arg(ctx, args, "DragEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let ui = parse_ui_event_init(ctx, init_arg, "DragEvent")?;

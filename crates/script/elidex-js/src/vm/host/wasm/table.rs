@@ -33,11 +33,6 @@ pub(super) fn native_wasm_table_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'Table' on 'WebAssembly': Please use the 'new' operator",
-        ));
-    }
     let descriptor_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let initial_value_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let (element_kind, initial, maximum) = coerce_table_descriptor(ctx, descriptor_arg)?;

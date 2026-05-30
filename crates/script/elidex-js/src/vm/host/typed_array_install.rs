@@ -354,10 +354,10 @@ impl VmInner {
         });
         self.subclass_array_prototypes[entry.element_kind.index()] = Some(sub_proto);
 
-        let ctor = self.create_constructable_function(entry.name, entry.ctor_fn);
+        let ctor = self.create_constructor_only_function(entry.name, entry.ctor_fn);
         // Prototype chain between subclass ctor and abstract ctor —
         // `Object.getPrototypeOf(Uint8Array) === %TypedArray%`
-        // (ECMA-262 §23.2.6).  `create_constructable_function` sets
+        // (ECMA-262 §23.2.6).  `create_constructor_only_function` sets
         // `function_prototype` by default; override to the abstract
         // ctor.
         self.get_object_mut(ctor).prototype = Some(abstract_ctor);

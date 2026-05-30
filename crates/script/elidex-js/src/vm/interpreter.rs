@@ -308,6 +308,25 @@ impl VmInner {
                     );
                 }
                 ObjectKind::NativeFunction(nf) => {
+                    // WebIDL §3.7.1 step 1.2 + ECMA-262 §27.2.3.1 step 1
+                    // `[[Construct]]`-only mandate.  When a native function
+                    // is marked [`super::value::CallShape::ConstructorOnly`]
+                    // and the entry call-mode is [`CallMode::Call`] (i.e.
+                    // bare invocation without `new`), throw the canonical
+                    // TypeError at dispatch — the single chokepoint for
+                    // every Interface-object ctor + Promise ctor, replacing
+                    // the historic per-body `if !ctx.is_construct() { ... }`
+                    // guard.  Sibling of the ECMA-262 §10.2.1 step 4
+                    // `is_class_ctor && !mode.is_construct()` gate for
+                    // user-defined class ctors at `push_js_call_frame`.
+                    if matches!(nf.shape, super::value::CallShape::ConstructorOnly)
+                        && !mode.is_construct()
+                    {
+                        let name = self.strings.get_utf8(nf.name);
+                        return Err(VmError::type_error(format!(
+                            "Failed to construct '{name}': Please use the 'new' operator"
+                        )));
+                    }
                     let func = nf.func;
                     let saved_gc = self.gc_enabled;
                     // Stage the accessor's bound key (re-entrancy: a native may

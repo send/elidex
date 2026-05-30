@@ -59,10 +59,14 @@ impl VmInner {
             "register_html_element_constructor called before register_html_element_prototype",
         );
 
-        // Allocate the constructable function object. The `name` slot
-        // is the well-known interned "HTMLElement" so stack traces
-        // and `func.name` reads stay coherent.
-        let ctor_id = self.create_constructable_function("HTMLElement", native_html_element_ctor);
+        // Allocate the ConstructorOnly function object — bare
+        // `HTMLElement()` (no `new`) is rejected by the dispatch-side
+        // gate at `vm/interpreter.rs::call_dispatch` (WebIDL §3.7.1
+        // step 1.2 / [HTMLConstructor]).  The `name` slot is the
+        // well-known interned "HTMLElement" so stack traces and
+        // `func.name` reads stay coherent.
+        let ctor_id =
+            self.create_constructor_only_function("HTMLElement", native_html_element_ctor);
 
         // `HTMLElement.prototype` — wires the existing prototype as
         // the constructor's `prototype` slot (\[C12\] MakeConstructor:
@@ -105,13 +109,14 @@ pub(crate) fn native_html_element_ctor(
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // Step 0: `new.target` must be present (constructable-only).
-    // `HTMLElement(...)` without `new` is a TypeError per WebIDL.
-    let Some(new_target) = ctx.new_target() else {
-        return Err(VmError::type_error(
-            "Failed to construct 'HTMLElement': Please use the 'new' operator",
-        ));
-    };
+    // Step 0: `new.target` is guaranteed present by the dispatch-side
+    // `CallShape::ConstructorOnly` gate at `vm/interpreter.rs::call_dispatch`
+    // (the bare-call rejection in WebIDL §3.7.1 step 1.2 fires before
+    // this body runs).  The `expect` documents the invariant rather
+    // than masking a real `None` branch.
+    let new_target = ctx
+        .new_target()
+        .expect("ConstructorOnly dispatch gate guarantees NewTarget is present");
 
     // Step 1 (\[C1\] step 1): reject direct `new HTMLElement()`.
     // Defense-in-depth: surface a clean TypeError rather than a panic

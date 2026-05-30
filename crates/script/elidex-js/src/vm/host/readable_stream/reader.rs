@@ -186,11 +186,6 @@ fn native_readable_stream_default_reader_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'ReadableStreamDefaultReader': Please use the 'new' operator",
-        ));
-    }
     let JsValue::Object(inst_id) = this else {
         unreachable!("ctor `this` always Object after `do_new`");
     };
@@ -399,7 +394,7 @@ impl VmInner {
         self.install_readable_stream_reader_members(reader_proto);
         self.readable_stream_default_reader_prototype = Some(reader_proto);
 
-        let reader_ctor = self.create_constructable_function(
+        let reader_ctor = self.create_constructor_only_function(
             "ReadableStreamDefaultReader",
             native_readable_stream_default_reader_constructor,
         );

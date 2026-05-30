@@ -345,3 +345,8 @@ fn mutation_observer_observe_null_options_uses_defaults() {
         "null options should default-init then fail at-least-one-flag, got: {err}"
     );
 }
+
+#[test]
+fn mutation_observer_ctor_requires_new() {
+    super::super::assert_ctor_requires_new("MutationObserver(function(){})", "MutationObserver");
+}

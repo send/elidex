@@ -359,7 +359,7 @@ impl VmInner {
         self.install_request_members(proto_id);
         self.request_prototype = Some(proto_id);
 
-        let ctor = self.create_constructable_function("Request", native_request_constructor);
+        let ctor = self.create_constructor_only_function("Request", native_request_constructor);
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             ctor,
@@ -434,7 +434,7 @@ impl VmInner {
         self.install_response_members(proto_id);
         self.response_prototype = Some(proto_id);
 
-        let ctor = self.create_constructable_function("Response", native_response_constructor);
+        let ctor = self.create_constructor_only_function("Response", native_response_constructor);
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             ctor,

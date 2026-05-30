@@ -804,3 +804,8 @@ fn main_concurrent_workers_each_receive_their_own_reply() {
         assert_eq!(eval_str_on(vm, "globalThis.b"), "b:2");
     });
 }
+
+#[test]
+fn worker_ctor_requires_new() {
+    super::assert_ctor_requires_new("Worker('foo.js')", "Worker");
+}

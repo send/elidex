@@ -136,3 +136,27 @@ fn high_water_mark_nan_throws() {
     let result = vm.eval("new ReadableStream(undefined, {highWaterMark: NaN})");
     assert!(result.is_err());
 }
+
+// ---------------------------------------------------------------------------
+// `[Constructor]` gate regression — `ByteLengthQueuingStrategy` and
+// `CountQueuingStrategy` fire the canonical
+// `CallShape::ConstructorOnly` TypeError at the dispatch site when
+// invoked without `new` (WebIDL §3.7.1 step 1.2).  Plan-memo
+// `m4-12-pr-vm-native-constructor-only-flag-plan.md` §5 sites #47-48.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn byte_length_queuing_strategy_ctor_requires_new() {
+    super::super::assert_ctor_requires_new(
+        "ByteLengthQueuingStrategy({highWaterMark: 1})",
+        "ByteLengthQueuingStrategy",
+    );
+}
+
+#[test]
+fn count_queuing_strategy_ctor_requires_new() {
+    super::super::assert_ctor_requires_new(
+        "CountQueuingStrategy({highWaterMark: 1})",
+        "CountQueuingStrategy",
+    );
+}
