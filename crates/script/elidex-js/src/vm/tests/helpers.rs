@@ -203,9 +203,9 @@ pub(crate) fn assert_ctor_requires_new(expr: &str, interface: &str) {
 /// algorithm step 1 — interface declares no constructor operation).
 ///
 /// `interface` is the WebIDL Interface name appearing between the single
-/// quotes (e.g. `"Crypto"`, `"FileList"`).  One call per the 15
+/// quotes (e.g. `"Crypto"`, `"FileList"`).  One call per the 16
 /// IllegalConstructor sites covered by plan-memo
-/// `m4-12-pr-vm-native-illegal-constructor-shape-plan.md` §3.2.
+/// `m4-12-pr-vm-native-illegal-constructor-shape-plan.md` §3.2 (+ AbortSignal).
 pub(crate) fn assert_illegal_constructor(interface: &str) {
     let expected = format!("Failed to construct '{interface}': Illegal constructor");
     for expr in [format!("new {interface}()"), format!("{interface}()")] {

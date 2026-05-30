@@ -84,9 +84,9 @@ else
 fi
 
 echo "trip-wire #4: per-ctor 'Illegal constructor' body-throw re-introduction"
-# #11-vm-native-illegal-constructor-shape: the 15 WebIDL interface objects
-# that declare no constructor operation (Crypto / FileList / …) collapsed
-# their per-body `Err(VmError::type_error("Illegal constructor"))` /
+# #11-vm-native-illegal-constructor-shape: the 16 WebIDL interface objects
+# that declare no constructor operation (Crypto / FileList / AbortSignal / …)
+# collapsed their per-body `Err(VmError::type_error("Illegal constructor"))` /
 # `"Failed to construct '{X}': Illegal constructor"` throws to a single
 # both-mode gate driven by `CallShape::IllegalConstructor` (thrown via the
 # `VmError::illegal_constructor` SoT at `vm/ops.rs::do_new` +

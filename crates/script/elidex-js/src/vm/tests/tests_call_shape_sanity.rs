@@ -98,8 +98,8 @@ fn promise_construct_resolves() {
 }
 
 // ---------------------------------------------------------------------------
-// IllegalConstructor — both-mode throw across all 15 migrated sites
-// (#11-vm-native-illegal-constructor-shape §3.2)
+// IllegalConstructor — both-mode throw across all 16 migrated sites
+// (#11-vm-native-illegal-constructor-shape §3.2 + AbortSignal)
 // ---------------------------------------------------------------------------
 
 #[test]
