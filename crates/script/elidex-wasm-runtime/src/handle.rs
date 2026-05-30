@@ -79,6 +79,15 @@ impl WasmStoreHandle {
     pub(crate) fn borrow_mut(&self) -> std::cell::RefMut<'_, Store<HostState>> {
         self.inner.borrow_mut()
     }
+
+    /// `true` iff `self` and `other` are clones of the same underlying
+    /// `Rc<RefCell<Store<HostState>>>` (i.e. share the wasmtime store).
+    /// Used by [`WasmFunc::is_same_func`] / future cross-handle
+    /// identity checks; cheaper than `borrow_mut` + raw comparison and
+    /// avoids the RefCell borrow when stores differ.
+    pub(crate) fn shares_store(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.inner, &other.inner)
+    }
 }
 
 /// Opaque function reference. Wraps a wasmtime `Func` plus a shared
@@ -97,6 +106,30 @@ impl std::fmt::Debug for WasmFunc {
 }
 
 impl WasmFunc {
+    /// Identity predicate over the engine-side `Func` handle —
+    /// `true` iff `self` and `other` denote the same wasm function
+    /// (same store + same export index).  `wasmtime::Func` itself
+    /// is `!PartialEq`; identity is taken via two steps:
+    ///
+    /// 1. `Rc::ptr_eq` on the `WasmStoreHandle`'s inner
+    ///    `Rc<RefCell>` — different stores ⇒ different funcs by
+    ///    construction (`wasmtime::Func` is store-bound,
+    ///    `wasmtime::Store` isolation is engine-enforced).
+    /// 2. `wasmtime::Func::to_raw` returns an opaque `*mut c_void`
+    ///    stable for the same `Func` value within a store; pointer
+    ///    comparison gives the within-store identity check.
+    ///
+    /// Used by the JS-side `wasm_value_to_js` reverse-lookup so
+    /// `instance.exports.f === instance.exports.f` and round-tripped
+    /// funcrefs preserve identity.
+    pub fn is_same_func(&self, other: &Self) -> bool {
+        if !self.store.shares_store(&other.store) {
+            return false;
+        }
+        let mut store = self.store.borrow_mut();
+        self.inner.to_raw(&mut *store) == other.inner.to_raw(&mut *store)
+    }
+
     /// Engine-indep function signature per WASM JS API §5.6 / §5.1
     /// import-descriptor `kind == "function"`. Fallible because
     /// `engine_conv::wasm_value_type_from_wasmtime` returns `Err` for

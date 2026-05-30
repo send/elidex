@@ -1159,6 +1159,8 @@ impl VmInner {
             &self.wasm_memory_storage,
             #[cfg(feature = "engine")]
             &self.wasm_exported_func_storage,
+            #[cfg(feature = "engine")]
+            &self.wasm_backed_buffers,
             &mut self.gc_object_marks,
             &mut self.gc_upvalue_marks,
             &mut self.gc_work_list,

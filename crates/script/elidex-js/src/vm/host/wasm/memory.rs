@@ -32,7 +32,7 @@ use super::super::super::value::{JsValue, NativeContext, ObjectId, ObjectKind};
 use super::super::super::wasm_payload::WasmMemoryPayload;
 use super::super::array_buffer;
 use super::errors::wasm_error_to_vm_error;
-use super::table::coerce_uint32_pub;
+use super::table::coerce_uint32;
 
 /// `new WebAssembly.Memory({initial, maximum?})` — WASM JS API §5.3.
 pub(super) fn native_wasm_memory_constructor(
@@ -40,6 +40,11 @@ pub(super) fn native_wasm_memory_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    if !ctx.is_construct() {
+        return Err(VmError::type_error(
+            "Failed to construct 'Memory' on 'WebAssembly': Please use the 'new' operator",
+        ));
+    }
     let descriptor_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let (initial, maximum) = coerce_memory_descriptor(ctx, descriptor_arg)?;
 
@@ -140,7 +145,7 @@ pub(super) fn native_wasm_memory_grow(
 ) -> Result<JsValue, VmError> {
     let id = require_memory_this(ctx, this, "grow")?;
     let delta_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let delta = coerce_uint32_pub(ctx, delta_arg)?;
+    let delta = coerce_uint32(ctx, delta_arg)?;
     let mut memory = ctx
         .vm
         .wasm_memory_storage
@@ -154,10 +159,10 @@ pub(super) fn native_wasm_memory_grow(
     };
     if grow_result.buffer_handle_invalidated {
         // §5.3 step 5.1 — `DetachArrayBuffer(buffer,
-        // "WebAssembly.Memory")`.  Pair the F3 detach with the
-        // coupling-invariant cleanup (drop view + remove
-        // `wasm_backed_buffers` entry) so subsequent `.buffer` reads
-        // allocate fresh.
+        // "WebAssembly.Memory")`.  `array_buffer_detach` is the SoT
+        // for the wasm-backed routing cleanup (reverse-lookup remove
+        // + payload.view/buffer_id null) per DR-11 +
+        // `feedback_one-issue-one-way`.
         let cached_buffer_id = ctx
             .vm
             .wasm_memory_storage
@@ -165,11 +170,6 @@ pub(super) fn native_wasm_memory_grow(
             .and_then(|p| p.buffer_id);
         if let Some(buf_id) = cached_buffer_id {
             array_buffer::array_buffer_detach(ctx.vm, buf_id);
-            ctx.vm.wasm_backed_buffers.remove(&buf_id);
-        }
-        if let Some(payload) = ctx.vm.wasm_memory_storage.get_mut(&id) {
-            payload.buffer_id = None;
-            payload.view = None;
         }
     }
     Ok(JsValue::Number(f64::from(grow_result.pre_pages)))
@@ -216,12 +216,12 @@ fn coerce_memory_descriptor(
     let initial_sid = ctx.vm.strings.intern("initial");
     let maximum_sid = ctx.vm.strings.intern("maximum");
     let initial_val = ctx.get_property_value(dict, PropertyKey::String(initial_sid))?;
-    let initial = coerce_uint32_pub(ctx, initial_val)?;
+    let initial = coerce_uint32(ctx, initial_val)?;
     let maximum_val = ctx.get_property_value(dict, PropertyKey::String(maximum_sid))?;
     let maximum = if matches!(maximum_val, JsValue::Undefined) {
         None
     } else {
-        Some(coerce_uint32_pub(ctx, maximum_val)?)
+        Some(coerce_uint32(ctx, maximum_val)?)
     };
     Ok((initial, maximum))
 }

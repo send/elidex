@@ -156,6 +156,17 @@ pub(super) fn trace_work_list(
         ObjectId,
         super::super::wasm_payload::WasmExportedFuncPayload,
     >,
+    // D-16 `#11-wasm-vm` — ArrayBuffer→WasmMemory back-mark.  When a JS
+    // `ArrayBuffer` aliasing wasm linear memory is reachable but its
+    // parent `WasmMemory` wrapper isn't (e.g. `var b = mem.buffer; mem
+    // = null;`), the parent must survive so the routing layer's
+    // `wasm_memory_storage[mem_id].view` coupling invariant isn't
+    // broken on the next hot-path access (which would panic via
+    // `.expect("coupling invariant")` at byte_io / array_buffer
+    // read sites).  Symmetric to the WasmMemory → buffer_id mark; the
+    // reverse-lookup `wasm_backed_buffers[buf_id] = mem_id` makes this
+    // O(1).
+    #[cfg(feature = "engine")] wasm_backed_buffers: &std::collections::HashMap<ObjectId, ObjectId>,
     obj_marks: &mut [u64],
     uv_marks: &mut [u64],
     work: &mut Vec<u32>,
@@ -437,8 +448,25 @@ pub(super) fn trace_work_list(
             // and `blob_data` (Blob storage) entries whose key was
             // collected, mirroring `headers_states` /
             // `abort_signal_states`.
+            //
+            // Wasm-backed ArrayBuffer exception: when the buffer
+            // aliases wasm linear memory (DR-11), the routing layer
+            // assumes `wasm_memory_storage[mem_id]` survives as long
+            // as the buffer wrapper does — otherwise the next
+            // routing access panics via `.expect("coupling
+            // invariant")`.  The Memory→buffer mark direction is
+            // wired at `WasmMemory` below; here we wire the
+            // buffer→Memory back-mark so a JS-rooted `.buffer`
+            // outliving its parent `mem` keeps the underlying
+            // payload alive.
             #[cfg(feature = "engine")]
-            ObjectKind::ArrayBuffer | ObjectKind::Blob => {}
+            ObjectKind::ArrayBuffer => {
+                if let Some(&mem_id) = wasm_backed_buffers.get(&ObjectId(obj_idx)) {
+                    mark_object(mem_id, obj_marks, work);
+                }
+            }
+            #[cfg(feature = "engine")]
+            ObjectKind::Blob => {}
             // `HtmlCollection` / `NodeList` payloads (stored in
             // `live_collection_states` as
             // `elidex_dom_api::LiveCollection`) contain only

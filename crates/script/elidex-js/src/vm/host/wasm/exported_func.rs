@@ -32,7 +32,9 @@ use elidex_wasm_runtime::{
     HeapType, ScriptHostBinding, WasmExportItem, WasmFunc, WasmRef, WasmValue, WasmValueType,
 };
 
+use super::super::super::coerce::f64_to_int32;
 use super::super::super::error::VmError;
+use super::super::super::natives_bigint::to_bigint64;
 use super::super::super::shape::{self, PropertyAttrs};
 use super::super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
@@ -338,19 +340,18 @@ fn js_value_to_wasm_value(
     match expected {
         WasmValueType::I32 => {
             let n = ctx.to_number(val)?;
-            // ECMA-262 §7.1.6 ToInt32 — truncate to 32-bit signed.
-            #[allow(clippy::cast_possible_truncation)]
-            let i = n as i64 as i32;
-            Ok(WasmValue::I32(i))
+            // ECMA-262 §7.1.6 ToInt32 — mod-2^32 wrap via shared helper.
+            // Direct `n as i64 as i32` would saturate per Rust RFC 2484
+            // (Infinity → -1, NaN-handling diverges) instead of spec
+            // mod-2^32 truncation.
+            Ok(WasmValue::I32(f64_to_int32(n)))
         }
         WasmValueType::I64 => {
-            // Stage 3 simplification: coerce both BigInt and Number
-            // inputs via ToNumber → i64 truncation.  Stage 5 will
-            // tighten the BigInt arm to proper i64 extraction per
-            // ECMA-262 §7.1.15 ToBigInt64 (spec-correct path).
-            #[allow(clippy::cast_possible_truncation)]
-            let n = ctx.to_number(val)? as i64;
-            Ok(WasmValue::I64(n))
+            // ECMA-262 §7.1.16 ToBigInt64 via the shared helper —
+            // accepts BigInt (low-64 two's-complement slice), throws
+            // TypeError on Number / undefined / null / Symbol per
+            // strict ToBigInt semantics.
+            Ok(WasmValue::I64(to_bigint64(ctx, val)?))
         }
         WasmValueType::F32 => {
             let n = ctx.to_number(val)?;
@@ -425,37 +426,61 @@ fn wasm_values_to_js_result(ctx: &mut NativeContext<'_>, values: &[WasmValue]) -
 }
 
 /// Convert a single [`WasmValue`] to a JS value per WASM JS API §5.6
-/// ToJSValue algorithm.  Notes:
+/// ToJSValue algorithm.  SoT for the conversion — both
+/// `exported_func` (multi-result) and `global` / `table` accessors
+/// route through this single helper per `feedback_one-issue-one-way`.
 ///
-/// - `I64` → JS `Number` with possible precision loss beyond 2^53
-///   per Stage 3 simplification; Stage 5 tightens to JS `BigInt`
-///   per spec.
-/// - `Ref::Func` → reuses the existing exported-function wrapper
-///   when the underlying `WasmFunc` matches; otherwise allocates a
-///   fresh wrapper.  Stage 3 reverse-lookup uses a linear scan
-///   (acceptable for typical export counts ≤ 64); Stage 5 may
-///   add an identity cache if hot.
-/// - `Ref::Extern` → host-owned externref payload (Stage 3 returns
-///   `undefined`; defer per `#11-wasm-externref-host-payload`).
-fn wasm_value_to_js(_ctx: &mut NativeContext<'_>, val: &WasmValue) -> JsValue {
+/// - `I64` → JS `BigInt` per ECMA-262 / WASM JS API §5.6.
+/// - `Ref::Func` → reverse-lookup against `wasm_exported_func_storage`
+///   (linear scan, O(N) where N = exported funcs of all live
+///   instances — typically ≤ 64 per instance, acceptable until
+///   identity cache lands as a follow-up).
+/// - `Ref::Extern` → host-owned externref payload not yet wired
+///   (returns `undefined`; defer per `#11-wasm-externref-host-payload`).
+pub(super) fn wasm_value_to_js(ctx: &mut NativeContext<'_>, val: &WasmValue) -> JsValue {
     match val {
         WasmValue::I32(i) => JsValue::Number(f64::from(*i)),
         WasmValue::I64(i) => {
-            #[allow(clippy::cast_precision_loss)]
-            let f = *i as f64;
-            JsValue::Number(f)
+            // ECMA-262 ToJSValue(i64) → BigInt per WASM JS API §5.6.
+            let bi = num_bigint::BigInt::from(*i);
+            JsValue::BigInt(ctx.vm.bigints.alloc(bi))
         }
         WasmValue::F32(f) => JsValue::Number(f64::from(*f)),
         WasmValue::F64(f) => JsValue::Number(*f),
-        WasmValue::Ref(WasmRef::Null(_) | WasmRef::Func(_)) => {
-            // Stage 3 simplification: typed-null and non-null funcref
-            // both surface as `null` until the Stage 5 reverse-lookup
-            // against the existing exports namespace lands (returning
-            // a fresh wrapper bound to the same underlying instance
-            // breaks `f === f` identity, so null is the safer
-            // intermediate semantic).
-            JsValue::Null
+        WasmValue::Ref(WasmRef::Null(_)) => JsValue::Null,
+        WasmValue::Ref(WasmRef::Func(wf)) => {
+            // Reverse-lookup against existing exported-function
+            // wrappers so `f === f` identity holds when the engine
+            // round-trips the same `WasmFunc`.  Linear scan over the
+            // side-store; if no match (e.g. a funcref minted by an
+            // instruction that elidex hasn't observed at JS surface
+            // yet), returns null until host-fn-builder slot lands.
+            funcref_reverse_lookup(ctx, wf).unwrap_or(JsValue::Null)
         }
-        WasmValue::V128(_) | WasmValue::Ref(WasmRef::Extern(_)) => JsValue::Undefined,
+        WasmValue::V128(_) | WasmValue::Ref(WasmRef::Extern(_)) => {
+            // V128 / externref not representable at JS boundary in
+            // Stage 3 surface.  Same disposition as below catch-all.
+            JsValue::Undefined
+        }
     }
+}
+
+/// Reverse-lookup an exported-function wrapper for the given
+/// `WasmFunc`.  Returns `Some(JsValue::Object(id))` if the side-store
+/// already holds a wrapper for the underlying function, else `None`
+/// (caller decides the fallback — currently `null` per Stage 3).
+///
+/// **Identity by `WasmFunc::is_same_func`**: F1 handle defines the
+/// same-function predicate as identity of the underlying `wasmtime`
+/// `Func` (i.e. same store + same export index).  Linear scan over
+/// `wasm_exported_func_storage` is O(N) but N is bounded by the
+/// total exported-function wrappers across all live instances; for
+/// typical SPA workloads this stays in the 10s-100s range.
+fn funcref_reverse_lookup(ctx: &NativeContext<'_>, wf: &WasmFunc) -> Option<JsValue> {
+    for (id, payload) in &ctx.vm.wasm_exported_func_storage {
+        if payload.func.is_same_func(wf) {
+            return Some(JsValue::Object(*id));
+        }
+    }
+    None
 }

@@ -561,13 +561,14 @@ pub(super) fn native_wasm_instantiate(
     };
 
     // Instantiate.  Shared between both overloads.
-    let instance_id = match super::instance::instantiate_module(ctx, module_id, import_object_arg) {
-        Ok(id) => id,
-        Err(reason) => {
-            let _ = settle_promise(ctx.vm, promise, true, reason);
-            return Ok(JsValue::Object(promise));
-        }
-    };
+    let instance_id =
+        match super::instance::instantiate_module(ctx, module_id, import_object_arg, None) {
+            Ok(id) => id,
+            Err(reason) => {
+                let _ = settle_promise(ctx.vm, promise, true, reason);
+                return Ok(JsValue::Object(promise));
+            }
+        };
 
     // Overload 1 resolves with `{module, instance}` dict; overload 2
     // resolves with `Instance` directly.

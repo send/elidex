@@ -18,7 +18,7 @@
 //! per-call func-type walks are avoided (F1 F8 lesson).
 
 use elidex_wasm_runtime::{
-    HeapType, RefType, WasmRef, WasmRuntime, WasmTableDescriptor, WasmValueType,
+    HeapType, RefType, WasmRef, WasmRuntime, WasmTableDescriptor, WasmValue, WasmValueType,
 };
 
 use super::super::super::error::VmError;
@@ -33,6 +33,11 @@ pub(super) fn native_wasm_table_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    if !ctx.is_construct() {
+        return Err(VmError::type_error(
+            "Failed to construct 'Table' on 'WebAssembly': Please use the 'new' operator",
+        ));
+    }
     let descriptor_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let initial_value_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let (element_kind, initial, maximum) = coerce_table_descriptor(ctx, descriptor_arg)?;
@@ -287,41 +292,32 @@ fn js_value_to_wasm_ref(
 }
 
 /// Reverse coerce a [`WasmRef`] back to a JS value.  Same Stage 3
-/// simplification as `wasm_value_to_js`: typed-null + non-null
-/// funcref both surface as JS `null` until the Stage 5 exported-
-/// function reverse-lookup against the namespace lands.
-fn wasm_ref_to_js(_ctx: &mut NativeContext<'_>, _r: &WasmRef) -> JsValue {
-    JsValue::Null
+/// Routes through the shared [`super::exported_func::wasm_value_to_js`]
+/// SoT (typed-null → JS null, non-null funcref → reverse-lookup
+/// against `wasm_exported_func_storage`).
+fn wasm_ref_to_js(ctx: &mut NativeContext<'_>, r: &WasmRef) -> JsValue {
+    super::exported_func::wasm_value_to_js(ctx, &WasmValue::Ref(r.clone()))
 }
 
 /// Coerce a JS value to a u32 per WebIDL `[EnforceRange]` u32 —
-/// rejects NaN/Infinity/out-of-range.
-fn coerce_uint32(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<u32, VmError> {
+/// rejects NaN/Infinity (TypeError) + out-of-range (TypeError per
+/// WebIDL §3.2.5 — RangeError is reserved for in-domain bounds,
+/// not for the `[EnforceRange]` non-finite / fractional-domain
+/// rejection).  Shared with sibling `memory.rs` / `global.rs` via
+/// the `pub(super)` visibility.
+pub(super) fn coerce_uint32(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<u32, VmError> {
     let n = ctx.to_number(val)?;
     if !n.is_finite() {
-        return Err(VmError::range_error(
+        return Err(VmError::type_error(
             "WebAssembly numeric parameter must be a finite number",
         ));
     }
     let truncated = n.trunc();
     if !(0.0..=f64::from(u32::MAX)).contains(&truncated) {
-        return Err(VmError::range_error(
+        return Err(VmError::type_error(
             "WebAssembly numeric parameter is out of u32 range",
         ));
     }
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     Ok(truncated as u32)
 }
-
-// Re-export coerce_uint32 + js_value_to_wasm_ref for the sibling
-// `memory.rs` and `global.rs` modules (avoids duplicating the
-// numeric coerce logic across three files).
-pub(super) fn coerce_uint32_pub(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<u32, VmError> {
-    coerce_uint32(ctx, val)
-}
-
-// Suppress unused-fn warning until the Stage 5 Func/Memory/Global
-// reverse-lookup against the exports namespace lands; this helper is
-// the canonical landing site for that lookup.
-#[allow(dead_code)]
-fn _wasm_ref_to_js_stub(_r: &WasmRef) {}

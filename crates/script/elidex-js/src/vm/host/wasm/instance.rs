@@ -45,24 +45,20 @@ pub(super) fn native_wasm_instance_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    if !ctx.is_construct() {
+        return Err(VmError::type_error(
+            "Failed to construct 'Instance' on 'WebAssembly': Please use the 'new' operator",
+        ));
+    }
     let module_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let import_object_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let module_id = require_module(ctx, module_arg)?;
 
-    // Build ImportObject from JS record-of-records (Stage 3 surface
-    // only accepts the empty case per F1 D-vi — see
-    // `instantiate_module`).  Errors thrown synchronously per §5.2
-    // ctor semantics (no Promise wrap).
-    let instance_id = instantiate_module(ctx, module_id, import_object_arg).map_err(|err| {
-        // Convert the JS-value-formatted rejection reason back into a
-        // throw VmError so the ctor surface matches the synchronous
-        // throw contract.  Wrapper for the `Result<JsValue,JsValue>`
-        // → `Result<JsValue,VmError>` adapter the instantiate helper
-        // returns.
-        VmError::throw(err)
-    })?;
-    // If `this` is undefined (call-mode), the helper already
-    // allocated; otherwise re-use the construct-mode receiver.
+    // Brand-promote the construct-mode receiver so subclassing via
+    // `class X extends WebAssembly.Instance {}` preserves
+    // `new.target.prototype` (ECMA-262 §10.2.1.2 ConstructorCall
+    // step 5.b → OrdinaryCreateFromConstructor).  Mirrors the
+    // Module / Memory / Table / Global ctor pattern.
     let proto = ctx
         .vm
         .wasm_instance_prototype
@@ -71,20 +67,13 @@ pub(super) fn native_wasm_instance_constructor(
     let JsValue::Object(receiver_id) = receiver else {
         unreachable!("ensure_instance_or_alloc returns an Object");
     };
-    // The `instance_id` allocated by `instantiate_module` already
-    // wears the WasmInstance brand + has the payload inserted; the
-    // ctor surface needs to return THAT id (not the raw
-    // ensure_instance_or_alloc receiver, which would discard the
-    // brand).  When called in `new`-mode we still respect the
-    // user-supplied receiver shape, but for wasm Instance we cannot
-    // patch the brand onto an arbitrary receiver because the side-
-    // store entry is keyed by ObjectId.  Discard receiver and return
-    // the prepared instance per ECMA-262 §10.2.1.2 ConstructorCall
-    // step 13.b (constructors may return a non-receiver object —
-    // matches how Promise/Map/Set ctors return fresh instances when
-    // `this` is `undefined`).
-    let _ = receiver_id;
-    Ok(JsValue::Object(instance_id))
+
+    // Build ImportObject + instantiate, installing the brand + payload
+    // onto the receiver in place (no second alloc).  Errors thrown
+    // synchronously per §5.2 ctor semantics.
+    instantiate_module(ctx, module_id, import_object_arg, Some(receiver_id))
+        .map_err(VmError::throw)?;
+    Ok(receiver)
 }
 
 /// `Instance.prototype.exports` getter — WASM JS API §5.2 / §5
@@ -159,10 +148,15 @@ fn require_module(ctx: &NativeContext<'_>, module_arg: JsValue) -> Result<Object
 /// LinkError via the engine-bridge guard.  No second JS-side guard
 /// is added (singular rejection site per
 /// `feedback_one-issue-one-way`).
+/// `target` is `Some(receiver_id)` for the sync ctor path (brand-
+/// promote that receiver to preserve `new.target.prototype` for
+/// subclassing) or `None` for the async `WebAssembly.instantiate`
+/// namespace path (fresh-alloc against `wasm_instance_prototype`).
 pub(super) fn instantiate_module(
     ctx: &mut NativeContext<'_>,
     module_id: ObjectId,
     import_object_arg: JsValue,
+    target: Option<ObjectId>,
 ) -> Result<ObjectId, JsValue> {
     // Build ImportObject from JS record-of-records.  Stage 3 walks
     // the user dict but rejects non-empty cases via the engine-bridge
@@ -192,16 +186,23 @@ pub(super) fn instantiate_module(
         Err(e) => return Err(wasm_error_to_js_value(ctx, &e)),
     };
 
-    let proto = ctx
-        .vm
-        .wasm_instance_prototype
-        .expect("wasm_instance_prototype populated in register_wasm_namespace");
-    let instance_id = ctx.vm.alloc_object(Object {
-        kind: ObjectKind::WasmInstance,
-        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-        prototype: Some(proto),
-        extensible: true,
-    });
+    let instance_id = if let Some(receiver_id) = target {
+        // Brand-promote the construct-receiver in place — preserves
+        // `new.target.prototype` subclass chain.
+        ctx.vm.get_object_mut(receiver_id).kind = ObjectKind::WasmInstance;
+        receiver_id
+    } else {
+        let proto = ctx
+            .vm
+            .wasm_instance_prototype
+            .expect("wasm_instance_prototype populated in register_wasm_namespace");
+        ctx.vm.alloc_object(Object {
+            kind: ObjectKind::WasmInstance,
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: Some(proto),
+            extensible: true,
+        })
+    };
     ctx.vm.wasm_instance_storage.insert(
         instance_id,
         WasmInstancePayload {

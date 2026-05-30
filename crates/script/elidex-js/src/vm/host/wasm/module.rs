@@ -44,6 +44,11 @@ pub(super) fn native_wasm_module_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    if !ctx.is_construct() {
+        return Err(VmError::type_error(
+            "Failed to construct 'Module' on 'WebAssembly': Please use the 'new' operator",
+        ));
+    }
     let bytes_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     // §5.1 step 1 stableBytes — `extract_buffer_source_bytes` returns
     // a freshly-owned `Vec<u8>` so the copy is structural.  The

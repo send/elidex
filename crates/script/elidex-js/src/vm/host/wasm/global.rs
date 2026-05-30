@@ -21,7 +21,9 @@ use elidex_wasm_runtime::{
     HeapType, RefType, WasmGlobalDescriptor, WasmRef, WasmRuntime, WasmValue, WasmValueType,
 };
 
+use super::super::super::coerce::f64_to_int32;
 use super::super::super::error::VmError;
+use super::super::super::natives_bigint::to_bigint64;
 use super::super::super::value::{JsValue, NativeContext, ObjectId, ObjectKind};
 use super::super::super::wasm_payload::WasmGlobalPayload;
 use super::errors::wasm_error_to_vm_error;
@@ -32,6 +34,11 @@ pub(super) fn native_wasm_global_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    if !ctx.is_construct() {
+        return Err(VmError::type_error(
+            "Failed to construct 'Global' on 'WebAssembly': Please use the 'new' operator",
+        ));
+    }
     let descriptor_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let init_value_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let (value_type, mutable) = coerce_global_descriptor(ctx, descriptor_arg)?;
@@ -93,7 +100,7 @@ pub(super) fn native_wasm_global_value_get(
         .global
         .clone();
     let v = global.get();
-    Ok(wasm_value_to_js(&v))
+    Ok(super::exported_func::wasm_value_to_js(ctx, &v))
 }
 
 /// `Global.prototype.value` setter — WASM JS API §5.5 IDL.
@@ -121,20 +128,23 @@ pub(super) fn native_wasm_global_value_set(
         let m = g.mutable();
         (g, vt, m)
     };
-    // §5.5 setter step 5 — immutable globals reject writes with
-    // TypeError per spec; surface eagerly with the JS shape rather
-    // than waiting for the engine-bridge `Runtime` error to round-trip.
-    if !mutable {
-        return Err(VmError::type_error(
-            "Cannot assign to value of immutable WebAssembly.Global",
-        ));
-    }
+    // WASM JS API §5.5 setter spec step order:
+    //   step 4: ToWebAssemblyValue argument coerce — runs FIRST so
+    //           user `valueOf` / `[Symbol.toPrimitive]` side effects
+    //           are observable before the mutability check (matches
+    //           WebIDL §3.5.2 setter argument-conversion ordering).
+    //   step 5: immutable → TypeError.
     let v = js_value_to_wasm_value(
         ctx,
         value_arg,
         value_type,
         "WebAssembly.Global.prototype.value setter",
     )?;
+    if !mutable {
+        return Err(VmError::type_error(
+            "Cannot assign to value of immutable WebAssembly.Global",
+        ));
+    }
     if let Err(e) = global.set(v) {
         return Err(wasm_error_to_vm_error(ctx, &e));
     }
@@ -236,15 +246,14 @@ fn js_value_to_wasm_value(
     }
     match expected {
         WasmValueType::I32 => {
+            // ECMA-262 §7.1.6 ToInt32 — mod-2^32 wrap via shared helper.
             let n = ctx.to_number(val)?;
-            #[allow(clippy::cast_possible_truncation)]
-            let i = n as i64 as i32;
-            Ok(WasmValue::I32(i))
+            Ok(WasmValue::I32(f64_to_int32(n)))
         }
         WasmValueType::I64 => {
-            #[allow(clippy::cast_possible_truncation)]
-            let n = ctx.to_number(val)? as i64;
-            Ok(WasmValue::I64(n))
+            // ECMA-262 §7.1.16 ToBigInt64 — BigInt-only per strict
+            // ToBigInt; Number rejected with TypeError.
+            Ok(WasmValue::I64(to_bigint64(ctx, val)?))
         }
         WasmValueType::F32 => {
             let n = ctx.to_number(val)?;
@@ -294,27 +303,5 @@ fn default_value_for(ty: WasmValueType) -> WasmValue {
         WasmValueType::F64 => WasmValue::F64(0.0),
         WasmValueType::V128 => WasmValue::V128([0; 16]),
         WasmValueType::Ref(ref_ty) => WasmValue::Ref(WasmRef::Null(ref_ty.heap)),
-    }
-}
-
-/// Reverse coerce a [`WasmValue`] back to a JS value.  Numeric
-/// variants are direct; ref variants surface as `null` per the Stage
-/// 3 simplification (exported-function reverse-lookup lands in
-/// Stage 5).  i64 → f64 lossy precision beyond 2^53; Stage 5 will
-/// tighten to JS BigInt.
-fn wasm_value_to_js(v: &WasmValue) -> JsValue {
-    match v {
-        WasmValue::I32(i) => JsValue::Number(f64::from(*i)),
-        WasmValue::I64(i) => {
-            #[allow(clippy::cast_precision_loss)]
-            let n = *i as f64;
-            JsValue::Number(n)
-        }
-        WasmValue::F32(f) => JsValue::Number(f64::from(*f)),
-        WasmValue::F64(f) => JsValue::Number(*f),
-        WasmValue::V128(_) | WasmValue::Ref(WasmRef::Extern(_) | WasmRef::Func(_)) => {
-            JsValue::Undefined
-        }
-        WasmValue::Ref(WasmRef::Null(_)) => JsValue::Null,
     }
 }

@@ -177,15 +177,24 @@ fn install_wasm_error_class(
 /// matching JS-side surface is added (defer slot
 /// `#11-wasm-exception-handling`).
 pub(crate) fn wasm_error_to_js_value(ctx: &mut NativeContext<'_>, err: &WasmError) -> JsValue {
-    // `WasmErrorKind` is `#[non_exhaustive]` per F1 R11 F12 — future
-    // proposal kinds (Exception Handling `WasmException` etc.) fall
-    // through to `RuntimeError` until the matching JS-side surface
-    // lands per `#11-wasm-exception-handling` defer slot.  Boa parity
-    // at `elidex-js-boa/src/globals/wasm.rs::wasm_error_to_js`.
+    // `WasmErrorKind` is `#[non_exhaustive]` per F1 R11 F12.  We list
+    // every known variant explicitly so the addition of a future
+    // proposal kind (Exception Handling `WasmException` etc.) is a
+    // compile-time review prompt — the wildcard arm is reserved for
+    // the truly-unmatchable case and triggers `debug_assert!` so
+    // dev/test builds catch silent JS-class drift.  Boa parity at
+    // `elidex-js-boa/src/globals/wasm.rs::wasm_error_to_js`.
     let proto = match err.kind() {
         WasmErrorKind::Compile => ctx.vm.wasm_compile_error_prototype,
         WasmErrorKind::Link => ctx.vm.wasm_link_error_prototype,
-        WasmErrorKind::Runtime | _ => ctx.vm.wasm_runtime_error_prototype,
+        WasmErrorKind::Runtime => ctx.vm.wasm_runtime_error_prototype,
+        _ => {
+            debug_assert!(
+                false,
+                "new WasmErrorKind variant unmapped to JS class — wire a Compile/Link/Runtime fanout decision per #11-wasm-exception-handling"
+            );
+            ctx.vm.wasm_runtime_error_prototype
+        }
     };
     let proto = proto.expect(
         "wasm error prototypes populated by install_wasm_error_classes during register_globals",

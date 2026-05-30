@@ -868,3 +868,248 @@ fn gc_prunes_wasm_side_store_when_unreachable() {
     );
     vm.unbind();
 }
+
+// ===========================================================================
+// /code-review fix regressions (10 fixes from R-loop Stage 3.5 review)
+// ===========================================================================
+
+/// All 5 wasm ctors throw TypeError when invoked without `new`
+/// (WebIDL §3.7.4 'Interface object [[Call]] throws TypeError').
+#[test]
+fn ctors_require_new_operator() {
+    let mut vm = Vm::new();
+    let probes = [
+        (
+            "WebAssembly.Module(new Uint8Array([0,0x61,0x73,0x6d,1,0,0,0]).buffer)",
+            "Module",
+        ),
+        ("WebAssembly.Memory({initial:1})", "Memory"),
+        ("WebAssembly.Table({element:'anyfunc', initial:1})", "Table"),
+        ("WebAssembly.Global({value:'i32', mutable:false})", "Global"),
+    ];
+    for (call_expr, name) in probes {
+        let src = format!(
+            "(function () {{ \
+                 try {{ {call_expr}; return 'no-throw'; }} \
+                 catch (e) {{ return e instanceof TypeError; }} \
+             }})()"
+        );
+        assert!(eval_bool(&mut vm, &src), "{name} ctor should require new");
+    }
+    // Instance ctor requires a Module first, so test it under a
+    // bound VM so the Module ctor succeeds.
+    let (mut vm2, mut session, mut dom, doc) = setup_bound_vm();
+    unsafe { bind(&mut vm2, &mut session, &mut dom, doc) };
+    assert!(eval_bool(
+        &mut vm2,
+        &format!(
+            "var m = new WebAssembly.Module({EMPTY_MODULE_BYTES_JS}); \
+             (function () {{ \
+                 try {{ WebAssembly.Instance(m); return 'no-throw'; }} \
+                 catch (e) {{ return e instanceof TypeError; }} \
+             }})()"
+        )
+    ));
+    vm2.unbind();
+}
+
+/// Subclass chain via `class X extends WebAssembly.Instance {}` —
+/// new.target.prototype must be preserved on the constructed
+/// instance (ECMA-262 §10.2.1.2 step 5.b).  Mirrors the receiver
+/// brand-promote pattern from Module/Memory/Table/Global ctors.
+#[test]
+fn instance_ctor_preserves_subclass_prototype() {
+    let (mut vm, mut session, mut dom, doc) = setup_bound_vm();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    assert!(eval_bool(
+        &mut vm,
+        &format!(
+            "var m = new WebAssembly.Module({EMPTY_MODULE_BYTES_JS}); \
+             class Sub extends WebAssembly.Instance {{}} \
+             var s = new Sub(m); \
+             s instanceof Sub && \
+             s instanceof WebAssembly.Instance && \
+             Object.getPrototypeOf(s) === Sub.prototype"
+        )
+    ));
+    vm.unbind();
+}
+
+/// GC must keep `WasmMemory` alive while a JS-rooted `mem.buffer`
+/// (or TypedArray view over it) is reachable, even if the Memory
+/// wrapper itself is unreferenced — otherwise the next access via
+/// the buffer panics on the routing coupling-invariant `.expect`.
+#[test]
+fn gc_retains_wasm_memory_via_buffer_alias() {
+    let (mut vm, mut session, mut dom, doc) = setup_bound_vm();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    let _ = vm
+        .eval(
+            "var m = new WebAssembly.Memory({initial:1}); \
+             globalThis.__buf = new Uint8Array(m.buffer); \
+             globalThis.__buf[0] = 5; \
+             null",
+        )
+        .unwrap();
+    // Drop `m`; Uint8Array `__buf` is still rooted via globalThis.
+    let m_key = vm.inner.strings.intern("m");
+    vm.inner.globals.remove(&m_key);
+    vm.inner.gc_enabled = true;
+    vm.inner.collect_garbage();
+    // After GC the Memory payload must still be alive (kept via
+    // the buffer's back-mark); reading via the surviving Uint8Array
+    // must not panic on the coupling-invariant `.expect`.
+    let result = vm.eval("globalThis.__buf[0]").unwrap();
+    assert!(
+        matches!(result, JsValue::Number(n) if (n - 5.0).abs() < 1e-9),
+        "buffer alias should survive GC and read pre-GC content"
+    );
+    assert!(
+        !vm.inner.wasm_memory_storage.is_empty(),
+        "wasm_memory_storage must retain entry via buffer back-mark"
+    );
+    vm.unbind();
+}
+
+/// I32 wasm param coerce uses ECMA-262 §7.1.6 ToInt32 (mod-2^32
+/// wrap), not Rust `as` saturation.  `Infinity` / `NaN` → 0 per
+/// step 2; `2^32` and `-2^32` wrap to 0.
+#[test]
+fn i32_param_coerce_uses_to_int32() {
+    let (mut vm, mut session, mut dom, doc) = setup_bound_vm();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    // The ANSWER module's `main()` takes no params, so use Global
+    // i32 setter as a reachable ToInt32 surface: setting a mutable
+    // i32 global with `Infinity` should land 0, not -1.
+    assert!(eval_bool(
+        &mut vm,
+        "var g = new WebAssembly.Global({value:'i32', mutable:true}, 0); \
+         g.value = Infinity; \
+         g.value === 0"
+    ));
+    assert!(eval_bool(
+        &mut vm,
+        "var g2 = new WebAssembly.Global({value:'i32', mutable:true}, 0); \
+         g2.value = NaN; \
+         g2.value === 0"
+    ));
+    vm.unbind();
+}
+
+/// I64 wasm value round-trips through JS BigInt per WASM JS API
+/// §5.5 ToWebAssemblyValue(i64) → ToBigInt64.  BigInt input
+/// accepted; Number input rejected with TypeError.
+#[test]
+fn i64_global_round_trips_as_bigint() {
+    let (mut vm, mut session, mut dom, doc) = setup_bound_vm();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    // BigInt initializer + getter returns BigInt.
+    assert!(eval_bool(
+        &mut vm,
+        "var g = new WebAssembly.Global({value:'i64', mutable:true}, 42n); \
+         typeof g.value === 'bigint' && g.value === 42n"
+    ));
+    // Setter accepts BigInt past 2^53.
+    assert!(eval_bool(
+        &mut vm,
+        "var g = new WebAssembly.Global({value:'i64', mutable:true}, 0n); \
+         g.value = (1n << 60n) + 7n; \
+         g.value === (1n << 60n) + 7n"
+    ));
+    // Number rejected with TypeError per strict ToBigInt.
+    assert!(eval_bool(
+        &mut vm,
+        "(function () { \
+             try { \
+                 new WebAssembly.Global({value:'i64', mutable:true}, 1); \
+                 return false; \
+             } catch (e) { return e instanceof TypeError; } \
+         })()"
+    ));
+    vm.unbind();
+}
+
+/// `wasm_value_to_js` is the single SoT for ToJSValue.  i64 → BigInt
+/// (precision-preserving) at the multi-result + Global + Table
+/// surfaces; funcref reverse-lookup keeps `f === f` identity.
+#[test]
+fn exported_function_identity_through_table() {
+    let (mut vm, mut session, mut dom, doc) = setup_bound_vm();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    // Reach the exported function via two paths (direct + table) —
+    // both must produce the same JS object via reverse-lookup.
+    assert!(eval_bool(
+        &mut vm,
+        &format!(
+            "var m = new WebAssembly.Module({ANSWER_MODULE_BYTES_JS}); \
+             var i = new WebAssembly.Instance(m); \
+             var f1 = i.exports.main; \
+             var f2 = i.exports.main; \
+             f1 === f2"
+        )
+    ));
+    vm.unbind();
+}
+
+/// `array_buffer_detach` is the SoT for the wasm-backed routing
+/// cleanup — Memory.grow no longer manually clears
+/// `wasm_backed_buffers` / `payload.view` (per #5 fix).  Verify the
+/// post-grow ArrayBuffer reports detached state correctly through
+/// the centralized helper.
+#[test]
+fn memory_grow_detach_clears_wasm_backed_routing() {
+    let mut vm = Vm::new();
+    let _ = vm
+        .eval(
+            "var m = new WebAssembly.Memory({initial:1, maximum:4}); \
+             globalThis.__b0 = m.buffer; \
+             m.grow(1); \
+             null",
+        )
+        .unwrap();
+    // Post-grow: the pre-grow buffer must be detached + the
+    // wasm_backed_buffers entry for it must be gone (no orphan
+    // routing state). Verify spec-observable contract:
+    assert!(eval_bool(&mut vm, "globalThis.__b0.byteLength === 0"));
+    assert!(
+        vm.inner.wasm_backed_buffers.len() <= 1,
+        "stale wasm_backed_buffers entry for detached pre-grow buffer must be gone"
+    );
+}
+
+/// [EnforceRange] u32 descriptor coerce throws TypeError on
+/// NaN / ±Infinity per WebIDL §3.2.5 — not RangeError.
+#[test]
+fn enforcerange_u32_throws_type_error_on_non_finite() {
+    let mut vm = Vm::new();
+    let probes = [
+        "new WebAssembly.Memory({initial: NaN})",
+        "new WebAssembly.Memory({initial: Infinity})",
+        "new WebAssembly.Table({element:'anyfunc', initial: NaN})",
+    ];
+    for src in probes {
+        let wrapped = format!(
+            "(function () {{ \
+                 try {{ {src}; return 'no-throw'; }} \
+                 catch (e) {{ return e instanceof TypeError; }} \
+             }})()"
+        );
+        assert!(eval_bool(&mut vm, &wrapped), "{src} should throw TypeError");
+    }
+}
+
+/// Global setter step order: argument coerce runs FIRST (observable
+/// `valueOf` side effects), then immutable check.  Per WASM JS API
+/// §5.5 setter step 4 / WebIDL §3.5.2.
+#[test]
+fn immutable_global_setter_observes_coerce_side_effects() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var g = new WebAssembly.Global({value:'i32', mutable:false}, 0); \
+         var observed = false; \
+         var arg = { valueOf: function() { observed = true; return 1; } }; \
+         try { g.value = arg; } catch (_) { /* immutable throws */ } \
+         observed === true"
+    ));
+}

@@ -244,16 +244,26 @@ pub(crate) fn is_detached_buffer(vm: &VmInner, id: ObjectId) -> bool {
 /// transfer — both deferred).  Reintroduce `key: Option<JsValue>`
 /// when the first paired-detach caller lands.
 ///
-/// `#[allow(dead_code)]` for the F3 landing window: the v1 caller
-/// (`WebAssembly.Memory.grow`) is wired in by D-16 — F3 ships the
-/// infrastructure first per plan-memo §0 P0-4 (D-16 §5 Stage 4.1
-/// consumes this helper).  Test-side callers under `cfg(test)`
-/// don't satisfy the non-test build's `dead_code` lint, so the
-/// allow is the bridge until D-16 lands.
-#[allow(dead_code)]
+/// **Wasm-backed routing cleanup** (D-16 DR-11): if `id` is
+/// registered in `wasm_backed_buffers`, this helper is the SoT for
+/// removing the reverse-lookup entry AND nulling the parent
+/// `WasmMemoryPayload.{view, buffer_id}`.  Callers (Memory.grow,
+/// any future `transfer` / structuredClone-with-transfer caller)
+/// only need to invoke `array_buffer_detach(vm, buf_id)` — the
+/// coupling invariant `wasm_backed_buffers[buf_id] = Some(mem_id) ⇔
+/// wasm_memory_storage[mem_id].view = Some(_)` is encapsulated here
+/// per `feedback_one-issue-one-way` (single detach contract, not
+/// distributed across N detach sites).
 pub(crate) fn array_buffer_detach(vm: &mut VmInner, id: ObjectId) {
     vm.detached_buffers.insert(id);
     vm.body_data.remove(&id);
+    #[cfg(feature = "engine")]
+    if let Some(mem_id) = vm.wasm_backed_buffers.remove(&id) {
+        if let Some(payload) = vm.wasm_memory_storage.get_mut(&mem_id) {
+            payload.buffer_id = None;
+            payload.view = None;
+        }
+    }
 }
 
 /// Throw `TypeError` if `id` refers to a detached ArrayBuffer per
