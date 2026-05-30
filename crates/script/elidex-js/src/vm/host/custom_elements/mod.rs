@@ -97,7 +97,7 @@ impl VmInner {
         // .prototype` parity work.
         let ctor = self.create_illegal_constructor_function(
             "CustomElementRegistry",
-            native_ce_registry_illegal_ctor,
+            super::super::value::native_illegal_constructor_unreachable,
         );
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
@@ -148,21 +148,6 @@ impl VmInner {
         self.custom_element_registry_instance = Some(id);
         id
     }
-}
-
-// ---------------------------------------------------------------------------
-// Constructor stub — `new CustomElementRegistry()` throws per WebIDL §3.7
-// (HTML §4.13.4: `CustomElementRegistry` has no exposed constructor)
-// ---------------------------------------------------------------------------
-
-fn native_ce_registry_illegal_ctor(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    // Unreachable: `CallShape::IllegalConstructor` gate throws before
-    // this body runs (dispatch / `do_new`).
-    unreachable!("CustomElementRegistry IllegalConstructor gate throws before body runs")
 }
 
 // ---------------------------------------------------------------------------

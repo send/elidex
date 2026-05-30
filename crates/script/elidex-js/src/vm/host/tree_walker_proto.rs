@@ -138,8 +138,10 @@ impl VmInner {
 
         self.tree_walker_prototype = Some(proto_id);
 
-        let ctor =
-            self.create_illegal_constructor_function("TreeWalker", native_tree_walker_constructor);
+        let ctor = self.create_illegal_constructor_function(
+            "TreeWalker",
+            super::super::value::native_illegal_constructor_unreachable,
+        );
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             ctor,
@@ -157,22 +159,6 @@ impl VmInner {
         let name_sid = self.well_known.tree_walker_global;
         self.globals.insert(name_sid, JsValue::Object(ctor));
     }
-}
-
-// ---------------------------------------------------------------------------
-// Constructor (illegal-invocation throw)
-// ---------------------------------------------------------------------------
-
-fn native_tree_walker_constructor(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    // WHATWG §6.4 — `TreeWalker` ctor throws; instances are created
-    // via `document.createTreeWalker(...)`.
-    // Unreachable: `CallShape::IllegalConstructor` gate throws before
-    // this body runs (dispatch / `do_new`).
-    unreachable!("TreeWalker IllegalConstructor gate throws before body runs")
 }
 
 // ---------------------------------------------------------------------------

@@ -332,9 +332,14 @@ fn throw_if_aborted_throws_reason_when_aborted() {
 #[test]
 fn new_abort_signal_throws_type_error() {
     let mut vm = Vm::new();
-    // WHATWG §3.1: `AbortSignal` is not user-constructable; only
-    // `AbortController` produces them (PR5a will add the static
-    // factories).
+    // `AbortSignal` declares no constructor operation in its WebIDL;
+    // instances come from `AbortController` / the static factories.
+    // Per the WebIDL §3.7 interface-object algorithm step 1 BOTH
+    // `new AbortSignal()` and bare `AbortSignal()` throw the canonical
+    // "Illegal constructor" TypeError (CallShape::IllegalConstructor,
+    // shared `VmError::illegal_constructor` SoT). The exhaustive
+    // both-modes-all-sites coverage lives in
+    // `tests_call_shape_sanity::illegal_constructor_both_modes_all_sites`.
     assert_eq!(
         eval_string(
             &mut vm,
@@ -342,7 +347,16 @@ fn new_abort_signal_throws_type_error() {
              try { new AbortSignal(); } catch(e) { msg = e.message; }
              msg;"
         ),
-        "AbortSignal is not constructable"
+        "Failed to construct 'AbortSignal': Illegal constructor"
+    );
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var msg = '';
+             try { AbortSignal(); } catch(e) { msg = e.message; }
+             msg;"
+        ),
+        "Failed to construct 'AbortSignal': Illegal constructor"
     );
 }
 

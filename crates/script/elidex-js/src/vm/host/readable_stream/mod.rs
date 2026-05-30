@@ -738,7 +738,7 @@ impl VmInner {
 
         let controller_ctor = self.create_illegal_constructor_function(
             "ReadableStreamDefaultController",
-            controller::native_default_controller_illegal_constructor,
+            super::super::value::native_illegal_constructor_unreachable,
         );
         self.define_shaped_property(
             controller_ctor,

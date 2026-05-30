@@ -80,7 +80,7 @@ pub(in crate::vm) fn register_data_transfer_item_global(vm: &mut VmInner) {
         vm,
         proto_id,
         "DataTransferItem",
-        native_dt_item_illegal_constructor,
+        super::super::super::value::native_illegal_constructor_unreachable,
         vm.well_known.data_transfer_item_global,
         super::super::super::value::CallShape::IllegalConstructor,
     );
@@ -135,7 +135,7 @@ pub(in crate::vm) fn register_data_transfer_item_list_global(vm: &mut VmInner) {
         vm,
         proto_id,
         "DataTransferItemList",
-        native_dt_item_list_illegal_constructor,
+        super::super::super::value::native_illegal_constructor_unreachable,
         vm.well_known.data_transfer_item_list_global,
         super::super::super::value::CallShape::IllegalConstructor,
     );
@@ -805,16 +805,6 @@ fn native_dt_set_drag_image(
 // DataTransferItem
 // ---------------------------------------------------------------------------
 
-fn native_dt_item_illegal_constructor(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    // Unreachable: `CallShape::IllegalConstructor` gate throws before
-    // this body runs (dispatch / `do_new`).
-    unreachable!("DataTransferItem IllegalConstructor gate throws before body runs")
-}
-
 fn require_dt_item_receiver(
     ctx: &NativeContext<'_>,
     this: JsValue,
@@ -995,16 +985,6 @@ fn native_dt_item_get_as_file(
 // ---------------------------------------------------------------------------
 // DataTransferItemList
 // ---------------------------------------------------------------------------
-
-fn native_dt_item_list_illegal_constructor(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    // Unreachable: `CallShape::IllegalConstructor` gate throws before
-    // this body runs (dispatch / `do_new`).
-    unreachable!("DataTransferItemList IllegalConstructor gate throws before body runs")
-}
 
 fn require_dt_item_list_receiver(
     ctx: &NativeContext<'_>,

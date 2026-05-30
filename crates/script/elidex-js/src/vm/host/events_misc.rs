@@ -155,7 +155,7 @@ impl VmInner {
             self,
             proto_id,
             "BeforeUnloadEvent",
-            native_before_unload_event_constructor,
+            super::super::value::native_illegal_constructor_unreachable,
             self.well_known.before_unload_event_global,
             super::super::value::CallShape::IllegalConstructor,
         );
@@ -605,19 +605,6 @@ fn native_progress_event_constructor(
 // ---------------------------------------------------------------------------
 // BeforeUnloadEvent (HTML §9.10.2)
 // ---------------------------------------------------------------------------
-
-/// `new BeforeUnloadEvent(...)` and bare `BeforeUnloadEvent(...)` both
-/// throw — per WHATWG IDL the interface declares no constructor
-/// operation (registered as [`CallShape::IllegalConstructor`]).
-fn native_before_unload_event_constructor(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    // Unreachable: `CallShape::IllegalConstructor` gate throws before
-    // this body runs (dispatch / `do_new`).
-    unreachable!("BeforeUnloadEvent IllegalConstructor gate throws before body runs")
-}
 
 /// `BeforeUnloadEvent.prototype.returnValue` getter — reads the
 /// per-instance `returnValue` slot from the side table, defaulting to

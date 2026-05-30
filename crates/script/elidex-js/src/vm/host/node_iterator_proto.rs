@@ -113,8 +113,10 @@ impl VmInner {
 
         self.node_iterator_prototype = Some(proto_id);
 
-        let ctor = self
-            .create_illegal_constructor_function("NodeIterator", native_node_iterator_constructor);
+        let ctor = self.create_illegal_constructor_function(
+            "NodeIterator",
+            super::super::value::native_illegal_constructor_unreachable,
+        );
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             ctor,
@@ -132,16 +134,6 @@ impl VmInner {
         let name_sid = self.well_known.node_iterator_global;
         self.globals.insert(name_sid, JsValue::Object(ctor));
     }
-}
-
-fn native_node_iterator_constructor(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    // Unreachable: `CallShape::IllegalConstructor` gate throws before
-    // this body runs (dispatch / `do_new`).
-    unreachable!("NodeIterator IllegalConstructor gate throws before body runs")
 }
 
 // ---------------------------------------------------------------------------

@@ -108,8 +108,8 @@ fn illegal_constructor_both_modes_all_sites() {
     // operation throws `"Failed to construct '{name}': Illegal
     // constructor"` for BOTH `new X()` (gated at `do_new`) and bare
     // `X()` (gated at `call_dispatch`).  `assert_illegal_constructor`
-    // exercises both modes per name, so this single test is 30 checks
-    // (15 sites × 2 modes) against the shared
+    // exercises both modes per name, so this single test is 32 checks
+    // (16 sites × 2 modes) against the shared
     // `VmError::illegal_constructor` SoT — the two-chokepoint sync guard.
     for interface in [
         "Crypto",
@@ -127,6 +127,9 @@ fn illegal_constructor_both_modes_all_sites() {
         "DataTransferItemList",
         "CanvasRenderingContext2D",
         "OffscreenCanvasRenderingContext2D",
+        // No `constructor()` in its WebIDL — instances come from
+        // `new AbortController().signal` / `AbortSignal.abort` etc.
+        "AbortSignal",
     ] {
         assert_illegal_constructor(interface);
     }

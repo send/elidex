@@ -147,7 +147,7 @@ impl VmInner {
             self,
             proto_id,
             "OffscreenCanvasRenderingContext2D",
-            native_oc_illegal_constructor,
+            super::super::value::native_illegal_constructor_unreachable,
             global_sid,
             super::super::value::CallShape::IllegalConstructor,
         );
@@ -412,20 +412,6 @@ fn native_oc_get_context(
         },
     );
     Ok(JsValue::Object(wrapper))
-}
-
-/// `OffscreenCanvasRenderingContext2D` interface object is exposed for
-/// `instanceof` but is not constructable (WebIDL — no `[[Construct]]`).
-fn native_oc_illegal_constructor(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    // Unreachable: `CallShape::IllegalConstructor` gate throws before
-    // this body runs (dispatch / `do_new`).
-    unreachable!(
-        "OffscreenCanvasRenderingContext2D IllegalConstructor gate throws before body runs"
-    )
 }
 
 // ---------------------------------------------------------------------------

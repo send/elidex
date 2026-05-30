@@ -117,7 +117,7 @@ impl VmInner {
             self,
             proto_id,
             "FileList",
-            native_file_list_illegal_constructor,
+            super::super::value::native_illegal_constructor_unreachable,
             global_sid,
             super::super::value::CallShape::IllegalConstructor,
         );
@@ -168,16 +168,6 @@ fn require_file_list_this(
 // ---------------------------------------------------------------------------
 // Members
 // ---------------------------------------------------------------------------
-
-fn native_file_list_illegal_constructor(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    // Unreachable: `CallShape::IllegalConstructor` gate throws before
-    // this body runs (dispatch / `do_new`).
-    unreachable!("FileList IllegalConstructor gate throws before body runs")
-}
 
 fn native_file_list_get_length(
     ctx: &mut NativeContext<'_>,

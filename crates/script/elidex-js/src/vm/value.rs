@@ -709,7 +709,10 @@ pub struct JsCalleeInfo {
 ///   `TreeWalker`, `NodeIterator`, `CustomElementRegistry`,
 ///   `ReadableStreamDefaultController`, `BeforeUnloadEvent`,
 ///   `FileList`, `TouchList`, `DataTransferItem(List)`,
-///   `CanvasRenderingContext2D`, `OffscreenCanvasRenderingContext2D`.
+///   `CanvasRenderingContext2D`, `OffscreenCanvasRenderingContext2D`,
+///   `AbortSignal` (no `constructor()` in its WebIDL — instances come
+///   from `new AbortController().signal` / the static `AbortSignal.abort`
+///   / `.timeout` / `.any` factories).
 ///   Distinct from `CallableOnly` (which permits `[[Call]]` and emits
 ///   the ECMA-262 §7.2.4 "is not a constructor" message) — the gate
 ///   throws in *both* modes with the WebIDL "Illegal constructor"
@@ -739,6 +742,30 @@ impl CallShape {
     pub const fn can_construct(self) -> bool {
         matches!(self, Self::Ordinary | Self::ConstructorOnly)
     }
+}
+
+/// The single, shared `func` body for every [`CallShape::IllegalConstructor`]
+/// native (a WebIDL interface object that declares no constructor operation).
+///
+/// Both gate chokepoints — `do_new` (`[[Construct]]`) and `call_dispatch`
+/// (`[[Call]]`) — reject an `IllegalConstructor` native via
+/// [`VmError::illegal_constructor`] (keyed on the function's own
+/// [`NativeFunction::name`]) *before* its `func` is ever read, so this body
+/// is unreachable. A native function's identity is its [`ObjectId`], not its
+/// `func` pointer, so all 16 interface objects sharing one body is sound
+/// (`Crypto !== Storage` still holds). One shared sentinel replaces what
+/// would otherwise be 16 identical per-interface `unreachable!()` stubs —
+/// the unification's true endpoint (see the regression trip-wire
+/// `.claude/tools/native-ctor-guard-trip-wire.sh`).
+pub(crate) fn native_illegal_constructor_unreachable(
+    _ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    unreachable!(
+        "CallShape::IllegalConstructor gate throws in do_new / call_dispatch \
+         before this body runs"
+    )
 }
 
 /// A native function callable from JS.

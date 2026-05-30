@@ -165,15 +165,21 @@ impl VmInner {
         self.abort_signal_prototype = Some(proto_id);
 
         // ---- AbortSignal global ----
-        // WHATWG §3.1: `AbortSignal` *is* listed as a constructor but
-        // its body always throws — instances are only obtainable via
-        // `new AbortController().signal` (or, once added, the static
-        // `AbortSignal.abort` / `AbortSignal.timeout` factories).
-        // Marking it `create_constructable_function` is what lets
-        // `new AbortSignal()` reach our throw site; otherwise `do_new`
-        // would short-circuit with "X is not a constructor".
-        let abort_signal_ctor =
-            self.create_constructable_function("AbortSignal", native_abort_signal_constructor);
+        // WebIDL: `AbortSignal` declares NO constructor operation
+        // (instances come from `new AbortController().signal` or the
+        // static `AbortSignal.abort` / `.timeout` / `.any` factories), so
+        // both `new AbortSignal()` and bare `AbortSignal()` throw a
+        // TypeError per the WebIDL §3.7 interface-object algorithm step 1.
+        // Registered as `CallShape::IllegalConstructor`: the gate in
+        // `do_new` / `call_dispatch` raises the canonical "Failed to
+        // construct 'AbortSignal': Illegal constructor" (shared SoT
+        // `VmError::illegal_constructor`) before any body runs. Still a
+        // real global so `signal instanceof AbortSignal` and
+        // `AbortSignal.prototype` parity work.
+        let abort_signal_ctor = self.create_illegal_constructor_function(
+            "AbortSignal",
+            super::super::value::native_illegal_constructor_unreachable,
+        );
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             abort_signal_ctor,
@@ -396,22 +402,6 @@ fn native_abort_controller_abort(
     let reason = args.first().copied().unwrap_or(JsValue::Undefined);
     abort_signal(ctx, signal_id, reason)?;
     Ok(JsValue::Undefined)
-}
-
-// ---------------------------------------------------------------------------
-// AbortSignal constructor (always throws — non-constructable per spec)
-// ---------------------------------------------------------------------------
-
-fn native_abort_signal_constructor(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    // WHATWG §3.1: `new AbortSignal()` throws.  Instances are
-    // obtained via `new AbortController().signal` or the spec's
-    // `AbortSignal.abort(reason)` / `.timeout(ms)` / `.any(signals)`
-    // static factories (see [`super::abort_statics`]).
-    Err(VmError::type_error("AbortSignal is not constructable"))
 }
 
 // ---------------------------------------------------------------------------

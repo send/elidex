@@ -705,6 +705,13 @@ impl VmInner {
         if js_callee.is_none() {
             let obj = self.get_object(ctor_id);
             match &obj.kind {
+                // MUST precede the `!can_construct()` arm below:
+                // `IllegalConstructor` ALSO reports `can_construct() ==
+                // false`, so this arm intercepts it first to emit the
+                // distinct WebIDL "Illegal constructor" message instead of
+                // the generic "is not a constructor". Reordering these two
+                // arms silently regresses the message (caught only by the
+                // call-shape sanity tests, not the compiler).
                 ObjectKind::NativeFunction(ref nf)
                     if matches!(nf.shape, super::value::CallShape::IllegalConstructor) =>
                 {
