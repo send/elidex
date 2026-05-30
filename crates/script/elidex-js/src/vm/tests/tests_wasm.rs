@@ -664,3 +664,207 @@ fn exported_memory_visible_through_typed_array_view() {
     );
     vm.unbind();
 }
+
+// ===========================================================================
+// Stage 5 — Integration tests (trap mapping / LinkError / GC / cross-view)
+// ===========================================================================
+
+/// Hand-crafted wasm bytes for
+/// `(module (func (export "trap") unreachable))`.
+///
+/// Sections: header (8) + type (6) + function (4) + export (10) +
+/// code (7) = 35 bytes.  Calling the export traps via the
+/// `unreachable` opcode (`0x00`), which surfaces in F1 as
+/// `WasmError::Runtime` and in JS as `WebAssembly.RuntimeError`
+/// per the §7.1 stack-overflow / trap mapping (elidex picks
+/// `RuntimeError` as the impl-defined class).
+const TRAP_MODULE_BYTES_JS: &str = "new Uint8Array([\
+     0,0x61,0x73,0x6d,1,0,0,0,\
+     1,4,1,0x60,0,0,\
+     3,2,1,0,\
+     7,8,1,4,0x74,0x72,0x61,0x70,0,0,\
+     10,5,1,3,0,0x00,0x0b\
+     ]).buffer";
+
+/// Hand-crafted wasm bytes for
+/// `(module (import "env" "f" (func)))` — declares one host-function
+/// import.  Instantiating without satisfying the import surfaces as
+/// `WasmError::Link` from the wasmtime linker, which D-16 marshals to
+/// JS `WebAssembly.LinkError`.  The current JS-side `coerce_import_object`
+/// always builds an empty `ImportObject` per F1 D-vi singular-rejection
+/// discipline, so any `importObject` argument shape (including
+/// non-empty records) still reaches the LinkError path via "missing
+/// import" rather than F1's "non-empty ImportObject" guard.
+const IMPORT_MODULE_BYTES_JS: &str = "new Uint8Array([\
+     0,0x61,0x73,0x6d,1,0,0,0,\
+     1,4,1,0x60,0,0,\
+     2,9,1,3,0x65,0x6e,0x76,1,0x66,0,0\
+     ]).buffer";
+
+/// WASM JS API §5.6 + §7.1 — calling an exported function that traps
+/// (via the `unreachable` opcode) surfaces as a JS
+/// `WebAssembly.RuntimeError` instance.  Spec §7.1 is impl-defined for
+/// the class; elidex picks `RuntimeError` per F1 R7 boundary
+/// classification.
+#[test]
+fn trap_surfaces_as_runtime_error() {
+    let (mut vm, mut session, mut dom, doc) = setup_bound_vm();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    assert!(eval_bool(
+        &mut vm,
+        &format!(
+            "var m = new WebAssembly.Module({TRAP_MODULE_BYTES_JS}); \
+             var i = new WebAssembly.Instance(m); \
+             try {{ i.exports.trap(); false }} \
+             catch (e) {{ \
+                 e instanceof WebAssembly.RuntimeError \
+                 && e instanceof Error \
+             }}"
+        )
+    ));
+    vm.unbind();
+}
+
+/// WASM JS API §5.2 step 5 / `instantiate the core` step 3 —
+/// instantiating a module that declares an import without supplying it
+/// surfaces as JS `WebAssembly.LinkError`.  The JS-side coerce always
+/// builds an empty `ImportObject` per F1 D-vi singular-rejection
+/// discipline (see `coerce_import_object` in `vm/host/wasm/instance.rs`),
+/// so the link failure originates at the wasmtime linker for the
+/// missing import.  This is the regression guard for both the F1 D-vi
+/// pathway (any non-empty importObject still funnels here today) and
+/// the spec-mandated link-time error class mapping.
+#[test]
+fn missing_import_surfaces_as_link_error() {
+    let (mut vm, mut session, mut dom, doc) = setup_bound_vm();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    // Sync ctor path: `new Instance(new Module(bytes))` throws LinkError
+    // synchronously at the engine-bridge link step.
+    assert!(eval_bool(
+        &mut vm,
+        &format!(
+            "(function () {{ \
+                 try {{ \
+                     new WebAssembly.Instance(new WebAssembly.Module({IMPORT_MODULE_BYTES_JS})); \
+                     return false; \
+                 }} catch (e) {{ \
+                     return e instanceof WebAssembly.LinkError && e instanceof Error; \
+                 }} \
+             }})()"
+        )
+    ));
+    // Promise-overload path: `WebAssembly.instantiate(bytes)` rejects.
+    // Side-channel pattern matches `instantiate_bytes_overload_resolves_with_dict`
+    // — record the rejection class into a global and assert in a
+    // second eval that runs after the microtask drains.
+    let _ = vm
+        .eval(&format!(
+            "globalThis.__link_test__ = {{}}; \
+             WebAssembly.instantiate({IMPORT_MODULE_BYTES_JS}).then( \
+                 _ => {{ globalThis.__link_test__.outcome = 'resolved'; }}, \
+                 e => {{ globalThis.__link_test__.outcome = \
+                             e instanceof WebAssembly.LinkError ? 'link' : 'other'; }} \
+             );"
+        ))
+        .unwrap();
+    assert_eq!(
+        eval_string(&mut vm, "String(globalThis.__link_test__.outcome)"),
+        "link"
+    );
+    vm.unbind();
+}
+
+/// DR-11 + ECMA-262 §10.4.5.16 IntegerIndexedElementSet — writes
+/// through a TypedArray view over a detached buffer are silently
+/// no-ops; reads return `undefined` (legacy contract carried by F3's
+/// `is_detached_buffer` short-circuit in `byte_io::*_with_routing`).
+/// This is the cross-view alias-safety guard for Memory.grow's
+/// detach: an `Uint8Array` view captured before grow keeps reporting
+/// `byteLength === 0` and rejects further writes while the fresh
+/// view over the post-grow backing observes pre-grow content
+/// unchanged.
+#[test]
+fn memory_grow_silences_writes_through_pre_grow_view() {
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var m = new WebAssembly.Memory({initial: 1, maximum: 4}); \
+         var b0 = m.buffer; \
+         var u0 = new Uint8Array(b0); \
+         u0[0] = 1; \
+         var pre = u0[0]; \
+         m.grow(1); \
+         var b1 = m.buffer; \
+         var u1 = new Uint8Array(b1); \
+         pre === 1 \
+         && b0.byteLength === 0 \
+         && u0.byteLength === 0 \
+         && (u0[0] = 99, u0[0] === undefined) \
+         && b1.byteLength === 2 * 65536 \
+         && u1[0] === 1"
+    ));
+}
+
+/// GC contract — dropping all JS references to a Module / Instance /
+/// exports namespace + collecting garbage prunes the corresponding
+/// side-store entries (`wasm_module_storage` /
+/// `wasm_instance_storage` / `wasm_exported_func_storage` /
+/// `wasm_memory_storage` / `wasm_backed_buffers`).  Without correct
+/// trace + sweep wiring per plan §2.3 these maps would leak across
+/// the program.  Mirrors `gc_collects_unreachable_object` shape but
+/// drives allocation via the JS surface so the trace path through
+/// `ObjectKind::WasmModule` / `WasmInstance` / `WasmExportedFunction`
+/// is exercised end-to-end.
+#[test]
+fn gc_prunes_wasm_side_store_when_unreachable() {
+    let (mut vm, mut session, mut dom, doc) = setup_bound_vm();
+    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
+    // Allocate via JS: Module + Instance + reach for an exported func
+    // (forces `WasmExportedFuncPayload` insert) + Memory side-store
+    // entries (the MEM_WRITE module exports a Memory at "mem").
+    let _ = vm
+        .eval(&format!(
+            "var m = new WebAssembly.Module({MEM_WRITE_MODULE_BYTES}); \
+             var i = new WebAssembly.Instance(m); \
+             i.exports.write(7); \
+             var b = i.exports.mem.buffer; \
+             null"
+        ))
+        .unwrap();
+    // Confirm storage populated before GC.
+    assert!(!vm.inner.wasm_module_storage.is_empty());
+    assert!(!vm.inner.wasm_instance_storage.is_empty());
+    assert!(!vm.inner.wasm_memory_storage.is_empty());
+    assert!(!vm.inner.wasm_backed_buffers.is_empty());
+    // Drop all JS references by removing the top-level `var` bindings
+    // and any cached exports namespace they reach.  After this the
+    // only path back to the wasm side-store payloads is through their
+    // ObjectIds; if trace + sweep is correct the sweep prunes them.
+    for name in ["m", "i", "b"] {
+        let key = vm.inner.strings.intern(name);
+        vm.inner.globals.remove(&key);
+    }
+    vm.inner.gc_enabled = true;
+    vm.inner.collect_garbage();
+    assert!(
+        vm.inner.wasm_module_storage.is_empty(),
+        "wasm_module_storage should be empty after GC"
+    );
+    assert!(
+        vm.inner.wasm_instance_storage.is_empty(),
+        "wasm_instance_storage should be empty after GC"
+    );
+    assert!(
+        vm.inner.wasm_exported_func_storage.is_empty(),
+        "wasm_exported_func_storage should be empty after GC"
+    );
+    assert!(
+        vm.inner.wasm_memory_storage.is_empty(),
+        "wasm_memory_storage should be empty after GC"
+    );
+    assert!(
+        vm.inner.wasm_backed_buffers.is_empty(),
+        "wasm_backed_buffers reverse-lookup should be empty after GC"
+    );
+    vm.unbind();
+}
