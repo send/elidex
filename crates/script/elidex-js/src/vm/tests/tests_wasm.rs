@@ -589,6 +589,31 @@ fn table_get_yields_null_and_oob_throws() {
     ));
 }
 
+/// Regression for Copilot R7: WASM JS API §5.4 Table.prototype.set
+/// step 9 — `table_write` failure (OOB) → RangeError, not
+/// RuntimeError.  Pre-fix the impl marshalled the wasmtime error via
+/// the generic `wasm_error_to_vm_error` path (→ RuntimeError); spec
+/// mandates RangeError.  Also covers `Table.prototype.grow` step 9
+/// (insufficient memory / invalid size → RangeError).
+#[test]
+fn table_set_and_grow_oob_throw_range_error() {
+    let mut vm = Vm::new();
+    // set(idx >= length) → RangeError
+    assert!(eval_bool(
+        &mut vm,
+        "var t = new WebAssembly.Table({element: 'anyfunc', initial: 2}); \
+         (function() { try { t.set(5, null); return false; } \
+                       catch (e) { return e instanceof RangeError; } })()"
+    ));
+    // grow(delta) past `maximum` → RangeError
+    assert!(eval_bool(
+        &mut vm,
+        "var t = new WebAssembly.Table({element: 'anyfunc', initial: 1, maximum: 2}); \
+         (function() { try { t.grow(5); return false; } \
+                       catch (e) { return e instanceof RangeError; } })()"
+    ));
+}
+
 /// WASM JS API §5.4 — `.grow(delta)` returns previous size.
 #[test]
 fn table_grow_returns_previous_size() {

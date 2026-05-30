@@ -367,7 +367,11 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         ObjectKind::WasmMemory => CloneKind::Unclonable("WebAssembly.Memory"),
         ObjectKind::WasmTable => CloneKind::Unclonable("WebAssembly.Table"),
         ObjectKind::WasmGlobal => CloneKind::Unclonable("WebAssembly.Global"),
-        ObjectKind::WasmExportedFunction => CloneKind::Unclonable("WebAssembly.Function"),
+        // No `WebAssembly.Function` IDL type exists (wasm exported
+        // functions are plain `Function` objects with `[[Call]]`);
+        // match the sibling function-like arms above for the
+        // DataCloneError message.
+        ObjectKind::WasmExportedFunction => CloneKind::Unclonable("Function"),
     }
 }
 

@@ -148,7 +148,15 @@ pub(super) fn native_wasm_table_set(
     };
     let value_ref = js_value_to_wasm_ref(ctx, value_arg, element_kind)?;
     if let Err(e) = table.set(idx, value_ref) {
-        return Err(wasm_error_to_vm_error(ctx, &e));
+        // WASM JS API §5.4 Table.prototype.set step 9 — `table_write`
+        // failure (OOB) → RangeError, NOT RuntimeError.  Spec keeps
+        // step 7 (value ToWebAssemblyValue) before step 8 (table_write)
+        // so observable value-coerce side effects still run for an
+        // OOB call — the only fix is the error-class remap.
+        return Err(VmError::range_error(format!(
+            "WebAssembly.Table.prototype.set: {}",
+            e.message()
+        )));
     }
     Ok(JsValue::Undefined)
 }
@@ -175,7 +183,15 @@ pub(super) fn native_wasm_table_grow(
     let init_ref = js_value_to_wasm_ref(ctx, value_arg, element_kind)?;
     let prev = match table.grow(delta, init_ref) {
         Ok(p) => p,
-        Err(e) => return Err(wasm_error_to_vm_error(ctx, &e)),
+        // WASM JS API §5.4 Table.prototype.grow step 9 — `table_grow`
+        // failure (insufficient memory or invalid size per spec note)
+        // → RangeError, NOT RuntimeError.  Symmetric to `.set` step 9.
+        Err(e) => {
+            return Err(VmError::range_error(format!(
+                "WebAssembly.Table.prototype.grow: {}",
+                e.message()
+            )))
+        }
     };
     Ok(JsValue::Number(f64::from(prev)))
 }
