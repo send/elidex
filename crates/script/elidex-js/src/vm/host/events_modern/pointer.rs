@@ -181,7 +181,6 @@ fn native_pointer_event_constructor(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let mode = ctx.mode;
-    check_construct(ctx, "PointerEvent")?;
     let type_sid = type_arg(ctx, args, "PointerEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let ui = parse_ui_event_init(ctx, init_arg, "PointerEvent")?;

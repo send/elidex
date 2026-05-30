@@ -120,7 +120,7 @@ impl VmInner {
         }
         self.intersection_observer_prototype = Some(proto_id);
 
-        let ctor = self.create_constructable_function(
+        let ctor = self.create_constructor_only_function(
             "IntersectionObserver",
             native_intersection_observer_constructor,
         );
@@ -170,11 +170,6 @@ fn native_intersection_observer_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'IntersectionObserver': Please use the 'new' operator",
-        ));
-    }
     let callback_id = match args.first().copied() {
         Some(JsValue::Object(id)) if ctx.vm.get_object(id).kind.is_callable() => id,
         _ => {

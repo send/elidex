@@ -86,6 +86,7 @@ impl VmInner {
             "Worker",
             native_worker_constructor,
             global_sid,
+            super::super::value::CallShape::ConstructorOnly,
         );
     }
 
@@ -329,11 +330,6 @@ fn native_worker_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'Worker': Please use the 'new' operator",
-        ));
-    }
     let url_arg = args.first().copied().ok_or_else(|| {
         VmError::type_error(
             "Failed to construct 'Worker': 1 argument required, but only 0 present.",

@@ -59,6 +59,7 @@ pub(in crate::vm) fn register_touch_global(vm: &mut VmInner) {
         "Touch",
         native_touch_constructor,
         vm.well_known.touch_global,
+        super::super::super::value::CallShape::ConstructorOnly,
     );
     install_touch_accessors(vm, proto_id);
 }
@@ -83,6 +84,7 @@ pub(in crate::vm) fn register_touch_list_global(vm: &mut VmInner) {
         "TouchList",
         native_touch_list_illegal_constructor,
         vm.well_known.touch_list_global,
+        super::super::super::value::CallShape::Ordinary,
     );
     // `length` accessor + `item(index)` method.
     let length_sid = vm.well_known.length;
@@ -247,7 +249,6 @@ fn native_touch_constructor(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    check_construct(ctx, "Touch")?;
     // `TouchInit` is a `required` dictionary — missing or null/
     // undefined triggers a TypeError per WebIDL §3.10.18.  Split the
     // missing case (no argument, `undefined`, or explicit `null`)
@@ -474,7 +475,6 @@ fn native_touch_event_constructor(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let mode = ctx.mode;
-    check_construct(ctx, "TouchEvent")?;
     let type_sid = type_arg(ctx, args, "TouchEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let ui = parse_ui_event_init(ctx, init_arg, "TouchEvent")?;

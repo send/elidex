@@ -119,7 +119,7 @@ impl VmInner {
         self.install_url_members(proto_id);
         self.url_prototype = Some(proto_id);
 
-        let ctor = self.create_constructable_function("URL", native_url_constructor);
+        let ctor = self.create_constructor_only_function("URL", native_url_constructor);
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             ctor,
@@ -298,11 +298,6 @@ fn native_url_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'URL': Please use the 'new' operator",
-        ));
-    }
     let JsValue::Object(id) = this else {
         unreachable!("constructor `this` is always an Object after `do_new`");
     };

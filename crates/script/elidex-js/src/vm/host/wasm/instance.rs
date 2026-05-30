@@ -45,11 +45,6 @@ pub(super) fn native_wasm_instance_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'Instance' on 'WebAssembly': Please use the 'new' operator",
-        ));
-    }
     let module_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let import_object_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let module_id = require_module(ctx, module_arg)?;

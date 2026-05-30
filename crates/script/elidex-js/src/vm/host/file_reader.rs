@@ -146,6 +146,7 @@ impl VmInner {
             "FileReader",
             native_file_reader_constructor,
             global_sid,
+            super::super::value::CallShape::ConstructorOnly,
         );
 
         // Install EMPTY / LOADING / DONE constants on BOTH the ctor
@@ -299,11 +300,6 @@ fn native_file_reader_constructor(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'FileReader': Please use the 'new' operator",
-        ));
-    }
     let JsValue::Object(inst_id) = this else {
         unreachable!("constructor `this` is always an Object after `do_new`")
     };

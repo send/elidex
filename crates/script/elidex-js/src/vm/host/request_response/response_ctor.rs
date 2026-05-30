@@ -23,11 +23,6 @@ pub(super) fn native_response_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'Response': Please use the 'new' operator",
-        ));
-    }
     let JsValue::Object(inst_id) = this else {
         unreachable!("constructor `this` is always an Object after `do_new`");
     };

@@ -229,8 +229,10 @@ impl VmInner {
             PropertyAttrs::METHOD,
         );
 
-        let ctrl_ctor = self
-            .create_constructable_function("AbortController", native_abort_controller_constructor);
+        let ctrl_ctor = self.create_constructor_only_function(
+            "AbortController",
+            native_abort_controller_constructor,
+        );
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             ctrl_ctor,
@@ -336,11 +338,6 @@ fn native_abort_controller_constructor(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "AbortController constructor cannot be invoked without 'new'",
-        ));
-    }
     // `do_new` already pre-allocated an Ordinary instance whose
     // prototype is `AbortController.prototype` — repurpose it so the
     // chain is correct without a second alloc.

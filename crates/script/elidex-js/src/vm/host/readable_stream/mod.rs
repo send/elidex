@@ -303,11 +303,6 @@ pub(super) fn native_readable_stream_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'ReadableStream': Please use the 'new' operator",
-        ));
-    }
     let JsValue::Object(stream_id) = this else {
         unreachable!("ctor `this` always Object after `do_new`");
     };
@@ -711,7 +706,7 @@ impl VmInner {
         self.readable_stream_prototype = Some(stream_proto);
 
         let stream_ctor = self
-            .create_constructable_function("ReadableStream", native_readable_stream_constructor);
+            .create_constructor_only_function("ReadableStream", native_readable_stream_constructor);
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             stream_ctor,

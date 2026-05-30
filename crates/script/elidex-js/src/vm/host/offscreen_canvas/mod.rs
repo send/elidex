@@ -119,6 +119,7 @@ impl VmInner {
             "OffscreenCanvas",
             native_offscreen_canvas_constructor,
             global_sid,
+            super::super::value::CallShape::ConstructorOnly,
         );
     }
 
@@ -148,6 +149,7 @@ impl VmInner {
             "OffscreenCanvasRenderingContext2D",
             native_oc_illegal_constructor,
             global_sid,
+            super::super::value::CallShape::Ordinary,
         );
     }
 
@@ -346,11 +348,6 @@ fn native_offscreen_canvas_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'OffscreenCanvas': Please use the 'new' operator",
-        ));
-    }
     if args.len() < 2 {
         return Err(VmError::type_error(format!(
             "Failed to construct 'OffscreenCanvas': 2 arguments required, but only {} present.",

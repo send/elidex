@@ -124,7 +124,6 @@ fn native_storage_event_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    check_construct(ctx, "StorageEvent")?;
     let mode = ctx.mode;
     // Pre-`install_host_data` reachability: every `host()` access is
     // gated by `host_if_bound` further down.  The constructor itself

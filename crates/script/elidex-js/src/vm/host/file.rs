@@ -110,6 +110,7 @@ impl VmInner {
             "File",
             native_file_constructor,
             self.well_known.file_global,
+            super::super::value::CallShape::ConstructorOnly,
         );
     }
 
@@ -166,11 +167,6 @@ fn native_file_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'File': Please use the 'new' operator",
-        ));
-    }
     let JsValue::Object(inst_id) = this else {
         unreachable!("constructor `this` is always an Object after `do_new`");
     };

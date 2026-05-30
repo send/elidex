@@ -69,7 +69,7 @@ impl VmInner {
         self.install_data_view_members(proto_id);
         self.data_view_prototype = Some(proto_id);
 
-        let ctor = self.create_constructable_function("DataView", native_data_view_constructor);
+        let ctor = self.create_constructor_only_function("DataView", native_data_view_constructor);
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             ctor,
@@ -164,11 +164,6 @@ fn native_data_view_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'DataView': Please use the 'new' operator",
-        ));
-    }
     let JsValue::Object(inst_id) = this else {
         unreachable!("constructor `this` is always an Object after `do_new`");
     };

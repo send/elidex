@@ -35,8 +35,10 @@ impl VmInner {
         ]);
         self.promise_prototype = Some(proto_id);
 
-        // Promise constructor (constructable via `new`).
-        let ctor_id = self.create_constructable_function("Promise", native_promise_constructor);
+        // Promise constructor (`new`-only per ECMA-262 §27.2.3.1 step 1
+        // — NewTarget undefined throws TypeError, enforced at dispatch
+        // via `CallShape::ConstructorOnly`).
+        let ctor_id = self.create_constructor_only_function("Promise", native_promise_constructor);
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             ctor_id,

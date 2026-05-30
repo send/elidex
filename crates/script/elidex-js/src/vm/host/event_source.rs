@@ -114,6 +114,7 @@ impl VmInner {
             "EventSource",
             native_event_source_constructor,
             global_sid,
+            super::super::value::CallShape::ConstructorOnly,
         );
 
         install_sse_readystate_constants(self, proto_id, global_sid);
@@ -289,12 +290,6 @@ fn native_event_source_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'EventSource': Please use the 'new' operator",
-        ));
-    }
-
     // Step 1: required `url` arg + parse against the document
     // base URL.
     let url_arg = args.first().copied().ok_or_else(|| {

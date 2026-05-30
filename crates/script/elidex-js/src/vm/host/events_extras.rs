@@ -264,7 +264,14 @@ pub(super) fn register_event_subclass(
         extensible: true,
     });
     store(vm, proto_id);
-    install_ctor(vm, proto_id, name, func, global_sid);
+    install_ctor(
+        vm,
+        proto_id,
+        name,
+        func,
+        global_sid,
+        super::super::value::CallShape::ConstructorOnly,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -277,7 +284,6 @@ fn native_promise_rejection_event_constructor(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let mode = ctx.mode;
-    check_construct(ctx, "PromiseRejectionEvent")?;
     let type_sid = type_arg(ctx, args, "PromiseRejectionEvent")?;
     // WHATWG HTML §8.1.7.3.4 + WebIDL §3.10.23 dictionary coercion:
     //   - A missing second arg → arity error (dict with `required`
@@ -366,7 +372,6 @@ fn native_error_event_constructor(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let mode = ctx.mode;
-    check_construct(ctx, "ErrorEvent")?;
     let type_sid = type_arg(ctx, args, "ErrorEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let base = parse_event_init(ctx, init_arg, "ErrorEvent")?;
@@ -424,7 +429,6 @@ fn native_hash_change_event_constructor(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let mode = ctx.mode;
-    check_construct(ctx, "HashChangeEvent")?;
     let type_sid = type_arg(ctx, args, "HashChangeEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let base = parse_event_init(ctx, init_arg, "HashChangeEvent")?;
@@ -471,7 +475,6 @@ fn native_pop_state_event_constructor(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let mode = ctx.mode;
-    check_construct(ctx, "PopStateEvent")?;
     let type_sid = type_arg(ctx, args, "PopStateEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let base = parse_event_init(ctx, init_arg, "PopStateEvent")?;
@@ -511,7 +514,6 @@ fn native_animation_event_constructor(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let mode = ctx.mode;
-    check_construct(ctx, "AnimationEvent")?;
     let type_sid = type_arg(ctx, args, "AnimationEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let base = parse_event_init(ctx, init_arg, "AnimationEvent")?;
@@ -561,7 +563,6 @@ fn native_transition_event_constructor(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let mode = ctx.mode;
-    check_construct(ctx, "TransitionEvent")?;
     let type_sid = type_arg(ctx, args, "TransitionEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let base = parse_event_init(ctx, init_arg, "TransitionEvent")?;
@@ -611,7 +612,6 @@ fn native_close_event_constructor(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let mode = ctx.mode;
-    check_construct(ctx, "CloseEvent")?;
     let type_sid = type_arg(ctx, args, "CloseEvent")?;
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let base = parse_event_init(ctx, init_arg, "CloseEvent")?;

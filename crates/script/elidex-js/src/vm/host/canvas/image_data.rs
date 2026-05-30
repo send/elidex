@@ -100,11 +100,6 @@ pub(super) fn native_image_data_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'ImageData': Please use the 'new' operator",
-        ));
-    }
     // The `do_new`-allocated receiver, promoted in place (its prototype is
     // already `new.target.prototype`, so subclassing is preserved).
     let JsValue::Object(inst_id) = this else {

@@ -408,7 +408,7 @@ fn abort_controller_constructor_requires_new() {
              try { AbortController(); } catch(e) { msg = e.message; }
              msg;"
         ),
-        "AbortController constructor cannot be invoked without 'new'"
+        "Failed to construct 'AbortController': Please use the 'new' operator"
     );
 }
 

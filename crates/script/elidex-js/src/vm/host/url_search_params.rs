@@ -91,8 +91,10 @@ impl VmInner {
         self.install_url_search_params_members(proto_id);
         self.url_search_params_prototype = Some(proto_id);
 
-        let ctor = self
-            .create_constructable_function("URLSearchParams", native_url_search_params_constructor);
+        let ctor = self.create_constructor_only_function(
+            "URLSearchParams",
+            native_url_search_params_constructor,
+        );
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             ctor,
@@ -170,11 +172,6 @@ fn native_url_search_params_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'URLSearchParams': Please use the 'new' operator",
-        ));
-    }
     let JsValue::Object(id) = this else {
         unreachable!("constructor `this` is always an Object after `do_new`");
     };

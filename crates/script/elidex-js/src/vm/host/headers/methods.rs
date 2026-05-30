@@ -33,11 +33,6 @@ pub(super) fn native_headers_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'Headers': Please use the 'new' operator",
-        ));
-    }
     // `do_new` already pre-allocated an Ordinary instance; repurpose
     // it so the `new.target.prototype` chain stays intact (PR5a2
     // R7.2/R7.3 lesson — helpers must not reassign `prototype`).

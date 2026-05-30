@@ -101,7 +101,7 @@ impl VmInner {
         self.static_range_prototype = Some(proto_id);
 
         let ctor =
-            self.create_constructable_function("StaticRange", native_static_range_constructor);
+            self.create_constructor_only_function("StaticRange", native_static_range_constructor);
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             ctor,
@@ -189,11 +189,6 @@ fn native_static_range_constructor(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    if !ctx.is_construct() {
-        return Err(VmError::type_error(
-            "Failed to construct 'StaticRange': Please use the 'new' operator",
-        ));
-    }
     let JsValue::Object(this_id) = this else {
         unreachable!("constructor `this` is always an Object after `do_new`");
     };
