@@ -199,8 +199,9 @@ pub(crate) fn assert_ctor_requires_new(expr: &str, interface: &str) {
 /// Interface()` (gated at `vm/ops.rs::do_new`) AND bare `Interface()`
 /// (gated at `vm/interpreter.rs::call_dispatch`).  Both messages come
 /// from the single SoT `VmError::illegal_constructor`, so this verifies
-/// the two chokepoints stay in sync (WebIDL §3.7 interface-object
-/// algorithm step 1 — interface declares no constructor operation).
+/// the two chokepoints stay in sync (WebIDL §3.7.1 (Interface object)
+/// creation algorithm step 1.1 — interface declares no constructor
+/// operation).
 ///
 /// `interface` is the WebIDL Interface name appearing between the single
 /// quotes (e.g. `"Crypto"`, `"FileList"`).  One call per the 16

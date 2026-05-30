@@ -305,9 +305,9 @@ impl VmInner {
     /// Helper: create a [`CallShape::IllegalConstructor`] native function
     /// object — BOTH `new Foo(...)` and bare `Foo(...)` throw the
     /// canonical `"Failed to construct '{name}': Illegal constructor"`
-    /// TypeError at the dispatch / `do_new` site, per the WebIDL §3.7
-    /// interface-object algorithm step 1 ("If I was not declared with a
-    /// constructor operation, then throw a TypeError").  Used by every
+    /// TypeError at the dispatch / `do_new` site, per the WebIDL §3.7.1
+    /// (Interface object) creation algorithm step 1.1 ("If I was not
+    /// declared with a constructor operation, then throw a TypeError").  Used by every
     /// WebIDL Interface-object that is exposed for `instanceof` /
     /// prototype identity but declares no constructor operation
     /// (`Crypto`, `Selection`, `FileList`, …); replaces the historic

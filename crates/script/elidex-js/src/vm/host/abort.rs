@@ -169,7 +169,8 @@ impl VmInner {
         // (instances come from `new AbortController().signal` or the
         // static `AbortSignal.abort` / `.timeout` / `.any` factories), so
         // both `new AbortSignal()` and bare `AbortSignal()` throw a
-        // TypeError per the WebIDL §3.7 interface-object algorithm step 1.
+        // TypeError per the WebIDL §3.7.1 (Interface object) creation
+        // algorithm step 1.1.
         // Registered as `CallShape::IllegalConstructor`: the gate in
         // `do_new` / `call_dispatch` raises the canonical "Failed to
         // construct 'AbortSignal': Illegal constructor" (shared SoT

@@ -89,9 +89,10 @@ impl VmInner {
 
         self.custom_element_registry_prototype = Some(proto_id);
 
-        // `CustomElementRegistry` constructor stub — throws on
-        // call/construct per WebIDL §3.7 ("Illegal constructor" — HTML
-        // §4.13.4 declares CustomElementRegistry with no exposed ctor). The
+        // `CustomElementRegistry` declares no constructor operation, so
+        // both call and construct throw "Illegal constructor" at the gate
+        // (WebIDL §3.7.1 (Interface object) creation algorithm step 1.1;
+        // HTML §4.13.4 declares CustomElementRegistry with no exposed ctor). The
         // identifier still needs a global binding so `customElements
         // instanceof CustomElementRegistry` and `CustomElementRegistry
         // .prototype` parity work.

@@ -1255,7 +1255,7 @@ pub(crate) struct VmInner {
     /// own-data slots.
     #[cfg(feature = "engine")]
     pub(crate) progress_event_prototype: Option<ObjectId>,
-    /// `BeforeUnloadEvent.prototype` (HTML §9.10.2).  Chains to
+    /// `BeforeUnloadEvent.prototype` (HTML §7.2.7.7).  Chains to
     /// [`event_prototype`].  No public constructor — `new
     /// BeforeUnloadEvent(...)` throws TypeError "Illegal constructor".
     /// `returnValue` is a mutable accessor pair installed on the

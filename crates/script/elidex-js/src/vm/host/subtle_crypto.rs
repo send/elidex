@@ -96,7 +96,9 @@ impl VmInner {
 
         self.subtle_crypto_prototype = Some(proto_id);
 
-        // `SubtleCrypto` constructor stub — throws per WebIDL §14.
+        // `SubtleCrypto` declares no constructor operation — registered as
+        // IllegalConstructor so both call/construct throw at the gate
+        // (Web Cryptography API §14 SubtleCrypto interface).
         let ctor = self.create_illegal_constructor_function(
             "SubtleCrypto",
             super::super::value::native_illegal_constructor_unreachable,

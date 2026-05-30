@@ -334,8 +334,8 @@ fn new_abort_signal_throws_type_error() {
     let mut vm = Vm::new();
     // `AbortSignal` declares no constructor operation in its WebIDL;
     // instances come from `AbortController` / the static factories.
-    // Per the WebIDL §3.7 interface-object algorithm step 1 BOTH
-    // `new AbortSignal()` and bare `AbortSignal()` throw the canonical
+    // Per the WebIDL §3.7.1 (Interface object) creation algorithm step 1.1
+    // BOTH `new AbortSignal()` and bare `AbortSignal()` throw the canonical
     // "Illegal constructor" TypeError (CallShape::IllegalConstructor,
     // shared `VmError::illegal_constructor` SoT). The exhaustive
     // both-modes-all-sites coverage lives in

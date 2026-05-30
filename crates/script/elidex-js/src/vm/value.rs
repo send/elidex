@@ -692,15 +692,15 @@ pub struct JsCalleeInfo {
 ///   the `new` evaluation site raises "not a constructor".
 ///   `Symbol`, `BigInt`.
 /// * [`CallShape::ConstructorOnly`] — `[[Construct]]` only; `[[Call]]`
-///   throws TypeError per the WebIDL §3.7 interface-object algorithm
-///   step 2 ("If NewTarget is undefined, then throw a TypeError").
-///   Every Interface-object ctor that DOES declare a constructor
-///   operation, plus the core-VM Promise ctor (ECMA-262 §27.2.3.1
-///   step 1).
+///   throws TypeError per the WebIDL §3.7.1 (Interface object) creation
+///   algorithm step 1.2 ("If NewTarget is undefined, then throw a
+///   TypeError").  Every Interface-object ctor that DOES declare a
+///   constructor operation, plus the core-VM Promise ctor (ECMA-262
+///   §27.2.3.1 step 1).
 /// * [`CallShape::IllegalConstructor`] — neither `[[Call]]` nor
-///   `[[Construct]]`; BOTH modes throw TypeError per the WebIDL §3.7
-///   interface-object algorithm step 1 ("If I was not declared with a
-///   constructor operation, then throw a TypeError" — the prose adds
+///   `[[Construct]]`; BOTH modes throw TypeError per the WebIDL §3.7.1
+///   (Interface object) creation algorithm step 1.1 ("If I was not
+///   declared with a constructor operation, then throw a TypeError" — the prose adds
 ///   "Interface objects whose interfaces are not declared with a
 ///   constructor operation will throw when called, both as a function
 ///   and as a constructor").  Interface objects exposed for
@@ -716,7 +716,7 @@ pub struct JsCalleeInfo {
 ///   Distinct from `CallableOnly` (which permits `[[Call]]` and emits
 ///   the ECMA-262 §7.2.4 "is not a constructor" message) — the gate
 ///   throws in *both* modes with the WebIDL "Illegal constructor"
-///   message.  The thrown text is not spec-prescribed (§3.7 mandates
+///   message.  The thrown text is not spec-prescribed (§3.7.1 mandates
 ///   only "throw a TypeError"); the wording matches Chrome's WebIDL
 ///   surface.
 ///

@@ -116,7 +116,7 @@ impl VmInner {
         );
     }
 
-    /// `BeforeUnloadEvent` (HTML §9.10.2).  Per spec the interface
+    /// `BeforeUnloadEvent` (HTML §7.2.7.7).  Per spec the interface
     /// has no `[Constructor]`, so `new BeforeUnloadEvent(...)` throws
     /// `TypeError("Illegal constructor")`.  The global is still
     /// registered so that UA-dispatched instances pass `instanceof
@@ -134,7 +134,7 @@ impl VmInner {
     /// not silently grow the side table.
     pub(in crate::vm) fn register_before_unload_event_global(&mut self) {
         // Unlike the other event subclasses, `BeforeUnloadEvent` declares
-        // NO constructor operation (HTML §9.10.2) — `new BeforeUnloadEvent()`
+        // NO constructor operation (HTML §7.2.7.7) — `new BeforeUnloadEvent()`
         // AND bare `BeforeUnloadEvent()` both throw "Illegal constructor".
         // So it does NOT go through `register_event_subclass` (which installs
         // a `ConstructorOnly` ctor for the constructable event subclasses);
@@ -603,7 +603,7 @@ fn native_progress_event_constructor(
 }
 
 // ---------------------------------------------------------------------------
-// BeforeUnloadEvent (HTML §9.10.2)
+// BeforeUnloadEvent (HTML §7.2.7.7)
 // ---------------------------------------------------------------------------
 
 /// `BeforeUnloadEvent.prototype.returnValue` getter — reads the

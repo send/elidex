@@ -96,12 +96,12 @@ impl VmError {
     /// Illegal constructor"` TypeError raised for a
     /// [`super::value::CallShape::IllegalConstructor`] native — a WebIDL
     /// interface object that declares no constructor operation and so
-    /// throws in BOTH `[[Call]]` and `[[Construct]]` modes (WebIDL §3.7
-    /// interface-object algorithm step 1).  Called from the two gate
-    /// chokepoints (`call_dispatch` bare-call arm + `do_new`
+    /// throws in BOTH `[[Call]]` and `[[Construct]]` modes (WebIDL §3.7.1
+    /// (Interface object) creation algorithm step 1.1).  Called from the
+    /// two gate chokepoints (`call_dispatch` bare-call arm + `do_new`
     /// non-constructable arm); keeping the message here prevents the two
     /// sites from drifting (the two-chokepoint hazard).  The wording is
-    /// not spec-prescribed (§3.7 mandates only "throw a TypeError");
+    /// not spec-prescribed (§3.7.1 mandates only "throw a TypeError");
     /// matches Chrome's WebIDL surface.
     pub fn illegal_constructor(name: &str) -> Self {
         Self {

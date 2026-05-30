@@ -695,8 +695,9 @@ impl VmInner {
         // For non-JS callees, validate native constructability.  Both
         // non-constructable shapes are gated here (the `[[Construct]]`
         // chokepoint), but with distinct messages:
-        //   * `IllegalConstructor` (WebIDL §3.7 interface-object step 1 —
-        //     no constructor operation) → "Failed to construct '{name}':
+        //   * `IllegalConstructor` (WebIDL §3.7.1 (Interface object)
+        //     creation algorithm step 1.1 — no constructor operation) →
+        //     "Failed to construct '{name}':
         //     Illegal constructor" (also thrown bare-call at dispatch;
         //     shared SoT in `VmError::illegal_constructor`).
         //   * `CallableOnly` (ECMA-262 §10.3 built-in lacking

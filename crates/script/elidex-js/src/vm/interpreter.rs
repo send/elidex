@@ -318,9 +318,9 @@ impl VmInner {
                     // bare-call path here; `ConstructorOnly` likewise only
                     // needs the bare-call rejection.)
                     match nf.shape {
-                        // WebIDL §3.7 interface-object algorithm step 2 +
-                        // ECMA-262 §27.2.3.1 step 1: `new`-only ctor invoked
-                        // bare (without `new`). Sibling of the ECMA-262
+                        // WebIDL §3.7.1 (Interface object) creation algorithm
+                        // step 1.2 + ECMA-262 §27.2.3.1 step 1: `new`-only ctor
+                        // invoked bare (without `new`). Sibling of the ECMA-262
                         // §10.2.1 step 4 `is_class_ctor && !mode.is_construct()`
                         // gate at `push_js_call_frame`.
                         super::value::CallShape::ConstructorOnly if !mode.is_construct() => {
@@ -329,9 +329,9 @@ impl VmInner {
                                 "Failed to construct '{name}': Please use the 'new' operator"
                             )));
                         }
-                        // WebIDL §3.7 interface-object algorithm step 1: an
-                        // interface object declaring no constructor operation
-                        // throws "when called, both as a function and as a
+                        // WebIDL §3.7.1 (Interface object) creation algorithm
+                        // step 1.1: an interface object declaring no constructor
+                        // operation throws "when called, both as a function and as a
                         // constructor". This arm covers the bare-call path
                         // (the `[[Construct]]` path is rejected in `do_new`);
                         // the message SoT lives in `VmError::illegal_constructor`
