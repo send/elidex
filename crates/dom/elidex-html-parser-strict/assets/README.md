@@ -6,6 +6,12 @@ table the tokenizer resolves in the named-character-reference state
 (§13.2.5.73).
 
 - **Source**: <https://html.spec.whatwg.org/entities.json>
+- **License / attribution**: reference data published as part of the WHATWG
+  HTML Living Standard (§13.5). WHATWG does not ship a separate `LICENSE`
+  file for `entities.json`; the Living Standard and its extracted data are
+  freely implementable and redistributable under the
+  [WHATWG IPR Policy](https://whatwg.org/ipr-policy). Attribution is via the
+  source URL above.
 - **Format**: object keyed by the full identifier including the leading
   `&` (e.g. `"&amp;"`), value `{"codepoints":[…],"characters":"…"}`.
 - **Consumed by**: `build.rs` → `src/tokenizer/build_entities.rs`, which

@@ -7,7 +7,10 @@ parser library) describing the expected WHATWG HTML §13.2.5 token output
 for given inputs.
 
 - **Source**: <https://github.com/html5lib/html5lib-tests> (`tokenizer/`)
-- **License**: MIT (see the html5lib-tests `LICENSE`).
+- **License**: MIT. The upstream license text is vendored alongside the data
+  at [`LICENSE`](./LICENSE) (Copyright © 2006-2013 James Graham, Geoffrey
+  Sneddon, and other contributors) — its terms require the copyright notice
+  and permission notice to ship with any redistribution of these files.
 - **Why vendored**: build/test reproducibility and offline runs (the A2
   plan declines CDN fetch at build/test time, mirroring the entity-table
   decision D-c).

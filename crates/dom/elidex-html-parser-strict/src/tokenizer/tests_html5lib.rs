@@ -212,6 +212,22 @@ macro_rules! suite_test {
     };
 }
 
+/// Regression guard (Copilot R2): the MIT license text for the vendored
+/// html5lib-tests corpus must ship in-tree alongside the data. `include_str!`
+/// fails the build if the file is missing; the assertions pin its identity.
+#[test]
+fn vendored_html5lib_license_present() {
+    let license = include_str!("../../tests/data/html5lib/LICENSE");
+    assert!(
+        license.contains("Permission is hereby granted"),
+        "html5lib-tests MIT license text must be vendored for redistribution compliance"
+    );
+    assert!(
+        license.contains("James Graham"),
+        "expected upstream copyright notice"
+    );
+}
+
 suite_test!(html5lib_test1, "test1.test");
 suite_test!(html5lib_test2, "test2.test");
 suite_test!(html5lib_test3, "test3.test");

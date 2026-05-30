@@ -30,9 +30,13 @@ pub fn generate() {
         .as_object()
         .expect("entities.json must be a JSON object");
 
-    // Collect owned key/value-expr strings that outlive the phf builder.
-    let mut keys: Vec<String> = Vec::with_capacity(obj.len());
-    let mut value_exprs: Vec<String> = Vec::with_capacity(obj.len());
+    // Collect (key, value-expr) pairs that outlive the phf builder, then
+    // sort by key so the generated table is byte-deterministic regardless
+    // of the JSON's entry order (serde_json's `Value` map iteration order
+    // depends on whether the `preserve_order` feature is active anywhere in
+    // the workspace via feature unification — sorting removes that
+    // dependency and keeps codegen diffs stable across re-vendoring).
+    let mut entries: Vec<(String, String)> = Vec::with_capacity(obj.len());
     let mut max_len = 0usize;
     for (name, val) in obj {
         let chars = val
@@ -40,13 +44,13 @@ pub fn generate() {
             .and_then(|c| c.as_str())
             .expect("entity entry missing `characters`");
         max_len = max_len.max(name.chars().count());
-        keys.push(name.clone());
         // `{:?}` on a &str yields a valid Rust string literal expression.
-        value_exprs.push(format!("{chars:?}"));
+        entries.push((name.clone(), format!("{chars:?}")));
     }
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
 
     let mut map = phf_codegen::Map::new();
-    for (k, v) in keys.iter().zip(value_exprs.iter()) {
+    for (k, v) in &entries {
         map.entry(k.as_str(), v.as_str());
     }
 
