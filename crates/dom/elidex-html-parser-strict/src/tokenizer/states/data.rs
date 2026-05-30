@@ -70,30 +70,12 @@ impl Tokenizer {
 
     /// §13.2.5.9 RCDATA less-than sign state.
     pub(super) fn rcdata_less_than_sign_state(&mut self) -> Result<(), StrictParseError> {
-        if self.consume() == Some('/') {
-            self.clear_temp_buffer();
-            self.switch_to(State::RcdataEndTagOpen);
-        } else {
-            self.emit_char('<');
-            self.reconsume_in(State::Rcdata);
-        }
-        Ok(())
+        self.less_than_sign_generic(State::RcdataEndTagOpen, State::Rcdata)
     }
 
     /// §13.2.5.10 RCDATA end tag open state.
     pub(super) fn rcdata_end_tag_open_state(&mut self) -> Result<(), StrictParseError> {
-        match self.consume() {
-            Some(c) if c.is_ascii_alphabetic() => {
-                self.new_end_tag();
-                self.reconsume_in(State::RcdataEndTagName);
-            }
-            _ => {
-                self.emit_char('<');
-                self.emit_char('/');
-                self.reconsume_in(State::Rcdata);
-            }
-        }
-        Ok(())
+        self.end_tag_open_generic(State::RcdataEndTagName, State::Rcdata)
     }
 
     /// §13.2.5.11 RCDATA end tag name state.
@@ -103,30 +85,12 @@ impl Tokenizer {
 
     /// §13.2.5.12 RAWTEXT less-than sign state.
     pub(super) fn rawtext_less_than_sign_state(&mut self) -> Result<(), StrictParseError> {
-        if self.consume() == Some('/') {
-            self.clear_temp_buffer();
-            self.switch_to(State::RawtextEndTagOpen);
-        } else {
-            self.emit_char('<');
-            self.reconsume_in(State::Rawtext);
-        }
-        Ok(())
+        self.less_than_sign_generic(State::RawtextEndTagOpen, State::Rawtext)
     }
 
     /// §13.2.5.13 RAWTEXT end tag open state.
     pub(super) fn rawtext_end_tag_open_state(&mut self) -> Result<(), StrictParseError> {
-        match self.consume() {
-            Some(c) if c.is_ascii_alphabetic() => {
-                self.new_end_tag();
-                self.reconsume_in(State::RawtextEndTagName);
-            }
-            _ => {
-                self.emit_char('<');
-                self.emit_char('/');
-                self.reconsume_in(State::Rawtext);
-            }
-        }
-        Ok(())
+        self.end_tag_open_generic(State::RawtextEndTagName, State::Rawtext)
     }
 
     /// §13.2.5.14 RAWTEXT end tag name state.
@@ -156,18 +120,7 @@ impl Tokenizer {
 
     /// §13.2.5.16 Script data end tag open state.
     pub(super) fn script_data_end_tag_open_state(&mut self) -> Result<(), StrictParseError> {
-        match self.consume() {
-            Some(c) if c.is_ascii_alphabetic() => {
-                self.new_end_tag();
-                self.reconsume_in(State::ScriptDataEndTagName);
-            }
-            _ => {
-                self.emit_char('<');
-                self.emit_char('/');
-                self.reconsume_in(State::ScriptData);
-            }
-        }
-        Ok(())
+        self.end_tag_open_generic(State::ScriptDataEndTagName, State::ScriptData)
     }
 
     /// §13.2.5.17 Script data end tag name state.
@@ -277,18 +230,7 @@ impl Tokenizer {
     pub(super) fn script_data_escaped_end_tag_open_state(
         &mut self,
     ) -> Result<(), StrictParseError> {
-        match self.consume() {
-            Some(c) if c.is_ascii_alphabetic() => {
-                self.new_end_tag();
-                self.reconsume_in(State::ScriptDataEscapedEndTagName);
-            }
-            _ => {
-                self.emit_char('<');
-                self.emit_char('/');
-                self.reconsume_in(State::ScriptDataEscaped);
-            }
-        }
-        Ok(())
+        self.end_tag_open_generic(State::ScriptDataEscapedEndTagName, State::ScriptDataEscaped)
     }
 
     /// §13.2.5.25 Script data escaped end tag name state.
@@ -300,26 +242,12 @@ impl Tokenizer {
 
     /// §13.2.5.26 Script data double escape start state.
     pub(super) fn script_data_double_escape_start_state(&mut self) -> Result<(), StrictParseError> {
-        match self.consume() {
-            Some(c) if is_whitespace(c) || c == '/' || c == '>' => {
-                if self.temp_buffer_is("script") {
-                    self.switch_to(State::ScriptDataDoubleEscaped);
-                } else {
-                    self.switch_to(State::ScriptDataEscaped);
-                }
-                self.emit_char(c);
-            }
-            Some(c) if c.is_ascii_uppercase() => {
-                self.push_temp_buffer(c.to_ascii_lowercase());
-                self.emit_char(c);
-            }
-            Some(c) if c.is_ascii_lowercase() => {
-                self.push_temp_buffer(c);
-                self.emit_char(c);
-            }
-            _ => self.reconsume_in(State::ScriptDataEscaped),
-        }
-        Ok(())
+        // "script" → double-escaped, otherwise back to escaped.
+        self.script_data_double_escape_generic(
+            State::ScriptDataDoubleEscaped,
+            State::ScriptDataEscaped,
+            State::ScriptDataEscaped,
+        )
     }
 
     /// §13.2.5.27 Script data double escaped state.
@@ -402,12 +330,76 @@ impl Tokenizer {
 
     /// §13.2.5.31 Script data double escape end state.
     pub(super) fn script_data_double_escape_end_state(&mut self) -> Result<(), StrictParseError> {
+        // "script" → back to escaped, otherwise stay double-escaped.
+        self.script_data_double_escape_generic(
+            State::ScriptDataEscaped,
+            State::ScriptDataDoubleEscaped,
+            State::ScriptDataDoubleEscaped,
+        )
+    }
+
+    // ----- shared less-than-sign / end-tag-open machinery -----
+
+    /// Shared body for the RCDATA/RAWTEXT less-than-sign states
+    /// (§13.2.5.9/12): `/` clears the temp buffer and enters
+    /// `end_tag_open_state`, anything else emits `<` and reconsumes in
+    /// the text-content state. (The script-data variants differ — they
+    /// have extra `!` / double-escape branches — so they are not shared.)
+    fn less_than_sign_generic(
+        &mut self,
+        end_tag_open_state: State,
+        raw_state: State,
+    ) -> Result<(), StrictParseError> {
+        if self.consume() == Some('/') {
+            self.clear_temp_buffer();
+            self.switch_to(end_tag_open_state);
+        } else {
+            self.emit_char('<');
+            self.reconsume_in(raw_state);
+        }
+        Ok(())
+    }
+
+    /// Shared body for the RCDATA/RAWTEXT/script-data(-escaped) end-tag-open
+    /// states (§13.2.5.10/13/16/24): ASCII alpha starts a new end tag and
+    /// reconsumes in `name_state`, anything else emits `</` and reconsumes
+    /// in the text-content state.
+    fn end_tag_open_generic(
+        &mut self,
+        name_state: State,
+        raw_state: State,
+    ) -> Result<(), StrictParseError> {
+        match self.consume() {
+            Some(c) if c.is_ascii_alphabetic() => {
+                self.new_end_tag();
+                self.reconsume_in(name_state);
+            }
+            _ => {
+                self.emit_char('<');
+                self.emit_char('/');
+                self.reconsume_in(raw_state);
+            }
+        }
+        Ok(())
+    }
+
+    /// Shared body for the script-data double-escape start/end states
+    /// (§13.2.5.26/31): on whitespace/`/`/`>`, switch to `matched` if the
+    /// temp buffer is `"script"` else `unmatched`, emitting the char;
+    /// ASCII letters accumulate (lowercased) into the temp buffer and are
+    /// emitted; anything else reconsumes in `reconsume_state`.
+    fn script_data_double_escape_generic(
+        &mut self,
+        matched: State,
+        unmatched: State,
+        reconsume_state: State,
+    ) -> Result<(), StrictParseError> {
         match self.consume() {
             Some(c) if is_whitespace(c) || c == '/' || c == '>' => {
                 if self.temp_buffer_is("script") {
-                    self.switch_to(State::ScriptDataEscaped);
+                    self.switch_to(matched);
                 } else {
-                    self.switch_to(State::ScriptDataDoubleEscaped);
+                    self.switch_to(unmatched);
                 }
                 self.emit_char(c);
             }
@@ -419,7 +411,7 @@ impl Tokenizer {
                 self.push_temp_buffer(c);
                 self.emit_char(c);
             }
-            _ => self.reconsume_in(State::ScriptDataDoubleEscaped),
+            _ => self.reconsume_in(reconsume_state),
         }
         Ok(())
     }

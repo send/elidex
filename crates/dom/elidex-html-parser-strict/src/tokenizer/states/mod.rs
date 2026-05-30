@@ -806,10 +806,17 @@ fn input_stream_error(c: char) -> Option<&'static str> {
     if is_control && !is_exempt {
         return Some("control-character-in-input-stream");
     }
-    if (0xFDD0..=0xFDEF).contains(&code) || (code & 0xFFFE) == 0xFFFE {
+    if is_noncharacter(code) {
         return Some("noncharacter-in-input-stream");
     }
     None
+}
+
+/// WHATWG "noncharacter" test (used by §13.2.3.5 input-stream errors and
+/// the §13.2.5.80 numeric character reference end state): the
+/// U+FDD0–U+FDEF block and the last two code points of every plane.
+pub(super) fn is_noncharacter(code: u32) -> bool {
+    (0xFDD0..=0xFDEF).contains(&code) || (code & 0xFFFE) == 0xFFFE
 }
 
 /// The four ASCII whitespace characters the tokenizer treats specially

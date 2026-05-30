@@ -7,7 +7,7 @@
 //! that exact-key map (§13.2.5.73, descending-length prefix probe — see
 //! the A2 plan decision D-b).
 
-use super::states::{State, Tokenizer};
+use super::states::{is_noncharacter, State, Tokenizer};
 use crate::StrictParseError;
 
 /// Build-time generated named-entity table.
@@ -57,20 +57,27 @@ impl Tokenizer {
         // MAX_ENTITY_NAME_LEN - 1.
         let max_total = entities::MAX_ENTITY_NAME_LEN.min(1 + remaining);
 
+        // Build the longest candidate (`&` + the next `max_total - 1`
+        // input chars) once, then shrink by one char per probe with
+        // `pop()` — O(max_total) total work, not a fresh string per length.
+        let mut cand = String::with_capacity(max_total);
+        cand.push('&');
+        for j in 0..max_total.saturating_sub(1) {
+            cand.push(self.input_at(start + j));
+        }
+
         let mut matched: Option<(usize, &'static str, bool)> = None;
+        // `total` is the candidate length in chars incl. the leading `&`
+        // (entity keys are ASCII; a non-ASCII input char never matches and
+        // is popped off). `pop()` drops exactly one char.
         let mut total = max_total;
         while total >= 2 {
-            let k = total - 1; // chars consumed after '&'
-            let mut cand = String::with_capacity(total);
-            cand.push('&');
-            for j in 0..k {
-                cand.push(self.input_at(start + j));
-            }
             if let Some(&value) = entities::NAMED_ENTITIES.get(cand.as_str()) {
                 let ends_semicolon = cand.ends_with(';');
-                matched = Some((k, value, ends_semicolon));
+                matched = Some((total - 1, value, ends_semicolon));
                 break;
             }
+            cand.pop();
             total -= 1;
         }
 
@@ -224,12 +231,6 @@ impl Tokenizer {
         self.switch_to_return_state();
         Ok(())
     }
-}
-
-/// WHATWG noncharacter test (§13.2.5.80): the U+FDD0–U+FDEF block and the
-/// last two code points of every plane.
-fn is_noncharacter(code: u32) -> bool {
-    (0xFDD0..=0xFDEF).contains(&code) || (code & 0xFFFE) == 0xFFFE
 }
 
 /// A code point that triggers the §13.2.5.80 control-character-reference

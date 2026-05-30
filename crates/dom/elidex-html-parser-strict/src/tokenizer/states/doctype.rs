@@ -24,7 +24,7 @@ impl Tokenizer {
             Some(c) if is_whitespace(c) => {}
             Some(c) if c.is_ascii_uppercase() => {
                 self.new_doctype();
-                self.doctype.name = Some(c.to_ascii_lowercase().to_string());
+                self.push_doctype_name(c.to_ascii_lowercase());
                 self.switch_to(State::DoctypeName);
             }
             Some('\u{0000}') => return Err(self.parse_error("unexpected-null-character")),
@@ -32,7 +32,7 @@ impl Tokenizer {
             None => return Err(self.parse_error("eof-in-doctype")),
             Some(c) => {
                 self.new_doctype();
-                self.doctype.name = Some(c.to_string());
+                self.push_doctype_name(c);
                 self.switch_to(State::DoctypeName);
             }
         }
