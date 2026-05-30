@@ -1204,3 +1204,42 @@ fn immutable_global_setter_skips_coerce_side_effects() {
          observed === false"
     ));
 }
+
+// ---------------------------------------------------------------------------
+// `[Constructor]` gate regression — WASM JS API §5 ctors (Global /
+// Instance / Memory / Table) all fire the canonical
+// `CallShape::ConstructorOnly` TypeError at the dispatch site when
+// invoked without `new` (WebIDL §3.7.1 step 1.2).  Plan-memo
+// `m4-12-pr-vm-native-constructor-only-flag-plan.md` §5 sites #59-63
+// minus #62 (Module is already covered by `module_ctor_requires_new`
+// above — Stage 2 pilot regression).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn global_ctor_requires_new() {
+    super::assert_ctor_requires_new(
+        "WebAssembly.Global({value:'i32', mutable:false}, 0)",
+        "Global",
+    );
+}
+
+#[test]
+fn instance_ctor_requires_new() {
+    // Gate fires at dispatch before arg coercion, so the missing
+    // required `WebAssembly.Module` argument never reaches its
+    // brand check.
+    super::assert_ctor_requires_new("WebAssembly.Instance()", "Instance");
+}
+
+#[test]
+fn memory_ctor_requires_new() {
+    super::assert_ctor_requires_new("WebAssembly.Memory({initial: 1})", "Memory");
+}
+
+#[test]
+fn table_ctor_requires_new() {
+    super::assert_ctor_requires_new(
+        "WebAssembly.Table({element: 'anyfunc', initial: 0})",
+        "Table",
+    );
+}

@@ -159,3 +159,36 @@ pub(crate) fn assert_throws_preserves_bool(
         expected,
     );
 }
+
+/// Assert that the bare-call expression `expr` throws the canonical
+/// `CallShape::ConstructorOnly` TypeError emitted at
+/// `vm/interpreter.rs::call_dispatch` (WebIDL §3.7.1 step 1.2 +
+/// ECMA-262 §27.2.3.1 step 1).
+///
+/// `interface` is the WebIDL Interface name (or core-VM ctor name —
+/// e.g. `"Promise"`) that appears between the single quotes in the
+/// canonical message form
+/// `"Failed to construct '{interface}': Please use the 'new' operator"`.
+///
+/// Spawns a fresh `Vm` per invocation (mirrors the [`eval_string`]
+/// shape) and wraps `expr` in a `try {{ <expr>; 'no throw' }} catch (e)
+/// {{ e.message }}` so the assertion can equality-compare the message
+/// string directly rather than walking a `Result<_, VmError>`.
+///
+/// Used by per-ctor regression tests in
+/// `tests_<feature>.rs::<feature>_ctor_requires_new` — one per the 66
+/// ctor sites covered by plan-memo
+/// `m4-12-pr-vm-native-constructor-only-flag-plan.md` §5.
+pub(crate) fn assert_ctor_requires_new(expr: &str, interface: &str) {
+    let mut vm = Vm::new();
+    let src = format!("try {{ {expr}; 'no throw' }} catch (e) {{ e.message }}");
+    let msg = match vm.eval(&src).unwrap() {
+        JsValue::String(id) => vm.get_string(id),
+        other => panic!("expected string error message, got {other:?} (expr: {expr})"),
+    };
+    assert_eq!(
+        msg,
+        format!("Failed to construct '{interface}': Please use the 'new' operator"),
+        "ctor `{expr}` should throw canonical TypeError",
+    );
+}

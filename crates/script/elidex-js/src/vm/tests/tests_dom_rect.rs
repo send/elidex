@@ -285,3 +285,13 @@ fn dom_rect_instance_has_no_own_keys() {
         0.0
     );
 }
+
+#[test]
+fn dom_rect_read_only_ctor_requires_new() {
+    super::assert_ctor_requires_new("DOMRectReadOnly()", "DOMRectReadOnly");
+}
+
+#[test]
+fn dom_rect_ctor_requires_new() {
+    super::assert_ctor_requires_new("DOMRect()", "DOMRect");
+}

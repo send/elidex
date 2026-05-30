@@ -334,9 +334,7 @@ fn brand_check_throws_on_alien_receiver() {
 
 #[test]
 fn ctor_requires_new() {
-    let mut vm = Vm::new();
-    let result = vm.eval("URLSearchParams('a=1');");
-    assert!(result.is_err());
+    super::assert_ctor_requires_new("URLSearchParams('a=1')", "URLSearchParams");
 }
 
 #[test]

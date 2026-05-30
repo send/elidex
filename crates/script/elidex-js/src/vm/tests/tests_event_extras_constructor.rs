@@ -735,3 +735,50 @@ fn close_event_code_getter_throw_propagates() {
         other => panic!("expected string, got {other:?}"),
     }
 }
+
+// ---------------------------------------------------------------------------
+// `[Constructor]` gate regression — each of the 7 extras ctors fires the
+// canonical `CallShape::ConstructorOnly` TypeError at the dispatch site
+// when invoked without `new` (WebIDL §3.7.1 step 1.2).  Plan-memo
+// `m4-12-pr-vm-native-constructor-only-flag-plan.md` §5 sites #11-17.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn promise_rejection_event_ctor_requires_new() {
+    // Gate fires at dispatch before arg coercion, so the missing
+    // required `{promise}` member doesn't reach its validation.
+    super::assert_ctor_requires_new(
+        "PromiseRejectionEvent('rejectionhandled')",
+        "PromiseRejectionEvent",
+    );
+}
+
+#[test]
+fn error_event_ctor_requires_new() {
+    super::assert_ctor_requires_new("ErrorEvent('error')", "ErrorEvent");
+}
+
+#[test]
+fn hash_change_event_ctor_requires_new() {
+    super::assert_ctor_requires_new("HashChangeEvent('hashchange')", "HashChangeEvent");
+}
+
+#[test]
+fn pop_state_event_ctor_requires_new() {
+    super::assert_ctor_requires_new("PopStateEvent('popstate')", "PopStateEvent");
+}
+
+#[test]
+fn animation_event_ctor_requires_new() {
+    super::assert_ctor_requires_new("AnimationEvent('animationstart')", "AnimationEvent");
+}
+
+#[test]
+fn transition_event_ctor_requires_new() {
+    super::assert_ctor_requires_new("TransitionEvent('transitionend')", "TransitionEvent");
+}
+
+#[test]
+fn close_event_ctor_requires_new() {
+    super::assert_ctor_requires_new("CloseEvent('close')", "CloseEvent");
+}

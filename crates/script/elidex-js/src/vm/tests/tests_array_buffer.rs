@@ -165,11 +165,5 @@ fn slice_end_before_begin_yields_empty_buffer() {
 
 #[test]
 fn ctor_requires_new_operator() {
-    let mut vm = Vm::new();
-    assert!(eval_bool(
-        &mut vm,
-        "var threw = false; \
-         try { ArrayBuffer(4); } \
-         catch (e) { threw = e instanceof TypeError; } threw;"
-    ));
+    super::assert_ctor_requires_new("ArrayBuffer(4)", "ArrayBuffer");
 }

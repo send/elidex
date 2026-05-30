@@ -604,3 +604,20 @@ fn request_ctor_clone_post_with_method_get_and_null_body_ok() {
         "GET"
     );
 }
+
+// ---------------------------------------------------------------------------
+// `[Constructor]` gate regression — `Request` / `Response` fire the
+// canonical `CallShape::ConstructorOnly` TypeError at the dispatch site
+// when invoked without `new` (WebIDL §3.7.1 step 1.2).  Plan-memo
+// `m4-12-pr-vm-native-constructor-only-flag-plan.md` §5 sites #49-50.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn request_ctor_requires_new() {
+    super::assert_ctor_requires_new("Request('https://example.com')", "Request");
+}
+
+#[test]
+fn response_ctor_requires_new() {
+    super::assert_ctor_requires_new("Response()", "Response");
+}

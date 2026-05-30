@@ -918,3 +918,12 @@ fn resolver_second_resolve_is_noop() {
         1.0
     );
 }
+
+#[test]
+fn promise_ctor_requires_new() {
+    // ECMA-262 §27.2.3.1 step 1 — Promise ctor mandate is structurally
+    // identical to WebIDL §3.7.1 step 1.2, unified under
+    // `CallShape::ConstructorOnly`.  Plan-memo
+    // `m4-12-pr-vm-native-constructor-only-flag-plan.md` §5 site #66.
+    super::assert_ctor_requires_new("Promise(function(){})", "Promise");
+}

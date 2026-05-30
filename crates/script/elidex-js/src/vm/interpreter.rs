@@ -322,7 +322,7 @@ impl VmInner {
                     if matches!(nf.shape, super::value::CallShape::ConstructorOnly)
                         && !mode.is_construct()
                     {
-                        let name = self.strings.get_utf8(nf.name).to_string();
+                        let name = self.strings.get_utf8(nf.name);
                         return Err(VmError::type_error(format!(
                             "Failed to construct '{name}': Please use the 'new' operator"
                         )));

@@ -555,3 +555,35 @@ fn ui_event_family_shares_event_prototype_reach() {
         assert!(eval_bool(&src), "{ctor}.preventDefault not reachable");
     }
 }
+
+// ---------------------------------------------------------------------------
+// `[Constructor]` gate regression — each of the 5 UI-event ctors fires
+// the canonical `CallShape::ConstructorOnly` TypeError at the dispatch
+// site when invoked without `new` (WebIDL §3.7.1 step 1.2).  Plan-memo
+// `m4-12-pr-vm-native-constructor-only-flag-plan.md` §5 sites #32-36.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ui_event_ctor_requires_new() {
+    super::assert_ctor_requires_new("UIEvent('uievent')", "UIEvent");
+}
+
+#[test]
+fn mouse_event_ctor_requires_new() {
+    super::assert_ctor_requires_new("MouseEvent('click')", "MouseEvent");
+}
+
+#[test]
+fn keyboard_event_ctor_requires_new() {
+    super::assert_ctor_requires_new("KeyboardEvent('keydown')", "KeyboardEvent");
+}
+
+#[test]
+fn focus_event_ctor_requires_new() {
+    super::assert_ctor_requires_new("FocusEvent('focus')", "FocusEvent");
+}
+
+#[test]
+fn input_event_ctor_requires_new() {
+    super::assert_ctor_requires_new("InputEvent('input')", "InputEvent");
+}

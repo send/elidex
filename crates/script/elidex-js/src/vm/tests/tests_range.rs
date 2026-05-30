@@ -46,11 +46,12 @@ fn new_range_collapsed_at_document() {
 
 #[test]
 fn range_constructor_requires_new() {
-    let (mut vm, mut session, mut dom, doc) = setup();
-    unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
-    let res = vm.eval("Range();");
-    assert!(res.is_err(), "calling Range without new must throw");
-    vm.unbind();
+    super::assert_ctor_requires_new("Range()", "Range");
+}
+
+#[test]
+fn static_range_ctor_requires_new() {
+    super::assert_ctor_requires_new("StaticRange({})", "StaticRange");
 }
 
 #[test]

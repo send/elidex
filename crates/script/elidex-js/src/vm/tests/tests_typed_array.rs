@@ -691,3 +691,19 @@ fn uint16_view_over_uint8_buffer_reads_little_endian() {
         1.0
     );
 }
+
+// ---------------------------------------------------------------------------
+// `[Constructor]` gate regression — every TypedArray subclass ctor is
+// installed via `create_constructor_only_function` (ECMA-262 §23.2.6),
+// so bare-call on each fires the canonical
+// `CallShape::ConstructorOnly` TypeError at the dispatch site.  Plan-
+// memo `m4-12-pr-vm-native-constructor-only-flag-plan.md` §5 site
+// #56 — `Uint8Array` stands as the witness; the abstract `%TypedArray%`
+// is `Ordinary` (call-and-construct both throw inside per §23.2.1.1)
+// so isn't a `ConstructorOnly` site.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn typed_array_ctor_requires_new() {
+    super::assert_ctor_requires_new("Uint8Array(8)", "Uint8Array");
+}

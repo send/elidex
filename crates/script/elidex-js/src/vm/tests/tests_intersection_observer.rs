@@ -566,3 +566,8 @@ fn intersection_observer_callback_survives_gc_via_root_chain() {
 
     vm.unbind();
 }
+
+#[test]
+fn intersection_observer_ctor_requires_new() {
+    super::assert_ctor_requires_new("IntersectionObserver(function(){})", "IntersectionObserver");
+}

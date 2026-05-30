@@ -216,16 +216,7 @@ fn ctor_rejects_mixed_content() {
 
 #[test]
 fn ctor_requires_new_operator() {
-    with_ws_vm(false, |vm| {
-        let err = vm
-            .eval("WebSocket('ws://example.com/socket');")
-            .unwrap_err();
-        let msg = format!("{err:?}");
-        assert!(
-            msg.contains("new") || msg.contains("Type"),
-            "expected TypeError for bare call, got: {msg}"
-        );
-    });
+    super::assert_ctor_requires_new("WebSocket('ws://example.com/socket')", "WebSocket");
 }
 
 // ---------------------------------------------------------------------------

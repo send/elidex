@@ -126,13 +126,7 @@ fn blob_array_buffer_round_trip() {
 
 #[test]
 fn blob_ctor_requires_new_operator() {
-    let mut vm = Vm::new();
-    assert!(eval_bool(
-        &mut vm,
-        "var threw = false; \
-         try { Blob(['x']); } \
-         catch (e) { threw = e instanceof TypeError; } threw;"
-    ));
+    super::assert_ctor_requires_new("Blob(['x'])", "Blob");
 }
 
 #[test]

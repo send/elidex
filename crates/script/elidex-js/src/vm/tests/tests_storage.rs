@@ -619,3 +619,8 @@ fn storage_opaque_origin_per_vm_isolation() {
     assert_eq!(s, "null", "opaque-origin VMs must not share localStorage");
     reader_vm.unbind();
 }
+
+#[test]
+fn storage_event_ctor_requires_new() {
+    super::assert_ctor_requires_new("StorageEvent('storage')", "StorageEvent");
+}

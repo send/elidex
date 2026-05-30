@@ -1422,3 +1422,20 @@ fn file_proto_name_rejects_plain_blob() {
         "expected non-File error, got: {msg}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// `[Constructor]` gate regression — `File` / `FileReader` fire the
+// canonical `CallShape::ConstructorOnly` TypeError at the dispatch site
+// when invoked without `new` (WebIDL §3.7.1 step 1.2).  Plan-memo
+// `m4-12-pr-vm-native-constructor-only-flag-plan.md` §5 sites #37-38.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn file_ctor_requires_new() {
+    super::assert_ctor_requires_new("File([], 'a.txt')", "File");
+}
+
+#[test]
+fn file_reader_ctor_requires_new() {
+    super::assert_ctor_requires_new("FileReader()", "FileReader");
+}

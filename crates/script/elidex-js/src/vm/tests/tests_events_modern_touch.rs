@@ -386,3 +386,20 @@ fn touch_post_unbind_reads_inert_defaults() {
     let out = vm.inner.strings.get_utf8(sid);
     assert_eq!(out, "0|true|0|0|0");
 }
+
+// ---------------------------------------------------------------------------
+// `[Constructor]` gate regression — Touch / TouchEvent fire the canonical
+// `CallShape::ConstructorOnly` TypeError at the dispatch site when
+// invoked without `new` (WebIDL §3.7.1 step 1.2).  Plan-memo
+// `m4-12-pr-vm-native-constructor-only-flag-plan.md` §5 sites #30-31.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn touch_ctor_requires_new() {
+    super::assert_ctor_requires_new("Touch({})", "Touch");
+}
+
+#[test]
+fn touch_event_ctor_requires_new() {
+    super::assert_ctor_requires_new("TouchEvent('touchstart')", "TouchEvent");
+}

@@ -866,3 +866,26 @@ fn data_transfer_post_unbind_set_drag_image_tolerates_missing_host() {
     let out = vm.inner.strings.get_utf8(sid);
     assert_eq!(out, "ok");
 }
+
+// ---------------------------------------------------------------------------
+// `[Constructor]` gate regression — DataTransfer / DragEvent / PointerEvent
+// fire the canonical `CallShape::ConstructorOnly` TypeError at the
+// dispatch site when invoked without `new` (WebIDL §3.7.1 step 1.2).
+// Plan-memo `m4-12-pr-vm-native-constructor-only-flag-plan.md` §5 sites
+// #27-29.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn data_transfer_ctor_requires_new() {
+    super::assert_ctor_requires_new("DataTransfer()", "DataTransfer");
+}
+
+#[test]
+fn drag_event_ctor_requires_new() {
+    super::assert_ctor_requires_new("DragEvent('dragstart')", "DragEvent");
+}
+
+#[test]
+fn pointer_event_ctor_requires_new() {
+    super::assert_ctor_requires_new("PointerEvent('pointerdown')", "PointerEvent");
+}

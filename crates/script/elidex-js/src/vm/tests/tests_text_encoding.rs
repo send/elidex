@@ -478,3 +478,20 @@ fn structured_clone_text_decoder_throws_data_clone_error() {
          catch (e) { r = e.name === 'DataCloneError'; } r;"
     ));
 }
+
+// ---------------------------------------------------------------------------
+// `[Constructor]` gate regression — `TextEncoder` / `TextDecoder` fire
+// the canonical `CallShape::ConstructorOnly` TypeError at the dispatch
+// site when invoked without `new` (WebIDL §3.7.1 step 1.2).  Plan-memo
+// `m4-12-pr-vm-native-constructor-only-flag-plan.md` §5 sites #54-55.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn text_encoder_ctor_requires_new() {
+    super::assert_ctor_requires_new("TextEncoder()", "TextEncoder");
+}
+
+#[test]
+fn text_decoder_ctor_requires_new() {
+    super::assert_ctor_requires_new("TextDecoder()", "TextDecoder");
+}

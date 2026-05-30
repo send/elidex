@@ -586,3 +586,8 @@ fn create_image_data_is_transparent_black() {
         ));
     });
 }
+
+#[test]
+fn image_data_ctor_requires_new() {
+    super::assert_ctor_requires_new("ImageData(1, 1)", "ImageData");
+}

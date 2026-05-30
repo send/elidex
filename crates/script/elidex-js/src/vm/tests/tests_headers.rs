@@ -446,3 +446,8 @@ fn ctor_iterable_abrupt_completion_calls_return() {
          threw && globalThis.returnCalled;"
     ));
 }
+
+#[test]
+fn headers_ctor_requires_new() {
+    super::assert_ctor_requires_new("Headers()", "Headers");
+}
