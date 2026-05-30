@@ -308,15 +308,26 @@ impl VmInner {
                     );
                 }
                 ObjectKind::NativeFunction(nf) => {
-                    // Dispatch-side `CallShape` gate — the single `[[Call]]`
-                    // chokepoint for every native function, replacing the
-                    // historic per-body `if !ctx.is_construct() { ... }` /
+                    // Dispatch-side `CallShape` gate — the chokepoint for
+                    // every native function, replacing the historic per-body
+                    // `if !ctx.is_construct() { ... }` /
                     // `Err(type_error("Illegal constructor"))` entry guards.
-                    // (`[[Construct]]` of a native is gated earlier in
-                    // `do_new` via `CallShape::can_construct()`, so the
-                    // `IllegalConstructor` arm below only has to cover the
-                    // bare-call path here; `ConstructorOnly` likewise only
-                    // needs the bare-call rejection.)
+                    // `call_dispatch` is entered in BOTH `[[Call]]` and
+                    // `[[Construct]]` mode for natives (the construct path
+                    // routes here via `do_new` → `call_construct_native` and
+                    // `dispatch_class.rs::construct_synchronous`), so the arms
+                    // below must stay mode-correct:
+                    //   * `ConstructorOnly` IS constructable, so it guards on
+                    //     `!mode.is_construct()` — only the bare-call is rejected;
+                    //     `new` falls through to run the ctor body.
+                    //   * `IllegalConstructor` has no `[[Construct]]` at all, so
+                    //     it throws UNCONDITIONALLY in both modes. (A direct
+                    //     `new X()` is in practice rejected upstream by
+                    //     `do_new`'s `can_construct()` gate, and `super()` by
+                    //     `construct_synchronous`'s `can_construct()` check,
+                    //     before reaching here — but the unconditional throw
+                    //     deliberately also guards any construct-mode entry, so
+                    //     do NOT add a `!mode.is_construct()` guard to it.)
                     match nf.shape {
                         // WebIDL §3.7.1 (Interface object) creation algorithm
                         // step 1.2 + ECMA-262 §27.2.3.1 step 1: `new`-only ctor
@@ -331,11 +342,11 @@ impl VmInner {
                         }
                         // WebIDL §3.7.1 (Interface object) creation algorithm
                         // step 1.1: an interface object declaring no constructor
-                        // operation throws "when called, both as a function and as a
-                        // constructor". This arm covers the bare-call path
-                        // (the `[[Construct]]` path is rejected in `do_new`);
-                        // the message SoT lives in `VmError::illegal_constructor`
-                        // so both chokepoints stay in sync.
+                        // operation throws "when called, both as a function and
+                        // as a constructor" — hence this arm is UNCONDITIONAL
+                        // (no mode guard; see the block comment above). The
+                        // message SoT lives in `VmError::illegal_constructor` so
+                        // both chokepoints (`do_new` + here) stay in sync.
                         super::value::CallShape::IllegalConstructor => {
                             let name = self.strings.get_utf8(nf.name);
                             return Err(VmError::illegal_constructor(&name));
