@@ -315,9 +315,16 @@ impl Tokenizer {
     }
 
     /// Pull the next token, running the state machine until one is
-    /// produced. Returns [`Token::EndOfFile`] indefinitely once the input
-    /// is exhausted. Aborts with [`StrictParseError`] on the first parse
-    /// error.
+    /// produced.
+    ///
+    /// Aborts with [`StrictParseError`] on the first parse error — and in
+    /// strict mode reaching EOF in most states (inside a tag, comment,
+    /// DOCTYPE, character reference, etc.) *is* a parse error, so it
+    /// returns `Err` rather than [`Token::EndOfFile`]. EOF is emitted as
+    /// [`Token::EndOfFile`] only when it is reached in a non-error context
+    /// (e.g. the Data state); once that has happened the tokenizer is
+    /// terminal and every subsequent call returns [`Token::EndOfFile`]
+    /// again.
     pub(crate) fn next_token(&mut self) -> Result<Token, StrictParseError> {
         loop {
             if let Some(t) = self.output.pop_front() {
