@@ -512,7 +512,7 @@ fn read_typed_array_bytes(vm: &VmInner, id: ObjectId) -> Option<Vec<u8>> {
     Some(array_buffer::array_buffer_view_bytes(
         vm,
         buffer_id,
-        byte_offset,
-        byte_length,
+        byte_offset as usize,
+        byte_length as usize,
     ))
 }

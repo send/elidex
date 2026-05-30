@@ -96,9 +96,24 @@ description = "Hard-cap target/ size to bound incremental cache growth (cargo-sw
 # by manual `rm -rf target/debug/incremental` if it hits ~100GB).
 run = "bash scripts/ci-sweep.sh"
 
+[tasks.trip-wires]
+description = "Run layering trip-wires (engine-bridge + VM-side wasm boundaries)."
+# Two scripts share the same engine-bridge boundary discipline but cover
+# disjoint surfaces:
+#   - wasm-runtime-trip-wire.sh: elidex-wasm-runtime tier A-E discipline
+#     + elidex-js-boa wasmtime-free post-F1
+#   - wasm-vm-trip-wire.sh: elidex-js (VM) host/wasm + wasm_payload + crate
+#     wasmtime-free post-D-16
+# A single `trip-wires` task collapses the decision surface so neither
+# wire can be skipped on a busy PR.
+run = """
+bash .claude/tools/wasm-runtime-trip-wire.sh
+bash .claude/tools/wasm-vm-trip-wire.sh
+"""
+
 [tasks.ci]
 description = "Run all CI checks locally"
-depends = ["check", "lint", "test-all", "doc", "deny", "ci-sweep"]
+depends = ["check", "lint", "test-all", "doc", "deny", "trip-wires", "ci-sweep"]
 
 [tasks.bench]
 description = "Run all benchmarks"

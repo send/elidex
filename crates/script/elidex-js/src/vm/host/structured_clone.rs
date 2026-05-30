@@ -352,6 +352,26 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         // duplicating registered constructor `ObjectId`s + the
         // reaction queue across realms, which the spec doesn't model.
         ObjectKind::CustomElementRegistry => CloneKind::Unclonable("CustomElementRegistry"),
+        // D-16 `#11-wasm-vm` — WebAssembly `Module` / `Instance` /
+        // `Memory` / `Table` / `Global` / exported function are
+        // unclonable per WASM JS API §5: each wrapper carries an
+        // engine-bridge `Wasm{Module,Instance,Memory,Table,Global,Func}`
+        // handle whose `WasmStoreHandle` clone (F1 D-ii) belongs to the
+        // owning agent's store (§4.1).  No `[Transferable]` IDL extended
+        // attribute on any of them.  Chrome / Firefox throw
+        // `DataCloneError` on `structuredClone(memory)` etc.; matches
+        // here (the helper turns `Unclonable` into `DataCloneError`
+        // upstream).
+        ObjectKind::WasmModule => CloneKind::Unclonable("WebAssembly.Module"),
+        ObjectKind::WasmInstance => CloneKind::Unclonable("WebAssembly.Instance"),
+        ObjectKind::WasmMemory => CloneKind::Unclonable("WebAssembly.Memory"),
+        ObjectKind::WasmTable => CloneKind::Unclonable("WebAssembly.Table"),
+        ObjectKind::WasmGlobal => CloneKind::Unclonable("WebAssembly.Global"),
+        // No `WebAssembly.Function` IDL type exists (wasm exported
+        // functions are plain `Function` objects with `[[Call]]`);
+        // match the sibling function-like arms above for the
+        // DataCloneError message.
+        ObjectKind::WasmExportedFunction => CloneKind::Unclonable("Function"),
     }
 }
 
@@ -647,7 +667,16 @@ fn clone_array_buffer(
     // source, satisfying HTML §2.7.3 step 13.2.4 (the clone owns
     // its bytes; a later mutation through the source ArrayBuffer
     // must not propagate to the clone).
-    let new_bytes: Vec<u8> = vm.body_data.get(&src).cloned().unwrap_or_default();
+    //
+    // **DR-11 routing extension** (D-16 `#11-wasm-vm` plan §5
+    // Stage 4.1): wasm-backed source ArrayBuffers — surfacing here
+    // via `structuredClone(memory.buffer)` per HTML §2.7 "Safe
+    // Passing of Structured Data" — must clone the actual current
+    // wasm bytes rather than the (empty) `body_data` entry.  The
+    // cloned ArrayBuffer is plain (non-wasm-backed) holding the
+    // snapshot in standard `body_data`; no recursive routing
+    // concern.
+    let new_bytes: Vec<u8> = super::array_buffer::array_buffer_bytes(vm, src);
     let new_id = super::array_buffer::create_array_buffer_from_bytes(vm, new_bytes);
     memo.insert(src, new_id);
     Ok(new_id)

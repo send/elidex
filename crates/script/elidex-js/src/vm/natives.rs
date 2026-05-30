@@ -544,6 +544,53 @@ pub(super) fn native_uri_error_constructor(
     error_entry(ctx, this, args, "URIError")
 }
 
+/// `WebAssembly.CompileError(message)` ctor — slot `#11-wasm-vm` / D-16,
+/// WASM JS API §5.10.  Error subclass; allocates a fresh instance with
+/// [`super::VmInner::wasm_compile_error_prototype`] (chained to
+/// `Error.prototype`) and runs the shared `error_ctor_impl` to set
+/// `.name = "CompileError"` + optional `.message`.
+#[cfg(feature = "engine")]
+pub(super) fn native_wasm_compile_error_constructor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let receiver =
+        ctx.vm
+            .ensure_instance_or_alloc(this, ctx.vm.wasm_compile_error_prototype, ctx.mode);
+    error_ctor_impl(ctx, receiver, args, "CompileError")
+}
+
+/// `WebAssembly.LinkError(message)` ctor — slot `#11-wasm-vm` / D-16,
+/// WASM JS API §5.10.  Mirror of [`native_wasm_compile_error_constructor`]
+/// over [`super::VmInner::wasm_link_error_prototype`].
+#[cfg(feature = "engine")]
+pub(super) fn native_wasm_link_error_constructor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let receiver =
+        ctx.vm
+            .ensure_instance_or_alloc(this, ctx.vm.wasm_link_error_prototype, ctx.mode);
+    error_ctor_impl(ctx, receiver, args, "LinkError")
+}
+
+/// `WebAssembly.RuntimeError(message)` ctor — slot `#11-wasm-vm` / D-16,
+/// WASM JS API §5.10.  Mirror over
+/// [`super::VmInner::wasm_runtime_error_prototype`].
+#[cfg(feature = "engine")]
+pub(super) fn native_wasm_runtime_error_constructor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let receiver =
+        ctx.vm
+            .ensure_instance_or_alloc(this, ctx.vm.wasm_runtime_error_prototype, ctx.mode);
+    error_ctor_impl(ctx, receiver, args, "RuntimeError")
+}
+
 /// `AggregateError(errors, message)` — §20.5.7.1.
 ///
 /// Differs from the other error constructors by taking `errors` (an

@@ -422,7 +422,7 @@ fn native_text_encoder_encode_into(
         read += ch.len_utf16();
     }
     if written > 0 {
-        super::byte_io::write_at(&mut ctx.vm.body_data, buffer_id, dest_offset, &scratch);
+        super::byte_io::write_at_with_routing(ctx.vm, buffer_id, dest_offset, &scratch);
     }
 
     // Build the `{read, written}` result object.  Data properties
@@ -764,8 +764,8 @@ pub(super) fn extract_buffer_source_bytes(
                 Ok(super::array_buffer::array_buffer_view_bytes(
                     ctx.vm,
                     buffer_id,
-                    byte_offset,
-                    byte_length,
+                    byte_offset as usize,
+                    byte_length as usize,
                 ))
             }
             _ => Err(VmError::type_error(format!(

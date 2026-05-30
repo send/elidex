@@ -1153,6 +1153,14 @@ impl VmInner {
             ws_states_ref,
             #[cfg(feature = "engine")]
             sse_states_ref,
+            #[cfg(feature = "engine")]
+            &self.wasm_instance_storage,
+            #[cfg(feature = "engine")]
+            &self.wasm_memory_storage,
+            #[cfg(feature = "engine")]
+            &self.wasm_exported_func_storage,
+            #[cfg(feature = "engine")]
+            &self.wasm_backed_buffers,
             &mut self.gc_object_marks,
             &mut self.gc_upvalue_marks,
             &mut self.gc_work_list,
@@ -1268,6 +1276,35 @@ impl VmInner {
             // inherit a stale detach flag (which would surface
             // spec-divergent TypeError on a freshly-allocated buffer).
             self.detached_buffers.retain(|id| bit_get(marks, id.0));
+            // D-16 `#11-wasm-vm` — sweep tail for the 6 WebAssembly
+            // side-store maps + the `wasm_backed_buffers` reverse-lookup.
+            // Standard prune-by-key-mark contract: ObjectId-keyed side
+            // tables drop entries whose key wrapper was collected so a
+            // recycled `ObjectId` slot can't inherit stale state
+            // (`buffer_id` / `exports_id` / `module_id` / `instance_id`
+            // / `params` / `element_kind` / engine-bridge handles).
+            // Trace-step fan-out marks `module_id` + `exports_id` +
+            // `buffer_id` + `instance_id` while the parent wrapper is
+            // reachable, so surviving entries have all references kept
+            // alive.  `wasm_backed_buffers` is keyed by the ArrayBuffer
+            // wrapper ObjectId; drop entries whose ArrayBuffer was
+            // collected (the matching `WasmMemoryPayload.buffer_id` /
+            // `view` are cleared at detach time elsewhere — sweep here
+            // only handles GC-induced collection of the ArrayBuffer
+            // wrapper).
+            self.wasm_module_storage
+                .retain(|id, _| bit_get(marks, id.0));
+            self.wasm_instance_storage
+                .retain(|id, _| bit_get(marks, id.0));
+            self.wasm_memory_storage
+                .retain(|id, _| bit_get(marks, id.0));
+            self.wasm_table_storage.retain(|id, _| bit_get(marks, id.0));
+            self.wasm_global_storage
+                .retain(|id, _| bit_get(marks, id.0));
+            self.wasm_exported_func_storage
+                .retain(|id, _| bit_get(marks, id.0));
+            self.wasm_backed_buffers
+                .retain(|ab_id, _| bit_get(marks, ab_id.0));
             // `readable_stream_states` / `readable_stream_reader_states`
             // — payload references (queue chunks, source callbacks,
             // controller / reader back-refs, pending read promises,

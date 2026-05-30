@@ -61,6 +61,8 @@ mod shape_ops;
 mod temp_root;
 pub mod value;
 mod vm_api;
+#[cfg(feature = "engine")]
+pub(crate) mod wasm_payload;
 pub(crate) mod webidl_sequence;
 mod well_known;
 #[cfg(feature = "engine")]
@@ -1522,6 +1524,157 @@ pub(crate) struct VmInner {
     /// slice / view ops).
     #[cfg(feature = "engine")]
     pub(crate) detached_buffers: HashSet<ObjectId>,
+    /// `WebAssembly.Module` side-store (WASM JS API §5.1, slot
+    /// `#11-wasm-vm` / D-16).  Keyed by the JS-visible Module
+    /// wrapper's `ObjectId`; the payload holds the engine-indep
+    /// `WasmModule` handle (source bytes owned internally for
+    /// `customSections(name)` lookup).
+    ///
+    /// GC contract: payload-free trace (no `ObjectId` references);
+    /// sweep tail prunes entries whose key was collected.  Cleared
+    /// on `Vm::unbind` (per-VM identity handle per CLAUDE.md
+    /// side-store→component rule "per-VM identity handle (一時的例外)").
+    #[cfg(feature = "engine")]
+    pub(crate) wasm_module_storage: HashMap<ObjectId, crate::vm::wasm_payload::WasmModulePayload>,
+    /// `WebAssembly.Instance` side-store (WASM JS API §5.2).  Keyed by
+    /// the JS-visible Instance wrapper's `ObjectId`.  Payload carries
+    /// the engine-indep `WasmInstance` + parent `module_id` (GC trace
+    /// keeps the Module alive) + cached `exports_id` (None until first
+    /// `.exports` access; the lazily-allocated frozen exports namespace
+    /// per WASM JS API §5 `initialize an instance object` step 3).
+    ///
+    /// GC contract: trace marks `module_id` (always set) + `exports_id`
+    /// if `Some`; sweep tail prunes entries whose key was collected.
+    /// Cleared on `Vm::unbind`.
+    #[cfg(feature = "engine")]
+    pub(crate) wasm_instance_storage:
+        HashMap<ObjectId, crate::vm::wasm_payload::WasmInstancePayload>,
+    /// `WebAssembly.Memory` side-store (WASM JS API §5.3).  Keyed by
+    /// the JS-visible Memory wrapper's `ObjectId`.  Payload carries
+    /// the engine-indep `WasmMemory` + cached `buffer_id` ArrayBuffer
+    /// + live `WasmMemoryView` per plan-memo DR-11 (live-view path).
+    ///
+    /// GC contract: trace marks `buffer_id` if `Some` (the cached
+    /// ArrayBuffer aliasing wasm linear memory must survive while
+    /// the Memory is reachable); `view` is engine-bridge-only (no
+    /// `ObjectId` reference).  Sweep tail prunes entries whose key
+    /// was collected.  Cleared on `Vm::unbind`.
+    #[cfg(feature = "engine")]
+    pub(crate) wasm_memory_storage: HashMap<ObjectId, crate::vm::wasm_payload::WasmMemoryPayload>,
+    /// `WebAssembly.Table` side-store (WASM JS API §5.4).  Keyed by
+    /// the JS-visible Table wrapper's `ObjectId`.  Payload carries
+    /// the engine-indep `WasmTable` + cached `element_kind` (read
+    /// once via F2 `WasmTable::element_kind()` at ctor / exports-wrap
+    /// time, immutable post-build).
+    ///
+    /// GC contract: payload-free trace; sweep tail prunes entries
+    /// whose key was collected.  Cleared on `Vm::unbind`.
+    #[cfg(feature = "engine")]
+    pub(crate) wasm_table_storage: HashMap<ObjectId, crate::vm::wasm_payload::WasmTablePayload>,
+    /// `WebAssembly.Global` side-store (WASM JS API §5.5).  Keyed by
+    /// the JS-visible Global wrapper's `ObjectId`.  Payload carries
+    /// the engine-indep `WasmGlobal` handle only; `value_type` /
+    /// `mutable` read on demand via handle accessors.
+    ///
+    /// GC contract: payload-free trace; sweep tail prunes entries
+    /// whose key was collected.  Cleared on `Vm::unbind`.
+    #[cfg(feature = "engine")]
+    pub(crate) wasm_global_storage: HashMap<ObjectId, crate::vm::wasm_payload::WasmGlobalPayload>,
+    /// Exported wasm function side-store (WASM JS API §5.6).  Keyed by
+    /// the JS-visible exported-function wrapper's `ObjectId`.  Payload
+    /// carries the engine-indep `WasmFunc` + cached `Vec<WasmValueType>`
+    /// params (avoids per-call `func_type()` walk per F1 F8 lesson) +
+    /// parent `instance_id` (GC trace keeps Instance alive).
+    ///
+    /// GC contract: trace marks `instance_id` so the parent Instance
+    /// (and through it the module + linker state that keeps the
+    /// function callable) survives.  Sweep tail prunes entries whose
+    /// key was collected.  Cleared on `Vm::unbind`.
+    #[cfg(feature = "engine")]
+    pub(crate) wasm_exported_func_storage:
+        HashMap<ObjectId, crate::vm::wasm_payload::WasmExportedFuncPayload>,
+    /// Reverse-lookup: ArrayBuffer `ObjectId` → WasmMemory `ObjectId`
+    /// for wasm-backed ArrayBuffers (plan-memo DR-11).  Consulted by
+    /// the ArrayBuffer hot-path read/write/byteLength accessors so
+    /// that wasm-backed buffers dispatch through the live
+    /// `WasmMemoryView` (stashed in
+    /// [`Self::wasm_memory_storage`]'s `WasmMemoryPayload.view`)
+    /// rather than the standard `body_data` path (which is empty for
+    /// wasm-backed buffers per the routing invariant).
+    ///
+    /// Entry inserted at `.buffer` accessor first-fire (alongside the
+    /// `buffer_id` cache + `view` stash); removed at detach time
+    /// (alongside `buffer_id = None` + view drop).
+    ///
+    /// GC contract: no trace (the key ArrayBuffer ObjectId is
+    /// independently kept alive via `WasmMemoryPayload.buffer_id`
+    /// Some-trace; the value WasmMemory ObjectId is independently
+    /// alive as the host object).  Sweep tail prunes entries whose
+    /// ArrayBuffer key was collected.  Cleared on `Vm::unbind`
+    /// (keyed by per-VM identity-handle ArrayBuffer ObjectIds —
+    /// cross-DOM rebind invalidates).
+    #[cfg(feature = "engine")]
+    pub(crate) wasm_backed_buffers: HashMap<ObjectId, ObjectId>,
+    /// Lazily-initialized engine-bridge `WasmRuntime` singleton (slot
+    /// `#11-wasm-vm` / D-16).  First access via `vm_wasm_runtime()`
+    /// allocates via `WasmRuntime::new()` (F1 surface — internally
+    /// builds fresh `Arc<DomHandlerRegistry>` + `Arc<CssomHandlerRegistry>`).
+    ///
+    /// **Retained across `Vm::unbind`** per plan-memo §2.4 — the
+    /// registries `WasmRuntime` owns are runtime-internal (not
+    /// per-DOM-session) and the runtime is cross-DOM reusable per
+    /// CLAUDE.md side-store→component rule "shared cross-cutting
+    /// state (恒久的例外)".  Distinct from the 6 wasm storage maps +
+    /// `wasm_backed_buffers` reverse-lookup which ARE cleared on
+    /// unbind (per-VM identity-handle, "一時的例外").
+    #[cfg(feature = "engine")]
+    pub(crate) wasm_runtime: std::cell::OnceCell<std::sync::Arc<elidex_wasm_runtime::WasmRuntime>>,
+    /// `WebAssembly.Module.prototype` (WASM JS API §5.1).  Chains to
+    /// `Object.prototype` (Module is NOT an Error subclass).  Holds
+    /// no methods on the prototype itself — all 3 static methods
+    /// (`exports` / `imports` / `customSections`) live on the
+    /// constructor, not the prototype.  `None` until
+    /// `register_wasm_namespace()` runs during `register_globals()`.
+    #[cfg(feature = "engine")]
+    pub(crate) wasm_module_prototype: Option<ObjectId>,
+    /// `WebAssembly.Instance.prototype` (WASM JS API §5.2).  Chains
+    /// to `Object.prototype`.  Holds the `exports` accessor.
+    /// `None` until `register_wasm_namespace()` runs.
+    #[cfg(feature = "engine")]
+    pub(crate) wasm_instance_prototype: Option<ObjectId>,
+    /// `WebAssembly.Memory.prototype` (WASM JS API §5.3).  Chains
+    /// to `Object.prototype`.  Holds the `buffer` accessor + `grow`
+    /// method.  `None` until `register_wasm_namespace()` runs.
+    #[cfg(feature = "engine")]
+    pub(crate) wasm_memory_prototype: Option<ObjectId>,
+    /// `WebAssembly.Table.prototype` (WASM JS API §5.4).  Chains to
+    /// `Object.prototype`.  Holds `length` accessor + `get` / `set` /
+    /// `grow` methods.  `None` until `register_wasm_namespace()` runs.
+    #[cfg(feature = "engine")]
+    pub(crate) wasm_table_prototype: Option<ObjectId>,
+    /// `WebAssembly.Global.prototype` (WASM JS API §5.5).  Chains to
+    /// `Object.prototype`.  Holds `value` accessor pair + `valueOf`
+    /// method.  `None` until `register_wasm_namespace()` runs.
+    #[cfg(feature = "engine")]
+    pub(crate) wasm_global_prototype: Option<ObjectId>,
+    /// `WebAssembly.CompileError.prototype` (WASM JS API §5.10).
+    /// Chains to `Error.prototype` so `instanceof Error` holds.
+    /// Used by `wasm_error_to_js_value` for the `Compile` arm.
+    /// `None` until `register_wasm_namespace()` runs.
+    #[cfg(feature = "engine")]
+    pub(crate) wasm_compile_error_prototype: Option<ObjectId>,
+    /// `WebAssembly.LinkError.prototype` (WASM JS API §5.10).
+    /// Chains to `Error.prototype`.  Used by `wasm_error_to_js_value`
+    /// for the `Link` arm.  `None` until `register_wasm_namespace()` runs.
+    #[cfg(feature = "engine")]
+    pub(crate) wasm_link_error_prototype: Option<ObjectId>,
+    /// `WebAssembly.RuntimeError.prototype` (WASM JS API §5.10).
+    /// Chains to `Error.prototype`.  Used by `wasm_error_to_js_value`
+    /// for the `Runtime` arm (covers spec §7.1 stack-overflow + §7.2
+    /// runtime OOM impl-defined exceptions — elidex impl convention).
+    /// `None` until `register_wasm_namespace()` runs.
+    #[cfg(feature = "engine")]
+    pub(crate) wasm_runtime_error_prototype: Option<ObjectId>,
     /// `ArrayBuffer.prototype` (ECMA-262 §25.1, minimal Phase 2 form
     /// — `byteLength` getter + `slice` method only; TypedArray
     /// views are deferred to the next tranche).  Chains to

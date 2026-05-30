@@ -151,8 +151,8 @@ pub(crate) fn native_typed_array_fill(
             .checked_mul(bpe)
             .and_then(|elem_off| byte_offset.checked_add(elem_off))
         {
-            super::byte_io::fill_pattern(
-                &mut ctx.vm.body_data,
+            super::byte_io::fill_pattern_with_routing(
+                ctx.vm,
                 buffer_id,
                 abs,
                 &scratch[..bpe],
@@ -264,8 +264,8 @@ pub(crate) fn native_typed_array_slice(
         .checked_mul(bpe_us)
         .and_then(|elem_off| byte_offset_us.checked_add(elem_off))
     {
-        super::byte_io::copy_bytes(
-            &mut ctx.vm.body_data,
+        super::byte_io::copy_bytes_with_routing(
+            ctx.vm,
             buffer_id,
             src_abs,
             new_buffer_id,
@@ -432,8 +432,8 @@ pub(crate) fn native_typed_array_set(
                     .checked_mul(bpe_us)
                     .and_then(|elem_off| dst_off_us.checked_add(elem_off))
                 {
-                    super::byte_io::copy_bytes(
-                        &mut ctx.vm.body_data,
+                    super::byte_io::copy_bytes_with_routing(
+                        ctx.vm,
                         src_buf,
                         src_off as usize,
                         buffer_id,
@@ -601,8 +601,8 @@ pub(crate) fn native_typed_array_copy_within(
             .and_then(|elem_off| byte_offset_us.checked_add(elem_off));
         let total_bytes = count_us.checked_mul(bpe_us);
         if let (Some(src_abs), Some(dst_abs), Some(total_bytes)) = (src_abs, dst_abs, total_bytes) {
-            super::byte_io::copy_bytes(
-                &mut ctx.vm.body_data,
+            super::byte_io::copy_bytes_with_routing(
+                ctx.vm,
                 buffer_id,
                 src_abs,
                 buffer_id,

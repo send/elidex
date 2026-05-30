@@ -134,6 +134,39 @@ pub(super) fn trace_work_list(
         ObjectId,
         super::super::host_data::EventSourceState,
     >,
+    // D-16 `#11-wasm-vm` — WebAssembly side-store fan-out.  Instance arms
+    // mark `module_id` (always set) + `exports_id` if `Some` so the
+    // parent Module + cached exports namespace survive while the
+    // Instance is reachable.  Memory arms mark `buffer_id` if `Some`
+    // so the cached `ArrayBuffer` aliasing wasm linear memory survives
+    // (SameObject-style identity, plan-memo DR-11).  ExportedFunction
+    // arms mark `instance_id` so the parent `WasmInstance` (and through
+    // it the wasm module + linker state keeping the function callable)
+    // survives.  Module / Table / Global arms are no-ops (no internal
+    // `ObjectId` references).
+    #[cfg(feature = "engine")] wasm_instance_storage: &std::collections::HashMap<
+        ObjectId,
+        super::super::wasm_payload::WasmInstancePayload,
+    >,
+    #[cfg(feature = "engine")] wasm_memory_storage: &std::collections::HashMap<
+        ObjectId,
+        super::super::wasm_payload::WasmMemoryPayload,
+    >,
+    #[cfg(feature = "engine")] wasm_exported_func_storage: &std::collections::HashMap<
+        ObjectId,
+        super::super::wasm_payload::WasmExportedFuncPayload,
+    >,
+    // D-16 `#11-wasm-vm` — ArrayBuffer→WasmMemory back-mark.  When a JS
+    // `ArrayBuffer` aliasing wasm linear memory is reachable but its
+    // parent `WasmMemory` wrapper isn't (e.g. `var b = mem.buffer; mem
+    // = null;`), the parent must survive so the routing layer's
+    // `wasm_memory_storage[mem_id].view` coupling invariant isn't
+    // broken on the next hot-path access (which would panic via
+    // `.expect("coupling invariant")` at byte_io / array_buffer
+    // read sites).  Symmetric to the WasmMemory → buffer_id mark; the
+    // reverse-lookup `wasm_backed_buffers[buf_id] = mem_id` makes this
+    // O(1).
+    #[cfg(feature = "engine")] wasm_backed_buffers: &std::collections::HashMap<ObjectId, ObjectId>,
     obj_marks: &mut [u64],
     uv_marks: &mut [u64],
     work: &mut Vec<u32>,
@@ -415,8 +448,25 @@ pub(super) fn trace_work_list(
             // and `blob_data` (Blob storage) entries whose key was
             // collected, mirroring `headers_states` /
             // `abort_signal_states`.
+            //
+            // Wasm-backed ArrayBuffer exception: when the buffer
+            // aliases wasm linear memory (DR-11), the routing layer
+            // assumes `wasm_memory_storage[mem_id]` survives as long
+            // as the buffer wrapper does — otherwise the next
+            // routing access panics via `.expect("coupling
+            // invariant")`.  The Memory→buffer mark direction is
+            // wired at `WasmMemory` below; here we wire the
+            // buffer→Memory back-mark so a JS-rooted `.buffer`
+            // outliving its parent `mem` keeps the underlying
+            // payload alive.
             #[cfg(feature = "engine")]
-            ObjectKind::ArrayBuffer | ObjectKind::Blob => {}
+            ObjectKind::ArrayBuffer => {
+                if let Some(&mem_id) = wasm_backed_buffers.get(&ObjectId(obj_idx)) {
+                    mark_object(mem_id, obj_marks, work);
+                }
+            }
+            #[cfg(feature = "engine")]
+            ObjectKind::Blob => {}
             // `HtmlCollection` / `NodeList` payloads (stored in
             // `live_collection_states` as
             // `elidex_dom_api::LiveCollection`) contain only
@@ -879,6 +929,67 @@ pub(super) fn trace_work_list(
                             mark_object(listener, obj_marks, work);
                         }
                     }
+                }
+            }
+            // D-16 `#11-wasm-vm` (WASM JS API §5.1) — `WebAssembly.Module`
+            // engine-indep `WasmModule` handle holds source bytes
+            // (`Arc<[u8]>`) internally; no `ObjectId` references.  Sweep
+            // tail prunes `wasm_module_storage` entries whose key was
+            // collected.
+            #[cfg(feature = "engine")]
+            ObjectKind::WasmModule => {}
+            // D-16 `#11-wasm-vm` (WASM JS API §5.2) — `WebAssembly.Instance`.
+            // Mark `module_id` (always set at ctor time — keeps the parent
+            // Module alive) + `exports_id` if `Some` (the cached
+            // wrapper-identity-stable exports namespace per
+            // `initialize an instance object` step 3; without marking it
+            // the namespace + per-export wrappers would be collected
+            // even while the Instance is reachable, breaking the
+            // `i.exports === i.exports` identity contract).
+            #[cfg(feature = "engine")]
+            ObjectKind::WasmInstance => {
+                if let Some(payload) = wasm_instance_storage.get(&ObjectId(obj_idx)) {
+                    mark_object(payload.module_id, obj_marks, work);
+                    if let Some(exports_id) = payload.exports_id {
+                        mark_object(exports_id, obj_marks, work);
+                    }
+                }
+            }
+            // D-16 `#11-wasm-vm` (WASM JS API §5.3) — `WebAssembly.Memory`.
+            // Mark `buffer_id` if `Some` (the cached JS `ArrayBuffer`
+            // aliasing wasm linear memory must survive while the Memory
+            // is reachable so `mem.buffer === mem.buffer` ergonomics
+            // hold; IDL has no `[SameObject]`, this is an elidex impl
+            // choice motivated by `Object.isFrozen` + identity-across-
+            // access patterns).  The stashed `view: WasmMemoryView` is
+            // not a JS ObjectId reference (engine-bridge state only), so
+            // no mark needed — drop-on-payload-drop is sufficient.
+            #[cfg(feature = "engine")]
+            ObjectKind::WasmMemory => {
+                if let Some(payload) = wasm_memory_storage.get(&ObjectId(obj_idx)) {
+                    if let Some(buffer_id) = payload.buffer_id {
+                        mark_object(buffer_id, obj_marks, work);
+                    }
+                }
+            }
+            // D-16 `#11-wasm-vm` (WASM JS API §5.4 / §5.5) —
+            // `WebAssembly.Table` / `WebAssembly.Global`.  No internal
+            // `ObjectId` references; element / value reads flow through
+            // the engine-bridge handle's internal store.  Sweep tail
+            // prunes the matching storage map.
+            #[cfg(feature = "engine")]
+            ObjectKind::WasmTable | ObjectKind::WasmGlobal => {}
+            // D-16 `#11-wasm-vm` (WASM JS API §5.6) — exported function.
+            // Mark `instance_id` so the parent `WasmInstance` (and
+            // through it the wasm module + linker state) survives for
+            // the lifetime of the exported function; the engine-indep
+            // `WasmFunc` clone carries its own `WasmStoreHandle` (F1
+            // D-ii) so structural shared-store invariants are preserved
+            // independently of GC.
+            #[cfg(feature = "engine")]
+            ObjectKind::WasmExportedFunction => {
+                if let Some(payload) = wasm_exported_func_storage.get(&ObjectId(obj_idx)) {
+                    mark_object(payload.instance_id, obj_marks, work);
                 }
             }
         }

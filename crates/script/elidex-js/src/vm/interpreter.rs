@@ -439,6 +439,33 @@ impl VmInner {
                         self, promise, is_reject, value,
                     );
                 }
+                // D-16 `#11-wasm-vm` — exported wasm function exotic
+                // dispatch (WASM JS API §5.6).  The call adapter
+                // resolves the engine-bridge `WasmFunc` from
+                // `wasm_exported_func_storage[func_obj_id]` and
+                // dispatches via F1 `WasmFunc::call(args,
+                // ScriptHostBinding)`.  The arm threads `this =
+                // JsValue::Object(func_obj_id)` so the adapter can
+                // recover the payload by its own ObjectId (the
+                // standard call path passes the callee as `this`
+                // when no bound receiver is set).
+                #[cfg(feature = "engine")]
+                ObjectKind::WasmExportedFunction => {
+                    let saved_gc = self.gc_enabled;
+                    self.gc_enabled = false;
+                    let call_args = owned_args.as_deref().unwrap_or(args);
+                    let mut ctx = match mode {
+                        super::value::CallMode::Construct { new_target } => {
+                            super::value::NativeContext::new_construct(self, new_target)
+                        }
+                        super::value::CallMode::Call => super::value::NativeContext::new_call(self),
+                    };
+                    let result = super::host::wasm::exported_func::call_wasm_exported_function(
+                        &mut ctx, current_id, call_args,
+                    );
+                    ctx.vm.gc_enabled = saved_gc;
+                    return result;
+                }
                 _ => return Err(VmError::type_error("not a function")),
             }
         }

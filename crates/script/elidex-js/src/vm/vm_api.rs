@@ -405,6 +405,7 @@ impl Vm {
     }
 
     /// Clear host pointers after JS execution.  No-op if unbound.
+    #[allow(clippy::too_many_lines)] // bookkeeping over many side tables — splitting would just add forwarding noise
     pub fn unbind(&mut self) {
         // D-12 `#11-net-ws-sse` (CRIT-A): snapshot the active
         // realtime conn_ids BEFORE clearing HostData side-tables
@@ -720,6 +721,35 @@ impl Vm {
                 hd.session_storage.clear();
                 hd.fallback_local_storage.clear();
             }
+            // D-16 `#11-wasm-vm` — clear all 6 WebAssembly side-store
+            // maps + the `wasm_backed_buffers` reverse-lookup so a
+            // post-rebind VM cannot inherit per-VM identity-handle
+            // wasm wrappers from the previous DOM session.  All payloads
+            // carry engine-bridge handles whose `WasmStoreHandle` clone
+            // (F1 D-ii) is per-VM; instance / exported-function call
+            // adapters also carry a `ScriptHostBinding { session, dom,
+            // document }` triple sourced from the outgoing bind, so
+            // retaining them across an unbind would surface stale
+            // host-binding closures.  `wasm_backed_buffers` is keyed by
+            // ArrayBuffer ObjectIds whose entity space is rebuilt on
+            // rebind; cross-DOM rebind invalidates per CLAUDE.md
+            // side-store→component rule "per-VM identity handle
+            // (一時的例外)".
+            //
+            // `wasm_runtime: OnceCell<Arc<WasmRuntime>>` is INTENTIONALLY
+            // NOT cleared — the runtime owns its own
+            // `Arc<DomHandlerRegistry>` + `Arc<CssomHandlerRegistry>`
+            // internally (runtime-internal, not per-DOM-session) and is
+            // cross-DOM reusable per "shared cross-cutting state
+            // (恒久的例外)".  See `wasm_runtime` field doc on
+            // [`super::VmInner`].
+            self.inner.wasm_module_storage.clear();
+            self.inner.wasm_instance_storage.clear();
+            self.inner.wasm_memory_storage.clear();
+            self.inner.wasm_table_storage.clear();
+            self.inner.wasm_global_storage.clear();
+            self.inner.wasm_exported_func_storage.clear();
+            self.inner.wasm_backed_buffers.clear();
         }
     }
 

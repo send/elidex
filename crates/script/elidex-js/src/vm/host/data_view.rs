@@ -347,10 +347,8 @@ fn read_bytes<const N: usize>(
     let (buffer_id, dv_offset, dv_len) = data_view_require_attached(ctx, this, method)?;
     let rel_offset = ensure_in_range(offset_f, dv_len, N as u32, method)?;
     let abs = (dv_offset + rel_offset) as usize;
-    Ok(super::byte_io::read_into::<N>(
-        &ctx.vm.body_data,
-        buffer_id,
-        abs,
+    Ok(super::byte_io::read_into_with_routing::<N>(
+        ctx.vm, buffer_id, abs,
     ))
 }
 
@@ -375,7 +373,7 @@ fn write_bytes<const N: usize>(
     let (buffer_id, dv_offset, dv_len) = data_view_require_attached(ctx, this, method)?;
     let rel_offset = ensure_in_range(offset_f, dv_len, N as u32, method)?;
     let abs = (dv_offset + rel_offset) as usize;
-    super::byte_io::write_at(&mut ctx.vm.body_data, buffer_id, abs, &bytes);
+    super::byte_io::write_at_with_routing(ctx.vm, buffer_id, abs, &bytes);
     Ok(())
 }
 

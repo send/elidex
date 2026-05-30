@@ -794,6 +794,19 @@ impl VmInner {
         #[cfg(feature = "engine")]
         self.register_structured_clone_global();
 
+        // `WebAssembly` namespace (WASM JS API §5, slot `#11-wasm-vm`
+        // / D-16).  Stage 2 ships the namespace shell + `Module` ctor
+        // + 3 error classes + `validate` + `compile`; Stage 3 will
+        // bolt on `instantiate` + `Instance` ctor; Stage 4 adds
+        // `Memory` / `Table` / `Global` ctors.  Must run AFTER:
+        // - `register_error_constructors` (the 3 wasm error subclass
+        //   prototypes chain to `error_prototype`)
+        // - `register_array_buffer_global` (`extract_buffer_source_bytes`
+        //   reads from `body_data` reachable through the
+        //   ArrayBuffer / TypedArray / DataView wrappers)
+        #[cfg(feature = "engine")]
+        self.register_wasm_namespace();
+
         // Precomputed Shape terminals per EventPayload variant.
         // Must run *after* payload-key WellKnownStrings are interned
         // (done in `Vm::new` before `register_globals`) so the

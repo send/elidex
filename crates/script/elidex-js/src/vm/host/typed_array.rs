@@ -315,45 +315,45 @@ pub(crate) fn read_element_raw(
     // so the snapshot must complete before the `bigints.alloc`.
     match ek {
         ElementKind::Int8 => {
-            let s = super::byte_io::read_into::<1>(&vm.body_data, buffer_id, abs);
+            let s = super::byte_io::read_into_with_routing::<1>(vm, buffer_id, abs);
             JsValue::Number(f64::from(s[0].cast_signed()))
         }
         ElementKind::Uint8 | ElementKind::Uint8Clamped => {
-            let s = super::byte_io::read_into::<1>(&vm.body_data, buffer_id, abs);
+            let s = super::byte_io::read_into_with_routing::<1>(vm, buffer_id, abs);
             JsValue::Number(f64::from(s[0]))
         }
         ElementKind::Int16 => {
-            let s = super::byte_io::read_into::<2>(&vm.body_data, buffer_id, abs);
+            let s = super::byte_io::read_into_with_routing::<2>(vm, buffer_id, abs);
             JsValue::Number(f64::from(i16::from_le_bytes(s)))
         }
         ElementKind::Uint16 => {
-            let s = super::byte_io::read_into::<2>(&vm.body_data, buffer_id, abs);
+            let s = super::byte_io::read_into_with_routing::<2>(vm, buffer_id, abs);
             JsValue::Number(f64::from(u16::from_le_bytes(s)))
         }
         ElementKind::Int32 => {
-            let s = super::byte_io::read_into::<4>(&vm.body_data, buffer_id, abs);
+            let s = super::byte_io::read_into_with_routing::<4>(vm, buffer_id, abs);
             JsValue::Number(f64::from(i32::from_le_bytes(s)))
         }
         ElementKind::Uint32 => {
-            let s = super::byte_io::read_into::<4>(&vm.body_data, buffer_id, abs);
+            let s = super::byte_io::read_into_with_routing::<4>(vm, buffer_id, abs);
             JsValue::Number(f64::from(u32::from_le_bytes(s)))
         }
         ElementKind::Float32 => {
-            let s = super::byte_io::read_into::<4>(&vm.body_data, buffer_id, abs);
+            let s = super::byte_io::read_into_with_routing::<4>(vm, buffer_id, abs);
             JsValue::Number(f64::from(f32::from_le_bytes(s)))
         }
         ElementKind::Float64 => {
-            let s = super::byte_io::read_into::<8>(&vm.body_data, buffer_id, abs);
+            let s = super::byte_io::read_into_with_routing::<8>(vm, buffer_id, abs);
             JsValue::Number(f64::from_le_bytes(s))
         }
         ElementKind::BigInt64 => {
-            let s = super::byte_io::read_into::<8>(&vm.body_data, buffer_id, abs);
+            let s = super::byte_io::read_into_with_routing::<8>(vm, buffer_id, abs);
             let v = i64::from_le_bytes(s);
             let bi = num_bigint::BigInt::from(v);
             JsValue::BigInt(vm.bigints.alloc(bi))
         }
         ElementKind::BigUint64 => {
-            let s = super::byte_io::read_into::<8>(&vm.body_data, buffer_id, abs);
+            let s = super::byte_io::read_into_with_routing::<8>(vm, buffer_id, abs);
             let v = u64::from_le_bytes(s);
             let bi = num_bigint::BigInt::from(v);
             JsValue::BigInt(vm.bigints.alloc(bi))
@@ -496,11 +496,6 @@ pub(crate) fn write_element_raw(
         return Ok(());
     }
 
-    super::byte_io::write_at(
-        &mut ctx.vm.body_data,
-        buffer_id,
-        abs,
-        &scratch[..written_len],
-    );
+    super::byte_io::write_at_with_routing(ctx.vm, buffer_id, abs, &scratch[..written_len]);
     Ok(())
 }
