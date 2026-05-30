@@ -450,9 +450,17 @@ impl Tokenizer {
 
     /// Consume the next input character (§13.2.5 "consume the next input
     /// character"). `None` signals EOF.
+    ///
+    /// The cursor is clamped at the EOF sentinel `input.len() + 1`: once it
+    /// is past the end, repeated consumes (e.g. reconsuming EOF across
+    /// states) leave it there rather than growing without bound, so
+    /// `reconsume_in` stays paired with a single position and EOF
+    /// parse-error positions don't drift.
     pub(super) fn consume(&mut self) -> Option<char> {
         let c = self.input.get(self.pos).copied();
-        self.pos += 1;
+        if self.pos <= self.input.len() {
+            self.pos += 1;
+        }
         if self.pending_input_error.is_none() {
             if let Some(name) = c.and_then(input_stream_error) {
                 self.pending_input_error = Some(name);
@@ -863,5 +871,30 @@ mod tests {
             preprocess("a\r\nb\rc\nd"),
             vec!['a', '\n', 'b', '\n', 'c', '\n', 'd']
         );
+    }
+
+    /// Copilot R3: the cursor must not grow without bound when EOF is
+    /// consumed repeatedly. After the EOF token, further `next_token`
+    /// calls keep returning `EndOfFile` and `pos` stays clamped at the
+    /// `len + 1` sentinel.
+    #[test]
+    fn cursor_clamped_at_eof_sentinel() {
+        let mut t = Tokenizer::new("hi");
+        loop {
+            if t.next_token().expect("valid input") == Token::EndOfFile {
+                break;
+            }
+        }
+        let after_first_eof = t.pos();
+        for _ in 0..10 {
+            assert_eq!(t.next_token().expect("idempotent EOF"), Token::EndOfFile);
+        }
+        // `next_token` short-circuits on `eof_emitted` without consuming,
+        // and even a direct over-consume cannot push past the sentinel.
+        assert_eq!(t.pos(), after_first_eof);
+        for _ in 0..5 {
+            t.consume();
+        }
+        assert_eq!(t.pos(), t.input_len() + 1, "pos clamped at EOF sentinel");
     }
 }
