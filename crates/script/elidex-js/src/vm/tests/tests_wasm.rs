@@ -16,10 +16,14 @@ use super::super::test_helpers::bind_vm;
 use super::super::value::JsValue;
 use super::super::Vm;
 
-/// Build a bound VM so exported-function calls have a
-/// `ScriptHostBinding { session, dom, document }` triple to dispatch
-/// through.  Returns the VM + the backing session/dom/doc tuple
-/// (caller keeps the latter alive for the bind's lifetime).
+/// Build an **unbound** VM plus the session / dom / document needed
+/// to subsequently `bind` it (via the local `bind` helper below).
+/// Exported-function calls require a `ScriptHostBinding { session,
+/// dom, document }` triple to dispatch through, so callers typically
+/// pair this with an immediate `unsafe { bind(&mut vm, &mut session,
+/// &mut dom, doc) };` before the first `vm.eval` that hits the
+/// wasm-export adapter.  Returns the tuple separately so the caller
+/// keeps the session/dom/doc alive for the bind's lifetime.
 fn setup_bound_vm() -> (Vm, SessionCore, EcsDom, elidex_ecs::Entity) {
     let vm = Vm::new();
     let session = SessionCore::new();
