@@ -683,8 +683,12 @@ pub struct JsCalleeInfo {
 ///   accepted (ECMA-262 §10.3 built-in functions; `Array`, `Object`,
 ///   `Error`, etc.).
 /// * [`CallShape::CallableOnly`] — `[[Call]]` only; `[[Construct]]`
-///   throws TypeError via the existing "not a constructor" path
-///   (ECMA-262 §10.2.2 [[Construct]] catch-all).  `Symbol`, `BigInt`.
+///   throws TypeError because the function has no `[[Construct]]`
+///   (ECMA-262 §10.3 — "A built-in function object has a
+///   `[[Construct]]` internal method if and only if it is described
+///   as a 'constructor'") and §7.2.4 IsConstructor's precondition at
+///   the `new` evaluation site raises "not a constructor".
+///   `Symbol`, `BigInt`.
 /// * [`CallShape::ConstructorOnly`] — `[[Construct]]` only; `[[Call]]`
 ///   throws TypeError per WebIDL §3.7.1 step 1.2 ("If NewTarget is
 ///   undefined, then throw a TypeError").  Every Interface-object ctor.
