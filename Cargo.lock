@@ -2003,6 +2003,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "elidex-html-parser-strict"
+version = "0.1.0"
+dependencies = [
+ "elidex-ecs",
+]
+
+[[package]]
 name = "elidex-indexeddb"
 version = "0.1.0"
 dependencies = [

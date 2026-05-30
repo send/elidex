@@ -1,0 +1,17 @@
+[package]
+name = "elidex-html-parser-strict"
+description = "Strict (spec-faithful valid HTML5 only) HTML parser for elidex — engine-indep, html5ever non-dependent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+keywords = ["browser-engine", "html", "parser", "strict"]
+categories = ["web-programming"]
+
+[dependencies]
+elidex-ecs.workspace = true
+
+[lints]
+workspace = true
