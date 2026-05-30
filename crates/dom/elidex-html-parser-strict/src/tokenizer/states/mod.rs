@@ -268,6 +268,10 @@ pub(crate) struct Tokenizer {
     /// First §13.2.3.5 input-stream parse error seen while consuming
     /// (control-character / noncharacter), recorded for strict reject.
     pending_input_error: Option<&'static str>,
+    /// The terminal parse error, set the moment tokenization aborts. Once
+    /// set, every [`Tokenizer::next_token`] call re-returns it and never
+    /// yields another token (strict abort is permanent by construction).
+    error: Option<StrictParseError>,
 }
 
 impl Tokenizer {
@@ -296,6 +300,7 @@ impl Tokenizer {
             char_ref_code: 0,
             last_start_tag: None,
             pending_input_error: None,
+            error: None,
         }
     }
 
@@ -326,6 +331,12 @@ impl Tokenizer {
     /// terminal and every subsequent call returns [`Token::EndOfFile`]
     /// again.
     pub(crate) fn next_token(&mut self) -> Result<Token, StrictParseError> {
+        // A parse error is terminal: once one has aborted tokenization,
+        // re-return it and never yield another token, so "abort on the
+        // first parse error" holds even if a caller keeps iterating.
+        if let Some(err) = &self.error {
+            return Err(err.clone());
+        }
         loop {
             if let Some(t) = self.output.pop_front() {
                 return Ok(t);
@@ -333,13 +344,26 @@ impl Tokenizer {
             if self.eof_emitted {
                 return Ok(Token::EndOfFile);
             }
-            self.step()?;
+            if let Err(err) = self.step() {
+                return Err(self.abort(err));
+            }
             // §13.2.3.5: a control / noncharacter in the input stream is a
             // parse error; strict mode rejects at the point it is consumed.
             if let Some(name) = self.pending_input_error.take() {
-                return Err(self.parse_error(name));
+                let err = self.parse_error(name);
+                return Err(self.abort(err));
             }
         }
+    }
+
+    /// Record `err` as the terminal parse error and discard any tokens
+    /// already queued this step, so a post-error token can never leak to a
+    /// caller that keeps iterating past the abort. Returns `err` for
+    /// propagation.
+    fn abort(&mut self, err: StrictParseError) -> StrictParseError {
+        self.output.clear();
+        self.error = Some(err.clone());
+        err
     }
 
     /// Dispatch one state transition to its handler.
@@ -532,11 +556,18 @@ impl Tokenizer {
     }
 
     /// Build a [`StrictParseError`] naming the WHATWG HTML §13.2.2 parse
-    /// error and the input position where it was raised (§D-e: structured,
-    /// minimal echo of user input).
+    /// error and the index of the last consumed input character (§D-e:
+    /// structured, minimal echo of user input).
+    ///
+    /// `self.pos` is the cursor (the *next* character to consume), so for
+    /// the common consume-then-reject sites it sits one past the offending
+    /// character; reporting `pos - 1` points at the character the error
+    /// concerns and is consistent across sites. At EOF the cursor is the
+    /// `len + 1` sentinel, so this reports `len` (just past the input).
     pub(super) fn parse_error(&self, name: &str) -> StrictParseError {
+        let offset = self.pos.saturating_sub(1);
         StrictParseError {
-            errors: vec![format!("{name} (input position {})", self.pos)],
+            errors: vec![format!("{name} (input position {offset})")],
         }
     }
 
@@ -899,5 +930,21 @@ mod tests {
             t.consume();
         }
         assert_eq!(t.pos(), t.input_len() + 1, "pos clamped at EOF sentinel");
+    }
+
+    /// Copilot R5: a parse error aborts permanently. A control character
+    /// (`control-character-in-input-stream`) is emitted into the output
+    /// queue in the same step that flags the error; the error must clear
+    /// that token and every later call must re-return the error rather
+    /// than leak the queued character.
+    #[test]
+    fn parse_error_aborts_permanently_without_leaking_tokens() {
+        let mut t = Tokenizer::new("\u{000B}"); // vertical tab = control char
+        let err = t.next_token().expect_err("control char rejected");
+        assert!(err.errors[0].contains("control-character-in-input-stream"));
+        for _ in 0..5 {
+            let again = t.next_token().expect_err("error is terminal");
+            assert_eq!(again.errors, err.errors, "no token may leak after abort");
+        }
     }
 }
