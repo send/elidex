@@ -19,11 +19,15 @@
 //! ArrayBuffer hot-path routing in `byte_io::*_with_routing` +
 //! `array_buffer_*` accessors can dispatch through the view.
 //!
-//! Coupling invariant (plan-memo §5 Stage 4.1):
-//! `wasm_backed_buffers[buf_id] = Some(mem_id) ⇔
-//! wasm_memory_storage[mem_id].view = Some(_)`.  Both writes (insert
-//! `+ Some`) at `.buffer` first-fire run paired; both removes (clear
-//! `+ None`) at detach time run paired.
+//! Coupling invariant (plan-memo §5 Stage 4.1) —
+//! `wasm_backed_buffers` is `HashMap<ObjectId /* buf_id */, ObjectId
+//! /* mem_id */>` and `Some(_)` below is `HashMap::get`'s `Option<&V>`
+//! return, not the value type:
+//! `wasm_backed_buffers.get(&buf_id) == Some(&mem_id) ⇔
+//! wasm_memory_storage[&mem_id].view.is_some()`.  Both halves are
+//! written together at `.buffer` first-fire (entry insert + payload
+//! `view = Some(...)`) and cleared together at detach (entry remove
+//! + payload `view = None`).
 
 use elidex_wasm_runtime::{WasmMemoryDescriptor, WasmRuntime};
 

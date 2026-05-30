@@ -250,10 +250,12 @@ pub(crate) fn is_detached_buffer(vm: &VmInner, id: ObjectId) -> bool {
 /// `WasmMemoryPayload.{view, buffer_id}`.  Callers (Memory.grow,
 /// any future `transfer` / structuredClone-with-transfer caller)
 /// only need to invoke `array_buffer_detach(vm, buf_id)` — the
-/// coupling invariant `wasm_backed_buffers[buf_id] = Some(mem_id) ⇔
-/// wasm_memory_storage[mem_id].view = Some(_)` is encapsulated here
-/// per `feedback_one-issue-one-way` (single detach contract, not
-/// distributed across N detach sites).
+/// coupling invariant
+/// `wasm_backed_buffers.get(&buf_id) == Some(&mem_id) ⇔
+/// wasm_memory_storage[&mem_id].view.is_some()` (where the `Some(_)`
+/// is `HashMap::get`'s `Option<&V>`, not the value type) is
+/// encapsulated here per `feedback_one-issue-one-way` (single detach
+/// contract, not distributed across N detach sites).
 pub(crate) fn array_buffer_detach(vm: &mut VmInner, id: ObjectId) {
     vm.detached_buffers.insert(id);
     vm.body_data.remove(&id);

@@ -231,14 +231,17 @@ pub(super) fn fill_pattern(
 // [`super::super::wasm_payload::WasmMemoryPayload::view`]; otherwise
 // the standard `body_data` path runs unchanged.
 //
-// Coupling invariant (plan §5 Stage 4.1):
-//   `vm.wasm_backed_buffers[buf_id] = Some(mem_id)
-//    ⇔ vm.wasm_memory_storage[mem_id].view = Some(_)`
-// Both writes (insert + Some) at `.buffer` first-fire are paired in
-// the same control-flow block; both removes (clear + None) at
-// detach time are paired in the same block.  Future code that
-// touches either field MUST preserve the biconditional or refactor
-// the `view.as_ref().unwrap()` sites to `.expect("coupling invariant")`
+// Coupling invariant (plan §5 Stage 4.1) — `wasm_backed_buffers` is
+// `HashMap<ObjectId /* buf_id */, ObjectId /* mem_id */>` and the
+// `Some(_)` notation below is `HashMap::get`'s `Option<&V>` return,
+// not the value type:
+//   `vm.wasm_backed_buffers.get(&buf_id) == Some(&mem_id)`
+//   ⇔  `vm.wasm_memory_storage[&mem_id].view.is_some()`
+// Both halves are written together at `.buffer` first-fire (entry
+// insert + payload `view = Some(...)`) and cleared together at detach
+// (entry remove + payload `view = None`).  Future code that touches
+// either field MUST preserve the biconditional or refactor the
+// `view.as_ref().unwrap()` sites to `.expect("coupling invariant")`
 // with clear panic discipline.
 
 /// Routing wrapper over [`read_into`] that consults
