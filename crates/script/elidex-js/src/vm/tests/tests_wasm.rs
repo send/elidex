@@ -169,6 +169,26 @@ fn module_ctor_throws_compile_error_on_invalid_bytes() {
     ));
 }
 
+/// WebIDL §3.7.1 step 1.2 (NewTarget undefined → throw TypeError),
+/// enforced for native `[Constructor]` Interface objects at the
+/// `vm/interpreter.rs::call_dispatch` `NativeFunction` arm under
+/// `CallShape::ConstructorOnly` (#11-vm-native-constructor-only-flag
+/// Stage 2 pilot — Module is the first ctor migrated to validate the
+/// dispatch-side gate; Stage 3 will migrate the remaining 65 sites).
+/// Asserts canonical error message form for bare-call regression.
+#[test]
+fn module_ctor_requires_new() {
+    let mut vm = Vm::new();
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "try { WebAssembly.Module(new Uint8Array([0,0x61,0x73,0x6d,1,0,0,0]).buffer); \
+             'no throw' } catch (e) { e.message }"
+        ),
+        "Failed to construct 'Module': Please use the 'new' operator"
+    );
+}
+
 /// WASM JS API §5.1 Module ctor — empty module bytes succeed; the
 /// returned object brand-checks as `WebAssembly.Module` (via the
 /// constructor's prototype chain).

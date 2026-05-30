@@ -104,7 +104,7 @@ impl VmInner {
         });
         self.wasm_module_prototype = Some(module_proto);
         let module_ctor =
-            self.create_constructable_function("Module", native_wasm_module_constructor);
+            self.create_constructor_only_function("Module", native_wasm_module_constructor);
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             module_ctor,
