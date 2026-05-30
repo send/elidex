@@ -1106,9 +1106,13 @@ fn memory_grow_detach_clears_wasm_backed_routing() {
     // wasm_backed_buffers entry for it must be gone (no orphan
     // routing state). Verify spec-observable contract:
     assert!(eval_bool(&mut vm, "globalThis.__b0.byteLength === 0"));
-    assert!(
-        vm.inner.wasm_backed_buffers.len() <= 1,
-        "stale wasm_backed_buffers entry for detached pre-grow buffer must be gone"
+    // No `m.buffer` re-read after grow, so the only entry
+    // (`wasm_backed_buffers[__b0]`) must be gone — strict zero
+    // catches detach-cleanup regressions that `<= 1` would mask.
+    assert_eq!(
+        vm.inner.wasm_backed_buffers.len(),
+        0,
+        "wasm_backed_buffers must be empty after detach (pre-grow entry orphaned)"
     );
 }
 

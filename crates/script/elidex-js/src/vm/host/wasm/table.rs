@@ -299,13 +299,22 @@ fn wasm_ref_to_js(ctx: &mut NativeContext<'_>, r: &WasmRef) -> JsValue {
     super::exported_func::wasm_value_to_js(ctx, &WasmValue::Ref(r.clone()))
 }
 
-/// Coerce a JS value to a u32 per WebIDL `[EnforceRange]` u32 —
-/// rejects NaN/Infinity (TypeError) + out-of-range (TypeError per
-/// WebIDL §3.2.4.9 ConvertToInt + §3.3.6 `[EnforceRange]` extended
-/// attribute — RangeError is reserved for non-`[EnforceRange]`
-/// in-domain bounds, not for the non-finite / fractional-domain
-/// rejection of `[EnforceRange]` integers).  Shared with sibling
-/// `memory.rs` / `global.rs` via the `pub(super)` visibility.
+/// Coerce a JS value to a u32 per WebIDL `[EnforceRange]` u32
+/// (WebIDL §3.2.4.9 ConvertToInt step 6 + §3.3.6 `[EnforceRange]`):
+///
+/// 1. NaN / ±∞ → TypeError (step 6.1).
+/// 2. Truncate fractional toward zero via `IntegerPart` /
+///    `Math.trunc` (step 6.2) — `1.5` → `1`, `255.2` → `255`, both
+///    without throwing (matches WebIDL `[EnforceRange]` spec example
+///    `setColorEnforcedRange(-0.9, 255, 255.2)` → `setColor(0, 255,
+///    255)`).
+/// 3. Range check post-truncate against `[0, u32::MAX]`; out-of-range
+///    → TypeError (step 6.3).
+///
+/// RangeError is reserved for non-`[EnforceRange]` in-domain bounds;
+/// every `[EnforceRange]` rejection throws TypeError, including the
+/// out-of-range case in step 3.  Shared with sibling `memory.rs` /
+/// `global.rs` via the `pub(super)` visibility.
 pub(super) fn coerce_uint32(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<u32, VmError> {
     let n = ctx.to_number(val)?;
     if !n.is_finite() {
