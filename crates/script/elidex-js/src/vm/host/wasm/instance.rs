@@ -143,10 +143,11 @@ fn require_module(ctx: &NativeContext<'_>, module_arg: JsValue) -> Result<Object
 ///
 /// `import_object_arg` is the user-supplied JS value (typically a
 /// record-of-records or `undefined`).  Per F1 D-vi, this Stage 3
-/// surface only supports the empty-imports case (undefined / null /
-/// `{}` / `Object.create(null)`); any non-empty record produces a
-/// LinkError via the engine-bridge guard.  No second JS-side guard
-/// is added (singular rejection site per
+/// surface only supports the empty-imports case (undefined / `{}` /
+/// `Object.create(null)`); any non-empty record produces a LinkError
+/// via the engine-bridge guard.  `null` and other non-object values
+/// throw TypeError per WebIDL `optional object importObject`.  No
+/// second JS-side guard is added (singular rejection site per
 /// `feedback_one-issue-one-way`).
 /// `target` is `Some(receiver_id)` for the sync ctor path (brand-
 /// promote that receiver to preserve `new.target.prototype` for

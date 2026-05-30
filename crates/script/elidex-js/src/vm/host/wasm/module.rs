@@ -162,7 +162,10 @@ pub(super) fn native_wasm_module_imports(
                 inner,
                 PropertyKey::String(module_name_sid),
                 PropertyValue::Data(JsValue::String(module_sid)),
-                PropertyAttrs::METHOD,
+                // WebIDL §3.2.17 dictionary→JS: `CreateDataPropertyOrThrow`
+                // ({W, E, C}).  Required so `Object.keys(desc)` enumerates
+                // the dictionary members.
+                PropertyAttrs::DATA,
             );
             JsValue::Object(inner)
         })
@@ -263,17 +266,20 @@ fn build_module_descriptor_object(
     let kind_sid = vm.strings.intern(kind_str);
     let name_key_sid = vm.well_known.name;
     let kind_key_sid = vm.strings.intern("kind");
+    // WebIDL §3.2.17 dictionary→JS: `CreateDataPropertyOrThrow` ({W, E, C})
+    // for `ModuleExportDescriptor` / `ModuleImportDescriptor` members.
+    // Required so `Object.keys(desc)` enumerates the dictionary members.
     vm.define_shaped_property(
         obj,
         PropertyKey::String(name_key_sid),
         PropertyValue::Data(JsValue::String(name_sid)),
-        PropertyAttrs::METHOD,
+        PropertyAttrs::DATA,
     );
     vm.define_shaped_property(
         obj,
         PropertyKey::String(kind_key_sid),
         PropertyValue::Data(JsValue::String(kind_sid)),
-        PropertyAttrs::METHOD,
+        PropertyAttrs::DATA,
     );
     obj
 }

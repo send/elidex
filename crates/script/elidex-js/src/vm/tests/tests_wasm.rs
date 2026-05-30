@@ -200,6 +200,41 @@ fn module_static_methods_brand_check_and_return_arrays() {
     ));
 }
 
+/// WebIDL §3.2.17 dictionary → JS conversion step 3.1.2.3 uses
+/// `CreateDataPropertyOrThrow`, so `ModuleExportDescriptor` /
+/// `ModuleImportDescriptor` members must land as enumerable data
+/// properties (`{W, E, C}`).  Regression for Copilot R1 finding —
+/// builder previously installed members with `PropertyAttrs::METHOD`
+/// (¬E), making `Object.keys(desc)` skip them.  Uses
+/// `ANSWER_MODULE_BYTES_JS` (one export) + `IMPORT_MODULE_BYTES_JS`
+/// (one import) defined later in this file as the descriptor input.
+#[test]
+fn module_descriptors_are_enumerable_data_properties() {
+    let mut vm = Vm::new();
+    // Export descriptor: `{name, kind}` — both keys enumerable.
+    assert!(eval_bool(
+        &mut vm,
+        &format!(
+            "var m = new WebAssembly.Module({ANSWER_MODULE_BYTES_JS}); \
+             var d = WebAssembly.Module.exports(m)[0]; \
+             var k = Object.keys(d).sort(); \
+             k.length === 2 && k[0] === 'kind' && k[1] === 'name' && \
+             d.name === 'main' && d.kind === 'function'"
+        )
+    ));
+    // Import descriptor: `{module, name, kind}` — all 3 keys enumerable.
+    assert!(eval_bool(
+        &mut vm,
+        &format!(
+            "var m = new WebAssembly.Module({IMPORT_MODULE_BYTES_JS}); \
+             var d = WebAssembly.Module.imports(m)[0]; \
+             var k = Object.keys(d).sort(); \
+             k.length === 3 && k[0] === 'kind' && k[1] === 'module' && k[2] === 'name' && \
+             d.module === 'env' && d.name === 'f' && d.kind === 'function'"
+        )
+    ));
+}
+
 /// WASM JS API §5 `WebAssembly.compile(bytes)` returns a Promise.
 /// Stage 2 settles synchronously via the microtask queue; observable
 /// shape is `Promise<Module>` resolved on valid bytes / rejected with

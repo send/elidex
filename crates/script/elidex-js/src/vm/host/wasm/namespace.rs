@@ -12,8 +12,12 @@
 //! Promise).  Stage 3 wires `instantiate` + `Instance` ctor + exports
 //! exotic.  Stage 4 wires `Memory` / `Table` / `Global` ctors.
 //!
-//! `WebAssembly` is writable + configurable but NOT enumerable per
-//! §5 namespace IDL.
+//! `WebAssembly` ships via the `globals` bag, which gives it the
+//! writable + configurable + enumerable shape that bag uses for all
+//! native namespaces (`Math` / `JSON` share the same enumerable diff
+//! vs the §5 IDL — `{enumerable: false}` requires a separate global-
+//! object property descriptor walk and is deferred to a future polish
+//! pass; see the in-fn comment near `globals.insert` for context).
 
 use super::super::super::error::VmError;
 use super::super::super::natives_promise::{create_promise, settle_promise};
@@ -45,8 +49,11 @@ impl VmInner {
     /// - `register_array_buffer_global` (for `extract_buffer_source_bytes`
     ///   detached-check reachable at Module ctor)
     ///
-    /// Per §5 IDL the namespace itself is writable + configurable but
-    /// NOT enumerable — matches how `Math` / `JSON` are installed.
+    /// Per §5 IDL the namespace itself is writable + configurable +
+    /// `{enumerable: false}`; we install via the `globals` bag (same
+    /// path `Math` / `JSON` take in this VM) which is enumerable.  The
+    /// enumerable diff is accepted in v1 — see the in-fn comment by
+    /// `globals.insert` for the polish-pass deferral.
     ///
     /// # Panics
     ///

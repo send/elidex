@@ -65,8 +65,10 @@ const FROZEN_EXPORT_ATTR: PropertyAttrs = PropertyAttrs::WEBIDL_RO_PERMANENT;
 /// (see file-level docstring for the per-variant payload shapes).
 ///
 /// The namespace itself is allocated with `prototype: None` per spec
-/// step 1 (`OrdinaryObjectCreate(null)`) + `extensible: false` for
-/// step 3 freeze.  Each property is installed with
+/// step 1 (`OrdinaryObjectCreate(null)`) + `extensible: true` so each
+/// per-export `define_shaped_property` succeeds; `extensible` is then
+/// flipped to `false` after population per the `SetIntegrityLevel(_,
+/// "frozen")` final step.  Each property is installed with
 /// [`FROZEN_EXPORT_ATTR`] so the post-freeze {¬W, E, ¬C} state is
 /// observable from JS via `Object.getOwnPropertyDescriptor`.
 pub(super) fn build_exports_namespace(
@@ -321,10 +323,10 @@ pub(in crate::vm) fn call_wasm_exported_function(
 /// type.  Matches the WebAssembly JS API §5.6 ToWebAssemblyValue
 /// algorithm.
 ///
-/// - `I32` / `I64`: `ToInt32` / `ToBigInt64` per JS coerce rules.
-///   `I64` → JS `BigInt` mapping requires a BigInt input per spec;
-///   we accept either BigInt or Number (truncation to i64) for
-///   Stage 3 compatibility.
+/// - `I32`: `ToInt32` per JS coerce rules (Number input, mod-2^32).
+/// - `I64`: `ToBigInt64` per JS coerce rules; accepts BigInt only
+///   (low-64 two's-complement slice).  Number / undefined / null /
+///   Symbol throw TypeError per strict ToBigInt semantics.
 /// - `F32` / `F64`: `ToNumber`.
 /// - `V128`: synchronous TypeError per F1 F13 (no JS surface to
 ///   construct a v128 value).
