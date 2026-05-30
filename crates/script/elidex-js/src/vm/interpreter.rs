@@ -308,24 +308,39 @@ impl VmInner {
                     );
                 }
                 ObjectKind::NativeFunction(nf) => {
-                    // WebIDL §3.7.1 step 1.2 + ECMA-262 §27.2.3.1 step 1
-                    // `[[Construct]]`-only mandate.  When a native function
-                    // is marked [`super::value::CallShape::ConstructorOnly`]
-                    // and the entry call-mode is [`CallMode::Call`] (i.e.
-                    // bare invocation without `new`), throw the canonical
-                    // TypeError at dispatch — the single chokepoint for
-                    // every Interface-object ctor + Promise ctor, replacing
-                    // the historic per-body `if !ctx.is_construct() { ... }`
-                    // guard.  Sibling of the ECMA-262 §10.2.1 step 4
-                    // `is_class_ctor && !mode.is_construct()` gate for
-                    // user-defined class ctors at `push_js_call_frame`.
-                    if matches!(nf.shape, super::value::CallShape::ConstructorOnly)
-                        && !mode.is_construct()
-                    {
-                        let name = self.strings.get_utf8(nf.name);
-                        return Err(VmError::type_error(format!(
-                            "Failed to construct '{name}': Please use the 'new' operator"
-                        )));
+                    // Dispatch-side `CallShape` gate — the single `[[Call]]`
+                    // chokepoint for every native function, replacing the
+                    // historic per-body `if !ctx.is_construct() { ... }` /
+                    // `Err(type_error("Illegal constructor"))` entry guards.
+                    // (`[[Construct]]` of a native is gated earlier in
+                    // `do_new` via `CallShape::can_construct()`, so the
+                    // `IllegalConstructor` arm below only has to cover the
+                    // bare-call path here; `ConstructorOnly` likewise only
+                    // needs the bare-call rejection.)
+                    match nf.shape {
+                        // WebIDL §3.7 interface-object algorithm step 2 +
+                        // ECMA-262 §27.2.3.1 step 1: `new`-only ctor invoked
+                        // bare (without `new`). Sibling of the ECMA-262
+                        // §10.2.1 step 4 `is_class_ctor && !mode.is_construct()`
+                        // gate at `push_js_call_frame`.
+                        super::value::CallShape::ConstructorOnly if !mode.is_construct() => {
+                            let name = self.strings.get_utf8(nf.name);
+                            return Err(VmError::type_error(format!(
+                                "Failed to construct '{name}': Please use the 'new' operator"
+                            )));
+                        }
+                        // WebIDL §3.7 interface-object algorithm step 1: an
+                        // interface object declaring no constructor operation
+                        // throws "when called, both as a function and as a
+                        // constructor". This arm covers the bare-call path
+                        // (the `[[Construct]]` path is rejected in `do_new`);
+                        // the message SoT lives in `VmError::illegal_constructor`
+                        // so both chokepoints stay in sync.
+                        super::value::CallShape::IllegalConstructor => {
+                            let name = self.strings.get_utf8(nf.name);
+                            return Err(VmError::illegal_constructor(&name));
+                        }
+                        _ => {}
                     }
                     let func = nf.func;
                     let saved_gc = self.gc_enabled;

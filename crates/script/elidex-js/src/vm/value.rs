@@ -692,9 +692,30 @@ pub struct JsCalleeInfo {
 ///   the `new` evaluation site raises "not a constructor".
 ///   `Symbol`, `BigInt`.
 /// * [`CallShape::ConstructorOnly`] — `[[Construct]]` only; `[[Call]]`
-///   throws TypeError per WebIDL §3.7.1 step 1.2 ("If NewTarget is
-///   undefined, then throw a TypeError").  Every Interface-object ctor
-///   plus the core-VM Promise ctor (ECMA-262 §27.2.3.1 step 1).
+///   throws TypeError per the WebIDL §3.7 interface-object algorithm
+///   step 2 ("If NewTarget is undefined, then throw a TypeError").
+///   Every Interface-object ctor that DOES declare a constructor
+///   operation, plus the core-VM Promise ctor (ECMA-262 §27.2.3.1
+///   step 1).
+/// * [`CallShape::IllegalConstructor`] — neither `[[Call]]` nor
+///   `[[Construct]]`; BOTH modes throw TypeError per the WebIDL §3.7
+///   interface-object algorithm step 1 ("If I was not declared with a
+///   constructor operation, then throw a TypeError" — the prose adds
+///   "Interface objects whose interfaces are not declared with a
+///   constructor operation will throw when called, both as a function
+///   and as a constructor").  Interface objects exposed for
+///   `instanceof` / prototype-chain identity but never user-
+///   constructible: `Crypto`, `SubtleCrypto`, `Storage`, `Selection`,
+///   `TreeWalker`, `NodeIterator`, `CustomElementRegistry`,
+///   `ReadableStreamDefaultController`, `BeforeUnloadEvent`,
+///   `FileList`, `TouchList`, `DataTransferItem(List)`,
+///   `CanvasRenderingContext2D`, `OffscreenCanvasRenderingContext2D`.
+///   Distinct from `CallableOnly` (which permits `[[Call]]` and emits
+///   the ECMA-262 §7.2.4 "is not a constructor" message) — the gate
+///   throws in *both* modes with the WebIDL "Illegal constructor"
+///   message.  The thrown text is not spec-prescribed (§3.7 mandates
+///   only "throw a TypeError"); the wording matches Chrome's WebIDL
+///   surface.
 ///
 /// Deliberately NOT `Default`-derived — every `NativeFunction` literal
 /// site must spell out its `shape:` explicitly so an accidental
@@ -705,13 +726,15 @@ pub enum CallShape {
     Ordinary,
     CallableOnly,
     ConstructorOnly,
+    IllegalConstructor,
 }
 
 impl CallShape {
     /// Whether `new` is accepted (i.e. the function is a constructor for
     /// the purposes of `IsConstructor` / `[[Construct]]` admission).
     /// `true` for [`Self::Ordinary`] and [`Self::ConstructorOnly`];
-    /// `false` only for [`Self::CallableOnly`].
+    /// `false` for [`Self::CallableOnly`] and
+    /// [`Self::IllegalConstructor`].
     #[inline]
     pub const fn can_construct(self) -> bool {
         matches!(self, Self::Ordinary | Self::ConstructorOnly)

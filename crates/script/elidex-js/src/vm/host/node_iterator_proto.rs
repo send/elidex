@@ -113,8 +113,8 @@ impl VmInner {
 
         self.node_iterator_prototype = Some(proto_id);
 
-        let ctor =
-            self.create_constructable_function("NodeIterator", native_node_iterator_constructor);
+        let ctor = self
+            .create_illegal_constructor_function("NodeIterator", native_node_iterator_constructor);
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             ctor,
@@ -139,9 +139,9 @@ fn native_node_iterator_constructor(
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    Err(VmError::type_error(
-        "Failed to construct 'NodeIterator': Illegal constructor",
-    ))
+    // Unreachable: `CallShape::IllegalConstructor` gate throws before
+    // this body runs (dispatch / `do_new`).
+    unreachable!("NodeIterator IllegalConstructor gate throws before body runs")
 }
 
 // ---------------------------------------------------------------------------

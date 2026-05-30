@@ -494,9 +494,9 @@ pub(super) fn native_default_controller_illegal_constructor(
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    Err(VmError::type_error(
-        "Failed to construct 'ReadableStreamDefaultController': Illegal constructor",
-    ))
+    // Unreachable: `CallShape::IllegalConstructor` gate throws before
+    // this body runs (dispatch / `do_new`).
+    unreachable!("ReadableStreamDefaultController IllegalConstructor gate throws before body runs")
 }
 
 // ---------------------------------------------------------------------------

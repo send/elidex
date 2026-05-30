@@ -97,8 +97,8 @@ impl VmInner {
         self.subtle_crypto_prototype = Some(proto_id);
 
         // `SubtleCrypto` constructor stub — throws per WebIDL §14.
-        let ctor =
-            self.create_constructable_function("SubtleCrypto", native_subtle_crypto_illegal_ctor);
+        let ctor = self
+            .create_illegal_constructor_function("SubtleCrypto", native_subtle_crypto_illegal_ctor);
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             ctor,
@@ -180,9 +180,9 @@ fn native_subtle_crypto_illegal_ctor(
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    Err(VmError::type_error(
-        "Failed to construct 'SubtleCrypto': Illegal constructor",
-    ))
+    // Unreachable: `CallShape::IllegalConstructor` gate throws before
+    // this body runs (dispatch / `do_new`).
+    unreachable!("SubtleCrypto IllegalConstructor gate throws before body runs")
 }
 
 // ---------------------------------------------------------------------------

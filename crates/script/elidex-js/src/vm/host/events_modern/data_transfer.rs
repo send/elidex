@@ -82,7 +82,7 @@ pub(in crate::vm) fn register_data_transfer_item_global(vm: &mut VmInner) {
         "DataTransferItem",
         native_dt_item_illegal_constructor,
         vm.well_known.data_transfer_item_global,
-        super::super::super::value::CallShape::Ordinary,
+        super::super::super::value::CallShape::IllegalConstructor,
     );
     // `kind` / `type` readonly accessors + `getAsString` /
     // `getAsFile` methods.  StringId fields are Copy — snapshot
@@ -137,7 +137,7 @@ pub(in crate::vm) fn register_data_transfer_item_list_global(vm: &mut VmInner) {
         "DataTransferItemList",
         native_dt_item_list_illegal_constructor,
         vm.well_known.data_transfer_item_list_global,
-        super::super::super::value::CallShape::Ordinary,
+        super::super::super::value::CallShape::IllegalConstructor,
     );
     let k_length = vm.well_known.length;
     let k_add = vm.well_known.add;
@@ -810,7 +810,9 @@ fn native_dt_item_illegal_constructor(
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    Err(VmError::type_error("Illegal constructor"))
+    // Unreachable: `CallShape::IllegalConstructor` gate throws before
+    // this body runs (dispatch / `do_new`).
+    unreachable!("DataTransferItem IllegalConstructor gate throws before body runs")
 }
 
 fn require_dt_item_receiver(
@@ -999,7 +1001,9 @@ fn native_dt_item_list_illegal_constructor(
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    Err(VmError::type_error("Illegal constructor"))
+    // Unreachable: `CallShape::IllegalConstructor` gate throws before
+    // this body runs (dispatch / `do_new`).
+    unreachable!("DataTransferItemList IllegalConstructor gate throws before body runs")
 }
 
 fn require_dt_item_list_receiver(

@@ -736,7 +736,7 @@ impl VmInner {
         self.install_readable_stream_default_controller_members(controller_proto);
         self.readable_stream_default_controller_prototype = Some(controller_proto);
 
-        let controller_ctor = self.create_constructable_function(
+        let controller_ctor = self.create_illegal_constructor_function(
             "ReadableStreamDefaultController",
             controller::native_default_controller_illegal_constructor,
         );

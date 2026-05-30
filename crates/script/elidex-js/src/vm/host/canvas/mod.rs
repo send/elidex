@@ -139,7 +139,7 @@ impl VmInner {
             "CanvasRenderingContext2D",
             native_illegal_constructor,
             global_sid,
-            super::super::value::CallShape::Ordinary,
+            super::super::value::CallShape::IllegalConstructor,
         );
     }
 
@@ -788,7 +788,9 @@ fn native_illegal_constructor(
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    Err(VmError::type_error("Illegal constructor"))
+    // Unreachable: `CallShape::IllegalConstructor` gate throws before
+    // this body runs (dispatch / `do_new`).
+    unreachable!("CanvasRenderingContext2D IllegalConstructor gate throws before body runs")
 }
 
 // ---------------------------------------------------------------------------

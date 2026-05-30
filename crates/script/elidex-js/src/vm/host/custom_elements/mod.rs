@@ -95,7 +95,7 @@ impl VmInner {
         // identifier still needs a global binding so `customElements
         // instanceof CustomElementRegistry` and `CustomElementRegistry
         // .prototype` parity work.
-        let ctor = self.create_constructable_function(
+        let ctor = self.create_illegal_constructor_function(
             "CustomElementRegistry",
             native_ce_registry_illegal_ctor,
         );
@@ -160,9 +160,9 @@ fn native_ce_registry_illegal_ctor(
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    Err(VmError::type_error(
-        "Failed to construct 'CustomElementRegistry': Illegal constructor",
-    ))
+    // Unreachable: `CallShape::IllegalConstructor` gate throws before
+    // this body runs (dispatch / `do_new`).
+    unreachable!("CustomElementRegistry IllegalConstructor gate throws before body runs")
 }
 
 // ---------------------------------------------------------------------------

@@ -250,7 +250,7 @@ impl VmInner {
         // is required as a global so `localStorage instanceof Storage`
         // and `Storage.prototype` parity work (WebIDL §3.7 +
         // browser-observed behaviour).
-        let ctor = self.create_constructable_function("Storage", native_storage_illegal_ctor);
+        let ctor = self.create_illegal_constructor_function("Storage", native_storage_illegal_ctor);
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             ctor,
@@ -331,9 +331,9 @@ fn native_storage_illegal_ctor(
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    Err(VmError::type_error(
-        "Failed to construct 'Storage': Illegal constructor",
-    ))
+    // Unreachable: `CallShape::IllegalConstructor` gate throws before
+    // this body runs (dispatch / `do_new`).
+    unreachable!("Storage IllegalConstructor gate throws before body runs")
 }
 
 // ---------------------------------------------------------------------------

@@ -11,15 +11,22 @@
 //! - [`Ordinary`] (Object): both bare-call and `new` succeed.
 //! - [`ConstructorOnly`] (Promise): bare-call throws the canonical
 //!   TypeError emitted at `vm/interpreter.rs::call_dispatch` (WebIDL
-//!   §3.7.1 step 1.2 + ECMA-262 §27.2.3.1 step 1); `new` returns a
-//!   Promise instance.
+//!   §3.7 interface-object step 2 + ECMA-262 §27.2.3.1 step 1); `new`
+//!   returns a Promise instance.
+//! - [`IllegalConstructor`] (Crypto, FileList, …): BOTH bare-call and
+//!   `new` throw the canonical `"Failed to construct '{name}': Illegal
+//!   constructor"` (WebIDL §3.7 interface-object step 1 — no ctor
+//!   operation), gated at `do_new` (Construct) + `call_dispatch` (Call)
+//!   with the shared `VmError::illegal_constructor` SoT.  Added by
+//!   `#11-vm-native-illegal-constructor-shape`.
 //!
-//! Plan-memo `m4-12-pr-vm-native-constructor-only-flag-plan.md` §6
-//! Sanity tests bullet list (Stage 3c deliverable).
+//! Plan-memo `m4-12-pr-vm-native-constructor-only-flag-plan.md` §6 +
+//! `m4-12-pr-vm-native-illegal-constructor-shape-plan.md` §3.2 / §4
+//! Sanity tests (Stage 3c deliverable).
 
 use super::super::value::JsValue;
 use super::super::Vm;
-use super::{assert_ctor_requires_new, eval_bool};
+use super::{assert_ctor_requires_new, assert_illegal_constructor, eval_bool};
 
 // ---------------------------------------------------------------------------
 // CallableOnly — Symbol (ECMA-262 §10.3 + §20.4.1.1)
@@ -88,4 +95,69 @@ fn promise_construct_resolves() {
         .eval("new Promise(function(res, rej){res(42)}) instanceof Promise")
         .unwrap();
     assert_eq!(result, JsValue::Boolean(true));
+}
+
+// ---------------------------------------------------------------------------
+// IllegalConstructor — both-mode throw across all 15 migrated sites
+// (#11-vm-native-illegal-constructor-shape §3.2)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn illegal_constructor_both_modes_all_sites() {
+    // Every WebIDL interface object that declares no constructor
+    // operation throws `"Failed to construct '{name}': Illegal
+    // constructor"` for BOTH `new X()` (gated at `do_new`) and bare
+    // `X()` (gated at `call_dispatch`).  `assert_illegal_constructor`
+    // exercises both modes per name, so this single test is 30 checks
+    // (15 sites × 2 modes) against the shared
+    // `VmError::illegal_constructor` SoT — the two-chokepoint sync guard.
+    for interface in [
+        "Crypto",
+        "SubtleCrypto",
+        "Storage",
+        "Selection",
+        "TreeWalker",
+        "NodeIterator",
+        "CustomElementRegistry",
+        "ReadableStreamDefaultController",
+        "BeforeUnloadEvent",
+        "FileList",
+        "TouchList",
+        "DataTransferItem",
+        "DataTransferItemList",
+        "CanvasRenderingContext2D",
+        "OffscreenCanvasRenderingContext2D",
+    ] {
+        assert_illegal_constructor(interface);
+    }
+}
+
+#[test]
+fn illegal_constructor_distinct_from_typedarray_carveout() {
+    // %TypedArray% is the deliberate carve-out (ECMA-262 §23.2.1.1
+    // abstract-class wording, NOT migrated to IllegalConstructor —
+    // plan §3.3 DR-3).  It must still throw, but with its ECMA-flavored
+    // message, NOT the WebIDL "Illegal constructor" form — proving the
+    // carve-out held.  `%TypedArray%` is not a global binding, so it is
+    // reached via `Object.getPrototypeOf(Uint8Array)` (the abstract
+    // intrinsic is the [[Prototype]] of the concrete TA ctors).
+    let mut vm = Vm::new();
+    let msg = match vm
+        .eval(
+            "try { Object.getPrototypeOf(Uint8Array)(); 'no throw' } \
+             catch (e) { e.message }",
+        )
+        .unwrap()
+    {
+        JsValue::String(id) => vm.get_string(id),
+        other => panic!("expected string error message, got {other:?}"),
+    };
+    assert!(
+        msg.contains("not directly constructable"),
+        "%TypedArray% carve-out should keep its ECMA abstract-class message, got: {msg}",
+    );
+    assert!(
+        !msg.contains("Illegal constructor"),
+        "%TypedArray% must NOT use the WebIDL IllegalConstructor message (carve-out), got: {msg}",
+    );
 }

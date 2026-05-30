@@ -119,7 +119,7 @@ impl VmInner {
             "FileList",
             native_file_list_illegal_constructor,
             global_sid,
-            super::super::value::CallShape::Ordinary,
+            super::super::value::CallShape::IllegalConstructor,
         );
     }
 
@@ -169,13 +169,14 @@ fn require_file_list_this(
 // Members
 // ---------------------------------------------------------------------------
 
-#[allow(clippy::needless_pass_by_value)]
 fn native_file_list_illegal_constructor(
     _ctx: &mut NativeContext<'_>,
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    Err(VmError::type_error("Illegal constructor"))
+    // Unreachable: `CallShape::IllegalConstructor` gate throws before
+    // this body runs (dispatch / `do_new`).
+    unreachable!("FileList IllegalConstructor gate throws before body runs")
 }
 
 fn native_file_list_get_length(

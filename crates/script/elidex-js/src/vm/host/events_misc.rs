@@ -38,7 +38,8 @@
 
 use super::super::shape;
 use super::super::value::{
-    JsValue, NativeContext, ObjectId, ObjectKind, PropertyKey, PropertyValue, VmError,
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
+    PropertyValue, VmError,
 };
 use super::super::VmInner;
 use super::events::{parse_event_init, type_arg};
@@ -132,12 +133,31 @@ impl VmInner {
     /// `Object.create(BeforeUnloadEvent.prototype).returnValue` does
     /// not silently grow the side table.
     pub(in crate::vm) fn register_before_unload_event_global(&mut self) {
-        register_event_subclass(
+        // Unlike the other event subclasses, `BeforeUnloadEvent` declares
+        // NO constructor operation (HTML §9.10.2) — `new BeforeUnloadEvent()`
+        // AND bare `BeforeUnloadEvent()` both throw "Illegal constructor".
+        // So it does NOT go through `register_event_subclass` (which installs
+        // a `ConstructorOnly` ctor for the constructable event subclasses);
+        // instead it gets a dedicated inline registration with
+        // `CallShape::IllegalConstructor`.  Mirrors the helper's proto setup
+        // (parent = `Event.prototype`) but selects the illegal shape.
+        let parent = self
+            .event_prototype
+            .expect("Event.prototype must be registered first");
+        let proto_id = self.alloc_object(Object {
+            kind: ObjectKind::Ordinary,
+            storage: PropertyStorage::shaped(super::super::shape::ROOT_SHAPE),
+            prototype: Some(parent),
+            extensible: true,
+        });
+        self.before_unload_event_prototype = Some(proto_id);
+        super::events::install_ctor(
             self,
+            proto_id,
             "BeforeUnloadEvent",
             native_before_unload_event_constructor,
             self.well_known.before_unload_event_global,
-            |vm, id| vm.before_unload_event_prototype = Some(id),
+            super::super::value::CallShape::IllegalConstructor,
         );
         // Install `returnValue` mutable accessor pair on the prototype.
         let proto_id = self.before_unload_event_prototype.expect(
@@ -586,16 +606,17 @@ fn native_progress_event_constructor(
 // BeforeUnloadEvent (HTML §9.10.2)
 // ---------------------------------------------------------------------------
 
-/// `new BeforeUnloadEvent(...)` always throws — per WHATWG IDL the
-/// interface declares no `[Constructor]`.  The thrown `TypeError` text
-/// matches Chrome's "Illegal constructor" wording (also used by other
-/// constructable-only WebIDL interfaces in the workspace).
+/// `new BeforeUnloadEvent(...)` and bare `BeforeUnloadEvent(...)` both
+/// throw — per WHATWG IDL the interface declares no constructor
+/// operation (registered as [`CallShape::IllegalConstructor`]).
 fn native_before_unload_event_constructor(
     _ctx: &mut NativeContext<'_>,
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    Err(VmError::type_error("Illegal constructor"))
+    // Unreachable: `CallShape::IllegalConstructor` gate throws before
+    // this body runs (dispatch / `do_new`).
+    unreachable!("BeforeUnloadEvent IllegalConstructor gate throws before body runs")
 }
 
 /// `BeforeUnloadEvent.prototype.returnValue` getter — reads the

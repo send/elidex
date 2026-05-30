@@ -92,6 +92,24 @@ impl VmError {
         }
     }
 
+    /// Single source of truth for the `"Failed to construct '{name}':
+    /// Illegal constructor"` TypeError raised for a
+    /// [`super::value::CallShape::IllegalConstructor`] native — a WebIDL
+    /// interface object that declares no constructor operation and so
+    /// throws in BOTH `[[Call]]` and `[[Construct]]` modes (WebIDL §3.7
+    /// interface-object algorithm step 1).  Called from the two gate
+    /// chokepoints (`call_dispatch` bare-call arm + `do_new`
+    /// non-constructable arm); keeping the message here prevents the two
+    /// sites from drifting (the two-chokepoint hazard).  The wording is
+    /// not spec-prescribed (§3.7 mandates only "throw a TypeError");
+    /// matches Chrome's WebIDL surface.
+    pub fn illegal_constructor(name: &str) -> Self {
+        Self {
+            kind: VmErrorKind::TypeError,
+            message: format!("Failed to construct '{name}': Illegal constructor"),
+        }
+    }
+
     pub fn reference_error(message: impl Into<String>) -> Self {
         Self {
             kind: VmErrorKind::ReferenceError,
