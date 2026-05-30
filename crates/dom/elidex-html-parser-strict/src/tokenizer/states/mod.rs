@@ -451,11 +451,14 @@ impl Tokenizer {
     /// Consume the next input character (§13.2.5 "consume the next input
     /// character"). `None` signals EOF.
     ///
-    /// The cursor is clamped at the EOF sentinel `input.len() + 1`: once it
-    /// is past the end, repeated consumes (e.g. reconsuming EOF across
-    /// states) leave it there rather than growing without bound, so
-    /// `reconsume_in` stays paired with a single position and EOF
-    /// parse-error positions don't drift.
+    /// The `consume()` cursor is clamped at the EOF sentinel
+    /// `input.len() + 1`: once past the end, repeated consumes (e.g.
+    /// reconsuming EOF across states) leave it there rather than growing
+    /// without bound, so `reconsume_in` stays paired with a single
+    /// position and EOF parse-error positions don't drift. (The
+    /// lookahead-commit helper [`Self::advance`] is not clamped, but every
+    /// caller gates it behind a successful [`Self::matches_ahead`] that
+    /// proves the characters exist, so it never advances past the end.)
     pub(super) fn consume(&mut self) -> Option<char> {
         let c = self.input.get(self.pos).copied();
         if self.pos <= self.input.len() {
