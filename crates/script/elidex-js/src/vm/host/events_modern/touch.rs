@@ -29,7 +29,7 @@ use super::super::super::value::{
 };
 use super::super::super::webidl_sequence::{webidl_sequence_to_vec, SeqMessages};
 use super::super::super::VmInner;
-use super::super::events::{check_construct, type_arg};
+use super::super::events::type_arg;
 use super::super::events_extras::{read_bool, read_number};
 use super::super::events_ui::{opts_object_id, parse_ui_event_init, register_descendant};
 use super::{TouchListState, TouchState};

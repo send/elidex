@@ -13,7 +13,7 @@ use super::super::super::value::{
     JsValue, NativeContext, ObjectKind, PropertyKey, PropertyValue, VmError,
 };
 use super::super::super::VmInner;
-use super::super::events::{check_construct, type_arg};
+use super::super::events::type_arg;
 use super::super::events_ui::{
     opts_object_id, parse_mouse_event_members, parse_ui_event_init, register_descendant,
     MouseEventMembers,

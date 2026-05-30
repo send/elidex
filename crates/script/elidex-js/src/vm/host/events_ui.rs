@@ -39,7 +39,7 @@ use super::super::value::{
     PropertyValue, StringId, VmError,
 };
 use super::super::{NativeFn, VmInner};
-use super::events::{check_construct, install_ctor, parse_event_init, type_arg, EventInit};
+use super::events::{install_ctor, parse_event_init, type_arg, EventInit};
 
 // ---------------------------------------------------------------------------
 // Helpers

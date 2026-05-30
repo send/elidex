@@ -31,7 +31,7 @@ use super::super::value::{
 };
 use super::super::VmInner;
 
-use super::events::{check_construct, parse_event_init, type_arg};
+use super::events::{parse_event_init, type_arg};
 use super::events_extras::register_event_subclass;
 
 impl VmInner {

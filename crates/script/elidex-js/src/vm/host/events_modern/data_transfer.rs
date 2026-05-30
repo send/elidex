@@ -35,7 +35,7 @@ use super::super::super::value::{
 };
 use super::super::super::wrapper_intern::{WrapperKey, WrapperKind, WrapperOwner, WrapperSubkey};
 use super::super::super::VmInner;
-use super::super::events::{check_construct, install_ctor};
+use super::super::events::install_ctor;
 use super::{DataTransferEntry, DataTransferState, DropEffect, EffectAllowed};
 
 // ---------------------------------------------------------------------------

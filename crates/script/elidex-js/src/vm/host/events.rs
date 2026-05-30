@@ -428,21 +428,6 @@ impl VmInner {
 // Constructors + init-dict parsers
 // ---------------------------------------------------------------------
 
-/// Shared WebIDL `[Constructor]` gate — every Event family ctor
-/// must reject call-mode invocation (`Event('click')` without `new`)
-/// before reaching any argument coercion.  Returns `Err(TypeError)`
-/// in call mode, `Ok(())` in construct mode.  Error message format
-/// matches the `Event` / `CustomEvent` ctors originally in this file.
-pub(super) fn check_construct(ctx: &NativeContext<'_>, interface: &str) -> Result<(), VmError> {
-    if ctx.is_construct() {
-        Ok(())
-    } else {
-        Err(VmError::type_error(format!(
-            "Failed to construct '{interface}': Please use the 'new' operator",
-        )))
-    }
-}
-
 /// Extract the required `type` first-argument from a ctor call.
 /// Absent arg → TypeError; Symbol or other non-string values pass
 /// through `coerce::to_string` (Symbol throws per ECMA-262 §7.1.18).

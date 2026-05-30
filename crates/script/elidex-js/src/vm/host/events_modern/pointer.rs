@@ -17,7 +17,7 @@
 use super::super::super::shape;
 use super::super::super::value::{JsValue, NativeContext, ObjectId, PropertyValue, VmError};
 use super::super::super::VmInner;
-use super::super::events::{check_construct, type_arg};
+use super::super::events::type_arg;
 use super::super::events_extras::{read_bool, read_number};
 use super::super::events_ui::{
     opts_object_id, parse_mouse_event_members, parse_ui_event_init, register_descendant,
