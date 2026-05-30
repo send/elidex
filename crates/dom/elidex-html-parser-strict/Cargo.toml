@@ -12,6 +12,14 @@ categories = ["web-programming"]
 
 [dependencies]
 elidex-ecs.workspace = true
+phf = { workspace = true }
+
+[build-dependencies]
+phf_codegen = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

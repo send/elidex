@@ -30,6 +30,7 @@
 
 mod error;
 mod result;
+mod tokenizer;
 
 pub use error::StrictParseError;
 pub use result::{ParseFragmentOptions, ParseResult};

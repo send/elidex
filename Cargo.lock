@@ -2007,6 +2007,9 @@ name = "elidex-html-parser-strict"
 version = "0.1.0"
 dependencies = [
  "elidex-ecs",
+ "phf",
+ "phf_codegen",
+ "serde_json",
 ]
 
 [[package]]
