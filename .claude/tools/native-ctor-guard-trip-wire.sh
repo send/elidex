@@ -10,11 +10,16 @@
 # `CallShape::ConstructorOnly` discriminant.  This wire catches any
 # regression that re-introduces either historic form:
 #
-#   #1  `if !ctx.is_construct` literal-guard reintroduction (whole-crate,
+#   #1  `if !ctx.is_construct()` literal-guard reintroduction (whole-crate,
 #       NOT vm/host/-scoped — Promise lives at vm/natives_promise.rs in
 #       core VM per §5 F23 IMP 2026-05-30).
 #   #2  `check_construct(ctx` helper call regression (helper itself was
 #       deleted in Stage 3b).
+#   #3  `let Some(... ) = ctx.new_target() else { TypeError 'Please use
+#       the new operator' }` body-guard reintroduction (HTMLElement
+#       pattern, migrated to ConstructorOnly per /code-review F1
+#       2026-05-30 — same WebIDL §3.7.1 step 1.2 mandate, different
+#       guard idiom).
 #
 # Doc-comment mentions (//, ///, //!) describing the historic pattern in
 # `vm/interpreter.rs:318` (dispatch-gate doc), `vm/shape_ops.rs:291`
@@ -40,8 +45,11 @@ green() { printf '\033[32m%s\033[0m\n' "$*"; }
 
 fail=0
 
-echo "trip-wire #1: per-ctor 'if !ctx.is_construct' literal-guard reintroduction"
-literal_hits=$(grep -rEn 'if !ctx\.is_construct' "$SRC" 2>/dev/null | strip_comments || true)
+echo "trip-wire #1: per-ctor 'if !ctx.is_construct()' literal-guard reintroduction"
+# Word-boundary the predicate with `\(\)` so a future sibling method like
+# `is_constructable()` / `is_constructor()` used in similar position does
+# not false-positive trip the wire.
+literal_hits=$(grep -rEn 'if !ctx\.is_construct\(\)' "$SRC" 2>/dev/null | strip_comments || true)
 if [ -n "$literal_hits" ]; then
   red "FAIL (per-ctor literal guard returned — should be unified at vm/interpreter.rs::call_dispatch via CallShape::ConstructorOnly)"
   echo "$literal_hits"
@@ -55,6 +63,21 @@ helper_hits=$(grep -rEn 'check_construct\(ctx' "$SRC" 2>/dev/null | strip_commen
 if [ -n "$helper_hits" ]; then
   red "FAIL (check_construct helper re-introduced — was deleted in Stage 3b; route through CallShape::ConstructorOnly instead)"
   echo "$helper_hits"
+  fail=1
+else
+  green "OK"
+fi
+
+echo "trip-wire #3: 'let Some(... ) = ctx.new_target() else' body-guard re-introduction"
+# HTMLElement-class bare-call guard idiom — same WebIDL §3.7.1 step 1.2
+# mandate as #1 but spelled via Option destructuring instead of
+# `is_construct()`.  Post-/code-review F1 (2026-05-30) the sole site
+# (`vm/host/custom_elements/html_element.rs`) routes through
+# `CallShape::ConstructorOnly`.
+new_target_hits=$(grep -rEn 'let Some\(.*\) *= *ctx\.new_target\(\) *else' "$SRC" 2>/dev/null | strip_comments || true)
+if [ -n "$new_target_hits" ]; then
+  red "FAIL (per-ctor 'let Some = ctx.new_target() else' guard returned — should be unified at vm/interpreter.rs::call_dispatch via CallShape::ConstructorOnly + .expect() on the body's NewTarget read)"
+  echo "$new_target_hits"
   fail=1
 else
   green "OK"

@@ -287,9 +287,12 @@ impl VmInner {
     /// Helper: create a [`CallShape::ConstructorOnly`] native function
     /// object — `new Foo(...)` accepted, bare `Foo(...)` throws the
     /// canonical WebIDL §3.7.1 step 1.2 TypeError at the dispatch site.
-    /// Used by every WebIDL Interface-object ctor; replaces the historic
-    /// per-ctor `if !ctx.is_construct() { ... }` entry guard.
-    #[cfg(feature = "engine")]
+    /// Used by every WebIDL Interface-object ctor + the core-VM Promise
+    /// ctor; replaces the historic per-ctor `if !ctx.is_construct() { ... }`
+    /// entry guard.  Not engine-gated (sibling parity with
+    /// [`Self::create_constructable_function`] / [`Self::create_native_function`])
+    /// so the core-VM Promise install at `vm/globals_async.rs` can reach
+    /// it without a non-`engine` build break.
     pub(crate) fn create_constructor_only_function(
         &mut self,
         name: &str,

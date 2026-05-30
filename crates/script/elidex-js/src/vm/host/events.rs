@@ -567,10 +567,17 @@ pub(super) fn install_ctor(
         }
         super::super::value::CallShape::Ordinary => vm.create_constructable_function(name, func),
         super::super::value::CallShape::CallableOnly => {
-            // No current caller passes CallableOnly via install_ctor —
-            // illegal-ctor wrappers use Ordinary today.  Reserved for
-            // future spec-precise migration of "no [[Construct]]" ctors.
-            vm.create_native_function(name, func)
+            // install_ctor builds the `ctor.prototype` / `proto_id.constructor`
+            // back-edge below, which is structurally meaningless on a
+            // CallableOnly function (`new Foo()` would be rejected by
+            // `do_new`'s `can_construct() == false` check).  Reject at
+            // install-time rather than producing a half-formed interface
+            // object — if a CallableOnly Interface lands in future, give
+            // it a sibling helper with no prototype back-edge.
+            unreachable!(
+                "install_ctor with CallShape::CallableOnly — \
+                 use a CallableOnly-specific installer instead",
+            );
         }
     };
     let proto_key = PropertyKey::String(vm.well_known.prototype);

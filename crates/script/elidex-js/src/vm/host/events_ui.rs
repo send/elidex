@@ -27,9 +27,10 @@
 //!
 //! ## Constructor gate
 //!
-//! Every ctor starts with `ctx.is_construct()` (WebIDL `[Constructor]`
-//! §2.2) → call-mode `UIEvent('x')` throws TypeError matching all major
-//! browsers.
+//! Every ctor in this file is installed via `events::install_ctor` with
+//! `CallShape::ConstructorOnly`, so the WebIDL §3.7.1 step 1.2 bare-call
+//! TypeError (`UIEvent('x')` etc.) fires at the dispatch-side gate in
+//! `vm/interpreter.rs::call_dispatch` — no per-body guard is needed.
 
 #![cfg(feature = "engine")]
 

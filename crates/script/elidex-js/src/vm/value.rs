@@ -674,10 +674,12 @@ pub struct JsCalleeInfo {
     pub callee_obj_id: ObjectId,
 }
 
-/// Which call modes a native function accepts.  Three-valued discriminator
-/// replacing the older `constructable: bool` (which left the
-/// `(callable: false, constructable: false)` state structurally
-/// representable but semantically invalid).
+/// Which call modes a native function accepts.  Three-valued
+/// discriminator replacing the older `constructable: bool` — the new
+/// `ConstructorOnly` variant captures the WebIDL `[Constructor]`-only
+/// mandate (NewTarget-required) that the bool form could not express,
+/// which is what allowed the 67 per-body `if !ctx.is_construct()`
+/// guards to drift independently before this refactor.
 ///
 /// * [`CallShape::Ordinary`] — both `[[Call]]` and `[[Construct]]` are
 ///   accepted (ECMA-262 §10.3 built-in functions; `Array`, `Object`,
@@ -691,14 +693,15 @@ pub struct JsCalleeInfo {
 ///   `Symbol`, `BigInt`.
 /// * [`CallShape::ConstructorOnly`] — `[[Construct]]` only; `[[Call]]`
 ///   throws TypeError per WebIDL §3.7.1 step 1.2 ("If NewTarget is
-///   undefined, then throw a TypeError").  Every Interface-object ctor.
+///   undefined, then throw a TypeError").  Every Interface-object ctor
+///   plus the core-VM Promise ctor (ECMA-262 §27.2.3.1 step 1).
 ///
-/// `#[default] Ordinary` keeps the common case zero-friction at struct
-/// construction; the `non_exhaustive`-style enum surface means any future
-/// variant addition forces a `match` walk at every consumer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+/// Deliberately NOT `Default`-derived — every `NativeFunction` literal
+/// site must spell out its `shape:` explicitly so an accidental
+/// `..Default::default()` cannot silently fall back to a more
+/// permissive variant and bypass the dispatch gate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CallShape {
-    #[default]
     Ordinary,
     CallableOnly,
     ConstructorOnly,
