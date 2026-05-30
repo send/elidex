@@ -302,10 +302,18 @@ pub(super) fn write_at_with_routing(
             .view
             .as_ref()
             .expect("wasm_backed_buffers → view Some coupling invariant");
-        #[allow(clippy::cast_possible_truncation)]
         // Silent no-op on OOB matches `write_at`'s contract — call
-        // sites pre-validate against the view's byte length.
-        let _ = view.write(abs as u32, bytes);
+        // sites pre-validate against the view's byte length.  The
+        // `try_from` guard collapses `abs > u32::MAX` into the same
+        // OOB no-op rather than silently wrapping (the sibling
+        // `read_into_with_routing` / `copy_bytes_with_routing` have
+        // a `byte_size` precheck that makes the cast unconditionally
+        // safe; this wrapper has no such precheck, so the guard sits
+        // at the boundary instead).
+        let Ok(abs_u32) = u32::try_from(abs) else {
+            return;
+        };
+        let _ = view.write(abs_u32, bytes);
     } else {
         write_at(&mut vm.body_data, buffer_id, abs, bytes);
     }
