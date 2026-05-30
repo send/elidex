@@ -56,8 +56,9 @@ use super::errors::wasm_error_to_vm_error;
 const FROZEN_EXPORT_ATTR: PropertyAttrs = PropertyAttrs::WEBIDL_RO_PERMANENT;
 
 /// Walk `WasmInstance::exports()` and build the frozen exports
-/// namespace JS object per WASM JS API §5 / §5.2 step 3 + step 6.
-/// Returns the allocated namespace's `ObjectId`.
+/// namespace JS object per WASM JS API §5 `create an exports
+/// object` (called via §5.2 ctor step 6 → `initialize an instance
+/// object` step 3).  Returns the allocated namespace's `ObjectId`.
 ///
 /// Each exported item is wrapped into a fresh JS wrapper with the
 /// matching `ObjectKind` brand + inserted into the per-VM side-store
@@ -340,7 +341,7 @@ fn js_value_to_wasm_value(
     match expected {
         WasmValueType::I32 => {
             let n = ctx.to_number(val)?;
-            // ECMA-262 §7.1.6 ToInt32 — mod-2^32 wrap via shared helper.
+            // ECMA-262 §7.1.7 ToInt32 — mod-2^32 wrap via shared helper.
             // Direct `n as i64 as i32` would saturate per Rust RFC 2484
             // (Infinity → -1, NaN-handling diverges) instead of spec
             // mod-2^32 truncation.

@@ -56,8 +56,8 @@ pub(super) fn native_wasm_instance_constructor(
 
     // Brand-promote the construct-mode receiver so subclassing via
     // `class X extends WebAssembly.Instance {}` preserves
-    // `new.target.prototype` (ECMA-262 §10.2.1.2 ConstructorCall
-    // step 5.b → OrdinaryCreateFromConstructor).  Mirrors the
+    // `new.target.prototype` (ECMA-262 §10.2.2 [[Construct]] step
+    // 5.b → §10.1.13 OrdinaryCreateFromConstructor).  Mirrors the
     // Module / Memory / Table / Global ctor pattern.
     let proto = ctx
         .vm

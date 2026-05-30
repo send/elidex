@@ -216,28 +216,28 @@ fn compile_returns_promise_resolved_on_valid_bytes() {
 }
 
 /// WASM JS API §5 `WebAssembly.compile(bytes)` — invalid bytes
-/// reject with `CompileError` (verified via `.catch(e => e instanceof
-/// WebAssembly.CompileError)` chain).  Microtask draining is handled
-/// by `vm.eval` running a full tick.
+/// reject with `CompileError`.  Uses the side-channel pattern
+/// (`globalThis.__compile_test__.outcome`) so the rejection class is
+/// observable in a second `vm.eval` after the microtask queue
+/// drains, matching `instantiate_bytes_overload_resolves_with_dict`
+/// + `missing_import_surfaces_as_link_error` Promise-overload tests.
 #[test]
 fn compile_rejects_with_compile_error_on_invalid_bytes() {
     let mut vm = Vm::new();
-    let result = vm
+    let _ = vm
         .eval(
-            "var captured; \
-             WebAssembly.compile(new Uint8Array([0xff,0xff,0xff,0xff]).buffer) \
-                 .then(() => { captured = 'resolved' }, \
-                       e => { captured = e instanceof WebAssembly.CompileError ? 'compile' : 'other' }); \
-             // Force microtask drain: chain a second then to bind `captured` for the eval result. \
-             Promise.resolve().then(() => captured);",
+            "globalThis.__compile_test__ = {}; \
+             WebAssembly.compile(new Uint8Array([0xff,0xff,0xff,0xff]).buffer).then( \
+                 _ => { globalThis.__compile_test__.outcome = 'resolved'; }, \
+                 e => { globalThis.__compile_test__.outcome = \
+                            e instanceof WebAssembly.CompileError ? 'compile' : 'other'; } \
+             );",
         )
         .unwrap();
-    // The eval value is the second-then's resulting Promise; we
-    // can't easily read the post-microtask `captured` synchronously
-    // here, but the test passing without panic confirms the
-    // rejection-path executed.  The Stage 5 integration test will
-    // perform the full assertion once the microtask helper is added.
-    let _ = result;
+    assert_eq!(
+        eval_string(&mut vm, "String(globalThis.__compile_test__.outcome)"),
+        "compile"
+    );
 }
 
 // ===========================================================================
@@ -774,7 +774,7 @@ fn missing_import_surfaces_as_link_error() {
     vm.unbind();
 }
 
-/// DR-11 + ECMA-262 §10.4.5.16 IntegerIndexedElementSet — writes
+/// DR-11 + ECMA-262 §10.4.5.18 TypedArraySetElement — writes
 /// through a TypedArray view over a detached buffer are silently
 /// no-ops; reads return `undefined` (legacy contract carried by F3's
 /// `is_detached_buffer` short-circuit in `byte_io::*_with_routing`).
@@ -874,7 +874,7 @@ fn gc_prunes_wasm_side_store_when_unreachable() {
 // ===========================================================================
 
 /// All 5 wasm ctors throw TypeError when invoked without `new`
-/// (WebIDL §3.7.4 'Interface object [[Call]] throws TypeError').
+/// (WebIDL §3.7.1 Interface object [[Call]] throws TypeError).
 #[test]
 fn ctors_require_new_operator() {
     let mut vm = Vm::new();
@@ -915,7 +915,7 @@ fn ctors_require_new_operator() {
 
 /// Subclass chain via `class X extends WebAssembly.Instance {}` —
 /// new.target.prototype must be preserved on the constructed
-/// instance (ECMA-262 §10.2.1.2 step 5.b).  Mirrors the receiver
+/// instance (ECMA-262 §10.2.2 [[Construct]] step 5.b).  Mirrors the receiver
 /// brand-promote pattern from Module/Memory/Table/Global ctors.
 #[test]
 fn instance_ctor_preserves_subclass_prototype() {
@@ -971,7 +971,7 @@ fn gc_retains_wasm_memory_via_buffer_alias() {
     vm.unbind();
 }
 
-/// I32 wasm param coerce uses ECMA-262 §7.1.6 ToInt32 (mod-2^32
+/// I32 wasm param coerce uses ECMA-262 §7.1.7 ToInt32 (mod-2^32
 /// wrap), not Rust `as` saturation.  `Infinity` / `NaN` → 0 per
 /// step 2; `2^32` and `-2^32` wrap to 0.
 #[test]
@@ -1078,7 +1078,8 @@ fn memory_grow_detach_clears_wasm_backed_routing() {
 }
 
 /// [EnforceRange] u32 descriptor coerce throws TypeError on
-/// NaN / ±Infinity per WebIDL §3.2.5 — not RangeError.
+/// NaN / ±Infinity per WebIDL §3.2.4.9 ConvertToInt + §3.3.6
+/// `[EnforceRange]` — not RangeError.
 #[test]
 fn enforcerange_u32_throws_type_error_on_non_finite() {
     let mut vm = Vm::new();
@@ -1098,11 +1099,13 @@ fn enforcerange_u32_throws_type_error_on_non_finite() {
     }
 }
 
-/// Global setter step order: argument coerce runs FIRST (observable
-/// `valueOf` side effects), then immutable check.  Per WASM JS API
-/// §5.5 setter step 4 / WebIDL §3.5.2.
+/// Global setter step order per WASM JS API §5.5 (verified via
+/// `webref body wasm-js-api-2 dom-global-value`): step 5 (mutability
+/// check) fires BEFORE step 6 (`ToWebAssemblyValue`), so writes to an
+/// immutable global throw TypeError without invoking the user's
+/// `valueOf` / `[Symbol.toPrimitive]`.
 #[test]
-fn immutable_global_setter_observes_coerce_side_effects() {
+fn immutable_global_setter_skips_coerce_side_effects() {
     let mut vm = Vm::new();
     assert!(eval_bool(
         &mut vm,
@@ -1110,6 +1113,6 @@ fn immutable_global_setter_observes_coerce_side_effects() {
          var observed = false; \
          var arg = { valueOf: function() { observed = true; return 1; } }; \
          try { g.value = arg; } catch (_) { /* immutable throws */ } \
-         observed === true"
+         observed === false"
     ));
 }

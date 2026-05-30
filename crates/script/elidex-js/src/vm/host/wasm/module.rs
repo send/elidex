@@ -54,7 +54,8 @@ pub(super) fn native_wasm_module_constructor(
     // a freshly-owned `Vec<u8>` so the copy is structural.  The
     // `allow_undefined_as_empty=false` arg matches IDL: the union has
     // no `null/undefined` member, so `new Module()` MUST surface
-    // TypeError per WebIDL §3.2.3 dictionary/union conversion.
+    // TypeError per WebIDL §3.2.25 Union types / §3.2.26 Buffer
+    // source types conversion.
     let bytes = extract_buffer_source_bytes(
         ctx,
         bytes_arg,
@@ -107,7 +108,8 @@ pub(super) fn native_wasm_module_constructor(
 /// [`elidex_wasm_runtime::WasmModule::exports`] (module binary order).
 ///
 /// Throws `TypeError` if `moduleObject` is not a Module instance
-/// (per IDL `Module` interface argument type-check, WebIDL §3.2.21).
+/// (per IDL `Module` interface argument type-check, WebIDL §3.2.15
+/// Interface types).
 pub(super) fn native_wasm_module_exports(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
@@ -208,7 +210,8 @@ pub(super) fn native_wasm_module_custom_sections(
 /// Brand-check helper: pulls the first arg, requires it to be a
 /// `WebAssembly.Module` instance, returns its `ObjectId`.  Used by
 /// the 3 static methods to guard against non-Module arguments
-/// (IDL `Module` interface type-check per WebIDL §3.2.21).
+/// (IDL `Module` interface type-check per WebIDL §3.2.15
+/// Interface types).
 fn require_module_argument(
     ctx: &NativeContext<'_>,
     args: &[JsValue],

@@ -43,7 +43,7 @@ pub(super) fn native_wasm_global_constructor(
     let init_value_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let (value_type, mutable) = coerce_global_descriptor(ctx, descriptor_arg)?;
 
-    // §5.5 setter step 4 — reject v128 at JS boundary.  exnref handled
+    // §5.5 ctor step 3 — reject v128 at JS boundary.  exnref handled
     // by the typed-null surface (HeapType::Exn not yet supported).
     if matches!(value_type, WasmValueType::V128) {
         return Err(VmError::type_error(
@@ -128,23 +128,27 @@ pub(super) fn native_wasm_global_value_set(
         let m = g.mutable();
         (g, vt, m)
     };
-    // WASM JS API §5.5 setter spec step order:
-    //   step 4: ToWebAssemblyValue argument coerce — runs FIRST so
-    //           user `valueOf` / `[Symbol.toPrimitive]` side effects
-    //           are observable before the mutability check (matches
-    //           WebIDL §3.5.2 setter argument-conversion ordering).
-    //   step 5: immutable → TypeError.
+    // WASM JS API §5.5 setter spec step order (verified via
+    // `webref body wasm-js-api-2 dom-global-value`):
+    //   step 4: v128/exnref → TypeError (handled at descriptor parse
+    //           since elidex rejects those globaltypes early).
+    //   step 5: `If mut is const, throw a TypeError` — mutability
+    //           check fires BEFORE ToWebAssemblyValue, so user
+    //           `valueOf` / `[Symbol.toPrimitive]` side effects on an
+    //           immutable set must NOT run.
+    //   step 6: `Let value be ? ToWebAssemblyValue(...)` — coerce
+    //           runs only after the mutability gate passes.
+    if !mutable {
+        return Err(VmError::type_error(
+            "Cannot assign to value of immutable WebAssembly.Global",
+        ));
+    }
     let v = js_value_to_wasm_value(
         ctx,
         value_arg,
         value_type,
         "WebAssembly.Global.prototype.value setter",
     )?;
-    if !mutable {
-        return Err(VmError::type_error(
-            "Cannot assign to value of immutable WebAssembly.Global",
-        ));
-    }
     if let Err(e) = global.set(v) {
         return Err(wasm_error_to_vm_error(ctx, &e));
     }
@@ -239,14 +243,14 @@ fn js_value_to_wasm_value(
     expected: WasmValueType,
     error_prefix: &'static str,
 ) -> Result<WasmValue, VmError> {
-    // §5.5 step 6 — default initializer per value type when `v` is
+    // §5.5 ctor step 4 — default initializer per value type when `v` is
     // omitted (undefined).
     if matches!(val, JsValue::Undefined) {
         return Ok(default_value_for(expected));
     }
     match expected {
         WasmValueType::I32 => {
-            // ECMA-262 §7.1.6 ToInt32 — mod-2^32 wrap via shared helper.
+            // ECMA-262 §7.1.7 ToInt32 — mod-2^32 wrap via shared helper.
             let n = ctx.to_number(val)?;
             Ok(WasmValue::I32(f64_to_int32(n)))
         }

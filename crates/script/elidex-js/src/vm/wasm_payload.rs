@@ -51,13 +51,6 @@ pub(crate) struct WasmModulePayload {
     pub module: WasmModule,
 }
 
-// Stages 3-4 will wire the remaining `pub` fields below.  Stage 1+2
-// (this PR) only inserts payloads — readers land alongside the
-// matching JS-host code (Instance.exports / Memory.buffer /
-// Table.get-set / Global.value / exported function call adapter).
-// Per-struct `#[allow(dead_code)]` keeps clippy `-D warnings` green
-// until each reader lands.
-
 /// `WebAssembly.Instance` side-store payload (WASM JS API §5.2).
 ///
 /// `module_id` keeps the parent Module alive while the instance
@@ -65,7 +58,6 @@ pub(crate) struct WasmModulePayload {
 /// `exports_id` caches the wrapper-identity-stable exports namespace
 /// (IDL has no `[SameObject]`, but `Object.isFrozen(i.exports) === true`
 /// + cycle-avoidance motivate stable identity — plan-memo DR-4).
-#[allow(dead_code)]
 pub(crate) struct WasmInstancePayload {
     pub instance: WasmInstance,
     /// Parent Module ObjectId — always set at ctor time, traced by GC.
@@ -91,7 +83,6 @@ pub(crate) struct WasmInstancePayload {
 /// or future explicit detach), both fields reset to `None` so the
 /// next `.buffer` access allocates a fresh wrapper + fresh view over
 /// the post-grow backing (plan-memo §5 Stage 4.1).
-#[allow(dead_code)]
 pub(crate) struct WasmMemoryPayload {
     pub memory: WasmMemory,
     pub buffer_id: Option<ObjectId>,
@@ -104,7 +95,6 @@ pub(crate) struct WasmMemoryPayload {
 /// at ctor / exports-wrap time (IMMUTABLE post-build: wasm validation
 /// fixes the table element type) and cached for JS-side `.set(idx,
 /// value)` coerce per declared kind.
-#[allow(dead_code)]
 pub(crate) struct WasmTablePayload {
     pub table: WasmTable,
     pub element_kind: WasmValueType,
@@ -115,7 +105,6 @@ pub(crate) struct WasmTablePayload {
 /// `value_type` / `mutable` are read on demand via
 /// `WasmGlobal::value_type()` / `mutable()` (sentinel discipline per
 /// plan-memo §2.2 — no duplicate metadata fields).
-#[allow(dead_code)]
 pub(crate) struct WasmGlobalPayload {
     pub global: WasmGlobal,
 }
@@ -138,7 +127,6 @@ pub(crate) struct WasmGlobalPayload {
 /// module + linker state) alive for the lifetime of the exported
 /// function — GC trace marks it (see
 /// [`crate::vm::object_kind::ObjectKind::WasmExportedFunction`]).
-#[allow(dead_code)]
 pub(crate) struct WasmExportedFuncPayload {
     pub func: WasmFunc,
     pub params: Vec<WasmValueType>,

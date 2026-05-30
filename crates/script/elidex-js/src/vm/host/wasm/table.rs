@@ -301,10 +301,11 @@ fn wasm_ref_to_js(ctx: &mut NativeContext<'_>, r: &WasmRef) -> JsValue {
 
 /// Coerce a JS value to a u32 per WebIDL `[EnforceRange]` u32 —
 /// rejects NaN/Infinity (TypeError) + out-of-range (TypeError per
-/// WebIDL §3.2.5 — RangeError is reserved for in-domain bounds,
-/// not for the `[EnforceRange]` non-finite / fractional-domain
-/// rejection).  Shared with sibling `memory.rs` / `global.rs` via
-/// the `pub(super)` visibility.
+/// WebIDL §3.2.4.9 ConvertToInt + §3.3.6 `[EnforceRange]` extended
+/// attribute — RangeError is reserved for non-`[EnforceRange]`
+/// in-domain bounds, not for the non-finite / fractional-domain
+/// rejection of `[EnforceRange]` integers).  Shared with sibling
+/// `memory.rs` / `global.rs` via the `pub(super)` visibility.
 pub(super) fn coerce_uint32(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<u32, VmError> {
     let n = ctx.to_number(val)?;
     if !n.is_finite() {

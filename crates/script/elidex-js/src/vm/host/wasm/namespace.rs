@@ -422,7 +422,8 @@ pub(super) fn native_wasm_compile(
         Ok(b) => b,
         Err(e) => {
             // Pre-spec BufferSource conversion failures are TypeErrors
-            // per WebIDL §3.2.21 — `compile` rejects with the
+            // per WebIDL §3.2.26 Buffer source types — `compile`
+            // rejects with the
             // converted exception value (does NOT wrap in CompileError).
             let reason = ctx.vm.vm_error_to_thrown(&e);
             let _ = settle_promise(ctx.vm, promise, true, reason);
@@ -480,14 +481,15 @@ pub(super) fn native_wasm_compile(
 /// The overload split is by `args[0]` brand check:
 /// `ObjectKind::WasmModule` → overload 2, anything else → overload 1
 /// (where overload 1's bytes-coerce surfaces TypeError for non-
-/// BufferSource arguments per WebIDL §3.2.21).
+/// BufferSource arguments per WebIDL §3.2.26 Buffer source types).
 ///
 /// `_options` parameter is currently ignored — the WebIDL surface
 /// defines no observable behaviour for it pre-`builtins` proposal,
 /// per `body wasm-js-api-2 dom-webassembly-instantiate` step 2 +
-/// the IDL `optional dictionary options`.  Stage 5 will sweep any
-/// `String Builtins` proposal landing per `#11-wasm-builtins-proposal`
-/// defer slot if it ever fires.
+/// the IDL `optional dictionary options`.  Spec-correct as-is; a
+/// future `String Builtins` proposal would ship as a separate
+/// `wasm-js-api-2-fork-builtins` spec fork and gets its own slot
+/// at proposal-stabilization time (no D-16 pre-emptive slot).
 pub(super) fn native_wasm_instantiate(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
