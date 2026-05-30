@@ -44,7 +44,7 @@ pub(super) mod table;
 
 use std::sync::Arc;
 
-use elidex_wasm_runtime::{WasmError, WasmErrorKind, WasmRuntime};
+use elidex_wasm_runtime::{WasmError, WasmRuntime};
 
 use super::super::VmInner;
 
@@ -61,9 +61,9 @@ impl VmInner {
     /// # Errors
     ///
     /// Surfaces a [`WasmError`] whose `kind` reflects the underlying
-    /// wasmtime failure: typically [`WasmErrorKind::Compile`] (e.g.
+    /// wasmtime failure: typically `WasmErrorKind::Compile` (e.g.
     /// platforms where the wasmtime cranelift backend is unavailable
-    /// to construct the engine) or [`WasmErrorKind::Link`] (host
+    /// to construct the engine) or `WasmErrorKind::Link` (host
     /// function registration failure during `with_registries`).  All
     /// 3 namespace methods (`validate` / `compile` / `instantiate`) +
     /// 5 ctors propagate this via [`errors::wasm_error_to_js_value`],
