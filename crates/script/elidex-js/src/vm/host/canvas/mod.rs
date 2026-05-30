@@ -137,9 +137,9 @@ impl VmInner {
             self,
             proto_id,
             "CanvasRenderingContext2D",
-            native_illegal_constructor,
+            super::super::value::native_illegal_constructor_unreachable,
             global_sid,
-            super::super::value::CallShape::Ordinary,
+            super::super::value::CallShape::IllegalConstructor,
         );
     }
 
@@ -779,16 +779,6 @@ fn set_canvas_dim_attr(
     let n = coerce::to_uint32(ctx.vm, v)?;
     ctx.host().dom().set_attribute(entity, name, &n.to_string());
     Ok(JsValue::Undefined)
-}
-
-/// The `CanvasRenderingContext2D` / interface object is exposed for `instanceof`
-/// but is not constructable (WebIDL — no `[[Construct]]`).
-fn native_illegal_constructor(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    Err(VmError::type_error("Illegal constructor"))
 }
 
 // ---------------------------------------------------------------------------

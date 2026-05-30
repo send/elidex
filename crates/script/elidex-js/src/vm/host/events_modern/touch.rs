@@ -82,9 +82,9 @@ pub(in crate::vm) fn register_touch_list_global(vm: &mut VmInner) {
         vm,
         proto_id,
         "TouchList",
-        native_touch_list_illegal_constructor,
+        super::super::super::value::native_illegal_constructor_unreachable,
         vm.well_known.touch_list_global,
-        super::super::super::value::CallShape::Ordinary,
+        super::super::super::value::CallShape::IllegalConstructor,
     );
     // `length` accessor + `item(index)` method.
     let length_sid = vm.well_known.length;
@@ -383,16 +383,8 @@ fn coerce_event_target_required(
 }
 
 // ---------------------------------------------------------------------------
-// TouchList constructor (illegal) + accessors
+// TouchList accessors
 // ---------------------------------------------------------------------------
-
-fn native_touch_list_illegal_constructor(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    Err(VmError::type_error("Illegal constructor"))
-}
 
 fn require_touch_list_receiver(
     ctx: &NativeContext<'_>,

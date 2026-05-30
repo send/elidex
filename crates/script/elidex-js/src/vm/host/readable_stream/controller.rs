@@ -487,18 +487,6 @@ pub(super) fn native_readable_stream_default_controller_error(
     Ok(JsValue::Undefined)
 }
 
-// `new ReadableStreamDefaultController()` is illegal per spec
-// §4.5.3 — only the stream constructor allocates one.
-pub(super) fn native_default_controller_illegal_constructor(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    Err(VmError::type_error(
-        "Failed to construct 'ReadableStreamDefaultController': Illegal constructor",
-    ))
-}
-
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------

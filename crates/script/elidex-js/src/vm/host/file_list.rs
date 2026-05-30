@@ -117,9 +117,9 @@ impl VmInner {
             self,
             proto_id,
             "FileList",
-            native_file_list_illegal_constructor,
+            super::super::value::native_illegal_constructor_unreachable,
             global_sid,
-            super::super::value::CallShape::Ordinary,
+            super::super::value::CallShape::IllegalConstructor,
         );
     }
 
@@ -168,15 +168,6 @@ fn require_file_list_this(
 // ---------------------------------------------------------------------------
 // Members
 // ---------------------------------------------------------------------------
-
-#[allow(clippy::needless_pass_by_value)]
-fn native_file_list_illegal_constructor(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    Err(VmError::type_error("Illegal constructor"))
-}
 
 fn native_file_list_get_length(
     ctx: &mut NativeContext<'_>,

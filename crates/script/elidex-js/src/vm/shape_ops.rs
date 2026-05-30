@@ -302,6 +302,29 @@ impl VmInner {
         self.create_native_function_impl(name_id, func, super::value::CallShape::ConstructorOnly)
     }
 
+    /// Helper: create a [`CallShape::IllegalConstructor`] native function
+    /// object — BOTH `new Foo(...)` and bare `Foo(...)` throw the
+    /// canonical `"Failed to construct '{name}': Illegal constructor"`
+    /// TypeError at the dispatch / `do_new` site, per the WebIDL §3.7.1
+    /// (Interface object) creation algorithm step 1.1 ("If I was not
+    /// declared with a constructor operation, then throw a TypeError").  Used by every
+    /// WebIDL Interface-object that is exposed for `instanceof` /
+    /// prototype identity but declares no constructor operation
+    /// (`Crypto`, `Selection`, `FileList`, …); replaces the historic
+    /// per-ctor `Err(VmError::type_error("Illegal constructor"))` body
+    /// throw.  The collapsed `func` body is `unreachable!` (the gate
+    /// throws before the body runs — see `do_new` / `call_dispatch`).
+    /// Not engine-gated (sibling parity with
+    /// [`Self::create_constructor_only_function`]).
+    pub(crate) fn create_illegal_constructor_function(
+        &mut self,
+        name: &str,
+        func: fn(&mut NativeContext<'_>, JsValue, &[JsValue]) -> Result<JsValue, VmError>,
+    ) -> ObjectId {
+        let name_id = self.strings.intern(name);
+        self.create_native_function_impl(name_id, func, super::value::CallShape::IllegalConstructor)
+    }
+
     /// Helper: create a native function whose `name` is already interned
     /// (typically a [`super::well_known::WellKnownStrings`] field).  Saves
     /// the per-call `strings.intern(...)` round-trip plus the

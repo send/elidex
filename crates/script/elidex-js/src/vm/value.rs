@@ -692,9 +692,33 @@ pub struct JsCalleeInfo {
 ///   the `new` evaluation site raises "not a constructor".
 ///   `Symbol`, `BigInt`.
 /// * [`CallShape::ConstructorOnly`] — `[[Construct]]` only; `[[Call]]`
-///   throws TypeError per WebIDL §3.7.1 step 1.2 ("If NewTarget is
-///   undefined, then throw a TypeError").  Every Interface-object ctor
-///   plus the core-VM Promise ctor (ECMA-262 §27.2.3.1 step 1).
+///   throws TypeError per the WebIDL §3.7.1 (Interface object) creation
+///   algorithm step 1.2 ("If NewTarget is undefined, then throw a
+///   TypeError").  Every Interface-object ctor that DOES declare a
+///   constructor operation, plus the core-VM Promise ctor (ECMA-262
+///   §27.2.3.1 step 1).
+/// * [`CallShape::IllegalConstructor`] — neither `[[Call]]` nor
+///   `[[Construct]]`; BOTH modes throw TypeError per the WebIDL §3.7.1
+///   (Interface object) creation algorithm step 1.1 ("If I was not
+///   declared with a constructor operation, then throw a TypeError" — the prose adds
+///   "Interface objects whose interfaces are not declared with a
+///   constructor operation will throw when called, both as a function
+///   and as a constructor").  Interface objects exposed for
+///   `instanceof` / prototype-chain identity but never user-
+///   constructible: `Crypto`, `SubtleCrypto`, `Storage`, `Selection`,
+///   `TreeWalker`, `NodeIterator`, `CustomElementRegistry`,
+///   `ReadableStreamDefaultController`, `BeforeUnloadEvent`,
+///   `FileList`, `TouchList`, `DataTransferItem(List)`,
+///   `CanvasRenderingContext2D`, `OffscreenCanvasRenderingContext2D`,
+///   `AbortSignal` (no `constructor()` in its WebIDL — instances come
+///   from `new AbortController().signal` / the static `AbortSignal.abort`
+///   / `.timeout` / `.any` factories).
+///   Distinct from `CallableOnly` (which permits `[[Call]]` and emits
+///   the ECMA-262 §7.2.4 "is not a constructor" message) — the gate
+///   throws in *both* modes with the WebIDL "Illegal constructor"
+///   message.  The thrown text is not spec-prescribed (§3.7.1 mandates
+///   only "throw a TypeError"); the wording matches Chrome's WebIDL
+///   surface.
 ///
 /// Deliberately NOT `Default`-derived — every `NativeFunction` literal
 /// site must spell out its `shape:` explicitly so an accidental
@@ -705,17 +729,43 @@ pub enum CallShape {
     Ordinary,
     CallableOnly,
     ConstructorOnly,
+    IllegalConstructor,
 }
 
 impl CallShape {
     /// Whether `new` is accepted (i.e. the function is a constructor for
     /// the purposes of `IsConstructor` / `[[Construct]]` admission).
     /// `true` for [`Self::Ordinary`] and [`Self::ConstructorOnly`];
-    /// `false` only for [`Self::CallableOnly`].
+    /// `false` for [`Self::CallableOnly`] and
+    /// [`Self::IllegalConstructor`].
     #[inline]
     pub const fn can_construct(self) -> bool {
         matches!(self, Self::Ordinary | Self::ConstructorOnly)
     }
+}
+
+/// The single, shared `func` body for every [`CallShape::IllegalConstructor`]
+/// native (a WebIDL interface object that declares no constructor operation).
+///
+/// Both gate chokepoints — `do_new` (`[[Construct]]`) and `call_dispatch`
+/// (`[[Call]]`) — reject an `IllegalConstructor` native via
+/// [`VmError::illegal_constructor`] (keyed on the function's own
+/// [`NativeFunction::name`]) *before* its `func` is ever read, so this body
+/// is unreachable. A native function's identity is its [`ObjectId`], not its
+/// `func` pointer, so all 16 interface objects sharing one body is sound
+/// (`Crypto !== Storage` still holds). One shared sentinel replaces what
+/// would otherwise be 16 identical per-interface `unreachable!()` stubs —
+/// the unification's true endpoint (see the regression trip-wire
+/// `.claude/tools/native-ctor-guard-trip-wire.sh`).
+pub(crate) fn native_illegal_constructor_unreachable(
+    _ctx: &mut NativeContext<'_>,
+    _this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    unreachable!(
+        "CallShape::IllegalConstructor gate throws in do_new / call_dispatch \
+         before this body runs"
+    )
 }
 
 /// A native function callable from JS.

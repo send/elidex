@@ -107,7 +107,10 @@ impl VmInner {
         // is required as a global so `crypto instanceof Crypto` and
         // `Crypto.prototype` parity work (WebIDL §10 + browser-
         // observed behaviour).
-        let ctor = self.create_constructable_function("Crypto", native_crypto_illegal_ctor);
+        let ctor = self.create_illegal_constructor_function(
+            "Crypto",
+            super::super::value::native_illegal_constructor_unreachable,
+        );
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             ctor,
@@ -208,20 +211,6 @@ fn require_crypto_this(
         )));
     }
     Ok(id)
-}
-
-// ---------------------------------------------------------------------------
-// Constructor stub — `new Crypto()` throws per WebIDL §10
-// ---------------------------------------------------------------------------
-
-fn native_crypto_illegal_ctor(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    Err(VmError::type_error(
-        "Failed to construct 'Crypto': Illegal constructor",
-    ))
 }
 
 // ---------------------------------------------------------------------------

@@ -181,7 +181,10 @@ impl VmInner {
         // `Selection` constructor function so `sel instanceof
         // Selection` works; invoking it throws `TypeError` per spec
         // "Illegal constructor".
-        let ctor = self.create_constructable_function("Selection", native_selection_illegal_ctor);
+        let ctor = self.create_illegal_constructor_function(
+            "Selection",
+            super::super::value::native_illegal_constructor_unreachable,
+        );
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             ctor,
@@ -238,20 +241,6 @@ impl VmInner {
         }
         id
     }
-}
-
-// ---------------------------------------------------------------------------
-// Constructor (illegal — spec)
-// ---------------------------------------------------------------------------
-
-fn native_selection_illegal_ctor(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    Err(VmError::type_error(
-        "Failed to construct 'Selection': Illegal constructor",
-    ))
 }
 
 // ---------------------------------------------------------------------------

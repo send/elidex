@@ -548,11 +548,13 @@ fn receiver_chains_to(
 ///
 /// `shape` selects the [`CallShape`] for the underlying NativeFunction:
 /// [`CallShape::ConstructorOnly`] for WebIDL Interface ctors (`new`-only,
-/// bare-call rejected at dispatch via WebIDL §3.7.1 step 1.2), or
-/// [`CallShape::Ordinary`] for the few illegal-ctor wrappers reused for
-/// IDL types with no public constructor (`TouchList` / `FileList` /
-/// `DataTransferItem` / `DataTransferItemList`) where the ctor body
-/// throws "Illegal constructor" in both call modes.
+/// bare-call rejected at dispatch via the WebIDL §3.7.1 (Interface object)
+/// creation algorithm step 1.2), or [`CallShape::IllegalConstructor`] for the
+/// illegal-ctor wrappers reused for IDL types with no public constructor
+/// (`TouchList` / `FileList` / `DataTransferItem` / `DataTransferItemList`
+/// / `CanvasRenderingContext2D` / `OffscreenCanvasRenderingContext2D`)
+/// where both `new Foo()` and bare `Foo()` throw "Illegal constructor"
+/// at the gate (WebIDL §3.7.1 (Interface object) creation algorithm step 1.1).
 pub(super) fn install_ctor(
     vm: &mut VmInner,
     proto_id: ObjectId,
@@ -564,6 +566,9 @@ pub(super) fn install_ctor(
     let ctor = match shape {
         super::super::value::CallShape::ConstructorOnly => {
             vm.create_constructor_only_function(name, func)
+        }
+        super::super::value::CallShape::IllegalConstructor => {
+            vm.create_illegal_constructor_function(name, func)
         }
         super::super::value::CallShape::Ordinary => vm.create_constructable_function(name, func),
         super::super::value::CallShape::CallableOnly => {

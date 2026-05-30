@@ -89,15 +89,16 @@ impl VmInner {
 
         self.custom_element_registry_prototype = Some(proto_id);
 
-        // `CustomElementRegistry` constructor stub — throws on
-        // call/construct per WebIDL §3.7 ("Illegal constructor" — HTML
-        // §4.13.4 declares CustomElementRegistry with no exposed ctor). The
+        // `CustomElementRegistry` declares no constructor operation, so
+        // both call and construct throw "Illegal constructor" at the gate
+        // (WebIDL §3.7.1 (Interface object) creation algorithm step 1.1;
+        // HTML §4.13.4 declares CustomElementRegistry with no exposed ctor). The
         // identifier still needs a global binding so `customElements
         // instanceof CustomElementRegistry` and `CustomElementRegistry
         // .prototype` parity work.
-        let ctor = self.create_constructable_function(
+        let ctor = self.create_illegal_constructor_function(
             "CustomElementRegistry",
-            native_ce_registry_illegal_ctor,
+            super::super::value::native_illegal_constructor_unreachable,
         );
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
@@ -148,21 +149,6 @@ impl VmInner {
         self.custom_element_registry_instance = Some(id);
         id
     }
-}
-
-// ---------------------------------------------------------------------------
-// Constructor stub — `new CustomElementRegistry()` throws per WebIDL §3.7
-// (HTML §4.13.4: `CustomElementRegistry` has no exposed constructor)
-// ---------------------------------------------------------------------------
-
-fn native_ce_registry_illegal_ctor(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    Err(VmError::type_error(
-        "Failed to construct 'CustomElementRegistry': Illegal constructor",
-    ))
 }
 
 // ---------------------------------------------------------------------------

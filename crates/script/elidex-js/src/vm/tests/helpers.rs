@@ -192,3 +192,33 @@ pub(crate) fn assert_ctor_requires_new(expr: &str, interface: &str) {
         "ctor `{expr}` should throw canonical TypeError",
     );
 }
+
+/// Assert that a [`CallShape::IllegalConstructor`] WebIDL interface
+/// object throws the canonical `"Failed to construct '{interface}':
+/// Illegal constructor"` TypeError in BOTH call modes — `new
+/// Interface()` (gated at `vm/ops.rs::do_new`) AND bare `Interface()`
+/// (gated at `vm/interpreter.rs::call_dispatch`).  Both messages come
+/// from the single SoT `VmError::illegal_constructor`, so this verifies
+/// the two chokepoints stay in sync (WebIDL §3.7.1 (Interface object)
+/// creation algorithm step 1.1 — interface declares no constructor
+/// operation).
+///
+/// `interface` is the WebIDL Interface name appearing between the single
+/// quotes (e.g. `"Crypto"`, `"FileList"`).  One call per the 16
+/// IllegalConstructor sites covered by plan-memo
+/// `m4-12-pr-vm-native-illegal-constructor-shape-plan.md` §3.2 (+ AbortSignal).
+pub(crate) fn assert_illegal_constructor(interface: &str) {
+    let expected = format!("Failed to construct '{interface}': Illegal constructor");
+    for expr in [format!("new {interface}()"), format!("{interface}()")] {
+        let mut vm = Vm::new();
+        let src = format!("try {{ {expr}; 'no throw' }} catch (e) {{ e.message }}");
+        let msg = match vm.eval(&src).unwrap() {
+            JsValue::String(id) => vm.get_string(id),
+            other => panic!("expected string error message, got {other:?} (expr: {expr})"),
+        };
+        assert_eq!(
+            msg, expected,
+            "illegal-ctor `{expr}` should throw canonical TypeError in both call modes",
+        );
+    }
+}

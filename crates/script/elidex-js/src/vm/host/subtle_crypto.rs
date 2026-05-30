@@ -96,9 +96,13 @@ impl VmInner {
 
         self.subtle_crypto_prototype = Some(proto_id);
 
-        // `SubtleCrypto` constructor stub — throws per WebIDL §14.
-        let ctor =
-            self.create_constructable_function("SubtleCrypto", native_subtle_crypto_illegal_ctor);
+        // `SubtleCrypto` declares no constructor operation — registered as
+        // IllegalConstructor so both call/construct throw at the gate
+        // (Web Cryptography API §14 SubtleCrypto interface).
+        let ctor = self.create_illegal_constructor_function(
+            "SubtleCrypto",
+            super::super::value::native_illegal_constructor_unreachable,
+        );
         let proto_key = PropertyKey::String(self.well_known.prototype);
         self.define_shaped_property(
             ctor,
@@ -169,20 +173,6 @@ fn require_subtle_crypto_this(
         )));
     }
     Ok(id)
-}
-
-// ---------------------------------------------------------------------------
-// Constructor stub — `new SubtleCrypto()` throws per WebIDL §14
-// ---------------------------------------------------------------------------
-
-fn native_subtle_crypto_illegal_ctor(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    Err(VmError::type_error(
-        "Failed to construct 'SubtleCrypto': Illegal constructor",
-    ))
 }
 
 // ---------------------------------------------------------------------------

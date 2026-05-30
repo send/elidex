@@ -83,6 +83,37 @@ else
   green "OK"
 fi
 
+echo "trip-wire #4: per-ctor 'Illegal constructor' body-throw re-introduction"
+# #11-vm-native-illegal-constructor-shape: the 16 WebIDL interface objects
+# that declare no constructor operation (Crypto / FileList / AbortSignal / …)
+# collapsed their per-body `Err(VmError::type_error("Illegal constructor"))` /
+# `"Failed to construct '{X}': Illegal constructor"` throws to a single
+# both-mode gate driven by `CallShape::IllegalConstructor` (thrown via the
+# `VmError::illegal_constructor` SoT at `vm/ops.rs::do_new` +
+# `vm/interpreter.rs::call_dispatch`).  This wire catches any regression
+# that re-introduces a literal "Illegal constructor" TypeError in a ctor
+# body.  Excludes: (a) the `VmError::illegal_constructor` SoT definition in
+# `vm/error.rs` (the canonical builder), (b) doc-comments, (c) the
+# %TypedArray% carve-out whose ECMA message is "...not directly
+# constructable" (different string, not matched here), (d) the
+# `custom_elements/html_element.rs` HTMLElement carve-out — a *conditional*
+# throw gated on `new.target == html_element_ctor` (direct `new
+# HTMLElement()` only; CE-subclass `super()` proceeds), so it is
+# `ConstructorOnly` with an in-body conditional, NOT an unconditional
+# IllegalConstructor (plan §3.3 DR-4), (e) `tests/` assertion strings.
+illegal_hits=$(grep -rEn 'type_error\(.*Illegal constructor|: Illegal constructor"' "$SRC" 2>/dev/null \
+  | strip_comments \
+  | grep -v 'vm/error\.rs:' \
+  | grep -v 'vm/host/custom_elements/html_element\.rs:' \
+  | grep -v '/tests/' || true)
+if [ -n "$illegal_hits" ]; then
+  red "FAIL (per-ctor 'Illegal constructor' body-throw returned — should be unified via CallShape::IllegalConstructor + VmError::illegal_constructor SoT)"
+  echo "$illegal_hits"
+  fail=1
+else
+  green "OK"
+fi
+
 if [ "$fail" -ne 0 ]; then
   red ""; red "elidex-js native-ctor-guard discipline trip-wires FAILED"
   exit 1

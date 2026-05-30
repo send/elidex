@@ -80,9 +80,9 @@ pub(in crate::vm) fn register_data_transfer_item_global(vm: &mut VmInner) {
         vm,
         proto_id,
         "DataTransferItem",
-        native_dt_item_illegal_constructor,
+        super::super::super::value::native_illegal_constructor_unreachable,
         vm.well_known.data_transfer_item_global,
-        super::super::super::value::CallShape::Ordinary,
+        super::super::super::value::CallShape::IllegalConstructor,
     );
     // `kind` / `type` readonly accessors + `getAsString` /
     // `getAsFile` methods.  StringId fields are Copy — snapshot
@@ -135,9 +135,9 @@ pub(in crate::vm) fn register_data_transfer_item_list_global(vm: &mut VmInner) {
         vm,
         proto_id,
         "DataTransferItemList",
-        native_dt_item_list_illegal_constructor,
+        super::super::super::value::native_illegal_constructor_unreachable,
         vm.well_known.data_transfer_item_list_global,
-        super::super::super::value::CallShape::Ordinary,
+        super::super::super::value::CallShape::IllegalConstructor,
     );
     let k_length = vm.well_known.length;
     let k_add = vm.well_known.add;
@@ -805,14 +805,6 @@ fn native_dt_set_drag_image(
 // DataTransferItem
 // ---------------------------------------------------------------------------
 
-fn native_dt_item_illegal_constructor(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    Err(VmError::type_error("Illegal constructor"))
-}
-
 fn require_dt_item_receiver(
     ctx: &NativeContext<'_>,
     this: JsValue,
@@ -993,14 +985,6 @@ fn native_dt_item_get_as_file(
 // ---------------------------------------------------------------------------
 // DataTransferItemList
 // ---------------------------------------------------------------------------
-
-fn native_dt_item_list_illegal_constructor(
-    _ctx: &mut NativeContext<'_>,
-    _this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    Err(VmError::type_error("Illegal constructor"))
-}
 
 fn require_dt_item_list_receiver(
     ctx: &NativeContext<'_>,

@@ -692,10 +692,33 @@ impl VmInner {
             }
         }
 
-        // For non-JS callees, validate native constructability.
+        // For non-JS callees, validate native constructability.  Both
+        // non-constructable shapes are gated here (the `[[Construct]]`
+        // chokepoint), but with distinct messages:
+        //   * `IllegalConstructor` (WebIDL §3.7.1 (Interface object)
+        //     creation algorithm step 1.1 — no constructor operation) →
+        //     "Failed to construct '{name}':
+        //     Illegal constructor" (also thrown bare-call at dispatch;
+        //     shared SoT in `VmError::illegal_constructor`).
+        //   * `CallableOnly` (ECMA-262 §10.3 built-in lacking
+        //     `[[Construct]]`; §7.2.4 IsConstructor precondition) →
+        //     "{name} is not a constructor".
         if js_callee.is_none() {
             let obj = self.get_object(ctor_id);
             match &obj.kind {
+                // MUST precede the `!can_construct()` arm below:
+                // `IllegalConstructor` ALSO reports `can_construct() ==
+                // false`, so this arm intercepts it first to emit the
+                // distinct WebIDL "Illegal constructor" message instead of
+                // the generic "is not a constructor". Reordering these two
+                // arms silently regresses the message (caught only by the
+                // call-shape sanity tests, not the compiler).
+                ObjectKind::NativeFunction(ref nf)
+                    if matches!(nf.shape, super::value::CallShape::IllegalConstructor) =>
+                {
+                    let name_str = self.strings.get_utf8(nf.name);
+                    return Err(VmError::illegal_constructor(&name_str));
+                }
                 ObjectKind::NativeFunction(ref nf) if !nf.shape.can_construct() => {
                     let name_str = self.strings.get_utf8(nf.name);
                     return Err(VmError::type_error(format!(
