@@ -104,11 +104,15 @@ pub(super) fn native_wasm_global_value_get(
 }
 
 /// `Global.prototype.value` setter — WASM JS API §5.5 IDL.
-/// - Step 4: v128/exnref → TypeError.
-/// - Step 5: immutable → TypeError (surfaced via `WasmGlobal::set`
-///   returning a `WasmError` whose `kind` is `WasmErrorKind::Runtime`,
-///   marshalled here as `WebAssembly.RuntimeError` by the kind-based
-///   dispatch in `wasm_error_to_vm_error`).
+/// - Step 4: v128/exnref → TypeError (rejected at descriptor parse
+///   since elidex rejects those globaltypes early).
+/// - Step 5: immutable → TypeError thrown **directly** in this fn
+///   (line ~143) before `ToWebAssemblyValue` runs, so user
+///   `valueOf` / `[Symbol.toPrimitive]` side effects must NOT
+///   observe an immutable set.  `WasmGlobal::set` is only invoked
+///   after the mutability gate passes, so its error path covers
+///   non-mutability runtime failures only (marshalled by
+///   `wasm_error_to_vm_error` per kind).
 pub(super) fn native_wasm_global_value_set(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

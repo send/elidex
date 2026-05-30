@@ -24,7 +24,7 @@ use super::super::Vm;
 /// &mut dom, doc) };` before the first `vm.eval` that hits the
 /// wasm-export adapter.  Returns the tuple separately so the caller
 /// keeps the session/dom/doc alive for the bind's lifetime.
-fn setup_vm_for_binding() -> (Vm, SessionCore, EcsDom, elidex_ecs::Entity) {
+fn setup_bound_vm() -> (Vm, SessionCore, EcsDom, elidex_ecs::Entity) {
     let vm = Vm::new();
     let session = SessionCore::new();
     let mut dom = EcsDom::new();
@@ -383,7 +383,7 @@ fn instance_exports_is_empty_on_empty_module() {
 /// dom, document }` triple per F1 D-iii.
 #[test]
 fn exported_function_can_be_called() {
-    let (mut vm, mut session, mut dom, doc) = setup_vm_for_binding();
+    let (mut vm, mut session, mut dom, doc) = setup_bound_vm();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
     let result = vm
         .eval(&format!(
@@ -427,7 +427,7 @@ fn exported_function_is_not_a_constructor() {
 /// the dict back through a captured side-channel.
 #[test]
 fn instantiate_bytes_overload_resolves_with_dict() {
-    let (mut vm, mut session, mut dom, doc) = setup_vm_for_binding();
+    let (mut vm, mut session, mut dom, doc) = setup_bound_vm();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
     let _ = vm
         .eval(&format!(
@@ -450,7 +450,7 @@ fn instantiate_bytes_overload_resolves_with_dict() {
 /// resolves with the bare Instance (no dict wrap).
 #[test]
 fn instantiate_module_overload_resolves_with_instance() {
-    let (mut vm, mut session, mut dom, doc) = setup_vm_for_binding();
+    let (mut vm, mut session, mut dom, doc) = setup_bound_vm();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
     let _ = vm
         .eval(&format!(
@@ -710,7 +710,7 @@ const MEM_WRITE_MODULE_BYTES: &str = "new Uint8Array([\
 /// observe the wasm-side writes (DR-11 routing live-view path).
 #[test]
 fn exported_memory_visible_through_typed_array_view() {
-    let (mut vm, mut session, mut dom, doc) = setup_vm_for_binding();
+    let (mut vm, mut session, mut dom, doc) = setup_bound_vm();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
     let result = vm.eval(&format!(
         "var m = new WebAssembly.Module({MEM_WRITE_MODULE_BYTES}); \
@@ -772,7 +772,7 @@ const IMPORT_MODULE_BYTES_JS: &str = "new Uint8Array([\
 /// classification.
 #[test]
 fn trap_surfaces_as_runtime_error() {
-    let (mut vm, mut session, mut dom, doc) = setup_vm_for_binding();
+    let (mut vm, mut session, mut dom, doc) = setup_bound_vm();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
     assert!(eval_bool(
         &mut vm,
@@ -800,7 +800,7 @@ fn trap_surfaces_as_runtime_error() {
 /// the spec-mandated link-time error class mapping.
 #[test]
 fn missing_import_surfaces_as_link_error() {
-    let (mut vm, mut session, mut dom, doc) = setup_vm_for_binding();
+    let (mut vm, mut session, mut dom, doc) = setup_bound_vm();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
     // Sync ctor path: `new Instance(new Module(bytes))` throws LinkError
     // synchronously at the engine-bridge link step.
@@ -881,7 +881,7 @@ fn memory_grow_silences_writes_through_pre_grow_view() {
 /// is exercised end-to-end.
 #[test]
 fn gc_prunes_wasm_side_store_when_unreachable() {
-    let (mut vm, mut session, mut dom, doc) = setup_vm_for_binding();
+    let (mut vm, mut session, mut dom, doc) = setup_bound_vm();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
     // Allocate via JS: Module + Instance + reach for an exported func
     // (forces `WasmExportedFuncPayload` insert) + Memory side-store
@@ -962,7 +962,7 @@ fn ctors_require_new_operator() {
     }
     // Instance ctor requires a Module first, so test it under a
     // bound VM so the Module ctor succeeds.
-    let (mut vm2, mut session, mut dom, doc) = setup_vm_for_binding();
+    let (mut vm2, mut session, mut dom, doc) = setup_bound_vm();
     unsafe { bind(&mut vm2, &mut session, &mut dom, doc) };
     assert!(eval_bool(
         &mut vm2,
@@ -983,7 +983,7 @@ fn ctors_require_new_operator() {
 /// brand-promote pattern from Module/Memory/Table/Global ctors.
 #[test]
 fn instance_ctor_preserves_subclass_prototype() {
-    let (mut vm, mut session, mut dom, doc) = setup_vm_for_binding();
+    let (mut vm, mut session, mut dom, doc) = setup_bound_vm();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
     assert!(eval_bool(
         &mut vm,
@@ -1005,7 +1005,7 @@ fn instance_ctor_preserves_subclass_prototype() {
 /// the buffer panics on the routing coupling-invariant `.expect`.
 #[test]
 fn gc_retains_wasm_memory_via_buffer_alias() {
-    let (mut vm, mut session, mut dom, doc) = setup_vm_for_binding();
+    let (mut vm, mut session, mut dom, doc) = setup_bound_vm();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
     let _ = vm
         .eval(
@@ -1040,7 +1040,7 @@ fn gc_retains_wasm_memory_via_buffer_alias() {
 /// step 2; `2^32` and `-2^32` wrap to 0.
 #[test]
 fn i32_param_coerce_uses_to_int32() {
-    let (mut vm, mut session, mut dom, doc) = setup_vm_for_binding();
+    let (mut vm, mut session, mut dom, doc) = setup_bound_vm();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
     // The ANSWER module's `main()` takes no params, so use Global
     // i32 setter as a reachable ToInt32 surface: setting a mutable
@@ -1065,7 +1065,7 @@ fn i32_param_coerce_uses_to_int32() {
 /// accepted; Number input rejected with TypeError.
 #[test]
 fn i64_global_round_trips_as_bigint() {
-    let (mut vm, mut session, mut dom, doc) = setup_vm_for_binding();
+    let (mut vm, mut session, mut dom, doc) = setup_bound_vm();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
     // BigInt initializer + getter returns BigInt.
     assert!(eval_bool(
@@ -1098,7 +1098,7 @@ fn i64_global_round_trips_as_bigint() {
 /// surfaces; funcref reverse-lookup keeps `f === f` identity.
 #[test]
 fn exported_function_identity_through_table() {
-    let (mut vm, mut session, mut dom, doc) = setup_vm_for_binding();
+    let (mut vm, mut session, mut dom, doc) = setup_bound_vm();
     unsafe { bind(&mut vm, &mut session, &mut dom, doc) };
     // Reach the exported function via two paths (direct + table) —
     // both must produce the same JS object via reverse-lookup.
