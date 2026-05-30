@@ -764,8 +764,8 @@ pub(super) fn extract_buffer_source_bytes(
                 Ok(super::array_buffer::array_buffer_view_bytes(
                     ctx.vm,
                     buffer_id,
-                    byte_offset,
-                    byte_length,
+                    byte_offset as usize,
+                    byte_length as usize,
                 ))
             }
             _ => Err(VmError::type_error(format!(

@@ -323,10 +323,17 @@ pub(crate) fn array_buffer_bytes(vm: &VmInner, id: ObjectId) -> Vec<u8> {
 pub(crate) fn array_buffer_view_bytes(
     vm: &VmInner,
     buffer_id: ObjectId,
-    byte_offset: u32,
-    byte_length: u32,
+    byte_offset: usize,
+    byte_length: usize,
 ) -> Vec<u8> {
     // DR-11 routing extension (D-16 `#11-wasm-vm` plan §5 Stage 4.1).
+    // Wasm-backed buffers are inherently `u32`-sized in v1 (per-memory
+    // byte_size ≤ 2^32), so `try_from` is the right guard: an offset /
+    // length above `u32::MAX` is unreachable for a real wasm-backed
+    // buffer and surfaces as an empty out-of-range read rather than a
+    // silently-truncated wrap.  Ordinary ArrayBuffers can exceed 4 GiB
+    // (constructor allows up to `min(2^53-1, usize::MAX)`), so the
+    // body_data branch indexes with `usize` directly.
     if let Some(&mem_id) = vm.wasm_backed_buffers.get(&buffer_id) {
         let payload = vm
             .wasm_memory_storage
@@ -336,13 +343,18 @@ pub(crate) fn array_buffer_view_bytes(
             .view
             .as_ref()
             .expect("wasm_backed_buffers → view Some coupling invariant");
-        return view.read(byte_offset, byte_length).unwrap_or_default();
+        let Ok(off_u32) = u32::try_from(byte_offset) else {
+            return Vec::new();
+        };
+        let Ok(len_u32) = u32::try_from(byte_length) else {
+            return Vec::new();
+        };
+        return view.read(off_u32, len_u32).unwrap_or_default();
     }
-    let start = byte_offset as usize;
-    let end = start.saturating_add(byte_length as usize);
+    let end = byte_offset.saturating_add(byte_length);
     vm.body_data
         .get(&buffer_id)
-        .and_then(|src| src.get(start..end))
+        .and_then(|src| src.get(byte_offset..end))
         .map(<[u8]>::to_vec)
         .unwrap_or_default()
 }
@@ -627,11 +639,10 @@ fn native_array_buffer_slice(
     let bytes: Vec<u8> = if final_len == 0 {
         Vec::new()
     } else {
-        #[allow(clippy::cast_possible_truncation)]
-        let bo = start as u32;
-        #[allow(clippy::cast_possible_truncation)]
-        let bl = final_len as u32;
-        array_buffer_view_bytes(ctx.vm, id, bo, bl)
+        // `array_buffer_view_bytes` is `usize`-typed so ArrayBuffers
+        // > 4 GiB (constructor allows up to `min(2^53-1, usize::MAX)`)
+        // slice correctly without u32 truncation.
+        array_buffer_view_bytes(ctx.vm, id, start, final_len)
     };
     let new_id = create_array_buffer_from_bytes(ctx.vm, bytes);
     Ok(JsValue::Object(new_id))

@@ -442,8 +442,8 @@ fn append_blob_part_bytes(
                     let bytes = super::array_buffer::array_buffer_view_bytes(
                         ctx.vm,
                         buffer_id,
-                        byte_offset,
-                        byte_length,
+                        byte_offset as usize,
+                        byte_length as usize,
                     );
                     out.extend_from_slice(&bytes);
                 } else {

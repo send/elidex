@@ -115,6 +115,36 @@ fn blob_slice_fractional_indices_truncate_toward_zero() {
     );
 }
 
+/// Regression for Copilot R5: `array_buffer_view_bytes` now takes
+/// `usize` offsets so ordinary ArrayBuffers > 4 GiB slice correctly.
+/// Pre-fix the helper's `u32` parameters silently wrapped on
+/// `byte_offset > u32::MAX`, returning truncated-position bytes
+/// instead of the spec's out-of-range empty result.  Verifies
+/// directly via the helper (allocating a real >4 GiB ArrayBuffer is
+/// CI-prohibitive); the post-fix code path returns empty because the
+/// small backing Vec can't satisfy an offset above its length.
+#[test]
+fn view_bytes_returns_empty_on_offset_above_u32_max() {
+    use super::super::host::array_buffer::array_buffer_view_bytes;
+    let mut vm = Vm::new();
+    // Materialise a real ArrayBuffer so the helper sees a valid
+    // `body_data` entry (8 bytes).
+    let buf_val = vm.eval("var b = new ArrayBuffer(8); b").unwrap();
+    let JsValue::Object(buf_id) = buf_val else {
+        panic!("expected Object, got {buf_val:?}");
+    };
+    // Offset is > u32::MAX (one past); the helper's pre-fix `as u32`
+    // cast would wrap to 0 and return the first `byte_length` bytes.
+    // Post-fix: usize-typed indexing returns empty for the OOR slice.
+    let huge_off = (u32::MAX as usize).saturating_add(1);
+    let bytes = array_buffer_view_bytes(&vm.inner, buf_id, huge_off, 4);
+    assert!(
+        bytes.is_empty(),
+        "byte_offset above u32::MAX must yield empty bytes, got {} bytes",
+        bytes.len()
+    );
+}
+
 #[test]
 fn slice_out_of_range_clamps_to_length() {
     let mut vm = Vm::new();
