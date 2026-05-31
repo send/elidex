@@ -217,7 +217,11 @@ fn native_event_handler_get(
     let Some(entity) = require_handler_receiver(ctx, this, &format!("on{event_type}"))? else {
         return Ok(JsValue::Null);
     };
-    Ok(read_event_handler(ctx, DispatchTarget::Node(entity), &event_type))
+    Ok(read_event_handler(
+        ctx,
+        DispatchTarget::Node(entity),
+        &event_type,
+    ))
 }
 
 /// Shared setter for every event-handler IDL attribute (WHATWG HTML
@@ -353,7 +357,12 @@ fn native_body_weh_set(
         return Ok(JsValue::Undefined);
     };
     let callable = callable_arg(ctx, args);
-    activate_event_handler(ctx, DispatchTarget::Node(window_entity), &event_type, callable);
+    activate_event_handler(
+        ctx,
+        DispatchTarget::Node(window_entity),
+        &event_type,
+        callable,
+    );
     Ok(JsValue::Undefined)
 }
 

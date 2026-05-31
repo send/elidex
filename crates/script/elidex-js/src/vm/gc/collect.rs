@@ -1523,8 +1523,7 @@ impl VmInner {
                 .filter(|(id, _)| !bit_get(marks, id.0))
                 .flat_map(|(_, listeners)| listeners.ids())
                 .collect();
-            self.vm_event_listeners
-                .retain(|id, _| bit_get(marks, id.0));
+            self.vm_event_listeners.retain(|id, _| bit_get(marks, id.0));
             // Retire each dead-target listener from `listener_store` +
             // `abort_listener_back_refs` (inlined from
             // `remove_listener_and_prune_back_ref`, which takes `&mut self`

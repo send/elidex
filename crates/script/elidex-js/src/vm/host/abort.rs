@@ -23,41 +23,45 @@
 //! is preserved.  GC traces the state via the HashMap (see `gc.rs`)
 //! and prunes dead entries after sweep.
 //!
-//! ## Listener model
+//! ## Listener model (`#11-eventtarget-dispatch-core`)
 //!
-//! Unlike DOM EventTargets backed by an ECS entity, `AbortSignal`
-//! manages its `'abort'` listeners in `AbortSignalState::abort_listeners`.
-//! There is no entity, so [`super::event_target::native_event_target_add_event_listener`]
-//! cannot store anything via `HostData::store_listener`.  Instead this
-//! module shadows the inherited `addEventListener` /
-//! `removeEventListener` / `dispatchEvent` with versions that touch
-//! the in-VM listener Vec.  The `'abort'` event fires exactly once on
-//! the first `controller.abort()` call.
+//! `AbortSignal` is a full member of the **unified EventTarget dispatch
+//! core**.  It inherits `addEventListener` / `removeEventListener` /
+//! `dispatchEvent` from `EventTarget.prototype` (no shadows): the shared
+//! natives route an `AbortSignal` receiver to its
+//! [`super::super::VmInner::vm_event_listeners`] home via
+//! [`super::dispatch_target::DispatchTarget::VmObject`], with callbacks in
+//! `HostData::listener_store`.  Its `onabort` is an event-handler IDL
+//! attribute (one `ListenerKind::EventHandler` entry in the same list, via
+//! the shared VmObject event-handler backend).  `controller.abort()` fires
+//! a real `Event('abort')` through the shared UA-fire
+//! ([`dispatch_vm_simple_event`]); `AbortSignal` is a flat target
+//! (get-the-parent → null, so at-target only) and `'abort'` fires exactly
+//! once (the `aborted` latch makes a second `abort()` a no-op).
+//!
+//! [`AbortSignalState`] keeps only the non-listener state (`aborted` /
+//! `reason` + the `{signal}` back-ref bookkeeping).
 //!
 //! ## Implemented
 //!
 //! - `new AbortController()` → object with `.signal` and `.abort()`.
 //! - `signal.aborted` / `signal.reason` / `signal.onabort`.
-//! - `signal.throwIfAborted()`.
-//! - `signal.addEventListener('abort', cb)` /
-//!   `signal.removeEventListener(...)`.
-//! - `controller.abort(reason?)` — synchronously sets state and
-//!   dispatches `'abort'` to every registered listener and the
-//!   `onabort` slot.  Idempotent; second call is a no-op.
-//! - `addEventListener({signal})` integration — the EventTarget
-//!   path inserts `listener_id → entity` into
-//!   [`AbortSignalState::bound_listener_removals`] and writes a
-//!   reverse `listener_id → signal_id` index entry on
+//! - `signal.throwIfAborted()`; `signal.addEventListener` /
+//!   `removeEventListener` / `dispatchEvent` (inherited, unified).
+//! - `controller.abort(reason?)` — synchronously sets state and fires
+//!   `'abort'` (onabort + every `addEventListener('abort', …)` callback in
+//!   registration order).  Idempotent; second call is a no-op.
+//! - `AbortSignal.abort` / `.timeout` / `.any` static factories (in
+//!   `abort_statics`).
+//! - `addEventListener({signal})` integration — the shared add native
+//!   inserts `listener_id → target` (a [`DispatchTarget`]) into
+//!   [`AbortSignalState::bound_listener_removals`] and a reverse
+//!   `listener_id → signal_id` index on
 //!   [`super::super::VmInner::abort_listener_back_refs`].
-//!   `removeEventListener` consults the reverse index to prune the
-//!   entry in O(1); `abort()` drains the map to detach each
-//!   listener from its host's ECS `EventListeners` component.
-//!
-//! ## Deferred (require Event constructor or `fetch` integration)
-//!
-//! - `AbortSignal.abort(reason)` static factory.
-//! - `AbortSignal.timeout(ms)` static factory.
-//! - `AbortSignal.any(signals)` (recent WHATWG addition).
+//!   `removeEventListener` prunes the entry in O(1); `abort()` drains the
+//!   map and detaches each listener from its home (ECS component for a
+//!   `Node`, `vm_event_listeners` for a `VmObject`) via the listener-home
+//!   adapter.
 
 #![cfg(feature = "engine")]
 
@@ -264,8 +268,14 @@ impl VmInner {
         // `vm_event_listeners` home, dispatched in registration order
         // alongside `addEventListener('abort', …)` callbacks.
         for (name_sid, getter) in [
-            (self.well_known.aborted, native_abort_signal_get_aborted as NativeFn),
-            (self.well_known.reason, native_abort_signal_get_reason as NativeFn),
+            (
+                self.well_known.aborted,
+                native_abort_signal_get_aborted as NativeFn,
+            ),
+            (
+                self.well_known.reason,
+                native_abort_signal_get_reason as NativeFn,
+            ),
         ] {
             self.install_accessor_pair(
                 proto_id,

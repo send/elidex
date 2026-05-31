@@ -22,8 +22,8 @@ use elidex_script_session::event_dispatch::ListenerPlanEntry;
 use elidex_script_session::ListenerKind;
 
 use super::super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, PropertyValue,
-    StringId, VmError,
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, PropertyValue, StringId,
+    VmError,
 };
 use super::super::VmInner;
 use super::dispatch_target::DispatchTarget;
@@ -259,7 +259,12 @@ pub(super) fn dispatch_vm_event(
 
     // §2.9: `target` is set for the whole dispatch and stays observable
     // after — the VM object itself (no element wrapper).
-    set_event_slot_raw(ctx.vm, event_id, EVENT_SLOT_TARGET, JsValue::Object(target_id));
+    set_event_slot_raw(
+        ctx.vm,
+        event_id,
+        EVENT_SLOT_TARGET,
+        JsValue::Object(target_id),
+    );
 
     let mut threw = false;
     // Phase 1: Capture (root → target, exclusive).

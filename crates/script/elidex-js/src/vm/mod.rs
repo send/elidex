@@ -1157,8 +1157,7 @@ pub(crate) struct VmInner {
     /// pruned `ListenerId` from `listener_store` + `abort_listener_back_refs`
     /// in lockstep so a dead target leaks no rooted callback.
     #[cfg(feature = "engine")]
-    pub(crate) vm_event_listeners:
-        HashMap<ObjectId, elidex_script_session::EventListeners>,
+    pub(crate) vm_event_listeners: HashMap<ObjectId, elidex_script_session::EventListeners>,
     /// `Event.prototype` (WebIDL §2.2).  Holds the four event methods
     /// (`preventDefault`, `stopPropagation`, `stopImmediatePropagation`,
     /// `composedPath`) and the `defaultPrevented` accessor, plus the

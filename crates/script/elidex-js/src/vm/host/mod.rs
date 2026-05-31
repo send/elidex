@@ -100,14 +100,14 @@ pub(super) mod custom_elements;
 pub(crate) mod data_view;
 #[cfg(feature = "engine")]
 pub(super) mod dataset;
+#[cfg(feature = "engine")]
+pub(crate) mod dispatch_target;
 pub(super) mod document;
 #[cfg(feature = "engine")]
 pub(super) mod document_fragment_proto;
 pub(super) mod document_type_proto;
 pub(super) mod dom_bridge;
 pub(super) mod dom_collection;
-#[cfg(feature = "engine")]
-pub(crate) mod dispatch_target;
 pub(crate) mod dom_exception;
 #[cfg(feature = "engine")]
 pub(super) mod dom_inner_html;

@@ -187,6 +187,9 @@ impl DispatchTarget {
         if entry.is_handler {
             self.reconcile_handler(ctx, entry.id);
         }
-        ctx.vm.host_data.as_deref().and_then(|h| h.get_listener(entry.id))
+        ctx.vm
+            .host_data
+            .as_deref()
+            .and_then(|h| h.get_listener(entry.id))
     }
 }
