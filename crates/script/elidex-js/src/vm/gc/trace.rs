@@ -173,9 +173,12 @@ pub(super) fn trace_work_list(
     // user-assigned closure isn't collected while the request is reachable.
     // IDBTransaction arms mark the owning db + every request in the request
     // list + the upgrade request.  IDBObjectStore arms mark the owning
-    // transaction.  IDBDatabase / IDBFactory / IDBKeyRange carry no
-    // `ObjectId` references (no-op — IDB listeners + handlers now live in
-    // `vm_event_listeners`, rooted via `listener_store`).
+    // transaction.  IDBFactory / IDBKeyRange carry no `ObjectId` references
+    // (no-op).  IDBDatabase is also a no-op here: its handlers + listeners
+    // now live in `vm_event_listeners` (rooted via `listener_store`), and
+    // its one `ObjectId` field (`IdbDatabaseState::upgrade_txn`) is already
+    // rooted by `mark_roots` (j.2b) for the upgrade transaction's whole
+    // live window — see the `IdbDatabase` arm for the full invariant.
     #[cfg(feature = "engine")] idb_request_states: &std::collections::HashMap<
         ObjectId,
         super::super::host::indexeddb::IdbRequestState,
@@ -429,9 +432,17 @@ pub(super) fn trace_work_list(
             // IDBFactory singleton + IDBKeyRange carry no `ObjectId`
             // references (backend `IdbKeyRange` holds only `IdbKey` values).
             // IDBDatabase's handlers + listeners now live in
-            // `vm_event_listeners` (rooted via `listener_store`), and
-            // `IdbDatabaseState` holds no other `ObjectId`s — so it joins the
-            // no-op arm.
+            // `vm_event_listeners` (rooted via `listener_store`).  Its one
+            // remaining `ObjectId` field — `IdbDatabaseState::upgrade_txn`,
+            // the active `versionchange` transaction — is deliberately NOT
+            // marked here: an upgrade transaction is non-`Finished` for its
+            // entire live window, so it is already a GC root via `mark_roots`
+            // (j.2b — the `idb_transaction_states` non-`Finished` loop), and
+            // `upgrade_txn` is cleared to `None` in lockstep with the
+            // `Finished` transition (`txn.rs` `dispatch_commit_done` /
+            // `abort_transaction`, both synchronous — no GC point between).
+            // So no GC-observable moment has `upgrade_txn = Some` pointing at
+            // a collectible object, and this arm stays a no-op.
             #[cfg(feature = "engine")]
             ObjectKind::IdbFactory | ObjectKind::IdbKeyRange | ObjectKind::IdbDatabase => {}
             // No ObjectId references — only StringId / scalar fields.
