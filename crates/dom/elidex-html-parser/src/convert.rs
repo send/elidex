@@ -8,7 +8,7 @@ use elidex_ecs::{
 };
 use markup5ever_rcdom::{Handle, NodeData, RcDom};
 
-use elidex_html_parser_strict::{ParseFragmentOptions, ParseResult};
+use elidex_html_parser_strict::{ParseFragmentOptions, ParseResult, ParseTier};
 
 pub(crate) fn convert_document(rc_dom: RcDom) -> ParseResult {
     let mut dom = EcsDom::new();
@@ -30,6 +30,12 @@ pub(crate) fn convert_document(rc_dom: RcDom) -> ParseResult {
         document,
         errors,
         encoding: None,
+        // The tolerant html5ever backend is the §11.3 Tier-2 rule-based
+        // recovery handler, so every tree it produces is `Recovered` —
+        // independent of whether recovery rules actually fired (see
+        // `ParseTier`). `parse_progressive` returns this verbatim on the
+        // strict-parse-error fallback path.
+        tier: ParseTier::Recovered,
     }
 }
 

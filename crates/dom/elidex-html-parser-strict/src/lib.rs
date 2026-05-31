@@ -43,7 +43,7 @@ mod tokenizer;
 mod tree_builder;
 
 pub use error::StrictParseError;
-pub use result::{ParseFragmentOptions, ParseResult};
+pub use result::{ParseFragmentOptions, ParseResult, ParseTier};
 
 /// Parse an HTML5 document in strict mode.
 ///

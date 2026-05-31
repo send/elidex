@@ -40,7 +40,7 @@ mod tests_html5lib_tree;
 
 use elidex_ecs::{EcsDom, Entity, Namespace};
 
-use crate::result::ParseResult;
+use crate::result::{ParseResult, ParseTier};
 use crate::tokenizer::states::Tokenizer;
 use crate::tokenizer::token::Token;
 use crate::StrictParseError;
@@ -225,13 +225,16 @@ impl TreeBuilder {
     }
 
     /// Move the finished DOM out into a [`ParseResult`]. Strict success always
-    /// reports an empty error list and no detected encoding (`&str` input).
+    /// reports an empty error list, no detected encoding (`&str` input), and
+    /// [`ParseTier::Clean`] — strict only reaches this point on conforming
+    /// HTML5 (the `§11.3` Tier-1 happy path).
     fn into_result(self) -> ParseResult {
         ParseResult {
             dom: self.dom,
             document: self.document,
             errors: Vec::new(),
             encoding: None,
+            tier: ParseTier::Clean,
         }
     }
 }

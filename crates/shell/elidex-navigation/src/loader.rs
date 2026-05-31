@@ -118,7 +118,9 @@ fn make_get_request(url: url::Url) -> elidex_net::Request {
 ///
 /// 1. Fetches the HTML via `FetchHandle::send_blocking()`.
 /// 2. Detects charset from the `Content-Type` header.
-/// 3. Parses the HTML with `parse_tolerant()`.
+/// 3. Parses the HTML with `parse_progressive()` (HTML §11.3 strict-first
+///    dispatch: the strict parser for conforming HTML5, falling back to the
+///    tolerant html5ever backend on a parse error).
 /// 4. Extracts and fetches external stylesheets.
 /// 5. Extracts and fetches external scripts.
 /// 6. Extracts, fetches, and decodes images (`<img src="...">`).
@@ -156,8 +158,18 @@ pub fn load_document(
         response_headers.entry(key).or_default().push(v.clone());
     }
 
-    // 3. Parse the HTML.
-    let parse_result = elidex_html_parser::parse_tolerant(&response.body, charset_hint.as_deref());
+    // 3. Parse the HTML with §11.3 progressive degradation (strict-first,
+    //    tolerant fallback). The tier records which path produced the tree,
+    //    making the strict-vs-fallback gradient observable.
+    let parse_result =
+        elidex_html_parser::parse_progressive(&response.body, charset_hint.as_deref());
+    tracing::debug!(
+        tier = ?parse_result.tier,
+        encoding = parse_result.encoding,
+        "parsed {} ({} parse warning(s))",
+        response.url,
+        parse_result.errors.len(),
+    );
     for err in &parse_result.errors {
         tracing::warn!("HTML parse warning: {err}");
     }
