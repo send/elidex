@@ -1,7 +1,8 @@
 //! Selector matching: right-to-left component matching against the DOM.
 
 use elidex_ecs::{
-    Attributes, EcsDom, ElementState, Entity, ShadowHost, ShadowRoot, SlottedMarker, TagType,
+    Attributes, EcsDom, ElementState, Entity, NodeKind, ShadowHost, ShadowRoot, SlottedMarker,
+    TagType, TextContent,
 };
 
 use super::traverse::{is_root_element, prev_element_sibling};
@@ -141,6 +142,50 @@ fn is_requirable_element(entity: Entity, dom: &EcsDom) -> bool {
         .is_ok_and(|t| matches!(t.0.as_str(), "input" | "select" | "textarea"))
 }
 
+/// Document white space per the "white space" definition in CSS Selectors L4
+/// §3.7 ("Characters and case sensitivity"): only U+0020 SPACE, U+0009 TAB,
+/// U+000A LINE FEED, U+000D CARRIAGE RETURN, and U+000C FORM FEED. Other
+/// space-like code points (e.g. U+00A0 NBSP) do not count — so `<p>&nbsp;</p>`
+/// is not `:empty`.
+fn is_document_white_space(c: char) -> bool {
+    matches!(c, ' ' | '\t' | '\n' | '\r' | '\u{000C}')
+}
+
+/// CSS Selectors L4 §13.2 `:empty`: an element matches iff it has no children
+/// except, optionally, document white space and comments / processing
+/// instructions (which never affect emptiness). Any element child — or a text
+/// node containing a non-white-space character — makes it non-empty.
+///
+/// (Selectors L2/L3 matched only truly child-less elements; L4 changed this so
+/// that whitespace-only elements — common from source-formatting indentation —
+/// are `:empty`.)
+fn matches_empty(entity: Entity, dom: &EcsDom) -> bool {
+    for child in dom.children_iter(entity) {
+        match dom.node_kind_inferred(child) {
+            // Comments / PIs / doctype do not affect emptiness.
+            Some(NodeKind::Comment | NodeKind::ProcessingInstruction | NodeKind::DocumentType) => {}
+            // A text node is allowed only if its data is entirely document
+            // white space (an empty-string text node trivially qualifies).
+            Some(NodeKind::Text) => {
+                let ws_only = dom
+                    .world()
+                    .get::<&TextContent>(child)
+                    .is_ok_and(|tc| tc.0.chars().all(is_document_white_space));
+                if !ws_only {
+                    return false;
+                }
+            }
+            // Element children make it non-empty. (CDATA sections are also
+            // content nodes per §13.2, but the engine never builds a
+            // `NodeKind::CdataSection` tree node — the parser emits CDATA as
+            // text — so they cannot reach here; if a CDATA constructor is ever
+            // added, give it the same whitespace-only treatment as `Text`.)
+            _ => return false,
+        }
+    }
+    true
+}
+
 /// Match a pseudo-class by name against an entity.
 fn match_pseudo_class(name: &str, entity: Entity, dom: &EcsDom) -> bool {
     match name {
@@ -155,7 +200,7 @@ fn match_pseudo_class(name: &str, entity: Entity, dom: &EcsDom) -> bool {
             dom.first_element_child(parent) == Some(entity)
                 && dom.last_element_child(parent) == Some(entity)
         }),
-        "empty" => dom.get_first_child(entity).is_none(),
+        "empty" => matches_empty(entity, dom),
         "hover" | "focus" | "active" | "link" | "visited" => {
             let state = dom
                 .world()
