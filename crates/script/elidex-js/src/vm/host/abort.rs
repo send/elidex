@@ -560,17 +560,13 @@ pub(super) fn abort_signal(
     }
 
     // Detach back-referenced listeners (set up by `addEventListener`'s
-    // signal-option path) from their host's ECS `EventListeners`
-    // component + `HostData::listener_store`, so subsequent dispatches
-    // skip them.  Despawned-entity errors are silently absorbed —
-    // the listener is already gone.
+    // signal-option path) from each target's listener home (ECS
+    // `EventListeners` for a `Node`, `vm_event_listeners` for a `VmObject`
+    // — incl. the IndexedDB EventTargets, now unified) + the
+    // `HostData::listener_store`, so subsequent dispatches skip them.
+    // Despawned-entity errors are silently absorbed — the listener is
+    // already gone.
     detach_bound_listeners(ctx, &removals);
-
-    // IndexedDB EventTargets keep listeners in an in-VM side store (not ECS),
-    // so their `{signal}` bindings are tracked on the listener itself; drop
-    // any bound to this signal (WHATWG DOM §2.7.3).
-    #[cfg(feature = "engine")]
-    super::indexeddb::remove_idb_listeners_for_signal(ctx.vm, signal_id);
 
     // Fire `'abort'` (bubbles=false, cancelable=false) through the shared
     // EventTarget core on this signal's `vm_event_listeners` home: the

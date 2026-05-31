@@ -664,7 +664,7 @@ pub(super) fn native_event_target_dispatch_event(
 /// silent no-op per elidex's detach-tolerant convention).
 ///
 /// Listener body throws are caught and ignored — this matches
-/// WHATWG §2.10 step 10 "report the exception" and keeps dispatch
+/// WHATWG §2.9 inner-invoke "report the exception" and keeps dispatch
 /// advancing through the remainder of the plan.
 #[cfg(feature = "engine")]
 pub(super) fn native_event_target_dispatch_event(
@@ -730,7 +730,9 @@ pub(super) fn native_event_target_dispatch_event(
     // feed the one shared inner invoke.
     let result = match target {
         DispatchTarget::Node(entity) => dispatch_script_event(ctx, event_id, entity),
-        DispatchTarget::VmObject(id) => dispatch_vm_event(ctx, event_id, id),
+        DispatchTarget::VmObject(id) => {
+            dispatch_vm_event(ctx, event_id, id).map(|outcome| outcome.not_prevented)
+        }
     };
     ctx.vm.dispatched_events.remove(&event_id);
     result.map(JsValue::Boolean)

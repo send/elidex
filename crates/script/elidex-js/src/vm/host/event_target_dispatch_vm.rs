@@ -53,6 +53,36 @@ fn vm_event_parent(vm: &VmInner, id: ObjectId) -> Option<ObjectId> {
     }
 }
 
+/// Whether any listener (normal or event-handler) is registered for
+/// `event_type` anywhere on `target_id`'s get-the-parent path — the
+/// at-target node always, plus the bubbling ancestors when `bubbles`.
+/// Lets a UA-fire skip allocating an event object for an unobserved
+/// target (W3C IDB fires `success` on every request; most are unobserved).
+pub(super) fn vm_path_has_listener(
+    vm: &VmInner,
+    target_id: ObjectId,
+    event_type: &str,
+    bubbles: bool,
+) -> bool {
+    let mut cur = Some(target_id);
+    let mut depth = 0;
+    while let Some(id) = cur {
+        if vm
+            .vm_event_listeners
+            .get(&id)
+            .is_some_and(|l| l.iter_matching(event_type).next().is_some())
+        {
+            return true;
+        }
+        if !bubbles || depth >= VM_DISPATCH_MAX_DEPTH {
+            break;
+        }
+        depth += 1;
+        cur = vm_event_parent(vm, id);
+    }
+    false
+}
+
 /// `(node, listeners)` buckets for one VM dispatch phase.
 type VmPhase = Vec<(ObjectId, Vec<ListenerPlanEntry>)>;
 
@@ -157,13 +187,15 @@ fn vm_propagation_halted(vm: &VmInner, event_id: ObjectId) -> bool {
 
 /// Walk one VM dispatch phase: for each path node set `currentTarget`
 /// (the VM object itself — no element wrapper) + `eventPhase`, then run
-/// the shared §2.9 inner invoke over its listener entries.
+/// the shared §2.9 inner invoke over its listener entries.  Returns
+/// whether any listener threw (OR-accumulated across nodes).
 fn vm_walk_phase(
     ctx: &mut NativeContext<'_>,
     event_id: ObjectId,
     entries: &[(ObjectId, Vec<ListenerPlanEntry>)],
     phase: EventPhase,
-) {
+) -> bool {
+    let mut threw = false;
     for (node_id, listener_entries) in entries {
         if vm_propagation_halted(ctx.vm, event_id) {
             break;
@@ -180,14 +212,28 @@ fn vm_walk_phase(
             EVENT_SLOT_EVENT_PHASE,
             JsValue::Number(f64::from(phase as u8)),
         );
-        invoke_listeners_shared(
+        threw |= invoke_listeners_shared(
             ctx,
             event_id,
             JsValue::Object(*node_id),
             DispatchTarget::VmObject(*node_id),
             listener_entries,
+            // VM UA-fire: defer the microtask checkpoint to post-dispatch
+            // (preserves the IDB transaction-active window / AbortSignal
+            // one-shot timing).
+            false,
         );
     }
+    threw
+}
+
+/// Outcome of a `VmObject` dispatch.
+pub(super) struct VmDispatchOutcome {
+    /// `!default_prevented` (the `dispatchEvent` return value).
+    pub(super) not_prevented: bool,
+    /// Whether any listener threw an uncaught exception (W3C IDB
+    /// §5.9/§5.10 step 8.2 aborts the transaction when true).
+    pub(super) threw: bool,
 }
 
 /// Dispatch `event_id` on a `VmObject` target (WHATWG DOM §2.9), the
@@ -196,13 +242,11 @@ fn vm_walk_phase(
 /// [`super::event_target_dispatch::dispatch_script_event`]): `event_id`
 /// is an `ObjectKind::Event`, and `ctx.vm.dispatched_events` already has
 /// `event_id` inserted (the §2.9 step 1 dispatch flag + GC root).
-///
-/// Returns `Ok(!default_prevented)`.
 pub(super) fn dispatch_vm_event(
     ctx: &mut NativeContext<'_>,
     event_id: ObjectId,
     target_id: ObjectId,
-) -> Result<bool, VmError> {
+) -> Result<VmDispatchOutcome, VmError> {
     let ObjectKind::Event {
         type_sid, bubbles, ..
     } = ctx.vm.get_object(event_id).kind
@@ -217,12 +261,13 @@ pub(super) fn dispatch_vm_event(
     // after — the VM object itself (no element wrapper).
     set_event_slot_raw(ctx.vm, event_id, EVENT_SLOT_TARGET, JsValue::Object(target_id));
 
+    let mut threw = false;
     // Phase 1: Capture (root → target, exclusive).
-    vm_walk_phase(ctx, event_id, &plan.capture, EventPhase::Capturing);
+    threw |= vm_walk_phase(ctx, event_id, &plan.capture, EventPhase::Capturing);
     // Phase 2: At-target.
     if !vm_propagation_halted(ctx.vm, event_id) {
         if let Some(at_target) = plan.at_target.as_ref() {
-            vm_walk_phase(
+            threw |= vm_walk_phase(
                 ctx,
                 event_id,
                 std::slice::from_ref(at_target),
@@ -232,7 +277,7 @@ pub(super) fn dispatch_vm_event(
     }
     // Phase 3: Bubble (target → root, exclusive, reversed).
     if bubbles && !vm_propagation_halted(ctx.vm, event_id) {
-        vm_walk_phase(ctx, event_id, &plan.bubble, EventPhase::Bubbling);
+        threw |= vm_walk_phase(ctx, event_id, &plan.bubble, EventPhase::Bubbling);
     }
 
     // Finalize (§2.9 steps 27-31): clear `currentTarget` + `eventPhase` +
@@ -264,7 +309,10 @@ pub(super) fn dispatch_vm_event(
             ..
         }
     );
-    Ok(!prevented)
+    Ok(VmDispatchOutcome {
+        not_prevented: !prevented,
+        threw,
+    })
 }
 
 /// UA-fire a plain `Event` of `type_sid` at a `VmObject` target (the
@@ -334,5 +382,5 @@ pub(super) fn dispatch_vm_simple_event(
     let result = dispatch_vm_event(ctx, event_id, target_id);
     ctx.vm.dispatched_events.remove(&event_id);
 
-    result.map(|not_default_prevented| !not_default_prevented)
+    result.map(|outcome| !outcome.not_prevented)
 }

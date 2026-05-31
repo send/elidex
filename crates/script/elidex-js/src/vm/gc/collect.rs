@@ -1207,8 +1207,6 @@ impl VmInner {
             #[cfg(feature = "engine")]
             &self.idb_transaction_states,
             #[cfg(feature = "engine")]
-            &self.idb_database_states,
-            #[cfg(feature = "engine")]
             &self.idb_object_store_states,
             &mut self.gc_object_marks,
             &mut self.gc_upvalue_marks,

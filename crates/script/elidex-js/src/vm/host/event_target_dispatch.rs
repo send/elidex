@@ -36,9 +36,9 @@ use super::events::{
 /// Return contract: `Ok(!default_prevented)` on normal completion;
 /// errors are surfaced only if the VM itself cannot continue
 /// (e.g. allocator failure).  Listener-body throws are caught and
-/// ignored (spec §2.10 "report the exception") so the walk
-/// advances past them.
-#[allow(clippy::too_many_lines)] // single capture/target/bubble walk — splitting would scatter §2.10 flow
+/// ignored (spec §2.9 inner invoke "report the exception") so the
+/// walk advances past them.
+#[allow(clippy::too_many_lines)] // single capture/target/bubble walk — splitting would scatter the §2.9 flow
 pub(super) fn dispatch_script_event(
     ctx: &mut NativeContext<'_>,
     event_id: ObjectId,
@@ -342,6 +342,7 @@ fn walk_phase(
             JsValue::Object(current_wrapper),
             DispatchTarget::Node(*entity),
             listener_entries,
+            true, // Node dispatch: microtask checkpoint after each listener
         );
         // Sync the event's flag state back to the local walker so the
         // per-entity / per-phase propagation gates respond to listener
@@ -421,13 +422,29 @@ fn sync_flags_from_event(
 ///
 /// Shared by the Node walk ([`walk_phase`]) and the VM walk
 /// ([`super::event_target_dispatch_vm::vm_walk_phase`]).
+///
+/// Returns whether any listener threw an uncaught exception (swallowed per
+/// the §2.9 report-an-exception step so the walk advances, but surfaced for
+/// callers that need it — W3C IDB §5.9/§5.10 step 8.2 aborts the
+/// transaction when an event handler threw).  The Node walk ignores it.
+///
+/// `drain_after_each` runs a microtask checkpoint after each listener.  The
+/// Node script/UA dispatch does this (established elidex behavior, mirroring
+/// the session-crate UA walk).  VM UA-fires (IDB / AbortSignal) pass `false`:
+/// a microtask queued by a handler must run only once dispatch fully
+/// unwinds — e.g. an IDB transaction is set inactive by its post-dispatch
+/// step, so a `tx.commit()` deferred via `Promise.resolve().then(...)` must
+/// observe the *inactive* transaction (the W3C IDB transaction-active
+/// window), which a mid-dispatch drain would break.
 pub(super) fn invoke_listeners_shared(
     ctx: &mut NativeContext<'_>,
     event_id: ObjectId,
     current_target: JsValue,
     home: DispatchTarget,
     entries: &[ListenerPlanEntry],
-) {
+    drain_after_each: bool,
+) -> bool {
+    let mut threw = false;
     for entry in entries {
         if event_immediate_stopped(ctx.vm, event_id) {
             break;
@@ -466,12 +483,18 @@ pub(super) fn invoke_listeners_shared(
         set_event_passive(ctx.vm, event_id, entry.passive);
         // Invoke the listener.  `this` is the currentTarget per §2.9
         // (matches WebIDL callback `this` binding).  Throw propagation is
-        // swallowed (report-an-exception — the walk advances past it).
-        let _ = ctx.call_value(
-            JsValue::Object(func_obj_id),
-            current_target,
-            &[JsValue::Object(event_id)],
-        );
+        // swallowed (report-an-exception — the walk advances past it) but
+        // recorded so an IDB UA-fire can run §5.9/§5.10 step 8.2.
+        if ctx
+            .call_value(
+                JsValue::Object(func_obj_id),
+                current_target,
+                &[JsValue::Object(event_id)],
+            )
+            .is_err()
+        {
+            threw = true;
+        }
         // Restore the slot to `false` so post-dispatch `preventDefault()`
         // (if called from outside any listener — e.g. a microtask
         // scheduled during dispatch) observes the default non-passive
@@ -486,10 +509,14 @@ pub(super) fn invoke_listeners_shared(
             ctx.vm.remove_listener_and_prune_back_ref(entry.id);
         }
 
-        // HTML §8.1.7.3 microtask checkpoint — drain Promise reactions
-        // queued by the listener before invoking the next listener.
-        ctx.vm.drain_microtasks();
+        // Microtask checkpoint — drain Promise reactions queued by the
+        // listener before invoking the next listener (Node path only; VM
+        // UA-fires defer to post-dispatch — see `drain_after_each`).
+        if drain_after_each {
+            ctx.vm.drain_microtasks();
+        }
     }
+    threw
 }
 
 /// Construct a plain `Event` with the given `type` / `bubbles` /
@@ -563,8 +590,8 @@ pub(super) fn dispatch_simple_event(
     // `Event` marked, the sweep-tail `retain(bit_get(...))` keeps
     // the entry, and the leak is permanent.  In practice the leak
     // is unreachable — listener-thrown JS exceptions go through
-    // the spec §2.10 "report the exception" path (no Rust
-    // unwind), and VM-level failures return `Err(VmError)`
+    // the spec §2.9 inner-invoke "report the exception" path (no
+    // Rust unwind), and VM-level failures return `Err(VmError)`
     // instead of panicking — so the insert/remove pair always
     // pairs up.  Do not rely on the sweep-tail to recover from a
     // missed `.remove`; if a future change introduces a real

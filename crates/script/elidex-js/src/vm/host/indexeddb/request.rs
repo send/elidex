@@ -145,12 +145,11 @@ pub(crate) fn fire_success(
     txn_id: Option<ObjectId>,
 ) {
     let success_sid = ctx.vm.well_known.success;
-    let onsuccess_sid = ctx.vm.well_known.onsuccess;
     if let Some(tid) = txn_id {
         reactivate_if_inactive(ctx.vm, tid);
     }
     // §5.9 step 7: dispatch (success is non-bubbling, non-cancelable).
-    let res = fire_idb_event(ctx, request_id, success_sid, onsuccess_sid, false, false);
+    let res = fire_idb_event(ctx, request_id, success_sid, false, false);
     if let Some(tid) = txn_id {
         run_post_dispatch(ctx, tid, &res, None);
     }
@@ -165,12 +164,11 @@ pub(crate) fn fire_error(
     error_obj: Option<ObjectId>,
 ) {
     let type_sid = ctx.vm.well_known.error;
-    let handler_sid = ctx.vm.well_known.onerror;
     if let Some(tid) = txn_id {
         reactivate_if_inactive(ctx.vm, tid);
     }
     // §5.10 step 7: dispatch (error bubbles + is cancelable).
-    let res = fire_idb_event(ctx, request_id, type_sid, handler_sid, true, true);
+    let res = fire_idb_event(ctx, request_id, type_sid, true, true);
     if let Some(tid) = txn_id {
         run_post_dispatch(ctx, tid, &res, error_obj);
     }

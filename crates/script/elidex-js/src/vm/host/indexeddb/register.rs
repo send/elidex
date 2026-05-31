@@ -57,8 +57,10 @@ impl VmInner {
         let event_proto = self.event_prototype;
 
         // --- IDBRequest : EventTarget --------------------------------------
+        // Inherits `add/remove/dispatchEvent` from `EventTarget.prototype`
+        // (the shared dispatch core routes an IDB receiver to its
+        // `vm_event_listeners` home via `DispatchTarget::VmObject`).
         let req_proto = self.alloc_idb_proto(Some(et_proto));
-        self.idb_install_event_target_shadow(req_proto);
         self.idb_install_ro_getter(req_proto, "readyState", request::native_req_get_ready_state);
         self.idb_install_ro_getter(req_proto, "result", request::native_req_get_result);
         self.idb_install_ro_getter(req_proto, "error", request::native_req_get_error);
@@ -84,7 +86,6 @@ impl VmInner {
 
         // --- IDBDatabase : EventTarget -------------------------------------
         let db_proto = self.alloc_idb_proto(Some(et_proto));
-        self.idb_install_event_target_shadow(db_proto);
         self.idb_install_ro_getter(db_proto, "name", database::native_db_get_name);
         self.idb_install_ro_getter(db_proto, "version", database::native_db_get_version);
         self.idb_install_ro_getter(
@@ -113,7 +114,6 @@ impl VmInner {
 
         // --- IDBTransaction : EventTarget ----------------------------------
         let txn_proto = self.alloc_idb_proto(Some(et_proto));
-        self.idb_install_event_target_shadow(txn_proto);
         self.idb_install_ro_getter(txn_proto, "mode", txn::native_txn_get_mode);
         self.idb_install_ro_getter(txn_proto, "durability", txn::native_txn_get_durability);
         self.idb_install_ro_getter(txn_proto, "db", txn::native_txn_get_db);
@@ -253,33 +253,6 @@ impl VmInner {
         }
     }
 
-    /// Shadow the inherited `EventTarget` methods with the in-VM-listener
-    /// variants (the AbortSignal model — IDB listeners live in the side-store,
-    /// not on an ECS entity).
-    fn idb_install_event_target_shadow(&mut self, proto: ObjectId) {
-        let add = self.well_known.add_event_listener;
-        let remove = self.well_known.remove_event_listener;
-        let dispatch = self.well_known.dispatch_event;
-        self.install_native_method(
-            proto,
-            add,
-            super::native_idb_add_event_listener,
-            PropertyAttrs::METHOD,
-        );
-        self.install_native_method(
-            proto,
-            remove,
-            super::native_idb_remove_event_listener,
-            PropertyAttrs::METHOD,
-        );
-        self.install_native_method(
-            proto,
-            dispatch,
-            super::native_idb_dispatch_event,
-            PropertyAttrs::METHOD,
-        );
-    }
-
     /// Install one read-only getter accessor keyed by `name`.
     fn idb_install_ro_getter(&mut self, proto: ObjectId, name: &str, getter: NativeFn) {
         let sid = self.strings.intern(name);
@@ -292,17 +265,24 @@ impl VmInner {
         self.install_native_method(proto, sid, func, PropertyAttrs::METHOD);
     }
 
-    /// Install one `on<event>` handler IDL attribute (bound-key accessor pair
-    /// over the shared [`super::native_idb_handler_get`] /
-    /// [`super::native_idb_handler_set`]).
+    /// Install one `on<event>` handler IDL attribute (WHATWG HTML §8.1.8.1)
+    /// over the shared VmObject event-handler backend
+    /// ([`super::super::event_handler_attrs::native_vm_event_handler_get`] /
+    /// `…_set`).  The bound key is the EVENT-TYPE SID (`on_name` minus the
+    /// `on` prefix, e.g. `onsuccess` → `success`) so the handler lives as a
+    /// `ListenerKind::EventHandler` entry in the unified `vm_event_listeners`
+    /// home, dispatched in registration order alongside
+    /// `addEventListener('success', …)`.
     fn idb_install_handler_attr(&mut self, proto: ObjectId, on_name: &str) {
-        let sid = self.strings.intern(on_name);
+        let attr_sid = self.strings.intern(on_name);
+        let event_type = on_name.strip_prefix("on").unwrap_or(on_name);
+        let event_sid = self.strings.intern(event_type);
         self.install_bound_accessor_pair(
             proto,
-            sid,
-            super::native_idb_handler_get,
-            Some(super::native_idb_handler_set),
-            sid,
+            attr_sid,
+            super::super::event_handler_attrs::native_vm_event_handler_get,
+            Some(super::super::event_handler_attrs::native_vm_event_handler_set),
+            event_sid,
             PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );
     }

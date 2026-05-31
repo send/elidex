@@ -731,7 +731,6 @@ fn backend_swap_aborts_pending_requests_in_place() {
 fn cleanup_deactivates_non_empty_transaction_and_exempts_upgrade() {
     use super::super::host::indexeddb::{IdbTransactionState, IdbTxnState};
     use super::super::value::ObjectId;
-    use std::collections::HashMap;
     with_vm(|vm| {
         // R20 §2.7.1: the microtask-checkpoint cleanup must DEACTIVATE every
         // active script-created transaction — INCLUDING ones with pending
@@ -754,8 +753,6 @@ fn cleanup_deactivates_non_empty_transaction_and_exempts_upgrade() {
                 db: None,
                 backend_txn: None,
                 request_list,
-                handlers: HashMap::new(),
-                listeners: Vec::new(),
                 error: None,
                 upgrade_request,
                 upgrade_handle: None,
