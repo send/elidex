@@ -166,12 +166,24 @@ pub(crate) fn js_to_query(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<Q
 /// effect can't re-enter the transaction) is applied by the caller around
 /// this call (it owns the transaction id).
 pub(crate) fn value_to_json(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<String, VmError> {
-    match super::super::super::natives_json::stringify_to_string(
+    // §5.11 clone: ANY failure to serialize the value for storage surfaces as
+    // `DataCloneError`, never the raw `JSON.stringify` exception — a cyclic
+    // structure throws `TypeError`, but for IDB the value simply cannot be
+    // stored by this v1 JSON clone path (full structured-clone fidelity →
+    // `#11-idb-structured-clone-storage`), which is a clone failure.
+    let Ok(serialized) = super::super::super::natives_json::stringify_to_string(
         ctx,
         val,
         JsValue::Undefined,
         JsValue::Undefined,
-    )? {
+    ) else {
+        return Err(dom_exc(
+            ctx,
+            "DataCloneError",
+            "value could not be cloned for IndexedDB storage",
+        ));
+    };
+    match serialized {
         Some(s) => Ok(s),
         // JSON.stringify → undefined (e.g. a bare function / undefined):
         // not storable.  §5.11 surfaces non-clonable input as DataCloneError.
@@ -181,6 +193,30 @@ pub(crate) fn value_to_json(ctx: &mut NativeContext<'_>, val: JsValue) -> Result
             "value could not be cloned for IndexedDB storage (not JSON-representable)",
         )),
     }
+}
+
+/// WebIDL required-argument arity check — overload resolution rejects a call
+/// with too few arguments with a `TypeError` *before* any coercion runs
+/// (`open()`, `store.add()`, `IDBKeyRange.only()`, … all have a required
+/// first argument).  Returns the argument at `index`; an explicit `undefined`
+/// at that position IS a supplied argument and is returned for normal
+/// coercion.  `required` is the operation's total required-argument count
+/// (for the diagnostic message).
+pub(crate) fn require_arg(
+    args: &[JsValue],
+    index: usize,
+    interface: &str,
+    method: &str,
+    required: usize,
+) -> Result<JsValue, VmError> {
+    args.get(index).copied().ok_or_else(|| {
+        VmError::type_error(format!(
+            "Failed to execute '{method}' on '{interface}': \
+             {required} argument{} required, but only {} present.",
+            if required == 1 { "" } else { "s" },
+            args.len()
+        ))
+    })
 }
 
 /// Deserialize a backend JSON value blob back to a `JsValue` (read path).

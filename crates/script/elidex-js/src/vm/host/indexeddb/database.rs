@@ -142,7 +142,8 @@ pub(crate) fn native_db_create_object_store(
     let db_id = require_db_this(ctx, this, "createObjectStore")?;
     let txn = upgrade_txn_for(ctx, db_id, "createObjectStore")?;
     let db_name = db_name_of(ctx, db_id);
-    let name_sid = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
+    let name_arg = value::require_arg(args, 0, "IDBDatabase", "createObjectStore", 1)?;
+    let name_sid = ctx.to_string_val(name_arg)?;
     let name = ctx.get_utf8(name_sid);
     let (key_path, auto_increment) = parse_create_store_options(ctx, args.get(1).copied())?;
     let backend = ctx.vm.require_idb_backend()?;
@@ -163,7 +164,8 @@ pub(crate) fn native_db_delete_object_store(
     let db_id = require_db_this(ctx, this, "deleteObjectStore")?;
     let _txn = upgrade_txn_for(ctx, db_id, "deleteObjectStore")?;
     let db_name = db_name_of(ctx, db_id);
-    let name_sid = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
+    let name_arg = value::require_arg(args, 0, "IDBDatabase", "deleteObjectStore", 1)?;
+    let name_sid = ctx.to_string_val(name_arg)?;
     let name = ctx.get_utf8(name_sid);
     let backend = ctx.vm.require_idb_backend()?;
     match backend.delete_object_store(&db_name, &name) {
@@ -174,11 +176,7 @@ pub(crate) fn native_db_delete_object_store(
 
 /// Parse the `storeNames` argument (a `DOMString` or sequence) into a
 /// scope list.
-fn parse_store_names(
-    ctx: &mut NativeContext<'_>,
-    arg: Option<JsValue>,
-) -> Result<Vec<String>, VmError> {
-    let v = arg.unwrap_or(JsValue::Undefined);
+fn parse_store_names(ctx: &mut NativeContext<'_>, v: JsValue) -> Result<Vec<String>, VmError> {
     if let JsValue::Object(id) = v {
         let elements = match &ctx.get_object(id).kind {
             ObjectKind::Array { elements } => Some(elements.clone()),
@@ -247,7 +245,8 @@ pub(crate) fn native_db_transaction(
             "IDBDatabase.transaction: a version change transaction is running",
         ));
     }
-    let names = parse_store_names(ctx, args.first().copied())?;
+    let store_names_arg = value::require_arg(args, 0, "IDBDatabase", "transaction", 1)?;
+    let names = parse_store_names(ctx, store_names_arg)?;
     if names.is_empty() {
         return Err(value::dom_exc(
             ctx,

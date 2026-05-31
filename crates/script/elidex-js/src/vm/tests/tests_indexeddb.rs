@@ -11,66 +11,7 @@
 
 #![cfg(feature = "engine")]
 
-use elidex_ecs::{Attributes, EcsDom};
-use elidex_script_session::SessionCore;
-
-use super::super::test_helpers::bind_vm;
-use super::super::value::JsValue;
-use super::super::Vm;
-
-fn build_min_fixture(dom: &mut EcsDom) -> elidex_ecs::Entity {
-    let doc = dom.create_document_root();
-    let html = dom.create_element("html", Attributes::default());
-    let body = dom.create_element("body", Attributes::default());
-    assert!(dom.append_child(doc, html));
-    assert!(dom.append_child(html, body));
-    doc
-}
-
-struct UnbindOnDrop<'a>(&'a mut Vm);
-
-impl Drop for UnbindOnDrop<'_> {
-    fn drop(&mut self) {
-        self.0.unbind();
-    }
-}
-
-fn with_vm<F, R>(f: F) -> R
-where
-    F: FnOnce(&mut Vm) -> R,
-{
-    let mut vm = Vm::new();
-    let mut session = SessionCore::new();
-    let mut dom = EcsDom::new();
-    let doc = build_min_fixture(&mut dom);
-    #[allow(unsafe_code)]
-    unsafe {
-        bind_vm(&mut vm, &mut session, &mut dom, doc);
-    }
-    let guard = UnbindOnDrop(&mut vm);
-    f(guard.0)
-}
-
-fn eval_bool(vm: &mut Vm, source: &str) -> bool {
-    match vm.eval(source).unwrap() {
-        JsValue::Boolean(b) => b,
-        other => panic!("expected bool, got {other:?} for `{source}`"),
-    }
-}
-
-fn eval_string(vm: &mut Vm, source: &str) -> String {
-    match vm.eval(source).unwrap() {
-        JsValue::String(id) => vm.get_string(id),
-        other => panic!("expected string, got {other:?} for `{source}`"),
-    }
-}
-
-fn eval_number(vm: &mut Vm, source: &str) -> f64 {
-    match vm.eval(source).unwrap() {
-        JsValue::Number(n) => n,
-        other => panic!("expected number, got {other:?} for `{source}`"),
-    }
-}
+use super::tests_indexeddb_common::{eval_bool, eval_number, eval_string, with_vm};
 
 // ---------------------------------------------------------------------------
 // Registration
@@ -349,39 +290,6 @@ fn get_all_count_zero_and_negative_return_all_records() {
 }
 
 #[test]
-fn error_event_bubbles_to_transaction_and_preventdefault_cancels_abort() {
-    with_vm(|vm| {
-        // §5.10 + bubbling: a request error bubbles to the transaction; a
-        // `tx.onerror` that calls preventDefault() cancels the auto-abort, so
-        // the transaction commits (fires `complete`) instead of aborting.
-        vm.eval(
-            "globalThis.__log = [];
-             const open = indexedDB.open('db_bubble', 1);
-             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
-             open.onsuccess = (e) => {
-                 const tx = e.target.result.transaction(['s'], 'readwrite');
-                 const store = tx.objectStore('s');
-                 store.add('first', 1);
-                 store.add('dup', 1); // ConstraintError, bubbles to tx
-                 tx.onerror = (ev) => {
-                     globalThis.__log.push('tx-onerror');
-                     ev.preventDefault(); // cancel the auto-abort
-                 };
-                 tx.oncomplete = () => { globalThis.__log.push('complete'); };
-                 tx.onabort = () => { globalThis.__log.push('abort'); };
-             };",
-        )
-        .unwrap();
-        // tx.onerror fired (bubbled) and preventDefault kept the txn alive →
-        // complete, not abort.
-        assert_eq!(
-            eval_string(vm, "globalThis.__log.join(',')"),
-            "tx-onerror,complete"
-        );
-    });
-}
-
-#[test]
 fn explicit_commit_with_outstanding_request_error_rolls_back() {
     with_vm(|vm| {
         // §5.4 step 2.1: commit() must wait for outstanding request deliveries;
@@ -484,21 +392,6 @@ fn request_error_throws_invalid_state_while_pending() {
         assert_eq!(eval_string(vm, "globalThis.__pend"), "InvalidStateError");
         // After completion (drain) it reads as null (success, no error).
         assert!(eval_bool(vm, "globalThis.__o.error === null"));
-    });
-}
-
-#[test]
-fn dispatch_event_rejects_non_event_argument() {
-    with_vm(|vm| {
-        // WebIDL `Event event`: a non-Event argument throws TypeError, matching
-        // the shared EventTarget.dispatchEvent — it must NOT run listeners.
-        vm.eval("globalThis.__o = indexedDB.open('db_dispatch', 1);")
-            .unwrap();
-        assert!(eval_bool(
-            vm,
-            "(() => { try { globalThis.__o.dispatchEvent({ type: 'success' }); return false; } \
-             catch (e) { return e instanceof TypeError; } })()"
-        ));
     });
 }
 
@@ -622,28 +515,6 @@ fn array_keypath_is_rejected() {
 }
 
 #[test]
-fn dispatch_event_typed_like_a_handler_attr_does_not_invoke_handler() {
-    with_vm(|vm| {
-        // The no-handler sentinel must not collide with handler-attr names:
-        // dispatching an Event whose type is literally "onsuccess" must NOT
-        // invoke the onsuccess handler (which is for "success" events).
-        vm.eval(
-            "globalThis.__log = [];
-             const o = indexedDB.open('db_sentinel', 1);
-             o.onsuccess = () => { globalThis.__log.push('onsuccess-ran'); };
-             o.dispatchEvent(new Event('onsuccess'));",
-        )
-        .unwrap();
-        // Only the real success delivery (post-drain) ran onsuccess; the
-        // synthetic 'onsuccess'-typed dispatch did not.
-        assert_eq!(
-            eval_string(vm, "globalThis.__log.join(',')"),
-            "onsuccess-ran"
-        );
-    });
-}
-
-#[test]
 fn autoincrement_with_empty_keypath_throws_invalid_access() {
     with_vm(|vm| {
         // §4.4: an empty in-line key path with autoIncrement is contradictory.
@@ -657,85 +528,6 @@ fn autoincrement_with_empty_keypath_throws_invalid_access() {
         )
         .unwrap();
         assert_eq!(eval_string(vm, "globalThis.__err"), "InvalidAccessError");
-    });
-}
-
-#[test]
-fn commit_in_last_request_success_fires_complete_exactly_once() {
-    with_vm(|vm| {
-        // R6.1: calling `tx.commit()` from the last request's `success` handler
-        // drives `finalize_commit` from BOTH `commit_transaction` (the explicit
-        // commit — the request was already removed from the list before its
-        // event fired, §5.6) AND `run_post_dispatch` (the committing-branch
-        // finalize once the now-empty list is observed), queuing two
-        // `IdbCommitDone` tasks.  `dispatch_commit_done` must be idempotent, so
-        // `complete` fires exactly once.
-        vm.eval(
-            "globalThis.__log = [];
-             const open = indexedDB.open('db_dblcommit', 1);
-             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
-             open.onsuccess = (e) => {
-                 const tx = e.target.result.transaction(['s'], 'readwrite');
-                 const req = tx.objectStore('s').add('v', 1);
-                 req.onsuccess = () => { tx.commit(); };
-                 tx.oncomplete = () => { globalThis.__log.push('complete'); };
-             };",
-        )
-        .unwrap();
-        // Exactly one `complete`, not "complete,complete".
-        assert_eq!(eval_string(vm, "globalThis.__log.join(',')"), "complete");
-    });
-}
-
-#[test]
-fn dispatch_event_honors_stop_immediate_propagation() {
-    with_vm(|vm| {
-        // R6: `dispatchEvent` routes through the one shared dispatcher, so a
-        // listener calling `stopImmediatePropagation()` suppresses the remaining
-        // listeners on the same node (previously the dispatchEvent loop ignored
-        // the propagation-stop flags entirely).
-        vm.eval(
-            "globalThis.__log = [];
-             const o = indexedDB.open('db_sip', 1);
-             o.addEventListener('foo', (e) => { globalThis.__log.push('a'); e.stopImmediatePropagation(); });
-             o.addEventListener('foo', () => { globalThis.__log.push('b'); });
-             o.dispatchEvent(new Event('foo'));",
-        )
-        .unwrap();
-        // Second listener suppressed.
-        assert_eq!(eval_string(vm, "globalThis.__log.join(',')"), "a");
-    });
-}
-
-#[test]
-fn stop_propagation_on_request_error_halts_bubbling_to_transaction() {
-    with_vm(|vm| {
-        // R6: a request `error` that calls `stopPropagation()` no longer reaches
-        // the transaction's `onerror`, but — not being `preventDefault()`'d —
-        // the uncanceled error still aborts the transaction (§5.10 step 8.3).
-        vm.eval(
-            "globalThis.__log = [];
-             const open = indexedDB.open('db_stopprop', 1);
-             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
-             open.onsuccess = (e) => {
-                 const tx = e.target.result.transaction(['s'], 'readwrite');
-                 const store = tx.objectStore('s');
-                 store.add('first', 1);
-                 const dup = store.add('dup', 1); // ConstraintError
-                 dup.onerror = (ev) => {
-                     globalThis.__log.push('req-error');
-                     ev.stopPropagation(); // halt bubbling, but do NOT preventDefault
-                 };
-                 tx.onerror = () => { globalThis.__log.push('tx-onerror'); };
-                 tx.onabort = () => { globalThis.__log.push('abort'); };
-             };",
-        )
-        .unwrap();
-        // tx.onerror suppressed by stopPropagation; uncanceled error still aborts.
-        assert_eq!(
-            eval_string(vm, "globalThis.__log.join(',')"),
-            "req-error,abort"
-        );
     });
 }
 
@@ -764,46 +556,105 @@ fn open_and_delete_database_require_a_name_argument() {
 }
 
 #[test]
-fn dispatch_event_sets_target_and_brackets_dispatch_state() {
+fn static_key_operations_reject_missing_required_arguments() {
     with_vm(|vm| {
-        // R7 / WHATWG DOM §2.9 bookkeeping on the IDB dispatchEvent path.
-        vm.eval("globalThis.__o = indexedDB.open('db_disp_bk', 1);")
-            .unwrap();
-        // §2.9: `target` is set even with zero listeners; `currentTarget` is
-        // cleared to null after dispatch.
+        // R8: WebIDL arity on the synchronous static surface — a missing
+        // required argument throws TypeError before key coercion; an explicit
+        // `undefined` is supplied and proceeds to coercion (invalid key →
+        // DataError).
         assert!(eval_bool(
             vm,
-            "(() => { const e = new Event('foo'); globalThis.__o.dispatchEvent(e); \
-             return e.target === globalThis.__o && e.currentTarget === null; })()"
+            "(() => { try { indexedDB.cmp(1); return false; } \
+             catch (e) { return e instanceof TypeError; } })()"
         ));
-        // §2.9 step 1: a re-entrant re-dispatch of an in-flight event throws
-        // InvalidStateError (caught inside the listener here).
         assert!(eval_bool(
             vm,
-            "(() => { const e = new Event('bar'); let caught = null; \
-             globalThis.__o.addEventListener('bar', () => { \
-               try { globalThis.__o.dispatchEvent(e); } catch (err) { caught = err; } }); \
-             globalThis.__o.dispatchEvent(e); \
-             return caught instanceof DOMException && caught.name === 'InvalidStateError'; })()"
+            "(() => { try { IDBKeyRange.only(); return false; } \
+             catch (e) { return e instanceof TypeError; } })()"
         ));
-        // Sequential dispatch of the same event object succeeds twice (the
-        // dispatch flag is bracketed, not left set).
         assert!(eval_bool(
             vm,
-            "(() => { const e = new Event('baz'); \
-             return globalThis.__o.dispatchEvent(e) && globalThis.__o.dispatchEvent(e); })()"
+            "(() => { try { IDBKeyRange.lowerBound(); return false; } \
+             catch (e) { return e instanceof TypeError; } })()"
+        ));
+        assert!(eval_bool(
+            vm,
+            "(() => { try { IDBKeyRange.bound(1); return false; } \
+             catch (e) { return e instanceof TypeError; } })()"
+        ));
+        assert!(eval_bool(
+            vm,
+            "(() => { try { IDBKeyRange.only(1).includes(); return false; } \
+             catch (e) { return e instanceof TypeError; } })()"
+        ));
+        // Explicit undefined coerces, then fails key validation → DataError.
+        assert!(eval_bool(
+            vm,
+            "(() => { try { indexedDB.cmp(undefined, undefined); return false; } \
+             catch (e) { return e.name === 'DataError'; } })()"
         ));
     });
 }
 
-// Note: the once-listener GC-rooting fix (mod.rs `dispatch_idb_event`
-// stack-scope, now shared by both the internal fire path and the script-facing
-// `dispatchEvent`) is verified by construction — it is the established
-// `push_stack_scope` idiom the codebase mandates for rooting values held only
-// in Rust locals across `call_function` (see `natives_array_hof` /
-// `typed_array_hof`).  A deterministic regression test is not feasible: a GC
-// use-after-free is only observable if the freed slot is reused before the
-// stale callback runs, which the heap does not guarantee.
+#[test]
+fn instance_operations_reject_missing_required_arguments() {
+    with_vm(|vm| {
+        // R8: WebIDL arity across the IDBDatabase / IDBTransaction /
+        // IDBObjectStore operations — a missing required argument is a
+        // TypeError before any backend access.  Each `check` records the
+        // thrown constructor name.
+        vm.eval(
+            "globalThis.__r = [];
+             globalThis.__check = (fn) => { try { fn(); globalThis.__r.push('no-throw'); } \
+                                            catch (err) { globalThis.__r.push(err.name); } };
+             const open = indexedDB.open('db_arity', 1);
+             open.onupgradeneeded = (e) => {
+                 const db = e.target.result;
+                 globalThis.__check(() => db.createObjectStore());   // required name
+                 db.createObjectStore('s');
+                 globalThis.__check(() => db.deleteObjectStore());   // required name
+             };
+             open.onsuccess = (e) => {
+                 const db = e.target.result;
+                 globalThis.__check(() => db.transaction());         // required storeNames
+                 const tx = db.transaction(['s'], 'readwrite');
+                 globalThis.__check(() => tx.objectStore());         // required name
+                 const store = tx.objectStore('s');
+                 globalThis.__check(() => store.add());              // required value
+                 globalThis.__check(() => store.get());              // required query
+                 globalThis.__check(() => store.getKey());           // required query
+                 globalThis.__check(() => store.delete());           // required query
+             };",
+        )
+        .unwrap();
+        assert_eq!(
+            eval_string(vm, "globalThis.__r.join(',')"),
+            "TypeError,TypeError,TypeError,TypeError,TypeError,TypeError,TypeError,TypeError"
+        );
+    });
+}
+
+#[test]
+fn add_cyclic_value_throws_data_clone_error() {
+    with_vm(|vm| {
+        // R8 / §5.11: a value that cannot be serialized for storage (a cyclic
+        // object — JSON.stringify rejects it with TypeError) surfaces as
+        // DataCloneError, not the raw `JSON.stringify` TypeError.
+        vm.eval(
+            "globalThis.__err = 'none';
+             const open = indexedDB.open('db_clone', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const tx = e.target.result.transaction(['s'], 'readwrite');
+                 const cyclic = {}; cyclic.self = cyclic;
+                 try { tx.objectStore('s').add(cyclic, 1); }
+                 catch (err) { globalThis.__err = err.name; }
+             };",
+        )
+        .unwrap();
+        assert_eq!(eval_string(vm, "globalThis.__err"), "DataCloneError");
+    });
+}
 
 // ---------------------------------------------------------------------------
 // IDBKeyRange + cmp (synchronous surface)
@@ -943,27 +794,6 @@ fn open_with_lower_version_fires_version_error() {
             eval_string(vm, "globalThis.__log.join(',')"),
             "VersionError"
         );
-    });
-}
-
-#[test]
-fn add_event_listener_delivers_success() {
-    with_vm(|vm| {
-        // The addEventListener delivery path (in-VM listener vec) is distinct
-        // from the on* handler attribute — exercise it directly.
-        vm.eval(
-            "globalThis.__log = [];
-             const open = indexedDB.open('db_ael', 1);
-             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
-             open.addEventListener('success', (e) => {
-                 const tx = e.target.result.transaction(['s'], 'readwrite');
-                 const g = tx.objectStore('s').put('v', 1);
-                 g.addEventListener('success', () => { globalThis.__log.push('put-ok'); });
-                 tx.addEventListener('complete', () => { globalThis.__log.push('done'); });
-             });",
-        )
-        .unwrap();
-        assert_eq!(eval_string(vm, "globalThis.__log.join(',')"), "put-ok,done");
     });
 }
 

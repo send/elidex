@@ -299,7 +299,8 @@ pub(crate) fn native_txn_object_store(
             "IDBTransaction.objectStore: the transaction has finished",
         ));
     }
-    let name_sid = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
+    let name_arg = value::require_arg(args, 0, "IDBTransaction", "objectStore", 1)?;
+    let name_sid = ctx.to_string_val(name_arg)?;
     let name = ctx.get_utf8(name_sid);
     // A versionchange transaction spans every store, so its (empty) scope
     // is not consulted; a normal transaction must name an in-scope store.

@@ -253,6 +253,9 @@ fn add_or_put(
     let (db, store, txn) = store_ctx(ctx, store_id)?;
     require_active(ctx, txn, method)?;
     require_writable(ctx, txn, method)?;
+    // WebIDL: the value argument is required (the key, arg 1, is optional) —
+    // a missing value is a TypeError, not an `undefined` value to clone.
+    value::require_arg(args, 0, "IDBObjectStore", method, 1)?;
     // §4.5 step 8: convert the explicit key BEFORE cloning the value — an
     // invalid key is a DataError that must precede the clone (whose failure
     // is DataCloneError), and key conversion must run before the clone's
@@ -311,7 +314,8 @@ pub(crate) fn native_os_get(
     let store_id = require_store_this(ctx, this, "get")?;
     let (db, store, txn) = store_ctx(ctx, store_id)?;
     require_active(ctx, txn, "get")?;
-    let query = value::js_to_query(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
+    let arg = value::require_arg(args, 0, "IDBObjectStore", "get", 1)?;
+    let query = value::js_to_query(ctx, arg)?;
     let backend = ctx.vm.require_idb_backend()?;
     let outcome = match query {
         Query::Key(k) => match elidex_indexeddb::ops::get(&backend, &db, &store, &k) {
@@ -347,7 +351,8 @@ pub(crate) fn native_os_get_key(
     let store_id = require_store_this(ctx, this, "getKey")?;
     let (db, store, txn) = store_ctx(ctx, store_id)?;
     require_active(ctx, txn, "getKey")?;
-    let query = value::js_to_query(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
+    let arg = value::require_arg(args, 0, "IDBObjectStore", "getKey", 1)?;
+    let query = value::js_to_query(ctx, arg)?;
     let backend = ctx.vm.require_idb_backend()?;
     let outcome = match query {
         Query::Key(k) => match elidex_indexeddb::ops::get_key(&backend, &db, &store, &k) {
@@ -474,8 +479,8 @@ pub(crate) fn native_os_delete(
     let (db, store, txn) = store_ctx(ctx, store_id)?;
     require_active(ctx, txn, "delete")?;
     require_writable(ctx, txn, "delete")?;
-    let target = match value::js_to_query(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?
-    {
+    let arg = value::require_arg(args, 0, "IDBObjectStore", "delete", 1)?;
+    let target = match value::js_to_query(ctx, arg)? {
         Query::Key(k) => elidex_indexeddb::DeleteTarget::Key(k),
         Query::Range(r) => elidex_indexeddb::DeleteTarget::Range(r),
     };

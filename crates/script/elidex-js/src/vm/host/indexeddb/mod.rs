@@ -318,34 +318,34 @@ pub(super) struct FireResult {
 }
 
 /// Snapshot the `on*` handler + matching `addEventListener` callbacks for
-/// `event_type` from the target's side-store, removing any `once`
-/// listeners of that type (WHATWG DOM dispatch removes them before the
-/// callback runs).  The three IDB EventTarget state structs share field
-/// names (`handlers` / `listeners`), so one macro covers all three.
-fn collect_and_prune(
-    vm: &mut VmInner,
+/// `event_type` from the target's side-store, each paired with its `once`
+/// flag.  Does NOT prune — `once` listeners are removed individually at the
+/// point each is about to be invoked ([`remove_idb_once_listener`]), per
+/// WHATWG DOM §2.10: a `once` listener that the walk never reaches (e.g. a
+/// `stopPropagation()` halted bubbling before its node) must survive for a
+/// later event.  The three IDB EventTarget state structs share field names
+/// (`handlers` / `listeners`), so one macro covers all three.
+fn collect(
+    vm: &VmInner,
     target: ObjectId,
     event_type: StringId,
     handler_attr: Option<StringId>,
-) -> (Option<ObjectId>, Vec<ObjectId>) {
-    // Reduce to a small `Copy` discriminant under the shared borrow before
-    // taking the `&mut` map borrow below (`ObjectKind` is not `Copy`).
+) -> (Option<ObjectId>, Vec<(ObjectId, bool)>) {
+    // Reduce to a small `Copy` discriminant under the shared borrow.
     let Some(kind) = idb_target_kind(vm, target) else {
         return (None, Vec::new());
     };
     macro_rules! pull {
         ($map:ident) => {{
-            match vm.$map.get_mut(&target) {
+            match vm.$map.get(&target) {
                 Some(st) => {
                     let handler = handler_attr.and_then(|h| st.handlers.get(&h).copied());
-                    let cbs: Vec<ObjectId> = st
+                    let cbs: Vec<(ObjectId, bool)> = st
                         .listeners
                         .iter()
                         .filter(|l| l.event_type == event_type)
-                        .map(|l| l.callback)
+                        .map(|l| (l.callback, l.once))
                         .collect();
-                    st.listeners
-                        .retain(|l| !(l.event_type == event_type && l.once));
                     (handler, cbs)
                 }
                 None => (None, Vec::new()),
@@ -356,6 +356,39 @@ fn collect_and_prune(
         IdbTargetKind::Request => pull!(idb_request_states),
         IdbTargetKind::Transaction => pull!(idb_transaction_states),
         IdbTargetKind::Database => pull!(idb_database_states),
+    }
+}
+
+/// One propagation-path node's dispatch snapshot: `(node, on*-handler,
+/// [(listener-callback, once)])`, as produced by [`collect`].
+type NodeDispatch = (ObjectId, Option<ObjectId>, Vec<(ObjectId, bool)>);
+
+/// Remove the `once` listener `(event_type, callback)` from `node`'s in-VM
+/// store at the point it is about to be invoked (WHATWG DOM §2.10: a `once`
+/// listener is removed before its callback runs, so a re-entrant dispatch in
+/// the callback can't re-fire it, while a never-reached `once` listener is
+/// left in place by [`collect`] not pruning up front).
+fn remove_idb_once_listener(
+    vm: &mut VmInner,
+    node: ObjectId,
+    event_type: StringId,
+    callback: ObjectId,
+) {
+    let Some(kind) = idb_target_kind(vm, node) else {
+        return;
+    };
+    macro_rules! rm {
+        ($map:ident) => {
+            if let Some(st) = vm.$map.get_mut(&node) {
+                st.listeners
+                    .retain(|l| !(l.event_type == event_type && l.callback == callback && l.once));
+            }
+        };
+    }
+    match kind {
+        IdbTargetKind::Request => rm!(idb_request_states),
+        IdbTargetKind::Transaction => rm!(idb_transaction_states),
+        IdbTargetKind::Database => rm!(idb_database_states),
     }
 }
 
@@ -542,23 +575,33 @@ fn idb_event_immediate_stopped(vm: &VmInner, event_id: ObjectId) -> bool {
 
 /// The single dispatch core for the IDB in-VM EventTarget model — used by
 /// every internal fire ([`fire_idb_event_with_props`]) AND the script-facing
-/// [`native_idb_dispatch_event`], so both observe identical semantics
-/// (WHATWG DOM §2.9, specialized to the IDB ancestor chain):
+/// [`native_idb_dispatch_event`], so both observe identical WHATWG DOM §2.9
+/// semantics (specialized to the IDB ancestor chain).  Putting the full §2.9
+/// bookkeeping here — not in the `dispatchEvent` wrapper — keeps internal
+/// fires and `dispatchEvent` correct by construction (one dispatch algorithm,
+/// not two parallel ones):
 ///
 /// 1. Build the propagation path: `target`, then its [`idb_event_ancestors`]
 ///    when `bubbles`.
-/// 2. Snapshot (and prune `once`) each node's `on*` handler + matching
-///    listeners. When nothing is registered anywhere on the path, return
-///    early — `make_event` is never called, so a fire at an unobserved
-///    target allocates no event object.
-/// 3. GC-root the event + every collected callback on the VM stack for the
+/// 2. Snapshot each node's `on*` handler + matching listeners (with their
+///    `once` flag, NOT pruned up front — see [`collect`]). When nothing is
+///    registered anywhere on the path, return early: `make_event` is never
+///    called, so a fire at an unobserved target allocates no event object.
+/// 3. Bracket the event in [`VmInner::dispatched_events`] for the whole walk
+///    (§2.9 step 1 dispatch flag) so a handler that captures the event and
+///    re-dispatches it re-entrantly throws `InvalidStateError`.
+/// 4. GC-root the event + every collected callback on the VM stack for the
 ///    dispatch duration (a listener that allocates can trip the
-///    `alloc_object` GC threshold; the pruned `once` snapshot is the ONLY
-///    remaining reference to those callbacks).
-/// 4. Invoke each node's handler then listeners with `currentTarget` set to
-///    that node, honoring `stopImmediatePropagation` (stop the current
-///    node's remaining listeners) and `stopPropagation` (stop bubbling to
-///    ancestors).
+///    `alloc_object` GC threshold; an invoked `once` listener is removed from
+///    its side-store, so the snapshot becomes its only reference).
+/// 5. Invoke each node's handler then listeners with `currentTarget` set to
+///    that node — removing a `once` listener immediately before it runs —
+///    honoring `stopImmediatePropagation` (stop the node's remaining
+///    listeners) and `stopPropagation` (stop bubbling to ancestors).
+/// 6. Finalize (§2.9 steps 27-31): clear `currentTarget` + the propagation
+///    flags so a captured event reads the "no longer dispatching" state and a
+///    later dispatch starts clean (`target` stays set; `defaultPrevented` is
+///    the canceled bit and is preserved).
 ///
 /// Returns whether any listener threw (so §5.9/§5.10 step 8.2 can abort) and
 /// whether the default was prevented (`canceled`).
@@ -575,11 +618,11 @@ fn dispatch_idb_event(
     if bubbles {
         path.extend(idb_event_ancestors(ctx.vm, target));
     }
-    // Collect (and prune `once`) each node's handler + listeners up front.
-    let collected: Vec<(ObjectId, Option<ObjectId>, Vec<ObjectId>)> = path
+    // Snapshot each node's handler + listeners (with `once` flags) up front.
+    let collected: Vec<NodeDispatch> = path
         .iter()
         .map(|&node| {
-            let (handler, listeners) = collect_and_prune(ctx.vm, node, event_type, handler_attr);
+            let (handler, listeners) = collect(ctx.vm, node, event_type, handler_attr);
             (node, handler, listeners)
         })
         .collect();
@@ -594,18 +637,22 @@ fn dispatch_idb_event(
     }
     let event_id = make_event(ctx);
     set_event_slot_raw(ctx.vm, event_id, EVENT_SLOT_TARGET, JsValue::Object(target));
+    // §2.9 step 1 dispatch flag: bracket the event for the whole walk so a
+    // re-entrant `dispatchEvent(thisEvent)` from a handler throws
+    // `InvalidStateError` (checked in `native_idb_dispatch_event`).
+    ctx.vm.dispatched_events.insert(event_id);
     // GC-root the live dispatch values on the VM stack for the duration of the
     // loop: the event object — held only in `event_id` here, reachable from no
-    // rooted owner — and every collected handler / listener callback (the
-    // `once` listeners in particular were already pruned from their side-store
-    // by `collect_and_prune`, so the snapshot is their ONLY reference).
+    // rooted owner — and every collected handler / listener callback (an
+    // invoked `once` listener is removed from its side-store before it runs,
+    // so the snapshot becomes its ONLY reference).
     let mut frame = ctx.vm.push_stack_scope();
     frame.stack.push(JsValue::Object(event_id));
     for (_, handler, listeners) in &collected {
         if let Some(h) = handler {
             frame.stack.push(JsValue::Object(*h));
         }
-        for &cb in listeners {
+        for &(cb, _once) in listeners {
             frame.stack.push(JsValue::Object(cb));
         }
     }
@@ -632,7 +679,11 @@ fn dispatch_idb_event(
                 break 'walk;
             }
         }
-        for cb in listeners {
+        for (cb, once) in listeners {
+            // §2.10: remove a `once` listener immediately before invoking it.
+            if once {
+                remove_idb_once_listener(sub_ctx.vm, node, event_type, cb);
+            }
             if sub_ctx
                 .call_function(cb, JsValue::Object(node), &[JsValue::Object(event_id)])
                 .is_err()
@@ -656,6 +707,26 @@ fn dispatch_idb_event(
             ..
         }
     );
+    // §2.9 steps 27-31 finalize: clear `currentTarget` + the propagation-stop
+    // flags (a captured event must read "not dispatching"; a re-dispatch must
+    // start clean), then unset the dispatch flag.  `target` stays set;
+    // `defaultPrevented` is intentionally preserved (it is the canceled bit).
+    set_event_slot_raw(
+        sub_ctx.vm,
+        event_id,
+        EVENT_SLOT_CURRENT_TARGET,
+        JsValue::Null,
+    );
+    if let ObjectKind::Event {
+        propagation_stopped,
+        immediate_propagation_stopped,
+        ..
+    } = &mut sub_ctx.vm.get_object_mut(event_id).kind
+    {
+        *propagation_stopped = false;
+        *immediate_propagation_stopped = false;
+    }
+    sub_ctx.vm.dispatched_events.remove(&event_id);
     // `sub_ctx` then `frame` drop at scope end; `frame`'s drop truncates the
     // VM stack back to its pre-dispatch length, releasing the temp roots.
     FireResult { threw, canceled }
@@ -887,7 +958,10 @@ pub(crate) fn native_idb_dispatch_event(
     let handler_attr = on_handler_sid(ctx.vm, event_type);
     // WHATWG DOM §2.9 step 1: a re-entrant dispatch of an event already in
     // flight throws `InvalidStateError` (a sequential `dispatchEvent(e);
-    // dispatchEvent(e);` is fine — the flag is bracketed across the walk).
+    // dispatchEvent(e);` is fine — the dispatch flag is bracketed across the
+    // walk inside `dispatch_idb_event`).  This is the ONLY dispatchEvent-
+    // specific step; the flag bracket + target / currentTarget / propagation
+    // bookkeeping all live in the shared core, so internal fires get them too.
     // Reuses the canonical `dispatched_events` set so the IDB path and
     // `EventTarget.prototype.dispatchEvent` share the one membership store.
     if ctx.vm.dispatched_events.contains(&event_id) {
@@ -904,35 +978,20 @@ pub(crate) fn native_idb_dispatch_event(
     // runs (the shared dispatcher's no-observer early-return never builds /
     // touches the event).
     set_event_slot_raw(ctx.vm, event_id, EVENT_SLOT_TARGET, JsValue::Object(target));
-    ctx.vm.dispatched_events.insert(event_id);
-    // Route through the one shared dispatcher: GC-rooted, honors
-    // `stopPropagation` / `stopImmediatePropagation`, and bubbles along the
-    // IDB ancestor chain when `event.bubbles` — identical to internal fires.
-    // The event already exists, so `make_event` just hands it back.
+    // Route through the one shared dispatcher: dispatch-flag bracketed,
+    // GC-rooted, honors `stopPropagation` / `stopImmediatePropagation`, bubbles
+    // along the IDB ancestor chain when `event.bubbles`, and finalizes
+    // `currentTarget` / propagation flags — identical to internal fires.  The
+    // event already exists, so `make_event` just hands it back.
     let res = dispatch_idb_event(ctx, target, event_type, handler_attr, bubbles, |_ctx| {
         event_id
     });
-    ctx.vm.dispatched_events.remove(&event_id);
-    // §2.9 steps 27-31 finalize: clear `currentTarget` + the propagation-stop
-    // flags so a subsequent dispatch of the same event starts clean (`target`
-    // stays set; `defaultPrevented` is intentionally NOT reset — it is the
-    // canceled bit the return value reports).
-    set_event_slot_raw(ctx.vm, event_id, EVENT_SLOT_CURRENT_TARGET, JsValue::Null);
-    if let ObjectKind::Event {
-        propagation_stopped,
-        immediate_propagation_stopped,
-        ..
-    } = &mut ctx.vm.get_object_mut(event_id).kind
-    {
-        *propagation_stopped = false;
-        *immediate_propagation_stopped = false;
-    }
     Ok(JsValue::Boolean(!res.canceled))
 }
 
 /// Map an IDB event-type SID to its `on<type>` handler-attribute SID
 /// (`success` → `onsuccess`, …).  Returns a sentinel for an unknown type so
-/// `collect_and_prune` finds no handler (only listeners run).
+/// `collect` finds no handler (only listeners run).
 fn on_handler_sid(vm: &VmInner, event_type: StringId) -> Option<StringId> {
     let wk = &vm.well_known;
     // `None` for an event type with no `on<type>` attribute — so a dispatch of

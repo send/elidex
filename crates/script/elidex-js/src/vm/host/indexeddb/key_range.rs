@@ -44,7 +44,8 @@ pub(crate) fn native_key_range_only(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let key = value::js_to_idb_key(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
+    let arg = value::require_arg(args, 0, "IDBKeyRange", "only", 1)?;
+    let key = value::js_to_idb_key(ctx, arg)?;
     Ok(JsValue::Object(create_key_range(
         ctx.vm,
         elidex_indexeddb::IdbKeyRange::only(key),
@@ -57,7 +58,8 @@ pub(crate) fn native_key_range_lower_bound(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let key = value::js_to_idb_key(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
+    let arg = value::require_arg(args, 0, "IDBKeyRange", "lowerBound", 1)?;
+    let key = value::js_to_idb_key(ctx, arg)?;
     let open = ctx.to_boolean(args.get(1).copied().unwrap_or(JsValue::Undefined));
     Ok(JsValue::Object(create_key_range(
         ctx.vm,
@@ -71,7 +73,8 @@ pub(crate) fn native_key_range_upper_bound(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let key = value::js_to_idb_key(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
+    let arg = value::require_arg(args, 0, "IDBKeyRange", "upperBound", 1)?;
+    let key = value::js_to_idb_key(ctx, arg)?;
     let open = ctx.to_boolean(args.get(1).copied().unwrap_or(JsValue::Undefined));
     Ok(JsValue::Object(create_key_range(
         ctx.vm,
@@ -86,8 +89,10 @@ pub(crate) fn native_key_range_bound(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let lower = value::js_to_idb_key(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
-    let upper = value::js_to_idb_key(ctx, args.get(1).copied().unwrap_or(JsValue::Undefined))?;
+    let lower_arg = value::require_arg(args, 0, "IDBKeyRange", "bound", 2)?;
+    let upper_arg = value::require_arg(args, 1, "IDBKeyRange", "bound", 2)?;
+    let lower = value::js_to_idb_key(ctx, lower_arg)?;
+    let upper = value::js_to_idb_key(ctx, upper_arg)?;
     let lower_open = ctx.to_boolean(args.get(2).copied().unwrap_or(JsValue::Undefined));
     let upper_open = ctx.to_boolean(args.get(3).copied().unwrap_or(JsValue::Undefined));
     match elidex_indexeddb::IdbKeyRange::bound(lower, upper, lower_open, upper_open) {
@@ -107,7 +112,8 @@ pub(crate) fn native_key_range_includes(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_key_range_this(ctx, this, "includes")?;
-    let key = value::js_to_idb_key(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
+    let arg = value::require_arg(args, 0, "IDBKeyRange", "includes", 1)?;
+    let key = value::js_to_idb_key(ctx, arg)?;
     let included = ctx
         .vm
         .idb_key_range_states

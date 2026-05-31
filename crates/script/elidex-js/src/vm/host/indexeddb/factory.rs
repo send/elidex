@@ -47,15 +47,10 @@ fn require_idb_factory_this(
 /// still converts normally via ToString → `"undefined"`.
 fn arg_name(
     ctx: &mut NativeContext<'_>,
-    arg: Option<JsValue>,
+    args: &[JsValue],
     method: &str,
 ) -> Result<String, VmError> {
-    let Some(value) = arg else {
-        return Err(VmError::type_error(format!(
-            "Failed to execute '{method}' on 'IDBFactory': \
-             1 argument required, but only 0 present."
-        )));
-    };
+    let value = value::require_arg(args, 0, "IDBFactory", method, 1)?;
     let sid = ctx.to_string_val(value)?;
     Ok(ctx.get_utf8(sid))
 }
@@ -69,7 +64,7 @@ pub(crate) fn native_idb_open(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     require_idb_factory_this(ctx, this, "open")?;
-    let name = arg_name(ctx, args.first().copied(), "open")?;
+    let name = arg_name(ctx, args, "open")?;
     // WebIDL `[EnforceRange] unsigned long long version`: ToNumber, reject
     // non-finite + out-of-[0, 2^64-1] with TypeError (no silent `as u64`
     // saturation), then truncate toward zero (a fractional version is NOT a
@@ -170,8 +165,10 @@ pub(crate) fn native_idb_cmp(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     require_idb_factory_this(ctx, this, "cmp")?;
-    let a = value::js_to_idb_key(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
-    let b = value::js_to_idb_key(ctx, args.get(1).copied().unwrap_or(JsValue::Undefined))?;
+    let first = value::require_arg(args, 0, "IDBFactory", "cmp", 2)?;
+    let second = value::require_arg(args, 1, "IDBFactory", "cmp", 2)?;
+    let a = value::js_to_idb_key(ctx, first)?;
+    let b = value::js_to_idb_key(ctx, second)?;
     let n = match a.cmp(&b) {
         std::cmp::Ordering::Less => -1.0,
         std::cmp::Ordering::Equal => 0.0,
@@ -189,7 +186,7 @@ pub(crate) fn native_idb_delete_database(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     require_idb_factory_this(ctx, this, "deleteDatabase")?;
-    let name = arg_name(ctx, args.first().copied(), "deleteDatabase")?;
+    let name = arg_name(ctx, args, "deleteDatabase")?;
     let backend = ctx.vm.require_idb_backend()?;
     let req = request::create_request(ctx.vm, None, None, true);
     match elidex_indexeddb::database::delete_database(&backend, &name) {
