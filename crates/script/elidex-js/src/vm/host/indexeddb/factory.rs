@@ -260,6 +260,7 @@ fn create_upgrade_transaction(
             request_list: Vec::new(),
             handlers: HashMap::new(),
             listeners: Vec::new(),
+            error: None,
             upgrade_request: Some(open_req),
             upgrade_handle: Some(handle),
             upgrade_old_version: old_version,

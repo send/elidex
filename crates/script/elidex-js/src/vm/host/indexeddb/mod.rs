@@ -178,6 +178,8 @@ pub(crate) struct IdbTransactionState {
     /// `oncomplete` / `onerror` / `onabort` handler attributes.
     pub(crate) handlers: HashMap<StringId, ObjectId>,
     pub(crate) listeners: Vec<IdbListener>,
+    /// The `DOMException` that caused an abort (§4.10 `error`), else `None`.
+    pub(crate) error: Option<ObjectId>,
     /// For an upgrade transaction, the associated open request `ObjectId`
     /// (so commit can fire `success` at it and clear `request.transaction`,
     /// §5.4 step 2.5.4).  `None` for a normal transaction.

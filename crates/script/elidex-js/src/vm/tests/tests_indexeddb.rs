@@ -243,6 +243,34 @@ fn add_failure_fires_error_event_not_inline() {
     });
 }
 
+#[test]
+fn aborted_transaction_records_its_error_and_fires_abort() {
+    with_vm(|vm| {
+        // An uncanceled error event aborts the transaction (§5.10 step 8.3);
+        // the abort cause is exposed via `transaction.error` (§4.10) and the
+        // `abort` event fires.
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_abort', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const tx = e.target.result.transaction(['s'], 'readwrite');
+                 const store = tx.objectStore('s');
+                 store.add('first', 1);
+                 store.add('dup', 1); // ConstraintError, not prevented → abort
+                 tx.onabort = () => {
+                     globalThis.__log.push('abort:' + (tx.error && tx.error.name));
+                 };
+             };",
+        )
+        .unwrap();
+        assert_eq!(
+            eval_string(vm, "globalThis.__log.join(',')"),
+            "abort:ConstraintError"
+        );
+    });
+}
+
 // ---------------------------------------------------------------------------
 // IDBKeyRange + cmp (synchronous surface)
 // ---------------------------------------------------------------------------

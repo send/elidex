@@ -418,6 +418,9 @@ pub(super) fn trace_work_list(
                     if let Some(req) = state.upgrade_request {
                         mark_object(req, obj_marks, work);
                     }
+                    if let Some(err) = state.error {
+                        mark_object(err, obj_marks, work);
+                    }
                     for &handler in state.handlers.values() {
                         mark_object(handler, obj_marks, work);
                     }

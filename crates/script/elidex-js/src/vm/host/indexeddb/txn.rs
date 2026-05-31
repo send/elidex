@@ -64,6 +64,11 @@ pub(crate) fn abort_transaction(vm: &mut VmInner, txn_id: ObjectId, error: Optio
             return;
         }
         st.state = IdbTxnState::Finished;
+        // §4.10 `error`: record the abort cause so `transaction.error` reports
+        // it (overrides any earlier value; the last abort cause wins).
+        if error.is_some() {
+            st.error = error;
+        }
         (
             st.backend_txn.take(),
             std::mem::take(&mut st.request_list),
@@ -203,6 +208,7 @@ pub(crate) fn create_transaction(
             request_list: Vec::new(),
             handlers: HashMap::new(),
             listeners: Vec::new(),
+            error: None,
             upgrade_request: None,
             upgrade_handle: None,
             upgrade_old_version: 0,
@@ -335,10 +341,9 @@ pub(crate) fn native_txn_get_error(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let _ = require_txn_this(ctx, this, "error")?;
-    // The transaction does not retain its abort error in v1 (errors live on
-    // the failing request); report `null` until an error slot is tracked.
-    Ok(JsValue::Null)
+    let id = require_txn_this(ctx, this, "error")?;
+    let err = ctx.vm.idb_transaction_states.get(&id).and_then(|s| s.error);
+    Ok(err.map_or(JsValue::Null, JsValue::Object))
 }
 
 /// `transaction.objectStoreNames` (§4.10).  Sorted `Array<string>` (no
