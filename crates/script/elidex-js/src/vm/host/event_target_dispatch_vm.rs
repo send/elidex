@@ -53,42 +53,54 @@ fn vm_event_parent(vm: &VmInner, id: ObjectId) -> Option<ObjectId> {
     }
 }
 
-/// Whether a listener (normal or event-handler) that WOULD be invoked for
+/// Whether a listener (normal or event-handler) that WOULD actually run for
 /// an `event_type` dispatch is registered anywhere on `target_id`'s
-/// get-the-parent path.  Mirrors the firing set of [`build_vm_dispatch_plan`]:
-/// the at-target node fires any matching listener; an ancestor fires its
-/// **capture** listeners always (the capture phase runs regardless of
-/// `event.bubbles`) and its bubble listeners only when `bubbles`.  Lets a
-/// UA-fire skip allocating an event object for an unobserved target (W3C
-/// IDB fires `success` on every request; most are unobserved).
+/// get-the-parent path.  A faithful predicate for the firing set of
+/// [`build_vm_dispatch_plan`] + [`invoke_listeners_shared`], so a UA-fire can
+/// skip allocating an event object for a target where nothing would fire
+/// (W3C IDB fires `success` on every request; most are unobserved).  An
+/// entry counts iff BOTH:
 ///
-/// The ancestor walk therefore must NOT stop at `!bubbles` — a non-bubbling
-/// event (`success` / `complete` / `versionchange`) still runs the capture
-/// phase, so an ancestor `{capture: true}` listener must keep the fire alive.
+/// - it would run in this event's phase — the at-target node fires any
+///   matching listener; an ancestor fires its **capture** listeners always
+///   (the capture phase runs regardless of `event.bubbles`) and its bubble
+///   listeners only when `bubbles`.  So the ancestor walk must NOT stop at
+///   `!bubbles` — a non-bubbling event (`success` / `complete` /
+///   `versionchange`) still runs the capture phase; and
+/// - its callable is still live in `listener_store`.  A cleared
+///   event-handler (`o.onX = null`) intentionally keeps its `EventListeners`
+///   metadata entry (so a re-set reuses the original registration slot) but
+///   retires the callable; that entry is planned by `build_vm_dispatch_plan`
+///   yet skipped by `resolve_callable`, so counting it here would dispatch to
+///   nobody and defeat the lazy-allocation fast-path.
 pub(super) fn vm_path_has_listener(
     vm: &VmInner,
     target_id: ObjectId,
     event_type: &str,
     bubbles: bool,
 ) -> bool {
+    let host = vm.host_data.as_deref();
     let mut cur = Some(target_id);
     let mut depth = 0;
     while let Some(id) = cur {
         let is_target = depth == 0;
         let fires = vm.vm_event_listeners.get(&id).is_some_and(|l| {
-            // at-target: any listener fires.  ancestor: capture listeners
-            // fire in the capture phase always; bubble listeners only when
-            // the event bubbles.
-            l.iter_matching(event_type)
-                .any(|e| is_target || e.capture || bubbles)
+            l.iter_matching(event_type).any(|e| {
+                (is_target || e.capture || bubbles)
+                    && host.is_some_and(|h| h.get_listener(e.id).is_some())
+            })
         });
         if fires {
             return true;
         }
+        // Match `build_vm_dispatch_plan`'s chain cap exactly (≤
+        // `VM_DISPATCH_MAX_DEPTH` nodes total, target + ancestors): advance
+        // `depth` BEFORE the bound check so this walk visits the SAME node
+        // set the plan does — not one extra ancestor.
+        depth += 1;
         if depth >= VM_DISPATCH_MAX_DEPTH {
             break;
         }
-        depth += 1;
         cur = vm_event_parent(vm, id);
     }
     false
