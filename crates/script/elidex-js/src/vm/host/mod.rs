@@ -106,6 +106,8 @@ pub(super) mod document_fragment_proto;
 pub(super) mod document_type_proto;
 pub(super) mod dom_bridge;
 pub(super) mod dom_collection;
+#[cfg(feature = "engine")]
+pub(crate) mod dispatch_target;
 pub(crate) mod dom_exception;
 #[cfg(feature = "engine")]
 pub(super) mod dom_inner_html;
@@ -128,6 +130,8 @@ pub(super) mod event_source_dispatch;
 pub(super) mod event_target;
 #[cfg(feature = "engine")]
 pub(super) mod event_target_dispatch;
+#[cfg(feature = "engine")]
+pub(super) mod event_target_dispatch_vm;
 pub(super) mod events;
 #[cfg(feature = "engine")]
 pub(super) mod events_extras;

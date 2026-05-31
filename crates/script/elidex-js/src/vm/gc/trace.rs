@@ -353,18 +353,16 @@ pub(super) fn trace_work_list(
             ObjectKind::AbortSignal => {
                 if let Some(state) = abort_signal_states.get(&ObjectId(obj_idx)) {
                     mark_value(state.reason, obj_marks, work);
-                    if let Some(handler) = state.onabort {
-                        mark_object(handler, obj_marks, work);
-                    }
-                    for &cb in &state.abort_listeners {
-                        mark_object(cb, obj_marks, work);
-                    }
-                    // `bound_listener_removals` carries (Entity,
-                    // ListenerId) pairs — Entity bits are not
-                    // `ObjectId`s, and `ListenerId` lookups go through
-                    // `HostData::listener_store`, which is itself
-                    // rooted via `gc_root_object_ids`.  No tracing
-                    // needed here.
+                    // The signal's own `'abort'` listeners + `onabort`
+                    // handler now live in the unified `vm_event_listeners`
+                    // home; their callback `ObjectId`s are rooted via
+                    // `HostData::listener_store` (`gc_root_object_ids`),
+                    // not here.  `bound_listener_removals` carries
+                    // (ListenerId → DispatchTarget) pairs — neither the
+                    // `Entity` bits nor the `VmObject` target `ObjectId`
+                    // are marked (a signal must NOT keep a bound target
+                    // alive), and the `ListenerId → callback` lookup goes
+                    // through `listener_store`.  No tracing needed here.
                 }
             }
             // `AbortController` carries the paired signal `ObjectId`

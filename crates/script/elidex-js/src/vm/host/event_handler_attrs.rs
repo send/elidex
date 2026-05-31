@@ -54,6 +54,7 @@ use elidex_script_session::{
 use super::super::shape::PropertyAttrs;
 use super::super::value::{JsValue, NativeContext, ObjectId, VmError};
 use super::super::{NativeFn, VmInner};
+use super::dispatch_target::{target_from_this, DispatchTarget};
 use super::event_target::require_receiver;
 
 // ---------------------------------------------------------------------------
@@ -216,7 +217,7 @@ fn native_event_handler_get(
     let Some(entity) = require_handler_receiver(ctx, this, &format!("on{event_type}"))? else {
         return Ok(JsValue::Null);
     };
-    Ok(read_event_handler(ctx, entity, &event_type))
+    Ok(read_event_handler(ctx, DispatchTarget::Node(entity), &event_type))
 }
 
 /// Shared setter for every event-handler IDL attribute (WHATWG HTML
@@ -234,7 +235,55 @@ fn native_event_handler_set(
         return Ok(JsValue::Undefined);
     };
     let callable = callable_arg(ctx, args);
-    activate_event_handler(ctx, entity, &event_type, callable);
+    activate_event_handler(ctx, DispatchTarget::Node(entity), &event_type, callable);
+    Ok(JsValue::Undefined)
+}
+
+// ---------------------------------------------------------------------------
+// VmObject backend: target = a non-entity EventTarget (AbortSignal / IDB),
+// listeners in `vm_event_listeners` (WHATWG HTML §8.1.8.1)
+// ---------------------------------------------------------------------------
+
+/// Resolve `this` to a `VmObject` [`DispatchTarget`] for the VmObject
+/// event-handler accessors — `None` (silent no-op: `null` getter / no-op
+/// setter) for any non-`VmObject` receiver, matching the node backend's
+/// detach-tolerant `require_handler_receiver` policy.
+fn vm_handler_target(ctx: &NativeContext<'_>, this: JsValue) -> Option<DispatchTarget> {
+    match target_from_this(ctx, this) {
+        Some(target @ DispatchTarget::VmObject(_)) => Some(target),
+        _ => None,
+    }
+}
+
+/// Shared getter for a non-entity EventTarget's event-handler IDL
+/// attribute (`signal.onabort`, `req.onsuccess`, …).  Recovers its event
+/// type from `ctx.bound_key()`; returns the current callable or `null`.
+pub(super) fn native_vm_event_handler_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let event_type = bound_event_type(ctx);
+    let Some(target) = vm_handler_target(ctx, this) else {
+        return Ok(JsValue::Null);
+    };
+    Ok(read_event_handler(ctx, target, &event_type))
+}
+
+/// Shared setter for a non-entity EventTarget's event-handler IDL
+/// attribute.  A callable activates the handler; any non-callable
+/// (incl. `null`/`undefined`) clears it (WebIDL `EventHandler?`).
+pub(super) fn native_vm_event_handler_set(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let event_type = bound_event_type(ctx);
+    let Some(target) = vm_handler_target(ctx, this) else {
+        return Ok(JsValue::Undefined);
+    };
+    let callable = callable_arg(ctx, args);
+    activate_event_handler(ctx, target, &event_type, callable);
     Ok(JsValue::Undefined)
 }
 
@@ -281,7 +330,11 @@ fn native_body_weh_get(
     let Some(window_entity) = ctx.host().window_entity() else {
         return Ok(JsValue::Null);
     };
-    Ok(read_event_handler(ctx, window_entity, &event_type))
+    Ok(read_event_handler(
+        ctx,
+        DispatchTarget::Node(window_entity),
+        &event_type,
+    ))
 }
 
 /// `HTMLBodyElement.prototype` WindowEventHandlers setter — brand-checks
@@ -300,7 +353,7 @@ fn native_body_weh_set(
         return Ok(JsValue::Undefined);
     };
     let callable = callable_arg(ctx, args);
-    activate_event_handler(ctx, window_entity, &event_type, callable);
+    activate_event_handler(ctx, DispatchTarget::Node(window_entity), &event_type, callable);
     Ok(JsValue::Undefined)
 }
 
@@ -385,52 +438,46 @@ fn callable_arg(ctx: &NativeContext<'_>, args: &[JsValue]) -> Option<ObjectId> {
     }
 }
 
-/// Read the current value of the `(entity, event_type)` handler (WHATWG
-/// HTML §8.1.8.1 "getting the current value of the event handler"). Brings
-/// the handler up to date via [`VmInner::ensure_event_handler_current`]
-/// (lazy compile of a pending inline source / drop on clear), then returns
-/// the stored callable or `null`.
+/// Read the current value of the `(target, event_type)` handler (WHATWG
+/// HTML §8.1.8.1 "getting the current value of the event handler") from
+/// the target's listener home (via the [`DispatchTarget`] adapter). Brings
+/// the handler up to date via the adapter's [`DispatchTarget::reconcile_handler`]
+/// (Node-only lazy compile / drop on clear; a no-op for VmObject), then
+/// returns the stored callable or `null`.
 fn read_event_handler(
     ctx: &mut NativeContext<'_>,
-    entity: elidex_ecs::Entity,
+    target: DispatchTarget,
     event_type: &str,
 ) -> JsValue {
-    let Some(id) = ({
-        let dom = ctx.host().dom();
-        dom.world()
-            .get::<&EventListeners>(entity)
-            .ok()
-            .and_then(|listeners| listeners.find_event_handler(event_type))
-    }) else {
+    let Some(id) = target
+        .with_listeners(ctx, |listeners| listeners.find_event_handler(event_type))
+        .flatten()
+    else {
         return JsValue::Null;
     };
-    ctx.vm.ensure_event_handler_current(entity, id);
-    ctx.host()
-        .get_listener(id)
+    target.reconcile_handler(ctx, id);
+    ctx.vm
+        .host_data
+        .as_deref()
+        .and_then(|h| h.get_listener(id))
         .map_or(JsValue::Null, JsValue::Object)
 }
 
-/// Activate (`Some`) or clear (`None`) the `(entity, event_type)` event
-/// handler (WHATWG HTML §8.1.8.1 "activate an event handler" / setter).
-/// The listener entry is added at most once per `(target, event type)`
-/// and reused on subsequent writes — the stored callable is what
-/// changes. Clearing keeps the entry (registration-order stability) but
-/// drops the callable so dispatch skips it.
+/// Activate (`Some`) or clear (`None`) the `(target, event_type)` event
+/// handler (WHATWG HTML §8.1.8.1 "activate an event handler" / setter) in
+/// the target's listener home (via the [`DispatchTarget`] adapter). The
+/// listener entry is added at most once per `(target, event type)` and
+/// reused on subsequent writes — the stored callable is what changes.
+/// Clearing keeps the entry (registration-order stability) but drops the
+/// callable so dispatch skips it.
 fn activate_event_handler(
     ctx: &mut NativeContext<'_>,
-    entity: elidex_ecs::Entity,
+    target: DispatchTarget,
     event_type: &str,
     callable: Option<ObjectId>,
 ) {
     if let Some(obj) = callable {
-        let id = {
-            let dom = ctx.host().dom();
-            if dom.world().get::<&EventListeners>(entity).is_err() {
-                let _ = dom.world_mut().insert_one(entity, EventListeners::new());
-            }
-            let Ok(mut listeners) = dom.world_mut().get::<&mut EventListeners>(entity) else {
-                return;
-            };
+        let id = target.with_listeners_mut_or_insert(ctx, |listeners| {
             let id = listeners
                 .find_event_handler(event_type)
                 .unwrap_or_else(|| listeners.add_event_handler(event_type.to_string()));
@@ -438,21 +485,21 @@ fn activate_event_handler(
             // superseded by this fresh compiled callable.
             listeners.clear_uncompiled(id);
             id
-        };
-        ctx.vm.set_handler_callable(id, obj);
+        });
+        if let Some(id) = id {
+            ctx.vm.set_handler_callable(id, obj);
+        }
     } else {
-        let id = {
-            let dom = ctx.host().dom();
-            let Ok(mut listeners) = dom.world_mut().get::<&mut EventListeners>(entity) else {
-                return;
-            };
-            let Some(id) = listeners.find_event_handler(event_type) else {
-                return;
-            };
-            listeners.clear_uncompiled(id);
-            id
-        };
-        ctx.vm.remove_listener_and_prune_back_ref(id);
+        let id = target
+            .with_listeners_mut(ctx, |listeners| {
+                let id = listeners.find_event_handler(event_type)?;
+                listeners.clear_uncompiled(id);
+                Some(id)
+            })
+            .flatten();
+        if let Some(id) = id {
+            ctx.vm.remove_listener_and_prune_back_ref(id);
+        }
     }
 }
 

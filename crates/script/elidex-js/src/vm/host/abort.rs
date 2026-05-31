@@ -70,7 +70,8 @@ use super::super::value::{
 };
 use super::super::{NativeFn, VmInner};
 
-use elidex_ecs::Entity;
+use super::dispatch_target::DispatchTarget;
+use super::event_target_dispatch_vm::dispatch_vm_simple_event;
 use elidex_script_session::ListenerId;
 
 /// Per-signal mutable state, owned by [`super::super::VmInner::abort_signal_states`]
@@ -84,28 +85,26 @@ pub(crate) struct AbortSignalState {
     /// `AbortError`-tagged Error created when the call omitted one.
     /// Reads `undefined` while `aborted == false`.
     pub(crate) reason: JsValue,
-    /// Single `onabort` IDL handler slot, written via `signal.onabort = fn`.
-    /// Spec §3.1: when `'abort'` fires, the `onabort` handler runs
-    /// alongside any addEventListener-registered `'abort'` callbacks,
-    /// in registration order (WHATWG §8.1.8.1: event-handler IDL
-    /// attribute is "first in addition to others registered").
-    pub(crate) onabort: Option<ObjectId>,
-    /// Callbacks registered via `signal.addEventListener('abort', cb)`.
-    /// Fires exactly once on first abort, then cleared.
-    pub(crate) abort_listeners: Vec<ObjectId>,
     /// Back-references for `addEventListener(type, cb, {signal})` on
-    /// other EventTargets — when this signal aborts, the runtime
-    /// removes each `(listener_id → entity)` from the host's ECS
-    /// `EventListeners` component so the listener stops firing.
+    /// other EventTargets — when this signal aborts, the runtime removes
+    /// each `(listener_id → target)` from that target's listener home (the
+    /// ECS `EventListeners` component for a `Node`, `vm_event_listeners`
+    /// for a `VmObject`) so the listener stops firing.
     ///
-    /// Stored as a `HashMap` (not `Vec`) so `removeEventListener`'s
-    /// scrub path is O(1).  Pruning on plain removal is essential —
-    /// without it a long-lived signal that sees N add/remove cycles
-    /// accumulates N stale entries and `abort()` does N redundant
-    /// no-op detach attempts (Copilot R2 finding).  The reverse
-    /// `ListenerId → ObjectId(signal)` index for the lookup itself
-    /// lives on [`super::super::VmInner::abort_listener_back_refs`].
-    pub(crate) bound_listener_removals: HashMap<ListenerId, Entity>,
+    /// Stored as a `HashMap` (not `Vec`) so `removeEventListener`'s scrub
+    /// path is O(1).  Pruning on plain removal is essential — without it a
+    /// long-lived signal that sees N add/remove cycles accumulates N stale
+    /// entries and `abort()` does N redundant no-op detach attempts
+    /// (Copilot R2 finding).  The reverse `ListenerId → ObjectId(signal)`
+    /// index for the lookup itself lives on
+    /// [`super::super::VmInner::abort_listener_back_refs`].
+    ///
+    /// The signal's OWN `'abort'` listeners + `onabort` handler do NOT
+    /// live here — they live in the unified [`super::super::VmInner::vm_event_listeners`]
+    /// home keyed by the signal's `ObjectId`, dispatched by the shared
+    /// EventTarget core (`controller.abort()` fires `'abort'` via the
+    /// shared UA-fire on `VmObject(signal_id)`).
+    pub(crate) bound_listener_removals: HashMap<ListenerId, DispatchTarget>,
 }
 
 impl AbortSignalState {
@@ -118,8 +117,6 @@ impl AbortSignalState {
         Self {
             aborted: false,
             reason: JsValue::Undefined,
-            onabort: None,
-            abort_listeners: Vec::new(),
             bound_listener_removals: HashMap::new(),
         }
     }
@@ -259,62 +256,52 @@ impl VmInner {
     }
 
     fn install_abort_signal_accessors(&mut self, proto_id: ObjectId) {
-        // `aborted` and `reason` are RO accessors; `onabort` is RW.
-        for (name_sid, getter, setter) in [
-            (
-                self.well_known.aborted,
-                native_abort_signal_get_aborted as NativeFn,
-                None::<NativeFn>,
-            ),
-            (
-                self.well_known.reason,
-                native_abort_signal_get_reason as NativeFn,
-                None::<NativeFn>,
-            ),
-            (
-                self.well_known.onabort,
-                native_abort_signal_get_onabort as NativeFn,
-                Some(native_abort_signal_set_onabort as NativeFn),
-            ),
+        // `aborted` and `reason` are RO accessors.  `onabort` is the
+        // event-handler IDL attribute (WHATWG HTML §8.1.8.1) — installed
+        // separately via the shared event-handler-attr backend (keyed by
+        // the `'abort'` event-type SID) so it lives as a
+        // `ListenerKind::EventHandler` entry in the unified
+        // `vm_event_listeners` home, dispatched in registration order
+        // alongside `addEventListener('abort', …)` callbacks.
+        for (name_sid, getter) in [
+            (self.well_known.aborted, native_abort_signal_get_aborted as NativeFn),
+            (self.well_known.reason, native_abort_signal_get_reason as NativeFn),
         ] {
             self.install_accessor_pair(
                 proto_id,
                 name_sid,
                 getter,
-                setter,
+                None::<NativeFn>,
                 PropertyAttrs::WEBIDL_RO_ACCESSOR,
             );
         }
+        // `onabort` event-handler IDL attribute over the VmObject
+        // event-handler backend, bound key = the `'abort'` event-type SID.
+        let onabort_sid = self.well_known.onabort;
+        let abort_event_sid = self.well_known.abort;
+        self.install_bound_accessor_pair(
+            proto_id,
+            onabort_sid,
+            super::event_handler_attrs::native_vm_event_handler_get as NativeFn,
+            Some(super::event_handler_attrs::native_vm_event_handler_set as NativeFn),
+            abort_event_sid,
+            PropertyAttrs::WEBIDL_RO_ACCESSOR,
+        );
     }
 
     fn install_abort_signal_methods(&mut self, proto_id: ObjectId) {
-        // `addEventListener` / `removeEventListener` / `dispatchEvent`
-        // shadow the inherited EventTarget methods because the
-        // listener store is in-VM, not ECS-attached.  Reusing the
-        // pre-interned `WellKnownStrings` IDs guarantees these match
-        // the names `register_event_target_prototype` published on
-        // `EventTarget.prototype`, so the shape-based lookup hits
-        // the override rather than the inherited slot.
-        for (name_sid, func) in [
-            (
-                self.well_known.add_event_listener,
-                native_abort_signal_add_event_listener as NativeFn,
-            ),
-            (
-                self.well_known.remove_event_listener,
-                native_abort_signal_remove_event_listener,
-            ),
-            (
-                self.well_known.dispatch_event,
-                native_abort_signal_dispatch_event,
-            ),
-            (
-                self.well_known.throw_if_aborted,
-                native_abort_signal_throw_if_aborted,
-            ),
-        ] {
-            self.install_native_method(proto_id, name_sid, func, PropertyAttrs::METHOD);
-        }
+        // `addEventListener` / `removeEventListener` / `dispatchEvent` are
+        // INHERITED from `EventTarget.prototype` now — the unified
+        // dispatch core routes an `AbortSignal` receiver to its
+        // `vm_event_listeners` home (`DispatchTarget::VmObject`), so the
+        // old in-VM shadows are deleted.  Only `throwIfAborted` (no
+        // EventTarget analogue) is installed here.
+        self.install_native_method(
+            proto_id,
+            self.well_known.throw_if_aborted,
+            native_abort_signal_throw_if_aborted,
+            PropertyAttrs::METHOD,
+        );
     }
 
     /// Allocate a fresh `AbortSignal` instance with its state row
@@ -460,38 +447,6 @@ fn native_abort_signal_get_reason(
     Ok(reason)
 }
 
-fn native_abort_signal_get_onabort(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let id = require_abort_signal_this(ctx, this, "onabort")?;
-    let handler = ctx.vm.abort_signal_states.get(&id).and_then(|s| s.onabort);
-    Ok(handler.map_or(JsValue::Null, JsValue::Object))
-}
-
-fn native_abort_signal_set_onabort(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let id = require_abort_signal_this(ctx, this, "onabort")?;
-    let value = args.first().copied().unwrap_or(JsValue::Undefined);
-    // WHATWG event-handler IDL: `null` clears, callable installs,
-    // anything else (object without [[Call]], primitive) is
-    // silently ignored — matches Web platform behaviour where
-    // `el.onclick = 'foo'` no-ops rather than throwing.
-    let new_handler = match value {
-        JsValue::Null | JsValue::Undefined => None,
-        JsValue::Object(obj_id) if ctx.vm.get_object(obj_id).kind.is_callable() => Some(obj_id),
-        _ => return Ok(JsValue::Undefined),
-    };
-    if let Some(state) = ctx.vm.abort_signal_states.get_mut(&id) {
-        state.onabort = new_handler;
-    }
-    Ok(JsValue::Undefined)
-}
-
 // ---------------------------------------------------------------------------
 // AbortSignal methods
 // ---------------------------------------------------------------------------
@@ -513,140 +468,38 @@ fn native_abort_signal_throw_if_aborted(
     Ok(JsValue::Undefined)
 }
 
-/// `signal.addEventListener(type, callback)`.  Only `'abort'` is
-/// meaningful — other types are accepted but their callbacks will
-/// never fire (matches browsers).
-fn native_abort_signal_add_event_listener(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let id = require_abort_signal_this(ctx, this, "addEventListener")?;
-    let type_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let type_sid = super::super::coerce::to_string(ctx.vm, type_arg)?;
-    // Filter: only register `'abort'` listeners — anything else is
-    // accepted (no throw) but discarded, since the only event this
-    // signal ever dispatches is `'abort'`.
-    let abort_sid = ctx.vm.well_known.abort;
-
-    let callback_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    let cb_id = match callback_arg {
-        JsValue::Null | JsValue::Undefined => return Ok(JsValue::Undefined),
-        JsValue::Object(cb) if ctx.vm.get_object(cb).kind.is_callable() => cb,
-        _ => {
-            return Err(VmError::type_error(
-                "Failed to execute 'addEventListener' on 'EventTarget': \
-                 parameter 2 is not of type 'EventListener'.",
-            ));
-        }
-    };
-    if type_sid != abort_sid {
-        return Ok(JsValue::Undefined);
-    }
-    if let Some(state) = ctx.vm.abort_signal_states.get_mut(&id) {
-        // Already-aborted signals drop the registration — strictly
-        // the spec queues a microtask that fires the callback
-        // once, but wiring the microtask synthesis through the
-        // shadowed dispatch path is out of scope for PR5a2.
-        // Dropping is what the current test fixtures observe and
-        // matches browsers when the caller inspects
-        // `signal.aborted` after the add.
-        if state.aborted {
-            return Ok(JsValue::Undefined);
-        }
-        // Spec §2.6 step 4 forbids duplicate (type, callback, capture)
-        // tuples.  AbortSignal listeners share `type='abort'` and
-        // `capture=false`, so dedupe on callback identity alone.
-        if !state.abort_listeners.contains(&cb_id) {
-            state.abort_listeners.push(cb_id);
-        }
-    }
-    Ok(JsValue::Undefined)
-}
-
-fn native_abort_signal_remove_event_listener(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let id = require_abort_signal_this(ctx, this, "removeEventListener")?;
-    let type_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let type_sid = super::super::coerce::to_string(ctx.vm, type_arg)?;
-    let abort_sid = ctx.vm.well_known.abort;
-    let callback_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    let JsValue::Object(cb_id) = callback_arg else {
-        return Ok(JsValue::Undefined);
-    };
-    if type_sid != abort_sid {
-        return Ok(JsValue::Undefined);
-    }
-    if let Some(state) = ctx.vm.abort_signal_states.get_mut(&id) {
-        state.abort_listeners.retain(|&c| c != cb_id);
-    }
-    Ok(JsValue::Undefined)
-}
-
-fn native_abort_signal_dispatch_event(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    // `this` is validated even though the body is a stub — calling
-    // the method with a non-AbortSignal receiver
-    // (e.g. `AbortSignal.prototype.dispatchEvent.call({})`) is a
-    // WebIDL conversion failure that should throw, matching the
-    // other AbortSignal accessors / methods.  Without this guard
-    // the stub silently returns `false`, masking the misuse.
-    let _ = require_abort_signal_this(ctx, this, "dispatchEvent")?;
-    // Stub returning `false` (WHATWG's "event not dispatched"
-    // default).  `Event` constructors exist as of PR5a2, but
-    // AbortSignal keeps its `'abort'` listener list in
-    // [`AbortSignalState::abort_listeners`] rather than on an
-    // ECS entity — the shared `EventTarget.prototype.dispatchEvent`
-    // walk therefore has nothing to iterate here.  Routing
-    // script-side `signal.dispatchEvent(new Event('abort'))` into
-    // that custom store is tracked separately; `controller.abort()`
-    // synthesises its dispatch internally without going through
-    // this method, so the stub does not block the primary
-    // AbortSignal use-case.
-    Ok(JsValue::Boolean(false))
-}
+// `addEventListener` / `removeEventListener` / `dispatchEvent` are now
+// inherited from `EventTarget.prototype` and route through the unified
+// dispatch core (`DispatchTarget::VmObject`) — the old in-VM shadows are
+// deleted.  A non-`abort` listener still never fires (only `'abort'` is
+// dispatched), and `signal.dispatchEvent(new Event('abort'))` now actually
+// walks the `vm_event_listeners` home.
 
 // ---------------------------------------------------------------------------
 // Internal abort dispatch
 // ---------------------------------------------------------------------------
 
-/// Fire `'abort'` on `signal_id`: set state, then call every
-/// registered listener exactly once (idempotent if already aborted).
+/// Fire `'abort'` on `signal_id`: latch state, detach `{signal}`-bound
+/// listeners on other targets, then dispatch a proper `Event('abort')`
+/// through the shared EventTarget core on this signal's
+/// `vm_event_listeners` home (idempotent if already aborted).
 ///
-/// Listeners are called with `(undefined)` as the sole argument
-/// rather than a proper Event payload — typical handlers inspect
-/// `signal.aborted` / `signal.reason`, both stable on the signal,
-/// so the missing payload does not affect observable behaviour.
-/// Threading a synthesised `Event('abort')` object through here
-/// (now that Event constructors exist) is a separate refactor
-/// because AbortSignal listeners do not live on an ECS entity
-/// and so cannot reuse the shared dispatch walk directly.
+/// The `onabort` handler + every `addEventListener('abort', …)` callback
+/// run in registration order (WHATWG §8.1.8.1), each receiving the
+/// `Event('abort')` whose `target` is the signal — the spec-correct
+/// payload that the old bespoke `(undefined)`-arg fire lacked.
 ///
 /// # GC safety
 ///
-/// The callback `ObjectId`s **must remain rooted** in
-/// `abort_signal_states` for the duration of dispatch.  If we
-/// `mem::take` them into a Rust local before iterating, a GC
-/// triggered by an earlier callback can reclaim the function
-/// objects we have not yet called (those `ObjectId`s would no
-/// longer be reachable from any GC root).  Instead we set the
-/// latch (`aborted = true`) up front — re-entrant
-/// `addEventListener` then short-circuits via the already-aborted
-/// guard — clone the `ObjectId` list into a local for stable
-/// iteration, and leave the originals in `state` so the trace
-/// step keeps marking them.  The `abort_listeners` Vec is drained
-/// at the very end to honour WHATWG's one-shot semantics.
+/// The listener callbacks live in `HostData::listener_store` (a GC root
+/// via `gc_root_object_ids`) and the event object is rooted via
+/// `dispatched_events` for the dispatch window, so the shared UA-fire
+/// ([`dispatch_vm_simple_event`]) resolves every callback live without
+/// any clone-for-reachability dance.  The `aborted` latch is set up front
+/// so a re-entrant `abort()` short-circuits (one-shot); the listeners are
+/// left in the home (a second dispatch can't happen) and `onabort` stays
+/// observable from script post-abort, matching browsers.
 ///
-/// `onabort` is intentionally **not** cleared by dispatch.  The
-/// IDL handler attribute remains observable from script after
-/// the event fires (browsers expose the same handler reference
-/// to subsequent `signal.onabort` reads).
 /// Entry point used by both the public `AbortController.abort()`
 /// dispatch and the `AbortSignal.timeout` internal fire — see
 /// module doc for the contract.  Exposed to `natives_timer`
@@ -680,24 +533,20 @@ pub(super) fn abort_signal(
         reason
     };
 
-    // Latch state and snapshot for iteration.  `onabort` and
-    // `abort_listeners` are *cloned* (not taken) so they remain
-    // reachable from `abort_signal_states` while user callbacks
-    // run — see the # GC safety section above.
-    //
-    // `bound_listener_removals` is drained because its content is
-    // `(ListenerId → Entity)` pairs (no `ObjectId`s), so the GC has
-    // nothing to lose by moving them out.
-    let (onabort, listeners, removals) = {
+    // Latch state.  The signal's own `'abort'` listeners + `onabort`
+    // handler live in the unified `vm_event_listeners` home (with their
+    // callbacks rooted via `listener_store`), so there is nothing to
+    // clone for GC reachability — the shared UA-fire below resolves them
+    // live.  `bound_listener_removals` is drained because its content is
+    // `(ListenerId → DispatchTarget)` pairs (no `ObjectId`s the GC must
+    // keep), so moving them out is free.
+    let removals = {
         let Some(state) = ctx.vm.abort_signal_states.get_mut(&signal_id) else {
             return Ok(());
         };
         state.aborted = true;
         state.reason = materialised_reason;
-        let onabort = state.onabort;
-        let listeners = state.abort_listeners.clone();
-        let removals = std::mem::take(&mut state.bound_listener_removals);
-        (onabort, listeners, removals)
+        std::mem::take(&mut state.bound_listener_removals)
     };
 
     // The reverse-index entries for these listener IDs are no longer
@@ -723,24 +572,17 @@ pub(super) fn abort_signal(
     #[cfg(feature = "engine")]
     super::indexeddb::remove_idb_listeners_for_signal(ctx.vm, signal_id);
 
-    // Fire `onabort` first (matches WHATWG §8.1.8.1 — event handler
-    // attribute is "the first in addition to others registered").
-    let signal_val = JsValue::Object(signal_id);
-    if let Some(handler) = onabort {
-        let _ = ctx.call_function(handler, signal_val, &[JsValue::Undefined]);
-    }
-    for cb in listeners {
-        let _ = ctx.call_function(cb, signal_val, &[JsValue::Undefined]);
-    }
-
-    // One-shot: drain the listener list so a hypothetical second
-    // `controller.abort()` (already a no-op via the latch above)
-    // and any post-dispatch introspection see an empty list.
-    // `onabort` is intentionally retained — the IDL handler stays
-    // observable post-abort, matching browser behaviour.
-    if let Some(state) = ctx.vm.abort_signal_states.get_mut(&signal_id) {
-        state.abort_listeners.clear();
-    }
+    // Fire `'abort'` (bubbles=false, cancelable=false) through the shared
+    // EventTarget core on this signal's `vm_event_listeners` home: the
+    // `onabort` handler + every `addEventListener('abort', …)` callback
+    // run in registration order (WHATWG §8.1.8.1 — the event handler is
+    // "in addition to others registered", at its registration position),
+    // each receiving a proper `Event('abort')` whose `target` is the
+    // signal.  One-shot is preserved by the `aborted` latch above (a
+    // second `abort()` returns early), so the listeners persist in the
+    // home without re-firing.
+    let abort_sid = ctx.vm.well_known.abort;
+    let _ = dispatch_vm_simple_event(ctx, signal_id, abort_sid, false, false)?;
 
     // `AbortSignal.any(inputs)` fan-out (WHATWG §3.1.3.3) — if
     // this signal appears as an input in any composite built
@@ -841,48 +683,42 @@ pub(in crate::vm) fn internal_abort_signal(
 // Static factories live in `abort_statics.rs` to keep this file
 // under the 1000-line convention.
 
-/// Detach `(entity, listener_id)` pairs from their host's ECS
-/// `EventListeners` component and the `HostData::listener_store`.
+/// Detach `(listener_id → target)` pairs from each target's listener
+/// home (the ECS `EventListeners` component for a `Node`,
+/// `vm_event_listeners` for a `VmObject`) and the `HostData::listener_store`.
 /// Used when an `AbortSignal` aborts to drop listeners registered via
-/// `addEventListener({signal})`.
+/// `addEventListener({signal})` — touchpoint (f) of the listener-home
+/// adapter (the per-home branch lives in `DispatchTarget::remove_listener_entry`).
 ///
 /// The two cleanup steps have **independent prerequisites**:
 ///
 /// - `listener_store` removal requires only that `HostData` be
-///   *installed* — the entries can be cleaned up regardless of the
-///   bind state because the store is in-VM.
-/// - ECS `EventListeners` mutation requires the world to be *bound*
-///   (we need a live `EcsDom` pointer).
+///   *installed* — the entries can be cleaned up regardless of the bind
+///   state because the store is in-VM.
+/// - the home mutation: a `Node` home requires the world to be *bound*
+///   (a live `EcsDom` pointer — the adapter returns `None` when unbound);
+///   a `VmObject` home (`vm_event_listeners`) is always reachable.
 ///
-/// Combining the two under a single `host_if_bound()` early-return
-/// would leak `listener_store` entries (and keep their JS function
-/// `ObjectId`s rooted) whenever `controller.abort()` runs across an
-/// unbind boundary — e.g. JS retained the controller in a global
-/// and the shell unbound the VM between the registration and the
-/// abort.  Splitting the prerequisites keeps both stores in sync
-/// regardless of bind state.
-fn detach_bound_listeners(ctx: &mut NativeContext<'_>, removals: &HashMap<ListenerId, Entity>) {
+/// Splitting the prerequisites keeps both stores in sync regardless of
+/// bind state — without it, `controller.abort()` across an unbind boundary
+/// (JS retained the controller in a global, shell unbound the VM between
+/// registration and abort) would leak `listener_store` entries and keep
+/// their JS function `ObjectId`s rooted for the rest of the VM's life.
+fn detach_bound_listeners(
+    ctx: &mut NativeContext<'_>,
+    removals: &HashMap<ListenerId, DispatchTarget>,
+) {
     if removals.is_empty() {
         return;
     }
-    let bound = ctx.host_if_bound().is_some();
-    for (&listener_id, &entity) in removals {
-        if bound {
-            // Drop from ECS first (scoped block so the world borrow
-            // releases before we re-grab `host` for listener_store).
-            let dom = ctx.host().dom();
-            if let Ok(mut listeners) = dom
-                .world_mut()
-                .get::<&mut elidex_script_session::EventListeners>(entity)
-            {
-                listeners.remove(listener_id);
-            }
-        }
-        // listener_store cleanup runs whether or not the VM is
-        // currently bound — we just need `HostData` itself to be
-        // installed.  Skipping this when unbound would leave the JS
-        // function `ObjectId` rooted via `gc_root_object_ids` for
-        // the rest of the VM's life.
+    for (&listener_id, &target) in removals {
+        // Drop from the target's listener home (no-op when a `Node` home
+        // is unbound / despawned — the adapter absorbs it).
+        target.remove_listener_entry(ctx, listener_id);
+        // `listener_store` cleanup runs whether or not the VM is currently
+        // bound — we just need `HostData` itself to be installed.  Skipping
+        // this when unbound would leave the JS function `ObjectId` rooted
+        // via `gc_root_object_ids` for the rest of the VM's life.
         if let Some(host) = ctx.host_opt() {
             host.remove_listener(listener_id);
         }

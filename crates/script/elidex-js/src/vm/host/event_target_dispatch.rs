@@ -18,10 +18,11 @@
 use elidex_plugin::EventPhase;
 use elidex_script_session::event_dispatch::{
     apply_retarget, build_dispatch_plan, build_propagation_path, DispatchEvent, DispatchFlags,
+    ListenerPlanEntry,
 };
-use elidex_script_session::EventListeners;
 
 use super::super::value::{JsValue, NativeContext, ObjectId, ObjectKind, VmError};
+use super::dispatch_target::DispatchTarget;
 use super::events::{
     set_event_slot_raw, EVENT_SLOT_CURRENT_TARGET, EVENT_SLOT_EVENT_PHASE, EVENT_SLOT_TARGET,
 };
@@ -339,7 +340,7 @@ fn walk_phase(
             ctx,
             event_id,
             JsValue::Object(current_wrapper),
-            *entity,
+            DispatchTarget::Node(*entity),
             listener_entries,
         );
         // Sync the event's flag state back to the local walker so the
@@ -413,17 +414,19 @@ fn sync_flags_from_event(
 ///   AbortSignal back-ref,
 /// - runs the HTML §8.1.7.3 microtask checkpoint.
 ///
-/// `entity` names the Node home for the `once`-removal write + the
-/// event-handler reconcile (the latter is a node-only content-attribute
-/// concern); generalizing this `entity` parameter to a polymorphic
-/// listener-home target is the next step of the dispatch-core
-/// unification.
-fn invoke_listeners_shared(
+/// `home` is the listener-home adapter ([`DispatchTarget`]) for the
+/// `once`-removal write + the callable resolve (incl. the node-only
+/// event-handler reconcile) — the per-home branch lives in the adapter,
+/// so this loop carries no `match target kind` and no `Entity` read.
+///
+/// Shared by the Node walk ([`walk_phase`]) and the VM walk
+/// ([`super::event_target_dispatch_vm::vm_walk_phase`]).
+pub(super) fn invoke_listeners_shared(
     ctx: &mut NativeContext<'_>,
     event_id: ObjectId,
     current_target: JsValue,
-    entity: elidex_ecs::Entity,
-    entries: &[elidex_script_session::event_dispatch::ListenerPlanEntry],
+    home: DispatchTarget,
+    entries: &[ListenerPlanEntry],
 ) {
     for entry in entries {
         if event_immediate_stopped(ctx.vm, event_id) {
@@ -431,36 +434,23 @@ fn invoke_listeners_shared(
         }
 
         // §2.9 step 15: remove `once` listeners BEFORE invocation so
-        // re-entrant dispatch sees them gone.  The corresponding
-        // `listener_store` + AbortSignal back-ref cleanup happens after
-        // `call_value` returns so it also runs for listeners that were
-        // NOT `once` but whose invocation threw.
+        // re-entrant dispatch sees them gone (home-dispatched via the
+        // adapter).  The corresponding `listener_store` + AbortSignal
+        // back-ref cleanup happens after `call_value` returns so it also
+        // runs for listeners that were NOT `once` but whose invocation
+        // threw.
         if entry.once {
-            let dom = ctx.host().dom();
-            if let Ok(mut listeners) = dom.world_mut().get::<&mut EventListeners>(entity) {
-                listeners.remove(entry.id);
-            }
+            home.remove_listener_entry(ctx, entry.id);
         }
 
-        // HTML §8.1.8.1 "getting the current value of the event handler":
-        // bring an event-handler IDL attribute backing up to date
-        // (lazy-compile a pending inline source / drop a cleared one)
-        // before its callable is resolved below.  Gated on `is_handler`
-        // so the common `addEventListener` listener skips the component
-        // lookup entirely.
-        if entry.is_handler {
-            ctx.vm.ensure_event_handler_current(entity, entry.id);
-        }
-
-        // Resolve the JS function; a miss means the listener was removed
-        // between plan-freeze and now (addEventListener inside an earlier
+        // Resolve the JS function (the adapter runs the node-only HTML
+        // §8.1.8.1 event-handler reconcile first for `is_handler`
+        // entries).  A miss means the listener was removed between
+        // plan-freeze and now (addEventListener inside an earlier
         // listener can't add to this plan but removeEventListener / abort
         // signals can drop planned entries).  Silent continue matches
         // §2.9 step 6 (the removed-field / removed-flag check).
-        let Some(host) = ctx.vm.host_data.as_deref() else {
-            continue;
-        };
-        let Some(func_obj_id) = host.get_listener(entry.id) else {
+        let Some(func_obj_id) = home.resolve_callable(ctx, entry) else {
             continue;
         };
 
