@@ -920,4 +920,31 @@ fn dead_abort_signal_listener_home_pruned_by_gc() {
     );
 }
 
+/// Regression (Copilot R4, `#11-eventtarget-dispatch-core`): a bare
+/// `Vm::new()` installs no `HostData`, yet `register_globals` still exposes
+/// `AbortController`.  Post-migration a VmObject EventTarget's listener
+/// callback lives in `HostData::listener_store`, so `signal.addEventListener`
+/// reached `ctx.host()` (an `expect`) and panicked when no `HostData` was
+/// installed — a crash that pre-migration (callbacks in `abort_signal_states`)
+/// did not have.  It must degrade to the silent-no-op surface the unbound
+/// receiver policy already uses for Nodes, NOT panic.
+#[test]
+fn add_event_listener_on_signal_without_host_data_is_silent_noop() {
+    // No `install_host_data` — a bare engine VM.  Everything runs in one
+    // eval so the `const c` binding stays in scope; results are stashed on
+    // `globalThis` for assertion.
+    let mut vm = Vm::new();
+    vm.eval(
+        "const c = new AbortController();
+         c.signal.addEventListener('abort', () => {});
+         // dispatchEvent on the same no-HostData receiver also stays a
+         // no-op, returning the spec's 'not canceled' default of `true`.
+         globalThis.__dispatched = c.signal.dispatchEvent(new Event('abort'));
+         globalThis.__ok = true;",
+    )
+    .unwrap();
+    assert!(eval_bool(&mut vm, "globalThis.__ok === true"));
+    assert!(eval_bool(&mut vm, "globalThis.__dispatched === true"));
+}
+
 // Static factory tests live in `tests_abort_statics.rs`.

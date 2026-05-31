@@ -53,8 +53,14 @@ pub(crate) enum DispatchTarget {
 ///   not panic on the later `host.dom()` deref — the unbound-receiver
 ///   policy returns `None` here, same as `entity_from_this`).
 /// - A non-Node `EventTarget` brand (`AbortSignal` / the IDB targets) →
-///   [`DispatchTarget::VmObject`].  These carry their state in `VmInner`
-///   side-stores regardless of bind state, so no bind check applies.
+///   [`DispatchTarget::VmObject`], but ONLY while `HostData` is installed.
+///   A VmObject keeps its listener *metadata* in
+///   [`VmInner::vm_event_listeners`] (no bind needed — it has no document),
+///   but its callbacks live in `HostData::listener_store`; with no HostData
+///   the `addEventListener` → `store_listener` write would panic, so this
+///   collapses to the same silent-no-op `None` surface the unbound Node arm
+///   uses (production installs HostData at engine construction).  Presence
+///   suffices — unlike the Node arm, no *bound* check applies.
 /// - Anything else → `None`.
 pub(crate) fn target_from_this(ctx: &NativeContext<'_>, this: JsValue) -> Option<DispatchTarget> {
     let JsValue::Object(id) = this else {
@@ -75,7 +81,11 @@ pub(crate) fn target_from_this(ctx: &NativeContext<'_>, this: JsValue) -> Option
         ObjectKind::AbortSignal
         | ObjectKind::IdbRequest
         | ObjectKind::IdbTransaction
-        | ObjectKind::IdbDatabase => Some(DispatchTarget::VmObject(id)),
+        | ObjectKind::IdbDatabase => ctx
+            .vm
+            .host_data
+            .as_ref()
+            .map(|_| DispatchTarget::VmObject(id)),
         _ => None,
     }
 }
