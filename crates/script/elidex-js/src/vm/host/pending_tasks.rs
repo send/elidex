@@ -115,6 +115,17 @@ pub(crate) enum PendingTask {
     /// synchronously in `txn::abort_transaction`.
     #[cfg(feature = "engine")]
     IdbAbortDone { txn_id: ObjectId },
+    /// W3C IndexedDB §5.7 "upgrade a database": fire `upgradeneeded`
+    /// (an `IDBVersionChangeEvent` with `oldVersion` / `newVersion`) at the
+    /// open request, then run the upgrade transaction's auto-commit
+    /// lifecycle (which, once the handler turn ends, commits → finalizes
+    /// the version bump → fires the open request's `success`).
+    #[cfg(feature = "engine")]
+    IdbUpgrade {
+        request_id: ObjectId,
+        old_version: u64,
+        new_version: u64,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -217,6 +228,19 @@ impl VmInner {
             #[cfg(feature = "engine")]
             PendingTask::IdbAbortDone { txn_id } => {
                 super::indexeddb::txn::dispatch_abort_done(self, txn_id);
+            }
+            #[cfg(feature = "engine")]
+            PendingTask::IdbUpgrade {
+                request_id,
+                old_version,
+                new_version,
+            } => {
+                super::indexeddb::factory::dispatch_idb_upgrade(
+                    self,
+                    request_id,
+                    old_version,
+                    new_version,
+                );
             }
         }
     }

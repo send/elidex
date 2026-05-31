@@ -37,10 +37,15 @@
 
 use std::collections::HashMap;
 
-use super::super::value::{CallMode, JsValue, NativeContext, ObjectId, ObjectKind, StringId};
+use super::super::shape::{self, PropertyAttrs};
+use super::super::value::{
+    CallMode, JsValue, NativeContext, ObjectId, ObjectKind, PropertyKey, PropertyValue, StringId,
+};
 use super::super::VmInner;
 use super::events::{set_event_slot_raw, EventInit, EVENT_SLOT_CURRENT_TARGET, EVENT_SLOT_TARGET};
 
+pub(crate) mod database;
+pub(crate) mod factory;
 pub(crate) mod request;
 pub(crate) mod txn;
 mod value;
@@ -330,6 +335,68 @@ pub(super) fn fire_idb_event(
     cancelable: bool,
     bubbles: bool,
 ) -> FireResult {
+    fire_idb_event_with_props(
+        ctx,
+        target,
+        event_type,
+        handler_attr,
+        cancelable,
+        bubbles,
+        None,
+        &[],
+    )
+}
+
+/// Fire an `IDBVersionChangeEvent` (§4.2) at `target` — a base `Event`
+/// with own `oldVersion` / `newVersion` data properties + the
+/// `IDBVersionChangeEvent.prototype`.  Used for `upgradeneeded` /
+/// `versionchange` / `blocked`.  `new_version` is `null` for a
+/// `deleteDatabase` versionchange.
+pub(super) fn fire_version_change_event(
+    ctx: &mut NativeContext<'_>,
+    target: ObjectId,
+    event_type: StringId,
+    handler_attr: StringId,
+    old_version: u64,
+    new_version: Option<u64>,
+) -> FireResult {
+    #[allow(clippy::cast_precision_loss)]
+    let new_v = new_version.map_or(JsValue::Null, |v| JsValue::Number(v as f64));
+    let old_sid = ctx.vm.well_known.old_version;
+    let new_sid = ctx.vm.well_known.new_version;
+    #[allow(clippy::cast_precision_loss)]
+    let props = [
+        (old_sid, JsValue::Number(old_version as f64)),
+        (new_sid, new_v),
+    ];
+    let proto = ctx.vm.idb_version_change_event_prototype;
+    fire_idb_event_with_props(
+        ctx,
+        target,
+        event_type,
+        handler_attr,
+        false,
+        false,
+        proto,
+        &props,
+    )
+}
+
+/// Shared event-build + dispatch.  `proto_override` reparents the event to
+/// a subclass prototype (e.g. `IDBVersionChangeEvent.prototype`);
+/// `extra_props` installs own data properties on the event before
+/// dispatch.
+#[allow(clippy::too_many_arguments)]
+fn fire_idb_event_with_props(
+    ctx: &mut NativeContext<'_>,
+    target: ObjectId,
+    event_type: StringId,
+    handler_attr: StringId,
+    cancelable: bool,
+    bubbles: bool,
+    proto_override: Option<ObjectId>,
+    extra_props: &[(StringId, JsValue)],
+) -> FireResult {
     let (handler, listeners) = collect_and_prune(ctx.vm, target, event_type, handler_attr);
     if handler.is_none() && listeners.is_empty() {
         return FireResult {
@@ -357,6 +424,17 @@ pub(super) fn fire_idb_event(
         true,
         CallMode::Call,
     );
+    if let Some(proto) = proto_override {
+        ctx.vm.get_object_mut(event_id).prototype = Some(proto);
+    }
+    for &(key, value) in extra_props {
+        ctx.vm.define_shaped_property(
+            event_id,
+            PropertyKey::String(key),
+            PropertyValue::Data(value),
+            PropertyAttrs::BUILTIN,
+        );
+    }
     set_event_slot_raw(ctx.vm, event_id, EVENT_SLOT_TARGET, JsValue::Object(target));
     set_event_slot_raw(
         ctx.vm,

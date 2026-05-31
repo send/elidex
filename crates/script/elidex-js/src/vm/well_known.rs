@@ -1395,6 +1395,9 @@ define_well_known_strings! {
         onupgradeneeded => "onupgradeneeded",
         onversionchange => "onversionchange",
         onblocked => "onblocked",
+        // IDBVersionChangeEvent attributes (§4.2).
+        old_version => "oldVersion",
+        new_version => "newVersion",
     }
 
     "ResizeObserver / IntersectionObserver (slot #11-resize-observer-vm + #11-intersection-observer-vm)" {

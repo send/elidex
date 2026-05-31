@@ -74,6 +74,17 @@ pub(crate) fn async_execute(
     req
 }
 
+/// Stage a final outcome on an already-created request and queue its
+/// delivery task.  Used by the factory `open` / `deleteDatabase` flow,
+/// whose request is created up-front (to return it synchronously) before
+/// the backend result is known.
+pub(crate) fn stage_and_queue(vm: &mut VmInner, request_id: ObjectId, outcome: DeferredOutcome) {
+    if let Some(st) = vm.idb_request_states.get_mut(&request_id) {
+        st.deferred = Some(outcome);
+    }
+    vm.queue_task(PendingTask::IdbDeliver { request_id });
+}
+
 /// Drain step for [`PendingTask::IdbDeliver`] (§5.6 step 5.6).  Removes the
 /// request from its transaction's request list **before** firing (so §5.9
 /// step 8.3 reads the post-removal list), sets `readyState = "done"` +
@@ -179,8 +190,10 @@ fn reactivate_if_inactive(vm: &mut VmInner, txn_id: ObjectId) {
 /// §5.9 step 8 / §5.10 step 8: post-dispatch transaction lifecycle.  Runs
 /// only if the transaction is still `Active`.  `error_to_abort` is `Some`
 /// for the error path (§5.10): when the event was not canceled the error
-/// aborts the transaction.
-fn run_post_dispatch(
+/// aborts the transaction.  Also reused by the §5.7 upgrade flow after the
+/// `upgradeneeded` event (the upgrade transaction auto-commits the same
+/// way once its request list empties).
+pub(super) fn run_post_dispatch(
     ctx: &mut NativeContext<'_>,
     txn_id: ObjectId,
     res: &FireResult,

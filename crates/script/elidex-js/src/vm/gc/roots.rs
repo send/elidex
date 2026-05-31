@@ -525,6 +525,9 @@ pub(super) fn mark_roots(
             | super::super::host::pending_tasks::PendingTask::IdbAbortDone { txn_id } => {
                 mark_object(*txn_id, obj_marks, work);
             }
+            super::super::host::pending_tasks::PendingTask::IdbUpgrade { request_id, .. } => {
+                mark_object(*request_id, obj_marks, work);
+            }
         }
     }
 

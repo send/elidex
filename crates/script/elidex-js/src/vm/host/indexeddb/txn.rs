@@ -101,10 +101,13 @@ pub(crate) fn dispatch_commit_done(vm: &mut VmInner, txn_id: ObjectId) {
     let mut ctx = NativeContext::new_call(vm);
     // step 2.5.3: fire `complete` (non-bubbling, non-cancelable).
     fire_idb_event(&mut ctx, txn_id, complete_sid, oncomplete_sid, false, false);
-    // step 2.5.4: an upgrade transaction's open request now resolves.
+    // step 2.5.4: an upgrade transaction's open request now resolves —
+    // clear its `transaction`, mark it done, and fire `success` (its
+    // `result` was set to the IDBDatabase by the factory `open` flow).
     if let Some(req) = upgrade_request {
         if let Some(rs) = ctx.vm.idb_request_states.get_mut(&req) {
             rs.transaction = None;
+            rs.ready_state = IdbReadyState::Done;
         }
         let success_sid = ctx.vm.well_known.success;
         let onsuccess_sid = ctx.vm.well_known.onsuccess;
