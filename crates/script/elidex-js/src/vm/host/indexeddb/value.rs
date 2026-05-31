@@ -205,25 +205,35 @@ pub(crate) fn js_to_query(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<Q
 /// this call (it owns the transaction id).
 pub(crate) fn value_to_json(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<String, VmError> {
     // §5.11: IDB clones via the structured clone algorithm, NOT JSON's
-    // `toJSON` / silently-drop-functions semantics.  Validate cloneability
-    // first: a function or symbol ANYWHERE in the value graph is a
-    // `DataCloneError` — `JSON.stringify` would otherwise drop it silently
-    // (`{ f() {} }` → `{}`, an array function → `null`), corrupting the stored
-    // value.  `clone_value` reads data-property slots (no getter side effects)
-    // and rejects `Function` / `Symbol` / etc.  Faithful binary storage of
-    // cloneable-but-not-JSON types (Date / Map / ArrayBuffer) remains deferred
-    // to `#11-idb-structured-clone-storage`; the discarded clone is GC-eligible.
-    super::super::structured_clone::clone_value(ctx.vm, val)?;
-    // §5.11 clone: ANY remaining failure to serialize the value for storage
-    // surfaces as `DataCloneError`, never the raw `JSON.stringify` exception —
-    // a cyclic structure throws `TypeError`, but for IDB the value simply
-    // cannot be stored by this v1 JSON clone path, which is a clone failure.
-    let Ok(serialized) = super::super::super::natives_json::stringify_to_string(
-        ctx,
-        val,
-        JsValue::Undefined,
-        JsValue::Undefined,
-    ) else {
+    // `toJSON` / silently-drop-functions semantics.  Structured-clone the value
+    // first — this rejects a function or symbol ANYWHERE in the graph as a
+    // `DataCloneError` (`JSON.stringify` would otherwise drop it silently,
+    // `{ f() {} }` → `{}`, corrupting the stored value) and produces a plain
+    // data graph.  Faithful binary storage of cloneable-but-not-JSON types
+    // (Date / Map / ArrayBuffer) remains deferred to
+    // `#11-idb-structured-clone-storage`.
+    let cloned = super::super::structured_clone::clone_value(ctx.vm, val)?;
+    // Serialize THE CLONE, not the original: IDB stores the structured-cloned
+    // value and must not invoke JSON serialization hooks — running
+    // `JSON.stringify` on the original would re-run user `toJSON` methods /
+    // accessors and could change what is persisted.  Root the clone on the VM
+    // stack across the (allocating) serialization, then drop the scope.
+    let serialized = {
+        let mut frame = ctx.vm.push_stack_scope();
+        frame.stack.push(cloned);
+        let mut sub_ctx = NativeContext::new_call(&mut frame);
+        super::super::super::natives_json::stringify_to_string(
+            &mut sub_ctx,
+            cloned,
+            JsValue::Undefined,
+            JsValue::Undefined,
+        )
+    };
+    // §5.11 clone: ANY remaining serialization failure surfaces as
+    // `DataCloneError`, never the raw `JSON.stringify` exception — a cyclic
+    // structure throws `TypeError`, but for IDB the value simply cannot be
+    // stored by this v1 JSON clone path, which is a clone failure.
+    let Ok(serialized) = serialized else {
         return Err(dom_exc(
             ctx,
             "DataCloneError",

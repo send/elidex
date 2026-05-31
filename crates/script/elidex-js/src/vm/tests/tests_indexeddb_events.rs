@@ -509,6 +509,29 @@ fn add_value_with_nested_function_throws_data_clone_error() {
 }
 
 #[test]
+fn add_stores_structured_clone_not_tojson_output() {
+    with_vm(|vm| {
+        // R16 / §5.11: IDB stores the STRUCTURED-CLONED value, which must not
+        // invoke `toJSON` — persisting a class instance stores its own data
+        // properties ({a:1}), not the (inherited) `toJSON`'s return value.
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_tojson', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const store = e.target.result.transaction(['s'], 'readwrite').objectStore('s');
+                 class Foo { constructor() { this.a = 1; } toJSON() { return 'HOOKED'; } }
+                 store.add(new Foo(), 1);
+                 const g = store.get(1);
+                 g.onsuccess = () => { globalThis.__log.push(JSON.stringify(g.result)); };
+             };",
+        )
+        .unwrap();
+        assert_eq!(eval_string(vm, "globalThis.__log.join(',')"), "{\"a\":1}");
+    });
+}
+
+#[test]
 fn get_all_with_null_query_throws_data_error() {
     with_vm(|vm| {
         // R15 #4 / §4.5: a SUPPLIED `null` query is not an omitted optional
