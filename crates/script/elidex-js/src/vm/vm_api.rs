@@ -790,7 +790,7 @@ impl Vm {
     /// microtask drain, because no JS executes while the VM is
     /// unbound.  Callbacks that throw are reported via `eprintln!`
     /// and do not propagate (matches the boa-side behaviour and
-    /// "report" semantics in HTML §8.1.5).
+    /// "report" semantics in HTML §8.1.4.6).
     #[cfg(feature = "engine")]
     pub fn deliver_mutation_records(&mut self, records: &[elidex_script_session::MutationRecord]) {
         self.inner.deliver_mutation_records(records);

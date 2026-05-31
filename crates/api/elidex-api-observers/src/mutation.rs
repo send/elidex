@@ -146,7 +146,7 @@ impl MutationObserverRegistry {
 
     /// Stop observing all targets for this observer.
     ///
-    /// Per WHATWG DOM §4.3.3.3: empties both the node list and the record queue.
+    /// Per WHATWG DOM §4.3.1: empties both the node list and the record queue.
     pub fn disconnect(&mut self, dom: &mut EcsDom, id: MutationObserverId) {
         let mut emptied: Vec<Entity> = Vec::new();
         for (entity, comp) in &mut dom.world_mut().query::<(Entity, &mut MutationObservedBy)>() {
