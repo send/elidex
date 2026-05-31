@@ -188,6 +188,14 @@ fn parse_store_names(ctx: &mut NativeContext<'_>, v: JsValue) -> Result<Vec<Stri
                 let sid = ctx.to_string_val(e)?;
                 names.push(ctx.get_utf8(sid));
             }
+            // §4.4 transaction(): the scope is the SET of unique store names —
+            // `db.transaction(['s', 's'])` must not duplicate `s` in the scope
+            // (`tx.objectStoreNames` would expose the duplicate and the backend
+            // would receive a duplicated scope).  Sort + dedup yields the
+            // canonical sorted-unique set (matching the sorted
+            // `objectStoreNames` list).
+            names.sort();
+            names.dedup();
             return Ok(names);
         }
     }

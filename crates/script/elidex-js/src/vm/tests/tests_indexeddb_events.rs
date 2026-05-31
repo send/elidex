@@ -408,6 +408,32 @@ fn aborted_upgrade_closes_the_database_connection() {
     });
 }
 
+// Placed here (not in `tests_indexeddb.rs`) only to keep that module under the
+// ~1000-line convention — this is the transaction-scope dedup rule.
+#[test]
+fn transaction_store_names_are_deduplicated() {
+    with_vm(|vm| {
+        // R12 / §4.4: `transaction(storeNames)` scope is the SET of unique
+        // names — a duplicate in the sequence is removed, so
+        // `tx.objectStoreNames` exposes each store once.
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_dedup', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const tx = e.target.result.transaction(['s', 's'], 'readonly');
+                 globalThis.__log.push('len:' + tx.objectStoreNames.length);
+                 globalThis.__log.push('first:' + tx.objectStoreNames[0]);
+             };",
+        )
+        .unwrap();
+        assert_eq!(
+            eval_string(vm, "globalThis.__log.join(',')"),
+            "len:1,first:s"
+        );
+    });
+}
+
 // Note: the once-listener GC-rooting fix (mod.rs `dispatch_idb_event`
 // stack-scope, shared by both the internal fire path and the script-facing
 // `dispatchEvent`) is verified by construction — it is the established
