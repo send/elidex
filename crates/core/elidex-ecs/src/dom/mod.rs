@@ -500,8 +500,7 @@ impl EcsDom {
     pub fn namespace_of(&self, entity: Entity) -> Namespace {
         self.world
             .get::<&Namespace>(entity)
-            .map(|n| *n)
-            .unwrap_or(Namespace::Html)
+            .map_or(Namespace::Html, |n| *n)
     }
 
     /// Create a document root entity (no tag, only tree relations).
