@@ -11,6 +11,35 @@ use std::fmt;
 
 use elidex_ecs::{EcsDom, Entity};
 
+/// Which degradation tier produced a parsed tree.
+///
+/// elidex's progressive-degradation model (design doc
+/// `docs/design/ja/11-parser-design.md` `§11.3`) routes a document through
+/// the fastest parser that accepts it: the strict (Tier-1) parser for
+/// conforming HTML5, falling back to the tolerant rule-based-recovery
+/// (Tier-2) backend otherwise. `ParseTier` records which tier produced a
+/// given [`ParseResult`], so the strict-vs-fallback gradient is observable
+/// (navigation logging today; gradient benchmarking later).
+///
+/// The tier is intrinsic to the backend that built the tree, not a separate
+/// decision: [`crate::parse_strict`] only returns `Ok` for conforming input,
+/// so its result is always [`ParseTier::Clean`]; the tolerant backend is the
+/// rule-based-recovery handler, so its result is always
+/// [`ParseTier::Recovered`]. A direct tolerant parse of already-valid markup
+/// still reports `Recovered` — the label names the *tier that produced the
+/// tree* (the `§11.3` Tier-1/Tier-2 boundary), not whether recovery rules
+/// actually fired.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParseTier {
+    /// Tier-1: the strict parser accepted conforming HTML5 — the µs happy
+    /// path. Produced by [`crate::parse_strict`] on success.
+    Clean,
+    /// Tier-2: the tolerant rule-based-recovery backend (html5ever, in the
+    /// compat crate) produced the tree. Reached by a direct tolerant parse,
+    /// or as the progressive-dispatch fallback after a strict parse error.
+    Recovered,
+}
+
 /// Result of parsing an HTML document.
 ///
 /// `EcsDom` does not implement `Debug`, so this type provides a manual
@@ -33,11 +62,19 @@ pub struct ParseResult {
     pub errors: Vec<String>,
     /// Detected encoding name.
     ///
-    /// Always `None` for strict mode (`parse_strict` takes `&str` input,
-    /// no charset detection). Tolerant mode (`parse_tolerant` in compat
-    /// crate) populates with a canonical `encoding_rs` name (e.g.
-    /// `"UTF-8"`, `"Shift_JIS"`).
+    /// Always `None` for the bare `&str` entry points (`parse_strict` /
+    /// `parse_html`): no charset detection runs. The byte-input dispatch
+    /// (`parse_progressive` in the compat crate) detects the encoding and
+    /// populates this with a canonical `encoding_rs` name (e.g. `"UTF-8"`,
+    /// `"Shift_JIS"`).
     pub encoding: Option<&'static str>,
+    /// Which `§11.3` degradation tier produced this tree.
+    ///
+    /// [`ParseTier::Clean`] for the strict path ([`crate::parse_strict`]),
+    /// [`ParseTier::Recovered`] for the tolerant backend. See [`ParseTier`]
+    /// for the backend-intrinsic semantics (a direct tolerant parse of valid
+    /// markup is still `Recovered` — the label names the producing tier).
+    pub tier: ParseTier,
 }
 
 impl fmt::Debug for ParseResult {
@@ -46,6 +83,7 @@ impl fmt::Debug for ParseResult {
             .field("document", &self.document)
             .field("errors", &self.errors)
             .field("encoding", &self.encoding)
+            .field("tier", &self.tier)
             .finish_non_exhaustive()
     }
 }
@@ -108,10 +146,12 @@ mod tests {
             document,
             errors: vec!["test-error".to_string()],
             encoding: Some("UTF-8"),
+            tier: ParseTier::Recovered,
         };
         let debug = format!("{result:?}");
         assert!(debug.contains("ParseResult"));
         assert!(debug.contains("test-error"));
         assert!(debug.contains("UTF-8"));
+        assert!(debug.contains("Recovered"));
     }
 }

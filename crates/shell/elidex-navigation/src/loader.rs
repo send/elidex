@@ -114,11 +114,39 @@ fn make_get_request(url: url::Url) -> elidex_net::Request {
     }
 }
 
+/// Parse a fetched response body with design doc §11.3 progressive
+/// degradation, logging which tier produced the tree.
+///
+/// Tries the strict parser first (`ParseTier::Clean`), falling back to the
+/// tolerant html5ever backend (`ParseTier::Recovered`) on a parse error. The
+/// `tier` debug log makes the strict-vs-fallback gradient observable; each
+/// parse warning is surfaced individually.
+fn parse_body(
+    body: &[u8],
+    charset_hint: Option<&str>,
+    url: &url::Url,
+) -> elidex_html_parser::ParseResult {
+    let parse_result = elidex_html_parser::parse_progressive(body, charset_hint);
+    tracing::debug!(
+        tier = ?parse_result.tier,
+        encoding = ?parse_result.encoding,
+        "parsed {} ({} parse warning(s))",
+        url,
+        parse_result.errors.len(),
+    );
+    for err in &parse_result.errors {
+        tracing::warn!("HTML parse warning: {err}");
+    }
+    parse_result
+}
+
 /// Load a document from a URL.
 ///
 /// 1. Fetches the HTML via `FetchHandle::send_blocking()`.
 /// 2. Detects charset from the `Content-Type` header.
-/// 3. Parses the HTML with `parse_tolerant()`.
+/// 3. Parses the HTML with `parse_progressive()` (design doc §11.3
+///    strict-first dispatch: the strict parser for conforming HTML5, falling
+///    back to the tolerant html5ever backend on a parse error).
 /// 4. Extracts and fetches external stylesheets.
 /// 5. Extracts and fetches external scripts.
 /// 6. Extracts, fetches, and decodes images (`<img src="...">`).
@@ -156,11 +184,9 @@ pub fn load_document(
         response_headers.entry(key).or_default().push(v.clone());
     }
 
-    // 3. Parse the HTML.
-    let parse_result = elidex_html_parser::parse_tolerant(&response.body, charset_hint.as_deref());
-    for err in &parse_result.errors {
-        tracing::warn!("HTML parse warning: {err}");
-    }
+    // 3. Parse the HTML with design doc §11.3 progressive degradation
+    //    (strict-first, tolerant fallback) and log which tier produced it.
+    let parse_result = parse_body(&response.body, charset_hint.as_deref(), &response.url);
     let mut dom = parse_result.dom;
     let document = parse_result.document;
 

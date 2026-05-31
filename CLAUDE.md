@@ -19,7 +19,7 @@ Experimental browser engine written in Rust.
 - **One issue, one way**: より良い機構を見つけたら、その種の処理は **単一の正準形に一括収束** (full unification) させる。「新 seam + N 個の legacy 実装」が共存する strangler 中間状態を残さない — 共存は「どっちで書く?/これは migration 対象?」という決定 tax を**消さず移すだけ**で、PR ごと・reader ごとに再発する。混沌度 (= 決定の表面積) を下げること自体が目的で、それは upfront の大きめ refactor に値する。Ideal over pragmatic の decision-surface 版。詳細 → `memory/feedback_one-issue-one-way.md`
 - **TODO 先送り禁止**: 計画に含めた実装を安易に TODO にしない。実装不可能なら理由 + 対処時期を明示して確認を取る
 - **後方互換性は維持しない**: デッドコードや shim は残さず削除
-- **html5ever 非依存 (layout decoupling)**: Layout は html5ever の暗黙的 DOM 構造修正に依存しない（anonymous table object generation 等は HTML §17 に従い layout 側で実装）= parser 選択に依らない layout 層責務。〔parser backend: strict 解析 = 自前 `elidex-html-parser-strict` / tolerant (recovery) = html5ever / charset 検出 = 自前 (`charset.rs` + encoding_rs)。strict↔tolerant の配備モデル (strict-first browser 等) は未確定・実測待ち → `memory/project_parser-strict-tolerant-deployment.md`〕
+- **html5ever 非依存 (layout decoupling)**: Layout は html5ever の暗黙的 DOM 構造修正に依存しない（anonymous table object generation 等は HTML §17 に従い layout 側で実装）= parser 選択に依らない layout 層責務。〔parser backend: strict 解析 = 自前 `elidex-html-parser-strict` / tolerant (recovery) = html5ever / charset 検出 = 自前 (`charset.rs` + encoding_rs)。配備モデルは design doc §11.3「段階的デグラデーション」(Tier-1 strict-first → Tier-2 tolerant fallback) で確定済 = elidex 最初からの core 思想 (「browser=tolerant」も「配備未確定」も elidex の立場でない)。open は auto-dispatch 実装 + 勾配実測のみ → `memory/project_parser-strict-tolerant-deployment.md`〕
 
 ### Layering mandate (2026-05-04 incident 由来)
 
