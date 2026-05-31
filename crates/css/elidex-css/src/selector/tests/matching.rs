@@ -324,7 +324,7 @@ fn match_empty() {
 
 #[test]
 fn match_empty_with_text_child() {
-    // :empty should NOT match if there's a text node child.
+    // :empty should NOT match if there's a non-whitespace text node child.
     let mut dom = EcsDom::new();
     let div = elem(&mut dom, "div");
     let text = dom.create_text("hello");
@@ -332,6 +332,63 @@ fn match_empty_with_text_child() {
 
     let sel = parse_sel(":empty").unwrap();
     assert!(!sel.matches(div, &dom));
+}
+
+#[test]
+fn match_empty_with_whitespace_only_text() {
+    // CSS Selectors L4 §13.2: an element whose only child is a document
+    // white-space text node IS :empty (changed from L2/L3). This is the
+    // common indentation case once inter-element whitespace is retained.
+    let mut dom = EcsDom::new();
+    let div = elem(&mut dom, "div");
+    let ws = dom.create_text("\n  ");
+    dom.append_child(div, ws);
+
+    let sel = parse_sel(":empty").unwrap();
+    assert!(sel.matches(div, &dom));
+}
+
+#[test]
+fn match_empty_excludes_nbsp() {
+    // U+00A0 (NBSP) is NOT document white space (Selectors L4 §3.7), so an
+    // element containing only `&nbsp;` is NOT :empty (spec example
+    // `<div>&nbsp;</div>`).
+    let mut dom = EcsDom::new();
+    let div = elem(&mut dom, "div");
+    let nbsp = dom.create_text("\u{00A0}");
+    dom.append_child(div, nbsp);
+
+    let sel = parse_sel(":empty").unwrap();
+    assert!(!sel.matches(div, &dom));
+}
+
+#[test]
+fn match_empty_with_only_comment() {
+    // Comments do not affect emptiness (Selectors L4 §13.2), so an element
+    // whose only child is a comment IS :empty.
+    let mut dom = EcsDom::new();
+    let div = elem(&mut dom, "div");
+    let comment = dom.create_comment("c");
+    dom.append_child(div, comment);
+
+    let sel = parse_sel(":empty").unwrap();
+    assert!(sel.matches(div, &dom));
+}
+
+#[test]
+fn match_empty_mixed_whitespace_and_comment() {
+    // Whitespace text + comment together still leave the element :empty.
+    let mut dom = EcsDom::new();
+    let div = elem(&mut dom, "div");
+    let ws1 = dom.create_text("  ");
+    dom.append_child(div, ws1);
+    let comment = dom.create_comment("c");
+    dom.append_child(div, comment);
+    let ws2 = dom.create_text("\n");
+    dom.append_child(div, ws2);
+
+    let sel = parse_sel(":empty").unwrap();
+    assert!(sel.matches(div, &dom));
 }
 
 // --- M3-3: :not() matching tests ---
