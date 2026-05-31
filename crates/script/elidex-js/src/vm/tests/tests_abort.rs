@@ -846,4 +846,78 @@ mod bound_listener_pruning {
     }
 }
 
+// ---------------------------------------------------------------------------
+// #11-eventtarget-dispatch-core — AbortSignal on the shared dispatch core
+// (flat get-the-parent: at-target only).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn dispatch_event_reentrant_throws_invalid_state() {
+    // §2.9 step 1 dispatch flag (shared `dispatched_events`): a re-entrant
+    // `dispatchEvent` of an event already in flight throws InvalidStateError,
+    // now that AbortSignal routes through the shared `EventTarget.dispatchEvent`.
+    let mut vm = new_vm();
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var c = new AbortController();
+             var e = new Event('abort');
+             var caught = '';
+             c.signal.addEventListener('abort', function() {
+                 try { c.signal.dispatchEvent(e); } catch (err) { caught = err.name; }
+             });
+             c.signal.dispatchEvent(e);
+             caught;"
+        ),
+        "InvalidStateError"
+    );
+}
+
+#[test]
+fn abort_stop_immediate_propagation_halts_remaining_listeners() {
+    // §2.9 inner invoke `stopImmediatePropagation`: the first `'abort'`
+    // listener halts the rest on the same target — now honored via the
+    // unified list (the old bespoke abort fire had its own ad-hoc loop).
+    let mut vm = new_vm();
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var c = new AbortController();
+             var seq = '';
+             c.signal.addEventListener('abort', function (e) { seq += 'a'; e.stopImmediatePropagation(); });
+             c.signal.addEventListener('abort', function () { seq += 'b'; });
+             c.abort();
+             seq;"
+        ),
+        "a"
+    );
+}
+
+#[test]
+fn dead_abort_signal_listener_home_pruned_by_gc() {
+    // §4.5 GC prune: when a non-entity EventTarget (here an AbortSignal) is
+    // collected, its `vm_event_listeners` entry is pruned + its listeners
+    // retired from `listener_store` — else the dead target leaks its
+    // callbacks rooted forever.  White-box: count the listener-home entries
+    // before/after dropping the only root and forcing a collection.
+    let mut vm = new_vm();
+    vm.inner.gc_enabled = true;
+    vm.eval(
+        "globalThis.c = new AbortController();
+         globalThis.c.signal.addEventListener('abort', function () {});",
+    )
+    .unwrap();
+    let before = vm.inner.vm_event_listeners.len();
+    assert!(before >= 1, "the signal's listener home must be registered");
+    // Drop the only reachable reference to the controller (and thus its
+    // signal), then force a full collection.
+    vm.eval("globalThis.c = undefined;").unwrap();
+    vm.inner.collect_garbage();
+    assert_eq!(
+        vm.inner.vm_event_listeners.len(),
+        before - 1,
+        "the dead signal's listener home must be pruned"
+    );
+}
+
 // Static factory tests live in `tests_abort_statics.rs`.

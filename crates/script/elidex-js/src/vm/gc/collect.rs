@@ -1509,6 +1509,37 @@ impl VmInner {
                 .retain(|id, _| bit_get(marks, id.0));
             self.idb_key_range_states
                 .retain(|id, _| bit_get(marks, id.0));
+            // `vm_event_listeners` — the unified listener home for the
+            // non-entity EventTargets (AbortSignal / the IDB targets).  When
+            // a target `ObjectId` was collected, prune its entry AND retire
+            // each of its `ListenerId`s from `HostData::listener_store` (the
+            // GC root) + `abort_listener_back_refs` in lockstep — else the
+            // dead target's callbacks stay rooted forever (leak).  Collect
+            // the dead listener ids first (immutable borrow), then prune the
+            // map, then retire (the retirement helper re-borrows `self`).
+            let dead_vm_listener_ids: Vec<elidex_script_session::ListenerId> = self
+                .vm_event_listeners
+                .iter()
+                .filter(|(id, _)| !bit_get(marks, id.0))
+                .flat_map(|(_, listeners)| listeners.ids())
+                .collect();
+            self.vm_event_listeners
+                .retain(|id, _| bit_get(marks, id.0));
+            // Retire each dead-target listener from `listener_store` +
+            // `abort_listener_back_refs` (inlined from
+            // `remove_listener_and_prune_back_ref`, which takes `&mut self`
+            // and would conflict with the live `marks` borrow of
+            // `self.gc_object_marks`; the fields touched here are disjoint).
+            for listener_id in dead_vm_listener_ids {
+                if let Some(host) = self.host_data.as_deref_mut() {
+                    host.remove_listener(listener_id);
+                }
+                if let Some(signal_id) = self.abort_listener_back_refs.remove(&listener_id) {
+                    if let Some(state) = self.abort_signal_states.get_mut(&signal_id) {
+                        state.bound_listener_removals.remove(&listener_id);
+                    }
+                }
+            }
             // `fetch_abort_observers` — prune entries whose key
             // `AbortSignal` was collected so a recycled slot can't
             // pick up stale fan-out `FetchId`s.  The values are
