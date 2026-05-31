@@ -581,6 +581,29 @@ impl Vm {
             self.inner.data_transfer_states.clear();
             self.inner.touch_states.clear();
             self.inner.touch_list_states.clear();
+            // IndexedDB (D-20 `#11-indexed-db-vm`).  The IDB wrapper state
+            // maps hold per-VM identity handles (handler / listener / result
+            // `ObjectId`s — cross-DOM-aliasing per the side-store→component
+            // rule exception (a)), so they must be cleared on unbind.  But
+            // first roll back any still-open SQLite transaction: the backend
+            // `IdbTransaction` has NO `Drop` rollback (only an explicit
+            // `abort`), so dropping the state map alone would leave the
+            // shared connection mid-transaction and block the next bind's
+            // operations.  `idb_backend` itself is the per-origin resource
+            // and is RETAINED (network_handle parity — the embedder manages
+            // re-install on rebind to a new origin).
+            if let Some(backend) = self.inner.idb_backend.clone() {
+                for state in self.inner.idb_transaction_states.values_mut() {
+                    if let Some(mut txn) = state.backend_txn.take() {
+                        let _ = txn.abort(backend.conn());
+                    }
+                }
+            }
+            self.inner.idb_request_states.clear();
+            self.inner.idb_transaction_states.clear();
+            self.inner.idb_database_states.clear();
+            self.inner.idb_object_store_states.clear();
+            self.inner.idb_key_range_states.clear();
             // D-8 PR-A2 — Range / TreeWalker / NodeIterator state
             // clearing on unbind.  These live on `HostData` (not
             // `VmInner`) because the bridge pair-install happens
@@ -929,6 +952,22 @@ impl Vm {
         self.inner
             .reject_pending_fetches_with_error("NetworkHandle replaced while request in flight");
         self.inner.network_handle = Some(handle);
+    }
+
+    /// Install the per-origin IndexedDB backend (slot `#11-indexed-db-vm`).
+    ///
+    /// The embedder / session layer constructs an [`elidex_indexeddb::IdbBackend`]
+    /// from the origin's `OriginStorageManager` `SqliteConnection` and installs
+    /// it here for persistent per-origin storage.  When none is installed, the
+    /// `indexedDB` host code lazily creates an in-memory backend on first use
+    /// (`VmInner::ensure_idb_backend`, mirroring the boa bridge default), so
+    /// IndexedDB works out of the box for tests / unconfigured VMs.
+    ///
+    /// Shared cross-cutting session resource (`!Send`/`!Sync` SQLite handle) —
+    /// see the [`VmInner::idb_backend`](super::VmInner) doc.
+    #[cfg(feature = "engine")]
+    pub fn install_idb_backend(&mut self, backend: std::rc::Rc<elidex_indexeddb::IdbBackend>) {
+        self.inner.idb_backend = Some(backend);
     }
 
     /// Install a new global variable.

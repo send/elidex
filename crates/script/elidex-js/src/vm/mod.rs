@@ -1990,6 +1990,63 @@ pub(crate) struct VmInner {
     /// teardown releases the handle.
     #[cfg(feature = "engine")]
     pub(crate) network_handle: Option<std::rc::Rc<elidex_net::broker::NetworkHandle>>,
+    // --- IndexedDB (D-20 `#11-indexed-db-vm`) ---
+    /// Per-origin IndexedDB backend (SQLite-backed).  Shared cross-cutting
+    /// *session* resource (CLAUDE.md side-store→component rule, exception
+    /// (b)): it is per-origin, not per-entity, and holds a
+    /// `rusqlite::Connection` (`!Send`/`!Sync`), so it can be neither an ECS
+    /// component nor anything `hecs`-eligible.  Installed via
+    /// [`Vm::install_idb_backend`] for per-origin persistence, else lazily
+    /// created in-memory on first `indexedDB` use
+    /// ([`Self::ensure_idb_backend`], mirroring the boa bridge default).
+    ///
+    /// GC contract: Rust-owned `Rc`, not a JS object — the GC does not
+    /// mark / sweep it; dropping the `Rc` at `Vm` teardown releases it.
+    #[cfg(feature = "engine")]
+    pub(crate) idb_backend: Option<std::rc::Rc<elidex_indexeddb::IdbBackend>>,
+    /// IDBRequest / IDBOpenDBRequest per-`ObjectId` state (W3C IDB §4.1 /
+    /// §2.8).  Side-store (exception (a): per-VM identity handles —
+    /// `onsuccess`/`onerror` callbacks + `addEventListener` listeners).
+    ///
+    /// GC contract: trace marks handlers / listeners / result / error /
+    /// source / transaction; sweep prunes dead keys; cleared on
+    /// [`Vm::unbind`] (handler `ObjectId`s are cross-DOM-aliasing).
+    #[cfg(feature = "engine")]
+    pub(crate) idb_request_states: HashMap<ObjectId, host::indexeddb::IdbRequestState>,
+    /// IDBDatabase per-`ObjectId` state (§4.4).  Side-store as above.
+    #[cfg(feature = "engine")]
+    pub(crate) idb_database_states: HashMap<ObjectId, host::indexeddb::IdbDatabaseState>,
+    /// IDBObjectStore per-`ObjectId` state (§4.5).  Holds db/store name +
+    /// owning transaction `ObjectId`; metadata read on demand from the
+    /// backend so it never drifts from the schema.
+    #[cfg(feature = "engine")]
+    pub(crate) idb_object_store_states: HashMap<ObjectId, host::indexeddb::IdbObjectStoreState>,
+    /// IDBTransaction per-`ObjectId` state (§4.10 / §2.7.1).  Holds the
+    /// lifecycle state machine + the open backend `IdbTransaction` handle +
+    /// the §5.6 request list that drives auto-commit (§5.9 step 8.3).
+    #[cfg(feature = "engine")]
+    pub(crate) idb_transaction_states: HashMap<ObjectId, host::indexeddb::IdbTransactionState>,
+    /// IDBKeyRange per-`ObjectId` state (§4.7) — the backend range value
+    /// stored directly (no JS-side wrapper state needed).
+    #[cfg(feature = "engine")]
+    pub(crate) idb_key_range_states: HashMap<ObjectId, elidex_indexeddb::IdbKeyRange>,
+    /// IDB interface prototypes (installed once at global registration).
+    #[cfg(feature = "engine")]
+    pub(crate) idb_factory_prototype: Option<ObjectId>,
+    #[cfg(feature = "engine")]
+    pub(crate) idb_request_prototype: Option<ObjectId>,
+    #[cfg(feature = "engine")]
+    pub(crate) idb_open_db_request_prototype: Option<ObjectId>,
+    #[cfg(feature = "engine")]
+    pub(crate) idb_database_prototype: Option<ObjectId>,
+    #[cfg(feature = "engine")]
+    pub(crate) idb_object_store_prototype: Option<ObjectId>,
+    #[cfg(feature = "engine")]
+    pub(crate) idb_transaction_prototype: Option<ObjectId>,
+    #[cfg(feature = "engine")]
+    pub(crate) idb_key_range_prototype: Option<ObjectId>,
+    #[cfg(feature = "engine")]
+    pub(crate) idb_version_change_event_prototype: Option<ObjectId>,
     /// Fan-out map for `AbortSignal` → in-flight `FetchId`s.  When a
     /// signal aborts, [`host::abort::abort_signal`] drains the entry
     /// for that signal's `ObjectId`, sends

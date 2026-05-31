@@ -28,6 +28,7 @@ engine = [
     "elidex-custom-elements",
     "elidex-form",
     "elidex-storage-core",
+    "elidex-indexeddb",
     "elidex-wasm-runtime",
     "bytes",
     "encoding_rs",
@@ -118,6 +119,11 @@ elidex-form = { workspace = true, optional = true }
 # Engine-gated because the Storage surface depends on the
 # engine-only Window prototype + DOMException mapping.
 elidex-storage-core = { workspace = true, optional = true }
+# IndexedDB backend (SQLite-backed, engine-independent record/key/index/cursor
+# algorithm + W3C key encoding) consumed by the `indexedDB` / IDB* VM thin
+# bindings (slot `#11-indexed-db-vm` / D-20).  host/ marshalls JsValue↔key/value
+# + drives the §5.x event-loop orchestration; all record algorithm lives here.
+elidex-indexeddb = { workspace = true, optional = true }
 # WebAssembly engine-bridge crate (wasmtime backend behind engine-indep
 # `WasmRuntime` / `WasmModule` / `WasmInstance` / `WasmMemory` / `WasmTable` /
 # `WasmGlobal` / `WasmFunc` / `WasmMemoryView` / `WasmError` surface) consumed

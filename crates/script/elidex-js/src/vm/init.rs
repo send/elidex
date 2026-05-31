@@ -555,6 +555,34 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 network_handle: None,
                 #[cfg(feature = "engine")]
+                idb_backend: None,
+                #[cfg(feature = "engine")]
+                idb_request_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                idb_database_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                idb_object_store_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                idb_transaction_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                idb_key_range_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                idb_factory_prototype: None,
+                #[cfg(feature = "engine")]
+                idb_request_prototype: None,
+                #[cfg(feature = "engine")]
+                idb_open_db_request_prototype: None,
+                #[cfg(feature = "engine")]
+                idb_database_prototype: None,
+                #[cfg(feature = "engine")]
+                idb_object_store_prototype: None,
+                #[cfg(feature = "engine")]
+                idb_transaction_prototype: None,
+                #[cfg(feature = "engine")]
+                idb_key_range_prototype: None,
+                #[cfg(feature = "engine")]
+                idb_version_change_event_prototype: None,
+                #[cfg(feature = "engine")]
                 fetch_abort_observers: HashMap::new(),
                 #[cfg(feature = "engine")]
                 pending_fetches: HashMap::new(),

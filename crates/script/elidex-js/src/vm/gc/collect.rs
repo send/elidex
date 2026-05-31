@@ -1161,6 +1161,14 @@ impl VmInner {
             &self.wasm_exported_func_storage,
             #[cfg(feature = "engine")]
             &self.wasm_backed_buffers,
+            #[cfg(feature = "engine")]
+            &self.idb_request_states,
+            #[cfg(feature = "engine")]
+            &self.idb_transaction_states,
+            #[cfg(feature = "engine")]
+            &self.idb_database_states,
+            #[cfg(feature = "engine")]
+            &self.idb_object_store_states,
             &mut self.gc_object_marks,
             &mut self.gc_upvalue_marks,
             &mut self.gc_work_list,
@@ -1431,6 +1439,24 @@ impl VmInner {
             self.file_data.retain(|id, _| bit_get(marks, id.0));
             self.file_list_data.retain(|id, _| bit_get(marks, id.0));
             self.file_reader_data.retain(|id, _| bit_get(marks, id.0));
+            // IndexedDB side-stores (D-20) — prune entries whose key
+            // wrapper `ObjectId` was collected.  Standard prune-by-key-mark
+            // contract; the trace step (gc/trace.rs IDB arms) marks the
+            // handler / listener / result / source / transaction fan-out
+            // so live entries survive.  An aborted-but-not-yet-finished
+            // transaction's `backend_txn` is dropped here with the entry
+            // (no ROLLBACK on drop — but a collected transaction wrapper is
+            // unreachable from JS, so its SQLite txn is already moot; the
+            // live-txn rollback obligation is handled at `Vm::unbind`).
+            self.idb_request_states.retain(|id, _| bit_get(marks, id.0));
+            self.idb_transaction_states
+                .retain(|id, _| bit_get(marks, id.0));
+            self.idb_database_states
+                .retain(|id, _| bit_get(marks, id.0));
+            self.idb_object_store_states
+                .retain(|id, _| bit_get(marks, id.0));
+            self.idb_key_range_states
+                .retain(|id, _| bit_get(marks, id.0));
             // `fetch_abort_observers` — prune entries whose key
             // `AbortSignal` was collected so a recycled slot can't
             // pick up stale fan-out `FetchId`s.  The values are
