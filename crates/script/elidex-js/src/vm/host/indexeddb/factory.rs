@@ -54,20 +54,29 @@ pub(crate) fn native_idb_open(
 ) -> Result<JsValue, VmError> {
     require_idb_factory_this(ctx, this, "open")?;
     let name = arg_name(ctx, args.first().copied())?;
-    // §4.3 open step 1: version 0 throws a TypeError; the WebIDL
-    // `[EnforceRange] unsigned long long` coercion requires a non-negative
-    // integer, so a supplied version must be an integer ≥ 1.
+    // WebIDL `[EnforceRange] unsigned long long version`: ToNumber, reject
+    // non-finite + out-of-[0, 2^64-1] with TypeError (no silent `as u64`
+    // saturation), then truncate toward zero (a fractional version is NOT a
+    // TypeError — it truncates).  §4.3 open step 1 then rejects version 0.
     let version = match args.get(1).copied() {
         None | Some(JsValue::Undefined) => None,
         Some(v) => {
             let n = ctx.to_number(v)?;
-            if !n.is_finite() || n < 1.0 || n.fract() != 0.0 {
+            let truncated = n.trunc();
+            #[allow(clippy::cast_precision_loss)]
+            if !n.is_finite() || truncated < 0.0 || truncated > u64::MAX as f64 {
                 return Err(VmError::type_error(
-                    "IDBFactory.open: version must be an integer >= 1",
+                    "IDBFactory.open: version is out of range for unsigned long long",
                 ));
             }
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            Some(n as u64)
+            let v = truncated as u64;
+            if v == 0 {
+                return Err(VmError::type_error(
+                    "IDBFactory.open: version must not be 0",
+                ));
+            }
+            Some(v)
         }
     };
     let backend = ctx.vm.require_idb_backend()?;

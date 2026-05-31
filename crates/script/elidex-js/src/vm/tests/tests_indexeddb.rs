@@ -502,6 +502,50 @@ fn dispatch_event_rejects_non_event_argument() {
     });
 }
 
+#[test]
+fn aborted_upgrade_open_request_result_is_undefined() {
+    with_vm(|vm| {
+        // §4.1: a done-with-error request's `result` is undefined, not the
+        // stale connection it briefly held before the upgrade aborted.
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_up_result', 1);
+             open.onupgradeneeded = (e) => {
+                 e.target.result.createObjectStore('s');
+                 throw new Error('boom'); // aborts the upgrade
+             };
+             open.onerror = (e) => {
+                 e.preventDefault();
+                 globalThis.__log.push('err:' + open.error.name);
+                 globalThis.__log.push('result:' + String(open.result));
+             };",
+        )
+        .unwrap();
+        assert_eq!(
+            eval_string(vm, "globalThis.__log.join(',')"),
+            "err:AbortError,result:undefined"
+        );
+    });
+}
+
+#[test]
+fn open_version_out_of_range_throws_type_error() {
+    with_vm(|vm| {
+        // WebIDL [EnforceRange] unsigned long long: out-of-range → TypeError
+        // (not silent saturation); a fractional version truncates (no throw).
+        assert!(eval_bool(
+            vm,
+            "(() => { try { indexedDB.open('db_oor', 1e30); return false; } \
+             catch (e) { return e instanceof TypeError; } })()"
+        ));
+        assert!(eval_bool(
+            vm,
+            "(() => { try { indexedDB.open('db_oor2', -1); return false; } \
+             catch (e) { return e instanceof TypeError; } })()"
+        ));
+    });
+}
+
 // ---------------------------------------------------------------------------
 // IDBKeyRange + cmp (synchronous surface)
 // ---------------------------------------------------------------------------

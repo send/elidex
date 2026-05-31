@@ -179,18 +179,19 @@ impl VmInner {
             // returns to the event loop.  The common case commits via §5.9
             // step 8.3 (after a request's success event); this sweep is the
             // fallback for a zero-request transaction that never fired an
-            // event.  `commit_transaction` does the durable write
-            // synchronously but defers the `complete` event to a queued
-            // `IdbCommitDone` task (so the sweep can iterate the txn map
-            // safely).  That deferred task — and any task a `complete` /
-            // `selectionchange` handler enqueues — is drained by looping
-            // back: the outer `loop` re-enters the inner drain whenever a
-            // hook left the queue non-empty, so a zero-request txn's
-            // `complete` fires in THIS drain rather than being stranded
-            // until the next `eval` (or never, if none follows).  De-dup:
-            // `commit_transaction` sets `state = Committing` synchronously,
-            // so the next sweep pass skips it via the `state == Active`
-            // guard — the sweep is monotonic and the loop terminates.
+            // event.  The single-connection backend serializes transactions
+            // (only one open at a time), so a zero-request txn cannot coexist
+            // with another in-flight txn that would queue a later task — i.e.
+            // it is always swept before any later task could observe it, so
+            // tail placement is sufficient (no per-task sweep needed).
+            // `commit_transaction` does the durable write synchronously but
+            // defers the `complete` event to a queued `IdbCommitDone` task;
+            // the outer `loop` re-enters the inner drain whenever a hook left
+            // the queue non-empty, so that `complete` fires in THIS drain
+            // rather than being stranded until the next `eval` (or never).
+            // De-dup: `commit_transaction` sets `state = Committing`
+            // synchronously, so the `state == Active` guard makes the sweep
+            // monotonic and the loop terminates.
             #[cfg(feature = "engine")]
             {
                 self.idb_autocommit_sweep();

@@ -290,9 +290,18 @@ pub(crate) fn native_req_get_result(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_request_this(ctx, this, "result")?;
-    let st = ctx.vm.idb_request_states.get(&id);
-    match st {
-        Some(s) if s.ready_state == IdbReadyState::Done => Ok(s.result),
+    match ctx.vm.idb_request_states.get(&id) {
+        // §4.1 step 2: return the result, or `undefined` if the request
+        // resulted in an error (a done-with-error request must NOT expose a
+        // stale result — e.g. an aborted upgrade whose open request still
+        // holds the connection it was given before the abort).
+        Some(s) if s.ready_state == IdbReadyState::Done => {
+            if s.error.is_some() {
+                Ok(JsValue::Undefined)
+            } else {
+                Ok(s.result)
+            }
+        }
         _ => Err(super::value::dom_exc(
             ctx,
             "InvalidStateError",
