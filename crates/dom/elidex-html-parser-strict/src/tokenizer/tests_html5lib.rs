@@ -1,7 +1,7 @@
 //! html5lib-tests tokenizer corpus, run against the strict tokenizer.
 //!
-//! Per the A2 plan decision D3, the tokenizer is exercised by the full
-//! html5lib tokenizer suite (vendored under `tests/data/html5lib/`, MIT).
+//! The tokenizer is exercised by the full html5lib tokenizer suite
+//! (vendored under `tests/data/html5lib/`, MIT).
 //! Because strict mode has no error recovery, the corpus splits cleanly:
 //!
 //! - a test whose `errors` list is **non-empty** must make the tokenizer

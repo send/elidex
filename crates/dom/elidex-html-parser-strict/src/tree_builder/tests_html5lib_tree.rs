@@ -9,10 +9,12 @@
 //! - a test with **no** errors is conforming HTML5, so the built tree, dumped
 //!   in the html5lib `#document` format, must match exactly.
 //!
-//! Cases the document-parse path of A3 does not cover are skipped (and
-//! counted, not silently dropped): `#document-fragment` (fragment parsing,
-//! A4+), `#script-off` (the strict baseline models scripting enabled), and
-//! foreign content (`<svg>` / `<math>`, deferred to A5).
+//! Cases the document-parse path does not cover are skipped (and
+//! counted, not silently dropped): `#document-fragment` (strict fragment
+//! parsing is not implemented — fragment parsing uses the compat path),
+//! `#script-off` (the strict baseline models scripting enabled), and
+//! foreign content (`<svg>` / `<math>`, deferred —
+//! `#11-html-parser-strict-foreign-content`).
 
 use super::tests::serialize_document;
 use super::TreeBuilder;

@@ -1,6 +1,6 @@
-//! Tag-opening, tag-name, self-closing, bogus-comment, and
-//! markup-declaration-open states (WHATWG HTML §13.2.5.6–8 and
-//! §13.2.5.40–42).
+//! Tag-opening, tag-name, self-closing, and markup-declaration-open
+//! states (WHATWG HTML §13.2.5.6–8 and §13.2.5.40, 42; the §13.2.5.41
+//! bogus comment recovery state is omitted — strict rejects its entry).
 
 use super::{is_whitespace, State, Tokenizer};
 use crate::StrictParseError;

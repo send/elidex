@@ -308,7 +308,7 @@ impl Tokenizer {
         }
     }
 
-    /// Force the tokenizer into `state`. Used by the tree builder (A3) to
+    /// Force the tokenizer into `state`. Used by the tree builder to
     /// enter RCDATA / RAWTEXT / script-data / PLAINTEXT per §13.2.5, and
     /// by tests to inject html5lib `initialStates`.
     pub(crate) fn set_state(&mut self, state: State) {

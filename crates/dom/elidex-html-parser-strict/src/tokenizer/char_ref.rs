@@ -4,8 +4,7 @@
 //! The entity table is generated at build time by `build.rs` from the
 //! vendored `assets/entities.json` (WHATWG spec snapshot) into a
 //! `phf::Map`. The named-reference state does a longest-match probe over
-//! that exact-key map (§13.2.5.73, descending-length prefix probe — see
-//! the A2 plan decision D-b).
+//! that exact-key map (§13.2.5.73, descending-length prefix probe).
 
 use super::states::{is_noncharacter, State, Tokenizer};
 use crate::StrictParseError;

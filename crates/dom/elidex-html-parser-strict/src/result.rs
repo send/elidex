@@ -16,9 +16,9 @@ use elidex_ecs::{EcsDom, Entity};
 /// `EcsDom` does not implement `Debug`, so this type provides a manual
 /// implementation that prints the document entity and error list.
 ///
-/// Field shape is preserved from the existing `elidex-html-parser` type
-/// (`crates/dom/elidex-html-parser/src/convert.rs`) so that A4 facade
-/// re-export keeps caller code compatible.
+/// This is the SoT type; the compat crate (`elidex-html-parser`)
+/// re-exports it, so its tolerant html5ever path produces the same
+/// `ParseResult` and all caller import paths stay compatible.
 pub struct ParseResult {
     /// The populated DOM tree.
     pub dom: EcsDom,
@@ -56,8 +56,8 @@ impl fmt::Debug for ParseResult {
 /// DOM §4.9 attach-a-shadow-root semantics (where the template becomes
 /// a shadow root attached to the parent host).
 ///
-/// Shape preserved from existing `elidex-html-parser::ParseFragmentOptions`
-/// for A4 facade re-export compatibility.
+/// The compat crate (`elidex-html-parser`) re-exports this type via the
+/// facade, so caller import paths stay compatible.
 #[derive(Default, Clone, Copy, Debug)]
 pub struct ParseFragmentOptions {
     /// When true, `<template shadowrootmode="open|closed">` children

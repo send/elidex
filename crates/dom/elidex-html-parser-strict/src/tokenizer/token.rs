@@ -1,7 +1,7 @@
 //! Token types emitted by the strict HTML tokenizer.
 //!
 //! Per WHATWG HTML §13.2.5 "Tokenization", the tokenizer emits a stream
-//! of tokens consumed by the tree builder (A3). The tokenizer itself is
+//! of tokens consumed by the tree builder. The tokenizer itself is
 //! `EcsDom`-unreachable — it produces only these value types and never
 //! touches the DOM (see the crate Layering mandate).
 //!

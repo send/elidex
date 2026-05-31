@@ -1,9 +1,9 @@
 //! Unit tests for the strict tokenizer.
 //!
 //! Lives inside the crate (not `tests/`) because [`Tokenizer`] is
-//! `pub(crate)` — internal to the crate until A4 wires it into
-//! `parse_strict`, so an external integration test cannot reach it. The
-//! html5lib-driven corpus is exercised here via [`super::tests_html5lib`].
+//! `pub(crate)` — internal to the crate, so an external integration test
+//! cannot reach it. The html5lib-driven corpus is exercised here via
+//! [`super::tests_html5lib`].
 
 use super::states::{State, Tokenizer};
 use super::token::{TagToken, Token};

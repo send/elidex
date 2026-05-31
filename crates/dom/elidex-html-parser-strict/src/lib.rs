@@ -66,15 +66,13 @@ pub fn parse_strict(html: &str) -> Result<ParseResult, StrictParseError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use elidex_ecs::{EcsDom, Entity, TagType, TextContent};
+    use elidex_ecs::{EcsDom, Entity, TextContent};
 
     /// Recursively find the first element with the given tag.
     fn find_tag(dom: &EcsDom, parent: Entity, tag: &str) -> Option<Entity> {
         for child in dom.children_iter(parent) {
-            if let Ok(t) = dom.world().get::<&TagType>(child) {
-                if t.0 == tag {
-                    return Some(child);
-                }
+            if dom.has_tag(child, tag) {
+                return Some(child);
             }
             if let Some(found) = find_tag(dom, child, tag) {
                 return Some(found);
@@ -95,96 +93,30 @@ mod tests {
     }
 
     #[test]
-    fn strict_valid_html() {
+    fn strict_valid_html_produces_populated_dom() {
+        // End-to-end through the public API: a valid document yields a
+        // *populated* `ParseResult` — the delegation actually builds a
+        // tree, not just an empty `Ok`. The full tree-construction shape
+        // is golden-tested in `tree_builder/tests.rs`; here we only need
+        // one walk to prove the public seam delivers a real DOM.
         let html = "<!DOCTYPE html><html><head></head><body><p>Hello</p></body></html>";
-        let result = parse_strict(html);
-        assert!(result.is_ok());
+        let result = parse_strict(html).expect("valid HTML5");
+        let p = find_tag(&result.dom, result.document, "p").expect("p in tree");
+        assert_eq!(child_text(&result.dom, p), "Hello");
     }
 
     #[test]
-    fn strict_invalid_html() {
-        // Mismatched tags: `</div>` closes while `<span>` is the current
-        // node — a §13.2.6.4.7 "any other end tag" parse error that strict
-        // mode rejects (no recovery).
-        let html = "<!DOCTYPE html><html><head></head><body><div><span></div></body></html>";
-        let result = parse_strict(html);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn strict_error_messages() {
+    fn strict_rejects_misnested_tags_with_messages() {
+        // `</div>` closes while `<span>` is the current node — a
+        // §13.2.6.4.7 "any other end tag" parse error that strict mode
+        // rejects (no recovery). `unwrap_err` proves rejection; the loop
+        // checks every reported message is non-empty.
         let html = "<!DOCTYPE html><html><head></head><body><div><span></div></body></html>";
         let err = parse_strict(html).unwrap_err();
         assert!(!err.errors.is_empty());
         for msg in &err.errors {
             assert!(!msg.is_empty());
         }
-    }
-
-    #[test]
-    fn strict_encoding_is_none() {
-        let html = "<!DOCTYPE html><html></html>";
-        let result = parse_strict(html).expect("valid HTML5");
-        assert!(result.encoding.is_none());
-    }
-
-    #[test]
-    fn strict_success_has_no_errors() {
-        let html = "<!DOCTYPE html><html><head></head><body></body></html>";
-        let result = parse_strict(html).expect("valid HTML5");
-        assert!(
-            result.errors.is_empty(),
-            "strict success must report an empty error list"
-        );
-    }
-
-    #[test]
-    fn strict_builds_head_and_body() {
-        let html = "<!DOCTYPE html><html><head><title>T</title></head><body><p>x</p></body></html>";
-        let result = parse_strict(html).expect("valid HTML5");
-        let head = find_tag(&result.dom, result.document, "head").expect("head");
-        let body = find_tag(&result.dom, result.document, "body").expect("body");
-        assert!(
-            find_tag(&result.dom, head, "title").is_some(),
-            "title under head"
-        );
-        assert!(find_tag(&result.dom, body, "p").is_some(), "p under body");
-    }
-
-    #[test]
-    fn strict_text_content_coalesces() {
-        let html = "<!DOCTYPE html><html><head></head><body><p>Hello world</p></body></html>";
-        let result = parse_strict(html).expect("valid HTML5");
-        let p = find_tag(&result.dom, result.document, "p").expect("p");
-        assert_eq!(child_text(&result.dom, p), "Hello world");
-    }
-
-    #[test]
-    fn strict_implied_head_body() {
-        // No explicit <head>/<body>: the tree builder inserts them per
-        // §13.2.6.4 (before head → in head → after head → in body).
-        let html = "<!DOCTYPE html><html><p>x</p></html>";
-        let result = parse_strict(html).expect("valid HTML5");
-        assert!(find_tag(&result.dom, result.document, "head").is_some());
-        let body = find_tag(&result.dom, result.document, "body").expect("body");
-        assert!(find_tag(&result.dom, body, "p").is_some());
-    }
-
-    #[test]
-    fn strict_nested_elements() {
-        let html =
-            "<!DOCTYPE html><html><head></head><body><div><span>x</span></div></body></html>";
-        let result = parse_strict(html).expect("valid HTML5");
-        let div = find_tag(&result.dom, result.document, "div").expect("div");
-        let span = find_tag(&result.dom, div, "span").expect("span nested in div");
-        assert_eq!(child_text(&result.dom, span), "x");
-    }
-
-    #[test]
-    fn strict_comment_node() {
-        let html = "<!DOCTYPE html><html><head></head><body><!-- note --><p>x</p></body></html>";
-        let result = parse_strict(html);
-        assert!(result.is_ok(), "comments are valid HTML5");
     }
 
     #[test]
@@ -198,9 +130,18 @@ mod tests {
     }
 
     #[test]
-    fn strict_void_element() {
-        let html = "<!DOCTYPE html><html><head></head><body><br></body></html>";
-        let result = parse_strict(html);
-        assert!(result.is_ok(), "void elements are valid HTML5");
+    fn strict_success_contract() {
+        // The `ParseResult` Ok-path contract: an empty `errors` list and
+        // no detected encoding (`&str` input — no charset detection).
+        let html = "<!DOCTYPE html><html><head></head><body></body></html>";
+        let result = parse_strict(html).expect("valid HTML5");
+        assert!(
+            result.errors.is_empty(),
+            "Ok path reports an empty error list"
+        );
+        assert!(
+            result.encoding.is_none(),
+            "strict mode never detects an encoding"
+        );
     }
 }

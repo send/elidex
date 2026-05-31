@@ -51,7 +51,7 @@ impl TreeBuilder {
     /// tokenizer to the script data state, and enter "text". The strict parser
     /// has no scripting engine, so the script-execution bookkeeping
     /// (parser document, force-async, prepare-the-script) is intentionally
-    /// omitted; A3 only builds the tree.
+    /// omitted; the parser only builds the tree.
     pub(super) fn parse_script_element(
         &mut self,
         token: &TagToken,
