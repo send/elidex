@@ -643,6 +643,31 @@ fn dispatch_event_typed_like_a_handler_attr_does_not_invoke_handler() {
     });
 }
 
+#[test]
+fn autoincrement_with_empty_keypath_throws_invalid_access() {
+    with_vm(|vm| {
+        // §4.4: an empty in-line key path with autoIncrement is contradictory.
+        vm.eval(
+            "globalThis.__err = 'none';
+             const open = indexedDB.open('db_ai_empty', 1);
+             open.onupgradeneeded = (e) => {
+                 try { e.target.result.createObjectStore('s', { keyPath: '', autoIncrement: true }); }
+                 catch (err) { globalThis.__err = err.name; }
+             };",
+        )
+        .unwrap();
+        assert_eq!(eval_string(vm, "globalThis.__err"), "InvalidAccessError");
+    });
+}
+
+// Note: the once-listener GC-rooting fix (mod.rs `fire_idb_event_with_props`
+// stack-scope) is verified by construction — it is the established
+// `push_stack_scope` idiom the codebase mandates for rooting values held only
+// in Rust locals across `call_function` (see `natives_array_hof` /
+// `typed_array_hof`).  A deterministic regression test is not feasible: a GC
+// use-after-free is only observable if the freed slot is reused before the
+// stale callback runs, which the heap does not guarantee.
+
 // ---------------------------------------------------------------------------
 // IDBKeyRange + cmp (synchronous surface)
 // ---------------------------------------------------------------------------

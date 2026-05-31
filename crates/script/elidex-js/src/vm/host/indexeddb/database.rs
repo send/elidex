@@ -121,6 +121,15 @@ fn parse_create_store_options(
     let ai_key = PropertyKey::String(ctx.vm.strings.intern("autoIncrement"));
     let ai_val = ctx.get_property_value(opts, ai_key)?;
     let auto_increment = ctx.to_boolean(ai_val);
+    // §4.4 createObjectStore: an empty in-line key path with a key generator
+    // is contradictory (nowhere to inject the generated key) → InvalidAccessError.
+    if auto_increment && key_path.as_deref() == Some("") {
+        return Err(value::dom_exc(
+            ctx,
+            "InvalidAccessError",
+            "IDBDatabase.createObjectStore: autoIncrement with an empty key path",
+        ));
+    }
     Ok((key_path, auto_increment))
 }
 

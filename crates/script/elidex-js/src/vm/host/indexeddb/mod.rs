@@ -525,19 +525,37 @@ fn fire_idb_event_with_props(
         );
     }
     set_event_slot_raw(ctx.vm, event_id, EVENT_SLOT_TARGET, JsValue::Object(target));
+    // GC-root the live dispatch values on the VM stack for the duration of the
+    // loop (a listener that allocates can trip the `alloc_object` GC
+    // threshold): the event object — held only in `event_id` here, reachable
+    // from no rooted owner — and every collected handler / listener callback.
+    // The `once` listeners in particular were already pruned from their
+    // side-store by `collect_and_prune`, so the snapshot is their ONLY
+    // reference; without this they could be collected before they run.
+    let mut frame = ctx.vm.push_stack_scope();
+    frame.stack.push(JsValue::Object(event_id));
+    for (_, handler, listeners) in &collected {
+        if let Some(h) = handler {
+            frame.stack.push(JsValue::Object(*h));
+        }
+        for &cb in listeners {
+            frame.stack.push(JsValue::Object(cb));
+        }
+    }
+    let mut sub_ctx = NativeContext::new_call(&mut frame);
     let mut threw = false;
     // Errors swallowed per WHATWG event-handler-attribute semantics
     // (uncaught exceptions log, don't propagate) but recorded so §5.9
     // step 8.2 / §5.10 step 8.2 can abort the transaction.
     for (node, handler, listeners) in collected {
         set_event_slot_raw(
-            ctx.vm,
+            sub_ctx.vm,
             event_id,
             EVENT_SLOT_CURRENT_TARGET,
             JsValue::Object(node),
         );
         if let Some(h) = handler {
-            if ctx
+            if sub_ctx
                 .call_function(h, JsValue::Object(node), &[JsValue::Object(event_id)])
                 .is_err()
             {
@@ -545,7 +563,7 @@ fn fire_idb_event_with_props(
             }
         }
         for cb in listeners {
-            if ctx
+            if sub_ctx
                 .call_function(cb, JsValue::Object(node), &[JsValue::Object(event_id)])
                 .is_err()
             {
@@ -554,12 +572,14 @@ fn fire_idb_event_with_props(
         }
     }
     let canceled = matches!(
-        ctx.vm.get_object(event_id).kind,
+        sub_ctx.vm.get_object(event_id).kind,
         ObjectKind::Event {
             default_prevented: true,
             ..
         }
     );
+    // `sub_ctx` then `frame` drop at scope end; `frame`'s drop truncates the
+    // VM stack back to its pre-dispatch length, releasing the temp roots.
     FireResult { threw, canceled }
 }
 
