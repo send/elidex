@@ -943,6 +943,45 @@ impl VmInner {
                 self.intersection_observer_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // M4-12 slot #11-indexed-db-vm: the 8 IndexedDB interface
+                // prototypes are cached in `VmInner` and reused for every
+                // host-created IDB object, so they must be rooted here —
+                // otherwise deleting/severing a global IDB constructor could
+                // let its cached prototype be swept while `VmInner` still hands
+                // out its (now-recycled) `ObjectId` to later
+                // `indexedDB.open()` results.
+                #[cfg(feature = "engine")]
+                self.idb_factory_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.idb_request_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.idb_open_db_request_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.idb_database_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.idb_object_store_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.idb_transaction_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.idb_key_range_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.idb_version_change_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,
@@ -996,6 +1035,8 @@ impl VmInner {
             active_cssom_rule_ids: &active_cssom_rule_ids,
             #[cfg(feature = "engine")]
             pending_fetches: &self.pending_fetches,
+            #[cfg(feature = "engine")]
+            idb_transaction_states: &self.idb_transaction_states,
             #[cfg(feature = "engine")]
             dispatched_events: &self.dispatched_events,
         };
@@ -1161,6 +1202,14 @@ impl VmInner {
             &self.wasm_exported_func_storage,
             #[cfg(feature = "engine")]
             &self.wasm_backed_buffers,
+            #[cfg(feature = "engine")]
+            &self.idb_request_states,
+            #[cfg(feature = "engine")]
+            &self.idb_transaction_states,
+            #[cfg(feature = "engine")]
+            &self.idb_database_states,
+            #[cfg(feature = "engine")]
+            &self.idb_object_store_states,
             &mut self.gc_object_marks,
             &mut self.gc_upvalue_marks,
             &mut self.gc_work_list,
@@ -1431,6 +1480,37 @@ impl VmInner {
             self.file_data.retain(|id, _| bit_get(marks, id.0));
             self.file_list_data.retain(|id, _| bit_get(marks, id.0));
             self.file_reader_data.retain(|id, _| bit_get(marks, id.0));
+            // IndexedDB side-stores (D-20) — prune entries whose key
+            // wrapper `ObjectId` was collected.  Standard prune-by-key-mark
+            // contract; the trace step (gc/trace.rs IDB arms) marks the
+            // handler / listener / result / source / transaction fan-out
+            // so live entries survive.  A pruned transaction's `backend_txn`
+            // has NO `Drop` rollback (the backend exposes only an explicit
+            // `abort`), so roll back any still-open handle before dropping it
+            // — leaving the shared SQLite connection mid-transaction would
+            // block later IDB ops.  Reachable Active/Committing transactions
+            // are kept alive by the auto-commit sweep / pending tasks, so this
+            // normally finds nothing; it enforces the invariant by
+            // construction rather than relying on collection order (mirrors
+            // the `Vm::unbind` rollback).
+            if let Some(backend) = self.idb_backend.clone() {
+                for (id, st) in &mut self.idb_transaction_states {
+                    if !bit_get(marks, id.0) {
+                        if let Some(mut txn) = st.backend_txn.take() {
+                            let _ = txn.abort(backend.conn());
+                        }
+                    }
+                }
+            }
+            self.idb_request_states.retain(|id, _| bit_get(marks, id.0));
+            self.idb_transaction_states
+                .retain(|id, _| bit_get(marks, id.0));
+            self.idb_database_states
+                .retain(|id, _| bit_get(marks, id.0));
+            self.idb_object_store_states
+                .retain(|id, _| bit_get(marks, id.0));
+            self.idb_key_range_states
+                .retain(|id, _| bit_get(marks, id.0));
             // `fetch_abort_observers` — prune entries whose key
             // `AbortSignal` was collected so a recycled slot can't
             // pick up stale fan-out `FetchId`s.  The values are

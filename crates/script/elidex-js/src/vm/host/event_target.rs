@@ -411,7 +411,7 @@ pub(super) struct ListenerOptions {
 /// - object  → read `capture`, `once`, `passive` as booleans (missing
 ///   keys default to false).
 #[cfg(feature = "engine")]
-fn parse_listener_options(
+pub(super) fn parse_listener_options(
     ctx: &mut NativeContext<'_>,
     val: JsValue,
 ) -> Result<ListenerOptions, VmError> {

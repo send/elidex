@@ -22,6 +22,7 @@
 //! algorithm itself lives entirely here, in the engine-independent parser
 //! crate (CLAUDE.md Layering mandate).
 
+mod foreign_adjust;
 mod implied_end;
 mod insert;
 mod modes;
@@ -33,9 +34,11 @@ mod text_only;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_foreign;
+#[cfg(test)]
 mod tests_html5lib_tree;
 
-use elidex_ecs::{EcsDom, Entity};
+use elidex_ecs::{EcsDom, Entity, Namespace};
 
 use crate::result::ParseResult;
 use crate::tokenizer::states::Tokenizer;
@@ -129,6 +132,12 @@ impl TreeBuilder {
     /// until a mode reaches "stop parsing".
     fn run(mut self) -> Result<ParseResult, StrictParseError> {
         loop {
+            // §13.2.5.42 tokenizer feedback: mirror the adjusted current
+            // node's namespace to the tokenizer so it recognizes `<![CDATA[`
+            // only inside foreign content. Synced once per token here — the
+            // single chokepoint before the next token is tokenized — rather
+            // than at every stack mutation (D-fc-g).
+            self.sync_foreign_content_flag();
             let token = self.tokenizer.next_token()?;
             // §13.2.6.4.7: a U+000A LINE FEED immediately following a
             // `<pre>` / `<listing>` / `<textarea>` start tag is dropped as an
@@ -166,7 +175,15 @@ impl TreeBuilder {
 
     /// Dispatch `token` to the handler for the current insertion mode
     /// (§13.2.6.4 "The rules for parsing tokens in HTML content").
+    ///
+    /// The §13.2.6 tree-construction dispatcher first decides, per token,
+    /// whether the adjusted current node's namespace + integration points
+    /// route to the foreign-content rules (§13.2.6.5); that branch runs
+    /// before the HTML-content insertion-mode match below.
     fn dispatch(&mut self, token: &Token) -> Result<Flow, StrictParseError> {
+        if modes::foreign::in_foreign_content(self, token) {
+            return modes::foreign::foreign_content(self, token);
+        }
         match self.state.mode {
             InsertionMode::Initial => modes::initial::initial(self, token),
             InsertionMode::BeforeHtml => modes::before_html::before_html(self, token),
@@ -192,6 +209,19 @@ impl TreeBuilder {
                 modes::after_after_frameset::after_after_frameset(self, token)
             }
         }
+    }
+
+    /// Set the tokenizer's "foreign content" flag to whether the adjusted
+    /// current node is in a non-HTML namespace (§13.2.5.42 + D-fc-g). When
+    /// set, the markup-declaration-open state opens a CDATA section for
+    /// `<![CDATA[`; otherwise that sequence is a parse error. The adjusted
+    /// current node is the current node for document parsing.
+    fn sync_foreign_content_flag(&mut self) {
+        let foreign = self
+            .state
+            .current_node()
+            .is_some_and(|node| self.dom.namespace_of(node) != Namespace::Html);
+        self.tokenizer.set_foreign_content_flag(foreign);
     }
 
     /// Move the finished DOM out into a [`ParseResult`]. Strict success always

@@ -239,6 +239,12 @@ pub(crate) struct Tokenizer {
     output: VecDeque<Token>,
     /// Whether the end-of-file token has been emitted.
     eof_emitted: bool,
+    /// Whether the tree builder's adjusted current node is in a foreign
+    /// (non-HTML) namespace (§13.2.5.42 + D-fc-g). Gates the
+    /// markup-declaration-open recognition of `<![CDATA[`, which is only valid
+    /// in foreign content; kept in sync by the tree builder via
+    /// [`Tokenizer::set_foreign_content_flag`].
+    foreign_content: bool,
 
     // --- current tag token under construction ---
     /// Name of the tag being built (ASCII-lowercased).
@@ -291,6 +297,7 @@ impl Tokenizer {
             return_state: State::Data,
             output: VecDeque::new(),
             eof_emitted: false,
+            foreign_content: false,
             tag_name: String::new(),
             tag_attrs: Vec::new(),
             tag_self_closing: false,
@@ -313,6 +320,14 @@ impl Tokenizer {
     /// by tests to inject html5lib `initialStates`.
     pub(crate) fn set_state(&mut self, state: State) {
         self.state = state;
+    }
+
+    /// Set the "foreign content" flag (§13.2.5.42 tokenizer feedback, D-fc-g).
+    /// The tree builder mirrors whether the adjusted current node is in a
+    /// non-HTML namespace here, so the markup-declaration-open state opens a
+    /// CDATA section for `<![CDATA[` only inside foreign content.
+    pub(crate) fn set_foreign_content_flag(&mut self, on: bool) {
+        self.foreign_content = on;
     }
 
     /// Record the last-start-tag name used by the appropriate-end-tag

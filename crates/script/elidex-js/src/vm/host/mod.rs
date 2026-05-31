@@ -212,6 +212,8 @@ pub(super) mod html_slot_proto;
 #[cfg(feature = "engine")]
 pub(super) mod html_template_proto;
 #[cfg(feature = "engine")]
+pub(crate) mod indexeddb;
+#[cfg(feature = "engine")]
 pub(super) mod offscreen_canvas;
 #[cfg(feature = "engine")]
 pub(super) mod shadow_root_proto;

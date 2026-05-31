@@ -94,6 +94,38 @@ pub(crate) enum PendingTask {
         kind: super::file_reader::ReadKind,
         encoding: Option<StringId>,
     },
+    /// W3C IndexedDB §5.6 step 5.6 "queue a database task": deliver a
+    /// request's pre-computed result.  Drain removes the request from its
+    /// transaction's request list, sets `readyState = "done"` + result /
+    /// error, and fires the `success` / `error` event (§5.9 / §5.10) which
+    /// runs the transaction auto-commit lifecycle (§5.9 step 8.3).
+    #[cfg(feature = "engine")]
+    IdbDeliver { request_id: ObjectId },
+    /// W3C IndexedDB §5.4 step 2.5 "queue a database task" — the second
+    /// (deferred) phase of committing a transaction: set state `finished`,
+    /// fire `complete`, and (for an upgrade transaction) clear the open
+    /// request's `transaction` and fire its `success`.  The synchronous
+    /// first phase (`state = committing` + the durable backend write) ran
+    /// in `txn::commit_transaction`; deferring the event keeps the
+    /// auto-commit sweep's map iteration safe (no user JS mid-iteration).
+    #[cfg(feature = "engine")]
+    IdbCommitDone { txn_id: ObjectId },
+    /// W3C IndexedDB §5.5 "abort a transaction" deferred phase: fire the
+    /// `abort` event at the transaction.  Rollback + state transition ran
+    /// synchronously in `txn::abort_transaction`.
+    #[cfg(feature = "engine")]
+    IdbAbortDone { txn_id: ObjectId },
+    /// W3C IndexedDB §5.7 "upgrade a database": fire `upgradeneeded`
+    /// (an `IDBVersionChangeEvent` with `oldVersion` / `newVersion`) at the
+    /// open request, then run the upgrade transaction's auto-commit
+    /// lifecycle (which, once the handler turn ends, commits → finalizes
+    /// the version bump → fires the open request's `success`).
+    #[cfg(feature = "engine")]
+    IdbUpgrade {
+        request_id: ObjectId,
+        old_version: u64,
+        new_version: u64,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -109,8 +141,7 @@ impl VmInner {
     }
 
     /// Drain every queued task in FIFO order, running a microtask
-    /// checkpoint after each one (WHATWG HTML §8.1.7.3 — perform a
-    /// microtask checkpoint).
+    /// checkpoint after each one (WHATWG HTML §8.1.7.3).
     ///
     /// Reentrancy-guarded: a nested call (a drained task enqueued
     /// another task that ran inline during its listener body) is
@@ -123,23 +154,43 @@ impl VmInner {
             return;
         }
         self.task_drain_depth = self.task_drain_depth.saturating_add(1);
-        while let Some(task) = self.pending_tasks.pop_front() {
-            self.execute_task(task);
-            // Per §8.1.7.3 (perform a microtask checkpoint): between tasks.
-            self.drain_microtasks();
-        }
-        // Selection API §3.4 + HTML §8.1.7.1 "selection task source":
-        // fire a coalesced `selectionchange` event at the document if
-        // any Selection / Range mutation set the dirty bit during
-        // this drain.  One event regardless of how many discrete
-        // mutations happened — the bit was set per-mutation but is
-        // consumed once here.  Runs INSIDE the drain-depth bracket
-        // so a `selectionchange` listener that itself mutates
-        // Selection does NOT re-enter (matches HTML §7.5.4
-        // single-coalescing-per-checkpoint wording).
-        #[cfg(feature = "engine")]
-        {
-            super::dom_selection_proto::dispatch_selectionchange_if_pending(self);
+        loop {
+            while let Some(task) = self.pending_tasks.pop_front() {
+                self.execute_task(task);
+                // Per §8.1.7.3: microtask checkpoint between tasks.
+                self.drain_microtasks();
+            }
+            // Selection API §3.4 + HTML §8.1.7.1 "selection task source":
+            // fire a coalesced `selectionchange` event at the document if
+            // any Selection / Range mutation set the dirty bit during
+            // this drain.  One event regardless of how many discrete
+            // mutations happened — the bit was set per-mutation but is
+            // consumed once here.  Runs INSIDE the drain-depth bracket
+            // so a `selectionchange` listener that itself mutates
+            // Selection does NOT re-enter (matches HTML §7.5.4
+            // single-coalescing-per-checkpoint wording).  Idempotent: the
+            // pending bit is cleared on fire, so re-running it on a later
+            // loop iteration is a no-op until another mutation sets it.
+            #[cfg(feature = "engine")]
+            {
+                super::dom_selection_proto::dispatch_selectionchange_if_pending(self);
+            }
+            // W3C IndexedDB §2.7.1 transaction auto-commit / deactivation
+            // (`idb_cleanup_transactions`) is NOT run here — it runs at the END of
+            // every microtask checkpoint (`drain_microtasks`), the exact HTML
+            // "perform a microtask checkpoint" step 5 ("Cleanup Indexed
+            // Database transactions") seam.  Because `drain_microtasks` runs
+            // after EACH task above (HTML §8.1.7.3), a zero-request
+            // transaction is deactivated/committed immediately after the task
+            // that created it — before any LATER task in this drain can
+            // observe it as still `Active`.  The sweep's `commit_transaction`
+            // does the durable write synchronously but defers the `complete`
+            // event to a queued `IdbCommitDone` task; the inner `while`
+            // (and the outer `loop` re-entry below) drains that task so
+            // `complete` still fires in THIS drain rather than being stranded.
+            if self.pending_tasks.is_empty() {
+                break;
+            }
         }
         self.task_drain_depth = self.task_drain_depth.saturating_sub(1);
     }
@@ -170,6 +221,31 @@ impl VmInner {
                 encoding,
             } => {
                 dispatch_file_read(self, reader_id, abort_seq_snapshot, kind, encoding);
+            }
+            #[cfg(feature = "engine")]
+            PendingTask::IdbDeliver { request_id } => {
+                super::indexeddb::request::dispatch_idb_deliver(self, request_id);
+            }
+            #[cfg(feature = "engine")]
+            PendingTask::IdbCommitDone { txn_id } => {
+                super::indexeddb::txn::dispatch_commit_done(self, txn_id);
+            }
+            #[cfg(feature = "engine")]
+            PendingTask::IdbAbortDone { txn_id } => {
+                super::indexeddb::txn::dispatch_abort_done(self, txn_id);
+            }
+            #[cfg(feature = "engine")]
+            PendingTask::IdbUpgrade {
+                request_id,
+                old_version,
+                new_version,
+            } => {
+                super::indexeddb::factory::dispatch_idb_upgrade(
+                    self,
+                    request_id,
+                    old_version,
+                    new_version,
+                );
             }
         }
     }

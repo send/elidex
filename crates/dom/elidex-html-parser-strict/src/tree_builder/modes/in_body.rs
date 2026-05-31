@@ -9,10 +9,13 @@
 //! non-conforming and is rejected (misnested formatting end tags abort in
 //! [`any_other_end_tag`], nested `<a>`/`<nobr>` abort on the start tag).
 //!
-//! Foreign content (`<math>` / `<svg>`, §13.2.6.5) is deferred to A5: those
-//! start tags fall through to "any other start tag" and become ordinary
-//! HTML-namespace elements (the EcsDom does not track namespaces yet). A5 adds
-//! the foreign-content mode and namespace tracking.
+//! Foreign content (`<math>` / `<svg>`, §13.2.6.4.7 → §13.2.6.5) enters here:
+//! the `<math>` / `<svg>` start tags insert a foreign element (MathML / SVG
+//! namespace), after which the §13.2.6 dispatcher routes the subtree's tokens
+//! to the foreign-content rules ([`super::foreign`]) until the foreign root is
+//! popped.
+
+use elidex_ecs::Namespace;
 
 use super::super::parse_state::{is_html_whitespace, InsertionMode, Scope};
 use super::super::{parse_error, Flow, TreeBuilder};
@@ -244,14 +247,29 @@ fn start_tag(
         // Table-structure and head start tags are out of place in body.
         "caption" | "col" | "colgroup" | "frame" | "head" | "tbody" | "td" | "tfoot" | "th"
         | "thead" | "tr" => Err(parse_error("misplaced-table-or-head-start-tag")),
-        // Any other start tag — including `<math>`/`<svg>` (foreign content
-        // deferred to A5) and unknown/custom elements — is an ordinary
-        // element.
+        // The entry points into foreign content (§13.2.6.4.7): insert the
+        // root foreign element, then the §13.2.6 dispatcher takes over.
+        "math" => Ok(start_foreign_root(tb, tag, Namespace::MathMl)),
+        "svg" => Ok(start_foreign_root(tb, tag, Namespace::Svg)),
+        // Any other start tag — unknown / custom elements — is an ordinary
+        // HTML element.
         _ => {
             tb.insert_html_element(tag)?;
             Ok(Flow::Next)
         }
     }
+}
+
+/// §13.2.6.4.7 `<math>` / `<svg>` start tags — the entry into foreign content.
+/// Runs the full sequence: reconstruct the active formatting elements (a
+/// strict no-op — the list is not maintained), then insert the foreign root in
+/// `namespace` via the shared §13.2.6.1 "insert a foreign element" step
+/// ([`super::foreign::insert_foreign_start_tag`]), which adjusts the
+/// attributes and honours a self-closing flag. Infallible: a foreign start tag
+/// (unlike a non-void HTML one) never rejects a self-closing flag.
+fn start_foreign_root(tb: &mut TreeBuilder, tag: &TagToken, namespace: Namespace) -> Flow {
+    super::foreign::insert_foreign_start_tag(tb, tag, namespace);
+    Flow::Next
 }
 
 /// Dispatch an "in body" end tag.

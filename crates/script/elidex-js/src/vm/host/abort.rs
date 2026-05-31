@@ -717,6 +717,12 @@ pub(super) fn abort_signal(
     // the listener is already gone.
     detach_bound_listeners(ctx, &removals);
 
+    // IndexedDB EventTargets keep listeners in an in-VM side store (not ECS),
+    // so their `{signal}` bindings are tracked on the listener itself; drop
+    // any bound to this signal (WHATWG DOM §2.7.3).
+    #[cfg(feature = "engine")]
+    super::indexeddb::remove_idb_listeners_for_signal(ctx.vm, signal_id);
+
     // Fire `onabort` first (matches WHATWG §8.1.8.1 — event handler
     // attribute is "the first in addition to others registered").
     let signal_val = JsValue::Object(signal_id);

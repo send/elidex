@@ -289,6 +289,17 @@ impl VmInner {
         // `eprintln!` when no listener calls `preventDefault`.  Wired
         // in PR3 C10.
         process_pending_rejections(self);
+        // HTML "perform a microtask checkpoint" step 5: "Cleanup Indexed
+        // Database transactions" runs at the END of every microtask
+        // checkpoint, AFTER the queue drains (step 3) and rejected-promise
+        // notification (step 4).  This is the spec seam at which a
+        // script-created transaction is deactivated once the task that
+        // created it has completed (W3C IDB §2.7.1 "cleanup Indexed Database
+        // transactions" NOTE), so a zero-request transaction auto-commits
+        // here — before any LATER task can observe it as still `Active`.
+        // No-op (empty filter) when no IndexedDB transactions exist.
+        #[cfg(feature = "engine")]
+        self.idb_cleanup_transactions();
         self.microtask_drain_depth -= 1;
     }
 }

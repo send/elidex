@@ -1103,6 +1103,37 @@ pub enum ObjectKind {
     /// `file_reader_data` entries whose key was collected.
     #[cfg(feature = "engine")]
     FileReader,
+    // --- IndexedDB (D-20 `#11-indexed-db-vm`) ---
+    // Payload-free discriminator variants; per-`ObjectId` state lives in
+    // the `VmInner::idb_*_states` side-stores (AbortSignal / ReadableStream
+    // family precedent).  IDB objects have no DOM entity (pure JS-object
+    // identity, like Promise / AbortSignal), so they are side-store, not
+    // ECS components (CLAUDE.md side-store→component rule; see plan §2).
+    /// `IDBFactory` singleton — the `indexedDB` global (W3C IDB §4.3).
+    /// Brand-checked receiver for `open` / `deleteDatabase` / `databases`
+    /// / `cmp`; stateless façade over `VmInner::idb_backend`.
+    #[cfg(feature = "engine")]
+    IdbFactory,
+    /// `IDBRequest` / `IDBOpenDBRequest` instance (§4.1 / §2.8).  Both share
+    /// this brand; open-request-ness is encoded solely by the prototype
+    /// (`IDBOpenDBRequest.prototype` carries `onupgradeneeded` / `onblocked`).
+    /// Non-Node `EventTarget`.
+    #[cfg(feature = "engine")]
+    IdbRequest,
+    /// `IDBDatabase` connection (§4.4).  Non-Node `EventTarget`.
+    #[cfg(feature = "engine")]
+    IdbDatabase,
+    /// `IDBObjectStore` handle (§4.5).
+    #[cfg(feature = "engine")]
+    IdbObjectStore,
+    /// `IDBTransaction` (§4.10).  Non-Node `EventTarget`; carries the
+    /// lifecycle state machine + open backend txn + request list.
+    #[cfg(feature = "engine")]
+    IdbTransaction,
+    /// `IDBKeyRange` (§4.7) — the backend range value in
+    /// `VmInner::idb_key_range_states`.
+    #[cfg(feature = "engine")]
+    IdbKeyRange,
     /// `Crypto` instance (WebCrypto §10) — accessed via `window.crypto`
     /// singleton.  Payload-free brand; the wrapper is stateless (every
     /// `getRandomValues` / `randomUUID` call routes to OS CSPRNG /

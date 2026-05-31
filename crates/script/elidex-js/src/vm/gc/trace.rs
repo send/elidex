@@ -167,6 +167,31 @@ pub(super) fn trace_work_list(
     // reverse-lookup `wasm_backed_buffers[buf_id] = mem_id` makes this
     // O(1).
     #[cfg(feature = "engine")] wasm_backed_buffers: &std::collections::HashMap<ObjectId, ObjectId>,
+    // D-20 `#11-indexed-db-vm` — IndexedDB side-store fan-out.  IDBRequest
+    // arms mark result / error / source / transaction / staged deferred
+    // result + every `on*` handler + `addEventListener` callback so a
+    // user-assigned closure isn't collected while the request is reachable.
+    // IDBTransaction arms mark the owning db + every request in the request
+    // list + handlers / listeners + the upgrade request.  IDBDatabase arms
+    // mark handlers / listeners.  IDBObjectStore arms mark the owning
+    // transaction.  IDBFactory / IDBKeyRange carry no `ObjectId` references
+    // (no-op).
+    #[cfg(feature = "engine")] idb_request_states: &std::collections::HashMap<
+        ObjectId,
+        super::super::host::indexeddb::IdbRequestState,
+    >,
+    #[cfg(feature = "engine")] idb_transaction_states: &std::collections::HashMap<
+        ObjectId,
+        super::super::host::indexeddb::IdbTransactionState,
+    >,
+    #[cfg(feature = "engine")] idb_database_states: &std::collections::HashMap<
+        ObjectId,
+        super::super::host::indexeddb::IdbDatabaseState,
+    >,
+    #[cfg(feature = "engine")] idb_object_store_states: &std::collections::HashMap<
+        ObjectId,
+        super::super::host::indexeddb::IdbObjectStoreState,
+    >,
     obj_marks: &mut [u64],
     uv_marks: &mut [u64],
     work: &mut Vec<u32>,
@@ -350,6 +375,101 @@ pub(super) fn trace_work_list(
             ObjectKind::AbortController { signal_id } => {
                 mark_object(*signal_id, obj_marks, work);
             }
+            // --- IndexedDB (D-20 `#11-indexed-db-vm`) ---
+            #[cfg(feature = "engine")]
+            ObjectKind::IdbRequest => {
+                if let Some(state) = idb_request_states.get(&ObjectId(obj_idx)) {
+                    mark_value(state.result, obj_marks, work);
+                    if let Some(err) = state.error {
+                        mark_object(err, obj_marks, work);
+                    }
+                    if let Some(src) = state.source {
+                        mark_object(src, obj_marks, work);
+                    }
+                    if let Some(txn) = state.transaction {
+                        mark_object(txn, obj_marks, work);
+                    }
+                    match &state.deferred {
+                        Some(super::super::host::indexeddb::DeferredOutcome::Success(v)) => {
+                            mark_value(*v, obj_marks, work);
+                        }
+                        Some(super::super::host::indexeddb::DeferredOutcome::Error(e)) => {
+                            mark_object(*e, obj_marks, work);
+                        }
+                        None => {}
+                    }
+                    for &handler in state.handlers.values() {
+                        mark_object(handler, obj_marks, work);
+                    }
+                    for listener in &state.listeners {
+                        mark_object(listener.callback, obj_marks, work);
+                        // Keep a `{signal}`-bound listener's AbortSignal alive
+                        // while the listener exists, so its `ObjectId` cannot
+                        // be recycled (identity-reuse hazard on abort removal).
+                        if let Some(sig) = listener.signal {
+                            mark_object(sig, obj_marks, work);
+                        }
+                    }
+                }
+            }
+            #[cfg(feature = "engine")]
+            ObjectKind::IdbTransaction => {
+                if let Some(state) = idb_transaction_states.get(&ObjectId(obj_idx)) {
+                    if let Some(db) = state.db {
+                        mark_object(db, obj_marks, work);
+                    }
+                    for &req in &state.request_list {
+                        mark_object(req, obj_marks, work);
+                    }
+                    if let Some(req) = state.upgrade_request {
+                        mark_object(req, obj_marks, work);
+                    }
+                    if let Some(err) = state.error {
+                        mark_object(err, obj_marks, work);
+                    }
+                    for &handler in state.handlers.values() {
+                        mark_object(handler, obj_marks, work);
+                    }
+                    for listener in &state.listeners {
+                        mark_object(listener.callback, obj_marks, work);
+                        // Keep a `{signal}`-bound listener's AbortSignal alive
+                        // while the listener exists, so its `ObjectId` cannot
+                        // be recycled (identity-reuse hazard on abort removal).
+                        if let Some(sig) = listener.signal {
+                            mark_object(sig, obj_marks, work);
+                        }
+                    }
+                }
+            }
+            #[cfg(feature = "engine")]
+            ObjectKind::IdbDatabase => {
+                if let Some(state) = idb_database_states.get(&ObjectId(obj_idx)) {
+                    for &handler in state.handlers.values() {
+                        mark_object(handler, obj_marks, work);
+                    }
+                    for listener in &state.listeners {
+                        mark_object(listener.callback, obj_marks, work);
+                        // Keep a `{signal}`-bound listener's AbortSignal alive
+                        // while the listener exists, so its `ObjectId` cannot
+                        // be recycled (identity-reuse hazard on abort removal).
+                        if let Some(sig) = listener.signal {
+                            mark_object(sig, obj_marks, work);
+                        }
+                    }
+                }
+            }
+            #[cfg(feature = "engine")]
+            ObjectKind::IdbObjectStore => {
+                if let Some(state) = idb_object_store_states.get(&ObjectId(obj_idx)) {
+                    if let Some(txn) = state.transaction {
+                        mark_object(txn, obj_marks, work);
+                    }
+                }
+            }
+            // IDBFactory singleton + IDBKeyRange carry no `ObjectId`
+            // references (backend `IdbKeyRange` holds only `IdbKey` values).
+            #[cfg(feature = "engine")]
+            ObjectKind::IdbFactory | ObjectKind::IdbKeyRange => {}
             // No ObjectId references — only StringId / scalar fields.
             ObjectKind::Ordinary
             | ObjectKind::NativeFunction(_)

@@ -673,6 +673,16 @@ impl VmInner {
         #[cfg(feature = "engine")]
         self.register_abort_signal_global();
 
+        // IndexedDB: the `indexedDB` global + `IDBKeyRange` + every IDB
+        // interface prototype (W3C Indexed Database API 3.0, slot
+        // `#11-indexed-db-vm`).  Must run after
+        // `register_event_target_prototype` (the IDB EventTargets chain to
+        // `EventTarget.prototype`) and after the base `Event` prototype
+        // (`IDBVersionChangeEvent.prototype` chains to `Event.prototype`,
+        // registered with the Event family above).
+        #[cfg(feature = "engine")]
+        self.register_indexeddb_global();
+
         // `Headers` constructor + `Headers.prototype` (WHATWG Fetch
         // §5.2).  Chains to `Object.prototype` (no EventTarget /
         // Node ancestry), so order-wise anywhere after

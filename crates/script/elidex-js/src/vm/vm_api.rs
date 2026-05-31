@@ -581,6 +581,29 @@ impl Vm {
             self.inner.data_transfer_states.clear();
             self.inner.touch_states.clear();
             self.inner.touch_list_states.clear();
+            // IndexedDB (D-20 `#11-indexed-db-vm`).  The IDB wrapper state
+            // maps hold per-VM identity handles (handler / listener / result
+            // `ObjectId`s — cross-DOM-aliasing per the side-store→component
+            // rule exception (a)), so they must be cleared on unbind.  But
+            // first roll back any still-open SQLite transaction: the backend
+            // `IdbTransaction` has NO `Drop` rollback (only an explicit
+            // `abort`), so dropping the state map alone would leave the
+            // shared connection mid-transaction and block the next bind's
+            // operations.  `idb_backend` itself is the per-origin resource
+            // and is RETAINED (network_handle parity — the embedder manages
+            // re-install on rebind to a new origin).
+            if let Some(backend) = self.inner.idb_backend.clone() {
+                for state in self.inner.idb_transaction_states.values_mut() {
+                    if let Some(mut txn) = state.backend_txn.take() {
+                        let _ = txn.abort(backend.conn());
+                    }
+                }
+            }
+            self.inner.idb_request_states.clear();
+            self.inner.idb_transaction_states.clear();
+            self.inner.idb_database_states.clear();
+            self.inner.idb_object_store_states.clear();
+            self.inner.idb_key_range_states.clear();
             // D-8 PR-A2 — Range / TreeWalker / NodeIterator state
             // clearing on unbind.  These live on `HostData` (not
             // `VmInner`) because the bridge pair-install happens
@@ -929,6 +952,63 @@ impl Vm {
         self.inner
             .reject_pending_fetches_with_error("NetworkHandle replaced while request in flight");
         self.inner.network_handle = Some(handle);
+    }
+
+    /// Install the per-origin IndexedDB backend (slot `#11-indexed-db-vm`).
+    ///
+    /// The embedder / session layer constructs an [`elidex_indexeddb::IdbBackend`]
+    /// from the origin's `OriginStorageManager` `SqliteConnection` and installs
+    /// it here for persistent per-origin storage.  When none is installed, the
+    /// `indexedDB` host code lazily creates an in-memory backend on first use
+    /// (`VmInner::ensure_idb_backend`, mirroring the boa bridge default), so
+    /// IndexedDB works out of the box for tests / unconfigured VMs.
+    ///
+    /// Shared cross-cutting session resource (`!Send`/`!Sync` SQLite handle) —
+    /// stored on the internal `VmInner::idb_backend` field.
+    #[cfg(feature = "engine")]
+    pub fn install_idb_backend(&mut self, backend: std::rc::Rc<elidex_indexeddb::IdbBackend>) {
+        // Re-installing the *same* backend (pointer-equal to the one already
+        // stored) is a no-op — its live `backend_txn` handles and the
+        // request / transaction / database / store / key-range side stores
+        // are all tied to this very connection, so the take + rollback +
+        // clear below would strand in-flight transactions against a backend
+        // that is in fact unchanged.  Mirrors `install_network_handle`'s
+        // pointer-equality guard.
+        if let Some(ref current) = self.inner.idb_backend {
+            if std::rc::Rc::ptr_eq(current, &backend) {
+                return;
+            }
+        }
+        // If a DIFFERENT backend is already installed with live IDB state, the
+        // existing `IdbTransactionState.backend_txn` handles are tied to the
+        // OLD connection — swapping the backend would strand them (a later
+        // commit/abort would target the NEW connection).  Roll them back
+        // against the old backend, then tear down the connection-scoped state
+        // before replacing it (the IDB portion of `unbind`).  Normal bind
+        // installs onto empty state, so this is a defensive no-op there; it
+        // makes a mid-session swap safe rather than connection-stranding.
+        if let Some(old) = self.inner.idb_backend.take() {
+            for state in self.inner.idb_transaction_states.values_mut() {
+                if let Some(mut txn) = state.backend_txn.take() {
+                    let _ = txn.abort(old.conn());
+                }
+            }
+            // Abort still-pending requests IN PLACE (Done + AbortError) rather
+            // than dropping their state: a held `IDBRequest` wrapper must not
+            // hang at `readyState === 'pending'` forever once its backend is
+            // gone.  Retaining the request states lets the wrappers resolve;
+            // their queued `IdbDeliver` tasks then no-op (cleared outcome).
+            self.inner.abort_pending_idb_requests(
+                "IndexedDB backend replaced while a request was pending",
+            );
+            // The transaction / database / store / key-range stores are
+            // connection-scoped and have no meaning against the new backend.
+            self.inner.idb_transaction_states.clear();
+            self.inner.idb_database_states.clear();
+            self.inner.idb_object_store_states.clear();
+            self.inner.idb_key_range_states.clear();
+        }
+        self.inner.idb_backend = Some(backend);
     }
 
     /// Install a new global variable.

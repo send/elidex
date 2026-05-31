@@ -2041,6 +2041,7 @@ dependencies = [
  "elidex-dom-api",
  "elidex-ecs",
  "elidex-form",
+ "elidex-indexeddb",
  "elidex-net",
  "elidex-plugin",
  "elidex-script-session",
