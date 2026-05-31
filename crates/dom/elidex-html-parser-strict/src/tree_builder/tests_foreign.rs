@@ -244,8 +244,11 @@ fn comment_in_foreign_content_is_inserted() {
 
 #[test]
 fn svg_title_is_foreign_not_rawtext() {
-    // An SVG `<title>` is an ordinary foreign element whose content is parsed
-    // as foreign content (contrast HTML `<title>`, which is RAWTEXT).
+    // An SVG `<title>` is a foreign (SVG-namespace) element whose tag is parsed
+    // as ordinary markup — `</title>` closes it and `t` becomes a Text child —
+    // unlike an HTML `<title>`, which is RAWTEXT. (SVG `title` is itself an HTML
+    // integration point, so the character `t` is inserted through the
+    // HTML-content rules; that routing does not change this tree.)
     assert_body(
         "<svg><title>t</title></svg>",
         "\
