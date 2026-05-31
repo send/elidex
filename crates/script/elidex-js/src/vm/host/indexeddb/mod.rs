@@ -317,18 +317,36 @@ impl VmInner {
         }
     }
 
-    /// W3C IndexedDB §2.7.1 auto-commit fallback: commit every still-`Active`
-    /// transaction whose request list is empty.  Run at the `drain_tasks`
-    /// tail (the "control returns to the event loop" seam).  Eligible ids
-    /// are collected first so `commit_transaction` (which mutates the entry
-    /// in place and queues a task, but never inserts or removes map
-    /// entries) cannot invalidate the iteration.  De-dup with §5.9 step 8.3: a txn already
-    /// committed there is `Committing`, so the `Active` filter skips it.
+    /// W3C IndexedDB §2.7.1 "cleanup Indexed Database transactions": commit
+    /// every still-`Active` transaction whose request list is empty.  Run at
+    /// the END of every microtask checkpoint (`drain_microtasks`), the exact
+    /// HTML "perform a microtask checkpoint" step 5 seam — i.e. once the task
+    /// that created (or last activated) the transaction has completed, BEFORE
+    /// any later task can observe it.  The common case still commits earlier
+    /// via §5.9 step 8.3 (after a request's success event); this is the
+    /// fallback for a zero-request transaction that never fired an event.
+    /// Eligible ids are collected first so `commit_transaction` (which mutates
+    /// the entry in place and queues a task, but never inserts or removes map
+    /// entries) cannot invalidate the iteration.  De-dup with §5.9 step 8.3
+    /// and the previous checkpoint's sweep: a txn already committed is
+    /// `Committing` / `Finished`, so the `Active` filter skips it.
     pub(crate) fn idb_autocommit_sweep(&mut self) {
         let eligible: Vec<ObjectId> = self
             .idb_transaction_states
             .iter()
-            .filter(|(_, st)| st.state == IdbTxnState::Active && st.request_list.is_empty())
+            .filter(|(_, st)| {
+                // §2.7.1 cleanup applies only to transactions with a "cleanup
+                // event loop" — i.e. those created by a script call to
+                // `transaction()`.  A versionchange (upgrade) transaction
+                // (`upgrade_request.is_some()`) has no cleanup event loop: it
+                // is created by the `open` algorithm in one task but ACTIVATED
+                // by a later `IdbUpgrade` task, so it must NOT be committed at
+                // the checkpoint between those two tasks.  Its lifecycle runs
+                // via `run_post_dispatch` after `upgradeneeded` instead.
+                st.state == IdbTxnState::Active
+                    && st.request_list.is_empty()
+                    && st.upgrade_request.is_none()
+            })
             .map(|(id, _)| *id)
             .collect();
         for id in eligible {

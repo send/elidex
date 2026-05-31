@@ -175,27 +175,19 @@ impl VmInner {
             {
                 super::dom_selection_proto::dispatch_selectionchange_if_pending(self);
             }
-            // W3C IndexedDB §2.7.1: a transaction auto-commits when control
-            // returns to the event loop.  The common case commits via §5.9
-            // step 8.3 (after a request's success event); this sweep is the
-            // fallback for a zero-request transaction that never fired an
-            // event.  The single-connection backend serializes transactions
-            // (only one open at a time), so a zero-request txn cannot coexist
-            // with another in-flight txn that would queue a later task — i.e.
-            // it is always swept before any later task could observe it, so
-            // tail placement is sufficient (no per-task sweep needed).
-            // `commit_transaction` does the durable write synchronously but
-            // defers the `complete` event to a queued `IdbCommitDone` task;
-            // the outer `loop` re-enters the inner drain whenever a hook left
-            // the queue non-empty, so that `complete` fires in THIS drain
-            // rather than being stranded until the next `eval` (or never).
-            // De-dup: `commit_transaction` sets `state = Committing`
-            // synchronously, so the `state == Active` guard makes the sweep
-            // monotonic and the loop terminates.
-            #[cfg(feature = "engine")]
-            {
-                self.idb_autocommit_sweep();
-            }
+            // W3C IndexedDB §2.7.1 transaction auto-commit / deactivation
+            // (`idb_autocommit_sweep`) is NOT run here — it runs at the END of
+            // every microtask checkpoint (`drain_microtasks`), the exact HTML
+            // "perform a microtask checkpoint" step 5 ("Cleanup Indexed
+            // Database transactions") seam.  Because `drain_microtasks` runs
+            // after EACH task above (HTML §8.1.5 step 5), a zero-request
+            // transaction is deactivated/committed immediately after the task
+            // that created it — before any LATER task in this drain can
+            // observe it as still `Active`.  The sweep's `commit_transaction`
+            // does the durable write synchronously but defers the `complete`
+            // event to a queued `IdbCommitDone` task; the inner `while`
+            // (and the outer `loop` re-entry below) drains that task so
+            // `complete` still fires in THIS drain rather than being stranded.
             if self.pending_tasks.is_empty() {
                 break;
             }
