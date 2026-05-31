@@ -148,7 +148,7 @@ fn slotchange_listener_promise_then_runs_in_same_checkpoint() {
 
 #[test]
 fn slotchange_signal_during_dispatch_runs_in_same_drain() {
-    // Per WHATWG DOM §4.3.4: each "notify mutation observers"
+    // Per WHATWG DOM §4.3: each "notify mutation observers"
     // microtask snapshots the signal-slots set before dispatching
     // its slotchange events.  A `slot.assign()` from inside a
     // listener body re-arms the coalescing flag and enqueues a NEW

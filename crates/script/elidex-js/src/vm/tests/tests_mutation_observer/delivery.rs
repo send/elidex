@@ -108,7 +108,7 @@ fn mutation_observer_delivers_attribute_record_with_old_value() {
 
 #[test]
 fn mutation_observer_record_properties_are_readonly() {
-    // WHATWG DOM §4.3.5: every `MutationRecord` member is a
+    // WHATWG DOM §4.3.3: every `MutationRecord` member is a
     // `readonly attribute` — non-strict assignment should silently
     // fail, strict-mode assignment should TypeError.  Regression for
     // the prior `PropertyAttrs::DATA` (writable) installation.
@@ -608,7 +608,7 @@ fn mutation_observer_observe_replaces_existing_options_for_same_target() {
     .unwrap();
 
     // ChildList mutation must NOT fire because the second observe
-    // replaced childList:true with attributes:true (WHATWG §4.3.3
+    // replaced childList:true with attributes:true (WHATWG §4.3.1
     // step 7).
     let added = dom.create_element("p", elidex_ecs::Attributes::default());
     let r1 = SessionRecord {
@@ -698,7 +698,7 @@ fn mutation_observer_callback_throw_does_not_block_sibling_observer() {
     let mut dom = EcsDom::new();
     let (_doc, root) = setup_with_root(&mut vm, &mut session, &mut dom);
 
-    // moA throws; moB must still fire (WHATWG §4.3.4 / §8.1.5
+    // moA throws; moB must still fire (WHATWG §4.3 / §8.1.4.6
     // "report the exception" — does not abort sibling delivery).
     vm.eval(
         "globalThis.bRan = 0; \

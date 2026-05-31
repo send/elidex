@@ -237,7 +237,7 @@ pub(super) fn native_range_surround_contents(
 }
 
 /// elidex-specific `NotSupportedError` placeholder pending parser
-/// wiring; spec returns a `DocumentFragment` per WHATWG §3.2 step 7.
+/// wiring; spec returns a `DocumentFragment` per WHATWG HTML §8.5.7 step 7.
 /// Full impl tracked at `#11-range-full-impl`.
 pub(super) fn native_range_create_contextual_fragment(
     ctx: &mut NativeContext<'_>,

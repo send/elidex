@@ -438,7 +438,7 @@ pub(crate) struct VmInner {
     #[cfg(feature = "engine")]
     pub(crate) html_slot_prototype: Option<ObjectId>,
     /// Signal-slots set for the `slotchange` event (WHATWG DOM
-    /// §4.2.2.5 "signal a slot change" + §4.3.4 "notify mutation
+    /// §4.2.2.5 "signal a slot change" + §4.3 "notify mutation
     /// observers").  Each `<slot>` entity appended here gets a
     /// `slotchange` Event fired at it (bubbles=true, composed=false)
     /// at the next microtask checkpoint.  Drained from
@@ -453,7 +453,7 @@ pub(crate) struct VmInner {
     #[cfg(feature = "engine")]
     pub(crate) pending_slot_change_signals: std::collections::VecDeque<elidex_ecs::Entity>,
     /// Coalescing flag for the "notify mutation observers" microtask
-    /// (WHATWG DOM §4.3.4 step 1).  Set to `true` when
+    /// (WHATWG DOM §4.3 step 1).  Set to `true` when
     /// [`crate::vm::host::html_slot_proto::VmInner::signal_slot_change`]
     /// enqueues the first signal of a tick and resets to `false`
     /// when the microtask dispatches.  Ensures exactly one

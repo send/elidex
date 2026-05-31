@@ -754,7 +754,7 @@ impl Vm {
     }
 
     /// Deliver session-level `MutationRecord`s to every registered
-    /// `MutationObserver` (WHATWG DOM §4.3.4).
+    /// `MutationObserver` (WHATWG DOM §4.3).
     ///
     /// This is an **embedder API** — the VM does not auto-deliver
     /// mutation records.  Embedders call this once per script-task
@@ -790,7 +790,7 @@ impl Vm {
     /// microtask drain, because no JS executes while the VM is
     /// unbound.  Callbacks that throw are reported via `eprintln!`
     /// and do not propagate (matches the boa-side behaviour and
-    /// "report" semantics in HTML §8.1.5).
+    /// "report" semantics in HTML §8.1.4.6).
     #[cfg(feature = "engine")]
     pub fn deliver_mutation_records(&mut self, records: &[elidex_script_session::MutationRecord]) {
         self.inner.deliver_mutation_records(records);

@@ -274,7 +274,7 @@ fn native_mutation_observer_take_records(
 }
 
 /// Marshal a slice of [`elidex_api_observers::mutation::MutationRecord`]s
-/// into a JS Array of MutationRecord objects (WHATWG DOM §4.3.5).
+/// into a JS Array of MutationRecord objects (WHATWG DOM §4.3.3).
 ///
 /// Delegates to the shared
 /// [`super::observer_common::build_marshalled_array`] for the
@@ -289,7 +289,7 @@ pub(super) fn build_mutation_records_array(
 }
 
 /// Marshal a single [`elidex_api_observers::mutation::MutationRecord`]
-/// to a JS Object with WHATWG DOM §4.3.5 shape.
+/// to a JS Object with WHATWG DOM §4.3.3 shape.
 ///
 /// `addedNodes` / `removedNodes` are rooted (via `push_temp_root`)
 /// across the wrapper allocation so a GC triggered by `alloc_object`
@@ -357,7 +357,7 @@ fn mutation_record_to_js(
     let wk_next = removed_guard.well_known.next_sibling;
     let wk_attr_name = removed_guard.well_known.attribute_name;
     let wk_old_value = removed_guard.well_known.old_value;
-    // WHATWG DOM §4.3.5: every `MutationRecord` member is a
+    // WHATWG DOM §4.3.3: every `MutationRecord` member is a
     // `readonly attribute`, so install with `WEBIDL_RO` (¬W, E, C).
     // This VM's property-set path throws `TypeError("Cannot assign
     // to read only property")` on any assignment regardless of
@@ -390,7 +390,7 @@ fn mutation_record_to_js(
 
 /// Build a JS Array of node wrappers for the given entity slice.
 /// `addedNodes` / `removedNodes` may carry non-Element nodes (Text /
-/// Comment / ProcessingInstruction / CDATA) per WHATWG DOM §4.3.5,
+/// Comment / ProcessingInstruction / CDATA) per WHATWG DOM §4.3.3,
 /// and the underlying [`super::elements::create_element_wrapper`]
 /// dispatches to the right prototype per
 /// [`super::super::host_data::HostData::prototype_kind_for`]

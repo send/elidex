@@ -426,13 +426,13 @@ impl Range {
     }
 
     /// Parse `markup` in the context of this range and return the
-    /// resulting fragment (DOM Parsing §3.2 "createContextualFragment").
+    /// resulting fragment (HTML §8.5.7 createContextualFragment()).
     ///
     /// Stub for PR-A: returns `None` so VM-side bindings can throw a
     /// well-defined error. Full impl requires:
     /// 1. Resolve context element (start_container if Element, else
     ///    its parent — Text / Comment / CData boundary contexts).
-    /// 2. Apply the `<html>` → `<body>` rewrite per §3.2 step 2 GATED
+    /// 2. Apply the `<html>` → `<body>` rewrite per HTML §8.5.7 step 6 GATED
     ///    on `dom.is_html_namespace(context)` (see
     ///    [`elidex_ecs::EcsDom::is_html_namespace`] forward-stub).
     /// 3. Call `elidex_html_parser::parse_html_fragment(markup,
