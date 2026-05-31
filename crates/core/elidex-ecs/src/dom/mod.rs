@@ -779,11 +779,12 @@ impl EcsDom {
     /// `false`; non-elements return `false` (defensive).
     ///
     /// Used by `Range::create_contextual_fragment` in `elidex-dom-api`
-    /// (DOM Parsing §3.2 step 2) to gate the `<html>`-as-context override
-    /// (only HTML-namespace `<html>` is rewritten to `<body>` for
-    /// parser-scope selection; SVG / MathML `<html>` must stay as-is), and
-    /// by the `<base>` / `<datalist>` element predicates which are
-    /// HTML-namespace-restricted (HTML §4.2.3 / §4.10.8).
+    /// (HTML §8.5.7 `createContextualFragment()` step 6) to gate the
+    /// `<html>`-as-context override (only HTML-namespace `<html>` is
+    /// rewritten to `<body>` for parser-scope selection; SVG / MathML
+    /// `<html>` must stay as-is), and by the `<base>` / `<datalist>`
+    /// element predicates which are HTML-namespace-restricted (HTML
+    /// §4.2.3 / §4.10.8).
     ///
     /// [`namespace_of`]: Self::namespace_of
     #[must_use]

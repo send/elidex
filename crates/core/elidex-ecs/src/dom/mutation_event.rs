@@ -98,7 +98,7 @@ use crate::EcsDom;
 ///
 /// - [`Self::AttributeChange`] — fired AFTER an attribute write at the
 ///   `EcsDom::set_attribute` / `attr_remove` chokepoints. Source spec:
-///   **WHATWG DOM §4.3.2** "Queue a mutation record" step 5.1 +
+///   **WHATWG DOM §4.3.2** "Queuing a mutation record" step 4.1 +
 ///   MutationRecord shape per **WHATWG DOM §4.3.3** Interface
 ///   MutationRecord (`attributeName` / `attributeNamespace` /
 ///   `oldValue`). Attribute name ASCII case-insensitivity per **WHATWG
@@ -288,11 +288,12 @@ pub enum MutationEvent<'a> {
     /// - `new_value`: post-mutation attribute value, or `None` if the
     ///   attribute was just removed.
     ///
-    /// Source spec: WHATWG DOM §4.3.2 "Queue a mutation record" step
-    /// 5.1 + MutationRecord shape per WHATWG DOM §4.3.3 Interface
+    /// Source spec: WHATWG DOM §4.3.2 "Queuing a mutation record" step
+    /// 4.1 + MutationRecord shape per WHATWG DOM §4.3.3 Interface
     /// MutationRecord.  MutationRecord attribute-*namespace* tracking
-    /// (`attributeNamespace`, WHATWG DOM §4.3.5 step 5.1.4) is a separate
-    /// concern from element-namespace tracking and is deferred to the
+    /// (`attributeNamespace`, set per WHATWG DOM §4.3.2 step 4.1 and
+    /// declared in §4.3.3 Interface MutationRecord) is a separate concern
+    /// from element-namespace tracking and is deferred to the
     /// `#11-mutation-observer-extras` slot (sub-item (a)) — when it lands,
     /// a `namespace: Option<&'a str>` field will be added here.
     ///
