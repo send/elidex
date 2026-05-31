@@ -142,10 +142,11 @@ fn is_requirable_element(entity: Entity, dom: &EcsDom) -> bool {
         .is_ok_and(|t| matches!(t.0.as_str(), "input" | "select" | "textarea"))
 }
 
-/// CSS Selectors L4 §3.7 "white space": only U+0020 SPACE, U+0009 TAB,
-/// U+000A LINE FEED, U+000D CARRIAGE RETURN, and U+000C FORM FEED count as
-/// document white space. Other space-like code points (e.g. U+00A0 NBSP)
-/// do not — so `<p>&nbsp;</p>` is not `:empty`.
+/// Document white space per the "white space" definition in CSS Selectors L4
+/// §3.7 ("Characters and case sensitivity"): only U+0020 SPACE, U+0009 TAB,
+/// U+000A LINE FEED, U+000D CARRIAGE RETURN, and U+000C FORM FEED. Other
+/// space-like code points (e.g. U+00A0 NBSP) do not count — so `<p>&nbsp;</p>`
+/// is not `:empty`.
 fn is_document_white_space(c: char) -> bool {
     matches!(c, ' ' | '\t' | '\n' | '\r' | '\u{000C}')
 }
