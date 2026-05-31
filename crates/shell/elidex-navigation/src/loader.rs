@@ -129,7 +129,7 @@ fn parse_body(
     let parse_result = elidex_html_parser::parse_progressive(body, charset_hint);
     tracing::debug!(
         tier = ?parse_result.tier,
-        encoding = parse_result.encoding,
+        encoding = ?parse_result.encoding,
         "parsed {} ({} parse warning(s))",
         url,
         parse_result.errors.len(),
