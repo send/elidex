@@ -556,6 +556,53 @@ fn get_all_with_null_query_throws_data_error() {
     });
 }
 
+#[test]
+fn add_value_with_cloneable_non_json_type_throws_data_clone_error() {
+    with_vm(|vm| {
+        // R18 §5.11 v1 JSON-storage gap: `clone_value` accepts these as
+        // structured-cloneable, but the JSON storage path would silently
+        // coerce them to `{}` / index-keyed objects (e.g.
+        // `new Uint8Array([1])` -> `{"0":1}`), corrupting the stored value.
+        // Each must throw `DataCloneError` (nested inside an object, to prove
+        // the recursive walk) until faithful storage lands
+        // (`#11-idb-structured-clone-storage`).
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_nonjson', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const db = e.target.result;
+                 const cases = {
+                     buffer: new ArrayBuffer(4),
+                     typed: new Uint8Array([1, 2, 3]),
+                     view: new DataView(new ArrayBuffer(4)),
+                     err: new Error('x'),
+                     blob: new Blob(['x']),
+                     regexp: /abc/g,
+                 };
+                 // One transaction reused across all cases: each `add` throws
+                 // `DataCloneError` synchronously (before a request is created,
+                 // so the transaction is not aborted and stays active).
+                 const store = db.transaction(['s'], 'readwrite').objectStore('s');
+                 for (const [name, v] of Object.entries(cases)) {
+                     try {
+                         store.add({ wrapped: v }, name);
+                         globalThis.__log.push(name + ':STORED');
+                     } catch (err) {
+                         globalThis.__log.push(name + ':' + err.name);
+                     }
+                 }
+             };",
+        )
+        .unwrap();
+        assert_eq!(
+            eval_string(vm, "globalThis.__log.join(',')"),
+            "buffer:DataCloneError,typed:DataCloneError,view:DataCloneError,\
+             err:DataCloneError,blob:DataCloneError,regexp:DataCloneError"
+        );
+    });
+}
+
 // Note: two GC-rooting fixes here are verified by construction, not a
 // deterministic test (a use-after-free is only observable if the freed slot is
 // reused before the stale reference is read, which the heap does not

@@ -13,7 +13,9 @@
 
 #![cfg(feature = "engine")]
 
-use super::super::super::value::{JsValue, NativeContext, ObjectId, ObjectKind, VmError};
+use super::super::super::value::{
+    JsValue, NativeContext, ObjectId, ObjectKind, PropertyValue, VmError,
+};
 use super::super::super::VmInner;
 
 /// Maximum nested-array key depth (matches the backend `key.rs` bound).
@@ -203,6 +205,115 @@ pub(crate) fn js_to_query(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<Q
 /// The §5.11 transaction-inactive-during-clone guard (so a getter side
 /// effect can't re-enter the transaction) is applied by the caller around
 /// this call (it owns the transaction id).
+/// Walk the structured-cloned graph and reject any object kind that is
+/// cloneable but NOT faithfully JSON-representable (the v1 IDB storage format
+/// is `serde_json` TEXT).  Such kinds would be silently corrupted by
+/// `JSON.stringify` (→ `{}` / index-keyed object), so they must throw
+/// `DataCloneError` until `#11-idb-structured-clone-storage` lands.  Operates
+/// on the CLONE (plain data — no accessors), so traversal runs no user hooks.
+/// `seen` breaks reference cycles: a back-edge is left for `JSON.stringify` to
+/// reject as a circular structure (also surfaced as `DataCloneError`).
+fn reject_non_json_storable(
+    ctx: &mut NativeContext<'_>,
+    value: JsValue,
+    seen: &mut std::collections::HashSet<ObjectId>,
+) -> Result<(), VmError> {
+    // Classify into an owned result first so the `&Object` borrow is released
+    // before `dom_exc` / the recursion re-borrow `ctx`.
+    enum Kind {
+        Container(Vec<JsValue>),
+        Ordinary,
+        Reject(&'static str),
+        Leaf,
+    }
+    let JsValue::Object(id) = value else {
+        return Ok(());
+    };
+    if !seen.insert(id) {
+        return Ok(());
+    }
+    let obj = ctx.vm.get_object(id);
+    let proto = obj.prototype;
+    let kind = match &obj.kind {
+        // JSON-representable containers: recurse their stored data values.
+        // (An Array serializes only its indexed elements, matching
+        // `JSON.stringify`; extra string-keyed props on an array are ignored.)
+        ObjectKind::Array { elements } => Kind::Container(elements.clone()),
+        // An ordinary object is JSON-representable UNLESS it is error-like (its
+        // meaningful state — `message` / `name` — lives in non-enumerable
+        // properties that `JSON.stringify` drops); decided below via `proto`.
+        ObjectKind::Ordinary => Kind::Ordinary,
+        // Cloneable but not JSON-representable → silent corruption under
+        // `JSON.stringify`.  Reject upfront with the spec-correct type name.
+        ObjectKind::Error { .. } => Kind::Reject("an Error"),
+        ObjectKind::RegExp { .. } => Kind::Reject("a RegExp"),
+        ObjectKind::ArrayBuffer => Kind::Reject("an ArrayBuffer"),
+        ObjectKind::Blob => Kind::Reject("a Blob"),
+        ObjectKind::TypedArray { .. } => Kind::Reject("a typed array"),
+        ObjectKind::DataView { .. } => Kind::Reject("a DataView"),
+        // Primitive wrappers (Number/String/Boolean) JSON-serialize as their
+        // primitive; everything else either can't reach here (unclonable, so
+        // `clone_value` already threw) or is a leaf.
+        _ => Kind::Leaf,
+    };
+    let children = match kind {
+        Kind::Reject(label) => return Err(reject_unstorable(ctx, label)),
+        Kind::Container(c) => c,
+        Kind::Ordinary => {
+            // `new Error(...)` / `new TypeError(...)` allocate `Ordinary` with
+            // an error prototype (not `ObjectKind::Error`), so detect them by
+            // walking the prototype chain to `Error.prototype`.
+            if is_error_like(ctx.vm, proto) {
+                return Err(reject_unstorable(ctx, "an Error"));
+            }
+            ctx.vm
+                .get_object(id)
+                .storage
+                .iter_properties(&ctx.vm.shapes)
+                .filter_map(|(_, val, attrs)| {
+                    if !attrs.enumerable || attrs.is_accessor {
+                        return None;
+                    }
+                    match val {
+                        PropertyValue::Data(v) => Some(*v),
+                        PropertyValue::Accessor { .. } => None,
+                    }
+                })
+                .collect()
+        }
+        Kind::Leaf => return Ok(()),
+    };
+    for child in children {
+        reject_non_json_storable(ctx, child, seen)?;
+    }
+    Ok(())
+}
+
+/// Build the `DataCloneError` for a cloneable-but-not-JSON-storable value.
+fn reject_unstorable(ctx: &mut NativeContext<'_>, label: &str) -> VmError {
+    dom_exc(
+        ctx,
+        "DataCloneError",
+        format!(
+            "{label} is not yet storable in IndexedDB \
+             (structured-clone storage of this type is deferred)"
+        ),
+    )
+}
+
+/// Whether `proto`'s prototype chain reaches `Error.prototype` (or
+/// `AggregateError.prototype`) — i.e. the object is an `Error` instance or a
+/// subclass thereof.
+fn is_error_like(vm: &VmInner, mut proto: Option<ObjectId>) -> bool {
+    while let Some(p) = proto {
+        if vm.error_prototype == Some(p) || vm.aggregate_error_prototype == Some(p) {
+            return true;
+        }
+        proto = vm.get_object(p).prototype;
+    }
+    false
+}
+
 pub(crate) fn value_to_json(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<String, VmError> {
     // §5.11: IDB clones via the structured clone algorithm, NOT JSON's
     // `toJSON` / silently-drop-functions semantics.  Structured-clone the value
@@ -213,6 +324,21 @@ pub(crate) fn value_to_json(ctx: &mut NativeContext<'_>, val: JsValue) -> Result
     // (Date / Map / ArrayBuffer) remains deferred to
     // `#11-idb-structured-clone-storage`.
     let cloned = super::super::structured_clone::clone_value(ctx.vm, val)?;
+    // §5.11 v1 JSON storage gap: `clone_value` accepts cloneable-but-NOT-
+    // JSON-representable types (RegExp / Error / ArrayBuffer / typed array /
+    // DataView / Blob).  `JSON.stringify` silently coerces these to `{}` (no
+    // enumerable own props) or an index-keyed object (typed arrays), so
+    // `{ buf: new Uint8Array([1]) }` would be stored as `{ "buf": {"0":1} }`
+    // and read back as a plain object — silent data corruption.  Reject the
+    // whole value with `DataCloneError` until faithful binary / structured
+    // storage lands (`#11-idb-structured-clone-storage`).  Primitive wrappers
+    // (`Number`/`String`/`Boolean`) are fine — `JSON.stringify` unwraps them to
+    // their primitive — and a `BigInt` wrapper loudly throws (→ `DataCloneError`
+    // via the serialize-failure arm below), so neither needs rejection here.
+    {
+        let mut seen = std::collections::HashSet::new();
+        reject_non_json_storable(ctx, cloned, &mut seen)?;
+    }
     // Serialize THE CLONE, not the original: IDB stores the structured-cloned
     // value and must not invoke JSON serialization hooks — running
     // `JSON.stringify` on the original would re-run user `toJSON` methods /
