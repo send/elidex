@@ -176,7 +176,7 @@ impl VmInner {
                 super::dom_selection_proto::dispatch_selectionchange_if_pending(self);
             }
             // W3C IndexedDB §2.7.1 transaction auto-commit / deactivation
-            // (`idb_autocommit_sweep`) is NOT run here — it runs at the END of
+            // (`idb_cleanup_transactions`) is NOT run here — it runs at the END of
             // every microtask checkpoint (`drain_microtasks`), the exact HTML
             // "perform a microtask checkpoint" step 5 ("Cleanup Indexed
             // Database transactions") seam.  Because `drain_microtasks` runs

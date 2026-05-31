@@ -727,6 +727,71 @@ fn backend_swap_aborts_pending_requests_in_place() {
     });
 }
 
+#[test]
+fn cleanup_deactivates_non_empty_transaction_and_exempts_upgrade() {
+    use super::super::host::indexeddb::{IdbTransactionState, IdbTxnState};
+    use super::super::value::ObjectId;
+    use std::collections::HashMap;
+    with_vm(|vm| {
+        // R20 §2.7.1: the microtask-checkpoint cleanup must DEACTIVATE every
+        // active script-created transaction — INCLUDING ones with pending
+        // requests — so a later task in the same drain cannot issue requests
+        // against them (`require_active` then throws TransactionInactiveError);
+        // a request event later reactivates them.  A versionchange (upgrade)
+        // transaction has no "cleanup event loop" and stays Active (its
+        // lifecycle runs via `run_post_dispatch` after `upgradeneeded`).
+        //
+        // White-box (cf. `backend_swap_aborts_pending_requests_in_place`): the
+        // divergence is not behaviorally constructable — the single-connection
+        // backend serializes transactions, so a later task cannot observe a
+        // sibling txn mid-drain (same constraint documented at R17).
+        let synthetic =
+            |request_list: Vec<ObjectId>, upgrade_request: Option<ObjectId>| IdbTransactionState {
+                state: IdbTxnState::Active,
+                mode: elidex_indexeddb::IdbTransactionMode::ReadWrite,
+                db_name: String::new(),
+                scope: Vec::new(),
+                db: None,
+                backend_txn: None,
+                request_list,
+                handlers: HashMap::new(),
+                listeners: Vec::new(),
+                error: None,
+                upgrade_request,
+                upgrade_handle: None,
+                upgrade_old_version: 0,
+            };
+        // A normal txn with a pending request (non-empty) and an upgrade txn.
+        let pending = ObjectId(7001);
+        let upgrade = ObjectId(7002);
+        vm.inner
+            .idb_transaction_states
+            .insert(pending, synthetic(vec![ObjectId(8001)], None));
+        vm.inner
+            .idb_transaction_states
+            .insert(upgrade, synthetic(Vec::new(), Some(ObjectId(9001))));
+
+        vm.inner.idb_cleanup_transactions();
+
+        assert_eq!(
+            vm.inner
+                .idb_transaction_states
+                .get(&pending)
+                .map(|s| s.state),
+            Some(IdbTxnState::Inactive),
+            "a non-empty active transaction must be deactivated by the cleanup"
+        );
+        assert_eq!(
+            vm.inner
+                .idb_transaction_states
+                .get(&upgrade)
+                .map(|s| s.state),
+            Some(IdbTxnState::Active),
+            "an upgrade transaction has no cleanup event loop and stays Active"
+        );
+    });
+}
+
 // ---------------------------------------------------------------------------
 // IDBKeyRange + cmp (synchronous surface)
 // ---------------------------------------------------------------------------

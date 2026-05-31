@@ -299,7 +299,7 @@ impl VmInner {
         // here — before any LATER task can observe it as still `Active`.
         // No-op (empty filter) when no IndexedDB transactions exist.
         #[cfg(feature = "engine")]
-        self.idb_autocommit_sweep();
+        self.idb_cleanup_transactions();
         self.microtask_drain_depth -= 1;
     }
 }
