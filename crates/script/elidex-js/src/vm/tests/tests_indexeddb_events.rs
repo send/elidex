@@ -485,6 +485,54 @@ fn idb_prototype_survives_gc_after_global_constructor_deleted() {
     });
 }
 
+// Placed here (not in `tests_indexeddb.rs`) only to keep that module under the
+// ~1000-line convention — these are clone / query-arg validation rules.
+#[test]
+fn add_value_with_nested_function_throws_data_clone_error() {
+    with_vm(|vm| {
+        // R15 #3 / §5.11: a function (or symbol) nested in an otherwise
+        // serializable value is a `DataCloneError` — NOT silently dropped by
+        // `JSON.stringify` (which would corrupt the stored value).
+        vm.eval(
+            "globalThis.__err = 'none';
+             const open = indexedDB.open('db_nested_fn', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const tx = e.target.result.transaction(['s'], 'readwrite');
+                 try { tx.objectStore('s').add({ a: 1, f() {} }, 1); }
+                 catch (err) { globalThis.__err = err.name; }
+             };",
+        )
+        .unwrap();
+        assert_eq!(eval_string(vm, "globalThis.__err"), "DataCloneError");
+    });
+}
+
+#[test]
+fn get_all_with_null_query_throws_data_error() {
+    with_vm(|vm| {
+        // R15 #4 / §4.5: a SUPPLIED `null` query is not an omitted optional
+        // argument — it goes through key conversion and fails with `DataError`
+        // (whereas an omitted query returns all records).
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_null_q', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const store = e.target.result.transaction(['s'], 'readonly').objectStore('s');
+                 try { store.getAll(null); globalThis.__log.push('null:no-throw'); }
+                 catch (err) { globalThis.__log.push('null:' + err.name); }
+                 store.getAll().onsuccess = () => { globalThis.__log.push('omitted:ok'); };
+             };",
+        )
+        .unwrap();
+        assert_eq!(
+            eval_string(vm, "globalThis.__log.join(',')"),
+            "null:DataError,omitted:ok"
+        );
+    });
+}
+
 // Note: two GC-rooting fixes here are verified by construction, not a
 // deterministic test (a use-after-free is only observable if the freed slot is
 // reused before the stale reference is read, which the heap does not

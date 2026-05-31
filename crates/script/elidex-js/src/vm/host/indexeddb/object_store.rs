@@ -414,7 +414,11 @@ fn optional_range(
     arg: Option<JsValue>,
 ) -> Result<Option<elidex_indexeddb::IdbKeyRange>, VmError> {
     match arg {
-        None | Some(JsValue::Undefined | JsValue::Null) => Ok(None),
+        // §4.5: the `query` arg is optional — OMITTED or an explicit `undefined`
+        // means "no query" (all records).  A supplied `null` is a value, not an
+        // omission: it goes through key conversion and fails with `DataError`
+        // (so `store.getAll(null)` throws, not returns everything).
+        None | Some(JsValue::Undefined) => Ok(None),
         Some(v) => match value::js_to_query(ctx, v)? {
             Query::Range(r) => Ok(Some(r)),
             Query::Key(k) => Ok(Some(elidex_indexeddb::IdbKeyRange::only(k))),

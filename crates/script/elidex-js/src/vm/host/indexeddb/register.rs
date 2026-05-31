@@ -17,13 +17,19 @@
 //!
 //! Every interface object is installed with `CallShape::IllegalConstructor`
 //! (WebIDL §3.7.1 — none of the IDB interfaces has a constructor operation;
-//! `new IDBRequest()` throws "Illegal constructor").  `IDBVersionChangeEvent`
-//! is spec-constructible, but the bridge only ever constructs it internally
-//! (`fire_version_change_event`); a script-side `new IDBVersionChangeEvent(...)`
-//! has no use in the single-VM model, so it is installed `IllegalConstructor`
-//! (interface object + `instanceof` present, construction rejected).  Accepted
-//! v1 deviation — re-evaluate only if a WPT `idbversionchangeevent-*` case
-//! targets the constructor.
+//! `new IDBRequest()` throws "Illegal constructor").
+//!
+//! `IDBVersionChangeEvent` IS spec-constructible (it has an
+//! `IDBVersionChangeEventInit` dictionary), but the bridge only ever
+//! constructs it internally (`fire_version_change_event` builds the
+//! `oldVersion` / `newVersion` props dynamically — there is no precomputed
+//! event shape for it).  A constructible `new IDBVersionChangeEvent(...)`
+//! needs a precomputed shape (`event_shapes.rs`) + an init-dict constructor
+//! (`oldVersion` `[EnforceRange] unsigned long long`, `newVersion`
+//! `unsigned long long?`); that feature work is DEFERRED to
+//! `#11-idbversionchangeevent-constructor`.  Until then it is installed
+//! `IllegalConstructor` (interface object + `instanceof` present, construction
+//! rejected) — script-side construction is niche in the single-VM model.
 
 #![cfg(feature = "engine")]
 
