@@ -423,6 +423,22 @@ fn resolve_input_list_returns_none_when_target_is_not_datalist() {
 }
 
 #[test]
+fn resolve_input_list_rejects_foreign_namespace_datalist() {
+    // A foreign-namespace (SVG) `<datalist>` matching the IDREF is NOT an
+    // `HTMLDataListElement` (HTML §4.10.8), so the `list` attribute does
+    // not resolve to it — exercises the `is_html_namespace` guard.
+    let mut dom = EcsDom::new();
+    let container = dom.create_element("div", Attributes::default());
+    let input = input_with_list(&mut dom, "opts");
+    let _ = dom.append_child(container, input);
+    let mut attrs = Attributes::default();
+    attrs.set("id", "opts");
+    let svg_datalist = dom.create_element_ns("datalist", elidex_ecs::Namespace::Svg, attrs, None);
+    let _ = dom.append_child(container, svg_datalist);
+    assert_eq!(resolve_input_list(&dom, input), None);
+}
+
+#[test]
 fn resolve_input_list_returns_datalist_when_id_matches() {
     let mut dom = EcsDom::new();
     let container = dom.create_element("div", Attributes::default());

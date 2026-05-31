@@ -24,8 +24,8 @@ mod tree_clone;
 pub use mutation_event::{MutationDispatcher, MutationEvent};
 
 use crate::components::{
-    AssociatedDocument, AttrData, Attributes, CommentData, DocTypeData, DocumentBaseUrl, NodeKind,
-    ShadowRoot, TagType, TextContent, TreeRelation,
+    AssociatedDocument, AttrData, Attributes, CommentData, DocTypeData, DocumentBaseUrl, Namespace,
+    NodeKind, ShadowRoot, TagType, TextContent, TreeRelation,
 };
 use hecs::{Entity, World};
 
@@ -183,15 +183,12 @@ impl EcsDom {
     /// elidex-ecs are OK; large algorithms hoist to elidex-dom-api).
     #[must_use]
     pub fn is_base_element(&self, entity: Entity) -> bool {
+        // WHATWG HTML §4.2.3 restricts `<base>` to the HTML namespace, so
+        // a foreign `<base>` (SVG / MathML) is not the document base.
         self.world
             .get::<&TagType>(entity)
             .is_ok_and(|t| t.0.eq_ignore_ascii_case("base"))
-        // FIXME: WHATWG HTML §4.2.3 restricts `<base>` to the HTML
-        // namespace; this predicate currently matches a tag-name
-        // `"base"` regardless of namespace.  Latent gap until the
-        // `#11-element-namespace-tracking` slot lands element-
-        // namespace components — at which point this predicate gates
-        // additionally on `dom.is_html_namespace(entity)`.
+            && self.is_html_namespace(entity)
     }
 
     /// HTML tag-name predicate: returns `true` iff `entity` is a
@@ -467,6 +464,46 @@ impl EcsDom {
         entity
     }
 
+    /// Create a foreign-namespace element node (SVG / MathML).
+    ///
+    /// Like [`create_element_with_owner`](Self::create_element_with_owner)
+    /// but tags the element with an explicit [`Namespace`].  The
+    /// [`Namespace`] component is attached **only** for non-HTML
+    /// namespaces — an absent component means [`Namespace::Html`] by
+    /// construction — so HTML elements created via the plain
+    /// [`create_element`](Self::create_element) stay component-free and
+    /// unchanged.  Used by the strict HTML parser's foreign-content path
+    /// (WHATWG HTML §13.2.6.5).
+    pub fn create_element_ns(
+        &mut self,
+        tag: impl Into<String>,
+        namespace: Namespace,
+        attrs: Attributes,
+        owner: Option<Entity>,
+    ) -> Entity {
+        let entity = self.create_element_with_owner(tag, attrs, owner);
+        if namespace != Namespace::Html {
+            let _ = self.world.insert_one(entity, namespace);
+        }
+        entity
+    }
+
+    /// The [`Namespace`] of an element entity.
+    ///
+    /// Returns the element's explicit [`Namespace`] component if present,
+    /// otherwise [`Namespace::Html`] — the default-by-absence sentinel
+    /// (most elements are HTML, so the component marks only the foreign
+    /// exception).  For non-element entities the value is meaningless;
+    /// callers gate on [`is_element`](Self::is_element) first, as
+    /// [`is_html_namespace`](Self::is_html_namespace) does.
+    #[must_use]
+    pub fn namespace_of(&self, entity: Entity) -> Namespace {
+        self.world
+            .get::<&Namespace>(entity)
+            .map(|n| *n)
+            .unwrap_or(Namespace::Html)
+    }
+
     /// Create a document root entity (no tag, only tree relations).
     ///
     /// The document root serves as the parent of the `<html>` element.
@@ -734,37 +771,25 @@ impl EcsDom {
         self.world.get::<&NodeKind>(entity).ok().map(|k| *k)
     }
 
-    /// Forward-stub returning `true` for any element entity — elidex
-    /// currently tracks only the HTML namespace, so every element is
-    /// in the HTML namespace by construction.
+    /// Whether `entity` is an element in the HTML namespace.
+    ///
+    /// `true` iff `entity` is an element AND its [`namespace_of`] is
+    /// [`Namespace::Html`] (the default-by-absence case — most elements
+    /// carry no [`Namespace`] component). Foreign (SVG / MathML) elements
+    /// created via [`create_element_ns`](Self::create_element_ns) return
+    /// `false`; non-elements return `false` (defensive).
     ///
     /// Used by `Range::create_contextual_fragment` in `elidex-dom-api`
-    /// (DOM Parsing
-    /// §3.2 step 2) to gate the `<html>`-as-context override, where
-    /// only HTML-namespace `<html>` is rewritten to `<body>` for
-    /// parser-scope selection (SVG / MathML `<html>` must stay as-is).
-    /// Once SVG / MathML elements land they will carry an explicit
-    /// namespace component and this stub will branch on it; until then
-    /// the spec-conformant fast-path is `true`.
+    /// (DOM Parsing §3.2 step 2) to gate the `<html>`-as-context override
+    /// (only HTML-namespace `<html>` is rewritten to `<body>` for
+    /// parser-scope selection; SVG / MathML `<html>` must stay as-is), and
+    /// by the `<base>` / `<datalist>` element predicates which are
+    /// HTML-namespace-restricted (HTML §4.2.3 / §4.10.8).
     ///
-    /// ## Forward-stub contract
-    ///
-    /// **HTML-only**: elidex does not yet model SVG / MathML / XHTML
-    /// namespaces on element entities. When namespace tracking lands
-    /// (via a future `ElementNamespace` component or qualified-name
-    /// parser pass), this stub MUST be reworked to branch on the
-    /// actual namespace; call sites are designed to assume the stub
-    /// returns `true` only for HTML-namespace elements. Until then
-    /// `is_html_namespace(svg_element_someday) == true` is a known
-    /// forward deviation acceptable for HTML-only pages — tracked at
-    /// the `#11-element-namespace-tracking` defer slot.
-    ///
-    /// Returns `false` only when `entity` is not an element (defensive;
-    /// non-elements cannot be range contexts in practice — Text /
-    /// Comment contexts route through their parent first).
+    /// [`namespace_of`]: Self::namespace_of
     #[must_use]
     pub fn is_html_namespace(&self, entity: Entity) -> bool {
-        self.is_element(entity)
+        self.is_element(entity) && self.namespace_of(entity) == Namespace::Html
     }
 
     /// Effective `NodeKind` — returns the explicit component when

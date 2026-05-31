@@ -47,6 +47,40 @@ macro_rules! impl_string_map {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TagType(pub String);
 
+/// The namespace of an element, stored as a sparse ECS component.
+///
+/// HTML is the overwhelming default, so the component is attached **only**
+/// to foreign (SVG / MathML) elements: an element with no `Namespace`
+/// component is in the [`Html`](Namespace::Html) namespace by construction.
+/// Read namespace via [`EcsDom::namespace_of`](crate::EcsDom::namespace_of)
+/// (which resolves absence to `Html`), and create foreign elements via
+/// [`EcsDom::create_element_ns`](crate::EcsDom::create_element_ns).
+///
+/// The three namespace URI constants are defined in the WHATWG Infra
+/// Standard §8 "Namespaces".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Namespace {
+    /// The HTML namespace, `http://www.w3.org/1999/xhtml`.
+    #[default]
+    Html,
+    /// The SVG namespace, `http://www.w3.org/2000/svg`.
+    Svg,
+    /// The MathML namespace, `http://www.w3.org/1998/Math/MathML`.
+    MathMl,
+}
+
+impl Namespace {
+    /// The namespace URI string (WHATWG Infra Standard §8 "Namespaces").
+    #[must_use]
+    pub const fn uri(self) -> &'static str {
+        match self {
+            Namespace::Html => "http://www.w3.org/1999/xhtml",
+            Namespace::Svg => "http://www.w3.org/2000/svg",
+            Namespace::MathMl => "http://www.w3.org/1998/Math/MathML",
+        }
+    }
+}
+
 /// Key-value attribute map for an element.
 ///
 /// Uses `IndexMap` to preserve insertion order, matching the WHATWG DOM spec
