@@ -183,9 +183,7 @@ pub(crate) fn native_os_get_key_path(
 ) -> Result<JsValue, VmError> {
     let id = require_store_this(ctx, this, "keyPath")?;
     let (db, store) = store_meta_ctx(ctx, id)?;
-    let Some(backend) = ctx.vm.ensure_idb_backend() else {
-        return Err(VmError::type_error("IndexedDB backend unavailable"));
-    };
+    let backend = ctx.vm.require_idb_backend()?;
     let (key_path, _) = backend
         .get_store_meta(&db, &store)
         .map_err(|e| value::backend_error_as_throw(ctx, &e))?;
@@ -202,9 +200,7 @@ pub(crate) fn native_os_get_auto_increment(
 ) -> Result<JsValue, VmError> {
     let id = require_store_this(ctx, this, "autoIncrement")?;
     let (db, store) = store_meta_ctx(ctx, id)?;
-    let Some(backend) = ctx.vm.ensure_idb_backend() else {
-        return Err(VmError::type_error("IndexedDB backend unavailable"));
-    };
+    let backend = ctx.vm.require_idb_backend()?;
     let (_, auto_increment) = backend
         .get_store_meta(&db, &store)
         .map_err(|e| value::backend_error_as_throw(ctx, &e))?;
@@ -219,9 +215,7 @@ pub(crate) fn native_os_get_index_names(
 ) -> Result<JsValue, VmError> {
     let id = require_store_this(ctx, this, "indexNames")?;
     let (db, store) = store_meta_ctx(ctx, id)?;
-    let Some(backend) = ctx.vm.ensure_idb_backend() else {
-        return Err(VmError::type_error("IndexedDB backend unavailable"));
-    };
+    let backend = ctx.vm.require_idb_backend()?;
     let mut names = backend.list_index_names(&db, &store).unwrap_or_default();
     names.sort();
     let elems: Vec<JsValue> = names
@@ -273,9 +267,7 @@ fn add_or_put(
     // The clone may have run user JS that aborted / finished the txn; the
     // transaction must still be active to take the write.
     require_active(ctx, txn, method)?;
-    let Some(backend) = ctx.vm.ensure_idb_backend() else {
-        return Err(VmError::type_error("IndexedDB backend unavailable"));
-    };
+    let backend = ctx.vm.require_idb_backend()?;
     let result = if is_add {
         elidex_indexeddb::ops::add(&backend, &db, &store, key, &json)
     } else {
@@ -320,9 +312,7 @@ pub(crate) fn native_os_get(
     let (db, store, txn) = store_ctx(ctx, store_id)?;
     require_active(ctx, txn, "get")?;
     let query = value::js_to_query(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
-    let Some(backend) = ctx.vm.ensure_idb_backend() else {
-        return Err(VmError::type_error("IndexedDB backend unavailable"));
-    };
+    let backend = ctx.vm.require_idb_backend()?;
     let outcome = match query {
         Query::Key(k) => match elidex_indexeddb::ops::get(&backend, &db, &store, &k) {
             Ok(Some(json)) => DeferredOutcome::Success(value::json_to_js(ctx.vm, &json)),
@@ -358,9 +348,7 @@ pub(crate) fn native_os_get_key(
     let (db, store, txn) = store_ctx(ctx, store_id)?;
     require_active(ctx, txn, "getKey")?;
     let query = value::js_to_query(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
-    let Some(backend) = ctx.vm.ensure_idb_backend() else {
-        return Err(VmError::type_error("IndexedDB backend unavailable"));
-    };
+    let backend = ctx.vm.require_idb_backend()?;
     let outcome = match query {
         Query::Key(k) => match elidex_indexeddb::ops::get_key(&backend, &db, &store, &k) {
             Ok(Some(found)) => DeferredOutcome::Success(value::idb_key_to_js(ctx.vm, &found)),
@@ -426,9 +414,7 @@ pub(crate) fn native_os_get_all(
     require_active(ctx, txn, "getAll")?;
     let range = optional_range(ctx, args.first().copied())?;
     let count = optional_count(ctx, args.get(1).copied())?;
-    let Some(backend) = ctx.vm.ensure_idb_backend() else {
-        return Err(VmError::type_error("IndexedDB backend unavailable"));
-    };
+    let backend = ctx.vm.require_idb_backend()?;
     let outcome = match elidex_indexeddb::ops::get_all(&backend, &db, &store, range.as_ref(), count)
     {
         Ok(rows) => {
@@ -458,9 +444,7 @@ pub(crate) fn native_os_get_all_keys(
     require_active(ctx, txn, "getAllKeys")?;
     let range = optional_range(ctx, args.first().copied())?;
     let count = optional_count(ctx, args.get(1).copied())?;
-    let Some(backend) = ctx.vm.ensure_idb_backend() else {
-        return Err(VmError::type_error("IndexedDB backend unavailable"));
-    };
+    let backend = ctx.vm.require_idb_backend()?;
     let outcome =
         match elidex_indexeddb::ops::get_all_keys(&backend, &db, &store, range.as_ref(), count) {
             Ok(keys) => {
@@ -495,9 +479,7 @@ pub(crate) fn native_os_delete(
         Query::Key(k) => elidex_indexeddb::DeleteTarget::Key(k),
         Query::Range(r) => elidex_indexeddb::DeleteTarget::Range(r),
     };
-    let Some(backend) = ctx.vm.ensure_idb_backend() else {
-        return Err(VmError::type_error("IndexedDB backend unavailable"));
-    };
+    let backend = ctx.vm.require_idb_backend()?;
     let outcome = match elidex_indexeddb::ops::delete(&backend, &db, &store, &target) {
         Ok(()) => DeferredOutcome::Success(JsValue::Undefined),
         Err(e) => DeferredOutcome::Error(value::backend_error_to_dom_exception(ctx.vm, &e)),
@@ -520,9 +502,7 @@ pub(crate) fn native_os_clear(
     let (db, store, txn) = store_ctx(ctx, store_id)?;
     require_active(ctx, txn, "clear")?;
     require_writable(ctx, txn, "clear")?;
-    let Some(backend) = ctx.vm.ensure_idb_backend() else {
-        return Err(VmError::type_error("IndexedDB backend unavailable"));
-    };
+    let backend = ctx.vm.require_idb_backend()?;
     let outcome = match elidex_indexeddb::ops::clear(&backend, &db, &store) {
         Ok(()) => DeferredOutcome::Success(JsValue::Undefined),
         Err(e) => DeferredOutcome::Error(value::backend_error_to_dom_exception(ctx.vm, &e)),
@@ -545,9 +525,7 @@ pub(crate) fn native_os_count(
     let (db, store, txn) = store_ctx(ctx, store_id)?;
     require_active(ctx, txn, "count")?;
     let range = optional_range(ctx, args.first().copied())?;
-    let Some(backend) = ctx.vm.ensure_idb_backend() else {
-        return Err(VmError::type_error("IndexedDB backend unavailable"));
-    };
+    let backend = ctx.vm.require_idb_backend()?;
     let outcome = match elidex_indexeddb::ops::count(&backend, &db, &store, range.as_ref()) {
         #[allow(clippy::cast_precision_loss)]
         Ok(n) => DeferredOutcome::Success(JsValue::Number(n as f64)),

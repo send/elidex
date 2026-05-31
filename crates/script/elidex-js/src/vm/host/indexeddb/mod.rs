@@ -191,6 +191,36 @@ pub(crate) struct IdbTransactionState {
     pub(crate) upgrade_old_version: u64,
 }
 
+impl IdbTransactionState {
+    /// A freshly-`Active` transaction over `backend_txn` with the upgrade
+    /// fields cleared (a normal `db.transaction(...)`).  The upgrade flow
+    /// builds on this with `..IdbTransactionState::new_active(...)` + its
+    /// `upgrade_*` overrides, so the 13-field literal lives in one place.
+    pub(super) fn new_active(
+        mode: elidex_indexeddb::IdbTransactionMode,
+        db: ObjectId,
+        db_name: &str,
+        scope: Vec<String>,
+        backend_txn: elidex_indexeddb::IdbTransaction,
+    ) -> Self {
+        IdbTransactionState {
+            state: IdbTxnState::Active,
+            mode,
+            db_name: db_name.to_string(),
+            scope,
+            db: Some(db),
+            backend_txn: Some(backend_txn),
+            request_list: Vec::new(),
+            handlers: HashMap::new(),
+            listeners: Vec::new(),
+            error: None,
+            upgrade_request: None,
+            upgrade_handle: None,
+            upgrade_old_version: 0,
+        }
+    }
+}
+
 /// Per-`IDBDatabase` connection state, keyed in
 /// [`super::super::VmInner::idb_database_states`].
 #[derive(Debug, Default)]
@@ -242,6 +272,16 @@ impl VmInner {
         self.idb_backend.clone()
     }
 
+    /// [`Self::ensure_idb_backend`] or a thrown `TypeError` — the
+    /// backend-unavailable path is identical at every call site, so the
+    /// message lives here once.
+    pub(crate) fn require_idb_backend(
+        &mut self,
+    ) -> Result<std::rc::Rc<elidex_indexeddb::IdbBackend>, VmError> {
+        self.ensure_idb_backend()
+            .ok_or_else(|| VmError::type_error("IndexedDB backend unavailable"))
+    }
+
     /// W3C IndexedDB §2.7.1 auto-commit fallback: commit every still-`Active`
     /// transaction whose request list is empty.  Run at the `drain_tasks`
     /// tail (the "control returns to the event loop" seam).  Eligible ids
@@ -288,20 +328,10 @@ fn collect_and_prune(
     event_type: StringId,
     handler_attr: StringId,
 ) -> (Option<ObjectId>, Vec<ObjectId>) {
-    // `ObjectKind` is not `Copy` (Vec/Box payloads), so reduce to a small
-    // discriminant under the shared borrow before taking the `&mut` map
-    // borrow below.
-    enum Which {
-        Request,
-        Transaction,
-        Database,
-        Other,
-    }
-    let which = match &vm.get_object(target).kind {
-        ObjectKind::IdbRequest => Which::Request,
-        ObjectKind::IdbTransaction => Which::Transaction,
-        ObjectKind::IdbDatabase => Which::Database,
-        _ => Which::Other,
+    // Reduce to a small `Copy` discriminant under the shared borrow before
+    // taking the `&mut` map borrow below (`ObjectKind` is not `Copy`).
+    let Some(kind) = idb_target_kind(vm, target) else {
+        return (None, Vec::new());
     };
     macro_rules! pull {
         ($map:ident) => {{
@@ -322,11 +352,10 @@ fn collect_and_prune(
             }
         }};
     }
-    match which {
-        Which::Request => pull!(idb_request_states),
-        Which::Transaction => pull!(idb_transaction_states),
-        Which::Database => pull!(idb_database_states),
-        Which::Other => (None, Vec::new()),
+    match kind {
+        IdbTargetKind::Request => pull!(idb_request_states),
+        IdbTargetKind::Transaction => pull!(idb_transaction_states),
+        IdbTargetKind::Database => pull!(idb_database_states),
     }
 }
 

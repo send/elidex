@@ -121,9 +121,7 @@ pub(crate) fn native_db_create_object_store(
     let name_sid = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
     let name = ctx.get_utf8(name_sid);
     let (key_path, auto_increment) = parse_create_store_options(ctx, args.get(1).copied())?;
-    let Some(backend) = ctx.vm.ensure_idb_backend() else {
-        return Err(VmError::type_error("IndexedDB backend unavailable"));
-    };
+    let backend = ctx.vm.require_idb_backend()?;
     match backend.create_object_store(&db_name, &name, key_path.as_deref(), auto_increment) {
         Ok(()) => Ok(JsValue::Object(object_store::create_object_store_wrapper(
             ctx.vm, &db_name, &name, txn,
@@ -143,9 +141,7 @@ pub(crate) fn native_db_delete_object_store(
     let db_name = db_name_of(ctx, db_id);
     let name_sid = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
     let name = ctx.get_utf8(name_sid);
-    let Some(backend) = ctx.vm.ensure_idb_backend() else {
-        return Err(VmError::type_error("IndexedDB backend unavailable"));
-    };
+    let backend = ctx.vm.require_idb_backend()?;
     match backend.delete_object_store(&db_name, &name) {
         Ok(()) => Ok(JsValue::Undefined),
         Err(e) => Err(value::backend_error_as_throw(ctx, &e)),
@@ -236,9 +232,7 @@ pub(crate) fn native_db_transaction(
         ));
     }
     let mode = parse_mode(ctx, args.get(1).copied())?;
-    let Some(backend) = ctx.vm.ensure_idb_backend() else {
-        return Err(VmError::type_error("IndexedDB backend unavailable"));
-    };
+    let backend = ctx.vm.require_idb_backend()?;
     let existing = backend
         .list_store_names(&db_name)
         .map_err(|e| value::backend_error_as_throw(ctx, &e))?;
@@ -294,9 +288,7 @@ pub(crate) fn native_db_get_object_store_names(
 ) -> Result<JsValue, VmError> {
     let id = require_db_this(ctx, this, "objectStoreNames")?;
     let db_name = db_name_of(ctx, id);
-    let Some(backend) = ctx.vm.ensure_idb_backend() else {
-        return Err(VmError::type_error("IndexedDB backend unavailable"));
-    };
+    let backend = ctx.vm.require_idb_backend()?;
     let mut names = backend.list_store_names(&db_name).unwrap_or_default();
     names.sort();
     let elems: Vec<JsValue> = names

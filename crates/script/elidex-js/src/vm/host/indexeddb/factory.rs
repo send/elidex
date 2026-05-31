@@ -9,8 +9,6 @@
 
 #![cfg(feature = "engine")]
 
-use std::collections::HashMap;
-
 use super::super::super::natives_promise::{create_promise, settle_promise};
 use super::super::super::shape::{self, PropertyAttrs};
 use super::super::super::value::{
@@ -21,7 +19,6 @@ use super::super::super::VmInner;
 use super::super::pending_tasks::PendingTask;
 use super::{
     database, fire_version_change_event, request, value, DeferredOutcome, IdbTransactionState,
-    IdbTxnState,
 };
 
 /// Brand-check that `this` is the `IDBFactory` singleton.
@@ -71,9 +68,7 @@ pub(crate) fn native_idb_open(
             Some(n as u64)
         }
     };
-    let Some(backend) = ctx.vm.ensure_idb_backend() else {
-        return Err(VmError::type_error("IndexedDB backend unavailable"));
-    };
+    let backend = ctx.vm.require_idb_backend()?;
     let req = request::create_request(ctx.vm, None, None, true);
     match elidex_indexeddb::database::open_database(&backend, &name, version) {
         Ok(elidex_indexeddb::IdbOpenResult::Success(handle)) => {
@@ -155,9 +150,7 @@ pub(crate) fn native_idb_delete_database(
 ) -> Result<JsValue, VmError> {
     require_idb_factory_this(ctx, this, "deleteDatabase")?;
     let name = arg_name(ctx, args.first().copied())?;
-    let Some(backend) = ctx.vm.ensure_idb_backend() else {
-        return Err(VmError::type_error("IndexedDB backend unavailable"));
-    };
+    let backend = ctx.vm.require_idb_backend()?;
     let req = request::create_request(ctx.vm, None, None, true);
     match elidex_indexeddb::database::delete_database(&backend, &name) {
         Ok(_old_version) => {
@@ -251,19 +244,16 @@ fn create_upgrade_transaction(
     vm.idb_transaction_states.insert(
         id,
         IdbTransactionState {
-            state: IdbTxnState::Active,
-            mode: elidex_indexeddb::IdbTransactionMode::VersionChange,
-            db_name: db_name.to_string(),
-            scope: Vec::new(),
-            db: Some(db),
-            backend_txn: Some(vtxn),
-            request_list: Vec::new(),
-            handlers: HashMap::new(),
-            listeners: Vec::new(),
-            error: None,
             upgrade_request: Some(open_req),
             upgrade_handle: Some(handle),
             upgrade_old_version: old_version,
+            ..IdbTransactionState::new_active(
+                elidex_indexeddb::IdbTransactionMode::VersionChange,
+                db,
+                db_name,
+                Vec::new(),
+                vtxn,
+            )
         },
     );
     // Back-ref so `createObjectStore` / `deleteObjectStore` on the

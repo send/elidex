@@ -8,8 +8,6 @@
 
 #![cfg(feature = "engine")]
 
-use std::collections::HashMap;
-
 use super::super::super::shape;
 use super::super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, VmError,
@@ -214,21 +212,7 @@ pub(crate) fn create_transaction(
     });
     vm.idb_transaction_states.insert(
         id,
-        IdbTransactionState {
-            state: IdbTxnState::Active,
-            mode,
-            db_name: db_name.to_string(),
-            scope,
-            db: Some(db),
-            backend_txn: Some(backend_txn),
-            request_list: Vec::new(),
-            handlers: HashMap::new(),
-            listeners: Vec::new(),
-            error: None,
-            upgrade_request: None,
-            upgrade_handle: None,
-            upgrade_old_version: 0,
-        },
+        IdbTransactionState::new_active(mode, db, db_name, scope, backend_txn),
     );
     id
 }
@@ -379,9 +363,7 @@ pub(crate) fn native_txn_get_object_store_names(
         (s.db_name.clone(), s.scope.clone(), s.mode)
     };
     let mut names = if mode == elidex_indexeddb::IdbTransactionMode::VersionChange {
-        let Some(backend) = ctx.vm.ensure_idb_backend() else {
-            return Err(VmError::type_error("IndexedDB backend unavailable"));
-        };
+        let backend = ctx.vm.require_idb_backend()?;
         backend.list_store_names(&db_name).unwrap_or_default()
     } else {
         scope
