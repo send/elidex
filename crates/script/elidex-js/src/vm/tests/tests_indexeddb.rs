@@ -660,8 +660,88 @@ fn autoincrement_with_empty_keypath_throws_invalid_access() {
     });
 }
 
-// Note: the once-listener GC-rooting fix (mod.rs `fire_idb_event_with_props`
-// stack-scope) is verified by construction — it is the established
+#[test]
+fn commit_in_last_request_success_fires_complete_exactly_once() {
+    with_vm(|vm| {
+        // R6.1: calling `tx.commit()` from the last request's `success` handler
+        // drives `finalize_commit` from BOTH `commit_transaction` (the explicit
+        // commit — the request was already removed from the list before its
+        // event fired, §5.6) AND `run_post_dispatch` (the committing-branch
+        // finalize once the now-empty list is observed), queuing two
+        // `IdbCommitDone` tasks.  `dispatch_commit_done` must be idempotent, so
+        // `complete` fires exactly once.
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_dblcommit', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const tx = e.target.result.transaction(['s'], 'readwrite');
+                 const req = tx.objectStore('s').add('v', 1);
+                 req.onsuccess = () => { tx.commit(); };
+                 tx.oncomplete = () => { globalThis.__log.push('complete'); };
+             };",
+        )
+        .unwrap();
+        // Exactly one `complete`, not "complete,complete".
+        assert_eq!(eval_string(vm, "globalThis.__log.join(',')"), "complete");
+    });
+}
+
+#[test]
+fn dispatch_event_honors_stop_immediate_propagation() {
+    with_vm(|vm| {
+        // R6: `dispatchEvent` routes through the one shared dispatcher, so a
+        // listener calling `stopImmediatePropagation()` suppresses the remaining
+        // listeners on the same node (previously the dispatchEvent loop ignored
+        // the propagation-stop flags entirely).
+        vm.eval(
+            "globalThis.__log = [];
+             const o = indexedDB.open('db_sip', 1);
+             o.addEventListener('foo', (e) => { globalThis.__log.push('a'); e.stopImmediatePropagation(); });
+             o.addEventListener('foo', () => { globalThis.__log.push('b'); });
+             o.dispatchEvent(new Event('foo'));",
+        )
+        .unwrap();
+        // Second listener suppressed.
+        assert_eq!(eval_string(vm, "globalThis.__log.join(',')"), "a");
+    });
+}
+
+#[test]
+fn stop_propagation_on_request_error_halts_bubbling_to_transaction() {
+    with_vm(|vm| {
+        // R6: a request `error` that calls `stopPropagation()` no longer reaches
+        // the transaction's `onerror`, but — not being `preventDefault()`'d —
+        // the uncanceled error still aborts the transaction (§5.10 step 8.3).
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_stopprop', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const tx = e.target.result.transaction(['s'], 'readwrite');
+                 const store = tx.objectStore('s');
+                 store.add('first', 1);
+                 const dup = store.add('dup', 1); // ConstraintError
+                 dup.onerror = (ev) => {
+                     globalThis.__log.push('req-error');
+                     ev.stopPropagation(); // halt bubbling, but do NOT preventDefault
+                 };
+                 tx.onerror = () => { globalThis.__log.push('tx-onerror'); };
+                 tx.onabort = () => { globalThis.__log.push('abort'); };
+             };",
+        )
+        .unwrap();
+        // tx.onerror suppressed by stopPropagation; uncanceled error still aborts.
+        assert_eq!(
+            eval_string(vm, "globalThis.__log.join(',')"),
+            "req-error,abort"
+        );
+    });
+}
+
+// Note: the once-listener GC-rooting fix (mod.rs `dispatch_idb_event`
+// stack-scope, now shared by both the internal fire path and the script-facing
+// `dispatchEvent`) is verified by construction — it is the established
 // `push_stack_scope` idiom the codebase mandates for rooting values held only
 // in Rust locals across `call_function` (see `natives_array_hof` /
 // `typed_array_hof`).  A deterministic regression test is not feasible: a GC

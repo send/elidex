@@ -470,6 +470,106 @@ fn fire_idb_event_with_props(
     proto_override: Option<ObjectId>,
     extra_props: &[(StringId, JsValue)],
 ) -> FireResult {
+    // Build the event lazily (only when a node actually has a handler /
+    // listener — see `dispatch_idb_event`) so a fire at an unobserved
+    // target allocates nothing.
+    dispatch_idb_event(
+        ctx,
+        target,
+        event_type,
+        Some(handler_attr),
+        bubbles,
+        |ctx| {
+            let shape = ctx
+                .vm
+                .precomputed_event_shapes
+                .as_ref()
+                .expect("precomputed_event_shapes missing — register_globals did not run")
+                .core;
+            let init = EventInit {
+                bubbles,
+                cancelable,
+                composed: false,
+            };
+            let event_id = ctx.vm.create_fresh_event_object(
+                JsValue::Undefined,
+                event_type,
+                init,
+                shape,
+                Vec::new(),
+                true,
+                CallMode::Call,
+            );
+            if let Some(proto) = proto_override {
+                ctx.vm.get_object_mut(event_id).prototype = Some(proto);
+            }
+            for &(key, value) in extra_props {
+                ctx.vm.define_shaped_property(
+                    event_id,
+                    PropertyKey::String(key),
+                    PropertyValue::Data(value),
+                    PropertyAttrs::BUILTIN,
+                );
+            }
+            event_id
+        },
+    )
+}
+
+/// Whether `stopPropagation()` (or `stopImmediatePropagation()`, which
+/// implies it) has been called on `event_id` — stops bubbling to ancestors.
+fn idb_event_propagation_stopped(vm: &VmInner, event_id: ObjectId) -> bool {
+    matches!(
+        vm.get_object(event_id).kind,
+        ObjectKind::Event {
+            propagation_stopped: true,
+            ..
+        }
+    )
+}
+
+/// Whether `stopImmediatePropagation()` has been called on `event_id` —
+/// stops the remaining listeners on the current node as well.
+fn idb_event_immediate_stopped(vm: &VmInner, event_id: ObjectId) -> bool {
+    matches!(
+        vm.get_object(event_id).kind,
+        ObjectKind::Event {
+            immediate_propagation_stopped: true,
+            ..
+        }
+    )
+}
+
+/// The single dispatch core for the IDB in-VM EventTarget model — used by
+/// every internal fire ([`fire_idb_event_with_props`]) AND the script-facing
+/// [`native_idb_dispatch_event`], so both observe identical semantics
+/// (WHATWG DOM §2.9, specialized to the IDB ancestor chain):
+///
+/// 1. Build the propagation path: `target`, then its [`idb_event_ancestors`]
+///    when `bubbles`.
+/// 2. Snapshot (and prune `once`) each node's `on*` handler + matching
+///    listeners. When nothing is registered anywhere on the path, return
+///    early — `make_event` is never called, so a fire at an unobserved
+///    target allocates no event object.
+/// 3. GC-root the event + every collected callback on the VM stack for the
+///    dispatch duration (a listener that allocates can trip the
+///    `alloc_object` GC threshold; the pruned `once` snapshot is the ONLY
+///    remaining reference to those callbacks).
+/// 4. Invoke each node's handler then listeners with `currentTarget` set to
+///    that node, honoring `stopImmediatePropagation` (stop the current
+///    node's remaining listeners) and `stopPropagation` (stop bubbling to
+///    ancestors).
+///
+/// Returns whether any listener threw (so §5.9/§5.10 step 8.2 can abort) and
+/// whether the default was prevented (`canceled`).
+fn dispatch_idb_event(
+    ctx: &mut NativeContext<'_>,
+    target: ObjectId,
+    event_type: StringId,
+    handler_attr: Option<StringId>,
+    bubbles: bool,
+    make_event: impl FnOnce(&mut NativeContext<'_>) -> ObjectId,
+) -> FireResult {
     // Propagation path: the target, then its ancestors when bubbling.
     let mut path = vec![target];
     if bubbles {
@@ -479,8 +579,7 @@ fn fire_idb_event_with_props(
     let collected: Vec<(ObjectId, Option<ObjectId>, Vec<ObjectId>)> = path
         .iter()
         .map(|&node| {
-            let (handler, listeners) =
-                collect_and_prune(ctx.vm, node, event_type, Some(handler_attr));
+            let (handler, listeners) = collect_and_prune(ctx.vm, node, event_type, handler_attr);
             (node, handler, listeners)
         })
         .collect();
@@ -493,45 +592,13 @@ fn fire_idb_event_with_props(
             canceled: false,
         };
     }
-    let shape = ctx
-        .vm
-        .precomputed_event_shapes
-        .as_ref()
-        .expect("precomputed_event_shapes missing — register_globals did not run")
-        .core;
-    let init = EventInit {
-        bubbles,
-        cancelable,
-        composed: false,
-    };
-    let event_id = ctx.vm.create_fresh_event_object(
-        JsValue::Undefined,
-        event_type,
-        init,
-        shape,
-        Vec::new(),
-        true,
-        CallMode::Call,
-    );
-    if let Some(proto) = proto_override {
-        ctx.vm.get_object_mut(event_id).prototype = Some(proto);
-    }
-    for &(key, value) in extra_props {
-        ctx.vm.define_shaped_property(
-            event_id,
-            PropertyKey::String(key),
-            PropertyValue::Data(value),
-            PropertyAttrs::BUILTIN,
-        );
-    }
+    let event_id = make_event(ctx);
     set_event_slot_raw(ctx.vm, event_id, EVENT_SLOT_TARGET, JsValue::Object(target));
     // GC-root the live dispatch values on the VM stack for the duration of the
-    // loop (a listener that allocates can trip the `alloc_object` GC
-    // threshold): the event object — held only in `event_id` here, reachable
-    // from no rooted owner — and every collected handler / listener callback.
-    // The `once` listeners in particular were already pruned from their
-    // side-store by `collect_and_prune`, so the snapshot is their ONLY
-    // reference; without this they could be collected before they run.
+    // loop: the event object — held only in `event_id` here, reachable from no
+    // rooted owner — and every collected handler / listener callback (the
+    // `once` listeners in particular were already pruned from their side-store
+    // by `collect_and_prune`, so the snapshot is their ONLY reference).
     let mut frame = ctx.vm.push_stack_scope();
     frame.stack.push(JsValue::Object(event_id));
     for (_, handler, listeners) in &collected {
@@ -547,7 +614,7 @@ fn fire_idb_event_with_props(
     // Errors swallowed per WHATWG event-handler-attribute semantics
     // (uncaught exceptions log, don't propagate) but recorded so §5.9
     // step 8.2 / §5.10 step 8.2 can abort the transaction.
-    for (node, handler, listeners) in collected {
+    'walk: for (node, handler, listeners) in collected {
         set_event_slot_raw(
             sub_ctx.vm,
             event_id,
@@ -561,6 +628,9 @@ fn fire_idb_event_with_props(
             {
                 threw = true;
             }
+            if idb_event_immediate_stopped(sub_ctx.vm, event_id) {
+                break 'walk;
+            }
         }
         for cb in listeners {
             if sub_ctx
@@ -569,6 +639,14 @@ fn fire_idb_event_with_props(
             {
                 threw = true;
             }
+            if idb_event_immediate_stopped(sub_ctx.vm, event_id) {
+                break 'walk;
+            }
+        }
+        // `stopPropagation()` lets this node's listeners finish but halts
+        // bubbling to the remaining ancestors.
+        if idb_event_propagation_stopped(sub_ctx.vm, event_id) {
+            break 'walk;
         }
     }
     let canceled = matches!(
@@ -791,37 +869,30 @@ pub(crate) fn native_idb_dispatch_event(
             ))
         }
     };
-    // The event's `type` selects which handler attr + listeners run.  An
-    // `on<type>` attribute name only exists for the IDB event set, so a
-    // dispatch of an unknown type simply runs the registered listeners.
-    let type_key = PropertyKey::String(ctx.vm.well_known.event_type);
-    let type_val = ctx.get_property_value(event_id, type_key)?;
-    let event_type = ctx.to_string_val(type_val)?;
+    // The event's `type` + `bubbles` select dispatch behaviour: an `on<type>`
+    // attribute name only exists for the IDB event set, so a dispatch of an
+    // unknown type runs only the registered listeners.  Both are read from the
+    // immutable internal slots (not the JS data properties) so a user-side
+    // `delete evt.type` / overridden accessor cannot hijack dispatch, per the
+    // `ObjectKind::Event` slot semantics.
+    let ObjectKind::Event {
+        type_sid: event_type,
+        bubbles,
+        ..
+    } = ctx.vm.get_object(event_id).kind
+    else {
+        // Unreachable: brand-checked as `ObjectKind::Event` above.
+        unreachable!("dispatchEvent argument brand-checked as Event");
+    };
     let handler_attr = on_handler_sid(ctx.vm, event_type);
-    let (handler, listeners) = collect_and_prune(ctx.vm, target, event_type, handler_attr);
-    // `event_id` is a real `Event` (brand-checked above), so set the dispatch
-    // slots so listeners see `event.target` / `event.currentTarget`.
-    set_event_slot_raw(ctx.vm, event_id, EVENT_SLOT_TARGET, JsValue::Object(target));
-    set_event_slot_raw(
-        ctx.vm,
-        event_id,
-        EVENT_SLOT_CURRENT_TARGET,
-        JsValue::Object(target),
-    );
-    if let Some(h) = handler {
-        let _ = ctx.call_function(h, JsValue::Object(target), &[JsValue::Object(event_id)]);
-    }
-    for cb in listeners {
-        let _ = ctx.call_function(cb, JsValue::Object(target), &[JsValue::Object(event_id)]);
-    }
-    let not_canceled = !matches!(
-        ctx.vm.get_object(event_id).kind,
-        ObjectKind::Event {
-            default_prevented: true,
-            ..
-        }
-    );
-    Ok(JsValue::Boolean(not_canceled))
+    // Route through the one shared dispatcher: GC-rooted, honors
+    // `stopPropagation` / `stopImmediatePropagation`, and bubbles along the
+    // IDB ancestor chain when `event.bubbles` — identical to internal fires.
+    // The event already exists, so `make_event` just hands it back.
+    let res = dispatch_idb_event(ctx, target, event_type, handler_attr, bubbles, |_ctx| {
+        event_id
+    });
+    Ok(JsValue::Boolean(!res.canceled))
 }
 
 /// Map an IDB event-type SID to its `on<type>` handler-attribute SID

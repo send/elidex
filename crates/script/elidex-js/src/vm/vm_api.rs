@@ -967,7 +967,19 @@ impl Vm {
     /// stored on the internal `VmInner::idb_backend` field.
     #[cfg(feature = "engine")]
     pub fn install_idb_backend(&mut self, backend: std::rc::Rc<elidex_indexeddb::IdbBackend>) {
-        // If a backend is already installed with live IDB state, the existing
+        // Re-installing the *same* backend (pointer-equal to the one already
+        // stored) is a no-op — its live `backend_txn` handles and the
+        // request / transaction / database / store / key-range side stores
+        // are all tied to this very connection, so the take + rollback +
+        // clear below would strand in-flight transactions against a backend
+        // that is in fact unchanged.  Mirrors `install_network_handle`'s
+        // pointer-equality guard.
+        if let Some(ref current) = self.inner.idb_backend {
+            if std::rc::Rc::ptr_eq(current, &backend) {
+                return;
+            }
+        }
+        // If a DIFFERENT backend is already installed with live IDB state, the existing
         // `IdbTransactionState.backend_txn` handles are tied to the OLD
         // connection — swapping the backend would strand them (a later
         // commit/abort would target the NEW connection).  Roll them back

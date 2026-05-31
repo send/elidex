@@ -162,6 +162,18 @@ pub(crate) fn dispatch_commit_done(vm: &mut VmInner, txn_id: ObjectId) {
         let Some(st) = vm.idb_transaction_states.get_mut(&txn_id) else {
             return;
         };
+        // Idempotent task delivery: a `commit()` in the last request's
+        // `success` handler makes BOTH `commit_transaction` (the explicit
+        // commit, list already drained) and `run_post_dispatch` (the
+        // committing-branch finalize once the list empties) call
+        // `finalize_commit`, queuing two `IdbCommitDone` tasks.  Only the
+        // first (state still `Committing`) fires `complete`; a second one
+        // finds `Finished` and no-ops.  An abort in the wait window also
+        // flips the state to `Finished` first, correctly suppressing
+        // `complete` for the now-aborted transaction.
+        if st.state != IdbTxnState::Committing {
+            return;
+        }
         st.state = IdbTxnState::Finished;
         (st.upgrade_request, st.upgrade_handle.take(), st.db)
     };
