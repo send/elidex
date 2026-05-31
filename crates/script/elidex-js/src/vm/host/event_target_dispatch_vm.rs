@@ -53,11 +53,18 @@ fn vm_event_parent(vm: &VmInner, id: ObjectId) -> Option<ObjectId> {
     }
 }
 
-/// Whether any listener (normal or event-handler) is registered for
-/// `event_type` anywhere on `target_id`'s get-the-parent path — the
-/// at-target node always, plus the bubbling ancestors when `bubbles`.
-/// Lets a UA-fire skip allocating an event object for an unobserved
-/// target (W3C IDB fires `success` on every request; most are unobserved).
+/// Whether a listener (normal or event-handler) that WOULD be invoked for
+/// an `event_type` dispatch is registered anywhere on `target_id`'s
+/// get-the-parent path.  Mirrors the firing set of [`build_vm_dispatch_plan`]:
+/// the at-target node fires any matching listener; an ancestor fires its
+/// **capture** listeners always (the capture phase runs regardless of
+/// `event.bubbles`) and its bubble listeners only when `bubbles`.  Lets a
+/// UA-fire skip allocating an event object for an unobserved target (W3C
+/// IDB fires `success` on every request; most are unobserved).
+///
+/// The ancestor walk therefore must NOT stop at `!bubbles` — a non-bubbling
+/// event (`success` / `complete` / `versionchange`) still runs the capture
+/// phase, so an ancestor `{capture: true}` listener must keep the fire alive.
 pub(super) fn vm_path_has_listener(
     vm: &VmInner,
     target_id: ObjectId,
@@ -67,14 +74,18 @@ pub(super) fn vm_path_has_listener(
     let mut cur = Some(target_id);
     let mut depth = 0;
     while let Some(id) = cur {
-        if vm
-            .vm_event_listeners
-            .get(&id)
-            .is_some_and(|l| l.iter_matching(event_type).next().is_some())
-        {
+        let is_target = depth == 0;
+        let fires = vm.vm_event_listeners.get(&id).is_some_and(|l| {
+            // at-target: any listener fires.  ancestor: capture listeners
+            // fire in the capture phase always; bubble listeners only when
+            // the event bubbles.
+            l.iter_matching(event_type)
+                .any(|e| is_target || e.capture || bubbles)
+        });
+        if fires {
             return true;
         }
-        if !bubbles || depth >= VM_DISPATCH_MAX_DEPTH {
+        if depth >= VM_DISPATCH_MAX_DEPTH {
             break;
         }
         depth += 1;

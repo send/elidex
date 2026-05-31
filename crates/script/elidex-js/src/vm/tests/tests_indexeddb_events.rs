@@ -697,6 +697,34 @@ fn error_capture_phase_listener_fires_before_at_target() {
 }
 
 #[test]
+fn nonbubbling_success_fires_ancestor_capture_listener() {
+    with_vm(|vm| {
+        // §2.9 capture phase runs even for a NON-bubbling event: `success`
+        // (bubbles = false) targets the request, but a `{capture: true}`
+        // listener on its ancestor transaction must still fire in the capture
+        // phase.  The request itself carries no `success` listener, so the
+        // ONLY way the listener fires is the ancestor capture walk — this
+        // pins the UA-fire fast-path (`vm_path_has_listener`) to honor
+        // ancestor capture listeners for non-bubbling events rather than
+        // skip allocation by early-breaking on `!bubbles`.
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_nonbubbling_cap', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const db = e.target.result;
+                 const tx = db.transaction(['s'], 'readwrite');
+                 const store = tx.objectStore('s');
+                 store.add('v', 1); // request fires non-bubbling `success`
+                 tx.addEventListener('success', () => { globalThis.__log.push('tx-capture'); }, { capture: true });
+             };",
+        )
+        .unwrap();
+        assert_eq!(eval_string(vm, "globalThis.__log.join(',')"), "tx-capture");
+    });
+}
+
+#[test]
 fn error_passive_listener_preventdefault_is_noop_so_abort_still_runs() {
     with_vm(|vm| {
         // §2.9 passive gating (R15 #1): `preventDefault()` inside a `{passive:
