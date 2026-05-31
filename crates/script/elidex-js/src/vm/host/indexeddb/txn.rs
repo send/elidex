@@ -16,14 +16,18 @@ use super::super::super::VmInner;
 use super::super::pending_tasks::PendingTask;
 use super::{fire_idb_event, object_store, value, IdbReadyState, IdbTransactionState, IdbTxnState};
 
-/// W3C IDB §5.4 "commit a transaction" synchronous phase.  Sets
-/// `state = committing` eagerly (the de-dup predicate the auto-commit
-/// sweep reads), writes the durable backend transaction, then queues the
-/// deferred [`PendingTask::IdbCommitDone`] for the `complete` event.
-/// No-op if already committing / finished (idempotent under the two
-/// commit triggers — §5.9 step 8.3 and the sweep).
+/// W3C IDB §5.4 "commit a transaction".  Sets `state = committing` eagerly
+/// (the de-dup predicate the auto-commit sweep reads, and the gate that blocks
+/// new requests), then — per §5.4 step 2.1 "wait until every item in the
+/// request list is processed" — only does the durable write when the request
+/// list is already empty.  When explicit `commit()` is called with requests
+/// still queued, the write is DEFERRED to [`finalize_commit`], driven from
+/// [`request::run_post_dispatch`] when the last delivery empties the list; an
+/// uncanceled error in that window still aborts + rolls back (the writes are
+/// not yet committed).  No-op if already committing / finished (idempotent
+/// under the two commit triggers — §5.9 step 8.3 and the sweep).
 pub(crate) fn commit_transaction(vm: &mut VmInner, txn_id: ObjectId) {
-    let backend_txn = {
+    let empty = {
         let Some(st) = vm.idb_transaction_states.get_mut(&txn_id) else {
             return;
         };
@@ -31,10 +35,32 @@ pub(crate) fn commit_transaction(vm: &mut VmInner, txn_id: ObjectId) {
             return;
         }
         st.state = IdbTxnState::Committing;
+        st.request_list.is_empty()
+    };
+    if empty {
+        finalize_commit(vm, txn_id);
+    }
+    // else: outstanding request deliveries remain — `finalize_commit` runs
+    // from `run_post_dispatch` once the list drains.
+}
+
+/// W3C IDB §5.4 steps 2.3-2.5: the durable backend write + the deferred
+/// [`PendingTask::IdbCommitDone`] (`complete` event).  Runs once the
+/// transaction is `Committing` AND its request list is empty.  A write failure
+/// aborts (§5.4 step 2.4).  Idempotent: a no-op unless the txn is still
+/// `Committing` (an abort in the wait window flips it to `Finished` first).
+pub(super) fn finalize_commit(vm: &mut VmInner, txn_id: ObjectId) {
+    let backend_txn = {
+        let Some(st) = vm.idb_transaction_states.get_mut(&txn_id) else {
+            return;
+        };
+        if st.state != IdbTxnState::Committing {
+            return;
+        }
         st.backend_txn.take()
     };
-    // §5.4 step 2.3: write outstanding changes.  Backend is synchronous,
-    // so the "in parallel" wait collapses to an immediate commit here.
+    // Backend is synchronous, so the "in parallel" wait collapses to an
+    // immediate commit here.
     if let Some(mut bt) = backend_txn {
         if let Some(backend) = vm.idb_backend.clone() {
             if let Err(e) = bt.commit(backend.conn()) {
@@ -385,7 +411,10 @@ pub(crate) fn native_txn_abort(
 ) -> Result<JsValue, VmError> {
     let txn_id = require_txn_this(ctx, this, "abort")?;
     let state = ctx.vm.idb_transaction_states.get(&txn_id).map(|s| s.state);
-    if matches!(state, Some(IdbTxnState::Finished)) {
+    // §4.10 abort(): reject once the transaction is committing or finished —
+    // otherwise `tx.commit(); tx.abort();` would queue both a `complete`
+    // (from the pending commit) and an `abort`, an impossible sequence.
+    if matches!(state, Some(IdbTxnState::Committing | IdbTxnState::Finished)) {
         return Err(value::dom_exc(
             ctx,
             "InvalidStateError",

@@ -419,10 +419,46 @@ pub(super) fn fire_version_change_event(
     )
 }
 
+/// The bubbling ancestor chain for an IDB event target (WHATWG DOM §2.5
+/// propagation path, specialized to the IDB hierarchy): an `IDBRequest`
+/// bubbles to its transaction then that transaction's database; an
+/// `IDBTransaction` bubbles to its database; an `IDBDatabase` has no ancestor.
+/// Used so a request `error` (or a transaction `abort`) reaches the
+/// `tx.onerror` / `db.onerror` handlers and an ancestor `preventDefault()`
+/// can cancel the automatic abort (§5.10).
+fn idb_event_ancestors(vm: &VmInner, target: ObjectId) -> Vec<ObjectId> {
+    let mut chain = Vec::new();
+    match idb_target_kind(vm, target) {
+        Some(IdbTargetKind::Request) => {
+            if let Some(tid) = vm
+                .idb_request_states
+                .get(&target)
+                .and_then(|s| s.transaction)
+            {
+                chain.push(tid);
+                if let Some(db) = vm.idb_transaction_states.get(&tid).and_then(|s| s.db) {
+                    chain.push(db);
+                }
+            }
+        }
+        Some(IdbTargetKind::Transaction) => {
+            if let Some(db) = vm.idb_transaction_states.get(&target).and_then(|s| s.db) {
+                chain.push(db);
+            }
+        }
+        Some(IdbTargetKind::Database) | None => {}
+    }
+    chain
+}
+
 /// Shared event-build + dispatch.  `proto_override` reparents the event to
 /// a subclass prototype (e.g. `IDBVersionChangeEvent.prototype`);
 /// `extra_props` installs own data properties on the event before
-/// dispatch.
+/// dispatch.  A `bubbles` event propagates along the IDB ancestor chain
+/// ([`idb_event_ancestors`]): each node's `on*` handler + matching
+/// `addEventListener` callbacks run with `currentTarget` set to that node
+/// (`target` stays the original), and `preventDefault()` from any node sets
+/// the returned `canceled` flag.
 #[allow(clippy::too_many_arguments)]
 fn fire_idb_event_with_props(
     ctx: &mut NativeContext<'_>,
@@ -434,8 +470,23 @@ fn fire_idb_event_with_props(
     proto_override: Option<ObjectId>,
     extra_props: &[(StringId, JsValue)],
 ) -> FireResult {
-    let (handler, listeners) = collect_and_prune(ctx.vm, target, event_type, handler_attr);
-    if handler.is_none() && listeners.is_empty() {
+    // Propagation path: the target, then its ancestors when bubbling.
+    let mut path = vec![target];
+    if bubbles {
+        path.extend(idb_event_ancestors(ctx.vm, target));
+    }
+    // Collect (and prune `once`) each node's handler + listeners up front.
+    let collected: Vec<(ObjectId, Option<ObjectId>, Vec<ObjectId>)> = path
+        .iter()
+        .map(|&node| {
+            let (handler, listeners) = collect_and_prune(ctx.vm, node, event_type, handler_attr);
+            (node, handler, listeners)
+        })
+        .collect();
+    if collected
+        .iter()
+        .all(|(_, handler, listeners)| handler.is_none() && listeners.is_empty())
+    {
         return FireResult {
             threw: false,
             canceled: false,
@@ -473,30 +524,32 @@ fn fire_idb_event_with_props(
         );
     }
     set_event_slot_raw(ctx.vm, event_id, EVENT_SLOT_TARGET, JsValue::Object(target));
-    set_event_slot_raw(
-        ctx.vm,
-        event_id,
-        EVENT_SLOT_CURRENT_TARGET,
-        JsValue::Object(target),
-    );
     let mut threw = false;
     // Errors swallowed per WHATWG event-handler-attribute semantics
     // (uncaught exceptions log, don't propagate) but recorded so §5.9
     // step 8.2 / §5.10 step 8.2 can abort the transaction.
-    if let Some(h) = handler {
-        if ctx
-            .call_function(h, JsValue::Object(target), &[JsValue::Object(event_id)])
-            .is_err()
-        {
-            threw = true;
+    for (node, handler, listeners) in collected {
+        set_event_slot_raw(
+            ctx.vm,
+            event_id,
+            EVENT_SLOT_CURRENT_TARGET,
+            JsValue::Object(node),
+        );
+        if let Some(h) = handler {
+            if ctx
+                .call_function(h, JsValue::Object(node), &[JsValue::Object(event_id)])
+                .is_err()
+            {
+                threw = true;
+            }
         }
-    }
-    for cb in listeners {
-        if ctx
-            .call_function(cb, JsValue::Object(target), &[JsValue::Object(event_id)])
-            .is_err()
-        {
-            threw = true;
+        for cb in listeners {
+            if ctx
+                .call_function(cb, JsValue::Object(node), &[JsValue::Object(event_id)])
+                .is_err()
+            {
+                threw = true;
+            }
         }
     }
     let canceled = matches!(

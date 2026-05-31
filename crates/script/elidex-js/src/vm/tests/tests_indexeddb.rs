@@ -348,6 +348,127 @@ fn get_all_count_zero_and_negative_return_all_records() {
     });
 }
 
+#[test]
+fn error_event_bubbles_to_transaction_and_preventdefault_cancels_abort() {
+    with_vm(|vm| {
+        // §5.10 + bubbling: a request error bubbles to the transaction; a
+        // `tx.onerror` that calls preventDefault() cancels the auto-abort, so
+        // the transaction commits (fires `complete`) instead of aborting.
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_bubble', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const tx = e.target.result.transaction(['s'], 'readwrite');
+                 const store = tx.objectStore('s');
+                 store.add('first', 1);
+                 store.add('dup', 1); // ConstraintError, bubbles to tx
+                 tx.onerror = (ev) => {
+                     globalThis.__log.push('tx-onerror');
+                     ev.preventDefault(); // cancel the auto-abort
+                 };
+                 tx.oncomplete = () => { globalThis.__log.push('complete'); };
+                 tx.onabort = () => { globalThis.__log.push('abort'); };
+             };",
+        )
+        .unwrap();
+        // tx.onerror fired (bubbled) and preventDefault kept the txn alive →
+        // complete, not abort.
+        assert_eq!(
+            eval_string(vm, "globalThis.__log.join(',')"),
+            "tx-onerror,complete"
+        );
+    });
+}
+
+#[test]
+fn explicit_commit_with_outstanding_request_error_rolls_back() {
+    with_vm(|vm| {
+        // §5.4 step 2.1: commit() must wait for outstanding request deliveries;
+        // an uncanceled error among them still aborts (the durable write is
+        // deferred until the list drains, so it can roll back). Here a put
+        // succeeds and a dup add fails (uncanceled) in the same txn that calls
+        // commit() synchronously — the txn must abort, not commit.
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_commit_err', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const db = e.target.result;
+                 const tx = db.transaction(['s'], 'readwrite');
+                 const store = tx.objectStore('s');
+                 store.add('first', 1);
+                 store.add('dup', 1); // ConstraintError, not prevented
+                 tx.oncomplete = () => { globalThis.__log.push('complete'); };
+                 tx.onabort = () => { globalThis.__log.push('abort'); };
+                 tx.commit(); // requested while the two adds are still queued
+                 globalThis.__db_commit_err = db;
+             };",
+        )
+        .unwrap();
+        // The uncanceled ConstraintError aborts despite the explicit commit().
+        assert_eq!(eval_string(vm, "globalThis.__log.join(',')"), "abort");
+        // And the write rolled back: store '1' must not exist.
+        vm.eval(
+            "globalThis.__log2 = [];
+             const tx = globalThis.__db_commit_err.transaction(['s'], 'readonly');
+             const g = tx.objectStore('s').get(1);
+             g.onsuccess = () => { globalThis.__log2.push('v:' + g.result); };",
+        )
+        .unwrap();
+        assert_eq!(
+            eval_string(vm, "globalThis.__log2.join(',')"),
+            "v:undefined"
+        );
+    });
+}
+
+#[test]
+fn abort_after_commit_throws_invalid_state() {
+    with_vm(|vm| {
+        // §4.10: abort() once the txn is committing throws InvalidStateError
+        // (prevents an impossible complete+abort sequence).
+        vm.eval(
+            "globalThis.__err = 'none';
+             const open = indexedDB.open('db_commit_abort', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const tx = e.target.result.transaction(['s'], 'readwrite');
+                 tx.objectStore('s').put('v', 1);
+                 tx.commit();
+                 try { tx.abort(); }
+                 catch (err) { globalThis.__err = err.name; }
+             };",
+        )
+        .unwrap();
+        assert_eq!(eval_string(vm, "globalThis.__err"), "InvalidStateError");
+    });
+}
+
+#[test]
+fn numeric_keypath_coerces_to_string() {
+    with_vm(|vm| {
+        // WebIDL DOMString coercion: { keyPath: 1 } is the in-line key path
+        // "1", so add({1: ...}) extracts the key without an explicit key arg.
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_kp', 1);
+             open.onupgradeneeded = (e) => {
+                 const store = e.target.result.createObjectStore('s', { keyPath: 1 });
+                 globalThis.__log.push('kp:' + store.keyPath);
+             };
+             open.onsuccess = (e) => {
+                 const tx = e.target.result.transaction(['s'], 'readwrite');
+                 const store = tx.objectStore('s');
+                 const add = store.add({ 1: 42, v: 'x' }); // in-line key 42
+                 add.onsuccess = () => { globalThis.__log.push('key:' + add.result); };
+             };",
+        )
+        .unwrap();
+        assert_eq!(eval_string(vm, "globalThis.__log.join(',')"), "kp:1,key:42");
+    });
+}
+
 // ---------------------------------------------------------------------------
 // IDBKeyRange + cmp (synchronous surface)
 // ---------------------------------------------------------------------------
@@ -511,30 +632,51 @@ fn add_event_listener_delivers_success() {
 }
 
 #[test]
-fn explicit_commit_and_abort() {
+fn explicit_commit_persists_and_abort_rolls_back() {
     with_vm(|vm| {
-        // Explicit tx.commit() commits without waiting for auto-commit; a
-        // later tx.abort() rolls its writes back.
+        // Explicit tx.commit() commits ('keep' persists); a separate later
+        // tx.abort() rolls its write back ('drop' does not).  The second
+        // transaction is opened in the first's `oncomplete` — the backend is
+        // single-connection, so transactions are serialized (overlapping
+        // connections are out of v1 scope, #11-idb-connection-queue).
         vm.eval(
             "globalThis.__log = [];
              const open = indexedDB.open('db_xc', 1);
              open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
              open.onsuccess = (e) => {
                  const db = e.target.result;
+                 globalThis.__xc_db = db;
                  const t1 = db.transaction(['s'], 'readwrite');
                  t1.objectStore('s').put('keep', 1);
-                 t1.oncomplete = () => { globalThis.__log.push('t1-complete'); };
+                 t1.oncomplete = () => {
+                     globalThis.__log.push('t1-complete');
+                     const t2 = db.transaction(['s'], 'readwrite');
+                     t2.objectStore('s').put('drop', 2);
+                     t2.onabort = () => { globalThis.__log.push('t2-abort'); };
+                     t2.abort();
+                 };
                  t1.commit();
-                 const t2 = db.transaction(['s'], 'readwrite');
-                 t2.objectStore('s').put('drop', 2);
-                 t2.onabort = () => { globalThis.__log.push('t2-abort'); };
-                 t2.abort();
              };",
         )
         .unwrap();
         assert_eq!(
             eval_string(vm, "globalThis.__log.join(',')"),
             "t1-complete,t2-abort"
+        );
+        // 'keep' (committed) present, 'drop' (aborted) absent.
+        vm.eval(
+            "globalThis.__log2 = [];
+             const tx = globalThis.__xc_db.transaction(['s'], 'readonly');
+             const store = tx.objectStore('s');
+             const a = store.get(1);
+             a.onsuccess = () => { globalThis.__log2.push('k1:' + a.result); };
+             const b = store.get(2);
+             b.onsuccess = () => { globalThis.__log2.push('k2:' + b.result); };",
+        )
+        .unwrap();
+        assert_eq!(
+            eval_string(vm, "globalThis.__log2.join(',')"),
+            "k1:keep,k2:undefined"
         );
     });
 }

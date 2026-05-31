@@ -198,16 +198,21 @@ pub(super) fn run_post_dispatch(
     res: &FireResult,
     error_to_abort: Option<ObjectId>,
 ) {
-    let active = matches!(
-        ctx.vm.idb_transaction_states.get(&txn_id).map(|s| s.state),
-        Some(IdbTxnState::Active)
-    );
-    if !active {
-        return;
-    }
-    // step 8.1: set inactive.
-    if let Some(st) = ctx.vm.idb_transaction_states.get_mut(&txn_id) {
-        st.state = IdbTxnState::Inactive;
+    // Only an Active or (explicit-commit) Committing transaction runs the
+    // post-dispatch lifecycle.  A Committing txn is one whose `commit()` was
+    // called while requests were still outstanding (§5.4 step 2.1 wait): its
+    // deferred write runs here once the list empties.
+    let (active, committing) = match ctx.vm.idb_transaction_states.get(&txn_id).map(|s| s.state) {
+        Some(IdbTxnState::Active) => (true, false),
+        Some(IdbTxnState::Committing) => (false, true),
+        _ => return,
+    };
+    // step 8.1: a still-active txn goes inactive after dispatch (a committing
+    // txn stays committing — it accepts no new requests).
+    if active {
+        if let Some(st) = ctx.vm.idb_transaction_states.get_mut(&txn_id) {
+            st.state = IdbTxnState::Inactive;
+        }
     }
     // step 8.2: a listener threw → abort with "AbortError".
     if res.threw {
@@ -215,22 +220,30 @@ pub(super) fn run_post_dispatch(
         txn::abort_transaction(ctx.vm, txn_id, Some(abort_err));
         return;
     }
-    // §5.10 step 8.3: error not canceled (preventDefault not called) →
-    // abort the transaction with the request's error.
+    // §5.10 step 8.3: error not canceled (preventDefault not called by the
+    // request OR any bubbled-to transaction/database listener) → abort the
+    // transaction with the request's error.
     if let Some(err) = error_to_abort {
         if !res.canceled {
             txn::abort_transaction(ctx.vm, txn_id, Some(err));
             return;
         }
     }
-    // §5.9 step 8.3 / §5.10 step 8.4: request list empty → commit.
+    // §5.9 step 8.3 / §5.4 step 2.1: when the request list empties, commit.
     let empty = ctx
         .vm
         .idb_transaction_states
         .get(&txn_id)
         .is_some_and(|s| s.request_list.is_empty());
     if empty {
-        txn::commit_transaction(ctx.vm, txn_id);
+        if committing {
+            // explicit commit() requested earlier; the last outstanding
+            // delivery just drained the list — do the deferred durable write.
+            txn::finalize_commit(ctx.vm, txn_id);
+        } else {
+            // normal auto-commit: flip Inactive→Committing + write.
+            txn::commit_transaction(ctx.vm, txn_id);
+        }
     }
 }
 

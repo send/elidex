@@ -98,10 +98,18 @@ fn parse_create_store_options(
     let Some(JsValue::Object(opts)) = arg else {
         return Ok((None, false));
     };
+    // WebIDL `keyPath` is `(DOMString or sequence<DOMString>)?`: `null` /
+    // `undefined` → out-of-line keys; an array is a (not-yet-supported)
+    // sequence key path → treated as no in-line key; anything else coerces to
+    // a `DOMString` (so `{ keyPath: 1 }` is the path `"1"`, not out-of-line).
     let kp_key = PropertyKey::String(ctx.vm.strings.intern("keyPath"));
     let key_path = match ctx.get_property_value(opts, kp_key)? {
-        JsValue::String(sid) => Some(ctx.get_utf8(sid)),
-        _ => None,
+        JsValue::Null | JsValue::Undefined => None,
+        JsValue::Object(id) if matches!(ctx.get_object(id).kind, ObjectKind::Array { .. }) => None,
+        other => {
+            let sid = ctx.to_string_val(other)?;
+            Some(ctx.get_utf8(sid))
+        }
     };
     let ai_key = PropertyKey::String(ctx.vm.strings.intern("autoIncrement"));
     let ai_val = ctx.get_property_value(opts, ai_key)?;

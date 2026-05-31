@@ -1443,11 +1443,24 @@ impl VmInner {
             // wrapper `ObjectId` was collected.  Standard prune-by-key-mark
             // contract; the trace step (gc/trace.rs IDB arms) marks the
             // handler / listener / result / source / transaction fan-out
-            // so live entries survive.  An aborted-but-not-yet-finished
-            // transaction's `backend_txn` is dropped here with the entry
-            // (no ROLLBACK on drop — but a collected transaction wrapper is
-            // unreachable from JS, so its SQLite txn is already moot; the
-            // live-txn rollback obligation is handled at `Vm::unbind`).
+            // so live entries survive.  A pruned transaction's `backend_txn`
+            // has NO `Drop` rollback (the backend exposes only an explicit
+            // `abort`), so roll back any still-open handle before dropping it
+            // — leaving the shared SQLite connection mid-transaction would
+            // block later IDB ops.  Reachable Active/Committing transactions
+            // are kept alive by the auto-commit sweep / pending tasks, so this
+            // normally finds nothing; it enforces the invariant by
+            // construction rather than relying on collection order (mirrors
+            // the `Vm::unbind` rollback).
+            if let Some(backend) = self.idb_backend.clone() {
+                for (id, st) in &mut self.idb_transaction_states {
+                    if !bit_get(marks, id.0) {
+                        if let Some(mut txn) = st.backend_txn.take() {
+                            let _ = txn.abort(backend.conn());
+                        }
+                    }
+                }
+            }
             self.idb_request_states.retain(|id, _| bit_get(marks, id.0));
             self.idb_transaction_states
                 .retain(|id, _| bit_get(marks, id.0));
