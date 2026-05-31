@@ -226,8 +226,32 @@ fn reject_non_json_storable(
         Reject(&'static str),
         Leaf,
     }
-    let JsValue::Object(id) = value else {
-        return Ok(());
+    let id = match value {
+        JsValue::Object(id) => id,
+        // §5.11 v1 JSON storage: these structured-cloneable PRIMITIVES are not
+        // faithfully JSON-representable, so `JSON.stringify` would silently
+        // corrupt them — a nested `undefined` property is dropped, `NaN` /
+        // `±Infinity` become `null`, and a `BigInt` throws.  Reject to match
+        // both the no-silent-corruption stance and the existing top-level
+        // `undefined` rejection (the `None` arm of `value_to_json`).  `-0` is
+        // intentionally NOT rejected: JSON stores it as `0` and `-0 === 0`, a
+        // negligible loss (faithful preservation is part of
+        // `#11-idb-structured-clone-storage`).
+        JsValue::Undefined => return Err(reject_unstorable(ctx, "undefined")),
+        JsValue::Number(n) if !n.is_finite() => {
+            let label = if n.is_nan() {
+                "NaN"
+            } else if n > 0.0 {
+                "Infinity"
+            } else {
+                "-Infinity"
+            };
+            return Err(reject_unstorable(ctx, label));
+        }
+        JsValue::BigInt(_) => return Err(reject_unstorable(ctx, "a BigInt")),
+        // Faithfully JSON-representable primitives (null / boolean / string /
+        // finite number, incl. `-0`) are leaves.
+        _ => return Ok(()),
     };
     if !seen.insert(id) {
         return Ok(());

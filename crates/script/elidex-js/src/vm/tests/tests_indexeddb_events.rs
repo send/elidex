@@ -603,6 +603,51 @@ fn add_value_with_cloneable_non_json_type_throws_data_clone_error() {
     });
 }
 
+#[test]
+fn add_value_with_non_json_primitive_throws_data_clone_error() {
+    with_vm(|vm| {
+        // R19 §5.11 v1 JSON-storage gap (primitive edge of R18): nested
+        // `undefined` is dropped by `JSON.stringify`, `NaN` / `±Infinity`
+        // become `null`, and a `BigInt` throws — each silently corrupts the
+        // stored record, so all must throw `DataCloneError`.  `-0` is the
+        // deliberate exception: JSON stores it as `0` (`-0 === 0`), accepted
+        // as a negligible loss, so it is STORED.
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_nonjson_prim', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const db = e.target.result;
+                 const cases = [
+                     ['undef', { x: undefined }],
+                     ['nan', { x: NaN }],
+                     ['inf', { x: Infinity }],
+                     ['neginf', { x: -Infinity }],
+                     ['bigint', { x: 10n }],
+                     ['arr_undef', [undefined]],
+                     ['negzero', { x: -0 }],
+                 ];
+                 const store = db.transaction(['s'], 'readwrite').objectStore('s');
+                 for (const [name, v] of cases) {
+                     try {
+                         store.add(v, name);
+                         globalThis.__log.push(name + ':STORED');
+                     } catch (err) {
+                         globalThis.__log.push(name + ':' + err.name);
+                     }
+                 }
+             };",
+        )
+        .unwrap();
+        assert_eq!(
+            eval_string(vm, "globalThis.__log.join(',')"),
+            "undef:DataCloneError,nan:DataCloneError,inf:DataCloneError,\
+             neginf:DataCloneError,bigint:DataCloneError,arr_undef:DataCloneError,\
+             negzero:STORED"
+        );
+    });
+}
+
 // Note: two GC-rooting fixes here are verified by construction, not a
 // deterministic test (a use-after-free is only observable if the freed slot is
 // reused before the stale reference is read, which the heap does not

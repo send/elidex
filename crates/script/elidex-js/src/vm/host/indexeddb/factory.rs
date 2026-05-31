@@ -210,12 +210,12 @@ pub(crate) fn native_idb_databases(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     require_idb_factory_this(ctx, this, "databases")?;
+    // Backend-unavailable is surfaced as an error here too (a thrown
+    // `TypeError`), identical to `open` / `deleteDatabase` and every other
+    // entry point — resolving with an empty list would make a storage-init
+    // failure indistinguishable from "no databases".
+    let backend = ctx.vm.require_idb_backend()?;
     let promise = create_promise(ctx.vm);
-    let Some(backend) = ctx.vm.ensure_idb_backend() else {
-        let arr = ctx.vm.create_array_object(Vec::new());
-        let _ = settle_promise(ctx.vm, promise, false, JsValue::Object(arr));
-        return Ok(JsValue::Object(promise));
-    };
     match elidex_indexeddb::database::list_databases(&backend) {
         Ok(list) => {
             let infos: Vec<JsValue> = list
