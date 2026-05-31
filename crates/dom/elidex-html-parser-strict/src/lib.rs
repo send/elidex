@@ -14,13 +14,17 @@
 //!   bogus *recovery* states are omitted: their entry conditions are
 //!   rejected, not recovered) + `§13.5` named character reference table.
 //! - `§13.2.4` Parse state + `§13.2.6` Tree construction — 21 insertion
-//!   modes (error branches excluded by the strict no-recovery contract)
-//!   + HTML `§4.12.3` / DOM `§4.9` declarative shadow root attach.
+//!   modes (error branches excluded by the strict no-recovery contract),
+//!   `§13.2.6.5` inline foreign content (SVG / MathML, handled as a
+//!   `§13.2.6` dispatcher branch rather than a 22nd insertion mode), and
+//!   HTML `§4.12.3` / DOM `§4.9` declarative shadow root attach.
 //! - `§13.2.7` The end — stop parsing (the deferred / async script
 //!   timing steps 5 / 7 are the consumer's concern, not the parser's).
 //!
-//! Foreign content (`§13.2.6.5` SVG / MathML inline) is out of scope; it
-//! is tracked separately (`#11-html-parser-strict-foreign-content`).
+//! Foreign-content attribute-namespace binding (XLink / xml / xmlns
+//! prefixes → namespace URIs) is deferred to the attribute-namespace data
+//! model (`#11-xml-namespace`); the prefixed attribute names are retained
+//! verbatim under the current flat attribute map.
 //!
 //! # Engine independence
 //!

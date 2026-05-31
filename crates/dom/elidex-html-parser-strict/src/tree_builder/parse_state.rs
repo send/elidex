@@ -20,7 +20,7 @@
 
 use std::collections::HashMap;
 
-use elidex_ecs::{EcsDom, Entity};
+use elidex_ecs::{EcsDom, Entity, Namespace};
 
 /// The tree builder's insertion mode (WHATWG HTML §13.2.4.1).
 ///
@@ -90,53 +90,70 @@ pub(crate) enum Scope {
     Table,
 }
 
-/// Whether `tag` is a scope-boundary element type for `scope`
-/// (WHATWG HTML §13.2.4.2).
+/// Whether the element `(namespace, tag)` is a scope-boundary element type
+/// for `scope` (WHATWG HTML §13.2.4.2).
 ///
-/// The MathML (`mi`/`mo`/`mn`/`ms`/`mtext`/`annotation-xml`) and SVG
-/// (`foreignObject`/`desc`/`title`) boundary types are omitted: strict mode
-/// is HTML-namespace only (foreign content is deferred), so they are never on
-/// the stack.
-fn is_scope_boundary(tag: &str, scope: Scope) -> bool {
-    let base = matches!(
-        tag,
-        "applet"
-            | "caption"
-            | "html"
-            | "table"
-            | "td"
-            | "th"
-            | "marquee"
-            | "object"
-            | "select"
-            | "template"
-    );
+/// The "has an element in scope" element types are namespace-qualified: the
+/// base list (`applet`/`caption`/…/`template`) is HTML-namespace, and the
+/// foreign integration-point boundaries — MathML
+/// `mi`/`mo`/`mn`/`ms`/`mtext`/`annotation-xml` and SVG
+/// `foreignObject`/`desc`/`title` — terminate the walk only in their own
+/// namespace. Tag-name alone is insufficient: an SVG `title` is a boundary
+/// while an HTML `title` is not, so foreign content (PR #256 namespaces)
+/// makes the namespace discriminator load-bearing.
+fn is_scope_boundary(namespace: Namespace, tag: &str, scope: Scope) -> bool {
+    let base = match namespace {
+        Namespace::Html => matches!(
+            tag,
+            "applet"
+                | "caption"
+                | "html"
+                | "table"
+                | "td"
+                | "th"
+                | "marquee"
+                | "object"
+                | "select"
+                | "template"
+        ),
+        Namespace::MathMl => {
+            matches!(tag, "mi" | "mo" | "mn" | "ms" | "mtext" | "annotation-xml")
+        }
+        Namespace::Svg => matches!(tag, "foreignObject" | "desc" | "title"),
+    };
     match scope {
         Scope::Default => base,
-        Scope::ListItem => base || matches!(tag, "ol" | "ul"),
-        Scope::Button => base || tag == "button",
-        // §13.2.4.2 "in table scope" uses a distinct, smaller list — it is
-        // *not* the default list plus extras.
-        Scope::Table => matches!(tag, "html" | "table" | "template"),
+        Scope::ListItem => base || (namespace == Namespace::Html && matches!(tag, "ol" | "ul")),
+        Scope::Button => base || (namespace == Namespace::Html && tag == "button"),
+        // §13.2.4.2 "in table scope" uses a distinct, smaller list — HTML
+        // `html`/`table`/`template` only, *not* the default list plus extras,
+        // and notably not the foreign boundaries.
+        Scope::Table => {
+            namespace == Namespace::Html && matches!(tag, "html" | "table" | "template")
+        }
     }
 }
 
 /// Run the §13.2.4.2 "have an element in _scope_" walk, matching any element
-/// whose tag name satisfies `is_target`.
+/// whose `(namespace, tag)` satisfies `is_target`.
 ///
 /// Walks the stack from the current node (bottom) upward, terminating in a
 /// match state when an element satisfies `is_target` and in a failure state
-/// when a scope-boundary element type for `scope` is reached first.
+/// when a scope-boundary element type for `scope` is reached first. Both the
+/// target predicate and the boundary check are namespace-qualified (an HTML
+/// `p` is not matched by a foreign `p`, and an SVG `title` boundary is not an
+/// HTML `title`).
 pub(crate) fn has_in_scope(
     dom: &EcsDom,
     stack: &[Entity],
     scope: Scope,
-    is_target: impl Fn(&str) -> bool,
+    is_target: impl Fn(Namespace, &str) -> bool,
 ) -> bool {
     for &entity in stack.iter().rev() {
+        let namespace = dom.namespace_of(entity);
         let verdict = dom.with_tag_name(entity, |tag| match tag {
-            Some(name) if is_target(name) => Some(true),
-            Some(name) if is_scope_boundary(name, scope) => Some(false),
+            Some(name) if is_target(namespace, name) => Some(true),
+            Some(name) if is_scope_boundary(namespace, name, scope) => Some(false),
             _ => None,
         });
         if let Some(matched) = verdict {
@@ -161,8 +178,9 @@ pub(crate) fn has_entity_in_scope(
         if entity == target {
             return true;
         }
+        let namespace = dom.namespace_of(entity);
         let boundary = dom.with_tag_name(entity, |tag| match tag {
-            Some(name) => is_scope_boundary(name, scope),
+            Some(name) => is_scope_boundary(namespace, name, scope),
             None => false,
         });
         if boundary {
@@ -250,9 +268,16 @@ pub(crate) fn is_html_whitespace(ch: char) -> bool {
 
 /// Whether `tag` is in the "special" category of WHATWG HTML §13.2.4.2.
 ///
-/// The MathML (`mi`/`mo`/`mn`/`ms`/`mtext`/`annotation-xml`) and SVG
-/// (`foreignObject`/`desc`/`title`) special types are omitted — strict mode is
-/// HTML-namespace only, so foreign elements are never on the stack.
+/// Deliberately HTML-namespace only: the MathML
+/// (`mi`/`mo`/`mn`/`ms`/`mtext`/`annotation-xml`) and SVG
+/// (`foreignObject`/`desc`/`title`/…) special types are omitted even though
+/// foreign elements now reach the stack (§13.2.6.5). The "special" category
+/// drives only the adoption agency algorithm and the "any other end tag"
+/// HTML-content walk — both error-recovery machinery — and foreign content
+/// runs its own end-tag walk (§13.2.6.5), never the HTML special check. A
+/// misnested foreign end tag is rejected by the current-node identity check,
+/// not by reaching a foreign "special" element, so the discriminator stays
+/// tag-only without affecting strict accept/reject behaviour.
 pub(crate) fn is_special_tag(tag: &str) -> bool {
     matches!(
         tag,

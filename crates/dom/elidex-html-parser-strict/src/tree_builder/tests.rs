@@ -8,7 +8,9 @@
 
 use std::fmt::Write as _;
 
-use elidex_ecs::{Attributes, CommentData, DocTypeData, EcsDom, Entity, NodeKind, TextContent};
+use elidex_ecs::{
+    Attributes, CommentData, DocTypeData, EcsDom, Entity, Namespace, NodeKind, TextContent,
+};
 
 use super::TreeBuilder;
 use crate::result::ParseResult;
@@ -41,7 +43,14 @@ fn serialize_node(dom: &EcsDom, entity: Entity, depth: usize, out: &mut String) 
     match dom.node_kind(entity) {
         Some(NodeKind::Element) => {
             let tag = dom.get_tag_name(entity).unwrap_or_default();
-            let _ = writeln!(out, "| {indent}<{tag}>");
+            // html5lib prefixes foreign elements with their namespace
+            // (`<svg svg>`, `<math math>`); HTML elements have no prefix.
+            let ns_prefix = match dom.namespace_of(entity) {
+                Namespace::Html => "",
+                Namespace::Svg => "svg ",
+                Namespace::MathMl => "math ",
+            };
+            let _ = writeln!(out, "| {indent}<{ns_prefix}{tag}>");
             if let Ok(attrs) = dom.world().get::<&Attributes>(entity) {
                 let mut pairs: Vec<(&str, &str)> = attrs.iter().collect();
                 pairs.sort_by(|a, b| a.0.cmp(b.0));

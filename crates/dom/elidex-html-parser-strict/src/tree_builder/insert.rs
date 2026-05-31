@@ -7,7 +7,7 @@
 //! redirect of §13.2.6.1 step 3). All `EcsDom` mutation is confined to this
 //! module's marshalling helpers.
 
-use elidex_ecs::{Attributes, Entity, NodeKind, TextContent};
+use elidex_ecs::{Attributes, Entity, Namespace, NodeKind, TextContent};
 
 use super::parse_state::{self, Scope};
 use super::{parse_error, TreeBuilder};
@@ -78,6 +78,36 @@ impl TreeBuilder {
             ));
         }
         Ok(self.insert_element_named(&token.name, &token.attrs))
+    }
+
+    /// WHATWG HTML §13.2.6.1 "insert a foreign element" — create a foreign
+    /// (SVG / MathML) element named `tag` in `namespace` with `attrs`, append
+    /// it at the appropriate place, and push it onto the stack of open
+    /// elements. `tag` and `attrs` are the already-adjusted name and
+    /// attributes (the §13.2.6.1 / §13.2.6.5 case tables run in
+    /// [`super::foreign_adjust`] before this marshalling step).
+    ///
+    /// Unlike [`insert_html_element`](Self::insert_html_element), a foreign
+    /// element's self-closing flag is **not** a parse error: §13.2.6.5 makes
+    /// a self-closing foreign start tag valid and pops the element. The caller
+    /// performs that pop; this helper only inserts.
+    pub(super) fn insert_foreign_element(
+        &mut self,
+        tag: &str,
+        attrs: &[(String, String)],
+        namespace: Namespace,
+    ) -> Entity {
+        let parent = self.appropriate_place();
+        let mut attributes = Attributes::default();
+        for (name, value) in attrs {
+            attributes.set(name.as_str(), value.as_str());
+        }
+        let element = self
+            .dom
+            .create_element_ns(tag, namespace, attributes, Some(self.document));
+        self.append(parent, element);
+        self.state.open_elements.push(element);
+        element
     }
 
     /// Insert a void HTML element for `token` and immediately pop it
@@ -311,18 +341,21 @@ impl TreeBuilder {
 
     // ----- scope predicates (§13.2.4.2) -----
 
-    /// Whether the stack has an element with tag name `tag` in `scope`.
+    /// Whether the stack has an HTML element with tag name `tag` in `scope`.
+    /// The scope targets in the "in HTML content" rules are always HTML
+    /// elements, so the target match is HTML-namespace-qualified (a foreign
+    /// element of the same tag name does not satisfy it).
     pub(super) fn has_tag_in_scope(&self, tag: &str, scope: Scope) -> bool {
-        parse_state::has_in_scope(&self.dom, &self.state.open_elements, scope, |name| {
-            name == tag
+        parse_state::has_in_scope(&self.dom, &self.state.open_elements, scope, |ns, name| {
+            ns == Namespace::Html && name == tag
         })
     }
 
-    /// Whether the stack has an element whose tag name is one of `tags` in
-    /// `scope`.
+    /// Whether the stack has an HTML element whose tag name is one of `tags`
+    /// in `scope`.
     pub(super) fn has_any_tag_in_scope(&self, tags: &[&str], scope: Scope) -> bool {
-        parse_state::has_in_scope(&self.dom, &self.state.open_elements, scope, |name| {
-            tags.contains(&name)
+        parse_state::has_in_scope(&self.dom, &self.state.open_elements, scope, |ns, name| {
+            ns == Namespace::Html && tags.contains(&name)
         })
     }
 
