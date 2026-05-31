@@ -37,7 +37,7 @@
 
 use std::collections::HashMap;
 
-use super::super::shape::{self, PropertyAttrs};
+use super::super::shape::PropertyAttrs;
 use super::super::value::{
     CallMode, JsValue, NativeContext, ObjectId, ObjectKind, PropertyKey, PropertyValue, StringId,
 };
@@ -46,6 +46,8 @@ use super::events::{set_event_slot_raw, EventInit, EVENT_SLOT_CURRENT_TARGET, EV
 
 pub(crate) mod database;
 pub(crate) mod factory;
+pub(crate) mod key_range;
+pub(crate) mod object_store;
 pub(crate) mod request;
 pub(crate) mod txn;
 mod value;
@@ -196,6 +198,11 @@ pub(crate) struct IdbDatabaseState {
     pub(crate) version: u64,
     /// `true` after `close()` (or a `versionchange` that closed it).
     pub(crate) closed: bool,
+    /// The active upgrade (`versionchange`) transaction `ObjectId` while an
+    /// `upgradeneeded` handler runs, else `None` — `createObjectStore` /
+    /// `deleteObjectStore` operate against it (§5.7).  Set by the factory
+    /// open flow; cleared when the upgrade transaction finishes.
+    pub(crate) upgrade_txn: Option<ObjectId>,
     /// `onversionchange` / `onclose` / `onabort` handler attributes.
     pub(crate) handlers: HashMap<StringId, ObjectId>,
     pub(crate) listeners: Vec<IdbListener>,
@@ -238,8 +245,8 @@ impl VmInner {
     /// transaction whose request list is empty.  Run at the `drain_tasks`
     /// tail (the "control returns to the event loop" seam).  Eligible ids
     /// are collected first so `commit_transaction` (which mutates the entry
-    /// + queues a task, but never inserts / removes map entries) cannot
-    /// invalidate the iteration.  De-dup with §5.9 step 8.3: a txn already
+    /// in place and queues a task, but never inserts or removes map
+    /// entries) cannot invalidate the iteration.  De-dup with §5.9 step 8.3: a txn already
     /// committed there is `Committing`, so the `Active` filter skips it.
     pub(crate) fn idb_autocommit_sweep(&mut self) {
         let eligible: Vec<ObjectId> = self

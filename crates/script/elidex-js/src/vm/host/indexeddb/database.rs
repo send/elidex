@@ -1,16 +1,15 @@
-//! IDBDatabase wrapper allocation (W3C IndexedDB §4.4).
-//!
-//! The connection-level members (`createObjectStore` / `transaction` /
-//! `close` / `name` / `version`) are installed on `IDBDatabase.prototype`
-//! in Stage 4/5; this module provides the wrapper + side-store allocation
-//! shared by the factory `open` flow and (future) `versionchange` paths.
+//! IDBDatabase connection (W3C IndexedDB §4.4): wrapper allocation +
+//! `createObjectStore` / `deleteObjectStore` (§5.7 schema ops, valid only
+//! inside an upgrade transaction) + `transaction` (§3.1.1) + `close`.
 
 #![cfg(feature = "engine")]
 
 use super::super::super::shape;
-use super::super::super::value::{Object, ObjectId, ObjectKind, PropertyStorage};
+use super::super::super::value::{
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage, VmError,
+};
 use super::super::super::VmInner;
-use super::IdbDatabaseState;
+use super::{object_store, txn, value, IdbDatabaseState, IdbTxnState};
 
 /// Allocate an `IDBDatabase` connection wrapper + its side-store state.
 pub(crate) fn create_database_wrapper(vm: &mut VmInner, db_name: &str, version: u64) -> ObjectId {
@@ -30,4 +29,244 @@ pub(crate) fn create_database_wrapper(vm: &mut VmInner, db_name: &str, version: 
         },
     );
     id
+}
+
+fn require_db_this(
+    ctx: &NativeContext<'_>,
+    this: JsValue,
+    method: &str,
+) -> Result<ObjectId, VmError> {
+    if let JsValue::Object(id) = this {
+        if matches!(ctx.vm.get_object(id).kind, ObjectKind::IdbDatabase) {
+            return Ok(id);
+        }
+    }
+    Err(VmError::type_error(format!(
+        "IDBDatabase.prototype.{method} called on non-IDBDatabase"
+    )))
+}
+
+/// Resolve the database's active version-change transaction for a schema
+/// op (§5.7): `InvalidStateError` if there is none, `TransactionInactiveError`
+/// if it is not active.
+fn upgrade_txn_for(
+    ctx: &mut NativeContext<'_>,
+    db_id: ObjectId,
+    method: &str,
+) -> Result<ObjectId, VmError> {
+    let txn = ctx
+        .vm
+        .idb_database_states
+        .get(&db_id)
+        .and_then(|s| s.upgrade_txn);
+    let Some(txn) = txn else {
+        return Err(value::dom_exc(
+            ctx,
+            "InvalidStateError",
+            format!("IDBDatabase.{method}: not inside a version change transaction"),
+        ));
+    };
+    let active = matches!(
+        ctx.vm.idb_transaction_states.get(&txn).map(|s| s.state),
+        Some(IdbTxnState::Active)
+    );
+    if active {
+        Ok(txn)
+    } else {
+        Err(value::dom_exc(
+            ctx,
+            "TransactionInactiveError",
+            format!("IDBDatabase.{method}: the version change transaction is not active"),
+        ))
+    }
+}
+
+fn db_name_of(ctx: &NativeContext<'_>, db_id: ObjectId) -> String {
+    ctx.vm
+        .idb_database_states
+        .get(&db_id)
+        .map(|s| s.db_name.clone())
+        .unwrap_or_default()
+}
+
+/// Parse `createObjectStore` options: `{ keyPath?, autoIncrement? }`.
+/// Array key paths are not yet supported (treated as no in-line key).
+fn parse_create_store_options(
+    ctx: &mut NativeContext<'_>,
+    arg: Option<JsValue>,
+) -> Result<(Option<String>, bool), VmError> {
+    let Some(JsValue::Object(opts)) = arg else {
+        return Ok((None, false));
+    };
+    let kp_key = PropertyKey::String(ctx.vm.strings.intern("keyPath"));
+    let key_path = match ctx.get_property_value(opts, kp_key)? {
+        JsValue::String(sid) => Some(ctx.get_utf8(sid)),
+        _ => None,
+    };
+    let ai_key = PropertyKey::String(ctx.vm.strings.intern("autoIncrement"));
+    let ai_val = ctx.get_property_value(opts, ai_key)?;
+    let auto_increment = ctx.to_boolean(ai_val);
+    Ok((key_path, auto_increment))
+}
+
+/// `db.createObjectStore(name, options?)` → `IDBObjectStore` (§5.7).
+pub(crate) fn native_db_create_object_store(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let db_id = require_db_this(ctx, this, "createObjectStore")?;
+    let txn = upgrade_txn_for(ctx, db_id, "createObjectStore")?;
+    let db_name = db_name_of(ctx, db_id);
+    let name_sid = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
+    let name = ctx.get_utf8(name_sid);
+    let (key_path, auto_increment) = parse_create_store_options(ctx, args.get(1).copied())?;
+    let Some(backend) = ctx.vm.ensure_idb_backend() else {
+        return Err(VmError::type_error("IndexedDB backend unavailable"));
+    };
+    match backend.create_object_store(&db_name, &name, key_path.as_deref(), auto_increment) {
+        Ok(()) => Ok(JsValue::Object(object_store::create_object_store_wrapper(
+            ctx.vm, &db_name, &name, txn,
+        ))),
+        Err(e) => Err(value::backend_error_as_throw(ctx, &e)),
+    }
+}
+
+/// `db.deleteObjectStore(name)` (§5.7).
+pub(crate) fn native_db_delete_object_store(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let db_id = require_db_this(ctx, this, "deleteObjectStore")?;
+    let _txn = upgrade_txn_for(ctx, db_id, "deleteObjectStore")?;
+    let db_name = db_name_of(ctx, db_id);
+    let name_sid = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
+    let name = ctx.get_utf8(name_sid);
+    let Some(backend) = ctx.vm.ensure_idb_backend() else {
+        return Err(VmError::type_error("IndexedDB backend unavailable"));
+    };
+    match backend.delete_object_store(&db_name, &name) {
+        Ok(()) => Ok(JsValue::Undefined),
+        Err(e) => Err(value::backend_error_as_throw(ctx, &e)),
+    }
+}
+
+/// Parse the `storeNames` argument (a `DOMString` or sequence) into a
+/// scope list.
+fn parse_store_names(
+    ctx: &mut NativeContext<'_>,
+    arg: Option<JsValue>,
+) -> Result<Vec<String>, VmError> {
+    let v = arg.unwrap_or(JsValue::Undefined);
+    if let JsValue::Object(id) = v {
+        let elements = match &ctx.get_object(id).kind {
+            ObjectKind::Array { elements } => Some(elements.clone()),
+            _ => None,
+        };
+        if let Some(elems) = elements {
+            let mut names = Vec::with_capacity(elems.len());
+            for e in elems {
+                let sid = ctx.to_string_val(e)?;
+                names.push(ctx.get_utf8(sid));
+            }
+            return Ok(names);
+        }
+    }
+    let sid = ctx.to_string_val(v)?;
+    Ok(vec![ctx.get_utf8(sid)])
+}
+
+/// Parse the transaction `mode` argument (default `"readonly"`;
+/// `"versionchange"` is not constructible via `transaction()` → TypeError).
+fn parse_mode(
+    ctx: &mut NativeContext<'_>,
+    arg: Option<JsValue>,
+) -> Result<elidex_indexeddb::IdbTransactionMode, VmError> {
+    match arg {
+        None | Some(JsValue::Undefined) => Ok(elidex_indexeddb::IdbTransactionMode::ReadOnly),
+        Some(v) => {
+            let sid = ctx.to_string_val(v)?;
+            match ctx.get_utf8(sid).as_str() {
+                "readonly" => Ok(elidex_indexeddb::IdbTransactionMode::ReadOnly),
+                "readwrite" => Ok(elidex_indexeddb::IdbTransactionMode::ReadWrite),
+                other => Err(VmError::type_error(format!(
+                    "IDBDatabase.transaction: invalid mode '{other}'"
+                ))),
+            }
+        }
+    }
+}
+
+/// `db.transaction(storeNames, mode?)` → `IDBTransaction` (§3.1.1).
+pub(crate) fn native_db_transaction(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let db_id = require_db_this(ctx, this, "transaction")?;
+    let (db_name, closed, upgrading) = {
+        let s = ctx
+            .vm
+            .idb_database_states
+            .get(&db_id)
+            .ok_or_else(|| VmError::type_error("IDBDatabase state missing"))?;
+        (s.db_name.clone(), s.closed, s.upgrade_txn.is_some())
+    };
+    if closed {
+        return Err(value::dom_exc(
+            ctx,
+            "InvalidStateError",
+            "IDBDatabase.transaction: the connection is closed",
+        ));
+    }
+    if upgrading {
+        return Err(value::dom_exc(
+            ctx,
+            "InvalidStateError",
+            "IDBDatabase.transaction: a version change transaction is running",
+        ));
+    }
+    let names = parse_store_names(ctx, args.first().copied())?;
+    if names.is_empty() {
+        return Err(value::dom_exc(
+            ctx,
+            "InvalidAccessError",
+            "IDBDatabase.transaction: the store names list is empty",
+        ));
+    }
+    let mode = parse_mode(ctx, args.get(1).copied())?;
+    let Some(backend) = ctx.vm.ensure_idb_backend() else {
+        return Err(VmError::type_error("IndexedDB backend unavailable"));
+    };
+    let existing = backend
+        .list_store_names(&db_name)
+        .map_err(|e| value::backend_error_as_throw(ctx, &e))?;
+    for n in &names {
+        if !existing.contains(n) {
+            return Err(value::dom_exc(
+                ctx,
+                "NotFoundError",
+                format!("IDBDatabase.transaction: no object store named '{n}'"),
+            ));
+        }
+    }
+    let backend_txn =
+        elidex_indexeddb::IdbTransaction::begin(backend.conn(), &db_name, names.clone(), mode)
+            .map_err(|e| value::backend_error_as_throw(ctx, &e))?;
+    let txn_id = txn::create_transaction(ctx.vm, db_id, &db_name, names, mode, backend_txn);
+    Ok(JsValue::Object(txn_id))
+}
+
+/// `db.close()` (§4.4).
+pub(crate) fn native_db_close(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let db_id = require_db_this(ctx, this, "close")?;
+    if let Some(s) = ctx.vm.idb_database_states.get_mut(&db_id) {
+        s.closed = true;
+    }
+    Ok(JsValue::Undefined)
 }

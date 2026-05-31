@@ -163,17 +163,17 @@ pub(crate) fn fire_error(
     ctx: &mut NativeContext<'_>,
     request_id: ObjectId,
     txn_id: Option<ObjectId>,
-    error_id: Option<ObjectId>,
+    error_obj: Option<ObjectId>,
 ) {
-    let error_sid = ctx.vm.well_known.error;
-    let onerror_sid = ctx.vm.well_known.onerror;
+    let type_sid = ctx.vm.well_known.error;
+    let handler_sid = ctx.vm.well_known.onerror;
     if let Some(tid) = txn_id {
         reactivate_if_inactive(ctx.vm, tid);
     }
     // §5.10 step 7: dispatch (error bubbles + is cancelable).
-    let res = fire_idb_event(ctx, request_id, error_sid, onerror_sid, true, true);
+    let res = fire_idb_event(ctx, request_id, type_sid, handler_sid, true, true);
     if let Some(tid) = txn_id {
-        run_post_dispatch(ctx, tid, &res, error_id);
+        run_post_dispatch(ctx, tid, &res, error_obj);
     }
 }
 

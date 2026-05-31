@@ -49,6 +49,7 @@ fn arg_name(ctx: &mut NativeContext<'_>, arg: Option<JsValue>) -> Result<String,
 
 /// `indexedDB.open(name, version?)` → `IDBOpenDBRequest` (W3C IDB §4.3 /
 /// §5.1).  Synchronous backend probe; result (or upgrade) delivered async.
+#[allow(clippy::too_many_lines)] // the §5.1 Success/UpgradeNeeded/Error branch set is one coherent algorithm
 pub(crate) fn native_idb_open(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -125,6 +126,25 @@ pub(crate) fn native_idb_open(
     Ok(JsValue::Object(req))
 }
 
+/// `indexedDB.cmp(first, second)` → `-1` / `0` / `1` (§4.3).  Compares two
+/// keys by the W3C key ordering (delegated to the backend `IdbKey: Ord`);
+/// an invalid key throws `DataError`.
+pub(crate) fn native_idb_cmp(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    require_idb_factory_this(ctx, this, "cmp")?;
+    let a = value::js_to_idb_key(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
+    let b = value::js_to_idb_key(ctx, args.get(1).copied().unwrap_or(JsValue::Undefined))?;
+    let n = match a.cmp(&b) {
+        std::cmp::Ordering::Less => -1.0,
+        std::cmp::Ordering::Equal => 0.0,
+        std::cmp::Ordering::Greater => 1.0,
+    };
+    Ok(JsValue::Number(n))
+}
+
 /// `indexedDB.deleteDatabase(name)` → `IDBOpenDBRequest` (§4.3 / §5.3).
 /// Cross-connection `versionchange` / `blocked` fan-out is deferred to
 /// `#11-idb-connection-queue` (single-VM scope = no other connections).
@@ -163,7 +183,7 @@ pub(crate) fn native_idb_databases(
     let promise = create_promise(ctx.vm);
     let Some(backend) = ctx.vm.ensure_idb_backend() else {
         let arr = ctx.vm.create_array_object(Vec::new());
-        settle_promise(ctx.vm, promise, false, JsValue::Object(arr));
+        let _ = settle_promise(ctx.vm, promise, false, JsValue::Object(arr));
         return Ok(JsValue::Object(promise));
     };
     match elidex_indexeddb::database::list_databases(&backend) {
@@ -173,11 +193,11 @@ pub(crate) fn native_idb_databases(
                 .map(|(name, version)| build_db_info(ctx.vm, name, *version))
                 .collect();
             let arr = ctx.vm.create_array_object(infos);
-            settle_promise(ctx.vm, promise, false, JsValue::Object(arr));
+            let _ = settle_promise(ctx.vm, promise, false, JsValue::Object(arr));
         }
         Err(e) => {
             let exc = value::backend_error_to_dom_exception(ctx.vm, &e);
-            settle_promise(ctx.vm, promise, true, JsValue::Object(exc));
+            let _ = settle_promise(ctx.vm, promise, true, JsValue::Object(exc));
         }
     }
     Ok(JsValue::Object(promise))
@@ -245,6 +265,11 @@ fn create_upgrade_transaction(
             upgrade_old_version: old_version,
         },
     );
+    // Back-ref so `createObjectStore` / `deleteObjectStore` on the
+    // IDBDatabase can reach the active upgrade transaction (§5.7).
+    if let Some(dbs) = vm.idb_database_states.get_mut(&db) {
+        dbs.upgrade_txn = Some(id);
+    }
     id
 }
 
