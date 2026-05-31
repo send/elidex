@@ -348,6 +348,13 @@ impl EventListeners {
         self.entries.iter().find(|e| e.id == id)
     }
 
+    /// Iterate every registered listener's [`ListenerId`] (registration
+    /// order).  Used by the VM-side GC sweep to retire each listener of a
+    /// dead non-entity `EventTarget` from the engine's callback store.
+    pub fn ids(&self) -> impl Iterator<Item = ListenerId> + '_ {
+        self.entries.iter().map(|e| e.id)
+    }
+
     /// Returns `true` if there are no registered listeners.
     #[must_use]
     pub fn is_empty(&self) -> bool {

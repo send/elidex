@@ -324,13 +324,11 @@ pub(crate) fn dispatch_idb_upgrade(
         rs.ready_state = super::IdbReadyState::Done;
     }
     let upgradeneeded_sid = vm.well_known.upgradeneeded;
-    let onupgradeneeded_sid = vm.well_known.onupgradeneeded;
     let mut ctx = NativeContext::new_call(vm);
     let res = fire_version_change_event(
         &mut ctx,
         request_id,
         upgradeneeded_sid,
-        onupgradeneeded_sid,
         old_version,
         Some(new_version),
     );

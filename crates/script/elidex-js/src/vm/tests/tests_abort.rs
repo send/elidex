@@ -10,6 +10,19 @@
 use super::super::value::JsValue;
 use super::super::Vm;
 
+/// A `Vm` with an (unbound) `HostData` installed.  Post
+/// `#11-eventtarget-dispatch-core`, an `AbortSignal`'s `'abort'` listeners
+/// and its `onabort` handler live in the unified `vm_event_listeners`
+/// home with their callbacks in `HostData::listener_store` (the one
+/// engine-side callback store shared with the node path).  No DOM is
+/// needed — an `AbortController` has no document — only the installed
+/// `HostData`; production installs it at engine construction.
+fn new_vm() -> Vm {
+    let mut v = Vm::new();
+    v.install_host_data(super::super::host_data::HostData::new());
+    v
+}
+
 fn eval_bool(vm: &mut Vm, source: &str) -> bool {
     match vm.eval(source).unwrap() {
         JsValue::Boolean(b) => b,
@@ -26,7 +39,7 @@ fn eval_string(vm: &mut Vm, source: &str) -> String {
 
 #[test]
 fn constructor_returns_object_with_signal() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert!(eval_bool(
         &mut vm,
         "var c = new AbortController(); typeof c === 'object' && typeof c.signal === 'object';"
@@ -35,7 +48,7 @@ fn constructor_returns_object_with_signal() {
 
 #[test]
 fn signal_initially_not_aborted() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert!(!eval_bool(
         &mut vm,
         "var c = new AbortController(); c.signal.aborted;"
@@ -44,7 +57,7 @@ fn signal_initially_not_aborted() {
 
 #[test]
 fn signal_initial_reason_is_undefined() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert_eq!(
         eval_string(
             &mut vm,
@@ -56,7 +69,7 @@ fn signal_initial_reason_is_undefined() {
 
 #[test]
 fn abort_sets_aborted_flag() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert!(eval_bool(
         &mut vm,
         "var c = new AbortController(); c.abort(); c.signal.aborted;"
@@ -65,7 +78,7 @@ fn abort_sets_aborted_flag() {
 
 #[test]
 fn abort_with_undefined_creates_default_abort_error() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     // Default reason is a DOMException with `name === "AbortError"`
     // (migrated from the prior plain-Error shape).
     assert_eq!(
@@ -81,7 +94,7 @@ fn abort_with_undefined_creates_default_abort_error() {
 fn abort_default_reason_is_dom_exception() {
     // Regression guard: the default reason must be a proper
     // DOMException instance, not an ad-hoc Error wrapper.
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert!(eval_bool(
         &mut vm,
         "var c = new AbortController(); c.abort(); \
@@ -92,7 +105,7 @@ fn abort_default_reason_is_dom_exception() {
 
 #[test]
 fn abort_with_custom_reason_preserves_value() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert_eq!(
         eval_string(
             &mut vm,
@@ -104,7 +117,7 @@ fn abort_with_custom_reason_preserves_value() {
 
 #[test]
 fn abort_with_object_reason_preserves_identity() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert!(eval_bool(
         &mut vm,
         "var r = {tag: 1}; var c = new AbortController(); c.abort(r); c.signal.reason === r;"
@@ -113,7 +126,7 @@ fn abort_with_object_reason_preserves_identity() {
 
 #[test]
 fn abort_is_idempotent() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     // Second `abort('two')` must NOT overwrite the reason set by the first.
     assert_eq!(
         eval_string(
@@ -126,7 +139,7 @@ fn abort_is_idempotent() {
 
 #[test]
 fn add_event_listener_fires_on_abort() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert_eq!(
         eval_string(
             &mut vm,
@@ -142,7 +155,7 @@ fn add_event_listener_fires_on_abort() {
 
 #[test]
 fn add_event_listener_multiple_callbacks_fire_in_order() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert_eq!(
         eval_string(
             &mut vm,
@@ -159,7 +172,7 @@ fn add_event_listener_multiple_callbacks_fire_in_order() {
 
 #[test]
 fn add_event_listener_dedupes_identical_callback() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert_eq!(
         eval_string(
             &mut vm,
@@ -177,7 +190,7 @@ fn add_event_listener_dedupes_identical_callback() {
 
 #[test]
 fn add_event_listener_filters_non_abort_types() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     // Other event types are accepted (no throw) but never fire,
     // since the only event a signal dispatches is `'abort'`.
     assert!(!eval_bool(
@@ -192,7 +205,7 @@ fn add_event_listener_filters_non_abort_types() {
 
 #[test]
 fn add_event_listener_after_abort_is_noop() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     // Per PR4d MVP: registering after abort is a no-op (full
     // microtask-queueing per spec lands in PR5a).
     assert!(!eval_bool(
@@ -207,7 +220,7 @@ fn add_event_listener_after_abort_is_noop() {
 
 #[test]
 fn remove_event_listener_drops_callback() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert!(!eval_bool(
         &mut vm,
         "var c = new AbortController();
@@ -222,7 +235,7 @@ fn remove_event_listener_drops_callback() {
 
 #[test]
 fn second_abort_does_not_refire_listeners() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     // One-shot: the listener pool is cleared on first abort, so a
     // second `c.abort()` cannot re-fire it.
     assert_eq!(
@@ -241,7 +254,7 @@ fn second_abort_does_not_refire_listeners() {
 
 #[test]
 fn onabort_handler_fires_on_abort() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert!(eval_bool(
         &mut vm,
         "var c = new AbortController();
@@ -253,10 +266,17 @@ fn onabort_handler_fires_on_abort() {
 }
 
 #[test]
-fn onabort_runs_before_addeventlistener_callbacks() {
-    let mut vm = Vm::new();
-    // WHATWG §8.1.8.1. event-handler IDL attribute fires "first in
-    // addition to others registered".  PR4d implements that order.
+fn onabort_interleaves_with_addeventlistener_in_registration_order() {
+    let mut vm = new_vm();
+    // WHATWG HTML §8.1.8.1: an event-handler IDL attribute is an event
+    // listener registered AT THE POSITION it is first activated, "in
+    // addition to others registered" — NOT unconditionally first.  Here
+    // `addEventListener('abort', a)` is registered before `onabort = o`,
+    // so dispatch fires them in registration order: "ao" (matching
+    // browsers).  Post `#11-eventtarget-dispatch-core` the `onabort`
+    // handler is a `ListenerKind::EventHandler` entry in the unified
+    // `vm_event_listeners` home, so it interleaves correctly — the old
+    // bespoke "onabort always first" copy produced the spec-wrong "oa".
     assert_eq!(
         eval_string(
             &mut vm,
@@ -267,13 +287,13 @@ fn onabort_runs_before_addeventlistener_callbacks() {
              c.abort();
              seq;"
         ),
-        "oa"
+        "ao"
     );
 }
 
 #[test]
 fn onabort_can_be_cleared_with_null() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert!(!eval_bool(
         &mut vm,
         "var c = new AbortController();
@@ -286,11 +306,16 @@ fn onabort_can_be_cleared_with_null() {
 }
 
 #[test]
-fn onabort_setter_silently_ignores_non_callable() {
-    let mut vm = Vm::new();
-    // WHATWG event-handler IDL: assigning a non-callable, non-null
-    // value silently no-ops; the prior handler stays in place.
-    assert!(eval_bool(
+fn onabort_setter_non_callable_clears_handler() {
+    let mut vm = new_vm();
+    // WebIDL `EventHandler` = `[LegacyTreatNonObjectAsNull] callback …?`:
+    // assigning a non-object value (here the string `'not a function'`)
+    // does NOT throw, but converts to `null` and so CLEARS the handler —
+    // a subsequent `abort()` does not fire it (`fired` stays false).  Post
+    // `#11-eventtarget-dispatch-core` `onabort` rides the same shared
+    // event-handler path as `el.onclick`, matching browsers; the old
+    // bespoke AbortSignal setter wrongly kept the prior handler.
+    assert!(!eval_bool(
         &mut vm,
         "var c = new AbortController();
          var fired = false;
@@ -303,7 +328,7 @@ fn onabort_setter_silently_ignores_non_callable() {
 
 #[test]
 fn throw_if_aborted_noop_when_not_aborted() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert!(eval_bool(
         &mut vm,
         "var c = new AbortController();
@@ -315,7 +340,7 @@ fn throw_if_aborted_noop_when_not_aborted() {
 
 #[test]
 fn throw_if_aborted_throws_reason_when_aborted() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert_eq!(
         eval_string(
             &mut vm,
@@ -331,7 +356,7 @@ fn throw_if_aborted_throws_reason_when_aborted() {
 
 #[test]
 fn new_abort_signal_throws_type_error() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     // `AbortSignal` declares no constructor operation in its WebIDL;
     // instances come from `AbortController` / the static factories.
     // Per the WebIDL §3.7.1 (Interface object) creation algorithm step 1.1
@@ -362,7 +387,7 @@ fn new_abort_signal_throws_type_error() {
 
 #[test]
 fn signal_is_event_target_but_not_node() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     // AbortSignal.prototype chains to EventTarget.prototype but
     // skips Node.prototype (PR4c §7.2 separation).  `nodeType` /
     // `parentNode` etc. must remain `undefined`.
@@ -414,7 +439,7 @@ fn signal_proto_chain_skips_node_prototype() {
 
 #[test]
 fn abort_controller_constructor_requires_new() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert_eq!(
         eval_string(
             &mut vm,
@@ -438,7 +463,7 @@ fn abort_listeners_survive_gc_during_dispatch() {
     // before iterating, which dropped the GC root for the closures —
     // a GC inside the first callback could then reclaim the second
     // closure's `ObjectId`, leading to use-after-free / wrong dispatch.
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     // Force GC to fire frequently inside the listener body.
     vm.inner.gc_threshold = 128;
     vm.inner.gc_enabled = true;
@@ -476,7 +501,7 @@ fn onabort_remains_observable_after_dispatch() {
     // before invoking the handler, making `signal.onabort` read
     // `null` post-abort.  Browsers leave the IDL handler attribute
     // observable.
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     let result = vm
         .eval(
             "var c = new AbortController();
@@ -505,7 +530,7 @@ fn abort_after_unbind_cleans_listener_store() {
 
     use super::super::test_helpers::bind_vm;
 
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     let mut session = SessionCore::new();
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
@@ -564,7 +589,7 @@ fn second_abort_with_modified_state_does_nothing() {
     // this. verify by adding a listener AFTER the first abort
     // and confirming a second abort doesn't invoke it (the
     // already-aborted guard short-circuits the registration).
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     let result = vm
         .eval(
             "var c = new AbortController();
@@ -585,13 +610,13 @@ fn second_abort_with_modified_state_does_nothing() {
 }
 
 #[test]
-fn dispatch_event_validates_abort_signal_receiver() {
-    // Regression: prior to this guard, the `dispatchEvent` stub
-    // ignored its receiver and silently returned `false`, allowing
-    // `AbortSignal.prototype.dispatchEvent.call({})` to succeed —
-    // inconsistent with the other AbortSignal methods which throw
-    // TypeError on cross-call.
-    let mut vm = Vm::new();
+fn dispatch_event_rejects_non_event_argument() {
+    // `dispatchEvent` is now the shared `EventTarget.prototype` native
+    // (the old AbortSignal stub is gone).  WebIDL `Event event`: a
+    // non-Event argument throws TypeError before any receiver/dispatch
+    // logic — validated arg-first, so the message names the 'Event'
+    // parameter regardless of the (here non-EventTarget) receiver.
+    let mut vm = new_vm();
     let result = vm
         .eval(
             "var caught = '';
@@ -607,24 +632,28 @@ fn dispatch_event_validates_abort_signal_receiver() {
         other => panic!("expected string, got {other:?}"),
     };
     assert!(
-        s.contains("TypeError") && s.contains("AbortSignal"),
-        "expected TypeError mentioning AbortSignal, got {s}"
+        s.contains("TypeError") && s.contains("Event"),
+        "expected TypeError about the Event argument, got {s}"
     );
 }
 
 #[test]
-fn dispatch_event_on_real_signal_returns_false_stub() {
-    // The stub still returns `false` for legitimate AbortSignal
-    // receivers. only the cross-call case throws.
-    let mut vm = Vm::new();
+fn dispatch_event_on_signal_fires_listeners_via_shared_core() {
+    // Post `#11-eventtarget-dispatch-core`, `dispatchEvent` is no longer a
+    // stub: `signal.dispatchEvent(new Event('abort'))` walks the unified
+    // `vm_event_listeners` home, fires the registered 'abort' listener,
+    // and returns `true` (not cancelled).
+    let mut vm = new_vm();
     assert_eq!(
-        vm.eval(
+        eval_string(
+            &mut vm,
             "var c = new AbortController();
-             c.signal.dispatchEvent({type: 'abort'});"
-        )
-        .unwrap(),
-        JsValue::Boolean(false),
-        "dispatchEvent stub should return false for valid receiver"
+             var seq = '';
+             c.signal.addEventListener('abort', function() { seq += 'x'; });
+             var r = c.signal.dispatchEvent(new Event('abort'));
+             seq + ':' + r;"
+        ),
+        "x:true"
     );
 }
 
@@ -640,7 +669,7 @@ fn abort_call_on_alien_object_with_signal_property_throws() {
     // happily aborted `realSignal`.  With the internal-slot fix,
     // an alien receiver throws TypeError before reaching the
     // dispatch path.
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     let result = vm
         .eval(
             "var c = new AbortController();
@@ -671,7 +700,7 @@ fn defining_signal_property_does_not_retarget_abort() {
     // pre-fix made `c.abort()` abort the alien signal because the
     // method read from the property storage.  With the internal
     // slot, the original signal aborts and the alien is untouched.
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     let result = vm
         .eval(
             "var c = new AbortController();
@@ -698,7 +727,7 @@ fn defining_signal_property_does_not_retarget_abort() {
 fn controller_signal_property_still_readable_normally() {
     // Sanity: the internal-slot fix must not break the common
     // `controller.signal` JS read path.
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert!(eval_bool(
         &mut vm,
         "var c = new AbortController();
@@ -740,7 +769,7 @@ mod bound_listener_pruning {
 
     #[test]
     fn remove_event_listener_prunes_signal_back_ref() {
-        let mut vm = Vm::new();
+        let mut vm = new_vm();
         let mut session = SessionCore::new();
         let mut dom = EcsDom::new();
         let _ = bind_with_div(&mut vm, &mut session, &mut dom);
@@ -790,7 +819,7 @@ mod bound_listener_pruning {
         // `abort_listener_back_refs` and prunes entries whose
         // signal_id was collected.  Verify a live signal's entries
         // survive a GC pass.
-        let mut vm = Vm::new();
+        let mut vm = new_vm();
         let mut session = SessionCore::new();
         let mut dom = EcsDom::new();
         let _ = bind_with_div(&mut vm, &mut session, &mut dom);
@@ -815,6 +844,107 @@ mod bound_listener_pruning {
         );
         vm.unbind();
     }
+}
+
+// ---------------------------------------------------------------------------
+// #11-eventtarget-dispatch-core — AbortSignal on the shared dispatch core
+// (flat get-the-parent: at-target only).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn dispatch_event_reentrant_throws_invalid_state() {
+    // §2.9 step 1 dispatch flag (shared `dispatched_events`): a re-entrant
+    // `dispatchEvent` of an event already in flight throws InvalidStateError,
+    // now that AbortSignal routes through the shared `EventTarget.dispatchEvent`.
+    let mut vm = new_vm();
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var c = new AbortController();
+             var e = new Event('abort');
+             var caught = '';
+             c.signal.addEventListener('abort', function() {
+                 try { c.signal.dispatchEvent(e); } catch (err) { caught = err.name; }
+             });
+             c.signal.dispatchEvent(e);
+             caught;"
+        ),
+        "InvalidStateError"
+    );
+}
+
+#[test]
+fn abort_stop_immediate_propagation_halts_remaining_listeners() {
+    // §2.9 inner invoke `stopImmediatePropagation`: the first `'abort'`
+    // listener halts the rest on the same target — now honored via the
+    // unified list (the old bespoke abort fire had its own ad-hoc loop).
+    let mut vm = new_vm();
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var c = new AbortController();
+             var seq = '';
+             c.signal.addEventListener('abort', function (e) { seq += 'a'; e.stopImmediatePropagation(); });
+             c.signal.addEventListener('abort', function () { seq += 'b'; });
+             c.abort();
+             seq;"
+        ),
+        "a"
+    );
+}
+
+#[test]
+fn dead_abort_signal_listener_home_pruned_by_gc() {
+    // §4.5 GC prune: when a non-entity EventTarget (here an AbortSignal) is
+    // collected, its `vm_event_listeners` entry is pruned + its listeners
+    // retired from `listener_store` — else the dead target leaks its
+    // callbacks rooted forever.  White-box: count the listener-home entries
+    // before/after dropping the only root and forcing a collection.
+    let mut vm = new_vm();
+    vm.inner.gc_enabled = true;
+    vm.eval(
+        "globalThis.c = new AbortController();
+         globalThis.c.signal.addEventListener('abort', function () {});",
+    )
+    .unwrap();
+    let before = vm.inner.vm_event_listeners.len();
+    assert!(before >= 1, "the signal's listener home must be registered");
+    // Drop the only reachable reference to the controller (and thus its
+    // signal), then force a full collection.
+    vm.eval("globalThis.c = undefined;").unwrap();
+    vm.inner.collect_garbage();
+    assert_eq!(
+        vm.inner.vm_event_listeners.len(),
+        before - 1,
+        "the dead signal's listener home must be pruned"
+    );
+}
+
+/// Regression (Copilot R4, `#11-eventtarget-dispatch-core`): a bare
+/// `Vm::new()` installs no `HostData`, yet `register_globals` still exposes
+/// `AbortController`.  Post-migration a VmObject EventTarget's listener
+/// callback lives in `HostData::listener_store`, so `signal.addEventListener`
+/// reached `ctx.host()` (an `expect`) and panicked when no `HostData` was
+/// installed — a crash that pre-migration (callbacks in `abort_signal_states`)
+/// did not have.  It must degrade to the silent-no-op surface the unbound
+/// receiver policy already uses for Nodes, NOT panic.
+#[test]
+fn add_event_listener_on_signal_without_host_data_is_silent_noop() {
+    // No `install_host_data` — a bare engine VM.  Everything runs in one
+    // eval so the `const c` binding stays in scope; results are stashed on
+    // `globalThis` for assertion.
+    let mut vm = Vm::new();
+    vm.eval(
+        "const c = new AbortController();
+         c.signal.addEventListener('abort', () => {});
+         // dispatchEvent on the same no-HostData receiver also stays a
+         // no-op, returning the spec's 'not canceled' default of `true`.
+         globalThis.__dispatched = c.signal.dispatchEvent(new Event('abort'));
+         globalThis.__ok = true;",
+    )
+    .unwrap();
+    assert!(eval_bool(&mut vm, "globalThis.__ok === true"));
+    assert!(eval_bool(&mut vm, "globalThis.__dispatched === true"));
 }
 
 // Static factory tests live in `tests_abort_statics.rs`.

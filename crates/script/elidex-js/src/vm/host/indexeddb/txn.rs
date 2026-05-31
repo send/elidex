@@ -207,10 +207,9 @@ pub(crate) fn dispatch_commit_done(vm: &mut VmInner, txn_id: ObjectId) {
         }
     }
     let complete_sid = vm.well_known.complete;
-    let oncomplete_sid = vm.well_known.oncomplete;
     let mut ctx = NativeContext::new_call(vm);
     // step 2.5.3: fire `complete` (non-bubbling, non-cancelable).
-    fire_idb_event(&mut ctx, txn_id, complete_sid, oncomplete_sid, false, false);
+    fire_idb_event(&mut ctx, txn_id, complete_sid, false, false);
     // step 2.5.4: an upgrade transaction's open request now resolves —
     // clear its `transaction`, mark it done, and fire `success` (its
     // `result` was set to the IDBDatabase by the factory `open` flow).
@@ -220,8 +219,7 @@ pub(crate) fn dispatch_commit_done(vm: &mut VmInner, txn_id: ObjectId) {
             rs.ready_state = IdbReadyState::Done;
         }
         let success_sid = ctx.vm.well_known.success;
-        let onsuccess_sid = ctx.vm.well_known.onsuccess;
-        fire_idb_event(&mut ctx, req, success_sid, onsuccess_sid, false, false);
+        fire_idb_event(&mut ctx, req, success_sid, false, false);
     }
 }
 
@@ -237,16 +235,14 @@ pub(crate) fn dispatch_abort_done(vm: &mut VmInner, txn_id: ObjectId) {
         .get(&txn_id)
         .and_then(|s| s.upgrade_request);
     let abort_sid = vm.well_known.abort;
-    let onabort_sid = vm.well_known.onabort;
     let error_sid = vm.well_known.error;
-    let onerror_sid = vm.well_known.onerror;
     let mut ctx = NativeContext::new_call(vm);
-    fire_idb_event(&mut ctx, txn_id, abort_sid, onabort_sid, false, true);
+    fire_idb_event(&mut ctx, txn_id, abort_sid, false, true);
     if let Some(req) = upgrade_request {
         // `abort_transaction` already set the open request's `error` +
         // `readyState = "done"` and cleared its `transaction`; just deliver
         // the event (error bubbles + is cancelable, like any request error).
-        fire_idb_event(&mut ctx, req, error_sid, onerror_sid, true, true);
+        fire_idb_event(&mut ctx, req, error_sid, true, true);
     }
 }
 

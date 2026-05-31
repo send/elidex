@@ -36,9 +36,7 @@
 
 #![cfg(feature = "engine")]
 
-use std::collections::HashMap;
-
-use super::super::value::{JsValue, ObjectId, StringId, VmError};
+use super::super::value::{JsValue, ObjectId, VmError};
 use super::super::VmInner;
 
 pub(crate) mod database;
@@ -117,12 +115,6 @@ pub(crate) struct IdbRequestState {
     pub(crate) transaction: Option<ObjectId>,
     /// Staged backend outcome awaiting its `IdbDeliver` database task.
     pub(crate) deferred: Option<DeferredOutcome>,
-    /// `on*` handler attributes keyed by interned attr-name SID
-    /// (`onsuccess` / `onerror` / `onupgradeneeded` / `onblocked`).
-    pub(crate) handlers: HashMap<StringId, ObjectId>,
-    /// `addEventListener` callbacks (in-VM listener store; non-Node
-    /// EventTarget, AbortSignal precedent).
-    pub(crate) listeners: Vec<IdbListener>,
 }
 
 impl Default for IdbRequestState {
@@ -134,29 +126,8 @@ impl Default for IdbRequestState {
             source: None,
             transaction: None,
             deferred: None,
-            handlers: HashMap::new(),
-            listeners: Vec::new(),
         }
     }
-}
-
-/// A registered `addEventListener` callback (in-VM store).
-#[derive(Debug, Clone)]
-pub(crate) struct IdbListener {
-    /// Interned event-type SID (`success` / `error` / `complete` / `abort` /
-    /// `upgradeneeded` / `versionchange` / `blocked` / `close`).
-    pub(crate) event_type: StringId,
-    /// The callback object `ObjectId`.
-    pub(crate) callback: ObjectId,
-    /// `once` flag (WHATWG DOM `AddEventListenerOptions`).
-    pub(crate) once: bool,
-    /// The `AbortSignal` `ObjectId` from `{signal}`, if any (WHATWG DOM §2.7.3).
-    /// When that signal aborts, [`remove_idb_listeners_for_signal`] drops this
-    /// listener.  GC-traced (alongside `callback`) so the signal `ObjectId`
-    /// cannot be collected + recycled while the listener references it — a
-    /// recycled id would otherwise make a later unrelated abort remove this
-    /// listener (identity-reuse hazard).
-    pub(crate) signal: Option<ObjectId>,
 }
 
 /// Per-`IDBTransaction` state, keyed in
@@ -178,9 +149,6 @@ pub(crate) struct IdbTransactionState {
     /// order.  Drives auto-commit: emptied list after event dispatch →
     /// commit (§5.9 step 8.3).
     pub(crate) request_list: Vec<ObjectId>,
-    /// `oncomplete` / `onerror` / `onabort` handler attributes.
-    pub(crate) handlers: HashMap<StringId, ObjectId>,
-    pub(crate) listeners: Vec<IdbListener>,
     /// The `DOMException` that caused an abort (§4.10 `error`), else `None`.
     pub(crate) error: Option<ObjectId>,
     /// For an upgrade transaction, the associated open request `ObjectId`
@@ -214,8 +182,6 @@ impl IdbTransactionState {
             db: Some(db),
             backend_txn: Some(backend_txn),
             request_list: Vec::new(),
-            handlers: HashMap::new(),
-            listeners: Vec::new(),
             error: None,
             upgrade_request: None,
             upgrade_handle: None,
@@ -237,9 +203,6 @@ pub(crate) struct IdbDatabaseState {
     /// `deleteObjectStore` operate against it (§5.7).  Set by the factory
     /// open flow; cleared when the upgrade transaction finishes.
     pub(crate) upgrade_txn: Option<ObjectId>,
-    /// `onversionchange` / `onclose` / `onabort` handler attributes.
-    pub(crate) handlers: HashMap<StringId, ObjectId>,
-    pub(crate) listeners: Vec<IdbListener>,
 }
 
 /// Per-`IDBObjectStore` handle state, keyed in
@@ -372,11 +335,9 @@ impl VmInner {
     }
 }
 
-// EventTarget model + §2.9/§2.10 dispatch live in `dispatch` (split for the
-// ~1000-line convention).  Re-exported so callers keep using `super::*`.
+// IDB UA-fire seam (W3C IDB §5.9/§5.10/§4.2) lives in `dispatch`; the
+// EventTarget listener model + §2.9 dispatch are now the shared core
+// (`#11-eventtarget-dispatch-core`).  Re-exported so callers keep using
+// `super::*`.
 pub(crate) mod dispatch;
-pub(crate) use dispatch::{
-    fire_idb_event, fire_version_change_event, native_idb_add_event_listener,
-    native_idb_dispatch_event, native_idb_handler_get, native_idb_handler_set,
-    native_idb_remove_event_listener, remove_idb_listeners_for_signal, FireResult,
-};
+pub(crate) use dispatch::{fire_idb_event, fire_version_change_event, FireResult};

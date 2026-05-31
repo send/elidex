@@ -33,7 +33,11 @@ use super::super::value::{JsValue, NativeContext, VmError};
 use super::super::value::{ObjectId, ObjectKind, PropertyKey};
 use super::super::{NativeFn, VmInner};
 #[cfg(feature = "engine")]
+use super::dispatch_target::{target_from_this, DispatchTarget};
+#[cfg(feature = "engine")]
 use super::event_target_dispatch::dispatch_script_event;
+#[cfg(feature = "engine")]
+use super::event_target_dispatch_vm::dispatch_vm_event;
 
 impl VmInner {
     /// Populate `self.event_target_prototype` with the `EventTarget`
@@ -132,7 +136,7 @@ pub(super) fn native_event_target_add_event_listener(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
+    let Some(target) = target_from_this(ctx, this) else {
         return Ok(JsValue::Undefined);
     };
 
@@ -179,46 +183,18 @@ pub(super) fn native_event_target_add_event_listener(
 
     // Duplicate check: WHATWG §2.6 step 4 excludes `once` / `passive`
     // from identity, so we look up by (type, capture, callback).
-    if find_listener_id(ctx, entity, &event_type, options.capture, listener_obj_id).is_some() {
+    if find_listener_id(ctx, target, &event_type, options.capture, listener_obj_id).is_some() {
         return Ok(JsValue::Undefined);
     }
 
-    // Register in the ECS component (creating the component if absent).
-    // `insert_one` can fail if the entity has been despawned between
-    // `entity_from_this`'s extraction and now (e.g. a concurrent DOM
-    // mutation observer removed it).  In that case, skip the
-    // listener_store insert entirely — storing it would create an
-    // orphan entry that ECS could never reach for dispatch and that
-    // would hold the JS function ObjectId rooted via gc until the
-    // VM dies.
-    let listener_id: Option<elidex_script_session::ListenerId> = {
-        let dom = ctx.host().dom();
-        if dom
-            .world()
-            .get::<&elidex_script_session::EventListeners>(entity)
-            .is_ok()
-        {
-            Some(
-                dom.world_mut()
-                    .get::<&mut elidex_script_session::EventListeners>(entity)
-                    .expect("just-checked component must exist")
-                    .add_with_options(event_type, options.capture, options.once, options.passive),
-            )
-        } else {
-            let mut listeners = elidex_script_session::EventListeners::new();
-            let id = listeners.add_with_options(
-                event_type,
-                options.capture,
-                options.once,
-                options.passive,
-            );
-            if dom.world_mut().insert_one(entity, listeners).is_ok() {
-                Some(id)
-            } else {
-                None
-            }
-        }
-    };
+    // Register in the target's listener home (the ECS `EventListeners`
+    // component for a `Node`, `vm_event_listeners` for a `VmObject`),
+    // lazily creating it.  `None` means a `Node` entity was despawned
+    // between receiver resolution and now (insert failed) — skip the
+    // paired `store_listener` so no orphan rooted ObjectId is left.
+    let listener_id = target.with_listeners_mut_or_insert(ctx, |listeners| {
+        listeners.add_with_options(event_type, options.capture, options.once, options.passive)
+    });
 
     let Some(listener_id) = listener_id else {
         return Ok(JsValue::Undefined);
@@ -238,7 +214,7 @@ pub(super) fn native_event_target_add_event_listener(
     // entries across add/remove cycles (Copilot R2 finding).
     if let Some(signal_id) = options.signal {
         if let Some(state) = ctx.vm.abort_signal_states.get_mut(&signal_id) {
-            state.bound_listener_removals.insert(listener_id, entity);
+            state.bound_listener_removals.insert(listener_id, target);
             ctx.vm
                 .abort_listener_back_refs
                 .insert(listener_id, signal_id);
@@ -508,57 +484,50 @@ fn parse_capture_only(ctx: &mut NativeContext<'_>, val: JsValue) -> Result<bool,
 /// didn't match, missing later matching entries when an element had
 /// multiple listeners of the same type+capture.
 ///
-/// **Precondition**: caller must have verified `HostData` is bound
-/// (typically by passing `entity` from a successful
-/// [`entity_from_this`] call).  This helper calls `ctx.host().dom()`
-/// directly, which would panic on a null dom pointer.
+/// Works for either listener home (ECS component for a `Node`,
+/// `vm_event_listeners` for a `VmObject`) via the listener-home adapter;
+/// tolerant of a missing home / absent `HostData` (returns `None`).
 #[cfg(feature = "engine")]
 fn find_listener_id(
     ctx: &mut NativeContext<'_>,
-    entity: elidex_ecs::Entity,
+    target: DispatchTarget,
     event_type: &str,
     capture: bool,
     candidate_obj_id: ObjectId,
 ) -> Option<elidex_script_session::ListenerId> {
-    // Two-pass: collect candidate ids while holding the world borrow
-    // (scoped to the inner block), then cross-reference each against
-    // `listener_store` (which goes through `host_data` and would
-    // otherwise conflict with the world borrow).
-    let candidate_ids: Vec<_> = {
-        let dom = ctx.host().dom();
-        dom.world()
-            .get::<&elidex_script_session::EventListeners>(entity)
-            .ok()
-            .map(|listeners| {
-                // `iter_matching` skips the `Vec<&ListenerEntry>`
-                // intermediate alloc that `matching_all` would
-                // require — `addEventListener` (duplicate check) and
-                // `removeEventListener` (find target) call this on
-                // every invocation, so the alloc savings add up.
-                //
-                // WHATWG HTML §8.1.8.1: event-handler listeners (backing
-                // `el.onclick = fn`) are NOT identity-matchable by
-                // `removeEventListener(type, fn)` nor by the
-                // `addEventListener` duplicate check — their callback is
-                // the internal event-handler processing algorithm, not
-                // the raw `fn`. Filter to `Normal` so handler listeners
-                // are excluded from both paths (they are managed solely
-                // through the IDL attribute / content-attribute surface).
-                listeners
-                    .iter_matching(event_type)
-                    .filter(|e| {
-                        e.capture == capture
-                            && matches!(e.kind, elidex_script_session::ListenerKind::Normal)
-                    })
-                    .map(|e| e.id)
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
-    let host = ctx.host();
+    // Two-pass: collect candidate ids from the listener home (scoped via
+    // the adapter), then cross-reference each against `listener_store`
+    // (the engine-side callback map, shared by both homes).
+    let candidate_ids: Vec<_> = target
+        .with_listeners(ctx, |listeners| {
+            // `iter_matching` skips the `Vec<&ListenerEntry>`
+            // intermediate alloc that `matching_all` would require —
+            // `addEventListener` (duplicate check) and
+            // `removeEventListener` (find target) call this on every
+            // invocation, so the alloc savings add up.
+            //
+            // WHATWG HTML §8.1.8.1: event-handler listeners (backing
+            // `el.onclick = fn`) are NOT identity-matchable by
+            // `removeEventListener(type, fn)` nor by the
+            // `addEventListener` duplicate check — their callback is the
+            // internal event-handler processing algorithm, not the raw
+            // `fn`. Filter to `Normal` so handler listeners are excluded
+            // from both paths (they are managed solely through the IDL
+            // attribute / content-attribute surface).
+            listeners
+                .iter_matching(event_type)
+                .filter(|e| {
+                    e.capture == capture
+                        && matches!(e.kind, elidex_script_session::ListenerKind::Normal)
+                })
+                .map(|e| e.id)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let host = ctx.vm.host_data.as_deref();
     candidate_ids
         .into_iter()
-        .find(|id| host.get_listener(*id) == Some(candidate_obj_id))
+        .find(|id| host.and_then(|h| h.get_listener(*id)) == Some(candidate_obj_id))
 }
 
 /// `EventTarget.prototype.removeEventListener` — non-engine-feature stub.
@@ -599,7 +568,7 @@ pub(super) fn native_event_target_remove_event_listener(
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = entity_from_this(ctx, this) else {
+    let Some(target) = target_from_this(ctx, this) else {
         return Ok(JsValue::Undefined);
     };
 
@@ -634,23 +603,14 @@ pub(super) fn native_event_target_remove_event_listener(
     // Locate the matching listener via the shared (type, capture,
     // callback) lookup.  WHATWG §2.6 step 4 forbids duplicates so at
     // most one match exists; if none matches, it's a silent no-op.
-    let Some(listener_id) = find_listener_id(ctx, entity, &event_type, capture, listener_obj_id)
+    let Some(listener_id) = find_listener_id(ctx, target, &event_type, capture, listener_obj_id)
     else {
         return Ok(JsValue::Undefined);
     };
 
-    // Remove from ECS component first (scoped block so the world
-    // borrow is released before the centralized listener-retirement
-    // helper re-grabs the host).
-    {
-        let dom = ctx.host().dom();
-        if let Ok(mut listeners) = dom
-            .world_mut()
-            .get::<&mut elidex_script_session::EventListeners>(entity)
-        {
-            listeners.remove(listener_id);
-        }
-    }
+    // Remove from the listener home (ECS component for a `Node`,
+    // `vm_event_listeners` for a `VmObject`) via the adapter.
+    target.remove_listener_entry(ctx, listener_id);
     // Single helper that drops the listener from both
     // `HostData::listener_store` AND any AbortSignal back-ref
     // (`abort_listener_back_refs` + the per-signal HashMap).  Same
@@ -704,7 +664,7 @@ pub(super) fn native_event_target_dispatch_event(
 /// silent no-op per elidex's detach-tolerant convention).
 ///
 /// Listener body throws are caught and ignored — this matches
-/// WHATWG §2.10 step 10 "report the exception" and keeps dispatch
+/// WHATWG §2.9 inner-invoke "report the exception" and keeps dispatch
 /// advancing through the remainder of the plan.
 #[cfg(feature = "engine")]
 pub(super) fn native_event_target_dispatch_event(
@@ -739,7 +699,7 @@ pub(super) fn native_event_target_dispatch_event(
     // `document` across `Vm::unbind()` gets `true` instead of a
     // panic, and a plain-object receiver reached via
     // `dispatchEvent.call({}, ...)` behaves the same way).
-    let Some(target_entity) = entity_from_this(ctx, this) else {
+    let Some(target) = target_from_this(ctx, this) else {
         return Ok(JsValue::Boolean(true));
     };
 
@@ -765,7 +725,15 @@ pub(super) fn native_event_target_dispatch_event(
     // throws are caught inside the walk, but a VM-level error
     // path could still hit `?`) still clears membership.
     ctx.vm.dispatched_events.insert(event_id);
-    let result = dispatch_script_event(ctx, event_id, target_entity);
+    // §2.9 get-the-parent provider: a `Node` builds its DOM-tree / shadow
+    // plan; a `VmObject` builds its (flat or ancestor-chain) plan.  Both
+    // feed the one shared inner invoke.
+    let result = match target {
+        DispatchTarget::Node(entity) => dispatch_script_event(ctx, event_id, entity),
+        DispatchTarget::VmObject(id) => {
+            dispatch_vm_event(ctx, event_id, id).map(|outcome| outcome.not_prevented)
+        }
+    };
     ctx.vm.dispatched_events.remove(&event_id);
     result.map(JsValue::Boolean)
 }

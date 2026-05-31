@@ -100,6 +100,8 @@ pub(super) mod custom_elements;
 pub(crate) mod data_view;
 #[cfg(feature = "engine")]
 pub(super) mod dataset;
+#[cfg(feature = "engine")]
+pub(crate) mod dispatch_target;
 pub(super) mod document;
 #[cfg(feature = "engine")]
 pub(super) mod document_fragment_proto;
@@ -128,6 +130,8 @@ pub(super) mod event_source_dispatch;
 pub(super) mod event_target;
 #[cfg(feature = "engine")]
 pub(super) mod event_target_dispatch;
+#[cfg(feature = "engine")]
+pub(super) mod event_target_dispatch_vm;
 pub(super) mod events;
 #[cfg(feature = "engine")]
 pub(super) mod events_extras;

@@ -172,10 +172,13 @@ pub(super) fn trace_work_list(
     // result + every `on*` handler + `addEventListener` callback so a
     // user-assigned closure isn't collected while the request is reachable.
     // IDBTransaction arms mark the owning db + every request in the request
-    // list + handlers / listeners + the upgrade request.  IDBDatabase arms
-    // mark handlers / listeners.  IDBObjectStore arms mark the owning
+    // list + the upgrade request.  IDBObjectStore arms mark the owning
     // transaction.  IDBFactory / IDBKeyRange carry no `ObjectId` references
-    // (no-op).
+    // (no-op).  IDBDatabase is also a no-op here: its handlers + listeners
+    // now live in `vm_event_listeners` (rooted via `listener_store`), and
+    // its one `ObjectId` field (`IdbDatabaseState::upgrade_txn`) is already
+    // rooted by `mark_roots` (j.2b) for the upgrade transaction's whole
+    // live window — see the `IdbDatabase` arm for the full invariant.
     #[cfg(feature = "engine")] idb_request_states: &std::collections::HashMap<
         ObjectId,
         super::super::host::indexeddb::IdbRequestState,
@@ -183,10 +186,6 @@ pub(super) fn trace_work_list(
     #[cfg(feature = "engine")] idb_transaction_states: &std::collections::HashMap<
         ObjectId,
         super::super::host::indexeddb::IdbTransactionState,
-    >,
-    #[cfg(feature = "engine")] idb_database_states: &std::collections::HashMap<
-        ObjectId,
-        super::super::host::indexeddb::IdbDatabaseState,
     >,
     #[cfg(feature = "engine")] idb_object_store_states: &std::collections::HashMap<
         ObjectId,
@@ -353,18 +352,16 @@ pub(super) fn trace_work_list(
             ObjectKind::AbortSignal => {
                 if let Some(state) = abort_signal_states.get(&ObjectId(obj_idx)) {
                     mark_value(state.reason, obj_marks, work);
-                    if let Some(handler) = state.onabort {
-                        mark_object(handler, obj_marks, work);
-                    }
-                    for &cb in &state.abort_listeners {
-                        mark_object(cb, obj_marks, work);
-                    }
-                    // `bound_listener_removals` carries (Entity,
-                    // ListenerId) pairs — Entity bits are not
-                    // `ObjectId`s, and `ListenerId` lookups go through
-                    // `HostData::listener_store`, which is itself
-                    // rooted via `gc_root_object_ids`.  No tracing
-                    // needed here.
+                    // The signal's own `'abort'` listeners + `onabort`
+                    // handler now live in the unified `vm_event_listeners`
+                    // home; their callback `ObjectId`s are rooted via
+                    // `HostData::listener_store` (`gc_root_object_ids`),
+                    // not here.  `bound_listener_removals` carries
+                    // (ListenerId → DispatchTarget) pairs — neither the
+                    // `Entity` bits nor the `VmObject` target `ObjectId`
+                    // are marked (a signal must NOT keep a bound target
+                    // alive), and the `ListenerId → callback` lookup goes
+                    // through `listener_store`.  No tracing needed here.
                 }
             }
             // `AbortController` carries the paired signal `ObjectId`
@@ -398,18 +395,11 @@ pub(super) fn trace_work_list(
                         }
                         None => {}
                     }
-                    for &handler in state.handlers.values() {
-                        mark_object(handler, obj_marks, work);
-                    }
-                    for listener in &state.listeners {
-                        mark_object(listener.callback, obj_marks, work);
-                        // Keep a `{signal}`-bound listener's AbortSignal alive
-                        // while the listener exists, so its `ObjectId` cannot
-                        // be recycled (identity-reuse hazard on abort removal).
-                        if let Some(sig) = listener.signal {
-                            mark_object(sig, obj_marks, work);
-                        }
-                    }
+                    // `on<event>` handlers + `addEventListener` callbacks now
+                    // live in the unified `vm_event_listeners` home; their
+                    // callback `ObjectId`s are rooted via
+                    // `HostData::listener_store` (`gc_root_object_ids`), not
+                    // here.
                 }
             }
             #[cfg(feature = "engine")]
@@ -427,35 +417,8 @@ pub(super) fn trace_work_list(
                     if let Some(err) = state.error {
                         mark_object(err, obj_marks, work);
                     }
-                    for &handler in state.handlers.values() {
-                        mark_object(handler, obj_marks, work);
-                    }
-                    for listener in &state.listeners {
-                        mark_object(listener.callback, obj_marks, work);
-                        // Keep a `{signal}`-bound listener's AbortSignal alive
-                        // while the listener exists, so its `ObjectId` cannot
-                        // be recycled (identity-reuse hazard on abort removal).
-                        if let Some(sig) = listener.signal {
-                            mark_object(sig, obj_marks, work);
-                        }
-                    }
-                }
-            }
-            #[cfg(feature = "engine")]
-            ObjectKind::IdbDatabase => {
-                if let Some(state) = idb_database_states.get(&ObjectId(obj_idx)) {
-                    for &handler in state.handlers.values() {
-                        mark_object(handler, obj_marks, work);
-                    }
-                    for listener in &state.listeners {
-                        mark_object(listener.callback, obj_marks, work);
-                        // Keep a `{signal}`-bound listener's AbortSignal alive
-                        // while the listener exists, so its `ObjectId` cannot
-                        // be recycled (identity-reuse hazard on abort removal).
-                        if let Some(sig) = listener.signal {
-                            mark_object(sig, obj_marks, work);
-                        }
-                    }
+                    // Handlers + listeners now live in `vm_event_listeners`
+                    // (rooted via `listener_store`).
                 }
             }
             #[cfg(feature = "engine")]
@@ -468,8 +431,20 @@ pub(super) fn trace_work_list(
             }
             // IDBFactory singleton + IDBKeyRange carry no `ObjectId`
             // references (backend `IdbKeyRange` holds only `IdbKey` values).
+            // IDBDatabase's handlers + listeners now live in
+            // `vm_event_listeners` (rooted via `listener_store`).  Its one
+            // remaining `ObjectId` field — `IdbDatabaseState::upgrade_txn`,
+            // the active `versionchange` transaction — is deliberately NOT
+            // marked here: an upgrade transaction is non-`Finished` for its
+            // entire live window, so it is already a GC root via `mark_roots`
+            // (j.2b — the `idb_transaction_states` non-`Finished` loop), and
+            // `upgrade_txn` is cleared to `None` in lockstep with the
+            // `Finished` transition (`txn.rs` `dispatch_commit_done` /
+            // `abort_transaction`, both synchronous — no GC point between).
+            // So no GC-observable moment has `upgrade_txn = Some` pointing at
+            // a collectible object, and this arm stays a no-op.
             #[cfg(feature = "engine")]
-            ObjectKind::IdbFactory | ObjectKind::IdbKeyRange => {}
+            ObjectKind::IdbFactory | ObjectKind::IdbKeyRange | ObjectKind::IdbDatabase => {}
             // No ObjectId references — only StringId / scalar fields.
             ObjectKind::Ordinary
             | ObjectKind::NativeFunction(_)

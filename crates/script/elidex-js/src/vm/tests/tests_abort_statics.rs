@@ -9,6 +9,15 @@
 use super::super::value::JsValue;
 use super::super::Vm;
 
+/// A `Vm` with an (unbound) `HostData` installed so an `AbortSignal`'s
+/// unified `vm_event_listeners` callbacks (in `HostData::listener_store`)
+/// resolve without a DOM bind (see `super::tests_abort::new_vm`).
+fn new_vm() -> Vm {
+    let mut v = Vm::new();
+    v.install_host_data(super::super::host_data::HostData::new());
+    v
+}
+
 fn eval_bool(vm: &mut Vm, source: &str) -> bool {
     match vm.eval(source).unwrap() {
         JsValue::Boolean(b) => b,
@@ -25,13 +34,13 @@ fn eval_string(vm: &mut Vm, source: &str) -> String {
 
 #[test]
 fn abort_signal_abort_returns_already_aborted_signal() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert!(eval_bool(&mut vm, "AbortSignal.abort().aborted;"));
 }
 
 #[test]
 fn abort_signal_abort_default_reason_is_dom_exception_abort_error() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert!(eval_bool(
         &mut vm,
         "var s = AbortSignal.abort(); \
@@ -41,7 +50,7 @@ fn abort_signal_abort_default_reason_is_dom_exception_abort_error() {
 
 #[test]
 fn abort_signal_abort_preserves_custom_reason() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     // Non-undefined reason passthrough — matches the
     // `controller.abort('custom')` path.
     assert_eq!(
@@ -52,7 +61,7 @@ fn abort_signal_abort_preserves_custom_reason() {
 
 #[test]
 fn abort_signal_timeout_returns_not_yet_aborted_signal() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     // Immediately after `timeout`, the signal must not be
     // aborted yet — the timer only fires on the next
     // `drain_timers` call.
@@ -62,7 +71,7 @@ fn abort_signal_timeout_returns_not_yet_aborted_signal() {
 #[test]
 fn abort_signal_timeout_fires_on_drain() {
     use std::time::{Duration, Instant};
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     vm.eval("globalThis.s = AbortSignal.timeout(0);").unwrap();
     // Drain past the deadline — the internal abort path
     // should set `s.aborted = true` with a
@@ -78,13 +87,13 @@ fn abort_signal_timeout_fires_on_drain() {
 
 #[test]
 fn abort_signal_any_empty_returns_non_aborted() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert!(!eval_bool(&mut vm, "AbortSignal.any([]).aborted;"));
 }
 
 #[test]
 fn abort_signal_any_already_aborted_input_propagates() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert!(eval_bool(
         &mut vm,
         "var a = AbortSignal.abort('src'); \
@@ -102,7 +111,7 @@ fn abort_signal_any_invalid_element_does_not_strand_composite_state() {
     // next GC cycle — frequent misuse could accumulate entries.
     // The pre-validation reorder ensures no allocation happens on
     // the error path.
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     let baseline = vm.inner.abort_signal_states.len();
     for _ in 0..5 {
         let r = vm.eval("try { AbortSignal.any([42]); 0; } catch(e) { 1; }");
@@ -117,7 +126,7 @@ fn abort_signal_any_invalid_element_does_not_strand_composite_state() {
 
 #[test]
 fn abort_signal_any_non_signal_arg_throws_type_error() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     // PR5a scope: coercion failure is a plain TypeError (not
     // DOMException) — the iterable validation runs before the
     // "convert to signal" step.
@@ -141,7 +150,7 @@ fn abort_signal_timeout_astronomical_ms_does_not_panic() {
     // panicked.  The shared `clamp_delay_to_duration` helper caps
     // at 100 years so this path now returns a pending signal
     // without incident.
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     let r = vm
         .eval("typeof AbortSignal.timeout(Number.MAX_VALUE) === 'object';")
         .unwrap();
@@ -164,7 +173,7 @@ fn clear_timeout_immediately_drops_pending_timeout_signals_entry() {
     // `pending_timeout_signals` entry synchronously — without this,
     // a host that never drives `drain_timers` again would leak the
     // signal.
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     vm.eval("globalThis.s = AbortSignal.timeout(1000);")
         .unwrap();
     // Only one timer entry in flight — grab its id from the map.
@@ -191,7 +200,7 @@ fn abort_signal_timeout_canceled_signal_state_cleaned() {
     // the map entry is removed.  Drain twice — second drain
     // should be a no-op since the signal already aborted.
     use std::time::{Duration, Instant};
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     vm.eval("globalThis.s = AbortSignal.timeout(0);").unwrap();
     vm.inner
         .drain_timers(Instant::now() + Duration::from_millis(10));
@@ -204,7 +213,7 @@ fn abort_signal_timeout_canceled_signal_state_cleaned() {
 
 #[test]
 fn any_two_inputs_first_abort_propagates_with_first_reason() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert!(eval_bool(
         &mut vm,
         "var a = new AbortController(); \
@@ -217,7 +226,7 @@ fn any_two_inputs_first_abort_propagates_with_first_reason() {
 
 #[test]
 fn any_two_inputs_second_abort_is_noop_after_first() {
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert_eq!(
         eval_string(
             &mut vm,
@@ -238,7 +247,7 @@ fn any_three_inputs_first_already_aborted_uses_first_reason() {
     // composite is sync-aborted at construction time with the
     // *first* already-aborted input's reason, not whichever
     // iterable entry comes first unconditionally.
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert!(eval_bool(
         &mut vm,
         "var a = new AbortController(); \
@@ -254,7 +263,7 @@ fn any_chained_composites_propagate_through_chain() {
     // `c2 = any([c1, c])` where `c1 = any([a, b])`.  Abort `a`
     // should fire `c1`, which fans out to `c2`.  Tests recursive
     // `abort_signal` invocation inside the fan-out hook.
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert!(eval_bool(
         &mut vm,
         "var a = new AbortController(); \
@@ -280,7 +289,7 @@ fn any_direct_composite_abort_does_not_touch_inputs() {
     // out its controller.  Exercise the reverse-direction contract
     // by asserting the inputs are still live after their composite
     // aborts via chained propagation.
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert!(eval_bool(
         &mut vm,
         "var a = new AbortController(); \
@@ -296,7 +305,7 @@ fn any_duplicate_input_fires_composite_only_once() {
     // `any([a, a])` records two entries in any_composite_map;
     // abort(a) visits the composite twice but the second call
     // short-circuits via `aborted` latch, so listeners fire once.
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     assert_eq!(
         vm.eval(
             "var a = new AbortController(); \
@@ -317,7 +326,7 @@ fn any_composite_map_cleaned_after_input_aborts() {
     // drained (the fan-out hook removes the key) so subsequent
     // GC / lookup paths don't revisit dead state.  Empty after
     // single-input abort with no other map entries alive.
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     vm.eval(
         "var a = new AbortController(); \
          var b = new AbortController(); \
@@ -338,7 +347,7 @@ fn any_composite_map_is_weak_bookkeeping() {
     // user drops all references, the composite is collectable and
     // the sweep tail prunes its entry from the map so unreachable
     // composites don't accumulate while inputs remain alive.
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     vm.eval(
         "globalThis.a = new AbortController(); \
          globalThis.b = new AbortController(); \
@@ -371,7 +380,7 @@ fn any_composite_with_user_ref_survives_gc_and_propagates_abort() {
     // With a live user reference, the composite is marked via the
     // normal GC path (globalThis) and abort propagation still
     // works — weak bookkeeping doesn't break the common case.
-    let mut vm = Vm::new();
+    let mut vm = new_vm();
     vm.eval(
         "globalThis.a = new AbortController(); \
          globalThis.c = AbortSignal.any([a.signal]);",

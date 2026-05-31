@@ -603,6 +603,8 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 dispatched_events: HashSet::new(),
                 #[cfg(feature = "engine")]
+                vm_event_listeners: HashMap::new(),
+                #[cfg(feature = "engine")]
                 precomputed_event_shapes: None,
                 generator_yielded: None,
                 current_microtask: None,

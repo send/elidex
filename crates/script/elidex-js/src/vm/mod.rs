@@ -1141,6 +1141,23 @@ pub(crate) struct VmInner {
     /// matching [`Self::abort_signal_states`].
     #[cfg(feature = "engine")]
     pub(crate) dispatched_events: HashSet<ObjectId>,
+    /// Listener home for non-Node `EventTarget`s (WHATWG DOM §2.7) —
+    /// `AbortSignal` / `IDBRequest` / `IDBTransaction` / `IDBDatabase`,
+    /// keyed by the target's own `ObjectId`.  The polymorphic sibling of
+    /// the per-entity ECS `EventListeners` component: one unified listener
+    /// list type ([`elidex_script_session::EventListeners`], the full §2.7
+    /// tuple incl. capture/once/passive + `ListenerKind::{Normal,EventHandler}`)
+    /// with two homes, consulted by the shared dispatch core through the
+    /// listener-home adapter ([`host::dispatch_target::DispatchTarget`]).
+    /// Callback `ObjectId`s live in the engine-side `HostData::listener_store`
+    /// (shared with the node path), not here — this map holds metadata only.
+    ///
+    /// GC contract: trace marks each entry's callbacks via `listener_store`
+    /// (rooted regardless); sweep prunes dead `ObjectId` keys, retiring each
+    /// pruned `ListenerId` from `listener_store` + `abort_listener_back_refs`
+    /// in lockstep so a dead target leaks no rooted callback.
+    #[cfg(feature = "engine")]
+    pub(crate) vm_event_listeners: HashMap<ObjectId, elidex_script_session::EventListeners>,
     /// `Event.prototype` (WebIDL §2.2).  Holds the four event methods
     /// (`preventDefault`, `stopPropagation`, `stopImmediatePropagation`,
     /// `composedPath`) and the `defaultPrevented` accessor, plus the

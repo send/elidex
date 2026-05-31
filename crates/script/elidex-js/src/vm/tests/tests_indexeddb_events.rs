@@ -648,14 +648,159 @@ fn add_value_with_non_json_primitive_throws_data_clone_error() {
     });
 }
 
-// Note: two GC-rooting fixes here are verified by construction, not a
-// deterministic test (a use-after-free is only observable if the freed slot is
-// reused before the stale reference is read, which the heap does not
-// guarantee — same caveat as the wrapper/listener rooting tests).
-//   * R6: the once-listener `push_stack_scope` rooting in
-//     `dispatch_idb_event` (the established idiom for values held only in Rust
-//     locals across `call_function`, cf. `natives_array_hof`).
+// Note: a GC-rooting fix here is verified by construction, not a deterministic
+// test (a use-after-free is only observable if the freed slot is reused before
+// the stale reference is read, which the heap does not guarantee — same caveat
+// as the wrapper/listener rooting tests).
 //   * R14 #1: rooting non-`Finished` transactions in `gc::mark_roots` — a
 //     zero-request transaction is only `Active` *inside* `drain_tasks` (before
 //     the auto-commit sweep), a window not reachable between `Vm::eval` calls,
 //     so it cannot be set up deterministically from the test harness.
+//   (Post `#11-eventtarget-dispatch-core`: the once-listener / callback rooting
+//    that the deleted `dispatch_idb_event` did via `push_stack_scope` is now
+//    inherited from the shared core — IDB callbacks live in
+//    `HostData::listener_store`, a GC root, and the event object is rooted via
+//    `dispatched_events` for the dispatch window.)
+
+// ---------------------------------------------------------------------------
+// #11-eventtarget-dispatch-core — facets the pre-migration in-VM copy lacked,
+// now inherited from the shared §2.9 dispatch core.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn error_capture_phase_listener_fires_before_at_target() {
+    with_vm(|vm| {
+        // §2.9 capture phase along the IDB get-the-parent chain: a `{capture:
+        // true}` listener on the database (an ancestor) fires in the capture
+        // phase, BEFORE the request's at-target listener.  Impossible to
+        // express with the pre-migration copy (no capture support at all).
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_capture', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const db = e.target.result;
+                 const tx = db.transaction(['s'], 'readwrite');
+                 const store = tx.objectStore('s');
+                 store.add('first', 1);
+                 const dup = store.add('dup', 1); // ConstraintError, error bubbles
+                 db.addEventListener('error', () => { globalThis.__log.push('db-capture'); }, { capture: true });
+                 dup.addEventListener('error', (ev) => { globalThis.__log.push('req-at-target'); ev.preventDefault(); });
+             };",
+        )
+        .unwrap();
+        assert_eq!(
+            eval_string(vm, "globalThis.__log.join(',')"),
+            "db-capture,req-at-target"
+        );
+    });
+}
+
+#[test]
+fn nonbubbling_success_fires_ancestor_capture_listener() {
+    with_vm(|vm| {
+        // §2.9 capture phase runs even for a NON-bubbling event: `success`
+        // (bubbles = false) targets the request, but a `{capture: true}`
+        // listener on its ancestor transaction must still fire in the capture
+        // phase.  The request itself carries no `success` listener, so the
+        // ONLY way the listener fires is the ancestor capture walk — this
+        // pins the UA-fire fast-path (`vm_path_has_listener`) to honor
+        // ancestor capture listeners for non-bubbling events rather than
+        // skip allocation by early-breaking on `!bubbles`.
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_nonbubbling_cap', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const db = e.target.result;
+                 const tx = db.transaction(['s'], 'readwrite');
+                 const store = tx.objectStore('s');
+                 store.add('v', 1); // request fires non-bubbling `success`
+                 tx.addEventListener('success', () => { globalThis.__log.push('tx-capture'); }, { capture: true });
+             };",
+        )
+        .unwrap();
+        assert_eq!(eval_string(vm, "globalThis.__log.join(',')"), "tx-capture");
+    });
+}
+
+#[test]
+fn error_passive_listener_preventdefault_is_noop_so_abort_still_runs() {
+    with_vm(|vm| {
+        // §2.9 passive gating (R15 #1): `preventDefault()` inside a `{passive:
+        // true}` listener is a silent no-op, so the error stays un-canceled and
+        // the §5.10 auto-abort runs (→ `abort`, not `complete`).  The
+        // pre-migration copy ignored `passive`, wrongly canceling the abort.
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_passive', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const db = e.target.result;
+                 const tx = db.transaction(['s'], 'readwrite');
+                 const store = tx.objectStore('s');
+                 store.add('first', 1);
+                 const dup = store.add('dup', 1);
+                 dup.addEventListener('error', (ev) => { ev.preventDefault(); }, { passive: true });
+                 tx.onabort = () => { globalThis.__log.push('abort'); };
+                 tx.oncomplete = () => { globalThis.__log.push('complete'); };
+             };",
+        )
+        .unwrap();
+        assert_eq!(eval_string(vm, "globalThis.__log.join(',')"), "abort");
+    });
+}
+
+#[test]
+fn listener_removed_mid_dispatch_does_not_fire() {
+    with_vm(|vm| {
+        // §2.9 removed-flag: listener A removes listener B before B runs, so B
+        // does not fire (live `listener_store` resolution).  The pre-migration
+        // copy snapshotted callbacks up front, so B would have fired.
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_removed', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const db = e.target.result;
+                 const tx = db.transaction(['s'], 'readwrite');
+                 const store = tx.objectStore('s');
+                 store.add('first', 1);
+                 const dup = store.add('dup', 1);
+                 const b = () => { globalThis.__log.push('b'); };
+                 const a = (ev) => { globalThis.__log.push('a'); dup.removeEventListener('error', b); ev.preventDefault(); };
+                 dup.addEventListener('error', a);
+                 dup.addEventListener('error', b);
+             };",
+        )
+        .unwrap();
+        assert_eq!(eval_string(vm, "globalThis.__log.join(',')"), "a");
+    });
+}
+
+#[test]
+fn onsuccess_interleaves_with_addeventlistener_in_registration_order() {
+    with_vm(|vm| {
+        // Validates the §4.7 A-hoist: `onsuccess` is a `ListenerKind::EventHandler`
+        // entry in the same unified list as `addEventListener('success', …)`.
+        // It keeps its registration position and is replaced in place on re-set
+        // → fires `o2` (replacing `o1`) then `add`.  Design-B-Option-B (a
+        // separate handler slot fired first/last) would have lost this ordering.
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_interleave', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const db = e.target.result;
+                 const tx = db.transaction(['s'], 'readwrite');
+                 const store = tx.objectStore('s');
+                 const r = store.add('v', 1);
+                 r.onsuccess = () => { globalThis.__log.push('o1'); };
+                 r.addEventListener('success', () => { globalThis.__log.push('add'); });
+                 r.onsuccess = () => { globalThis.__log.push('o2'); };
+             };",
+        )
+        .unwrap();
+        assert_eq!(eval_string(vm, "globalThis.__log.join(',')"), "o2,add");
+    });
+}
