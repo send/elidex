@@ -24,11 +24,12 @@ pub struct ParseResult {
     pub dom: EcsDom,
     /// The document root entity (parent of `<html>`).
     pub document: Entity,
-    /// Parse warnings collected during parsing.
+    /// Parse warnings.
     ///
-    /// Strict mode populates this only on `Err(StrictParseError)` paths;
-    /// successful strict parses always return an empty `errors` vec.
-    /// Tolerant mode (compat crate) collects html5ever recovery warnings.
+    /// Always empty for strict mode: `parse_strict` reports errors out of
+    /// band as `Err(StrictParseError)` and only ever returns a
+    /// `ParseResult` on the success path. Tolerant mode (compat crate)
+    /// collects html5ever recovery warnings here.
     pub errors: Vec<String>,
     /// Detected encoding name.
     ///
