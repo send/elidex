@@ -1,4 +1,5 @@
-//! `AbortController` / `AbortSignal` primitives (WHATWG DOM §3.1).
+//! `AbortController` / `AbortSignal` primitives (WHATWG DOM §3.1 Interface
+//! AbortController / §3.2 Interface AbortSignal).
 //!
 //! `AbortSignal` is an `EventTarget` that is *not* a `Node`.  Its
 //! prototype chain therefore mirrors `Window`'s:
