@@ -469,6 +469,39 @@ fn numeric_keypath_coerces_to_string() {
     });
 }
 
+#[test]
+fn request_error_throws_invalid_state_while_pending() {
+    with_vm(|vm| {
+        // §4.1: the `error` getter throws InvalidStateError before the request
+        // completes (symmetric with `result`), not `null`.  Captured
+        // synchronously (before the post-eval drain resolves the request).
+        vm.eval(
+            "globalThis.__o = indexedDB.open('db_err_pending', 1);
+             globalThis.__pend = (() => { try { globalThis.__o.error; return 'no-throw'; } \
+                 catch (e) { return e.name; } })();",
+        )
+        .unwrap();
+        assert_eq!(eval_string(vm, "globalThis.__pend"), "InvalidStateError");
+        // After completion (drain) it reads as null (success, no error).
+        assert!(eval_bool(vm, "globalThis.__o.error === null"));
+    });
+}
+
+#[test]
+fn dispatch_event_rejects_non_event_argument() {
+    with_vm(|vm| {
+        // WebIDL `Event event`: a non-Event argument throws TypeError, matching
+        // the shared EventTarget.dispatchEvent — it must NOT run listeners.
+        vm.eval("globalThis.__o = indexedDB.open('db_dispatch', 1);")
+            .unwrap();
+        assert!(eval_bool(
+            vm,
+            "(() => { try { globalThis.__o.dispatchEvent({ type: 'success' }); return false; } \
+             catch (e) { return e instanceof TypeError; } })()"
+        ));
+    });
+}
+
 // ---------------------------------------------------------------------------
 // IDBKeyRange + cmp (synchronous surface)
 // ---------------------------------------------------------------------------

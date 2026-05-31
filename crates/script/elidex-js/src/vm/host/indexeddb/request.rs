@@ -302,14 +302,24 @@ pub(crate) fn native_req_get_result(
 }
 
 /// `request.error` (§4.1) — the `DOMException` on failure, else `null`.
+/// `InvalidStateError` while still pending (symmetric with `result`: the
+/// §4.1 getter throws when the request's done flag is false).
 pub(crate) fn native_req_get_error(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_request_this(ctx, this, "error")?;
-    let err = ctx.vm.idb_request_states.get(&id).and_then(|s| s.error);
-    Ok(err.map_or(JsValue::Null, JsValue::Object))
+    match ctx.vm.idb_request_states.get(&id) {
+        Some(s) if s.ready_state == IdbReadyState::Done => {
+            Ok(s.error.map_or(JsValue::Null, JsValue::Object))
+        }
+        _ => Err(super::value::dom_exc(
+            ctx,
+            "InvalidStateError",
+            "IDBRequest.error: the request has not completed",
+        )),
+    }
 }
 
 /// `request.source` (§4.1) — the object store / index / cursor, else `null`.

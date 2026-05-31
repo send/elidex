@@ -64,7 +64,13 @@ pub(super) fn finalize_commit(vm: &mut VmInner, txn_id: ObjectId) {
     if let Some(mut bt) = backend_txn {
         if let Some(backend) = vm.idb_backend.clone() {
             if let Err(e) = bt.commit(backend.conn()) {
-                // §5.4 step 2.4: write failed → abort with the error.
+                // §5.4 step 2.4: write failed → roll back the still-open handle
+                // FIRST (it was taken out of the state map above, so
+                // `abort_transaction` can no longer reach it; the backend has
+                // no `Drop` rollback, and a failed COMMIT leaves the SQLite
+                // transaction active — dropping it would strand the shared
+                // connection), then abort the JS transaction with the error.
+                let _ = bt.abort(backend.conn());
                 let exc = value::backend_error_to_dom_exception(vm, &e);
                 abort_transaction(vm, txn_id, Some(exc));
                 return;

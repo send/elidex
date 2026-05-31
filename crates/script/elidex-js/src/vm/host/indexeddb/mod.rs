@@ -754,11 +754,21 @@ pub(crate) fn native_idb_dispatch_event(
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let (target, _kind) = require_idb_event_target(ctx, this, "dispatchEvent")?;
-    let JsValue::Object(event_id) = args.first().copied().unwrap_or(JsValue::Undefined) else {
-        return Err(VmError::type_error(
-            "Failed to execute 'dispatchEvent' on 'EventTarget': \
-             parameter 1 is not of type 'Event'.",
-        ));
+    // WebIDL `Event event`: a non-Event argument (or none) is a TypeError
+    // before any §2.9 dispatch logic — matching the shared
+    // `EventTarget.prototype.dispatchEvent` (host/event_target.rs).
+    let event_id = match args.first().copied() {
+        Some(JsValue::Object(id))
+            if matches!(ctx.vm.get_object(id).kind, ObjectKind::Event { .. }) =>
+        {
+            id
+        }
+        _ => {
+            return Err(VmError::type_error(
+                "Failed to execute 'dispatchEvent' on 'EventTarget': \
+                 parameter 1 is not of type 'Event'.",
+            ))
+        }
     };
     // The event's `type` selects which handler attr + listeners run.  An
     // `on<type>` attribute name only exists for the IDB event set, so a
@@ -768,18 +778,15 @@ pub(crate) fn native_idb_dispatch_event(
     let event_type = ctx.to_string_val(type_val)?;
     let handler_attr = on_handler_sid(ctx.vm, event_type);
     let (handler, listeners) = collect_and_prune(ctx.vm, target, event_type, handler_attr);
-    // Set the dispatch slots on a real Event so listeners see `event.target`
-    // (a non-Event arg is dispatched without slots — its accessors are the
-    // object's own, untouched).
-    if matches!(ctx.vm.get_object(event_id).kind, ObjectKind::Event { .. }) {
-        set_event_slot_raw(ctx.vm, event_id, EVENT_SLOT_TARGET, JsValue::Object(target));
-        set_event_slot_raw(
-            ctx.vm,
-            event_id,
-            EVENT_SLOT_CURRENT_TARGET,
-            JsValue::Object(target),
-        );
-    }
+    // `event_id` is a real `Event` (brand-checked above), so set the dispatch
+    // slots so listeners see `event.target` / `event.currentTarget`.
+    set_event_slot_raw(ctx.vm, event_id, EVENT_SLOT_TARGET, JsValue::Object(target));
+    set_event_slot_raw(
+        ctx.vm,
+        event_id,
+        EVENT_SLOT_CURRENT_TARGET,
+        JsValue::Object(target),
+    );
     if let Some(h) = handler {
         let _ = ctx.call_function(h, JsValue::Object(target), &[JsValue::Object(event_id)]);
     }

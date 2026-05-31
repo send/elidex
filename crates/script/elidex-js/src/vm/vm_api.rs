@@ -967,6 +967,26 @@ impl Vm {
     /// stored on the internal `VmInner::idb_backend` field.
     #[cfg(feature = "engine")]
     pub fn install_idb_backend(&mut self, backend: std::rc::Rc<elidex_indexeddb::IdbBackend>) {
+        // If a backend is already installed with live IDB state, the existing
+        // `IdbTransactionState.backend_txn` handles are tied to the OLD
+        // connection — swapping the backend would strand them (a later
+        // commit/abort would target the NEW connection).  Roll them back
+        // against the old backend and clear the IDB side stores before
+        // replacing it (the IDB portion of `unbind`).  Normal bind installs
+        // onto empty state, so this is a defensive no-op there; it makes a
+        // mid-session swap safe rather than connection-stranding.
+        if let Some(old) = self.inner.idb_backend.take() {
+            for state in self.inner.idb_transaction_states.values_mut() {
+                if let Some(mut txn) = state.backend_txn.take() {
+                    let _ = txn.abort(old.conn());
+                }
+            }
+            self.inner.idb_request_states.clear();
+            self.inner.idb_transaction_states.clear();
+            self.inner.idb_database_states.clear();
+            self.inner.idb_object_store_states.clear();
+            self.inner.idb_key_range_states.clear();
+        }
         self.inner.idb_backend = Some(backend);
     }
 
