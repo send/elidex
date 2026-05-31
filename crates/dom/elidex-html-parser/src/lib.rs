@@ -100,20 +100,15 @@ pub fn parse_html_fragment(
 #[must_use]
 pub fn parse_progressive(bytes: &[u8], charset_hint: Option<&str>) -> ParseResult {
     let decoded = detect_and_decode(bytes, charset_hint);
-    match parse_strict(&decoded.text) {
-        // Tier-1: `into_result` already tagged this `ParseTier::Clean`.
-        Ok(mut result) => {
-            result.encoding = Some(decoded.encoding);
-            result
-        }
-        // Tier-2: tolerant fallback over the already-decoded text;
-        // `convert_document` already tagged it `ParseTier::Recovered`.
-        Err(_) => {
-            let mut result = parse_html(&decoded.text);
-            result.encoding = Some(decoded.encoding);
-            result
-        }
-    }
+    // Tier-1: the strict parser accepts conforming HTML5 — `into_result`
+    // already tagged the result `ParseTier::Clean`. On the first strict parse
+    // error, fall back to the tolerant html5ever backend over the *same*
+    // decoded text (no re-decode), which `convert_document` tags
+    // `ParseTier::Recovered`. Either way, stamp the detected encoding (both
+    // `&str` entry points leave it `None`).
+    let mut result = parse_strict(&decoded.text).unwrap_or_else(|_| parse_html(&decoded.text));
+    result.encoding = Some(decoded.encoding);
+    result
 }
 
 /// Shared test helpers for DOM tree inspection.
@@ -302,7 +297,18 @@ mod tests {
     // --- differential correctness: strict tree ≅ tolerant tree on valid HTML5 ---
 
     #[test]
-    fn strict_and_tolerant_agree_on_conforming_html5() {
+    fn strict_and_tolerant_agree_on_whitespace_free_conforming_html5() {
+        // Scope note: the corpus is intentionally **whitespace-free** between
+        // elements. The strict parser is spec-faithful and keeps inter-element
+        // whitespace text nodes, whereas the tolerant html5ever path strips
+        // them (convert.rs), so the two backends only produce identical trees
+        // when there is no inter-element whitespace to disagree about. That
+        // divergence is pinned separately by
+        // `strict_keeps_inter_element_whitespace_that_tolerant_strips`; here we
+        // prove that, modulo whitespace, strict reproduces the tolerant tree
+        // (tags / text / comments / doctype / attributes / child order) for
+        // conforming HTML5 — the safety property behind routing valid docs to
+        // strict.
         let cases: &[&str] = &[
             "<!DOCTYPE html><html><head></head><body><p>Hello</p></body></html>",
             "<!DOCTYPE html><html><head></head><body><div><p>A</p><p>B</p></div></body></html>",
@@ -323,6 +329,35 @@ mod tests {
                 &format!("case{i}"),
             );
         }
+    }
+
+    #[test]
+    fn strict_keeps_inter_element_whitespace_that_tolerant_strips() {
+        // Known, accepted §11.3 divergence (pinned so it stays visible rather
+        // than silently masked): the strict parser inserts every character
+        // (WHATWG HTML §13.2.5/§13.2.6), so a conforming *indented* document
+        // keeps whitespace-only text nodes between elements — the spec-correct
+        // DOM. The tolerant html5ever path drops them (convert.rs treats an
+        // all-whitespace text run as no node). Routing valid docs to strict
+        // therefore yields extra inter-element whitespace text nodes vs. the
+        // previous tolerant-only behaviour; downstream handling of those nodes
+        // is tracked as a follow-up.
+        let html =
+            "<!DOCTYPE html><html><head></head><body>\n  <p>Hi</p>\n  <p>Bye</p>\n</body></html>";
+        let strict = parse_strict(html).expect("valid HTML5");
+        let tolerant = parse_html(html);
+        let sbody = find_tag(&strict.dom, strict.document, "body").expect("strict body");
+        let tbody = find_tag(&tolerant.dom, tolerant.document, "body").expect("tolerant body");
+        let s_kids = strict.dom.children_iter(sbody).count();
+        let t_kids = tolerant.dom.children_iter(tbody).count();
+        // Tolerant: only the two <p> elements (whitespace stripped).
+        assert_eq!(t_kids, 2, "tolerant strips inter-element whitespace");
+        // Strict: the two <p> elements plus surrounding whitespace text nodes.
+        assert!(
+            s_kids > t_kids,
+            "strict should keep inter-element whitespace text nodes \
+             (strict body children={s_kids}, tolerant={t_kids})"
+        );
     }
 
     #[test]

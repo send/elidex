@@ -13,7 +13,8 @@ use elidex_ecs::{EcsDom, Entity};
 
 /// Which degradation tier produced a parsed tree.
 ///
-/// elidex's `§11.3` progressive-degradation model routes a document through
+/// elidex's progressive-degradation model (design doc
+/// `docs/design/ja/11-parser-design.md` `§11.3`) routes a document through
 /// the fastest parser that accepts it: the strict (Tier-1) parser for
 /// conforming HTML5, falling back to the tolerant rule-based-recovery
 /// (Tier-2) backend otherwise. `ParseTier` records which tier produced a
