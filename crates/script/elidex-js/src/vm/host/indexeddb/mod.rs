@@ -40,6 +40,7 @@ use std::collections::HashMap;
 use super::super::shape::PropertyAttrs;
 use super::super::value::{
     CallMode, JsValue, NativeContext, ObjectId, ObjectKind, PropertyKey, PropertyValue, StringId,
+    VmError,
 };
 use super::super::VmInner;
 use super::events::{set_event_slot_raw, EventInit, EVENT_SLOT_CURRENT_TARGET, EVENT_SLOT_TARGET};
@@ -48,6 +49,7 @@ pub(crate) mod database;
 pub(crate) mod factory;
 pub(crate) mod key_range;
 pub(crate) mod object_store;
+mod register;
 pub(crate) mod request;
 pub(crate) mod txn;
 mod value;
@@ -117,8 +119,6 @@ pub(crate) struct IdbRequestState {
     /// Owning `IDBTransaction` `ObjectId` (`None` for a factory open request
     /// until an upgrade transaction is associated).
     pub(crate) transaction: Option<ObjectId>,
-    /// `true` for `IDBOpenDBRequest` (gates `onupgradeneeded` / `onblocked`).
-    pub(crate) is_open: bool,
     /// Staged backend outcome awaiting its `IdbDeliver` database task.
     pub(crate) deferred: Option<DeferredOutcome>,
     /// `on*` handler attributes keyed by interned attr-name SID
@@ -137,7 +137,6 @@ impl Default for IdbRequestState {
             error: None,
             source: None,
             transaction: None,
-            is_open: false,
             deferred: None,
             handlers: HashMap::new(),
             listeners: Vec::new(),
@@ -477,4 +476,265 @@ fn fire_idb_event_with_props(
         }
     );
     FireResult { threw, canceled }
+}
+
+// ---------------------------------------------------------------------------
+// Shared EventTarget natives (handler attrs + addEventListener family)
+//
+// IDBRequest / IDBDatabase / IDBTransaction are non-Node `EventTarget`s whose
+// listener + handler stores live in-VM (the AbortSignal model), so they
+// shadow the inherited `EventTarget.prototype` methods.  One backend fn per
+// member dispatches on the receiver's `ObjectKind` to the matching side-store
+// (the three state structs share `handlers` / `listeners` field names).
+// ---------------------------------------------------------------------------
+
+/// Which IDB EventTarget side-store a receiver maps to.
+enum IdbTargetKind {
+    Request,
+    Transaction,
+    Database,
+}
+
+fn idb_target_kind(vm: &VmInner, id: ObjectId) -> Option<IdbTargetKind> {
+    match &vm.get_object(id).kind {
+        ObjectKind::IdbRequest => Some(IdbTargetKind::Request),
+        ObjectKind::IdbTransaction => Some(IdbTargetKind::Transaction),
+        ObjectKind::IdbDatabase => Some(IdbTargetKind::Database),
+        _ => None,
+    }
+}
+
+/// Brand-check that `this` is one of the IDB EventTargets.
+fn require_idb_event_target(
+    ctx: &NativeContext<'_>,
+    this: JsValue,
+    method: &str,
+) -> Result<(ObjectId, IdbTargetKind), VmError> {
+    if let JsValue::Object(id) = this {
+        if let Some(kind) = idb_target_kind(ctx.vm, id) {
+            return Ok((id, kind));
+        }
+    }
+    Err(VmError::type_error(format!(
+        "EventTarget.prototype.{method} called on a non-IndexedDB EventTarget"
+    )))
+}
+
+/// Shared `on*` handler-attribute getter (bound-key keyed; WebIDL §3.7.6).
+pub(crate) fn native_idb_handler_get(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let key = ctx
+        .bound_key()
+        .expect("IDB event-handler accessor missing bound_key");
+    let (id, kind) = require_idb_event_target(ctx, this, "on<event>")?;
+    let handler = match kind {
+        IdbTargetKind::Request => ctx.vm.idb_request_states.get(&id).map(|s| &s.handlers),
+        IdbTargetKind::Transaction => ctx.vm.idb_transaction_states.get(&id).map(|s| &s.handlers),
+        IdbTargetKind::Database => ctx.vm.idb_database_states.get(&id).map(|s| &s.handlers),
+    }
+    .and_then(|h| h.get(&key).copied());
+    Ok(handler.map_or(JsValue::Null, JsValue::Object))
+}
+
+/// Shared `on*` handler-attribute setter: a callable installs the handler,
+/// anything else clears it (WHATWG HTML event-handler IDL attribute).
+pub(crate) fn native_idb_handler_set(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let key = ctx
+        .bound_key()
+        .expect("IDB event-handler accessor missing bound_key");
+    let (id, kind) = require_idb_event_target(ctx, this, "on<event>")?;
+    let new_val = args.first().copied().unwrap_or(JsValue::Undefined);
+    let callable =
+        matches!(new_val, JsValue::Object(obj) if ctx.vm.get_object(obj).kind.is_callable());
+    macro_rules! apply {
+        ($map:ident) => {
+            if let Some(st) = ctx.vm.$map.get_mut(&id) {
+                match new_val {
+                    JsValue::Object(obj) if callable => {
+                        st.handlers.insert(key, obj);
+                    }
+                    _ => {
+                        st.handlers.remove(&key);
+                    }
+                }
+            }
+        };
+    }
+    match kind {
+        IdbTargetKind::Request => apply!(idb_request_states),
+        IdbTargetKind::Transaction => apply!(idb_transaction_states),
+        IdbTargetKind::Database => apply!(idb_database_states),
+    }
+    Ok(JsValue::Undefined)
+}
+
+/// `addEventListener(type, callback, options?)` (WHATWG DOM §2.7) over the
+/// in-VM listener store.  `options` may be a boolean (capture, ignored — IDB
+/// events do not capture) or an `AddEventListenerOptions` dict (`once`).
+pub(crate) fn native_idb_add_event_listener(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let (id, kind) = require_idb_event_target(ctx, this, "addEventListener")?;
+    let event_type = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
+    let callback = match args.get(1).copied() {
+        Some(JsValue::Object(cb)) if ctx.vm.get_object(cb).kind.is_callable() => cb,
+        // null / undefined callback is a silent no-op (WHATWG DOM §2.7.4).
+        None | Some(JsValue::Null | JsValue::Undefined) => return Ok(JsValue::Undefined),
+        _ => {
+            return Err(VmError::type_error(
+                "Failed to execute 'addEventListener' on 'EventTarget': \
+                 parameter 2 is not of type 'EventListener'.",
+            ))
+        }
+    };
+    let once = match args.get(2).copied() {
+        Some(JsValue::Object(opts)) => {
+            let once_key = PropertyKey::String(ctx.vm.well_known.once);
+            let v = ctx.get_property_value(opts, once_key)?;
+            ctx.to_boolean(v)
+        }
+        _ => false,
+    };
+    let listener = IdbListener {
+        event_type,
+        callback,
+        once,
+    };
+    macro_rules! add {
+        ($map:ident) => {
+            if let Some(st) = ctx.vm.$map.get_mut(&id) {
+                // WHATWG DOM §2.7.4: duplicate (type, callback, capture)
+                // tuples are not added again (capture is always false here).
+                if !st
+                    .listeners
+                    .iter()
+                    .any(|l| l.event_type == event_type && l.callback == callback)
+                {
+                    st.listeners.push(listener);
+                }
+            }
+        };
+    }
+    match kind {
+        IdbTargetKind::Request => add!(idb_request_states),
+        IdbTargetKind::Transaction => add!(idb_transaction_states),
+        IdbTargetKind::Database => add!(idb_database_states),
+    }
+    Ok(JsValue::Undefined)
+}
+
+/// `removeEventListener(type, callback)` (WHATWG DOM §2.7).
+pub(crate) fn native_idb_remove_event_listener(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let (id, kind) = require_idb_event_target(ctx, this, "removeEventListener")?;
+    let event_type = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
+    let JsValue::Object(callback) = args.get(1).copied().unwrap_or(JsValue::Undefined) else {
+        return Ok(JsValue::Undefined);
+    };
+    macro_rules! remove {
+        ($map:ident) => {
+            if let Some(st) = ctx.vm.$map.get_mut(&id) {
+                st.listeners
+                    .retain(|l| !(l.event_type == event_type && l.callback == callback));
+            }
+        };
+    }
+    match kind {
+        IdbTargetKind::Request => remove!(idb_request_states),
+        IdbTargetKind::Transaction => remove!(idb_transaction_states),
+        IdbTargetKind::Database => remove!(idb_database_states),
+    }
+    Ok(JsValue::Undefined)
+}
+
+/// `dispatchEvent(event)` (WHATWG DOM §2.9): dispatch a script-constructed
+/// event through the in-VM listener store.  Reads the event's `type`, invokes
+/// the matching `on*` handler then every registered listener of that type,
+/// and returns `!event.defaultPrevented`.  `once` listeners are pruned.
+pub(crate) fn native_idb_dispatch_event(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let (target, _kind) = require_idb_event_target(ctx, this, "dispatchEvent")?;
+    let JsValue::Object(event_id) = args.first().copied().unwrap_or(JsValue::Undefined) else {
+        return Err(VmError::type_error(
+            "Failed to execute 'dispatchEvent' on 'EventTarget': \
+             parameter 1 is not of type 'Event'.",
+        ));
+    };
+    // The event's `type` selects which handler attr + listeners run.  An
+    // `on<type>` attribute name only exists for the IDB event set, so a
+    // dispatch of an unknown type simply runs the registered listeners.
+    let type_key = PropertyKey::String(ctx.vm.well_known.event_type);
+    let type_val = ctx.get_property_value(event_id, type_key)?;
+    let event_type = ctx.to_string_val(type_val)?;
+    let handler_attr = on_handler_sid(ctx.vm, event_type);
+    let (handler, listeners) = collect_and_prune(ctx.vm, target, event_type, handler_attr);
+    // Set the dispatch slots on a real Event so listeners see `event.target`
+    // (a non-Event arg is dispatched without slots — its accessors are the
+    // object's own, untouched).
+    if matches!(ctx.vm.get_object(event_id).kind, ObjectKind::Event { .. }) {
+        set_event_slot_raw(ctx.vm, event_id, EVENT_SLOT_TARGET, JsValue::Object(target));
+        set_event_slot_raw(
+            ctx.vm,
+            event_id,
+            EVENT_SLOT_CURRENT_TARGET,
+            JsValue::Object(target),
+        );
+    }
+    if let Some(h) = handler {
+        let _ = ctx.call_function(h, JsValue::Object(target), &[JsValue::Object(event_id)]);
+    }
+    for cb in listeners {
+        let _ = ctx.call_function(cb, JsValue::Object(target), &[JsValue::Object(event_id)]);
+    }
+    let not_canceled = !matches!(
+        ctx.vm.get_object(event_id).kind,
+        ObjectKind::Event {
+            default_prevented: true,
+            ..
+        }
+    );
+    Ok(JsValue::Boolean(not_canceled))
+}
+
+/// Map an IDB event-type SID to its `on<type>` handler-attribute SID
+/// (`success` → `onsuccess`, …).  Returns a sentinel for an unknown type so
+/// `collect_and_prune` finds no handler (only listeners run).
+fn on_handler_sid(vm: &VmInner, event_type: StringId) -> StringId {
+    let wk = &vm.well_known;
+    if event_type == wk.success {
+        wk.onsuccess
+    } else if event_type == wk.error {
+        wk.onerror
+    } else if event_type == wk.complete {
+        wk.oncomplete
+    } else if event_type == wk.abort {
+        wk.onabort
+    } else if event_type == wk.upgradeneeded {
+        wk.onupgradeneeded
+    } else if event_type == wk.versionchange {
+        wk.onversionchange
+    } else if event_type == wk.blocked {
+        wk.onblocked
+    } else if event_type == wk.close {
+        wk.onclose
+    } else {
+        // No `on<type>` attribute for this event — a SID that no handler map
+        // holds, so only `addEventListener` callbacks run.
+        event_type
+    }
 }

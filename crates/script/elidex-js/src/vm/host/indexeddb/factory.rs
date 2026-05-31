@@ -288,6 +288,13 @@ pub(crate) fn dispatch_idb_upgrade(
         .idb_request_states
         .get(&request_id)
         .and_then(|s| s.transaction);
+    // §5.7 step 10.3: set the open request's done flag before firing
+    // `upgradeneeded`, so `event.target.result` (the connection) is readable
+    // inside the handler (else the §4.1 `result` getter throws
+    // InvalidStateError while the request is still pending).
+    if let Some(rs) = vm.idb_request_states.get_mut(&request_id) {
+        rs.ready_state = super::IdbReadyState::Done;
+    }
     let upgradeneeded_sid = vm.well_known.upgradeneeded;
     let onupgradeneeded_sid = vm.well_known.onupgradeneeded;
     let mut ctx = NativeContext::new_call(vm);

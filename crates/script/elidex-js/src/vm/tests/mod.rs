@@ -90,6 +90,7 @@ mod tests_html_t2b_protos;
 mod tests_html_t2c_protos;
 mod tests_html_t2d_protos;
 mod tests_html_textarea_proto;
+mod tests_indexeddb;
 mod tests_inner_html_mixin;
 mod tests_insert_adjacent;
 mod tests_integration_fetch;

@@ -219,6 +219,7 @@ enum CloneKind {
     Unclonable(&'static str),
 }
 
+#[allow(clippy::too_many_lines)] // a flat exhaustive match over every ObjectKind variant
 fn classify(kind: &ObjectKind) -> CloneKind {
     match kind {
         ObjectKind::Ordinary => CloneKind::Ordinary,

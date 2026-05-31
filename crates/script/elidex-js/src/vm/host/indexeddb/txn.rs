@@ -283,6 +283,96 @@ pub(crate) fn native_txn_commit(
     Ok(JsValue::Undefined)
 }
 
+// ---------------------------------------------------------------------------
+// Readonly accessors (W3C IDB §4.10)
+// ---------------------------------------------------------------------------
+
+/// `transaction.mode` → `"readonly"` / `"readwrite"` / `"versionchange"`.
+pub(crate) fn native_txn_get_mode(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_txn_this(ctx, this, "mode")?;
+    let mode = ctx
+        .vm
+        .idb_transaction_states
+        .get(&id)
+        .map_or(elidex_indexeddb::IdbTransactionMode::ReadOnly, |s| s.mode);
+    let s = match mode {
+        elidex_indexeddb::IdbTransactionMode::ReadOnly => "readonly",
+        elidex_indexeddb::IdbTransactionMode::ReadWrite => "readwrite",
+        elidex_indexeddb::IdbTransactionMode::VersionChange => "versionchange",
+    };
+    Ok(JsValue::String(ctx.vm.strings.intern(s)))
+}
+
+/// `transaction.durability` (§4.10).  The backend enforces only `"default"`
+/// durability (the hint is not yet honored — plan §1), so report `"default"`.
+pub(crate) fn native_txn_get_durability(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let _ = require_txn_this(ctx, this, "durability")?;
+    Ok(JsValue::String(ctx.vm.strings.intern("default")))
+}
+
+/// `transaction.db` → the owning `IDBDatabase` (§4.10).
+pub(crate) fn native_txn_get_db(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_txn_this(ctx, this, "db")?;
+    let db = ctx.vm.idb_transaction_states.get(&id).and_then(|s| s.db);
+    Ok(db.map_or(JsValue::Null, JsValue::Object))
+}
+
+/// `transaction.error` → the abort `DOMException`, else `null` (§4.10).
+pub(crate) fn native_txn_get_error(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let _ = require_txn_this(ctx, this, "error")?;
+    // The transaction does not retain its abort error in v1 (errors live on
+    // the failing request); report `null` until an error slot is tracked.
+    Ok(JsValue::Null)
+}
+
+/// `transaction.objectStoreNames` (§4.10).  Sorted `Array<string>` (no
+/// `DOMStringList` in this VM).  A versionchange transaction spans every
+/// store, so it lists the database's stores; a normal transaction lists its
+/// scope.
+pub(crate) fn native_txn_get_object_store_names(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_txn_this(ctx, this, "objectStoreNames")?;
+    let (db_name, scope, mode) = {
+        let Some(s) = ctx.vm.idb_transaction_states.get(&id) else {
+            return Ok(JsValue::Object(ctx.vm.create_array_object(Vec::new())));
+        };
+        (s.db_name.clone(), s.scope.clone(), s.mode)
+    };
+    let mut names = if mode == elidex_indexeddb::IdbTransactionMode::VersionChange {
+        let Some(backend) = ctx.vm.ensure_idb_backend() else {
+            return Err(VmError::type_error("IndexedDB backend unavailable"));
+        };
+        backend.list_store_names(&db_name).unwrap_or_default()
+    } else {
+        scope
+    };
+    names.sort();
+    let elems: Vec<JsValue> = names
+        .iter()
+        .map(|n| JsValue::String(ctx.vm.strings.intern(n)))
+        .collect();
+    Ok(JsValue::Object(ctx.vm.create_array_object(elems)))
+}
+
 /// `transaction.abort()` (§3.1.1).
 pub(crate) fn native_txn_abort(
     ctx: &mut NativeContext<'_>,

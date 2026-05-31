@@ -10,7 +10,7 @@
 
 use super::super::super::shape;
 use super::super::super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage,
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, VmError,
 };
 use super::super::super::VmInner;
 use super::super::pending_tasks::PendingTask;
@@ -43,7 +43,6 @@ pub(crate) fn create_request(
         IdbRequestState {
             source,
             transaction,
-            is_open,
             ..Default::default()
         },
     );
@@ -233,6 +232,97 @@ pub(super) fn run_post_dispatch(
     if empty {
         txn::commit_transaction(ctx.vm, txn_id);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Readonly accessors (W3C IDB §4.1)
+// ---------------------------------------------------------------------------
+
+/// Brand-check that `this` is an `IDBRequest` / `IDBOpenDBRequest`.
+fn require_request_this(
+    ctx: &NativeContext<'_>,
+    this: JsValue,
+    member: &str,
+) -> Result<ObjectId, VmError> {
+    if let JsValue::Object(id) = this {
+        if matches!(ctx.vm.get_object(id).kind, ObjectKind::IdbRequest) {
+            return Ok(id);
+        }
+    }
+    Err(VmError::type_error(format!(
+        "IDBRequest.prototype.{member} called on non-IDBRequest"
+    )))
+}
+
+/// `request.readyState` → `"pending"` / `"done"` (§4.1).
+pub(crate) fn native_req_get_ready_state(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_request_this(ctx, this, "readyState")?;
+    let state = ctx
+        .vm
+        .idb_request_states
+        .get(&id)
+        .map_or(IdbReadyState::Pending, |s| s.ready_state);
+    let sid = ctx.vm.strings.intern(state.as_str());
+    Ok(JsValue::String(sid))
+}
+
+/// `request.result` (§4.1) — `InvalidStateError` while still pending.
+pub(crate) fn native_req_get_result(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_request_this(ctx, this, "result")?;
+    let st = ctx.vm.idb_request_states.get(&id);
+    match st {
+        Some(s) if s.ready_state == IdbReadyState::Done => Ok(s.result),
+        _ => Err(super::value::dom_exc(
+            ctx,
+            "InvalidStateError",
+            "IDBRequest.result: the request has not completed",
+        )),
+    }
+}
+
+/// `request.error` (§4.1) — the `DOMException` on failure, else `null`.
+pub(crate) fn native_req_get_error(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_request_this(ctx, this, "error")?;
+    let err = ctx.vm.idb_request_states.get(&id).and_then(|s| s.error);
+    Ok(err.map_or(JsValue::Null, JsValue::Object))
+}
+
+/// `request.source` (§4.1) — the object store / index / cursor, else `null`.
+pub(crate) fn native_req_get_source(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_request_this(ctx, this, "source")?;
+    let src = ctx.vm.idb_request_states.get(&id).and_then(|s| s.source);
+    Ok(src.map_or(JsValue::Null, JsValue::Object))
+}
+
+/// `request.transaction` (§4.1) — the owning transaction, else `null`.
+pub(crate) fn native_req_get_transaction(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_request_this(ctx, this, "transaction")?;
+    let txn = ctx
+        .vm
+        .idb_request_states
+        .get(&id)
+        .and_then(|s| s.transaction);
+    Ok(txn.map_or(JsValue::Null, JsValue::Object))
 }
 
 /// Build an `"AbortError"` `DOMException` (WHATWG DOM) for §5.9 step 8.2.

@@ -518,15 +518,13 @@ pub(super) fn mark_roots(
             // must keep its request / transaction wrapper alive between
             // enqueue and drain so the side-store fan-out (staged result,
             // handlers, listeners) survives an intermediate GC cycle.
-            super::super::host::pending_tasks::PendingTask::IdbDeliver { request_id } => {
+            super::super::host::pending_tasks::PendingTask::IdbDeliver { request_id }
+            | super::super::host::pending_tasks::PendingTask::IdbUpgrade { request_id, .. } => {
                 mark_object(*request_id, obj_marks, work);
             }
             super::super::host::pending_tasks::PendingTask::IdbCommitDone { txn_id }
             | super::super::host::pending_tasks::PendingTask::IdbAbortDone { txn_id } => {
                 mark_object(*txn_id, obj_marks, work);
-            }
-            super::super::host::pending_tasks::PendingTask::IdbUpgrade { request_id, .. } => {
-                mark_object(*request_id, obj_marks, work);
             }
         }
     }

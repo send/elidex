@@ -258,6 +258,54 @@ pub(crate) fn native_db_transaction(
     Ok(JsValue::Object(txn_id))
 }
 
+// ---------------------------------------------------------------------------
+// Readonly accessors (W3C IDB §4.4)
+// ---------------------------------------------------------------------------
+
+/// `db.name` (§4.4).
+pub(crate) fn native_db_get_name(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_db_this(ctx, this, "name")?;
+    let name = db_name_of(ctx, id);
+    Ok(JsValue::String(ctx.vm.strings.intern(&name)))
+}
+
+/// `db.version` (§4.4).
+pub(crate) fn native_db_get_version(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_db_this(ctx, this, "version")?;
+    let version = ctx.vm.idb_database_states.get(&id).map_or(0, |s| s.version);
+    #[allow(clippy::cast_precision_loss)]
+    Ok(JsValue::Number(version as f64))
+}
+
+/// `db.objectStoreNames` (§4.4).  A DOMStringList in the spec; this VM has no
+/// `DOMStringList`, so the bridge returns a sorted `Array<string>` (v1).
+pub(crate) fn native_db_get_object_store_names(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_db_this(ctx, this, "objectStoreNames")?;
+    let db_name = db_name_of(ctx, id);
+    let Some(backend) = ctx.vm.ensure_idb_backend() else {
+        return Err(VmError::type_error("IndexedDB backend unavailable"));
+    };
+    let mut names = backend.list_store_names(&db_name).unwrap_or_default();
+    names.sort();
+    let elems: Vec<JsValue> = names
+        .iter()
+        .map(|n| JsValue::String(ctx.vm.strings.intern(n)))
+        .collect();
+    Ok(JsValue::Object(ctx.vm.create_array_object(elems)))
+}
+
 /// `db.close()` (§4.4).
 pub(crate) fn native_db_close(
     ctx: &mut NativeContext<'_>,

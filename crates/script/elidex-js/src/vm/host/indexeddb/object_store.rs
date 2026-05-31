@@ -135,6 +135,107 @@ fn clone_value_guarded(
     result
 }
 
+// ---------------------------------------------------------------------------
+// Readonly accessors (W3C IDB §4.5).  Metadata is read on demand from the
+// backend so it never drifts from the schema (plan §2.3).
+// ---------------------------------------------------------------------------
+
+/// `(db_name, store_name)` for a store wrapper accessor.
+fn store_meta_ctx(
+    ctx: &NativeContext<'_>,
+    store_id: ObjectId,
+) -> Result<(String, String), VmError> {
+    let st = ctx
+        .vm
+        .idb_object_store_states
+        .get(&store_id)
+        .ok_or_else(|| VmError::type_error("IDBObjectStore state missing"))?;
+    Ok((st.db_name.clone(), st.store_name.clone()))
+}
+
+/// `store.name` (§4.5).
+pub(crate) fn native_os_get_name(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_store_this(ctx, this, "name")?;
+    let (_, store) = store_meta_ctx(ctx, id)?;
+    Ok(JsValue::String(ctx.vm.strings.intern(&store)))
+}
+
+/// `store.keyPath` (§4.5) — the key path string, or `null` for an
+/// out-of-line-key store.  (Array key paths are not yet supported, plan §1.)
+pub(crate) fn native_os_get_key_path(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_store_this(ctx, this, "keyPath")?;
+    let (db, store) = store_meta_ctx(ctx, id)?;
+    let Some(backend) = ctx.vm.ensure_idb_backend() else {
+        return Err(VmError::type_error("IndexedDB backend unavailable"));
+    };
+    let (key_path, _) = backend
+        .get_store_meta(&db, &store)
+        .map_err(|e| value::backend_error_as_throw(ctx, &e))?;
+    Ok(key_path.map_or(JsValue::Null, |kp| {
+        JsValue::String(ctx.vm.strings.intern(&kp))
+    }))
+}
+
+/// `store.autoIncrement` (§4.5).
+pub(crate) fn native_os_get_auto_increment(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_store_this(ctx, this, "autoIncrement")?;
+    let (db, store) = store_meta_ctx(ctx, id)?;
+    let Some(backend) = ctx.vm.ensure_idb_backend() else {
+        return Err(VmError::type_error("IndexedDB backend unavailable"));
+    };
+    let (_, auto_increment) = backend
+        .get_store_meta(&db, &store)
+        .map_err(|e| value::backend_error_as_throw(ctx, &e))?;
+    Ok(JsValue::Boolean(auto_increment))
+}
+
+/// `store.indexNames` (§4.5).  Sorted `Array<string>` (no `DOMStringList`).
+pub(crate) fn native_os_get_index_names(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_store_this(ctx, this, "indexNames")?;
+    let (db, store) = store_meta_ctx(ctx, id)?;
+    let Some(backend) = ctx.vm.ensure_idb_backend() else {
+        return Err(VmError::type_error("IndexedDB backend unavailable"));
+    };
+    let mut names = backend.list_index_names(&db, &store).unwrap_or_default();
+    names.sort();
+    let elems: Vec<JsValue> = names
+        .iter()
+        .map(|n| JsValue::String(ctx.vm.strings.intern(n)))
+        .collect();
+    Ok(JsValue::Object(ctx.vm.create_array_object(elems)))
+}
+
+/// `store.transaction` → the owning `IDBTransaction` (§4.5).
+pub(crate) fn native_os_get_transaction(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let id = require_store_this(ctx, this, "transaction")?;
+    let txn = ctx
+        .vm
+        .idb_object_store_states
+        .get(&id)
+        .and_then(|s| s.transaction);
+    Ok(txn.map_or(JsValue::Null, JsValue::Object))
+}
+
 /// Shared `add` / `put` (§6.1).  `is_add` rejects duplicate keys with
 /// `ConstraintError`; `put` overwrites.
 fn add_or_put(
