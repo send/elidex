@@ -31,6 +31,7 @@
 mod error;
 mod result;
 mod tokenizer;
+mod tree_builder;
 
 pub use error::StrictParseError;
 pub use result::{ParseFragmentOptions, ParseResult};
