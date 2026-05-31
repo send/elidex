@@ -345,11 +345,9 @@ pub fn resolve_input_list(dom: &EcsDom, input_entity: Entity) -> Option<Entity> 
 }
 
 fn matches_datalist_with_id(dom: &EcsDom, entity: Entity, id: &str) -> bool {
-    // Namespace filter omitted: today `TagType` implies HTML-namespace
-    // element (elidex does not yet model SVG / MathML on element entities).
-    // When `#11-element-namespace-tracking` lands, add an
-    // `is_html_namespace(entity)` guard here to reject foreign-namespace
-    // `<datalist>` look-alikes per spec wording "of type `HTMLDataListElement`".
+    // Tag name is the cheapest discriminator (this runs on every descendant
+    // of the tree walk), so check it first and reject non-`<datalist>` nodes
+    // before the namespace lookup.
     let Ok(tag) = dom.world().get::<&TagType>(entity) else {
         return false;
     };
@@ -357,6 +355,12 @@ fn matches_datalist_with_id(dom: &EcsDom, entity: Entity, id: &str) -> bool {
         return false;
     }
     drop(tag);
+    // The `list` attribute must reference an element of type
+    // `HTMLDataListElement` (HTML §4.10.8), so a foreign-namespace
+    // `<datalist>` look-alike (SVG / MathML) does not match.
+    if !dom.is_html_namespace(entity) {
+        return false;
+    }
     dom.world()
         .get::<&Attributes>(entity)
         .is_ok_and(|a| a.get("id") == Some(id))

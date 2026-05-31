@@ -1,7 +1,7 @@
 use super::shadow::VALID_SHADOW_HOST_TAGS;
 use super::*;
 use crate::components::{
-    AttrData, Attributes, CommentData, DocTypeData, NodeKind, ShadowHost, ShadowRoot,
+    AttrData, Attributes, CommentData, DocTypeData, Namespace, NodeKind, ShadowHost, ShadowRoot,
     ShadowRootMode, SlotAssignment, SlotAssignmentMode, TextContent, TreeRelation,
 };
 use crate::dom::shadow::{ShadowAttachError, ShadowInit, SlotAssignError};
@@ -16,6 +16,7 @@ mod creation;
 mod destroy;
 mod equality;
 mod mutation_hook;
+mod namespace;
 mod node_kind;
 mod shadow_dom;
 mod traversal;
