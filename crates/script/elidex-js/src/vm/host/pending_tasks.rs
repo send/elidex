@@ -94,6 +94,27 @@ pub(crate) enum PendingTask {
         kind: super::file_reader::ReadKind,
         encoding: Option<StringId>,
     },
+    /// W3C IndexedDB §5.6 step 5.6 "queue a database task": deliver a
+    /// request's pre-computed result.  Drain removes the request from its
+    /// transaction's request list, sets `readyState = "done"` + result /
+    /// error, and fires the `success` / `error` event (§5.9 / §5.10) which
+    /// runs the transaction auto-commit lifecycle (§5.9 step 8.3).
+    #[cfg(feature = "engine")]
+    IdbDeliver { request_id: ObjectId },
+    /// W3C IndexedDB §5.4 step 2.5 "queue a database task" — the second
+    /// (deferred) phase of committing a transaction: set state `finished`,
+    /// fire `complete`, and (for an upgrade transaction) clear the open
+    /// request's `transaction` and fire its `success`.  The synchronous
+    /// first phase (`state = committing` + the durable backend write) ran
+    /// in `txn::commit_transaction`; deferring the event keeps the
+    /// auto-commit sweep's map iteration safe (no user JS mid-iteration).
+    #[cfg(feature = "engine")]
+    IdbCommitDone { txn_id: ObjectId },
+    /// W3C IndexedDB §5.5 "abort a transaction" deferred phase: fire the
+    /// `abort` event at the transaction.  Rollback + state transition ran
+    /// synchronously in `txn::abort_transaction`.
+    #[cfg(feature = "engine")]
+    IdbAbortDone { txn_id: ObjectId },
 }
 
 // ---------------------------------------------------------------------------
@@ -140,6 +161,21 @@ impl VmInner {
         {
             super::dom_selection_proto::dispatch_selectionchange_if_pending(self);
         }
+        // W3C IndexedDB §2.7.1: a transaction auto-commits when control
+        // returns to the event loop.  The common case commits via §5.9
+        // step 8.3 (after a request's success event); this sweep is the
+        // fallback for a zero-request transaction that never fired an
+        // event.  Runs at the same "control returns to the event loop"
+        // seam as the selection hook — `Vm::eval` (interpreter.rs) drains
+        // microtasks then `drain_tasks` after every top-level script turn,
+        // so a zero-request txn created in a top-level script is swept
+        // here.  De-dup: `commit_transaction` sets `state = Committing`
+        // synchronously, so a txn already committed via §5.9 step 8.3 is
+        // skipped by the `state == Active` guard inside the sweep.
+        #[cfg(feature = "engine")]
+        {
+            self.idb_autocommit_sweep();
+        }
         self.task_drain_depth = self.task_drain_depth.saturating_sub(1);
     }
 
@@ -169,6 +205,18 @@ impl VmInner {
                 encoding,
             } => {
                 dispatch_file_read(self, reader_id, abort_seq_snapshot, kind, encoding);
+            }
+            #[cfg(feature = "engine")]
+            PendingTask::IdbDeliver { request_id } => {
+                super::indexeddb::request::dispatch_idb_deliver(self, request_id);
+            }
+            #[cfg(feature = "engine")]
+            PendingTask::IdbCommitDone { txn_id } => {
+                super::indexeddb::txn::dispatch_commit_done(self, txn_id);
+            }
+            #[cfg(feature = "engine")]
+            PendingTask::IdbAbortDone { txn_id } => {
+                super::indexeddb::txn::dispatch_abort_done(self, txn_id);
             }
         }
     }

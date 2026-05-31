@@ -37,7 +37,13 @@
 
 use std::collections::HashMap;
 
-use super::super::value::{JsValue, ObjectId, StringId};
+use super::super::value::{CallMode, JsValue, NativeContext, ObjectId, ObjectKind, StringId};
+use super::super::VmInner;
+use super::events::{set_event_slot_raw, EventInit, EVENT_SLOT_CURRENT_TARGET, EVENT_SLOT_TARGET};
+
+pub(crate) mod request;
+pub(crate) mod txn;
+mod value;
 
 /// `IDBRequest.readyState` (W3C IDB §4.1).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -200,4 +206,190 @@ pub(crate) struct IdbObjectStoreState {
     pub(crate) store_name: String,
     /// Owning `IDBTransaction` `ObjectId`.
     pub(crate) transaction: Option<ObjectId>,
+}
+
+// ---------------------------------------------------------------------------
+// Backend lifecycle + auto-commit sweep (impl VmInner)
+// ---------------------------------------------------------------------------
+
+impl VmInner {
+    /// Return the per-origin IndexedDB backend, lazily creating an
+    /// in-memory one on first use when the embedder installed none (boa
+    /// bridge `ensure_idb_backend` parity).  `None` only if in-memory
+    /// SQLite creation fails — the caller surfaces that to JS.
+    pub(crate) fn ensure_idb_backend(
+        &mut self,
+    ) -> Option<std::rc::Rc<elidex_indexeddb::IdbBackend>> {
+        if self.idb_backend.is_none() {
+            match elidex_indexeddb::IdbBackend::open_in_memory() {
+                Ok(backend) => self.idb_backend = Some(std::rc::Rc::new(backend)),
+                Err(_) => return None,
+            }
+        }
+        self.idb_backend.clone()
+    }
+
+    /// W3C IndexedDB §2.7.1 auto-commit fallback: commit every still-`Active`
+    /// transaction whose request list is empty.  Run at the `drain_tasks`
+    /// tail (the "control returns to the event loop" seam).  Eligible ids
+    /// are collected first so `commit_transaction` (which mutates the entry
+    /// + queues a task, but never inserts / removes map entries) cannot
+    /// invalidate the iteration.  De-dup with §5.9 step 8.3: a txn already
+    /// committed there is `Committing`, so the `Active` filter skips it.
+    pub(crate) fn idb_autocommit_sweep(&mut self) {
+        let eligible: Vec<ObjectId> = self
+            .idb_transaction_states
+            .iter()
+            .filter(|(_, st)| st.state == IdbTxnState::Active && st.request_list.is_empty())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in eligible {
+            txn::commit_transaction(self, id);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shared event firing (non-Node EventTarget; AbortSignal precedent)
+// ---------------------------------------------------------------------------
+
+/// Outcome of dispatching an IDB event, consumed by the §5.9 / §5.10
+/// transaction lifecycle steps.
+pub(super) struct FireResult {
+    /// A handler / listener threw (§5.9 step 8.2 / §5.10 step 8.2 →
+    /// abort the transaction with an `"AbortError"`).
+    pub(super) threw: bool,
+    /// `event.preventDefault()` was called during dispatch (§5.10 step 8.3
+    /// canceled-flag check — when false the error aborts the transaction).
+    pub(super) canceled: bool,
+}
+
+/// Snapshot the `on*` handler + matching `addEventListener` callbacks for
+/// `event_type` from the target's side-store, removing any `once`
+/// listeners of that type (WHATWG DOM dispatch removes them before the
+/// callback runs).  The three IDB EventTarget state structs share field
+/// names (`handlers` / `listeners`), so one macro covers all three.
+fn collect_and_prune(
+    vm: &mut VmInner,
+    target: ObjectId,
+    event_type: StringId,
+    handler_attr: StringId,
+) -> (Option<ObjectId>, Vec<ObjectId>) {
+    // `ObjectKind` is not `Copy` (Vec/Box payloads), so reduce to a small
+    // discriminant under the shared borrow before taking the `&mut` map
+    // borrow below.
+    enum Which {
+        Request,
+        Transaction,
+        Database,
+        Other,
+    }
+    let which = match &vm.get_object(target).kind {
+        ObjectKind::IdbRequest => Which::Request,
+        ObjectKind::IdbTransaction => Which::Transaction,
+        ObjectKind::IdbDatabase => Which::Database,
+        _ => Which::Other,
+    };
+    macro_rules! pull {
+        ($map:ident) => {{
+            match vm.$map.get_mut(&target) {
+                Some(st) => {
+                    let handler = st.handlers.get(&handler_attr).copied();
+                    let cbs: Vec<ObjectId> = st
+                        .listeners
+                        .iter()
+                        .filter(|l| l.event_type == event_type)
+                        .map(|l| l.callback)
+                        .collect();
+                    st.listeners
+                        .retain(|l| !(l.event_type == event_type && l.once));
+                    (handler, cbs)
+                }
+                None => (None, Vec::new()),
+            }
+        }};
+    }
+    match which {
+        Which::Request => pull!(idb_request_states),
+        Which::Transaction => pull!(idb_transaction_states),
+        Which::Database => pull!(idb_database_states),
+        Which::Other => (None, Vec::new()),
+    }
+}
+
+/// Fire `event_type` at `target` (W3C IDB §5.9 / §5.10 dispatch step):
+/// build a fresh `Event`, set `target` / `currentTarget`, invoke the
+/// `on*` handler attribute then every matching `addEventListener`
+/// callback.  Returns whether a listener threw + whether the default was
+/// prevented so the caller can run the transaction lifecycle steps.
+pub(super) fn fire_idb_event(
+    ctx: &mut NativeContext<'_>,
+    target: ObjectId,
+    event_type: StringId,
+    handler_attr: StringId,
+    cancelable: bool,
+    bubbles: bool,
+) -> FireResult {
+    let (handler, listeners) = collect_and_prune(ctx.vm, target, event_type, handler_attr);
+    if handler.is_none() && listeners.is_empty() {
+        return FireResult {
+            threw: false,
+            canceled: false,
+        };
+    }
+    let shape = ctx
+        .vm
+        .precomputed_event_shapes
+        .as_ref()
+        .expect("precomputed_event_shapes missing — register_globals did not run")
+        .core;
+    let init = EventInit {
+        bubbles,
+        cancelable,
+        composed: false,
+    };
+    let event_id = ctx.vm.create_fresh_event_object(
+        JsValue::Undefined,
+        event_type,
+        init,
+        shape,
+        Vec::new(),
+        true,
+        CallMode::Call,
+    );
+    set_event_slot_raw(ctx.vm, event_id, EVENT_SLOT_TARGET, JsValue::Object(target));
+    set_event_slot_raw(
+        ctx.vm,
+        event_id,
+        EVENT_SLOT_CURRENT_TARGET,
+        JsValue::Object(target),
+    );
+    let mut threw = false;
+    // Errors swallowed per WHATWG event-handler-attribute semantics
+    // (uncaught exceptions log, don't propagate) but recorded so §5.9
+    // step 8.2 / §5.10 step 8.2 can abort the transaction.
+    if let Some(h) = handler {
+        if ctx
+            .call_function(h, JsValue::Object(target), &[JsValue::Object(event_id)])
+            .is_err()
+        {
+            threw = true;
+        }
+    }
+    for cb in listeners {
+        if ctx
+            .call_function(cb, JsValue::Object(target), &[JsValue::Object(event_id)])
+            .is_err()
+        {
+            threw = true;
+        }
+    }
+    let canceled = matches!(
+        ctx.vm.get_object(event_id).kind,
+        ObjectKind::Event {
+            default_prevented: true,
+            ..
+        }
+    );
+    FireResult { threw, canceled }
 }
