@@ -964,7 +964,7 @@ impl Vm {
     /// IndexedDB works out of the box for tests / unconfigured VMs.
     ///
     /// Shared cross-cutting session resource (`!Send`/`!Sync` SQLite handle) —
-    /// see the [`VmInner::idb_backend`](super::VmInner) doc.
+    /// stored on the internal `VmInner::idb_backend` field.
     #[cfg(feature = "engine")]
     pub fn install_idb_backend(&mut self, backend: std::rc::Rc<elidex_indexeddb::IdbBackend>) {
         self.inner.idb_backend = Some(backend);
