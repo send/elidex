@@ -117,7 +117,7 @@ pub(super) fn dispatch_sse_connected(vm: &mut VmInner, instance: ObjectId, final
 ///   `addEventListener(event_type, ...)` listeners.  `onmessage`
 ///   does NOT receive named events (it is the
 ///   `addEventListener("message", ...)` entry per WHATWG
-///   EventHandler IDL §8.1.7.2).
+///   EventHandler IDL §8.1.8.1).
 pub(super) fn dispatch_sse_event(
     vm: &mut VmInner,
     instance: ObjectId,

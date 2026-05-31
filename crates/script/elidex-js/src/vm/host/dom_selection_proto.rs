@@ -899,11 +899,11 @@ fn native_selection_to_string(
 }
 
 // ---------------------------------------------------------------------------
-// selectionchange dispatch (HTML §8.1.4.2 "selection task source")
+// selectionchange dispatch (HTML §8.1.7.1 "selection task source")
 // ---------------------------------------------------------------------------
 
 /// Dispatch a coalesced `selectionchange` event at the bound Document
-/// per Selection API §3.4 / HTML §8.1.4.2 ("selection task source") if
+/// per Selection API §3.4 / HTML §8.1.7.1 ("selection task source") if
 /// the per-document dirty bit is set.  Resets the bit on success.
 ///
 /// Called from `VmInner::drain_tasks` after the regular pending-task

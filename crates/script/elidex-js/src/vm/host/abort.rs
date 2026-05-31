@@ -87,7 +87,7 @@ pub(crate) struct AbortSignalState {
     /// Single `onabort` IDL handler slot, written via `signal.onabort = fn`.
     /// Spec §3.1: when `'abort'` fires, the `onabort` handler runs
     /// alongside any addEventListener-registered `'abort'` callbacks,
-    /// in registration order (WHATWG §8.1.5: event-handler IDL
+    /// in registration order (WHATWG §8.1.8.1: event-handler IDL
     /// attribute is "first in addition to others registered").
     pub(crate) onabort: Option<ObjectId>,
     /// Callbacks registered via `signal.addEventListener('abort', cb)`.
@@ -723,7 +723,7 @@ pub(super) fn abort_signal(
     #[cfg(feature = "engine")]
     super::indexeddb::remove_idb_listeners_for_signal(ctx.vm, signal_id);
 
-    // Fire `onabort` first (matches WHATWG §8.1.5 — event handler
+    // Fire `onabort` first (matches WHATWG §8.1.8.1 — event handler
     // attribute is "the first in addition to others registered").
     let signal_val = JsValue::Object(signal_id);
     if let Some(handler) = onabort {

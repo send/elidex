@@ -20,12 +20,13 @@ use super::VmInner;
 impl VmInner {
     /// Parse, compile, and execute JavaScript source code.
     ///
-    /// HTML §8.1.4.2 step 7: after the classic script finishes, drain the
-    /// microtask queue.  Drain runs regardless of whether the script
+    /// HTML §8.1.7.3 (perform a microtask checkpoint): after the classic
+    /// script finishes, drain the microtask queue.  Drain runs regardless
+    /// of whether the script
     /// succeeded or threw, so that reactions attached inside a thrown-from
     /// try/catch still fire (spec parity with browser microtask semantics).
     ///
-    /// After microtasks, drain the same-window task queue (HTML §8.1.5)
+    /// After microtasks, drain the same-window task queue (HTML §8.1.7.3)
     /// so `window.postMessage` listeners observe the event within the
     /// same `eval` call instead of silently deferring to the next host
     /// tick.  `drain_tasks` itself runs a microtask checkpoint between

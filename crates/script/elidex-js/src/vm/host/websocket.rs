@@ -1043,7 +1043,7 @@ macro_rules! ws_on_handler {
         ) -> Result<JsValue, VmError> {
             let id = require_websocket_this(ctx, this, $name)?;
             let new_val = args.first().copied().unwrap_or(JsValue::Undefined);
-            // Per WHATWG EventHandler IDL §8.1.7.2: only callable
+            // Per WHATWG EventHandler IDL §8.1.8.1: only callable
             // values are retained; any other value nulls the slot
             // (matches Chrome/Firefox).
             let stored = match new_val {

@@ -84,7 +84,7 @@ fn navigator_hardware_concurrency_is_positive_integer() {
 
 #[test]
 fn navigator_app_name_is_netscape_per_spec() {
-    // WHATWG HTML §8.1.5 fixes `appName` to "Netscape" regardless of UA.
+    // WHATWG HTML §8.10.1.1 fixes `appName` to "Netscape" regardless of UA.
     assert_eq!(eval_string("navigator.appName;"), "Netscape");
 }
 

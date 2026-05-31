@@ -371,7 +371,7 @@ impl VmInner {
         // bindings-empty fast path: per
         // `observer_common::deliver_to_observer_callbacks`'s
         // contract, the trailing microtask drain runs even when the
-        // observer_ids slice is empty (HTML §8.1.4.3 — each broadcast
+        // observer_ids slice is empty (HTML §8.1.7.3 — each broadcast
         // is its own microtask checkpoint).  Matches
         // `deliver_mutation_records`.
         if !self

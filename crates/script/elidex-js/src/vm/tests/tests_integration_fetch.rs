@@ -474,7 +474,7 @@ fn fetch_null_body_override_clears_base_body() {
 
 #[test]
 fn fetch_unhandled_rejection_drained_by_vm() {
-    // WHATWG HTML §8.1.5.7: a rejected Promise that settles with
+    // WHATWG HTML §8.1.4.7: a rejected Promise that settles with
     // no reaction attached must surface on the VM's unhandled-
     // rejection queue so the end-of-drain scan can process it
     // (either firing an `unhandledrejection` event or logging to

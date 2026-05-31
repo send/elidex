@@ -242,7 +242,7 @@ fn clear_interval_stops_repetition() {
 
 #[test]
 fn drain_timers_flushes_microtasks_after() {
-    // HTML §8.1.4.2 step 8: microtasks run after each macrotask.  A
+    // HTML §8.1.7.3 (perform a microtask checkpoint): microtasks run after each macrotask.  A
     // timer callback that schedules a microtask should see it drain
     // during the same drain_timers call.
     let mut vm = installed_vm();

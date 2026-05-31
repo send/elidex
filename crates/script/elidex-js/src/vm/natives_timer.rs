@@ -248,7 +248,7 @@ impl VmInner {
     /// these to `host.session().report_error(...)`.
     ///
     /// After firing expired timers, drains the microtask queue (HTML
-    /// §8.1.4.2 step 8).
+    /// §8.1.7.3 — perform a microtask checkpoint).
     pub(crate) fn drain_timers(&mut self, now: Instant) -> usize {
         let mut fired = 0usize;
         loop {

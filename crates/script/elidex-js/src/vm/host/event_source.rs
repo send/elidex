@@ -142,7 +142,7 @@ impl VmInner {
 
         // Event handler attributes: 3 pairs (onopen / onmessage /
         // onerror).  WHATWG IDL EventHandler attribute — silent
-        // non-callable nulling per §8.1.7.2 (the macro replicates
+        // non-callable nulling per §8.1.8.1 (the macro replicates
         // ws_on_handler! exactly).
         let on_handlers: [(StringId, NativeFn, NativeFn); 3] = [
             (
@@ -630,7 +630,7 @@ fn native_es_remove_event_listener(
 // instead of 4 (SSE has no `onclose` per WHATWG HTML §9.2: the
 // terminator is `close()` and FatalError surfaces as `onerror` +
 // readyState CLOSED, not a CloseEvent).  Non-callable assignments
-// silently null the slot per WHATWG IDL EventHandler §8.1.7.2.
+// silently null the slot per WHATWG IDL EventHandler §8.1.8.1.
 // ---------------------------------------------------------------------------
 
 macro_rules! es_on_handler {

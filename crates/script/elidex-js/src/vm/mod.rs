@@ -248,8 +248,9 @@ pub(crate) struct VmInner {
     pub(crate) dom_registry: std::rc::Rc<elidex_dom_api::registry::DomHandlerRegistry>,
     /// Promise.prototype object (§27.2.5).
     pub(crate) promise_prototype: Option<ObjectId>,
-    /// Microtask queue (HTML §8.1.4.3).  Drained at HTML microtask
-    /// checkpoints (end of `eval`, end of each event listener).
+    /// Microtask queue (HTML §8.1.7.1 Definitions).  Drained at HTML
+    /// §8.1.7.3 microtask checkpoints (end of `eval`, end of each event
+    /// listener).
     pub(crate) microtask_queue: VecDeque<natives_promise::Microtask>,
     /// Reentrancy guard — nonzero while a drain is in progress, so nested
     /// eval/listener calls don't reorder the rest of the queue.
@@ -1192,22 +1193,22 @@ pub(crate) struct VmInner {
     /// `isComposing` own-data slots.
     #[cfg(feature = "engine")]
     pub(crate) input_event_prototype: Option<ObjectId>,
-    /// `PromiseRejectionEvent.prototype` (HTML §8.1.7.3.4).  Chains to
+    /// `PromiseRejectionEvent.prototype` (HTML §8.1.4.7).  Chains to
     /// [`event_prototype`] (sibling of UIEvent, not descendant).  Adds
     /// `promise` / `reason` own-data slots.
     #[cfg(feature = "engine")]
     pub(crate) promise_rejection_event_prototype: Option<ObjectId>,
-    /// `ErrorEvent.prototype` (HTML §8.1.7.2).  Chains to
+    /// `ErrorEvent.prototype` (HTML §8.1.4.6).  Chains to
     /// [`event_prototype`].  Adds `message` / `filename` / `lineno` /
     /// `colno` / `error` own-data slots.
     #[cfg(feature = "engine")]
     pub(crate) error_event_prototype: Option<ObjectId>,
-    /// `HashChangeEvent.prototype` (HTML §8.1.3).  Chains to
+    /// `HashChangeEvent.prototype` (HTML §7.2.7.3).  Chains to
     /// [`event_prototype`].  Adds `oldURL` / `newURL` own-data slots
     /// (reuses the UA-dispatch `hash_change` shape).
     #[cfg(feature = "engine")]
     pub(crate) hash_change_event_prototype: Option<ObjectId>,
-    /// `PopStateEvent.prototype` (HTML §8.8.1).  Chains to
+    /// `PopStateEvent.prototype` (HTML §7.2.7.2).  Chains to
     /// [`event_prototype`].  Adds `state` own-data slot.
     #[cfg(feature = "engine")]
     pub(crate) pop_state_event_prototype: Option<ObjectId>,
@@ -2231,7 +2232,7 @@ pub(crate) struct VmInner {
     /// unbind.
     #[cfg(feature = "engine")]
     pub(crate) worker_entities: HashMap<elidex_api_workers::WorkerId, elidex_ecs::Entity>,
-    /// HTML §8.1.5 same-window task queue.  Currently populated only
+    /// HTML §8.1.7.1 same-window task queue.  Currently populated only
     /// by `window.postMessage`; drained at the end of every
     /// `VmInner::eval` after the microtask flush.  See
     /// [`host::pending_tasks`] for the full task shape and GC

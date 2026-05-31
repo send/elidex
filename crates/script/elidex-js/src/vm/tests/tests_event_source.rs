@@ -675,7 +675,7 @@ fn add_event_listener_for_message_fires_alongside_onmessage() {
     // §9.2 "Dispatch the event": message events fire BOTH onmessage AND
     // addEventListener("message", ...) listeners (the on* handler
     // is the implicit `addEventListener("message", ...)` per
-    // EventHandler IDL §8.1.7.2).
+    // EventHandler IDL §8.1.8.1).
     with_es_vm(|vm| {
         vm.eval(
             "globalThis._who = []; \

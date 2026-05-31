@@ -180,7 +180,7 @@ where
 /// `call` so a GC triggered by user code cannot collect either),
 /// callback-exception reporting (matches the boa-side
 /// `eprintln!("[JS … Observer Error] {err}")` form), and the trailing
-/// microtask checkpoint (HTML §8.1.4.3 — chained `.then` reactions
+/// microtask checkpoint (HTML §8.1.7.3 — perform a microtask checkpoint; chained `.then` reactions
 /// fire before this call returns).
 ///
 /// `prepare(vm, observer_id) -> Option<(binding, records_array)>` is

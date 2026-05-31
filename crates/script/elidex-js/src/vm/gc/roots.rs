@@ -194,7 +194,7 @@ pub(super) struct GcRoots<'a> {
     /// so they don't need tracing.
     #[cfg(feature = "engine")]
     pub(super) pending_timeout_signals: &'a HashMap<u32, ObjectId>,
-    /// Queued same-window tasks (HTML §8.1.5).  Each task holds a
+    /// Queued same-window tasks (HTML §8.1.7.1).  Each task holds a
     /// `JsValue` payload plus target / source `ObjectId`s that the
     /// dispatch step will read — tracing them here keeps the payload
     /// alive if GC triggers between `postMessage` and `drain_tasks`.

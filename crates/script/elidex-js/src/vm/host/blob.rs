@@ -264,7 +264,7 @@ pub(super) fn resolve_promise_sync(vm: &mut VmInner, promise: ObjectId, value: J
 /// on [`VmInner::pending_rejections`]; the end-of-drain scan
 /// then either dispatches `unhandledrejection` (if a listener is
 /// registered on the document) or logs to stderr, matching
-/// WHATWG HTML §8.1.5.7.
+/// WHATWG HTML §8.1.4.7.
 pub(super) fn reject_promise_sync(vm: &mut VmInner, promise: ObjectId, reason: JsValue) {
     let _ = super::super::natives_promise::settle_promise(vm, promise, true, reason);
 }
