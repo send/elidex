@@ -18,12 +18,12 @@
 //! ## Boundary generation
 //!
 //! Boundaries must not appear inside the encoded body.  The
-//! candidate boundary is derived from a salt counter mixed with a
+//! candidate boundary is derived from a retry counter mixed with a
 //! per-process [`process_nonce`] (seeded once at first call from
 //! `RandomState`'s cryptographically strong system random data).
 //! Collision check runs against the small parts —
 //! quoted-name / quoted-filename / Content-Type / string-entry
-//! values — and bumps the salt on the rare collision.
+//! values — and bumps the counter on the rare collision.
 //!
 //! **Blob payload bytes are NOT scanned for collisions** — the O(N)
 //! sweep over multi-MiB Blobs would dominate encode cost.  The
@@ -63,17 +63,17 @@ pub(super) fn encode(vm: &VmInner, entries: &[FormDataEntry]) -> (Vec<u8>, Strin
     //    verbatim (no per-iteration alloc).
     let materialised: Vec<MaterialisedEntry> = entries.iter().map(|e| materialise(vm, e)).collect();
 
-    // 2. Boundary derivation.  Hash a per-process nonce + the salt
+    // 2. Boundary derivation.  Hash a per-process nonce + the retry
     //    counter to produce a 64-bit fingerprint that an adversarial
     //    input cannot predict (RandomState seeds the nonce from
     //    system random data).  Collision-check the candidate against
     //    the small parts (quoted-name / quoted-filename /
-    //    Content-Type / string-entry value bytes) and bump the salt
+    //    Content-Type / string-entry value bytes) and bump the counter
     //    on the rare collision.  Blob bytes are NOT scanned — see
     //    module docs for the entropy / perf trade-off.
-    let mut salt: u64 = 0;
+    let mut boundary_counter: u64 = 0;
     let boundary = loop {
-        let candidate = derive_boundary(salt);
+        let candidate = derive_boundary(boundary_counter);
         let needle = format!("--{candidate}");
         let needle_bytes = needle.as_bytes();
         let collides = materialised.iter().any(|e| {
@@ -89,7 +89,7 @@ pub(super) fn encode(vm: &VmInner, entries: &[FormDataEntry]) -> (Vec<u8>, Strin
         if !collides {
             break candidate;
         }
-        salt = salt.wrapping_add(1);
+        boundary_counter = boundary_counter.wrapping_add(1);
     };
 
     // 3. Pre-compute the exact body length so the encode loop never
@@ -253,20 +253,23 @@ fn process_nonce() -> u64 {
     })
 }
 
-/// Derive a hex boundary string from the `salt` mixed with the
-/// per-process [`process_nonce`] — no payload bytes touched.
-/// Always 24 hex chars (16 from the hashed mix + 8 from `salt as
-/// u32`) appended to the `----elidexFormBoundary` prefix, well
-/// within RFC 2046's 70-char limit.  Unpredictable across
+/// Derive a hex boundary string from the `boundary_counter` mixed
+/// with the per-process [`process_nonce`] — no payload bytes touched.
+/// Always 24 hex chars (16 from the hashed mix + 8 from
+/// `boundary_counter as u32`) appended to the `----elidexFormBoundary`
+/// prefix, well within RFC 2046's 70-char limit.  Unpredictable across
 /// processes thanks to the random nonce; deterministic within a
-/// process given the same salt so the collision-retry loop
-/// converges on the same boundary even after a salt bump.
-fn derive_boundary(salt: u64) -> String {
+/// process given the same counter so the collision-retry loop
+/// converges on the same boundary even after a counter bump.
+fn derive_boundary(boundary_counter: u64) -> String {
     let mut hasher = DefaultHasher::new();
     process_nonce().hash(&mut hasher);
-    salt.hash(&mut hasher);
+    boundary_counter.hash(&mut hasher);
     let h = hasher.finish();
-    format!("----elidexFormBoundary{:016x}{:08x}", h, salt as u32)
+    format!(
+        "----elidexFormBoundary{:016x}{:08x}",
+        h, boundary_counter as u32
+    )
 }
 
 /// `slice::contains_slice` is unstable; this is the obvious O(N·M)
