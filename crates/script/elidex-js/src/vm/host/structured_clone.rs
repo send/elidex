@@ -219,6 +219,7 @@ enum CloneKind {
     Unclonable(&'static str),
 }
 
+#[allow(clippy::too_many_lines)] // a flat exhaustive match over every ObjectKind variant
 fn classify(kind: &ObjectKind) -> CloneKind {
     match kind {
         ObjectKind::Ordinary => CloneKind::Ordinary,
@@ -257,6 +258,20 @@ fn classify(kind: &ObjectKind) -> CloneKind {
             CloneKind::Unclonable("AbortSignal")
         }
         ObjectKind::Headers => CloneKind::Unclonable("Headers"),
+        // IndexedDB interfaces are not [Serializable]; identity is per-VM
+        // (state lives on the `idb_*_states` side stores).  D-20.
+        #[cfg(feature = "engine")]
+        ObjectKind::IdbFactory => CloneKind::Unclonable("IDBFactory"),
+        #[cfg(feature = "engine")]
+        ObjectKind::IdbRequest => CloneKind::Unclonable("IDBRequest"),
+        #[cfg(feature = "engine")]
+        ObjectKind::IdbDatabase => CloneKind::Unclonable("IDBDatabase"),
+        #[cfg(feature = "engine")]
+        ObjectKind::IdbObjectStore => CloneKind::Unclonable("IDBObjectStore"),
+        #[cfg(feature = "engine")]
+        ObjectKind::IdbTransaction => CloneKind::Unclonable("IDBTransaction"),
+        #[cfg(feature = "engine")]
+        ObjectKind::IdbKeyRange => CloneKind::Unclonable("IDBKeyRange"),
         ObjectKind::Request => CloneKind::Unclonable("Request"),
         ObjectKind::Response => CloneKind::Unclonable("Response"),
         ObjectKind::TextEncoder => CloneKind::Unclonable("TextEncoder"),

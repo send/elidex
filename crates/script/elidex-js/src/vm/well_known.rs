@@ -1381,6 +1381,25 @@ define_well_known_strings! {
         closed_attr => "closed",
     }
 
+    "IndexedDB (slot #11-indexed-db-vm / D-20)" {
+        // Event-type SIDs not already in core: `error` (line 100) /
+        // `complete` (175) / `abort` (696) / `close` (1379) are shared.
+        success => "success",
+        upgradeneeded => "upgradeneeded",
+        versionchange => "versionchange",
+        blocked => "blocked",
+        // Event-handler-attribute SIDs not already present: `onerror`
+        // (1277) / `onabort` (697) / `onclose` (1335) are shared.
+        onsuccess => "onsuccess",
+        oncomplete => "oncomplete",
+        onupgradeneeded => "onupgradeneeded",
+        onversionchange => "onversionchange",
+        onblocked => "onblocked",
+        // IDBVersionChangeEvent attributes (§4.2).
+        old_version => "oldVersion",
+        new_version => "newVersion",
+    }
+
     "ResizeObserver / IntersectionObserver (slot #11-resize-observer-vm + #11-intersection-observer-vm)" {
         // Constructor globals + method names unique to the D-22 observer
         // pair.  `observe` / `disconnect` / `take_records` /
