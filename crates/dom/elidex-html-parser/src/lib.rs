@@ -1,6 +1,8 @@
 //! HTML parser for elidex.
 //!
-//! Parses HTML5 documents into an ECS-backed DOM tree using html5ever.
+//! Parses HTML5 documents into an ECS-backed DOM tree. Conforming documents
+//! take the strict parser (design doc §11.3 Tier-1); html5ever is the tolerant
+//! fallback (Tier-2) and the backend for the bare string/fragment entry points.
 //!
 //! Entry points:
 //! - [`parse_html`] — UTF-8 string input, tolerant html5ever (§11.3 Tier-2).

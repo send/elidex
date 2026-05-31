@@ -5,7 +5,7 @@
 - **Three entry points**: `parse_html(&str)` (UTF-8, tolerant html5ever = §11.3 Tier-2), `parse_progressive(&[u8], charset_hint)` (byte input with charset auto-detection + design doc §11.3 strict-first dispatch: tries `parse_strict` for conforming HTML5, falls back to the tolerant html5ever backend on the first §13.2.2 parse error over the same decoded text), `parse_strict(&str)` (strict mode = §11.3 Tier-1, rejects documents with parse errors).
 - **Charset detection** (`charset.rs`): BOM always stripped first (`strip_bom()`), then encoding priority: HTTP charset hint → BOM encoding → `<meta charset>` prescan (1024 bytes) → `<meta http-equiv="Content-Type" content="…;charset=…">` prescan → UTF-8 default. Uses `encoding_rs` with `new_decoder_without_bom_handling()` to avoid encoding_rs's built-in BOM sniffing overriding our priority logic.
 - **ParseResult**: `encoding: Option<&'static str>` (detected encoding, set by `parse_progressive`; `None` for the bare-`&str` entry points `parse_html`/`parse_strict`) and `tier: ParseTier` (`Clean` = strict/Tier-1 produced the tree, `Recovered` = tolerant/Tier-2 backend — intrinsic to the producing backend, making the §11.3 strict-vs-fallback gradient observable).
-- **StrictParseError**: `Display` + `Error` impl, contains `Vec<String>` of html5ever error messages.
+- **StrictParseError**: `Display` + `Error` impl, carries `Vec<String>` of WHATWG HTML §13.2.2 parse-error *names* (e.g. `"missing-attribute-value"`) — strict aborts on the first parse error, so typically a single name. Owned by `elidex-html-parser-strict` and re-exported.
 - **Dependencies**: `encoding_rs 0.8` for charset detection/transcoding.
 
 ## elidex-dom-api
