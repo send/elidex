@@ -174,7 +174,11 @@ fn matches_empty(entity: Entity, dom: &EcsDom) -> bool {
                     return false;
                 }
             }
-            // Element children (and any other content node) make it non-empty.
+            // Element children make it non-empty. (CDATA sections are also
+            // content nodes per §13.2, but the engine never builds a
+            // `NodeKind::CdataSection` tree node — the parser emits CDATA as
+            // text — so they cannot reach here; if a CDATA constructor is ever
+            // added, give it the same whitespace-only treatment as `Text`.)
             _ => return false,
         }
     }
