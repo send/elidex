@@ -355,6 +355,59 @@ fn inline_store_explicit_key_rejects_before_running_value_side_effects() {
     });
 }
 
+#[test]
+fn explicit_abort_fires_error_on_pending_requests() {
+    with_vm(|vm| {
+        // R11 #1 / §5.5: aborting a transaction fires `error` (AbortError) at
+        // each still-pending request, so `req.onerror` IS notified — then the
+        // transaction's `abort` event fires (request errors drain first).
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_abort_req', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const tx = e.target.result.transaction(['s'], 'readwrite');
+                 const req = tx.objectStore('s').add('v', 1);
+                 req.onerror = () => { globalThis.__log.push('req-error:' + req.error.name); };
+                 tx.onabort = () => { globalThis.__log.push('tx-abort'); };
+                 tx.abort();
+             };",
+        )
+        .unwrap();
+        assert_eq!(
+            eval_string(vm, "globalThis.__log.join(',')"),
+            "req-error:AbortError,tx-abort"
+        );
+    });
+}
+
+// Placed here (not in `tests_indexeddb.rs`) only to keep that module under the
+// ~1000-line convention — this is the upgrade-abort connection-close lifecycle.
+#[test]
+fn aborted_upgrade_closes_the_database_connection() {
+    with_vm(|vm| {
+        // R11 #2 / §5.1: a failed upgrade closes the connection — a `db`
+        // stashed during `upgradeneeded` is no longer usable after the version
+        // rollback, so `db.transaction()` throws `InvalidStateError`.
+        vm.eval(
+            "globalThis.__err = 'none';
+             const open = indexedDB.open('db_up_close', 1);
+             open.onupgradeneeded = (e) => {
+                 globalThis.__db = e.target.result;
+                 e.target.result.createObjectStore('s');
+                 throw new Error('boom'); // aborts the upgrade
+             };
+             open.onerror = (e) => {
+                 e.preventDefault();
+                 try { globalThis.__db.transaction(['s'], 'readonly'); globalThis.__err = 'no-throw'; }
+                 catch (err) { globalThis.__err = err.name; }
+             };",
+        )
+        .unwrap();
+        assert_eq!(eval_string(vm, "globalThis.__err"), "InvalidStateError");
+    });
+}
+
 // Note: the once-listener GC-rooting fix (mod.rs `dispatch_idb_event`
 // stack-scope, shared by both the internal fire path and the script-facing
 // `dispatchEvent`) is verified by construction — it is the established

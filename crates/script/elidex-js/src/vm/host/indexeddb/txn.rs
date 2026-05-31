@@ -14,7 +14,10 @@ use super::super::super::value::{
 };
 use super::super::super::VmInner;
 use super::super::pending_tasks::PendingTask;
-use super::{fire_idb_event, object_store, value, IdbReadyState, IdbTransactionState, IdbTxnState};
+use super::{
+    fire_idb_event, object_store, value, DeferredOutcome, IdbReadyState, IdbTransactionState,
+    IdbTxnState,
+};
 
 /// W3C IDB §5.4 "commit a transaction".  Sets `state = committing` eagerly
 /// (the de-dup predicate the auto-commit sweep reads, and the gate that blocks
@@ -125,17 +128,30 @@ pub(crate) fn abort_transaction(vm: &mut VmInner, txn_id: ObjectId, error: Optio
                 if dbs.upgrade_txn == Some(txn_id) {
                     dbs.upgrade_txn = None;
                 }
+                // §5.1 step 10 / §5.8: a failed upgrade closes the connection —
+                // the version bump was rolled back, so the half-upgraded
+                // `IDBDatabase` (a script may have stashed `event.target.result`)
+                // must not stay usable.  `closed` makes a later `db.transaction()`
+                // throw `InvalidStateError` instead of operating on a
+                // rolled-back database.
+                dbs.closed = true;
             }
         }
     }
-    // §5.5: abort each pending request — set error + done, drop any
-    // staged result so its `IdbDeliver` task (if still queued) no-ops.
+    // §5.5: abort each still-pending request — set error + done AND re-stage the
+    // abort `error` as its delivery outcome so the request's already-queued
+    // `IdbDeliver` task fires an `error` event (every `request_list` entry has
+    // one — `async_execute` pushes + queues together).  Code waiting on
+    // `req.onerror` for an explicitly aborted transaction is then notified
+    // (the request error bubbles to `tx`/`db`; `run_post_dispatch` no-ops as
+    // the txn is already `Finished`).  The per-request `error` events drain
+    // before the `IdbAbortDone` `abort` event queued below (§5.5 order).
     for req in requests {
         if let Some(rs) = vm.idb_request_states.get_mut(&req) {
             rs.ready_state = IdbReadyState::Done;
             rs.result = JsValue::Undefined;
             rs.error = error;
-            rs.deferred = None;
+            rs.deferred = error.map(DeferredOutcome::Error);
         }
     }
     // An aborted upgrade transaction's open request fails with the error
