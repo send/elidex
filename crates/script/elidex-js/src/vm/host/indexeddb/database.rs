@@ -1,6 +1,6 @@
 //! IDBDatabase connection (W3C IndexedDB §4.4): wrapper allocation +
 //! `createObjectStore` / `deleteObjectStore` (§5.7 schema ops, valid only
-//! inside an upgrade transaction) + `transaction` (§3.1.1) + `close`.
+//! inside an upgrade transaction) + `transaction` (§4.4) + `close`.
 
 #![cfg(feature = "engine")]
 
@@ -194,7 +194,7 @@ fn parse_mode(
     }
 }
 
-/// `db.transaction(storeNames, mode?)` → `IDBTransaction` (§3.1.1).
+/// `db.transaction(storeNames, mode?)` → `IDBTransaction` (§4.4).
 pub(crate) fn native_db_transaction(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

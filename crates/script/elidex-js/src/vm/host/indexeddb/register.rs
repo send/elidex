@@ -18,10 +18,12 @@
 //! Every interface object is installed with `CallShape::IllegalConstructor`
 //! (WebIDL §3.7.1 — none of the IDB interfaces has a constructor operation;
 //! `new IDBRequest()` throws "Illegal constructor").  `IDBVersionChangeEvent`
-//! is spec-constructible, but the bridge constructs it internally
-//! (`fire_version_change_event`) and exposing a real JS constructor is a
-//! follow-up — for v1 it is installed `IllegalConstructor` so the interface
-//! object and `instanceof` exist.
+//! is spec-constructible, but the bridge only ever constructs it internally
+//! (`fire_version_change_event`); a script-side `new IDBVersionChangeEvent(...)`
+//! has no use in the single-VM model, so it is installed `IllegalConstructor`
+//! (interface object + `instanceof` present, construction rejected).  Accepted
+//! v1 deviation — re-evaluate only if a WPT `idbversionchangeevent-*` case
+//! targets the constructor.
 
 #![cfg(feature = "engine")]
 

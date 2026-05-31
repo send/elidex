@@ -194,7 +194,8 @@ pub(crate) fn dispatch_abort_done(vm: &mut VmInner, txn_id: ObjectId) {
 // IDBTransaction wrapper + JS-facing methods (§4.10)
 // ---------------------------------------------------------------------------
 
-/// Allocate a normal (non-upgrade) `IDBTransaction` wrapper (§3.1.1).
+/// Allocate a normal (non-upgrade) `IDBTransaction` wrapper (created by
+/// `IDBDatabase.transaction`, §4.4).
 /// Created `Active`; auto-commits when control returns to the event loop.
 pub(crate) fn create_transaction(
     vm: &mut VmInner,
@@ -270,7 +271,7 @@ pub(crate) fn native_txn_object_store(
     )))
 }
 
-/// `transaction.commit()` (§3.1.1) — request an explicit commit.
+/// `transaction.commit()` (§4.10) — request an explicit commit.
 pub(crate) fn native_txn_commit(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -293,7 +294,7 @@ pub(crate) fn native_txn_commit(
 // Readonly accessors (W3C IDB §4.10)
 // ---------------------------------------------------------------------------
 
-/// `transaction.mode` → `"readonly"` / `"readwrite"` / `"versionchange"`.
+/// `transaction.mode` → `"readonly"` / `"readwrite"` / `"versionchange"` (§4.10).
 pub(crate) fn native_txn_get_mode(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -376,7 +377,7 @@ pub(crate) fn native_txn_get_object_store_names(
     Ok(JsValue::Object(ctx.vm.create_array_object(elems)))
 }
 
-/// `transaction.abort()` (§3.1.1).
+/// `transaction.abort()` (§4.10).
 pub(crate) fn native_txn_abort(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

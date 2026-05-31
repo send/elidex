@@ -115,6 +115,11 @@ fn js_to_idb_key_depth(
                 None => Err(dom_exc(ctx, "DataError", "value is not a valid key")),
             }
         }
+        // §7.4 also admits Date and buffer-source (ArrayBuffer / typed-array /
+        // DataView) keys.  Date keys need a VM `Date` builtin (see the module
+        // note); binary keys need a backend `IdbKey::Binary` variant
+        // (`elidex-indexeddb` `key.rs` reserves `TAG_BINARY` but rejects it) —
+        // deferred to `#11-idb-binary-key`.  Until then both → DataError.
         _ => Err(dom_exc(ctx, "DataError", "value is not a valid key")),
     }
 }

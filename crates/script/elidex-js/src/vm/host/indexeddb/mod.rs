@@ -618,7 +618,8 @@ pub(crate) fn native_idb_add_event_listener(
     let event_type = ctx.to_string_val(args.first().copied().unwrap_or(JsValue::Undefined))?;
     let callback = match args.get(1).copied() {
         Some(JsValue::Object(cb)) if ctx.vm.get_object(cb).kind.is_callable() => cb,
-        // null / undefined callback is a silent no-op (WHATWG DOM §2.7.4).
+        // null / undefined callback is a silent no-op (WHATWG DOM §2.7
+        // "add an event listener").
         None | Some(JsValue::Null | JsValue::Undefined) => return Ok(JsValue::Undefined),
         _ => {
             return Err(VmError::type_error(
@@ -643,7 +644,7 @@ pub(crate) fn native_idb_add_event_listener(
     macro_rules! add {
         ($map:ident) => {
             if let Some(st) = ctx.vm.$map.get_mut(&id) {
-                // WHATWG DOM §2.7.4: duplicate (type, callback, capture)
+                // WHATWG DOM §2.7 "add an event listener": duplicate (type, callback, capture)
                 // tuples are not added again (capture is always false here).
                 if !st
                     .listeners

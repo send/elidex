@@ -54,7 +54,9 @@ pub(crate) fn native_idb_open(
 ) -> Result<JsValue, VmError> {
     require_idb_factory_this(ctx, this, "open")?;
     let name = arg_name(ctx, args.first().copied())?;
-    // §3.3.1: when supplied, version must be an integer ≥ 1 (else TypeError).
+    // §4.3 open step 1: version 0 throws a TypeError; the WebIDL
+    // `[EnforceRange] unsigned long long` coercion requires a non-negative
+    // integer, so a supplied version must be an integer ≥ 1.
     let version = match args.get(1).copied() {
         None | Some(JsValue::Undefined) => None,
         Some(v) => {
