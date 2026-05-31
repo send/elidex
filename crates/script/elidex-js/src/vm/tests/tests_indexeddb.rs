@@ -424,3 +424,184 @@ fn database_metadata_accessors() {
         );
     });
 }
+
+// ---------------------------------------------------------------------------
+// Lifecycle, GC, and remaining surface coverage
+// ---------------------------------------------------------------------------
+
+#[test]
+fn gc_preserves_reachable_idb_objects() {
+    with_vm(|vm| {
+        // The IDB GC trace must root every ObjectId reachable from a live
+        // wrapper (request result / db / store / txn state).  Open a db,
+        // stash the connection in a global, force a collection, then use the
+        // stashed db — if the trace missed the db / store state it would be
+        // swept and the second turn would fault.
+        vm.eval(
+            "const o = indexedDB.open('db_gc', 1);
+             o.onupgradeneeded = (e) => {
+                 e.target.result.createObjectStore('s', { keyPath: 'id' });
+             };
+             o.onsuccess = (e) => {
+                 globalThis.__db = e.target.result;
+                 const tx = __db.transaction(['s'], 'readwrite');
+                 tx.objectStore('s').add({ id: 1, v: 'kept' });
+             };",
+        )
+        .unwrap();
+        // `__db` is reachable only through the global; everything else
+        // (its state, the backend) must survive collection.
+        vm.inner.collect_garbage();
+        vm.eval(
+            "globalThis.__log = [];
+             const tx = globalThis.__db.transaction(['s'], 'readonly');
+             const g = tx.objectStore('s').get(1);
+             g.onsuccess = () => { globalThis.__log.push(g.result.v); };",
+        )
+        .unwrap();
+        assert_eq!(eval_string(vm, "globalThis.__log.join(',')"), "kept");
+    });
+}
+
+#[test]
+fn open_with_lower_version_fires_version_error() {
+    with_vm(|vm| {
+        // §5.1 step 7: opening at a version below the stored one delivers a
+        // VersionError via the open request's error event.
+        vm.eval(
+            "globalThis.__log = [];
+             const up = indexedDB.open('db_ver', 3);
+             up.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             up.onsuccess = (e) => {
+                 e.target.result.close();
+                 const down = indexedDB.open('db_ver', 1);
+                 down.onerror = (ev) => {
+                     ev.preventDefault();
+                     globalThis.__log.push(down.error.name);
+                 };
+             };",
+        )
+        .unwrap();
+        assert_eq!(
+            eval_string(vm, "globalThis.__log.join(',')"),
+            "VersionError"
+        );
+    });
+}
+
+#[test]
+fn add_event_listener_delivers_success() {
+    with_vm(|vm| {
+        // The addEventListener delivery path (in-VM listener vec) is distinct
+        // from the on* handler attribute — exercise it directly.
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_ael', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.addEventListener('success', (e) => {
+                 const tx = e.target.result.transaction(['s'], 'readwrite');
+                 const g = tx.objectStore('s').put('v', 1);
+                 g.addEventListener('success', () => { globalThis.__log.push('put-ok'); });
+                 tx.addEventListener('complete', () => { globalThis.__log.push('done'); });
+             });",
+        )
+        .unwrap();
+        assert_eq!(eval_string(vm, "globalThis.__log.join(',')"), "put-ok,done");
+    });
+}
+
+#[test]
+fn explicit_commit_and_abort() {
+    with_vm(|vm| {
+        // Explicit tx.commit() commits without waiting for auto-commit; a
+        // later tx.abort() rolls its writes back.
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_xc', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const db = e.target.result;
+                 const t1 = db.transaction(['s'], 'readwrite');
+                 t1.objectStore('s').put('keep', 1);
+                 t1.oncomplete = () => { globalThis.__log.push('t1-complete'); };
+                 t1.commit();
+                 const t2 = db.transaction(['s'], 'readwrite');
+                 t2.objectStore('s').put('drop', 2);
+                 t2.onabort = () => { globalThis.__log.push('t2-abort'); };
+                 t2.abort();
+             };",
+        )
+        .unwrap();
+        assert_eq!(
+            eval_string(vm, "globalThis.__log.join(',')"),
+            "t1-complete,t2-abort"
+        );
+    });
+}
+
+#[test]
+fn transaction_objectstore_unknown_store_throws_not_found() {
+    with_vm(|vm| {
+        vm.eval(
+            "globalThis.__err = 'none';
+             const open = indexedDB.open('db_nf', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const tx = e.target.result.transaction(['s'], 'readonly');
+                 try { tx.objectStore('nope'); }
+                 catch (err) { globalThis.__err = err.name; }
+             };",
+        )
+        .unwrap();
+        assert_eq!(eval_string(vm, "globalThis.__err"), "NotFoundError");
+    });
+}
+
+#[test]
+fn get_all_with_key_range() {
+    with_vm(|vm| {
+        // getAll over an explicit IDBKeyRange returns only the in-range
+        // records, in key order.
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_range', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const tx = e.target.result.transaction(['s'], 'readwrite');
+                 const store = tx.objectStore('s');
+                 for (let i = 1; i <= 5; i++) store.put('v' + i, i);
+                 const g = store.getAll(IDBKeyRange.bound(2, 4));
+                 g.onsuccess = () => { globalThis.__log.push(g.result.join(',')); };
+             };",
+        )
+        .unwrap();
+        assert_eq!(eval_string(vm, "globalThis.__log.join(',')"), "v2,v3,v4");
+    });
+}
+
+#[test]
+fn databases_lists_and_delete_database_removes() {
+    with_vm(|vm| {
+        // databases() resolves with the open databases; deleteDatabase
+        // removes one and fires success.
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_del', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 e.target.result.close();
+                 indexedDB.databases().then((list) => {
+                     globalThis.__log.push('count:' + list.length);
+                     globalThis.__log.push('has:' + list.some((d) => d.name === 'db_del'));
+                     const del = indexedDB.deleteDatabase('db_del');
+                     del.onsuccess = () => { globalThis.__log.push('deleted'); };
+                 });
+             };",
+        )
+        .unwrap();
+        assert_eq!(
+            eval_string(vm, "globalThis.__log.join(',')"),
+            "count:1,has:true,deleted"
+        );
+    });
+}
