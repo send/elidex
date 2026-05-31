@@ -271,6 +271,83 @@ fn aborted_transaction_records_its_error_and_fires_abort() {
     });
 }
 
+#[test]
+fn zero_request_transaction_auto_commits_complete_in_same_turn() {
+    with_vm(|vm| {
+        // A transaction with no requests issued must still auto-commit when
+        // control returns to the event loop (§2.7.1) — and its `complete`
+        // event must fire in THIS drain (the sweep feeds its deferred
+        // IdbCommitDone back into the drain loop), not be stranded.
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_zero', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const tx = e.target.result.transaction(['s'], 'readwrite');
+                 tx.objectStore('s'); // no add/get/put, no explicit commit
+                 tx.oncomplete = () => { globalThis.__log.push('complete'); };
+             };",
+        )
+        .unwrap();
+        assert_eq!(eval_string(vm, "globalThis.__log.join(',')"), "complete");
+    });
+}
+
+#[test]
+fn aborted_upgrade_fires_error_at_open_request() {
+    with_vm(|vm| {
+        // An upgrade handler that throws aborts the version-change txn; the
+        // open request must fire `error` (§5.1 step 10.8), not only the
+        // transaction's `abort`.
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_upfail', 1);
+             open.onupgradeneeded = (e) => {
+                 e.target.result.createObjectStore('s');
+                 throw new Error('boom');
+             };
+             open.onerror = (e) => {
+                 e.preventDefault();
+                 globalThis.__log.push('err:' + (open.error && open.error.name));
+             };",
+        )
+        .unwrap();
+        assert_eq!(
+            eval_string(vm, "globalThis.__log.join(',')"),
+            "err:AbortError"
+        );
+    });
+}
+
+#[test]
+fn get_all_count_zero_and_negative_return_all_records() {
+    with_vm(|vm| {
+        // §6.2 step 1: count 0 (or absent) means "all records"; a negative
+        // count is ToUint32-wrapped (not silently 0 → empty).
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_count', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const tx = e.target.result.transaction(['s'], 'readwrite');
+                 const store = tx.objectStore('s');
+                 store.put('a', 1); store.put('b', 2); store.put('c', 3);
+                 const all0 = store.getAll(undefined, 0);
+                 all0.onsuccess = () => { globalThis.__log.push('zero:' + all0.result.length); };
+                 const allNeg = store.getAll(undefined, -1);
+                 allNeg.onsuccess = () => { globalThis.__log.push('neg:' + allNeg.result.length); };
+                 const two = store.getAll(undefined, 2);
+                 two.onsuccess = () => { globalThis.__log.push('two:' + two.result.length); };
+             };",
+        )
+        .unwrap();
+        assert_eq!(
+            eval_string(vm, "globalThis.__log.join(',')"),
+            "zero:3,neg:3,two:2"
+        );
+    });
+}
+
 // ---------------------------------------------------------------------------
 // IDBKeyRange + cmp (synchronous surface)
 // ---------------------------------------------------------------------------

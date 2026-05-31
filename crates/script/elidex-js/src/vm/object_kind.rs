@@ -1115,8 +1115,9 @@ pub enum ObjectKind {
     #[cfg(feature = "engine")]
     IdbFactory,
     /// `IDBRequest` / `IDBOpenDBRequest` instance (§4.1 / §2.8).  Both share
-    /// this brand; open-request-ness is a prototype distinction +
-    /// `IdbRequestState.is_open` flag.  Non-Node `EventTarget`.
+    /// this brand; open-request-ness is encoded solely by the prototype
+    /// (`IDBOpenDBRequest.prototype` carries `onupgradeneeded` / `onblocked`).
+    /// Non-Node `EventTarget`.
     #[cfg(feature = "engine")]
     IdbRequest,
     /// `IDBDatabase` connection (§4.4).  Non-Node `EventTarget`.

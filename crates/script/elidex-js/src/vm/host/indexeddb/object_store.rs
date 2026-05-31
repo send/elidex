@@ -129,8 +129,18 @@ fn clone_value_guarded(
         s.state = IdbTxnState::Inactive;
     }
     let result = value::value_to_json(ctx, value);
-    if let (Some(p), Some(s)) = (prev, ctx.vm.idb_transaction_states.get_mut(&txn)) {
-        s.state = p;
+    // Restore the pre-clone state ONLY if the clone left the txn inactive
+    // (i.e. untouched).  `value_to_json` runs user JS (toJSON / property
+    // getters via JSON.stringify); a getter that called `txn.abort()` (legal
+    // while inactive) already transitioned the txn to Finished and rolled
+    // back its backend handle — blindly restoring `prev` would resurrect a
+    // dead transaction.  The caller re-checks `require_active` after this.
+    if let Some(p) = prev {
+        if let Some(s) = ctx.vm.idb_transaction_states.get_mut(&txn) {
+            if s.state == IdbTxnState::Inactive {
+                s.state = p;
+            }
+        }
     }
     result
 }
@@ -249,12 +259,20 @@ fn add_or_put(
     let (db, store, txn) = store_ctx(ctx, store_id)?;
     require_active(ctx, txn, method)?;
     require_writable(ctx, txn, method)?;
-    let value = args.first().copied().unwrap_or(JsValue::Undefined);
-    let json = clone_value_guarded(ctx, txn, value)?;
+    // §4.5 step 8: convert the explicit key BEFORE cloning the value — an
+    // invalid key is a DataError that must precede the clone (whose failure
+    // is DataCloneError), and key conversion must run before the clone's
+    // user-getter side effects.
     let key = match args.get(1).copied() {
         None | Some(JsValue::Undefined) => None,
         Some(k) => Some(value::js_to_idb_key(ctx, k)?),
     };
+    // §4.5 step 10: clone the value (txn inactive during the clone, §5.11).
+    let value = args.first().copied().unwrap_or(JsValue::Undefined);
+    let json = clone_value_guarded(ctx, txn, value)?;
+    // The clone may have run user JS that aborted / finished the txn; the
+    // transaction must still be active to take the write.
+    require_active(ctx, txn, method)?;
     let Some(backend) = ctx.vm.ensure_idb_backend() else {
         return Err(VmError::type_error("IndexedDB backend unavailable"));
     };
@@ -381,7 +399,10 @@ fn optional_range(
     }
 }
 
-/// Optional count argument (clamped to `u32`).
+/// Optional `count` argument for `getAll` / `getAllKeys` (§4.5).  The WebIDL
+/// type is `unsigned long` (ECMAScript ToUint32 — so a negative argument wraps
+/// rather than meaning "none"), and §6.2 step 1 maps a count of `0` (or an
+/// absent argument) to infinity, i.e. "all records" → no backend `LIMIT`.
 fn optional_count(
     ctx: &mut NativeContext<'_>,
     arg: Option<JsValue>,
@@ -389,13 +410,8 @@ fn optional_count(
     match arg {
         None | Some(JsValue::Undefined) => Ok(None),
         Some(v) => {
-            let n = ctx.to_number(v)?;
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            Ok(Some(if n.is_finite() && n >= 0.0 {
-                n as u32
-            } else {
-                0
-            }))
+            let n = super::super::super::coerce::to_uint32(ctx.vm, v)?;
+            Ok(if n == 0 { None } else { Some(n) })
         }
     }
 }

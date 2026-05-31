@@ -77,13 +77,6 @@ fn js_to_idb_key_depth(
     val: JsValue,
     depth: usize,
 ) -> Result<elidex_indexeddb::IdbKey, VmError> {
-    if depth > MAX_KEY_DEPTH {
-        return Err(dom_exc(
-            ctx,
-            "DataError",
-            "key array nesting exceeds the maximum depth",
-        ));
-    }
     match val {
         JsValue::Number(n) => {
             if n.is_nan() {
@@ -99,6 +92,19 @@ fn js_to_idb_key_depth(
             };
             match elements {
                 Some(elems) => {
+                    // The backend serializes a nested array key only while its
+                    // depth is `< MAX_KEY_DEPTH`; a deeper array is silently
+                    // serialized as empty (truncated), which would alias
+                    // distinct keys.  Reject here so the backend never
+                    // truncates (matches `elidex_indexeddb` `key.rs`
+                    // `serialize_into`'s `depth < MAX_KEY_DEPTH` guard).
+                    if depth >= MAX_KEY_DEPTH {
+                        return Err(dom_exc(
+                            ctx,
+                            "DataError",
+                            "key array nesting exceeds the maximum depth",
+                        ));
+                    }
                     let mut keys = Vec::with_capacity(elems.len());
                     for elem in elems {
                         // Holes / undefined inside a key array are invalid keys.

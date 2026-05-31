@@ -154,38 +154,50 @@ impl VmInner {
             return;
         }
         self.task_drain_depth = self.task_drain_depth.saturating_add(1);
-        while let Some(task) = self.pending_tasks.pop_front() {
-            self.execute_task(task);
-            // Per §8.1.5 step 5: microtask checkpoint between tasks.
-            self.drain_microtasks();
-        }
-        // Selection API §3.4 + HTML §8.1.4.2 "selection task source":
-        // fire a coalesced `selectionchange` event at the document if
-        // any Selection / Range mutation set the dirty bit during
-        // this drain.  One event regardless of how many discrete
-        // mutations happened — the bit was set per-mutation but is
-        // consumed once here.  Runs INSIDE the drain-depth bracket
-        // so a `selectionchange` listener that itself mutates
-        // Selection does NOT re-enter (matches HTML §7.5.4
-        // single-coalescing-per-checkpoint wording).
-        #[cfg(feature = "engine")]
-        {
-            super::dom_selection_proto::dispatch_selectionchange_if_pending(self);
-        }
-        // W3C IndexedDB §2.7.1: a transaction auto-commits when control
-        // returns to the event loop.  The common case commits via §5.9
-        // step 8.3 (after a request's success event); this sweep is the
-        // fallback for a zero-request transaction that never fired an
-        // event.  Runs at the same "control returns to the event loop"
-        // seam as the selection hook — `Vm::eval` (interpreter.rs) drains
-        // microtasks then `drain_tasks` after every top-level script turn,
-        // so a zero-request txn created in a top-level script is swept
-        // here.  De-dup: `commit_transaction` sets `state = Committing`
-        // synchronously, so a txn already committed via §5.9 step 8.3 is
-        // skipped by the `state == Active` guard inside the sweep.
-        #[cfg(feature = "engine")]
-        {
-            self.idb_autocommit_sweep();
+        loop {
+            while let Some(task) = self.pending_tasks.pop_front() {
+                self.execute_task(task);
+                // Per §8.1.5 step 5: microtask checkpoint between tasks.
+                self.drain_microtasks();
+            }
+            // Selection API §3.4 + HTML §8.1.4.2 "selection task source":
+            // fire a coalesced `selectionchange` event at the document if
+            // any Selection / Range mutation set the dirty bit during
+            // this drain.  One event regardless of how many discrete
+            // mutations happened — the bit was set per-mutation but is
+            // consumed once here.  Runs INSIDE the drain-depth bracket
+            // so a `selectionchange` listener that itself mutates
+            // Selection does NOT re-enter (matches HTML §7.5.4
+            // single-coalescing-per-checkpoint wording).  Idempotent: the
+            // pending bit is cleared on fire, so re-running it on a later
+            // loop iteration is a no-op until another mutation sets it.
+            #[cfg(feature = "engine")]
+            {
+                super::dom_selection_proto::dispatch_selectionchange_if_pending(self);
+            }
+            // W3C IndexedDB §2.7.1: a transaction auto-commits when control
+            // returns to the event loop.  The common case commits via §5.9
+            // step 8.3 (after a request's success event); this sweep is the
+            // fallback for a zero-request transaction that never fired an
+            // event.  `commit_transaction` does the durable write
+            // synchronously but defers the `complete` event to a queued
+            // `IdbCommitDone` task (so the sweep can iterate the txn map
+            // safely).  That deferred task — and any task a `complete` /
+            // `selectionchange` handler enqueues — is drained by looping
+            // back: the outer `loop` re-enters the inner drain whenever a
+            // hook left the queue non-empty, so a zero-request txn's
+            // `complete` fires in THIS drain rather than being stranded
+            // until the next `eval` (or never, if none follows).  De-dup:
+            // `commit_transaction` sets `state = Committing` synchronously,
+            // so the next sweep pass skips it via the `state == Active`
+            // guard — the sweep is monotonic and the loop terminates.
+            #[cfg(feature = "engine")]
+            {
+                self.idb_autocommit_sweep();
+            }
+            if self.pending_tasks.is_empty() {
+                break;
+            }
         }
         self.task_drain_depth = self.task_drain_depth.saturating_sub(1);
     }

@@ -168,12 +168,28 @@ pub(crate) fn dispatch_commit_done(vm: &mut VmInner, txn_id: ObjectId) {
 }
 
 /// Deferred phase of §5.5 (`PendingTask::IdbAbortDone`): fire `abort` at
-/// the transaction (bubbling, non-cancelable).
+/// the transaction (bubbling, non-cancelable).  When the aborted transaction
+/// is an upgrade transaction, the open request also fails — fire `error` at it
+/// (§5.1 step 10.8: a failed upgrade returns an `"AbortError"` and the open
+/// request's `error` event fires) so an `openReq.onerror` handler runs, not
+/// just the transaction's `onabort`.
 pub(crate) fn dispatch_abort_done(vm: &mut VmInner, txn_id: ObjectId) {
+    let upgrade_request = vm
+        .idb_transaction_states
+        .get(&txn_id)
+        .and_then(|s| s.upgrade_request);
     let abort_sid = vm.well_known.abort;
     let onabort_sid = vm.well_known.onabort;
+    let error_sid = vm.well_known.error;
+    let onerror_sid = vm.well_known.onerror;
     let mut ctx = NativeContext::new_call(vm);
     fire_idb_event(&mut ctx, txn_id, abort_sid, onabort_sid, false, true);
+    if let Some(req) = upgrade_request {
+        // `abort_transaction` already set the open request's `error` +
+        // `readyState = "done"` and cleared its `transaction`; just deliver
+        // the event (error bubbles + is cancelable, like any request error).
+        fire_idb_event(&mut ctx, req, error_sid, onerror_sid, true, true);
+    }
 }
 
 // ---------------------------------------------------------------------------
