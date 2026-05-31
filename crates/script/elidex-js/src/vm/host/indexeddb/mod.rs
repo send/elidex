@@ -870,8 +870,17 @@ pub(crate) fn native_idb_handler_set(
 }
 
 /// `addEventListener(type, callback, options?)` (WHATWG DOM §2.7) over the
-/// in-VM listener store.  `options` may be a boolean (capture, ignored — IDB
-/// events do not capture) or an `AddEventListenerOptions` dict (`once`).
+/// in-VM listener store.  Honors `once` + `{signal}`.
+///
+/// DEFERRED to `#11-eventtarget-dispatch-core` (the listener-lifecycle facets
+/// where this in-VM `Vec<IdbListener>` model still diverges from the canonical
+/// ECS-backed `EventListeners` — and which WebSocket / FileReader / EventSource
+/// share, since each reimplements §2.9/§2.10 against the ECS-coupled
+/// `dispatch_script_event`): `capture` as part of listener identity, per-listener
+/// `passive` gating of `preventDefault`, and the §2.10 removed-flag so a
+/// listener removed mid-dispatch (by an earlier listener or a `{signal}` abort)
+/// is skipped.  The fix is to extract a listener-source-agnostic dispatch core
+/// shared by all EventTargets, not to deepen this copy.
 pub(crate) fn native_idb_add_event_listener(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -1053,10 +1062,22 @@ pub(crate) fn native_idb_dispatch_event(
     // along the IDB ancestor chain when `event.bubbles`, and finalizes
     // `currentTarget` / propagation flags — identical to internal fires.  The
     // event already exists, so `make_event` just hands it back.
-    let res = dispatch_idb_event(ctx, target, event_type, handler_attr, bubbles, |_ctx| {
+    let _ = dispatch_idb_event(ctx, target, event_type, handler_attr, bubbles, |_ctx| {
         event_id
     });
-    Ok(JsValue::Boolean(!res.canceled))
+    // §2.9: `dispatchEvent` returns `false` iff the event's default was
+    // prevented.  Read the event's FINAL `default_prevented` directly rather
+    // than the `FireResult` — the latter reports `canceled: false` on the
+    // no-listener early-return, which would wrongly return `true` for an event
+    // that was already `preventDefault()`'d before dispatch.
+    let not_canceled = !matches!(
+        ctx.vm.get_object(event_id).kind,
+        ObjectKind::Event {
+            default_prevented: true,
+            ..
+        }
+    );
+    Ok(JsValue::Boolean(not_canceled))
 }
 
 /// Map an IDB event-type SID to its `on<type>` handler-attribute SID

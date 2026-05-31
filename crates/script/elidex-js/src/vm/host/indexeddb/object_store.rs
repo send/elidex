@@ -264,13 +264,35 @@ fn add_or_put(
         None | Some(JsValue::Undefined) => None,
         Some(k) => Some(value::js_to_idb_key(ctx, k)?),
     };
+    // §10.2.4 steps 5-6: the deterministic key / key-path `DataError`s that do
+    // NOT need the value are thrown BEFORE the clone, so a rejected add()/put()
+    // never runs the value's `toJSON` / getters (the clone's observable side
+    // effects).  The value-dependent in-line key-path extraction failure stays
+    // in the backend op (it inherently needs the cloned value).
+    let backend = ctx.vm.require_idb_backend()?;
+    let (key_path, auto_increment) = backend
+        .get_store_meta(&db, &store)
+        .map_err(|e| value::backend_error_as_throw(ctx, &e))?;
+    if key.is_some() && key_path.is_some() {
+        return Err(value::dom_exc(
+            ctx,
+            "DataError",
+            "an explicit key cannot be supplied to an object store using in-line keys",
+        ));
+    }
+    if key.is_none() && key_path.is_none() && !auto_increment {
+        return Err(value::dom_exc(
+            ctx,
+            "DataError",
+            "a key is required for an object store using out-of-line keys without a key generator",
+        ));
+    }
     // §4.5 step 10: clone the value (txn inactive during the clone, §5.11).
     let value = args.first().copied().unwrap_or(JsValue::Undefined);
     let json = clone_value_guarded(ctx, txn, value)?;
     // The clone may have run user JS that aborted / finished the txn; the
     // transaction must still be active to take the write.
     require_active(ctx, txn, method)?;
-    let backend = ctx.vm.require_idb_backend()?;
     let result = if is_add {
         elidex_indexeddb::ops::add(&backend, &db, &store, key, &json)
     } else {

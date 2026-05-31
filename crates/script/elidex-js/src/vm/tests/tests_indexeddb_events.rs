@@ -304,6 +304,57 @@ fn add_event_listener_signal_removes_on_abort() {
     });
 }
 
+#[test]
+fn dispatch_event_returns_false_for_precanceled_event_with_no_listeners() {
+    with_vm(|vm| {
+        // R10 #1 / §2.9: `dispatchEvent` returns `false` for an event whose
+        // default was already prevented, even with NO matching listeners (the
+        // shared dispatcher's no-observer early-return must not mask it).
+        vm.eval("globalThis.__o = indexedDB.open('db_precancel', 1);")
+            .unwrap();
+        assert!(eval_bool(
+            vm,
+            "(() => { const e = new Event('x', { cancelable: true }); e.preventDefault(); \
+             return globalThis.__o.dispatchEvent(e) === false; })()"
+        ));
+        // A fresh cancelable event with no listeners is not canceled → true.
+        assert!(eval_bool(
+            vm,
+            "(() => { const e = new Event('y', { cancelable: true }); \
+             return globalThis.__o.dispatchEvent(e) === true; })()"
+        ));
+    });
+}
+
+// Placed here (not in `tests_indexeddb.rs`) only to keep that module under the
+// ~1000-line convention — this exercises add()'s value-clone *ordering*.
+#[test]
+fn inline_store_explicit_key_rejects_before_running_value_side_effects() {
+    with_vm(|vm| {
+        // R10 #2 / §10.2.4: the inline-key DataError is thrown BEFORE the value
+        // is cloned, so the value's `toJSON` / getter side effects never run.
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_pre_clone', 1);
+             open.onupgradeneeded = (e) => {
+                 e.target.result.createObjectStore('s', { keyPath: 'id' });
+             };
+             open.onsuccess = (e) => {
+                 const tx = e.target.result.transaction(['s'], 'readwrite');
+                 const val = { id: 1, toJSON() { globalThis.__log.push('cloned'); return { id: 1 }; } };
+                 try { tx.objectStore('s').add(val, 1); globalThis.__log.push('no-throw'); }
+                 catch (err) { globalThis.__log.push('threw:' + err.name); }
+             };",
+        )
+        .unwrap();
+        // DataError thrown, and `toJSON` ('cloned') never ran.
+        assert_eq!(
+            eval_string(vm, "globalThis.__log.join(',')"),
+            "threw:DataError"
+        );
+    });
+}
+
 // Note: the once-listener GC-rooting fix (mod.rs `dispatch_idb_event`
 // stack-scope, shared by both the internal fire path and the script-facing
 // `dispatchEvent`) is verified by construction — it is the established
