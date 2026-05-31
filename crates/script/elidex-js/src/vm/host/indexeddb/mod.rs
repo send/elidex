@@ -154,6 +154,13 @@ pub(crate) struct IdbListener {
     pub(crate) callback: ObjectId,
     /// `once` flag (WHATWG DOM `AddEventListenerOptions`).
     pub(crate) once: bool,
+    /// The `AbortSignal` `ObjectId` from `{signal}`, if any (WHATWG DOM §2.7.3).
+    /// When that signal aborts, [`remove_idb_listeners_for_signal`] drops this
+    /// listener.  GC-traced (alongside `callback`) so the signal `ObjectId`
+    /// cannot be collected + recycled while the listener references it — a
+    /// recycled id would otherwise make a later unrelated abort remove this
+    /// listener (identity-reuse hazard).
+    pub(crate) signal: Option<ObjectId>,
 }
 
 /// Per-`IDBTransaction` state, keyed in
@@ -280,6 +287,39 @@ impl VmInner {
     ) -> Result<std::rc::Rc<elidex_indexeddb::IdbBackend>, VmError> {
         self.ensure_idb_backend()
             .ok_or_else(|| VmError::type_error("IndexedDB backend unavailable"))
+    }
+
+    /// Abort every still-pending `IDBRequest` IN PLACE with an `AbortError`:
+    /// set `readyState = "done"`, `error = AbortError`, and clear any staged
+    /// outcome (so its queued `IdbDeliver` task no-ops) and transaction link.
+    /// The request states are RETAINED — a held wrapper then resolves to
+    /// `done` + `request.error` instead of hanging at `pending` forever, and
+    /// GC reaps the entries with their wrappers.  Used when the backend is
+    /// replaced out from under in-flight requests ([`Vm::install_idb_backend`]).
+    pub(crate) fn abort_pending_idb_requests(&mut self, message: &str) {
+        let pending: Vec<ObjectId> = self
+            .idb_request_states
+            .iter()
+            .filter(|(_, s)| s.ready_state == IdbReadyState::Pending)
+            .map(|(id, _)| *id)
+            .collect();
+        if pending.is_empty() {
+            return;
+        }
+        let abort_sid = self.strings.intern("AbortError");
+        let exc = match self.build_dom_exception(abort_sid, message) {
+            JsValue::Object(id) => Some(id),
+            _ => None,
+        };
+        for rid in pending {
+            if let Some(s) = self.idb_request_states.get_mut(&rid) {
+                s.ready_state = IdbReadyState::Done;
+                s.result = JsValue::Undefined;
+                s.error = exc;
+                s.deferred = None;
+                s.transaction = None;
+            }
+        }
     }
 
     /// W3C IndexedDB §2.7.1 auto-commit fallback: commit every still-`Active`
@@ -851,18 +891,29 @@ pub(crate) fn native_idb_add_event_listener(
             ))
         }
     };
-    let once = match args.get(2).copied() {
-        Some(JsValue::Object(opts)) => {
-            let once_key = PropertyKey::String(ctx.vm.well_known.once);
-            let v = ctx.get_property_value(opts, once_key)?;
-            ctx.to_boolean(v)
+    // Reuse the shared `AddEventListenerOptions` parser (one option-parsing
+    // path): IDB ignores `capture` / `passive` but honors `once` + `signal`.
+    let options = super::event_target::parse_listener_options(
+        ctx,
+        args.get(2).copied().unwrap_or(JsValue::Undefined),
+    )?;
+    // WHATWG DOM §2.7.3 step 2: an already-aborted signal short-circuits —
+    // the listener is never added (and so never bound for removal).
+    if let Some(sig) = options.signal {
+        if ctx
+            .vm
+            .abort_signal_states
+            .get(&sig)
+            .is_some_and(|s| s.aborted)
+        {
+            return Ok(JsValue::Undefined);
         }
-        _ => false,
-    };
+    }
     let listener = IdbListener {
         event_type,
         callback,
-        once,
+        once: options.once,
+        signal: options.signal,
     };
     macro_rules! add {
         ($map:ident) => {
@@ -885,6 +936,25 @@ pub(crate) fn native_idb_add_event_listener(
         IdbTargetKind::Database => add!(idb_database_states),
     }
     Ok(JsValue::Undefined)
+}
+
+/// WHATWG DOM §2.7.3: when an `AbortSignal` bound via
+/// `addEventListener(type, cb, {signal})` aborts, remove every IDB listener it
+/// was attached to.  Called from [`super::abort::abort_signal`] alongside the
+/// ECS-side `detach_bound_listeners`.  Scans the three IDB EventTarget stores
+/// and drops listeners whose `signal` matches — authoritative (the listener
+/// store is the source of truth, so there is no stale-id to reconcile).
+pub(crate) fn remove_idb_listeners_for_signal(vm: &mut VmInner, signal_id: ObjectId) {
+    let keep = |l: &IdbListener| l.signal != Some(signal_id);
+    for st in vm.idb_request_states.values_mut() {
+        st.listeners.retain(keep);
+    }
+    for st in vm.idb_transaction_states.values_mut() {
+        st.listeners.retain(keep);
+    }
+    for st in vm.idb_database_states.values_mut() {
+        st.listeners.retain(keep);
+    }
 }
 
 /// `removeEventListener(type, callback)` (WHATWG DOM §2.7).

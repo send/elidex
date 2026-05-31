@@ -403,6 +403,12 @@ pub(super) fn trace_work_list(
                     }
                     for listener in &state.listeners {
                         mark_object(listener.callback, obj_marks, work);
+                        // Keep a `{signal}`-bound listener's AbortSignal alive
+                        // while the listener exists, so its `ObjectId` cannot
+                        // be recycled (identity-reuse hazard on abort removal).
+                        if let Some(sig) = listener.signal {
+                            mark_object(sig, obj_marks, work);
+                        }
                     }
                 }
             }
@@ -426,6 +432,12 @@ pub(super) fn trace_work_list(
                     }
                     for listener in &state.listeners {
                         mark_object(listener.callback, obj_marks, work);
+                        // Keep a `{signal}`-bound listener's AbortSignal alive
+                        // while the listener exists, so its `ObjectId` cannot
+                        // be recycled (identity-reuse hazard on abort removal).
+                        if let Some(sig) = listener.signal {
+                            mark_object(sig, obj_marks, work);
+                        }
                     }
                 }
             }
@@ -437,6 +449,12 @@ pub(super) fn trace_work_list(
                     }
                     for listener in &state.listeners {
                         mark_object(listener.callback, obj_marks, work);
+                        // Keep a `{signal}`-bound listener's AbortSignal alive
+                        // while the listener exists, so its `ObjectId` cannot
+                        // be recycled (identity-reuse hazard on abort removal).
+                        if let Some(sig) = listener.signal {
+                            mark_object(sig, obj_marks, work);
+                        }
                     }
                 }
             }

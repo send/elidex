@@ -19,6 +19,29 @@ use super::super::super::VmInner;
 /// Maximum nested-array key depth (matches the backend `key.rs` bound).
 const MAX_KEY_DEPTH: usize = 64;
 
+/// Whether a WTF-16 code-unit sequence contains an unpaired (lone) surrogate.
+/// Such strings have no UTF-8 representation, so they cannot be a backend
+/// string key without aliasing (see [`js_to_idb_key`]'s String arm).
+fn has_unpaired_surrogate(units: &[u16]) -> bool {
+    let mut i = 0;
+    while i < units.len() {
+        let u = units[i];
+        if (0xD800..=0xDBFF).contains(&u) {
+            // High surrogate: must be immediately followed by a low surrogate.
+            if i + 1 >= units.len() || !(0xDC00..=0xDFFF).contains(&units[i + 1]) {
+                return true;
+            }
+            i += 2;
+        } else if (0xDC00..=0xDFFF).contains(&u) {
+            // Low surrogate with no preceding high surrogate.
+            return true;
+        } else {
+            i += 1;
+        }
+    }
+    false
+}
+
 /// A query argument that is either a single key or an `IDBKeyRange`
 /// (W3C IDB §4.5 `get` / `getAll` / `count` / `delete` accept both).
 pub(crate) enum Query {
@@ -84,7 +107,22 @@ fn js_to_idb_key_depth(
             }
             Ok(elidex_indexeddb::IdbKey::Number(n))
         }
-        JsValue::String(sid) => Ok(elidex_indexeddb::IdbKey::String(ctx.get_utf8(sid))),
+        JsValue::String(sid) => {
+            // The backend stores string keys as UTF-8, so a lossy WTF-16→UTF-8
+            // conversion of an unpaired surrogate (→ U+FFFD) would alias
+            // distinct keys.  Reject such keys with `DataError` rather than
+            // silently aliasing — same defensive stance as the `MAX_KEY_DEPTH`
+            // array-depth rejection below (a faithful WTF-16 key store is
+            // deferred to `#11-idb-binary-key`).
+            if has_unpaired_surrogate(ctx.get_u16(sid)) {
+                return Err(dom_exc(
+                    ctx,
+                    "DataError",
+                    "string key contains an unpaired surrogate (not representable)",
+                ));
+            }
+            Ok(elidex_indexeddb::IdbKey::String(ctx.get_utf8(sid)))
+        }
         JsValue::Object(id) => {
             let elements = match &ctx.get_object(id).kind {
                 ObjectKind::Array { elements } => Some(elements.clone()),

@@ -278,6 +278,14 @@ fn add_or_put(
     };
     let outcome = match result {
         Ok(k) => DeferredOutcome::Success(value::idb_key_to_js(ctx.vm, &k)),
+        // §10.2.4: a deterministic key-validation failure (`DataError` — e.g.
+        // an explicit key on an inline-key store, or a value the key path
+        // cannot extract a key from) is thrown SYNCHRONOUSLY, before the
+        // request is queued.  Only operational failures (`ConstraintError`
+        // duplicate key, backend errors) are delivered through the request.
+        Err(e @ elidex_indexeddb::BackendError::DataError(_)) => {
+            return Err(value::backend_error_as_throw(ctx, &e));
+        }
         Err(e) => DeferredOutcome::Error(value::backend_error_to_dom_exception(ctx.vm, &e)),
     };
     Ok(JsValue::Object(request::async_execute(

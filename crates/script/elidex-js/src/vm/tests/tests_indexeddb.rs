@@ -656,6 +656,77 @@ fn add_cyclic_value_throws_data_clone_error() {
     });
 }
 
+#[test]
+fn add_with_explicit_key_on_inline_store_throws_sync_data_error() {
+    with_vm(|vm| {
+        // R9 #1 / §10.2.4: providing an explicit key to an inline-key store is
+        // a deterministic DataError thrown SYNCHRONOUSLY from add()/put(), not
+        // delivered as an async request error (only ConstraintError is async).
+        vm.eval(
+            "globalThis.__err = 'none';
+             const open = indexedDB.open('db_sync_de', 1);
+             open.onupgradeneeded = (e) => {
+                 e.target.result.createObjectStore('s', { keyPath: 'id' });
+             };
+             open.onsuccess = (e) => {
+                 const tx = e.target.result.transaction(['s'], 'readwrite');
+                 const store = tx.objectStore('s');
+                 try { store.add({ id: 1 }, 1); } // explicit key on inline store
+                 catch (err) { globalThis.__err = err.name; }
+             };",
+        )
+        .unwrap();
+        assert_eq!(eval_string(vm, "globalThis.__err"), "DataError");
+    });
+}
+
+#[test]
+fn lone_surrogate_string_key_is_rejected() {
+    with_vm(|vm| {
+        // R9 #4: an unpaired-surrogate string key has no UTF-8 representation
+        // and would alias under the backend's UTF-8 key storage — reject with
+        // DataError rather than lossy-convert.
+        assert!(eval_bool(
+            vm,
+            "(() => { try { indexedDB.cmp('\\uD800', 'a'); return false; } \
+             catch (e) { return e.name === 'DataError'; } })()"
+        ));
+        // A well-formed surrogate pair (😀) is a valid key — no false reject.
+        assert!(eval_bool(
+            vm,
+            "(() => { try { indexedDB.cmp('\\uD83D\\uDE00', 'a'); return true; } \
+             catch (e) { return false; } })()"
+        ));
+    });
+}
+
+#[test]
+fn backend_swap_aborts_pending_requests_in_place() {
+    use super::super::host::indexeddb::{IdbReadyState, IdbRequestState};
+    use super::super::value::ObjectId;
+    with_vm(|vm| {
+        // R9 #3: swapping to a DIFFERENT backend while a request is pending
+        // must abort it IN PLACE (Done + error) — not drop its state — so a
+        // held wrapper resolves instead of hanging at 'pending' forever.
+        let backend_a = std::rc::Rc::new(elidex_indexeddb::IdbBackend::open_in_memory().unwrap());
+        vm.install_idb_backend(backend_a);
+        // A synthetic pending request standing in for an in-flight one.
+        let rid = ObjectId(9999);
+        vm.inner
+            .idb_request_states
+            .insert(rid, IdbRequestState::default());
+        let backend_b = std::rc::Rc::new(elidex_indexeddb::IdbBackend::open_in_memory().unwrap());
+        vm.install_idb_backend(backend_b);
+        let st = vm
+            .inner
+            .idb_request_states
+            .get(&rid)
+            .expect("pending request state retained, not dropped");
+        assert_eq!(st.ready_state, IdbReadyState::Done);
+        assert!(st.error.is_some(), "aborted request carries an error");
+    });
+}
+
 // ---------------------------------------------------------------------------
 // IDBKeyRange + cmp (synchronous surface)
 // ---------------------------------------------------------------------------

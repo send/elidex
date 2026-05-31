@@ -979,21 +979,30 @@ impl Vm {
                 return;
             }
         }
-        // If a DIFFERENT backend is already installed with live IDB state, the existing
-        // `IdbTransactionState.backend_txn` handles are tied to the OLD
-        // connection — swapping the backend would strand them (a later
+        // If a DIFFERENT backend is already installed with live IDB state, the
+        // existing `IdbTransactionState.backend_txn` handles are tied to the
+        // OLD connection — swapping the backend would strand them (a later
         // commit/abort would target the NEW connection).  Roll them back
-        // against the old backend and clear the IDB side stores before
-        // replacing it (the IDB portion of `unbind`).  Normal bind installs
-        // onto empty state, so this is a defensive no-op there; it makes a
-        // mid-session swap safe rather than connection-stranding.
+        // against the old backend, then tear down the connection-scoped state
+        // before replacing it (the IDB portion of `unbind`).  Normal bind
+        // installs onto empty state, so this is a defensive no-op there; it
+        // makes a mid-session swap safe rather than connection-stranding.
         if let Some(old) = self.inner.idb_backend.take() {
             for state in self.inner.idb_transaction_states.values_mut() {
                 if let Some(mut txn) = state.backend_txn.take() {
                     let _ = txn.abort(old.conn());
                 }
             }
-            self.inner.idb_request_states.clear();
+            // Abort still-pending requests IN PLACE (Done + AbortError) rather
+            // than dropping their state: a held `IDBRequest` wrapper must not
+            // hang at `readyState === 'pending'` forever once its backend is
+            // gone.  Retaining the request states lets the wrappers resolve;
+            // their queued `IdbDeliver` tasks then no-op (cleared outcome).
+            self.inner.abort_pending_idb_requests(
+                "IndexedDB backend replaced while a request was pending",
+            );
+            // The transaction / database / store / key-range stores are
+            // connection-scoped and have no meaning against the new backend.
             self.inner.idb_transaction_states.clear();
             self.inner.idb_database_states.clear();
             self.inner.idb_object_store_states.clear();

@@ -281,6 +281,29 @@ fn once_listener_unreached_by_stop_immediate_survives() {
     });
 }
 
+#[test]
+fn add_event_listener_signal_removes_on_abort() {
+    with_vm(|vm| {
+        // R9 #2 / WHATWG DOM §2.7.3: a listener added with `{signal}` is
+        // removed when the signal aborts, and an already-aborted signal never
+        // adds it at all.  A plain listener added afterward still fires.
+        vm.eval(
+            "globalThis.__log = [];
+             const o = indexedDB.open('db_sig', 1);
+             const ctrl = new AbortController();
+             o.addEventListener('foo', () => { globalThis.__log.push('live'); }, { signal: ctrl.signal });
+             const aborted = AbortSignal.abort();
+             o.addEventListener('foo', () => { globalThis.__log.push('pre-aborted'); }, { signal: aborted });
+             ctrl.abort();                        // removes the live listener
+             o.dispatchEvent(new Event('foo'));   // neither bound listener fires
+             o.addEventListener('foo', () => { globalThis.__log.push('plain'); });
+             o.dispatchEvent(new Event('foo'));   // only the plain listener fires",
+        )
+        .unwrap();
+        assert_eq!(eval_string(vm, "globalThis.__log.join(',')"), "plain");
+    });
+}
+
 // Note: the once-listener GC-rooting fix (mod.rs `dispatch_idb_event`
 // stack-scope, shared by both the internal fire path and the script-facing
 // `dispatchEvent`) is verified by construction — it is the established
