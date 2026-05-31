@@ -269,6 +269,15 @@ pub(crate) fn native_db_transaction(
             ));
         }
     }
+    // §3.1.1: transaction creation eagerly opens the backend `BEGIN`.  On the
+    // single shared SQLite connection this means a second overlapping
+    // transaction created in the same task surfaces the backend's
+    // nested-BEGIN rejection instead of being queued/serialized behind the
+    // first (§5.4 "transaction scheduling": overlapping-scope write
+    // transactions run in creation order, others may run concurrently).
+    // Proper scheduling needs a connection pool / transaction queue and is
+    // deferred to `#11-idb-connection-queue` (backend-gated); single-VM
+    // single-task code paths — the common case — are unaffected.
     let backend_txn =
         elidex_indexeddb::IdbTransaction::begin(backend.conn(), &db_name, names.clone(), mode)
             .map_err(|e| value::backend_error_as_throw(ctx, &e))?;

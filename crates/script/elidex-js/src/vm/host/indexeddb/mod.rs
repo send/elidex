@@ -885,6 +885,26 @@ pub(crate) fn native_idb_dispatch_event(
         unreachable!("dispatchEvent argument brand-checked as Event");
     };
     let handler_attr = on_handler_sid(ctx.vm, event_type);
+    // WHATWG DOM §2.9 step 1: a re-entrant dispatch of an event already in
+    // flight throws `InvalidStateError` (a sequential `dispatchEvent(e);
+    // dispatchEvent(e);` is fine — the flag is bracketed across the walk).
+    // Reuses the canonical `dispatched_events` set so the IDB path and
+    // `EventTarget.prototype.dispatchEvent` share the one membership store.
+    if ctx.vm.dispatched_events.contains(&event_id) {
+        let name_sid = ctx.vm.well_known.dom_exc_invalid_state_error;
+        return Err(super::dom_exception::invalid_state_error(
+            name_sid,
+            "EventTarget",
+            "dispatchEvent",
+            "The event is already being dispatched.",
+        ));
+    }
+    // §2.9: `target` is set for the whole dispatch and stays observable after
+    // it — set it up front so `event.target` is correct even when no listener
+    // runs (the shared dispatcher's no-observer early-return never builds /
+    // touches the event).
+    set_event_slot_raw(ctx.vm, event_id, EVENT_SLOT_TARGET, JsValue::Object(target));
+    ctx.vm.dispatched_events.insert(event_id);
     // Route through the one shared dispatcher: GC-rooted, honors
     // `stopPropagation` / `stopImmediatePropagation`, and bubbles along the
     // IDB ancestor chain when `event.bubbles` — identical to internal fires.
@@ -892,6 +912,21 @@ pub(crate) fn native_idb_dispatch_event(
     let res = dispatch_idb_event(ctx, target, event_type, handler_attr, bubbles, |_ctx| {
         event_id
     });
+    ctx.vm.dispatched_events.remove(&event_id);
+    // §2.9 steps 27-31 finalize: clear `currentTarget` + the propagation-stop
+    // flags so a subsequent dispatch of the same event starts clean (`target`
+    // stays set; `defaultPrevented` is intentionally NOT reset — it is the
+    // canceled bit the return value reports).
+    set_event_slot_raw(ctx.vm, event_id, EVENT_SLOT_CURRENT_TARGET, JsValue::Null);
+    if let ObjectKind::Event {
+        propagation_stopped,
+        immediate_propagation_stopped,
+        ..
+    } = &mut ctx.vm.get_object_mut(event_id).kind
+    {
+        *propagation_stopped = false;
+        *immediate_propagation_stopped = false;
+    }
     Ok(JsValue::Boolean(!res.canceled))
 }
 

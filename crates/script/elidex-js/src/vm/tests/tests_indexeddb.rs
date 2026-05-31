@@ -739,6 +739,63 @@ fn stop_propagation_on_request_error_halts_bubbling_to_transaction() {
     });
 }
 
+#[test]
+fn open_and_delete_database_require_a_name_argument() {
+    with_vm(|vm| {
+        // R7: WebIDL `DOMString name` is required — a MISSING argument throws
+        // TypeError before touching the backend (no database literally named
+        // "undefined"); an EXPLICIT `undefined` still coerces normally.
+        assert!(eval_bool(
+            vm,
+            "(() => { try { indexedDB.open(); return false; } \
+             catch (e) { return e instanceof TypeError; } })()"
+        ));
+        assert!(eval_bool(
+            vm,
+            "(() => { try { indexedDB.deleteDatabase(); return false; } \
+             catch (e) { return e instanceof TypeError; } })()"
+        ));
+        // Explicit undefined → request for DB "undefined", no throw.
+        assert_eq!(
+            eval_string(vm, "indexedDB.open(undefined).readyState"),
+            "pending"
+        );
+    });
+}
+
+#[test]
+fn dispatch_event_sets_target_and_brackets_dispatch_state() {
+    with_vm(|vm| {
+        // R7 / WHATWG DOM §2.9 bookkeeping on the IDB dispatchEvent path.
+        vm.eval("globalThis.__o = indexedDB.open('db_disp_bk', 1);")
+            .unwrap();
+        // §2.9: `target` is set even with zero listeners; `currentTarget` is
+        // cleared to null after dispatch.
+        assert!(eval_bool(
+            vm,
+            "(() => { const e = new Event('foo'); globalThis.__o.dispatchEvent(e); \
+             return e.target === globalThis.__o && e.currentTarget === null; })()"
+        ));
+        // §2.9 step 1: a re-entrant re-dispatch of an in-flight event throws
+        // InvalidStateError (caught inside the listener here).
+        assert!(eval_bool(
+            vm,
+            "(() => { const e = new Event('bar'); let caught = null; \
+             globalThis.__o.addEventListener('bar', () => { \
+               try { globalThis.__o.dispatchEvent(e); } catch (err) { caught = err; } }); \
+             globalThis.__o.dispatchEvent(e); \
+             return caught instanceof DOMException && caught.name === 'InvalidStateError'; })()"
+        ));
+        // Sequential dispatch of the same event object succeeds twice (the
+        // dispatch flag is bracketed, not left set).
+        assert!(eval_bool(
+            vm,
+            "(() => { const e = new Event('baz'); \
+             return globalThis.__o.dispatchEvent(e) && globalThis.__o.dispatchEvent(e); })()"
+        ));
+    });
+}
+
 // Note: the once-listener GC-rooting fix (mod.rs `dispatch_idb_event`
 // stack-scope, now shared by both the internal fire path and the script-facing
 // `dispatchEvent`) is verified by construction — it is the established
