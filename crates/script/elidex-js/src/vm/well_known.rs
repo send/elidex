@@ -1237,7 +1237,7 @@ define_well_known_strings! {
         // HTML §8.1.4.2 "selection task source").
         selectionchange_event => "selectionchange",
         // `slotchange` event name (WHATWG DOM §4.2.2.5 +
-        // §4.3.4 "notify mutation observers").
+        // §4.3 "notify mutation observers").
         slotchange_event => "slotchange",
     }
 

@@ -48,7 +48,7 @@ pub(crate) enum Microtask {
     /// drain loop (spec: "If the callback throws an exception, report the
     /// exception.").
     Callback { func: ObjectId },
-    /// WHATWG DOM §4.3.4 "notify mutation observers" microtask —
+    /// WHATWG DOM §4.3 "notify mutation observers" microtask —
     /// coalesced per-tick by [`VmInner::mutation_observer_microtask_queued`].
     /// When dispatched, snapshots the signal-slots set and fires a
     /// `slotchange` Event at each (D-15 PR-A wires the slotchange
@@ -320,7 +320,7 @@ fn drain_queue_pass(vm: &mut VmInner) {
                 run_callback(vm, func);
             }
             Microtask::NotifyMutationObservers => {
-                // Per WHATWG DOM §4.3.4 step 1: clear the queued
+                // Per WHATWG DOM §4.3 step 1: clear the queued
                 // flag BEFORE dispatch so a signal raised during
                 // the slotchange listener body (re-entrant
                 // `slot.assign()`) enqueues a fresh microtask for

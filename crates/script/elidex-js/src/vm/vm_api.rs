@@ -754,7 +754,7 @@ impl Vm {
     }
 
     /// Deliver session-level `MutationRecord`s to every registered
-    /// `MutationObserver` (WHATWG DOM §4.3.4).
+    /// `MutationObserver` (WHATWG DOM §4.3).
     ///
     /// This is an **embedder API** — the VM does not auto-deliver
     /// mutation records.  Embedders call this once per script-task

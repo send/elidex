@@ -48,7 +48,7 @@ use super::dom_bridge::{coerce_first_arg_to_string_id, invoke_dom_api, wrap_enti
 impl VmInner {
     /// Append `slot` to the signal-slots set and ensure the
     /// "notify mutation observers" microtask is queued (WHATWG DOM
-    /// §4.2.2.5 + §4.3.4 step 1).  Deduplicated linear scan — the
+    /// §4.2.2.5 + §4.3 step 1).  Deduplicated linear scan — the
     /// set is typically tiny (a handful of slots per microtask
     /// burst) so avoiding `HashSet` overhead pays off in the common
     /// case.  The microtask is coalesced via
@@ -369,18 +369,19 @@ fn slot_assigned_elements(
 /// `queueMicrotask` callbacks, so a `Promise.then(cb)` registered
 /// AFTER `slot.assign()` observes the post-slotchange state, while
 /// one registered BEFORE the assign still fires first (WHATWG DOM
-/// §4.3.4 step 1).  Mutation observer callbacks themselves remain
+/// §4.3 step 1).  Mutation observer callbacks themselves remain
 /// embedder-driven via `Vm::deliver_mutation_records`; the
 /// slotchange half is fully spec-correct.
 ///
 /// The signal-slots set is **snapshotted before dispatch** per spec
-/// §4.3.4 step 3 ("let signalSet be a clone of signal slots; empty
-/// signal slots; for each slot in signalSet: fire an event named
-/// `slotchange` at slot").  Signals enqueued by a `slotchange`
-/// listener body (re-entrant `slot.assign()` calls) re-arm the
-/// coalescing flag and enqueue a fresh notify-MO microtask, which
-/// runs later in the SAME drain pass.  Returns the number of events
-/// actually fired (telemetry / tests).
+/// §4.3 "notify mutation observers" steps 4–5 + 7 ("let signalSet be
+/// a clone of signal slots; empty signal slots; ... for each slot of
+/// signalSet: fire an event named `slotchange` at slot").  Signals
+/// enqueued by a `slotchange` listener body (re-entrant
+/// `slot.assign()` calls) re-arm the coalescing flag and enqueue a
+/// fresh notify-MO microtask, which runs later in the SAME drain
+/// pass.  Returns the number of events actually fired (telemetry /
+/// tests).
 pub(in crate::vm) fn dispatch_pending_slotchange_signals(vm: &mut VmInner) -> usize {
     if vm.pending_slot_change_signals.is_empty() {
         return 0;
@@ -400,9 +401,9 @@ pub(in crate::vm) fn dispatch_pending_slotchange_signals(vm: &mut VmInner) -> us
     }
     let type_sid = vm.well_known.slotchange_event;
     // Snapshot the signal-slots set BEFORE dispatch (WHATWG DOM
-    // §4.3.4 "notify mutation observers" step 3: clone signal slots,
-    // empty signal slots, then fire `slotchange` for each slot in
-    // the clone).  Slots signaled by a `slotchange` listener body
+    // §4.3 "notify mutation observers" steps 4–5 + 7: clone signal
+    // slots, empty signal slots, then fire `slotchange` for each slot
+    // in the clone).  Slots signaled by a `slotchange` listener body
     // during this pass land on the live queue and fire in the next
     // microtask checkpoint — NOT re-entrantly inside this dispatch.
     let snapshot: Vec<Entity> = vm.pending_slot_change_signals.drain(..).collect();
