@@ -255,7 +255,7 @@ fn onabort_handler_fires_on_abort() {
 #[test]
 fn onabort_runs_before_addeventlistener_callbacks() {
     let mut vm = Vm::new();
-    // WHATWG §8.1.5. event-handler IDL attribute fires "first in
+    // WHATWG §8.1.8.1. event-handler IDL attribute fires "first in
     // addition to others registered".  PR4d implements that order.
     assert_eq!(
         eval_string(

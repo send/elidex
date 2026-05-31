@@ -5,10 +5,10 @@
 //! Event.prototype` without the UIEvent prefix:
 //!
 //! ```text
-//! PromiseRejectionEvent : Event  (HTML §8.1.7.3.4)
-//! ErrorEvent            : Event  (HTML §8.1.7.2)
-//! HashChangeEvent       : Event  (HTML §8.1.3)
-//! PopStateEvent         : Event  (HTML §8.8.1)
+//! PromiseRejectionEvent : Event  (HTML §8.1.4.7)
+//! ErrorEvent            : Event  (HTML §8.1.4.6)
+//! HashChangeEvent       : Event  (HTML §7.2.7.3)
+//! PopStateEvent         : Event  (HTML §7.2.7.2)
 //! ```
 //!
 //! Each ctor goes through the shared
@@ -275,7 +275,7 @@ pub(super) fn register_event_subclass(
 }
 
 // ---------------------------------------------------------------------------
-// PromiseRejectionEvent (HTML §8.1.7.3.4)
+// PromiseRejectionEvent (HTML §8.1.4.7)
 // ---------------------------------------------------------------------------
 
 fn native_promise_rejection_event_constructor(
@@ -285,7 +285,7 @@ fn native_promise_rejection_event_constructor(
 ) -> Result<JsValue, VmError> {
     let mode = ctx.mode;
     let type_sid = type_arg(ctx, args, "PromiseRejectionEvent")?;
-    // WHATWG HTML §8.1.7.3.4 + WebIDL §3.10.23 dictionary coercion:
+    // WHATWG HTML §8.1.4.7 + WebIDL §3.10.23 dictionary coercion:
     //   - A missing second arg → arity error (dict with `required`
     //     member has no valid zero-arg form).
     //   - `null` / `undefined` → WebIDL treats as an empty
@@ -363,7 +363,7 @@ fn native_promise_rejection_event_constructor(
 }
 
 // ---------------------------------------------------------------------------
-// ErrorEvent (HTML §8.1.7.2)
+// ErrorEvent (HTML §8.1.4.6)
 // ---------------------------------------------------------------------------
 
 fn native_error_event_constructor(
@@ -420,7 +420,7 @@ fn native_error_event_constructor(
 }
 
 // ---------------------------------------------------------------------------
-// HashChangeEvent (HTML §8.1.3)
+// HashChangeEvent (HTML §7.2.7.3)
 // ---------------------------------------------------------------------------
 
 fn native_hash_change_event_constructor(
@@ -466,7 +466,7 @@ fn native_hash_change_event_constructor(
 }
 
 // ---------------------------------------------------------------------------
-// PopStateEvent (HTML §8.8.1)
+// PopStateEvent (HTML §7.2.7.2)
 // ---------------------------------------------------------------------------
 
 fn native_pop_state_event_constructor(
@@ -479,7 +479,7 @@ fn native_pop_state_event_constructor(
     let init_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let base = parse_event_init(ctx, init_arg, "PopStateEvent")?;
     let opts_id = opts_object_id(init_arg);
-    // `state: any = null` (WHATWG HTML §8.8.1.3): missing / undefined
+    // `state: any = null` (WHATWG HTML §7.2.7.2): missing / undefined
     // both collapse to null (matches Chrome); user-supplied undefined
     // is also coerced to null for parity (not strict WebIDL `any`
     // pass-through, but observable-compatible).

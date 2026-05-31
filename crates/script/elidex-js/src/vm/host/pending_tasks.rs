@@ -1,7 +1,7 @@
 //! Same-window task queue + `window.postMessage` (WHATWG HTML
 //! §9.4.3).
 //!
-//! The HTML event loop's *task queue* (§8.1.5 "Task"), restricted to
+//! The HTML event loop's *task queue* (§8.1.7.1 "Task"), restricted to
 //! the single JavaScript realm that Phase 2 supports.  The only
 //! producer currently implemented is [`Window::postMessage`]; future
 //! producers include `Worker.postMessage`, `MessageChannel` /
@@ -56,7 +56,7 @@ use super::structured_clone::clone_value;
 // Task variants
 // ---------------------------------------------------------------------------
 
-/// A queued task awaiting dispatch on the HTML event loop (§8.1.5).
+/// A queued task awaiting dispatch on the HTML event loop (§8.1.7.1).
 ///
 /// Each variant captures the minimum state needed to re-run the task
 /// at drain time *without* re-running any of the producer's own
@@ -109,7 +109,8 @@ impl VmInner {
     }
 
     /// Drain every queued task in FIFO order, running a microtask
-    /// checkpoint after each one (WHATWG HTML §8.1.5 step 5).
+    /// checkpoint after each one (WHATWG HTML §8.1.7.3 — perform a
+    /// microtask checkpoint).
     ///
     /// Reentrancy-guarded: a nested call (a drained task enqueued
     /// another task that ran inline during its listener body) is
@@ -124,10 +125,10 @@ impl VmInner {
         self.task_drain_depth = self.task_drain_depth.saturating_add(1);
         while let Some(task) = self.pending_tasks.pop_front() {
             self.execute_task(task);
-            // Per §8.1.5 step 5: microtask checkpoint between tasks.
+            // Per §8.1.7.3 (perform a microtask checkpoint): between tasks.
             self.drain_microtasks();
         }
-        // Selection API §3.4 + HTML §8.1.4.2 "selection task source":
+        // Selection API §3.4 + HTML §8.1.7.1 "selection task source":
         // fire a coalesced `selectionchange` event at the document if
         // any Selection / Range mutation set the dirty bit during
         // this drain.  One event regardless of how many discrete

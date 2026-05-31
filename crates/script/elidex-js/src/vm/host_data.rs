@@ -345,7 +345,7 @@ mod engine_feature {
         /// unreachable; the next `getSelection()` call materialises a
         /// fresh wrapper backed by the same `selection_state`.
         pub(crate) selection_instance: Option<ObjectId>,
-        /// "Selection task source" dirty flag per HTML §8.1.4.2.  Set
+        /// "Selection task source" dirty flag per HTML §8.1.7.1.  Set
         /// on any user-script Selection / Range mutation; the
         /// pending-task drain checks the flag at eval boundary and
         /// fires a coalesced `selectionchange` at the document per

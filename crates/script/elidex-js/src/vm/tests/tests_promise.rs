@@ -294,7 +294,7 @@ fn queue_microtask_fifo_order() {
 #[test]
 fn queue_microtask_nested_enqueues_run_in_same_drain() {
     // A microtask that enqueues another microtask — both must fire within
-    // the same drain (HTML §8.1.4.2 step 7: drain continues until empty).
+    // the same drain (HTML §8.1.7.3 perform a microtask checkpoint: drain continues until empty).
     assert_eq!(
         eval_global_string(
             "globalThis.log = ''; \

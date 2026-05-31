@@ -136,7 +136,7 @@ impl ScriptEngine for ElidexJsEngine {
     }
 
     fn run_microtasks(&mut self, _ctx: &mut ScriptContext<'_>) {
-        // HTML §8.1.4.3 microtask checkpoint — drain Promise reactions
+        // HTML §8.1.7.3 perform a microtask checkpoint — drain Promise reactions
         // and queueMicrotask callbacks (PR2 commits 1-5 supply the queue).
         self.vm.inner.drain_microtasks();
     }

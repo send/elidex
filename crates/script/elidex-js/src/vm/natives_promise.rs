@@ -43,7 +43,7 @@ pub(crate) enum Microtask {
         resolution: JsValue,
     },
     /// A bare callback enqueued via `globalThis.queueMicrotask(fn)`
-    /// (HTML §8.1.4.3).  Invoked with `this = undefined` and no arguments;
+    /// (HTML §8.8).  Invoked with `this = undefined` and no arguments;
     /// exceptions are reported to the host and do not propagate out of the
     /// drain loop (spec: "If the callback throws an exception, report the
     /// exception.").
@@ -284,7 +284,7 @@ impl VmInner {
         // those queued BEFORE the signal still fire first.
         drain_queue_pass(self);
         // End-of-drain: dispatch a `PromiseRejectionEvent` to the
-        // document's `unhandledrejection` listeners (HTML §8.1.5.5
+        // document's `unhandledrejection` listeners (HTML §8.1.4.7
         // HostPromiseRejectionTracker hook), falling back to an
         // `eprintln!` when no listener calls `preventDefault`.  Wired
         // in PR3 C10.
@@ -338,8 +338,8 @@ fn drain_queue_pass(vm: &mut VmInner) {
 
 /// Walk `pending_rejections`, dispatch a `PromiseRejectionEvent` to the
 /// host (if bound) for each, and fall back to `eprintln!` when no
-/// listener has called `preventDefault` (matches HTML §8.1.5.5
-/// "report the exception" hook).  Marks the reported promise
+/// listener has called `preventDefault` (matches HTML §8.1.4.7
+/// "notify about rejected promises").  Marks the reported promise
 /// `handled` so a second drain pass doesn't re-warn.
 fn process_pending_rejections(vm: &mut VmInner) {
     if vm.pending_rejections.is_empty() {
@@ -404,7 +404,7 @@ fn process_pending_rejections(vm: &mut VmInner) {
 /// happened AND a listener called `preventDefault()` — caller uses
 /// this to suppress the stderr fallback.
 ///
-/// Bypasses the shared 3-phase dispatch core: per HTML §8.1.5.5 the
+/// Bypasses the shared 3-phase dispatch core: per HTML §8.1.4.7 the
 /// event is non-bubbling and targeted at the global, so capture-phase
 /// listeners on ancestors are not in play.  Direct invocation also
 /// avoids the cross-crate `EventPayload::PromiseRejection { ... }`
@@ -606,7 +606,7 @@ fn dispatch_unhandled_rejection_event(
     false
 }
 
-/// Execute a bare `queueMicrotask` callback (HTML §8.1.4.3).  Exceptions are
+/// Execute a bare `queueMicrotask` callback (HTML §8.8).  Exceptions are
 /// swallowed with a best-effort `eprintln!` report so that a misbehaving
 /// callback cannot abort the drain loop and strand the rest of the queue.
 /// Once a proper host error-reporting channel exists (PR6), the eprintln
@@ -815,7 +815,7 @@ fn coerce_then_handler(
     }
 }
 
-/// `queueMicrotask(callback)` — HTML §8.1.4.3.
+/// `queueMicrotask(callback)` — HTML §8.8.
 ///
 /// Validates the callback is callable and appends a `Microtask::Callback`
 /// to the VM queue.  Drain happens at the next microtask checkpoint (end

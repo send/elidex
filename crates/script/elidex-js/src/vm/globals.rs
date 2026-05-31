@@ -116,7 +116,7 @@ impl VmInner {
         self.register_global_function("decodeURI", native_decode_uri);
         self.register_global_function("encodeURIComponent", native_encode_uri_component);
         self.register_global_function("decodeURIComponent", native_decode_uri_component);
-        // queueMicrotask (HTML §8.1.4.3).  Registered early so later built-in
+        // queueMicrotask (HTML §8.8).  Registered early so later built-in
         // setup that wants to defer work can rely on it if needed.
         self.register_global_function(
             "queueMicrotask",
@@ -536,7 +536,7 @@ impl VmInner {
             GlobalScopeKind::Window => {
                 self.register_window_prototype();
                 self.get_object_mut(self.global_object).prototype = self.window_prototype;
-                // `navigator` — static Navigator object (WHATWG HTML §8.1.5).
+                // `navigator` — static Navigator object (WHATWG HTML §8.10.1).
                 // Installed after the Window prototype chain is in place so
                 // `navigator.hasOwnProperty`, `Object.getPrototypeOf(navigator)`
                 // etc. resolve against `Object.prototype` as expected.

@@ -1,4 +1,4 @@
-//! `navigator` global — the `Navigator` interface (WHATWG HTML §8.1.5).
+//! `navigator` global — the `Navigator` interface (WHATWG HTML §8.10.1).
 //!
 //! Phase 2 scope: all fields are static constants — no privacy /
 //! language-negotiation / real UA string derivation yet.  The intent is
