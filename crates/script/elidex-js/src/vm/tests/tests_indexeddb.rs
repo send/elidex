@@ -546,6 +546,103 @@ fn open_version_out_of_range_throws_type_error() {
     });
 }
 
+#[test]
+fn explicit_abort_sets_transaction_error_to_abort_error() {
+    with_vm(|vm| {
+        // §5.5: a user-initiated abort() with no error aborts with a created
+        // AbortError, exposed via transaction.error (§4.10).
+        vm.eval(
+            "globalThis.__log = [];
+             const open = indexedDB.open('db_abort_err', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const tx = e.target.result.transaction(['s'], 'readwrite');
+                 tx.objectStore('s').put('v', 1);
+                 tx.onabort = () => {
+                     globalThis.__log.push('err:' + (tx.error && tx.error.name));
+                 };
+                 tx.abort();
+             };",
+        )
+        .unwrap();
+        assert_eq!(
+            eval_string(vm, "globalThis.__log.join(',')"),
+            "err:AbortError"
+        );
+    });
+}
+
+#[test]
+fn commit_on_inactive_transaction_throws_invalid_state() {
+    with_vm(|vm| {
+        // §4.10: commit() requires the transaction to be active.  With two
+        // outstanding requests, a microtask queued from the FIRST request's
+        // success handler runs after that handler returns (the txn set
+        // inactive by post-dispatch, second request still pending) — calling
+        // commit() then throws InvalidStateError.
+        vm.eval(
+            "globalThis.__err = 'none';
+             const open = indexedDB.open('db_commit_inactive', 1);
+             open.onupgradeneeded = (e) => { e.target.result.createObjectStore('s'); };
+             open.onsuccess = (e) => {
+                 const tx = e.target.result.transaction(['s'], 'readwrite');
+                 const store = tx.objectStore('s');
+                 const r1 = store.put('a', 1);
+                 store.put('b', 2); // keeps the request list non-empty after r1
+                 r1.onsuccess = () => {
+                     Promise.resolve().then(() => {
+                         try { tx.commit(); }
+                         catch (err) { globalThis.__err = err.name; }
+                     });
+                 };
+             };",
+        )
+        .unwrap();
+        assert_eq!(eval_string(vm, "globalThis.__err"), "InvalidStateError");
+    });
+}
+
+#[test]
+fn array_keypath_is_rejected() {
+    with_vm(|vm| {
+        // Array (compound) key paths are valid per spec but unsupported by the
+        // backend; createObjectStore rejects rather than silently making an
+        // out-of-line store.
+        vm.eval(
+            "globalThis.__err = 'none';
+             const open = indexedDB.open('db_akp', 1);
+             open.onupgradeneeded = (e) => {
+                 try { e.target.result.createObjectStore('s', { keyPath: ['a', 'b'] }); }
+                 catch (err) { globalThis.__err = err.name; }
+             };",
+        )
+        .unwrap();
+        assert_eq!(eval_string(vm, "globalThis.__err"), "NotSupportedError");
+    });
+}
+
+#[test]
+fn dispatch_event_typed_like_a_handler_attr_does_not_invoke_handler() {
+    with_vm(|vm| {
+        // The no-handler sentinel must not collide with handler-attr names:
+        // dispatching an Event whose type is literally "onsuccess" must NOT
+        // invoke the onsuccess handler (which is for "success" events).
+        vm.eval(
+            "globalThis.__log = [];
+             const o = indexedDB.open('db_sentinel', 1);
+             o.onsuccess = () => { globalThis.__log.push('onsuccess-ran'); };
+             o.dispatchEvent(new Event('onsuccess'));",
+        )
+        .unwrap();
+        // Only the real success delivery (post-drain) ran onsuccess; the
+        // synthetic 'onsuccess'-typed dispatch did not.
+        assert_eq!(
+            eval_string(vm, "globalThis.__log.join(',')"),
+            "onsuccess-ran"
+        );
+    });
+}
+
 // ---------------------------------------------------------------------------
 // IDBKeyRange + cmp (synchronous surface)
 // ---------------------------------------------------------------------------

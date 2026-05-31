@@ -326,7 +326,7 @@ fn collect_and_prune(
     vm: &mut VmInner,
     target: ObjectId,
     event_type: StringId,
-    handler_attr: StringId,
+    handler_attr: Option<StringId>,
 ) -> (Option<ObjectId>, Vec<ObjectId>) {
     // Reduce to a small `Copy` discriminant under the shared borrow before
     // taking the `&mut` map borrow below (`ObjectKind` is not `Copy`).
@@ -337,7 +337,7 @@ fn collect_and_prune(
         ($map:ident) => {{
             match vm.$map.get_mut(&target) {
                 Some(st) => {
-                    let handler = st.handlers.get(&handler_attr).copied();
+                    let handler = handler_attr.and_then(|h| st.handlers.get(&h).copied());
                     let cbs: Vec<ObjectId> = st
                         .listeners
                         .iter()
@@ -479,7 +479,8 @@ fn fire_idb_event_with_props(
     let collected: Vec<(ObjectId, Option<ObjectId>, Vec<ObjectId>)> = path
         .iter()
         .map(|&node| {
-            let (handler, listeners) = collect_and_prune(ctx.vm, node, event_type, handler_attr);
+            let (handler, listeners) =
+                collect_and_prune(ctx.vm, node, event_type, Some(handler_attr));
             (node, handler, listeners)
         })
         .collect();
@@ -806,27 +807,29 @@ pub(crate) fn native_idb_dispatch_event(
 /// Map an IDB event-type SID to its `on<type>` handler-attribute SID
 /// (`success` → `onsuccess`, …).  Returns a sentinel for an unknown type so
 /// `collect_and_prune` finds no handler (only listeners run).
-fn on_handler_sid(vm: &VmInner, event_type: StringId) -> StringId {
+fn on_handler_sid(vm: &VmInner, event_type: StringId) -> Option<StringId> {
     let wk = &vm.well_known;
+    // `None` for an event type with no `on<type>` attribute — so a dispatch of
+    // e.g. `new Event('onsuccess')` runs only `addEventListener` callbacks, not
+    // the stored `onsuccess` handler (the event type must NOT double as the
+    // no-handler sentinel: it could equal a handler-attribute name).
     if event_type == wk.success {
-        wk.onsuccess
+        Some(wk.onsuccess)
     } else if event_type == wk.error {
-        wk.onerror
+        Some(wk.onerror)
     } else if event_type == wk.complete {
-        wk.oncomplete
+        Some(wk.oncomplete)
     } else if event_type == wk.abort {
-        wk.onabort
+        Some(wk.onabort)
     } else if event_type == wk.upgradeneeded {
-        wk.onupgradeneeded
+        Some(wk.onupgradeneeded)
     } else if event_type == wk.versionchange {
-        wk.onversionchange
+        Some(wk.onversionchange)
     } else if event_type == wk.blocked {
-        wk.onblocked
+        Some(wk.onblocked)
     } else if event_type == wk.close {
-        wk.onclose
+        Some(wk.onclose)
     } else {
-        // No `on<type>` attribute for this event — a SID that no handler map
-        // holds, so only `addEventListener` callbacks run.
-        event_type
+        None
     }
 }

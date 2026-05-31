@@ -63,8 +63,12 @@ pub(crate) fn native_idb_open(
         Some(v) => {
             let n = ctx.to_number(v)?;
             let truncated = n.trunc();
-            #[allow(clippy::cast_precision_loss)]
-            if !n.is_finite() || truncated < 0.0 || truncated > u64::MAX as f64 {
+            // Reject `>= 2^64` (NOT `> u64::MAX as f64`: `u64::MAX as f64`
+            // rounds UP to 2^64, so a strict `>` would let exactly 2^64 — and
+            // values rounding to it — saturate through).  `2^64` is exactly
+            // representable in f64, so `< 2^64` is the precise upper bound and
+            // every accepted `truncated` fits a `u64`.
+            if !n.is_finite() || truncated < 0.0 || truncated >= 2.0_f64.powi(64) {
                 return Err(VmError::type_error(
                     "IDBFactory.open: version is out of range for unsigned long long",
                 ));
@@ -119,6 +123,15 @@ pub(crate) fn native_idb_open(
                     });
                 }
                 Err(e) => {
+                    // `open_database` already wrote the bumped version (or
+                    // created the database); if starting the versionchange
+                    // transaction fails (e.g. another transaction is open on
+                    // the single connection), roll that metadata back to
+                    // `old_version` so the failed open does not leave the
+                    // database at the requested version (§5.8 abort-upgrade
+                    // version reset).
+                    let _ =
+                        elidex_indexeddb::database::abort_upgrade(&backend, &handle, old_version);
                     let exc = value::backend_error_to_dom_exception(ctx.vm, &e);
                     request::stage_and_queue(ctx.vm, req, DeferredOutcome::Error(exc));
                 }

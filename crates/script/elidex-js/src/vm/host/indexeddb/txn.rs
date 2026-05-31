@@ -311,11 +311,15 @@ pub(crate) fn native_txn_commit(
 ) -> Result<JsValue, VmError> {
     let txn_id = require_txn_this(ctx, this, "commit")?;
     let state = ctx.vm.idb_transaction_states.get(&txn_id).map(|s| s.state);
-    if matches!(state, Some(IdbTxnState::Committing | IdbTxnState::Finished)) {
+    // §4.10 commit(): the transaction must be active.  An inactive txn (control
+    // already returned to the event loop — e.g. commit() from a microtask /
+    // later callback) as well as a committing / finished one throws
+    // InvalidStateError, rather than silently re-driving the lifecycle.
+    if state != Some(IdbTxnState::Active) {
         return Err(value::dom_exc(
             ctx,
             "InvalidStateError",
-            "IDBTransaction.commit: the transaction has already committed or aborted",
+            "IDBTransaction.commit: the transaction is not active",
         ));
     }
     commit_transaction(ctx.vm, txn_id);
@@ -427,6 +431,17 @@ pub(crate) fn native_txn_abort(
             "IDBTransaction.abort: the transaction has already committed or aborted",
         ));
     }
-    abort_transaction(ctx.vm, txn_id, None);
+    // §5.5 abort a transaction: a user-initiated abort with no supplied error
+    // aborts with a freshly created "AbortError" `DOMException`, which
+    // `transaction.error` then exposes (§4.10).
+    let abort_name = ctx.vm.strings.intern("AbortError");
+    let abort_err = match ctx
+        .vm
+        .build_dom_exception(abort_name, "the transaction was aborted")
+    {
+        JsValue::Object(id) => Some(id),
+        _ => None,
+    };
+    abort_transaction(ctx.vm, txn_id, abort_err);
     Ok(JsValue::Undefined)
 }

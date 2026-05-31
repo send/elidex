@@ -90,7 +90,6 @@ fn db_name_of(ctx: &NativeContext<'_>, db_id: ObjectId) -> String {
 }
 
 /// Parse `createObjectStore` options: `{ keyPath?, autoIncrement? }`.
-/// Array key paths are not yet supported (treated as no in-line key).
 fn parse_create_store_options(
     ctx: &mut NativeContext<'_>,
     arg: Option<JsValue>,
@@ -99,13 +98,21 @@ fn parse_create_store_options(
         return Ok((None, false));
     };
     // WebIDL `keyPath` is `(DOMString or sequence<DOMString>)?`: `null` /
-    // `undefined` → out-of-line keys; an array is a (not-yet-supported)
-    // sequence key path → treated as no in-line key; anything else coerces to
-    // a `DOMString` (so `{ keyPath: 1 }` is the path `"1"`, not out-of-line).
+    // `undefined` → out-of-line keys; anything else coerces to a `DOMString`
+    // (so `{ keyPath: 1 }` is the path `"1"`).  An array is a valid *compound*
+    // (sequence) key path — the backend does not support those yet, so reject
+    // it rather than silently create an out-of-line store with different key
+    // semantics (deferred: array/compound key paths).
     let kp_key = PropertyKey::String(ctx.vm.strings.intern("keyPath"));
     let key_path = match ctx.get_property_value(opts, kp_key)? {
         JsValue::Null | JsValue::Undefined => None,
-        JsValue::Object(id) if matches!(ctx.get_object(id).kind, ObjectKind::Array { .. }) => None,
+        JsValue::Object(id) if matches!(ctx.get_object(id).kind, ObjectKind::Array { .. }) => {
+            return Err(value::dom_exc(
+                ctx,
+                "NotSupportedError",
+                "IDBDatabase.createObjectStore: array (compound) key paths are not supported",
+            ));
+        }
         other => {
             let sid = ctx.to_string_val(other)?;
             Some(ctx.get_utf8(sid))
