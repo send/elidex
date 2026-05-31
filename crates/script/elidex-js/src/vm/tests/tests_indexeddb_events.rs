@@ -434,11 +434,65 @@ fn transaction_store_names_are_deduplicated() {
     });
 }
 
-// Note: the once-listener GC-rooting fix (mod.rs `dispatch_idb_event`
-// stack-scope, shared by both the internal fire path and the script-facing
-// `dispatchEvent`) is verified by construction — it is the established
-// `push_stack_scope` idiom the codebase mandates for rooting values held only
-// in Rust locals across `call_function` (see `natives_array_hof` /
-// `typed_array_hof`).  A deterministic regression test is not feasible: a GC
-// use-after-free is only observable if the freed slot is reused before the
-// stale callback runs, which the heap does not guarantee.
+#[test]
+fn remove_event_listener_rejects_non_callable_argument() {
+    with_vm(|vm| {
+        // R14 #2 / WebIDL `EventListener? callback`: a non-callable, non-null
+        // argument throws TypeError (matching the shared
+        // `EventTarget.removeEventListener`), not a silent no-op; `null` is the
+        // documented no-op.
+        vm.eval("globalThis.__o = indexedDB.open('db_rel', 1);")
+            .unwrap();
+        assert!(eval_bool(
+            vm,
+            "(() => { try { globalThis.__o.removeEventListener('x', 42); return false; } \
+             catch (e) { return e instanceof TypeError; } })()"
+        ));
+        assert!(eval_bool(
+            vm,
+            "(() => { try { globalThis.__o.removeEventListener('x', {}); return false; } \
+             catch (e) { return e instanceof TypeError; } })()"
+        ));
+        // null callback is a silent no-op (no throw).
+        assert!(eval_bool(
+            vm,
+            "(() => { try { globalThis.__o.removeEventListener('x', null); return true; } \
+             catch (e) { return false; } })()"
+        ));
+    });
+}
+
+#[test]
+fn idb_prototype_survives_gc_after_global_constructor_deleted() {
+    with_vm(|vm| {
+        // R14 #4: the 8 cached IDB interface prototypes are GC roots, so
+        // severing a global constructor (its `.prototype` back-reference) does
+        // NOT let the prototype be swept while `VmInner` still hands its
+        // `ObjectId` to later host-created IDB objects.  Deterministic: the
+        // prototype's only remaining references after `delete` are the now-dead
+        // constructor cycle and the `VmInner` slot, so without the proto-root
+        // it would be collected here.
+        let proto = vm
+            .inner
+            .idb_request_prototype
+            .expect("idb_request_prototype is registered");
+        vm.eval("delete globalThis.IDBRequest;").unwrap();
+        vm.inner.collect_garbage();
+        assert!(
+            vm.inner.objects[proto.0 as usize].is_some(),
+            "IDBRequest.prototype was collected after deleting the global constructor",
+        );
+    });
+}
+
+// Note: two GC-rooting fixes here are verified by construction, not a
+// deterministic test (a use-after-free is only observable if the freed slot is
+// reused before the stale reference is read, which the heap does not
+// guarantee — same caveat as the wrapper/listener rooting tests).
+//   * R6: the once-listener `push_stack_scope` rooting in
+//     `dispatch_idb_event` (the established idiom for values held only in Rust
+//     locals across `call_function`, cf. `natives_array_hof`).
+//   * R14 #1: rooting non-`Finished` transactions in `gc::mark_roots` — a
+//     zero-request transaction is only `Active` *inside* `drain_tasks` (before
+//     the auto-commit sweep), a window not reachable between `Vm::eval` calls,
+//     so it cannot be set up deterministically from the test harness.

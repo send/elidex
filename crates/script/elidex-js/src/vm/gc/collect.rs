@@ -943,6 +943,45 @@ impl VmInner {
                 self.intersection_observer_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // M4-12 slot #11-indexed-db-vm: the 8 IndexedDB interface
+                // prototypes are cached in `VmInner` and reused for every
+                // host-created IDB object, so they must be rooted here —
+                // otherwise deleting/severing a global IDB constructor could
+                // let its cached prototype be swept while `VmInner` still hands
+                // out its (now-recycled) `ObjectId` to later
+                // `indexedDB.open()` results.
+                #[cfg(feature = "engine")]
+                self.idb_factory_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.idb_request_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.idb_open_db_request_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.idb_database_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.idb_object_store_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.idb_transaction_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.idb_key_range_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.idb_version_change_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,
@@ -996,6 +1035,8 @@ impl VmInner {
             active_cssom_rule_ids: &active_cssom_rule_ids,
             #[cfg(feature = "engine")]
             pending_fetches: &self.pending_fetches,
+            #[cfg(feature = "engine")]
+            idb_transaction_states: &self.idb_transaction_states,
             #[cfg(feature = "engine")]
             dispatched_events: &self.dispatched_events,
         };

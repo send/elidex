@@ -33,7 +33,7 @@ pub(super) struct GcRoots<'a> {
     /// moved the storage to this dedicated stack.
     pub(super) saved_completion_stack: &'a [JsValue],
     pub(super) current_exception: JsValue,
-    pub(super) proto_roots: [Option<ObjectId>; 171],
+    pub(super) proto_roots: [Option<ObjectId>; 179],
     /// Per-subclass TypedArray prototype slots, addressed by
     /// [`super::super::value::ElementKind::index`].  Held as a borrowed
     /// slice rather than inlined into `proto_roots` so all eleven
@@ -218,6 +218,17 @@ pub(super) struct GcRoots<'a> {
     /// the Promise be collected before its settlement target lands.
     #[cfg(feature = "engine")]
     pub(super) pending_fetches: &'a HashMap<elidex_net::broker::FetchId, ObjectId>,
+    /// In-flight IndexedDB transactions (D-20).  A non-`Finished`
+    /// transaction is "live" — it will auto-commit/abort and fire its
+    /// `complete` / `abort` event.  A zero-request transaction awaiting the
+    /// tail auto-commit sweep has NO pending task yet (the sweep is what
+    /// queues `IdbCommitDone`), so without rooting it here a GC triggered by
+    /// a microtask before the sweep could collect + abort it (the sweep-prune
+    /// in `collect_garbage`), losing the required `complete` event.  Rooted by
+    /// wrapper `ObjectId` for every non-`Finished` entry in [`mark_roots`].
+    #[cfg(feature = "engine")]
+    pub(super) idb_transaction_states:
+        &'a HashMap<ObjectId, super::super::host::indexeddb::IdbTransactionState>,
     /// `dispatched_events` — Event `ObjectId`s whose dispatch is
     /// currently in flight.  Rooting these keeps freshly-allocated
     /// synthetic events (e.g. `dispatch_simple_event` for `reset` /
@@ -526,6 +537,18 @@ pub(super) fn mark_roots(
             | super::super::host::pending_tasks::PendingTask::IdbAbortDone { txn_id } => {
                 mark_object(*txn_id, obj_marks, work);
             }
+        }
+    }
+
+    // (j.2b) Non-`Finished` IndexedDB transactions are live roots — see the
+    // `idb_transaction_states` field doc.  Covers the zero-request txn that
+    // has no pending task between its creating task and the tail auto-commit
+    // sweep; marking the wrapper fans out (gc/trace.rs IDB arms) to its db
+    // back-ref + `on*` / listener handlers, so its `complete` event survives.
+    #[cfg(feature = "engine")]
+    for (id, st) in roots.idb_transaction_states {
+        if st.state != super::super::host::indexeddb::IdbTxnState::Finished {
+            mark_object(*id, obj_marks, work);
         }
     }
 
