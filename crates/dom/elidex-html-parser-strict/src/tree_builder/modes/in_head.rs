@@ -19,8 +19,8 @@ pub(crate) fn in_head(tb: &mut TreeBuilder, token: &Token) -> Result<Flow, Stric
         Token::Doctype(_) => Err(parse_error("unexpected-doctype-in-head")),
         Token::StartTag(tag) => match tag.name.as_str() {
             "html" => super::in_body::in_body(tb, token),
-            // `meta` is grouped here: A3 takes `&str` input and does no
-            // charset detection, so the spec's meta charset handling is a
+            // `meta` is grouped here: the strict parser takes `&str` input and
+            // does no charset detection, so the spec's meta charset handling is a
             // no-op and meta is just another void head element.
             "base" | "basefont" | "bgsound" | "link" | "meta" => {
                 tb.insert_void_element(tag);

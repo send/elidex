@@ -1,6 +1,6 @@
-//! Tag-opening, tag-name, self-closing, bogus-comment, and
-//! markup-declaration-open states (WHATWG HTML §13.2.5.6–8 and
-//! §13.2.5.40–42).
+//! Tag-opening, tag-name, self-closing, and markup-declaration-open
+//! states (WHATWG HTML §13.2.5.6–8 and §13.2.5.40, 42; the §13.2.5.41
+//! bogus comment recovery state is omitted — strict rejects its entry).
 
 use super::{is_whitespace, State, Tokenizer};
 use crate::StrictParseError;
@@ -65,29 +65,6 @@ impl Tokenizer {
             }
             None => return Err(self.parse_error("eof-in-tag")),
             Some(_) => return Err(self.parse_error("unexpected-solidus-in-tag")),
-        }
-        Ok(())
-    }
-
-    /// §13.2.5.41 Bogus comment state.
-    ///
-    /// Strict mode never enters this state: every spec path that switches
-    /// to it (markup-declaration-open "anything else", `<?`, etc.) is a
-    /// parse error that strict rejects first. The handler is implemented
-    /// spec-faithfully for completeness — if reached it consumes to the
-    /// next `>` and emits the comment.
-    pub(super) fn bogus_comment_state(&mut self) -> Result<(), StrictParseError> {
-        match self.consume() {
-            Some('>') => {
-                self.switch_to(State::Data);
-                self.emit_comment();
-            }
-            None => {
-                self.emit_comment();
-                self.emit_eof();
-            }
-            Some('\u{0000}') => self.push_comment('\u{FFFD}'),
-            Some(c) => self.push_comment(c),
         }
         Ok(())
     }

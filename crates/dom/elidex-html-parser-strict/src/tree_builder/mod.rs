@@ -1,6 +1,6 @@
 //! WHATWG HTML §13.2.6 "Tree construction" — strict tree builder.
 //!
-//! Consumes the [`Tokenizer`] (A2) token stream and builds the document tree
+//! Consumes the [`Tokenizer`] token stream and builds the document tree
 //! directly in [`EcsDom`], one ECS entity per node, with no intermediate
 //! representation (contrast: the tolerant compat path goes html5ever →
 //! `RcDom` → `convert_document` walk → `EcsDom`). The current node's identity
@@ -21,14 +21,6 @@
 //! to node marshalling (create / append / inspect); the tree-construction
 //! algorithm itself lives entirely here, in the engine-independent parser
 //! crate (CLAUDE.md Layering mandate).
-
-// A3 staging: the tree builder is complete but is not wired to the public
-// `parse_strict` entry point until A4 (which removes the legacy
-// `elidex-html-parser` strict path and threads this builder through). Under
-// non-test compilation `build` is therefore unreachable from the crate's
-// public API — the unit tests exercise it. Remove this allow in A4, together
-// with the matching one in `tokenizer/mod.rs`.
-#![allow(dead_code)]
 
 mod implied_end;
 mod insert;
@@ -68,7 +60,7 @@ pub(crate) enum Flow {
 /// The strict tree builder: owns the tokenizer, the DOM under construction,
 /// and the parse state, and drives WHATWG HTML §13.2.6 tree construction.
 pub(crate) struct TreeBuilder {
-    /// The token source (A2). The tree builder drives raw-text transitions on
+    /// The token source. The tree builder drives raw-text transitions on
     /// it via [`Tokenizer::set_state`].
     tokenizer: Tokenizer,
     /// The DOM under construction. Moved out into [`ParseResult`] on success.
@@ -88,9 +80,10 @@ pub(crate) struct TreeBuilder {
     /// or (strict) reject.
     pending_table_text: String,
     /// The Document's "allow declarative shadow roots" flag (§13.2.6.4.4
-    /// step 9). `true` for document parsing; A4 threads
-    /// [`crate::ParseFragmentOptions::allow_declarative_shadow`] through here
-    /// for fragment parsing.
+    /// step 9). Always `true` here: document parsing allows declarative
+    /// shadow roots. (Strict *fragment* parsing — which would thread
+    /// [`crate::ParseFragmentOptions::allow_declarative_shadow`] in here —
+    /// is not implemented; fragment parsing uses the tolerant compat path.)
     allow_declarative_shadow: bool,
 }
 
@@ -115,9 +108,8 @@ impl TreeBuilder {
 
     /// Parse `html` as a full document in strict mode (WHATWG HTML §13.2.6).
     ///
-    /// Declarative shadow roots are allowed (the document-parse default). A4
-    /// wires this through [`crate::parse_strict`]; A3 drives it from
-    /// crate-internal tests only.
+    /// Declarative shadow roots are allowed (the document-parse default).
+    /// Wired through [`crate::parse_strict`].
     pub(crate) fn build(html: &str) -> Result<ParseResult, StrictParseError> {
         TreeBuilder::new(html, true).run()
     }

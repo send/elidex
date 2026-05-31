@@ -1,10 +1,15 @@
 //! The strict HTML tokenizer state machine.
 //!
-//! Implements all 80 tokenizer states of WHATWG HTML §13.2.5
-//! "Tokenization" (§13.2.5.1 Data state through §13.2.5.80 Numeric
-//! character reference end state). Per-state handlers live in spec-family
-//! submodules ([`data`], [`tag`], [`attribute`], [`comment`], [`doctype`],
-//! [`cdata`]); the character-reference family (§13.2.5.72–80) lives in
+//! Implements the WHATWG HTML §13.2.5 "Tokenization" states reachable
+//! under strict semantics (§13.2.5.1 Data state through §13.2.5.80
+//! Numeric character reference end state). The two bogus *recovery*
+//! states — §13.2.5.41 bogus comment and §13.2.5.68 bogus DOCTYPE — are
+//! omitted: strict mode rejects their entry conditions
+//! (`incorrectly-opened-comment`, the invalid-DOCTYPE sequences) rather
+//! than recovering, so they are unreachable by construction. Per-state
+//! handlers live in spec-family submodules ([`data`], [`tag`],
+//! [`attribute`], [`comment`], [`doctype`], [`cdata`]); the
+//! character-reference family (§13.2.5.72–80) lives in
 //! [`super::char_ref`] alongside the named-entity table.
 //!
 //! # Strict semantics
@@ -19,10 +24,11 @@
 //! # Layering
 //!
 //! The tokenizer is `EcsDom`-unreachable: it produces only
-//! [`super::token::Token`] values. The tree builder (A3) drives state
-//! transitions for raw-text content via [`Tokenizer::set_state`] /
-//! [`Tokenizer::set_last_start_tag`] (e.g. switching to RCDATA on
-//! `<title>`), the only seam between the two layers.
+//! [`super::token::Token`] values. The tree builder drives raw-text
+//! state transitions via [`Tokenizer::set_state`] (e.g. switching to
+//! RCDATA on `<title>`), the only seam between the two layers; the
+//! appropriate-end-tag name is tracked automatically as start tags are
+//! emitted, so no explicit last-start-tag plumbing crosses the seam.
 
 use crate::tokenizer::token::{DoctypeToken, TagToken, Token};
 use crate::StrictParseError;
@@ -124,11 +130,10 @@ pub(crate) enum State {
     AttributeValueUnquoted,
     /// §13.2.5.39 After attribute value (quoted) state.
     AfterAttributeValueQuoted,
-    // §13.2.5.40–42 — self-closing / bogus comment / markup decl
+    // §13.2.5.40, 42 — self-closing / markup decl (§13.2.5.41 bogus
+    // comment omitted: strict rejects its entry instead of recovering)
     /// §13.2.5.40 Self-closing start tag state.
     SelfClosingStartTag,
-    /// §13.2.5.41 Bogus comment state.
-    BogusComment,
     /// §13.2.5.42 Markup declaration open state.
     MarkupDeclarationOpen,
     // §13.2.5.43–52 — comment states
@@ -152,7 +157,8 @@ pub(crate) enum State {
     CommentEnd,
     /// §13.2.5.52 Comment end bang state.
     CommentEndBang,
-    // §13.2.5.53–68 — DOCTYPE states
+    // §13.2.5.53–67 — DOCTYPE states (§13.2.5.68 bogus DOCTYPE omitted:
+    // strict rejects its entry instead of recovering)
     /// §13.2.5.53 DOCTYPE state.
     Doctype,
     /// §13.2.5.54 Before DOCTYPE name state.
@@ -183,8 +189,6 @@ pub(crate) enum State {
     DoctypeSystemIdentifierSingleQuoted,
     /// §13.2.5.67 After DOCTYPE system identifier state.
     AfterDoctypeSystemIdentifier,
-    /// §13.2.5.68 Bogus DOCTYPE state.
-    BogusDoctype,
     // §13.2.5.69–71 — CDATA section states
     /// §13.2.5.69 CDATA section state.
     CdataSection,
@@ -304,7 +308,7 @@ impl Tokenizer {
         }
     }
 
-    /// Force the tokenizer into `state`. Used by the tree builder (A3) to
+    /// Force the tokenizer into `state`. Used by the tree builder to
     /// enter RCDATA / RAWTEXT / script-data / PLAINTEXT per §13.2.5, and
     /// by tests to inject html5lib `initialStates`.
     pub(crate) fn set_state(&mut self, state: State) {
@@ -313,8 +317,13 @@ impl Tokenizer {
 
     /// Record the last-start-tag name used by the appropriate-end-tag
     /// check in the RCDATA/RAWTEXT/script-data end-tag-name states
-    /// (§13.2.5.11/14/17). Tests use this to mirror html5lib
-    /// `lastStartTag`.
+    /// (§13.2.5.11/14/17).
+    ///
+    /// Production never needs this: [`Self::next_token`] tracks the last
+    /// start tag automatically as it emits one. It exists only so tests
+    /// can mirror the html5lib `lastStartTag` setup parameter, hence the
+    /// `#[cfg(test)]` gate.
+    #[cfg(test)]
     pub(crate) fn set_last_start_tag(&mut self, name: &str) {
         self.last_start_tag = Some(name.to_string());
     }
@@ -417,7 +426,6 @@ impl Tokenizer {
             State::AttributeValueUnquoted => self.attribute_value_unquoted_state(),
             State::AfterAttributeValueQuoted => self.after_attribute_value_quoted_state(),
             State::SelfClosingStartTag => self.self_closing_start_tag_state(),
-            State::BogusComment => self.bogus_comment_state(),
             State::MarkupDeclarationOpen => self.markup_declaration_open_state(),
             State::CommentStart => self.comment_start_state(),
             State::CommentStartDash => self.comment_start_dash_state(),
@@ -456,7 +464,6 @@ impl Tokenizer {
                 self.doctype_system_identifier_single_quoted_state()
             }
             State::AfterDoctypeSystemIdentifier => self.after_doctype_system_identifier_state(),
-            State::BogusDoctype => self.bogus_doctype_state(),
             State::CdataSection => self.cdata_section_state(),
             State::CdataSectionBracket => self.cdata_section_bracket_state(),
             State::CdataSectionEnd => self.cdata_section_end_state(),

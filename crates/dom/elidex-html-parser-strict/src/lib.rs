@@ -1,4 +1,4 @@
-//! Strict HTML parser for elidex — Phase A1 skeleton.
+//! Strict HTML parser for elidex.
 //!
 //! This crate is the SoT for "strict mode" HTML parsing in elidex:
 //! valid HTML5 only, no error recovery (adoption agency / foster
@@ -6,23 +6,28 @@
 //! by design). The first parse error encountered aborts with
 //! [`StrictParseError`].
 //!
-//! # Phase A staging
+//! # Spec coverage
 //!
-//! Per the Phase A plan
-//! (`m4-12-pr-html-parser-strict-phase-a-plan.md`), the strict parser
-//! lands in 4 sub-PRs:
+//! WHATWG HTML §13.2 "Parsing HTML documents":
 //!
-//! - **A1 (this PR)**: crate skeleton + SoT types ([`ParseResult`], [`ParseFragmentOptions`], [`StrictParseError`]) + [`parse_strict`] stub. Skeleton tests `#[ignore]` until A4 activation.
-//! - **A2**: WHATWG HTML `§13.2.5` tokenizer (80 states) + `§13.5` named character reference table.
-//! - **A3**: WHATWG HTML `§13.2.4` parse state + `§13.2.6` tree construction (21 insertion modes, error branches excluded) + HTML `§4.12.3` + DOM `§4.9` declarative shadow root attach.
-//! - **A4**: [`parse_strict`] wiring + `§13.2.7` stopping parsing + delete legacy `elidex-html-parser::parse_strict` (caller-zero dead code) + type SoT facade re-export on `elidex-html-parser`.
+//! - `§13.2.5` Tokenization — the strict-reachable states (the two
+//!   bogus *recovery* states are omitted: their entry conditions are
+//!   rejected, not recovered) + `§13.5` named character reference table.
+//! - `§13.2.4` Parse state + `§13.2.6` Tree construction — 21 insertion
+//!   modes (error branches excluded by the strict no-recovery contract)
+//!   + HTML `§4.12.3` / DOM `§4.9` declarative shadow root attach.
+//! - `§13.2.7` The end — stop parsing (the deferred / async script
+//!   timing steps 5 / 7 are the consumer's concern, not the parser's).
+//!
+//! Foreign content (`§13.2.6.5` SVG / MathML inline) is out of scope; it
+//! is tracked separately (`#11-html-parser-strict-foreign-content`).
 //!
 //! # Engine independence
 //!
 //! Per the Layering mandate (`CLAUDE.md` "Layering check —
 //! Engine-indep API mapping" section of the Phase A plan), this crate
 //! depends only on [`elidex_ecs`]. No VM / script-session / DOM-API
-//! coupling. Tree builder (A3) calls `EcsDom::create_element`,
+//! coupling. The tree builder calls `EcsDom::create_element`,
 //! `EcsDom::create_text`, `EcsDom::create_comment`,
 //! `EcsDom::create_document_root`, `EcsDom::append_child`, and
 //! `EcsDom::attach_shadow_with_init` directly — same API surface as
@@ -38,61 +43,75 @@ pub use result::{ParseFragmentOptions, ParseResult};
 
 /// Parse an HTML5 document in strict mode.
 ///
-/// Returns `Ok(ParseResult)` if the input is valid HTML5 (no parse
-/// errors per WHATWG HTML §13.2.2), otherwise `Err(StrictParseError)`
-/// at the first error encountered (no recovery).
+/// Returns `Ok(ParseResult)` if the input is fully-conforming HTML5 (no
+/// WHATWG HTML §13.2.2 parse error), otherwise `Err(StrictParseError)`
+/// at the first parse error encountered — strict mode performs no error
+/// recovery (no foster parenting, adoption agency, or misnested-tag
+/// reconstruction).
 ///
-/// # Phase A1 skeleton stub
-///
-/// This skeleton implementation returns
-/// `Err(StrictParseError { errors: vec!["unimplemented: …"] })` for
-/// any input. Real tokenization + tree construction land in A2-A4 per
-/// the Phase A plan.
+/// The returned [`ParseResult`] owns the populated `EcsDom` and the
+/// document root entity. `errors` is always empty on the `Ok` path and
+/// `encoding` is always `None` (strict mode takes `&str` input — no
+/// charset detection).
 ///
 /// # Spec reference
 ///
-/// WHATWG HTML §13.2 "Parsing HTML documents". See the crate-level
-/// docstring for the per-sub-PR coverage map.
-pub fn parse_strict(_html: &str) -> Result<ParseResult, StrictParseError> {
-    Err(StrictParseError {
-        errors: vec![
-            "unimplemented: tokenizer pending A2, tree builder pending A3, wiring pending A4"
-                .to_string(),
-        ],
-    })
+/// WHATWG HTML §13.2 "Parsing HTML documents": §13.2.5 tokenization →
+/// §13.2.6 tree construction → §13.2.7 "The end" (stop parsing). See the
+/// crate-level docstring for the full per-section coverage map.
+pub fn parse_strict(html: &str) -> Result<ParseResult, StrictParseError> {
+    tree_builder::TreeBuilder::build(html)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use elidex_ecs::{EcsDom, Entity, TextContent};
 
-    /// Skeleton placeholder: A4 will activate this as a valid HTML5
-    /// round-trip test (`<!DOCTYPE html><html><head></head><body><p>Hello</p></body></html>`).
+    /// Recursively find the first element with the given tag.
+    fn find_tag(dom: &EcsDom, parent: Entity, tag: &str) -> Option<Entity> {
+        for child in dom.children_iter(parent) {
+            if dom.has_tag(child, tag) {
+                return Some(child);
+            }
+            if let Some(found) = find_tag(dom, child, tag) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    /// Concatenate text content of an element's direct children.
+    fn child_text(dom: &EcsDom, parent: Entity) -> String {
+        let mut out = String::new();
+        for child in dom.children_iter(parent) {
+            if let Ok(tc) = dom.world().get::<&TextContent>(child) {
+                out.push_str(&tc.0);
+            }
+        }
+        out
+    }
+
     #[test]
-    #[ignore = "skeleton stage (A1) — activate in A4"]
-    fn strict_valid_html() {
+    fn strict_valid_html_produces_populated_dom() {
+        // End-to-end through the public API: a valid document yields a
+        // *populated* `ParseResult` — the delegation actually builds a
+        // tree, not just an empty `Ok`. The full tree-construction shape
+        // is golden-tested in `tree_builder/tests.rs`; here we only need
+        // one walk to prove the public seam delivers a real DOM.
         let html = "<!DOCTYPE html><html><head></head><body><p>Hello</p></body></html>";
-        let result = parse_strict(html);
-        assert!(result.is_ok());
+        let result = parse_strict(html).expect("valid HTML5");
+        let p = find_tag(&result.dom, result.document, "p").expect("p in tree");
+        assert_eq!(child_text(&result.dom, p), "Hello");
     }
 
-    /// Skeleton placeholder: A4 will activate this as a strict-reject
-    /// test for mismatched tags (`<div><span></div>` → first error
-    /// aborts with `Err(StrictParseError)`).
     #[test]
-    #[ignore = "skeleton stage (A1) — activate in A4"]
-    fn strict_invalid_html() {
-        let html = "<div><span></div>";
-        let result = parse_strict(html);
-        assert!(result.is_err());
-    }
-
-    /// Skeleton placeholder: A4 will activate this as a parse-error
-    /// message presence check (each error string non-empty).
-    #[test]
-    #[ignore = "skeleton stage (A1) — activate in A4"]
-    fn strict_error_messages() {
-        let html = "<div><span></div>";
+    fn strict_rejects_misnested_tags_with_messages() {
+        // `</div>` closes while `<span>` is the current node — a
+        // §13.2.6.4.7 "any other end tag" parse error that strict mode
+        // rejects (no recovery). `unwrap_err` proves rejection; the loop
+        // checks every reported message is non-empty.
+        let html = "<!DOCTYPE html><html><head></head><body><div><span></div></body></html>";
         let err = parse_strict(html).unwrap_err();
         assert!(!err.errors.is_empty());
         for msg in &err.errors {
@@ -100,37 +119,29 @@ mod tests {
         }
     }
 
-    /// Skeleton placeholder: A4 will activate this as a `ParseResult`
-    /// invariant check — strict mode always returns `encoding: None`
-    /// (no charset detection, `&str` input).
     #[test]
-    #[ignore = "skeleton stage (A1) — activate in A4"]
-    fn strict_encoding_is_none() {
-        let html = "<!DOCTYPE html><html></html>";
+    fn strict_requires_doctype() {
+        // Strict mode requires a document to begin with `<!DOCTYPE html>`
+        // (§13.2.6.4.1): EOF or any tag before a DOCTYPE is the
+        // "missing-doctype" parse error — empty input and a bare
+        // `<html>` are both rejected, not coerced into quirks mode.
+        assert!(parse_strict("").is_err());
+        assert!(parse_strict("<html></html>").is_err());
+    }
+
+    #[test]
+    fn strict_success_contract() {
+        // The `ParseResult` Ok-path contract: an empty `errors` list and
+        // no detected encoding (`&str` input — no charset detection).
+        let html = "<!DOCTYPE html><html><head></head><body></body></html>";
         let result = parse_strict(html).expect("valid HTML5");
-        assert!(result.encoding.is_none());
-    }
-
-    /// A1-active sanity check: the skeleton stub returns Err for any
-    /// input, including empty. Verifies the stub is wired.
-    #[test]
-    fn skeleton_stub_returns_err() {
-        let result = parse_strict("");
-        let err = result.expect_err("A1 skeleton always errs");
-        assert!(!err.errors.is_empty());
-        assert!(err.errors[0].contains("unimplemented"));
-    }
-
-    /// A1-active sanity check: the skeleton stub error mentions the
-    /// pending sub-PR stages (A2 / A3 / A4) so failures during the
-    /// A2-A4 transition are easy to trace.
-    #[test]
-    fn skeleton_stub_error_cites_stages() {
-        let result = parse_strict("<html></html>");
-        let err = result.expect_err("A1 skeleton always errs");
-        let msg = &err.errors[0];
-        assert!(msg.contains("A2"));
-        assert!(msg.contains("A3"));
-        assert!(msg.contains("A4"));
+        assert!(
+            result.errors.is_empty(),
+            "Ok path reports an empty error list"
+        );
+        assert!(
+            result.encoding.is_none(),
+            "strict mode never detects an encoding"
+        );
     }
 }
