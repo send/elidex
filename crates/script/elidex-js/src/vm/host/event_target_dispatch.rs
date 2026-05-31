@@ -330,113 +330,176 @@ fn walk_phase(
             JsValue::Number(f64::from(phase as u8)),
         );
 
-        for entry in listener_entries {
-            if local.flags.immediate_propagation_stopped {
-                break;
-            }
-
-            // §2.10 step 15: remove `once` listeners BEFORE
-            // invocation so re-entrant dispatch sees them gone.
-            // The corresponding `listener_store` + AbortSignal
-            // back-ref cleanup happens after `call_value`
-            // returns so it also runs for listeners that were
-            // NOT `once` but whose invocation threw.
-            if entry.once {
-                let dom = ctx.host().dom();
-                if let Ok(mut listeners) = dom.world_mut().get::<&mut EventListeners>(*entity) {
-                    listeners.remove(entry.id);
-                }
-            }
-
-            // HTML §8.1.8.1 "getting the current value of the event
-            // handler": bring an event-handler IDL attribute backing up to
-            // date (lazy-compile a pending inline source / drop a cleared
-            // one) before its callable is resolved below. Gated on
-            // `is_handler` so the common `addEventListener` listener skips
-            // the component lookup entirely. Shared with the session-crate
-            // UA dispatch + promise-rejection dispatch via
-            // `VmInner::ensure_event_handler_current`.
-            if entry.is_handler {
-                ctx.vm.ensure_event_handler_current(*entity, entry.id);
-            }
-
-            // Resolve the JS function; a miss means the listener
-            // was removed between plan-freeze and now (addEventListener
-            // inside an earlier listener can't add to this plan
-            // but removeEventListener / abort signals can drop
-            // planned entries).  Silent continue matches §2.10
-            // step 5.4.
-            let Some(host) = ctx.vm.host_data.as_deref() else {
-                continue;
-            };
-            let Some(func_obj_id) = host.get_listener(entry.id) else {
-                continue;
-            };
-
-            // WHATWG DOM §2.10 step 15: passive is a per-listener
-            // bit, not a per-event one — the event's `in passive
-            // listener flag` (our `ObjectKind::Event.passive`
-            // internal slot) is temporarily set to the invoking
-            // listener's `passive` for the call and cleared
-            // afterward so `preventDefault()` can observe it.
-            // UA-dispatch handles this by rebuilding the JS event
-            // object per listener with the correct `passive`;
-            // script-dispatch reuses the user's event object, so
-            // we toggle the slot around each call_value instead.
-            if let ObjectKind::Event { passive, .. } = &mut ctx.vm.get_object_mut(event_id).kind {
-                *passive = entry.passive;
-            }
-            // Invoke the listener.  `this` is the currentTarget
-            // wrapper per §2.10 step 15 (matches WebIDL callback
-            // `this` binding).  Throw propagation is swallowed
-            // (session crate parity — `script_dispatch_event_core`
-            // ignores engine.call_listener's discarded Result).
-            let _ = ctx.call_value(
-                JsValue::Object(func_obj_id),
-                JsValue::Object(current_wrapper),
-                &[JsValue::Object(event_id)],
-            );
-            // Restore the slot to `false` so post-dispatch
-            // `preventDefault()` (if called from outside any
-            // listener — e.g. a microtask scheduled during
-            // dispatch) observes the default non-passive state.
-            if let ObjectKind::Event { passive, .. } = &mut ctx.vm.get_object_mut(event_id).kind {
-                *passive = false;
-            }
-
-            // Sync internal flag state back to the local walker.
-            // Capture BEFORE the `once` cleanup below because
-            // retiring the ListenerId drops the `listener_store`
-            // entry but doesn't touch the Event flags.
-            if let ObjectKind::Event {
-                default_prevented,
-                propagation_stopped,
-                immediate_propagation_stopped,
-                ..
-            } = ctx.vm.get_object(event_id).kind
-            {
-                local.flags.default_prevented = default_prevented;
-                local.flags.propagation_stopped = propagation_stopped;
-                local.flags.immediate_propagation_stopped = immediate_propagation_stopped;
-            }
-
-            // Post-listener cleanup: drop the engine-side
-            // function store entry + any AbortSignal back-ref.
-            // Shared with `removeEventListener` to keep the
-            // back-ref indexes bounded across `{once}` +
-            // `{signal}` combinations.
-            if entry.once {
-                ctx.vm.remove_listener_and_prune_back_ref(entry.id);
-            }
-
-            // HTML §8.1.7.3 microtask checkpoint — drain
-            // Promise reactions queued by the listener before
-            // invoking the next listener.  Matches the session
-            // crate's UA-initiated dispatch walk.
-            ctx.vm.drain_microtasks();
-        }
+        // Shared §2.9 inner invoke (removed-flag skip, `once`
+        // remove-before-call, per-listener passive toggle,
+        // stopImmediate gate, microtask checkpoint).  Node home:
+        // the `once`-removal write + callable resolve route through
+        // the `EventListeners` component on `*entity`.
+        invoke_listeners_shared(
+            ctx,
+            event_id,
+            JsValue::Object(current_wrapper),
+            *entity,
+            listener_entries,
+        );
+        // Sync the event's flag state back to the local walker so the
+        // per-entity / per-phase propagation gates respond to listener
+        // mutations (preventDefault / stopPropagation / stopImmediate).
+        sync_flags_from_event(ctx.vm, event_id, local);
     }
     Ok(())
+}
+
+/// Read whether `stopImmediatePropagation()` has been called on
+/// `event_id` (the per-listener break condition in the shared inner
+/// invoke).
+fn event_immediate_stopped(vm: &super::super::VmInner, event_id: ObjectId) -> bool {
+    matches!(
+        vm.get_object(event_id).kind,
+        ObjectKind::Event {
+            immediate_propagation_stopped: true,
+            ..
+        }
+    )
+}
+
+/// Set the event's `in passive listener flag` (`ObjectKind::Event.passive`
+/// internal slot) around a listener call (WHATWG DOM §2.9 inner invoke:
+/// passive is a per-listener bit, toggled onto the reused event object).
+fn set_event_passive(vm: &mut super::super::VmInner, event_id: ObjectId, value: bool) {
+    if let ObjectKind::Event { passive, .. } = &mut vm.get_object_mut(event_id).kind {
+        *passive = value;
+    }
+}
+
+/// Mirror the event object's dispatch flags into the Node walker's
+/// `local` state so the per-entity / per-phase propagation gates respond
+/// to listener mutations.  The event object is the source of truth; this
+/// keeps the legacy `DispatchEvent`-typed gates (only used for the Node
+/// DOM-tree / shadow path) in sync after the shared inner invoke runs.
+fn sync_flags_from_event(
+    vm: &super::super::VmInner,
+    event_id: ObjectId,
+    local: &mut DispatchEvent,
+) {
+    if let ObjectKind::Event {
+        default_prevented,
+        propagation_stopped,
+        immediate_propagation_stopped,
+        ..
+    } = vm.get_object(event_id).kind
+    {
+        local.flags.default_prevented = default_prevented;
+        local.flags.propagation_stopped = propagation_stopped;
+        local.flags.immediate_propagation_stopped = immediate_propagation_stopped;
+    }
+}
+
+/// Shared WHATWG DOM §2.9 *inner invoke* — the one listener-invocation
+/// loop every EventTarget runs, irrespective of where its listeners live
+/// (ECS `EventListeners` component for a `Node`, `vm_event_listeners` for
+/// a VM EventTarget).  Iterates `entries`, and per listener:
+///
+/// - honors `stopImmediatePropagation` (break),
+/// - removes a `once` listener from its home BEFORE the call (§2.9
+///   step 15 — so a re-entrant dispatch sees it gone),
+/// - resolves the callable (a miss = removed between plan-freeze and now,
+///   i.e. the §2.9 step 6 "removed field" / removed-flag check — silent
+///   continue),
+/// - toggles the event's `passive` slot around the call so
+///   `preventDefault()` observes it,
+/// - invokes with `this` = `current_target`,
+/// - retires a fired `once` listener's engine-side store entry +
+///   AbortSignal back-ref,
+/// - runs the HTML §8.1.7.3 microtask checkpoint.
+///
+/// `entity` names the Node home for the `once`-removal write + the
+/// event-handler reconcile (the latter is a node-only content-attribute
+/// concern); generalizing this `entity` parameter to a polymorphic
+/// listener-home target is the next step of the dispatch-core
+/// unification.
+fn invoke_listeners_shared(
+    ctx: &mut NativeContext<'_>,
+    event_id: ObjectId,
+    current_target: JsValue,
+    entity: elidex_ecs::Entity,
+    entries: &[elidex_script_session::event_dispatch::ListenerPlanEntry],
+) {
+    for entry in entries {
+        if event_immediate_stopped(ctx.vm, event_id) {
+            break;
+        }
+
+        // §2.9 step 15: remove `once` listeners BEFORE invocation so
+        // re-entrant dispatch sees them gone.  The corresponding
+        // `listener_store` + AbortSignal back-ref cleanup happens after
+        // `call_value` returns so it also runs for listeners that were
+        // NOT `once` but whose invocation threw.
+        if entry.once {
+            let dom = ctx.host().dom();
+            if let Ok(mut listeners) = dom.world_mut().get::<&mut EventListeners>(entity) {
+                listeners.remove(entry.id);
+            }
+        }
+
+        // HTML §8.1.8.1 "getting the current value of the event handler":
+        // bring an event-handler IDL attribute backing up to date
+        // (lazy-compile a pending inline source / drop a cleared one)
+        // before its callable is resolved below.  Gated on `is_handler`
+        // so the common `addEventListener` listener skips the component
+        // lookup entirely.
+        if entry.is_handler {
+            ctx.vm.ensure_event_handler_current(entity, entry.id);
+        }
+
+        // Resolve the JS function; a miss means the listener was removed
+        // between plan-freeze and now (addEventListener inside an earlier
+        // listener can't add to this plan but removeEventListener / abort
+        // signals can drop planned entries).  Silent continue matches
+        // §2.9 step 6 (the removed-field / removed-flag check).
+        let Some(host) = ctx.vm.host_data.as_deref() else {
+            continue;
+        };
+        let Some(func_obj_id) = host.get_listener(entry.id) else {
+            continue;
+        };
+
+        // WHATWG DOM §2.9 inner invoke: passive is a per-listener bit,
+        // not a per-event one — the event's `in passive listener flag`
+        // (our `ObjectKind::Event.passive` internal slot) is temporarily
+        // set to the invoking listener's `passive` for the call and
+        // cleared afterward so `preventDefault()` can observe it.
+        // UA-dispatch handles this by rebuilding the JS event object per
+        // listener with the correct `passive`; script-dispatch reuses the
+        // user's event object, so we toggle the slot around each
+        // call_value instead.
+        set_event_passive(ctx.vm, event_id, entry.passive);
+        // Invoke the listener.  `this` is the currentTarget per §2.9
+        // (matches WebIDL callback `this` binding).  Throw propagation is
+        // swallowed (report-an-exception — the walk advances past it).
+        let _ = ctx.call_value(
+            JsValue::Object(func_obj_id),
+            current_target,
+            &[JsValue::Object(event_id)],
+        );
+        // Restore the slot to `false` so post-dispatch `preventDefault()`
+        // (if called from outside any listener — e.g. a microtask
+        // scheduled during dispatch) observes the default non-passive
+        // state.
+        set_event_passive(ctx.vm, event_id, false);
+
+        // Post-listener cleanup: drop the engine-side function store entry
+        // + any AbortSignal back-ref.  Shared with `removeEventListener`
+        // to keep the back-ref indexes bounded across `{once}` +
+        // `{signal}` combinations.
+        if entry.once {
+            ctx.vm.remove_listener_and_prune_back_ref(entry.id);
+        }
+
+        // HTML §8.1.7.3 microtask checkpoint — drain Promise reactions
+        // queued by the listener before invoking the next listener.
+        ctx.vm.drain_microtasks();
+    }
 }
 
 /// Construct a plain `Event` with the given `type` / `bubbles` /
