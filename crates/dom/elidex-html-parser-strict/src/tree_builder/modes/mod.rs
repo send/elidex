@@ -7,6 +7,10 @@
 //! branch (foster parenting, adoption agency, implicit misnested-tag closing,
 //! stray/out-of-place tags) aborts with [`crate::StrictParseError`]. The
 //! dispatch is the single `match` in [`super::TreeBuilder::dispatch`].
+//!
+//! The [`foreign`] submodule is the exception: it is not an insertion mode but
+//! the §13.2.6.5 foreign-content rules plus the §13.2.6 dispatcher branch that
+//! selects them, queried by `dispatch` *before* the insertion-mode match.
 
 pub(super) mod after_after_body;
 pub(super) mod after_after_frameset;
@@ -15,6 +19,7 @@ pub(super) mod after_frameset;
 pub(super) mod after_head;
 pub(super) mod before_head;
 pub(super) mod before_html;
+pub(super) mod foreign;
 pub(super) mod in_body;
 pub(super) mod in_caption;
 pub(super) mod in_cell;

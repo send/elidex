@@ -72,10 +72,12 @@ impl Tokenizer {
     /// §13.2.5.42 Markup declaration open state.
     ///
     /// Recognizes `<!--` (comment), `<!DOCTYPE` (ASCII-case-insensitive),
-    /// and `<![CDATA[`. In strict HTML content the CDATA opener is a
-    /// `cdata-in-html-content` parse error (no foreign content until A5),
-    /// and any other sequence is `incorrectly-opened-comment` — both are
-    /// rejected.
+    /// and `<![CDATA[`. The CDATA opener is valid only in foreign content:
+    /// when the tree builder's foreign-content flag is set (the adjusted
+    /// current node is in a non-HTML namespace, §13.2.6 dispatcher) it opens
+    /// a CDATA section; in HTML content it is the `cdata-in-html-content`
+    /// parse error. Any other sequence is `incorrectly-opened-comment` —
+    /// both error sequences are rejected.
     pub(super) fn markup_declaration_open_state(&mut self) -> Result<(), StrictParseError> {
         if self.matches_ahead("--", false) {
             self.advance(2);
@@ -85,10 +87,13 @@ impl Tokenizer {
             self.advance(7);
             self.switch_to(State::Doctype);
         } else if self.matches_ahead("[CDATA[", false) {
-            // §13.2.5.42: outside foreign content this is a parse error.
-            // The tree builder (A5) will set CDATA section state directly
-            // when the adjusted current node is non-HTML.
-            return Err(self.parse_error("cdata-in-html-content"));
+            if self.foreign_content {
+                self.advance(7);
+                self.switch_to(State::CdataSection);
+            } else {
+                // §13.2.5.42: outside foreign content this is a parse error.
+                return Err(self.parse_error("cdata-in-html-content"));
+            }
         } else {
             return Err(self.parse_error("incorrectly-opened-comment"));
         }

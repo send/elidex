@@ -1,12 +1,12 @@
 //! CDATA section tokenizer states (WHATWG HTML §13.2.5.69–71).
 //!
 //! These states are only entered from the markup-declaration-open state
-//! when the adjusted current node is a non-HTML element (foreign content).
-//! The strict tokenizer has no foreign-content support until A5
-//! (`#11-html-parser-strict-foreign-content`), so the markup-declaration-
-//! open state rejects `<![CDATA[` in HTML content and these handlers are
-//! unreachable in A2. They are implemented spec-faithfully so that A5 can
-//! wire them in without revisiting the tokenizer core.
+//! when the tree builder's foreign-content flag is set — i.e. the adjusted
+//! current node is a non-HTML element (§13.2.6 dispatcher). In HTML content
+//! the markup-declaration-open state instead rejects `<![CDATA[` as the
+//! `cdata-in-html-content` parse error, so these handlers run only inside
+//! inline SVG / MathML. The section's characters are emitted as character
+//! tokens (a CDATA section produces a Text node, not a CDATASection node).
 
 use super::{State, Tokenizer};
 use crate::StrictParseError;
