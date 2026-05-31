@@ -8,19 +8,17 @@ use std::fmt;
 
 /// Errors collected during strict-mode parsing.
 ///
-/// Per the Phase A plan (`m4-12-pr-html-parser-strict-phase-a-plan.md`),
-/// this type is the SoT contract for strict parser errors. The companion
-/// compat crate (`elidex-html-parser`) re-exports this from A4 onward via
+/// This type is the SoT contract for strict parser errors. The companion
+/// compat crate (`elidex-html-parser`) re-exports it via
 /// `pub use elidex_html_parser_strict::StrictParseError`, preserving the
 /// existing caller import path `use elidex_html_parser::StrictParseError`.
 #[derive(Debug, Clone)]
 pub struct StrictParseError {
     /// Parse error messages encountered during strict parsing.
     ///
-    /// In Phase A1 skeleton stage, this carries a single
-    /// `"unimplemented: tokenizer pending A2 / tree builder pending A3"`
-    /// entry from the stub `parse_strict`. Once A2-A4 land, populated with
-    /// WHATWG HTML §13.2.2 parse-error names (e.g. `"missing-attribute-value"`,
+    /// Strict mode aborts at the first error (no recovery), so this
+    /// typically carries a single WHATWG HTML §13.2.2 parse-error name
+    /// (e.g. `"missing-attribute-value"`,
     /// `"unexpected-character-in-attribute-name"`).
     pub errors: Vec<String>,
 }

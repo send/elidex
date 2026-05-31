@@ -22,14 +22,6 @@
 //! algorithm itself lives entirely here, in the engine-independent parser
 //! crate (CLAUDE.md Layering mandate).
 
-// A3 staging: the tree builder is complete but is not wired to the public
-// `parse_strict` entry point until A4 (which removes the legacy
-// `elidex-html-parser` strict path and threads this builder through). Under
-// non-test compilation `build` is therefore unreachable from the crate's
-// public API — the unit tests exercise it. Remove this allow in A4, together
-// with the matching one in `tokenizer/mod.rs`.
-#![allow(dead_code)]
-
 mod implied_end;
 mod insert;
 mod modes;

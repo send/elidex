@@ -69,29 +69,6 @@ impl Tokenizer {
         Ok(())
     }
 
-    /// §13.2.5.41 Bogus comment state.
-    ///
-    /// Strict mode never enters this state: every spec path that switches
-    /// to it (markup-declaration-open "anything else", `<?`, etc.) is a
-    /// parse error that strict rejects first. The handler is implemented
-    /// spec-faithfully for completeness — if reached it consumes to the
-    /// next `>` and emits the comment.
-    pub(super) fn bogus_comment_state(&mut self) -> Result<(), StrictParseError> {
-        match self.consume() {
-            Some('>') => {
-                self.switch_to(State::Data);
-                self.emit_comment();
-            }
-            None => {
-                self.emit_comment();
-                self.emit_eof();
-            }
-            Some('\u{0000}') => self.push_comment('\u{FFFD}'),
-            Some(c) => self.push_comment(c),
-        }
-        Ok(())
-    }
-
     /// §13.2.5.42 Markup declaration open state.
     ///
     /// Recognizes `<!--` (comment), `<!DOCTYPE` (ASCII-case-insensitive),

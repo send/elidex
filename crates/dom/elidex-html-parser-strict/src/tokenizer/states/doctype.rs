@@ -256,28 +256,6 @@ impl Tokenizer {
         Ok(())
     }
 
-    /// §13.2.5.68 Bogus DOCTYPE state.
-    ///
-    /// Strict mode never enters this state (every transition to it is a
-    /// rejected parse error). Implemented spec-faithfully for completeness:
-    /// it consumes to the next `>` and emits the DOCTYPE token.
-    pub(super) fn bogus_doctype_state(&mut self) -> Result<(), StrictParseError> {
-        match self.consume() {
-            Some('>') => {
-                self.switch_to(State::Data);
-                self.emit_doctype();
-            }
-            None => {
-                self.emit_doctype();
-                self.emit_eof();
-            }
-            // U+0000 (unexpected-null-character) and any other character
-            // are both ignored per §13.2.5.68.
-            Some(_) => {}
-        }
-        Ok(())
-    }
-
     // ----- shared quoted-identifier bodies -----
 
     /// Shared body for the double/single-quoted public identifier states

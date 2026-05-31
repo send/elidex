@@ -1,13 +1,11 @@
 //! Parse result types and fragment-parse options.
 //!
-//! Per the Phase A plan, these types are the SoT contract for HTML
-//! parsing in elidex. The companion compat crate (`elidex-html-parser`)
-//! re-exports `ParseResult` and `ParseFragmentOptions` from A4 onward
-//! via `pub use elidex_html_parser_strict::*`, preserving caller
-//! import paths (`use elidex_html_parser::ParseResult` etc.).
-//!
-//! Phase A1 carries placeholder Debug-only shape; A4 wires the strict
-//! tree builder output through here.
+//! These types are the SoT contract for HTML parsing in elidex. The
+//! companion compat crate (`elidex-html-parser`) re-exports `ParseResult`
+//! and `ParseFragmentOptions` via `pub use elidex_html_parser_strict::*`,
+//! preserving caller import paths (`use elidex_html_parser::ParseResult`
+//! etc.). [`crate::parse_strict`] returns a populated [`ParseResult`]
+//! straight from the tree builder.
 
 use std::fmt;
 

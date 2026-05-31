@@ -3,41 +3,12 @@
 //! Two-pass approach: html5ever parses into `RcDom`, then this module
 //! walks the tree and builds an ECS DOM.
 
-use std::fmt;
-
 use elidex_ecs::{
     Attributes, EcsDom, Entity, InlineStyle, ShadowInit, ShadowRootMode, SlotAssignmentMode,
 };
 use markup5ever_rcdom::{Handle, NodeData, RcDom};
 
-use crate::ParseFragmentOptions;
-
-/// Result of parsing an HTML document.
-///
-/// `EcsDom` does not implement `Debug`, so this type provides a manual
-/// implementation that prints the document entity and error list.
-pub struct ParseResult {
-    /// The populated DOM tree.
-    pub dom: EcsDom,
-    /// The document root entity (parent of `<html>`).
-    pub document: Entity,
-    /// Parse warnings collected from html5ever.
-    pub errors: Vec<String>,
-    /// Detected encoding name (set by `parse_tolerant`, `None` for `parse_html`).
-    ///
-    /// Always a canonical name from `encoding_rs` (e.g. `"UTF-8"`, `"Shift_JIS"`).
-    pub encoding: Option<&'static str>,
-}
-
-impl fmt::Debug for ParseResult {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ParseResult")
-            .field("document", &self.document)
-            .field("errors", &self.errors)
-            .field("encoding", &self.encoding)
-            .finish_non_exhaustive()
-    }
-}
+use elidex_html_parser_strict::{ParseFragmentOptions, ParseResult};
 
 pub(crate) fn convert_document(rc_dom: RcDom) -> ParseResult {
     let mut dom = EcsDom::new();

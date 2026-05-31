@@ -9,11 +9,17 @@
 
 pub mod charset;
 mod convert;
-mod strict;
 
 pub use charset::{detect_and_decode, DecodeResult, EncodingConfidence};
-pub use convert::ParseResult;
-pub use strict::{parse_strict, StrictParseError};
+// `ParseResult`, `ParseFragmentOptions`, `StrictParseError`, and
+// `parse_strict` are owned by the engine-independent
+// `elidex-html-parser-strict` crate (the strict-mode SoT). They are
+// re-exported here so existing `elidex_html_parser::…` import paths keep
+// working; the tolerant html5ever entry points below produce the same
+// `ParseResult` type.
+pub use elidex_html_parser_strict::{
+    parse_strict, ParseFragmentOptions, ParseResult, StrictParseError,
+};
 
 use convert::convert_document;
 use html5ever::parse_document;
@@ -29,24 +35,6 @@ use markup5ever_rcdom::RcDom;
 pub fn parse_html(html: &str) -> ParseResult {
     let rc_dom = parse_document(RcDom::default(), ParseOpts::default()).one(html);
     convert_document(rc_dom)
-}
-
-/// Options controlling [`parse_html_fragment`] semantics.
-///
-/// The `allow_declarative_shadow` flag selects between plain `innerHTML`
-/// (no shadow attach) and HTML §8.5.2 `setHTMLUnsafe` + §4.12.3
-/// `<template shadowrootmode>` (where the template becomes a shadow root
-/// attached to the parent host).
-#[derive(Default, Clone, Copy, Debug)]
-pub struct ParseFragmentOptions {
-    /// When true, `<template shadowrootmode="open|closed">` children
-    /// are interpreted as declarative shadow root markup (HTML §4.12.3):
-    /// the parent receives a freshly-attached shadow root whose
-    /// children come from the template's content, and the `<template>`
-    /// element itself is discarded. Per spec, a failed attach (e.g.
-    /// host tag not allowed, host already has a shadow root) silently
-    /// leaves the `<template>` as an ordinary element.
-    pub allow_declarative_shadow: bool,
 }
 
 /// Parse an HTML fragment string into child nodes.

@@ -1997,6 +1997,7 @@ version = "0.1.0"
 dependencies = [
  "elidex-custom-elements",
  "elidex-ecs",
+ "elidex-html-parser-strict",
  "encoding_rs",
  "html5ever",
  "markup5ever_rcdom",
