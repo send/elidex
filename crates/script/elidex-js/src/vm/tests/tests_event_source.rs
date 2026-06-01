@@ -13,11 +13,13 @@
 //! - `close()` idempotency + `EventSourceClose(conn_id)` emit.
 //! - `onopen` / `onmessage` / `onerror` handler accessor pairs
 //!   (callable-only retention).
-//! - `addEventListener(type, listener)` + `removeEventListener` —
-//!   per-instance registry + dedup (DOM §2.7.2 fold) + named-event
-//!   routing (`onmessage` NOT fired for named events) + non-Object
-//!   listener silent no-op + `removeEventListener` no-op for
-//!   non-matching pair.
+//! - `addEventListener` / `removeEventListener` / `dispatchEvent`
+//!   inherited from `EventTarget.prototype` and routed through the
+//!   shared §2.9 VmObject core (`#11-realtime-event-listeners`):
+//!   named-event routing (`onmessage` NOT fired for named events) +
+//!   `message`-type both-fire fan-out (§9.2.6) + capture / once /
+//!   {signal} support + non-callable listener TypeError + the F10
+//!   single-home structural guard (no bespoke own `addEventListener`).
 //! - `MessageEvent` slot population (data / origin / lastEventId
 //!   sticky / source / ports) including the lastEventId
 //!   accumulator semantics across multiple events.
@@ -795,32 +797,34 @@ fn remove_event_listener_no_op_for_unknown_pair() {
 
 #[test]
 fn remove_event_listener_no_op_for_null_listener() {
-    // DOM §2.7.5: null / undefined / primitive listener is no-op.
+    // DOM §2.7.5 step 2: null / undefined listener is a silent no-op.
+    // (A non-null non-callable listener throws TypeError in the shared
+    // core, symmetric with addEventListener — the bespoke shim was lax.)
     with_es_vm(|vm| {
         vm.eval(
             "globalThis.s = new EventSource('/events'); \
              s.removeEventListener('ping', null); \
-             s.removeEventListener('ping', undefined); \
-             s.removeEventListener('ping', 42);",
+             s.removeEventListener('ping', undefined);",
         )
-        .expect("non-callable removes are silent no-op");
+        .expect("null/undefined removes are silent no-op");
     });
 }
 
 #[test]
-fn add_event_listener_no_op_for_non_object_listener() {
-    // Non-Object listener silently dropped — DOM §2.7.5 allows
-    // null / undefined; the minimal shim treats primitives the
-    // same (no spec-incompatible "store and never fire" needed).
+fn add_event_listener_null_undefined_listener_is_no_op() {
+    // WHATWG DOM §2.7.2 step 2: a null/undefined callback returns
+    // silently and registers nothing.  (A non-null non-callable
+    // listener throws TypeError in the shared core — see
+    // `add_event_listener_non_callable_throws_type_error`; the bespoke
+    // SSE shim silently dropped those, which was not spec-faithful.)
     with_es_vm(|vm| {
         vm.eval(
             "globalThis._count = 0; \
              globalThis.s = new EventSource('/events'); \
              s.addEventListener('ping', null); \
-             s.addEventListener('ping', undefined); \
-             s.addEventListener('ping', 'not-a-fn');",
+             s.addEventListener('ping', undefined);",
         )
-        .expect("non-Object listener is silent no-op");
+        .expect("null/undefined listener is silent no-op");
         inject_sse_event_and_tick(
             vm,
             0,
@@ -831,6 +835,23 @@ fn add_event_listener_no_op_for_non_object_listener() {
             },
         );
         assert_eval_number(vm, "_count", 0.0);
+    });
+}
+
+#[test]
+fn add_event_listener_non_callable_throws_type_error() {
+    // Shared EventTarget core (WebIDL `EventListener?`): a non-null,
+    // non-callable listener is a conversion failure → TypeError,
+    // matching browsers.  EventSource now inherits this from
+    // EventTarget.prototype (the bespoke shim was lax).
+    with_es_vm(|vm| {
+        vm.eval("globalThis.s = new EventSource('/events');")
+            .unwrap();
+        let err = vm
+            .eval("s.addEventListener('ping', 'not-a-fn');")
+            .unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(msg.contains("Type"), "expected TypeError, got: {msg}");
     });
 }
 
@@ -885,11 +906,15 @@ fn add_event_listener_during_dispatch_does_not_fire_in_same_tick() {
 }
 
 #[test]
-fn remove_event_listener_during_dispatch_still_fires_in_same_tick() {
-    // Symmetric snapshot-then-iterate guarantee: a listener
-    // removed mid-dispatch DOES receive the in-flight event
-    // because it was in the snapshot taken before the fan-out
-    // started.  The removal takes effect on the NEXT dispatch.
+fn remove_event_listener_during_dispatch_does_not_fire_in_same_tick() {
+    // WHATWG DOM §2.9 inner-invoke: the listener list is cloned before
+    // the walk, but a listener whose `removed` flag is set mid-dispatch
+    // is skipped ("If listener's removed is true, then continue").  So
+    // `b`, removed by the first listener before its turn, does NOT fire
+    // this tick — the shared §2.9 core implements this via the step 6
+    // removed-field check (`resolve_callable` returns None).  The
+    // bespoke SSE shim fired the pre-snapshot copy, which was not
+    // spec-faithful.
     with_es_vm(|vm| {
         vm.eval(
             "globalThis._a = 0; \
@@ -912,11 +937,11 @@ fn remove_event_listener_during_dispatch_still_fires_in_same_tick() {
                 last_event_id: String::new(),
             },
         );
-        // Both fire on the first dispatch (snapshot taken before
-        // any callback ran; removal applies to next tick).
+        // First dispatch: the remover fires and removes `b` before
+        // `b`'s turn → `b` is skipped this tick (§2.9 removed check).
         assert_eval_number(vm, "_a", 1.0);
-        assert_eval_number(vm, "_b", 1.0);
-        // Second dispatch — only the remover fires; b was removed.
+        assert_eval_number(vm, "_b", 0.0);
+        // Second dispatch — only the remover fires; b stays removed.
         inject_sse_event_and_tick(
             vm,
             0,
@@ -927,7 +952,7 @@ fn remove_event_listener_during_dispatch_still_fires_in_same_tick() {
             },
         );
         assert_eval_number(vm, "_a", 2.0);
-        assert_eval_number(vm, "_b", 1.0);
+        assert_eval_number(vm, "_b", 0.0);
     });
 }
 
@@ -982,15 +1007,135 @@ fn close_on_non_event_source_throws_type_error() {
 }
 
 #[test]
-fn add_event_listener_on_non_event_source_throws() {
+fn add_event_listener_on_non_event_source_is_silent_no_op() {
+    // The shared `EventTarget.prototype.addEventListener` is
+    // detach-tolerant: a non-branded receiver (`call({})`) resolves to
+    // no DispatchTarget and returns undefined silently — the same
+    // policy AbortSignal / IndexedDB / Node use.  The migration makes
+    // EventSource consistent with every other elidex EventTarget (the
+    // bespoke SSE shim threw "Illegal invocation").
     with_es_vm(|vm| {
-        let err = vm
-            .eval("EventSource.prototype.addEventListener.call({}, 'x', function() {});")
-            .unwrap_err();
-        let msg = format!("{err:?}");
-        assert!(
-            msg.contains("non-EventSource") || msg.contains("Type"),
-            "expected brand-check TypeError, got: {msg}"
+        vm.eval("EventSource.prototype.addEventListener.call({}, 'x', function() {});")
+            .expect("non-branded receiver is a silent no-op, not a throw");
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Shared §2.9 EventTarget integration (#11-realtime-event-listeners)
+//
+// EventSource's bespoke `addEventListener` + per-instance
+// `event_listeners` registry were replaced by inherited
+// `EventTarget.prototype` methods routing through the shared VmObject
+// dispatch core.  Named events + the §9.2.6 "message vs named" fan-out
+// are now emergent; capture / once / passive / {signal} work for free.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn named_event_delivers_to_add_event_listener_only_not_onmessage() {
+    // WHATWG HTML §9.2.6: a server `event: notify` line fires a
+    // MessageEvent of type "notify" — delivered to
+    // addEventListener("notify") but NOT to onmessage (which is the
+    // "message"-type EventHandler listener).  Emergent from dispatching
+    // the parsed type at the shared core.
+    with_es_vm(|vm| {
+        vm.eval(
+            "globalThis._named = []; globalThis._msg = 0; \
+             globalThis.s = new EventSource('/events'); \
+             s.onmessage = function() { globalThis._msg++; }; \
+             s.addEventListener('notify', function(e) { \
+               globalThis._named.push({ mev: e instanceof MessageEvent, d: e.data }); \
+             });",
+        )
+        .unwrap();
+        inject_sse_event_and_tick(
+            vm,
+            0,
+            SseEvent::Event {
+                event_type: "notify".to_string(),
+                data: "hello".to_string(),
+                last_event_id: String::new(),
+            },
+        );
+        assert_eval_number(vm, "_named.length", 1.0);
+        assert_eval_bool(vm, "_named[0].mev", true);
+        assert_eval_string(vm, "_named[0].d", "hello");
+        // onmessage must NOT receive the named event.
+        assert_eval_number(vm, "_msg", 0.0);
+    });
+}
+
+#[test]
+fn default_message_fires_onmessage_and_add_event_listener() {
+    // A default (no `event:` line) message has type "message" → fires
+    // both onmessage and addEventListener("message").
+    with_es_vm(|vm| {
+        vm.eval(
+            "globalThis._log = []; \
+             globalThis.s = new EventSource('/events'); \
+             s.onmessage = function(e) { globalThis._log.push('on:' + e.data); }; \
+             s.addEventListener('message', function(e) { globalThis._log.push('ael:' + e.data); });",
+        )
+        .unwrap();
+        inject_sse_event_and_tick(
+            vm,
+            0,
+            SseEvent::Event {
+                event_type: "message".to_string(),
+                data: "x".to_string(),
+                last_event_id: String::new(),
+            },
+        );
+        assert_eval_number(vm, "_log.length", 2.0);
+        assert_eval_bool(vm, "_log.indexOf('on:x') !== -1", true);
+        assert_eval_bool(vm, "_log.indexOf('ael:x') !== -1", true);
+    });
+}
+
+#[test]
+fn add_event_listener_once_and_signal_now_supported() {
+    // Capabilities the bespoke SSE shim lacked, gained by routing
+    // through the shared EventTarget core: `{once}` and `{signal}`.
+    with_es_vm(|vm| {
+        vm.eval(
+            "globalThis._once = 0; globalThis._sig = 0; \
+             globalThis.s = new EventSource('/events'); \
+             globalThis.ac = new AbortController(); \
+             s.addEventListener('message', function() { globalThis._once++; }, { once: true }); \
+             s.addEventListener('message', function() { globalThis._sig++; }, { signal: ac.signal }); \
+             ac.abort();",
+        )
+        .unwrap();
+        let msg = || SseEvent::Event {
+            event_type: "message".to_string(),
+            data: "x".to_string(),
+            last_event_id: String::new(),
+        };
+        inject_sse_event_and_tick(vm, 0, msg());
+        inject_sse_event_and_tick(vm, 0, msg());
+        // once: fired exactly once across two ticks.
+        assert_eval_number(vm, "_once", 1.0);
+        // signal: aborted before any dispatch → never fired.
+        assert_eval_number(vm, "_sig", 0.0);
+    });
+}
+
+#[test]
+fn eventsource_add_event_listener_is_inherited_not_shadowed() {
+    // F10 structural single-home guard — the critical one for SSE,
+    // which previously installed a bespoke OWN `addEventListener` that
+    // wrote a parallel `event_listeners` registry.  After migration
+    // EventSource.prototype must NOT own `addEventListener` (it is
+    // inherited from EventTarget.prototype); a surviving own method
+    // would shadow the shared one and split the listener home.
+    with_es_vm(|vm| {
+        vm.eval("globalThis.s = new EventSource('/events');")
+            .unwrap();
+        assert_eval_bool(vm, "typeof s.addEventListener === 'function'", true);
+        assert_eval_bool(
+            vm,
+            "Object.getOwnPropertyNames(Object.getPrototypeOf(s))\
+             .indexOf('addEventListener') === -1",
+            true,
         );
     });
 }
@@ -1008,6 +1153,40 @@ fn ready_state_getter_on_non_event_source_throws() {
         assert!(
             msg.contains("non-EventSource") || msg.contains("Type"),
             "expected brand-check TypeError, got: {msg}"
+        );
+    });
+}
+
+#[test]
+fn unobserved_named_sse_events_do_not_intern_type_or_id() {
+    // Regression (`#11-realtime-event-listeners`, Copilot R2 / IMPORTANT): a
+    // page listening only to `onmessage` does NOT observe named events
+    // (§9.2.6).  Their server-controlled `event:` type, `id:`, and `data:`
+    // strings must be interned only past the listener gate — otherwise a named
+    // keepalive stream with unique ids grows the permanent `StringPool`
+    // unboundedly under server control (entries are never freed).
+    with_es_vm(|vm| {
+        vm.eval(
+            "globalThis.s = new EventSource('/events'); \
+             s.onmessage = function() {};",
+        )
+        .unwrap();
+        let before = vm.inner.strings.len();
+        for i in 0..6 {
+            inject_sse_event_and_tick(
+                vm,
+                0,
+                SseEvent::Event {
+                    event_type: format!("keepalive-{i}"),
+                    data: format!("payload-{i}"),
+                    last_event_id: format!("id-{i}"),
+                },
+            );
+        }
+        assert_eq!(
+            before,
+            vm.inner.strings.len(),
+            "unobserved named SSE events interned type/id/data into the permanent StringPool"
         );
     });
 }

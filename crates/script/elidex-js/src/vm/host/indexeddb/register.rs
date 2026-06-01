@@ -70,8 +70,7 @@ impl VmInner {
             "transaction",
             request::native_req_get_transaction,
         );
-        self.idb_install_handler_attr(req_proto, "onsuccess");
-        self.idb_install_handler_attr(req_proto, "onerror");
+        self.install_vm_object_handler_attrs(req_proto, &["onsuccess", "onerror"]);
         self.idb_request_prototype = Some(req_proto);
         self.idb_install_interface(req_proto, "IDBRequest");
 
@@ -79,8 +78,7 @@ impl VmInner {
         let open_proto = self.alloc_idb_proto(Some(req_proto));
         // Inherits the IDBRequest accessors / EventTarget shadow; adds the two
         // open-request-only handler attributes (§4.3).
-        self.idb_install_handler_attr(open_proto, "onupgradeneeded");
-        self.idb_install_handler_attr(open_proto, "onblocked");
+        self.install_vm_object_handler_attrs(open_proto, &["onupgradeneeded", "onblocked"]);
         self.idb_open_db_request_prototype = Some(open_proto);
         self.idb_install_interface(open_proto, "IDBOpenDBRequest");
 
@@ -105,10 +103,10 @@ impl VmInner {
         );
         self.idb_install_method(db_proto, "transaction", database::native_db_transaction);
         self.idb_install_method(db_proto, "close", database::native_db_close);
-        self.idb_install_handler_attr(db_proto, "onabort");
-        self.idb_install_handler_attr(db_proto, "onclose");
-        self.idb_install_handler_attr(db_proto, "onerror");
-        self.idb_install_handler_attr(db_proto, "onversionchange");
+        self.install_vm_object_handler_attrs(
+            db_proto,
+            &["onabort", "onclose", "onerror", "onversionchange"],
+        );
         self.idb_database_prototype = Some(db_proto);
         self.idb_install_interface(db_proto, "IDBDatabase");
 
@@ -126,9 +124,7 @@ impl VmInner {
         self.idb_install_method(txn_proto, "objectStore", txn::native_txn_object_store);
         self.idb_install_method(txn_proto, "commit", txn::native_txn_commit);
         self.idb_install_method(txn_proto, "abort", txn::native_txn_abort);
-        self.idb_install_handler_attr(txn_proto, "oncomplete");
-        self.idb_install_handler_attr(txn_proto, "onerror");
-        self.idb_install_handler_attr(txn_proto, "onabort");
+        self.install_vm_object_handler_attrs(txn_proto, &["oncomplete", "onerror", "onabort"]);
         self.idb_transaction_prototype = Some(txn_proto);
         self.idb_install_interface(txn_proto, "IDBTransaction");
 
@@ -263,27 +259,5 @@ impl VmInner {
     fn idb_install_method(&mut self, proto: ObjectId, name: &str, func: NativeFn) {
         let sid = self.strings.intern(name);
         self.install_native_method(proto, sid, func, PropertyAttrs::METHOD);
-    }
-
-    /// Install one `on<event>` handler IDL attribute (WHATWG HTML §8.1.8.1)
-    /// over the shared VmObject event-handler backend
-    /// ([`super::super::event_handler_attrs::native_vm_event_handler_get`] /
-    /// `…_set`).  The bound key is the EVENT-TYPE SID (`on_name` minus the
-    /// `on` prefix, e.g. `onsuccess` → `success`) so the handler lives as a
-    /// `ListenerKind::EventHandler` entry in the unified `vm_event_listeners`
-    /// home, dispatched in registration order alongside
-    /// `addEventListener('success', …)`.
-    fn idb_install_handler_attr(&mut self, proto: ObjectId, on_name: &str) {
-        let attr_sid = self.strings.intern(on_name);
-        let event_type = on_name.strip_prefix("on").unwrap_or(on_name);
-        let event_sid = self.strings.intern(event_type);
-        self.install_bound_accessor_pair(
-            proto,
-            attr_sid,
-            super::super::event_handler_attrs::native_vm_event_handler_get,
-            Some(super::super::event_handler_attrs::native_vm_event_handler_set),
-            event_sid,
-            PropertyAttrs::WEBIDL_RO_ACCESSOR,
-        );
     }
 }

@@ -121,29 +121,37 @@ use super::super::{NativeFn, VmInner};
 use super::events::install_ctor;
 
 impl VmInner {
-    /// Allocate `WebSocket.prototype` chained to `Object.prototype`,
+    /// Allocate `WebSocket.prototype` chained to `EventTarget.prototype`,
     /// install the readyState / url / protocol / extensions /
     /// bufferedAmount / binaryType accessors, send / close methods,
     /// 4 `on*` handler getter/setter pairs, the CONNECTING / OPEN /
     /// CLOSING / CLOSED IDL constants, and expose the user-callable
-    /// `WebSocket` constructor on `globalThis`.
+    /// `WebSocket` constructor on `globalThis`.  `addEventListener` /
+    /// `removeEventListener` / `dispatchEvent` are inherited from
+    /// `EventTarget.prototype`, not installed here.
     ///
-    /// Called from `register_globals()` after `register_prototypes`
-    /// (which populates `object_prototype`).
+    /// Called from `register_globals()` after
+    /// `register_event_target_prototype` (which populates
+    /// `event_target_prototype`).
     ///
     /// # Panics
     ///
-    /// Panics if `object_prototype` is `None` — would mean the
+    /// Panics if `event_target_prototype` is `None` — would mean the
     /// call-order invariant from `register_globals()` was violated.
     pub(in crate::vm) fn register_websocket_global(&mut self) {
-        let object_proto = self
-            .object_prototype
-            .expect("register_websocket_global called before register_prototypes");
+        // `WebSocket : EventTarget` (WHATWG WebSockets §3) — chain the
+        // prototype to `EventTarget.prototype` so the shared
+        // `addEventListener` / `removeEventListener` / `dispatchEvent`
+        // natives are inherited and route a `WebSocket` receiver through
+        // the §2.9 VmObject dispatch core (`#11-realtime-event-listeners`).
+        let event_target_proto = self
+            .event_target_prototype
+            .expect("register_websocket_global called before register_event_target_prototype");
 
         let proto_id = self.alloc_object(Object {
             kind: ObjectKind::Ordinary,
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            prototype: Some(object_proto),
+            prototype: Some(event_target_proto),
             extensible: true,
         });
         self.websocket_prototype = Some(proto_id);
@@ -199,42 +207,19 @@ impl VmInner {
             PropertyAttrs::WEBIDL_RO_ACCESSOR,
         );
 
-        // Event handler attributes: 4 pairs (onopen / onmessage /
-        // onerror / onclose).  WHATWG IDL EventHandler attribute —
-        // callable-only retention (non-callable assignments null the
-        // slot).  The macro factors the boilerplate for the 4
-        // structurally-identical pairs.
-        let on_handlers: [(StringId, NativeFn, NativeFn); 4] = [
-            (
-                self.well_known.onopen,
-                native_ws_get_onopen,
-                native_ws_set_onopen,
-            ),
-            (
-                self.well_known.onmessage,
-                native_ws_get_onmessage,
-                native_ws_set_onmessage,
-            ),
-            (
-                self.well_known.onerror,
-                native_ws_get_onerror,
-                native_ws_set_onerror,
-            ),
-            (
-                self.well_known.onclose,
-                native_ws_get_onclose,
-                native_ws_set_onclose,
-            ),
-        ];
-        for (name_sid, getter, setter) in on_handlers {
-            self.install_accessor_pair(
-                proto_id,
-                name_sid,
-                getter,
-                Some(setter),
-                PropertyAttrs::WEBIDL_RO_ACCESSOR,
-            );
-        }
+        // Event handler attributes: onopen / onmessage / onerror /
+        // onclose, over the shared VmObject EventHandler backend
+        // (WHATWG HTML §8.1.8.1) — the handler is recorded in the
+        // unified `vm_event_listeners` home as an `EventHandler`-kind
+        // listener, dispatched alongside `addEventListener` listeners
+        // through the §2.9 core.  `addEventListener` /
+        // `removeEventListener` / `dispatchEvent` are inherited from
+        // `EventTarget.prototype` (proto reparented above), not
+        // installed here.
+        self.install_vm_object_handler_attrs(
+            proto_id,
+            &["onopen", "onmessage", "onerror", "onclose"],
+        );
 
         // Methods: send + close.
         let methods: [(StringId, NativeFn); 2] = [
@@ -432,10 +417,6 @@ fn native_websocket_constructor(
                 buffered_amount: 0,
                 binary_type: super::super::host_data::BinaryType::default(),
                 conn_id,
-                onopen: None,
-                onmessage: None,
-                onerror: None,
-                onclose: None,
             },
         );
         hd.ws_conn_to_object.insert(conn_id, inst_id);
@@ -1009,75 +990,9 @@ fn native_ws_close(
     Ok(JsValue::Undefined)
 }
 
-// ---------------------------------------------------------------------------
-// Event handler attribute accessors — `onopen` / `onmessage` /
-// `onerror` / `onclose`.
-//
-// The macro pattern mirrors FileReader's `fr_on_handler!` at
-// `file_reader.rs:384-420`.  Four structurally-identical pairs at
-// this scope; the macro avoids ~200 lines of duplicated body
-// without sacrificing call-site visibility (the expansion is
-// single-screen).
-// ---------------------------------------------------------------------------
-
-macro_rules! ws_on_handler {
-    ($getter:ident, $setter:ident, $field:ident, $name:literal) => {
-        fn $getter(
-            ctx: &mut NativeContext<'_>,
-            this: JsValue,
-            _args: &[JsValue],
-        ) -> Result<JsValue, VmError> {
-            let id = require_websocket_this(ctx, this, $name)?;
-            Ok(ctx
-                .vm
-                .host_data
-                .as_deref()
-                .and_then(|hd| hd.websocket_states.get(&id))
-                .and_then(|s| s.$field)
-                .map_or(JsValue::Null, JsValue::Object))
-        }
-        fn $setter(
-            ctx: &mut NativeContext<'_>,
-            this: JsValue,
-            args: &[JsValue],
-        ) -> Result<JsValue, VmError> {
-            let id = require_websocket_this(ctx, this, $name)?;
-            let new_val = args.first().copied().unwrap_or(JsValue::Undefined);
-            // Per WHATWG EventHandler IDL §8.1.8.1: only callable
-            // values are retained; any other value nulls the slot
-            // (matches Chrome/Firefox).
-            let stored = match new_val {
-                JsValue::Object(obj_id) if ctx.vm.get_object(obj_id).kind.is_callable() => {
-                    Some(obj_id)
-                }
-                _ => None,
-            };
-            if let Some(hd) = ctx.vm.host_data.as_deref_mut() {
-                if let Some(state) = hd.websocket_states.get_mut(&id) {
-                    state.$field = stored;
-                }
-            }
-            Ok(JsValue::Undefined)
-        }
-    };
-}
-
-ws_on_handler!(native_ws_get_onopen, native_ws_set_onopen, onopen, "onopen");
-ws_on_handler!(
-    native_ws_get_onmessage,
-    native_ws_set_onmessage,
-    onmessage,
-    "onmessage"
-);
-ws_on_handler!(
-    native_ws_get_onerror,
-    native_ws_set_onerror,
-    onerror,
-    "onerror"
-);
-ws_on_handler!(
-    native_ws_get_onclose,
-    native_ws_set_onclose,
-    onclose,
-    "onclose"
-);
+// Event handler attributes (`onopen` / `onmessage` / `onerror` /
+// `onclose`) are installed via the shared VmObject EventHandler backend
+// (`install_vm_object_handler_attrs` → `native_vm_event_handler_get/set`
+// → `vm_event_listeners`) — see `install_websocket_members`.  The
+// bespoke `ws_on_handler!` macro + per-slot `WebSocketState.on*`
+// storage were removed by `#11-realtime-event-listeners`.
