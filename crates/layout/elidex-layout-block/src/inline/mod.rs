@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use elidex_ecs::{EcsDom, Entity, PseudoElementMarker, TextContent};
 #[cfg(test)]
 pub(crate) use elidex_plugin::LayoutBox;
-use elidex_plugin::{ComputedStyle, Display, Point};
+use elidex_plugin::{ComputedStyle, Display, Point, WhiteSpace};
 #[cfg(test)]
 pub(crate) use elidex_text::FontDatabase;
 use elidex_text::{measure_text, to_fontdb_style, FontStyle, TextMeasureParams};
@@ -70,6 +70,8 @@ pub struct StyledRun {
     pub word_spacing: f32,
     /// Resolved line height in px.
     pub line_height: f32,
+    /// CSS `white-space` (drives §4.1.1 collapsing / segment-break handling).
+    pub white_space: WhiteSpace,
 }
 
 impl StyledRun {
@@ -85,6 +87,7 @@ impl StyledRun {
             letter_spacing: style.letter_spacing.unwrap_or(0.0),
             word_spacing: style.word_spacing.unwrap_or(0.0),
             line_height: style.line_height.resolve_px(style.font_size),
+            white_space: style.white_space,
         }
     }
 
@@ -132,7 +135,9 @@ pub(crate) fn collect_inline_items(
     parent_style: &ComputedStyle,
     parent_entity: Entity,
 ) -> Vec<InlineItem> {
-    collect_inline_items_inner(dom, children, parent_style, parent_entity, 0)
+    let mut items = collect_inline_items_inner(dom, children, parent_style, parent_entity, 0);
+    collapse_inline_whitespace(&mut items);
+    items
 }
 
 fn collect_inline_items_inner(
@@ -200,6 +205,105 @@ fn collect_inline_items_inner(
         }
     }
     items
+}
+
+// ---------------------------------------------------------------------------
+// White space collapsing (CSS Text 3 §4.1.1 Phase I)
+// ---------------------------------------------------------------------------
+
+/// Apply CSS Text 3 §4.1.1 Phase I white-space collapsing/transformation to the
+/// ordered text runs of an inline formatting context, parameterized by each
+/// run's `white-space`.
+///
+/// Per CSS Text 3 §4.1.1 (`#white-space-phase-1`) + §4.1.3 (`#line-break-transform`),
+/// for collapsible values (`normal`/`nowrap`/`pre-line`): tabs become spaces
+/// (step 3); for `normal`/`nowrap` a segment break (`\n`) is collapsible and is
+/// transformed to a space (§4.1.3, word-separator-language baseline), while for
+/// `pre-line` it is preserved as a forced break with surrounding collapsible
+/// spaces removed (step 1); a collapsible space immediately following another
+/// collapsible space — even across inline (run) boundaries within the same IFC —
+/// collapses to zero advance width (step 4), i.e. each run of collapsible spaces
+/// becomes a single space. For preserve values (`pre`/`pre-wrap`) the text is left
+/// intact (segment breaks stay as forced breaks).
+///
+/// Line-edge trimming (§4.1.2 Phase II) and the "white space that collapses away
+/// generates no box" rule (CSS 2 §9.2.2.1 / §9.2.1.1) are applied at line-packing
+/// time (see [`pack::LinePacker`]), not here.
+fn collapse_inline_whitespace(items: &mut [InlineItem]) {
+    // Cross-run collapse state: true when the previously emitted character (in any
+    // earlier run of this IFC) was a collapsible space, so a following collapsible
+    // space collapses to zero advance width (§4.1.1 step 4).
+    let mut prev_collapsible_space = false;
+    for item in items {
+        match item {
+            InlineItem::Text(run) => {
+                run.text =
+                    collapse_run_text(&run.text, run.white_space, &mut prev_collapsible_space);
+            }
+            // Atomic inline boxes are rendered content: a collapsible space that
+            // follows one is a fresh separator, not collapsed away.
+            InlineItem::Atomic { .. } => prev_collapsible_space = false,
+            // Out-of-flow placeholders do not participate in the inline text flow
+            // (CSS 2.1 §9.3.1) — they neither emit nor reset collapse state.
+            InlineItem::Placeholder(_) => {}
+        }
+    }
+}
+
+/// Collapse a single run's text per its `white-space`, threading the cross-run
+/// `prev_collapsible_space` state. See [`collapse_inline_whitespace`].
+fn collapse_run_text(
+    text: &str,
+    white_space: WhiteSpace,
+    prev_collapsible_space: &mut bool,
+) -> String {
+    match white_space {
+        // Preserve values: text is left intact. A non-empty preserved run is
+        // rendered content, so it resets the collapse state (a following collapsible
+        // run's leading space is a fresh separator, not collapsed into the run).
+        WhiteSpace::Pre | WhiteSpace::PreWrap => {
+            if !text.is_empty() {
+                *prev_collapsible_space = false;
+            }
+            text.to_string()
+        }
+        WhiteSpace::Normal | WhiteSpace::NoWrap | WhiteSpace::PreLine => {
+            let preserve_break = white_space == WhiteSpace::PreLine;
+            let mut out = String::with_capacity(text.len());
+            for c in text.chars() {
+                if c == '\n' && preserve_break {
+                    // §4.1.1 step 1 / §4.1.3: collapsible spaces around a preserved
+                    // segment break are removed — drop a space we just emitted, and
+                    // (via the flag) the next collapsible space that follows.
+                    if out.ends_with(' ') {
+                        out.pop();
+                    }
+                    out.push('\n');
+                    *prev_collapsible_space = true;
+                } else if is_collapsible_space(c) || c == '\n' {
+                    // A collapsible space/tab, or (for normal/nowrap) a segment break
+                    // transformed to a space (§4.1.3). Collapse runs to a single
+                    // space (step 4); a space following another collapsible space has
+                    // zero advance width and is dropped from the string.
+                    if !*prev_collapsible_space {
+                        out.push(' ');
+                        *prev_collapsible_space = true;
+                    }
+                } else {
+                    out.push(c);
+                    *prev_collapsible_space = false;
+                }
+            }
+            out
+        }
+    }
+}
+
+/// CSS Text 3 collapsible space characters (space + tab; CR/FF are normalized away
+/// by the HTML parser but treated defensively). The segment break (`\n`) is handled
+/// separately because its transformation depends on `white-space` (§4.1.3).
+fn is_collapsible_space(c: char) -> bool {
+    matches!(c, ' ' | '\t' | '\r' | '\u{000C}')
 }
 
 // ---------------------------------------------------------------------------

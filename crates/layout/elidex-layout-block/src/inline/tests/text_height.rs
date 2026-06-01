@@ -58,7 +58,9 @@ fn single_line_text() {
 }
 
 #[test]
-fn mandatory_newline_break() {
+fn normal_collapses_newline_to_space() {
+    // CSS Text 3 §4.1.1 / §4.1.3: under `white-space: normal` a segment break is
+    // collapsible and is transformed to a space, so "line1\nline2" is one line.
     let Some((mut dom, parent, style, font_db)) = setup_inline_test("line1\nline2") else {
         return;
     };
@@ -73,7 +75,126 @@ fn mandatory_newline_break() {
         layout_generation: 0,
     };
     let h = layout_inline_context(&mut dom, &children, 8000.0, parent, Point::ZERO, &env).height;
-    assert!((h - css_line_height * 2.0).abs() < f32::EPSILON);
+    assert!(
+        (h - css_line_height).abs() < f32::EPSILON,
+        "normal white-space collapses the newline to a space (one line, {css_line_height}), got {h}",
+    );
+}
+
+#[test]
+fn pre_preserves_newline_as_break() {
+    // CSS Text 3 §4.1.3: under `white-space: pre` a segment break is preserved as a
+    // forced line break, so "line1\nline2" is two lines.
+    let Some((mut dom, parent, mut style, font_db)) = setup_inline_test("line1\nline2") else {
+        return;
+    };
+    style.white_space = WhiteSpace::Pre;
+    let _ = dom.world_mut().insert_one(parent, style.clone());
+
+    let css_line_height = style.line_height.resolve_px(style.font_size);
+    let children = dom.composed_children(parent);
+    let env = crate::LayoutEnv {
+        font_db: &font_db,
+        layout_child: crate::layout_block_only,
+        depth: 0,
+        viewport: None,
+        layout_generation: 0,
+    };
+    let h = layout_inline_context(&mut dom, &children, 8000.0, parent, Point::ZERO, &env).height;
+    assert!(
+        (h - css_line_height * 2.0).abs() < f32::EPSILON,
+        "pre preserves the newline as a forced break (two lines), got {h}",
+    );
+}
+
+#[test]
+fn pre_blank_line_keeps_height() {
+    // A blank line in `<pre>` ("a\n\nb") still generates a line box with height: the
+    // forced-break path marks the line as rendered content (three lines total).
+    let Some((mut dom, parent, mut style, font_db)) = setup_inline_test("a\n\nb") else {
+        return;
+    };
+    style.white_space = WhiteSpace::Pre;
+    let _ = dom.world_mut().insert_one(parent, style.clone());
+
+    let css_line_height = style.line_height.resolve_px(style.font_size);
+    let children = dom.composed_children(parent);
+    let env = crate::LayoutEnv {
+        font_db: &font_db,
+        layout_child: crate::layout_block_only,
+        depth: 0,
+        viewport: None,
+        layout_generation: 0,
+    };
+    let h = layout_inline_context(&mut dom, &children, 8000.0, parent, Point::ZERO, &env).height;
+    assert!(
+        (h - css_line_height * 3.0).abs() < f32::EPSILON,
+        "pre keeps the blank line's height (three lines), got {h}",
+    );
+}
+
+// --- §4.1.1 collapse transform (text-level, font-independent) ---
+
+#[test]
+fn collapse_normal_collapses_whitespace_runs_to_single_space() {
+    // §4.1.1 steps 2-4: tab → space, segment break → space (normal), and a run of
+    // collapsible spaces collapses to a single space.
+    let Some((mut dom, parent, style, _font_db)) = setup_inline_test("a \t\n  b") else {
+        return;
+    };
+    let children = dom.composed_children(parent);
+    let runs = collect_styled_runs(&dom, &children, &style, parent);
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].text, "a b");
+}
+
+#[test]
+fn collapse_pre_preserves_whitespace() {
+    let Some((mut dom, parent, mut style, _font_db)) = setup_inline_test("a \t\n  b") else {
+        return;
+    };
+    style.white_space = WhiteSpace::Pre;
+    let children = dom.composed_children(parent);
+    let runs = collect_styled_runs(&dom, &children, &style, parent);
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].text, "a \t\n  b");
+}
+
+#[test]
+fn collapse_pre_line_preserves_newline_collapses_spaces() {
+    // pre-line: collapsible spaces collapse and the spaces around the preserved
+    // segment break are removed (§4.1.1 step 1), but the break itself is kept.
+    let Some((mut dom, parent, mut style, _font_db)) = setup_inline_test("a  \n  b") else {
+        return;
+    };
+    style.white_space = WhiteSpace::PreLine;
+    let children = dom.composed_children(parent);
+    let runs = collect_styled_runs(&dom, &children, &style, parent);
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].text, "a\nb");
+}
+
+#[test]
+fn collapse_across_adjacent_text_runs_yields_single_space() {
+    // Cross-run collapse (§4.1.1 step 4: a collapsible space following another
+    // collapsible space — even across inline boundaries within the same IFC —
+    // collapses): three adjacent text nodes "x" / "\n  " / "y" collapse so the
+    // inter-run whitespace becomes a single space, not dropped or doubled.
+    let Some((mut dom, parent, style, _font_db)) = setup_inline_test("") else {
+        return;
+    };
+    let children = dom.composed_children(parent);
+    for &c in &children {
+        dom.remove_child(parent, c);
+    }
+    for t in ["x", "\n  ", "y"] {
+        let tx = dom.create_text(t);
+        dom.append_child(parent, tx);
+    }
+    let children = dom.composed_children(parent);
+    let runs = collect_styled_runs(&dom, &children, &style, parent);
+    let texts: Vec<&str> = runs.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(texts, vec!["x", " ", "y"]);
 }
 
 #[test]

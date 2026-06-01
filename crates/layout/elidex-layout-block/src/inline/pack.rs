@@ -128,6 +128,11 @@ pub(super) struct LinePacker {
     current_line_height: f32,
     current_block_offset: f32,
     on_line: bool,
+    /// Whether the current line has emitted any rendered content — a glyph with
+    /// non-zero advance, an atomic inline box, or a forced break. A line whose
+    /// content is only collapsible white space (which collapses away) generates no
+    /// box and contributes zero block size (CSS 2 §9.2.2.1 / §9.2.1.1).
+    any_rendered_content: bool,
     parent_entity: Entity,
     /// First baseline offset from the inline formatting context top.
     /// Captured from the first text run on the first line.
@@ -144,8 +149,20 @@ impl LinePacker {
             current_line_height: 0.0,
             current_block_offset: 0.0,
             on_line: false,
+            any_rendered_content: false,
             parent_entity,
             first_baseline: None,
+        }
+    }
+
+    /// Block size contributed by the current line: zero when the line has no
+    /// rendered content (collapsible white space that collapses away generates no
+    /// box, CSS 2 §9.2.2.1 / §9.2.1.1), otherwise the line's height.
+    fn line_block_size(&self) -> f32 {
+        if self.any_rendered_content {
+            self.current_line_height
+        } else {
+            0.0
         }
     }
 
@@ -195,12 +212,16 @@ impl LinePacker {
                     }
                 }
 
+                // A text segment is rendered content only if it has non-zero
+                // advance after trailing-whitespace trimming — a segment of only
+                // collapsible white space (trimmed width 0) generates no box.
                 self.place_item(
                     seg_width,
                     trimmed_width,
                     seg_line_advance,
                     run.entity,
                     containing_inline_size,
+                    trimmed_width > 0.0,
                 );
 
                 if *break_after == Some(BreakOpportunity::Mandatory) {
@@ -241,12 +262,14 @@ impl LinePacker {
                 }
 
                 // Atomic boxes don't break internally; treat as a single unit.
+                // An atomic inline box is always rendered content.
                 self.place_item(
                     *inline_size,
                     *inline_size,
                     *block_size,
                     *entity,
                     containing_inline_size,
+                    true,
                 );
             }
             PackItem::Placeholder { entity } => {
@@ -267,20 +290,22 @@ impl LinePacker {
         block_advance: f32,
         entity: Entity,
         containing_inline_size: f32,
+        contributes_content: bool,
     ) {
         if self.current_inline + trimmed_width > containing_inline_size && self.on_line {
-            self.line_boxes.push(LineBox {
-                block_size: self.current_line_height,
-            });
-            self.current_block_offset += self.current_line_height;
+            let block_size = self.line_block_size();
+            self.line_boxes.push(LineBox { block_size });
+            self.current_block_offset += block_size;
             self.current_inline = 0.0;
             self.current_line_height = 0.0;
+            self.any_rendered_content = false;
         }
 
         let seg_inline_start = self.current_inline;
         self.current_inline += full_width;
         self.current_line_height = self.current_line_height.max(block_advance);
         self.on_line = true;
+        self.any_rendered_content |= contributes_content;
 
         if entity != self.parent_entity {
             let seg_inline_end = seg_inline_start + full_width;
@@ -309,6 +334,12 @@ impl LinePacker {
     }
 
     fn force_break(&mut self) {
+        // A forced break (a preserved segment break under `white-space: pre*`, or a
+        // `<br>`) always produces a real line, even when blank — e.g. a blank line in
+        // `<pre>` has height. With normal/nowrap collapsing, segment breaks are
+        // transformed to spaces upstream, so this path is reached only for genuine
+        // forced breaks; mark the line as rendered content so it keeps its height.
+        self.any_rendered_content = true;
         self.line_boxes.push(LineBox {
             block_size: self.current_line_height,
         });
@@ -316,13 +347,13 @@ impl LinePacker {
         self.current_inline = 0.0;
         self.current_line_height = 0.0;
         self.on_line = false;
+        self.any_rendered_content = false;
     }
 
     pub fn finish(&mut self) {
         if self.on_line {
-            self.line_boxes.push(LineBox {
-                block_size: self.current_line_height,
-            });
+            let block_size = self.line_block_size();
+            self.line_boxes.push(LineBox { block_size });
         }
     }
 }
