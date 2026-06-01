@@ -22,18 +22,23 @@
 //!   / `onloadend` / `onerror` / `onabort` (per spec §6.2 IDL).
 //! - EMPTY / LOADING / DONE constants on both ctor and prototype.
 //!
-//! ## Event delivery scope (Phase 4 scope decision)
+//! ## Event delivery (shared §2.9 VmObject EventTarget core)
 //!
-//! Phase 4 fires events ONLY through the on* handler attributes —
-//! `addEventListener('load', cb)` against a FileReader instance does
-//! NOT deliver because FileReader is a non-Entity EventTarget (unlike
-//! Element / Document) and the dispatch infrastructure
-//! (`event_target_dispatch::dispatch_script_event`) requires an
-//! `elidex_ecs::Entity` target.  Side-table-backed listener storage
-//! plus a custom dispatch path (modelled on `AbortSignal::abort_listeners`)
-//! is deferred to `#11-filereader-event-listeners` (added by this PR).
-//! Real-world FileReader code overwhelmingly uses on* handlers; the
-//! addEventListener gap is small + future PR.
+//! Every FileReader event (`loadstart` / `progress` / `load` / `loadend`
+//! / `abort` / `error` — all non-bubbling, non-cancelable `ProgressEvent`s
+//! per FileAPI §6.4) is UA-fired through the shared VmObject dispatch seam
+//! ([`fire_fr_progress`] → [`super::event_target_dispatch_vm::fire_vm_progress_event`]
+//! → the §2.9 `dispatch_vm_event` walk), so `addEventListener('load', cb)`
+//! listeners AND the `on<type>` handlers fire from one event object, with
+//! capture / once / passive / `{signal}` all inherited.  Listeners (normal
+//! and `EventHandler`-kind) live in the unified `vm_event_listeners` home
+//! keyed by the FileReader's `ObjectId`, with callables in
+//! `HostData::listener_store` — the same home AbortSignal / IndexedDB /
+//! WebSocket / EventSource use.  FileReader is a flat EventTarget (no
+//! get-the-parent chain), so only the at-target node fires.  Delivery
+//! requires `HostData` installed (production installs it at engine
+//! construction); without it, listener registration + fire are a silent
+//! no-op — the standard VmObject unbound-receiver policy.
 
 #![cfg(feature = "engine")]
 
@@ -48,9 +53,8 @@ use super::super::value::{
     VmError,
 };
 use super::super::{NativeFn, VmInner};
-use super::events::{
-    install_ctor, set_event_slot_raw, EventInit, EVENT_SLOT_CURRENT_TARGET, EVENT_SLOT_TARGET,
-};
+use super::event_target_dispatch_vm::fire_vm_progress_event;
+use super::events::install_ctor;
 
 // ---------------------------------------------------------------------------
 // State enums
@@ -94,6 +98,14 @@ pub(crate) enum ReadKind {
 /// Per-`FileReader` out-of-band state, keyed in
 /// [`super::super::VmInner::file_reader_data`] by the instance's
 /// `ObjectId`.
+///
+/// This *read* state (`state` / `result` / `error` / `target_blob` /
+/// `abort_seq`) lives on `VmInner` and works without `HostData` — a read can
+/// run on a bare VM.  Event *delivery* is separate: listeners and on*
+/// handlers live in the shared `vm_event_listeners` home with callables in
+/// `HostData::listener_store`, so `addEventListener` / on* / UA-fire are a
+/// silent no-op until `HostData` is installed (the VmObject EventTarget
+/// contract — production installs it at engine construction).
 #[derive(Debug, Default)]
 pub(crate) struct FileReaderSideData {
     pub(crate) state: ReadyState,
@@ -106,14 +118,6 @@ pub(crate) struct FileReaderSideData {
     /// `readAs*()`.  Drain snapshots vs current to invalidate stale
     /// completion if abort intervened OR a new read superseded.
     pub(crate) abort_seq: u32,
-    /// Event handler attributes (FileAPI §6.2 IDL; the 6-attr set is the
-    /// §6.2.1 event-handler-attribute table) keyed by the interned attr-name
-    /// SID (`onloadstart`/`onprogress`/`onload`/`onloadend`/`onerror`/
-    /// `onabort`).  Direct callable invocation (NOT dispatchEvent —
-    /// see module doc on event-delivery scope).  `onerror` is written but
-    /// never read today (no error fire-path; in-memory blob reads are
-    /// infallible — deferred to `#11-filereader-event-listeners`).
-    pub(crate) handlers: std::collections::HashMap<StringId, ObjectId>,
 }
 
 // ---------------------------------------------------------------------------
@@ -200,28 +204,24 @@ impl VmInner {
             );
         }
 
-        // Event handler attributes: 6 RW accessor pairs sharing ONE backend
-        // getter/setter, parametrized by the attr-name SID as the bound key
-        // (FileAPI §6.2 IDL / HTML §8.1.8.1).  The same SID family is the read
-        // key in `fire_progress_event` (via `handler_name_sid`).
-        let handler_names: [StringId; 6] = [
-            self.well_known.onloadstart,
-            self.well_known.onprogress,
-            self.well_known.onload,
-            self.well_known.onloadend,
-            self.well_known.onerror,
-            self.well_known.onabort,
-        ];
-        for name_sid in handler_names {
-            self.install_bound_accessor_pair(
-                proto_id,
-                name_sid,
-                native_fr_handler_get,
-                Some(native_fr_handler_set),
-                name_sid,
-                PropertyAttrs::WEBIDL_RO_ACCESSOR,
-            );
-        }
+        // Event handler attributes: the 6 on* IDL attrs (FileAPI §6.2 IDL /
+        // §6.4 events; HTML §8.1.8.1) via the shared VmObject handler-attr
+        // installer.  Each becomes an `EventHandler`-kind listener in the
+        // unified `vm_event_listeners` home (the installer strips the `on`
+        // prefix to derive the event type), so the on* handlers and
+        // `addEventListener` share one home and fire through the §2.9
+        // dispatch core.
+        self.install_vm_object_handler_attrs(
+            proto_id,
+            &[
+                "onloadstart",
+                "onprogress",
+                "onload",
+                "onloadend",
+                "onerror",
+                "onabort",
+            ],
+        );
 
         // Methods: 4 readAs* + abort.
         let methods: [(StringId, NativeFn); 5] = [
@@ -269,24 +269,6 @@ fn require_file_reader_this(
         Err(VmError::type_error(format!(
             "FileReader.prototype.{method} called on non-FileReader"
         )))
-    }
-}
-
-/// Brand check for the shared event-handler accessors, where the method label
-/// is an interned attr-name SID (the bound key).  Defers the `get_utf8`
-/// allocation to the error path — the common (valid-`this`) call returns the
-/// id without materializing the label, unlike eagerly passing
-/// `&ctx.get_utf8(key)`.
-fn require_file_reader_this_keyed(
-    ctx: &NativeContext<'_>,
-    this: JsValue,
-    name_sid: StringId,
-) -> Result<ObjectId, VmError> {
-    match this {
-        JsValue::Object(id) if matches!(ctx.vm.get_object(id).kind, ObjectKind::FileReader) => {
-            Ok(id)
-        }
-        _ => require_file_reader_this(ctx, this, &ctx.get_utf8(name_sid)),
     }
 }
 
@@ -371,59 +353,6 @@ fn native_fr_get_error(
 }
 
 // ---------------------------------------------------------------------------
-// Event handler attribute accessors — 6 getter/setter pairs
-// ---------------------------------------------------------------------------
-
-/// Shared getter for all 6 event-handler IDL attributes.  Recovers which
-/// handler it serves from `ctx.bound_key()` (= the attr-name SID, installed by
-/// `install_bound_accessor_pair`).  Returns the stored callable or `null`
-/// (HTML §8.1.8.1 getter algorithm).
-fn native_fr_handler_get(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let key = ctx
-        .bound_key()
-        .expect("FileReader event-handler accessor missing bound_key");
-    let id = require_file_reader_this_keyed(ctx, this, key)?;
-    Ok(ctx
-        .vm
-        .file_reader_data
-        .get(&id)
-        .and_then(|d| d.handlers.get(&key).copied())
-        .map_or(JsValue::Null, JsValue::Object))
-}
-
-/// Shared setter for all 6 event-handler IDL attributes.  Stores the callable
-/// keyed by `ctx.bound_key()`; any non-callable value silently clears the slot
-/// (HTML §8.1.8.1 setter algorithm — matches Chrome/Firefox).
-fn native_fr_handler_set(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let key = ctx
-        .bound_key()
-        .expect("FileReader event-handler accessor missing bound_key");
-    let id = require_file_reader_this_keyed(ctx, this, key)?;
-    let new_val = args.first().copied().unwrap_or(JsValue::Undefined);
-    let callable =
-        matches!(new_val, JsValue::Object(obj) if ctx.vm.get_object(obj).kind.is_callable());
-    if let Some(d) = ctx.vm.file_reader_data.get_mut(&id) {
-        match new_val {
-            JsValue::Object(obj) if callable => {
-                d.handlers.insert(key, obj);
-            }
-            _ => {
-                d.handlers.remove(&key);
-            }
-        }
-    }
-    Ok(JsValue::Undefined)
-}
-
-// ---------------------------------------------------------------------------
 // readAs* methods — synchronously enter LOADING + enqueue task
 // ---------------------------------------------------------------------------
 
@@ -456,7 +385,7 @@ fn read_as_common(
             )));
         }
     };
-    // Spec §6.4 step 1 — InvalidStateError if state == LOADING.
+    // Spec §6.2 read operation step 1 — InvalidStateError if state == LOADING.
     let was_loading = ctx
         .vm
         .file_reader_data
@@ -493,8 +422,9 @@ fn read_as_common(
     };
 
     // Fire `loadstart` synchronously (before queueing the task) per
-    // FileAPI §6.5.
-    fire_progress_event(ctx, id, EventKind::Loadstart, None);
+    // FileAPI §6.2 read operation.
+    let loadstart_ty = ctx.vm.well_known.loadstart_event_type;
+    fire_fr_progress(ctx, id, loadstart_ty, None);
 
     // Queue the actual read for drain.
     ctx.vm
@@ -556,7 +486,7 @@ fn native_fr_abort(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let id = require_file_reader_this(ctx, this, "abort")?;
-    // Per FileAPI §6.4 abort algorithm:
+    // Per FileAPI §6.2 abort() algorithm:
     // 1. If state != LOADING return (early exit, no event fires).
     // 2. Else: set state = DONE, null result, fire `abort` + `loadend`.
     // Also: bump abort_seq so the in-flight task discards on drain.
@@ -572,26 +502,19 @@ fn native_fr_abort(
     // can fire with meaningful `loaded` / `total` (this implementation
     // reads synchronously, so on abort the blob's full byte length is
     // the conceptual "processed" amount).  Without this snapshot,
-    // `fire_progress_event` would see target_blob = None and emit
+    // `fire_fr_progress` would see target_blob = None and emit
     // loaded = total = 0 — observer-side regression.
-    let blob_size_for_abort = ctx
-        .vm
-        .file_reader_data
-        .get(&id)
-        .and_then(|d| d.target_blob)
-        .map_or(0.0, |b_id| {
-            #[allow(clippy::cast_precision_loss)]
-            let n = super::blob::blob_byte_length(ctx.vm, b_id) as f64;
-            n
-        });
+    let blob_size_for_abort = fr_blob_size(ctx.vm, id);
     if let Some(d) = ctx.vm.file_reader_data.get_mut(&id) {
         d.state = ReadyState::Done;
         d.result = ReaderResult::None;
         d.abort_seq = d.abort_seq.wrapping_add(1);
         d.target_blob = None;
     }
-    fire_progress_event(ctx, id, EventKind::Abort, Some(blob_size_for_abort));
-    fire_progress_event(ctx, id, EventKind::Loadend, Some(blob_size_for_abort));
+    let abort_ty = ctx.vm.well_known.abort;
+    fire_fr_progress(ctx, id, abort_ty, Some(blob_size_for_abort));
+    let loadend_ty = ctx.vm.well_known.loadend_event_type;
+    fire_fr_progress(ctx, id, loadend_ty, Some(blob_size_for_abort));
     Ok(JsValue::Undefined)
 }
 
@@ -600,8 +523,8 @@ fn native_fr_abort(
 // ---------------------------------------------------------------------------
 
 /// Execute a queued `PendingTask::FileRead`.  Invoked from
-/// `pending_tasks.rs::dispatch_file_read`.  Spec §6.5 event sequence
-/// (post-loadstart, fired here on completion):
+/// `pending_tasks.rs::dispatch_file_read`.  Spec §6.2 read operation
+/// event sequence (post-loadstart, fired here on completion):
 /// `progress` → `load` | `error` → `loadend`.
 pub(crate) fn dispatch_file_read_task(
     vm: &mut VmInner,
@@ -632,11 +555,13 @@ pub(crate) fn dispatch_file_read_task(
         (bytes, type_sid)
     };
 
-    // In-memory blob reads are infallible — Phase 4 has no I/O path
-    // that can fail.  When remote-blob support lands, switch the
-    // decode arms to return `Result` and re-introduce the
-    // NotReadableError branch (see `#11-filereader-event-listeners`
-    // sibling defer).
+    // In-memory blob reads are infallible — there is no I/O path that
+    // can fail, so no `error` event is UA-fired (FileAPI §6.4 `error`
+    // requires a "file read error").  The `onerror` / `addEventListener
+    // ('error')` wiring already exists via the shared dispatch core; only
+    // the trigger is missing.  When remote/fallible-blob support lands,
+    // switch the decode arms to return `Result` and re-introduce the
+    // NotReadableError branch + the `error` UA-fire.
     let result = match kind {
         ReadKind::Text => decode_as_text(vm, &bytes, encoding, type_sid),
         ReadKind::ArrayBuffer => {
@@ -669,139 +594,70 @@ pub(crate) fn dispatch_file_read_task(
         d.result = result;
         d.error = None;
     }
-    fire_progress_event(&mut ctx, reader_id, EventKind::Progress, None);
-    fire_progress_event(&mut ctx, reader_id, EventKind::Load, None);
-    fire_progress_event(&mut ctx, reader_id, EventKind::Loadend, None);
-    // Clear target_blob post-events so subsequent `readAs*` calls
-    // don't observe a stale blob reference.  Result + error remain
-    // populated for retained `r.result` / `r.error` reads.
-    if let Some(d) = ctx.vm.file_reader_data.get_mut(&reader_id) {
+    let progress_ty = ctx.vm.well_known.progress_event_type;
+    fire_fr_progress(&mut ctx, reader_id, progress_ty, None);
+    let load_ty = ctx.vm.well_known.load_event_type;
+    fire_fr_progress(&mut ctx, reader_id, load_ty, None);
+    let loadend_ty = ctx.vm.well_known.loadend_event_type;
+    fire_fr_progress(&mut ctx, reader_id, loadend_ty, None);
+    // Clear target_blob post-events so subsequent `readAs*` calls don't
+    // observe a stale blob reference.  Result + error remain populated for
+    // retained `r.result` / `r.error` reads.  Guard on `abort_seq`: a `load`
+    // / `progress` listener may have started a NEW read (or aborted)
+    // re-entrantly, bumping `abort_seq` and installing its own `target_blob`
+    // — clearing unconditionally would silently drop that read.  Only this
+    // task's own blob is cleared.
+    if let Some(d) = ctx
+        .vm
+        .file_reader_data
+        .get_mut(&reader_id)
+        .filter(|d| d.abort_seq == abort_seq_snapshot)
+    {
         d.target_blob = None;
     }
 }
 
 // ---------------------------------------------------------------------------
-// Event fire (on* handler attribute invocation only)
+// Event fire (shared §2.9 VmObject EventTarget dispatch core)
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy)]
-enum EventKind {
-    Loadstart,
-    Progress,
-    Load,
-    Loadend,
-    Abort,
+/// This `FileReader`'s current target-blob byte length as `f64` (`0.0` when
+/// no blob is attached).  Shared by the abort-path snapshot
+/// ([`native_fr_abort`]) and the live read in [`fire_fr_progress`].
+fn fr_blob_size(vm: &VmInner, reader_id: ObjectId) -> f64 {
+    vm.file_reader_data
+        .get(&reader_id)
+        .and_then(|d| d.target_blob)
+        .map_or(0.0, |b_id| {
+            #[allow(clippy::cast_precision_loss)]
+            let n = super::blob::blob_byte_length(vm, b_id) as f64;
+            n
+        })
 }
 
-/// SoT mapping `EventKind` → the **attr-name** SID (`onload` etc.) used as
-/// both the install bound key (`install_file_reader_members`) AND the
-/// fire-read key (`fire_progress_event`).  Distinct from the event-`type`
-/// SID family (`load_event_type` = "load") read a few lines below — keeping
-/// this single source prevents the two from diverging (a read against the
-/// type family would miss every handler).
-fn handler_name_sid(wk: &super::super::well_known::WellKnownStrings, kind: EventKind) -> StringId {
-    match kind {
-        EventKind::Loadstart => wk.onloadstart,
-        EventKind::Progress => wk.onprogress,
-        EventKind::Load => wk.onload,
-        EventKind::Loadend => wk.onloadend,
-        EventKind::Abort => wk.onabort,
-    }
-}
-
-fn fire_progress_event(
+/// UA-fire a `ProgressEvent` of `type_sid` at this `FileReader` through the
+/// shared VmObject dispatch seam ([`fire_vm_progress_event`]) — so
+/// `addEventListener` listeners AND `on<type>` handlers both fire from one
+/// event object, walked by the §2.9 dispatch core (WHATWG DOM §2.9; W3C
+/// File API §6.2 read operation / §6.4 events).  `lengthComputable` is `true`
+/// (an in-memory blob's byte length is always known); `loaded == total ==
+/// byte length` because the read is single-shot — the whole blob is delivered
+/// in one `progress`.  (Incremental `loaded < total` would require a
+/// chunked / fallible read path, which does not exist yet.)
+/// `blob_size_override` is the abort-path snapshot — captured before
+/// `target_blob` is cleared so `abort` / `loadend` still report the processed
+/// byte count; `None` reads the live `target_blob` length.
+fn fire_fr_progress(
     ctx: &mut NativeContext<'_>,
     reader_id: ObjectId,
-    kind: EventKind,
+    type_sid: StringId,
     blob_size_override: Option<f64>,
 ) {
-    let handler_key = handler_name_sid(&ctx.vm.well_known, kind);
-    let handler = ctx
-        .vm
-        .file_reader_data
-        .get(&reader_id)
-        .and_then(|d| d.handlers.get(&handler_key).copied());
-    let Some(handler_id) = handler else {
-        return;
-    };
-
-    let type_sid = match kind {
-        EventKind::Loadstart => ctx.vm.well_known.loadstart_event_type,
-        EventKind::Progress => ctx.vm.well_known.progress_event_type,
-        EventKind::Load => ctx.vm.well_known.load_event_type,
-        EventKind::Loadend => ctx.vm.well_known.loadend_event_type,
-        EventKind::Abort => ctx.vm.well_known.abort,
-    };
-    let blob_size = blob_size_override.unwrap_or_else(|| {
-        ctx.vm
-            .file_reader_data
-            .get(&reader_id)
-            .and_then(|d| d.target_blob)
-            .map_or(0.0, |b_id| {
-                #[allow(clippy::cast_precision_loss)]
-                let n = super::blob::blob_byte_length(ctx.vm, b_id) as f64;
-                n
-            })
-    });
-
-    // Build via the shared ctor helper so the event lands on the
-    // `progress_event` precomputed shape (core-9 + lengthComputable /
-    // loaded / total) — avoids forking a fresh shape transition
-    // tree per FileReader fire and picks up timeStamp / eventPhase /
-    // isTrusted in the standard slot positions.
-    let shape_id = ctx
-        .vm
-        .precomputed_event_shapes
-        .as_ref()
-        .expect("precomputed_event_shapes missing — register_globals did not run")
-        .progress_event;
-    let payload_slots = vec![
-        PropertyValue::Data(JsValue::Boolean(true)),
-        PropertyValue::Data(JsValue::Number(blob_size)),
-        PropertyValue::Data(JsValue::Number(blob_size)),
-    ];
-    let event_id = ctx.vm.create_fresh_event_object(
-        JsValue::Undefined,
-        type_sid,
-        EventInit::default(),
-        shape_id,
-        payload_slots,
-        true,
-        // Task-dispatch (FileReader load progress) — not a JS
-        // construct call, so `mode = Call`. `ensure_instance_or_alloc`
-        // would only short-circuit on Object `this`; we pass
-        // `Undefined`, so this is purely a documentation choice.
-        super::super::value::CallMode::Call,
-    );
-    // Override prototype to ProgressEvent.prototype so
-    // `e instanceof ProgressEvent` holds; `create_fresh_event_object`
-    // defaults to `Event.prototype` for non-construct allocation.
-    if let Some(proto) = ctx.vm.progress_event_prototype {
-        ctx.vm.get_object_mut(event_id).prototype = Some(proto);
-    }
-    // UA-fire: target == currentTarget == reader.  Core-9 slots are
-    // ctor-seeded to null; `set_event_slot_raw` overwrites in-place
-    // without a shape transition.
-    set_event_slot_raw(
-        ctx.vm,
-        event_id,
-        EVENT_SLOT_TARGET,
-        JsValue::Object(reader_id),
-    );
-    set_event_slot_raw(
-        ctx.vm,
-        event_id,
-        EVENT_SLOT_CURRENT_TARGET,
-        JsValue::Object(reader_id),
-    );
-
-    // Errors swallowed per WHATWG IDL event-handler attribute semantics
-    // (uncaught exceptions log to console, don't propagate).
-    let _ = ctx.call_function(
-        handler_id,
-        JsValue::Object(reader_id),
-        &[JsValue::Object(event_id)],
-    );
+    let blob_size = blob_size_override.unwrap_or_else(|| fr_blob_size(ctx.vm, reader_id));
+    // Errors (a catastrophic VmError, not a listener exception — those are
+    // swallowed inside the dispatch walk per WHATWG event-handler IDL
+    // semantics) are dropped here, matching the void fire sites.
+    let _ = fire_vm_progress_event(ctx, reader_id, type_sid, true, blob_size, blob_size);
 }
 
 // ---------------------------------------------------------------------------

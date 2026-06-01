@@ -1,6 +1,7 @@
 //! VM-`EventTarget` dispatch (WHATWG DOM §2.9) for the non-entity
 //! `EventTarget`s — `AbortSignal` / `IDBRequest` / `IDBTransaction` /
-//! `IDBDatabase`.  The get-the-parent provider + plan builder for the
+//! `IDBDatabase` / `WebSocket` / `EventSource` / `FileReader`.  The
+//! get-the-parent provider + plan builder for the
 //! `VmObject` half of the dispatch core; the per-listener invocation loop
 //! is the SAME shared inner invoke the Node path uses
 //! ([`super::event_target_dispatch::invoke_listeners_shared`]).
@@ -9,7 +10,8 @@
 //! repo's ~1000-line convention.  A `VmObject` has no DOM-tree / shadow
 //! presence, so there is no retarget / element-wrapper materialization
 //! here: the propagation path is the §2.7 get-the-parent chain
-//! ([`vm_event_parent`]) — flat (at-target only) for `AbortSignal`, the
+//! ([`vm_event_parent`]) — flat (at-target only) for `AbortSignal` /
+//! `WebSocket` / `EventSource` / `FileReader`, the
 //! `IDBRequest → IDBTransaction → IDBDatabase` chain for IndexedDB —
 //! `currentTarget` is the VM object itself, and `composedPath()`
 //! materialization is deferred (§2.3 Q4: the slot stays unset so
@@ -587,6 +589,44 @@ pub(super) fn fire_vm_close_event(
     };
     fire_vm_event_unchecked(ctx, target_id, type_sid, init, shape, proto, payload)
         .map(|o| !o.not_prevented)
+}
+
+/// UA-fire a `ProgressEvent(type, {lengthComputable, loaded, total})` at a
+/// `VmObject` target (WHATWG XHR §5 `ProgressEvent`; W3C File API §6.4 — the
+/// `FileReader` load-progress events `loadstart`/`progress`/`load`/`loadend`/
+/// `abort`/`error`).  All such events are non-bubbling AND non-cancelable
+/// (File API §6.4: "e.bubbles must be false … e.cancelable must be false").
+/// The payload is three plain numbers — no server-controlled string and no
+/// `Blob`/`ArrayBuffer` `data` — so (unlike [`fire_vm_message_event`]) there
+/// is nothing to intern or lazily build past the observer gate: the gated
+/// [`fire_vm_event`] suffices.  Returns `Ok(true)` when the event was
+/// cancelled (default-prevented).
+pub(super) fn fire_vm_progress_event(
+    ctx: &mut NativeContext<'_>,
+    target_id: ObjectId,
+    type_sid: StringId,
+    length_computable: bool,
+    loaded: f64,
+    total: f64,
+) -> Result<bool, VmError> {
+    let shape = ctx
+        .vm
+        .precomputed_event_shapes
+        .as_ref()
+        .expect("precomputed_event_shapes built during VM init")
+        .progress_event;
+    let proto = ctx.vm.progress_event_prototype;
+    let payload = vec![
+        PropertyValue::Data(JsValue::Boolean(length_computable)),
+        PropertyValue::Data(JsValue::Number(loaded)),
+        PropertyValue::Data(JsValue::Number(total)),
+    ];
+    let init = EventInit {
+        bubbles: false,
+        cancelable: false,
+        composed: false,
+    };
+    fire_vm_event(ctx, target_id, type_sid, init, shape, proto, payload).map(|o| !o.not_prevented)
 }
 
 /// UA-fire a plain `Event` of `type_sid` at a `VmObject` target — the

@@ -956,11 +956,13 @@ pub(super) fn trace_work_list(
             // bytes live in `vm.blob_data` keyed by the File's own
             // ObjectId (already marked at this point) so File itself
             // has no extra payload to walk.  FileList marks each File
-            // in `file_ids`; FileReader marks `target_blob`, `error`,
-            // `result.ArrayBuffer(buf_id)`, and the 6 on* handler
-            // ObjectIds — without this, a live FileReader whose
-            // `r.result` is the only reference to the ArrayBuffer can
-            // see it swept while still JS-observable.
+            // in `file_ids`; FileReader marks `target_blob`, `error`, and
+            // `result::ArrayBuffer(buf_id)` — without this, a live
+            // FileReader whose `r.result` is the only reference to the
+            // ArrayBuffer can see it swept while still JS-observable.  Its
+            // event listeners + on* handlers root via `listener_store`
+            // (they live in `vm_event_listeners` now, not a FileReader
+            // side-store).
             #[cfg(feature = "engine")]
             ObjectKind::File => {}
             #[cfg(feature = "engine")]
@@ -984,9 +986,6 @@ pub(super) fn trace_work_list(
                         state.result
                     {
                         mark_object(buf_id, obj_marks, work);
-                    }
-                    for &handler in state.handlers.values() {
-                        mark_object(handler, obj_marks, work);
                     }
                 }
             }
