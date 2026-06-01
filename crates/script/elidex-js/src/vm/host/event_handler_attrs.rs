@@ -130,8 +130,8 @@ impl VmInner {
     }
 
     /// Install a list of `on<type>` event-handler IDL attributes on a
-    /// **VmObject** EventTarget prototype (`AbortSignal` / IndexedDB /
-    /// `WebSocket` / `EventSource`), over the shared
+    /// **VmObject** EventTarget prototype (IndexedDB / `WebSocket` /
+    /// `EventSource`), over the shared
     /// [`native_vm_event_handler_get`] / [`native_vm_event_handler_set`]
     /// backend keyed by each attribute's event type (the name minus
     /// `on`).  The VmObject sibling of [`Self::install_handler_attrs_from_list`]:
