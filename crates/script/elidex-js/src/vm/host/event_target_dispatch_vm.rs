@@ -597,12 +597,17 @@ pub(super) fn fire_vm_close_event(
 /// `abort`/`error`).  All such events are non-bubbling AND non-cancelable
 /// (File API §6.4: "e.bubbles must be false … e.cancelable must be false").
 /// Gates on the observer up-front — like [`fire_vm_message_event`] /
-/// [`fire_vm_close_event`] — so an unobserved target allocates nothing, not
-/// even the 3-number `payload` Vec.  The payload has no server-controlled
-/// string and no `Blob`/`ArrayBuffer` `data`, so there is nothing to *intern*
-/// past the gate (unlike those two helpers); the up-front gate is purely to
-/// keep the lazy-alloc invariant uniform across every payload-bearing UA-fire
-/// helper.  Returns `Ok(true)` when the event was cancelled (default-prevented).
+/// [`fire_vm_close_event`] — so an unobserved target skips the 3-number
+/// `payload` Vec allocation (the gate still materializes the event type as a
+/// transient `String` via `get_utf8`, as every `type_sid`-keyed gated helper
+/// does — the saving is the payload, not literally zero allocation).  The
+/// payload has no server-controlled string and no `Blob`/`ArrayBuffer` `data`,
+/// so there is nothing to *intern* past the gate (unlike those two helpers);
+/// the up-front gate keeps the lazy-alloc invariant uniform across every
+/// payload-bearing UA-fire helper.  Always returns `Ok(false)`: these events
+/// are non-cancelable (above), so default-prevention can't occur — the
+/// `Result<bool>` shape just mirrors the sibling helpers (the sole caller,
+/// `fire_fr_progress`, discards it).
 pub(super) fn fire_vm_progress_event(
     ctx: &mut NativeContext<'_>,
     target_id: ObjectId,
@@ -612,9 +617,10 @@ pub(super) fn fire_vm_progress_event(
     total: f64,
 ) -> Result<bool, VmError> {
     // Lazy gate up-front (ProgressEvents are non-bubbling) so an unobserved
-    // `FileReader` returns having allocated nothing — not the `payload` Vec
-    // below; `fire_vm_event_unchecked` then runs the single observer walk only
-    // for confirmed-observed targets.
+    // `FileReader` skips the `payload` Vec allocation below; the gate's
+    // `get_utf8` type `String` is the only remaining transient.
+    // `fire_vm_event_unchecked` then runs the single observer walk for
+    // confirmed-observed targets.
     let type_str = ctx.vm.strings.get_utf8(type_sid);
     if !vm_path_has_listener(ctx.vm, target_id, &type_str, false) {
         return Ok(false);
