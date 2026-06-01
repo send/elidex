@@ -65,15 +65,18 @@ pub fn max_content_inline_size(
 /// Measure a segment's full and trimmed widths.
 ///
 /// Returns `(full_width, trimmed_width)` where `trimmed_width` excludes trailing
-/// whitespace per CSS Text Level 3 §4.1.2 (trailing spaces "hang" and don't
-/// trigger line overflow).
+/// *collapsible* white space per CSS Text Level 3 §4.1.2 (trailing spaces/tabs
+/// "hang" and don't trigger line overflow). Only collapsible white space
+/// (ASCII space/tab, via [`super::is_collapsible_space`]) hangs — non-collapsible
+/// characters such as a no-break space (U+00A0) count toward overflow, so Rust's
+/// Unicode-aware `trim_end` (which would also strip NBSP) is not used here.
 pub(super) fn measure_segment_widths(
     font_db: &FontDatabase,
     params: &TextMeasureParams<'_>,
     segment: &str,
 ) -> (f32, f32) {
     let seg_width = measure_text(font_db, params, segment).map_or(0.0, |m| m.width);
-    let trimmed = segment.trim_end();
+    let trimmed = segment.trim_end_matches(super::is_collapsible_space);
     let trimmed_width = if trimmed.len() == segment.len() {
         seg_width
     } else if trimmed.is_empty() {

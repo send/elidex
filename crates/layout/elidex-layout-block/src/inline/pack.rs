@@ -250,11 +250,14 @@ impl LinePacker {
                     if matches!(run.white_space, WhiteSpace::Pre | WhiteSpace::PreWrap) {
                         text.chars().any(|c| c != '\n')
                     } else {
-                        // Trim only the *collapsible* white space (ASCII space/tab),
-                        // not Unicode White_Space: a no-break space (U+00A0) renders
-                        // and gives the line height, so a `&nbsp;`-only line must
+                        // Trim only the *collapsible* white space (ASCII space/tab,
+                        // the same predicate as the trailing-hang measurement), not
+                        // Unicode White_Space: a no-break space (U+00A0) renders and
+                        // gives the line height, so a `&nbsp;`-only line must
                         // generate a box.
-                        !text.trim_end_matches([' ', '\t']).is_empty()
+                        !text
+                            .trim_end_matches(super::is_collapsible_space)
+                            .is_empty()
                     };
 
                 // Capture first baseline from the first text segment that actually

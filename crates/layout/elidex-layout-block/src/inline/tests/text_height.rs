@@ -214,6 +214,37 @@ fn nbsp_only_line_generates_a_box() {
 }
 
 #[test]
+fn trailing_nbsp_does_not_hang_for_overflow() {
+    // CSS Text §4.1.2 trailing-hang applies only to collapsible white space
+    // (ASCII space/tab). A trailing no-break space (U+00A0) is non-collapsible and
+    // counts toward overflow, so trimmed_width == full width for an NBSP-terminated
+    // segment, whereas an ASCII-space-terminated segment hangs (trimmed < full).
+    let Some((_dom, _parent, style, font_db)) = setup_inline_test("x") else {
+        return;
+    };
+    let params = TextMeasureParams {
+        families: TEST_FAMILIES,
+        font_size: style.font_size,
+        weight: 400,
+        style: elidex_text::FontStyle::Normal,
+        letter_spacing: 0.0,
+        word_spacing: 0.0,
+    };
+    let (full_space, trimmed_space) =
+        super::super::measure::measure_segment_widths(&font_db, &params, "a ");
+    assert!(
+        trimmed_space < full_space,
+        "trailing ASCII space should hang (trimmed {trimmed_space} < full {full_space})",
+    );
+    let (full_nbsp, trimmed_nbsp) =
+        super::super::measure::measure_segment_widths(&font_db, &params, "a\u{00A0}");
+    assert!(
+        (trimmed_nbsp - full_nbsp).abs() < f32::EPSILON,
+        "trailing NBSP must not hang (trimmed {trimmed_nbsp} == full {full_nbsp})",
+    );
+}
+
+#[test]
 fn collapse_preserves_form_feed_as_glyph() {
     // CSS Text 3 §4 (#segment-break): U+000C FORM FEED is a Cc control character —
     // not a tab/LF/CR — so it is rendered as a visible glyph, NOT treated as a
