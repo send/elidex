@@ -133,6 +133,12 @@ pub(super) struct LinePacker {
     /// content is only collapsible white space (which collapses away) generates no
     /// box and contributes zero block size (CSS 2 §9.2.2.1 / §9.2.1.1).
     any_rendered_content: bool,
+    /// Per-entity rectangles tentatively collected for the current line. Committed
+    /// into `entity_bounds` only when the line is flushed with rendered content;
+    /// discarded if the line is suppressed (collapsible-whitespace-only), so a
+    /// whitespace-only inline element does not get a phantom `getClientRects()`
+    /// rectangle on a line that generates no box.
+    current_line_entity_rects: Vec<(Entity, InlineLineRect)>,
     parent_entity: Entity,
     /// First baseline offset from the inline formatting context top.
     /// Captured from the first text run on the first line.
@@ -150,6 +156,7 @@ impl LinePacker {
             current_block_offset: 0.0,
             on_line: false,
             any_rendered_content: false,
+            current_line_entity_rects: Vec::new(),
             parent_entity,
             first_baseline: None,
         }
@@ -165,7 +172,29 @@ impl LinePacker {
             self.line_boxes.push(LineBox {
                 block_size: self.current_line_height,
             });
+            // Commit the line's inline-element rectangles into entity_bounds.
+            for (entity, rect) in self.current_line_entity_rects.drain(..) {
+                let line_block_end = rect.block_start + rect.block_size;
+                self.entity_bounds
+                    .entry(entity)
+                    .and_modify(|b| {
+                        b.inline_end = rect.inline_end;
+                        b.block_end = line_block_end;
+                        b.line_rects.push(rect.clone());
+                    })
+                    .or_insert(EntityBounds {
+                        inline_start: rect.inline_start,
+                        inline_end: rect.inline_end,
+                        block_start: rect.block_start,
+                        block_end: line_block_end,
+                        line_rects: vec![rect],
+                    });
+            }
             self.current_block_offset += self.current_line_height;
+        } else {
+            // Suppressed line (collapsible whitespace only): discard its rects so no
+            // phantom getClientRects geometry is produced (CSS 2 §9.2.2.1).
+            self.current_line_entity_rects.clear();
         }
         self.current_inline = 0.0;
         self.current_line_height = 0.0;
@@ -328,28 +357,17 @@ impl LinePacker {
         self.any_rendered_content |= contributes_content;
 
         if entity != self.parent_entity {
-            let seg_inline_end = seg_inline_start + full_width;
-            let line_block_end = self.current_block_offset + self.current_line_height;
-            let line_rect = InlineLineRect {
-                inline_start: seg_inline_start,
-                inline_end: seg_inline_end,
-                block_start: self.current_block_offset,
-                block_size: self.current_line_height,
-            };
-            self.entity_bounds
-                .entry(entity)
-                .and_modify(|b| {
-                    b.inline_end = seg_inline_end;
-                    b.block_end = line_block_end;
-                    b.line_rects.push(line_rect.clone());
-                })
-                .or_insert(EntityBounds {
+            // Collect tentatively for the current line; flush_line commits these into
+            // entity_bounds only if the line has rendered content (else discards them).
+            self.current_line_entity_rects.push((
+                entity,
+                InlineLineRect {
                     inline_start: seg_inline_start,
-                    inline_end: seg_inline_end,
+                    inline_end: seg_inline_start + full_width,
                     block_start: self.current_block_offset,
-                    block_end: line_block_end,
-                    line_rects: vec![line_rect],
-                });
+                    block_size: self.current_line_height,
+                },
+            ));
         }
     }
 

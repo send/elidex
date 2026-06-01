@@ -263,10 +263,17 @@ fn collapse_inline_whitespace(items: &mut [InlineItem]) {
                 }
             }
         }
+        let collapsed_is_empty = collapsed.is_empty();
         if let InlineItem::Text(run) = &mut items[i] {
             run.text = collapsed;
         }
-        prev_text_idx = Some(i);
+        // Keep `prev_text_idx` pointing at the last run that actually emitted text. A
+        // run that collapsed to empty holds no trailing space, so the cross-run
+        // trim (§4.1.1 step 1) must target the earlier run that emitted the pending
+        // space, not this empty one.
+        if !collapsed_is_empty {
+            prev_text_idx = Some(i);
+        }
     }
 }
 

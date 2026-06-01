@@ -342,6 +342,30 @@ fn collapse_pre_line_trims_cross_run_space_before_break() {
 }
 
 #[test]
+fn collapse_pre_line_trims_past_empty_intermediate_run() {
+    // pre-line cross-run trim must target the run that emitted the pending space,
+    // not an intermediate run that collapsed to empty: "a " / "  " / "\nb" →
+    // "a" / "" / "\nb" (the trailing space is removed from the first run, even
+    // though the middle run collapses away).
+    let Some((mut dom, parent, mut style, _font_db)) = setup_inline_test("") else {
+        return;
+    };
+    style.white_space = WhiteSpace::PreLine;
+    let children = dom.composed_children(parent);
+    for &c in &children {
+        dom.remove_child(parent, c);
+    }
+    for t in ["a ", "  ", "\nb"] {
+        let tx = dom.create_text(t);
+        dom.append_child(parent, tx);
+    }
+    let children = dom.composed_children(parent);
+    let runs = collect_styled_runs(&dom, &children, &style, parent);
+    let texts: Vec<&str> = runs.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(texts, vec!["a", "", "\nb"]);
+}
+
+#[test]
 fn text_wrapping_increases_height() {
     let Some((mut dom, parent, style, font_db)) = setup_inline_test("hello world foo bar baz")
     else {
@@ -601,6 +625,44 @@ fn inline_span_gets_layout_box() {
     assert!(
         lb.content.size.height > 0.0,
         "span should have positive height"
+    );
+}
+
+#[test]
+fn whitespace_only_inline_span_gets_no_layout_box() {
+    // A span whose only content is collapsible whitespace generates no box — its
+    // line is suppressed (CSS 2 §9.2.2.1) — so it must NOT get a phantom LayoutBox /
+    // getClientRects geometry. The per-line rects are discarded on suppression.
+    let Some((mut dom, parent, style, font_db)) = setup_inline_test("") else {
+        return;
+    };
+    let children = dom.composed_children(parent);
+    for &c in &children {
+        dom.remove_child(parent, c);
+    }
+    let span = dom.create_element("span", Attributes::default());
+    let span_style = ComputedStyle {
+        font_family: style.font_family.clone(),
+        ..Default::default()
+    };
+    let _ = dom.world_mut().insert_one(span, span_style);
+    dom.append_child(parent, span);
+    let ws = dom.create_text("   ");
+    dom.append_child(span, ws);
+
+    let children = dom.composed_children(parent);
+    let env = crate::LayoutEnv {
+        font_db: &font_db,
+        layout_child: crate::layout_block_only,
+        depth: 0,
+        viewport: None,
+        layout_generation: 0,
+    };
+    let _ = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env);
+
+    assert!(
+        dom.world().get::<&LayoutBox>(span).is_err(),
+        "whitespace-only inline span must not get a phantom LayoutBox",
     );
 }
 
