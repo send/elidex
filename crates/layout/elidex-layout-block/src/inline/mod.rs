@@ -243,8 +243,9 @@ fn collapse_inline_whitespace(items: &mut [InlineItem]) {
             // Atomic inline boxes are rendered content: a collapsible space that
             // follows one is a fresh separator, not collapsed away.
             InlineItem::Atomic { .. } => prev_collapsible_space = false,
-            // Out-of-flow placeholders do not participate in the inline text flow
-            // (CSS 2.1 §9.3.1) — they neither emit nor reset collapse state.
+            // Out-of-flow placeholders (absolutely positioned, CSS 2.1 §9.3.1/§9.6)
+            // are removed from the normal flow and do not participate in the inline
+            // text flow, so they neither emit nor reset collapse state.
             InlineItem::Placeholder(_) => {}
         }
     }

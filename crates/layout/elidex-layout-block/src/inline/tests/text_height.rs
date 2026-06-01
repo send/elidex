@@ -139,7 +139,7 @@ fn pre_blank_line_keeps_height() {
 fn collapse_normal_collapses_whitespace_runs_to_single_space() {
     // §4.1.1 steps 2-4: tab → space, segment break → space (normal), and a run of
     // collapsible spaces collapses to a single space.
-    let Some((mut dom, parent, style, _font_db)) = setup_inline_test("a \t\n  b") else {
+    let Some((dom, parent, style, _font_db)) = setup_inline_test("a \t\n  b") else {
         return;
     };
     let children = dom.composed_children(parent);
@@ -150,7 +150,7 @@ fn collapse_normal_collapses_whitespace_runs_to_single_space() {
 
 #[test]
 fn collapse_pre_preserves_whitespace() {
-    let Some((mut dom, parent, mut style, _font_db)) = setup_inline_test("a \t\n  b") else {
+    let Some((dom, parent, mut style, _font_db)) = setup_inline_test("a \t\n  b") else {
         return;
     };
     style.white_space = WhiteSpace::Pre;
@@ -164,7 +164,7 @@ fn collapse_pre_preserves_whitespace() {
 fn collapse_pre_line_preserves_newline_collapses_spaces() {
     // pre-line: collapsible spaces collapse and the spaces around the preserved
     // segment break are removed (§4.1.1 step 1), but the break itself is kept.
-    let Some((mut dom, parent, mut style, _font_db)) = setup_inline_test("a  \n  b") else {
+    let Some((dom, parent, mut style, _font_db)) = setup_inline_test("a  \n  b") else {
         return;
     };
     style.white_space = WhiteSpace::PreLine;
