@@ -128,10 +128,12 @@ pub(super) struct LinePacker {
     current_line_height: f32,
     current_block_offset: f32,
     on_line: bool,
-    /// Whether the current line has emitted any rendered content — a glyph with
-    /// non-zero advance, an atomic inline box, or a forced break. A line whose
-    /// content is only collapsible white space (which collapses away) generates no
-    /// box and contributes zero block size (CSS 2 §9.2.2.1 / §9.2.1.1).
+    /// Whether the current line has emitted any rendered content — a non-collapsible
+    /// character (a rendered glyph, including a zero-advance one such as U+200B or a
+    /// no-break space), an atomic inline box, or a forced break. The test is
+    /// content presence, not advance width. A line whose content is only collapsible
+    /// white space (which collapses away) generates no box and contributes zero
+    /// block size (CSS 2 §9.2.2.1 / §9.2.1.1).
     any_rendered_content: bool,
     /// Per-entity rectangles tentatively collected for the current line. Committed
     /// into `entity_bounds` only when the line is flushed with rendered content;
