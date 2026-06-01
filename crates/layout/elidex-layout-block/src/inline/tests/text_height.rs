@@ -300,6 +300,20 @@ fn collapse_pre_line_preserves_newline_collapses_spaces() {
 }
 
 #[test]
+fn collapse_normal_trims_leading_whitespace_at_ifc_start() {
+    // CSS Text §4.1.2: leading collapsible white space at the start of the inline
+    // formatting context collapses away — it does not become a leading space that
+    // shifts content.
+    let Some((dom, parent, style, _font_db)) = setup_inline_test("  hello") else {
+        return;
+    };
+    let children = dom.composed_children(parent);
+    let runs = collect_styled_runs(&dom, &children, &style, parent);
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].text, "hello");
+}
+
+#[test]
 fn collapse_across_adjacent_text_runs_yields_single_space() {
     // Cross-run collapse (§4.1.1 step 4: a collapsible space following another
     // collapsible space — even across inline boundaries within the same IFC —
