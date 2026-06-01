@@ -3,7 +3,7 @@
 //! Wraps the [`unicode_bidi`] crate to provide a simplified API for
 //! the Unicode Bidirectional Algorithm (UAX #9).
 
-use unicode_bidi::{BidiInfo, Level};
+use unicode_bidi::{bidi_class, BidiClass, BidiInfo, Level};
 
 /// A contiguous run of text at a single bidi embedding level.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -22,6 +22,37 @@ impl BidiRun {
     pub fn is_rtl(&self) -> bool {
         self.level.is_rtl()
     }
+}
+
+/// Returns `true` if `text` contains any right-to-left character, i.e. the
+/// Unicode Bidirectional Algorithm would assign at least one character an RTL
+/// embedding level under an LTR base.
+///
+/// Used as a cheap gate for code paths that only handle pure-LTR runs and must
+/// defer bidi (mixed-direction) text to a reordering-capable path. The check is a
+/// conservative, allocation-free per-character scan of the Unicode bidi classes
+/// that can introduce RTL ordering (strong R/AL, Arabic numbers, and explicit
+/// RTL overrides/isolates) — a superset of "the full UBA would assign an RTL
+/// level", which only ever errs toward deferring a run to the slower
+/// reordering-capable path (never the reverse), so it is safe as a gate. ASCII
+/// text contains none of these (the relevant blocks begin at U+0590), so the
+/// common case short-circuits without examining `bidi_class`.
+#[must_use]
+pub fn text_has_rtl(text: &str) -> bool {
+    if text.is_ascii() {
+        return false;
+    }
+    text.chars().any(|c| {
+        matches!(
+            bidi_class(c),
+            BidiClass::R
+                | BidiClass::AL
+                | BidiClass::AN
+                | BidiClass::RLE
+                | BidiClass::RLO
+                | BidiClass::RLI
+        )
+    })
 }
 
 /// Detect the directionality from the first strong character in `text`.
@@ -299,6 +330,21 @@ mod tests {
         assert!(!runs[0].is_rtl());
         assert_eq!(runs[0].start, 0);
         assert_eq!(runs[0].end, 11);
+    }
+
+    #[test]
+    fn text_has_rtl_detection() {
+        // ASCII fast path: never RTL.
+        assert!(!text_has_rtl("Hello world 123"));
+        assert!(!text_has_rtl(""));
+        // Non-ASCII but still LTR (Latin-1 / CJK) is not RTL.
+        assert!(!text_has_rtl("café"));
+        assert!(!text_has_rtl("日本語"));
+        // Hebrew / Arabic contain RTL characters.
+        assert!(text_has_rtl("שלום"));
+        assert!(text_has_rtl("مرحبا"));
+        // Mixed LTR + RTL (even under an LTR base) is detected.
+        assert!(text_has_rtl("hello שלום"));
     }
 
     #[test]

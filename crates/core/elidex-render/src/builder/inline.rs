@@ -1,6 +1,6 @@
 //! Inline run collection and emission.
 
-use elidex_ecs::{EcsDom, Entity, PseudoElementMarker, TextContent};
+use elidex_ecs::{EcsDom, Entity, InlineFlow, PseudoElementMarker, TextContent};
 use elidex_plugin::{
     ComputedStyle, ContentItem, ContentValue, CssColor, Direction, Display,
     FontStyle as PluginFontStyle, LayoutBox, Point, TextAlign, TextDecorationLine,
@@ -82,6 +82,7 @@ const MAX_INLINE_DEPTH: u32 = 100;
 /// inline elements). Each text segment preserves its element's style
 /// (color, font, etc.), allowing `<span style="color:red">` to render
 /// in the correct color.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_inline_run(
     dom: &EcsDom,
     parent: Entity,
@@ -90,7 +91,23 @@ pub(crate) fn emit_inline_run(
     font_cache: &mut FontCache,
     dl: &mut DisplayList,
     counter_state: &CounterState,
+    expected_generation: Option<u32>,
 ) {
+    // Converged path: if layout persisted an `InlineFlow` on this run's start
+    // entity (`run[0]`, the same key both passes derive), consume its collapsed +
+    // positioned runs instead of re-collecting/re-collapsing/re-measuring the DOM.
+    // The generation check reads the flow's OWN `layout_generation`; off the paged
+    // path (`expected_generation == None`) it is a no-op and presence alone gates,
+    // because layout explicitly clears the flow when a run becomes non-persistable.
+    if let Some(&first) = run.first() {
+        if let Ok(flow) = dom.world().get::<&InlineFlow>(first) {
+            if expected_generation.is_none_or(|g| flow.layout_generation == g) {
+                emit_inline_flow(dom, &flow, font_db, font_cache, dl);
+                return;
+            }
+        }
+    }
+
     let parent_style = match dom.world().get::<&ComputedStyle>(parent) {
         Ok(s) => s.clone(),
         Err(_) => return,
@@ -230,79 +247,153 @@ fn emit_styled_segments(
         let Some(seg) = segments.get(*idx) else {
             continue;
         };
-        let Some((transformed, font_id)) = super::query_segment_font(text, seg, font_db) else {
-            continue;
-        };
-        let Some(shaped) = shape_text(font_db, font_id, seg.font_size, &transformed) else {
-            continue;
-        };
-        let Some((font_blob, font_index)) = font_cache.get(font_db, font_id) else {
-            continue;
-        };
-        let text_color = apply_opacity(seg.color, seg.opacity);
-
-        let metrics = font_db.font_metrics(font_id, seg.font_size);
-        let ascent = metrics.map_or(seg.font_size, |m| m.ascent);
-        let descent = metrics.map_or(-seg.font_size * DEFAULT_DESCENT_FACTOR, |m| m.descent);
-        let baseline_y = lb.content.origin.y + ascent;
-
-        let seg_start_x = cursor_x;
-        let glyphs = place_glyphs(
-            &shaped.glyphs,
+        // The whole horizontal run shares one line at the parent content-box top
+        // (this legacy path does not line-break — see `emit_inline_flow` for the
+        // converged, per-line-positioned path).
+        emit_text_segment(
+            text,
+            seg,
             &mut cursor_x,
-            baseline_y,
-            seg.letter_spacing,
-            seg.word_spacing + align_result.justify_extra_word_spacing,
-            &transformed,
+            lb.content.origin.y,
+            align_result.justify_extra_word_spacing,
+            font_db,
+            font_cache,
+            dl,
         );
-        let seg_width = cursor_x - seg_start_x;
+    }
+}
 
-        dl.push(DisplayItem::Text {
-            glyphs,
-            font_blob,
-            font_index,
-            font_size: seg.font_size,
-            color: text_color,
-        });
+/// Shape one collapsed text segment and emit its glyphs + text-decoration at the
+/// current inline cursor, on the line whose top edge is `line_top_y`.
+///
+/// Shared by the legacy single-line `emit_styled_segments` and the converged
+/// `emit_inline_flow` (per-line positioned). The baseline is `line_top_y + ascent`
+/// (CSS 2 §10.8.1 leading is not yet modelled — preserved from the legacy path).
+/// `cursor_x` is advanced past the segment so the caller can place the next one;
+/// the converged path sets it explicitly per run instead.
+#[allow(clippy::too_many_arguments)]
+fn emit_text_segment(
+    text: &str,
+    seg: &StyledTextSegment,
+    cursor_x: &mut f32,
+    line_top_y: f32,
+    justify_extra_word_spacing: f32,
+    font_db: &FontDatabase,
+    font_cache: &mut FontCache,
+    dl: &mut DisplayList,
+) {
+    let Some((transformed, font_id)) = super::query_segment_font(text, seg, font_db) else {
+        return;
+    };
+    let Some(shaped) = shape_text(font_db, font_id, seg.font_size, &transformed) else {
+        return;
+    };
+    let Some((font_blob, font_index)) = font_cache.get(font_db, font_id) else {
+        return;
+    };
+    let text_color = apply_opacity(seg.color, seg.opacity);
 
-        // Text decoration.
-        let decoration_thickness = (seg.font_size / DECORATION_THICKNESS_DIVISOR).max(1.0);
-        let decoration_color =
-            apply_opacity(seg.text_decoration_color.unwrap_or(seg.color), seg.opacity);
-        if seg.text_decoration_line.underline {
-            let y = baseline_y - descent * UNDERLINE_POSITION_FACTOR;
-            emit_decoration_line(
+    let metrics = font_db.font_metrics(font_id, seg.font_size);
+    let ascent = metrics.map_or(seg.font_size, |m| m.ascent);
+    let descent = metrics.map_or(-seg.font_size * DEFAULT_DESCENT_FACTOR, |m| m.descent);
+    let baseline_y = line_top_y + ascent;
+
+    let seg_start_x = *cursor_x;
+    let glyphs = place_glyphs(
+        &shaped.glyphs,
+        cursor_x,
+        baseline_y,
+        seg.letter_spacing,
+        seg.word_spacing + justify_extra_word_spacing,
+        &transformed,
+    );
+    let seg_width = *cursor_x - seg_start_x;
+
+    dl.push(DisplayItem::Text {
+        glyphs,
+        font_blob,
+        font_index,
+        font_size: seg.font_size,
+        color: text_color,
+    });
+
+    // Text decoration.
+    let decoration_thickness = (seg.font_size / DECORATION_THICKNESS_DIVISOR).max(1.0);
+    let decoration_color =
+        apply_opacity(seg.text_decoration_color.unwrap_or(seg.color), seg.opacity);
+    if seg.text_decoration_line.underline {
+        let y = baseline_y - descent * UNDERLINE_POSITION_FACTOR;
+        emit_decoration_line(
+            dl,
+            seg_start_x,
+            y,
+            seg_width,
+            decoration_thickness,
+            decoration_color,
+            seg.text_decoration_style,
+        );
+    }
+    if seg.text_decoration_line.overline {
+        let y = baseline_y - ascent * OVERLINE_POSITION_FACTOR;
+        emit_decoration_line(
+            dl,
+            seg_start_x,
+            y,
+            seg_width,
+            decoration_thickness,
+            decoration_color,
+            seg.text_decoration_style,
+        );
+    }
+    if seg.text_decoration_line.line_through {
+        let y = baseline_y - ascent * LINE_THROUGH_POSITION_FACTOR;
+        emit_decoration_line(
+            dl,
+            seg_start_x,
+            y,
+            seg_width,
+            decoration_thickness,
+            decoration_color,
+            seg.text_decoration_style,
+        );
+    }
+}
+
+/// Consume a layout-produced [`InlineFlow`]: paint each line's collapsed,
+/// positioned text runs at their absolute `(inline_start, block_start)` with the
+/// run entity's `ComputedStyle`. This is the converged horizontal LTR path —
+/// render no longer re-collects / re-collapses / re-measures the DOM text, and
+/// (unlike the legacy single-line `emit_styled_segments`) honours layout's
+/// per-line line-breaking and per-line `text-align`.
+fn emit_inline_flow(
+    dom: &EcsDom,
+    flow: &InlineFlow,
+    font_db: &FontDatabase,
+    font_cache: &mut FontCache,
+    dl: &mut DisplayList,
+) {
+    for line in &flow.lines {
+        for run in &line.runs {
+            let Ok(style) = dom.world().get::<&ComputedStyle>(run.entity) else {
+                continue;
+            };
+            // visibility: hidden text occupies space (laid out) but is not painted.
+            if style.visibility != Visibility::Visible {
+                continue;
+            }
+            // Style-only segment: the collapsed text comes from the flow run
+            // (`&run.text`), so the segment's own text field is unused here.
+            let seg = StyledTextSegment::from_style(String::new(), &style);
+            let mut cursor_x = run.inline_start;
+            emit_text_segment(
+                &run.text,
+                &seg,
+                &mut cursor_x,
+                line.block_start,
+                0.0,
+                font_db,
+                font_cache,
                 dl,
-                seg_start_x,
-                y,
-                seg_width,
-                decoration_thickness,
-                decoration_color,
-                seg.text_decoration_style,
-            );
-        }
-        if seg.text_decoration_line.overline {
-            let y = baseline_y - ascent * OVERLINE_POSITION_FACTOR;
-            emit_decoration_line(
-                dl,
-                seg_start_x,
-                y,
-                seg_width,
-                decoration_thickness,
-                decoration_color,
-                seg.text_decoration_style,
-            );
-        }
-        if seg.text_decoration_line.line_through {
-            let y = baseline_y - ascent * LINE_THROUGH_POSITION_FACTOR;
-            emit_decoration_line(
-                dl,
-                seg_start_x,
-                y,
-                seg_width,
-                decoration_thickness,
-                decoration_color,
-                seg.text_decoration_style,
             );
         }
     }

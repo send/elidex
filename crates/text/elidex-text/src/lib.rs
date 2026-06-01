@@ -5,7 +5,7 @@
 
 pub use elidex_bidi::{
     analyze_bidi, analyze_bidi_simple, first_strong_direction, reorder_by_levels, reorder_line,
-    BidiOverride, BidiRun, ParagraphLevel,
+    text_has_rtl, BidiOverride, BidiRun, ParagraphLevel,
 };
 pub use elidex_linebreak::{find_break_opportunities, BreakOpportunity};
 pub use elidex_shaping::{

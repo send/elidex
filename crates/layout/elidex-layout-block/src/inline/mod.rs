@@ -15,10 +15,12 @@ mod pack;
 
 use std::collections::HashMap;
 
-use elidex_ecs::{EcsDom, Entity, PseudoElementMarker, TextContent};
+use elidex_ecs::{EcsDom, Entity, InlineFlow, PseudoElementMarker, TextContent};
 #[cfg(test)]
 pub(crate) use elidex_plugin::LayoutBox;
-use elidex_plugin::{ComputedStyle, Display, Point, WhiteSpace};
+use elidex_plugin::{
+    ComputedStyle, Display, Point, Position, TextAlign, TextTransform, WhiteSpace,
+};
 #[cfg(test)]
 pub(crate) use elidex_text::FontDatabase;
 use elidex_text::{measure_text, to_fontdb_style, FontStyle, TextMeasureParams};
@@ -122,6 +124,37 @@ fn is_atomic_inline(display: Display) -> bool {
     )
 }
 
+/// Whether an inline run contains members that make its render-side treatment
+/// diverge from layout's IFC membership, so slice 1 must **not** persist an
+/// `InlineFlow` for it (render falls back to its own collect/collapse/emit).
+///
+/// - `has_pseudo`: a pseudo-element run whose `content` may carry `counter()`
+///   that render resolves but layout measures from raw `TextContent` (slice 3).
+/// - `has_relpos_sticky`: a `position: relative`/`sticky` inline — in-flow in
+///   layout's IFC (CSS 2 §9.4.3) but painted in render's Layer 6 (slice 3p).
+/// - `has_atomic`: an `inline-block`/`-flex`/`-grid`/`-table` — an `Atomic`
+///   placeholder in layout (no text run) but flattened into the run by render's
+///   `collect_styled_inline_text` (slice 3p). Consuming the flow would drop it.
+/// - `has_bidi`: a run whose text contains right-to-left characters — layout
+///   positions runs in logical order, but render reorders them visually
+///   (`bidi_visual_order`); consuming the logical order would scramble them
+///   (slice 4).
+/// - `has_text_transform`: a run whose element applies `text-transform` — layout
+///   measures/positions the untransformed text, but render transforms it before
+///   shaping (`query_segment_font`), so the baked positions would be wrong
+///   (slice 3; the deeper fix is layout transforming before measuring).
+// Each field is an independent "gate out of InlineFlow persistence" reason;
+// a flag set is the natural representation (bitflags would be overkill here).
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Default, Clone, Copy)]
+pub(crate) struct RunComplexity {
+    pub has_pseudo: bool,
+    pub has_relpos_sticky: bool,
+    pub has_atomic: bool,
+    pub has_bidi: bool,
+    pub has_text_transform: bool,
+}
+
 /// Recursively collect inline items (text runs + atomic boxes) from inline children.
 ///
 /// Text nodes produce a run inheriting the nearest ancestor element's style.
@@ -129,15 +162,28 @@ fn is_atomic_inline(display: Display) -> bool {
 /// elements are skipped. Atomic inline-level boxes (`inline-block`, `inline-flex`, etc.)
 /// produce placeholder items — they are laid out separately and placed as
 /// atomic units in the inline flow. Recursion stops at [`MAX_LAYOUT_DEPTH`].
+///
+/// Also reports a [`RunComplexity`] describing run members that gate the run out
+/// of `InlineFlow` persistence (see its docs).
 pub(crate) fn collect_inline_items(
     dom: &EcsDom,
     children: &[Entity],
     parent_style: &ComputedStyle,
     parent_entity: Entity,
-) -> Vec<InlineItem> {
-    let mut items = collect_inline_items_inner(dom, children, parent_style, parent_entity, 0);
+) -> (Vec<InlineItem>, RunComplexity) {
+    let mut items = Vec::new();
+    let mut complexity = RunComplexity::default();
+    collect_inline_items_inner(
+        dom,
+        children,
+        parent_style,
+        parent_entity,
+        0,
+        &mut items,
+        &mut complexity,
+    );
     collapse_inline_whitespace(&mut items);
-    items
+    (items, complexity)
 }
 
 fn collect_inline_items_inner(
@@ -146,11 +192,12 @@ fn collect_inline_items_inner(
     parent_style: &ComputedStyle,
     parent_entity: Entity,
     depth: u32,
-) -> Vec<InlineItem> {
+    items: &mut Vec<InlineItem>,
+    complexity: &mut RunComplexity,
+) {
     if depth >= MAX_LAYOUT_DEPTH {
-        return Vec::new();
+        return;
     }
-    let mut items = Vec::new();
     for &child in children {
         if let Some(style) = crate::try_get_style(dom, child) {
             if style.display == Display::None {
@@ -164,6 +211,7 @@ fn collect_inline_items_inner(
             }
             // Atomic inline-level box: placeholder with zero size (filled later).
             if is_atomic_inline(style.display) {
+                complexity.has_atomic = true;
                 items.push(InlineItem::Atomic {
                     entity: child,
                     inline_size: 0.0,
@@ -173,6 +221,7 @@ fn collect_inline_items_inner(
             }
             // Pseudo-element: use text directly with own style (skip child recursion).
             if dom.world().get::<&PseudoElementMarker>(child).is_ok() {
+                complexity.has_pseudo = true;
                 if let Ok(tc) = dom.world().get::<&TextContent>(child) {
                     if !tc.0.is_empty() {
                         items.push(InlineItem::Text(StyledRun::from_style(
@@ -184,18 +233,37 @@ fn collect_inline_items_inner(
                 }
                 continue;
             }
+            // CSS 2 §9.4.3: a relative/sticky positioned inline stays in-flow in
+            // the IFC here, but render pulls it (and its whole subtree) into a
+            // separate stacking layer — so the run cannot be converged in slice 1.
+            if matches!(style.position, Position::Relative | Position::Sticky) {
+                complexity.has_relpos_sticky = true;
+            }
             // Inline element: use its own style for its children.
             let grandchildren = dom.composed_children(child);
-            items.extend(collect_inline_items_inner(
+            collect_inline_items_inner(
                 dom,
                 &grandchildren,
                 &style,
                 child,
                 depth + 1,
-            ));
+                items,
+                complexity,
+            );
         } else if let Ok(tc) = dom.world().get::<&TextContent>(child) {
             // Text node: produce a run with the parent element's style.
             if !tc.0.is_empty() {
+                // Gate the run out of InlineFlow persistence if it needs bidi
+                // reordering (render reorders visually) or text-transform (render
+                // transforms before shaping, diverging from layout's measured
+                // positions). text-transform is inherited, so the parent element's
+                // computed value is the one render will apply to this text.
+                if parent_style.text_transform != TextTransform::None {
+                    complexity.has_text_transform = true;
+                }
+                if elidex_text::text_has_rtl(&tc.0) {
+                    complexity.has_bidi = true;
+                }
                 items.push(InlineItem::Text(StyledRun::from_style(
                     parent_entity,
                     tc.0.clone(),
@@ -204,7 +272,6 @@ fn collect_inline_items_inner(
             }
         }
     }
-    items
 }
 
 // ---------------------------------------------------------------------------
@@ -455,8 +522,12 @@ pub fn layout_inline_context_fragmented(
     let parent_style = crate::get_style(dom, parent_entity);
     let font_db = env.font_db;
     let layout_child = env.layout_child;
-    let mut items = collect_inline_items(dom, children, &parent_style, parent_entity);
+    let (mut items, complexity) = collect_inline_items(dom, children, &parent_style, parent_entity);
+    // Run-start entity = the key under which `InlineFlow` is persisted/cleared
+    // (the first top-level run child, which render also derives as its run[0]).
+    let run_start = children.first().copied();
     if items.is_empty() {
+        clear_inline_flow(dom, run_start);
         return InlineLayoutResult {
             height: 0.0,
             static_positions: HashMap::new(),
@@ -491,6 +562,7 @@ pub fn layout_inline_context_fragmented(
             InlineItem::Atomic { .. } | InlineItem::Placeholder(_) => false,
         });
         if !any_font && !items.iter().any(|i| matches!(i, InlineItem::Atomic { .. })) {
+            clear_inline_flow(dom, run_start);
             return InlineLayoutResult {
                 height: 0.0,
                 static_positions: HashMap::new(),
@@ -501,10 +573,30 @@ pub fn layout_inline_context_fragmented(
         }
     }
 
+    // Slice-1 InlineFlow persistence gate: only horizontal, non-justify,
+    // non-fragmented runs of plain LTR text — no pseudo/generated content, no
+    // relative/sticky positioned inline, no atomic inline, no bidi (RTL) text, no
+    // text-transform. Each excluded case is a layout-IFC-vs-render divergence (or,
+    // for fragmentation, a per-fragment slicing the persisted geometry does not yet
+    // model). When the gate fails, render keeps its own collect/collapse/emit path.
+    let persist_flow = !is_vertical
+        && frag_constraint.is_none()
+        && parent_style.text_align != TextAlign::Justify
+        && !complexity.has_pseudo
+        && !complexity.has_relpos_sticky
+        && !complexity.has_atomic
+        && !complexity.has_bidi
+        && !complexity.has_text_transform;
+    let flow_align = persist_flow.then_some(pack::FlowAlign {
+        text_align: parent_style.text_align,
+        direction: parent_style.direction,
+        containing_inline_size,
+    });
+
     let pack_items = pack::build_pack_items(&items);
 
     // Greedy line packing.
-    let mut packer = pack::LinePacker::new(parent_entity);
+    let mut packer = pack::LinePacker::new(parent_entity, flow_align);
     for pi in &pack_items {
         packer.pack(
             pi,
@@ -602,11 +694,52 @@ pub fn layout_inline_context_fragmented(
         })
         .collect();
 
+    // Reconcile the run-start entity's InlineFlow (render's single source of inline
+    // geometry) every pass: persist when the gate passed and lines were produced,
+    // else clear any stale flow from a prior pass. `layout_generation` is constant 0
+    // off the paged path, so an explicit clear (not generation comparison) is what
+    // prevents render consuming a stale flow after a run becomes non-persistable.
+    let first_baseline = packer.first_baseline;
+    if persist_flow && !packer.flow_lines.is_empty() {
+        if let Some(entity) = run_start {
+            // IFC-local → absolute layout coordinates (persist gate implies horizontal).
+            let lines: Vec<elidex_ecs::InlineFlowLine> = packer
+                .flow_lines
+                .into_iter()
+                .map(|mut line| {
+                    line.block_start += content_origin.y;
+                    for run in &mut line.runs {
+                        run.inline_start += content_origin.x;
+                    }
+                    line
+                })
+                .collect();
+            let _ = dom.world_mut().insert_one(
+                entity,
+                InlineFlow {
+                    lines,
+                    layout_generation: env.layout_generation,
+                },
+            );
+        }
+    } else {
+        clear_inline_flow(dom, run_start);
+    }
+
     InlineLayoutResult {
         height: total_block,
         static_positions,
-        first_baseline: packer.first_baseline,
+        first_baseline,
         line_count,
         break_after_line,
+    }
+}
+
+/// Remove any stale [`InlineFlow`] from the run-start entity (the run is not being
+/// persisted this pass — gated out, empty, or unrenderable). See the reconcile
+/// comment in `layout_inline_context_fragmented`.
+fn clear_inline_flow(dom: &mut EcsDom, run_start: Option<Entity>) {
+    if let Some(entity) = run_start {
+        let _ = dom.world_mut().remove_one::<InlineFlow>(entity);
     }
 }

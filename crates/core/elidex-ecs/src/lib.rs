@@ -23,10 +23,10 @@ pub fn about_blank_url() -> url::Url {
 pub use components::{
     AnonymousTableMarker, AssociatedDocument, AttrData, AttrEntityCache, Attributes,
     BackgroundImages, BaseFrozenUrl, CommentData, DialogReturnValue, DocTypeData, DocumentBaseUrl,
-    ElementState, IframeData, ImageData, InlineStyle, IsModalDialog, LinkStylesheet,
-    LoadingAttribute, Namespace, NodeKind, OutputDefaultValue, OutputValueOverride,
-    PseudoElementMarker, ScrollState, ShadowHost, ShadowRoot, ShadowRootMode, SlotAssignment,
-    SlotAssignmentMode, SlottedMarker, TagType, TemplateContent, TextContent,
+    ElementState, IframeData, ImageData, InlineFlow, InlineFlowLine, InlineFlowRun, InlineStyle,
+    IsModalDialog, LinkStylesheet, LoadingAttribute, Namespace, NodeKind, OutputDefaultValue,
+    OutputValueOverride, PseudoElementMarker, ScrollState, ShadowHost, ShadowRoot, ShadowRootMode,
+    SlotAssignment, SlotAssignmentMode, SlottedMarker, TagType, TemplateContent, TextContent,
 };
 pub use dom::equality::{
     DOCUMENT_POSITION_CONTAINED_BY, DOCUMENT_POSITION_CONTAINS, DOCUMENT_POSITION_DISCONNECTED,

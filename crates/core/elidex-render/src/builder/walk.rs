@@ -361,10 +361,17 @@ fn paint_stacking_context_layers(
     {
         let mut inline_run = Vec::new();
         for &child in &layers.all_children {
-            if is_positioned(ctx.dom, child)
-                || is_block_child(ctx.dom, child)
-                || is_float_entity(ctx.dom, child)
-            {
+            // Positioned children are painted in Layer 6/7, not here — skip them
+            // WITHOUT flushing, so they do not split the inline run. This matches
+            // `paint_non_sc` (which `continue`s on positioned) and layout's IFC
+            // grouping (`stack_block_children` keeps inline content contiguous
+            // across an out-of-flow sibling); a split here would diverge from the
+            // run-start key layout persisted `InlineFlow` under and from layout's
+            // line geometry (CSS 2 §9.2.1.1 anonymous block boxes).
+            if is_positioned(ctx.dom, child) {
+                continue;
+            }
+            if is_block_child(ctx.dom, child) || is_float_entity(ctx.dom, child) {
                 if !inline_run.is_empty() {
                     emit_inline_run(
                         ctx.dom,
@@ -374,6 +381,7 @@ fn paint_stacking_context_layers(
                         ctx.font_cache,
                         ctx.dl,
                         &ctx.counter_state,
+                        ctx.expected_generation,
                     );
                     inline_run.clear();
                 }
@@ -390,6 +398,7 @@ fn paint_stacking_context_layers(
                 ctx.font_cache,
                 ctx.dl,
                 &ctx.counter_state,
+                ctx.expected_generation,
             );
         }
     }
@@ -445,6 +454,7 @@ fn paint_non_sc(
                     ctx.font_cache,
                     ctx.dl,
                     &ctx.counter_state,
+                    ctx.expected_generation,
                 );
                 inline_run.clear();
             }
@@ -469,6 +479,7 @@ fn paint_non_sc(
             ctx.font_cache,
             ctx.dl,
             &ctx.counter_state,
+            ctx.expected_generation,
         );
     }
 }
