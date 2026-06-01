@@ -1156,3 +1156,37 @@ fn ready_state_getter_on_non_event_source_throws() {
         );
     });
 }
+
+#[test]
+fn unobserved_named_sse_events_do_not_intern_type_or_id() {
+    // Regression (`#11-realtime-event-listeners`, Copilot R2 / IMPORTANT): a
+    // page listening only to `onmessage` does NOT observe named events
+    // (§9.2.6).  Their server-controlled `event:` type, `id:`, and `data:`
+    // strings must be interned only past the listener gate — otherwise a named
+    // keepalive stream with unique ids grows the permanent `StringPool`
+    // unboundedly under server control (entries are never freed).
+    with_es_vm(|vm| {
+        vm.eval(
+            "globalThis.s = new EventSource('/events'); \
+             s.onmessage = function() {};",
+        )
+        .unwrap();
+        let before = vm.inner.strings.len();
+        for i in 0..6 {
+            inject_sse_event_and_tick(
+                vm,
+                0,
+                SseEvent::Event {
+                    event_type: format!("keepalive-{i}"),
+                    data: format!("payload-{i}"),
+                    last_event_id: format!("id-{i}"),
+                },
+            );
+        }
+        assert_eq!(
+            before,
+            vm.inner.strings.len(),
+            "unobserved named SSE events interned type/id/data into the permanent StringPool"
+        );
+    });
+}

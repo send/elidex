@@ -193,11 +193,11 @@ impl VmInner {
                             instance,
                             &event_type,
                             &data,
-                            last_event_id,
+                            &last_event_id,
                         );
                     }
                     SseEvent::Error(_msg) => {
-                        // Per WHATWG HTML §9.2.5 the script-visible
+                        // Per WHATWG HTML §9.2.3 the script-visible
                         // "error" is a plain Event with no detail —
                         // the broker message is discarded
                         // intentionally to avoid leaking server-

@@ -102,16 +102,8 @@ pub(super) fn dispatch_sse_event(
     instance: ObjectId,
     event_type: &str,
     data: &str,
-    last_event_id: String,
+    last_event_id: &str,
 ) {
-    // Common case (no `id:` line) → skip the intern round-trip for the
-    // empty value.
-    let last_event_id_sid = if last_event_id.is_empty() {
-        ctx.vm.well_known.empty
-    } else {
-        ctx.vm.strings.intern(&last_event_id)
-    };
-    let type_sid = ctx.vm.strings.intern(event_type);
     let origin_sid = {
         let Some(hd) = ctx.vm.host_data.as_deref_mut() else {
             return;
@@ -119,22 +111,26 @@ pub(super) fn dispatch_sse_event(
         let Some(state) = hd.event_source_states.get_mut(&instance) else {
             return;
         };
-        // Broker emits the cumulative sticky value per WHATWG §9.2.6
-        // step 11 — unconditional propagation matches both `id:\n`
-        // (empty resets) and the multi-event accumulator.
-        state.last_event_id = last_event_id;
+        // Broker emits the cumulative sticky value per WHATWG §9.2.6 step 11 —
+        // unconditional propagation (independent of any listener) matches both
+        // `id:\n` (empty resets) and the multi-event accumulator.  Updated in
+        // place (reuse the buffer) so a high-volume stream avoids a per-event
+        // String realloc; `fire_vm_message_event` also reads it (`&str`) below.
+        state.last_event_id.clear();
+        state.last_event_id.push_str(last_event_id);
         state.origin_sid
     };
-    // `data` is interned inside the `build_data` thunk, run only past
-    // `fire_vm_message_event`'s lazy-alloc gate (an unobserved EventSource
-    // never interns the event body).
+    // `event_type` / `last_event_id` / `data` are all interned past
+    // `fire_vm_message_event`'s gate (the `&str` args + the `data` thunk), so
+    // an unobserved EventSource — e.g. a named keepalive stream the page never
+    // `addEventListener`s — interns none of these server-controlled strings.
     let _ = fire_vm_message_event(
         ctx,
         instance,
-        type_sid,
+        event_type,
         |ctx| JsValue::String(ctx.vm.strings.intern(data)),
         origin_sid,
-        last_event_id_sid,
+        last_event_id,
     );
 }
 

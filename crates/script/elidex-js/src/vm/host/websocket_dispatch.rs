@@ -111,9 +111,10 @@ pub(super) fn dispatch_ws_closed(
         let _ = state.transition_to(elidex_api_ws::WsReadyState::Closed);
     }
 
-    let reason_sid = ctx.vm.strings.intern(reason);
     let close_sid = ctx.vm.well_known.ws_close_event_type;
-    let _ = fire_vm_close_event(ctx, instance, close_sid, code, reason_sid, was_clean);
+    // `reason` passes as `&str` and is interned past the gate inside
+    // `fire_vm_close_event` — an unobserved close never interns it.
+    let _ = fire_vm_close_event(ctx, instance, close_sid, code, reason, was_clean);
 }
 
 /// Handle `WsEvent::TextMessage(s)`.
@@ -134,17 +135,16 @@ pub(super) fn dispatch_ws_text_message(ctx: &mut NativeContext<'_>, instance: Ob
     else {
         return;
     };
-    let message_sid = ctx.vm.well_known.message;
-    let empty_sid = ctx.vm.well_known.empty;
-    // `s` is interned inside the `build_data` thunk, so an unobserved socket
-    // never interns the frame body (the seam gates before running it).
+    // `s` is interned inside the `build_data` thunk; the type (`"message"`)
+    // and empty `lastEventId` pass as `&str` and intern past the gate, so an
+    // unobserved socket interns nothing.
     let _ = fire_vm_message_event(
         ctx,
         instance,
-        message_sid,
+        "message",
         |ctx| JsValue::String(ctx.vm.strings.intern(s)),
         origin_sid,
-        empty_sid,
+        "",
     );
 }
 
@@ -173,15 +173,13 @@ pub(super) fn dispatch_ws_binary_message(
         return;
     };
 
-    let message_sid = ctx.vm.well_known.message;
-    let empty_sid = ctx.vm.well_known.empty;
     // The Blob / ArrayBuffer is built inside the `build_data` thunk, which
     // `fire_vm_message_event` runs only after its lazy-alloc gate passes — an
     // unread socket never pays for the (potentially large) payload build.
     let _ = fire_vm_message_event(
         ctx,
         instance,
-        message_sid,
+        "message",
         |ctx| match binary_type {
             BinaryType::Blob => {
                 let empty = ctx.vm.well_known.empty;
@@ -196,7 +194,7 @@ pub(super) fn dispatch_ws_binary_message(
             ),
         },
         origin_sid,
-        empty_sid,
+        "",
     );
 }
 

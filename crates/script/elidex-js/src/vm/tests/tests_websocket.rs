@@ -1115,6 +1115,33 @@ fn binary_message_no_handler_does_not_fire_or_build_payload() {
 }
 
 #[test]
+fn unobserved_ws_close_does_not_intern_reason() {
+    // Regression (`#11-realtime-event-listeners`, Copilot R2 / IMPORTANT): the
+    // server-controlled close `reason` is interned only PAST the listener gate,
+    // so an unobserved socket never grows the permanent `StringPool` with a
+    // unique reason.  `StringPool` entries are never freed, so a pre-gate
+    // intern would be a permanent leak under server control.
+    with_ws_vm(false, |vm| {
+        open_ws(vm); // no `close` / `onclose` listener registered
+        let before = vm.inner.strings.len();
+        inject_ws_event_and_tick(
+            vm,
+            0,
+            WsEvent::Closed {
+                code: 1000,
+                reason: "a-unique-server-controlled-reason".to_string(),
+                was_clean: true,
+            },
+        );
+        assert_eq!(
+            before,
+            vm.inner.strings.len(),
+            "unobserved WS close interned its reason into the permanent StringPool"
+        );
+    });
+}
+
+#[test]
 fn onerror_fires_plain_event() {
     with_ws_vm(false, |vm| {
         vm.eval(

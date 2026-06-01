@@ -481,30 +481,37 @@ fn fire_vm_event_unchecked(
 
 /// UA-fire a `MessageEvent(type, {data, origin, lastEventId})` at a
 /// `VmObject` target — the shared WS-receive / SSE-dispatch helper (WHATWG
-/// HTML §9.1 `MessageEvent`; WebSockets §4 / HTML §9.2.6).  Gates on
-/// `vm_path_has_listener` FIRST: an unobserved target builds neither the
-/// `data` payload nor the event — `build_data` runs only past the gate, so
-/// the binary caller's Blob / ArrayBuffer is never allocated for a socket
-/// with no message listener.  `source` is `null` and `ports` a fresh empty
-/// Array (no MessagePort transfer on these surfaces).  Returns `Ok(true)`
-/// when the event was cancelled.
+/// HTML §9.1 `MessageEvent`; WebSockets §4 / HTML §9.2.6).  Gates on the raw
+/// `event_type` (`&str`) FIRST, so an unobserved target interns NOTHING and
+/// allocates nothing: not the server-controlled `event_type` / `last_event_id`
+/// (StringPool entries are permanent, so a permanent leak otherwise), not the
+/// `data` payload (`build_data` — e.g. the binary caller's Blob / ArrayBuffer
+/// — runs only past the gate), not the `ports` Array, not the event.
+/// `source` is `null` and `ports` a fresh empty Array (no MessagePort transfer
+/// on these surfaces).  Returns `Ok(true)` when the event was cancelled.
 pub(super) fn fire_vm_message_event(
     ctx: &mut NativeContext<'_>,
     target_id: ObjectId,
-    type_sid: StringId,
+    event_type: &str,
     build_data: impl FnOnce(&mut NativeContext<'_>) -> JsValue,
     origin_sid: StringId,
-    last_event_id_sid: StringId,
+    last_event_id: &str,
 ) -> Result<bool, VmError> {
-    // Lazy-alloc gate, up-front (MessageEvents are non-bubbling → gate on
-    // `(type, false)`): an unobserved target returns here having built
-    // nothing, so `build_data` (the binary caller's Blob / ArrayBuffer
-    // constructor) and the `ports` Array are skipped.  Gating once here also
-    // lets `fire_vm_event_unchecked` avoid a redundant second listener walk.
-    let type_str = ctx.vm.strings.get_utf8(type_sid);
-    if !vm_path_has_listener(ctx.vm, target_id, &type_str, false) {
+    // Lazy gate on the raw `event_type` (`&str`) up-front — MessageEvents are
+    // non-bubbling, and no StringPool intern is needed to decide whether to
+    // fire.  An unobserved target returns here having interned / allocated
+    // nothing; `fire_vm_event_unchecked` then avoids a redundant second walk.
+    if !vm_path_has_listener(ctx.vm, target_id, event_type, false) {
         return Ok(false);
     }
+    // Past the gate: intern the server-controlled strings now (a leak only if
+    // done before the gate — see the doc).
+    let type_sid = ctx.vm.strings.intern(event_type);
+    let last_event_id_sid = if last_event_id.is_empty() {
+        ctx.vm.well_known.empty
+    } else {
+        ctx.vm.strings.intern(last_event_id)
+    };
     let shape = ctx
         .vm
         .precomputed_event_shapes
@@ -541,16 +548,26 @@ pub(super) fn fire_vm_message_event(
         .map(|o| !o.not_prevented)
 }
 
-/// UA-fire a `CloseEvent("close", {code, reason, wasClean})` at a
-/// `VmObject` target through [`fire_vm_event`] (WHATWG WebSockets §6).
+/// UA-fire a `CloseEvent("close", {code, reason, wasClean})` at a `VmObject`
+/// target (WHATWG WebSockets §6).  Gates FIRST, so an unobserved socket never
+/// interns the server-controlled `reason` (a permanent StringPool entry) nor
+/// builds the event.
 pub(super) fn fire_vm_close_event(
     ctx: &mut NativeContext<'_>,
     target_id: ObjectId,
     type_sid: StringId,
     code: u16,
-    reason_sid: StringId,
+    reason: &str,
     was_clean: bool,
 ) -> Result<bool, VmError> {
+    // `close` is a fixed (non-server-controlled) type, but `reason` is
+    // server-controlled and permanently interned — gate up-front so an
+    // unobserved close defers (and thus skips) the `reason` intern.
+    let type_str = ctx.vm.strings.get_utf8(type_sid);
+    if !vm_path_has_listener(ctx.vm, target_id, &type_str, false) {
+        return Ok(false);
+    }
+    let reason_sid = ctx.vm.strings.intern(reason);
     let shape = ctx
         .vm
         .precomputed_event_shapes
@@ -568,7 +585,8 @@ pub(super) fn fire_vm_close_event(
         cancelable: false,
         composed: false,
     };
-    fire_vm_event(ctx, target_id, type_sid, init, shape, proto, payload).map(|o| !o.not_prevented)
+    fire_vm_event_unchecked(ctx, target_id, type_sid, init, shape, proto, payload)
+        .map(|o| !o.not_prevented)
 }
 
 /// UA-fire a plain `Event` of `type_sid` at a `VmObject` target — the
