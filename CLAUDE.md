@@ -29,7 +29,9 @@ Experimental browser engine written in Rust.
 
 ### Spec citation
 
-WHATWG / W3C / TC39 (ECMA-262 / ECMA-402) の section number / anchor / WebIDL / AO (aoid) / **algorithm prose** 確認は `.claude/tools/webref` を使う (subcommand 詳細 = `.claude/tools/webref --help`)。Data source 自動切替: WHATWG/W3C は w3c/webref machine-readable extracts、tc39 は `@tc39/<spec>-biblio` (jsdelivr CDN 経由)、algorithm prose は spec multipage chapter HTML (HTTP cache 共有)。
+WHATWG / W3C / TC39 (ECMA-262 / ECMA-402) / **CSS WG modules** の section number / anchor / WebIDL / AO (aoid) / **algorithm prose** 確認は `.claude/tools/webref` を使う (subcommand 詳細 = `.claude/tools/webref --help`)。Data source 自動切替: WHATWG/W3C は w3c/webref machine-readable extracts、tc39 は `@tc39/<spec>-biblio` (jsdelivr CDN 経由)、algorithm prose は spec multipage chapter HTML (HTTP cache 共有)。**WebFetch にフォールバックしない** — 仕様確認は原則 webref で完結する。
+
+**CSS module も webref 対象** (drafts.csswg.org 系、`css-text-3` / `selectors-4` / `css-values-4` / `css-overflow-3` 等)。`css <module-shortname> <name>` で property / `@rule` / selector / value metadata (value grammar / initial / inherited / appliesTo / computedValue / animationType / href)、`body <module-shortname> <anchor>` で §番号付き prose (truncate なし、例 `body css-text-3 line-break-transform` = §4.1.3 Segment Break Transformation Rules)。第1引数は **level 込みの module shortname 必須** (`css-text-3` であって `css-text` でない)、不明時は `specs <keyword>` で逆引き。CSS の citation 確認で WebFetch を使ったら誤用 (Copilot の `css-text-3 §4 #segment-break` 指摘に対し Fetch していた件が発端)。
 
 「§X.Y.Z = <name>」と書く時の number ↔ title pair は **必ず lookup** (well-known 風 cite を信用しない、D-17 で `§4.13.4 = upgrade queue` 系の drift が landing 後に発覚、`tests_symbol_iter.rs:283` の `ECMA-262 §14.7.5.9 .return()` も §14.7.5.9 = "EnumerateObjectProperties" の drift)。**ECMA-262 では AO 名が版間で section 番号より安定なので `aoid <spec> <name>` で AO 名から正規番号を引き直すのが推奨**。algorithm step の prose 確認には `body <spec> <anchor-or-AO-name>` (multipage chapter cache 経由、truncate なし)。
 
