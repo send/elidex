@@ -192,7 +192,10 @@ pub struct InlineFlow {
 pub struct InlineFlowLine {
     /// Absolute block-axis offset of this line box's top edge (layout coords).
     pub block_start: f32,
-    /// Line box block size (CSS 2 §10.8 line height calculations).
+    /// Line box block size (CSS 2 §10.8 line height calculations). Persisted but
+    /// not yet consumed by render — slice 1 places each run's baseline at
+    /// `block_start + ascent` (the leading-naive legacy behaviour); a later slice
+    /// uses this to distribute half-leading (CSS 2 §10.8.1) within the line box.
     pub block_size: f32,
     /// Logical-order positioned style-runs on this line.
     pub runs: Vec<InlineFlowRun>,

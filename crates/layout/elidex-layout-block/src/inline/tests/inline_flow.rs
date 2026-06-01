@@ -3,7 +3,7 @@
 
 use super::*;
 use elidex_ecs::{InlineFlow, PseudoElementMarker, TextContent};
-use elidex_plugin::{Direction, Position, TextAlign, WritingMode};
+use elidex_plugin::{Direction, Position, TextAlign, TextTransform, WritingMode};
 
 /// Build a `LayoutEnv` for the test font db.
 fn env(font_db: &FontDatabase) -> crate::LayoutEnv<'_> {
@@ -356,5 +356,83 @@ fn stale_flow_cleared_when_run_becomes_gated_out() {
         dom.world().get::<&InlineFlow>(key).is_err(),
         "stale InlineFlow must be explicitly cleared when the run becomes gated out \
          (generation is constant 0 off the paged path, so it can't signal staleness)"
+    );
+}
+
+#[test]
+fn gate_excludes_rtl_text() {
+    // Hebrew text needs bidi visual reordering, which render applies but layout's
+    // logical-order positions do not encode → must fall back (slice 4 handles bidi).
+    let Some((mut dom, parent, _style, font_db)) = setup_inline_test("שלום עולם") else {
+        return;
+    };
+    let children = dom.composed_children(parent);
+    let key = run_start(&dom, parent);
+    layout_inline_context(
+        &mut dom,
+        &children,
+        800.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+    );
+
+    assert!(
+        dom.world().get::<&InlineFlow>(key).is_err(),
+        "RTL/bidi text must not persist — render reorders visually, layout positions logically"
+    );
+}
+
+#[test]
+fn gate_excludes_text_transform() {
+    let Some((mut dom, parent, mut style, font_db)) = setup_inline_test("hello") else {
+        return;
+    };
+    style.text_transform = TextTransform::Uppercase;
+    let _ = dom.world_mut().insert_one(parent, style);
+    let children = dom.composed_children(parent);
+    let key = run_start(&dom, parent);
+    layout_inline_context(
+        &mut dom,
+        &children,
+        800.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+    );
+
+    assert!(
+        dom.world().get::<&InlineFlow>(key).is_err(),
+        "text-transform must not persist — layout measures untransformed text but render \
+         transforms before shaping, so baked positions would be wrong"
+    );
+}
+
+#[test]
+fn gate_excludes_fragmented() {
+    let Some((mut dom, parent, _style, font_db)) = setup_inline_test("hello world") else {
+        return;
+    };
+    let children = dom.composed_children(parent);
+    let key = run_start(&dom, parent);
+    let frag = InlineFragConstraint {
+        available_block: 1000.0,
+        orphans: 2,
+        widows: 2,
+        skip_lines: 0,
+    };
+    layout_inline_context_fragmented(
+        &mut dom,
+        &children,
+        800.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+        Some(&frag),
+    );
+
+    assert!(
+        dom.world().get::<&InlineFlow>(key).is_err(),
+        "fragmented (paged) runs must not persist — flow_lines are not yet sliced per fragment"
     );
 }

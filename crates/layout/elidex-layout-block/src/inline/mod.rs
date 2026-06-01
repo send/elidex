@@ -18,7 +18,9 @@ use std::collections::HashMap;
 use elidex_ecs::{EcsDom, Entity, InlineFlow, PseudoElementMarker, TextContent};
 #[cfg(test)]
 pub(crate) use elidex_plugin::LayoutBox;
-use elidex_plugin::{ComputedStyle, Display, Point, Position, TextAlign, WhiteSpace};
+use elidex_plugin::{
+    ComputedStyle, Display, Point, Position, TextAlign, TextTransform, WhiteSpace,
+};
 #[cfg(test)]
 pub(crate) use elidex_text::FontDatabase;
 use elidex_text::{measure_text, to_fontdb_style, FontStyle, TextMeasureParams};
@@ -133,11 +135,24 @@ fn is_atomic_inline(display: Display) -> bool {
 /// - `has_atomic`: an `inline-block`/`-flex`/`-grid`/`-table` — an `Atomic`
 ///   placeholder in layout (no text run) but flattened into the run by render's
 ///   `collect_styled_inline_text` (slice 3p). Consuming the flow would drop it.
+/// - `has_bidi`: a run whose text contains right-to-left characters — layout
+///   positions runs in logical order, but render reorders them visually
+///   (`bidi_visual_order`); consuming the logical order would scramble them
+///   (slice 4).
+/// - `has_text_transform`: a run whose element applies `text-transform` — layout
+///   measures/positions the untransformed text, but render transforms it before
+///   shaping (`query_segment_font`), so the baked positions would be wrong
+///   (slice 3; the deeper fix is layout transforming before measuring).
+// Each field is an independent "gate out of InlineFlow persistence" reason;
+// a flag set is the natural representation (bitflags would be overkill here).
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Default, Clone, Copy)]
 pub(crate) struct RunComplexity {
     pub has_pseudo: bool,
     pub has_relpos_sticky: bool,
     pub has_atomic: bool,
+    pub has_bidi: bool,
+    pub has_text_transform: bool,
 }
 
 /// Recursively collect inline items (text runs + atomic boxes) from inline children.
@@ -238,6 +253,17 @@ fn collect_inline_items_inner(
         } else if let Ok(tc) = dom.world().get::<&TextContent>(child) {
             // Text node: produce a run with the parent element's style.
             if !tc.0.is_empty() {
+                // Gate the run out of InlineFlow persistence if it needs bidi
+                // reordering (render reorders visually) or text-transform (render
+                // transforms before shaping, diverging from layout's measured
+                // positions). text-transform is inherited, so the parent element's
+                // computed value is the one render will apply to this text.
+                if parent_style.text_transform != TextTransform::None {
+                    complexity.has_text_transform = true;
+                }
+                if elidex_text::text_has_rtl(&tc.0) {
+                    complexity.has_bidi = true;
+                }
                 items.push(InlineItem::Text(StyledRun::from_style(
                     parent_entity,
                     tc.0.clone(),
@@ -547,15 +573,20 @@ pub fn layout_inline_context_fragmented(
         }
     }
 
-    // Slice-1 InlineFlow persistence gate: only horizontal, non-justify runs with
-    // no pseudo/generated content, no relative/sticky positioned inline, and no
-    // atomic inline (each a layout-IFC-vs-render membership divergence). When the
-    // gate fails, render keeps its own collect/collapse/emit path for this run.
+    // Slice-1 InlineFlow persistence gate: only horizontal, non-justify,
+    // non-fragmented runs of plain LTR text — no pseudo/generated content, no
+    // relative/sticky positioned inline, no atomic inline, no bidi (RTL) text, no
+    // text-transform. Each excluded case is a layout-IFC-vs-render divergence (or,
+    // for fragmentation, a per-fragment slicing the persisted geometry does not yet
+    // model). When the gate fails, render keeps its own collect/collapse/emit path.
     let persist_flow = !is_vertical
+        && frag_constraint.is_none()
         && parent_style.text_align != TextAlign::Justify
         && !complexity.has_pseudo
         && !complexity.has_relpos_sticky
-        && !complexity.has_atomic;
+        && !complexity.has_atomic
+        && !complexity.has_bidi
+        && !complexity.has_text_transform;
     let flow_align = persist_flow.then_some(pack::FlowAlign {
         text_align: parent_style.text_align,
         direction: parent_style.direction,
