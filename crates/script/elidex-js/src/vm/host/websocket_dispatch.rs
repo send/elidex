@@ -38,7 +38,7 @@ use std::sync::Arc;
 use super::super::host_data::BinaryType;
 use super::super::value::{JsValue, NativeContext, ObjectId};
 use super::event_target_dispatch_vm::{
-    dispatch_vm_simple_event, fire_vm_close_event, fire_vm_message_event, vm_path_has_listener,
+    dispatch_vm_simple_event, fire_vm_close_event, fire_vm_message_event,
 };
 
 /// Handle `WsEvent::Connected { protocol, extensions }`.
@@ -134,14 +134,15 @@ pub(super) fn dispatch_ws_text_message(ctx: &mut NativeContext<'_>, instance: Ob
     else {
         return;
     };
-    let data_sid = ctx.vm.strings.intern(s);
     let message_sid = ctx.vm.well_known.message;
     let empty_sid = ctx.vm.well_known.empty;
+    // `s` is interned inside the `build_data` thunk, so an unobserved socket
+    // never interns the frame body (the seam gates before running it).
     let _ = fire_vm_message_event(
         ctx,
         instance,
         message_sid,
-        JsValue::String(data_sid),
+        |ctx| JsValue::String(ctx.vm.strings.intern(s)),
         origin_sid,
         empty_sid,
     );
@@ -152,13 +153,11 @@ pub(super) fn dispatch_ws_text_message(ctx: &mut NativeContext<'_>, instance: Ob
 /// `data` is allocated as a `Blob` (with empty MIME per WHATWG
 /// §9.3.7 "if type is Binary and binaryType is 'blob', … type
 /// attribute set to the empty string") when `binaryType === "blob"`,
-/// or as a fresh `ArrayBuffer` when `binaryType === "arraybuffer"`.
-/// An unobserved-target gate (`vm_path_has_listener`) runs FIRST, so a
-/// socket with no `message` listener skips the (potentially large)
-/// payload allocation entirely — the lazy-alloc invariant the shared
-/// fire seam documents. Otherwise `fire_vm_message_event` re-roots the
-/// freshly built `data` across the event + ports-Array allocations (see
-/// its GC-discipline doc). No state transition.
+/// or as a fresh `ArrayBuffer` when `binaryType === "arraybuffer"`.  The
+/// allocation is deferred into `fire_vm_message_event`'s `build_data`
+/// thunk, which runs it only past the lazy-alloc gate — so a socket with
+/// no `message` listener never builds the (potentially large) payload.
+/// No state transition.
 pub(super) fn dispatch_ws_binary_message(
     ctx: &mut NativeContext<'_>,
     instance: ObjectId,
@@ -174,34 +173,28 @@ pub(super) fn dispatch_ws_binary_message(
         return;
     };
 
-    // Gate before building the payload: `fire_vm_message_event` re-checks
-    // this same gate, but only after its `data` argument exists, so an
-    // unobserved socket would otherwise pay for a Blob / ArrayBuffer that
-    // is immediately discarded. (The text path interns a cheap string, so
-    // it leaves the gate to the seam.)
-    if !vm_path_has_listener(ctx.vm, instance, "message", false) {
-        return;
-    }
-
-    let data_obj = match binary_type {
-        BinaryType::Blob => {
-            let empty = ctx.vm.well_known.empty;
-            super::blob::create_blob_from_bytes(ctx.vm, Arc::from(bytes), empty)
-        }
-        BinaryType::ArrayBuffer => {
-            super::array_buffer::create_array_buffer_from_bytes(ctx.vm, bytes)
-        }
-    };
     let message_sid = ctx.vm.well_known.message;
     let empty_sid = ctx.vm.well_known.empty;
-    // `data_obj` is a freshly-allocated Blob / ArrayBuffer with no other
-    // live root; `fire_vm_message_event` roots it across the `ports`
-    // Array alloc + the event alloc (see its GC-discipline doc).
+    // The Blob / ArrayBuffer is built inside the `build_data` thunk, which
+    // `fire_vm_message_event` runs only after its lazy-alloc gate passes — an
+    // unread socket never pays for the (potentially large) payload build.
     let _ = fire_vm_message_event(
         ctx,
         instance,
         message_sid,
-        JsValue::Object(data_obj),
+        |ctx| match binary_type {
+            BinaryType::Blob => {
+                let empty = ctx.vm.well_known.empty;
+                JsValue::Object(super::blob::create_blob_from_bytes(
+                    ctx.vm,
+                    Arc::from(bytes),
+                    empty,
+                ))
+            }
+            BinaryType::ArrayBuffer => JsValue::Object(
+                super::array_buffer::create_array_buffer_from_bytes(ctx.vm, bytes),
+            ),
+        },
         origin_sid,
         empty_sid,
     );

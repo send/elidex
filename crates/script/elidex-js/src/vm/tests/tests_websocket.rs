@@ -1096,6 +1096,25 @@ fn onmessage_text_does_not_fire_when_no_handler_registered() {
 }
 
 #[test]
+fn binary_message_no_handler_does_not_fire_or_build_payload() {
+    // Regression for the lazy-alloc invariant (`#11-realtime-event-listeners`,
+    // Copilot R1): an unobserved socket builds NEITHER the Blob / ArrayBuffer
+    // payload NOR the event.  `fire_vm_message_event` gates before running the
+    // binary `build_data` thunk, so the (potentially large) payload is never
+    // constructed.  Observable proxy for "nothing allocated": no throw + no
+    // state mutation, in both binaryType modes (blob default + the costly
+    // arraybuffer byte-copy path).
+    with_ws_vm(false, |vm| {
+        open_ws(vm);
+        inject_ws_event_and_tick(vm, 0, WsEvent::BinaryMessage(vec![1, 2, 3, 4]));
+        assert_eval_number(vm, "s.readyState", 1.0);
+        vm.eval("s.binaryType = 'arraybuffer';").unwrap();
+        inject_ws_event_and_tick(vm, 0, WsEvent::BinaryMessage(vec![5, 6, 7, 8]));
+        assert_eval_number(vm, "s.readyState", 1.0);
+    });
+}
+
+#[test]
 fn onerror_fires_plain_event() {
     with_ws_vm(false, |vm| {
         vm.eval(

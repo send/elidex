@@ -406,6 +406,33 @@ pub(super) fn fire_vm_event(
         });
     }
 
+    fire_vm_event_unchecked(
+        ctx,
+        target_id,
+        type_sid,
+        init,
+        shape,
+        proto_override,
+        payload_slots,
+    )
+}
+
+/// The build-and-dispatch half of [`fire_vm_event`], WITHOUT the
+/// `vm_path_has_listener` gate.  The caller MUST already have confirmed an
+/// observer on `target_id` for `type_sid` — the lazy-alloc invariant is then
+/// honored at that earlier point, letting a gated caller build an expensive
+/// payload (a `MessageEvent`'s Blob / ArrayBuffer `data`) only once it knows
+/// the event will fire.  [`fire_vm_message_event`] is that gated entry; every
+/// other UA-fire caller goes through [`fire_vm_event`], which gates.
+fn fire_vm_event_unchecked(
+    ctx: &mut NativeContext<'_>,
+    target_id: ObjectId,
+    type_sid: StringId,
+    init: EventInit,
+    shape: ShapeId,
+    proto_override: Option<ObjectId>,
+    payload_slots: Vec<PropertyValue>,
+) -> Result<VmDispatchOutcome, VmError> {
     // Build + GC-root the event inside a `push_stack_scope`: pin every
     // Object-valued payload slot (Blob `data`, `ports` Array) on the VM
     // stack so `create_fresh_event_object`'s internal alloc can't GC them
@@ -453,19 +480,31 @@ pub(super) fn fire_vm_event(
 }
 
 /// UA-fire a `MessageEvent(type, {data, origin, lastEventId})` at a
-/// `VmObject` target through [`fire_vm_event`] — the shared WS-receive /
-/// SSE-dispatch helper (WHATWG HTML §9.1 `MessageEvent`; WebSockets §4 /
-/// HTML §9.2.6).  `source` is `null` and `ports` a fresh empty Array
-/// (no MessagePort transfer on these surfaces).  Returns `Ok(true)` when
-/// the event was cancelled.
+/// `VmObject` target — the shared WS-receive / SSE-dispatch helper (WHATWG
+/// HTML §9.1 `MessageEvent`; WebSockets §4 / HTML §9.2.6).  Gates on
+/// `vm_path_has_listener` FIRST: an unobserved target builds neither the
+/// `data` payload nor the event — `build_data` runs only past the gate, so
+/// the binary caller's Blob / ArrayBuffer is never allocated for a socket
+/// with no message listener.  `source` is `null` and `ports` a fresh empty
+/// Array (no MessagePort transfer on these surfaces).  Returns `Ok(true)`
+/// when the event was cancelled.
 pub(super) fn fire_vm_message_event(
     ctx: &mut NativeContext<'_>,
     target_id: ObjectId,
     type_sid: StringId,
-    data: JsValue,
+    build_data: impl FnOnce(&mut NativeContext<'_>) -> JsValue,
     origin_sid: StringId,
     last_event_id_sid: StringId,
 ) -> Result<bool, VmError> {
+    // Lazy-alloc gate, up-front (MessageEvents are non-bubbling → gate on
+    // `(type, false)`): an unobserved target returns here having built
+    // nothing, so `build_data` (the binary caller's Blob / ArrayBuffer
+    // constructor) and the `ports` Array are skipped.  Gating once here also
+    // lets `fire_vm_event_unchecked` avoid a redundant second listener walk.
+    let type_str = ctx.vm.strings.get_utf8(type_sid);
+    if !vm_path_has_listener(ctx.vm, target_id, &type_str, false) {
+        return Ok(false);
+    }
     let shape = ctx
         .vm
         .precomputed_event_shapes
@@ -473,10 +512,12 @@ pub(super) fn fire_vm_message_event(
         .expect("precomputed_event_shapes built during VM init")
         .message;
     let proto = ctx.vm.message_event_prototype;
-    // `data` may be a freshly-allocated Blob / ArrayBuffer with no other
-    // live root; pin it across the `ports` Array allocation.  After this
-    // block `fire_vm_event` re-roots both Object payload slots across its
-    // own event alloc (no GC-triggering work runs in between).
+    // Build `data` now that an observer is confirmed: a cheap interned string
+    // for text / SSE, or a fresh Blob / ArrayBuffer for binary.  It may have
+    // no other live root, so pin it across the `ports` Array allocation;
+    // `fire_vm_event_unchecked` then re-roots both Object payload slots across
+    // its own event alloc (no GC-triggering work runs in between).
+    let data = build_data(ctx);
     let ports_arr = {
         let mut frame = ctx.vm.push_stack_scope();
         if matches!(data, JsValue::Object(_)) {
@@ -496,7 +537,8 @@ pub(super) fn fire_vm_message_event(
         cancelable: false,
         composed: false,
     };
-    fire_vm_event(ctx, target_id, type_sid, init, shape, proto, payload).map(|o| !o.not_prevented)
+    fire_vm_event_unchecked(ctx, target_id, type_sid, init, shape, proto, payload)
+        .map(|o| !o.not_prevented)
 }
 
 /// UA-fire a `CloseEvent("close", {code, reason, wasClean})` at a

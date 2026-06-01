@@ -125,13 +125,14 @@ pub(super) fn dispatch_sse_event(
         state.last_event_id = last_event_id;
         state.origin_sid
     };
-    let data_sid = ctx.vm.strings.intern(data);
-    let data_val = JsValue::String(data_sid);
+    // `data` is interned inside the `build_data` thunk, run only past
+    // `fire_vm_message_event`'s lazy-alloc gate (an unobserved EventSource
+    // never interns the event body).
     let _ = fire_vm_message_event(
         ctx,
         instance,
         type_sid,
-        data_val,
+        |ctx| JsValue::String(ctx.vm.strings.intern(data)),
         origin_sid,
         last_event_id_sid,
     );
