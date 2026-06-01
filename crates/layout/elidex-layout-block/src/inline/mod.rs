@@ -288,9 +288,11 @@ fn collapse_run_text(
     // forced break under pre-line). Matches `elidex-render`'s `normalize_line_endings`.
     let text = text.replace("\r\n", "\n").replace('\r', "\n");
     match white_space {
-        // Preserve values: text is left intact. A non-empty preserved run is
-        // rendered content, so it resets the collapse state (a following collapsible
-        // run's leading space is a fresh separator, not collapsed into the run).
+        // Preserve values: apart from the line-ending normalization applied above,
+        // the text is preserved as-is (no space/tab collapsing, segment breaks kept
+        // as forced breaks). A non-empty preserved run is rendered content, so it
+        // resets the collapse state (a following collapsible run's leading space is a
+        // fresh separator, not collapsed into the run).
         WhiteSpace::Pre | WhiteSpace::PreWrap => {
             if !text.is_empty() {
                 *prev_collapsible_space = false;
