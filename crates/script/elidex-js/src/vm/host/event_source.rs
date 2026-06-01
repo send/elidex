@@ -58,7 +58,7 @@
 //! ### `MessageEvent.origin` semantics
 //!
 //! `MessageEvent.origin` tracks the post-redirect URL per WHATWG
-//! HTML §9.2 "Dispatch the event" — see
+//! HTML §9.2.6 "Dispatch the event" — see
 //! [`super::super::host_data::EventSourceState::origin_sid`] for
 //! the refresh path (re-derived from
 //! [`elidex_net::sse::SseEvent::Connected`]'s `final_url` payload
@@ -93,14 +93,21 @@ impl VmInner {
     /// Panics if `object_prototype` is `None` — would mean the
     /// call-order invariant from `register_globals()` was violated.
     pub(in crate::vm) fn register_event_source_global(&mut self) {
-        let object_proto = self
-            .object_prototype
-            .expect("register_event_source_global called before register_prototypes");
+        // `EventSource : EventTarget` (WHATWG HTML §9.2.2) — chain the
+        // prototype to `EventTarget.prototype` so `addEventListener` /
+        // `removeEventListener` / `dispatchEvent` are inherited and
+        // route through the §2.9 VmObject dispatch core.  Named SSE
+        // events (`event: foo`) and the §9.2.6 "message vs named"
+        // fan-out then fall out of dispatching the right event type at
+        // the shared core (`#11-realtime-event-listeners`).
+        let event_target_proto = self
+            .event_target_prototype
+            .expect("register_event_source_global called before register_event_target_prototype");
 
         let proto_id = self.alloc_object(Object {
             kind: ObjectKind::Ordinary,
             storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            prototype: Some(object_proto),
+            prototype: Some(event_target_proto),
             extensible: true,
         });
         self.event_source_prototype = Some(proto_id);
@@ -140,52 +147,22 @@ impl VmInner {
             );
         }
 
-        // Event handler attributes: 3 pairs (onopen / onmessage /
-        // onerror).  WHATWG IDL EventHandler attribute — silent
-        // non-callable nulling per §8.1.8.1 (the macro replicates
-        // ws_on_handler! exactly).
-        let on_handlers: [(StringId, NativeFn, NativeFn); 3] = [
-            (
-                self.well_known.onopen,
-                native_es_get_onopen,
-                native_es_set_onopen,
-            ),
-            (
-                self.well_known.onmessage,
-                native_es_get_onmessage,
-                native_es_set_onmessage,
-            ),
-            (
-                self.well_known.onerror,
-                native_es_get_onerror,
-                native_es_set_onerror,
-            ),
-        ];
-        for (name_sid, getter, setter) in on_handlers {
-            self.install_accessor_pair(
-                proto_id,
-                name_sid,
-                getter,
-                Some(setter),
-                PropertyAttrs::WEBIDL_RO_ACCESSOR,
-            );
-        }
+        // Event handler attributes: onopen / onmessage / onerror, over
+        // the shared VmObject EventHandler backend (WHATWG HTML
+        // §8.1.8.1) — recorded in the unified `vm_event_listeners` home.
+        self.install_vm_object_handler_attrs(proto_id, &["onopen", "onmessage", "onerror"]);
 
-        // Methods: close + addEventListener + removeEventListener.
-        let methods: [(StringId, NativeFn); 3] = [
-            (self.well_known.close, native_es_close),
-            (
-                self.well_known.add_event_listener,
-                native_es_add_event_listener,
-            ),
-            (
-                self.well_known.remove_event_listener,
-                native_es_remove_event_listener,
-            ),
-        ];
-        for (name_sid, func) in methods {
-            self.install_native_method(proto_id, name_sid, func, PropertyAttrs::METHOD);
-        }
+        // Methods: close.  `addEventListener` / `removeEventListener` /
+        // `dispatchEvent` are inherited from `EventTarget.prototype`
+        // (proto reparented above) — the bespoke per-instance
+        // `event_listeners` registry + `native_es_add/remove_event_listener`
+        // were removed by `#11-realtime-event-listeners`.
+        self.install_native_method(
+            proto_id,
+            self.well_known.close,
+            native_es_close,
+            PropertyAttrs::METHOD,
+        );
     }
 }
 
@@ -272,9 +249,10 @@ pub(super) fn require_event_source_this(
 /// 3. Allocate `conn_id` via `HostData::alloc_sse_conn_id()`.
 /// 4. Promote `this` to `ObjectKind::EventSource`; insert
 ///    `EventSourceState { ready_state: Connecting, url, origin_sid,
-///    with_credentials, ..., conn_id, event_listeners: {} }` into
+///    with_credentials, last_event_id: "", conn_id }` into
 ///    `host_data.event_source_states`; populate reverse map
-///    `sse_conn_to_object[conn_id] = id`.
+///    `sse_conn_to_object[conn_id] = id`.  (Listeners live in the
+///    shared `vm_event_listeners` home, not the state struct.)
 /// 5. Send `RendererToNetwork::EventSourceOpen { conn_id, url,
 ///    last_event_id: None, origin: Some(page_origin), with_credentials }`
 ///    to the broker via `network_handle.send()`.  `origin` is
@@ -347,10 +325,6 @@ fn native_event_source_constructor(
                 with_credentials,
                 last_event_id: String::new(),
                 conn_id,
-                onopen: None,
-                onmessage: None,
-                onerror: None,
-                event_listeners: std::collections::HashMap::new(),
             },
         );
         hd.sse_conn_to_object.insert(conn_id, inst_id);
@@ -510,178 +484,14 @@ fn native_es_close(
     Ok(JsValue::Undefined)
 }
 
-// ---------------------------------------------------------------------------
-// addEventListener / removeEventListener — minimal shim
-//
-// WHATWG HTML §9.2 "Dispatch the event" requires server-named events
-// (`event: notification\n`) to surface through
-// `addEventListener("notification", cb)`.  This is the minimal
-// surface needed for spec-correct named-event delivery; full
-// `EventTarget` (capture / once / passive / signal) is deferred to
+// `addEventListener` / `removeEventListener` / `dispatchEvent` are
+// inherited from `EventTarget.prototype` (the prototype is reparented in
+// `register_event_source_global`) and route through the §2.9 VmObject
+// dispatch core.  Server-named SSE events (`event: notification\n`)
+// surface through `addEventListener("notification", cb)` as an emergent
+// property of dispatching a `MessageEvent` of the parsed type at the
+// shared core — the §9.2.6 "message vs named" fan-out is no longer
+// hand-coded.  `on*` handlers install via the shared VmObject
+// EventHandler backend (`install_vm_object_handler_attrs`).  The bespoke
+// `event_listeners` registry + `es_on_handler!` macro were removed by
 // `#11-realtime-event-listeners`.
-// ---------------------------------------------------------------------------
-
-/// `EventSource.prototype.addEventListener(type, listener)`.
-///
-/// Per WHATWG DOM §2.7.2 the `(type, callback, capture)` triple is
-/// de-duplicated on registration; the minimal shim collapses
-/// `capture` to `false` so the duplicate check reduces to
-/// `(type_string, listener ObjectId)`.  Argument coercion:
-///
-/// 1. `ToString(type)` runs FIRST (Symbol throws TypeError BEFORE
-///    any registry mutation, matching WebIDL `USVString` coercion
-///    ordering — Phase 1 lesson reapplied).
-/// 2. Non-Object / non-callable listener is a silent no-op per
-///    §2.7.5 step "If callback is null, return".  Other Object
-///    values that are NOT callable are also accepted but never
-///    fire (matches Chrome / Firefox; the spec allows
-///    EventListener interface objects which the minimal shim
-///    folds into "any Object").  Concrete: only Object listeners
-///    are stored; null / undefined / primitive listeners are
-///    silently dropped.
-fn native_es_add_event_listener(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let id = require_event_source_this(ctx, this, "addEventListener")?;
-    // ToString FIRST per WebIDL `USVString` coercion (Symbol
-    // throws here BEFORE the registry is touched).
-    let type_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let type_sid = super::super::coerce::to_string(ctx.vm, type_arg)?;
-    let type_string = ctx.vm.strings.get_utf8(type_sid);
-
-    // Listener must be an Object.  Null / undefined / primitive
-    // silently no-op per §2.7.5; other non-callable Object values
-    // are stored but never fire (the EventListener IDL accepts a
-    // callback object whose `handleEvent` method is invoked at
-    // dispatch — the minimal shim only invokes Function-callable
-    // values, so stored non-callable Objects are de facto no-ops).
-    let Some(listener_arg) = args.get(1).copied() else {
-        return Ok(JsValue::Undefined);
-    };
-    let JsValue::Object(listener_id) = listener_arg else {
-        return Ok(JsValue::Undefined);
-    };
-
-    let Some(hd) = ctx.vm.host_data.as_deref_mut() else {
-        return Ok(JsValue::Undefined);
-    };
-    let Some(state) = hd.event_source_states.get_mut(&id) else {
-        return Ok(JsValue::Undefined);
-    };
-    let vec = state.event_listeners.entry(type_string).or_default();
-    // Duplicate-listener dedup per WHATWG DOM §2.7.2 step 5: "If
-    // eventTarget's event listener list does not contain an event
-    // listener whose type is type, callback is callback, and
-    // capture is capture, then append listener ..."  The minimal
-    // shim's `capture = false` collapses the triple to
-    // `(type, callback)`.
-    if !vec.contains(&listener_id) {
-        vec.push(listener_id);
-    }
-    Ok(JsValue::Undefined)
-}
-
-/// `EventSource.prototype.removeEventListener(type, listener)`.
-///
-/// Per WHATWG DOM §2.7.5 a non-matching pair is a silent no-op.
-/// Type coercion mirrors `addEventListener`: `ToString` runs
-/// FIRST.  Null / undefined / primitive listener is also a no-op
-/// (matches spec text "If callback is null, return" + WebIDL
-/// EventListener nullability).
-fn native_es_remove_event_listener(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let id = require_event_source_this(ctx, this, "removeEventListener")?;
-    let type_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let type_sid = super::super::coerce::to_string(ctx.vm, type_arg)?;
-    let type_string = ctx.vm.strings.get_utf8(type_sid);
-
-    let Some(listener_arg) = args.get(1).copied() else {
-        return Ok(JsValue::Undefined);
-    };
-    let JsValue::Object(listener_id) = listener_arg else {
-        return Ok(JsValue::Undefined);
-    };
-
-    let Some(hd) = ctx.vm.host_data.as_deref_mut() else {
-        return Ok(JsValue::Undefined);
-    };
-    let Some(state) = hd.event_source_states.get_mut(&id) else {
-        return Ok(JsValue::Undefined);
-    };
-    if let Some(vec) = state.event_listeners.get_mut(&type_string) {
-        vec.retain(|&id| id != listener_id);
-        if vec.is_empty() {
-            state.event_listeners.remove(&type_string);
-        }
-    }
-    Ok(JsValue::Undefined)
-}
-
-// ---------------------------------------------------------------------------
-// Event handler attribute accessors — `onopen` / `onmessage` /
-// `onerror`.
-//
-// Mirror of WebSocket's `ws_on_handler!` macro shape — 3 pairs
-// instead of 4 (SSE has no `onclose` per WHATWG HTML §9.2: the
-// terminator is `close()` and FatalError surfaces as `onerror` +
-// readyState CLOSED, not a CloseEvent).  Non-callable assignments
-// silently null the slot per WHATWG IDL EventHandler §8.1.8.1.
-// ---------------------------------------------------------------------------
-
-macro_rules! es_on_handler {
-    ($getter:ident, $setter:ident, $field:ident, $name:literal) => {
-        fn $getter(
-            ctx: &mut NativeContext<'_>,
-            this: JsValue,
-            _args: &[JsValue],
-        ) -> Result<JsValue, VmError> {
-            let id = require_event_source_this(ctx, this, $name)?;
-            Ok(ctx
-                .vm
-                .host_data
-                .as_deref()
-                .and_then(|hd| hd.event_source_states.get(&id))
-                .and_then(|s| s.$field)
-                .map_or(JsValue::Null, JsValue::Object))
-        }
-        fn $setter(
-            ctx: &mut NativeContext<'_>,
-            this: JsValue,
-            args: &[JsValue],
-        ) -> Result<JsValue, VmError> {
-            let id = require_event_source_this(ctx, this, $name)?;
-            let new_val = args.first().copied().unwrap_or(JsValue::Undefined);
-            let stored = match new_val {
-                JsValue::Object(obj_id) if ctx.vm.get_object(obj_id).kind.is_callable() => {
-                    Some(obj_id)
-                }
-                _ => None,
-            };
-            if let Some(hd) = ctx.vm.host_data.as_deref_mut() {
-                if let Some(state) = hd.event_source_states.get_mut(&id) {
-                    state.$field = stored;
-                }
-            }
-            Ok(JsValue::Undefined)
-        }
-    };
-}
-
-es_on_handler!(native_es_get_onopen, native_es_set_onopen, onopen, "onopen");
-es_on_handler!(
-    native_es_get_onmessage,
-    native_es_set_onmessage,
-    onmessage,
-    "onmessage"
-);
-es_on_handler!(
-    native_es_get_onerror,
-    native_es_set_onerror,
-    onerror,
-    "onerror"
-);

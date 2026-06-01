@@ -882,23 +882,19 @@ impl VmInner {
                 self.selection_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // 157 + 2 = 159 (D-12 slot `#11-net-ws-sse`:
+                // 157 + 2 = 159 (slot `#11-net-ws-sse`:
                 // `WebSocket.prototype` + `EventSource.prototype`).
-                // Each chains to `Object.prototype` (NOT
-                // `EventTarget.prototype` in this PR — the
-                // addEventListener surface for non-Entity
-                // EventTargets is deferred to
-                // `#11-realtime-event-listeners`).  Per-instance
-                // state (handler `ObjectId`s, addEventListener
-                // registry for SSE) lives in
-                // `HostData::websocket_states` /
-                // `HostData::event_source_states` and is traced via
-                // `vm/gc/trace.rs::trace_realtime_states`; the
-                // prototypes themselves are rooted here because
-                // the matching `VmInner::<x>_prototype` slot retains
-                // a stale id otherwise (same `delete
-                // globalThis.WebSocket` invariant as every other
-                // intrinsic prototype above).
+                // Each chains to `EventTarget.prototype` (since
+                // `#11-realtime-event-listeners`, so `addEventListener`
+                // / `removeEventListener` / `dispatchEvent` are
+                // inherited).  Per-instance listeners (on* handlers +
+                // every `addEventListener` registration) live in the
+                // unified `VmInner::vm_event_listeners` home, rooted via
+                // `HostData::listener_store`; the prototypes themselves
+                // are rooted here because the matching
+                // `VmInner::<x>_prototype` slot retains a stale id
+                // otherwise (same `delete globalThis.WebSocket`
+                // invariant as every other intrinsic prototype above).
                 #[cfg(feature = "engine")]
                 self.websocket_prototype,
                 #[cfg(not(feature = "engine"))]
@@ -1105,25 +1101,6 @@ impl VmInner {
             };
 
         // D-12 `#11-net-ws-sse` — WebSocket / EventSource handler
-        // ObjectId fan-out.  Empty fallbacks for the unbound
-        // HostData case (WS / SSE instances cannot exist without
-        // a bound HostData since they keep handler ObjectIds in
-        // the side-tables).
-        #[cfg(feature = "engine")]
-        let empty_ws_states: std::collections::HashMap<
-            ObjectId,
-            super::super::host_data::WebSocketState,
-        > = std::collections::HashMap::new();
-        #[cfg(feature = "engine")]
-        let empty_sse_states: std::collections::HashMap<
-            ObjectId,
-            super::super::host_data::EventSourceState,
-        > = std::collections::HashMap::new();
-        #[cfg(feature = "engine")]
-        let (ws_states_ref, sse_states_ref) = match self.host_data.as_deref() {
-            Some(hd) => (hd.websocket_states_ref(), hd.event_source_states_ref()),
-            None => (&empty_ws_states, &empty_sse_states),
-        };
 
         // `#11-wrapper-identity-seam` — the `<input>.files` FileList
         // `[SameObject]` cache is now interned in `hd.wrapper_store`
@@ -1190,10 +1167,6 @@ impl VmInner {
             &self.file_reader_data,
             #[cfg(feature = "engine")]
             wrapper_store_ref,
-            #[cfg(feature = "engine")]
-            ws_states_ref,
-            #[cfg(feature = "engine")]
-            sse_states_ref,
             #[cfg(feature = "engine")]
             &self.wasm_instance_storage,
             #[cfg(feature = "engine")]
@@ -1510,8 +1483,9 @@ impl VmInner {
             self.idb_key_range_states
                 .retain(|id, _| bit_get(marks, id.0));
             // `vm_event_listeners` — the unified listener home for the
-            // non-entity EventTargets (AbortSignal / the IDB targets).  When
-            // a target `ObjectId` was collected, prune its entry AND retire
+            // non-entity EventTargets (AbortSignal / IDB / WebSocket /
+            // EventSource).  When a target `ObjectId` was collected, prune
+            // its entry AND retire
             // each of its `ListenerId`s from `HostData::listener_store` (the
             // GC root) + `abort_listener_back_refs` in lockstep — else the
             // dead target's callbacks stay rooted forever (leak).  Collect

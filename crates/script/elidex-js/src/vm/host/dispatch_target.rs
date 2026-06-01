@@ -81,7 +81,9 @@ pub(crate) fn target_from_this(ctx: &NativeContext<'_>, this: JsValue) -> Option
         ObjectKind::AbortSignal
         | ObjectKind::IdbRequest
         | ObjectKind::IdbTransaction
-        | ObjectKind::IdbDatabase => ctx
+        | ObjectKind::IdbDatabase
+        | ObjectKind::WebSocket
+        | ObjectKind::EventSource => ctx
             .vm
             .host_data
             .as_ref()

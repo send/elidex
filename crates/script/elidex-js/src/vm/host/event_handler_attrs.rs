@@ -129,6 +129,39 @@ impl VmInner {
         }
     }
 
+    /// Install a list of `on<type>` event-handler IDL attributes on a
+    /// **VmObject** EventTarget prototype (`AbortSignal` / IndexedDB /
+    /// `WebSocket` / `EventSource`), over the shared
+    /// [`native_vm_event_handler_get`] / [`native_vm_event_handler_set`]
+    /// backend keyed by each attribute's event type (the name minus
+    /// `on`).  The VmObject sibling of [`Self::install_handler_attrs_from_list`]:
+    /// that helper is Node/entity-backed and restricted to the
+    /// `GlobalEventHandlers` SoT, but VmObject `on*` names
+    /// (`onsuccess` / `onopen` / `onclose` / …) are not in that SoT, so
+    /// the event type is derived by stripping the `on` prefix. The single
+    /// shared VmObject handler-attr installer per plan-memo F3/DR-4a:
+    /// IndexedDB's request / database / transaction prototypes call it too
+    /// (`onsuccess` / `onversionchange` / `oncomplete` / …).
+    pub(in crate::vm) fn install_vm_object_handler_attrs(
+        &mut self,
+        target: ObjectId,
+        attrs: &[&str],
+    ) {
+        for on_name in attrs {
+            let event_type = on_name.strip_prefix("on").unwrap_or(on_name);
+            let attr_name_sid = self.strings.intern(on_name);
+            let event_type_sid = self.strings.intern(event_type);
+            self.install_bound_accessor_pair(
+                target,
+                attr_name_sid,
+                native_vm_event_handler_get as NativeFn,
+                Some(native_vm_event_handler_set as NativeFn),
+                event_type_sid,
+                PropertyAttrs::WEBIDL_RO_ACCESSOR,
+            );
+        }
+    }
+
     /// Install the WindowEventHandlers (18 attrs) onto
     /// `HTMLBodyElement.prototype` as **delegation** accessors: their
     /// getter/setter redirect to the Window object rather than the body

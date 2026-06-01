@@ -509,13 +509,11 @@ mod engine_feature {
         /// `ws_conn_to_object` reverse map for event routing and
         /// emitted on `WsCommand` / `WebSocketClose` messages.
         pub conn_id: u64,
-        /// Handler attribute slots — `None` until user JS assigns.
-        /// Direct callable invocation (NO addEventListener delivery
-        /// in this PR; deferred to `#11-realtime-event-listeners`).
-        pub onopen: Option<ObjectId>,
-        pub onmessage: Option<ObjectId>,
-        pub onerror: Option<ObjectId>,
-        pub onclose: Option<ObjectId>,
+        // `onopen` / `onmessage` / `onerror` / `onclose` are NOT stored
+        // here: since `#11-realtime-event-listeners` they live (with all
+        // `addEventListener` listeners) in the unified
+        // `VmInner::vm_event_listeners` home, dispatched through the
+        // shared §2.9 VmObject core.
     }
 
     impl WebSocketState {
@@ -603,19 +601,13 @@ mod engine_feature {
         /// Broker connection ID — paired with HostData's
         /// `sse_conn_to_object` reverse map.
         pub conn_id: u64,
-        /// Handler attribute slots.  CRIT-3 fold: SSE additionally
-        /// ships a minimal `addEventListener` registry so named
-        /// events (e.g. `evtsrc.addEventListener("notification",
-        /// cb)`) are not silently dropped.
-        pub onopen: Option<ObjectId>,
-        pub onmessage: Option<ObjectId>,
-        pub onerror: Option<ObjectId>,
-        /// Per-event-type listener registry — minimal shim
-        /// (capture / once / signal / passive deferred to
-        /// `#11-realtime-event-listeners`).  Keyed by event type
-        /// string; vector preserves spec insertion order for
-        /// dispatch.
-        pub event_listeners: HashMap<String, Vec<ObjectId>>,
+        // `onopen` / `onmessage` / `onerror` and the bespoke per-type
+        // `event_listeners` registry are NOT stored here: since
+        // `#11-realtime-event-listeners` every listener (on* handlers +
+        // named-event `addEventListener` registrations) lives in the
+        // unified `VmInner::vm_event_listeners` home, dispatched through
+        // the shared §2.9 VmObject core.  Named-event delivery + the
+        // §9.2.6 "message vs named" fan-out are emergent from it.
     }
 
     impl EventSourceState {
@@ -1604,21 +1596,6 @@ mod engine_feature {
             let id = self.sse_next_conn_id;
             self.sse_next_conn_id = self.sse_next_conn_id.wrapping_add(1);
             id
-        }
-
-        /// Read access to the WebSocket side-table for GC trace
-        /// fan-out — the trace walks each entry's 4 `on*` handler
-        /// `ObjectId`s.
-        pub(crate) fn websocket_states_ref(&self) -> &HashMap<ObjectId, WebSocketState> {
-            &self.websocket_states
-        }
-
-        /// Read access to the EventSource side-table for GC trace
-        /// fan-out — the trace walks each entry's 3 `on*` handler
-        /// `ObjectId`s plus every listener `ObjectId` in
-        /// `event_listeners`.
-        pub(crate) fn event_source_states_ref(&self) -> &HashMap<ObjectId, EventSourceState> {
-            &self.event_source_states
         }
 
         /// Drain the WebSocket / EventSource side-tables and

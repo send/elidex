@@ -123,13 +123,17 @@ impl VmInner {
                 else {
                     return;
                 };
+                // The dispatch helpers UA-fire through the shared §2.9
+                // VmObject core, which needs a `NativeContext`; build one
+                // for the fire (precedent: `dispatch_file_read_task`).
+                let mut ctx = super::super::value::NativeContext::new_call(self);
                 match ws_event {
                     WsEvent::Connected {
                         protocol,
                         extensions,
                     } => {
                         super::websocket_dispatch::dispatch_ws_connected(
-                            self, instance, protocol, extensions,
+                            &mut ctx, instance, protocol, extensions,
                         );
                     }
                     WsEvent::Closed {
@@ -138,15 +142,15 @@ impl VmInner {
                         was_clean,
                     } => {
                         super::websocket_dispatch::dispatch_ws_closed(
-                            self, instance, code, &reason, was_clean,
+                            &mut ctx, instance, code, &reason, was_clean,
                         );
                     }
                     WsEvent::TextMessage(s) => {
-                        super::websocket_dispatch::dispatch_ws_text_message(self, instance, &s);
+                        super::websocket_dispatch::dispatch_ws_text_message(&mut ctx, instance, &s);
                     }
                     WsEvent::BinaryMessage(bytes) => {
                         super::websocket_dispatch::dispatch_ws_binary_message(
-                            self, instance, bytes,
+                            &mut ctx, instance, bytes,
                         );
                     }
                     WsEvent::Error(_msg) => {
@@ -155,10 +159,10 @@ impl VmInner {
                         // message is discarded intentionally to avoid
                         // leaking server-internals through the
                         // unsandboxed handler.
-                        super::websocket_dispatch::dispatch_ws_error(self, instance);
+                        super::websocket_dispatch::dispatch_ws_error(&mut ctx, instance);
                     }
                     WsEvent::BytesSent(n) => {
-                        super::websocket_dispatch::dispatch_ws_bytes_sent(self, instance, n);
+                        super::websocket_dispatch::dispatch_ws_bytes_sent(&mut ctx, instance, n);
                     }
                 }
             }
@@ -170,10 +174,13 @@ impl VmInner {
                 else {
                     return;
                 };
+                // The dispatch helpers UA-fire through the shared §2.9
+                // VmObject core, which needs a `NativeContext`.
+                let mut ctx = super::super::value::NativeContext::new_call(self);
                 match sse_event {
                     SseEvent::Connected { final_url } => {
                         super::event_source_dispatch::dispatch_sse_connected(
-                            self, instance, &final_url,
+                            &mut ctx, instance, &final_url,
                         );
                     }
                     SseEvent::Event {
@@ -182,7 +189,7 @@ impl VmInner {
                         last_event_id,
                     } => {
                         super::event_source_dispatch::dispatch_sse_event(
-                            self,
+                            &mut ctx,
                             instance,
                             &event_type,
                             &data,
@@ -195,10 +202,10 @@ impl VmInner {
                         // the broker message is discarded
                         // intentionally to avoid leaking server-
                         // internals through the unsandboxed handler.
-                        super::event_source_dispatch::dispatch_sse_error(self, instance);
+                        super::event_source_dispatch::dispatch_sse_error(&mut ctx, instance);
                     }
                     SseEvent::FatalError(_msg) => {
-                        super::event_source_dispatch::dispatch_sse_fatal_error(self, instance);
+                        super::event_source_dispatch::dispatch_sse_fatal_error(&mut ctx, instance);
                     }
                 }
             }

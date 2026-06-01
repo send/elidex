@@ -117,23 +117,14 @@ pub(super) fn trace_work_list(
         super::super::wrapper_intern::WrapperKey,
         ObjectId,
     >,
-    // D-12 `#11-net-ws-sse` — WebSocket / EventSource handler ObjectId
-    // fan-out.  Each WebSocket arm walks the 4 `on*` handler slots
-    // held in the side-table; each EventSource arm walks the 3 `on*`
-    // slots PLUS every listener `ObjectId` in the per-instance
-    // `event_listeners` registry (CRIT-3 minimal addEventListener
-    // shim).  Without this fan-out a user-assigned handler closure
-    // can be collected even while the WS / SSE instance is JS-
-    // reachable, causing the next event delivery to invoke a freed
-    // ObjectId.
-    #[cfg(feature = "engine")] websocket_states: &std::collections::HashMap<
-        ObjectId,
-        super::super::host_data::WebSocketState,
-    >,
-    #[cfg(feature = "engine")] event_source_states: &std::collections::HashMap<
-        ObjectId,
-        super::super::host_data::EventSourceState,
-    >,
+    // (WebSocket / EventSource handler ObjectIds are NOT traced here
+    // since `#11-realtime-event-listeners`: their on* handlers +
+    // addEventListener listeners live in `vm_event_listeners`, rooted
+    // via `HostData::listener_store` / `gc_root_object_ids`, like
+    // AbortSignal / IndexedDB.  The `websocket_states` /
+    // `event_source_states` side-stores carry no `ObjectId` fields now,
+    // so they are no longer threaded into the mark phase — only the
+    // sweep phase in `collect.rs` still prunes their dead entries.)
     // D-16 `#11-wasm-vm` — WebAssembly side-store fan-out.  Instance arms
     // mark `module_id` (always set) + `exports_id` if `Some` so the
     // parent Module + cached exports namespace survive while the
@@ -999,33 +990,11 @@ pub(super) fn trace_work_list(
                     }
                 }
             }
+            // `WebSocket` / `EventSource` carry no traceable `ObjectId`
+            // fields: their on* handlers + addEventListener listeners
+            // live in `vm_event_listeners` (rooted via `listener_store`).
             #[cfg(feature = "engine")]
-            ObjectKind::WebSocket => {
-                if let Some(state) = websocket_states.get(&ObjectId(obj_idx)) {
-                    for handler in [state.onopen, state.onmessage, state.onerror, state.onclose]
-                        .into_iter()
-                        .flatten()
-                    {
-                        mark_object(handler, obj_marks, work);
-                    }
-                }
-            }
-            #[cfg(feature = "engine")]
-            ObjectKind::EventSource => {
-                if let Some(state) = event_source_states.get(&ObjectId(obj_idx)) {
-                    for handler in [state.onopen, state.onmessage, state.onerror]
-                        .into_iter()
-                        .flatten()
-                    {
-                        mark_object(handler, obj_marks, work);
-                    }
-                    for listeners in state.event_listeners.values() {
-                        for &listener in listeners {
-                            mark_object(listener, obj_marks, work);
-                        }
-                    }
-                }
-            }
+            ObjectKind::WebSocket | ObjectKind::EventSource => {}
             // D-16 `#11-wasm-vm` (WASM JS API §5.1) — `WebAssembly.Module`
             // engine-indep `WasmModule` handle holds source bytes
             // (`Arc<[u8]>`) internally; no `ObjectId` references.  Sweep
