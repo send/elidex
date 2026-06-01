@@ -199,10 +199,32 @@ impl LinePacker {
                 };
                 let (seg_width, trimmed_width) = measure_segment_widths(font_db, &params, text);
 
-                // Capture first baseline: from the first text run on the first line.
-                // CSS 2.1 §10.8.1: baseline = line_y + half_leading + ascent
-                // half_leading = (line_height - (ascent - descent)) / 2
-                if self.first_baseline.is_none() && !is_vertical {
+                // Whether this segment gives the line its height (generates a box).
+                // For collapsible white-space a segment of only collapsible white space
+                // hangs / collapses away and generates no box (CSS 2 §9.2.2.1); rendered
+                // content is therefore "has a non-whitespace character after trailing
+                // trimming", independent of measured advance — a zero-advance glyph such
+                // as U+200B ZERO WIDTH SPACE is still content. For preserved white-space
+                // (`pre`/`pre-wrap`) spaces are rendered and DO give the line its height
+                // (e.g. `<pre>   </pre>`); a pure segment break is handled by
+                // `force_break`, so only a non-`\n` character marks the line here.
+                let contributes_content =
+                    if matches!(run.white_space, WhiteSpace::Pre | WhiteSpace::PreWrap) {
+                        text.chars().any(|c| c != '\n')
+                    } else {
+                        // Trim only the *collapsible* white space (ASCII space/tab),
+                        // not Unicode White_Space: a no-break space (U+00A0) renders
+                        // and gives the line height, so a `&nbsp;`-only line must
+                        // generate a box.
+                        !text.trim_end_matches([' ', '\t']).is_empty()
+                    };
+
+                // Capture first baseline from the first text segment that actually
+                // generates a line box (CSS 2.1 §10.8.1: baseline = line_y +
+                // half_leading + ascent). Gating on `contributes_content` skips
+                // suppressed collapsible-whitespace segments, so the baseline reflects
+                // the first rendered line rather than whitespace that generates no box.
+                if contributes_content && self.first_baseline.is_none() && !is_vertical {
                     if let Some(metrics) = measure_text(font_db, &params, text) {
                         let em_height = metrics.ascent - metrics.descent;
                         // Guard: em_height can be 0/negative (malformed font metrics) or
@@ -218,19 +240,6 @@ impl LinePacker {
                     }
                 }
 
-                // Whether this segment gives the line its height (generates a box).
-                // For collapsible white-space, a segment of only collapsible spaces
-                // hangs / collapses to zero advance and does NOT (CSS 2 §9.2.2.1), so
-                // trailing-trimmed width 0 means no content. For preserved white-space
-                // (`pre`/`pre-wrap`), spaces are rendered and DO give the line its
-                // height (e.g. `<pre>   </pre>`); a pure segment break is handled by
-                // `force_break`, so only a non-`\n` character marks the line here.
-                let contributes_content =
-                    if matches!(run.white_space, WhiteSpace::Pre | WhiteSpace::PreWrap) {
-                        text.chars().any(|c| c != '\n')
-                    } else {
-                        trimmed_width > 0.0
-                    };
                 self.place_item(
                     seg_width,
                     trimmed_width,

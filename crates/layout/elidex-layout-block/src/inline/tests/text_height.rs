@@ -181,6 +181,50 @@ fn collapsible_whitespace_only_generates_no_line_box() {
         "collapsible whitespace-only content generates no line box",
     );
     assert!(result.height.abs() < f32::EPSILON);
+    // No box ⇒ no first baseline captured from the suppressed whitespace segment.
+    assert!(
+        result.first_baseline.is_none(),
+        "suppressed whitespace must not set first_baseline",
+    );
+}
+
+#[test]
+fn nbsp_only_line_generates_a_box() {
+    // A no-break space (U+00A0) renders and gives the line its height: it is not
+    // collapsible white space, so unlike a regular-space-only line it generates a
+    // box (CSS 2 §9.2.2.1 applies only to collapsible white space).
+    let Some((mut dom, parent, style, font_db)) = setup_inline_test("\u{00A0}") else {
+        return;
+    };
+    let css_line_height = style.line_height.resolve_px(style.font_size);
+    let children = dom.composed_children(parent);
+    let env = crate::LayoutEnv {
+        font_db: &font_db,
+        layout_child: crate::layout_block_only,
+        depth: 0,
+        viewport: None,
+        layout_generation: 0,
+    };
+    let result = layout_inline_context(&mut dom, &children, 8000.0, parent, Point::ZERO, &env);
+    assert_eq!(
+        result.line_count, 1,
+        "nbsp-only content generates a line box"
+    );
+    assert!((result.height - css_line_height).abs() < f32::EPSILON);
+}
+
+#[test]
+fn collapse_preserves_form_feed_as_glyph() {
+    // CSS Text 3 §4 (#segment-break): U+000C FORM FEED is a Cc control character —
+    // not a tab/LF/CR — so it is rendered as a visible glyph, NOT treated as a
+    // segment break or collapsible white space. It must survive collapsing intact.
+    let Some((dom, parent, style, _font_db)) = setup_inline_test("a\u{000C}b") else {
+        return;
+    };
+    let children = dom.composed_children(parent);
+    let runs = collect_styled_runs(&dom, &children, &style, parent);
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].text, "a\u{000C}b");
 }
 
 // --- §4.1.1 collapse transform (text-level, font-independent) ---
