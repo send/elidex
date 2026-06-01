@@ -115,3 +115,87 @@ fn falls_back_without_inline_flow() {
     assert_eq!(items.len(), 1, "no flow → single legacy segment");
     assert_eq!(items[0].len(), 10, "\"HelloWorld\" = 10 glyphs on one line");
 }
+
+/// Regression: an absolutely-positioned child interspersed between inline text
+/// under a stacking-context parent (here the root) must not cause the second
+/// text run to be painted twice. The stacking-context paint path (Layer 5) must
+/// skip the positioned child WITHOUT splitting the inline run, so the whole run
+/// keys on the same run-start `InlineFlow` layout persisted (matching
+/// `paint_non_sc` and layout's IFC grouping).
+#[test]
+#[allow(unused_must_use)]
+fn interspersed_abspos_does_not_double_paint() {
+    let mut dom = elidex_ecs::EcsDom::new();
+    let root = dom.create_document_root();
+    let _ = dom.world_mut().insert_one(
+        root,
+        elidex_plugin::ComputedStyle {
+            display: elidex_plugin::Display::Block,
+            font_family: test_font_family_strings(),
+            ..Default::default()
+        },
+    );
+    let _ = dom.world_mut().insert_one(
+        root,
+        elidex_plugin::LayoutBox {
+            content: Rect::new(0.0, 0.0, 800.0, 20.0),
+            ..Default::default()
+        },
+    );
+
+    // Inline text — absolutely positioned span — inline text.
+    let text1 = dom.create_text("AAA");
+    dom.append_child(root, text1);
+    let abspos = dom.create_element("span", Attributes::default());
+    let _ = dom.world_mut().insert_one(
+        abspos,
+        elidex_plugin::ComputedStyle {
+            position: elidex_plugin::Position::Absolute,
+            font_family: test_font_family_strings(),
+            ..Default::default()
+        },
+    );
+    dom.append_child(root, abspos);
+    let text2 = dom.create_text("BBB");
+    dom.append_child(root, text2);
+
+    // Layout persists one InlineFlow on the run-start (text1) spanning both runs
+    // (the abspos is out-of-flow and contributes no run).
+    let flow = InlineFlow {
+        lines: vec![InlineFlowLine {
+            block_start: 0.0,
+            block_size: 20.0,
+            runs: vec![
+                InlineFlowRun {
+                    entity: root,
+                    text: "AAA".to_string(),
+                    inline_start: 0.0,
+                },
+                InlineFlowRun {
+                    entity: root,
+                    text: "BBB".to_string(),
+                    inline_start: 40.0,
+                },
+            ],
+        }],
+        layout_generation: 0,
+    };
+    dom.world_mut().insert_one(text1, flow);
+
+    let font_db = elidex_text::FontDatabase::new();
+    let dl = build_display_list(&dom, &font_db);
+    let items = text_item_glyphs(&dl);
+
+    // Both runs painted exactly once, from the flow (not text2 a second time via
+    // a split-off legacy run).
+    assert_eq!(
+        items.len(),
+        2,
+        "two flow runs painted once each (no double-paint of the post-abspos run)"
+    );
+    let total_glyphs: usize = items.iter().map(|g| g.len()).sum();
+    assert_eq!(
+        total_glyphs, 6,
+        "AAA + BBB = 6 glyphs total, none duplicated"
+    );
+}

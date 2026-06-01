@@ -484,8 +484,9 @@ impl LinePacker {
 
         // Record the positioned text run for InlineFlow (only when persisting).
         // Coalesce contiguous same-entity break-pieces on this line into one run so
-        // render shapes whole words rather than per-break fragments (§4.5); the run
-        // keeps the first piece's inline_start. Different-entity or post-flush
+        // render shapes whole words rather than per-break fragments (CSS Text 3 §5.6
+        // Shaping Across Intra-word Breaks); the run keeps the first piece's
+        // inline_start. Different-entity or post-flush
         // segments start a fresh run.
         if self.flow_align.is_some() {
             if let Some(text) = run_text {
