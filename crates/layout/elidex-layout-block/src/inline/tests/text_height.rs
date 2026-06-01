@@ -134,6 +134,34 @@ fn pre_blank_line_keeps_height() {
 }
 
 #[test]
+fn pre_newline_only_keeps_line_height() {
+    // `<pre>` whose content is a single newline still generates a line box. The
+    // end-of-text segment break is filtered out of `find_break_opportunities`, so
+    // `force_break` never runs — the segment must be marked as rendered content
+    // directly, otherwise the line is incorrectly suppressed to zero height.
+    let Some((mut dom, parent, mut style, font_db)) = setup_inline_test("\n") else {
+        return;
+    };
+    style.white_space = WhiteSpace::Pre;
+    let _ = dom.world_mut().insert_one(parent, style.clone());
+
+    let css_line_height = style.line_height.resolve_px(style.font_size);
+    let children = dom.composed_children(parent);
+    let env = crate::LayoutEnv {
+        font_db: &font_db,
+        layout_child: crate::layout_block_only,
+        depth: 0,
+        viewport: None,
+        layout_generation: 0,
+    };
+    let h = layout_inline_context(&mut dom, &children, 8000.0, parent, Point::ZERO, &env).height;
+    assert!(
+        (h - css_line_height).abs() < f32::EPSILON,
+        "pre newline-only content keeps its line height (one line), got {h}",
+    );
+}
+
+#[test]
 fn pre_spaces_only_keeps_line_height() {
     // `<pre>   </pre>`: preserved spaces are rendered content and give the line its
     // height — the box-suppression (CSS 2 §9.2.2.1) applies only to *collapsible*

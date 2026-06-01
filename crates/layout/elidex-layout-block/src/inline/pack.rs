@@ -238,17 +238,18 @@ impl LinePacker {
                 let (seg_width, trimmed_width) = measure_segment_widths(font_db, &params, text);
 
                 // Whether this segment gives the line its height (generates a box).
-                // For collapsible white-space a segment of only collapsible white space
-                // hangs / collapses away and generates no box (CSS 2 §9.2.2.1); rendered
-                // content is therefore "has a non-whitespace character after trailing
-                // trimming", independent of measured advance — a zero-advance glyph such
-                // as U+200B ZERO WIDTH SPACE is still content. For preserved white-space
-                // (`pre`/`pre-wrap`) spaces are rendered and DO give the line its height
-                // (e.g. `<pre>   </pre>`); a pure segment break is handled by
-                // `force_break`, so only a non-`\n` character marks the line here.
+                // For preserved white-space (`pre`/`pre-wrap`) every non-empty segment
+                // is rendered content and occupies a line — including a lone preserved
+                // segment break (`"\n"`), whose end-of-text break is filtered out of
+                // `find_break_opportunities` so `force_break` never runs (e.g.
+                // `<pre>\n</pre>`). For collapsible white-space a segment of only
+                // collapsible white space hangs / collapses away and generates no box
+                // (CSS 2 §9.2.2.1); rendered content is "has a non-collapsible character
+                // after trimming ASCII space/tab", independent of measured advance — a
+                // zero-advance glyph (U+200B) or a no-break space (U+00A0) is content.
                 let contributes_content =
                     if matches!(run.white_space, WhiteSpace::Pre | WhiteSpace::PreWrap) {
-                        text.chars().any(|c| c != '\n')
+                        !text.is_empty()
                     } else {
                         // Trim only the *collapsible* white space (ASCII space/tab,
                         // the same predicate as the trailing-hang measurement), not
