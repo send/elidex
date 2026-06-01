@@ -83,7 +83,8 @@ pub(crate) fn target_from_this(ctx: &NativeContext<'_>, this: JsValue) -> Option
         | ObjectKind::IdbTransaction
         | ObjectKind::IdbDatabase
         | ObjectKind::WebSocket
-        | ObjectKind::EventSource => ctx
+        | ObjectKind::EventSource
+        | ObjectKind::FileReader => ctx
             .vm
             .host_data
             .as_ref()

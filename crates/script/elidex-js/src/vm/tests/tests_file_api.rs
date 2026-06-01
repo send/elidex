@@ -14,6 +14,7 @@
 use elidex_ecs::{Attributes, EcsDom};
 use elidex_script_session::SessionCore;
 
+use super::super::host_data::HostData;
 use super::super::test_helpers::bind_vm;
 use super::super::value::JsValue;
 use super::super::Vm;
@@ -87,6 +88,22 @@ fn eval_number(vm: &mut Vm, source: &str) -> f64 {
         JsValue::Number(n) => n,
         other => panic!("expected number, got {other:?}"),
     }
+}
+
+/// A VM with `HostData` installed but **no** document bound — the minimal
+/// setup a `FileReader` needs to deliver events through the shared §2.9
+/// VmObject dispatch core.  The `target_from_this` FileReader arm gates on
+/// `HostData` *presence* (not document-bound state), and the VmObject
+/// dispatch path takes no bound-DOM deref, so `install_host_data` alone
+/// suffices (mirrors the `install_host_data(HostData::new())` pattern in
+/// `tests_add_event_listener`).  Before the shared-core migration FileReader
+/// stored on* handlers in a VmInner side-table that worked pre-HostData —
+/// that was the anomaly; now FileReader matches every other VmObject
+/// EventTarget (AbortSignal / IndexedDB / WebSocket / EventSource).
+fn fr_vm() -> Vm {
+    let mut vm = Vm::new();
+    vm.install_host_data(HostData::new());
+    vm
 }
 
 // ---------------------------------------------------------------------------
@@ -777,7 +794,7 @@ fn file_reader_must_be_called_with_new() {
 
 #[test]
 fn on_handler_default_null() {
-    let mut vm = Vm::new();
+    let mut vm = fr_vm();
     assert!(eval_bool(
         &mut vm,
         "let r = new FileReader(); \
@@ -788,7 +805,7 @@ fn on_handler_default_null() {
 
 #[test]
 fn on_handler_set_and_get_callable() {
-    let mut vm = Vm::new();
+    let mut vm = fr_vm();
     assert!(eval_bool(
         &mut vm,
         "let r = new FileReader(); \
@@ -800,7 +817,7 @@ fn on_handler_set_and_get_callable() {
 
 #[test]
 fn on_handler_set_non_callable_becomes_null() {
-    let mut vm = Vm::new();
+    let mut vm = fr_vm();
     // Spec: only callable values are retained; others null the slot.
     assert!(eval_bool(
         &mut vm,
@@ -815,7 +832,7 @@ fn on_handler_set_non_callable_becomes_null() {
 
 #[test]
 fn read_as_text_basic() {
-    let mut vm = Vm::new();
+    let mut vm = fr_vm();
     vm.eval(
         "let r = new FileReader(); \
          globalThis._resolved = null; \
@@ -832,7 +849,7 @@ fn read_as_text_basic() {
 
 #[test]
 fn read_as_text_state_transitions_to_done() {
-    let mut vm = Vm::new();
+    let mut vm = fr_vm();
     vm.eval(
         "let r = new FileReader(); \
          globalThis._states = []; \
@@ -873,7 +890,7 @@ fn read_as_text_state_transitions_to_done() {
 
 #[test]
 fn read_as_text_with_encoding_label() {
-    let mut vm = Vm::new();
+    let mut vm = fr_vm();
     vm.eval(
         "let r = new FileReader(); \
          globalThis._got = null; \
@@ -892,7 +909,7 @@ fn read_as_text_with_encoding_label() {
 
 #[test]
 fn read_as_text_utf8_bom_sniff() {
-    let mut vm = Vm::new();
+    let mut vm = fr_vm();
     vm.eval(
         "let r = new FileReader(); \
          globalThis._got = null; \
@@ -914,7 +931,7 @@ fn read_as_text_invalid_encoding_label_falls_back_to_utf8() {
     // FileAPI §6.3 step 1: if the user-provided label is not a valid
     // encoding name, fall through to subsequent steps (Blob.type
     // charset → BOM → UTF-8 default) — do NOT throw.
-    let mut vm = Vm::new();
+    let mut vm = fr_vm();
     vm.eval(
         "let r = new FileReader(); \
          globalThis._got = null; \
@@ -931,7 +948,7 @@ fn read_as_text_invalid_encoding_label_falls_back_to_utf8() {
 
 #[test]
 fn read_as_text_blob_type_charset() {
-    let mut vm = Vm::new();
+    let mut vm = fr_vm();
     vm.eval(
         "let r = new FileReader(); \
          globalThis._got = null; \
@@ -949,7 +966,7 @@ fn read_as_text_blob_type_charset() {
 
 #[test]
 fn read_as_array_buffer_basic() {
-    let mut vm = Vm::new();
+    let mut vm = fr_vm();
     vm.eval(
         "let r = new FileReader(); \
          globalThis._len = -1; \
@@ -966,7 +983,7 @@ fn read_as_array_buffer_basic() {
 
 #[test]
 fn read_as_data_url_basic() {
-    let mut vm = Vm::new();
+    let mut vm = fr_vm();
     vm.eval(
         "let r = new FileReader(); \
          globalThis._url = null; \
@@ -984,7 +1001,7 @@ fn read_as_data_url_basic() {
 
 #[test]
 fn read_as_data_url_empty_type_keeps_semicolon() {
-    let mut vm = Vm::new();
+    let mut vm = fr_vm();
     vm.eval(
         "let r = new FileReader(); \
          globalThis._url = null; \
@@ -1002,7 +1019,7 @@ fn read_as_data_url_empty_type_keeps_semicolon() {
 
 #[test]
 fn read_as_binary_string_byte_to_codepoint() {
-    let mut vm = Vm::new();
+    let mut vm = fr_vm();
     vm.eval(
         "let r = new FileReader(); \
          globalThis._s = null; \
@@ -1058,7 +1075,7 @@ fn read_while_loading_throws_invalid_state() {
 
 #[test]
 fn abort_during_loading_fires_abort_and_loadend() {
-    let mut vm = Vm::new();
+    let mut vm = fr_vm();
     vm.eval(
         "let r = new FileReader(); \
          globalThis._fires = []; \
@@ -1091,11 +1108,11 @@ fn abort_during_loading_fires_abort_and_loadend() {
 #[test]
 fn abort_handler_can_start_new_read_with_fresh_state() {
     // Re-read race: `onabort` calling `readAsText(blob2)` is legal per
-    // FileAPI §6.4 — the new read sets state=LOADING with a fresh
+    // FileAPI §6.2 — the new read sets state=LOADING with a fresh
     // abort_seq; the stale task from the original (aborted) read
     // silent-discards on drain via abort_seq snapshot mismatch.  After
     // both tasks settle, only the new read's result is observable.
-    let mut vm = Vm::new();
+    let mut vm = fr_vm();
     vm.eval(
         "let r = new FileReader(); \
          globalThis._loads = []; \
@@ -1122,12 +1139,12 @@ fn abort_handler_can_start_new_read_with_fresh_state() {
 #[test]
 fn abort_progress_event_carries_blob_size_as_loaded_total() {
     // Copilot R2 regression: `abort()` cleared target_blob to None
-    // BEFORE firing abort + loadend, so `fire_progress_event` saw a
+    // BEFORE firing abort + loadend, so `fire_fr_progress` saw a
     // missing blob and emitted loaded = total = 0.  Fix captures
     // blob_size BEFORE the clear and threads it through as an
     // override.  Observable: a 5-byte Blob aborted mid-read should
     // report loaded = total = 5 on the abort event.
-    let mut vm = Vm::new();
+    let mut vm = fr_vm();
     vm.eval(
         "let r = new FileReader(); \
          globalThis._loaded = -1; globalThis._total = -1; \
@@ -1150,7 +1167,7 @@ fn abort_progress_event_carries_blob_size_as_loaded_total() {
 
 #[test]
 fn abort_when_empty_is_noop() {
-    let mut vm = Vm::new();
+    let mut vm = fr_vm();
     vm.eval(
         "let r = new FileReader(); \
          globalThis._abort_fired = false; \
@@ -1167,7 +1184,7 @@ fn abort_when_empty_is_noop() {
 
 #[test]
 fn abort_after_done_is_noop() {
-    let mut vm = Vm::new();
+    let mut vm = fr_vm();
     vm.eval(
         "let r = new FileReader(); \
          globalThis._abort_count = 0; \
@@ -1185,7 +1202,7 @@ fn abort_after_done_is_noop() {
 
 #[test]
 fn progress_event_carries_loaded_total() {
-    let mut vm = Vm::new();
+    let mut vm = fr_vm();
     vm.eval(
         "let r = new FileReader(); \
          globalThis._loaded; globalThis._total; globalThis._lc; \
@@ -1212,6 +1229,304 @@ fn progress_event_carries_loaded_total() {
         11.0
     );
     assert!(matches!(vm.eval("_lc;").unwrap(), JsValue::Boolean(true)));
+}
+
+// ---------------------------------------------------------------------------
+// FileReader — shared §2.9 EventTarget integration
+// (`#11-filereader-event-listeners`)
+//
+// FileReader's bespoke `handlers` side-table + single-handler
+// `fire_progress_event` were replaced by the shared VmObject dispatch
+// core (`fire_vm_progress_event` → `fire_vm_event` → `dispatch_vm_event`).
+// `addEventListener` / `removeEventListener` / `dispatchEvent` (inherited,
+// previously inert) now work, with capture / once / passive / {signal}
+// inherited; the `onerror` written-but-never-read gap is closed.  All
+// delivery tests use `fr_vm()` (HostData present — the VmObject contract).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn add_event_listener_load_receives_progress_event() {
+    // Gained surface: addEventListener delivery was inert pre-migration
+    // (the FileReader brand was not recognized by `target_from_this`), so
+    // this fails today.  WHATWG DOM §2.7/§2.9 + W3C File API §6.4.
+    let mut vm = fr_vm();
+    vm.eval(
+        "let r = new FileReader(); \
+         globalThis._got = null; \
+         r.addEventListener('load', function(e) { \
+            globalThis._got = { \
+               isPE: e instanceof ProgressEvent, \
+               loaded: e.loaded, \
+               total: e.total, \
+               lc: e.lengthComputable, \
+               type: e.type, \
+            }; \
+         }); \
+         r.readAsText(new Blob(['hello']));",
+    )
+    .unwrap();
+    assert!(
+        eval_bool(&mut vm, "_got !== null;"),
+        "load listener did not fire"
+    );
+    assert!(
+        eval_bool(&mut vm, "_got.isPE;"),
+        "event was not a ProgressEvent"
+    );
+    assert_eq!(eval_number(&mut vm, "_got.loaded;"), 5.0);
+    assert_eq!(eval_number(&mut vm, "_got.total;"), 5.0);
+    assert!(eval_bool(&mut vm, "_got.lc;"));
+    assert_eq!(eval_string(&mut vm, "_got.type;"), "load");
+}
+
+#[test]
+fn on_handler_and_add_event_listener_both_fire_for_load() {
+    // on* (EventHandler-kind) AND addEventListener (Normal-kind) share the
+    // one `vm_event_listeners` home and both fire from one dispatch.
+    let mut vm = fr_vm();
+    vm.eval(
+        "let r = new FileReader(); \
+         globalThis._fires = []; \
+         r.onload = () => globalThis._fires.push('on'); \
+         r.addEventListener('load', () => globalThis._fires.push('ael')); \
+         r.readAsText(new Blob(['x']));",
+    )
+    .unwrap();
+    assert_eq!(eval_number(&mut vm, "_fires.length;"), 2.0);
+    assert!(eval_bool(
+        &mut vm,
+        "_fires.includes('on') && _fires.includes('ael');"
+    ));
+}
+
+#[test]
+fn add_event_listener_delivers_full_read_sequence() {
+    // File API §6.2 read operation sequence delivered to addEventListener:
+    // loadstart (sync, in readAs*) → progress → load → loadend (drain).
+    let mut vm = fr_vm();
+    vm.eval(
+        "let r = new FileReader(); \
+         globalThis._seq = []; \
+         for (const t of ['loadstart', 'progress', 'load', 'loadend']) { \
+            r.addEventListener(t, (e) => globalThis._seq.push(e.type)); \
+         } \
+         r.readAsText(new Blob(['hi']));",
+    )
+    .unwrap();
+    assert_eq!(eval_number(&mut vm, "_seq.length;"), 4.0);
+    assert!(eval_bool(
+        &mut vm,
+        "_seq[0]==='loadstart' && _seq[1]==='progress' && \
+         _seq[2]==='load' && _seq[3]==='loadend';"
+    ));
+}
+
+#[test]
+fn add_event_listener_once_fires_only_once() {
+    // {once:true} self-removes after the first dispatch (§2.9 step 15).
+    // Two reads on one reader fire `load` twice; the once listener sees one.
+    let mut vm = fr_vm();
+    vm.eval(
+        "globalThis.r = new FileReader(); \
+         globalThis._n = 0; \
+         r.addEventListener('load', () => globalThis._n++, {once: true}); \
+         r.readAsText(new Blob(['a']));",
+    )
+    .unwrap();
+    // State is DONE after the first read drains, so a second read is legal.
+    vm.eval("r.readAsText(new Blob(['b']));").unwrap();
+    assert_eq!(
+        eval_number(&mut vm, "_n;"),
+        1.0,
+        "once listener fired more than once"
+    );
+}
+
+#[test]
+fn add_event_listener_capture_fires_at_flat_target() {
+    // #264 R2 pin: the `vm_path_has_listener` fast-path gate must not drop a
+    // {capture:true} listener at a flat, non-bubbling target — the at-target
+    // node fires both its capture and bubble listeners (§2.9 at-target;
+    // gate `is_target || e.capture || bubbles`).
+    let mut vm = fr_vm();
+    vm.eval(
+        "let r = new FileReader(); \
+         globalThis._cap = false; \
+         r.addEventListener('load', () => globalThis._cap = true, {capture: true}); \
+         r.readAsText(new Blob(['x']));",
+    )
+    .unwrap();
+    assert!(
+        eval_bool(&mut vm, "_cap;"),
+        "capture-phase listener at flat target did not fire"
+    );
+}
+
+#[test]
+fn add_event_listener_passive_accepted_and_fires() {
+    // {passive:true} is accepted (no throw) and the listener still fires.
+    let mut vm = fr_vm();
+    vm.eval(
+        "let r = new FileReader(); \
+         globalThis._p = false; \
+         r.addEventListener('load', () => globalThis._p = true, {passive: true}); \
+         r.readAsText(new Blob(['x']));",
+    )
+    .unwrap();
+    assert!(eval_bool(&mut vm, "_p;"));
+}
+
+#[test]
+fn add_event_listener_signal_abort_detaches() {
+    // {signal} + controller.abort() before the read detaches the listener
+    // (the shared AbortSignal integration, now exercised by FileReader).
+    let mut vm = fr_vm();
+    vm.eval(
+        "let r = new FileReader(); \
+         let ac = new AbortController(); \
+         globalThis._fired = false; \
+         r.addEventListener('load', () => globalThis._fired = true, {signal: ac.signal}); \
+         ac.abort(); \
+         r.readAsText(new Blob(['x']));",
+    )
+    .unwrap();
+    assert!(
+        !eval_bool(&mut vm, "_fired;"),
+        "aborted-signal listener still fired"
+    );
+}
+
+#[test]
+fn remove_event_listener_drops_listener() {
+    let mut vm = fr_vm();
+    vm.eval(
+        "let r = new FileReader(); \
+         globalThis._n = 0; \
+         let cb = () => globalThis._n++; \
+         r.addEventListener('load', cb); \
+         r.removeEventListener('load', cb); \
+         r.readAsText(new Blob(['x']));",
+    )
+    .unwrap();
+    assert_eq!(
+        eval_number(&mut vm, "_n;"),
+        0.0,
+        "removed listener still fired"
+    );
+}
+
+#[test]
+fn dispatch_event_walks_listeners_on_file_reader() {
+    // dispatchEvent on a FileReader routes through the VmObject arm of the
+    // shared §2.9 dispatchEvent → dispatch_vm_event walk, returning
+    // !defaultPrevented.
+    let mut vm = fr_vm();
+    assert!(eval_bool(
+        &mut vm,
+        "let r = new FileReader(); \
+         let hit = false; \
+         r.addEventListener('custom', () => hit = true); \
+         let ret = r.dispatchEvent(new Event('custom')); \
+         hit && ret === true;"
+    ));
+}
+
+#[test]
+fn onerror_is_a_live_listener_after_migration() {
+    // Gap-close (load-bearing): pre-migration `onerror` was stored in a
+    // side-table the bespoke fire path never read (no Error EventKind) — a
+    // written-but-never-read dead slot.  Unifying onerror into the shared
+    // dispatch core makes it a uniform `error` listener reachable by the
+    // §2.9 walk.  No in-memory read failure exists to UA-fire `error`, so
+    // prove reachability via dispatchEvent: both `onerror` and
+    // `addEventListener('error')` fire.
+    let mut vm = fr_vm();
+    assert!(eval_bool(
+        &mut vm,
+        "let r = new FileReader(); \
+         let fires = []; \
+         r.onerror = () => fires.push('on'); \
+         r.addEventListener('error', () => fires.push('ael')); \
+         r.dispatchEvent(new Event('error')); \
+         fires.length === 2 && fires.includes('on') && fires.includes('ael');"
+    ));
+}
+
+#[test]
+fn file_reader_inherits_event_target_natives_no_shadow() {
+    // F10 single-home structural guard (the one split-brain vector not
+    // caught by the compiler): FileReader installs NO bespoke
+    // addEventListener — it inherits EventTarget.prototype's, so on* and
+    // addEventListener share one listener home with no shadowing own-method.
+    // Mirrors the WebSocket / EventSource F10 form (`EventTarget` is not a
+    // JS global in elidex, so check via an instance's immediate prototype).
+    let mut vm = fr_vm();
+    vm.eval("globalThis.r = new FileReader();").unwrap();
+    assert!(eval_bool(
+        &mut vm,
+        "typeof r.addEventListener === 'function';"
+    ));
+    // FileReader.prototype (the instance's immediate proto) must NOT OWN the
+    // three EventTarget natives — they are inherited from EventTarget.prototype.
+    assert!(eval_bool(
+        &mut vm,
+        "let own = Object.getOwnPropertyNames(Object.getPrototypeOf(r)); \
+         own.indexOf('addEventListener') === -1 && \
+         own.indexOf('removeEventListener') === -1 && \
+         own.indexOf('dispatchEvent') === -1;"
+    ));
+}
+
+#[test]
+fn read_with_no_listener_completes_through_gate() {
+    // The `vm_path_has_listener` gate inside `fire_vm_event` returns false
+    // for a reader with no listeners, so each UA-fire skips allocation and
+    // dispatch — the read must still complete and set `result` (the
+    // skip-fire path must not break the state machine).  The strict
+    // "allocates no event object" invariant is covered by the shared
+    // seam's IDB/WS/SSE no-observer tests (the identical gate).
+    let mut vm = fr_vm();
+    vm.eval("globalThis.r = new FileReader(); r.readAsText(new Blob(['gate']));")
+        .unwrap();
+    assert_eq!(
+        eval_number(&mut vm, "r.readyState;"),
+        2.0,
+        "state should be DONE"
+    );
+    assert_eq!(eval_string(&mut vm, "r.result;"), "gate");
+}
+
+#[test]
+fn load_listener_starting_new_read_is_not_clobbered() {
+    // Re-entrancy guard: a `load` listener that starts a NEW read on the
+    // same reader must not have its blob clobbered by the original drain's
+    // post-fire `target_blob` clear (which would silently drop the second
+    // read).  Both reads' results must be observed.  (Pre-existing latent
+    // bug reachable via `onload` before the EventTarget migration; the
+    // migration's new `addEventListener('load')` surface widens it.)
+    let mut vm = fr_vm();
+    vm.eval(
+        "globalThis.r = new FileReader(); \
+         globalThis._results = []; \
+         r.onload = function() { \
+            _results.push(r.result); \
+            if (_results.length === 1) r.readAsText(new Blob(['second'])); \
+         }; \
+         r.readAsText(new Blob(['first']));",
+    )
+    .unwrap();
+    // Force another task checkpoint so the re-entrantly-queued second read
+    // drains (it may queue during the first read's drain).
+    vm.eval("void 0;").unwrap();
+    assert_eq!(
+        eval_number(&mut vm, "_results.length;"),
+        2.0,
+        "second (re-entrant) read was dropped"
+    );
+    assert!(eval_bool(
+        &mut vm,
+        "_results[0] === 'first' && _results[1] === 'second';"
+    ));
 }
 
 // ---------------------------------------------------------------------------
