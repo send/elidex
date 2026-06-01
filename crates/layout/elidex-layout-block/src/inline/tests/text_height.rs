@@ -1,4 +1,5 @@
 use super::*;
+use elidex_plugin::WhiteSpace;
 
 #[test]
 fn empty_text_zero_height() {

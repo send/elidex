@@ -260,9 +260,11 @@ fn collapse_inline_whitespace(items: &mut [InlineItem]) {
         let (collapsed, trim_prev_trailing_space) =
             collapse_run_text(&text, white_space, &mut prev_collapsible_space);
         if trim_prev_trailing_space {
-            if let Some(InlineItem::Text(prev)) = prev_text_idx.map(|j| &mut items[j]) {
-                if prev.text.ends_with(' ') {
-                    prev.text.pop();
+            if let Some(j) = prev_text_idx {
+                if let InlineItem::Text(prev) = &mut items[j] {
+                    if prev.text.ends_with(' ') {
+                        prev.text.pop();
+                    }
                 }
             }
         }
