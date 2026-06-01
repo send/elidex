@@ -133,6 +133,33 @@ fn pre_blank_line_keeps_height() {
     );
 }
 
+#[test]
+fn pre_spaces_only_keeps_line_height() {
+    // `<pre>   </pre>`: preserved spaces are rendered content and give the line its
+    // height — the box-suppression (CSS 2 §9.2.2.1) applies only to *collapsible*
+    // white space, so a preserved spaces-only line is NOT suppressed.
+    let Some((mut dom, parent, mut style, font_db)) = setup_inline_test("   ") else {
+        return;
+    };
+    style.white_space = WhiteSpace::Pre;
+    let _ = dom.world_mut().insert_one(parent, style.clone());
+
+    let css_line_height = style.line_height.resolve_px(style.font_size);
+    let children = dom.composed_children(parent);
+    let env = crate::LayoutEnv {
+        font_db: &font_db,
+        layout_child: crate::layout_block_only,
+        depth: 0,
+        viewport: None,
+        layout_generation: 0,
+    };
+    let h = layout_inline_context(&mut dom, &children, 8000.0, parent, Point::ZERO, &env).height;
+    assert!(
+        (h - css_line_height).abs() < f32::EPSILON,
+        "pre spaces-only line keeps its height (one line), got {h}",
+    );
+}
+
 // --- §4.1.1 collapse transform (text-level, font-independent) ---
 
 #[test]
@@ -222,6 +249,29 @@ fn collapse_normal_normalizes_cr_then_collapses_to_space() {
     let runs = collect_styled_runs(&dom, &children, &style, parent);
     assert_eq!(runs.len(), 1);
     assert_eq!(runs[0].text, "a b c");
+}
+
+#[test]
+fn collapse_pre_line_trims_cross_run_space_before_break() {
+    // pre-line, §4.1.1 step 1 across a run boundary: a collapsible space left at
+    // the end of one run, immediately before a preserved segment break beginning
+    // the next run, is removed from the previous run.
+    let Some((mut dom, parent, mut style, _font_db)) = setup_inline_test("") else {
+        return;
+    };
+    style.white_space = WhiteSpace::PreLine;
+    let children = dom.composed_children(parent);
+    for &c in &children {
+        dom.remove_child(parent, c);
+    }
+    for t in ["a ", "\nb"] {
+        let tx = dom.create_text(t);
+        dom.append_child(parent, tx);
+    }
+    let children = dom.composed_children(parent);
+    let runs = collect_styled_runs(&dom, &children, &style, parent);
+    let texts: Vec<&str> = runs.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(texts, vec!["a", "\nb"]);
 }
 
 #[test]

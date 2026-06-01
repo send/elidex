@@ -234,30 +234,53 @@ fn collapse_inline_whitespace(items: &mut [InlineItem]) {
     // earlier run of this IFC) was a collapsible space, so a following collapsible
     // space collapses to zero advance width (§4.1.1 step 4).
     let mut prev_collapsible_space = false;
-    for item in items {
-        match item {
-            InlineItem::Text(run) => {
-                run.text =
-                    collapse_run_text(&run.text, run.white_space, &mut prev_collapsible_space);
-            }
+    // Index of the most recent text run, so a preserved segment break at the start
+    // of a later run can remove a collapsible space left at the end of it (§4.1.1
+    // step 1, across the run boundary).
+    let mut prev_text_idx: Option<usize> = None;
+    for i in 0..items.len() {
+        let (text, white_space) = match &items[i] {
+            InlineItem::Text(run) => (run.text.clone(), run.white_space),
             // Atomic inline boxes are rendered content: a collapsible space that
             // follows one is a fresh separator, not collapsed away.
-            InlineItem::Atomic { .. } => prev_collapsible_space = false,
+            InlineItem::Atomic { .. } => {
+                prev_collapsible_space = false;
+                prev_text_idx = None;
+                continue;
+            }
             // Out-of-flow placeholders (absolutely positioned, CSS 2.1 §9.3.1/§9.6)
             // are removed from the normal flow and do not participate in the inline
             // text flow, so they neither emit nor reset collapse state.
-            InlineItem::Placeholder(_) => {}
+            InlineItem::Placeholder(_) => continue,
+        };
+        let (collapsed, trim_prev_trailing_space) =
+            collapse_run_text(&text, white_space, &mut prev_collapsible_space);
+        if trim_prev_trailing_space {
+            if let Some(InlineItem::Text(prev)) = prev_text_idx.map(|j| &mut items[j]) {
+                if prev.text.ends_with(' ') {
+                    prev.text.pop();
+                }
+            }
         }
+        if let InlineItem::Text(run) = &mut items[i] {
+            run.text = collapsed;
+        }
+        prev_text_idx = Some(i);
     }
 }
 
 /// Collapse a single run's text per its `white-space`, threading the cross-run
 /// `prev_collapsible_space` state. See [`collapse_inline_whitespace`].
+///
+/// Returns the collapsed text and a flag requesting that the caller remove a
+/// collapsible space left at the end of the *previous* run: true when this run
+/// emits a preserved segment break before any content while a collapsible space
+/// was pending from the previous run (§4.1.1 step 1, across the run boundary).
 fn collapse_run_text(
     text: &str,
     white_space: WhiteSpace,
     prev_collapsible_space: &mut bool,
-) -> String {
+) -> (String, bool) {
     // CSS Text 3 §4.1.3: normalize line endings before segment-break handling so a
     // bare CR or CRLF becomes the single canonical segment break (`\n`) for every
     // `white-space` value (otherwise a CR would be mishandled — e.g. preserved as a
@@ -271,18 +294,26 @@ fn collapse_run_text(
             if !text.is_empty() {
                 *prev_collapsible_space = false;
             }
-            text
+            (text, false)
         }
         WhiteSpace::Normal | WhiteSpace::NoWrap | WhiteSpace::PreLine => {
             let preserve_break = white_space == WhiteSpace::PreLine;
+            // Whether a collapsible space was pending from the previous run on entry
+            // (needed to remove it across the run boundary before a leading break).
+            let entry_prev_space = *prev_collapsible_space;
             let mut out = String::with_capacity(text.len());
+            let mut trim_prev_trailing_space = false;
             for c in text.chars() {
                 if c == '\n' && preserve_break {
                     // §4.1.1 step 1 / §4.1.3: collapsible spaces around a preserved
-                    // segment break are removed — drop a space we just emitted, and
-                    // (via the flag) the next collapsible space that follows.
+                    // segment break are removed.
                     if out.ends_with(' ') {
+                        // The space is in this run's own output — drop it directly.
                         out.pop();
+                    } else if out.is_empty() && entry_prev_space {
+                        // The space immediately preceding this break was emitted at
+                        // the end of the previous run; ask the caller to remove it.
+                        trim_prev_trailing_space = true;
                     }
                     out.push('\n');
                     *prev_collapsible_space = true;
@@ -300,7 +331,7 @@ fn collapse_run_text(
                     *prev_collapsible_space = false;
                 }
             }
-            out
+            (out, trim_prev_trailing_space)
         }
     }
 }

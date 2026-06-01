@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use elidex_ecs::{EcsDom, Entity};
-use elidex_plugin::{ComputedStyle, EdgeSizes, LayoutBox, Point, Rect};
+use elidex_plugin::{ComputedStyle, EdgeSizes, LayoutBox, Point, Rect, WhiteSpace};
 use elidex_text::{measure_text, BreakOpportunity, FontDatabase};
 
 use super::measure::measure_segment_widths;
@@ -212,16 +212,26 @@ impl LinePacker {
                     }
                 }
 
-                // A text segment is rendered content only if it has non-zero
-                // advance after trailing-whitespace trimming — a segment of only
-                // collapsible white space (trimmed width 0) generates no box.
+                // Whether this segment gives the line its height (generates a box).
+                // For collapsible white-space, a segment of only collapsible spaces
+                // hangs / collapses to zero advance and does NOT (CSS 2 §9.2.2.1), so
+                // trailing-trimmed width 0 means no content. For preserved white-space
+                // (`pre`/`pre-wrap`), spaces are rendered and DO give the line its
+                // height (e.g. `<pre>   </pre>`); a pure segment break is handled by
+                // `force_break`, so only a non-`\n` character marks the line here.
+                let contributes_content =
+                    if matches!(run.white_space, WhiteSpace::Pre | WhiteSpace::PreWrap) {
+                        text.chars().any(|c| c != '\n')
+                    } else {
+                        trimmed_width > 0.0
+                    };
                 self.place_item(
                     seg_width,
                     trimmed_width,
                     seg_line_advance,
                     run.entity,
                     containing_inline_size,
-                    trimmed_width > 0.0,
+                    contributes_content,
                 );
 
                 if *break_after == Some(BreakOpportunity::Mandatory) {
