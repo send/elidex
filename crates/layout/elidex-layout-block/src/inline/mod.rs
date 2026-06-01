@@ -258,6 +258,11 @@ fn collapse_run_text(
     white_space: WhiteSpace,
     prev_collapsible_space: &mut bool,
 ) -> String {
+    // CSS Text 3 §4.1.3: normalize line endings before segment-break handling so a
+    // bare CR or CRLF becomes the single canonical segment break (`\n`) for every
+    // `white-space` value (otherwise a CR would be mishandled — e.g. preserved as a
+    // forced break under pre-line). Matches `elidex-render`'s `normalize_line_endings`.
+    let text = text.replace("\r\n", "\n").replace('\r', "\n");
     match white_space {
         // Preserve values: text is left intact. A non-empty preserved run is
         // rendered content, so it resets the collapse state (a following collapsible
@@ -266,7 +271,7 @@ fn collapse_run_text(
             if !text.is_empty() {
                 *prev_collapsible_space = false;
             }
-            text.to_string()
+            text
         }
         WhiteSpace::Normal | WhiteSpace::NoWrap | WhiteSpace::PreLine => {
             let preserve_break = white_space == WhiteSpace::PreLine;
@@ -300,11 +305,12 @@ fn collapse_run_text(
     }
 }
 
-/// CSS Text 3 collapsible space characters (space + tab; CR/FF are normalized away
-/// by the HTML parser but treated defensively). The segment break (`\n`) is handled
-/// separately because its transformation depends on `white-space` (§4.1.3).
+/// CSS Text 3 collapsible space characters: space and tab. CR/CRLF are normalized
+/// to the segment break `\n` upstream in [`collapse_run_text`], so they are not
+/// treated here; the segment break itself is handled separately because its
+/// transformation depends on `white-space` (§4.1.3).
 fn is_collapsible_space(c: char) -> bool {
-    matches!(c, ' ' | '\t' | '\r' | '\u{000C}')
+    matches!(c, ' ' | '\t')
 }
 
 // ---------------------------------------------------------------------------

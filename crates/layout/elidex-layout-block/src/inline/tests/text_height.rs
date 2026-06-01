@@ -198,6 +198,33 @@ fn collapse_across_adjacent_text_runs_yields_single_space() {
 }
 
 #[test]
+fn collapse_pre_line_normalizes_cr_to_preserved_break() {
+    // CSS Text 3 §4.1.3: CRLF and bare CR normalize to the segment break `\n`.
+    // Under pre-line that break is preserved — CR must NOT be treated as a
+    // collapsible space.
+    let Some((dom, parent, mut style, _font_db)) = setup_inline_test("a\r\nb\rc") else {
+        return;
+    };
+    style.white_space = WhiteSpace::PreLine;
+    let children = dom.composed_children(parent);
+    let runs = collect_styled_runs(&dom, &children, &style, parent);
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].text, "a\nb\nc");
+}
+
+#[test]
+fn collapse_normal_normalizes_cr_then_collapses_to_space() {
+    // Under normal, the normalized segment breaks collapse to spaces.
+    let Some((dom, parent, style, _font_db)) = setup_inline_test("a\r\nb\rc") else {
+        return;
+    };
+    let children = dom.composed_children(parent);
+    let runs = collect_styled_runs(&dom, &children, &style, parent);
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].text, "a b c");
+}
+
+#[test]
 fn text_wrapping_increases_height() {
     let Some((mut dom, parent, style, font_db)) = setup_inline_test("hello world foo bar baz")
     else {
