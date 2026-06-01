@@ -239,8 +239,9 @@ fn collapse_inline_whitespace(items: &mut [InlineItem]) {
     // step 1, across the run boundary).
     let mut prev_text_idx: Option<usize> = None;
     for i in 0..items.len() {
-        let (text, white_space) = match &items[i] {
-            InlineItem::Text(run) => (run.text.clone(), run.white_space),
+        // Move the run's text out (no clone) to collapse it, then write it back.
+        let (text, white_space) = match &mut items[i] {
+            InlineItem::Text(run) => (std::mem::take(&mut run.text), run.white_space),
             // Atomic inline boxes are rendered content: a collapsible space that
             // follows one is a fresh separator, not collapsed away.
             InlineItem::Atomic { .. } => {

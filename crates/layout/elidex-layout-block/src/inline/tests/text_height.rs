@@ -160,6 +160,29 @@ fn pre_spaces_only_keeps_line_height() {
     );
 }
 
+#[test]
+fn collapsible_whitespace_only_generates_no_line_box() {
+    // CSS 2 §9.2.2.1: a line of only collapsible white space generates no box — not
+    // a zero-height one — so `line_count` is 0, not a phantom 1.
+    let Some((mut dom, parent, _style, font_db)) = setup_inline_test("   ") else {
+        return;
+    };
+    let children = dom.composed_children(parent);
+    let env = crate::LayoutEnv {
+        font_db: &font_db,
+        layout_child: crate::layout_block_only,
+        depth: 0,
+        viewport: None,
+        layout_generation: 0,
+    };
+    let result = layout_inline_context(&mut dom, &children, 8000.0, parent, Point::ZERO, &env);
+    assert_eq!(
+        result.line_count, 0,
+        "collapsible whitespace-only content generates no line box",
+    );
+    assert!(result.height.abs() < f32::EPSILON);
+}
+
 // --- §4.1.1 collapse transform (text-level, font-independent) ---
 
 #[test]

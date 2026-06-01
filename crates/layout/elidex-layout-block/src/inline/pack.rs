@@ -155,15 +155,21 @@ impl LinePacker {
         }
     }
 
-    /// Block size contributed by the current line: zero when the line has no
-    /// rendered content (collapsible white space that collapses away generates no
-    /// box, CSS 2 §9.2.2.1 / §9.2.1.1), otherwise the line's height.
-    fn line_block_size(&self) -> f32 {
+    /// Emit the current line as a line box, then reset line state. A line with no
+    /// rendered content — only collapsible white space that collapses away —
+    /// generates no box at all (CSS 2 §9.2.2.1 / §9.2.1.1): it is not pushed and
+    /// does not advance the block cursor, so it does not skew `line_count` or
+    /// fragmentation.
+    fn flush_line(&mut self) {
         if self.any_rendered_content {
-            self.current_line_height
-        } else {
-            0.0
+            self.line_boxes.push(LineBox {
+                block_size: self.current_line_height,
+            });
+            self.current_block_offset += self.current_line_height;
         }
+        self.current_inline = 0.0;
+        self.current_line_height = 0.0;
+        self.any_rendered_content = false;
     }
 
     pub fn pack(
@@ -303,12 +309,7 @@ impl LinePacker {
         contributes_content: bool,
     ) {
         if self.current_inline + trimmed_width > containing_inline_size && self.on_line {
-            let block_size = self.line_block_size();
-            self.line_boxes.push(LineBox { block_size });
-            self.current_block_offset += block_size;
-            self.current_inline = 0.0;
-            self.current_line_height = 0.0;
-            self.any_rendered_content = false;
+            self.flush_line();
         }
 
         let seg_inline_start = self.current_inline;
@@ -350,20 +351,13 @@ impl LinePacker {
         // transformed to spaces upstream, so this path is reached only for genuine
         // forced breaks; mark the line as rendered content so it keeps its height.
         self.any_rendered_content = true;
-        self.line_boxes.push(LineBox {
-            block_size: self.current_line_height,
-        });
-        self.current_block_offset += self.current_line_height;
-        self.current_inline = 0.0;
-        self.current_line_height = 0.0;
+        self.flush_line();
         self.on_line = false;
-        self.any_rendered_content = false;
     }
 
     pub fn finish(&mut self) {
         if self.on_line {
-            let block_size = self.line_block_size();
-            self.line_boxes.push(LineBox { block_size });
+            self.flush_line();
         }
     }
 }
