@@ -121,19 +121,22 @@ use super::super::{NativeFn, VmInner};
 use super::events::install_ctor;
 
 impl VmInner {
-    /// Allocate `WebSocket.prototype` chained to `Object.prototype`,
+    /// Allocate `WebSocket.prototype` chained to `EventTarget.prototype`,
     /// install the readyState / url / protocol / extensions /
     /// bufferedAmount / binaryType accessors, send / close methods,
     /// 4 `on*` handler getter/setter pairs, the CONNECTING / OPEN /
     /// CLOSING / CLOSED IDL constants, and expose the user-callable
-    /// `WebSocket` constructor on `globalThis`.
+    /// `WebSocket` constructor on `globalThis`.  `addEventListener` /
+    /// `removeEventListener` / `dispatchEvent` are inherited from
+    /// `EventTarget.prototype`, not installed here.
     ///
-    /// Called from `register_globals()` after `register_prototypes`
-    /// (which populates `object_prototype`).
+    /// Called from `register_globals()` after
+    /// `register_event_target_prototype` (which populates
+    /// `event_target_prototype`).
     ///
     /// # Panics
     ///
-    /// Panics if `object_prototype` is `None` — would mean the
+    /// Panics if `event_target_prototype` is `None` — would mean the
     /// call-order invariant from `register_globals()` was violated.
     pub(in crate::vm) fn register_websocket_global(&mut self) {
         // `WebSocket : EventTarget` (WHATWG WebSockets §3) — chain the

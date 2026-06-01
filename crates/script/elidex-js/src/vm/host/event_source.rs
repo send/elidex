@@ -78,19 +78,20 @@ use super::super::{NativeFn, VmInner};
 use super::events::install_ctor;
 
 impl VmInner {
-    /// Allocate `EventSource.prototype` chained to `Object.prototype`,
-    /// install the readyState / url / withCredentials accessors,
-    /// close / addEventListener / removeEventListener methods, 3
-    /// `on*` handler getter/setter pairs, the CONNECTING / OPEN /
-    /// CLOSED IDL constants, and expose the user-callable
-    /// `EventSource` constructor on `globalThis`.
+    /// Allocate `EventSource.prototype` chained to `EventTarget.prototype`,
+    /// install the readyState / url / withCredentials accessors, the
+    /// `close` method, 3 `on*` handler getter/setter pairs, the
+    /// CONNECTING / OPEN / CLOSED IDL constants, and expose the
+    /// user-callable `EventSource` constructor on `globalThis`.
+    /// `addEventListener` / `removeEventListener` / `dispatchEvent` are
+    /// inherited from `EventTarget.prototype`, not installed here.
     ///
     /// SSE lacks a `CLOSING` constant per WHATWG HTML §9.2 (3-state
     /// machine, not 4) — `CLOSING` is WebSocket-only.
     ///
     /// # Panics
     ///
-    /// Panics if `object_prototype` is `None` — would mean the
+    /// Panics if `event_target_prototype` is `None` — would mean the
     /// call-order invariant from `register_globals()` was violated.
     pub(in crate::vm) fn register_event_source_global(&mut self) {
         // `EventSource : EventTarget` (WHATWG HTML §9.2.2) — chain the
