@@ -2,12 +2,54 @@
 
 use std::collections::HashMap;
 
-use elidex_ecs::{EcsDom, Entity};
-use elidex_plugin::{ComputedStyle, EdgeSizes, LayoutBox, Point, Rect, WhiteSpace};
+use elidex_ecs::{EcsDom, Entity, InlineFlowLine, InlineFlowRun};
+use elidex_plugin::{
+    ComputedStyle, Direction, EdgeSizes, LayoutBox, Point, Rect, TextAlign, WhiteSpace,
+};
 use elidex_text::{measure_text, BreakOpportunity, FontDatabase};
 
 use super::measure::measure_segment_widths;
 use super::InlineItem;
+
+/// Horizontal inline-alignment context for persisting an [`InlineFlow`](elidex_ecs::InlineFlow).
+///
+/// Present (`Some`) only when the IFC is horizontal and persistable (the run is
+/// gated in — see `layout_inline_context_fragmented`); `None` skips all flow
+/// recording (vertical writing modes, or `text-align: justify` which slice 1
+/// leaves to render's fallback). When present, `LinePacker` records per-line
+/// positioned text runs with `text-align` baked into each run's `inline_start`.
+#[derive(Clone, Copy)]
+pub(super) struct FlowAlign {
+    pub text_align: TextAlign,
+    pub direction: Direction,
+    pub containing_inline_size: f32,
+}
+
+/// Resolve `text-align: start/end` to physical `left/right` for the given direction.
+fn resolve_align(align: TextAlign, direction: Direction) -> TextAlign {
+    match align {
+        TextAlign::Start => match direction {
+            Direction::Ltr => TextAlign::Left,
+            Direction::Rtl => TextAlign::Right,
+        },
+        TextAlign::End => match direction {
+            Direction::Ltr => TextAlign::Right,
+            Direction::Rtl => TextAlign::Left,
+        },
+        other => other,
+    }
+}
+
+/// Inline-start offset for a resolved alignment given the line's free space
+/// (`container_inline_size − trimmed_line_width`). `justify` is gated out before
+/// reaching here, so it falls to the default `0.0`.
+fn align_offset(resolved: TextAlign, free: f32) -> f32 {
+    match resolved {
+        TextAlign::Center => free / 2.0,
+        TextAlign::Right | TextAlign::End => free,
+        _ => 0.0,
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Break segment — a piece of a StyledRun between break opportunities
@@ -145,10 +187,26 @@ pub(super) struct LinePacker {
     /// First baseline offset from the inline formatting context top.
     /// Captured from the first text run on the first line.
     pub first_baseline: Option<f32>,
+    /// When `Some`, persist collapsed + positioned text runs into `flow_lines`
+    /// (the `InlineFlow` source, consumed by render). `None` skips recording.
+    flow_align: Option<FlowAlign>,
+    /// Per-line positioned text runs tentatively collected for the current line,
+    /// committed into `flow_lines` on a rendered-content flush (the same
+    /// commit-on-content seam as `current_line_entity_rects`) and discarded on a
+    /// suppressed (collapsible-whitespace-only) line.
+    current_line_runs: Vec<InlineFlowRun>,
+    /// Trailing collapsible-whitespace "hang" of the last segment placed on the
+    /// current line (`full_width − trimmed_width`), subtracted from the line
+    /// advance to get the trimmed line width for `text-align` (CSS Text 3 §4.1.2
+    /// trailing spaces do not count toward alignment).
+    current_line_last_hang: f32,
+    /// Persisted per-line positioned runs in IFC-local coordinates (the caller
+    /// converts to absolute and wraps in an `InlineFlow`).
+    pub flow_lines: Vec<InlineFlowLine>,
 }
 
 impl LinePacker {
-    pub fn new(parent_entity: Entity) -> Self {
+    pub fn new(parent_entity: Entity, flow_align: Option<FlowAlign>) -> Self {
         Self {
             line_boxes: Vec::new(),
             entity_bounds: HashMap::new(),
@@ -161,6 +219,10 @@ impl LinePacker {
             current_line_entity_rects: Vec::new(),
             parent_entity,
             first_baseline: None,
+            flow_align,
+            current_line_runs: Vec::new(),
+            current_line_last_hang: 0.0,
+            flow_lines: Vec::new(),
         }
     }
 
@@ -199,14 +261,41 @@ impl LinePacker {
                         line_rects: vec![rect],
                     });
             }
+            // Commit the line's positioned text runs into flow_lines, baking the
+            // per-line text-align offset into each run's inline_start. The line
+            // width for alignment excludes the trailing collapsible-whitespace
+            // hang of the last segment (CSS Text 3 §4.1.2).
+            if let Some(fa) = self.flow_align {
+                let line_width = self.current_inline - self.current_line_last_hang;
+                let free = (fa.containing_inline_size - line_width).max(0.0);
+                let offset = align_offset(resolve_align(fa.text_align, fa.direction), free);
+                let runs: Vec<InlineFlowRun> = self
+                    .current_line_runs
+                    .drain(..)
+                    .map(|mut r| {
+                        r.inline_start += offset;
+                        r
+                    })
+                    .collect();
+                if !runs.is_empty() {
+                    self.flow_lines.push(InlineFlowLine {
+                        block_start: self.current_block_offset,
+                        block_size: self.current_line_height,
+                        runs,
+                    });
+                }
+            }
             self.current_block_offset += self.current_line_height;
         } else {
             // Suppressed line (collapsible whitespace only): discard its rects so no
-            // phantom getClientRects geometry is produced (CSS 2 §9.2.2.1).
+            // phantom getClientRects geometry is produced (CSS 2 §9.2.2.1). Likewise
+            // discard the tentative flow runs (no InlineFlowLine for a no-box line).
             self.current_line_entity_rects.clear();
+            self.current_line_runs.clear();
         }
         self.current_inline = 0.0;
         self.current_line_height = 0.0;
+        self.current_line_last_hang = 0.0;
         self.any_rendered_content = false;
     }
 
@@ -289,6 +378,7 @@ impl LinePacker {
                     run.entity,
                     containing_inline_size,
                     contributes_content,
+                    Some(text),
                 );
 
                 if *break_after == Some(BreakOpportunity::Mandatory) {
@@ -329,7 +419,10 @@ impl LinePacker {
                 }
 
                 // Atomic boxes don't break internally; treat as a single unit.
-                // An atomic inline box is always rendered content.
+                // An atomic inline box is always rendered content. No InlineFlow run
+                // text: runs containing atomics are gated out of persistence (the
+                // atomic's own box/content is not flattened into the flow), so this
+                // path is only reached for the non-persisting (flow_align = None) case.
                 self.place_item(
                     *inline_size,
                     *inline_size,
@@ -337,6 +430,7 @@ impl LinePacker {
                     *entity,
                     containing_inline_size,
                     true,
+                    None,
                 );
             }
             PackItem::Placeholder { entity } => {
@@ -350,6 +444,7 @@ impl LinePacker {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn place_item(
         &mut self,
         full_width: f32,
@@ -358,6 +453,7 @@ impl LinePacker {
         entity: Entity,
         containing_inline_size: f32,
         contributes_content: bool,
+        run_text: Option<&str>,
     ) {
         if self.current_inline + trimmed_width > containing_inline_size && self.on_line {
             self.flush_line();
@@ -368,6 +464,9 @@ impl LinePacker {
         self.current_line_height = self.current_line_height.max(block_advance);
         self.on_line = true;
         self.any_rendered_content |= contributes_content;
+        // Trailing collapsible-whitespace hang of this (now last-placed) segment,
+        // used by flush_line for the trimmed line width (text-align).
+        self.current_line_last_hang = (full_width - trimmed_width).max(0.0);
 
         if entity != self.parent_entity {
             // Collect tentatively for the current line; flush_line commits these into
@@ -381,6 +480,24 @@ impl LinePacker {
                     block_size: self.current_line_height,
                 },
             ));
+        }
+
+        // Record the positioned text run for InlineFlow (only when persisting).
+        // Coalesce contiguous same-entity break-pieces on this line into one run so
+        // render shapes whole words rather than per-break fragments (§4.5); the run
+        // keeps the first piece's inline_start. Different-entity or post-flush
+        // segments start a fresh run.
+        if self.flow_align.is_some() {
+            if let Some(text) = run_text {
+                match self.current_line_runs.last_mut() {
+                    Some(last) if last.entity == entity => last.text.push_str(text),
+                    _ => self.current_line_runs.push(InlineFlowRun {
+                        entity,
+                        text: text.to_string(),
+                        inline_start: seg_inline_start,
+                    }),
+                }
+            }
         }
     }
 

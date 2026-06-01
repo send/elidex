@@ -163,6 +163,54 @@ pub struct TreeRelation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextContent(pub String);
 
+/// Persisted collapsed + positioned inline runs for one anonymous inline
+/// formatting context (CSS 2 §9.2.1.1), keyed on the run-start entity.
+///
+/// Produced once by layout (`elidex-layout-block`'s `LinePacker`), consumed by
+/// render's display-list builder — the single source of inline-text geometry
+/// (One-issue-one-way: render no longer re-collects / re-collapses / re-measures
+/// / re-positions the DOM text). Stored on the first top-level child of the
+/// inline run (`run[0]`), the same entity both passes derive as the run start.
+///
+/// Lives in `elidex-ecs` (not `elidex-plugin`, where `LayoutBox` lives) because
+/// `InlineFlowRun` references the style-owning `Entity` and `elidex-plugin` does
+/// not depend on `elidex-ecs`. The referenced entities are same-`EcsDom` DOM
+/// entities (not per-VM identity handles), so intra-world references are sound.
+#[derive(Debug, Clone, PartialEq)]
+pub struct InlineFlow {
+    /// Line boxes in block order.
+    pub lines: Vec<InlineFlowLine>,
+    /// Layout generation stamp (paged-media page discriminator; see render's
+    /// consume gate). Off the paged path this is `0` on every pass, so staleness
+    /// is reconciled by layout explicitly removing this component when a run
+    /// becomes non-persistable — not by generation comparison.
+    pub layout_generation: u32,
+}
+
+/// One positioned line box within an [`InlineFlow`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct InlineFlowLine {
+    /// Absolute block-axis offset of this line box's top edge (layout coords).
+    pub block_start: f32,
+    /// Line box block size (CSS 2 §10.8 line height calculations).
+    pub block_size: f32,
+    /// Logical-order positioned style-runs on this line.
+    pub runs: Vec<InlineFlowRun>,
+}
+
+/// One contiguous same-style positioned text run on an [`InlineFlowLine`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct InlineFlowRun {
+    /// Element/pseudo entity whose `ComputedStyle` paints this run (render
+    /// re-reads colour / font / decoration / transform / opacity / spacing from
+    /// it — layout owns geometry, render owns paint-time style).
+    pub entity: Entity,
+    /// Collapsed text (CSS Text 3 §4.1.1 Phase I), this line, this style-run.
+    pub text: String,
+    /// Absolute inline-axis start (layout coords; `text-align` already applied).
+    pub inline_start: f32,
+}
+
 /// Inline style declarations on an element.
 ///
 /// Properties are stored in an `IndexMap` to preserve insertion order

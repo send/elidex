@@ -374,6 +374,7 @@ fn paint_stacking_context_layers(
                         ctx.font_cache,
                         ctx.dl,
                         &ctx.counter_state,
+                        ctx.expected_generation,
                     );
                     inline_run.clear();
                 }
@@ -390,6 +391,7 @@ fn paint_stacking_context_layers(
                 ctx.font_cache,
                 ctx.dl,
                 &ctx.counter_state,
+                ctx.expected_generation,
             );
         }
     }
@@ -445,6 +447,7 @@ fn paint_non_sc(
                     ctx.font_cache,
                     ctx.dl,
                     &ctx.counter_state,
+                    ctx.expected_generation,
                 );
                 inline_run.clear();
             }
@@ -469,6 +472,7 @@ fn paint_non_sc(
             ctx.font_cache,
             ctx.dl,
             &ctx.counter_state,
+            ctx.expected_generation,
         );
     }
 }
