@@ -667,6 +667,60 @@ fn whitespace_only_inline_span_gets_no_layout_box() {
 }
 
 #[test]
+fn multi_line_inline_box_unions_fragment_bounds() {
+    // A `<span>` spanning two lines must get a LayoutBox whose width encloses the
+    // WIDER line, not just the last (narrow) fragment — `getBoundingClientRect` is
+    // the union of the fragment rects. `white-space: pre` forces the break.
+    let Some((mut dom, parent, style, font_db)) = setup_inline_test("") else {
+        return;
+    };
+    let children = dom.composed_children(parent);
+    for &c in &children {
+        dom.remove_child(parent, c);
+    }
+    let span = dom.create_element("span", Attributes::default());
+    let span_style = ComputedStyle {
+        white_space: WhiteSpace::Pre,
+        font_family: style.font_family.clone(),
+        ..Default::default()
+    };
+    let _ = dom.world_mut().insert_one(span, span_style);
+    dom.append_child(parent, span);
+    let text = dom.create_text("WIDE\nx");
+    dom.append_child(span, text);
+
+    let children = dom.composed_children(parent);
+    let env = crate::LayoutEnv {
+        font_db: &font_db,
+        layout_child: crate::layout_block_only,
+        depth: 0,
+        viewport: None,
+        layout_generation: 0,
+    };
+    let _ = layout_inline_context(&mut dom, &children, 8000.0, parent, Point::ZERO, &env);
+
+    let lb = dom.world().get::<&LayoutBox>(span);
+    assert!(lb.is_ok(), "multi-line span should get a LayoutBox");
+    let span_width = lb.unwrap().content.size.width;
+
+    let params = TextMeasureParams {
+        families: TEST_FAMILIES,
+        font_size: style.font_size,
+        weight: 400,
+        style: elidex_text::FontStyle::Normal,
+        letter_spacing: 0.0,
+        word_spacing: 0.0,
+    };
+    let narrow = measure_text(&font_db, &params, "x").map_or(0.0, |m| m.width);
+    // Union ⇒ the box width reflects the wide first line, so it is strictly wider
+    // than the narrow last line alone (the overwrite-bug result).
+    assert!(
+        span_width > narrow + 1.0,
+        "multi-line span box width {span_width} must enclose the wider line, not just the narrow last line ({narrow})",
+    );
+}
+
+#[test]
 fn parent_entity_does_not_get_inline_layout_box() {
     let Some((mut dom, parent, _style, font_db)) = setup_inline_test("Hello") else {
         return;

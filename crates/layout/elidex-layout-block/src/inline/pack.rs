@@ -172,14 +172,21 @@ impl LinePacker {
             self.line_boxes.push(LineBox {
                 block_size: self.current_line_height,
             });
-            // Commit the line's inline-element rectangles into entity_bounds.
-            for (entity, rect) in self.current_line_entity_rects.drain(..) {
+            // Commit the line's inline-element rectangles into entity_bounds. Each
+            // fragment takes the line's *final* height (it may have grown after the
+            // fragment was placed), and the per-entity bounds are the union of all
+            // committed fragments (a multi-line inline's box must enclose every line).
+            let line_height = self.current_line_height;
+            for (entity, mut rect) in self.current_line_entity_rects.drain(..) {
+                rect.block_size = line_height;
                 let line_block_end = rect.block_start + rect.block_size;
                 self.entity_bounds
                     .entry(entity)
                     .and_modify(|b| {
-                        b.inline_end = rect.inline_end;
-                        b.block_end = line_block_end;
+                        b.inline_start = b.inline_start.min(rect.inline_start);
+                        b.inline_end = b.inline_end.max(rect.inline_end);
+                        b.block_start = b.block_start.min(rect.block_start);
+                        b.block_end = b.block_end.max(line_block_end);
                         b.line_rects.push(rect.clone());
                     })
                     .or_insert(EntityBounds {
