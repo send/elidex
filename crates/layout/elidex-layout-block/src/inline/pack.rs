@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use elidex_ecs::{EcsDom, Entity};
-use elidex_plugin::{ComputedStyle, EdgeSizes, LayoutBox, Point, Rect};
+use elidex_plugin::{ComputedStyle, EdgeSizes, LayoutBox, Point, Rect, WhiteSpace};
 use elidex_text::{measure_text, BreakOpportunity, FontDatabase};
 
 use super::measure::measure_segment_widths;
@@ -128,6 +128,19 @@ pub(super) struct LinePacker {
     current_line_height: f32,
     current_block_offset: f32,
     on_line: bool,
+    /// Whether the current line has emitted any rendered content — a non-collapsible
+    /// character (a rendered glyph, including a zero-advance one such as U+200B or a
+    /// no-break space), an atomic inline box, or a forced break. The test is
+    /// content presence, not advance width. A line whose content is only collapsible
+    /// white space (which collapses away) generates no box and contributes zero
+    /// block size (CSS 2 §9.2.2.1 / §9.2.1.1).
+    any_rendered_content: bool,
+    /// Per-entity rectangles tentatively collected for the current line. Committed
+    /// into `entity_bounds` only when the line is flushed with rendered content;
+    /// discarded if the line is suppressed (collapsible-whitespace-only), so a
+    /// whitespace-only inline element does not get a phantom `getClientRects()`
+    /// rectangle on a line that generates no box.
+    current_line_entity_rects: Vec<(Entity, InlineLineRect)>,
     parent_entity: Entity,
     /// First baseline offset from the inline formatting context top.
     /// Captured from the first text run on the first line.
@@ -144,9 +157,57 @@ impl LinePacker {
             current_line_height: 0.0,
             current_block_offset: 0.0,
             on_line: false,
+            any_rendered_content: false,
+            current_line_entity_rects: Vec::new(),
             parent_entity,
             first_baseline: None,
         }
+    }
+
+    /// Emit the current line as a line box, then reset line state. A line with no
+    /// rendered content — only collapsible white space that collapses away —
+    /// generates no box at all (CSS 2 §9.2.2.1 / §9.2.1.1): it is not pushed and
+    /// does not advance the block cursor, so it does not skew `line_count` or
+    /// fragmentation.
+    fn flush_line(&mut self) {
+        if self.any_rendered_content {
+            self.line_boxes.push(LineBox {
+                block_size: self.current_line_height,
+            });
+            // Commit the line's inline-element rectangles into entity_bounds. Each
+            // fragment takes the line's *final* height (it may have grown after the
+            // fragment was placed), and the per-entity bounds are the union of all
+            // committed fragments (a multi-line inline's box must enclose every line).
+            let line_height = self.current_line_height;
+            for (entity, mut rect) in self.current_line_entity_rects.drain(..) {
+                rect.block_size = line_height;
+                let line_block_end = rect.block_start + rect.block_size;
+                self.entity_bounds
+                    .entry(entity)
+                    .and_modify(|b| {
+                        b.inline_start = b.inline_start.min(rect.inline_start);
+                        b.inline_end = b.inline_end.max(rect.inline_end);
+                        b.block_start = b.block_start.min(rect.block_start);
+                        b.block_end = b.block_end.max(line_block_end);
+                        b.line_rects.push(rect.clone());
+                    })
+                    .or_insert(EntityBounds {
+                        inline_start: rect.inline_start,
+                        inline_end: rect.inline_end,
+                        block_start: rect.block_start,
+                        block_end: line_block_end,
+                        line_rects: vec![rect],
+                    });
+            }
+            self.current_block_offset += self.current_line_height;
+        } else {
+            // Suppressed line (collapsible whitespace only): discard its rects so no
+            // phantom getClientRects geometry is produced (CSS 2 §9.2.2.1).
+            self.current_line_entity_rects.clear();
+        }
+        self.current_inline = 0.0;
+        self.current_line_height = 0.0;
+        self.any_rendered_content = false;
     }
 
     pub fn pack(
@@ -176,10 +237,36 @@ impl LinePacker {
                 };
                 let (seg_width, trimmed_width) = measure_segment_widths(font_db, &params, text);
 
-                // Capture first baseline: from the first text run on the first line.
-                // CSS 2.1 §10.8.1: baseline = line_y + half_leading + ascent
-                // half_leading = (line_height - (ascent - descent)) / 2
-                if self.first_baseline.is_none() && !is_vertical {
+                // Whether this segment gives the line its height (generates a box).
+                // For preserved white-space (`pre`/`pre-wrap`) every non-empty segment
+                // is rendered content and occupies a line — including a lone preserved
+                // segment break (`"\n"`), whose end-of-text break is filtered out of
+                // `find_break_opportunities` so `force_break` never runs (e.g.
+                // `<pre>\n</pre>`). For collapsible white-space a segment of only
+                // collapsible white space hangs / collapses away and generates no box
+                // (CSS 2 §9.2.2.1); rendered content is "has a non-collapsible character
+                // after trimming ASCII space/tab", independent of measured advance — a
+                // zero-advance glyph (U+200B) or a no-break space (U+00A0) is content.
+                let contributes_content =
+                    if matches!(run.white_space, WhiteSpace::Pre | WhiteSpace::PreWrap) {
+                        !text.is_empty()
+                    } else {
+                        // Trim only the *collapsible* white space (ASCII space/tab,
+                        // the same predicate as the trailing-hang measurement), not
+                        // Unicode White_Space: a no-break space (U+00A0) renders and
+                        // gives the line height, so a `&nbsp;`-only line must
+                        // generate a box.
+                        !text
+                            .trim_end_matches(super::is_collapsible_space)
+                            .is_empty()
+                    };
+
+                // Capture first baseline from the first text segment that actually
+                // generates a line box (CSS 2.1 §10.8.1: baseline = line_y +
+                // half_leading + ascent). Gating on `contributes_content` skips
+                // suppressed collapsible-whitespace segments, so the baseline reflects
+                // the first rendered line rather than whitespace that generates no box.
+                if contributes_content && self.first_baseline.is_none() && !is_vertical {
                     if let Some(metrics) = measure_text(font_db, &params, text) {
                         let em_height = metrics.ascent - metrics.descent;
                         // Guard: em_height can be 0/negative (malformed font metrics) or
@@ -201,6 +288,7 @@ impl LinePacker {
                     seg_line_advance,
                     run.entity,
                     containing_inline_size,
+                    contributes_content,
                 );
 
                 if *break_after == Some(BreakOpportunity::Mandatory) {
@@ -241,12 +329,14 @@ impl LinePacker {
                 }
 
                 // Atomic boxes don't break internally; treat as a single unit.
+                // An atomic inline box is always rendered content.
                 self.place_item(
                     *inline_size,
                     *inline_size,
                     *block_size,
                     *entity,
                     containing_inline_size,
+                    true,
                 );
             }
             PackItem::Placeholder { entity } => {
@@ -267,62 +357,47 @@ impl LinePacker {
         block_advance: f32,
         entity: Entity,
         containing_inline_size: f32,
+        contributes_content: bool,
     ) {
         if self.current_inline + trimmed_width > containing_inline_size && self.on_line {
-            self.line_boxes.push(LineBox {
-                block_size: self.current_line_height,
-            });
-            self.current_block_offset += self.current_line_height;
-            self.current_inline = 0.0;
-            self.current_line_height = 0.0;
+            self.flush_line();
         }
 
         let seg_inline_start = self.current_inline;
         self.current_inline += full_width;
         self.current_line_height = self.current_line_height.max(block_advance);
         self.on_line = true;
+        self.any_rendered_content |= contributes_content;
 
         if entity != self.parent_entity {
-            let seg_inline_end = seg_inline_start + full_width;
-            let line_block_end = self.current_block_offset + self.current_line_height;
-            let line_rect = InlineLineRect {
-                inline_start: seg_inline_start,
-                inline_end: seg_inline_end,
-                block_start: self.current_block_offset,
-                block_size: self.current_line_height,
-            };
-            self.entity_bounds
-                .entry(entity)
-                .and_modify(|b| {
-                    b.inline_end = seg_inline_end;
-                    b.block_end = line_block_end;
-                    b.line_rects.push(line_rect.clone());
-                })
-                .or_insert(EntityBounds {
+            // Collect tentatively for the current line; flush_line commits these into
+            // entity_bounds only if the line has rendered content (else discards them).
+            self.current_line_entity_rects.push((
+                entity,
+                InlineLineRect {
                     inline_start: seg_inline_start,
-                    inline_end: seg_inline_end,
+                    inline_end: seg_inline_start + full_width,
                     block_start: self.current_block_offset,
-                    block_end: line_block_end,
-                    line_rects: vec![line_rect],
-                });
+                    block_size: self.current_line_height,
+                },
+            ));
         }
     }
 
     fn force_break(&mut self) {
-        self.line_boxes.push(LineBox {
-            block_size: self.current_line_height,
-        });
-        self.current_block_offset += self.current_line_height;
-        self.current_inline = 0.0;
-        self.current_line_height = 0.0;
+        // A forced break (a preserved segment break under `white-space: pre*`, or a
+        // `<br>`) always produces a real line, even when blank — e.g. a blank line in
+        // `<pre>` has height. With normal/nowrap collapsing, segment breaks are
+        // transformed to spaces upstream, so this path is reached only for genuine
+        // forced breaks; mark the line as rendered content so it keeps its height.
+        self.any_rendered_content = true;
+        self.flush_line();
         self.on_line = false;
     }
 
     pub fn finish(&mut self) {
         if self.on_line {
-            self.line_boxes.push(LineBox {
-                block_size: self.current_line_height,
-            });
+            self.flush_line();
         }
     }
 }
