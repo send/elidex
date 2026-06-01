@@ -293,7 +293,12 @@ fn collapse_run_text(
     // bare CR or CRLF becomes the single canonical segment break (`\n`) for every
     // `white-space` value (otherwise a CR would be mishandled — e.g. preserved as a
     // forced break under pre-line). Matches `elidex-render`'s `normalize_line_endings`.
-    let text = text.replace("\r\n", "\n").replace('\r', "\n");
+    // The common case has no CR, so only allocate when one is actually present.
+    let text: std::borrow::Cow<str> = if text.contains('\r') {
+        std::borrow::Cow::Owned(text.replace("\r\n", "\n").replace('\r', "\n"))
+    } else {
+        std::borrow::Cow::Borrowed(text)
+    };
     match white_space {
         // Preserve values: apart from the line-ending normalization applied above,
         // the text is preserved as-is (no space/tab collapsing, segment breaks kept
@@ -304,7 +309,7 @@ fn collapse_run_text(
             if !text.is_empty() {
                 *prev_collapsible_space = false;
             }
-            (text, false)
+            (text.into_owned(), false)
         }
         WhiteSpace::Normal | WhiteSpace::NoWrap | WhiteSpace::PreLine => {
             let preserve_break = white_space == WhiteSpace::PreLine;
