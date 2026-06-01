@@ -596,11 +596,13 @@ pub(super) fn fire_vm_close_event(
 /// `FileReader` load-progress events `loadstart`/`progress`/`load`/`loadend`/
 /// `abort`/`error`).  All such events are non-bubbling AND non-cancelable
 /// (File API §6.4: "e.bubbles must be false … e.cancelable must be false").
-/// The payload is three plain numbers — no server-controlled string and no
-/// `Blob`/`ArrayBuffer` `data` — so (unlike [`fire_vm_message_event`]) there
-/// is nothing to intern or lazily build past the observer gate: the gated
-/// [`fire_vm_event`] suffices.  Returns `Ok(true)` when the event was
-/// cancelled (default-prevented).
+/// Gates on the observer up-front — like [`fire_vm_message_event`] /
+/// [`fire_vm_close_event`] — so an unobserved target allocates nothing, not
+/// even the 3-number `payload` Vec.  The payload has no server-controlled
+/// string and no `Blob`/`ArrayBuffer` `data`, so there is nothing to *intern*
+/// past the gate (unlike those two helpers); the up-front gate is purely to
+/// keep the lazy-alloc invariant uniform across every payload-bearing UA-fire
+/// helper.  Returns `Ok(true)` when the event was cancelled (default-prevented).
 pub(super) fn fire_vm_progress_event(
     ctx: &mut NativeContext<'_>,
     target_id: ObjectId,
@@ -609,6 +611,14 @@ pub(super) fn fire_vm_progress_event(
     loaded: f64,
     total: f64,
 ) -> Result<bool, VmError> {
+    // Lazy gate up-front (ProgressEvents are non-bubbling) so an unobserved
+    // `FileReader` returns having allocated nothing — not the `payload` Vec
+    // below; `fire_vm_event_unchecked` then runs the single observer walk only
+    // for confirmed-observed targets.
+    let type_str = ctx.vm.strings.get_utf8(type_sid);
+    if !vm_path_has_listener(ctx.vm, target_id, &type_str, false) {
+        return Ok(false);
+    }
     let shape = ctx
         .vm
         .precomputed_event_shapes
@@ -626,7 +636,8 @@ pub(super) fn fire_vm_progress_event(
         cancelable: false,
         composed: false,
     };
-    fire_vm_event(ctx, target_id, type_sid, init, shape, proto, payload).map(|o| !o.not_prevented)
+    fire_vm_event_unchecked(ctx, target_id, type_sid, init, shape, proto, payload)
+        .map(|o| !o.not_prevented)
 }
 
 /// UA-fire a plain `Event` of `type_sid` at a `VmObject` target — the
