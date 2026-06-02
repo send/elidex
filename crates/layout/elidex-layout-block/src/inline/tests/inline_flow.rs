@@ -292,6 +292,110 @@ fn gate_excludes_relative_positioned_inline() {
 }
 
 #[test]
+fn gate_excludes_relative_positioned_atomic() {
+    // A relpos/sticky *atomic* (inline-block) takes the atomic collect arm, which
+    // (slice 3p-a) sets `has_relpos_sticky` so the run stays gated — render paints it
+    // in Layer 6 (slice 3p-b owns its convergence). Without the arm's `position`
+    // check it would persist an `AtomicBox` member and double-paint with Layer 6.
+    let Some((mut dom, parent, style, font_db)) = setup_inline_test("a") else {
+        return;
+    };
+    let ib = dom.create_element("span", Attributes::default());
+    let ib_style = ComputedStyle {
+        display: Display::InlineBlock,
+        position: Position::Relative,
+        width: Dimension::Length(20.0),
+        height: Dimension::Length(20.0),
+        font_family: style.font_family.clone(),
+        ..Default::default()
+    };
+    let _ = dom.world_mut().insert_one(ib, ib_style);
+    dom.append_child(parent, ib);
+
+    let children = dom.composed_children(parent);
+    let key = run_start(&dom, parent);
+    layout_inline_context(
+        &mut dom,
+        &children,
+        800.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+    );
+
+    assert!(
+        dom.world().get::<&InlineFlow>(key).is_err(),
+        "a relative-positioned atomic inline must NOT persist (has_relpos_sticky gates \
+         it via the atomic arm; it paints in render Layer 6) — else it double-paints"
+    );
+}
+
+#[test]
+fn vertical_atomic_repositions_with_axis_swap() {
+    // Vertical WM (slice 2 persists it): the D7 reposition projects inline-axis →
+    // physical y and block-axis → physical x (the `is_vertical` swap). Assert the
+    // static atomic persists as an `AtomicBox` and its `LayoutBox` lands at the
+    // swapped member position.
+    let Some((mut dom, parent, mut style, font_db)) = setup_inline_test("a") else {
+        return;
+    };
+    style.writing_mode = WritingMode::VerticalRl;
+    let _ = dom.world_mut().insert_one(parent, style.clone());
+    let ib = dom.create_element("span", Attributes::default());
+    let ib_style = ComputedStyle {
+        display: Display::InlineBlock,
+        width: Dimension::Length(20.0),
+        height: Dimension::Length(20.0),
+        font_family: style.font_family.clone(),
+        ..Default::default()
+    };
+    let _ = dom.world_mut().insert_one(ib, ib_style);
+    dom.append_child(parent, ib);
+
+    let children = dom.composed_children(parent);
+    let key = run_start(&dom, parent);
+    layout_inline_context(
+        &mut dom,
+        &children,
+        800.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+    );
+
+    let flow = dom
+        .world()
+        .get::<&InlineFlow>(key)
+        .expect("vertical static atomic persists (slice 2 + 3p-a)");
+    let (atomic_inline, atomic_block) = flow
+        .lines
+        .iter()
+        .flat_map(|line| line.runs.iter().map(move |r| (r, line.block_start)))
+        .find_map(|(r, block_start)| match r {
+            InlineFlowRun::AtomicBox {
+                entity,
+                inline_start,
+            } if *entity == ib => Some((*inline_start, block_start)),
+            _ => None,
+        })
+        .expect("the inline-block is an AtomicBox member in vertical mode");
+
+    // is_vertical projection: inline-axis → physical y, block-axis → physical x.
+    let lb = dom
+        .world()
+        .get::<&LayoutBox>(ib)
+        .expect("the atomic was laid out and has a LayoutBox");
+    assert!(
+        (lb.content.origin.x - atomic_block).abs() < 0.5
+            && (lb.content.origin.y - atomic_inline).abs() < 0.5,
+        "vertical atomic box at the swapped position (x=block {atomic_block}, \
+         y=inline {atomic_inline}), got ({}, {})",
+        lb.content.origin.x,
+        lb.content.origin.y
+    );
+}
+
+#[test]
 fn persists_pseudo_element_flow() {
     // Slice 3: pseudo `content` (incl. counter()) is resolved into the pseudo's
     // `TextContent` by the pre-layout generated-content pass, so layout measures
