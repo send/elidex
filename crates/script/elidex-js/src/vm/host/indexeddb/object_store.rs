@@ -78,6 +78,9 @@ fn store_ctx(
 }
 
 /// §2.7.1: requests may only be issued while the transaction is `Active`.
+/// Shared across `IDBObjectStore` / `IDBIndex` / `IDBCursor`, so the message is
+/// interface-agnostic (only the operation name) — the spec-meaningful part is
+/// the `TransactionInactiveError` DOMException name.
 pub(super) fn require_active(
     ctx: &mut NativeContext<'_>,
     txn: ObjectId,
@@ -93,12 +96,15 @@ pub(super) fn require_active(
         Err(value::dom_exc(
             ctx,
             "TransactionInactiveError",
-            format!("IDBObjectStore.{method}: the transaction is not active"),
+            format!("the transaction is not active (operation '{method}')"),
         ))
     }
 }
 
 /// §4.5: write operations require a `readwrite` / `versionchange` mode.
+/// Shared across `IDBObjectStore` / `IDBCursor`, so the message is
+/// interface-agnostic (only the operation name); the `ReadOnlyError`
+/// DOMException name is the spec-meaningful part.
 pub(super) fn require_writable(
     ctx: &mut NativeContext<'_>,
     txn: ObjectId,
@@ -117,7 +123,7 @@ pub(super) fn require_writable(
         Err(value::dom_exc(
             ctx,
             "ReadOnlyError",
-            format!("IDBObjectStore.{method}: the transaction is read-only"),
+            format!("the transaction is read-only (operation '{method}')"),
         ))
     }
 }
@@ -793,13 +799,14 @@ pub(crate) fn native_os_create_index(
     require_active(ctx, txn, "createIndex")?;
     // step 6: duplicate index name (host-side, so a real populate-uniqueness
     // failure below is distinguishable → async-abort, not this sync throw).
+    // A metadata-query failure surfaces as the real backend error rather than
+    // being masked as "no existing indexes".
     let backend = ctx.vm.require_idb_backend()?;
-    if backend
-        .list_index_names(&db, &store)
-        .unwrap_or_default()
-        .iter()
-        .any(|n| n == &name)
-    {
+    let existing = match backend.list_index_names(&db, &store) {
+        Ok(names) => names,
+        Err(e) => return Err(value::backend_error_as_throw(ctx, &e)),
+    };
+    if existing.iter().any(|n| n == &name) {
         return Err(value::dom_exc(
             ctx,
             "ConstraintError",
