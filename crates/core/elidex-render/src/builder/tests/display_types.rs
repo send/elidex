@@ -306,6 +306,7 @@ fn list_item_disc_emits_marker() {
     );
 
     let font_db = elidex_text::FontDatabase::new();
+    elidex_style::resolve_generated_content(&mut dom);
     let dl = build_display_list(&dom, &font_db);
     // Disc marker should emit a RoundedRect.
     let has_marker =
@@ -357,6 +358,7 @@ fn list_item_square_emits_solid_rect_marker() {
     );
 
     let font_db = elidex_text::FontDatabase::new();
+    elidex_style::resolve_generated_content(&mut dom);
     let dl = build_display_list(&dom, &font_db);
     // The first SolidRect with a very small width is the square marker.
     let small_rects: Vec<_> = dl
@@ -414,6 +416,7 @@ fn list_item_none_no_marker() {
     );
 
     let font_db = elidex_text::FontDatabase::new();
+    elidex_style::resolve_generated_content(&mut dom);
     let dl = build_display_list(&dom, &font_db);
     // list-style-type: none should not emit any marker shapes.
     let has_rounded =
@@ -465,6 +468,7 @@ fn list_item_circle_emits_stroked_marker() {
     );
 
     let font_db = elidex_text::FontDatabase::new();
+    elidex_style::resolve_generated_content(&mut dom);
     let dl = build_display_list(&dom, &font_db);
     // Circle marker should emit StrokedRoundedRect (outline), not filled RoundedRect.
     let has_stroked = dl.0.iter().any(|i| {
@@ -531,6 +535,7 @@ fn list_item_decimal_emits_text_marker() {
     );
 
     let font_db = elidex_text::FontDatabase::new();
+    elidex_style::resolve_generated_content(&mut dom);
     let dl = build_display_list(&dom, &font_db);
     // Decimal marker emits Text items (if fonts are available) or nothing
     // (graceful fallback). It should never emit shape-based markers.
@@ -609,6 +614,7 @@ fn list_item_counter_increments() {
     }
 
     let font_db = elidex_text::FontDatabase::new();
+    elidex_style::resolve_generated_content(&mut dom);
     let dl = build_display_list(&dom, &font_db);
     // Both list items should emit a marker (RoundedRect for disc).
     let marker_count =

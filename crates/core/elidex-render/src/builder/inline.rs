@@ -2,11 +2,10 @@
 
 use elidex_ecs::{EcsDom, Entity, InlineFlow, PseudoElementMarker, TextContent};
 use elidex_plugin::{
-    ComputedStyle, ContentItem, ContentValue, CssColor, Direction, Display,
-    FontStyle as PluginFontStyle, LayoutBox, Point, TextAlign, TextDecorationLine,
-    TextDecorationStyle, TextOrientation, TextTransform, Visibility, WritingMode,
+    ComputedStyle, CssColor, Direction, Display, FontStyle as PluginFontStyle, LayoutBox, Point,
+    TextAlign, TextDecorationLine, TextDecorationStyle, TextOrientation, TextTransform, Visibility,
+    WritingMode,
 };
-use elidex_style::counter::CounterState;
 use elidex_text::FontDatabase;
 
 use crate::display_list::{DisplayItem, DisplayList, GlyphEntry};
@@ -90,7 +89,6 @@ pub(crate) fn emit_inline_run(
     font_db: &FontDatabase,
     font_cache: &mut FontCache,
     dl: &mut DisplayList,
-    counter_state: &CounterState,
     expected_generation: Option<u32>,
 ) {
     // Converged path: if layout persisted an `InlineFlow` on this run's start
@@ -143,7 +141,7 @@ pub(crate) fn emit_inline_run(
         return;
     };
 
-    let segments = collect_styled_inline_text(dom, run, &parent_style, 0, counter_state);
+    let segments = collect_styled_inline_text(dom, run, &parent_style, 0);
     if segments.is_empty() {
         return;
     }
@@ -173,7 +171,6 @@ fn collect_styled_inline_text(
     entities: &[Entity],
     parent_style: &ComputedStyle,
     depth: u32,
-    counter_state: &CounterState,
 ) -> Vec<StyledTextSegment> {
     if depth >= MAX_INLINE_DEPTH {
         return Vec::new();
@@ -189,14 +186,17 @@ fn collect_styled_inline_text(
             // (children can override visibility).
             let visible = style.visibility == Visibility::Visible;
 
-            // Pseudo-element: emit text with own style (skip child recursion).
-            // If the content property contains counter() / counters(), evaluate
-            // them using the current counter state instead of the placeholder text.
+            // Pseudo-element: emit its resolved generated text with its own style
+            // (skip child recursion). `content` — including counter() / counters()
+            // — has already been resolved into the pseudo's `TextContent` by the
+            // pre-layout generated-content pass (the single resolver), so render
+            // just reads it.
             if dom.world().get::<&PseudoElementMarker>(entity).is_ok() {
                 if visible {
-                    let text = resolve_pseudo_text(dom, entity, &style, counter_state);
-                    if !text.is_empty() {
-                        segments.push(StyledTextSegment::from_style(text, &style));
+                    if let Ok(tc) = dom.world().get::<&TextContent>(entity) {
+                        if !tc.0.is_empty() {
+                            segments.push(StyledTextSegment::from_style(tc.0.clone(), &style));
+                        }
                     }
                 }
                 continue;
@@ -208,7 +208,6 @@ fn collect_styled_inline_text(
                 &children,
                 &style,
                 depth + 1,
-                counter_state,
             ));
             continue;
         }
@@ -884,71 +883,4 @@ fn emit_repeating_decoration(
         cx += step;
         count += 1;
     }
-}
-
-/// Resolve pseudo-element text, evaluating `counter()` / `counters()` if present.
-///
-/// If the pseudo-element's content property contains counter items, they are
-/// evaluated using the current `CounterState`. Otherwise, the pre-set
-/// `TextContent` is returned as-is.
-fn resolve_pseudo_text(
-    dom: &EcsDom,
-    entity: Entity,
-    style: &ComputedStyle,
-    counter_state: &CounterState,
-) -> String {
-    if let ContentValue::Items(ref items) = style.content {
-        let has_counter = items.iter().any(|item| {
-            matches!(
-                item,
-                ContentItem::Counter { .. } | ContentItem::Counters { .. }
-            )
-        });
-        if has_counter {
-            return resolve_content_items_with_counters(items, entity, dom, counter_state);
-        }
-    }
-    // No counter items — use the pre-set TextContent.
-    dom.world()
-        .get::<&TextContent>(entity)
-        .map_or_else(|_| String::new(), |tc| tc.0.clone())
-}
-
-/// Evaluate content items, resolving `counter()` and `counters()` with the given state.
-fn resolve_content_items_with_counters(
-    items: &[ContentItem],
-    entity: Entity,
-    dom: &EcsDom,
-    counter_state: &CounterState,
-) -> String {
-    use std::fmt::Write;
-    let mut result = String::new();
-    for item in items {
-        match item {
-            ContentItem::String(s) => result.push_str(s),
-            ContentItem::Attr(name) => {
-                if let Ok(attrs) = dom.world().get::<&elidex_ecs::Attributes>(entity) {
-                    if let Some(val) = attrs.get(name) {
-                        result.push_str(val);
-                    }
-                }
-            }
-            ContentItem::Counter { name, style } => {
-                write!(result, "{}", counter_state.evaluate_counter(name, *style)).unwrap();
-            }
-            ContentItem::Counters {
-                name,
-                separator,
-                style,
-            } => {
-                write!(
-                    result,
-                    "{}",
-                    counter_state.evaluate_counters(name, separator, *style)
-                )
-                .unwrap();
-            }
-        }
-    }
-    result
 }

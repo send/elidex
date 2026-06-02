@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use elidex_ecs::{
-    Attributes, BackgroundImages, EcsDom, Entity, ImageData, TagType, TemplateContent,
+    BackgroundImages, EcsDom, Entity, ImageData, ListItemMarker, TemplateContent,
     MAX_ANCESTOR_DEPTH,
 };
 use elidex_form::FormControlState;
@@ -15,7 +15,7 @@ use elidex_plugin::{
     Visibility,
 };
 use elidex_plugin::{Point, Vector};
-use elidex_style::counter::{apply_implicit_list_counters, CounterState};
+use elidex_style::counter::{apply_implicit_list_counters_from_dom, CounterState};
 use elidex_text::FontDatabase;
 
 use crate::display_list::{DisplayItem, DisplayList};
@@ -41,12 +41,22 @@ pub(crate) struct PaintContext<'a> {
     /// in `build_display_list_with_scroll()`. Fixed elements re-push this
     /// value after their `PopScrollOffset`/walk/`PushScrollOffset` sequence.
     pub(crate) scroll_offset: Vector,
-    /// CSS counter state machine (CSS Lists Level 3 §5–7).
+    /// CSS counter state machine (CSS Lists Level 3 §4 Automatic Numbering).
     ///
-    /// Tracks counter scopes during tree walk. Counters are created by
-    /// `counter-reset`, modified by `counter-increment` and `counter-set`,
-    /// and evaluated by `counter()` / `counters()` functions.
+    /// Retained ONLY to populate document counters for paged-media margin boxes
+    /// (`emit_margin_boxes`): per-page running-header counter values depend on
+    /// post-pagination page assignment, so they cannot be precomputed pre-layout.
+    /// Document generated content (pseudo `content`, list-item markers) is resolved
+    /// once before layout by `elidex-style` and read from components — render no
+    /// longer derives it here. Mutated only when `paged` (see [`Self::paged`]).
     pub(crate) counter_state: CounterState,
+    /// Whether this walk feeds a paged-media display list.
+    ///
+    /// Gates the `counter_state` mutation: only the paged builders populate
+    /// document counters for margin boxes. Off the paged path the counter machine
+    /// would do unused work (markers/pseudo read pre-layout components), so its
+    /// reset/increment processing is skipped (scope push/pop stay for balance).
+    pub(crate) paged: bool,
     /// Expected layout generation for per-fragment paged media rendering.
     ///
     /// When `Some(gen)`, the walk skips entities whose `LayoutBox.layout_generation`
@@ -99,37 +109,34 @@ pub(crate) fn walk(
         }
     }
 
-    // CSS counter scope: push scope and process counter properties on entry.
+    // CSS counter scope (CSS Lists 3 §4.3 Nested Counters and Scope): push scope
+    // on entry / pop on exit unconditionally to keep the scope stack balanced.
+    // The counter MUTATION (reset/set/increment) runs only on the paged path —
+    // its sole remaining consumer is paged-media margin boxes; document content
+    // (pseudo text, list markers) is resolved pre-layout and read from components.
     ctx.counter_state.push_scope();
-    if let Ok(mut style) = ctx
-        .dom
-        .world()
-        .get::<&ComputedStyle>(entity)
-        .map(|s| (*s).clone())
-    {
-        // Apply implicit list-item counters for <ol>, <ul>, <li> (CSS Lists L3 §5).
-        if let Ok(tag) = ctx.dom.world().get::<&TagType>(entity) {
-            let attrs = ctx
-                .dom
-                .world()
-                .get::<&Attributes>(entity)
-                .ok()
-                .map(|a| (*a).clone())
-                .unwrap_or_default();
-            let li_count = if tag.0 == "ol" {
-                elidex_style::counter::count_li_children(ctx.dom, entity)
-            } else {
-                0
-            };
-            apply_implicit_list_counters(&mut style, &tag.0, &attrs, li_count);
+    if ctx.paged {
+        if let Some(mut style) = ctx
+            .dom
+            .world()
+            .get::<&ComputedStyle>(entity)
+            .ok()
+            .map(|s| (*s).clone())
+            // CSS Lists 3 §4.5: an element with `display: none` generates no box and
+            // cannot set/reset/increment a counter — skip its counter processing
+            // (matching the pre-layout pass, so paged document counters agree).
+            .filter(|style| style.display != Display::None)
+        {
+            // Apply implicit list-item counters for <ol>, <ul>, <li> (CSS Lists 3 §4.6).
+            apply_implicit_list_counters_from_dom(ctx.dom, entity, &mut style);
+            // CSS Fragmentation L3 §4: suppress counter-increment on continuation
+            // entities (those that started on a previous page fragment).
+            let is_continuation = ctx
+                .continuation_entities
+                .as_ref()
+                .is_some_and(|set| set.contains(&entity));
+            ctx.counter_state.process_element(&style, is_continuation);
         }
-        // CSS Fragmentation L3 §4: suppress counter-increment on continuation
-        // entities (those that started on a previous page fragment).
-        let is_continuation = ctx
-            .continuation_entities
-            .as_ref()
-            .is_some_and(|set| set.contains(&entity));
-        ctx.counter_state.process_element(&style, is_continuation);
     }
 
     // Fetch ComputedStyle once for display/visibility/painting checks.
@@ -380,7 +387,6 @@ fn paint_stacking_context_layers(
                         ctx.font_db,
                         ctx.font_cache,
                         ctx.dl,
-                        &ctx.counter_state,
                         ctx.expected_generation,
                     );
                     inline_run.clear();
@@ -397,7 +403,6 @@ fn paint_stacking_context_layers(
                 ctx.font_db,
                 ctx.font_cache,
                 ctx.dl,
-                &ctx.counter_state,
                 ctx.expected_generation,
             );
         }
@@ -453,7 +458,6 @@ fn paint_non_sc(
                     ctx.font_db,
                     ctx.font_cache,
                     ctx.dl,
-                    &ctx.counter_state,
                     ctx.expected_generation,
                 );
                 inline_run.clear();
@@ -478,7 +482,6 @@ fn paint_non_sc(
             ctx.font_db,
             ctx.font_cache,
             ctx.dl,
-            &ctx.counter_state,
             ctx.expected_generation,
         );
     }
@@ -546,19 +549,21 @@ fn is_viewport_fixed(dom: &EcsDom, entity: Entity, in_transform: bool) -> bool {
 
 /// Emit a list marker for a block child if it is a `list-item` with a visible marker.
 ///
-/// The counter value is obtained from the `CounterState` which has already been
-/// updated by `process_element()` during the tree walk. This replaces the
-/// previous hardcoded `list_counter: usize` with proper CSS counter evaluation.
+/// The marker text is resolved pre-layout (CSS Lists 3 §4.6 implicit `list-item`
+/// counter, §4.7 `counter()` formatting) and stored in the [`ListItemMarker`]
+/// component by `elidex-style`'s generated-content pass — the single source of
+/// marker text. Render reads it here, owning only the `visibility` paint guard.
 fn maybe_emit_list_marker(ctx: &mut PaintContext, child: Entity) {
     if let Ok(child_style) = ctx.dom.world().get::<&ComputedStyle>(child) {
         if child_style.display == Display::ListItem
             && child_style.list_style_type != ListStyleType::None
             && child_style.visibility == Visibility::Visible
         {
+            let marker_text = match ctx.dom.world().get::<&ListItemMarker>(child) {
+                Ok(m) => m.0.clone(),
+                Err(_) => return,
+            };
             if let Ok(child_lb) = ctx.dom.world().get::<&LayoutBox>(child) {
-                let marker_text = ctx
-                    .counter_state
-                    .evaluate_counter("list-item", child_style.list_style_type);
                 emit_list_marker_with_counter(
                     &child_lb,
                     &child_style,

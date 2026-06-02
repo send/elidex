@@ -1,10 +1,8 @@
 //! Pseudo-element (`::before`/`::after`) generation for style resolution.
 
-use std::fmt::Write;
-
 use elidex_css::{PseudoElement, Stylesheet};
-use elidex_ecs::{Attributes, EcsDom, Entity, PseudoElementMarker};
-use elidex_plugin::{ComputedStyle, ContentItem, ContentValue, Display};
+use elidex_ecs::{EcsDom, Entity, PseudoElementMarker};
+use elidex_plugin::{ComputedStyle, ContentValue, Display};
 
 use crate::cascade::collect_and_cascade_pseudo;
 use crate::resolve::{build_computed_style, ResolveContext};
@@ -44,11 +42,9 @@ pub(crate) fn generate_pseudo_entity(
 
     // CSS Generated Content §2: on pseudo-elements, `content: normal` computes
     // to `none`.  Both `normal` and `none` suppress generation.
-    let text = match &pe_style.content {
-        ContentValue::Items(ref items) => resolve_content_text(items, entity, dom),
-        // Normal or None → no generation.
-        _ => return,
-    };
+    if !matches!(pe_style.content, ContentValue::Items(_)) {
+        return;
+    }
 
     // Create the pseudo-element entity with inline display.
     let mut style = pe_style;
@@ -57,9 +53,12 @@ pub(crate) fn generate_pseudo_entity(
         style.display = Display::Inline;
     }
 
-    // Use create_text() to ensure the entity has a TreeRelation component,
-    // which is required for EcsDom tree operations (append_child, destroy_entity, etc.).
-    let pe_entity = dom.create_text(text);
+    // Create the entity with empty text — the pre-layout generated-content pass
+    // (`generated_content::resolve_generated_content`) is the single resolver of
+    // `content` (string / attr() / counter() / counters()) and fills the
+    // `TextContent` in document order. `create_text` gives the entity a
+    // `TreeRelation` (required for `append_child` / `destroy_entity`).
+    let pe_entity = dom.create_text(String::new());
     let _ = dom.world_mut().insert_one(pe_entity, style);
     let _ = dom.world_mut().insert_one(pe_entity, PseudoElementMarker);
 
@@ -77,32 +76,4 @@ pub(crate) fn generate_pseudo_entity(
             let _ = dom.append_child(entity, pe_entity);
         }
     }
-}
-
-/// Resolve content items to a text string.
-fn resolve_content_text(items: &[ContentItem], entity: Entity, dom: &EcsDom) -> String {
-    let mut result = String::new();
-    for item in items {
-        match item {
-            ContentItem::String(s) => result.push_str(s),
-            ContentItem::Attr(name) => {
-                if let Ok(attrs) = dom.world().get::<&Attributes>(entity) {
-                    if let Some(val) = attrs.get(name) {
-                        result.push_str(val);
-                    }
-                }
-            }
-            // Counter values require counter state from the document tree;
-            // placeholder output until counter evaluation is implemented.
-            ContentItem::Counter { name, .. } => {
-                write!(result, "[counter:{name}]").unwrap();
-            }
-            ContentItem::Counters {
-                name, separator, ..
-            } => {
-                write!(result, "[counters:{name},{separator}]").unwrap();
-            }
-        }
-    }
-    result
 }

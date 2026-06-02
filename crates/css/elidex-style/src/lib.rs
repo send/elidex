@@ -14,6 +14,7 @@
 
 pub mod cascade;
 pub mod counter;
+pub mod generated_content;
 pub mod inherit;
 #[cfg(feature = "parallel")]
 mod parallel;
@@ -33,6 +34,7 @@ use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::{ComputedStyle, CssPropertyRegistry, CssValue, Size};
 
 pub use elidex_plugin::ViewportOverflow;
+pub use generated_content::resolve_generated_content;
 pub use resolve::{dimension_to_css_value, get_computed_with_registry};
 
 /// Build the CSS property registry with all standard property handlers.
@@ -138,6 +140,12 @@ pub fn resolve_styles_with_compat(
         state.depth = 0;
         walk_tree(dom, root, &all_sheets, &default_parent, &mut state);
     }
+
+    // Final phase: resolve CSS counters + generated content (pseudo `content`,
+    // list-item markers) in document order now that the cascade has spawned
+    // pseudo entities and attached every `ComputedStyle`. Writes resolved text
+    // to ECS components layout + render read (single source — One-issue-one-way).
+    generated_content::resolve_generated_content(dom);
 
     // Propagate root overflow to viewport (CSS Overflow L3 §3.1).
     walk::propagate_root_overflow(dom)

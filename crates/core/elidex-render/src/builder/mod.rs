@@ -152,6 +152,7 @@ pub fn build_display_list_with_scroll(
         caret_visible,
         scroll_offset,
         counter_state: CounterState::new(),
+        paged: false,
         expected_generation: None,
         continuation_entities: None,
     };
@@ -225,6 +226,7 @@ pub fn build_paged_display_lists(
                 caret_visible: false,
                 scroll_offset: elidex_plugin::Vector::<f32>::ZERO,
                 counter_state,
+                paged: true,
                 expected_generation: None,
                 continuation_entities: None,
             };
@@ -399,6 +401,7 @@ pub fn build_paged_display_lists_interleaved(
                 caret_visible: false,
                 scroll_offset: elidex_plugin::Vector::<f32>::ZERO,
                 counter_state,
+                paged: true,
                 expected_generation: Some(generation),
                 continuation_entities: if continuations.is_empty() {
                     None
