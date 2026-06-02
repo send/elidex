@@ -381,13 +381,12 @@ fn paint_stacking_context_layers(
             if is_block_child(ctx.dom, child) || is_float_entity(ctx.dom, child) {
                 if !inline_run.is_empty() {
                     emit_inline_run(
-                        ctx.dom,
+                        ctx,
                         entity,
                         &inline_run,
-                        ctx.font_db,
-                        ctx.font_cache,
-                        ctx.dl,
-                        ctx.expected_generation,
+                        depth,
+                        child_perspective,
+                        in_transform,
                     );
                     inline_run.clear();
                 }
@@ -397,13 +396,12 @@ fn paint_stacking_context_layers(
         }
         if !inline_run.is_empty() {
             emit_inline_run(
-                ctx.dom,
+                ctx,
                 entity,
                 &inline_run,
-                ctx.font_db,
-                ctx.font_cache,
-                ctx.dl,
-                ctx.expected_generation,
+                depth,
+                child_perspective,
+                in_transform,
             );
         }
     }
@@ -452,13 +450,12 @@ fn paint_non_sc(
             // Flush any pending inline run before the block child.
             if !inline_run.is_empty() {
                 emit_inline_run(
-                    ctx.dom,
+                    ctx,
                     entity,
                     &inline_run,
-                    ctx.font_db,
-                    ctx.font_cache,
-                    ctx.dl,
-                    ctx.expected_generation,
+                    depth,
+                    child_perspective,
+                    in_transform,
                 );
                 inline_run.clear();
             }
@@ -476,13 +473,12 @@ fn paint_non_sc(
     // Flush trailing inline run.
     if !inline_run.is_empty() {
         emit_inline_run(
-            ctx.dom,
+            ctx,
             entity,
             &inline_run,
-            ctx.font_db,
-            ctx.font_cache,
-            ctx.dl,
-            ctx.expected_generation,
+            depth,
+            child_perspective,
+            in_transform,
         );
     }
 }

@@ -15,7 +15,7 @@ mod pack;
 
 use std::collections::HashMap;
 
-use elidex_ecs::{EcsDom, Entity, InlineFlow, PseudoElementMarker, TextContent};
+use elidex_ecs::{EcsDom, Entity, InlineFlow, InlineFlowRun, PseudoElementMarker, TextContent};
 #[cfg(test)]
 pub(crate) use elidex_plugin::LayoutBox;
 use elidex_plugin::{
@@ -133,11 +133,16 @@ fn is_atomic_inline(display: Display) -> bool {
 /// pre-layout generated-content pass, so layout measures the resolved text and
 /// pseudo runs persist like any other text run, subject to the gates below.)
 ///
-/// - `has_relpos_sticky`: a `position: relative`/`sticky` inline — in-flow in
-///   layout's IFC (CSS 2 §9.4.3) but painted in render's Layer 6 (slice 3p).
-/// - `has_atomic`: an `inline-block`/`-flex`/`-grid`/`-table` — an `Atomic`
-///   placeholder in layout (no text run) but flattened into the run by render's
-///   `collect_styled_inline_text` (slice 3p). Consuming the flow would drop it.
+/// (Slice 3p-a removed `has_atomic`: a *static* `inline-block`/`-flex`/`-grid`/
+/// `-table` now persists as an `AtomicBox` member of `InlineFlow` — render paints
+/// it by `walk()`-ing the entity at its repositioned `LayoutBox`, no longer
+/// flattening its text via `collect_styled_inline_text`. A *relative/sticky*
+/// atomic still sets `has_relpos_sticky` (it paints in render's Layer 6); slice
+/// 3p-b converges that case.)
+///
+/// - `has_relpos_sticky`: a `position: relative`/`sticky` inline (incl. a
+///   relpos/sticky atomic) — in-flow in layout's IFC (CSS 2 §9.4.3) but painted
+///   in render's Layer 6 (slice 3p-b).
 /// - `has_bidi`: a run whose text contains right-to-left characters — layout
 ///   positions runs in logical order, but render reorders them visually
 ///   (`bidi_visual_order`); consuming the logical order would scramble them
@@ -152,7 +157,6 @@ fn is_atomic_inline(display: Display) -> bool {
 #[derive(Default, Clone, Copy)]
 pub(crate) struct RunComplexity {
     pub has_relpos_sticky: bool,
-    pub has_atomic: bool,
     pub has_bidi: bool,
     pub has_text_transform: bool,
 }
@@ -211,9 +215,19 @@ fn collect_inline_items_inner(
                 items.push(InlineItem::Placeholder(child));
                 continue;
             }
-            // Atomic inline-level box: placeholder with zero size (filled later).
+            // Atomic inline-level box (CSS Display 3 §A `#atomic-inline`):
+            // placeholder with zero size (filled later by `layout_atomic_items`).
+            // A *static* atomic converges into `InlineFlow` as an `AtomicBox`
+            // member — render paints it by `walk()`-ing the entity at its own
+            // (repositioned) `LayoutBox`. A *relative/sticky* atomic is painted in
+            // render's Layer 6 (it `is_positioned`), so it must stay gated out of
+            // persistence via `has_relpos_sticky` (slice 3p-b converges it). The
+            // `position` check lives here because this arm `continue`s before the
+            // inline-element relpos check below.
             if is_atomic_inline(style.display) {
-                complexity.has_atomic = true;
+                if matches!(style.position, Position::Relative | Position::Sticky) {
+                    complexity.has_relpos_sticky = true;
+                }
                 items.push(InlineItem::Atomic {
                     entity: child,
                     inline_size: 0.0,
@@ -587,19 +601,21 @@ pub fn layout_inline_context_fragmented(
         }
     }
 
-    // InlineFlow persistence gate: non-justify, non-fragmented runs of plain LTR
-    // text — no pseudo/generated content, no relative/sticky positioned inline, no
-    // atomic inline, no bidi (RTL) text, no text-transform. Each excluded case is a
-    // layout-IFC-vs-render divergence (or, for fragmentation, a per-fragment slicing
-    // the persisted geometry does not yet model). When the gate fails, render keeps
-    // its own collect/collapse/emit path. Slice 2 added vertical writing modes: the
-    // packer already produces inline/block-axis positions and the align resolution is
-    // axis-agnostic, so persisting vertical needs only the origin fold's is_vertical
-    // swap (below) + a writing-mode-aware render consume path.
+    // InlineFlow persistence gate: non-justify, non-fragmented runs with no
+    // relative/sticky positioned inline, no bidi (RTL) text, no text-transform.
+    // Each excluded case is a layout-IFC-vs-render divergence (or, for
+    // fragmentation, a per-fragment slicing the persisted geometry does not yet
+    // model). Slice 3p-a dropped the atomic gate: a *static* atomic inline now
+    // persists as an `AtomicBox` member (render walks it at its repositioned
+    // `LayoutBox`); a *relative/sticky* atomic is caught by `has_relpos_sticky`.
+    // When the gate fails, render keeps its own collect/collapse/emit path. Slice 2
+    // added vertical writing modes: the packer already produces inline/block-axis
+    // positions and the align resolution is axis-agnostic, so persisting vertical
+    // needs only the origin fold's is_vertical swap (below) + a writing-mode-aware
+    // render consume path.
     let persist_flow = frag_constraint.is_none()
         && parent_style.text_align != TextAlign::Justify
         && !complexity.has_relpos_sticky
-        && !complexity.has_atomic
         && !complexity.has_bidi
         && !complexity.has_text_transform;
     let flow_align = persist_flow.then_some(pack::FlowAlign {
@@ -736,11 +752,38 @@ pub fn layout_inline_context_fragmented(
                 .map(|mut line| {
                     line.block_start += block_origin;
                     for run in &mut line.runs {
-                        run.inline_start += inline_origin;
+                        *run.inline_start_mut() += inline_origin;
                     }
                     line
                 })
                 .collect();
+            // Reposition each static atomic inline's `LayoutBox` to its on-line
+            // position (text-align already baked into `inline_start`). `layout_atomic_items`
+            // laid the atomic out at `content_origin` (IFC top-left); render paints the
+            // atomic by `walk()`-ing its `LayoutBox`, so the box must reflect the line
+            // position (layout owns geometry — render does not paint-time-translate).
+            // Only persisting runs reach here, and a persisting run has only *static*
+            // atomics (relpos/sticky → `has_relpos_sticky` → gated), so this never
+            // clobbers an `apply_relative_offset` (slice 3p-b owns positioned atomics).
+            // Block-axis = line top (baseline-naive; CSS 2 §10.8 `vertical-align` within
+            // the line box is deferred — the same leading-naive model as text runs).
+            for line in &lines {
+                for run in &line.runs {
+                    if let InlineFlowRun::AtomicBox {
+                        entity: atomic,
+                        inline_start,
+                    } = run
+                    {
+                        reposition_atomic_box(
+                            dom,
+                            *atomic,
+                            *inline_start,
+                            line.block_start,
+                            is_vertical,
+                        );
+                    }
+                }
+            }
             let _ = dom.world_mut().insert_one(
                 entity,
                 InlineFlow {
@@ -759,6 +802,43 @@ pub fn layout_inline_context_fragmented(
         first_baseline,
         line_count,
         break_after_line,
+    }
+}
+
+/// Reposition a static atomic inline's `LayoutBox` (and its descendants) from the
+/// `content_origin` placement `layout_atomic_items` gave it to its packed on-line
+/// position. `inline_abs`/`block_abs` are the absolute (writing-mode-folded) inline
+/// start and line block-start; the atomic's margin-box origin is moved there so
+/// render — which paints the atomic by `walk()`-ing it at its `LayoutBox` — sees
+/// the correct rect (CSS 2 §9.2.2 inline-level box at its IFC position). Descendants
+/// shift rigidly with the box (`shift_descendants`), the same operation relative
+/// positioning uses (`elidex-layout::layout` apply-relative-offset). Block-axis is
+/// the line top (baseline-naive; `vertical-align` within the line box is deferred).
+fn reposition_atomic_box(
+    dom: &mut EcsDom,
+    atomic: Entity,
+    inline_abs: f32,
+    block_abs: f32,
+    is_vertical: bool,
+) {
+    let Ok(lb) = dom.world().get::<&elidex_plugin::LayoutBox>(atomic) else {
+        return;
+    };
+    // inline-axis → physical x (horizontal) or y (vertical); block-axis → the other.
+    let target = if is_vertical {
+        Point::new(block_abs, inline_abs)
+    } else {
+        Point::new(inline_abs, block_abs)
+    };
+    let delta = target - lb.margin_box().origin;
+    drop(lb);
+    if delta.x.abs() <= f32::EPSILON && delta.y.abs() <= f32::EPSILON {
+        return;
+    }
+    let children = dom.composed_children(atomic);
+    crate::block::shift_descendants(dom, &children, delta);
+    if let Ok(mut lb) = dom.world().get::<&mut elidex_plugin::LayoutBox>(atomic) {
+        lb.content.origin += delta;
     }
 }
 

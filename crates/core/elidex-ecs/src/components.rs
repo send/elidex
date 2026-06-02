@@ -208,22 +208,86 @@ pub struct InlineFlowLine {
     /// half-leading, CSS 2 §10.8.1). Vertical render **does** consume it: the glyph
     /// column center is `block_start + block_size / 2`.
     pub block_size: f32,
-    /// Logical-order positioned style-runs on this line.
+    /// Logical-order paintable members on this line ([`InlineFlowRun::Text`] runs
+    /// and [`InlineFlowRun::AtomicBox`] inline-level boxes, interleaved in order).
     pub runs: Vec<InlineFlowRun>,
 }
 
-/// One contiguous same-style positioned text run on an [`InlineFlowLine`].
+/// One paintable member of an [`InlineFlowLine`], in logical order.
+///
+/// Render's flow consumer walks these in order: a [`Text`](InlineFlowRun::Text)
+/// run is shaped and emitted at its `inline_start`; an
+/// [`AtomicBox`](InlineFlowRun::AtomicBox) is painted by `walk()`-ing the entity
+/// at its own (absolute) `LayoutBox`.
 #[derive(Debug, Clone, PartialEq)]
-pub struct InlineFlowRun {
-    /// Element/pseudo entity whose `ComputedStyle` paints this run (render
-    /// re-reads colour / font / decoration / transform / opacity / spacing from
-    /// it — layout owns geometry, render owns paint-time style).
-    pub entity: Entity,
-    /// Collapsed text (CSS Text 3 §4.1.1 Phase I), this line, this style-run.
-    pub text: String,
-    /// Absolute inline-axis start, `text-align` already applied — physical x for
-    /// horizontal, physical y (pen top) for vertical.
-    pub inline_start: f32,
+pub enum InlineFlowRun {
+    /// A contiguous same-style collapsed text run.
+    Text {
+        /// Element/pseudo entity whose `ComputedStyle` paints this run (render
+        /// re-reads colour / font / decoration / transform / opacity / spacing
+        /// from it — layout owns geometry, render owns paint-time style).
+        entity: Entity,
+        /// Collapsed text (CSS Text 3 §4.1.1 Phase I), this line, this style-run.
+        text: String,
+        /// Absolute inline-axis start, `text-align` already applied — physical x
+        /// for horizontal, physical y (pen top) for vertical.
+        inline_start: f32,
+    },
+    /// A static (non-positioned) atomic inline-level box (CSS Display 3 §A
+    /// `#atomic-inline`: `inline-block`/`-flex`/`-grid`/`-table` — an inline-level
+    /// box that establishes its own formatting context and cannot split across
+    /// lines). Render paints it by `walk()`-ing the entity at its **own** absolute
+    /// `LayoutBox`, which layout repositions to `inline_start` (this line's
+    /// `block_start`) at persist — so render reads the box, not this field. The
+    /// box is the single source of the rendered rect (size + padding/border/margin
+    /// live only there); `inline_start` records the text-align-baked inline
+    /// position layout used to place the box (parallel to [`Text`](Self::Text)).
+    AtomicBox {
+        /// The atomic inline-level element whose `LayoutBox` holds its geometry.
+        entity: Entity,
+        /// Absolute inline-axis start, `text-align` already applied — the position
+        /// layout repositioned the atomic's `LayoutBox` to (render paints via the
+        /// box, so it does not re-read this).
+        inline_start: f32,
+    },
+}
+
+impl InlineFlowRun {
+    /// The member's style/paint entity, common to both variants.
+    #[must_use]
+    pub fn entity(&self) -> Entity {
+        match self {
+            Self::Text { entity, .. } | Self::AtomicBox { entity, .. } => *entity,
+        }
+    }
+
+    /// The member's absolute inline-axis start, common to both variants.
+    #[must_use]
+    pub fn inline_start(&self) -> f32 {
+        match self {
+            Self::Text { inline_start, .. } | Self::AtomicBox { inline_start, .. } => *inline_start,
+        }
+    }
+
+    /// Mutable access to the run's inline-axis start, common to both variants
+    /// (used by layout to fold IFC-local → absolute and bake the `text-align`
+    /// offset uniformly across text and atomic members).
+    pub fn inline_start_mut(&mut self) -> &mut f32 {
+        match self {
+            Self::Text { inline_start, .. } | Self::AtomicBox { inline_start, .. } => inline_start,
+        }
+    }
+
+    /// The collapsed text of a [`Text`](Self::Text) member, or `None` for an
+    /// [`AtomicBox`](Self::AtomicBox) (which carries no text — its content is
+    /// painted by walking the box).
+    #[must_use]
+    pub fn text(&self) -> Option<&str> {
+        match self {
+            Self::Text { text, .. } => Some(text),
+            Self::AtomicBox { .. } => None,
+        }
+    }
 }
 
 /// Inline style declarations on an element.

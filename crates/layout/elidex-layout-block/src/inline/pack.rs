@@ -82,6 +82,19 @@ pub(super) enum PackItem {
     Placeholder { entity: Entity },
 }
 
+/// What kind of `InlineFlow` member `place_item` records for a placed item (only
+/// when persisting — `flow_align.is_some()`). A text segment coalesces into a
+/// contiguous same-entity [`InlineFlowRun::Text`]; an atomic inline-level box
+/// becomes its own [`InlineFlowRun::AtomicBox`] (render `walk()`s it at its
+/// repositioned `LayoutBox`).
+#[derive(Clone, Copy)]
+enum FlowMember<'a> {
+    /// A text segment that contributes its `&str` to a text run.
+    Text(&'a str),
+    /// A static atomic inline-level box (no text; carries its own box geometry).
+    Atomic,
+}
+
 /// Build pack items from inline items.
 ///
 /// Text runs are split at break opportunities. Atomic boxes become single pack items.
@@ -280,7 +293,7 @@ impl LinePacker {
                     .current_line_runs
                     .drain(..)
                     .map(|mut r| {
-                        r.inline_start += offset;
+                        *r.inline_start_mut() += offset;
                         r
                     })
                     .collect();
@@ -385,7 +398,7 @@ impl LinePacker {
                     run.entity,
                     containing_inline_size,
                     contributes_content,
-                    Some(text),
+                    FlowMember::Text(text),
                 );
 
                 if *break_after == Some(BreakOpportunity::Mandatory) {
@@ -425,11 +438,13 @@ impl LinePacker {
                     }
                 }
 
-                // Atomic boxes don't break internally; treat as a single unit.
-                // An atomic inline box is always rendered content. No InlineFlow run
-                // text: runs containing atomics are gated out of persistence (the
-                // atomic's own box/content is not flattened into the flow), so this
-                // path is only reached for the non-persisting (flow_align = None) case.
+                // Atomic boxes don't break internally; treat as a single unit. An
+                // atomic inline box is always rendered content. When persisting (a
+                // *static* atomic — relpos/sticky atomics are gated out via
+                // `has_relpos_sticky`), `place_item` records an `AtomicBox` member at
+                // this position; render paints it by `walk()`-ing the entity at the
+                // `LayoutBox` layout repositions to the member's `inline_start`
+                // (slice 3p-a). A non-persisting run records nothing (render legacy).
                 self.place_item(
                     *inline_size,
                     *inline_size,
@@ -437,7 +452,7 @@ impl LinePacker {
                     *entity,
                     containing_inline_size,
                     true,
-                    None,
+                    FlowMember::Atomic,
                 );
             }
             PackItem::Placeholder { entity } => {
@@ -460,7 +475,7 @@ impl LinePacker {
         entity: Entity,
         containing_inline_size: f32,
         contributes_content: bool,
-        run_text: Option<&str>,
+        member: FlowMember<'_>,
     ) {
         if self.current_inline + trimmed_width > containing_inline_size && self.on_line {
             self.flush_line();
@@ -489,22 +504,29 @@ impl LinePacker {
             ));
         }
 
-        // Record the positioned text run for InlineFlow (only when persisting).
-        // Coalesce contiguous same-entity break-pieces on this line into one run so
-        // render shapes whole words rather than per-break fragments (CSS Text 3 §5.6
-        // Shaping Across Intra-word Breaks); the run keeps the first piece's
-        // inline_start. Different-entity or post-flush
-        // segments start a fresh run.
+        // Record the InlineFlow member for this placed item (only when persisting).
+        // Text: coalesce contiguous same-entity break-pieces on this line into one
+        // run so render shapes whole words rather than per-break fragments (CSS Text
+        // 3 §5.6 Shaping Across Intra-word Breaks); the run keeps the first piece's
+        // inline_start, and a different-entity / post-flush / atomic-interrupted
+        // segment starts a fresh run. Atomic: its own AtomicBox member at this
+        // position (render walk()s the entity at its repositioned LayoutBox).
         if self.flow_align.is_some() {
-            if let Some(text) = run_text {
-                match self.current_line_runs.last_mut() {
-                    Some(last) if last.entity == entity => last.text.push_str(text),
-                    _ => self.current_line_runs.push(InlineFlowRun {
+            match member {
+                FlowMember::Text(text) => match self.current_line_runs.last_mut() {
+                    Some(InlineFlowRun::Text {
+                        entity: e, text: t, ..
+                    }) if *e == entity => t.push_str(text),
+                    _ => self.current_line_runs.push(InlineFlowRun::Text {
                         entity,
                         text: text.to_string(),
                         inline_start: seg_inline_start,
                     }),
-                }
+                },
+                FlowMember::Atomic => self.current_line_runs.push(InlineFlowRun::AtomicBox {
+                    entity,
+                    inline_start: seg_inline_start,
+                }),
             }
         }
     }

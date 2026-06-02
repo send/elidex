@@ -2,7 +2,7 @@
 //! render consumes (slice 1 of the render↔layout inline-pipeline convergence).
 
 use super::*;
-use elidex_ecs::{InlineFlow, PseudoElementMarker, TextContent};
+use elidex_ecs::{InlineFlow, InlineFlowRun, PseudoElementMarker, TextContent};
 use elidex_plugin::{Direction, Position, TextAlign, TextTransform, WritingMode};
 
 /// Build a `LayoutEnv` for the test font db.
@@ -69,10 +69,10 @@ fn persists_single_line_flow() {
     let line = &flow.lines[0];
     assert_eq!(line.block_start, 0.0, "content origin is ZERO");
     assert_eq!(line.runs.len(), 1);
-    assert_eq!(line.runs[0].text, "Hello");
-    assert_eq!(line.runs[0].inline_start, 0.0, "left-aligned start");
+    assert_eq!(line.runs[0].text(), Some("Hello"));
+    assert_eq!(line.runs[0].inline_start(), 0.0, "left-aligned start");
     // The run's entity is the style source (the <p>), not the text-node key.
-    assert_eq!(line.runs[0].entity, parent);
+    assert_eq!(line.runs[0].entity(), parent);
 }
 
 #[test]
@@ -99,7 +99,7 @@ fn coalesces_break_pieces_on_one_line() {
         1,
         "contiguous same-entity break pieces coalesce into one run"
     );
-    assert_eq!(flow.lines[0].runs[0].text, "hello world");
+    assert_eq!(flow.lines[0].runs[0].text(), Some("hello world"));
 }
 
 #[test]
@@ -128,8 +128,10 @@ fn multi_line_wrap_has_increasing_block_start() {
         flow.lines[1].block_start,
         flow.lines[0].block_start
     );
-    assert!(flow.lines[0].runs[0].text.starts_with("hello"));
-    assert_eq!(flow.lines[1].runs[0].text, "world");
+    assert!(flow.lines[0].runs[0]
+        .text()
+        .is_some_and(|t| t.starts_with("hello")));
+    assert_eq!(flow.lines[1].runs[0].text(), Some("world"));
 }
 
 #[test]
@@ -145,7 +147,8 @@ fn absolute_coordinates_offset_by_content_origin() {
     let flow = dom.world().get::<&InlineFlow>(key).expect("should persist");
     assert_eq!(flow.lines[0].block_start, 20.0, "block_start = origin.y");
     assert_eq!(
-        flow.lines[0].runs[0].inline_start, 10.0,
+        flow.lines[0].runs[0].inline_start(),
+        10.0,
         "inline_start = origin.x (left-aligned)"
     );
 }
@@ -171,20 +174,21 @@ fn text_align_center_bakes_offset_into_inline_start() {
 
     let flow = dom.world().get::<&InlineFlow>(key).expect("should persist");
     assert!(
-        flow.lines[0].runs[0].inline_start > 0.0,
+        flow.lines[0].runs[0].inline_start() > 0.0,
         "centered text is offset from the line start, got {}",
-        flow.lines[0].runs[0].inline_start
+        flow.lines[0].runs[0].inline_start()
     );
 }
 
-// --- gate: runs that diverge between layout IFC and render are NOT persisted ---
+// --- gate: runs that diverge between layout IFC and render are NOT persisted
+// (relpos/sticky still gated — slice 3p-b; static atomics now persist — 3p-a) ---
 
 #[test]
-fn gate_excludes_atomic_inline() {
+fn persists_atomic_inline_as_box_member() {
     let Some((mut dom, parent, style, font_db)) = setup_inline_test("a") else {
         return;
     };
-    // Append an inline-block after the text → the run contains an atomic.
+    // Append a static inline-block after the text → the run contains an atomic.
     let ib = dom.create_element("span", Attributes::default());
     let ib_style = ComputedStyle {
         display: Display::InlineBlock,
@@ -207,10 +211,46 @@ fn gate_excludes_atomic_inline() {
         &env(&font_db),
     );
 
+    // Slice 3p-a: a static atomic now persists as an `AtomicBox` member (was gated).
+    let flow = dom
+        .world()
+        .get::<&InlineFlow>(key)
+        .expect("a run with a static atomic inline now persists an InlineFlow (slice 3p-a)");
+    // Find the AtomicBox member and the block_start of the line it landed on. (The
+    // test's `layout_block_only` child lays the inline-block out at full container
+    // width, so it wraps below the text onto its own line — which makes the D7
+    // reposition's block-axis move observable: the box moves from content_origin
+    // y=0 down to the line.)
+    let (atomic_inline, atomic_block) = flow
+        .lines
+        .iter()
+        .flat_map(|line| line.runs.iter().map(move |r| (r, line.block_start)))
+        .find_map(|(r, block_start)| match r {
+            InlineFlowRun::AtomicBox {
+                entity,
+                inline_start,
+            } if *entity == ib => Some((*inline_start, block_start)),
+            _ => None,
+        })
+        .expect("the inline-block must be recorded as an AtomicBox member of the flow");
     assert!(
-        dom.world().get::<&InlineFlow>(key).is_err(),
-        "a run containing an atomic inline must not persist an InlineFlow \
-         (render flattens the atomic's text — consuming the flow would drop it)"
+        atomic_block > 0.0 || atomic_inline > 0.0,
+        "the atomic is placed away from the IFC origin on its line, got ({atomic_inline}, {atomic_block})"
+    );
+
+    // D7: layout repositioned the atomic's LayoutBox from content_origin (0,0) to its
+    // member position (margins are 0, so margin-box origin == content origin).
+    let lb = dom
+        .world()
+        .get::<&LayoutBox>(ib)
+        .expect("the atomic was laid out and has a LayoutBox");
+    assert!(
+        (lb.content.origin.x - atomic_inline).abs() < 0.5
+            && (lb.content.origin.y - atomic_block).abs() < 0.5,
+        "atomic LayoutBox repositioned to its member position ({atomic_inline}, {atomic_block}), \
+         got ({}, {})",
+        lb.content.origin.x,
+        lb.content.origin.y
     );
 }
 
@@ -294,7 +334,7 @@ fn persists_pseudo_element_flow() {
         flow.lines
             .iter()
             .flat_map(|l| &l.runs)
-            .any(|r| r.text.contains("AB")),
+            .any(|r| r.text().is_some_and(|t| t.contains("AB"))),
         "persisted flow should carry the pseudo's resolved generated text"
     );
 }
@@ -468,8 +508,8 @@ fn persists_vertical_rl_flow() {
         .expect("vertical-rl text now persists an InlineFlow (slice 2)");
     assert_eq!(flow.lines.len(), 1, "short text → one line/column");
     assert_eq!(flow.lines[0].runs.len(), 1);
-    assert_eq!(flow.lines[0].runs[0].text, "Hi");
-    assert_eq!(flow.lines[0].runs[0].entity, parent);
+    assert_eq!(flow.lines[0].runs[0].text(), Some("Hi"));
+    assert_eq!(flow.lines[0].runs[0].entity(), parent);
 }
 
 #[test]
@@ -502,7 +542,8 @@ fn vertical_absolute_coordinates_swap_axes() {
         "vertical: block-axis maps to physical x = origin.x"
     );
     assert_eq!(
-        flow.lines[0].runs[0].inline_start, 20.0,
+        flow.lines[0].runs[0].inline_start(),
+        20.0,
         "vertical: inline-axis maps to physical y = origin.y (start-aligned)"
     );
 }
