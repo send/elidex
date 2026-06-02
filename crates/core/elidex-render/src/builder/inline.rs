@@ -93,17 +93,6 @@ pub(crate) fn emit_inline_run(
     counter_state: &CounterState,
     expected_generation: Option<u32>,
 ) {
-    // Parent style drives BOTH the converged-path writing-mode dispatch and the
-    // legacy collect/collapse path, so read it once up front (hoisted above the
-    // `InlineFlow` branch). `writing_mode`/`text_orientation`/`direction` are all
-    // inherited keyword properties, so the IFC parent's values are authoritative for
-    // every run in the flow — `emit_inline_flow` dispatches horizontal vs vertical on
-    // `parent_style.writing_mode`.
-    let parent_style = match dom.world().get::<&ComputedStyle>(parent) {
-        Ok(s) => s.clone(),
-        Err(_) => return,
-    };
-
     // Converged path: if layout persisted an `InlineFlow` on this run's start
     // entity (`run[0]`, the same key both passes derive), consume its collapsed +
     // positioned runs instead of re-collecting/re-collapsing/re-measuring the DOM.
@@ -113,12 +102,38 @@ pub(crate) fn emit_inline_run(
     if let Some(&first) = run.first() {
         if let Ok(flow) = dom.world().get::<&InlineFlow>(first) {
             if expected_generation.is_none_or(|g| flow.layout_generation == g) {
-                emit_inline_flow(dom, &flow, &parent_style, font_db, font_cache, dl);
+                // The consume path needs only `writing_mode` + `text_orientation`
+                // (Copy enums) for the horizontal/vertical dispatch — read them WITHOUT
+                // cloning the whole `ComputedStyle` (this is the converged hot path).
+                // Both are inherited, so the IFC parent's values are authoritative for
+                // every run. A styleless parent → horizontal default, mirroring layout's
+                // `get_style` `unwrap_or_default` tolerance (it persisted under the same
+                // default), so the flow is still painted.
+                let (writing_mode, text_orientation) = dom
+                    .world()
+                    .get::<&ComputedStyle>(parent)
+                    .map_or((WritingMode::HorizontalTb, TextOrientation::Mixed), |s| {
+                        (s.writing_mode, s.text_orientation)
+                    });
+                emit_inline_flow(
+                    dom,
+                    &flow,
+                    writing_mode,
+                    text_orientation,
+                    font_db,
+                    font_cache,
+                    dl,
+                );
                 return;
             }
         }
     }
 
+    // Legacy path: needs the full parent style for collect/collapse/measure.
+    let parent_style = match dom.world().get::<&ComputedStyle>(parent) {
+        Ok(s) => s.clone(),
+        Err(_) => return,
+    };
     let Some(lb) = find_nearest_layout_box(dom, parent) else {
         return;
     };
@@ -225,7 +240,7 @@ fn emit_styled_segments(
         parent_style,
     } = *ctx;
 
-    let is_vertical = !matches!(parent_style.writing_mode, WritingMode::HorizontalTb);
+    let is_vertical = !parent_style.writing_mode.is_horizontal();
 
     if is_vertical {
         emit_styled_segments_vertical(ctx, font_db, font_cache, dl);
@@ -371,23 +386,26 @@ fn emit_text_segment(
 /// run entity's `ComputedStyle`. This is the converged path — render no longer
 /// re-collects / re-collapses / re-measures the DOM text, and (unlike the legacy
 /// single-line `emit_styled_segments`) honours layout's per-line line-breaking and
-/// per-line `text-align`. Layout applied the writing-mode projection at persist, so
-/// each scalar holds the absolute physical coordinate for its axis; this dispatches
-/// horizontal vs vertical glyph emission on `parent_style.writing_mode` (all three
-/// of writing_mode/text_orientation/direction are inherited, so the IFC parent's
-/// values are authoritative for every run).
+/// per-line `text-align`.
+///
+/// Layout applied the writing-mode projection at persist, so each scalar holds the
+/// absolute physical coordinate for its axis; render reads them without a transform
+/// and only branches the per-run glyph emit on `writing_mode` (the IFC parent's
+/// value — inherited, so authoritative for every run):
+/// - **horizontal**: `inline_start` = physical x, `block_start` = physical line top.
+/// - **vertical**: `block_start`/`block_size` give the glyph-column center x;
+///   `inline_start` = physical y (pen top). `text_orientation` selects the shaping.
 fn emit_inline_flow(
     dom: &EcsDom,
     flow: &InlineFlow,
-    parent_style: &ComputedStyle,
+    writing_mode: WritingMode,
+    text_orientation: TextOrientation,
     font_db: &FontDatabase,
     font_cache: &mut FontCache,
     dl: &mut DisplayList,
 ) {
-    if !matches!(parent_style.writing_mode, WritingMode::HorizontalTb) {
-        emit_inline_flow_vertical(dom, flow, parent_style, font_db, font_cache, dl);
-        return;
-    }
+    let vertical = !writing_mode.is_horizontal();
+    let orient = vertical_text_orientation(writing_mode, text_orientation);
     for line in &flow.lines {
         for run in &line.runs {
             let Ok(style) = dom.world().get::<&ComputedStyle>(run.entity) else {
@@ -400,62 +418,32 @@ fn emit_inline_flow(
             // Style-only segment: the collapsed text comes from the flow run
             // (`&run.text`), so the segment's own text field is unused here.
             let seg = StyledTextSegment::from_style(String::new(), &style);
-            // Horizontal: inline_start = physical x, block_start = physical line top.
-            let mut cursor_x = run.inline_start;
-            emit_text_segment(
-                &run.text,
-                &seg,
-                &mut cursor_x,
-                line.block_start,
-                0.0,
-                font_db,
-                font_cache,
-                dl,
-            );
-        }
-    }
-}
-
-/// Vertical-writing-mode consume path for a layout-produced [`InlineFlow`] (slice 2).
-///
-/// Layout positioned each line's runs along the inline axis (`inline_start` =
-/// absolute physical y, with `text-align` already baked) and gave each line a
-/// block-axis position/size (`block_start` = physical x of the column's block-start
-/// edge, `block_size` = column width) → `center_x` is the glyph-column center.
-/// Mirrors the per-segment vertical emission of the legacy
-/// `emit_styled_segments_vertical`, but driven per-line / per-run from the persisted
-/// flow instead of a single re-collected column (fixing multi-line / multi-run /
-/// per-line text-align vertical text).
-fn emit_inline_flow_vertical(
-    dom: &EcsDom,
-    flow: &InlineFlow,
-    parent_style: &ComputedStyle,
-    font_db: &FontDatabase,
-    font_cache: &mut FontCache,
-    dl: &mut DisplayList,
-) {
-    let text_orientation = vertical_text_orientation(parent_style);
-    for line in &flow.lines {
-        let center_x = line.block_start + line.block_size / 2.0;
-        for run in &line.runs {
-            let Ok(style) = dom.world().get::<&ComputedStyle>(run.entity) else {
-                continue;
-            };
-            if style.visibility != Visibility::Visible {
-                continue;
+            if vertical {
+                let center_x = line.block_start + line.block_size / 2.0;
+                let mut cursor_y = run.inline_start;
+                emit_vertical_text_segment(
+                    &run.text,
+                    &seg,
+                    orient,
+                    center_x,
+                    &mut cursor_y,
+                    font_db,
+                    font_cache,
+                    dl,
+                );
+            } else {
+                let mut cursor_x = run.inline_start;
+                emit_text_segment(
+                    &run.text,
+                    &seg,
+                    &mut cursor_x,
+                    line.block_start,
+                    0.0,
+                    font_db,
+                    font_cache,
+                    dl,
+                );
             }
-            let seg = StyledTextSegment::from_style(String::new(), &style);
-            let mut cursor_y = run.inline_start;
-            emit_vertical_text_segment(
-                &run.text,
-                &seg,
-                text_orientation,
-                center_x,
-                &mut cursor_y,
-                font_db,
-                font_cache,
-                dl,
-            );
         }
     }
 }
@@ -496,7 +484,8 @@ fn emit_styled_segments_vertical(
     // current behaviour is correct for LTR vertical text.
     let visual_order = bidi_visual_order(collapsed, parent_style.direction);
 
-    let text_orientation = vertical_text_orientation(parent_style);
+    let text_orientation =
+        vertical_text_orientation(parent_style.writing_mode, parent_style.text_orientation);
 
     // Vertical: cursor_y advances downward, center_x is the column center.
     let center_x = lb.content.center().x;
@@ -525,15 +514,18 @@ fn emit_styled_segments_vertical(
 /// CSS Writing Modes Level 4 §5.1: `sideways-rl`/`sideways-lr` force all glyphs
 /// sideways; otherwise the `text-orientation` property (mixed/upright/sideways)
 /// selects the shaping strategy. Shared by the legacy single-column path and the
-/// converged `emit_inline_flow_vertical`.
-fn vertical_text_orientation(style: &ComputedStyle) -> TextOrientation {
+/// converged `emit_inline_flow` vertical branch.
+fn vertical_text_orientation(
+    writing_mode: WritingMode,
+    text_orientation: TextOrientation,
+) -> TextOrientation {
     if matches!(
-        style.writing_mode,
+        writing_mode,
         WritingMode::SidewaysRl | WritingMode::SidewaysLr
     ) {
         TextOrientation::Sideways
     } else {
-        style.text_orientation
+        text_orientation
     }
 }
 
