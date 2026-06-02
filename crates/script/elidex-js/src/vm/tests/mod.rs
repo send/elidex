@@ -92,6 +92,7 @@ mod tests_html_t2d_protos;
 mod tests_html_textarea_proto;
 mod tests_indexeddb;
 mod tests_indexeddb_common;
+mod tests_indexeddb_cursor;
 mod tests_indexeddb_events;
 mod tests_inner_html_mixin;
 mod tests_insert_adjacent;

@@ -1134,6 +1134,20 @@ pub enum ObjectKind {
     /// `VmInner::idb_key_range_states`.
     #[cfg(feature = "engine")]
     IdbKeyRange,
+    /// `IDBIndex` handle (§4.6).  Payload-free brand; the identity tuple
+    /// (db / store / index name + owning store handle) lives in
+    /// `VmInner::idb_index_states`.  Per-store-instance handle identity is
+    /// preserved via `IdbObjectStoreState::index_handles`.
+    #[cfg(feature = "engine")]
+    IdbIndex,
+    /// `IDBCursor` / `IDBCursorWithValue` instance (§4.9).  Both share this
+    /// brand; with-value-ness is encoded solely by the prototype
+    /// (`IDBCursorWithValue.prototype` carries the `value` getter) + the
+    /// `key_only` flag in `VmInner::idb_cursor_states`.  Carries the backend
+    /// iteration state + the §4.9 got-value flag + per-iteration attribute
+    /// snapshots.
+    #[cfg(feature = "engine")]
+    IdbCursor,
     /// `Crypto` instance (WebCrypto §10) — accessed via `window.crypto`
     /// singleton.  Payload-free brand; the wrapper is stateless (every
     /// `getRandomValues` / `randomUUID` call routes to OS CSPRNG /

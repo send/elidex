@@ -120,9 +120,22 @@ pub fn put(
     let key_bytes = resolved_key.serialize();
     let table = backend.data_table(db_name, store_name);
 
-    backend.conn().execute(
-        &format!("INSERT OR REPLACE INTO [{table}] (key_data, value) VALUES (?1, ?2)"),
-        params![key_bytes, final_value],
+    write_and_index(
+        backend,
+        db_name,
+        store_name,
+        &resolved_key,
+        final_value,
+        || {
+            backend
+                .conn()
+                .execute(
+                    &format!("INSERT OR REPLACE INTO [{table}] (key_data, value) VALUES (?1, ?2)"),
+                    params![key_bytes, final_value],
+                )
+                .map(|_| ())
+                .map_err(BackendError::from)
+        },
     )?;
 
     Ok(resolved_key)
@@ -141,22 +154,64 @@ pub fn add(
     let key_bytes = resolved_key.serialize();
     let table = backend.data_table(db_name, store_name);
 
-    backend
-        .conn()
-        .execute(
-            &format!("INSERT INTO [{table}] (key_data, value) VALUES (?1, ?2)"),
-            params![key_bytes, final_value],
-        )
-        .map_err(|e| match e {
-            rusqlite::Error::SqliteFailure(err, _)
-                if err.code == rusqlite::ErrorCode::ConstraintViolation =>
-            {
-                BackendError::ConstraintError("Key already exists".into())
-            }
-            other => BackendError::from(other),
-        })?;
+    write_and_index(
+        backend,
+        db_name,
+        store_name,
+        &resolved_key,
+        final_value,
+        || {
+            backend
+                .conn()
+                .execute(
+                    &format!("INSERT INTO [{table}] (key_data, value) VALUES (?1, ?2)"),
+                    params![key_bytes, final_value],
+                )
+                .map(|_| ())
+                .map_err(|e| match e {
+                    rusqlite::Error::SqliteFailure(err, _)
+                        if err.code == rusqlite::ErrorCode::ConstraintViolation =>
+                    {
+                        BackendError::ConstraintError("Key already exists".into())
+                    }
+                    other => BackendError::from(other),
+                })
+        },
+    )?;
 
     Ok(resolved_key)
+}
+
+/// Run a single data-table write (`do_write`) then refresh the store's
+/// secondary indexes for `(pk, value)`, atomically: a unique-index violation
+/// (or the data write itself failing) rolls the whole thing back via a
+/// `SAVEPOINT`, so a caught / `preventDefault`'d `ConstraintError` never leaves
+/// an orphan record or a stale index entry.  The index refresh is a no-op (one
+/// metadata probe) when the store has no indexes.
+fn write_and_index(
+    backend: &IdbBackend,
+    db_name: &str,
+    store_name: &str,
+    pk: &IdbKey,
+    value: &str,
+    do_write: impl FnOnce() -> Result<(), BackendError>,
+) -> Result<(), BackendError> {
+    backend.conn().execute_batch("SAVEPOINT idb_write")?;
+    let result = (|| -> Result<(), BackendError> {
+        do_write()?;
+        crate::index::update_indexes_for_put(backend, db_name, store_name, pk, value)
+    })();
+    match result {
+        Ok(()) => {
+            backend.conn().execute_batch("RELEASE idb_write")?;
+            Ok(())
+        }
+        Err(e) => {
+            let _ = backend.conn().execute_batch("ROLLBACK TO idb_write");
+            let _ = backend.conn().execute_batch("RELEASE idb_write");
+            Err(e)
+        }
+    }
 }
 
 /// Get a value by exact key.
@@ -283,8 +338,12 @@ pub fn delete(
     target: &DeleteTarget,
 ) -> Result<(), BackendError> {
     let table = backend.data_table(db_name, store_name);
+    // Remove the secondary-index entries FIRST: the range variant resolves the
+    // affected primary keys by reading the data table, so it must run before
+    // the records are gone (both helpers no-op when the store has no indexes).
     match target {
         DeleteTarget::Key(key) => {
+            crate::index::remove_indexes_for_delete(backend, db_name, store_name, key)?;
             let key_bytes = key.serialize();
             backend.conn().execute(
                 &format!("DELETE FROM [{table}] WHERE key_data = ?1"),
@@ -292,6 +351,7 @@ pub fn delete(
             )?;
         }
         DeleteTarget::Range(range) => {
+            crate::index::remove_indexes_for_range(backend, db_name, store_name, range)?;
             let (where_clause, where_params) = range.to_sql_clause("key_data");
             let param_refs: Vec<&dyn rusqlite::types::ToSql> = where_params
                 .iter()
@@ -306,8 +366,9 @@ pub fn delete(
     Ok(())
 }
 
-/// Clear all records from an object store.
+/// Clear all records from an object store (and all its index entries).
 pub fn clear(backend: &IdbBackend, db_name: &str, store_name: &str) -> Result<(), BackendError> {
+    crate::index::clear_indexes(backend, db_name, store_name)?;
     let table = backend.data_table(db_name, store_name);
     backend
         .conn()

@@ -272,6 +272,10 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         ObjectKind::IdbTransaction => CloneKind::Unclonable("IDBTransaction"),
         #[cfg(feature = "engine")]
         ObjectKind::IdbKeyRange => CloneKind::Unclonable("IDBKeyRange"),
+        #[cfg(feature = "engine")]
+        ObjectKind::IdbIndex => CloneKind::Unclonable("IDBIndex"),
+        #[cfg(feature = "engine")]
+        ObjectKind::IdbCursor => CloneKind::Unclonable("IDBCursor"),
         ObjectKind::Request => CloneKind::Unclonable("Request"),
         ObjectKind::Response => CloneKind::Unclonable("Response"),
         ObjectKind::TextEncoder => CloneKind::Unclonable("TextEncoder"),

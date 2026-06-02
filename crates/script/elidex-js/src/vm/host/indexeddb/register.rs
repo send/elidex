@@ -12,6 +12,9 @@
 //! IDBTransaction.prototype        → EventTarget.prototype
 //! IDBObjectStore.prototype        → Object.prototype
 //! IDBKeyRange.prototype           → Object.prototype   (ctor carries the statics)
+//! IDBIndex.prototype              → Object.prototype
+//! IDBCursor.prototype             → Object.prototype
+//! IDBCursorWithValue.prototype    → IDBCursor.prototype
 //! IDBVersionChangeEvent.prototype → Event.prototype
 //! ```
 //!
@@ -40,7 +43,7 @@ use super::super::super::value::{
 };
 use super::super::super::{NativeFn, VmInner};
 use super::super::events::install_ctor;
-use super::{database, factory, key_range, object_store, request, txn};
+use super::{cursor, database, factory, index, key_range, object_store, request, txn};
 
 impl VmInner {
     /// Register the `indexedDB` global, the `IDBKeyRange` constructor, and all
@@ -156,8 +159,84 @@ impl VmInner {
         self.idb_install_method(os_proto, "delete", object_store::native_os_delete);
         self.idb_install_method(os_proto, "clear", object_store::native_os_clear);
         self.idb_install_method(os_proto, "count", object_store::native_os_count);
+        self.idb_install_method(os_proto, "openCursor", object_store::native_os_open_cursor);
+        self.idb_install_method(
+            os_proto,
+            "openKeyCursor",
+            object_store::native_os_open_key_cursor,
+        );
+        self.idb_install_method(os_proto, "index", object_store::native_os_index);
+        self.idb_install_method(
+            os_proto,
+            "createIndex",
+            object_store::native_os_create_index,
+        );
+        self.idb_install_method(
+            os_proto,
+            "deleteIndex",
+            object_store::native_os_delete_index,
+        );
         self.idb_object_store_prototype = Some(os_proto);
         self.idb_install_interface(os_proto, "IDBObjectStore");
+
+        // --- IDBIndex : Object ---------------------------------------------
+        let idx_proto = self.alloc_idb_proto(obj_proto);
+        self.idb_install_ro_getter(idx_proto, "name", index::native_index_get_name);
+        self.idb_install_ro_getter(idx_proto, "keyPath", index::native_index_get_key_path);
+        self.idb_install_ro_getter(idx_proto, "unique", index::native_index_get_unique);
+        self.idb_install_ro_getter(idx_proto, "multiEntry", index::native_index_get_multi_entry);
+        self.idb_install_ro_getter(
+            idx_proto,
+            "objectStore",
+            index::native_index_get_object_store,
+        );
+        self.idb_install_method(idx_proto, "get", index::native_index_get);
+        self.idb_install_method(idx_proto, "getKey", index::native_index_get_key);
+        self.idb_install_method(idx_proto, "getAll", index::native_index_get_all);
+        self.idb_install_method(idx_proto, "getAllKeys", index::native_index_get_all_keys);
+        self.idb_install_method(idx_proto, "count", index::native_index_count);
+        self.idb_install_method(idx_proto, "openCursor", index::native_index_open_cursor);
+        self.idb_install_method(
+            idx_proto,
+            "openKeyCursor",
+            index::native_index_open_key_cursor,
+        );
+        self.idb_index_prototype = Some(idx_proto);
+        self.idb_install_interface(idx_proto, "IDBIndex");
+
+        // --- IDBCursor : Object --------------------------------------------
+        let cursor_proto = self.alloc_idb_proto(obj_proto);
+        self.idb_install_ro_getter(
+            cursor_proto,
+            "direction",
+            cursor::native_cursor_get_direction,
+        );
+        self.idb_install_ro_getter(cursor_proto, "key", cursor::native_cursor_get_key);
+        self.idb_install_ro_getter(
+            cursor_proto,
+            "primaryKey",
+            cursor::native_cursor_get_primary_key,
+        );
+        self.idb_install_ro_getter(cursor_proto, "source", cursor::native_cursor_get_source);
+        self.idb_install_ro_getter(cursor_proto, "request", cursor::native_cursor_get_request);
+        self.idb_install_method(cursor_proto, "advance", cursor::native_cursor_advance);
+        self.idb_install_method(cursor_proto, "continue", cursor::native_cursor_continue);
+        self.idb_install_method(
+            cursor_proto,
+            "continuePrimaryKey",
+            cursor::native_cursor_continue_primary_key,
+        );
+        self.idb_install_method(cursor_proto, "update", cursor::native_cursor_update);
+        self.idb_install_method(cursor_proto, "delete", cursor::native_cursor_delete);
+        self.idb_cursor_prototype = Some(cursor_proto);
+        self.idb_install_interface(cursor_proto, "IDBCursor");
+
+        // --- IDBCursorWithValue : IDBCursor --------------------------------
+        // Inherits every IDBCursor accessor / method; adds only `value`.
+        let cwv_proto = self.alloc_idb_proto(Some(cursor_proto));
+        self.idb_install_ro_getter(cwv_proto, "value", cursor::native_cursor_get_value);
+        self.idb_cursor_with_value_prototype = Some(cwv_proto);
+        self.idb_install_interface(cwv_proto, "IDBCursorWithValue");
 
         // --- IDBKeyRange : Object (statics live on the ctor) ---------------
         let kr_proto = self.alloc_idb_proto(obj_proto);

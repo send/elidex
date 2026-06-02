@@ -6,18 +6,19 @@
 //! backend operation, and hands the outcome to `request::async_execute`
 //! (§5.6) — the result is delivered via a database task, never inline.
 //!
-//! `createIndex` / `deleteIndex` / `index` + `openCursor` / `openKeyCursor`
-//! ship with `IDBIndex` / `IDBCursor` in D-20b.
+//! `createIndex` / `deleteIndex` / `index` (→ [`super::index`]) and
+//! `openCursor` / `openKeyCursor` (→ [`super::cursor`]) live here too (D-20b);
+//! they delegate the index-handle / cursor algorithms to those modules.
 
 #![cfg(feature = "engine")]
 
 use super::super::super::shape;
 use super::super::super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyStorage, VmError,
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage, VmError,
 };
 use super::super::super::VmInner;
 use super::value::{self, Query};
-use super::{request, DeferredOutcome, IdbTxnState};
+use super::{cursor, index, request, txn, DeferredOutcome, IdbTxnState};
 
 /// Allocate an `IDBObjectStore` wrapper bound to `txn` (§4.5).
 pub(crate) fn create_object_store_wrapper(
@@ -38,6 +39,7 @@ pub(crate) fn create_object_store_wrapper(
             db_name: db_name.to_string(),
             store_name: store_name.to_string(),
             transaction: Some(txn),
+            ..Default::default()
         },
     );
     id
@@ -76,7 +78,11 @@ fn store_ctx(
 }
 
 /// §2.7.1: requests may only be issued while the transaction is `Active`.
-fn require_active(ctx: &mut NativeContext<'_>, txn: ObjectId, method: &str) -> Result<(), VmError> {
+pub(super) fn require_active(
+    ctx: &mut NativeContext<'_>,
+    txn: ObjectId,
+    method: &str,
+) -> Result<(), VmError> {
     let active = matches!(
         ctx.vm.idb_transaction_states.get(&txn).map(|s| s.state),
         Some(IdbTxnState::Active)
@@ -93,7 +99,7 @@ fn require_active(ctx: &mut NativeContext<'_>, txn: ObjectId, method: &str) -> R
 }
 
 /// §4.5: write operations require a `readwrite` / `versionchange` mode.
-fn require_writable(
+pub(super) fn require_writable(
     ctx: &mut NativeContext<'_>,
     txn: ObjectId,
     method: &str,
@@ -119,7 +125,7 @@ fn require_writable(
 /// §5.11 clone with the transaction-inactive guard: the transaction is set
 /// inactive for the duration of the structured clone so a getter side
 /// effect cannot issue a request against it, then restored.
-fn clone_value_guarded(
+pub(super) fn clone_value_guarded(
     ctx: &mut NativeContext<'_>,
     txn: ObjectId,
     value: JsValue,
@@ -315,6 +321,7 @@ fn add_or_put(
         Some(store_id),
         Some(txn),
         outcome,
+        None,
     )))
 }
 
@@ -369,6 +376,7 @@ pub(crate) fn native_os_get(
         Some(store_id),
         Some(txn),
         outcome,
+        None,
     )))
 }
 
@@ -405,11 +413,12 @@ pub(crate) fn native_os_get_key(
         Some(store_id),
         Some(txn),
         outcome,
+        None,
     )))
 }
 
 /// Optional range argument for `getAll` / `getAllKeys` / `count`.
-fn optional_range(
+pub(super) fn optional_range(
     ctx: &mut NativeContext<'_>,
     arg: Option<JsValue>,
 ) -> Result<Option<elidex_indexeddb::IdbKeyRange>, VmError> {
@@ -430,7 +439,7 @@ fn optional_range(
 /// type is `unsigned long` (ECMAScript ToUint32 — so a negative argument wraps
 /// rather than meaning "none"), and §6.2 step 1 maps a count of `0` (or an
 /// absent argument) to infinity, i.e. "all records" → no backend `LIMIT`.
-fn optional_count(
+pub(super) fn optional_count(
     ctx: &mut NativeContext<'_>,
     arg: Option<JsValue>,
 ) -> Result<Option<u32>, VmError> {
@@ -470,6 +479,7 @@ pub(crate) fn native_os_get_all(
         Some(store_id),
         Some(txn),
         outcome,
+        None,
     )))
 }
 
@@ -500,6 +510,7 @@ pub(crate) fn native_os_get_all_keys(
         Some(store_id),
         Some(txn),
         outcome,
+        None,
     )))
 }
 
@@ -528,6 +539,7 @@ pub(crate) fn native_os_delete(
         Some(store_id),
         Some(txn),
         outcome,
+        None,
     )))
 }
 
@@ -551,6 +563,7 @@ pub(crate) fn native_os_clear(
         Some(store_id),
         Some(txn),
         outcome,
+        None,
     )))
 }
 
@@ -575,5 +588,301 @@ pub(crate) fn native_os_count(
         Some(store_id),
         Some(txn),
         outcome,
+        None,
     )))
+}
+
+// ---------------------------------------------------------------------------
+// Cursors + indexes (W3C IDB §4.5) — ship with IDBCursor / IDBIndex in D-20b.
+// ---------------------------------------------------------------------------
+
+/// §4.5: throw `InvalidStateError` if the store has been deleted (its backend
+/// schema row is gone) — the cursor/index openers must not run a backend op
+/// against a dropped store (which would surface a raw `UnknownError`).
+fn require_store_live(
+    ctx: &mut NativeContext<'_>,
+    db: &str,
+    store: &str,
+    method: &str,
+) -> Result<(), VmError> {
+    let backend = ctx.vm.require_idb_backend()?;
+    if backend.get_store_meta(db, store).is_err() {
+        return Err(value::dom_exc(
+            ctx,
+            "InvalidStateError",
+            format!("IDBObjectStore.{method}: the object store has been deleted"),
+        ));
+    }
+    Ok(())
+}
+
+/// Shared `openCursor` / `openKeyCursor` over an object store (§4.5).
+fn open_cursor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+    key_only: bool,
+) -> Result<JsValue, VmError> {
+    let method = if key_only {
+        "openKeyCursor"
+    } else {
+        "openCursor"
+    };
+    let store_id = require_store_this(ctx, this, method)?;
+    let (db, store, txn) = store_ctx(ctx, store_id)?;
+    require_active(ctx, txn, method)?;
+    require_store_live(ctx, &db, &store, method)?;
+    let range = optional_range(ctx, args.first().copied())?;
+    let direction = cursor::parse_direction(ctx, args.get(1).copied())?;
+    let backend = ctx.vm.require_idb_backend()?;
+    match elidex_indexeddb::cursor::open_store_cursor(
+        &backend, &db, &store, range, direction, key_only,
+    ) {
+        Ok(state) => Ok(cursor::create_cursor(ctx, store_id, txn, state, key_only)),
+        Err(e) => {
+            let exc = value::backend_error_to_dom_exception(ctx.vm, &e);
+            Ok(JsValue::Object(request::async_execute(
+                ctx.vm,
+                Some(store_id),
+                Some(txn),
+                DeferredOutcome::Error(exc),
+                None,
+            )))
+        }
+    }
+}
+
+/// `store.openCursor(query?, direction?)` → `IDBRequest` (§4.5).
+pub(crate) fn native_os_open_cursor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    open_cursor(ctx, this, args, false)
+}
+
+/// `store.openKeyCursor(query?, direction?)` → `IDBRequest` (§4.5).
+pub(crate) fn native_os_open_key_cursor(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    open_cursor(ctx, this, args, true)
+}
+
+/// `store.index(name)` → `IDBIndex` (§4.5).  Same-instance per store handle.
+pub(crate) fn native_os_index(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let store_id = require_store_this(ctx, this, "index")?;
+    let (db, store, txn) = store_ctx(ctx, store_id)?;
+    // §4.5 index(): a FINISHED transaction throws (but an inactive one does
+    // not — `index()` only vends a handle, it issues no request).
+    if matches!(
+        ctx.vm.idb_transaction_states.get(&txn).map(|s| s.state),
+        Some(IdbTxnState::Finished)
+    ) {
+        return Err(value::dom_exc(
+            ctx,
+            "InvalidStateError",
+            "IDBObjectStore.index: the transaction has finished",
+        ));
+    }
+    require_store_live(ctx, &db, &store, "index")?;
+    let name_arg = value::require_arg(args, 0, "IDBObjectStore", "index", 1)?;
+    let name_sid = ctx.to_string_val(name_arg)?;
+    let name = ctx.get_utf8(name_sid);
+    let backend = ctx.vm.require_idb_backend()?;
+    if elidex_indexeddb::index::get_index_meta(&backend, &db, &store, &name).is_err() {
+        return Err(value::dom_exc(
+            ctx,
+            "NotFoundError",
+            format!("IDBObjectStore.index: no index named '{name}'"),
+        ));
+    }
+    Ok(JsValue::Object(index::get_or_create_index_handle(
+        ctx.vm, store_id, &db, &store, &name,
+    )))
+}
+
+/// An index `keyPath` argument: a single key path string, or a sequence
+/// (compound) key path (`#11-idb-compound-index-keypath`, rejected in v1).
+enum IndexKeyPath {
+    Str(String),
+    Sequence,
+}
+
+/// WebIDL `(DOMString or sequence<DOMString>)` classification of the
+/// `createIndex` keyPath argument.  ToString conversion runs here (binding
+/// time); the spec grammar / multiEntry throws are deferred to the algorithm.
+fn parse_index_key_path(
+    ctx: &mut NativeContext<'_>,
+    arg: JsValue,
+) -> Result<IndexKeyPath, VmError> {
+    if let JsValue::Object(id) = arg {
+        if matches!(ctx.get_object(id).kind, ObjectKind::Array { .. }) {
+            return Ok(IndexKeyPath::Sequence);
+        }
+    }
+    let sid = ctx.to_string_val(arg)?;
+    Ok(IndexKeyPath::Str(ctx.get_utf8(sid)))
+}
+
+/// Parse `createIndex` options `{ unique?, multiEntry? }` → `(unique, multi)`.
+fn parse_index_options(
+    ctx: &mut NativeContext<'_>,
+    arg: Option<JsValue>,
+) -> Result<(bool, bool), VmError> {
+    let Some(JsValue::Object(opts)) = arg else {
+        return Ok((false, false));
+    };
+    let unique_key = PropertyKey::String(ctx.vm.strings.intern("unique"));
+    let unique_val = ctx.get_property_value(opts, unique_key)?;
+    let unique = ctx.to_boolean(unique_val);
+    let multi_key = PropertyKey::String(ctx.vm.strings.intern("multiEntry"));
+    let multi_val = ctx.get_property_value(opts, multi_key)?;
+    let multi_entry = ctx.to_boolean(multi_val);
+    Ok((unique, multi_entry))
+}
+
+/// `store.createIndex(name, keyPath, options?)` → `IDBIndex` (§4.5).
+/// Upgrade-only; spec-ordered synchronous throws (plan §5 DR-4), with a
+/// populate / quota failure aborting the transaction asynchronously.
+pub(crate) fn native_os_create_index(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let store_id = require_store_this(ctx, this, "createIndex")?;
+    let (db, store, txn) = store_ctx(ctx, store_id)?;
+    // WebIDL argument conversion (binding time, before the algorithm steps).
+    let name_arg = value::require_arg(args, 0, "IDBObjectStore", "createIndex", 2)?;
+    let key_path_arg = value::require_arg(args, 1, "IDBObjectStore", "createIndex", 2)?;
+    let name = {
+        let sid = ctx.to_string_val(name_arg)?;
+        ctx.get_utf8(sid)
+    };
+    let key_path = parse_index_key_path(ctx, key_path_arg)?;
+    let (unique, multi_entry) = parse_index_options(ctx, args.get(2).copied())?;
+    // step 3: only a versionchange (upgrade) transaction may create an index.
+    let is_upgrade = matches!(
+        ctx.vm.idb_transaction_states.get(&txn).map(|s| s.mode),
+        Some(elidex_indexeddb::IdbTransactionMode::VersionChange)
+    );
+    if !is_upgrade {
+        return Err(value::dom_exc(
+            ctx,
+            "InvalidStateError",
+            "IDBObjectStore.createIndex: not a versionchange transaction",
+        ));
+    }
+    // step 4: store deleted.
+    require_store_live(ctx, &db, &store, "createIndex")?;
+    // step 5: transaction inactive.
+    require_active(ctx, txn, "createIndex")?;
+    // step 6: duplicate index name (host-side, so a real populate-uniqueness
+    // failure below is distinguishable → async-abort, not this sync throw).
+    let backend = ctx.vm.require_idb_backend()?;
+    if backend
+        .list_index_names(&db, &store)
+        .unwrap_or_default()
+        .iter()
+        .any(|n| n == &name)
+    {
+        return Err(value::dom_exc(
+            ctx,
+            "ConstraintError",
+            format!("IDBObjectStore.createIndex: an index named '{name}' already exists"),
+        ));
+    }
+    // steps 7 + 10: keyPath grammar (SyntaxError) / sequence (InvalidAccessError
+    // when multiEntry, else unsupported compound → NotSupportedError, matching
+    // createObjectStore; tracked by `#11-idb-compound-index-keypath`).
+    let key_path = match key_path {
+        IndexKeyPath::Sequence => {
+            return Err(value::dom_exc(
+                ctx,
+                if multi_entry {
+                    "InvalidAccessError"
+                } else {
+                    "NotSupportedError"
+                },
+                "IDBObjectStore.createIndex: array (compound) key paths are not supported",
+            ));
+        }
+        IndexKeyPath::Str(s) => {
+            if !elidex_indexeddb::index::is_valid_key_path(&s) {
+                return Err(value::dom_exc(
+                    ctx,
+                    "SyntaxError",
+                    format!("IDBObjectStore.createIndex: '{s}' is not a valid key path"),
+                ));
+            }
+            s
+        }
+    };
+    match elidex_indexeddb::index::create_index(
+        &backend,
+        &db,
+        &store,
+        &name,
+        &key_path,
+        unique,
+        multi_entry,
+    ) {
+        Ok(()) => Ok(JsValue::Object(index::get_or_create_index_handle(
+            ctx.vm, store_id, &db, &store, &name,
+        ))),
+        // DR-4: a populate-uniqueness / quota failure (dup already excluded)
+        // has no synchronous-throw mandate.  Per §4.5, still return the IDBIndex
+        // handle, then abort the upgrade transaction (deferred `abort` event +
+        // rollback) — the index creation was already rolled back backend-side,
+        // so the returned handle is detached (NOT cached).
+        Err(e) => {
+            let exc = value::backend_error_to_dom_exception(ctx.vm, &e);
+            let handle = index::alloc_index_handle(ctx.vm, store_id, &db, &store, &name);
+            txn::abort_transaction(ctx.vm, txn, Some(exc));
+            Ok(JsValue::Object(handle))
+        }
+    }
+}
+
+/// `store.deleteIndex(name)` (§4.5) — upgrade-only, synchronous.
+pub(crate) fn native_os_delete_index(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let store_id = require_store_this(ctx, this, "deleteIndex")?;
+    let (db, store, txn) = store_ctx(ctx, store_id)?;
+    let is_upgrade = matches!(
+        ctx.vm.idb_transaction_states.get(&txn).map(|s| s.mode),
+        Some(elidex_indexeddb::IdbTransactionMode::VersionChange)
+    );
+    if !is_upgrade {
+        return Err(value::dom_exc(
+            ctx,
+            "InvalidStateError",
+            "IDBObjectStore.deleteIndex: not a versionchange transaction",
+        ));
+    }
+    require_store_live(ctx, &db, &store, "deleteIndex")?;
+    require_active(ctx, txn, "deleteIndex")?;
+    let name_arg = value::require_arg(args, 0, "IDBObjectStore", "deleteIndex", 1)?;
+    let name_sid = ctx.to_string_val(name_arg)?;
+    let name = ctx.get_utf8(name_sid);
+    let backend = ctx.vm.require_idb_backend()?;
+    match elidex_indexeddb::index::delete_index(&backend, &db, &store, &name) {
+        Ok(()) => {
+            // Drop the cached handle so a later `index(name)` (re-created) does
+            // not alias the deleted index's wrapper.
+            if let Some(s) = ctx.vm.idb_object_store_states.get_mut(&store_id) {
+                s.index_handles.remove(&name);
+            }
+            Ok(JsValue::Undefined)
+        }
+        Err(e) => Err(value::backend_error_as_throw(ctx, &e)),
+    }
 }

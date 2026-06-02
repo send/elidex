@@ -604,6 +604,8 @@ impl Vm {
             self.inner.idb_database_states.clear();
             self.inner.idb_object_store_states.clear();
             self.inner.idb_key_range_states.clear();
+            self.inner.idb_index_states.clear();
+            self.inner.idb_cursor_states.clear();
             // D-8 PR-A2 — Range / TreeWalker / NodeIterator state
             // clearing on unbind.  These live on `HostData` (not
             // `VmInner`) because the bridge pair-install happens
@@ -1001,12 +1003,15 @@ impl Vm {
             self.inner.abort_pending_idb_requests(
                 "IndexedDB backend replaced while a request was pending",
             );
-            // The transaction / database / store / key-range stores are
-            // connection-scoped and have no meaning against the new backend.
+            // The transaction / database / store / key-range / index / cursor
+            // stores are connection-scoped and have no meaning against the new
+            // backend.
             self.inner.idb_transaction_states.clear();
             self.inner.idb_database_states.clear();
             self.inner.idb_object_store_states.clear();
             self.inner.idb_key_range_states.clear();
+            self.inner.idb_index_states.clear();
+            self.inner.idb_cursor_states.clear();
         }
         self.inner.idb_backend = Some(backend);
     }

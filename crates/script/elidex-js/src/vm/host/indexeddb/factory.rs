@@ -99,7 +99,13 @@ pub(crate) fn native_idb_open(
     match elidex_indexeddb::database::open_database(&backend, &name, version) {
         Ok(elidex_indexeddb::IdbOpenResult::Success(handle)) => {
             let db = database::create_database_wrapper(ctx.vm, handle.name(), handle.version());
-            request::stage_and_queue(ctx.vm, req, DeferredOutcome::Success(JsValue::Object(db)));
+            request::async_execute(
+                ctx.vm,
+                None,
+                None,
+                DeferredOutcome::Success(JsValue::Object(db)),
+                Some(req),
+            );
         }
         Ok(elidex_indexeddb::IdbOpenResult::UpgradeNeeded {
             handle,
@@ -144,13 +150,19 @@ pub(crate) fn native_idb_open(
                     let _ =
                         elidex_indexeddb::database::abort_upgrade(&backend, &handle, old_version);
                     let exc = value::backend_error_to_dom_exception(ctx.vm, &e);
-                    request::stage_and_queue(ctx.vm, req, DeferredOutcome::Error(exc));
+                    request::async_execute(
+                        ctx.vm,
+                        None,
+                        None,
+                        DeferredOutcome::Error(exc),
+                        Some(req),
+                    );
                 }
             }
         }
         Err(e) => {
             let exc = value::backend_error_to_dom_exception(ctx.vm, &e);
-            request::stage_and_queue(ctx.vm, req, DeferredOutcome::Error(exc));
+            request::async_execute(ctx.vm, None, None, DeferredOutcome::Error(exc), Some(req));
         }
     }
     Ok(JsValue::Object(req))
@@ -191,11 +203,17 @@ pub(crate) fn native_idb_delete_database(
     let req = request::create_request(ctx.vm, None, None, true);
     match elidex_indexeddb::database::delete_database(&backend, &name) {
         Ok(_old_version) => {
-            request::stage_and_queue(ctx.vm, req, DeferredOutcome::Success(JsValue::Undefined));
+            request::async_execute(
+                ctx.vm,
+                None,
+                None,
+                DeferredOutcome::Success(JsValue::Undefined),
+                Some(req),
+            );
         }
         Err(e) => {
             let exc = value::backend_error_to_dom_exception(ctx.vm, &e);
-            request::stage_and_queue(ctx.vm, req, DeferredOutcome::Error(exc));
+            request::async_execute(ctx.vm, None, None, DeferredOutcome::Error(exc), Some(req));
         }
     }
     Ok(JsValue::Object(req))
