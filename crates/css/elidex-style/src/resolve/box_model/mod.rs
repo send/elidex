@@ -486,7 +486,7 @@ fn parse_counters_keyword(k: &str) -> Option<elidex_plugin::ContentItem> {
 
 /// Resolve `counter-reset` from cascade winners.
 ///
-/// Supports `reversed(name)` syntax (CSS Lists L3 §5.1) encoded as
+/// Supports `reversed(name)` syntax (CSS Lists 3 §4.1) encoded as
 /// `Keyword("reversed:name")` by the CSS parser.
 fn resolve_counter_reset(
     winners: &PropertyMap<'_>,

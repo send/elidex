@@ -276,6 +276,21 @@ impl InlineStyle {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PseudoElementMarker;
 
+/// Resolved list-item marker text (CSS Lists 3 §4.6 implicit `list-item`
+/// counter, §4.7 `counter()` formatting) for a `display: list-item` element.
+///
+/// Written by the pre-layout generated-content pass (`elidex-style`) as the
+/// single source of marker text (One-issue-one-way: render no longer runs the
+/// counter machine to derive it), read by render's marker paint. The pass
+/// **reconciles** this component every resolve — inserting it on a visible-type
+/// list-item, removing it otherwise — so a stale value never survives an element
+/// that stops being a list-item (the same explicit-clear discipline as
+/// [`InlineFlow`]; element entities persist across re-resolves, unlike pseudo
+/// entities which are regenerated). Render owns the `visibility` paint guard, so
+/// this is written independently of the element's visibility.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListItemMarker(pub String);
+
 /// Dynamic element state flags for CSS pseudo-class matching.
 ///
 /// Tracks whether an element is hovered, focused, active, or a link.

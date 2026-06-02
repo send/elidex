@@ -1,8 +1,8 @@
-//! CSS Counter state machine (CSS Lists Level 3 §5–7).
+//! CSS Counter state machine (CSS Lists 3 §4 Automatic Numbering With Counters).
 //!
-//! Tracks counter scopes during display list tree walk. Counters are created
-//! by `counter-reset`, modified by `counter-increment` and `counter-set`,
-//! and evaluated by `counter()` / `counters()` functions.
+//! Tracks counter scopes during a document-order tree walk. Counters are created
+//! by `counter-reset` (§4.1), modified by `counter-increment` / `counter-set`
+//! (§4.2), scoped per §4.3, and evaluated by `counter()` / `counters()` (§4.7).
 
 use std::collections::HashMap;
 
@@ -13,7 +13,7 @@ use elidex_plugin::{ComputedStyle, CounterResetEntry, ListStyleType};
 struct CounterInstance {
     scope_depth: usize,
     value: i32,
-    /// Whether this counter counts in reverse (CSS Lists L3 §5.1).
+    /// Whether this counter counts in reverse (CSS Lists 3 §4.1 `reversed()`).
     reversed: bool,
 }
 
@@ -44,7 +44,7 @@ impl CounterState {
     }
 
     /// Decrement scope depth on element exit, removing any counter entries
-    /// created at this depth (CSS Lists L3 §5.1).
+    /// created at this depth (CSS Lists 3 §4.3 Nested Counters and Scope).
     pub fn pop_scope(&mut self) {
         let depth = self.scope_depth;
         self.counters.retain(|_, stack| {
@@ -76,7 +76,7 @@ impl CounterState {
 
     /// Process counter properties from a computed style.
     ///
-    /// Order of operations per CSS Lists L3 §5.4: reset → set → increment.
+    /// Order of operations per CSS Lists 3 §4.1–§4.2: reset → set → increment.
     ///
     /// `is_continuation` suppresses increment (used for fragmentation continuations).
     pub fn process_element(&mut self, style: &ComputedStyle, is_continuation: bool) {
@@ -92,7 +92,7 @@ impl CounterState {
                 });
         }
 
-        // Phase 2: counter-set — overwrites top value or creates if missing (§5.3).
+        // Phase 2: counter-set — overwrites top value or creates if missing (§4.2).
         for (name, value) in &style.counter_set {
             let stack = self.counters.entry(name.clone()).or_default();
             if let Some(top) = stack.last_mut() {
@@ -106,8 +106,8 @@ impl CounterState {
             }
         }
 
-        // Phase 3: counter-increment — adds to top value or creates then increments (§5.2).
-        // For reversed counters (CSS Lists L3 §5.1), the increment is negated.
+        // Phase 3: counter-increment — adds to top value or creates then increments (§4.2).
+        // For reversed counters (CSS Lists 3 §4.1), the increment is negated.
         if !is_continuation {
             for (name, value) in &style.counter_increment {
                 let stack = self.counters.entry(name.clone()).or_default();
@@ -226,7 +226,8 @@ const ROMAN_TABLE: &[(i32, &str, &str)] = &[
 ];
 
 /// Convert a value to a Roman numeral string. Returns the decimal
-/// representation for non-positive values (CSS Lists L3 §7).
+/// representation for non-positive values (CSS Counter Styles 3 §6 Simple
+/// Predefined Counter Styles).
 fn to_roman(value: i32, upper: bool) -> String {
     if value <= 0 {
         return value.to_string();
@@ -244,7 +245,7 @@ fn to_roman(value: i32, upper: bool) -> String {
 }
 
 /// Convert a value to alphabetic representation (1=a, 26=z, 27=aa, ...).
-/// Non-positive values fall back to decimal (CSS Lists L3 §7).
+/// Non-positive values fall back to decimal (CSS Counter Styles 3 §6).
 fn to_alpha(value: i32, base: u8) -> String {
     if value <= 0 {
         return value.to_string();
@@ -262,9 +263,9 @@ fn to_alpha(value: i32, base: u8) -> String {
 
 /// Add implicit `list-item` counter operations for `<ol>` and `<li>` elements.
 ///
-/// Per CSS Lists L3 §5: `<ol>` implicitly resets the `list-item` counter,
-/// and `<li>` implicitly increments it by 1. Explicit `counter-reset` /
-/// `counter-increment` on these elements suppresses the implicit behavior.
+/// Per CSS Lists 3 §4.6 (The Implicit list-item Counter): `<ol>` implicitly
+/// resets the `list-item` counter, and `<li>` implicitly increments it by 1.
+/// Explicit `counter-reset` / `counter-increment` suppresses the implicit behavior.
 /// Count `<li>` children of an element for reversed counter initialization.
 ///
 /// Per HTML §4.4.8, a `<ol reversed>` without `start` has its counter set to
@@ -286,9 +287,9 @@ pub fn count_li_children(dom: &elidex_ecs::EcsDom, entity: elidex_ecs::Entity) -
 
 /// Add implicit `list-item` counter operations for `<ol>`, `<ul>`, `<li>`.
 ///
-/// Per CSS Lists L3 §5: `<ol>` implicitly resets the `list-item` counter,
+/// Per CSS Lists 3 §4.6: `<ol>` implicitly resets the `list-item` counter,
 /// `<li>` implicitly increments it. The `reversed` attribute on `<ol>` creates
-/// a reversed counter (CSS Lists L3 §5.1) with implicit decrement of -1.
+/// a reversed counter (CSS Lists 3 §4.1 `reversed()`) with implicit decrement of -1.
 ///
 /// `li_count` is the number of `<li>` children, used for reversed counter
 /// initial value when no `start` attribute is present (HTML §4.4.8).
@@ -561,7 +562,7 @@ mod tests {
     fn counter_set_creates_if_not_exists() {
         let mut cs = CounterState::new();
 
-        // counter-set on a non-existent counter creates it (§5.3).
+        // counter-set on a non-existent counter creates it (§4.2).
         let mut style = ComputedStyle::default();
         style.counter_set.push(("newc".to_string(), 7));
         cs.push_scope();

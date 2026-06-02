@@ -125,11 +125,14 @@ fn is_atomic_inline(display: Display) -> bool {
 }
 
 /// Whether an inline run contains members that make its render-side treatment
-/// diverge from layout's IFC membership, so slice 1 must **not** persist an
+/// diverge from layout's IFC membership, so layout must **not** persist an
 /// `InlineFlow` for it (render falls back to its own collect/collapse/emit).
 ///
-/// - `has_pseudo`: a pseudo-element run whose `content` may carry `counter()`
-///   that render resolves but layout measures from raw `TextContent` (slice 3).
+/// (Slice 3 removed `has_pseudo`: pseudo-element `content` — including
+/// `counter()` — is now resolved into the pseudo's `TextContent` by the
+/// pre-layout generated-content pass, so layout measures the resolved text and
+/// pseudo runs persist like any other text run, subject to the gates below.)
+///
 /// - `has_relpos_sticky`: a `position: relative`/`sticky` inline — in-flow in
 ///   layout's IFC (CSS 2 §9.4.3) but painted in render's Layer 6 (slice 3p).
 /// - `has_atomic`: an `inline-block`/`-flex`/`-grid`/`-table` — an `Atomic`
@@ -148,7 +151,6 @@ fn is_atomic_inline(display: Display) -> bool {
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Default, Clone, Copy)]
 pub(crate) struct RunComplexity {
-    pub has_pseudo: bool,
     pub has_relpos_sticky: bool,
     pub has_atomic: bool,
     pub has_bidi: bool,
@@ -219,11 +221,23 @@ fn collect_inline_items_inner(
                 });
                 continue;
             }
-            // Pseudo-element: use text directly with own style (skip child recursion).
+            // Pseudo-element: use its resolved generated text directly with its
+            // own style (skip child recursion). The pre-layout generated-content
+            // pass has already resolved `content` (incl. counter()) into the
+            // pseudo's `TextContent`, so layout measures the real text. The run is
+            // still gated out of `InlineFlow` if it needs bidi reordering (slice 4)
+            // or text-transform (render transforms before shaping) — the same
+            // gates the text-node branch applies, here against the pseudo's own
+            // computed text-transform and its resolved text.
             if dom.world().get::<&PseudoElementMarker>(child).is_ok() {
-                complexity.has_pseudo = true;
                 if let Ok(tc) = dom.world().get::<&TextContent>(child) {
                     if !tc.0.is_empty() {
+                        if style.text_transform != TextTransform::None {
+                            complexity.has_text_transform = true;
+                        }
+                        if elidex_text::text_has_rtl(&tc.0) {
+                            complexity.has_bidi = true;
+                        }
                         items.push(InlineItem::Text(StyledRun::from_style(
                             child,
                             tc.0.clone(),
@@ -584,7 +598,6 @@ pub fn layout_inline_context_fragmented(
     // swap (below) + a writing-mode-aware render consume path.
     let persist_flow = frag_constraint.is_none()
         && parent_style.text_align != TextAlign::Justify
-        && !complexity.has_pseudo
         && !complexity.has_relpos_sticky
         && !complexity.has_atomic
         && !complexity.has_bidi

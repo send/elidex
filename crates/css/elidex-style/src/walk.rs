@@ -340,7 +340,7 @@ fn resolve_and_attach_style(
     // Resolve values → ComputedStyle.
     let mut style = build_computed_style(&winners, parent_style, &element_ctx);
 
-    // Apply implicit list-item counters for <ol>, <ul>, <li> (CSS Lists L3 §5).
+    // Apply implicit list-item counters for <ol>, <ul>, <li> (CSS Lists 3 §4.6).
     if let Ok(tag) = dom.world().get::<&TagType>(entity) {
         let attrs = dom
             .world()

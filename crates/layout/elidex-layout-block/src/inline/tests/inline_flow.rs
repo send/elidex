@@ -252,7 +252,11 @@ fn gate_excludes_relative_positioned_inline() {
 }
 
 #[test]
-fn gate_excludes_pseudo_element() {
+fn persists_pseudo_element_flow() {
+    // Slice 3: pseudo `content` (incl. counter()) is resolved into the pseudo's
+    // `TextContent` by the pre-layout generated-content pass, so layout measures
+    // the real text and a plain-LTR, non-transformed pseudo run now persists like
+    // any text run (the slice-1 `has_pseudo` gate is gone). Render consumes it.
     let Some((mut dom, parent, style, font_db)) = setup_inline_test("") else {
         return;
     };
@@ -268,7 +272,7 @@ fn gate_excludes_pseudo_element() {
     let _ = dom.world_mut().insert_one(pseudo, PseudoElementMarker);
     let _ = dom
         .world_mut()
-        .insert_one(pseudo, TextContent("•".to_string()));
+        .insert_one(pseudo, TextContent("AB".to_string()));
     dom.append_child(parent, pseudo);
 
     let children = dom.composed_children(parent);
@@ -282,9 +286,16 @@ fn gate_excludes_pseudo_element() {
         &env(&font_db),
     );
 
+    let flow = dom
+        .world()
+        .get::<&InlineFlow>(key)
+        .expect("plain-LTR pseudo run with resolved text must persist (slice 3)");
     assert!(
-        dom.world().get::<&InlineFlow>(key).is_err(),
-        "pseudo/generated content is resolved by render (counters) → must not persist in slice 1"
+        flow.lines
+            .iter()
+            .flat_map(|l| &l.runs)
+            .any(|r| r.text.contains("AB")),
+        "persisted flow should carry the pseudo's resolved generated text"
     );
 }
 

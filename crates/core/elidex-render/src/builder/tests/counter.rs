@@ -62,6 +62,7 @@ fn list_marker_uses_counter_state() {
     }
 
     let font_db = elidex_text::FontDatabase::new();
+    elidex_style::resolve_generated_content(&mut dom);
     let dl = build_display_list(&dom, &font_db);
     // Decimal markers should produce Text items (not shapes).
     let has_shape = dl.0.iter().any(|i| {
@@ -176,6 +177,7 @@ fn nested_ol_counter_reset() {
     );
 
     let font_db = elidex_text::FontDatabase::new();
+    elidex_style::resolve_generated_content(&mut dom);
     let dl = build_display_list(&dom, &font_db);
     // Both outer and inner disc markers should be rendered.
     let marker_count =
@@ -267,6 +269,7 @@ fn counter_in_content_property() {
     );
 
     let font_db = elidex_text::FontDatabase::new();
+    elidex_style::resolve_generated_content(&mut dom);
     let dl = build_display_list(&dom, &font_db);
 
     // The pseudo-element should resolve counter(chapter) to "1" and produce
@@ -398,6 +401,7 @@ fn counters_concatenation() {
     );
 
     let font_db = elidex_text::FontDatabase::new();
+    elidex_style::resolve_generated_content(&mut dom);
     let dl = build_display_list(&dom, &font_db);
 
     // The counter state should produce "1.1" (outer=1, inner=1 joined by ".").
@@ -464,6 +468,7 @@ fn start_attribute_on_ol() {
     );
 
     let font_db = elidex_text::FontDatabase::new();
+    elidex_style::resolve_generated_content(&mut dom);
     let dl = build_display_list(&dom, &font_db);
     // Should emit decimal text marker "5." (if fonts available).
     let has_shape = dl.0.iter().any(|i| {
@@ -552,20 +557,24 @@ fn custom_counter_increment() {
     );
 
     let font_db = elidex_text::FontDatabase::new();
+    elidex_style::resolve_generated_content(&mut dom);
     let _dl = build_display_list(&dom, &font_db);
     // Counter value for item2 should be 4 (0 + 2 + 2).
     // Compilation and execution without panics confirms counter increment by 2 works.
 }
 
 // ---------------------------------------------------------------------------
-// 7. display_none_skips_counter_scope — display:none still processes counters
+// 7. display_none_li_emits_no_marker — a display:none list-item paints no marker
+//    (CSS Lists 3 §4.5: it also does not affect the counter — value asserted in
+//    elidex-style's `display_none_li_skips_counter_css_lists_4_5`).
 // ---------------------------------------------------------------------------
 
 #[test]
 #[allow(unused_must_use)]
-fn display_none_processes_counter() {
-    // display:none elements should still have their counter properties
-    // processed during the walk (counter state updated even if not painted).
+fn display_none_li_emits_no_marker() {
+    // A display:none list-item generates no box, so render paints no marker for it
+    // (and per §4.5 it does not increment list-item — the pre-layout pass enforces
+    // this; here we only assert the painted marker count).
     let mut dom = elidex_ecs::EcsDom::new();
     let root = dom.create_document_root();
     let ol = dom.create_element("ol", Attributes::default());
@@ -615,7 +624,8 @@ fn display_none_processes_counter() {
         },
     );
 
-    // li2: display:none, counter still increments to 2.
+    // li2: display:none — generates no box, paints no marker, and per §4.5 does
+    // not affect the counter.
     dom.world_mut().insert_one(
         li2_hidden,
         elidex_plugin::ComputedStyle {
@@ -626,7 +636,8 @@ fn display_none_processes_counter() {
         },
     );
 
-    // li3: visible, counter increments to 3.
+    // li3: visible, counter increments to 2 (li2 was skipped per §4.5); a disc
+    // marker is painted regardless of the value.
     dom.world_mut().insert_one(
         li3,
         elidex_plugin::ComputedStyle {
@@ -645,6 +656,7 @@ fn display_none_processes_counter() {
     );
 
     let font_db = elidex_text::FontDatabase::new();
+    elidex_style::resolve_generated_content(&mut dom);
     let dl = build_display_list(&dom, &font_db);
     // Only li1 and li3 should produce markers (li2 is display:none).
     let marker_count =
