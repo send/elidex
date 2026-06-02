@@ -368,6 +368,32 @@ pub fn apply_implicit_list_counters(
     }
 }
 
+/// Apply implicit `list-item` counters by reading the element's tag + attributes
+/// from the DOM (CSS Lists 3 §4.6). Self-guarding: a no-op for non-`ol`/`ul`/`li`
+/// tags. Shared by the style cascade walk, the pre-layout generated-content pass,
+/// and render's paged counter walk so the tag/attrs/`li`-count marshalling lives
+/// in one place.
+pub fn apply_implicit_list_counters_from_dom(
+    dom: &elidex_ecs::EcsDom,
+    entity: elidex_ecs::Entity,
+    style: &mut ComputedStyle,
+) {
+    if let Ok(tag) = dom.world().get::<&elidex_ecs::TagType>(entity) {
+        let attrs = dom
+            .world()
+            .get::<&elidex_ecs::Attributes>(entity)
+            .ok()
+            .map(|a| (*a).clone())
+            .unwrap_or_default();
+        let li_count = if tag.0 == "ol" {
+            count_li_children(dom, entity)
+        } else {
+            0
+        };
+        apply_implicit_list_counters(style, &tag.0, &attrs, li_count);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

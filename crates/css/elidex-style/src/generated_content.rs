@@ -28,7 +28,7 @@ use elidex_ecs::{
 };
 use elidex_plugin::{ComputedStyle, ContentItem, ContentValue, Display, ListStyleType};
 
-use crate::counter::{apply_implicit_list_counters, count_li_children, CounterState};
+use crate::counter::{apply_implicit_list_counters_from_dom, CounterState};
 use crate::walk::find_roots;
 
 /// Resolve CSS counters + generated content (pseudo `content`, list-item
@@ -54,16 +54,26 @@ fn resolve_tree(dom: &mut EcsDom, entity: Entity, state: &mut CounterState, dept
         return;
     }
 
+    // Cheap probe: extract only the Copy marker fields + whether this element
+    // carries any explicit counter property, releasing the `ComputedStyle` borrow
+    // before any `&mut`. The common (non-counter, non-list) element never clones
+    // the full `ComputedStyle` — this pass runs on every restyle.
+    //
     // Style-less entities — the document root (no `TagType`), text nodes — carry
     // no counters or generated content of their own, but their children must
     // still be visited in document order (the root is style-less yet contains the
     // whole tree). Recurse without opening a scope; text nodes simply have no
     // children. (Mirrors render's walk, which recurses style-less nodes.)
-    let Some(mut style) = dom
-        .world()
-        .get::<&ComputedStyle>(entity)
-        .ok()
-        .map(|s| (*s).clone())
+    let Some((display, list_style_type, has_counter_props)) =
+        dom.world().get::<&ComputedStyle>(entity).ok().map(|s| {
+            (
+                s.display,
+                s.list_style_type,
+                !s.counter_reset.is_empty()
+                    || !s.counter_set.is_empty()
+                    || !s.counter_increment.is_empty(),
+            )
+        })
     else {
         for child in dom.composed_children(entity) {
             resolve_tree(dom, child, state, depth + 1);
@@ -74,7 +84,7 @@ fn resolve_tree(dom: &mut EcsDom, entity: Entity, state: &mut CounterState, dept
     // CSS Lists 3 §4.5 (Counters in elements that do not generate boxes): an
     // element with `display: none` cannot set, reset, or increment a counter —
     // and it generates no subtree to render. Skip it entirely.
-    if style.display == Display::None {
+    if display == Display::None {
         return;
     }
 
@@ -83,7 +93,7 @@ fn resolve_tree(dom: &mut EcsDom, entity: Entity, state: &mut CounterState, dept
     // participate in the parent's formatting context. Recurse children in the
     // current scope without pushing one or processing this element's counters
     // (matches layout/render `composed_children_flat` contents-flattening).
-    if style.display == Display::Contents {
+    if display == Display::Contents {
         for child in dom.composed_children(entity) {
             resolve_tree(dom, child, state, depth + 1);
         }
@@ -93,27 +103,28 @@ fn resolve_tree(dom: &mut EcsDom, entity: Entity, state: &mut CounterState, dept
     // CSS Lists 3 §4.3 (Nested Counters and Scope): each box opens a scope.
     state.push_scope();
 
-    // CSS Lists 3 §4.6: implicit `list-item` counter for <ol>/<ul>/<li>.
-    if let Ok(tag) = dom.world().get::<&TagType>(entity) {
-        let tag = tag.0.clone();
-        let attrs = dom
-            .world()
-            .get::<&Attributes>(entity)
-            .ok()
-            .map(|a| (*a).clone())
-            .unwrap_or_default();
-        let li_count = if tag == "ol" {
-            count_li_children(dom, entity)
-        } else {
-            0
-        };
-        apply_implicit_list_counters(&mut style, &tag, &attrs, li_count);
-    }
+    let is_list_tag = dom
+        .world()
+        .get::<&TagType>(entity)
+        .is_ok_and(|t| matches!(t.0.as_str(), "ol" | "ul" | "li"));
 
-    // CSS Lists 3 §4.1/§4.2: counter-reset (incl. reversed) → set → increment.
-    // No fragmentation continuation pre-layout (paged continuation, which
+    // CSS Lists 3 §4.1/§4.2/§4.6: process counter-reset (incl. reversed) → set →
+    // increment, but only clone the style when there is actual counter influence —
+    // an explicit counter-* property or an implicit list counter (ol/ul/li). For
+    // everything else the empty counter vecs make `process_element` a no-op, so the
+    // clone is skipped. `apply_implicit_list_counters_from_dom` is **load-bearing**,
+    // not redundant: the parallel cascade path (`walk::walk_children`, `parallel`
+    // feature) inserts the style WITHOUT baking implicit counters — only the
+    // sequential path bakes them; its `already_has` guard makes this idempotent when
+    // they were. No fragmentation continuation pre-layout (paged continuation, which
     // suppresses re-increment, is handled by render's per-fragment walk).
-    state.process_element(&style, false);
+    if is_list_tag || has_counter_props {
+        if let Ok(s) = dom.world().get::<&ComputedStyle>(entity) {
+            let mut style = (*s).clone();
+            apply_implicit_list_counters_from_dom(dom, entity, &mut style);
+            state.process_element(&style, false);
+        }
+    }
 
     // CSS Lists 3 §4.6/§4.7: resolve the list-item marker text and RECONCILE
     // the component — insert on a visible-type list-item, remove otherwise — so
@@ -121,8 +132,8 @@ fn resolve_tree(dom: &mut EcsDom, entity: Entity, state: &mut CounterState, dept
     // (element entities persist across re-resolves; the same explicit-clear
     // discipline as `InlineFlow`). Visibility is render's paint concern; the
     // text is written independently of it.
-    if style.display == Display::ListItem && style.list_style_type != ListStyleType::None {
-        let text = state.evaluate_counter("list-item", style.list_style_type);
+    if display == Display::ListItem && list_style_type != ListStyleType::None {
+        let text = state.evaluate_counter("list-item", list_style_type);
         let _ = dom.world_mut().insert_one(entity, ListItemMarker(text));
     } else {
         let _ = dom.world_mut().remove_one::<ListItemMarker>(entity);
@@ -130,7 +141,7 @@ fn resolve_tree(dom: &mut EcsDom, entity: Entity, state: &mut CounterState, dept
 
     // CSS Content 3 §2: resolve pseudo-element `content` into TextContent.
     if dom.world().get::<&PseudoElementMarker>(entity).is_ok() {
-        let text = resolve_pseudo_content(dom, entity, &style, state);
+        let text = resolve_pseudo_content(dom, entity, state);
         let _ = dom.world_mut().insert_one(entity, TextContent(text));
     }
 
@@ -147,12 +158,10 @@ fn resolve_tree(dom: &mut EcsDom, entity: Entity, state: &mut CounterState, dept
 ///
 /// `attr()` (CSS Content 3 §2.1) refers to an attribute of the **originating
 /// element** — the pseudo's parent — not the pseudo entity itself.
-fn resolve_pseudo_content(
-    dom: &EcsDom,
-    entity: Entity,
-    style: &ComputedStyle,
-    state: &CounterState,
-) -> String {
+fn resolve_pseudo_content(dom: &EcsDom, entity: Entity, state: &CounterState) -> String {
+    let Ok(style) = dom.world().get::<&ComputedStyle>(entity) else {
+        return String::new();
+    };
     let ContentValue::Items(items) = &style.content else {
         return String::new();
     };
@@ -289,7 +298,7 @@ mod tests {
     #[test]
     fn nested_ol_resets_inner_counter() {
         // <ol><li/><li><ol><li/></ol></li></ol> — inner li restarts at 1.
-        let (mut dom, ol, lis) = ol_with_items(2);
+        let (mut dom, _ol, lis) = ol_with_items(2);
         let inner_ol = dom.create_element("ol", Attributes::default());
         let _ = dom.world_mut().insert_one(
             inner_ol,
@@ -309,7 +318,6 @@ mod tests {
             },
         );
         let _ = dom.append_child(inner_ol, inner_li);
-        let _ = ol;
         resolve_generated_content(&mut dom);
         assert_eq!(marker(&dom, lis[0]).as_deref(), Some("1"));
         assert_eq!(marker(&dom, lis[1]).as_deref(), Some("2"));

@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use elidex_ecs::{
-    Attributes, BackgroundImages, EcsDom, Entity, ImageData, ListItemMarker, TagType,
-    TemplateContent, MAX_ANCESTOR_DEPTH,
+    BackgroundImages, EcsDom, Entity, ImageData, ListItemMarker, TemplateContent,
+    MAX_ANCESTOR_DEPTH,
 };
 use elidex_form::FormControlState;
 use elidex_layout_block::paint_order::{collect_sc_participants, is_float_entity, is_positioned};
@@ -15,7 +15,7 @@ use elidex_plugin::{
     Visibility,
 };
 use elidex_plugin::{Point, Vector};
-use elidex_style::counter::{apply_implicit_list_counters, CounterState};
+use elidex_style::counter::{apply_implicit_list_counters_from_dom, CounterState};
 use elidex_text::FontDatabase;
 
 use crate::display_list::{DisplayItem, DisplayList};
@@ -128,21 +128,7 @@ pub(crate) fn walk(
             .filter(|style| style.display != Display::None)
         {
             // Apply implicit list-item counters for <ol>, <ul>, <li> (CSS Lists 3 §4.6).
-            if let Ok(tag) = ctx.dom.world().get::<&TagType>(entity) {
-                let attrs = ctx
-                    .dom
-                    .world()
-                    .get::<&Attributes>(entity)
-                    .ok()
-                    .map(|a| (*a).clone())
-                    .unwrap_or_default();
-                let li_count = if tag.0 == "ol" {
-                    elidex_style::counter::count_li_children(ctx.dom, entity)
-                } else {
-                    0
-                };
-                apply_implicit_list_counters(&mut style, &tag.0, &attrs, li_count);
-            }
+            apply_implicit_list_counters_from_dom(ctx.dom, entity, &mut style);
             // CSS Fragmentation L3 §4: suppress counter-increment on continuation
             // entities (those that started on a previous page fragment).
             let is_continuation = ctx

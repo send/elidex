@@ -341,20 +341,7 @@ fn resolve_and_attach_style(
     let mut style = build_computed_style(&winners, parent_style, &element_ctx);
 
     // Apply implicit list-item counters for <ol>, <ul>, <li> (CSS Lists 3 §4.6).
-    if let Ok(tag) = dom.world().get::<&TagType>(entity) {
-        let attrs = dom
-            .world()
-            .get::<&Attributes>(entity)
-            .ok()
-            .map(|a| (*a).clone())
-            .unwrap_or_default();
-        let li_count = if tag.0 == "ol" {
-            crate::counter::count_li_children(dom, entity)
-        } else {
-            0
-        };
-        crate::counter::apply_implicit_list_counters(&mut style, &tag.0, &attrs, li_count);
-    }
+    crate::counter::apply_implicit_list_counters_from_dom(dom, entity, &mut style);
 
     // Attach ComputedStyle to the entity.
     let _ = dom.world_mut().insert_one(entity, style.clone());
