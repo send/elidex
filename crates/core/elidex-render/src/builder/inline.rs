@@ -605,16 +605,19 @@ fn emit_vertical_text_segment(
         color: text_color,
     });
 
-    // CSS Writing Modes Level 4 §7.1: Vertical text-decoration.
-    // Underline/overline run vertically along the inline-start/end side
-    // of the glyph column (right side for vertical-rl, left for vertical-lr).
+    // CSS Writing Modes Level 4 §7.1: vertical text-decoration runs vertically
+    // alongside the glyph column. Placement here is writing-mode-agnostic —
+    // underline on the +x side of the column center, overline on the −x side,
+    // line-through through the center — NOT yet the spec's vertical-rl/lr-dependent
+    // under/over sides (deferred with the other vertical-rl physical-correctness
+    // work; same family as the InlineFlow no-block-reversal limitation).
     let seg_height = *cursor_y - seg_start_y;
     if seg_height > 0.0 {
         let ascent = seg.font_size;
         let decoration_thickness = ascent / DECORATION_THICKNESS_DIVISOR;
         let decoration_color =
             apply_opacity(seg.text_decoration_color.unwrap_or(seg.color), seg.opacity);
-        // Vertical underline: runs alongside the column at inline-end.
+        // Underline: +x side of the column center (writing-mode-agnostic, see above).
         if seg.text_decoration_line.underline {
             let x = center_x + ascent * UNDERLINE_POSITION_FACTOR;
             emit_vertical_decoration_line(
