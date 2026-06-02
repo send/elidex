@@ -11,13 +11,17 @@ use elidex_text::{measure_text, BreakOpportunity, FontDatabase};
 use super::measure::measure_segment_widths;
 use super::InlineItem;
 
-/// Horizontal inline-alignment context for persisting an [`InlineFlow`](elidex_ecs::InlineFlow).
+/// Inline-alignment context for persisting an [`InlineFlow`](elidex_ecs::InlineFlow).
 ///
-/// Present (`Some`) only when the IFC is horizontal and persistable (the run is
-/// gated in — see `layout_inline_context_fragmented`); `None` skips all flow
-/// recording (vertical writing modes, or `text-align: justify` which slice 1
-/// leaves to render's fallback). When present, `LinePacker` records per-line
-/// positioned text runs with `text-align` baked into each run's `inline_start`.
+/// Present (`Some`) when the run is persistable (gated in — see
+/// `layout_inline_context_fragmented`); `None` skips all flow recording (e.g.
+/// `text-align: justify`, which falls to render's fallback). When present,
+/// `LinePacker` records per-line positioned text runs with `text-align` baked into
+/// each run's `inline_start`. Writing-mode-agnostic: the resolution operates on the
+/// **inline axis** (`Left/Start → inline-start`, `Right/End → inline-end`,
+/// `Center → mid`), and `containing_inline_size` is the inline-axis extent (content
+/// width for horizontal, height for vertical), so the same logic positions both
+/// horizontal and vertical text along their inline axis.
 #[derive(Clone, Copy)]
 pub(super) struct FlowAlign {
     pub text_align: TextAlign,
@@ -25,7 +29,10 @@ pub(super) struct FlowAlign {
     pub containing_inline_size: f32,
 }
 
-/// Resolve `text-align: start/end` to physical `left/right` for the given direction.
+/// Resolve `text-align: start/end` to the corresponding edge for the given inline
+/// base direction (`Left`/`Right` here name the inline-start/inline-end edge — for
+/// vertical writing modes these are the block-flow-relative inline edges, matching
+/// render's `compute_vertical_text_align_offset`).
 fn resolve_align(align: TextAlign, direction: Direction) -> TextAlign {
     match align {
         TextAlign::Start => match direction {

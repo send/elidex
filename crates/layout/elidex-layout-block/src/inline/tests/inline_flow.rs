@@ -21,6 +21,30 @@ fn run_start(dom: &EcsDom, parent: Entity) -> Entity {
     dom.composed_children(parent)[0]
 }
 
+/// Lay out `text` under writing mode `wm` and return `(dom, parent, run-start key)`.
+/// `containing_inline_size` is the inline-axis extent (height for vertical modes).
+fn layout_vertical(
+    text: &str,
+    wm: WritingMode,
+    containing_inline_size: f32,
+    origin: Point,
+) -> Option<(EcsDom, Entity, Entity)> {
+    let (mut dom, parent, mut style, font_db) = setup_inline_test(text)?;
+    style.writing_mode = wm;
+    let _ = dom.world_mut().insert_one(parent, style);
+    let children = dom.composed_children(parent);
+    let key = run_start(&dom, parent);
+    layout_inline_context(
+        &mut dom,
+        &children,
+        containing_inline_size,
+        parent,
+        origin,
+        &env(&font_db),
+    );
+    Some((dom, parent, key))
+}
+
 #[test]
 fn persists_single_line_flow() {
     let Some((mut dom, parent, _style, font_db)) = setup_inline_test("Hello") else {
@@ -264,29 +288,10 @@ fn gate_excludes_pseudo_element() {
     );
 }
 
-#[test]
-fn gate_excludes_vertical_writing_mode() {
-    let Some((mut dom, parent, mut style, font_db)) = setup_inline_test("Hi") else {
-        return;
-    };
-    style.writing_mode = WritingMode::VerticalRl;
-    let _ = dom.world_mut().insert_one(parent, style);
-    let children = dom.composed_children(parent);
-    let key = run_start(&dom, parent);
-    layout_inline_context(
-        &mut dom,
-        &children,
-        800.0,
-        parent,
-        Point::ZERO,
-        &env(&font_db),
-    );
-
-    assert!(
-        dom.world().get::<&InlineFlow>(key).is_err(),
-        "vertical writing modes are slice 2 → not persisted in slice 1"
-    );
-}
+// (Vertical writing modes now persist — slice 2. See `persists_vertical_rl_flow`,
+// `persists_vertical_lr_flow`, and `vertical_absolute_coordinates_swap_axes` below;
+// the slice-1 `gate_excludes_vertical_writing_mode` was removed when the gate
+// dropped.)
 
 #[test]
 fn gate_excludes_justify() {
@@ -434,5 +439,104 @@ fn gate_excludes_fragmented() {
     assert!(
         dom.world().get::<&InlineFlow>(key).is_err(),
         "fragmented (paged) runs must not persist — flow_lines are not yet sliced per fragment"
+    );
+}
+
+// --- slice 2: vertical writing modes now persist (the `!is_vertical` gate dropped) ---
+
+#[test]
+fn persists_vertical_rl_flow() {
+    let Some((dom, parent, key)) =
+        layout_vertical("Hi", WritingMode::VerticalRl, 800.0, Point::ZERO)
+    else {
+        return;
+    };
+    let flow = dom
+        .world()
+        .get::<&InlineFlow>(key)
+        .expect("vertical-rl text now persists an InlineFlow (slice 2)");
+    assert_eq!(flow.lines.len(), 1, "short text → one line/column");
+    assert_eq!(flow.lines[0].runs.len(), 1);
+    assert_eq!(flow.lines[0].runs[0].text, "Hi");
+    assert_eq!(flow.lines[0].runs[0].entity, parent);
+}
+
+#[test]
+fn persists_vertical_lr_flow() {
+    let Some((dom, _parent, key)) =
+        layout_vertical("Hi", WritingMode::VerticalLr, 800.0, Point::ZERO)
+    else {
+        return;
+    };
+    assert!(
+        dom.world().get::<&InlineFlow>(key).is_ok(),
+        "vertical-lr text persists too (slice 2 dropped only the is_vertical gate)"
+    );
+}
+
+#[test]
+fn vertical_absolute_coordinates_swap_axes() {
+    // The persist fold applies the is_vertical projection rule: inline-axis maps to
+    // physical y, block-axis to physical x (the swap, mirroring static_positions).
+    // With origin (10, 20): block_start = origin.x = 10, inline_start = origin.y = 20
+    // — the OPPOSITE of the horizontal case (block_start = y, inline_start = x).
+    let origin = Point::new(10.0, 20.0);
+    let Some((dom, _parent, key)) = layout_vertical("Hi", WritingMode::VerticalRl, 800.0, origin)
+    else {
+        return;
+    };
+    let flow = dom.world().get::<&InlineFlow>(key).expect("should persist");
+    assert_eq!(
+        flow.lines[0].block_start, 10.0,
+        "vertical: block-axis maps to physical x = origin.x"
+    );
+    assert_eq!(
+        flow.lines[0].runs[0].inline_start, 20.0,
+        "vertical: inline-axis maps to physical y = origin.y (start-aligned)"
+    );
+}
+
+#[test]
+fn vertical_multi_line_increasing_block_start() {
+    // Tiny inline-axis (vertical) extent forces a wrap at the space → two columns
+    // stacking along the block axis (physical x), so block_start increases.
+    let Some((dom, _parent, key)) =
+        layout_vertical("hello world", WritingMode::VerticalRl, 1.0, Point::ZERO)
+    else {
+        return;
+    };
+    let flow = dom.world().get::<&InlineFlow>(key).expect("should persist");
+    assert_eq!(flow.lines.len(), 2, "wraps into two columns");
+    assert_eq!(flow.lines[0].block_start, 0.0);
+    assert!(
+        flow.lines[1].block_start > flow.lines[0].block_start,
+        "second column is offset along the block axis (x): block_start {} > {}",
+        flow.lines[1].block_start,
+        flow.lines[0].block_start
+    );
+}
+
+#[test]
+fn vertical_justify_still_gated() {
+    // Slice 2 dropped ONLY the is_vertical exclusion; every other gate still applies.
+    let Some((mut dom, parent, mut style, font_db)) = setup_inline_test("Hi") else {
+        return;
+    };
+    style.writing_mode = WritingMode::VerticalRl;
+    style.text_align = TextAlign::Justify;
+    let _ = dom.world_mut().insert_one(parent, style);
+    let children = dom.composed_children(parent);
+    let key = run_start(&dom, parent);
+    layout_inline_context(
+        &mut dom,
+        &children,
+        800.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+    );
+    assert!(
+        dom.world().get::<&InlineFlow>(key).is_err(),
+        "vertical + justify must not persist (justify is still render's fallback)"
     );
 }

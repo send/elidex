@@ -102,12 +102,39 @@ pub(crate) fn emit_inline_run(
     if let Some(&first) = run.first() {
         if let Ok(flow) = dom.world().get::<&InlineFlow>(first) {
             if expected_generation.is_none_or(|g| flow.layout_generation == g) {
-                emit_inline_flow(dom, &flow, font_db, font_cache, dl);
+                // The horizontal/vertical dispatch needs only the parent's
+                // `writing_mode` + `text_orientation` (Copy enums) — read those WITHOUT
+                // cloning the parent `ComputedStyle` (the slice-2 dispatch hoist would
+                // otherwise clone it per call on this converged path; this is not a claim
+                // that consume is allocation-free — `emit_inline_flow` still reads each
+                // run's own paint style from its entity, as the horizontal path always
+                // has). Render must interpret the persisted coordinates with the SAME
+                // writing mode layout used to project them — i.e. the IFC parent's — so
+                // the dispatch reads the parent's, not each run's. A styleless parent →
+                // horizontal default, mirroring layout's `get_style` `unwrap_or_default`
+                // tolerance (it persisted under the same default), so the flow is still
+                // painted.
+                let (writing_mode, text_orientation) = dom
+                    .world()
+                    .get::<&ComputedStyle>(parent)
+                    .map_or((WritingMode::HorizontalTb, TextOrientation::Mixed), |s| {
+                        (s.writing_mode, s.text_orientation)
+                    });
+                emit_inline_flow(
+                    dom,
+                    &flow,
+                    writing_mode,
+                    text_orientation,
+                    font_db,
+                    font_cache,
+                    dl,
+                );
                 return;
             }
         }
     }
 
+    // Legacy path: needs the full parent style for collect/collapse/measure.
     let parent_style = match dom.world().get::<&ComputedStyle>(parent) {
         Ok(s) => s.clone(),
         Err(_) => return,
@@ -218,7 +245,7 @@ fn emit_styled_segments(
         parent_style,
     } = *ctx;
 
-    let is_vertical = !matches!(parent_style.writing_mode, WritingMode::HorizontalTb);
+    let is_vertical = !parent_style.writing_mode.is_horizontal();
 
     if is_vertical {
         emit_styled_segments_vertical(ctx, font_db, font_cache, dl);
@@ -360,18 +387,31 @@ fn emit_text_segment(
 }
 
 /// Consume a layout-produced [`InlineFlow`]: paint each line's collapsed,
-/// positioned text runs at their absolute `(inline_start, block_start)` with the
-/// run entity's `ComputedStyle`. This is the converged horizontal LTR path —
-/// render no longer re-collects / re-collapses / re-measures the DOM text, and
-/// (unlike the legacy single-line `emit_styled_segments`) honours layout's
-/// per-line line-breaking and per-line `text-align`.
+/// positioned text runs at their absolute, already-projected coordinates with the
+/// run entity's `ComputedStyle`. This is the converged path — render no longer
+/// re-collects / re-collapses / re-measures the DOM text, and (unlike the legacy
+/// single-line `emit_styled_segments`) honours layout's per-line line-breaking and
+/// per-line `text-align`.
+///
+/// Layout applied the writing-mode projection at persist, so each scalar holds the
+/// absolute physical coordinate for its axis; render reads them without a transform
+/// and only branches the per-run glyph emit on `writing_mode` — the IFC parent's,
+/// i.e. the writing mode layout used when projecting these coordinates (the caller
+/// reads it from the parent, not per run):
+/// - **horizontal**: `inline_start` = physical x, `block_start` = physical line top.
+/// - **vertical**: `block_start`/`block_size` give the glyph-column center x;
+///   `inline_start` = physical y (pen top). `text_orientation` selects the shaping.
 fn emit_inline_flow(
     dom: &EcsDom,
     flow: &InlineFlow,
+    writing_mode: WritingMode,
+    text_orientation: TextOrientation,
     font_db: &FontDatabase,
     font_cache: &mut FontCache,
     dl: &mut DisplayList,
 ) {
+    let vertical = !writing_mode.is_horizontal();
+    let orient = vertical_text_orientation(writing_mode, text_orientation);
     for line in &flow.lines {
         for run in &line.runs {
             let Ok(style) = dom.world().get::<&ComputedStyle>(run.entity) else {
@@ -384,17 +424,32 @@ fn emit_inline_flow(
             // Style-only segment: the collapsed text comes from the flow run
             // (`&run.text`), so the segment's own text field is unused here.
             let seg = StyledTextSegment::from_style(String::new(), &style);
-            let mut cursor_x = run.inline_start;
-            emit_text_segment(
-                &run.text,
-                &seg,
-                &mut cursor_x,
-                line.block_start,
-                0.0,
-                font_db,
-                font_cache,
-                dl,
-            );
+            if vertical {
+                let center_x = line.block_start + line.block_size / 2.0;
+                let mut cursor_y = run.inline_start;
+                emit_vertical_text_segment(
+                    &run.text,
+                    &seg,
+                    orient,
+                    center_x,
+                    &mut cursor_y,
+                    font_db,
+                    font_cache,
+                    dl,
+                );
+            } else {
+                let mut cursor_x = run.inline_start;
+                emit_text_segment(
+                    &run.text,
+                    &seg,
+                    &mut cursor_x,
+                    line.block_start,
+                    0.0,
+                    font_db,
+                    font_cache,
+                    dl,
+                );
+            }
         }
     }
 }
@@ -405,8 +460,6 @@ fn emit_inline_flow(
 /// with `shape_text_vertical` and placed using `y_advance`.
 /// `BiDi` visual reordering is applied, and text-align offsets the cursor along
 /// the block axis (vertical).
-#[allow(clippy::too_many_lines)]
-// Vertical emit handles shaping dispatch, glyph placement, and text-decoration in a single pass.
 fn emit_styled_segments_vertical(
     ctx: &InlineRunContext<'_>,
     font_db: &FontDatabase,
@@ -432,19 +485,13 @@ fn emit_styled_segments_vertical(
 
     // A1: Apply BiDi visual reordering (same as horizontal path).
     // Note: BiDi reorder on vertical text reorders top-to-bottom runs.
-    // CSS Writing Modes Level 3 §4.1 says inline direction in vertical
-    // modes is TTB; current behaviour is correct for LTR vertical text.
+    // CSS Writing Modes Level 4 §3.1 (Introduction to Vertical Writing) says
+    // text in vertical modes reads top-to-bottom (inline direction = TTB);
+    // current behaviour is correct for LTR vertical text.
     let visual_order = bidi_visual_order(collapsed, parent_style.direction);
 
-    // CSS Writing Modes Level 4 §3.1: sideways-rl/lr force all glyphs sideways.
-    let text_orientation = if matches!(
-        parent_style.writing_mode,
-        WritingMode::SidewaysRl | WritingMode::SidewaysLr
-    ) {
-        TextOrientation::Sideways
-    } else {
-        parent_style.text_orientation
-    };
+    let text_orientation =
+        vertical_text_orientation(parent_style.writing_mode, parent_style.text_orientation);
 
     // Vertical: cursor_y advances downward, center_x is the column center.
     let center_x = lb.content.center().x;
@@ -457,108 +504,158 @@ fn emit_styled_segments_vertical(
         let Some(seg) = segments.get(*idx) else {
             continue;
         };
-        let Some((transformed, font_id)) = super::query_segment_font(text, seg, font_db) else {
-            continue;
+        emit_vertical_text_segment(
+            text,
+            seg,
+            text_orientation,
+            center_x,
+            &mut cursor_y,
+            font_db,
+            font_cache,
+            dl,
+        );
+    }
+}
+
+/// CSS Writing Modes Level 4 §5.1: `sideways-rl`/`sideways-lr` force all glyphs
+/// sideways; otherwise the `text-orientation` property (mixed/upright/sideways)
+/// selects the shaping strategy. Shared by the legacy single-column path and the
+/// converged `emit_inline_flow` vertical branch.
+fn vertical_text_orientation(
+    writing_mode: WritingMode,
+    text_orientation: TextOrientation,
+) -> TextOrientation {
+    if matches!(
+        writing_mode,
+        WritingMode::SidewaysRl | WritingMode::SidewaysLr
+    ) {
+        TextOrientation::Sideways
+    } else {
+        text_orientation
+    }
+}
+
+/// Shape and emit one collapsed text segment vertically (downward), advancing
+/// `cursor_y` past it. Shared by the legacy single-column
+/// `emit_styled_segments_vertical` and the converged per-line vertical branch of
+/// [`emit_inline_flow`] (mirrors the horizontal [`emit_text_segment`]).
+/// `center_x` is the glyph-column center; `text_orientation` selects the shaping
+/// strategy (CSS Writing Modes Level 4 §5.1).
+#[allow(clippy::too_many_arguments)]
+fn emit_vertical_text_segment(
+    text: &str,
+    seg: &StyledTextSegment,
+    text_orientation: TextOrientation,
+    center_x: f32,
+    cursor_y: &mut f32,
+    font_db: &FontDatabase,
+    font_cache: &mut FontCache,
+    dl: &mut DisplayList,
+) {
+    let Some((transformed, font_id)) = super::query_segment_font(text, seg, font_db) else {
+        return;
+    };
+    let Some((font_blob, font_index)) = font_cache.get(font_db, font_id) else {
+        return;
+    };
+    let text_color = apply_opacity(seg.color, seg.opacity);
+
+    let seg_start_y = *cursor_y;
+
+    // CSS Writing Modes Level 4 §5.1: text-orientation determines shaping.
+    // - Sideways: shape horizontally, rotate 90° CW (x-advance → y-advance).
+    // - Upright/Mixed: shape with TTB + OpenType vert feature.
+    let shaped_opt = match text_orientation {
+        TextOrientation::Sideways => {
+            shape_text_vertical_sideways(font_db, font_id, seg.font_size, &transformed)
+        }
+        _ => shape_text_vertical(font_db, font_id, seg.font_size, &transformed),
+    };
+
+    let Some(shaped) = shaped_opt else {
+        // Fallback to horizontal shaping if vertical shaping fails.
+        let Some(shaped) = shape_text(font_db, font_id, seg.font_size, &transformed) else {
+            return;
         };
-        let Some((font_blob, font_index)) = font_cache.get(font_db, font_id) else {
-            continue;
-        };
-        let text_color = apply_opacity(seg.color, seg.opacity);
+        // Place horizontally-shaped glyphs vertically (one per line).
+        // Glyph y_offset from horizontal shaping may have incorrect sign
+        // for vertical layout (diacritics direction), but is acceptable
+        // for most Latin/CJK text.
+        for glyph in &shaped.glyphs {
+            let x = center_x + glyph.x_offset - glyph.x_advance / 2.0;
+            let y = *cursor_y + glyph.y_offset;
+            dl.push(DisplayItem::Text {
+                glyphs: vec![GlyphEntry {
+                    glyph_id: u32::from(glyph.glyph_id),
+                    position: Point::new(x, y),
+                }],
+                font_blob: font_blob.clone(),
+                font_index,
+                font_size: seg.font_size,
+                color: text_color,
+            });
+            *cursor_y += glyph.x_advance;
+        }
+        return;
+    };
+    let glyphs = place_glyphs_vertical(&shaped.glyphs, center_x, cursor_y);
 
-        let seg_start_y = cursor_y;
+    dl.push(DisplayItem::Text {
+        glyphs,
+        font_blob,
+        font_index,
+        font_size: seg.font_size,
+        color: text_color,
+    });
 
-        // CSS Writing Modes Level 3 §5.1: text-orientation determines shaping.
-        // - Sideways: shape horizontally, rotate 90° CW (x-advance → y-advance).
-        // - Upright/Mixed: shape with TTB + OpenType vert feature.
-        let shaped_opt = match text_orientation {
-            TextOrientation::Sideways => {
-                shape_text_vertical_sideways(font_db, font_id, seg.font_size, &transformed)
-            }
-            _ => shape_text_vertical(font_db, font_id, seg.font_size, &transformed),
-        };
-
-        let Some(shaped) = shaped_opt else {
-            // Fallback to horizontal shaping if vertical shaping fails.
-            let Some(shaped) = shape_text(font_db, font_id, seg.font_size, &transformed) else {
-                continue;
-            };
-            // Place horizontally-shaped glyphs vertically (one per line).
-            // Glyph y_offset from horizontal shaping may have incorrect sign
-            // for vertical layout (diacritics direction), but is acceptable
-            // for most Latin/CJK text.
-            for glyph in &shaped.glyphs {
-                let x = center_x + glyph.x_offset - glyph.x_advance / 2.0;
-                let y = cursor_y + glyph.y_offset;
-                dl.push(DisplayItem::Text {
-                    glyphs: vec![GlyphEntry {
-                        glyph_id: u32::from(glyph.glyph_id),
-                        position: Point::new(x, y),
-                    }],
-                    font_blob: font_blob.clone(),
-                    font_index,
-                    font_size: seg.font_size,
-                    color: text_color,
-                });
-                cursor_y += glyph.x_advance;
-            }
-            continue;
-        };
-        let glyphs = place_glyphs_vertical(&shaped.glyphs, center_x, &mut cursor_y);
-
-        dl.push(DisplayItem::Text {
-            glyphs,
-            font_blob,
-            font_index,
-            font_size: seg.font_size,
-            color: text_color,
-        });
-
-        // CSS Writing Modes Level 3 §7.1: Vertical text-decoration.
-        // Underline/overline run vertically along the inline-start/end side
-        // of the glyph column (right side for vertical-rl, left for vertical-lr).
-        let seg_height = cursor_y - seg_start_y;
-        if seg_height > 0.0 {
-            let ascent = seg.font_size;
-            let decoration_thickness = ascent / DECORATION_THICKNESS_DIVISOR;
-            let decoration_color =
-                apply_opacity(seg.text_decoration_color.unwrap_or(seg.color), seg.opacity);
-            // Vertical underline: runs alongside the column at inline-end.
-            if seg.text_decoration_line.underline {
-                let x = center_x + ascent * UNDERLINE_POSITION_FACTOR;
-                emit_vertical_decoration_line(
-                    dl,
-                    x,
-                    seg_start_y,
-                    seg_height,
-                    decoration_thickness,
-                    decoration_color,
-                    seg.text_decoration_style,
-                );
-            }
-            if seg.text_decoration_line.overline {
-                let x = center_x - ascent * OVERLINE_POSITION_FACTOR;
-                emit_vertical_decoration_line(
-                    dl,
-                    x,
-                    seg_start_y,
-                    seg_height,
-                    decoration_thickness,
-                    decoration_color,
-                    seg.text_decoration_style,
-                );
-            }
-            if seg.text_decoration_line.line_through {
-                let x = center_x;
-                emit_vertical_decoration_line(
-                    dl,
-                    x,
-                    seg_start_y,
-                    seg_height,
-                    decoration_thickness,
-                    decoration_color,
-                    seg.text_decoration_style,
-                );
-            }
+    // CSS Writing Modes Level 4 §7.1: vertical text-decoration runs vertically
+    // alongside the glyph column. Placement here is writing-mode-agnostic —
+    // underline on the +x side of the column center, overline on the −x side,
+    // line-through through the center — NOT yet the spec's vertical-rl/lr-dependent
+    // under/over sides (deferred with the other vertical-rl physical-correctness
+    // work; same family as the InlineFlow no-block-reversal limitation).
+    let seg_height = *cursor_y - seg_start_y;
+    if seg_height > 0.0 {
+        let ascent = seg.font_size;
+        let decoration_thickness = ascent / DECORATION_THICKNESS_DIVISOR;
+        let decoration_color =
+            apply_opacity(seg.text_decoration_color.unwrap_or(seg.color), seg.opacity);
+        // Underline: +x side of the column center (writing-mode-agnostic, see above).
+        if seg.text_decoration_line.underline {
+            let x = center_x + ascent * UNDERLINE_POSITION_FACTOR;
+            emit_vertical_decoration_line(
+                dl,
+                x,
+                seg_start_y,
+                seg_height,
+                decoration_thickness,
+                decoration_color,
+                seg.text_decoration_style,
+            );
+        }
+        if seg.text_decoration_line.overline {
+            let x = center_x - ascent * OVERLINE_POSITION_FACTOR;
+            emit_vertical_decoration_line(
+                dl,
+                x,
+                seg_start_y,
+                seg_height,
+                decoration_thickness,
+                decoration_color,
+                seg.text_decoration_style,
+            );
+        }
+        if seg.text_decoration_line.line_through {
+            let x = center_x;
+            emit_vertical_decoration_line(
+                dl,
+                x,
+                seg_start_y,
+                seg_height,
+                decoration_thickness,
+                decoration_color,
+                seg.text_decoration_style,
+            );
         }
     }
 }
@@ -675,7 +772,7 @@ fn emit_decoration_line(
     }
 }
 
-/// Emit a vertical text-decoration line (CSS Writing Modes Level 3 §7.1).
+/// Emit a vertical text-decoration line (CSS Writing Modes Level 4 §7.1).
 ///
 /// Like [`emit_decoration_line`] but oriented vertically: the line runs along
 /// the y-axis with `height` extent and `thickness` in the x-axis.

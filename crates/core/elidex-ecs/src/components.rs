@@ -176,6 +176,15 @@ pub struct TextContent(pub String);
 /// `InlineFlowRun` references the style-owning `Entity` and `elidex-plugin` does
 /// not depend on `elidex-ecs`. The referenced entities are same-`EcsDom` DOM
 /// entities (not per-VM identity handles), so intra-world references are sound.
+///
+/// Coordinates are stored along the **inline** and **block** axes, but layout
+/// applies the writing-mode projection (the same `is_vertical` rule as
+/// `static_positions` / inline `LayoutBox`es) at persist, so each scalar already
+/// holds the **absolute physical coordinate for its axis**: for horizontal,
+/// `inline_start` = physical x and `block_start` = physical y; for vertical,
+/// `inline_start` = physical y and `block_start` = physical x. Render therefore
+/// reads them without a coordinate transform, selecting the right field per writing
+/// mode (no vertical-rl block-axis reversal — matching the box convention).
 #[derive(Debug, Clone, PartialEq)]
 pub struct InlineFlow {
     /// Line boxes in block order.
@@ -190,12 +199,14 @@ pub struct InlineFlow {
 /// One positioned line box within an [`InlineFlow`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct InlineFlowLine {
-    /// Absolute block-axis offset of this line box's top edge (layout coords).
+    /// Absolute block-axis offset of this line box's block-start edge — physical y
+    /// (line top) for horizontal, physical x (column block-start edge) for vertical.
     pub block_start: f32,
-    /// Line box block size (CSS 2 §10.8 line height calculations). Persisted but
-    /// not yet consumed by render — slice 1 places each run's baseline at
-    /// `block_start + ascent` (the leading-naive legacy behaviour); a later slice
-    /// uses this to distribute half-leading (CSS 2 §10.8.1) within the line box.
+    /// Line box block size (CSS 2 §10.8 line height calculations). Horizontal render
+    /// places each run's baseline at `block_start + ascent` (the leading-naive
+    /// legacy behaviour) and does not yet read this (a later slice distributes
+    /// half-leading, CSS 2 §10.8.1). Vertical render **does** consume it: the glyph
+    /// column center is `block_start + block_size / 2`.
     pub block_size: f32,
     /// Logical-order positioned style-runs on this line.
     pub runs: Vec<InlineFlowRun>,
@@ -210,7 +221,8 @@ pub struct InlineFlowRun {
     pub entity: Entity,
     /// Collapsed text (CSS Text 3 §4.1.1 Phase I), this line, this style-run.
     pub text: String,
-    /// Absolute inline-axis start (layout coords; `text-align` already applied).
+    /// Absolute inline-axis start, `text-align` already applied — physical x for
+    /// horizontal, physical y (pen top) for vertical.
     pub inline_start: f32,
 }
 
