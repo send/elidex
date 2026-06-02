@@ -573,14 +573,16 @@ pub fn layout_inline_context_fragmented(
         }
     }
 
-    // Slice-1 InlineFlow persistence gate: only horizontal, non-justify,
-    // non-fragmented runs of plain LTR text — no pseudo/generated content, no
-    // relative/sticky positioned inline, no atomic inline, no bidi (RTL) text, no
-    // text-transform. Each excluded case is a layout-IFC-vs-render divergence (or,
-    // for fragmentation, a per-fragment slicing the persisted geometry does not yet
-    // model). When the gate fails, render keeps its own collect/collapse/emit path.
-    let persist_flow = !is_vertical
-        && frag_constraint.is_none()
+    // InlineFlow persistence gate: non-justify, non-fragmented runs of plain LTR
+    // text — no pseudo/generated content, no relative/sticky positioned inline, no
+    // atomic inline, no bidi (RTL) text, no text-transform. Each excluded case is a
+    // layout-IFC-vs-render divergence (or, for fragmentation, a per-fragment slicing
+    // the persisted geometry does not yet model). When the gate fails, render keeps
+    // its own collect/collapse/emit path. Slice 2 added vertical writing modes: the
+    // packer already produces inline/block-axis positions and the align resolution is
+    // axis-agnostic, so persisting vertical needs only the origin fold's is_vertical
+    // swap (below) + a writing-mode-aware render consume path.
+    let persist_flow = frag_constraint.is_none()
         && parent_style.text_align != TextAlign::Justify
         && !complexity.has_pseudo
         && !complexity.has_relpos_sticky
@@ -702,14 +704,26 @@ pub fn layout_inline_context_fragmented(
     let first_baseline = packer.first_baseline;
     if persist_flow && !packer.flow_lines.is_empty() {
         if let Some(entity) = run_start {
-            // IFC-local → absolute layout coordinates (persist gate implies horizontal).
+            // IFC-local logical → absolute physical, applying the SAME is_vertical
+            // projection rule as `static_positions` (above) and
+            // `assign_inline_layout_boxes`: inline-axis maps to physical x (horizontal)
+            // or y (vertical), block-axis to y (horizontal) or x (vertical). After the
+            // fold each scalar holds the absolute physical coordinate for its axis, so
+            // render reads `block_start`/`inline_start` without a coordinate transform
+            // (it selects the right field per writing mode). No vertical-rl block-axis
+            // reversal — matching the box convention (see static_positions).
+            let (inline_origin, block_origin) = if is_vertical {
+                (content_origin.y, content_origin.x)
+            } else {
+                (content_origin.x, content_origin.y)
+            };
             let lines: Vec<elidex_ecs::InlineFlowLine> = packer
                 .flow_lines
                 .into_iter()
                 .map(|mut line| {
-                    line.block_start += content_origin.y;
+                    line.block_start += block_origin;
                     for run in &mut line.runs {
-                        run.inline_start += content_origin.x;
+                        run.inline_start += inline_origin;
                     }
                     line
                 })
