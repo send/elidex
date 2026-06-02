@@ -221,12 +221,15 @@ fn consumes_inline_flow_vertical_columns() {
             ..Default::default()
         },
     );
-    let text = dom.create_text("ABCD");
+    let text = dom.create_text("ABAB");
     dom.append_child(div, text);
 
     // Vertical layout output: two columns. block_start = physical x of the column's
     // block-start edge, block_size = column width → center_x = block_start +
     // block_size/2 (= 10 and 30). inline_start = physical y (pen top).
+    // Both columns use the SAME text so their leading glyphs are identical — the
+    // x comparison below then isolates the column-center delta without depending on
+    // per-glyph metrics (which vary by the CI runner's first available font).
     let flow = InlineFlow {
         lines: vec![
             InlineFlowLine {
@@ -243,7 +246,7 @@ fn consumes_inline_flow_vertical_columns() {
                 block_size: 20.0,
                 runs: vec![InlineFlowRun {
                     entity: div,
-                    text: "CD".to_string(),
+                    text: "AB".to_string(),
                     inline_start: 0.0,
                 }],
             },
@@ -263,11 +266,13 @@ fn consumes_inline_flow_vertical_columns() {
     );
 
     // Columns are separated along physical x by the block_start delta (20): the
-    // vertical consume reads block_start as x (the projection swap), not y.
+    // vertical consume reads block_start as x (the projection swap), not y. With
+    // identical leading glyphs the per-glyph x-offset cancels, so the delta is the
+    // exact column-center difference (tight tolerance, not font-dependent).
     let x0 = items[0][0].position.x;
     let x1 = items[1][0].position.x;
     assert!(
-        (x1 - x0 - 20.0).abs() < 2.0,
+        (x1 - x0 - 20.0).abs() < 0.5,
         "second column sits one column to the right (center_x delta = 20); got x0={x0}, x1={x1}"
     );
 

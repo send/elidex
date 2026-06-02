@@ -105,10 +105,12 @@ pub(crate) fn emit_inline_run(
                 // The consume path needs only `writing_mode` + `text_orientation`
                 // (Copy enums) for the horizontal/vertical dispatch — read them WITHOUT
                 // cloning the whole `ComputedStyle` (this is the converged hot path).
-                // Both are inherited, so the IFC parent's values are authoritative for
-                // every run. A styleless parent → horizontal default, mirroring layout's
-                // `get_style` `unwrap_or_default` tolerance (it persisted under the same
-                // default), so the flow is still painted.
+                // Render must interpret the persisted coordinates with the SAME writing
+                // mode layout used to project them — i.e. the IFC parent's — so the
+                // dispatch reads the parent's, not each run's. A styleless parent →
+                // horizontal default, mirroring layout's `get_style` `unwrap_or_default`
+                // tolerance (it persisted under the same default), so the flow is still
+                // painted.
                 let (writing_mode, text_orientation) = dom
                     .world()
                     .get::<&ComputedStyle>(parent)
@@ -390,8 +392,9 @@ fn emit_text_segment(
 ///
 /// Layout applied the writing-mode projection at persist, so each scalar holds the
 /// absolute physical coordinate for its axis; render reads them without a transform
-/// and only branches the per-run glyph emit on `writing_mode` (the IFC parent's
-/// value — inherited, so authoritative for every run):
+/// and only branches the per-run glyph emit on `writing_mode` — the IFC parent's,
+/// i.e. the writing mode layout used when projecting these coordinates (the caller
+/// reads it from the parent, not per run):
 /// - **horizontal**: `inline_start` = physical x, `block_start` = physical line top.
 /// - **vertical**: `block_start`/`block_size` give the glyph-column center x;
 ///   `inline_start` = physical y (pen top). `text_orientation` selects the shaping.
