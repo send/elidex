@@ -40,9 +40,11 @@ use crate::walk::find_roots;
 /// `ComputedStyle`) and before layout (so layout reads resolved text). Exposed
 /// for callers that build a styled DOM directly and need only this phase.
 pub fn resolve_generated_content(dom: &mut EcsDom) {
-    let roots = find_roots(dom);
-    let mut state = CounterState::new();
-    for root in roots {
+    // A fresh counter state per root: `find_roots` may return multiple disconnected
+    // trees (the fallback scan), which behave as independent documents — counter
+    // scope (CSS Lists 3 §4.3) must not leak across them.
+    for root in find_roots(dom) {
+        let mut state = CounterState::new();
         resolve_tree(dom, root, &mut state, 0);
     }
 }
@@ -83,6 +85,19 @@ fn resolve_tree(dom: &mut EcsDom, entity: Entity, state: &mut CounterState, dept
         }
         return;
     };
+
+    // RECONCILE the list-item marker (CSS Lists 3 §4.6/§4.7): a marker is written
+    // ONLY for a visible-type list-item (below, after counter processing). Remove
+    // any stale marker from a prior resolve for every OTHER element NOW — before the
+    // display:none / display:contents early-returns — so the "insert-or-remove every
+    // pass" invariant holds on ALL exit paths (element entities persist across
+    // re-resolves; same explicit-clear discipline as `InlineFlow`). Visibility is
+    // render's paint concern; the marker text is written independently of it.
+    let is_visible_list_item =
+        display == Display::ListItem && list_style_type != ListStyleType::None;
+    if !is_visible_list_item {
+        let _ = dom.world_mut().remove_one::<ListItemMarker>(entity);
+    }
 
     // CSS Lists 3 §4.5 (Counters in elements that do not generate boxes): an
     // element with `display: none` cannot set, reset, or increment a counter —
@@ -129,17 +144,12 @@ fn resolve_tree(dom: &mut EcsDom, entity: Entity, state: &mut CounterState, dept
         }
     }
 
-    // CSS Lists 3 §4.6/§4.7: resolve the list-item marker text and RECONCILE
-    // the component — insert on a visible-type list-item, remove otherwise — so
-    // a stale marker never survives an element that stops being a list-item
-    // (element entities persist across re-resolves; the same explicit-clear
-    // discipline as `InlineFlow`). Visibility is render's paint concern; the
-    // text is written independently of it.
-    if display == Display::ListItem && list_style_type != ListStyleType::None {
+    // CSS Lists 3 §4.6/§4.7: write the resolved marker text for a visible-type
+    // list-item (the stale-removal half of the reconcile ran early, above, so it
+    // also covers the display:none / display:contents exit paths).
+    if is_visible_list_item {
         let text = state.evaluate_counter("list-item", list_style_type);
         let _ = dom.world_mut().insert_one(entity, ListItemMarker(text));
-    } else {
-        let _ = dom.world_mut().remove_one::<ListItemMarker>(entity);
     }
 
     // CSS Content 3 §2: resolve pseudo-element `content` into TextContent.
@@ -295,6 +305,68 @@ mod tests {
             marker(&dom, lis[0]),
             None,
             "stale ListItemMarker must be removed on gate-out"
+        );
+    }
+
+    #[test]
+    fn marker_removed_when_element_becomes_display_none() {
+        // Copilot PR#273 R2: the reconcile-remove must fire even on the
+        // display:none / display:contents early-return paths (the remove now runs
+        // before those returns).
+        for hidden in [Display::None, Display::Contents] {
+            let (mut dom, _ol, lis) = ol_with_items(1);
+            resolve_generated_content(&mut dom);
+            assert_eq!(marker(&dom, lis[0]).as_deref(), Some("1"));
+            let _ = dom.world_mut().insert_one(
+                lis[0],
+                ComputedStyle {
+                    display: hidden,
+                    ..Default::default()
+                },
+            );
+            resolve_generated_content(&mut dom);
+            assert_eq!(
+                marker(&dom, lis[0]),
+                None,
+                "stale marker must be removed when the element becomes {hidden:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn counters_independent_across_roots() {
+        // Copilot PR#273 R2: a fresh CounterState per root — disconnected trees are
+        // independent documents, so `list-item` must restart, not leak across them.
+        let mut dom = EcsDom::new();
+        let mut lis = Vec::new();
+        for _ in 0..2 {
+            // Parentless <ol> → a separate root (find_roots fallback scan).
+            let ol = dom.create_element("ol", Attributes::default());
+            let _ = dom.world_mut().insert_one(
+                ol,
+                ComputedStyle {
+                    display: Display::Block,
+                    ..Default::default()
+                },
+            );
+            let li = dom.create_element("li", Attributes::default());
+            let _ = dom.world_mut().insert_one(
+                li,
+                ComputedStyle {
+                    display: Display::ListItem,
+                    list_style_type: ListStyleType::Decimal,
+                    ..Default::default()
+                },
+            );
+            let _ = dom.append_child(ol, li);
+            lis.push(li);
+        }
+        resolve_generated_content(&mut dom);
+        assert_eq!(marker(&dom, lis[0]).as_deref(), Some("1"));
+        assert_eq!(
+            marker(&dom, lis[1]).as_deref(),
+            Some("1"),
+            "second root's list-item must restart at 1 (no cross-root counter leak)"
         );
     }
 
