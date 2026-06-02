@@ -531,8 +531,8 @@ fn vertical_text_orientation(
 
 /// Shape and emit one collapsed text segment vertically (downward), advancing
 /// `cursor_y` past it. Shared by the legacy single-column
-/// `emit_styled_segments_vertical` and the converged per-line
-/// `emit_inline_flow_vertical` (mirrors the horizontal [`emit_text_segment`]).
+/// `emit_styled_segments_vertical` and the converged per-line vertical branch of
+/// [`emit_inline_flow`] (mirrors the horizontal [`emit_text_segment`]).
 /// `center_x` is the glyph-column center; `text_orientation` selects the shaping
 /// strategy (CSS Writing Modes Level 4 §5.1).
 #[allow(clippy::too_many_arguments)]
