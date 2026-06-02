@@ -131,14 +131,15 @@ fn op_ctx(
     let (db, store, index, txn) = index_ctx(ctx, index_id)?;
     object_store::require_active(ctx, txn, method)?;
     let backend = ctx.vm.require_idb_backend()?;
-    if backend.get_store_meta(&db, &store).is_err()
-        || elidex_indexeddb::index::get_index_meta(&backend, &db, &store, &index).is_err()
-    {
-        return Err(value::dom_exc(
-            ctx,
-            "InvalidStateError",
-            format!("IDBIndex.{method}: the index or its object store has been deleted"),
-        ));
+    // A `NotFoundError` from either probe is the store/index-deleted case
+    // (→ InvalidStateError); any other backend error is a real failure that
+    // must surface as itself rather than be masked as a deletion.
+    let deleted_msg = format!("IDBIndex.{method}: the index or its object store has been deleted");
+    if let Err(e) = backend.get_store_meta(&db, &store) {
+        return Err(value::deleted_or_throw(ctx, &e, &deleted_msg));
+    }
+    if let Err(e) = elidex_indexeddb::index::get_index_meta(&backend, &db, &store, &index) {
+        return Err(value::deleted_or_throw(ctx, &e, &deleted_msg));
     }
     Ok((db, store, index, txn))
 }

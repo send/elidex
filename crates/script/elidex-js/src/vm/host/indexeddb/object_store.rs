@@ -606,14 +606,16 @@ fn require_store_live(
     method: &str,
 ) -> Result<(), VmError> {
     let backend = ctx.vm.require_idb_backend()?;
-    if backend.get_store_meta(db, store).is_err() {
-        return Err(value::dom_exc(
+    match backend.get_store_meta(db, store) {
+        Ok(_) => Ok(()),
+        // A `NotFoundError` is the store-deleted case (→ InvalidStateError); any
+        // other backend error is a real failure and must surface as itself.
+        Err(e) => Err(value::deleted_or_throw(
             ctx,
-            "InvalidStateError",
-            format!("IDBObjectStore.{method}: the object store has been deleted"),
-        ));
+            &e,
+            &format!("IDBObjectStore.{method}: the object store has been deleted"),
+        )),
     }
-    Ok(())
 }
 
 /// Shared `openCursor` / `openKeyCursor` over an object store (§4.5).

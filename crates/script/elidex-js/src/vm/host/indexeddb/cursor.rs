@@ -209,7 +209,10 @@ fn cursor_txn(ctx: &NativeContext<'_>, cursor_id: ObjectId) -> Result<ObjectId, 
 }
 
 /// §4.9: whether the cursor's source / effective object store still exists
-/// (`false` ⇒ deleted mid-transaction → InvalidStateError).
+/// (`false` ⇒ deleted mid-transaction → InvalidStateError).  Only a backend
+/// `NotFoundError` counts as "deleted"; any OTHER backend error is treated as
+/// live so the caller's subsequent backend op surfaces the real error rather
+/// than being masked as a deletion.
 fn cursor_source_live(ctx: &mut NativeContext<'_>, cursor_id: ObjectId) -> bool {
     let Some(backend) = ctx.vm.ensure_idb_backend() else {
         return false;
@@ -217,21 +220,29 @@ fn cursor_source_live(ctx: &mut NativeContext<'_>, cursor_id: ObjectId) -> bool 
     let Some(st) = ctx.vm.idb_cursor_states.get(&cursor_id) else {
         return false;
     };
+    // `true` unless the probe specifically reports the store/index is gone
+    // (`NotFoundError`); a real backend error leaves the cursor "live" so the
+    // caller's backend op surfaces it.
     match st.backend.source() {
         CursorSource::ObjectStore {
             db_name,
             store_name,
-        } => backend.get_store_meta(db_name, store_name).is_ok(),
+        } => !matches!(
+            backend.get_store_meta(db_name, store_name),
+            Err(elidex_indexeddb::BackendError::NotFoundError(_))
+        ),
         CursorSource::Index {
             db_name,
             store_name,
             index_name,
         } => {
-            backend.get_store_meta(db_name, store_name).is_ok()
-                && elidex_indexeddb::index::get_index_meta(
-                    &backend, db_name, store_name, index_name,
-                )
-                .is_ok()
+            !matches!(
+                backend.get_store_meta(db_name, store_name),
+                Err(elidex_indexeddb::BackendError::NotFoundError(_))
+            ) && !matches!(
+                elidex_indexeddb::index::get_index_meta(&backend, db_name, store_name, index_name),
+                Err(elidex_indexeddb::BackendError::NotFoundError(_))
+            )
         }
     }
 }

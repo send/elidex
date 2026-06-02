@@ -196,19 +196,32 @@ fn write_and_index(
     value: &str,
     do_write: impl FnOnce() -> Result<(), BackendError>,
 ) -> Result<(), BackendError> {
-    backend.conn().execute_batch("SAVEPOINT idb_write")?;
-    let result = (|| -> Result<(), BackendError> {
+    with_savepoint(backend, || {
         do_write()?;
         crate::index::update_indexes_for_put(backend, db_name, store_name, pk, value)
-    })();
-    match result {
+    })
+}
+
+/// Run `body` inside a `SAVEPOINT` so a data mutation and its secondary-index
+/// maintenance commit or roll back together: on `Err`, the savepoint is rolled
+/// back (no orphan record / stale index entry) and the error propagated; on
+/// `Ok`, released into the enclosing transaction.  Used by every write path
+/// (add / put / delete / clear) — index consistency must hold even when the
+/// resulting request's error event is `preventDefault`'d and the transaction
+/// continues.
+fn with_savepoint(
+    backend: &IdbBackend,
+    body: impl FnOnce() -> Result<(), BackendError>,
+) -> Result<(), BackendError> {
+    backend.conn().execute_batch("SAVEPOINT idb_op")?;
+    match body() {
         Ok(()) => {
-            backend.conn().execute_batch("RELEASE idb_write")?;
+            backend.conn().execute_batch("RELEASE idb_op")?;
             Ok(())
         }
         Err(e) => {
-            let _ = backend.conn().execute_batch("ROLLBACK TO idb_write");
-            let _ = backend.conn().execute_batch("RELEASE idb_write");
+            let _ = backend.conn().execute_batch("ROLLBACK TO idb_op");
+            let _ = backend.conn().execute_batch("RELEASE idb_op");
             Err(e)
         }
     }
@@ -338,42 +351,50 @@ pub fn delete(
     target: &DeleteTarget,
 ) -> Result<(), BackendError> {
     let table = backend.data_table(db_name, store_name);
-    // Remove the secondary-index entries FIRST: the range variant resolves the
-    // affected primary keys by reading the data table, so it must run before
-    // the records are gone (both helpers no-op when the store has no indexes).
-    match target {
-        DeleteTarget::Key(key) => {
-            crate::index::remove_indexes_for_delete(backend, db_name, store_name, key)?;
-            let key_bytes = key.serialize();
-            backend.conn().execute(
-                &format!("DELETE FROM [{table}] WHERE key_data = ?1"),
-                params![key_bytes],
-            )?;
+    // Index removal + data delete are atomic (savepoint): the range variant
+    // resolves the affected primary keys by reading the data table, so index
+    // removal must run FIRST — and if the data delete then fails, the index
+    // removal must roll back with it (both helpers no-op when the store has no
+    // indexes).
+    with_savepoint(backend, || {
+        match target {
+            DeleteTarget::Key(key) => {
+                crate::index::remove_indexes_for_delete(backend, db_name, store_name, key)?;
+                let key_bytes = key.serialize();
+                backend.conn().execute(
+                    &format!("DELETE FROM [{table}] WHERE key_data = ?1"),
+                    params![key_bytes],
+                )?;
+            }
+            DeleteTarget::Range(range) => {
+                crate::index::remove_indexes_for_range(backend, db_name, store_name, range)?;
+                let (where_clause, where_params) = range.to_sql_clause("key_data");
+                let param_refs: Vec<&dyn rusqlite::types::ToSql> = where_params
+                    .iter()
+                    .map(|p| p as &dyn rusqlite::types::ToSql)
+                    .collect();
+                backend.conn().execute(
+                    &format!("DELETE FROM [{table}] WHERE {where_clause}"),
+                    param_refs.as_slice(),
+                )?;
+            }
         }
-        DeleteTarget::Range(range) => {
-            crate::index::remove_indexes_for_range(backend, db_name, store_name, range)?;
-            let (where_clause, where_params) = range.to_sql_clause("key_data");
-            let param_refs: Vec<&dyn rusqlite::types::ToSql> = where_params
-                .iter()
-                .map(|p| p as &dyn rusqlite::types::ToSql)
-                .collect();
-            backend.conn().execute(
-                &format!("DELETE FROM [{table}] WHERE {where_clause}"),
-                param_refs.as_slice(),
-            )?;
-        }
-    }
-    Ok(())
+        Ok(())
+    })
 }
 
-/// Clear all records from an object store (and all its index entries).
+/// Clear all records from an object store (and all its index entries) — atomic
+/// so a failed data clear rolls the index clear back with it.
 pub fn clear(backend: &IdbBackend, db_name: &str, store_name: &str) -> Result<(), BackendError> {
-    crate::index::clear_indexes(backend, db_name, store_name)?;
     let table = backend.data_table(db_name, store_name);
-    backend
-        .conn()
-        .execute(&format!("DELETE FROM [{table}]"), [])?;
-    Ok(())
+    with_savepoint(backend, || {
+        crate::index::clear_indexes(backend, db_name, store_name)?;
+        backend
+            .conn()
+            .execute(&format!("DELETE FROM [{table}]"), [])
+            .map(|_| ())
+            .map_err(BackendError::from)
+    })
 }
 
 /// Count records matching a key range (or all if `None`).
@@ -650,5 +671,52 @@ mod tests {
     fn extract_key_missing_path() {
         let key = extract_key_from_value(r#"{"name":"bob"}"#, "id");
         assert!(key.is_none());
+    }
+
+    #[test]
+    fn delete_maintains_index_consistency() {
+        let b = setup();
+        b.create_object_store("db", "users", Some("id"), false)
+            .unwrap();
+        crate::index::create_index(&b, "db", "users", "by_name", "name", false, false).unwrap();
+        // ops::put maintains the index; ops::delete must remove the entry for
+        // the deleted record (atomically — savepoint, so it never leaves a
+        // stale entry).
+        put(&b, "db", "users", None, r#"{"id":1,"name":"alice"}"#).unwrap();
+        put(&b, "db", "users", None, r#"{"id":2,"name":"bob"}"#).unwrap();
+        assert_eq!(
+            crate::index::index_count(&b, "db", "users", "by_name", None).unwrap(),
+            2
+        );
+        delete(&b, "db", "users", &DeleteTarget::Key(IdbKey::Number(1.0))).unwrap();
+        assert_eq!(
+            crate::index::index_count(&b, "db", "users", "by_name", None).unwrap(),
+            1
+        );
+        assert!(crate::index::index_get(
+            &b,
+            "db",
+            "users",
+            "by_name",
+            &IdbKey::String("alice".into())
+        )
+        .unwrap()
+        .is_none());
+    }
+
+    #[test]
+    fn clear_maintains_index_consistency() {
+        let b = setup();
+        b.create_object_store("db", "users", Some("id"), false)
+            .unwrap();
+        crate::index::create_index(&b, "db", "users", "by_name", "name", false, false).unwrap();
+        put(&b, "db", "users", None, r#"{"id":1,"name":"alice"}"#).unwrap();
+        put(&b, "db", "users", None, r#"{"id":2,"name":"bob"}"#).unwrap();
+        clear(&b, "db", "users").unwrap();
+        assert_eq!(
+            crate::index::index_count(&b, "db", "users", "by_name", None).unwrap(),
+            0
+        );
+        assert!(get_all(&b, "db", "users", None, None).unwrap().is_empty());
     }
 }

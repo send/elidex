@@ -73,11 +73,16 @@ pub(crate) fn async_execute(
     request: Option<ObjectId>,
 ) -> ObjectId {
     let req = match request {
-        // Reuse an existing request: reset its done flag (a re-fired cursor
-        // request, or a harmless no-op for a just-created factory request).
+        // Reuse an existing request: reset it to a clean Pending state — clear
+        // the previous `result` / `error` so the §4.1 "result is undefined
+        // while pending" invariant holds and a stale prior result object is not
+        // kept artificially GC-rooted across the re-fire window (a re-fired
+        // cursor request, or a harmless reset of a just-created factory request).
         Some(r) => {
             if let Some(st) = vm.idb_request_states.get_mut(&r) {
                 st.ready_state = IdbReadyState::Pending;
+                st.result = JsValue::Undefined;
+                st.error = None;
             }
             r
         }
