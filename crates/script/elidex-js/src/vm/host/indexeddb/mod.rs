@@ -98,8 +98,8 @@ pub(crate) enum DeferredOutcome {
     /// `DOMException` wrapper `ObjectId` to assign to `request.error`.
     Error(ObjectId),
     /// Cursor iteration result (W3C IDB §6.7 "iterate a cursor").  Richer
-    /// than a plain `JsValue`: at delivery the
-    /// [`dispatch::commit_cursor_iteration`] step reads the cursor's backend
+    /// than a plain `JsValue`: at delivery [`cursor::commit_iteration`] (called
+    /// from [`request::dispatch_idb_deliver`]) reads the cursor's backend
     /// position and either sets the §4.9 got-value flag + commits the
     /// `key` / `primaryKey` / `value` attribute snapshots and
     /// `request.result = cursor` (a record was found), or leaves got-value

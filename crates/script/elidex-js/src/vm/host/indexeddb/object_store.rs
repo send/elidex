@@ -697,12 +697,19 @@ pub(crate) fn native_os_index(
     let name_sid = ctx.to_string_val(name_arg)?;
     let name = ctx.get_utf8(name_sid);
     let backend = ctx.vm.require_idb_backend()?;
-    if elidex_indexeddb::index::get_index_meta(&backend, &db, &store, &name).is_err() {
-        return Err(value::dom_exc(
-            ctx,
-            "NotFoundError",
-            format!("IDBObjectStore.index: no index named '{name}'"),
-        ));
+    // §4.5 index(): a missing index is a `NotFoundError`; a real backend error
+    // (e.g. `Internal` → `UnknownError`) must surface as itself, not be masked
+    // as "no such index".
+    match elidex_indexeddb::index::get_index_meta(&backend, &db, &store, &name) {
+        Ok(_) => {}
+        Err(elidex_indexeddb::BackendError::NotFoundError(_)) => {
+            return Err(value::dom_exc(
+                ctx,
+                "NotFoundError",
+                format!("IDBObjectStore.index: no index named '{name}'"),
+            ));
+        }
+        Err(e) => return Err(value::backend_error_as_throw(ctx, &e)),
     }
     Ok(JsValue::Object(index::get_or_create_index_handle(
         ctx.vm, store_id, &db, &store, &name,
