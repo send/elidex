@@ -102,12 +102,15 @@ pub(crate) fn emit_inline_run(
     if let Some(&first) = run.first() {
         if let Ok(flow) = dom.world().get::<&InlineFlow>(first) {
             if expected_generation.is_none_or(|g| flow.layout_generation == g) {
-                // The consume path needs only `writing_mode` + `text_orientation`
-                // (Copy enums) for the horizontal/vertical dispatch — read them WITHOUT
-                // cloning the whole `ComputedStyle` (this is the converged hot path).
-                // Render must interpret the persisted coordinates with the SAME writing
-                // mode layout used to project them — i.e. the IFC parent's — so the
-                // dispatch reads the parent's, not each run's. A styleless parent →
+                // The horizontal/vertical dispatch needs only the parent's
+                // `writing_mode` + `text_orientation` (Copy enums) — read those WITHOUT
+                // cloning the parent `ComputedStyle` (the slice-2 dispatch hoist would
+                // otherwise clone it per call on this converged path; this is not a claim
+                // that consume is allocation-free — `emit_inline_flow` still reads each
+                // run's own paint style from its entity, as the horizontal path always
+                // has). Render must interpret the persisted coordinates with the SAME
+                // writing mode layout used to project them — i.e. the IFC parent's — so
+                // the dispatch reads the parent's, not each run's. A styleless parent →
                 // horizontal default, mirroring layout's `get_style` `unwrap_or_default`
                 // tolerance (it persisted under the same default), so the flow is still
                 // painted.
