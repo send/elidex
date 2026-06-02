@@ -182,6 +182,14 @@ pub(super) fn trace_work_list(
         ObjectId,
         super::super::host::indexeddb::IdbObjectStoreState,
     >,
+    #[cfg(feature = "engine")] idb_index_states: &std::collections::HashMap<
+        ObjectId,
+        super::super::host::indexeddb::IdbIndexState,
+    >,
+    #[cfg(feature = "engine")] idb_cursor_states: &std::collections::HashMap<
+        ObjectId,
+        super::super::host::indexeddb::IdbCursorState,
+    >,
     obj_marks: &mut [u64],
     uv_marks: &mut [u64],
     work: &mut Vec<u32>,
@@ -384,6 +392,16 @@ pub(super) fn trace_work_list(
                         Some(super::super::host::indexeddb::DeferredOutcome::Error(e)) => {
                             mark_object(*e, obj_marks, work);
                         }
+                        // The staged cursor-iteration outcome roots the cursor
+                        // across the continue→delivery window — the handler's
+                        // `e.target.result` local drops on return and
+                        // `request.result` is reset on re-fire, so this is the
+                        // cursor's (and its snapshots') only root then (DR-3).
+                        Some(super::super::host::indexeddb::DeferredOutcome::CursorIteration {
+                            cursor_id,
+                        }) => {
+                            mark_object(*cursor_id, obj_marks, work);
+                        }
                         None => {}
                     }
                     // `on<event>` handlers + `addEventListener` callbacks now
@@ -418,6 +436,28 @@ pub(super) fn trace_work_list(
                     if let Some(txn) = state.transaction {
                         mark_object(txn, obj_marks, work);
                     }
+                    // The per-store IDBIndex handle cache (§4.5 `index()`
+                    // same-instance identity) keeps each vended index alive
+                    // while the store lives.
+                    for &idx in state.index_handles.values() {
+                        mark_object(idx, obj_marks, work);
+                    }
+                }
+            }
+            #[cfg(feature = "engine")]
+            ObjectKind::IdbIndex => {
+                if let Some(state) = idb_index_states.get(&ObjectId(obj_idx)) {
+                    mark_object(state.object_store, obj_marks, work);
+                }
+            }
+            #[cfg(feature = "engine")]
+            ObjectKind::IdbCursor => {
+                if let Some(state) = idb_cursor_states.get(&ObjectId(obj_idx)) {
+                    mark_object(state.source, obj_marks, work);
+                    mark_object(state.request, obj_marks, work);
+                    mark_value(state.key, obj_marks, work);
+                    mark_value(state.primary_key, obj_marks, work);
+                    mark_value(state.value, obj_marks, work);
                 }
             }
             // IDBFactory singleton + IDBKeyRange carry no `ObjectId`

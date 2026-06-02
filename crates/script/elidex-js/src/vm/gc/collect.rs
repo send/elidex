@@ -939,7 +939,7 @@ impl VmInner {
                 self.intersection_observer_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
-                // M4-12 slot #11-indexed-db-vm: the 8 IndexedDB interface
+                // M4-12 slot #11-indexed-db-vm: the 11 IndexedDB interface
                 // prototypes are cached in `VmInner` and reused for every
                 // host-created IDB object, so they must be rooted here —
                 // otherwise deleting/severing a global IDB constructor could
@@ -972,6 +972,18 @@ impl VmInner {
                 None,
                 #[cfg(feature = "engine")]
                 self.idb_key_range_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.idb_index_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.idb_cursor_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.idb_cursor_with_value_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
                 #[cfg(feature = "engine")]
@@ -1181,6 +1193,10 @@ impl VmInner {
             &self.idb_transaction_states,
             #[cfg(feature = "engine")]
             &self.idb_object_store_states,
+            #[cfg(feature = "engine")]
+            &self.idb_index_states,
+            #[cfg(feature = "engine")]
+            &self.idb_cursor_states,
             &mut self.gc_object_marks,
             &mut self.gc_upvalue_marks,
             &mut self.gc_work_list,
@@ -1482,6 +1498,8 @@ impl VmInner {
                 .retain(|id, _| bit_get(marks, id.0));
             self.idb_key_range_states
                 .retain(|id, _| bit_get(marks, id.0));
+            self.idb_index_states.retain(|id, _| bit_get(marks, id.0));
+            self.idb_cursor_states.retain(|id, _| bit_get(marks, id.0));
             // `vm_event_listeners` — the unified listener home for the
             // non-entity EventTargets (AbortSignal / IDB / WebSocket /
             // EventSource).  When a target `ObjectId` was collected, prune

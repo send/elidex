@@ -2048,6 +2048,21 @@ pub(crate) struct VmInner {
     /// stored directly (no JS-side wrapper state needed).
     #[cfg(feature = "engine")]
     pub(crate) idb_key_range_states: HashMap<ObjectId, elidex_indexeddb::IdbKeyRange>,
+    /// IDBIndex per-`ObjectId` handle state (§4.6).  Identity tuple +
+    /// vending-store back-ref; metadata read on demand from the backend.
+    ///
+    /// GC contract: trace marks the owning object store; sweep prunes dead
+    /// keys; cleared on [`Vm::unbind`].
+    #[cfg(feature = "engine")]
+    pub(crate) idb_index_states: HashMap<ObjectId, host::indexeddb::IdbIndexState>,
+    /// IDBCursor / IDBCursorWithValue per-`ObjectId` state (§4.9).  Holds the
+    /// backend iteration mechanics + the got-value flag + per-iteration
+    /// attribute snapshots (plan §3).
+    ///
+    /// GC contract: trace marks source / request / key / primaryKey / value
+    /// snapshots; sweep prunes dead keys; cleared on [`Vm::unbind`].
+    #[cfg(feature = "engine")]
+    pub(crate) idb_cursor_states: HashMap<ObjectId, host::indexeddb::IdbCursorState>,
     /// IDB interface prototypes (installed once at global registration).
     #[cfg(feature = "engine")]
     pub(crate) idb_factory_prototype: Option<ObjectId>,
@@ -2063,6 +2078,12 @@ pub(crate) struct VmInner {
     pub(crate) idb_transaction_prototype: Option<ObjectId>,
     #[cfg(feature = "engine")]
     pub(crate) idb_key_range_prototype: Option<ObjectId>,
+    #[cfg(feature = "engine")]
+    pub(crate) idb_index_prototype: Option<ObjectId>,
+    #[cfg(feature = "engine")]
+    pub(crate) idb_cursor_prototype: Option<ObjectId>,
+    #[cfg(feature = "engine")]
+    pub(crate) idb_cursor_with_value_prototype: Option<ObjectId>,
     #[cfg(feature = "engine")]
     pub(crate) idb_version_change_event_prototype: Option<ObjectId>,
     /// Fan-out map for `AbortSignal` → in-flight `FetchId`s.  When a

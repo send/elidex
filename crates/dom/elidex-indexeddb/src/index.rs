@@ -564,6 +564,32 @@ pub fn index_table_name_for(db_name: &str, store_name: &str, index_name: &str) -
     util::index_table_name(db_name, store_name, index_name)
 }
 
+/// W3C `IndexedDB` 3.0 §3.1.1 "valid key path" (string form): the empty string
+/// (the whole value is the key) OR one or more `.`-separated ECMAScript
+/// `IdentifierName`s.  Lives in the backend (key-path *grammar*, beside the
+/// `resolve_path` resolver) rather than in the VM host marshalling layer
+/// (Layering mandate).  An array (sequence) key path is validated by the
+/// caller; this checks the string form only.
+///
+/// `IdentifierName` is approximated as `[A-Za-z_$][A-Za-z0-9_$]*` (ASCII
+/// identifiers); full Unicode `ID_Start` / `ID_Continue` support is orthogonal
+/// and unused by the JSON-path resolver, which keys on UTF-8 segment equality.
+pub fn is_valid_key_path(path: &str) -> bool {
+    if path.is_empty() {
+        return true;
+    }
+    path.split('.').all(is_identifier)
+}
+
+fn is_identifier(segment: &str) -> bool {
+    let mut chars = segment.chars();
+    match chars.next() {
+        Some(c) if c == '_' || c == '$' || c.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+    chars.all(|c| c == '_' || c == '$' || c.is_ascii_alphanumeric())
+}
+
 fn range_to_index_where(range: Option<&IdbKeyRange>) -> (String, Vec<Vec<u8>>) {
     range.map_or_else(
         || ("1=1".to_owned(), Vec::new()),
@@ -718,10 +744,15 @@ mod tests {
 
         insert_user(&b, 1.0, "alice", 30.0);
 
+        // `ops::put` now maintains indexes atomically, so a second record with
+        // the same unique index value fails at put time and is rolled back —
+        // not stored, leaving no orphan data row.
         let value = r#"{"id":2,"name":"alice","age":25}"#;
-        let key = ops::put(&b, "db", "users", None, value).unwrap();
-        let err = update_indexes_for_put(&b, "db", "users", &key, value);
+        let err = ops::put(&b, "db", "users", None, value);
         assert!(matches!(err, Err(BackendError::ConstraintError(_))));
+        assert!(ops::get(&b, "db", "users", &IdbKey::Number(2.0))
+            .unwrap()
+            .is_none());
     }
 
     #[test]

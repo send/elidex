@@ -567,6 +567,10 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 idb_key_range_states: HashMap::new(),
                 #[cfg(feature = "engine")]
+                idb_index_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                idb_cursor_states: HashMap::new(),
+                #[cfg(feature = "engine")]
                 idb_factory_prototype: None,
                 #[cfg(feature = "engine")]
                 idb_request_prototype: None,
@@ -580,6 +584,12 @@ impl Vm {
                 idb_transaction_prototype: None,
                 #[cfg(feature = "engine")]
                 idb_key_range_prototype: None,
+                #[cfg(feature = "engine")]
+                idb_index_prototype: None,
+                #[cfg(feature = "engine")]
+                idb_cursor_prototype: None,
+                #[cfg(feature = "engine")]
+                idb_cursor_with_value_prototype: None,
                 #[cfg(feature = "engine")]
                 idb_version_change_event_prototype: None,
                 #[cfg(feature = "engine")]

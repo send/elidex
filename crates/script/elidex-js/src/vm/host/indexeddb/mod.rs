@@ -39,8 +39,10 @@
 use super::super::value::{JsValue, ObjectId, VmError};
 use super::super::VmInner;
 
+pub(crate) mod cursor;
 pub(crate) mod database;
 pub(crate) mod factory;
+pub(crate) mod index;
 pub(crate) mod key_range;
 pub(crate) mod object_store;
 mod register;
@@ -95,6 +97,17 @@ pub(crate) enum DeferredOutcome {
     Success(JsValue),
     /// `DOMException` wrapper `ObjectId` to assign to `request.error`.
     Error(ObjectId),
+    /// Cursor iteration result (W3C IDB §6.7 "iterate a cursor").  Richer
+    /// than a plain `JsValue`: at delivery [`cursor::commit_iteration`] (called
+    /// from [`request::dispatch_idb_deliver`]) reads the cursor's backend
+    /// position and either sets the §4.9 got-value flag + commits the
+    /// `key` / `primaryKey` / `value` attribute snapshots and
+    /// `request.result = cursor` (a record was found), or leaves got-value
+    /// false with `request.result = null` (the cursor is exhausted).
+    /// Staged by `openCursor` / `openKeyCursor` and re-staged on the SAME
+    /// request by `continue` / `advance` / `continuePrimaryKey` (the
+    /// iteration re-fire — plan §3).
+    CursorIteration { cursor_id: ObjectId },
 }
 
 /// Per-`IDBRequest` / `IDBOpenDBRequest` state, keyed in
@@ -215,6 +228,56 @@ pub(crate) struct IdbObjectStoreState {
     pub(crate) store_name: String,
     /// Owning `IDBTransaction` `ObjectId`.
     pub(crate) transaction: Option<ObjectId>,
+    /// Per-store-instance `IDBIndex` handle cache (§4.5 `index()` NOTE:
+    /// `store.index("x") === store.index("x")`, and `=== createIndex("x",…)`).
+    /// Keyed by index name → the `IDBIndex` wrapper `ObjectId`.  Dies with the
+    /// store on sweep; the cache↔index `object_store` back-ref is an
+    /// intentional cycle, collected together once the store is unreachable.
+    pub(crate) index_handles: std::collections::HashMap<String, ObjectId>,
+}
+
+/// Per-`IDBIndex` handle state, keyed in
+/// [`super::super::VmInner::idb_index_states`] (§4.6).  Identity tuple only —
+/// `name` / `keyPath` / `unique` / `multiEntry` metadata is read on demand
+/// from the backend so it never drifts from the schema.
+#[derive(Debug)]
+pub(crate) struct IdbIndexState {
+    pub(crate) db_name: String,
+    pub(crate) store_name: String,
+    pub(crate) index_name: String,
+    /// The `IDBObjectStore` handle that vended this index (`index.objectStore`
+    /// + the source store for cursors opened on the index).
+    pub(crate) object_store: ObjectId,
+}
+
+/// Per-`IDBCursor` / `IDBCursorWithValue` state, keyed in
+/// [`super::super::VmInner::idb_cursor_states`] (§4.9).
+pub(crate) struct IdbCursorState {
+    /// Backend iteration mechanics (position + direction + range) — the
+    /// single source of truth for "where" the cursor is.
+    pub(crate) backend: elidex_indexeddb::cursor::IdbCursorState,
+    /// `cursor.source` — the `IDBObjectStore` or `IDBIndex` handle.
+    pub(crate) source: ObjectId,
+    /// `cursor.request` — the iteration request, re-fired by
+    /// `continue` / `advance` / `continuePrimaryKey` (plan §3 DR-1).
+    pub(crate) request: ObjectId,
+    /// `openKeyCursor` (key-only) vs `openCursor` (with value).  Gates the
+    /// `IDBCursor` vs `IDBCursorWithValue` prototype + whether `value` is
+    /// snapshotted.
+    pub(crate) key_only: bool,
+    /// W3C IDB §4.9 "got value flag" — true once an iteration has delivered a
+    /// record, false initially / after `continue`-before-delivery / on
+    /// exhaustion.  The §4.9 InvalidStateError gate for
+    /// `continue`/`advance`/`update`/`delete` (and the double-`continue`
+    /// guard — plan §3 DR-2).  NOT the backend's `got_deleted`.
+    pub(crate) got_value: bool,
+    /// `cursor.key` — §4.9 attribute snapshot committed at delivery (DR-2).
+    pub(crate) key: JsValue,
+    /// `cursor.primaryKey` — snapshot committed at delivery.
+    pub(crate) primary_key: JsValue,
+    /// `cursor.value` (with-value cursors only) — snapshot committed at
+    /// delivery; held across `delete()`/`update()` until the next iteration.
+    pub(crate) value: JsValue,
 }
 
 // ---------------------------------------------------------------------------

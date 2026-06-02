@@ -87,6 +87,24 @@ pub(crate) fn backend_error_as_throw(
     dom_exc(ctx, err.dom_exception_name(), err.to_string())
 }
 
+/// Classify an existence-probe error from a store / index liveness guard: a
+/// `NotFoundError` means the store / index was deleted (the §4.5 / §4.6
+/// "has been deleted" → `InvalidStateError` case, with `deleted_msg`); any
+/// OTHER backend error is a genuine failure (`UnknownError`, …) and must
+/// surface as itself, never be masked as a deletion.
+pub(super) fn deleted_or_throw(
+    ctx: &mut NativeContext<'_>,
+    err: &elidex_indexeddb::BackendError,
+    deleted_msg: &str,
+) -> VmError {
+    match err {
+        elidex_indexeddb::BackendError::NotFoundError(_) => {
+            dom_exc(ctx, "InvalidStateError", deleted_msg.to_string())
+        }
+        other => backend_error_as_throw(ctx, other),
+    }
+}
+
 /// W3C IDB §7.4 "convert a value to a key": Number / String / Array →
 /// `IdbKey`; anything else (undefined / null / boolean / NaN / object) →
 /// `DataError`.

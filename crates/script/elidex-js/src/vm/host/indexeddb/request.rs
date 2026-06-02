@@ -49,39 +49,61 @@ pub(crate) fn create_request(
     id
 }
 
-/// W3C IDB §5.6 "asynchronously execute a request": create the request,
-/// append it to the transaction's request list (step 4), stage the
-/// already-computed backend `outcome`, and queue the delivery task
-/// (step 5.6).  The backend operation itself runs synchronously at the
-/// call site (no real parallelism), so `outcome` is final here.
+/// W3C IDB §5.6 "asynchronously execute a request" — the single request
+/// issuance seam (one-issue-one-way).  Per §5.6 this is ONE algorithm with
+/// an OPTIONAL `request` parameter:
+///
+/// * `request == None` ⇒ the common case: create a fresh `IDBRequest`
+///   (`source` / `transaction` links), then proceed.
+/// * `request == Some(r)` ⇒ reuse `r` (reset its done flag to Pending) — the
+///   factory `open` / `deleteDatabase` flow (request created up-front to
+///   return synchronously) and the cursor iteration re-fire
+///   (`continue` / `advance`, plan §3 DR-1) both take this branch.
+///
+/// Either way it then stages the already-computed backend `outcome`, appends
+/// the request to its transaction's request list (§5.6 step 4 — drives
+/// auto-commit, §5.9 step 8.3), and queues the delivery task (step 5.6).  The
+/// backend operation itself runs synchronously at the call site (no real
+/// parallelism), so `outcome` is final here.
 pub(crate) fn async_execute(
     vm: &mut VmInner,
     source: Option<ObjectId>,
     transaction: Option<ObjectId>,
     outcome: DeferredOutcome,
+    request: Option<ObjectId>,
 ) -> ObjectId {
-    let req = create_request(vm, source, transaction, false);
+    let req = match request {
+        // Reuse an existing request: reset it to a clean Pending state — clear
+        // the previous `result` / `error` so the §4.1 "result is undefined
+        // while pending" invariant holds and a stale prior result object is not
+        // kept artificially GC-rooted across the re-fire window (a re-fired
+        // cursor request, or a harmless reset of a just-created factory request).
+        Some(r) => {
+            if let Some(st) = vm.idb_request_states.get_mut(&r) {
+                st.ready_state = IdbReadyState::Pending;
+                st.result = JsValue::Undefined;
+                st.error = None;
+            }
+            r
+        }
+        None => create_request(vm, source, transaction, false),
+    };
     if let Some(st) = vm.idb_request_states.get_mut(&req) {
         st.deferred = Some(outcome);
     }
-    if let Some(tid) = transaction {
+    // §5.6 step 4: append to the request's OWN transaction's request list.
+    // Reading it from the request (rather than the `transaction` arg) unifies
+    // the create path (just set it) and the reuse path (factory open carries
+    // `None` → no push; a re-fired cursor carries its txn → re-push so
+    // auto-commit waits for the iteration).
+    let tid = vm.idb_request_states.get(&req).and_then(|s| s.transaction);
+    if let Some(tid) = tid {
         if let Some(tx) = vm.idb_transaction_states.get_mut(&tid) {
             tx.request_list.push(req);
         }
     }
     vm.queue_task(PendingTask::IdbDeliver { request_id: req });
     req
-}
-
-/// Stage a final outcome on an already-created request and queue its
-/// delivery task.  Used by the factory `open` / `deleteDatabase` flow,
-/// whose request is created up-front (to return it synchronously) before
-/// the backend result is known.
-pub(crate) fn stage_and_queue(vm: &mut VmInner, request_id: ObjectId, outcome: DeferredOutcome) {
-    if let Some(st) = vm.idb_request_states.get_mut(&request_id) {
-        st.deferred = Some(outcome);
-    }
-    vm.queue_task(PendingTask::IdbDeliver { request_id });
 }
 
 /// Drain step for [`PendingTask::IdbDeliver`] (§5.6 step 5.6).  Removes the
@@ -106,23 +128,34 @@ pub(crate) fn dispatch_idb_deliver(vm: &mut VmInner, request_id: ObjectId) {
             tx.request_list.retain(|&r| r != request_id);
         }
     }
-    let is_error = {
-        let st = vm
-            .idb_request_states
-            .get_mut(&request_id)
-            .expect("request state present (just read above)");
-        st.ready_state = IdbReadyState::Done;
-        match outcome {
-            DeferredOutcome::Success(v) => {
-                st.result = v;
-                st.error = None;
-                false
-            }
-            DeferredOutcome::Error(e) => {
-                st.result = JsValue::Undefined;
-                st.error = Some(e);
-                true
-            }
+    let is_error = match outcome {
+        DeferredOutcome::Success(v) => {
+            let st = vm
+                .idb_request_states
+                .get_mut(&request_id)
+                .expect("request state present (just read above)");
+            st.ready_state = IdbReadyState::Done;
+            st.result = v;
+            st.error = None;
+            false
+        }
+        DeferredOutcome::Error(e) => {
+            let st = vm
+                .idb_request_states
+                .get_mut(&request_id)
+                .expect("request state present (just read above)");
+            st.ready_state = IdbReadyState::Done;
+            st.result = JsValue::Undefined;
+            st.error = Some(e);
+            true
+        }
+        // §6.7 "iterate a cursor": read the cursor's backend position and
+        // commit the §4.9 attribute snapshots + got-value flag + result
+        // (cursor or null).  Always a success-typed delivery (a failed open /
+        // continue staged an `Error` outcome instead).
+        DeferredOutcome::CursorIteration { cursor_id } => {
+            super::cursor::commit_iteration(vm, request_id, cursor_id);
+            false
         }
     };
     let error_id = if is_error {
