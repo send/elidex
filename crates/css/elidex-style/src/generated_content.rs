@@ -50,7 +50,10 @@ pub fn resolve_generated_content(dom: &mut EcsDom) {
 /// Document-order recursion: drive the counter machine and resolve generated
 /// content for `entity`, then recurse into composed children.
 fn resolve_tree(dom: &mut EcsDom, entity: Entity, state: &mut CounterState, depth: usize) {
-    if depth >= MAX_ANCESTOR_DEPTH {
+    // Match the cap convention of the other document-order walks (render's `walk`,
+    // layout) — `> MAX` with an initial depth of 0 — so generated-content
+    // resolution covers exactly the depths layout/render process (not one shallower).
+    if depth > MAX_ANCESTOR_DEPTH {
         return;
     }
 

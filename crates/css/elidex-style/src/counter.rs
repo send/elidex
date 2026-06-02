@@ -378,20 +378,35 @@ pub fn apply_implicit_list_counters_from_dom(
     entity: elidex_ecs::Entity,
     style: &mut ComputedStyle,
 ) {
-    if let Ok(tag) = dom.world().get::<&elidex_ecs::TagType>(entity) {
-        let attrs = dom
-            .world()
+    let Ok(tag) = dom
+        .world()
+        .get::<&elidex_ecs::TagType>(entity)
+        .map(|t| t.0.clone())
+    else {
+        return;
+    };
+    // Only <ol>/<ul>/<li> carry implicit list counters; bail before touching
+    // Attributes for every other element (this runs on every restyle, for every
+    // element, from the cascade walk).
+    if !matches!(tag.as_str(), "ol" | "ul" | "li") {
+        return;
+    }
+    // Only <ol> (start/reversed) and <li> (value) read attributes; <ul> reads none.
+    let attrs = if matches!(tag.as_str(), "ol" | "li") {
+        dom.world()
             .get::<&elidex_ecs::Attributes>(entity)
             .ok()
             .map(|a| (*a).clone())
-            .unwrap_or_default();
-        let li_count = if tag.0 == "ol" {
-            count_li_children(dom, entity)
-        } else {
-            0
-        };
-        apply_implicit_list_counters(style, &tag.0, &attrs, li_count);
-    }
+            .unwrap_or_default()
+    } else {
+        elidex_ecs::Attributes::default()
+    };
+    let li_count = if tag == "ol" {
+        count_li_children(dom, entity)
+    } else {
+        0
+    };
+    apply_implicit_list_counters(style, &tag, &attrs, li_count);
 }
 
 #[cfg(test)]
