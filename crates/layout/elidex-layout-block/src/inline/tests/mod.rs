@@ -4,6 +4,7 @@ use elidex_plugin::{Dimension, Point, WritingMode};
 
 mod baseline;
 mod inline_flow;
+mod relpos_subflow;
 mod text_height;
 
 /// Collect only text runs from inline items (for tests that don't need atomics).
