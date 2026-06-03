@@ -221,9 +221,11 @@ pub struct InlineFlowLine {
 /// render's current consumer (`emit_inline_flow`) does not yet paint them in a single
 /// interleaved pass: it emits all `Text` runs first, then `walk()`s the collected
 /// `AtomicBox` entities after the `InlineFlow` read borrow drops (`walk()` needs
-/// `&mut` access). This is not visually observable — text glyphs and atomic boxes
-/// occupy disjoint positions, and CSS 2 §E paints atomic inlines as a distinct step —
-/// but a future bidi pass (slice 4) that needs strict visual order would interleave.
+/// `&mut` access). In the common case the members occupy disjoint positions, so the
+/// order is not visually observable; where they DO overlap (e.g. negative margins
+/// pulling an atomic box over adjacent text), the text-before-atomic order changes
+/// which paints on top. A future bidi pass (slice 4) that needs strict visual order
+/// would replace this with a single interleaved walk.
 #[derive(Debug, Clone, PartialEq)]
 pub enum InlineFlowRun {
     /// A contiguous same-style collapsed text run.

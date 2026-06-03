@@ -48,31 +48,34 @@ fn shift_descendants_inner(dom: &mut EcsDom, children: &[Entity], delta: Vector,
             if let Ok(mut lb) = dom.world_mut().get::<&mut LayoutBox>(child) {
                 lb.content.origin += delta;
             }
-            // A persisted `InlineFlow` stores ABSOLUTE physical coordinates that
-            // render consumes directly, so a subtree shift (relative positioning,
-            // out-of-flow placement, atomic-inline reposition) must move it too —
-            // else the converged inline text repaints at its pre-shift position.
-            // `InlineFlow` holds physical-per-axis values (the is_vertical fold at
-            // persist): `block_start` = physical y (horizontal) / x (vertical),
-            // `inline_start` = physical x (horizontal) / y (vertical) — so the physical
-            // `delta` projects onto each field by the IFC's writing mode (the run-start
-            // entity carrying the flow is a direct child of the IFC element).
-            if dom.world().get::<&InlineFlow>(child).is_ok() {
-                let is_vertical = dom
-                    .get_parent(child)
-                    .and_then(|p| crate::try_get_style(dom, p))
-                    .is_some_and(|s| !s.writing_mode.is_horizontal());
-                let (d_block, d_inline) = if is_vertical {
-                    (delta.x, delta.y)
-                } else {
-                    (delta.y, delta.x)
-                };
-                if let Ok(mut flow) = dom.world_mut().get::<&mut InlineFlow>(child) {
-                    for line in &mut flow.lines {
-                        line.block_start += d_block;
-                        for run in &mut line.runs {
-                            *run.inline_start_mut() += d_inline;
-                        }
+        }
+        // A persisted `InlineFlow` stores ABSOLUTE physical coordinates that render
+        // consumes directly, so a subtree shift (relative positioning, out-of-flow
+        // placement, atomic-inline reposition, margin collapse) must move it too —
+        // else the converged inline text repaints at its pre-shift position. This is
+        // NOT gated by the `block_only` `LayoutBox` filter: the run-start entity
+        // carrying the flow is typically a styleless text node (which `block_only`
+        // skips), yet its glyphs still move with the shifted ancestor block.
+        // `InlineFlow` holds physical-per-axis values (the is_vertical fold at
+        // persist): `block_start` = physical y (horizontal) / x (vertical),
+        // `inline_start` = physical x (horizontal) / y (vertical) — so the physical
+        // `delta` projects onto each field by the IFC's writing mode (the run-start
+        // entity carrying the flow is a direct child of the IFC element).
+        if dom.world().get::<&InlineFlow>(child).is_ok() {
+            let is_vertical = dom
+                .get_parent(child)
+                .and_then(|p| crate::try_get_style(dom, p))
+                .is_some_and(|s| !s.writing_mode.is_horizontal());
+            let (d_block, d_inline) = if is_vertical {
+                (delta.x, delta.y)
+            } else {
+                (delta.y, delta.x)
+            };
+            if let Ok(mut flow) = dom.world_mut().get::<&mut InlineFlow>(child) {
+                for line in &mut flow.lines {
+                    line.block_start += d_block;
+                    for run in &mut line.runs {
+                        *run.inline_start_mut() += d_inline;
                     }
                 }
             }

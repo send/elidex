@@ -1,6 +1,77 @@
 use super::*;
 
 #[test]
+fn shift_block_children_moves_inner_inline_flow() {
+    // `shift_block_children` (the `block_only` shift used after parent/child margin
+    // collapse) must move a persisted `InlineFlow` on a non-block (text-node) run-start
+    // with its shifted ancestor block. The flow's ABSOLUTE coordinates feed render
+    // directly, so the `block_only` `LayoutBox` filter must NOT gate it — else the
+    // block's converged inner text repaints detached from the box.
+    let mut dom = EcsDom::new();
+    let block = dom.create_element("div", Attributes::default());
+    let text = dom.create_text("x");
+    dom.append_child(block, text);
+    dom.world_mut().insert_one(
+        block,
+        ComputedStyle {
+            display: Display::Block,
+            ..Default::default()
+        },
+    );
+    dom.world_mut().insert_one(
+        block,
+        elidex_plugin::LayoutBox {
+            content: elidex_plugin::Rect::new(0.0, 0.0, 100.0, 20.0),
+            ..Default::default()
+        },
+    );
+    dom.world_mut().insert_one(
+        text,
+        elidex_ecs::InlineFlow {
+            lines: vec![elidex_ecs::InlineFlowLine {
+                block_start: 5.0,
+                block_size: 20.0,
+                runs: vec![elidex_ecs::InlineFlowRun::Text {
+                    entity: block,
+                    text: "x".to_string(),
+                    inline_start: 0.0,
+                }],
+            }],
+            layout_generation: 0,
+        },
+    );
+
+    // Shift the block subtree by +30 along the block axis (horizontal → physical y).
+    let wm = elidex_plugin::WritingModeContext::new(
+        elidex_plugin::WritingMode::HorizontalTb,
+        Direction::Ltr,
+    );
+    shift_block_children(&mut dom, &[block], 30.0, wm);
+
+    let box_y = dom
+        .world()
+        .get::<&elidex_plugin::LayoutBox>(block)
+        .unwrap()
+        .content
+        .origin
+        .y;
+    assert!(
+        (box_y - 30.0).abs() < 0.01,
+        "block box shifted, got y {box_y}"
+    );
+    let flow_block = dom
+        .world()
+        .get::<&elidex_ecs::InlineFlow>(text)
+        .unwrap()
+        .lines[0]
+        .block_start;
+    assert!(
+        (flow_block - 35.0).abs() < 0.01,
+        "inner text InlineFlow shifted with the block (5 + 30), got block_start {flow_block}"
+    );
+}
+
+#[test]
 fn margin_collapse_adjacent_siblings() {
     let mut dom = EcsDom::new();
     let parent = dom.create_element("div", Attributes::default());
