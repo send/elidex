@@ -396,6 +396,66 @@ fn vertical_atomic_repositions_with_axis_swap() {
 }
 
 #[test]
+fn atomic_inner_text_inline_flow_shifts_with_box() {
+    // An inline-block CONTAINING converged text: when the atomic is repositioned to
+    // its line, the inner text's persisted `InlineFlow` (absolute coords, consumed
+    // directly by render) must shift with the box — else render repaints the inner
+    // text at the pre-reposition (content_origin) position. Root fix in
+    // `shift_descendants` (covers relpos/abspos subtree shifts too).
+    let Some((mut dom, parent, style, font_db)) = setup_inline_test("a") else {
+        return;
+    };
+    let ib = dom.create_element("span", Attributes::default());
+    let ib_style = ComputedStyle {
+        display: Display::InlineBlock,
+        width: Dimension::Length(40.0),
+        height: Dimension::Length(20.0),
+        font_family: style.font_family.clone(),
+        ..Default::default()
+    };
+    let _ = dom.world_mut().insert_one(ib, ib_style);
+    let inner = dom.create_text("hi");
+    dom.append_child(ib, inner);
+    dom.append_child(parent, ib);
+
+    let children = dom.composed_children(parent);
+    layout_inline_context(
+        &mut dom,
+        &children,
+        800.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+    );
+
+    // The atomic was repositioned to its line (the stub lays it out full-width, so it
+    // wraps below "a") → its box is off content_origin.
+    let box_y = dom
+        .world()
+        .get::<&LayoutBox>(ib)
+        .expect("the atomic has a LayoutBox")
+        .content
+        .origin
+        .y;
+    // The inner text persisted its own InlineFlow (the atomic's inner IFC); its
+    // block_start must have tracked the box, not stayed at the pre-shift origin.
+    let inner_block = dom
+        .world()
+        .get::<&InlineFlow>(inner)
+        .expect("the inner text persists an InlineFlow")
+        .lines[0]
+        .block_start;
+    assert!(
+        inner_block > 0.5,
+        "the inner text's InlineFlow moved off content_origin with the box, got {inner_block}"
+    );
+    assert!(
+        (inner_block - box_y).abs() < 0.5,
+        "inner text InlineFlow tracks the repositioned box (box y {box_y}, inner block_start {inner_block})"
+    );
+}
+
+#[test]
 fn persists_pseudo_element_flow() {
     // Slice 3: pseudo `content` (incl. counter()) is resolved into the pseudo's
     // `TextContent` by the pre-layout generated-content pass, so layout measures
