@@ -34,7 +34,12 @@ mise run check && mise run lint && mise run test-all && mise run doc && mise run
 ```
 
 ### Stage 3 — `/code-review`
-Invoke the `code-review` skill at default effort. Correctness review of the changed diff; apply the fixes worth taking.
+Invoke the `code-review` skill, **effort scaled to blast radius**. This is now the primary correctness net: the post-push Copilot pass is single-shot (`/copilot-review`), not a convergence loop, so the depth that used to come from looping Copilot must come from here instead.
+
+- **Routine PR** → `/code-review high`. Broad coverage is the floor now — `low`/`medium` were calibrated for when the Copilot R-loop was the backstop, which it no longer is.
+- **High blast-radius PR** (layout / inline / whitespace / parser / edge-matrix-dense subsystems, large diff, or touching a `vm/host/` layering path) → `/code-review ultra`. The deep multi-agent cloud pass is the functional successor to the old multi-round Copilot loop — run it once here rather than looping Copilot post-push. (Billed under Claude usage, not per-credit Copilot; reserve `ultra` for genuinely high-risk PRs so it stays one pass per PR.)
+
+Apply the fixes worth taking.
 
 ### Stage 4 — `/simplify`
 Invoke the `simplify` skill. Quality-only pass — reuse / simplification / efficiency / altitude cleanups, applied to the working tree. It does not hunt bugs (that's Stage 3); the two are complementary, not redundant.
@@ -43,7 +48,7 @@ Invoke the `simplify` skill. Quality-only pass — reuse / simplification / effi
 Invoke the `review` skill. General PR-level review.
 
 ### Stage 6 — `/elidex-review`
-Invoke the `elidex-review` skill. The project-specific 5-axis design review (Layering / ECS-native / pragmatic / spec / project-context). This is the final design gate and compresses the Copilot R-loop.
+Invoke the `elidex-review` skill. The project-specific 5-axis design review (Layering / ECS-native / pragmatic / spec / project-context). This is the final design gate. The post-push Copilot pass is now a single-shot second opinion (`/copilot-review`), not a convergence loop, so this gate plus Stage 3's blast-radius effort carry the bulk of the design review — they are no longer "compressing" a loop that will catch the rest.
 
 ## On completion
 

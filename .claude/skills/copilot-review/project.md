@@ -1,6 +1,6 @@
 # /copilot-review project overlay — elidex
 
-Loaded by `~/.claude/skills/copilot-review/SKILL.md` when invoked from this repo. Provides project-specific calibration for the generic skill.
+Loaded by `~/.claude/skills/copilot-review/SKILL.md` (single-pass triage) when invoked from this repo. Provides project-specific calibration for the steps that survive in single-pass mode (fetch / classify / layer-fit / fix-discipline). The loop-only calibration (round-count `failure_modes`, `wakeup_median`, TERMINAL accounting) lives in `copilot-converge/project.md` instead.
 
 ## repo
 
@@ -14,7 +14,7 @@ Per CLAUDE.md "Push 前: mise run ci". cargo task は `--all-features` で gate 
 
 ## layering
 
-Reference: CLAUDE.md § "Layering mandate (2026-05-04 incident 由来)".
+Reference: CLAUDE.md § "Layering mandate (2026-05-04 incident 由来)". Used by SKILL.md Step 4 (downward-drift screen).
 
 ### paths
 
@@ -32,45 +32,25 @@ Acceptable marshalling use: prototype install / brand check / `JsValue` ↔ `Ent
 
 ### incident_memo
 
-`m4-12-architectural-drift-incident.md` (PR #151, 2026-05-04 — 4R × 17 IMP findings before downward drift detected; lesson #145).
+`m4-12-architectural-drift-incident.md` (PR #151, 2026-05-04 — drift detected late; lesson #145). In single-pass mode the 3-rounds-same-file signal is gone, so the *static* triggers (new loop/walker/state-machine in `paths`, non-marshalling `api_names` call) carry the whole downward-drift screen — apply them on the one pass.
 
 ## fix_discipline
 
-Applied at SKILL.md Step 5.1 (fix planning) — per-fix lens. SSoT for both: `<repo>/.claude/skills/elidex-review/workflow.md` (Step 3.5 + Step 4.5).
+Applied at SKILL.md Step 5.1 (fix planning) — per-fix lens. SSoT: `<repo>/.claude/skills/elidex-review/workflow.md` (Step 3.5 + Step 4.5).
 
 **Step 5.1 (per-fix)**: apply Step 3.5 "Philosophy alignment" — symptom vs root through CLAUDE.md "ideal over pragmatic" + "設計優先" + "ECS-native first". Copilot's obvious patch is usually the smallest symptom-fix (sort / guard / cast); prefer a structural fix where the invariant holds by construction. Polish-domination smell → re-derive.
 
-Precedent (PR #213, 2026-05-20): R2 flagged nondeterministic `HashMap` callback order; reactive patch was per-site `sort_by_key`. Philosophy-ideal was `BTreeMap` keyed by monotonic observer id — registration-order delivery as a *structural* invariant. Reactive patch shipped through TERMINAL and needed follow-up.
+Precedent (PR #213, 2026-05-20): R2 flagged nondeterministic `HashMap` callback order; reactive patch was per-site `sort_by_key`. Philosophy-ideal was `BTreeMap` keyed by monotonic observer id — registration-order delivery as a *structural* invariant.
 
-**TERMINAL fix-delta pass (Step 5.5, before surfacing merge proposal)**: apply workflow.md Step 4.5 over the cumulative R-loop delta (`git diff <first-R-loop-commit>^..HEAD`). Copilot findings are frequently *symptom-shaped* ("add a guard", "handle this case") so **Trigger B is the acute Copilot-specific risk** — Step 5.1's lens is self-applied (convergence-biased) and the R-loop delta never re-enters the pre-push `/elidex-review` philosophy gate. If either trigger fires for any R1..Rn fix, run one cumulative `/elidex-review` pass; new findings → resolve before merge. Code-stage delta is batched at merge (workflow.md "Placement" — code fixes are more independent than plan fixes; irreversible merge is the natural gate).
+**Step 5.5 fix-delta re-verify**: Copilot findings are frequently *symptom-shaped* ("add a guard", "handle this case"), and the fix delta never re-enters the pre-push `/elidex-review` philosophy gate. So when any fix this pass is symptom-shaped OR touches `layering.paths`, run one `/elidex-review` over the fix delta before the merge proposal — **Trigger B is the acute Copilot-specific risk** (see workflow.md Step 4.5). New findings → resolve before merge.
 
-## failure_modes
+## classification_calibration
 
-Each line: incident → operative rule that landed in `~/.claude/skills/copilot-review/SKILL.md`.
+Past elidex incidents that calibrate Step 2 severity (these survive single-pass; the round-count lessons moved to `copilot-converge/project.md`):
 
-- broker-register-ack (slot #10.6c, lessons #135-141) — 8R on layer-confused goal → **Step 3.5 (1) upward drift**.
-- PR #151 (lesson #145, `m4-12-architectural-drift-incident.md`) — 4R × 17 IMP before downward drift detected → **Step 3.5 (2) downward drift**.
-- PR #154 R1-R9 (2026-05-05) — ~50% IMP miscalibrated as polish, 2 false scope-creep alerts → **Step 2 severity calibration**.
-- PR #163 R1-R17 (2026-05-08) — 5k LoC budget upper-bound exceeded by 2× without scope creep → **Step 4 trigger #4** (LoC-scaled).
-- PR #163 R29 (workflow-log misread), R30 (`first: 100` page-2 truncation), R31 (post-TERMINAL over-loop), 2026-05-08 — **Step 1 pitfall gate + Step 4 TERMINAL stop**.
-- PR #201 R9 (2026-05-17) — pre-request review counted as fresh round, real R10 with IMP arrived later → **Step 1 request-staleness gate**.
-- PR #213 R2 (2026-05-20) — reactive `HashMap`+per-site `sort` patch shipped through TERMINAL; philosophy-ideal was `BTreeMap` (structural delivery order) → **Step 5.1 design-philosophy lens** (`fix_discipline` overlay).
-
-## wakeup_median
-
-`3:30` — default, no override applied.
-
-Calibration data (4 rounds observed 2026-05-19/20):
-
-| Round | request → reviewed |
-|---|---|
-| PR #208 R2 | 5:09 |
-| PR #208 R3 | 5:59 |
-| PR #209 R1 | 2:03 |
-| PR #209 R2 | 2:20 |
-
-Range ~2:00–6:00, bimodal (small PRs ~2:00 / larger PRs ~5:30). The 3:30 mean approximates well; the formula's 90s polling fallback covers the variance without needing a project-specific override.
+- PR #154 (2026-05-05) — ~50% of IMP were miscalibrated polish → apply the one-sentence "what concretely breaks?" test strictly; doc imprecision that doesn't misdirect is MINOR.
+- Layer-confusion FPs (broker-register-ack, lessons #135-141; PR #151, lesson #145) → Step 4 upward/downward drift screen, both directions.
 
 ## copilot_bot_id
 
-`BOT_kgDOCnlnWA` — verified for `send/elidex`. The SKILL.md default `BOT_kgDOCnlnWA` matches.
+`BOT_kgDOCnlnWA` — verified for `send/elidex`. (Used only if you manually re-trigger a review; single-pass does not auto-re-request.)
