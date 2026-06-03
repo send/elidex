@@ -15,7 +15,7 @@ user-invocable: true
 
 ## When to invoke
 
-- **Pre-push 必須段 (順序固定)**: `cargo fmt` → `mise run ci` → `/code-review` → `/review` → **本 skill (`/elidex-review`)** で全 PR 実施推奨。本 skill は 5 段目 = 最終 design gate
+- **Pre-push 必須段 (順序固定)**: `cargo fmt` → `mise run ci` → `/code-review` → `/simplify` → `/review` → **本 skill (`/elidex-review`)** で全 PR 実施推奨。本 skill は 6 段目 = 最終 design gate
 - generic `/review` だけでは elidex-specific design 原則違反は漏れる (Layering mandate / ideal-over-pragmatic 等)
 
 ## Skip OK
@@ -86,8 +86,8 @@ Diff-stage 特記事項のみ: Step 4.5 (fix-delta re-verification) の placemen
 
 ## Recommendation phrasing (skill-specific)
 
-- **CRIT**: fix BEFORE push (Copilot R で必ず flag される)
-- **IMP**: push 前 fix 推奨 (Copilot R で 80% flag 確率)
+- **CRIT**: fix BEFORE push (post-push の single-pass Copilot review でほぼ確実に flag される。loop が無くなった分、ここで取り切る重要度が上がっている)
+- **IMP**: push 前 fix 推奨 (single-pass Copilot review で flag される可能性が高い)
 - **MIN**: judgment (defer 可、landing memo で justify)
 - **FP**: ignore (user 確認後)
 

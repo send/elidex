@@ -46,7 +46,7 @@ Precedent (PR #213, 2026-05-20): R2 flagged nondeterministic `HashMap` callback 
 
 ## failure_modes
 
-Each line: incident → operative rule that landed in `~/.claude/skills/copilot-review/SKILL.md`.
+Each line: incident → operative rule that landed in `~/.claude/skills/copilot-converge/SKILL.md`.
 
 - broker-register-ack (slot #10.6c, lessons #135-141) — 8R on layer-confused goal → **Step 3.5 (1) upward drift**.
 - PR #151 (lesson #145, `m4-12-architectural-drift-incident.md`) — 4R × 17 IMP before downward drift detected → **Step 3.5 (2) downward drift**.
