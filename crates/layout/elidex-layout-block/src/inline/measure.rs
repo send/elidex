@@ -19,7 +19,7 @@ pub fn min_content_inline_size(
     parent_entity: Entity,
     font_db: &FontDatabase,
 ) -> f32 {
-    let (items, _) = collect_inline_items(dom, children, parent_style, parent_entity);
+    let (items, ..) = collect_inline_items(dom, children, parent_style, parent_entity);
     let mut max_word = 0.0_f32;
     for item in &items {
         if let InlineItem::Text(run) = item {
@@ -48,7 +48,7 @@ pub fn max_content_inline_size(
     parent_entity: Entity,
     font_db: &FontDatabase,
 ) -> f32 {
-    let (items, _) = collect_inline_items(dom, children, parent_style, parent_entity);
+    let (items, ..) = collect_inline_items(dom, children, parent_style, parent_entity);
     let mut total = 0.0_f32;
     for item in &items {
         if let InlineItem::Text(run) = item {

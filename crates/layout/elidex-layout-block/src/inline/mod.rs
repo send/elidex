@@ -45,6 +45,9 @@ pub(crate) enum InlineItem {
         inline_size: f32,
         /// Block-axis size (height for horizontal).
         block_size: f32,
+        /// Which render-run-group this atomic's `AtomicBox` member persists under
+        /// (see [`StyledRun::group_key`]). `None` = not recorded.
+        group_key: Option<Entity>,
     },
     /// Absolutely positioned element placeholder (zero-width, zero-height).
     /// Used to record static position for CSS 2.1 §10.6.5.
@@ -74,11 +77,24 @@ pub struct StyledRun {
     pub line_height: f32,
     /// CSS `white-space` (drives §4.1.1 collapsing / segment-break handling).
     pub white_space: WhiteSpace,
+    /// Which render-run-group this run's `InlineFlow` text member persists under:
+    /// the run-start entity render reads `InlineFlow` off (its `run[0]`) for the
+    /// `emit_inline_run` that paints this group — the IFC parent's first eligible
+    /// child (top-level) or a `position:relative`/`sticky` inline's first eligible
+    /// child (its Layer-6 sub-flow). `None` = not recorded into any flow (e.g. a
+    /// positioned subtree with a direct block child → anonymous-block-in-inline,
+    /// left to render's legacy path; CSS 2 §9.2.1.1).
+    pub group_key: Option<Entity>,
 }
 
 impl StyledRun {
     /// Create a run from text content and a computed style.
-    fn from_style(entity: Entity, text: String, style: &ComputedStyle) -> Self {
+    fn from_style(
+        entity: Entity,
+        text: String,
+        style: &ComputedStyle,
+        group_key: Option<Entity>,
+    ) -> Self {
         Self {
             entity,
             text,
@@ -90,6 +106,7 @@ impl StyledRun {
             word_spacing: style.word_spacing.unwrap_or(0.0),
             line_height: style.line_height.resolve_px(style.font_size),
             white_space: style.white_space,
+            group_key,
         }
     }
 
@@ -134,15 +151,21 @@ fn is_atomic_inline(display: Display) -> bool {
 /// pseudo runs persist like any other text run, subject to the gates below.)
 ///
 /// (Slice 3p-a removed `has_atomic`: a *static* `inline-block`/`-flex`/`-grid`/
-/// `-table` now persists as an `AtomicBox` member of `InlineFlow` — render paints
-/// it by `walk()`-ing the entity at its repositioned `LayoutBox`, no longer
-/// flattening its text via `collect_styled_inline_text`. A *relative/sticky*
-/// atomic still sets `has_relpos_sticky` (it paints in render's Layer 6); slice
-/// 3p-b converges that case.)
+/// `-table` now persists as an `AtomicBox` member of `InlineFlow`, render paints
+/// it by `walk()`-ing the entity at its repositioned `LayoutBox`.)
 ///
-/// - `has_relpos_sticky`: a `position: relative`/`sticky` inline (incl. a
-///   relpos/sticky atomic) — in-flow in layout's IFC (CSS 2 §9.4.3) but painted
-///   in render's Layer 6 (slice 3p-b).
+/// (Slice 3p-b converged *plain* `position:relative`/`sticky` **inline** elements:
+/// they keep their text in the IFC (CSS 2 §9.4.3) and render paints their subtree
+/// in Layer 6 via `walk(root)`, so layout persists a **per-positioned-subtree
+/// sub-flow** keyed on the root's first eligible child — no gate flag. A
+/// relative/sticky **atomic** inline is a *different* mechanism (box-reposition
+/// preserving the applied relative offset, not a sub-flow) and still gates via
+/// `has_relpos_sticky_atomic`; slice 3p-b-2 converges it.)
+///
+/// - `has_relpos_sticky_atomic`: a `position:relative`/`sticky` **atomic** inline
+///   (`inline-block`/`-flex`/`-grid`/`-table`) — in-flow in layout's IFC but
+///   painted offset in render's Layer 6 from its own `LayoutBox`; converging it
+///   needs an offset-preserving reposition (slice 3p-b-2), so it stays gated.
 /// - `has_bidi`: a run whose text contains right-to-left characters — layout
 ///   positions runs in logical order, but render reorders them visually
 ///   (`bidi_visual_order`); consuming the logical order would scramble them
@@ -156,9 +179,62 @@ fn is_atomic_inline(display: Display) -> bool {
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Default, Clone, Copy)]
 pub(crate) struct RunComplexity {
-    pub has_relpos_sticky: bool,
+    pub has_relpos_sticky_atomic: bool,
     pub has_bidi: bool,
     pub has_text_transform: bool,
+}
+
+/// Render's `run[0]` for the inline run rooted at the element whose composed
+/// children are `children` (mirrors `paint_non_sc` / Layer-5 grouping): the first
+/// child that is not `display:none` / out-of-flow (absolutely positioned) /
+/// positioned (relative/sticky — render skips it into Layer 6), scanning only up
+/// to the first **block-level** child. A block SPLITS the run in render
+/// (`is_block_child` flushes the inline run), so it ends the pre-block run; if no
+/// eligible child precedes a block, the pre-block run is empty → `None`. This is
+/// the entity layout persists the group's `InlineFlow` on, so both passes agree.
+fn first_eligible_child(dom: &EcsDom, children: &[Entity]) -> Option<Entity> {
+    for &child in children {
+        match crate::try_get_style(dom, child) {
+            Some(style) => {
+                if style.display == Display::None {
+                    continue;
+                }
+                if crate::positioned::is_absolutely_positioned(&style) {
+                    continue;
+                }
+                if crate::block::is_block_level(style.display) {
+                    return None;
+                }
+                if matches!(style.position, Position::Relative | Position::Sticky) {
+                    continue;
+                }
+                return Some(child);
+            }
+            // Text node (no ComputedStyle) — a render run member, and the key when
+            // it is the first child.
+            None => {
+                if dom.world().get::<&TextContent>(child).is_ok() {
+                    return Some(child);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Whether any DIRECT composed child of a positioned inline is block-level. Such a
+/// subtree is anonymous-block-in-inline (CSS 2 §9.2.1.1): render `paint_non_sc`
+/// SPLITS the run on the block (multiple runs + a separate `walk(block)`), so the
+/// single-sub-flow-per-positioned-root model would over-collect and double-paint
+/// the post-block content. A positioned subtree like this gets **no** sub-flow
+/// (its content falls to render's legacy path, fail-safe — the anonymous-block-in-
+/// inline feature owns it). Direct children only: a block nested in a *static*
+/// inline within the subtree is flow-consumed (flattened) by render, not split, so
+/// it stays safe in the sub-flow.
+fn has_direct_block_child(dom: &EcsDom, children: &[Entity]) -> bool {
+    children.iter().any(|&c| {
+        crate::try_get_style(dom, c).is_some_and(|s| crate::block::is_block_level(s.display))
+    })
 }
 
 /// Recursively collect inline items (text runs + atomic boxes) from inline children.
@@ -170,15 +246,30 @@ pub(crate) struct RunComplexity {
 /// atomic units in the inline flow. Recursion stops at [`MAX_LAYOUT_DEPTH`].
 ///
 /// Also reports a [`RunComplexity`] describing run members that gate the run out
-/// of `InlineFlow` persistence (see its docs).
+/// of `InlineFlow` persistence (see its docs) and the **candidate-key set** for
+/// staleness reconciliation: a superset of every entity that could carry an
+/// `InlineFlow` for this IFC in any pass = the raw (unfiltered) direct children of
+/// the IFC parent plus the raw direct children of every inline element recursed
+/// into (each is some run-parent's direct child, hence a potential `run[0]`). The
+/// caller clears `InlineFlow` on candidates it does not persist (see the reconcile
+/// in `layout_inline_context_fragmented`).
+///
+/// The top-level members are tagged with the **realigned** top-level run-start key
+/// ([`first_eligible_child`] of `children` — render's Layer-5 `run[0]`, which is NOT
+/// `children.first()` when a leading child is positioned), threaded into the walk as
+/// the initial group key; the caller persists each group from the packer's buckets.
 pub(crate) fn collect_inline_items(
     dom: &EcsDom,
     children: &[Entity],
     parent_style: &ComputedStyle,
     parent_entity: Entity,
-) -> (Vec<InlineItem>, RunComplexity) {
+) -> (Vec<InlineItem>, RunComplexity, Vec<Entity>) {
     let mut items = Vec::new();
     let mut complexity = RunComplexity::default();
+    // Candidate keys: seed with the IFC parent's raw direct children, then collect
+    // every recursed inline element's raw direct children during the walk.
+    let mut candidate_keys: Vec<Entity> = children.to_vec();
+    let top_level_key = first_eligible_child(dom, children);
     collect_inline_items_inner(
         dom,
         children,
@@ -187,11 +278,14 @@ pub(crate) fn collect_inline_items(
         0,
         &mut items,
         &mut complexity,
+        top_level_key,
+        &mut candidate_keys,
     );
     collapse_inline_whitespace(&mut items);
-    (items, complexity)
+    (items, complexity, candidate_keys)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_inline_items_inner(
     dom: &EcsDom,
     children: &[Entity],
@@ -200,6 +294,13 @@ fn collect_inline_items_inner(
     depth: u32,
     items: &mut Vec<InlineItem>,
     complexity: &mut RunComplexity,
+    // Render-run-group this level's members persist under (the run-start `run[0]`
+    // render reads `InlineFlow` off). `None` = not recorded (positioned subtree
+    // with a direct block child → legacy; see `has_direct_block_child`).
+    group_key: Option<Entity>,
+    // Superset of every entity that could carry an `InlineFlow` for this IFC
+    // (every run-parent's raw direct children) — the caller's staleness clear set.
+    candidate_keys: &mut Vec<Entity>,
 ) {
     if depth >= MAX_LAYOUT_DEPTH {
         return;
@@ -217,21 +318,26 @@ fn collect_inline_items_inner(
             }
             // Atomic inline-level box (CSS Display 3 §A `#atomic-inline`):
             // placeholder with zero size (filled later by `layout_atomic_items`).
-            // A *static* atomic converges into `InlineFlow` as an `AtomicBox`
-            // member — render paints it by `walk()`-ing the entity at its own
-            // (repositioned) `LayoutBox`. A *relative/sticky* atomic is painted in
-            // render's Layer 6 (it `is_positioned`), so it must stay gated out of
-            // persistence via `has_relpos_sticky` (slice 3p-b converges it). The
-            // `position` check lives here because this arm `continue`s before the
-            // inline-element relpos check below.
+            // A *static* atomic converges into its group's `InlineFlow` as an
+            // `AtomicBox` member — render paints it by `walk()`-ing the entity at
+            // its own (repositioned) `LayoutBox`. A *relative/sticky* atomic is
+            // painted offset in render's Layer 6 from its own `LayoutBox`, and
+            // converging it needs an offset-preserving reposition (a *different*
+            // mechanism than the sub-flow), so it stays gated via
+            // `has_relpos_sticky_atomic` (slice 3p-b-2). The `position` check lives
+            // here because this arm `continue`s before the inline-element relpos
+            // sub-flow handling below. The static atomic carries the current
+            // `group_key` so a static atomic inside a relpos sub-flow becomes that
+            // sub-flow's `AtomicBox` member (repositioned per group at persist).
             if is_atomic_inline(style.display) {
                 if matches!(style.position, Position::Relative | Position::Sticky) {
-                    complexity.has_relpos_sticky = true;
+                    complexity.has_relpos_sticky_atomic = true;
                 }
                 items.push(InlineItem::Atomic {
                     entity: child,
                     inline_size: 0.0,
                     block_size: 0.0,
+                    group_key,
                 });
                 continue;
             }
@@ -256,19 +362,37 @@ fn collect_inline_items_inner(
                             child,
                             tc.0.clone(),
                             &style,
+                            group_key,
                         )));
                     }
                 }
                 continue;
             }
-            // CSS 2 §9.4.3: a relative/sticky positioned inline stays in-flow in
-            // the IFC here, but render pulls it (and its whole subtree) into a
-            // separate stacking layer — so the run cannot be converged in slice 1.
-            if matches!(style.position, Position::Relative | Position::Sticky) {
-                complexity.has_relpos_sticky = true;
-            }
-            // Inline element: use its own style for its children.
+            // Inline element: use its own style for its children. Every inline
+            // element's raw direct children are candidate `InlineFlow` keys (any
+            // could become a run-start `run[0]` in some pass) — record before
+            // recursing so the caller can clear stale flows on them.
             let grandchildren = dom.composed_children(child);
+            candidate_keys.extend_from_slice(&grandchildren);
+            // CSS 2 §9.4.3: a relative/sticky positioned inline stays in-flow in
+            // the IFC, but render paints its whole subtree in Layer 6 via
+            // `walk(child)`. Slice 3p-b converges it as a **sub-flow**: its members
+            // go into a separate `InlineFlow` keyed on the subtree's first eligible
+            // child (= render's `run[0]` for `walk(child)`), NOT the parent flow
+            // (the parent advances past it, leaving the in-flow gap). A subtree
+            // with a direct block child is anonymous-block-in-inline — render
+            // splits it into multiple runs, which the single-sub-flow model can't
+            // represent → no sub-flow (key `None`, members fall to render's legacy
+            // path, fail-safe; the anonymous-block-in-inline feature owns it).
+            let child_group = if matches!(style.position, Position::Relative | Position::Sticky) {
+                if has_direct_block_child(dom, &grandchildren) {
+                    None
+                } else {
+                    first_eligible_child(dom, &grandchildren)
+                }
+            } else {
+                group_key
+            };
             collect_inline_items_inner(
                 dom,
                 &grandchildren,
@@ -277,6 +401,8 @@ fn collect_inline_items_inner(
                 depth + 1,
                 items,
                 complexity,
+                child_group,
+                candidate_keys,
             );
         } else if let Ok(tc) = dom.world().get::<&TextContent>(child) {
             // Text node: produce a run with the parent element's style.
@@ -296,6 +422,7 @@ fn collect_inline_items_inner(
                     parent_entity,
                     tc.0.clone(),
                     parent_style,
+                    group_key,
                 )));
             }
         }
@@ -550,12 +677,16 @@ pub fn layout_inline_context_fragmented(
     let parent_style = crate::get_style(dom, parent_entity);
     let font_db = env.font_db;
     let layout_child = env.layout_child;
-    let (mut items, complexity) = collect_inline_items(dom, children, &parent_style, parent_entity);
-    // Run-start entity = the key under which `InlineFlow` is persisted/cleared
-    // (the first top-level run child, which render also derives as its run[0]).
-    let run_start = children.first().copied();
+    let (mut items, complexity, candidate_keys) =
+        collect_inline_items(dom, children, &parent_style, parent_entity);
+    // Staleness clear set: when nothing persists (here and the no-font return
+    // below), clear `InlineFlow` on every candidate key (no persisted keys to
+    // keep). `clear_inline_flows` removes the component on each — a no-op on
+    // entities that never had one. The candidate set is a superset of every
+    // entity that could have been a run-start key in a prior pass (§ reconcile).
+    let no_persisted: std::collections::HashSet<Entity> = std::collections::HashSet::new();
     if items.is_empty() {
-        clear_inline_flow(dom, run_start);
+        clear_inline_flows(dom, &candidate_keys, &no_persisted);
         return InlineLayoutResult {
             height: 0.0,
             static_positions: HashMap::new(),
@@ -590,7 +721,7 @@ pub fn layout_inline_context_fragmented(
             InlineItem::Atomic { .. } | InlineItem::Placeholder(_) => false,
         });
         if !any_font && !items.iter().any(|i| matches!(i, InlineItem::Atomic { .. })) {
-            clear_inline_flow(dom, run_start);
+            clear_inline_flows(dom, &candidate_keys, &no_persisted);
             return InlineLayoutResult {
                 height: 0.0,
                 static_positions: HashMap::new(),
@@ -602,20 +733,19 @@ pub fn layout_inline_context_fragmented(
     }
 
     // InlineFlow persistence gate: non-justify, non-fragmented runs with no
-    // relative/sticky positioned inline, no bidi (RTL) text, no text-transform.
-    // Each excluded case is a layout-IFC-vs-render divergence (or, for
-    // fragmentation, a per-fragment slicing the persisted geometry does not yet
-    // model). Slice 3p-a dropped the atomic gate: a *static* atomic inline now
-    // persists as an `AtomicBox` member (render walks it at its repositioned
-    // `LayoutBox`); a *relative/sticky* atomic is caught by `has_relpos_sticky`.
-    // When the gate fails, render keeps its own collect/collapse/emit path. Slice 2
-    // added vertical writing modes: the packer already produces inline/block-axis
-    // positions and the align resolution is axis-agnostic, so persisting vertical
-    // needs only the origin fold's is_vertical swap (below) + a writing-mode-aware
-    // render consume path.
+    // relative/sticky ATOMIC inline, no bidi (RTL) text, no text-transform. Each
+    // excluded case is a layout-IFC-vs-render divergence (or, for fragmentation, a
+    // per-fragment slicing the persisted geometry does not yet model). Slice 3p-a
+    // dropped the static-atomic gate; slice 3p-b dropped the *plain relpos/sticky
+    // inline* gate (those converge as per-positioned-subtree sub-flows, recorded
+    // under their own keys during packing — not gated here). A relative/sticky
+    // ATOMIC still gates (`has_relpos_sticky_atomic`): it needs an offset-
+    // preserving box reposition (slice 3p-b-2), not a sub-flow. When the gate
+    // fails, render keeps its own collect/collapse/emit path. (Vertical writing
+    // modes persist too — the packer is axis-agnostic, the origin fold swaps axes.)
     let persist_flow = frag_constraint.is_none()
         && parent_style.text_align != TextAlign::Justify
-        && !complexity.has_relpos_sticky
+        && !complexity.has_relpos_sticky_atomic
         && !complexity.has_bidi
         && !complexity.has_text_transform;
     let flow_align = persist_flow.then_some(pack::FlowAlign {
@@ -725,29 +855,34 @@ pub fn layout_inline_context_fragmented(
         })
         .collect();
 
-    // Reconcile the run-start entity's InlineFlow (render's single source of inline
-    // geometry) every pass: persist when the gate passed and lines were produced,
-    // else clear any stale flow from a prior pass. `layout_generation` is constant 0
-    // off the paged path, so an explicit clear (not generation comparison) is what
-    // prevents render consuming a stale flow after a run becomes non-persistable.
+    // Reconcile InlineFlow across the IFC's render-run-groups every pass: persist
+    // each group's lines on its run-start key (the top-level run-start + one per
+    // converged `position:relative`/`sticky` inline sub-flow), then clear stale
+    // flows on every candidate key not persisted. `layout_generation` is constant 0
+    // off the paged path, so this is an explicit reconcile (insert-or-remove), not
+    // a generation comparison — what prevents render consuming a stale flow after a
+    // realignment, a relpos→static transition, an abspos toggle, or a now-gated run.
     let first_baseline = packer.first_baseline;
-    if persist_flow && !packer.flow_lines.is_empty() {
-        if let Some(entity) = run_start {
-            // IFC-local logical → absolute physical, applying the SAME is_vertical
-            // projection rule as `static_positions` (above) and
-            // `assign_inline_layout_boxes`: inline-axis maps to physical x (horizontal)
-            // or y (vertical), block-axis to y (horizontal) or x (vertical). After the
-            // fold each scalar holds the absolute physical coordinate for its axis, so
-            // render reads `block_start`/`inline_start` without a coordinate transform
-            // (it selects the right field per writing mode). No vertical-rl block-axis
-            // reversal — matching the box convention (see static_positions).
-            let (inline_origin, block_origin) = if is_vertical {
-                (content_origin.y, content_origin.x)
-            } else {
-                (content_origin.x, content_origin.y)
-            };
-            let lines: Vec<elidex_ecs::InlineFlowLine> = packer
-                .flow_lines
+    let mut persisted_keys: std::collections::HashSet<Entity> = std::collections::HashSet::new();
+    if persist_flow {
+        // IFC-local logical → absolute physical, applying the SAME is_vertical
+        // projection rule as `static_positions` and `assign_inline_layout_boxes`:
+        // inline-axis → physical x (horizontal) / y (vertical), block-axis → the
+        // other. After the fold each scalar is the absolute physical coordinate for
+        // its axis, so render reads `block_start`/`inline_start` without a
+        // transform. No vertical-rl block-axis reversal — matching the box convention.
+        let (inline_origin, block_origin) = if is_vertical {
+            (content_origin.y, content_origin.x)
+        } else {
+            (content_origin.x, content_origin.y)
+        };
+        // Each group's bucket (keyed on its run-start `run[0]`): the top-level group
+        // and one per converged positioned-inline sub-flow.
+        for (group_key, group_lines) in packer.flow_lines {
+            if group_lines.is_empty() {
+                continue;
+            }
+            let lines: Vec<elidex_ecs::InlineFlowLine> = group_lines
                 .into_iter()
                 .map(|mut line| {
                     line.block_start += block_origin;
@@ -757,16 +892,17 @@ pub fn layout_inline_context_fragmented(
                     line
                 })
                 .collect();
-            // Reposition each static atomic inline's `LayoutBox` to its on-line
-            // position (text-align already baked into `inline_start`). `layout_atomic_items`
-            // laid the atomic out at `content_origin` (IFC top-left); render paints the
-            // atomic by `walk()`-ing its `LayoutBox`, so the box must reflect the line
-            // position (layout owns geometry — render does not paint-time-translate).
-            // Only persisting runs reach here, and a persisting run has only *static*
-            // atomics (relpos/sticky → `has_relpos_sticky` → gated), so this never
-            // clobbers an `apply_relative_offset` (slice 3p-b owns positioned atomics).
-            // Block-axis = line top (baseline-naive; CSS 2 §10.8 `vertical-align` within
-            // the line box is deferred — the same leading-naive model as text runs).
+            // Reposition each static atomic inline's `LayoutBox` in THIS group to its
+            // on-line position (text-align already baked into `inline_start`).
+            // `layout_atomic_items` laid the atomic out at `content_origin` (IFC
+            // top-left); render paints it by `walk()`-ing its `LayoutBox`, so the box
+            // must reflect the line position (layout owns geometry — render does not
+            // paint-time-translate). A persisting run has only *static* atomics
+            // (relpos/sticky atomics → `has_relpos_sticky_atomic` → gated), so this
+            // never clobbers an `apply_relative_offset` (slice 3p-b-2 owns those). The
+            // loop runs per group, so a static atomic inside a relpos sub-flow is
+            // repositioned too. Block-axis = line top (baseline-naive; CSS 2 §10.8
+            // `vertical-align` within the line box is deferred — same as text runs).
             for line in &lines {
                 for run in &line.runs {
                     if let InlineFlowRun::AtomicBox {
@@ -785,16 +921,24 @@ pub fn layout_inline_context_fragmented(
                 }
             }
             let _ = dom.world_mut().insert_one(
-                entity,
+                group_key,
                 InlineFlow {
                     lines,
                     layout_generation: env.layout_generation,
                 },
             );
+            persisted_keys.insert(group_key);
         }
-    } else {
-        clear_inline_flow(dom, run_start);
     }
+    // Invariant: every persisted key must be a candidate (else it could never be
+    // cleared on a later pass → stale-flow leak). Holds by construction — a
+    // persisted key is some run-parent's first eligible child, and candidates
+    // include every run-parent's raw direct children.
+    debug_assert!(
+        persisted_keys.iter().all(|k| candidate_keys.contains(k)),
+        "persisted InlineFlow key not in candidate set → stale-flow leak risk"
+    );
+    clear_inline_flows(dom, &candidate_keys, &persisted_keys);
 
     InlineLayoutResult {
         height: total_block,
@@ -842,11 +986,21 @@ fn reposition_atomic_box(
     }
 }
 
-/// Remove any stale [`InlineFlow`] from the run-start entity (the run is not being
-/// persisted this pass — gated out, empty, or unrenderable). See the reconcile
-/// comment in `layout_inline_context_fragmented`.
-fn clear_inline_flow(dom: &mut EcsDom, run_start: Option<Entity>) {
-    if let Some(entity) = run_start {
-        let _ = dom.world_mut().remove_one::<InlineFlow>(entity);
+/// Remove stale [`InlineFlow`] components for an IFC: clear it from every candidate
+/// key that was not persisted this pass. `candidates` is a superset of every entity
+/// that could have carried this IFC's flow in any prior pass (every run-parent's raw
+/// direct children); `persisted` is the set just written. `remove_one` on an entity
+/// without the component is a cheap no-op. This is the single staleness reconciler
+/// (F9 — `layout_generation` is constant 0 non-paged, so removal, not comparison).
+/// See the reconcile comment in `layout_inline_context_fragmented`.
+fn clear_inline_flows(
+    dom: &mut EcsDom,
+    candidates: &[Entity],
+    persisted: &std::collections::HashSet<Entity>,
+) {
+    for &c in candidates {
+        if !persisted.contains(&c) {
+            let _ = dom.world_mut().remove_one::<InlineFlow>(c);
+        }
     }
 }

@@ -23,6 +23,7 @@ pub(super) fn layout_atomic_items(
             entity,
             inline_size,
             block_size,
+            ..
         } = item
         {
             let input = crate::LayoutInput {
