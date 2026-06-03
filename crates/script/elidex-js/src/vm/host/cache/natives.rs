@@ -130,8 +130,9 @@ fn caches_has_outcome(
     require_cache_storage(ctx, this)?;
     let name = cache_name_arg(ctx, args, "Failed to execute 'has' on 'CacheStorage'")?;
     let backend = ctx.vm.require_cache_backend()?;
-    let exists =
-        backend.with_conn(|conn| elidex_cache_api::storage::has(conn, &name).unwrap_or(false));
+    let exists = backend
+        .with_conn(|conn| elidex_cache_api::storage::has(conn, &name))
+        .map_err(|e| VmError::type_error(format!("{e}")))?;
     Ok(CacheDelivery::Resolve(JsValue::Boolean(exists)))
 }
 
@@ -153,8 +154,9 @@ fn caches_delete_outcome(
     require_cache_storage(ctx, this)?;
     let name = cache_name_arg(ctx, args, "Failed to execute 'delete' on 'CacheStorage'")?;
     let backend = ctx.vm.require_cache_backend()?;
-    let deleted =
-        backend.with_conn(|conn| elidex_cache_api::storage::delete(conn, &name).unwrap_or(false));
+    let deleted = backend
+        .with_conn(|conn| elidex_cache_api::storage::delete(conn, &name))
+        .map_err(|e| VmError::type_error(format!("{e}")))?;
     Ok(CacheDelivery::Resolve(JsValue::Boolean(deleted)))
 }
 
@@ -175,7 +177,9 @@ fn caches_keys_outcome(
 ) -> Result<CacheDelivery, VmError> {
     require_cache_storage(ctx, this)?;
     let backend = ctx.vm.require_cache_backend()?;
-    let names = backend.with_conn(|conn| elidex_cache_api::storage::keys(conn).unwrap_or_default());
+    let names = backend
+        .with_conn(elidex_cache_api::storage::keys)
+        .map_err(|e| VmError::type_error(format!("{e}")))?;
     let mut elements = Vec::with_capacity(names.len());
     for name in &names {
         elements.push(JsValue::String(ctx.vm.strings.intern(name)));
@@ -206,20 +210,24 @@ fn caches_match_outcome(
     let opts = marshal::parse_query_options(ctx, options_arg)?;
     let only_cache = marshal::read_cache_name_option(ctx, options_arg)?;
     let backend = ctx.vm.require_cache_backend()?;
-    let found = backend.with_conn(|conn| {
-        let names = match &only_cache {
-            Some(name) => vec![name.clone()],
-            None => elidex_cache_api::storage::keys(conn).unwrap_or_default(),
-        };
-        for name in names {
-            if let Ok(Some(entry)) =
-                elidex_cache_api::store::match_request(conn, &name, &url, &method, &headers, &opts)
-            {
-                return Some(entry);
-            }
-        }
-        None
-    });
+    let found = backend
+        .with_conn(
+            |conn| -> Result<Option<elidex_cache_api::CachedEntry>, elidex_cache_api::CacheError> {
+                let names = match &only_cache {
+                    Some(name) => vec![name.clone()],
+                    None => elidex_cache_api::storage::keys(conn)?,
+                };
+                for name in names {
+                    if let Some(entry) = elidex_cache_api::store::match_request(
+                        conn, &name, &url, &method, &headers, &opts,
+                    )? {
+                        return Ok(Some(entry));
+                    }
+                }
+                Ok(None)
+            },
+        )
+        .map_err(|e| VmError::type_error(format!("{e}")))?;
     Ok(match found {
         Some(entry) => {
             let resp = marshal::build_response_from_entry(ctx.vm, &entry);
@@ -254,11 +262,11 @@ fn cache_match_outcome(
     let options_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let opts = marshal::parse_query_options(ctx, options_arg)?;
     let backend = ctx.vm.require_cache_backend()?;
-    let found = backend.with_conn(|conn| {
-        elidex_cache_api::store::match_request(conn, &name, &url, &method, &headers, &opts)
-            .ok()
-            .flatten()
-    });
+    let found = backend
+        .with_conn(|conn| {
+            elidex_cache_api::store::match_request(conn, &name, &url, &method, &headers, &opts)
+        })
+        .map_err(|e| VmError::type_error(format!("{e}")))?;
     Ok(match found {
         Some(entry) => {
             let resp = marshal::build_response_from_entry(ctx.vm, &entry);
@@ -294,13 +302,14 @@ fn cache_match_all_outcome(
         Some(marshal::resolve_request(ctx, Some(&req_arg))?)
     };
     let backend = ctx.vm.require_cache_backend()?;
-    let entries = backend.with_conn(|conn| match &request {
-        None => elidex_cache_api::store::keys(conn, &name).unwrap_or_default(),
-        Some((url, method, headers)) => {
-            elidex_cache_api::store::match_all(conn, &name, url, method, headers, &opts)
-                .unwrap_or_default()
-        }
-    });
+    let entries = backend
+        .with_conn(|conn| match &request {
+            None => elidex_cache_api::store::keys(conn, &name),
+            Some((url, method, headers)) => {
+                elidex_cache_api::store::match_all(conn, &name, url, method, headers, &opts)
+            }
+        })
+        .map_err(|e| VmError::type_error(format!("{e}")))?;
     let mut elements = Vec::with_capacity(entries.len());
     for entry in &entries {
         elements.push(JsValue::Object(marshal::build_response_from_entry(
@@ -364,17 +373,24 @@ fn cache_delete_outcome(
     let options_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let opts = marshal::parse_query_options(ctx, options_arg)?;
     let backend = ctx.vm.require_cache_backend()?;
-    let deleted = backend.with_conn(|conn| {
-        elidex_cache_api::store::delete(conn, &name, &url, &method, &headers, &opts)
-            .unwrap_or(false)
-    });
+    let deleted = backend
+        .with_conn(|conn| {
+            elidex_cache_api::store::delete(conn, &name, &url, &method, &headers, &opts)
+        })
+        .map_err(|e| VmError::type_error(format!("{e}")))?;
     Ok(CacheDelivery::Resolve(JsValue::Boolean(deleted)))
 }
 
 /// `cache.keys(request?, options?)` → `Promise<sequence<Request>>`
-/// (§5.4.7).  No request → every stored request key (creation order); a
-/// request restricts the result to the entries matching it (honouring
-/// `CacheQueryOptions`).
+/// (§5.4.7).  No request → every stored request key; a request restricts
+/// the result to the entries matching it (honouring `CacheQueryOptions`).
+///
+/// §5.4.7 orders the result by the cache's request-response list (insertion
+/// order).  The current backend (`elidex_cache_api::store::keys` →
+/// `load_all_entries`) returns request-URL order instead; closing that
+/// spec-conformance gap (a stable insertion-sequence column + position-
+/// preserving replace on `put`) is tracked by slot
+/// `#11-cache-keys-insertion-order`.
 pub(crate) fn native_cache_keys(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -393,16 +409,19 @@ fn cache_keys_outcome(
     let req_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let entries = if matches!(req_arg, JsValue::Undefined) {
         let backend = ctx.vm.require_cache_backend()?;
-        backend.with_conn(|conn| elidex_cache_api::store::keys(conn, &name).unwrap_or_default())
+        backend
+            .with_conn(|conn| elidex_cache_api::store::keys(conn, &name))
+            .map_err(|e| VmError::type_error(format!("{e}")))?
     } else {
         let (url, method, headers) = marshal::resolve_request(ctx, Some(&req_arg))?;
         let options_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
         let opts = marshal::parse_query_options(ctx, options_arg)?;
         let backend = ctx.vm.require_cache_backend()?;
-        backend.with_conn(|conn| {
-            elidex_cache_api::store::match_all(conn, &name, &url, &method, &headers, &opts)
-                .unwrap_or_default()
-        })
+        backend
+            .with_conn(|conn| {
+                elidex_cache_api::store::match_all(conn, &name, &url, &method, &headers, &opts)
+            })
+            .map_err(|e| VmError::type_error(format!("{e}")))?
     };
     let mut elements = Vec::with_capacity(entries.len());
     for entry in &entries {
