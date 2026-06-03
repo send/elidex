@@ -221,7 +221,8 @@ pub(crate) fn dispatch_event_at_sw_scope(
 /// `ExtendableEvent.waitUntil(f)` (SW §4.4.1 + Install/Activate `#install` /
 /// `#activate`): add `Promise.resolve(f)` to the event's lifetime-promise
 /// list; the lifecycle loop holds `LifecycleComplete` until all settle (a
-/// rejection / timeout → `success:false`).
+/// rejection / timeout → `success:false`).  Throws `InvalidStateError` if the
+/// event is no longer *active* (SW §4.4.1).
 fn native_extendable_wait_until(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -235,6 +236,21 @@ fn native_extendable_wait_until(
     if !ctx.vm.extendable_event_states.contains_key(&id) {
         return Err(VmError::type_error(
             "Illegal invocation: receiver is not an ExtendableEvent",
+        ));
+    }
+    // SW §4.4.1: `waitUntil` throws `InvalidStateError` unless the event is
+    // *active* = (dispatch flag set) OR (pending-promises count > 0).  The
+    // dispatch-flag half is enforced here via the shared `dispatched_events`
+    // §2.9 dispatch-window bracket (set/cleared by `dispatch_event_at_sw_scope`).
+    // The pending-promises (waitUntil-chaining / lifetime-extension) half is the
+    // deferred `#11-sw-fetchevent-waituntil` scope, so a late call during the
+    // lifetime pump throws rather than silently no-op'ing — the loop already
+    // snapshotted `lifetime_promises` right after dispatch and would never see
+    // a promise pushed afterwards.
+    if !ctx.vm.dispatched_events.contains(&id) {
+        return Err(VmError::dom_exception(
+            ctx.vm.well_known.dom_exc_invalid_state_error,
+            "ExtendableEvent.waitUntil: the event is no longer active",
         ));
     }
     let value = args.first().copied().unwrap_or(JsValue::Undefined);
@@ -264,6 +280,20 @@ fn native_fetch_event_respond_with(
             "Illegal invocation: receiver is not a FetchEvent",
         ));
     };
+    // SW §4.6.7 step 2: `respondWith` throws `InvalidStateError` if the event's
+    // dispatch flag is unset (a late call from a microtask/timer after dispatch
+    // settled) — checked via the shared `dispatched_events` §2.9 bracket, before
+    // the step-3 respond-with-entered (`responded`) check.  In the current
+    // single-event loop the `responded` guard + side-store teardown already
+    // reject late calls; this becomes independently load-bearing once FetchEvent
+    // `waitUntil` pumping lands (deferred `#11-sw-fetchevent-waituntil`), where a
+    // late `respondWith` with `responded == false` could otherwise run.
+    if !ctx.vm.dispatched_events.contains(&id) {
+        return Err(VmError::dom_exception(
+            ctx.vm.well_known.dom_exc_invalid_state_error,
+            "FetchEvent.respondWith: the event is no longer active",
+        ));
+    }
     if state.responded {
         return Err(VmError::dom_exception(
             ctx.vm.well_known.dom_exc_invalid_state_error,

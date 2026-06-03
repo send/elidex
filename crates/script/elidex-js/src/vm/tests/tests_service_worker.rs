@@ -292,6 +292,48 @@ fn activate_wait_until_reject_fails() {
     h.shutdown();
 }
 
+#[test]
+fn wait_until_after_dispatch_throws_invalid_state() {
+    // A late `waitUntil` that runs *during* the lifetime pump (dispatch flag
+    // cleared, brand still alive) throws InvalidStateError rather than being
+    // silently dropped — the loop snapshotted `lifetime_promises` right after
+    // dispatch (SW §4.4.1 "active": the dispatch-flag half; the pending-promises
+    // half is deferred `#11-sw-fetchevent-waituntil`).  A *timer* callback is
+    // the genuine post-dispatch window: a microtask (`.then`) would instead run
+    // inside `dispatch_script_event`'s trailing checkpoint (flag still set) and
+    // be correctly accepted.  The `catch` keeps the outer `waitUntil` promise
+    // fulfilled (install succeeds); the captured name is surfaced via a fetch.
+    let h = Harness::spawn(
+        "self.lateName = 'unset';
+         self.oninstall = e => {
+             e.waitUntil(new Promise(resolve => {
+                 setTimeout(() => {
+                     try { e.waitUntil(Promise.resolve()); self.lateName = 'no-throw'; }
+                     catch (err) { self.lateName = err.name; }
+                     resolve(1);
+                 }, 0);
+             }));
+         };
+         self.onfetch = e => e.respondWith(new Response(self.lateName));",
+    );
+    h.send(ContentToSw::Install);
+    assert!(matches!(
+        h.recv(),
+        SwToContent::LifecycleComplete {
+            event: LifecycleEvent::Install,
+            success: true
+        }
+    ));
+    h.send(fetch_event("https://example.com/x", "c1"));
+    match h.recv() {
+        SwToContent::FetchResponse { response, .. } => {
+            assert_eq!(body_string(&response), "InvalidStateError");
+        }
+        other => panic!("expected FetchResponse, got {other:?}"),
+    }
+    h.shutdown();
+}
+
 // ---------------------------------------------------------------------------
 // respondWith (DR-C) — the densest surface
 // ---------------------------------------------------------------------------
