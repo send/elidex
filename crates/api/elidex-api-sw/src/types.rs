@@ -59,7 +59,8 @@ pub enum FrameType {
     None,
 }
 
-/// Page visibility of a window client (Page Visibility §4.1).
+/// Page visibility of a window client (W3C Page Visibility, the
+/// `VisibilityState` enum).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VisibilityState {
     Visible,

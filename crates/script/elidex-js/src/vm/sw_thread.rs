@@ -112,8 +112,9 @@ pub fn sw_thread_main(
     );
 }
 
-/// Fetch + validate the SW classic script (WHATWG SW §4.2 "fetch a classic
-/// worker-imported script" / HTML §10.2.4 worker-script validation).
+/// Fetch + validate the SW classic script (driven by the SW "Update"
+/// algorithm; the fetch + MIME/status validation is HTML §10.2.4 "fetch a
+/// classic worker script", reused via `elidex_api_workers`).
 fn obtain_sw_source(script_url: &url::Url, handle: &NetworkHandle) -> Result<String, String> {
     let request = elidex_net::Request {
         method: "GET".to_string(),
@@ -170,7 +171,8 @@ pub(crate) fn run_service_worker(
     );
     vm.install_host_data(HostData::new());
     vm.install_network_handle(Rc::new(network_handle));
-    // The SW's environment-settings base URL is its script URL (HTML §8.1.3.8):
+    // The SW's environment-settings API base URL is its script URL (HTML
+    // §8.1.3.2 "Environment settings objects" — the API base URL):
     // `fetch()` resolves relative URLs + derives the request origin against
     // `navigation.current_url`, so seed it (else it defaults to opaque
     // `about:blank` and same-origin `respondWith(fetch(...))` misclassifies as
@@ -377,7 +379,9 @@ fn run_fetch(
     // effort in PR-2: any synchronous-ish `f` reactions already ran during the
     // response pump above (`pump_once` drains microtasks), but extending the
     // SW's lifetime to hold it alive *past* the response is deferred — the
-    // entry is torn down here → slot `#11-sw-fetchevent-waituntil`.
+    // entry is torn down here.  Impl-discovered gap (the plan covered only
+    // `ExtendableEvent.waitUntil` for install/activate); a landing-time defer
+    // candidate (4-question audit → `#11-sw-fetchevent-waituntil` if eligible).
     scope.fetch_event_states.remove(&event_id);
     scope.extendable_event_states.remove(&event_id);
     drop(scope);

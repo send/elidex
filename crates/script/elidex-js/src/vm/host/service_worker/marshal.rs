@@ -45,7 +45,7 @@ fn headers_to_owned(vm: &VmInner, headers_id: ObjectId) -> Vec<(String, String)>
         .collect()
 }
 
-/// Map a `RequestMode` IDL string (Fetch §5.3) to the broker enum.
+/// Map a `RequestMode` IDL string (Fetch §5.4 Request class) to the broker enum.
 fn parse_request_mode(mode: &str) -> RequestMode {
     match mode {
         "cors" => RequestMode::Cors,
@@ -56,7 +56,7 @@ fn parse_request_mode(mode: &str) -> RequestMode {
     }
 }
 
-/// Map a `RequestRedirect` IDL string (Fetch §5.3) to the broker enum.
+/// Map a `RequestRedirect` IDL string (Fetch §5.4 Request class) to the broker enum.
 fn parse_redirect_mode(redirect: &str) -> RedirectMode {
     match redirect {
         "error" => RedirectMode::Error,
