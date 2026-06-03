@@ -9,7 +9,7 @@ user-invocable: true
 `/code-review` (correctness bugs) と `/review` (一般 PR review) **の上に重ねる** elidex 専門 design review。Pre-push 6 段 gate の最終段 (`/pre-push` Stage 6) = design 最終 gate。post-push の Copilot は single-shot second opinion (`/copilot-review`、convergence loop でない) になったので、この gate と Stage 3 の blast-radius effort が design review の主担。「後続 loop が残りを拾う」前提で圧縮するのでなく、ここで取り切る。
 
 - **Axis SSoT**: `./axes.md` (5 axis 定義、`elidex-plan-review` と共有)
-- **Workflow SSoT**: `./workflow.md` (Step 1.5 / 2 agent prompt template / 3 / 3.5 / 4 / 4.5 + anti-patterns)
+- **Workflow SSoT**: `./workflow.md` (Step 1.5 / 1.6 rename-propagation sweep / 2 agent prompt template / 3 / 3.5 / 4 / 4.5 + anti-patterns)
 
 本 SKILL.md = thin lifecycle wrapper for input = `git diff $BASE...HEAD` (3-dot / merge-base vs the freshened base — `origin/main` after a best-effort fetch, falling back to local `main`; the branch's own changes, matching the GitHub PR diff)。
 
@@ -65,6 +65,10 @@ Diff size > 5000 行なら user 確認 (5-agent token cost 過大)。
 ### Step 1.5 — Mental dry-run
 
 `workflow.md` § "Step 1.5" を適用、output を `/tmp/elidex-review.dry-run.md` に。**対象は test 限定ではない** — workflow.md 通り「新規/変更 test case AND new code path that reads ECS components」両方 (refactor PR の new caller / new system query 等 non-test も含む) を simulate、Sub-check 2b coverage を担保。Step 2 Agent 2 prompt に hand off。
+
+### Step 1.6 — Rename / reframe propagation sweep (conditional)
+
+`workflow.md` § "Step 1.6" を適用。diff が symbol rename / file move / citation renumber / terminology reframe を含む時のみ — old-form を repo 全体 grep + sibling 近傍 scan して un-propagated site を Step 3 findings に。token shift が無ければ skip。
 
 ### Step 2 — Launch 5 agents in parallel
 
