@@ -227,12 +227,18 @@ pub fn entry_matches(
 /// Vary selection must compare the combined value, not just the first line.
 /// No match yields the empty string (parity with an absent header).
 fn join_header_values(headers: &[(String, String)], name: &str) -> String {
-    headers
-        .iter()
-        .filter(|(k, _)| k.eq_ignore_ascii_case(name))
-        .map(|(_, v)| v.as_str())
-        .collect::<Vec<_>>()
-        .join(", ")
+    let mut out = String::new();
+    let mut first = true;
+    for (k, v) in headers {
+        if k.eq_ignore_ascii_case(name) {
+            if !first {
+                out.push_str(", ");
+            }
+            out.push_str(v);
+            first = false;
+        }
+    }
+    out
 }
 
 /// Derive a cached entry's `vary_headers` match key from a response's

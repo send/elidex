@@ -205,7 +205,8 @@ fn caches_match_outcome(
     args: &[JsValue],
 ) -> Result<CacheDelivery, VmError> {
     require_cache_storage(ctx, this)?;
-    let (url, method, headers) = marshal::resolve_request(ctx, args.first())?;
+    let (url, method, headers) =
+        marshal::resolve_request(ctx, args.first(), "'match' on 'CacheStorage'")?;
     let options_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let opts = marshal::parse_query_options(ctx, options_arg)?;
     let only_cache = marshal::read_cache_name_option(ctx, options_arg)?;
@@ -258,7 +259,7 @@ fn cache_match_outcome(
     args: &[JsValue],
 ) -> Result<CacheDelivery, VmError> {
     let name = require_cache_name(ctx, this)?;
-    let (url, method, headers) = marshal::resolve_request(ctx, args.first())?;
+    let (url, method, headers) = marshal::resolve_request(ctx, args.first(), "'match' on 'Cache'")?;
     let options_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let opts = marshal::parse_query_options(ctx, options_arg)?;
     let backend = ctx.vm.require_cache_backend()?;
@@ -299,7 +300,11 @@ fn cache_match_all_outcome(
     let request = if matches!(req_arg, JsValue::Undefined) {
         None
     } else {
-        Some(marshal::resolve_request(ctx, Some(&req_arg))?)
+        Some(marshal::resolve_request(
+            ctx,
+            Some(&req_arg),
+            "'matchAll' on 'Cache'",
+        )?)
     };
     let backend = ctx.vm.require_cache_backend()?;
     let entries = backend
@@ -336,11 +341,18 @@ fn cache_put_outcome(
     args: &[JsValue],
 ) -> Result<CacheDelivery, VmError> {
     let name = require_cache_name(ctx, this)?;
+    // §5.4.5 / WebIDL: `put(request, response)` — both arguments are
+    // required.  A 0- or 1-arg call rejects with the WebIDL arity TypeError
+    // rather than coercing a missing `request` as a URL or treating a missing
+    // `response` as "not a Response".
+    if args.len() < 2 {
+        return Err(VmError::type_error(format!(
+            "Failed to execute 'put' on 'Cache': 2 arguments required, but only {} present.",
+            args.len()
+        )));
+    }
     let resp_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    // §5.4.5: `request` is a required WebIDL argument — a 0-arg call must
-    // reject via `resolve_request`'s `None` path (parity with `match` /
-    // `delete`), not coerce a missing `undefined` as a URL string.
-    let (url, method, headers) = marshal::resolve_request(ctx, args.first())?;
+    let (url, method, headers) = marshal::resolve_request(ctx, args.first(), "'put' on 'Cache'")?;
     // §5.4.5: only GET requests can be cached.
     if !method.eq_ignore_ascii_case("GET") {
         return Err(VmError::type_error(
@@ -371,7 +383,8 @@ fn cache_delete_outcome(
     args: &[JsValue],
 ) -> Result<CacheDelivery, VmError> {
     let name = require_cache_name(ctx, this)?;
-    let (url, method, headers) = marshal::resolve_request(ctx, args.first())?;
+    let (url, method, headers) =
+        marshal::resolve_request(ctx, args.first(), "'delete' on 'Cache'")?;
     let options_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let opts = marshal::parse_query_options(ctx, options_arg)?;
     let backend = ctx.vm.require_cache_backend()?;
@@ -415,7 +428,8 @@ fn cache_keys_outcome(
             .with_conn(|conn| elidex_cache_api::store::keys(conn, &name))
             .map_err(|e| VmError::type_error(format!("{e}")))?
     } else {
-        let (url, method, headers) = marshal::resolve_request(ctx, Some(&req_arg))?;
+        let (url, method, headers) =
+            marshal::resolve_request(ctx, Some(&req_arg), "'keys' on 'Cache'")?;
         let options_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
         let opts = marshal::parse_query_options(ctx, options_arg)?;
         let backend = ctx.vm.require_cache_backend()?;

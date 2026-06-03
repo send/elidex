@@ -199,15 +199,18 @@ fn headers_to_owned(vm: &VmInner, headers_id: ObjectId) -> Vec<(String, String)>
 pub(super) fn resolve_request(
     ctx: &mut NativeContext<'_>,
     arg: Option<&JsValue>,
+    op: &str,
 ) -> Result<ResolvedRequest, VmError> {
     // A missing argument (0 args to a required-`request` op — `match` /
     // `delete`) is a WebIDL TypeError, surfaced as a rejected Promise.  The
     // optional-request callers (`matchAll` / `keys`) handle the no-request
-    // case themselves and only reach here with an explicit value.
+    // case themselves and only reach here with an explicit value.  `op` is
+    // the WebIDL-style "'<operation>' on '<interface>'" label so the message
+    // matches the rest of the VM's required-argument errors.
     let Some(&arg) = arg else {
-        return Err(VmError::type_error(
-            "Failed to execute a Cache method: 1 argument required, but only 0 present.",
-        ));
+        return Err(VmError::type_error(format!(
+            "Failed to execute {op}: 1 argument required, but only 0 present."
+        )));
     };
     if let JsValue::Object(id) = arg {
         if matches!(ctx.vm.get_object(id).kind, ObjectKind::Request) {
@@ -266,7 +269,7 @@ pub(super) fn entry_from_response(
             "Cache.put: response body is already used",
         ));
     }
-    let (status, response_type, status_text_sid, url_sid, headers_id) = {
+    let (status, response_type, status_text_sid, url_sid, headers_id, redirected) = {
         let st = ctx.vm.response_states.get(&response_id).ok_or_else(|| {
             VmError::type_error("Cache.put: Response argument has no internal state")
         })?;
@@ -276,6 +279,7 @@ pub(super) fn entry_from_response(
             st.status_text_sid,
             st.url_sid,
             st.headers_id,
+            st.redirected,
         )
     };
 
@@ -310,8 +314,15 @@ pub(super) fn entry_from_response(
         response_type,
         ResponseType::Opaque | ResponseType::OpaqueRedirect
     );
+    // Fetch §2.2.6: `Response.redirected` is "the response's URL list has more
+    // than one entry"; `Response.url` is its last entry.  Those are the only
+    // two URL-list observables that survive a Cache round-trip, so preserve
+    // `redirected` by storing the [request, final] endpoints when the response
+    // was redirected (intermediate redirect hops are not Cache-observable).
     let response_url_list = if final_url.is_empty() {
         Vec::new()
+    } else if redirected {
+        vec![request_url.clone(), final_url]
     } else {
         vec![final_url]
     };

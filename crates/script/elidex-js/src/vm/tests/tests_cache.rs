@@ -434,6 +434,26 @@ fn put_requires_a_request_argument() {
 }
 
 #[test]
+fn put_requires_the_response_argument() {
+    // §5.4.5 / WebIDL: `put(request, response)` has two required arguments;
+    // a 1-arg call rejects with the arity TypeError ("2 arguments required"),
+    // NOT the downstream "response is not a Response" coercion error.
+    with_vm(|vm| {
+        let out = drive_string(
+            vm,
+            r"
+            caches.open('v1')
+              .then(c => c.put('https://e.com/'))
+              .then(() => { globalThis.__out = 'resolved'; },
+                    e => { globalThis.__out = (e instanceof TypeError) + ':'
+                           + /2 arguments required/.test(e.message); });
+            ",
+        );
+        assert_eq!(out, "true:true");
+    });
+}
+
+#[test]
 fn caches_match_cache_name_null_restricts_to_literal_null() {
     // WebIDL: `{ cacheName: null }` is *present* and coerces to the
     // `DOMString` "null" (not treated as absent), so the cross-cache search
