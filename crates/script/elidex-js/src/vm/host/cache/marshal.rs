@@ -324,11 +324,12 @@ pub(super) fn entry_from_response(
         response_type,
         ResponseType::Opaque | ResponseType::OpaqueRedirect
     );
-    // Fetch §2.2.6: `Response.redirected` is "the response's URL list has more
-    // than one entry"; `Response.url` is its last entry.  Those are the only
-    // two URL-list observables that survive a Cache round-trip, so preserve
-    // `redirected` by storing the [request, final] endpoints when the response
-    // was redirected (intermediate redirect hops are not Cache-observable).
+    // Fetch §5.5: the `redirected` getter is "URL list's size is greater than
+    // 1" and the `url` getter is the last entry of the response's URL list
+    // (Fetch §2.2.6).  Those are the only two URL-list observables that survive
+    // a Cache round-trip, so preserve `redirected` by storing the [request,
+    // final] endpoints when the response was redirected (intermediate redirect
+    // hops are not Cache-observable).
     let response_url_list = if final_url.is_empty() {
         Vec::new()
     } else if redirected {

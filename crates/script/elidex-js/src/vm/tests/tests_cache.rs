@@ -616,8 +616,11 @@ fn add_and_add_all_are_absent_pending_fetch_integration() {
 // rooting contract and the `create_array_object` / `response_ctor` precedents.
 // No deterministic JS-surface regression test accompanies them: the bug only
 // fires when a collection lands in the unrooted window *inside* the native,
-// and the adaptive `gc_threshold` (reset to `max(live*128, 32768)` per
-// collect) scales with live-object count — which the rooting fix itself
-// raises — so the precise instant can't be forced from script without an
-// internal mid-native GC hook this path doesn't have. Verified by review
-// against the contract, like the rest of the VM's GC-safety discipline.
+// and — unlike `tests_abort.rs::abort_listeners_survive_gc_during_dispatch`,
+// where the JS listener body runs (and allocates) inside the unrooted window
+// and so can trip `gc_threshold` on demand — no script executes in this
+// window, so script cannot drive an allocation to force a collection at the
+// precise instant. (The adaptive `gc_threshold`, reset to `max(live*128,
+// 32768)` per collect and raised further by the rooting fix's own live set,
+// compounds it but is not the decisive blocker.) Verified by review against
+// `alloc_object`'s rooting contract, like the rest of the VM's GC-safety.
