@@ -1163,8 +1163,9 @@ pub enum ObjectKind {
     #[cfg(feature = "engine")]
     CacheStorage,
     /// `Cache` instance (Cache API §5.4) — vended by `caches.open(name)`.
-    /// Brand-checked receiver for `match` / `matchAll` / `add` / `addAll`
-    /// / `put` / `delete` / `keys`.  The cache name lives in
+    /// Brand-checked receiver for `match` / `matchAll` / `put` / `delete` /
+    /// `keys` (`add` / `addAll` are deferred to slot
+    /// `#11-cache-add-fetch-integration`).  The cache name lives in
     /// `VmInner::cache_handle_states` keyed by this `ObjectId`; the backing
     /// store is the shared origin connection (every `Cache` for a given
     /// name routes to the same `entries` rows, so handle identity carries
