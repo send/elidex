@@ -187,12 +187,15 @@ pub(super) fn build_request_from_entry(vm: &mut VmInner, entry: &CachedEntry) ->
 
 /// Snapshot a Headers `list` into owned `(name, value)` String pairs.
 fn headers_to_owned(vm: &VmInner, headers_id: ObjectId) -> Vec<(String, String)> {
-    let list = vm
-        .headers_states
-        .get(&headers_id)
-        .map(|s| s.list.clone())
-        .unwrap_or_default();
-    list.iter()
+    let Some(state) = vm.headers_states.get(&headers_id) else {
+        return Vec::new();
+    };
+    // Borrow the list in place — `headers_states` and `strings` are disjoint
+    // `VmInner` fields, so both shared borrows coexist; no need to clone the
+    // `(StringId, StringId)` list first.
+    state
+        .list
+        .iter()
         .map(|(k, v)| (vm.strings.get_utf8(*k), vm.strings.get_utf8(*v)))
         .collect()
 }
