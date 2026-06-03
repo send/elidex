@@ -276,6 +276,13 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         ObjectKind::IdbIndex => CloneKind::Unclonable("IDBIndex"),
         #[cfg(feature = "engine")]
         ObjectKind::IdbCursor => CloneKind::Unclonable("IDBCursor"),
+        // Cache API interfaces are not [Serializable]; identity is per-VM
+        // (the `caches` singleton + per-name `Cache` handles route through
+        // `HostData::cache_backend`).  D-19 PR-1.
+        #[cfg(feature = "engine")]
+        ObjectKind::CacheStorage => CloneKind::Unclonable("CacheStorage"),
+        #[cfg(feature = "engine")]
+        ObjectKind::Cache => CloneKind::Unclonable("Cache"),
         ObjectKind::Request => CloneKind::Unclonable("Request"),
         ObjectKind::Response => CloneKind::Unclonable("Response"),
         ObjectKind::TextEncoder => CloneKind::Unclonable("TextEncoder"),

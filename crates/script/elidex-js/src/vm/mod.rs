@@ -2086,6 +2086,25 @@ pub(crate) struct VmInner {
     pub(crate) idb_cursor_with_value_prototype: Option<ObjectId>,
     #[cfg(feature = "engine")]
     pub(crate) idb_version_change_event_prototype: Option<ObjectId>,
+    /// Cache API per-`Cache`-`ObjectId` handle state (Cache API §5.4,
+    /// `#11-cache-api-vm` / D-19 PR-1).  Identity tuple only — a `Cache`
+    /// wrapper carries just its cache name; every op routes through the
+    /// shared origin backend (`HostData::cache_backend`).  Side-store
+    /// (the IDB / StorageEvent precedent: pure JS-object identity, no DOM
+    /// entity).
+    ///
+    /// GC contract: payload-free (only a `String`); sweep prunes dead keys
+    /// (`gc/collect.rs`); cleared on [`Vm::unbind`] (the backend handle is
+    /// origin-shared / cross-thread, so retained handles must not outlive
+    /// the bind).
+    #[cfg(feature = "engine")]
+    pub(crate) cache_handle_states: HashMap<ObjectId, host::cache::CacheHandleState>,
+    /// `CacheStorage.prototype` / `Cache.prototype` (installed once at
+    /// global registration; `IllegalConstructor` interfaces).
+    #[cfg(feature = "engine")]
+    pub(crate) cache_storage_prototype: Option<ObjectId>,
+    #[cfg(feature = "engine")]
+    pub(crate) cache_prototype: Option<ObjectId>,
     /// Fan-out map for `AbortSignal` → in-flight `FetchId`s.  When a
     /// signal aborts, [`host::abort::abort_signal`] drains the entry
     /// for that signal's `ObjectId`, sends

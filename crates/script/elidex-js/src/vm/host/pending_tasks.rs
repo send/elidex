@@ -126,6 +126,22 @@ pub(crate) enum PendingTask {
         old_version: u64,
         new_version: u64,
     },
+    /// Cache API §5 "queue a task" deferred Promise settlement
+    /// (`#11-cache-api-vm` / D-19 PR-1, DR-A.1).  Every `caches.*` /
+    /// `Cache.*` op runs its backend call synchronously at the call site,
+    /// marshals the result into an owned [`super::cache::CacheDelivery`]
+    /// outcome, and queues this task; the drain step then settles
+    /// `promise_id` (fulfill / reject).  The inline-outcome shape mirrors
+    /// [`PendingTask::PostMessage`]'s owned payload (a Promise, not an
+    /// IDBRequest object, so there is no request side-store to hang an
+    /// `id`-only outcome on); the deferred-delivery *mechanism* mirrors
+    /// [`PendingTask::IdbDeliver`] (sync backend call -> owned outcome ->
+    /// settle at drain) so the VM keeps exactly one async-delivery model.
+    #[cfg(feature = "engine")]
+    CacheDeliver {
+        promise_id: ObjectId,
+        outcome: super::cache::CacheDelivery,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -246,6 +262,13 @@ impl VmInner {
                     old_version,
                     new_version,
                 );
+            }
+            #[cfg(feature = "engine")]
+            PendingTask::CacheDeliver {
+                promise_id,
+                outcome,
+            } => {
+                super::cache::dispatch_cache_deliver(self, promise_id, outcome);
             }
         }
     }

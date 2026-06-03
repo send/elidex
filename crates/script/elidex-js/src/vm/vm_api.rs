@@ -606,6 +606,13 @@ impl Vm {
             self.inner.idb_key_range_states.clear();
             self.inner.idb_index_states.clear();
             self.inner.idb_cursor_states.clear();
+            // Cache API (D-19 PR-1): drop the per-`Cache`-handle name
+            // tuples.  The shared origin backend handle (`HostData::cache_backend`)
+            // is origin-keyed / cross-thread, so retained `Cache` wrappers
+            // must not observe the prior bind's store after a rebind — the
+            // wrappers resolve to `cache_handle_states` which is now empty,
+            // and a fresh `caches.open(...)` re-registers post-rebind.
+            self.inner.cache_handle_states.clear();
             // D-8 PR-A2 — Range / TreeWalker / NodeIterator state
             // clearing on unbind.  These live on `HostData` (not
             // `VmInner`) because the bridge pair-install happens

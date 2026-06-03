@@ -476,6 +476,13 @@ pub(super) fn trace_work_list(
             // a collectible object, and this arm stays a no-op.
             #[cfg(feature = "engine")]
             ObjectKind::IdbFactory | ObjectKind::IdbKeyRange | ObjectKind::IdbDatabase => {}
+            // Cache API (D-19 PR-1) — `CacheStorage` is a stateless façade
+            // over `HostData::cache_backend`; `Cache` carries only its name
+            // in `cache_handle_states` (a `String`, no `ObjectId`).  Neither
+            // fans out.  The sweep tail prunes `cache_handle_states` entries
+            // whose key was collected (mirrors `headers_states`).
+            #[cfg(feature = "engine")]
+            ObjectKind::CacheStorage | ObjectKind::Cache => {}
             // No ObjectId references — only StringId / scalar fields.
             ObjectKind::Ordinary
             | ObjectKind::NativeFunction(_)

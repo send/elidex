@@ -1148,6 +1148,34 @@ pub enum ObjectKind {
     /// snapshots.
     #[cfg(feature = "engine")]
     IdbCursor,
+    // --- Cache API (D-19 PR-1 `#11-cache-api-vm`; WHATWG Service Workers §5) ---
+    // Payload-free discriminator brands; per-`ObjectId` state lives in the
+    // `VmInner::cache_handle_states` side-store (StorageEvent / IDB precedent).
+    // Cache objects have no DOM entity (pure JS-object identity, like
+    // Promise / IDBFactory), so they are side-store, not ECS components
+    // (CLAUDE.md side-store rule; plan §4).
+    /// `CacheStorage` singleton — the `caches` global (Cache API §5.5).
+    /// Brand-checked receiver for `open` / `has` / `delete` / `keys` /
+    /// `match`; stateless façade over the `HostData` cache backend.
+    ///
+    /// GC contract: payload-free.  The `caches` singleton is rooted via
+    /// `globalThis.caches`; the wrapper carries no inline `ObjectId`.
+    #[cfg(feature = "engine")]
+    CacheStorage,
+    /// `Cache` instance (Cache API §5.4) — vended by `caches.open(name)`.
+    /// Brand-checked receiver for `match` / `matchAll` / `put` / `delete` /
+    /// `keys` (`add` / `addAll` are deferred to slot
+    /// `#11-cache-add-fetch-integration`).  The cache name lives in
+    /// `VmInner::cache_handle_states` keyed by this `ObjectId`; the backing
+    /// store is the shared origin connection (every `Cache` for a given
+    /// name routes to the same `entries` rows, so handle identity carries
+    /// no per-instance data beyond the name).
+    ///
+    /// GC contract: payload-free (the side-store holds only a `String`).
+    /// Sweep tail prunes `cache_handle_states` entries whose key was
+    /// collected.
+    #[cfg(feature = "engine")]
+    Cache,
     /// `Crypto` instance (WebCrypto §10) — accessed via `window.crypto`
     /// singleton.  Payload-free brand; the wrapper is stateless (every
     /// `getRandomValues` / `randomUUID` call routes to OS CSPRNG /

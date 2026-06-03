@@ -81,6 +81,8 @@ pub(super) mod body_mixin;
 #[cfg(feature = "engine")]
 mod byte_io;
 #[cfg(feature = "engine")]
+pub(crate) mod cache;
+#[cfg(feature = "engine")]
 pub(super) mod canvas;
 pub(super) mod character_data_proto;
 pub(super) mod childnode;

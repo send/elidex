@@ -15,6 +15,7 @@
 
 #[cfg(feature = "engine")]
 mod engine_feature {
+    use super::super::host::cache::CacheBackend;
     use super::super::host::observer_common::ObserverBinding;
     use super::super::value::{ObjectId, StringId};
     use super::super::wrapper_intern::{WrapperKey, WrapperKind};
@@ -237,6 +238,17 @@ mod engine_feature {
         /// in-memory and lost on `Vm::unbind`, matching Chrome's
         /// "cookie-averse" fallback for `document.cookie`).
         web_storage: Option<Arc<WebStorageManager>>,
+        /// Origin-keyed Cache API backend (WHATWG Service Workers §5,
+        /// `#11-cache-api-vm` / D-19 PR-1, DR-A).  Wrapped in `Arc` so the
+        /// same origin connection is shared across browsing-context VMs —
+        /// and, in PR-2, handed to the service-worker thread (the wrapper
+        /// is `Send + Sync`).  `None` until the shell calls
+        /// [`Self::install_cache_storage`]; the `caches` natives then
+        /// lazily mint an in-memory backend
+        /// ([`super::super::VmInner::ensure_cache_backend`], boa parity) so
+        /// headless / unit-test VMs still work (per-VM, lost on
+        /// `Vm::unbind`).
+        cache_backend: Option<Arc<CacheBackend>>,
         /// Per-VM `sessionStorage` backing (WHATWG HTML §11.2). In
         /// memory only; cleared on `Vm::unbind` (the spec models
         /// sessionStorage as scoped to a browsing context, so the
@@ -715,6 +727,7 @@ mod engine_feature {
                     elidex_api_observers::intersection::IntersectionObserverRegistry::new(),
                 intersection_observer_bindings: HashMap::new(),
                 web_storage: None,
+                cache_backend: None,
                 session_storage: SessionStorageState::new(),
                 opaque_origin_sentinel: next_opaque_origin_id(),
                 fallback_local_storage: SessionStorageState::new(),
@@ -873,6 +886,29 @@ mod engine_feature {
         /// [`Self::fallback_local_storage`] in that case.
         pub(crate) fn web_storage(&self) -> Option<&Arc<WebStorageManager>> {
             self.web_storage.as_ref()
+        }
+
+        /// Install the shell-owned origin Cache API backend (DR-A,
+        /// `#11-cache-api-vm`).  Production embedders share one
+        /// `Arc<CacheBackend>` per origin across browsing-context VMs (and,
+        /// in PR-2, the service-worker thread) so the `caches` store is
+        /// consistent within a session; tests pass an in-memory one.
+        /// Idempotent replace.
+        ///
+        /// `pub(crate)` for PR-1 (window-realm only — the lazy in-memory
+        /// fallback in `VmInner::ensure_cache_backend` is the sole caller).
+        /// PR-2 / D-26 promotes this to `pub` + re-exports `CacheBackend`
+        /// when the shell wires the origin-shared handle across the
+        /// service-worker spawn boundary (§4.1).
+        pub(crate) fn install_cache_storage(&mut self, backend: Arc<CacheBackend>) {
+            self.cache_backend = Some(backend);
+        }
+
+        /// Borrow the installed Cache API backend, if any.  `None` until the
+        /// shell installs one or [`super::super::VmInner::ensure_cache_backend`]
+        /// lazily mints an in-memory fallback.
+        pub(crate) fn cache_backend(&self) -> Option<&Arc<CacheBackend>> {
+            self.cache_backend.as_ref()
         }
 
         /// Stable per-VM opaque-origin string (e.g. `"opaque-origin:7"`).

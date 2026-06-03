@@ -210,17 +210,72 @@ pub fn entry_matches(
             if header_name == "*" {
                 return false; // Vary: * means never match
             }
-            let request_value = request_headers
-                .iter()
-                .find(|(k, _)| k.eq_ignore_ascii_case(header_name))
-                .map_or("", |(_, v)| v.as_str());
-            if cached_value != request_value {
+            let request_value = join_header_values(request_headers, header_name);
+            if cached_value != &request_value {
                 return false;
             }
         }
     }
 
     true
+}
+
+/// Combine every request header field-line whose name matches `name`
+/// (ASCII-case-insensitively) into a single value joined by `", "`,
+/// matching Fetch `Headers.get` semantics.  Multiple same-name lines (e.g.
+/// built via `Headers.append`) are equivalent to one comma-joined field, so
+/// Vary selection must compare the combined value, not just the first line.
+/// No match yields the empty string (parity with an absent header).
+fn join_header_values(headers: &[(String, String)], name: &str) -> String {
+    let mut out = String::new();
+    let mut first = true;
+    for (k, v) in headers {
+        if k.eq_ignore_ascii_case(name) {
+            if !first {
+                out.push_str(", ");
+            }
+            out.push_str(v);
+            first = false;
+        }
+    }
+    out
+}
+
+/// Derive a cached entry's `vary_headers` match key from a response's
+/// `Vary` header (WHATWG Service Workers §5.4.5 "Cache.put").
+///
+/// For each header name listed in the response's `Vary` header, captures
+/// the request's value for that header — the `(name, request-value)` pairs
+/// that [`entry_matches`] later compares a new request against.  `Vary: *`
+/// is the §5.4.5 put rejection: returns [`crate::CacheError::Invalid`] so
+/// the caller can surface a `TypeError`.  This is the production half of
+/// the Vary algorithm whose consumption half is `entry_matches`, kept in
+/// the same crate so both halves stay together.
+pub fn compute_vary_key(
+    response_headers: &[(String, String)],
+    request_headers: &[(String, String)],
+) -> Result<Vec<(String, String)>, crate::CacheError> {
+    let mut out = Vec::new();
+    for (name, value) in response_headers {
+        if !name.eq_ignore_ascii_case("vary") {
+            continue;
+        }
+        for token in value.split(',') {
+            let token = token.trim();
+            if token == "*" {
+                return Err(crate::CacheError::Invalid(
+                    "a response with 'Vary: *' cannot be cached".to_owned(),
+                ));
+            }
+            if token.is_empty() {
+                continue;
+            }
+            let lower = token.to_ascii_lowercase();
+            let req_value = join_header_values(request_headers, &lower);
+            out.push((lower, req_value));
+        }
+    }
+    Ok(out)
 }
 
 /// Parse a JSON array of [name, value] pairs into `Vec<(String, String)>`.
@@ -422,6 +477,54 @@ mod tests {
     }
 
     #[test]
+    fn vary_key_joins_multivalued_request_header() {
+        // Fetch `Headers.get` joins same-name field-lines with ", "; Vary
+        // selection compares the combined value, not just the first line.
+        let resp = vec![("vary".to_string(), "accept".to_string())];
+        let req_put = vec![
+            ("accept".to_string(), "a".to_string()),
+            ("accept".to_string(), "b".to_string()),
+        ];
+        let key = compute_vary_key(&resp, &req_put).unwrap();
+        assert_eq!(key, vec![("accept".to_string(), "a, b".to_string())]);
+
+        let entry = CachedEntry {
+            request_url: "https://e.com/".into(),
+            request_method: "GET".into(),
+            request_headers: vec![],
+            response_status: 200,
+            response_status_text: "OK".into(),
+            response_headers: vec![],
+            response_body: vec![],
+            response_url_list: vec![],
+            response_type: ResponseType::Basic,
+            vary_headers: key,
+            is_opaque: false,
+        };
+        // A request whose *combined* Accept differs must NOT match, even
+        // though its first Accept line ("a") equals the stored key's first.
+        let req_diff = vec![
+            ("accept".to_string(), "a".to_string()),
+            ("accept".to_string(), "c".to_string()),
+        ];
+        assert!(!entry_matches(
+            &entry,
+            "https://e.com/",
+            "GET",
+            &req_diff,
+            &MatchOptions::default()
+        ));
+        // The same combined value DOES match.
+        assert!(entry_matches(
+            &entry,
+            "https://e.com/",
+            "GET",
+            &req_put,
+            &MatchOptions::default()
+        ));
+    }
+
+    #[test]
     fn vary_star_never_matches() {
         let entry = CachedEntry {
             request_url: "https://example.com/".into(),
@@ -466,6 +569,45 @@ mod tests {
         };
         // Opaque should be ~3x normal
         assert!(entry.quota_size() > non_opaque.quota_size() * 2);
+    }
+
+    #[test]
+    fn compute_vary_key_captures_request_values() {
+        let resp = vec![("vary".to_owned(), "Accept, Accept-Language".to_owned())];
+        let req = vec![
+            ("accept".to_owned(), "application/json".to_owned()),
+            ("accept-language".to_owned(), "en".to_owned()),
+        ];
+        let key = compute_vary_key(&resp, &req).unwrap();
+        assert_eq!(
+            key,
+            vec![
+                ("accept".to_owned(), "application/json".to_owned()),
+                ("accept-language".to_owned(), "en".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn compute_vary_key_missing_request_header_is_empty_value() {
+        let resp = vec![("Vary".to_owned(), "Accept".to_owned())];
+        let key = compute_vary_key(&resp, &[]).unwrap();
+        assert_eq!(key, vec![("accept".to_owned(), String::new())]);
+    }
+
+    #[test]
+    fn compute_vary_key_star_is_rejected() {
+        let resp = vec![("vary".to_owned(), "*".to_owned())];
+        assert!(matches!(
+            compute_vary_key(&resp, &[]),
+            Err(crate::CacheError::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn compute_vary_key_no_vary_header_is_empty() {
+        let resp = vec![("content-type".to_owned(), "text/html".to_owned())];
+        assert!(compute_vary_key(&resp, &[]).unwrap().is_empty());
     }
 
     #[test]
