@@ -199,7 +199,9 @@ pub(crate) struct RunComplexity {
 /// keeps the persist key and `run[0]` in agreement.
 fn first_eligible_child(dom: &EcsDom, children: &[Entity]) -> Option<Entity> {
     for &child in children {
-        match crate::try_get_style(dom, child) {
+        // Borrowed read (no `ComputedStyle` clone like `try_get_style`) — this scan
+        // only reads `position`/`display`, in a per-child loop on the inline-collect path.
+        match dom.world().get::<&ComputedStyle>(child).ok() {
             // Mirrors render: `is_positioned` (position != static) → skip without
             // flushing; `is_block_level` (render's `is_block_child`, which the box
             // it gets in-flow satisfies) → flush, ending the pre-block run; anything
@@ -233,7 +235,10 @@ fn first_eligible_child(dom: &EcsDom, children: &[Entity]) -> Option<Entity> {
 /// it stays safe in the sub-flow.
 fn has_direct_block_child(dom: &EcsDom, children: &[Entity]) -> bool {
     children.iter().any(|&c| {
-        crate::try_get_style(dom, c).is_some_and(|s| crate::block::is_block_level(s.display))
+        // Borrowed read (no `ComputedStyle` clone) — only `display` is read here.
+        dom.world()
+            .get::<&ComputedStyle>(c)
+            .is_ok_and(|s| crate::block::is_block_level(s.display))
     })
 }
 
