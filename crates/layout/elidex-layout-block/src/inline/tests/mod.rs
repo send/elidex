@@ -4,6 +4,7 @@ use elidex_plugin::{Dimension, Point, WritingMode};
 
 mod baseline;
 mod inline_flow;
+mod relpos_subflow;
 mod text_height;
 
 /// Collect only text runs from inline items (for tests that don't need atomics).
@@ -13,7 +14,7 @@ fn collect_styled_runs(
     parent_style: &ComputedStyle,
     parent_entity: Entity,
 ) -> Vec<StyledRun> {
-    let (items, _) = collect_inline_items(dom, children, parent_style, parent_entity);
+    let (items, ..) = collect_inline_items(dom, children, parent_style, parent_entity);
     items
         .into_iter()
         .filter_map(|item| match item {

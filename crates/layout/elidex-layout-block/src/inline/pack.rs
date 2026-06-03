@@ -207,22 +207,35 @@ pub(super) struct LinePacker {
     /// First baseline offset from the inline formatting context top.
     /// Captured from the first text run on the first line.
     pub first_baseline: Option<f32>,
-    /// When `Some`, persist collapsed + positioned text runs into `flow_lines`
-    /// (the `InlineFlow` source, consumed by render). `None` skips recording.
+    /// When `Some`, persist collapsed + positioned runs into `flow_lines` (the
+    /// `InlineFlow` source, consumed by render). `None` skips recording.
     flow_align: Option<FlowAlign>,
-    /// Per-line positioned text runs tentatively collected for the current line,
-    /// committed into `flow_lines` on a rendered-content flush (the same
-    /// commit-on-content seam as `current_line_entity_rects`) and discarded on a
-    /// suppressed (collapsible-whitespace-only) line.
-    current_line_runs: Vec<InlineFlowRun>,
+    /// Per-line positioned members tentatively collected for the current line,
+    /// **bucketed by render-run-group key** (the run-start `run[0]` each group's
+    /// `InlineFlow` persists on — the top-level run-start or a `position:relative`/
+    /// `sticky` inline's sub-flow key; see `StyledRun::group_key`). Committed into
+    /// `flow_lines` on a rendered-content flush (the same commit-on-content seam as
+    /// `current_line_entity_rects`), discarded on a suppressed line. The line's
+    /// `text-align` offset is shared across all groups on the line (line-level).
+    current_line_runs: HashMap<Entity, Vec<InlineFlowRun>>,
+    /// Entity of the most recent flow member placed on the current line (text or
+    /// atomic), or `None` at line start. Text break-pieces coalesce into one run
+    /// only when **immediately** preceded by the same entity — with per-group
+    /// buckets, a group's `last` run is no longer the globally-last placement, so a
+    /// same-entity run separated by an intervening positioned-sub-flow member (e.g.
+    /// `a` and `c` in `a<span rel>b</span>c`, both the parent's text) must NOT merge
+    /// across the gap. This tracks the contiguity the single-Vec model got for free.
+    last_placed_entity: Option<Entity>,
     /// Trailing collapsible-whitespace "hang" of the last segment placed on the
     /// current line (`full_width − trimmed_width`), subtracted from the line
     /// advance to get the trimmed line width for `text-align` (CSS Text 3 §4.1.2
     /// trailing spaces do not count toward alignment).
     current_line_last_hang: f32,
-    /// Persisted per-line positioned runs in IFC-local coordinates (the caller
-    /// converts to absolute and wraps in an `InlineFlow`).
-    pub flow_lines: Vec<InlineFlowLine>,
+    /// Persisted per-line positioned runs in IFC-local coordinates, **bucketed by
+    /// render-run-group key**: one entry per group (top-level + each converged
+    /// positioned-inline sub-flow). The caller folds each to absolute and persists
+    /// one `InlineFlow` per key.
+    pub flow_lines: HashMap<Entity, Vec<InlineFlowLine>>,
 }
 
 impl LinePacker {
@@ -240,9 +253,10 @@ impl LinePacker {
             parent_entity,
             first_baseline: None,
             flow_align,
-            current_line_runs: Vec::new(),
+            current_line_runs: HashMap::new(),
+            last_placed_entity: None,
             current_line_last_hang: 0.0,
-            flow_lines: Vec::new(),
+            flow_lines: HashMap::new(),
         }
     }
 
@@ -281,28 +295,34 @@ impl LinePacker {
                         line_rects: vec![rect],
                     });
             }
-            // Commit the line's positioned text runs into flow_lines, baking the
-            // per-line text-align offset into each run's inline_start. The line
-            // width for alignment excludes the trailing collapsible-whitespace
-            // hang of the last segment (CSS Text 3 §4.1.2).
+            // Commit the line's positioned members into flow_lines, per group,
+            // baking the per-line text-align offset into each run's inline_start.
+            // The offset is line-level (computed once from the whole line's trimmed
+            // width — excluding the trailing collapsible-whitespace hang of the last
+            // segment, CSS Text 3 §4.1.2), so every group on the line shifts by the
+            // same amount. Each group with runs appends one InlineFlowLine to its own
+            // flow_lines bucket.
             if let Some(fa) = self.flow_align {
                 let line_width = self.current_inline - self.current_line_last_hang;
                 let free = (fa.containing_inline_size - line_width).max(0.0);
                 let offset = align_offset(resolve_align(fa.text_align, fa.direction), free);
-                let runs: Vec<InlineFlowRun> = self
-                    .current_line_runs
-                    .drain(..)
-                    .map(|mut r| {
+                let block_start = self.current_block_offset;
+                let block_size = self.current_line_height;
+                for (group_key, mut runs) in self.current_line_runs.drain() {
+                    if runs.is_empty() {
+                        continue;
+                    }
+                    for r in &mut runs {
                         *r.inline_start_mut() += offset;
-                        r
-                    })
-                    .collect();
-                if !runs.is_empty() {
-                    self.flow_lines.push(InlineFlowLine {
-                        block_start: self.current_block_offset,
-                        block_size: self.current_line_height,
-                        runs,
-                    });
+                    }
+                    self.flow_lines
+                        .entry(group_key)
+                        .or_default()
+                        .push(InlineFlowLine {
+                            block_start,
+                            block_size,
+                            runs,
+                        });
                 }
             }
             self.current_block_offset += self.current_line_height;
@@ -317,6 +337,10 @@ impl LinePacker {
         self.current_line_height = 0.0;
         self.current_line_last_hang = 0.0;
         self.any_rendered_content = false;
+        // New line starts a fresh run even for the same entity (its buckets were
+        // drained/cleared above, but reset explicitly so coalescing can't reach
+        // across the line break).
+        self.last_placed_entity = None;
     }
 
     pub fn pack(
@@ -399,6 +423,7 @@ impl LinePacker {
                     containing_inline_size,
                     contributes_content,
                     FlowMember::Text(text),
+                    run.group_key,
                 );
 
                 if *break_after == Some(BreakOpportunity::Mandatory) {
@@ -410,6 +435,7 @@ impl LinePacker {
                     entity,
                     inline_size,
                     block_size,
+                    group_key,
                 } = &items[*item_index]
                 else {
                     return;
@@ -441,10 +467,11 @@ impl LinePacker {
                 // Atomic boxes don't break internally; treat as a single unit. An
                 // atomic inline box is always rendered content. When persisting (a
                 // *static* atomic — relpos/sticky atomics are gated out via
-                // `has_relpos_sticky`), `place_item` records an `AtomicBox` member at
-                // this position; render paints it by `walk()`-ing the entity at the
-                // `LayoutBox` layout repositions to the member's `inline_start`
-                // (slice 3p-a). A non-persisting run records nothing (render legacy).
+                // `has_relpos_sticky_atomic`), `place_item` records an `AtomicBox`
+                // member in this atomic's group bucket; render paints it by
+                // `walk()`-ing the entity at the `LayoutBox` layout repositions to
+                // the member's `inline_start` (slice 3p-a). A non-persisting run, or
+                // a member with a `None` group key, records nothing (render legacy).
                 self.place_item(
                     *inline_size,
                     *inline_size,
@@ -453,6 +480,7 @@ impl LinePacker {
                     containing_inline_size,
                     true,
                     FlowMember::Atomic,
+                    *group_key,
                 );
             }
             PackItem::Placeholder { entity } => {
@@ -476,6 +504,7 @@ impl LinePacker {
         containing_inline_size: f32,
         contributes_content: bool,
         member: FlowMember<'_>,
+        group_key: Option<Entity>,
     ) {
         if self.current_inline + trimmed_width > containing_inline_size && self.on_line {
             self.flush_line();
@@ -504,31 +533,43 @@ impl LinePacker {
             ));
         }
 
-        // Record the InlineFlow member for this placed item (only when persisting).
-        // Text: coalesce contiguous same-entity break-pieces on this line into one
-        // run so render shapes whole words rather than per-break fragments (CSS Text
-        // 3 §5.6 Shaping Across Intra-word Breaks); the run keeps the first piece's
-        // inline_start, and a different-entity / post-flush / atomic-interrupted
-        // segment starts a fresh run. Atomic: its own AtomicBox member at this
-        // position (render walk()s the entity at its repositioned LayoutBox).
-        if self.flow_align.is_some() {
+        // Record the InlineFlow member for this placed item into its render-run-
+        // group bucket (only when persisting and the item has a group key — a
+        // positioned subtree with a direct block child has `None`, records nothing
+        // → render legacy). Text: coalesce contiguous same-entity break-pieces on
+        // this line into one run so render shapes whole words rather than per-break
+        // fragments (CSS Text 3 §5.6 Shaping Across Intra-word Breaks). "Contiguous"
+        // = the IMMEDIATELY-previous placed member was the same entity
+        // (`last_placed_entity`) — NOT merely the group bucket's last run, which
+        // with sub-flows can be a same-entity run separated by an intervening
+        // positioned member (the `a … c` gap in `a<span rel>b</span>c`). Same entity
+        // ⟹ same group, so the bucket's last IS that previous run. A different-
+        // entity / post-flush / atomic-interrupted segment starts a fresh run (an
+        // atomic's entity differs from surrounding text, so the contiguity check
+        // breaks naturally). Atomic: its own AtomicBox member at this position
+        // (render walk()s the entity at its repositioned LayoutBox).
+        if let (true, Some(gk)) = (self.flow_align.is_some(), group_key) {
+            let coalesce =
+                matches!(member, FlowMember::Text(_)) && self.last_placed_entity == Some(entity);
+            let bucket = self.current_line_runs.entry(gk).or_default();
             match member {
-                FlowMember::Text(text) => match self.current_line_runs.last_mut() {
-                    Some(InlineFlowRun::Text {
-                        entity: e, text: t, ..
-                    }) if *e == entity => t.push_str(text),
-                    _ => self.current_line_runs.push(InlineFlowRun::Text {
+                FlowMember::Text(text) => match bucket.last_mut() {
+                    Some(InlineFlowRun::Text { text: t, .. }) if coalesce => t.push_str(text),
+                    _ => bucket.push(InlineFlowRun::Text {
                         entity,
                         text: text.to_string(),
                         inline_start: seg_inline_start,
                     }),
                 },
-                FlowMember::Atomic => self.current_line_runs.push(InlineFlowRun::AtomicBox {
+                FlowMember::Atomic => bucket.push(InlineFlowRun::AtomicBox {
                     entity,
                     inline_start: seg_inline_start,
                 }),
             }
         }
+        // Track the last placed entity for the next member's contiguity check
+        // (updated for every placed text/atomic member, recorded or not).
+        self.last_placed_entity = Some(entity);
     }
 
     fn force_break(&mut self) {

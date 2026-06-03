@@ -5,8 +5,9 @@ use super::*;
 use elidex_ecs::{InlineFlow, InlineFlowRun, PseudoElementMarker, TextContent};
 use elidex_plugin::{Direction, Position, TextAlign, TextTransform, WritingMode};
 
-/// Build a `LayoutEnv` for the test font db.
-fn env(font_db: &FontDatabase) -> crate::LayoutEnv<'_> {
+/// Build a `LayoutEnv` for the test font db. `pub(super)` so the sibling
+/// `relpos_subflow` test module can reuse it.
+pub(super) fn env(font_db: &FontDatabase) -> crate::LayoutEnv<'_> {
     crate::LayoutEnv {
         font_db,
         layout_child: crate::layout_block_only,
@@ -255,48 +256,13 @@ fn persists_atomic_inline_as_box_member() {
 }
 
 #[test]
-fn gate_excludes_relative_positioned_inline() {
-    let Some((mut dom, parent, style, font_db)) = setup_inline_test("") else {
-        return;
-    };
-    for &c in &dom.composed_children(parent) {
-        dom.remove_child(parent, c);
-    }
-    let span = dom.create_element("span", Attributes::default());
-    let span_style = ComputedStyle {
-        position: Position::Relative,
-        font_family: style.font_family.clone(),
-        ..Default::default()
-    };
-    let _ = dom.world_mut().insert_one(span, span_style);
-    let t = dom.create_text("x");
-    dom.append_child(span, t);
-    dom.append_child(parent, span);
-
-    let children = dom.composed_children(parent);
-    let key = run_start(&dom, parent);
-    layout_inline_context(
-        &mut dom,
-        &children,
-        800.0,
-        parent,
-        Point::ZERO,
-        &env(&font_db),
-    );
-
-    assert!(
-        dom.world().get::<&InlineFlow>(key).is_err(),
-        "relative/sticky positioned inline is in-flow in layout but Layer-6 in render \
-         → must not persist"
-    );
-}
-
-#[test]
 fn gate_excludes_relative_positioned_atomic() {
     // A relpos/sticky *atomic* (inline-block) takes the atomic collect arm, which
-    // (slice 3p-a) sets `has_relpos_sticky` so the run stays gated — render paints it
-    // in Layer 6 (slice 3p-b owns its convergence). Without the arm's `position`
-    // check it would persist an `AtomicBox` member and double-paint with Layer 6.
+    // sets `has_relpos_sticky_atomic` so the run stays gated — render paints it in
+    // Layer 6 from its own `LayoutBox`. Converging it needs an offset-preserving box
+    // reposition (a *different* mechanism than the slice-3p-b sub-flow), deferred to
+    // slice 3p-b-2. Without the arm's `position` check it would persist an
+    // `AtomicBox` member and double-paint with Layer 6.
     let Some((mut dom, parent, style, font_db)) = setup_inline_test("a") else {
         return;
     };
@@ -325,8 +291,8 @@ fn gate_excludes_relative_positioned_atomic() {
 
     assert!(
         dom.world().get::<&InlineFlow>(key).is_err(),
-        "a relative-positioned atomic inline must NOT persist (has_relpos_sticky gates \
-         it via the atomic arm; it paints in render Layer 6) — else it double-paints"
+        "a relative-positioned atomic inline must NOT persist (has_relpos_sticky_atomic \
+         gates it via the atomic arm; it paints in render Layer 6) — else it double-paints"
     );
 }
 
