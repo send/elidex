@@ -1,5 +1,14 @@
-//! Slice 3p-b tests — `position:relative`/`sticky` inline subtrees converged as
-//! per-positioned-subtree `InlineFlow` sub-flows (the Layer-6 `walk(span)` path).
+//! Positioned inline-level convergence tests (the Layer-6 paint path):
+//! - **Slice 3p-b** — `position:relative`/`sticky` inline *subtrees* converged as
+//!   per-positioned-subtree `InlineFlow` sub-flows (the `walk(span)` path).
+//! - **Slice 3p-b-2** — `position:relative`/`sticky` *atomic* inlines
+//!   (`inline-block` etc.) converged by an offset-preserving `LayoutBox` reposition
+//!   (NOT a flow member — render Layer 6 paints the box, so a member would
+//!   double-paint). Offset *preservation* needs the real `dispatch_layout_child`
+//!   (which bakes `apply_relative_offset`); `layout_block_only` here does not, so
+//!   these tests cover the gate-drop / non-membership / reposition, and the
+//!   offset-preservation crux lives in the `elidex-layout` integration test.
+//!
 //! Split out of `inline_flow.rs` (which exceeded the repo's ~1000-line convention)
 //! as a sibling topic module, mirroring `baseline` / `text_height`. Reuses `env`
 //! from `inline_flow` and `setup_inline_test` from the parent test module.
@@ -7,7 +16,7 @@
 use super::inline_flow::env;
 use super::*;
 use elidex_ecs::{InlineFlow, InlineFlowRun};
-use elidex_plugin::{Position, WritingMode};
+use elidex_plugin::{Position, TextTransform, WritingMode};
 
 /// Append a `position:relative` inline `<span>` containing `text` to `parent`, then
 /// a trailing text node `tail`. Returns `(span, span's text node, tail text node)`.
@@ -572,5 +581,239 @@ fn relpos_subflow_key_flattens_display_contents() {
     assert!(
         dom.world().get::<&InlineFlow>(contents).is_err(),
         "NOT keyed on the display:contents wrapper (render flattens it away)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Slice 3p-b-2 — relpos/sticky ATOMIC inlines (offset-preserving box reposition)
+// ---------------------------------------------------------------------------
+
+/// Append a 20×20 `inline-block` with `position` `pos` to `parent`; returns it.
+fn append_inline_block(
+    dom: &mut EcsDom,
+    parent: Entity,
+    families: &[String],
+    pos: Position,
+) -> Entity {
+    let ib = dom.create_element("span", Attributes::default());
+    let _ = dom.world_mut().insert_one(
+        ib,
+        ComputedStyle {
+            display: Display::InlineBlock,
+            position: pos,
+            width: Dimension::Length(20.0),
+            height: Dimension::Length(20.0),
+            font_family: families.to_vec(),
+            ..Default::default()
+        },
+    );
+    dom.append_child(parent, ib);
+    ib
+}
+
+#[test]
+fn relpos_atomic_persists_and_repositions_not_a_flow_member() {
+    // Slice 3p-b-2: a `position:relative` *atomic* (inline-block) no longer gates the
+    // run. `<p>a<ib rel></ib>c</p>`: the top-level flow persists with Text members
+    // for `a` and `c`, the relpos atomic is NOT an `AtomicBox` flow member (render
+    // Layer 6 paints it — a member would double-paint with Layer 5), and its
+    // `LayoutBox` is repositioned off the IFC origin to its on-line position.
+    // (`layout_block_only` sizes the inline-block to the full container width — so it
+    // wraps onto its own line below `a`, like `static_atomic_inside_relpos_subflow_*`
+    // — and bakes no relative offset; the precise in-flow gap + offset preservation
+    // need the real dispatcher and live in the `elidex-layout` integration test.)
+    // Inverts the old `gate_excludes_relative_positioned_atomic`.
+    let Some((mut dom, parent, style, font_db)) = setup_inline_test("a") else {
+        return;
+    };
+    let a_text = dom.composed_children(parent)[0];
+    let ib = append_inline_block(&mut dom, parent, &style.font_family, Position::Relative);
+    let c_text = dom.create_text("c");
+    dom.append_child(parent, c_text);
+
+    let children = dom.composed_children(parent);
+    layout_inline_context(
+        &mut dom,
+        &children,
+        800.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+    );
+
+    // The run now persists (gate dropped). Top-level flow on the `a` text node.
+    let flow = dom
+        .world()
+        .get::<&InlineFlow>(a_text)
+        .expect("slice 3p-b-2: a run containing a relpos atomic now persists (gate dropped)");
+    let members: Vec<_> = flow.lines.iter().flat_map(|l| l.runs.iter()).collect();
+    // `a` and `c` both persist as Text members (the atomic interrupts coalescing).
+    assert!(
+        members.iter().any(|m| m.text() == Some("a"))
+            && members.iter().any(|m| m.text() == Some("c")),
+        "both `a` and `c` are top-level Text members — got {members:?}"
+    );
+    // The relpos atomic is NOT a flow member (no AtomicBox, no `ib` entity).
+    assert!(
+        members
+            .iter()
+            .all(|m| matches!(m, InlineFlowRun::Text { .. }) && m.entity() != ib),
+        "the relpos atomic must NOT be an AtomicBox flow member (Layer 6 paints it; a \
+         member would double-paint) — members: {members:?}"
+    );
+    // The relpos atomic's box was repositioned away from the IFC origin where
+    // `layout_atomic_items` placed it (on-line after `a`, or — full-width under
+    // `layout_block_only` — wrapped onto its own line below `a`).
+    let lb = dom
+        .world()
+        .get::<&LayoutBox>(ib)
+        .expect("the relpos atomic has a LayoutBox");
+    assert!(
+        lb.content.origin.x > 0.0 || lb.content.origin.y > 0.0,
+        "the relpos atomic was repositioned off the IFC origin, got ({}, {})",
+        lb.content.origin.x,
+        lb.content.origin.y
+    );
+}
+
+#[test]
+fn relpos_atomic_with_text_transform_stays_on_legacy() {
+    // D6 co-occurrence: a run that ALSO has `text-transform` stays gated (a
+    // transform-slice concern) and falls to render legacy ENTIRELY — the relpos
+    // atomic is then NOT repositioned (it stays at the IFC origin, as today). The
+    // relpos-atomic convergence only applies on the persistable path.
+    let Some((mut dom, parent, mut style, font_db)) = setup_inline_test("a") else {
+        return;
+    };
+    style.text_transform = TextTransform::Uppercase;
+    let _ = dom.world_mut().insert_one(parent, style.clone());
+    let a_text = dom.composed_children(parent)[0];
+    let ib = append_inline_block(&mut dom, parent, &style.font_family, Position::Relative);
+
+    let children = dom.composed_children(parent);
+    layout_inline_context(
+        &mut dom,
+        &children,
+        800.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+    );
+
+    assert!(
+        dom.world().get::<&InlineFlow>(a_text).is_err(),
+        "text-transform gates the whole run → no InlineFlow persists"
+    );
+    let lb = dom
+        .world()
+        .get::<&LayoutBox>(ib)
+        .expect("the atomic is still laid out (at the IFC origin)");
+    assert_eq!(
+        lb.content.origin,
+        Point::ZERO,
+        "a gated run does NOT reposition its relpos atomic — it stays where \
+         layout_atomic_items placed it (the IFC content origin = ZERO here)"
+    );
+}
+
+#[test]
+fn relpos_atomic_repositioned_in_vertical_ifc() {
+    // The relpos-atomic reposition folds with the same is_vertical swap the flow
+    // members get (inline-axis → physical y, block-axis → physical x).
+    // `<p vertical-rl><ib1/><ib2 rel/></p>`: ib1 (static) advances the inline (y) axis
+    // by its 20px height, so ib2 (relpos) lands at inline-y = 20 and is repositioned
+    // there — NOT a flow member. Two inline-blocks → no text/font dependency.
+    let Some((mut dom, parent, mut style, font_db)) = setup_inline_test("") else {
+        return;
+    };
+    for &c in &dom.composed_children(parent) {
+        dom.remove_child(parent, c);
+    }
+    style.writing_mode = WritingMode::VerticalRl;
+    let _ = dom.world_mut().insert_one(parent, style.clone());
+    let ib1 = append_inline_block(&mut dom, parent, &style.font_family, Position::Static);
+    let ib2 = append_inline_block(&mut dom, parent, &style.font_family, Position::Relative);
+
+    let children = dom.composed_children(parent);
+    layout_inline_context(
+        &mut dom,
+        &children,
+        800.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+    );
+
+    // ib2 (relpos) repositioned along the inline (y) axis past ib1's 20px advance.
+    let lb = dom
+        .world()
+        .get::<&LayoutBox>(ib2)
+        .expect("the relpos atomic has a LayoutBox");
+    assert!(
+        lb.content.origin.y > 0.0,
+        "vertical relpos atomic repositioned along the inline (y) axis, got y={}",
+        lb.content.origin.y
+    );
+    // It is NOT a flow member (the flow keyed on ib1 holds only ib1's AtomicBox).
+    let ib2_is_member = dom.world().get::<&InlineFlow>(ib1).is_ok_and(|flow| {
+        flow.lines
+            .iter()
+            .flat_map(|l| l.runs.iter())
+            .any(|m| m.entity() == ib2)
+    });
+    assert!(
+        !ib2_is_member,
+        "the relpos atomic ib2 must not be a flow member"
+    );
+}
+
+#[test]
+fn sticky_atomic_persists_and_repositions_not_a_flow_member() {
+    // The `positioned` collect predicate covers `Sticky` too (`matches!(position,
+    // Relative | Sticky)`): a `position:sticky` atomic takes the same non-flow-member
+    // reposition path as a relpos one. `dispatch_layout_child` bakes no offset for
+    // sticky (scroll offset unimplemented), so it repositions to the bare on-line
+    // position — but the routing (gate-drop + not a flow member + reposition) must
+    // match. Mirrors `relpos_atomic_persists_and_repositions_not_a_flow_member` with
+    // Sticky, exercising the otherwise-untested arm of the predicate.
+    let Some((mut dom, parent, style, font_db)) = setup_inline_test("a") else {
+        return;
+    };
+    let a_text = dom.composed_children(parent)[0];
+    let ib = append_inline_block(&mut dom, parent, &style.font_family, Position::Sticky);
+
+    let children = dom.composed_children(parent);
+    layout_inline_context(
+        &mut dom,
+        &children,
+        800.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+    );
+
+    // The run persists (a sticky atomic does not gate it).
+    let flow = dom
+        .world()
+        .get::<&InlineFlow>(a_text)
+        .expect("a run containing a sticky atomic persists (gate dropped, same as relpos)");
+    let members: Vec<_> = flow.lines.iter().flat_map(|l| l.runs.iter()).collect();
+    // The sticky atomic is NOT an AtomicBox flow member (Layer 6 paints it).
+    assert!(
+        members
+            .iter()
+            .all(|m| matches!(m, InlineFlowRun::Text { .. }) && m.entity() != ib),
+        "the sticky atomic must NOT be an AtomicBox flow member — got {members:?}"
+    );
+    // Its box was repositioned off the IFC origin (on-line after `a`, or wrapped).
+    let lb = dom
+        .world()
+        .get::<&LayoutBox>(ib)
+        .expect("the sticky atomic has a LayoutBox");
+    assert!(
+        lb.content.origin.x > 0.0 || lb.content.origin.y > 0.0,
+        "the sticky atomic was repositioned off the IFC origin, got ({}, {})",
+        lb.content.origin.x,
+        lb.content.origin.y
     );
 }
