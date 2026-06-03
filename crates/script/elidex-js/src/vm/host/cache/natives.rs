@@ -1,7 +1,7 @@
 //! Cache API native methods (WHATWG Service Workers §5.4 `Cache` / §5.5
 //! `CacheStorage`; slot `#11-cache-api-vm` / D-19 PR-1).
 //!
-//! Every method is Promise-returning.  Per WebIDL §3.7.2.1 a
+//! Every method is Promise-returning.  Per WebIDL §3.7.7 "Operations" a
 //! promise-returning operation turns *all* synchronous failures (bad
 //! receiver brand, argument coercion, the algorithm's own `TypeError`s)
 //! into a **rejected** Promise rather than a thrown exception — so each

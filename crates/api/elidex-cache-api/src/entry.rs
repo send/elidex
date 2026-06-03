@@ -223,6 +223,46 @@ pub fn entry_matches(
     true
 }
 
+/// Derive a cached entry's `vary_headers` match key from a response's
+/// `Vary` header (WHATWG Service Workers §5.4.5 "Cache.put").
+///
+/// For each header name listed in the response's `Vary` header, captures
+/// the request's value for that header — the `(name, request-value)` pairs
+/// that [`entry_matches`] later compares a new request against.  `Vary: *`
+/// is the §5.4.5 put rejection: returns [`crate::CacheError::Invalid`] so
+/// the caller can surface a `TypeError`.  This is the production half of
+/// the Vary algorithm whose consumption half is `entry_matches`, kept in
+/// the same crate so both halves stay together.
+pub fn compute_vary_key(
+    response_headers: &[(String, String)],
+    request_headers: &[(String, String)],
+) -> Result<Vec<(String, String)>, crate::CacheError> {
+    let mut out = Vec::new();
+    for (name, value) in response_headers {
+        if !name.eq_ignore_ascii_case("vary") {
+            continue;
+        }
+        for token in value.split(',') {
+            let token = token.trim();
+            if token == "*" {
+                return Err(crate::CacheError::Invalid(
+                    "a response with 'Vary: *' cannot be cached".to_owned(),
+                ));
+            }
+            if token.is_empty() {
+                continue;
+            }
+            let lower = token.to_ascii_lowercase();
+            let req_value = request_headers
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(&lower))
+                .map_or(String::new(), |(_, v)| v.clone());
+            out.push((lower, req_value));
+        }
+    }
+    Ok(out)
+}
+
 /// Parse a JSON array of [name, value] pairs into `Vec<(String, String)>`.
 fn parse_header_pairs(val: Option<&serde_json::Value>) -> Vec<(String, String)> {
     val.and_then(|v| v.as_array())
@@ -466,6 +506,45 @@ mod tests {
         };
         // Opaque should be ~3x normal
         assert!(entry.quota_size() > non_opaque.quota_size() * 2);
+    }
+
+    #[test]
+    fn compute_vary_key_captures_request_values() {
+        let resp = vec![("vary".to_owned(), "Accept, Accept-Language".to_owned())];
+        let req = vec![
+            ("accept".to_owned(), "application/json".to_owned()),
+            ("accept-language".to_owned(), "en".to_owned()),
+        ];
+        let key = compute_vary_key(&resp, &req).unwrap();
+        assert_eq!(
+            key,
+            vec![
+                ("accept".to_owned(), "application/json".to_owned()),
+                ("accept-language".to_owned(), "en".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn compute_vary_key_missing_request_header_is_empty_value() {
+        let resp = vec![("Vary".to_owned(), "Accept".to_owned())];
+        let key = compute_vary_key(&resp, &[]).unwrap();
+        assert_eq!(key, vec![("accept".to_owned(), String::new())]);
+    }
+
+    #[test]
+    fn compute_vary_key_star_is_rejected() {
+        let resp = vec![("vary".to_owned(), "*".to_owned())];
+        assert!(matches!(
+            compute_vary_key(&resp, &[]),
+            Err(crate::CacheError::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn compute_vary_key_no_vary_header_is_empty() {
+        let resp = vec![("content-type".to_owned(), "text/html".to_owned())];
+        assert!(compute_vary_key(&resp, &[]).unwrap().is_empty());
     }
 
     #[test]

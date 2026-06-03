@@ -119,13 +119,13 @@ pub(super) fn build_response_from_entry(vm: &mut VmInner, entry: &CachedEntry) -
     }
 
     let status_text_sid = vm.strings.intern(&entry.response_status_text);
-    // Fetch spec: `response.url` is the final URL after redirects (last in
-    // the chain), falling back to the request URL for a synthetic entry.
-    let final_url = entry
-        .response_url_list
-        .last()
-        .cloned()
-        .unwrap_or_else(|| entry.request_url.clone());
+    // Fetch §2.2.6: `response.url` is the final URL after redirects (last in
+    // the chain), or the **empty string** when the URL list is empty (a
+    // synthetic `new Response(...)`).  Do NOT synthesize it from the request
+    // URL — the Cache "match" algorithm returns the stored response's own
+    // URL, so a synthetic response's `url` must stay `""` across a put/match
+    // round-trip.
+    let final_url = entry.response_url_list.last().cloned().unwrap_or_default();
     let url_sid = vm.strings.intern(&final_url);
     vm.response_states.insert(
         id,
@@ -200,7 +200,15 @@ pub(super) fn resolve_request(
     ctx: &mut NativeContext<'_>,
     arg: Option<&JsValue>,
 ) -> Result<ResolvedRequest, VmError> {
-    let arg = arg.copied().unwrap_or(JsValue::Undefined);
+    // A missing argument (0 args to a required-`request` op — `match` /
+    // `delete`) is a WebIDL TypeError, surfaced as a rejected Promise.  The
+    // optional-request callers (`matchAll` / `keys`) handle the no-request
+    // case themselves and only reach here with an explicit value.
+    let Some(&arg) = arg else {
+        return Err(VmError::type_error(
+            "Failed to execute a Cache method: 1 argument required, but only 0 present.",
+        ));
+    };
     if let JsValue::Object(id) = arg {
         if matches!(ctx.vm.get_object(id).kind, ObjectKind::Request) {
             let (method_sid, url_sid, headers_id) = {
@@ -248,6 +256,16 @@ pub(super) fn entry_from_response(
             "Cache.put: response argument is not a Response",
         ));
     }
+    // §5.4.5 step 2: a Response whose body is already consumed (`disturbed`)
+    // or locked to a reader cannot be cached — reject before reading bytes
+    // (otherwise the spent body would silently store as empty).
+    if ctx.vm.disturbed.contains(&response_id)
+        || super::super::body_mixin::is_body_locked(ctx.vm, response_id)
+    {
+        return Err(VmError::type_error(
+            "Cache.put: response body is already used",
+        ));
+    }
     let (status, response_type, status_text_sid, url_sid, headers_id) = {
         let st = ctx.vm.response_states.get(&response_id).ok_or_else(|| {
             VmError::type_error("Cache.put: Response argument has no internal state")
@@ -279,9 +297,14 @@ pub(super) fn entry_from_response(
     let final_url = ctx.vm.strings.get_utf8(url_sid);
 
     // §5.4.5: reject Vary:*; otherwise capture the request-side values the
-    // response's Vary header references (the cache match key, per
-    // `elidex_cache_api::entry::entry_matches`).
-    let vary_headers = compute_vary(&response_headers, &request_headers)?;
+    // response's Vary header references (the cache match key).  The Vary
+    // algorithm lives in `elidex-cache-api` next to its consumer
+    // `entry_matches`; host/ only maps the `Vary: *` rejection to a JS
+    // TypeError (the crate's only error from this call).
+    let vary_headers =
+        elidex_cache_api::entry::compute_vary_key(&response_headers, &request_headers).map_err(
+            |_| VmError::type_error("Cache.put: a response with 'Vary: *' cannot be cached"),
+        )?;
 
     let is_opaque = matches!(
         response_type,
@@ -306,39 +329,6 @@ pub(super) fn entry_from_response(
         vary_headers,
         is_opaque,
     })
-}
-
-/// Parse the response's `Vary` header into `(request-header-name,
-/// request-value)` pairs (the cache-side match key).  `Vary: *` is a
-/// §5.4.5 put rejection (`TypeError`).
-fn compute_vary(
-    response_headers: &[(String, String)],
-    request_headers: &[(String, String)],
-) -> Result<Vec<(String, String)>, VmError> {
-    let mut out = Vec::new();
-    for (name, value) in response_headers {
-        if !name.eq_ignore_ascii_case("vary") {
-            continue;
-        }
-        for token in value.split(',') {
-            let token = token.trim();
-            if token == "*" {
-                return Err(VmError::type_error(
-                    "Cache.put: a response with 'Vary: *' cannot be cached",
-                ));
-            }
-            if token.is_empty() {
-                continue;
-            }
-            let lower = token.to_ascii_lowercase();
-            let req_value = request_headers
-                .iter()
-                .find(|(k, _)| k.eq_ignore_ascii_case(&lower))
-                .map_or(String::new(), |(_, v)| v.clone());
-            out.push((lower, req_value));
-        }
-    }
-    Ok(out)
 }
 
 // ---------------------------------------------------------------------------

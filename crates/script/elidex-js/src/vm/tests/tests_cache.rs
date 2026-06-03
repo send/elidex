@@ -356,6 +356,63 @@ fn put_rejects_206_partial() {
     });
 }
 
+#[test]
+fn put_rejects_disturbed_body() {
+    // §5.4.5 step 2: a Response whose body was already consumed (`.text()`
+    // disturbs synchronously at call time) cannot be cached.
+    with_vm(|vm| {
+        let out = drive_string(
+            vm,
+            r"
+            caches.open('v1')
+              .then(c => {
+                const r = new Response('hi');
+                r.text();
+                return c.put('https://e.com/', r);
+              })
+              .then(() => { globalThis.__out = 'resolved'; },
+                    e => { globalThis.__out = 'rejected:' + (e instanceof TypeError); });
+            ",
+        );
+        assert_eq!(out, "rejected:true");
+    });
+}
+
+#[test]
+fn match_requires_a_request_argument() {
+    // 0 args to a required-`request` op is a WebIDL TypeError (rejected).
+    with_vm(|vm| {
+        let out = drive_string(
+            vm,
+            r"
+            caches.open('v1')
+              .then(c => c.match())
+              .then(() => { globalThis.__out = 'resolved'; },
+                    e => { globalThis.__out = 'rejected:' + (e instanceof TypeError); });
+            ",
+        );
+        assert_eq!(out, "rejected:true");
+    });
+}
+
+#[test]
+fn match_of_synthetic_response_has_empty_url() {
+    // Fetch §2.2.6: a synthetic `new Response(...)` has `url === ''`; the
+    // Cache must not synthesize the request URL into the matched response.
+    with_vm(|vm| {
+        let out = drive_string(
+            vm,
+            r"
+            caches.open('v1')
+              .then(c => c.put('https://e.com/page', new Response('x'))
+                .then(() => c.match('https://e.com/page')))
+              .then(resp => { globalThis.__out = 'url=[' + resp.url + ']'; });
+            ",
+        );
+        assert_eq!(out, "url=[]");
+    });
+}
+
 // ---------------------------------------------------------------------------
 // delete
 // ---------------------------------------------------------------------------

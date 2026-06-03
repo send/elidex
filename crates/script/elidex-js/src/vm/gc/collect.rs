@@ -990,6 +990,20 @@ impl VmInner {
                 self.idb_version_change_event_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // Cache API (D-19 PR-1): root the cached `CacheStorage` /
+                // `Cache` interface prototypes so `delete globalThis.caches`
+                // / `delete globalThis.Cache` cannot let them be swept while
+                // `VmInner::cache_*_prototype` still hands the (recycled)
+                // `ObjectId` to the next `caches.open()` — same defensive
+                // invariant as the IDB / intrinsic prototype slots above.
+                #[cfg(feature = "engine")]
+                self.cache_storage_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.cache_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,
