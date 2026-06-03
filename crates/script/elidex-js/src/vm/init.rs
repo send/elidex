@@ -593,6 +593,12 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 idb_version_change_event_prototype: None,
                 #[cfg(feature = "engine")]
+                cache_handle_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                cache_storage_prototype: None,
+                #[cfg(feature = "engine")]
+                cache_prototype: None,
+                #[cfg(feature = "engine")]
                 fetch_abort_observers: HashMap::new(),
                 #[cfg(feature = "engine")]
                 pending_fetches: HashMap::new(),

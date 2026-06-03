@@ -1500,6 +1500,11 @@ impl VmInner {
                 .retain(|id, _| bit_get(marks, id.0));
             self.idb_index_states.retain(|id, _| bit_get(marks, id.0));
             self.idb_cursor_states.retain(|id, _| bit_get(marks, id.0));
+            // Cache API (D-19 PR-1): prune `Cache` handle-name tuples whose
+            // wrapper `ObjectId` was collected (mirrors the IDB side-stores
+            // / `headers_states`).
+            self.cache_handle_states
+                .retain(|id, _| bit_get(marks, id.0));
             // `vm_event_listeners` — the unified listener home for the
             // non-entity EventTargets (AbortSignal / IDB / WebSocket /
             // EventSource).  When a target `ObjectId` was collected, prune

@@ -29,6 +29,7 @@ engine = [
     "elidex-form",
     "elidex-storage-core",
     "elidex-indexeddb",
+    "elidex-cache-api",
     "elidex-wasm-runtime",
     "bytes",
     "encoding_rs",
@@ -124,6 +125,13 @@ elidex-storage-core = { workspace = true, optional = true }
 # bindings (slot `#11-indexed-db-vm` / D-20).  host/ marshalls JsValue↔key/value
 # + drives the §5.x event-loop orchestration; all record algorithm lives here.
 elidex-indexeddb = { workspace = true, optional = true }
+# Cache API storage backend (SQLite-backed, engine-independent
+# CacheStorage / per-cache store / `CachedEntry` matching) consumed by
+# the `caches` / `Cache` VM thin bindings (slot `#11-cache-api-vm` /
+# D-19 PR-1).  host/cache/ marshalls JsValue to CachedEntry / Response /
+# Request; all open/has/delete/keys + match/put/delete/add_all
+# algorithm lives in the crate (CLAUDE.md "Layering mandate").
+elidex-cache-api = { workspace = true, optional = true }
 # WebAssembly engine-bridge crate (wasmtime backend behind engine-indep
 # `WasmRuntime` / `WasmModule` / `WasmInstance` / `WasmMemory` / `WasmTable` /
 # `WasmGlobal` / `WasmFunc` / `WasmMemoryView` / `WasmError` surface) consumed

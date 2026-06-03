@@ -753,6 +753,16 @@ impl VmInner {
             self.install_body_mixin_methods(response_proto);
         }
 
+        // `caches` global + `CacheStorage` / `Cache` prototypes (WHATWG
+        // Service Workers §5; slot `#11-cache-api-vm` / D-19 PR-1).  Must
+        // run after `register_request_global` / `register_response_global`
+        // + `install_body_mixin_methods` so `request_prototype` /
+        // `response_prototype` exist (the `caches` natives build Response /
+        // Request wrappers) and `cache.match(...)` Responses already carry
+        // `.text()` / `.json()`.
+        #[cfg(feature = "engine")]
+        self.register_cache_api_global();
+
         // `URLSearchParams` + `FormData` (WHATWG URL §6 / XHR §4.3).
         // Both rely only on `Object.prototype` (URLSearchParams) +
         // `Blob.prototype` (FormData reads `ObjectKind::Blob` in its

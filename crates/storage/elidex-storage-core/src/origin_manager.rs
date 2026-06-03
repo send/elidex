@@ -170,6 +170,26 @@ impl OriginStorageManager {
         Ok(())
     }
 
+    /// Hand out the shared Cache API (`StorageType::CacheApi`) connection
+    /// `Arc<Mutex<SqliteConnection>>` for `origin`, opening it on first use.
+    ///
+    /// Unlike [`Self::connection`] / [`Self::with_connection`] (which keep
+    /// the `Arc` private and only lend a `&SqliteConnection` for the
+    /// duration of a closure), this returns the `Arc` itself so a single
+    /// origin handle can be shared across browsing-context VMs — and, in a
+    /// later service-worker tranche, handed across the spawn boundary to the
+    /// SW thread (the handle is `Send + Sync`, `SqliteConnection` being
+    /// `Send` but `!Sync` under the `Mutex`).  The Cache API VM binding
+    /// (`#11-cache-api-vm` / D-19 DR-A) installs the result into `HostData`
+    /// so the window realm — and, in PR-2, the SW realm — observe one shared
+    /// cache store within a session.
+    pub fn cache_connection(
+        &self,
+        origin: &OriginKey,
+    ) -> Result<Arc<Mutex<SqliteConnection>>, StorageError> {
+        self.ensure_connection(origin, StorageType::CacheApi)
+    }
+
     /// Execute an operation on a connection, opening it if necessary.
     ///
     /// The global connections map is locked only briefly to clone the `Arc`.

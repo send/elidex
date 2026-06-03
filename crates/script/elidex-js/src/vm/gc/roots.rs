@@ -537,6 +537,26 @@ pub(super) fn mark_roots(
             | super::super::host::pending_tasks::PendingTask::IdbAbortDone { txn_id } => {
                 mark_object(*txn_id, obj_marks, work);
             }
+            // Cache API (D-19 PR-1): a queued deliver task holds the
+            // Promise to settle plus an owned outcome value (the marshalled
+            // Response / Request / Array / boolean built synchronously at
+            // the native call site).  Both must survive between enqueue and
+            // the `drain_tasks` settle — without marking the outcome, a GC
+            // cycle triggered before the drain could collect a freshly-built
+            // Response (and its companion Headers, reached via the Response's
+            // own trace fan-out once the Response ObjectId is marked).
+            super::super::host::pending_tasks::PendingTask::CacheDeliver {
+                promise_id,
+                outcome,
+            } => {
+                mark_object(*promise_id, obj_marks, work);
+                match outcome {
+                    super::super::host::cache::CacheDelivery::Resolve(v)
+                    | super::super::host::cache::CacheDelivery::Reject(v) => {
+                        mark_value(*v, obj_marks, work);
+                    }
+                }
+            }
         }
     }
 
