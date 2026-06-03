@@ -213,12 +213,17 @@ pub struct InlineFlowLine {
     pub runs: Vec<InlineFlowRun>,
 }
 
-/// One paintable member of an [`InlineFlowLine`], in logical order.
+/// One paintable member of an [`InlineFlowLine`], stored in logical order.
 ///
-/// Render's flow consumer walks these in order: a [`Text`](InlineFlowRun::Text)
-/// run is shaped and emitted at its `inline_start`; an
-/// [`AtomicBox`](InlineFlowRun::AtomicBox) is painted by `walk()`-ing the entity
-/// at its own (absolute) `LayoutBox`.
+/// A [`Text`](InlineFlowRun::Text) run is shaped and emitted at its `inline_start`;
+/// an [`AtomicBox`](InlineFlowRun::AtomicBox) is painted by `walk()`-ing the entity
+/// at its own (absolute) `LayoutBox`. The members are *stored* in logical order, but
+/// render's current consumer (`emit_inline_flow`) does not yet paint them in a single
+/// interleaved pass: it emits all `Text` runs first, then `walk()`s the collected
+/// `AtomicBox` entities after the `InlineFlow` read borrow drops (`walk()` needs
+/// `&mut` access). This is not visually observable — text glyphs and atomic boxes
+/// occupy disjoint positions, and CSS 2 §E paints atomic inlines as a distinct step —
+/// but a future bidi pass (slice 4) that needs strict visual order would interleave.
 #[derive(Debug, Clone, PartialEq)]
 pub enum InlineFlowRun {
     /// A contiguous same-style collapsed text run.
