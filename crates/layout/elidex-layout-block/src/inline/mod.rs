@@ -185,38 +185,38 @@ pub(crate) struct RunComplexity {
 }
 
 /// Render's `run[0]` for the inline run rooted at the element whose composed
-/// children are `children` (mirrors `paint_non_sc` / Layer-5 grouping): the first
-/// child that is not `display:none` / out-of-flow (absolutely positioned) /
-/// positioned (relative/sticky — render skips it into Layer 6), scanning only up
-/// to the first **block-level** child. A block SPLITS the run in render
-/// (`is_block_child` flushes the inline run), so it ends the pre-block run; if no
-/// eligible child precedes a block, the pre-block run is empty → `None`. This is
-/// the entity layout persists the group's `InlineFlow` on, so both passes agree.
+/// children are `children` — it MUST match `paint_non_sc` / Layer-5 grouping
+/// exactly (`crates/core/elidex-render/src/builder/walk.rs`), since layout persists
+/// the group's `InlineFlow` on this entity and render reads it off `run.first()`.
+/// Render's run builder: skip `is_positioned` children (`position != static` —
+/// relpos/sticky/abspos/fixed, painted in another layer, NO flush); FLUSH (end the
+/// run) at the first `is_block_child` (a block-level child SPLITS the run); push
+/// **everything else** — so the first non-positioned, non-block child is `run[0]`,
+/// **including a `display:none` element or a non-styled node (text/comment)** (both
+/// generate no box but render still pushes them as run members). Returns `None` if
+/// a block precedes any such child (the pre-block run is empty). Mirroring render's
+/// predicate verbatim (NOT a stricter "skip display:none/non-text" filter) is what
+/// keeps the persist key and `run[0]` in agreement.
 fn first_eligible_child(dom: &EcsDom, children: &[Entity]) -> Option<Entity> {
     for &child in children {
         match crate::try_get_style(dom, child) {
+            // Mirrors render: `is_positioned` (position != static) → skip without
+            // flushing; `is_block_level` (render's `is_block_child`, which the box
+            // it gets in-flow satisfies) → flush, ending the pre-block run; anything
+            // else (incl. `display:none`) → render's `run[0]`.
             Some(style) => {
-                if style.display == Display::None {
-                    continue;
-                }
-                if crate::positioned::is_absolutely_positioned(&style) {
+                if style.position != Position::Static {
                     continue;
                 }
                 if crate::block::is_block_level(style.display) {
                     return None;
                 }
-                if matches!(style.position, Position::Relative | Position::Sticky) {
-                    continue;
-                }
                 return Some(child);
             }
-            // Text node (no ComputedStyle) — a render run member, and the key when
-            // it is the first child.
-            None => {
-                if dom.world().get::<&TextContent>(child).is_ok() {
-                    return Some(child);
-                }
-            }
+            // A non-styled node (text or comment) — render pushes it into the inline
+            // run unconditionally (not positioned, not a block child), so it is a
+            // valid `run[0]`.
+            None => return Some(child),
         }
     }
     None
@@ -235,6 +235,32 @@ fn has_direct_block_child(dom: &EcsDom, children: &[Entity]) -> bool {
     children.iter().any(|&c| {
         crate::try_get_style(dom, c).is_some_and(|s| crate::block::is_block_level(s.display))
     })
+}
+
+/// The render-run-group key a `position:relative`/`sticky` inline's members persist
+/// under: a per-subtree sub-flow keyed on the subtree's first eligible child (=
+/// render's `run[0]` for `walk(child)`). Returns `None` — no sub-flow, members fall
+/// to render's legacy path — when the subtree is **not a single linear inline run
+/// render can consume** in the IFC root's writing mode. The single boundary
+/// (One-issue-one-way: future cases — float-in-positioned, etc. — land here):
+/// - a direct block child → render splits the run (anonymous-block-in-inline, CSS 2
+///   §9.2.1.1); the single-sub-flow model would over-collect and double-paint.
+/// - a writing mode differing from the IFC root's → layout projects every group
+///   with the root's axis, but render reads a sub-flow's axis off the span (its
+///   `emit_inline_run` run-parent), so the sub-flow would be transposed (CSS
+///   Writing Modes 4 §3.2 would blockify it to inline-block, which gates anyway).
+fn positioned_subflow_key(
+    dom: &EcsDom,
+    grandchildren: &[Entity],
+    style: &ComputedStyle,
+    root_horizontal: bool,
+) -> Option<Entity> {
+    if has_direct_block_child(dom, grandchildren)
+        || style.writing_mode.is_horizontal() != root_horizontal
+    {
+        return None;
+    }
+    first_eligible_child(dom, grandchildren)
 }
 
 /// Recursively collect inline items (text runs + atomic boxes) from inline children.
@@ -270,6 +296,10 @@ pub(crate) fn collect_inline_items(
     // every recursed inline element's raw direct children during the walk.
     let mut candidate_keys: Vec<Entity> = children.to_vec();
     let top_level_key = first_eligible_child(dom, children);
+    // The IFC root's writing-mode axis — the projection axis used for every group
+    // (gates sub-flows whose positioned root overrides writing-mode; see the relpos
+    // branch in `collect_inline_items_inner`).
+    let root_horizontal = parent_style.writing_mode.is_horizontal();
     collect_inline_items_inner(
         dom,
         children,
@@ -280,6 +310,7 @@ pub(crate) fn collect_inline_items(
         &mut complexity,
         top_level_key,
         &mut candidate_keys,
+        root_horizontal,
     );
     collapse_inline_whitespace(&mut items);
     (items, complexity, candidate_keys)
@@ -301,6 +332,10 @@ fn collect_inline_items_inner(
     // Superset of every entity that could carry an `InlineFlow` for this IFC
     // (every run-parent's raw direct children) — the caller's staleness clear set.
     candidate_keys: &mut Vec<Entity>,
+    // Whether the IFC root's writing mode is horizontal (the projection axis the
+    // persist block uses for ALL groups). A positioned inline whose writing mode
+    // differs gets no sub-flow (render would read it with the wrong axis).
+    root_horizontal: bool,
 ) {
     if depth >= MAX_LAYOUT_DEPTH {
         return;
@@ -374,22 +409,15 @@ fn collect_inline_items_inner(
             // recursing so the caller can clear stale flows on them.
             let grandchildren = dom.composed_children(child);
             candidate_keys.extend_from_slice(&grandchildren);
-            // CSS 2 §9.4.3: a relative/sticky positioned inline stays in-flow in
-            // the IFC, but render paints its whole subtree in Layer 6 via
-            // `walk(child)`. Slice 3p-b converges it as a **sub-flow**: its members
-            // go into a separate `InlineFlow` keyed on the subtree's first eligible
-            // child (= render's `run[0]` for `walk(child)`), NOT the parent flow
-            // (the parent advances past it, leaving the in-flow gap). A subtree
-            // with a direct block child is anonymous-block-in-inline — render
-            // splits it into multiple runs, which the single-sub-flow model can't
-            // represent → no sub-flow (key `None`, members fall to render's legacy
-            // path, fail-safe; the anonymous-block-in-inline feature owns it).
+            // CSS 2 §9.4.3: a relative/sticky positioned inline stays in-flow in the
+            // IFC, but render paints its whole subtree in Layer 6 via `walk(child)`.
+            // Slice 3p-b converges it as a **sub-flow** keyed on the subtree's first
+            // eligible child (the parent flow advances past it, leaving the in-flow
+            // gap) — unless the subtree is not single-linear-representable, in which
+            // case `positioned_subflow_key` returns `None` and it falls to render's
+            // legacy path. A non-positioned inline stays in the enclosing group.
             let child_group = if matches!(style.position, Position::Relative | Position::Sticky) {
-                if has_direct_block_child(dom, &grandchildren) {
-                    None
-                } else {
-                    first_eligible_child(dom, &grandchildren)
-                }
+                positioned_subflow_key(dom, &grandchildren, &style, root_horizontal)
             } else {
                 group_key
             };
@@ -403,6 +431,7 @@ fn collect_inline_items_inner(
                 complexity,
                 child_group,
                 candidate_keys,
+                root_horizontal,
             );
         } else if let Ok(tc) = dom.world().get::<&TextContent>(child) {
             // Text node: produce a run with the parent element's style.

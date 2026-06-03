@@ -608,6 +608,166 @@ fn subflow_cleared_when_relpos_made_static() {
 }
 
 #[test]
+fn top_level_key_matches_render_for_leading_display_none() {
+    // Render's run[0] is the first non-positioned, non-block child — INCLUDING a
+    // leading `display:none` element (render pushes it into the inline run; it just
+    // paints nothing). The persist key must therefore key on that `display:none`
+    // element too, NOT skip it — else render reads no flow and falls to legacy. (The
+    // realigned `first_eligible_child` skips only positioned children, mirroring
+    // render's `is_positioned`.)
+    let Some((mut dom, parent, style, font_db)) = setup_inline_test("") else {
+        return;
+    };
+    for &c in &dom.composed_children(parent) {
+        dom.remove_child(parent, c);
+    }
+    let hidden = dom.create_element("span", Attributes::default());
+    let _ = dom.world_mut().insert_one(
+        hidden,
+        ComputedStyle {
+            display: Display::None,
+            font_family: style.font_family.clone(),
+            ..Default::default()
+        },
+    );
+    let hx = dom.create_text("x");
+    dom.append_child(hidden, hx);
+    dom.append_child(parent, hidden);
+    let visible = dom.create_text("visible");
+    dom.append_child(parent, visible);
+
+    let children = dom.composed_children(parent);
+    assert_eq!(
+        children[0], hidden,
+        "the display:none span is the first child"
+    );
+    layout_inline_context(
+        &mut dom,
+        &children,
+        800.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+    );
+
+    // The flow is keyed on the display:none element (render's run[0]), not realigned
+    // past it onto the visible text.
+    let flow = dom
+        .world()
+        .get::<&InlineFlow>(hidden)
+        .expect("InlineFlow keyed on the leading display:none child = render's run[0]");
+    let members: Vec<_> = flow.lines.iter().flat_map(|l| l.runs.iter()).collect();
+    assert!(
+        members.iter().any(|m| m.text() == Some("visible")),
+        "the visible text is a member of the flow keyed on the display:none child"
+    );
+    assert!(
+        dom.world().get::<&InlineFlow>(visible).is_err(),
+        "the flow is NOT realigned onto the visible text node (that would mismatch render's run[0])"
+    );
+}
+
+#[test]
+fn relpos_inline_with_writing_mode_override_gated() {
+    // A relpos inline that overrides `writing-mode` away from the IFC root gets NO
+    // sub-flow: layout projects every group with the root's axis, but render reads a
+    // sub-flow's writing mode off the span (its run-parent), so a mismatch would
+    // transpose it. Gate to legacy (no transposition). The top-level still converges.
+    let Some((mut dom, parent, style, font_db)) = setup_inline_test("a") else {
+        return;
+    };
+    let a_text = dom.composed_children(parent)[0];
+    let span = dom.create_element("span", Attributes::default());
+    let _ = dom.world_mut().insert_one(
+        span,
+        ComputedStyle {
+            position: Position::Relative,
+            // IFC root defaults to horizontal-tb; override the span to vertical-rl.
+            writing_mode: WritingMode::VerticalRl,
+            font_family: style.font_family.clone(),
+            ..Default::default()
+        },
+    );
+    let b_text = dom.create_text("b");
+    dom.append_child(span, b_text);
+    dom.append_child(parent, span);
+    let c_text = dom.create_text("c");
+    dom.append_child(parent, c_text);
+
+    let children = dom.composed_children(parent);
+    layout_inline_context(
+        &mut dom,
+        &children,
+        800.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+    );
+
+    assert!(
+        dom.world().get::<&InlineFlow>(b_text).is_err(),
+        "a relpos inline overriding writing-mode gets no sub-flow (would transpose) → legacy"
+    );
+    // The top-level run still converges (the span is excluded from it as a gap).
+    assert!(
+        dom.world().get::<&InlineFlow>(a_text).is_ok(),
+        "the top-level flow still persists (only the WM-mismatched sub-flow is gated)"
+    );
+}
+
+#[test]
+fn persists_relative_positioned_inline_subflow_vertical() {
+    // A relpos inline in a VERTICAL IFC whose writing mode MATCHES the root (the
+    // common inherited case) persists a sub-flow, projected with the root's vertical
+    // axis like every other group (slice 2). Sub-flow's `block_start` is the
+    // physical x (column block-start); `inline_start` is physical y.
+    let Some((mut dom, parent, mut style, font_db)) = setup_inline_test("a") else {
+        return;
+    };
+    style.writing_mode = WritingMode::VerticalRl;
+    let _ = dom.world_mut().insert_one(parent, style.clone());
+    let a_text = dom.composed_children(parent)[0];
+    let span = dom.create_element("span", Attributes::default());
+    let _ = dom.world_mut().insert_one(
+        span,
+        ComputedStyle {
+            position: Position::Relative,
+            // Matches the IFC root's vertical-rl (writing-mode is inherited in real
+            // cascades; set explicitly here since the test builds ComputedStyle).
+            writing_mode: WritingMode::VerticalRl,
+            font_family: style.font_family.clone(),
+            ..Default::default()
+        },
+    );
+    let b_text = dom.create_text("b");
+    dom.append_child(span, b_text);
+    dom.append_child(parent, span);
+
+    let children = dom.composed_children(parent);
+    // Vertical IFC: containing inline-axis extent = height.
+    layout_inline_context(
+        &mut dom,
+        &children,
+        800.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+    );
+
+    assert!(
+        dom.world().get::<&InlineFlow>(a_text).is_ok(),
+        "top-level flow persists in the vertical IFC"
+    );
+    let sub = dom
+        .world()
+        .get::<&InlineFlow>(b_text)
+        .expect("matching-WM relpos sub-flow persists in a vertical IFC");
+    let members: Vec<_> = sub.lines.iter().flat_map(|l| l.runs.iter()).collect();
+    assert_eq!(members.len(), 1);
+    assert_eq!(members[0].text(), Some("b"));
+}
+
+#[test]
 fn gate_excludes_relative_positioned_atomic() {
     // A relpos/sticky *atomic* (inline-block) takes the atomic collect arm, which
     // sets `has_relpos_sticky_atomic` so the run stays gated — render paints it in
