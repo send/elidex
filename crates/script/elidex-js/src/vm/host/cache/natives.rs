@@ -315,13 +315,19 @@ fn cache_match_all_outcome(
             }
         })
         .map_err(|e| VmError::type_error(format!("{e}")))?;
-    let mut elements = Vec::with_capacity(entries.len());
+    // GC-safety: each `build_response_from_entry` allocates (and can GC); a
+    // prior element held only in the Rust `Vec` would be collectible mid-loop.
+    // Root the growing element set on the VM stack across the accumulation,
+    // then hand the rooted slice to `create_array_object`.
+    let mut frame = ctx.vm.push_stack_scope();
+    let base = frame.saved_len();
     for entry in &entries {
-        elements.push(JsValue::Object(marshal::build_response_from_entry(
-            ctx.vm, entry,
-        )));
+        let obj = marshal::build_response_from_entry(&mut frame, entry);
+        frame.stack.push(JsValue::Object(obj));
     }
-    let arr = ctx.vm.create_array_object(elements);
+    let elements: Vec<JsValue> = frame.stack[base..].to_vec();
+    let arr = frame.create_array_object(elements);
+    drop(frame);
     Ok(CacheDelivery::Resolve(JsValue::Object(arr)))
 }
 
@@ -439,12 +445,17 @@ fn cache_keys_outcome(
             })
             .map_err(|e| VmError::type_error(format!("{e}")))?
     };
-    let mut elements = Vec::with_capacity(entries.len());
+    // GC-safety: each `build_request_from_entry` allocates (and can GC); a
+    // prior element held only in the Rust `Vec` would be collectible mid-loop.
+    // Root the growing element set on the VM stack across the accumulation.
+    let mut frame = ctx.vm.push_stack_scope();
+    let base = frame.saved_len();
     for entry in &entries {
-        elements.push(JsValue::Object(marshal::build_request_from_entry(
-            ctx.vm, entry,
-        )));
+        let obj = marshal::build_request_from_entry(&mut frame, entry);
+        frame.stack.push(JsValue::Object(obj));
     }
-    let arr = ctx.vm.create_array_object(elements);
+    let elements: Vec<JsValue> = frame.stack[base..].to_vec();
+    let arr = frame.create_array_object(elements);
+    drop(frame);
     Ok(CacheDelivery::Resolve(JsValue::Object(arr)))
 }

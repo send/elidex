@@ -110,15 +110,19 @@ pub(super) fn build_response_from_entry(vm: &mut VmInner, entry: &CachedEntry) -
         prototype: proto,
         extensible: true,
     });
+    // Root the just-allocated Response across `create_headers` (which
+    // allocates a companion Headers and can GC before the Response is
+    // reachable from any root — it lives only in `id` until the state insert).
+    let mut g = vm.push_temp_root(JsValue::Object(id));
 
-    let headers_id = vm.create_headers(HeadersGuard::Immutable);
-    install_header_list(vm, headers_id, &entry.response_headers);
+    let headers_id = g.create_headers(HeadersGuard::Immutable);
+    install_header_list(&mut g, headers_id, &entry.response_headers);
 
     if !entry.response_body.is_empty() {
-        vm.body_data.insert(id, entry.response_body.clone());
+        g.body_data.insert(id, entry.response_body.clone());
     }
 
-    let status_text_sid = vm.strings.intern(&entry.response_status_text);
+    let status_text_sid = g.strings.intern(&entry.response_status_text);
     // Fetch §2.2.6: `response.url` is the final URL after redirects (last in
     // the chain), or the **empty string** when the URL list is empty (a
     // synthetic `new Response(...)`).  Do NOT synthesize it from the request
@@ -126,8 +130,8 @@ pub(super) fn build_response_from_entry(vm: &mut VmInner, entry: &CachedEntry) -
     // URL, so a synthetic response's `url` must stay `""` across a put/match
     // round-trip.
     let final_url = entry.response_url_list.last().cloned().unwrap_or_default();
-    let url_sid = vm.strings.intern(&final_url);
-    vm.response_states.insert(
+    let url_sid = g.strings.intern(&final_url);
+    g.response_states.insert(
         id,
         ResponseState {
             status: entry.response_status,
@@ -153,13 +157,16 @@ pub(super) fn build_request_from_entry(vm: &mut VmInner, entry: &CachedEntry) ->
         prototype: proto,
         extensible: true,
     });
+    // Root the just-allocated Request across `create_headers` (allocates a
+    // companion Headers and can GC before the Request is root-reachable).
+    let mut g = vm.push_temp_root(JsValue::Object(id));
 
-    let headers_id = vm.create_headers(HeadersGuard::Request);
-    install_header_list(vm, headers_id, &entry.request_headers);
+    let headers_id = g.create_headers(HeadersGuard::Request);
+    install_header_list(&mut g, headers_id, &entry.request_headers);
 
-    let method_sid = vm.strings.intern(&entry.request_method);
-    let url_sid = vm.strings.intern(&entry.request_url);
-    vm.request_states.insert(
+    let method_sid = g.strings.intern(&entry.request_method);
+    let url_sid = g.strings.intern(&entry.request_url);
+    g.request_states.insert(
         id,
         RequestState {
             method_sid,

@@ -607,3 +607,17 @@ fn add_and_add_all_are_absent_pending_fetch_integration() {
         assert_eq!(out, "undefined,undefined");
     });
 }
+
+// NOTE (GC-safety, Copilot R6): the Cache build paths root their freshly
+// allocated intermediates across GC-capable allocations — `settle_async`'s
+// staged value across the Promise alloc, `build_{response,request}_from_entry`
+// across `create_headers`, and the `matchAll` / `keys` array accumulation
+// (`push_temp_root` / `push_stack_scope`), per `alloc_object`'s documented
+// rooting contract and the `create_array_object` / `response_ctor` precedents.
+// No deterministic JS-surface regression test accompanies them: the bug only
+// fires when a collection lands in the unrooted window *inside* the native,
+// and the adaptive `gc_threshold` (reset to `max(live*128, 32768)` per
+// collect) scales with live-object count — which the rooting fix itself
+// raises — so the precise instant can't be forced from script without an
+// internal mid-native GC hook this path doesn't have. Verified by review
+// against the contract, like the rest of the VM's GC-safety discipline.

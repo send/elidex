@@ -105,8 +105,17 @@ impl VmInner {
 /// [`super::pending_tasks::PendingTask::CacheDeliver`] settle (DR-A.1).
 /// Returns the Promise to hand back from the native synchronously.
 pub(super) fn settle_async(vm: &mut VmInner, outcome: CacheDelivery) -> JsValue {
-    let promise = super::super::natives_promise::create_promise(vm);
-    vm.queue_task(super::pending_tasks::PendingTask::CacheDeliver {
+    // `create_promise` allocates (`alloc_object` can GC) before `outcome` is
+    // queued in the GC-rooted `PendingTask`.  The staged value is often a
+    // freshly built Response / Request / Array `ObjectId` held only in this
+    // Rust local, so root it across the allocation window (else GC could
+    // recycle the id before the task captures it).
+    let staged = match &outcome {
+        CacheDelivery::Resolve(v) | CacheDelivery::Reject(v) => *v,
+    };
+    let mut g = vm.push_temp_root(staged);
+    let promise = super::super::natives_promise::create_promise(&mut g);
+    g.queue_task(super::pending_tasks::PendingTask::CacheDeliver {
         promise_id: promise,
         outcome,
     });
