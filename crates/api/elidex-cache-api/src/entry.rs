@@ -210,17 +210,29 @@ pub fn entry_matches(
             if header_name == "*" {
                 return false; // Vary: * means never match
             }
-            let request_value = request_headers
-                .iter()
-                .find(|(k, _)| k.eq_ignore_ascii_case(header_name))
-                .map_or("", |(_, v)| v.as_str());
-            if cached_value != request_value {
+            let request_value = join_header_values(request_headers, header_name);
+            if cached_value != &request_value {
                 return false;
             }
         }
     }
 
     true
+}
+
+/// Combine every request header field-line whose name matches `name`
+/// (ASCII-case-insensitively) into a single value joined by `", "`,
+/// matching Fetch `Headers.get` semantics.  Multiple same-name lines (e.g.
+/// built via `Headers.append`) are equivalent to one comma-joined field, so
+/// Vary selection must compare the combined value, not just the first line.
+/// No match yields the empty string (parity with an absent header).
+fn join_header_values(headers: &[(String, String)], name: &str) -> String {
+    headers
+        .iter()
+        .filter(|(k, _)| k.eq_ignore_ascii_case(name))
+        .map(|(_, v)| v.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Derive a cached entry's `vary_headers` match key from a response's
@@ -253,10 +265,7 @@ pub fn compute_vary_key(
                 continue;
             }
             let lower = token.to_ascii_lowercase();
-            let req_value = request_headers
-                .iter()
-                .find(|(k, _)| k.eq_ignore_ascii_case(&lower))
-                .map_or(String::new(), |(_, v)| v.clone());
+            let req_value = join_header_values(request_headers, &lower);
             out.push((lower, req_value));
         }
     }
@@ -458,6 +467,54 @@ mod tests {
             "GET",
             &[("accept".into(), "text/html".into())],
             &opts
+        ));
+    }
+
+    #[test]
+    fn vary_key_joins_multivalued_request_header() {
+        // Fetch `Headers.get` joins same-name field-lines with ", "; Vary
+        // selection compares the combined value, not just the first line.
+        let resp = vec![("vary".to_string(), "accept".to_string())];
+        let req_put = vec![
+            ("accept".to_string(), "a".to_string()),
+            ("accept".to_string(), "b".to_string()),
+        ];
+        let key = compute_vary_key(&resp, &req_put).unwrap();
+        assert_eq!(key, vec![("accept".to_string(), "a, b".to_string())]);
+
+        let entry = CachedEntry {
+            request_url: "https://e.com/".into(),
+            request_method: "GET".into(),
+            request_headers: vec![],
+            response_status: 200,
+            response_status_text: "OK".into(),
+            response_headers: vec![],
+            response_body: vec![],
+            response_url_list: vec![],
+            response_type: ResponseType::Basic,
+            vary_headers: key,
+            is_opaque: false,
+        };
+        // A request whose *combined* Accept differs must NOT match, even
+        // though its first Accept line ("a") equals the stored key's first.
+        let req_diff = vec![
+            ("accept".to_string(), "a".to_string()),
+            ("accept".to_string(), "c".to_string()),
+        ];
+        assert!(!entry_matches(
+            &entry,
+            "https://e.com/",
+            "GET",
+            &req_diff,
+            &MatchOptions::default()
+        ));
+        // The same combined value DOES match.
+        assert!(entry_matches(
+            &entry,
+            "https://e.com/",
+            "GET",
+            &req_put,
+            &MatchOptions::default()
         ));
     }
 

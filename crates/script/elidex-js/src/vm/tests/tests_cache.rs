@@ -237,6 +237,26 @@ fn match_without_ignore_search_misses_on_query() {
 }
 
 #[test]
+fn match_rejects_primitive_options() {
+    // WebIDL §3.2.17 step 1: a non-nullish, non-object `CacheQueryOptions`
+    // argument (here the number 5) is not a valid dictionary and must reject
+    // with a TypeError — it is NOT treated as an empty options bag, nor
+    // ToObject-boxed to read `Number.prototype` members.
+    with_vm(|vm| {
+        let out = drive_string(
+            vm,
+            r"
+            caches.open('v1')
+              .then(c => c.match('https://e.com/', 5))
+              .then(() => { globalThis.__out = 'resolved'; },
+                    e => { globalThis.__out = 'rejected:' + (e instanceof TypeError); });
+            ",
+        );
+        assert_eq!(out, "rejected:true");
+    });
+}
+
+#[test]
 fn match_all_returns_every_response() {
     with_vm(|vm| {
         let out = drive_string(

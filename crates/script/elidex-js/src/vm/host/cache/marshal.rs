@@ -337,18 +337,33 @@ pub(super) fn entry_from_response(
 
 /// Parse a `CacheQueryOptions` dictionary into [`MatchOptions`].  Reads
 /// `ignoreSearch` / `ignoreMethod` / `ignoreVary` via ordinary `Get`
-/// (prototype walk + accessor getters), each `ToBoolean`-coerced; an
-/// absent / non-object options arg yields all-false.  `cacheName` (a
-/// `CacheStorage.match`-only member) is read by that caller, not here.
+/// (prototype walk + accessor getters), each `ToBoolean`-coerced.  Per
+/// WebIDL §3.2.17 dictionary conversion, `undefined` / `null` yield the
+/// empty dictionary (all members default), while a non-nullish, non-object
+/// argument is a `TypeError` (it is NOT `ToObject`-boxed — there is no
+/// prototype read of a wrapper).  `cacheName` (a `CacheStorage.match`-only
+/// member) is read by that caller, not here; it is reached only after this
+/// gate, so it never sees a primitive argument.
 pub(super) fn parse_query_options(
     ctx: &mut NativeContext<'_>,
     arg: JsValue,
 ) -> Result<MatchOptions, VmError> {
     let mut opts = MatchOptions::default();
-    if let JsValue::Object(id) = arg {
-        opts.ignore_search = read_bool_member(ctx, id, "ignoreSearch")?;
-        opts.ignore_method = read_bool_member(ctx, id, "ignoreMethod")?;
-        opts.ignore_vary = read_bool_member(ctx, id, "ignoreVary")?;
+    match arg {
+        // WebIDL §3.2.17: `undefined` / `null` → empty dictionary.
+        JsValue::Undefined | JsValue::Null => {}
+        JsValue::Object(id) => {
+            opts.ignore_search = read_bool_member(ctx, id, "ignoreSearch")?;
+            opts.ignore_method = read_bool_member(ctx, id, "ignoreMethod")?;
+            opts.ignore_vary = read_bool_member(ctx, id, "ignoreVary")?;
+        }
+        // WebIDL §3.2.17 step 1: a non-nullish, non-object value is not a
+        // valid dictionary → TypeError (surfaced as a rejected Promise).
+        _ => {
+            return Err(VmError::type_error(
+                "Failed to read the 'CacheQueryOptions' dictionary: argument is not an object",
+            ));
+        }
     }
     Ok(opts)
 }
