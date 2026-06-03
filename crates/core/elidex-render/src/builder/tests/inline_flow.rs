@@ -44,7 +44,7 @@ fn consumes_inline_flow_per_line() {
             InlineFlowLine {
                 block_start: 0.0,
                 block_size: 20.0,
-                runs: vec![InlineFlowRun {
+                runs: vec![InlineFlowRun::Text {
                     entity: div,
                     text: "Hello".to_string(),
                     inline_start: 5.0,
@@ -53,7 +53,7 @@ fn consumes_inline_flow_per_line() {
             InlineFlowLine {
                 block_start: 20.0,
                 block_size: 20.0,
-                runs: vec![InlineFlowRun {
+                runs: vec![InlineFlowRun::Text {
                     entity: div,
                     text: "World".to_string(),
                     inline_start: 0.0,
@@ -85,6 +85,97 @@ fn consumes_inline_flow_per_line() {
     assert!(
         (x0 - 5.0).abs() < 2.0,
         "line 1 inline_start = 5.0, got x={x0}"
+    );
+}
+
+/// An `AtomicBox` member makes render paint the atomic inline-level box: it walks
+/// the entity at its `LayoutBox`, emitting the box chrome (here a background). This
+/// is the slice-3p-a correctness fix — a static inline-block was previously
+/// flattened to its text and its box (background/border/descendants) never painted.
+#[test]
+#[allow(unused_must_use)]
+fn consumes_atomic_box_member_paints_box() {
+    let (mut dom, div) = setup_block_element(
+        elidex_plugin::ComputedStyle {
+            display: elidex_plugin::Display::Block,
+            font_family: test_font_family_strings(),
+            ..Default::default()
+        },
+        elidex_plugin::LayoutBox {
+            content: Rect::new(0.0, 0.0, 800.0, 40.0),
+            ..Default::default()
+        },
+    );
+    // The text node is the run-start (carries the flow); the inline-block is the
+    // atomic member painted by walk().
+    let text = dom.create_text("x");
+    dom.append_child(div, text);
+    let ib = dom.create_element("span", elidex_ecs::Attributes::default());
+    dom.world_mut().insert_one(
+        ib,
+        elidex_plugin::ComputedStyle {
+            display: elidex_plugin::Display::InlineBlock,
+            background_color: elidex_plugin::CssColor::RED,
+            ..Default::default()
+        },
+    );
+    // The LayoutBox layout repositioned to the atomic's on-line position.
+    let ib_rect = Rect::new(10.0, 0.0, 30.0, 20.0);
+    dom.world_mut().insert_one(
+        ib,
+        elidex_plugin::LayoutBox {
+            content: ib_rect,
+            ..Default::default()
+        },
+    );
+    dom.append_child(div, ib);
+
+    let flow = InlineFlow {
+        lines: vec![InlineFlowLine {
+            block_start: 0.0,
+            block_size: 20.0,
+            runs: vec![
+                InlineFlowRun::Text {
+                    entity: div,
+                    text: "x".to_string(),
+                    inline_start: 0.0,
+                },
+                InlineFlowRun::AtomicBox {
+                    entity: ib,
+                    inline_start: 10.0,
+                },
+            ],
+        }],
+        layout_generation: 0,
+    };
+    dom.world_mut().insert_one(text, flow);
+
+    let font_db = elidex_text::FontDatabase::new();
+    let dl = build_display_list(&dom, &font_db);
+
+    // walk(atomic) emitted the inline-block's red background at its box rect — and
+    // exactly once (the box is painted only via the flow member, not also as a
+    // separately-walked child).
+    let red_boxes: Vec<&Rect> = dl
+        .0
+        .iter()
+        .filter_map(|i| match i {
+            DisplayItem::SolidRect { rect, color } if *color == elidex_plugin::CssColor::RED => {
+                Some(rect)
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        red_boxes.len(),
+        1,
+        "the atomic inline-block's box must be painted exactly once via walk(), got {:?}",
+        dl.0
+    );
+    assert!(
+        (red_boxes[0].origin.x - 10.0).abs() < 0.5,
+        "atomic box painted at its repositioned x=10, got {}",
+        red_boxes[0].origin.x
     );
 }
 
@@ -166,12 +257,12 @@ fn interspersed_abspos_does_not_double_paint() {
             block_start: 0.0,
             block_size: 20.0,
             runs: vec![
-                InlineFlowRun {
+                InlineFlowRun::Text {
                     entity: root,
                     text: "AAA".to_string(),
                     inline_start: 0.0,
                 },
-                InlineFlowRun {
+                InlineFlowRun::Text {
                     entity: root,
                     text: "BBB".to_string(),
                     inline_start: 40.0,
@@ -235,7 +326,7 @@ fn consumes_inline_flow_vertical_columns() {
             InlineFlowLine {
                 block_start: 0.0,
                 block_size: 20.0,
-                runs: vec![InlineFlowRun {
+                runs: vec![InlineFlowRun::Text {
                     entity: div,
                     text: "AB".to_string(),
                     inline_start: 0.0,
@@ -244,7 +335,7 @@ fn consumes_inline_flow_vertical_columns() {
             InlineFlowLine {
                 block_start: 20.0,
                 block_size: 20.0,
-                runs: vec![InlineFlowRun {
+                runs: vec![InlineFlowRun::Text {
                     entity: div,
                     text: "AB".to_string(),
                     inline_start: 0.0,

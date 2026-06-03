@@ -1,6 +1,7 @@
 //! Inline run collection and emission.
 
-use elidex_ecs::{EcsDom, Entity, InlineFlow, PseudoElementMarker, TextContent};
+use elidex_ecs::{EcsDom, Entity, InlineFlow, InlineFlowRun, PseudoElementMarker, TextContent};
+use elidex_plugin::transform_math::Perspective;
 use elidex_plugin::{
     ComputedStyle, CssColor, Direction, Display, FontStyle as PluginFontStyle, LayoutBox, Point,
     TextAlign, TextDecorationLine, TextDecorationStyle, TextOrientation, TextTransform, Visibility,
@@ -13,9 +14,9 @@ use crate::font_cache::FontCache;
 
 use super::{
     apply_opacity, bidi_visual_order, collapse_segments, compute_text_align_offset,
-    find_nearest_layout_box, place_glyphs, place_glyphs_vertical, resolve_text_align,
-    DECORATION_THICKNESS_DIVISOR, DEFAULT_DESCENT_FACTOR, LINE_THROUGH_POSITION_FACTOR,
-    OVERLINE_POSITION_FACTOR, UNDERLINE_POSITION_FACTOR,
+    find_nearest_layout_box, place_glyphs, place_glyphs_vertical, resolve_text_align, walk,
+    PaintContext, DECORATION_THICKNESS_DIVISOR, DEFAULT_DESCENT_FACTOR,
+    LINE_THROUGH_POSITION_FACTOR, OVERLINE_POSITION_FACTOR, UNDERLINE_POSITION_FACTOR,
 };
 use elidex_text::{shape_text, shape_text_vertical, shape_text_vertical_sideways};
 
@@ -81,67 +82,67 @@ const MAX_INLINE_DEPTH: u32 = 100;
 /// inline elements). Each text segment preserves its element's style
 /// (color, font, etc.), allowing `<span style="color:red">` to render
 /// in the correct color.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_inline_run(
-    dom: &EcsDom,
+    ctx: &mut PaintContext,
     parent: Entity,
     run: &[Entity],
-    font_db: &FontDatabase,
-    font_cache: &mut FontCache,
-    dl: &mut DisplayList,
-    expected_generation: Option<u32>,
+    depth: usize,
+    child_perspective: &Perspective,
+    in_transform: bool,
 ) {
     // Converged path: if layout persisted an `InlineFlow` on this run's start
     // entity (`run[0]`, the same key both passes derive), consume its collapsed +
-    // positioned runs instead of re-collecting/re-collapsing/re-measuring the DOM.
-    // The generation check reads the flow's OWN `layout_generation`; off the paged
-    // path (`expected_generation == None`) it is a no-op and presence alone gates,
-    // because layout explicitly clears the flow when a run becomes non-persistable.
+    // positioned members instead of re-collecting/re-collapsing/re-measuring the
+    // DOM. The generation check reads the flow's OWN `layout_generation`; off the
+    // paged path (`expected_generation == None`) it is a no-op and presence alone
+    // gates, because layout explicitly clears the flow when a run becomes
+    // non-persistable. Read the gate as a bool so the `InlineFlow` borrow drops
+    // before `emit_inline_flow` takes `&mut ctx` (it re-gets the flow internally).
     if let Some(&first) = run.first() {
-        if let Ok(flow) = dom.world().get::<&InlineFlow>(first) {
-            if expected_generation.is_none_or(|g| flow.layout_generation == g) {
-                // The horizontal/vertical dispatch needs only the parent's
-                // `writing_mode` + `text_orientation` (Copy enums) — read those WITHOUT
-                // cloning the parent `ComputedStyle` (the slice-2 dispatch hoist would
-                // otherwise clone it per call on this converged path; this is not a claim
-                // that consume is allocation-free — `emit_inline_flow` still reads each
-                // run's own paint style from its entity, as the horizontal path always
-                // has). Render must interpret the persisted coordinates with the SAME
-                // writing mode layout used to project them — i.e. the IFC parent's — so
-                // the dispatch reads the parent's, not each run's. A styleless parent →
-                // horizontal default, mirroring layout's `get_style` `unwrap_or_default`
-                // tolerance (it persisted under the same default), so the flow is still
-                // painted.
-                let (writing_mode, text_orientation) = dom
-                    .world()
-                    .get::<&ComputedStyle>(parent)
-                    .map_or((WritingMode::HorizontalTb, TextOrientation::Mixed), |s| {
-                        (s.writing_mode, s.text_orientation)
-                    });
-                emit_inline_flow(
-                    dom,
-                    &flow,
-                    writing_mode,
-                    text_orientation,
-                    font_db,
-                    font_cache,
-                    dl,
-                );
-                return;
-            }
+        let expected = ctx.expected_generation;
+        let consume = ctx
+            .dom
+            .world()
+            .get::<&InlineFlow>(first)
+            .is_ok_and(|flow| expected.is_none_or(|g| flow.layout_generation == g));
+        if consume {
+            // The horizontal/vertical dispatch needs only the parent's `writing_mode`
+            // + `text_orientation` (Copy enums) — read those WITHOUT cloning the parent
+            // `ComputedStyle`. Render must interpret the persisted coordinates with the
+            // SAME writing mode layout used to project them — i.e. the IFC parent's — so
+            // the dispatch reads the parent's, not each member's. A styleless parent →
+            // horizontal default, mirroring layout's `get_style` `unwrap_or_default`
+            // tolerance (it persisted under the same default), so the flow still paints.
+            let (writing_mode, text_orientation) = ctx
+                .dom
+                .world()
+                .get::<&ComputedStyle>(parent)
+                .map_or((WritingMode::HorizontalTb, TextOrientation::Mixed), |s| {
+                    (s.writing_mode, s.text_orientation)
+                });
+            emit_inline_flow(
+                ctx,
+                first,
+                writing_mode,
+                text_orientation,
+                depth,
+                child_perspective,
+                in_transform,
+            );
+            return;
         }
     }
 
     // Legacy path: needs the full parent style for collect/collapse/measure.
-    let parent_style = match dom.world().get::<&ComputedStyle>(parent) {
+    let parent_style = match ctx.dom.world().get::<&ComputedStyle>(parent) {
         Ok(s) => s.clone(),
         Err(_) => return,
     };
-    let Some(lb) = find_nearest_layout_box(dom, parent) else {
+    let Some(lb) = find_nearest_layout_box(ctx.dom, parent) else {
         return;
     };
 
-    let segments = collect_styled_inline_text(dom, run, &parent_style, 0);
+    let segments = collect_styled_inline_text(ctx.dom, run, &parent_style, 0);
     if segments.is_empty() {
         return;
     }
@@ -152,13 +153,13 @@ pub(crate) fn emit_inline_run(
         return;
     }
 
-    let ctx = InlineRunContext {
+    let run_ctx = InlineRunContext {
         segments: &segments,
         collapsed: &collapsed,
         lb: &lb,
         parent_style: &parent_style,
     };
-    emit_styled_segments(&ctx, font_db, font_cache, dl);
+    emit_styled_segments(&run_ctx, ctx.font_db, ctx.font_cache, ctx.dl);
 }
 
 /// Recursively collect styled text segments from inline entities.
@@ -385,71 +386,103 @@ fn emit_text_segment(
     }
 }
 
-/// Consume a layout-produced [`InlineFlow`]: paint each line's collapsed,
-/// positioned text runs at their absolute, already-projected coordinates with the
-/// run entity's `ComputedStyle`. This is the converged path — render no longer
-/// re-collects / re-collapses / re-measures the DOM text, and (unlike the legacy
+/// Consume a layout-produced [`InlineFlow`]: paint each line's members at their
+/// absolute, already-projected coordinates. This is the converged path — render no
+/// longer re-collects / re-collapses / re-measures the DOM, and (unlike the legacy
 /// single-line `emit_styled_segments`) honours layout's per-line line-breaking and
-/// per-line `text-align`.
+/// per-line `text-align`. Two member kinds:
+/// - [`InlineFlowRun::Text`]: shaped + emitted at `inline_start` with the run
+///   entity's `ComputedStyle`.
+/// - [`InlineFlowRun::AtomicBox`]: an atomic inline-level box, painted by
+///   `walk()`-ing the entity (chrome + descendants + its own inner IFC) at the
+///   `LayoutBox` layout repositioned to the member's line position. Atomic members
+///   are collected during the borrow-scoped text loop and walked **after** the
+///   `InlineFlow` borrow drops — `walk()` needs `&mut ctx`, which conflicts with the
+///   read borrow; render is read-only on the DOM, so this avoids cloning the flow.
 ///
 /// Layout applied the writing-mode projection at persist, so each scalar holds the
 /// absolute physical coordinate for its axis; render reads them without a transform
 /// and only branches the per-run glyph emit on `writing_mode` — the IFC parent's,
 /// i.e. the writing mode layout used when projecting these coordinates (the caller
-/// reads it from the parent, not per run):
+/// reads it from the parent, not per member):
 /// - **horizontal**: `inline_start` = physical x, `block_start` = physical line top.
 /// - **vertical**: `block_start`/`block_size` give the glyph-column center x;
 ///   `inline_start` = physical y (pen top). `text_orientation` selects the shaping.
 fn emit_inline_flow(
-    dom: &EcsDom,
-    flow: &InlineFlow,
+    ctx: &mut PaintContext,
+    first: Entity,
     writing_mode: WritingMode,
     text_orientation: TextOrientation,
-    font_db: &FontDatabase,
-    font_cache: &mut FontCache,
-    dl: &mut DisplayList,
+    depth: usize,
+    child_perspective: &Perspective,
+    in_transform: bool,
 ) {
     let vertical = !writing_mode.is_horizontal();
     let orient = vertical_text_orientation(writing_mode, text_orientation);
-    for line in &flow.lines {
-        for run in &line.runs {
-            let Ok(style) = dom.world().get::<&ComputedStyle>(run.entity) else {
-                continue;
-            };
-            // visibility: hidden text occupies space (laid out) but is not painted.
-            if style.visibility != Visibility::Visible {
-                continue;
-            }
-            // Style-only segment: the collapsed text comes from the flow run
-            // (`&run.text`), so the segment's own text field is unused here.
-            let seg = StyledTextSegment::from_style(String::new(), &style);
-            if vertical {
-                let center_x = line.block_start + line.block_size / 2.0;
-                let mut cursor_y = run.inline_start;
-                emit_vertical_text_segment(
-                    &run.text,
-                    &seg,
-                    orient,
-                    center_x,
-                    &mut cursor_y,
-                    font_db,
-                    font_cache,
-                    dl,
-                );
-            } else {
-                let mut cursor_x = run.inline_start;
-                emit_text_segment(
-                    &run.text,
-                    &seg,
-                    &mut cursor_x,
-                    line.block_start,
-                    0.0,
-                    font_db,
-                    font_cache,
-                    dl,
-                );
+    // Atomic members collected here, walked after the `InlineFlow` borrow drops.
+    let mut atomics: Vec<Entity> = Vec::new();
+    {
+        // Copy the shared `&EcsDom` out so reads borrow the DOM (not `ctx`), leaving
+        // `ctx.font_db`/`font_cache`/`dl` free for the text emit (disjoint fields).
+        let dom = ctx.dom;
+        let Ok(flow) = dom.world().get::<&InlineFlow>(first) else {
+            return;
+        };
+        for line in &flow.lines {
+            for run in &line.runs {
+                match run {
+                    InlineFlowRun::Text {
+                        entity,
+                        text,
+                        inline_start,
+                    } => {
+                        let Ok(style) = dom.world().get::<&ComputedStyle>(*entity) else {
+                            continue;
+                        };
+                        // visibility: hidden text occupies space but is not painted.
+                        if style.visibility != Visibility::Visible {
+                            continue;
+                        }
+                        // Style-only segment: the collapsed text comes from the flow
+                        // member (`text`), so the segment's own text field is unused.
+                        let seg = StyledTextSegment::from_style(String::new(), &style);
+                        if vertical {
+                            let center_x = line.block_start + line.block_size / 2.0;
+                            let mut cursor_y = *inline_start;
+                            emit_vertical_text_segment(
+                                text,
+                                &seg,
+                                orient,
+                                center_x,
+                                &mut cursor_y,
+                                ctx.font_db,
+                                ctx.font_cache,
+                                ctx.dl,
+                            );
+                        } else {
+                            let mut cursor_x = *inline_start;
+                            emit_text_segment(
+                                text,
+                                &seg,
+                                &mut cursor_x,
+                                line.block_start,
+                                0.0,
+                                ctx.font_db,
+                                ctx.font_cache,
+                                ctx.dl,
+                            );
+                        }
+                    }
+                    InlineFlowRun::AtomicBox { entity, .. } => atomics.push(*entity),
+                }
             }
         }
+    }
+    // Paint each atomic inline-level box by walking it at its (layout-repositioned)
+    // `LayoutBox` — the same depth/perspective/in_transform a block child gets
+    // (`paint_non_sc` walks block children at `depth + 1`).
+    for atomic in atomics {
+        walk(ctx, atomic, depth + 1, child_perspective, in_transform);
     }
 }
 
