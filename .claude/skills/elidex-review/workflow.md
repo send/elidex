@@ -34,6 +34,20 @@ For each **new/changed test case** AND **new code path that reads ECS components
 5. Output to `<dry-run-file>` (path specified per skill — `/tmp/elidex-review.dry-run.md` or `/tmp/elidex-plan-review.dry-run.md`).
 6. Step 2 Agent 2 prompt receives `<dry-run-file>` path and incorporates gaps into Sub-check 2b findings.
 
+## Step 1.6 — Rename / reframe propagation sweep (conditional, mechanical)
+
+**Trigger**: the input **renames a symbol, moves/renames a file, renumbers a citation, or reframes terminology** (e.g. a framing change like "R-loop → single-pass", a §-number bump, an API rename). Skip if the change introduces no such token shift.
+
+A token changed at the sites the author was looking at but left un-propagated to its siblings is a recurring miss — and one a single-pass Copilot review *will* catch and bill you for, so catch it pre-push. PR #278 precedent: `elidex-review/SKILL.md` line 9 updated to "6 段 gate" but line 18 left at "5 段目" (+ omitted `/simplify`); a copied overlay left a stale `~/.claude/skills/copilot-review/SKILL.md` path that should have been `copilot-converge`. Memory: `feedback_mechanical-sweep-sibling-cite-scan-mandatory.md`.
+
+Mechanical (no agent), before dispatching Step 2. For each renamed/reframed token:
+
+1. Grep the **old** form across the **whole repo** (not just changed files) — every surviving hit is a candidate un-propagated site.
+2. Grep around the **new** form's neighbours (sibling files, same-cluster docs) for the stale variant.
+3. Separate *historical* uses that must stay (incident descriptors, changelogs, "PR #X had N R-loop rounds") from *present-tense* claims that must propagate — only the latter are findings.
+
+Surviving present-tense stale sites → feed into Step 3 as `consistency`-category findings. (Plan-review's analogue is `grep_pass.py` — this step is the diff-review counterpart; both enforce the same sibling-scan mandate.)
+
 ## Step 2 — Agent invocation (5-agent parallel)
 
 **同一 message 内 5 並列 Agent tool call** (sequential / inline self-review NG、§ "Anti-patterns" 参照)。

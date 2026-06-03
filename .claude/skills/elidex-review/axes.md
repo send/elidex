@@ -13,7 +13,7 @@ Agent prompt は「Read axes.md Axis N → apply `Detect` の `[diff]`/`[plan]`/
 ## Common: severity calibration
 
 - **CRIT** — merging で immediate damage / spec contract 違反 / Layering mandate 違反 (incident-derived) / build break。push gate / plan gate で mandatory fix
-- **IMP** — fix-or-something-tangible-breaks: design 原則違反 (ECS-native lens / ideal-over-pragmatic) で observable consequence、Copilot R で必ず flag される候補
+- **IMP** — fix-or-something-tangible-breaks: design 原則違反 (ECS-native lens / ideal-over-pragmatic) で observable consequence、single-pass Copilot review で flag される候補
 - **MIN** — preferable but no concrete consequence: 軽微 style / 雑然
 - **FP** — agent 過剰反応 / context 不足 / 既 design 決定 / user 既明示意図あり (Step 3.5 では skip)
 

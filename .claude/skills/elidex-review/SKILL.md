@@ -1,21 +1,21 @@
 ---
 name: elidex-review
-description: elidex project-specific pre-push design review (5-agent parallel). Checks Layering mandate / ECS-native lens (with component data-flow integrity) / pragmatic shortcut / spec citation / project-context beyond what generic /code-review + /review cover. Run BEFORE `git push` to compress Copilot R-loop.
+description: elidex project-specific pre-push design review (5-agent parallel). Checks Layering mandate / ECS-native lens (with component data-flow integrity) / pragmatic shortcut / spec citation / project-context beyond what generic /code-review + /review cover. Run BEFORE `git push` — the final design gate, now carrying the bulk of the design review since the post-push Copilot pass is a single-shot second opinion (/copilot-review), not a convergence loop.
 user-invocable: true
 ---
 
 # elidex-review — pre-push diff review
 
-`/code-review` (correctness bugs) と `/review` (一般 PR review) **の上に重ねる** elidex 専門 design review。Pre-push 5 段 gate の最終段 (`/pre-push` Stage 5) で Copilot R-loop の flag を圧縮する。
+`/code-review` (correctness bugs) と `/review` (一般 PR review) **の上に重ねる** elidex 専門 design review。Pre-push 6 段 gate の最終段 (`/pre-push` Stage 6) = design 最終 gate。post-push の Copilot は single-shot second opinion (`/copilot-review`、convergence loop でない) になったので、この gate と Stage 3 の blast-radius effort が design review の主担。「後続 loop が残りを拾う」前提で圧縮するのでなく、ここで取り切る。
 
 - **Axis SSoT**: `./axes.md` (5 axis 定義、`elidex-plan-review` と共有)
-- **Workflow SSoT**: `./workflow.md` (Step 1.5 / 2 agent prompt template / 3 / 3.5 / 4 / 4.5 + anti-patterns)
+- **Workflow SSoT**: `./workflow.md` (Step 1.5 / 1.6 rename-propagation sweep / 2 agent prompt template / 3 / 3.5 / 4 / 4.5 + anti-patterns)
 
 本 SKILL.md = thin lifecycle wrapper for input = `git diff $BASE...HEAD` (3-dot / merge-base vs the freshened base — `origin/main` after a best-effort fetch, falling back to local `main`; the branch's own changes, matching the GitHub PR diff)。
 
 ## When to invoke
 
-- **Pre-push 必須段 (順序固定)**: `cargo fmt` → `mise run ci` → `/code-review` → `/review` → **本 skill (`/elidex-review`)** で全 PR 実施推奨。本 skill は 5 段目 = 最終 design gate
+- **Pre-push 必須段 (順序固定)**: `cargo fmt` → `mise run ci` → `/code-review` → `/simplify` → `/review` → **本 skill (`/elidex-review`)** で全 PR 実施推奨。本 skill は 6 段目 = 最終 design gate
 - generic `/review` だけでは elidex-specific design 原則違反は漏れる (Layering mandate / ideal-over-pragmatic 等)
 
 ## Skip OK
@@ -66,6 +66,10 @@ Diff size > 5000 行なら user 確認 (5-agent token cost 過大)。
 
 `workflow.md` § "Step 1.5" を適用、output を `/tmp/elidex-review.dry-run.md` に。**対象は test 限定ではない** — workflow.md 通り「新規/変更 test case AND new code path that reads ECS components」両方 (refactor PR の new caller / new system query 等 non-test も含む) を simulate、Sub-check 2b coverage を担保。Step 2 Agent 2 prompt に hand off。
 
+### Step 1.6 — Rename / reframe propagation sweep (conditional)
+
+`workflow.md` § "Step 1.6" を適用。diff が symbol rename / file move / citation renumber / terminology reframe を含む時のみ — old-form を repo 全体 grep + sibling 近傍 scan して un-propagated site を Step 3 findings に。token shift が無ければ skip。
+
 ### Step 2 — Launch 5 agents in parallel
 
 `workflow.md` § "Step 2" の prompt template + variable table を使う。本 skill の変数:
@@ -86,8 +90,8 @@ Diff-stage 特記事項のみ: Step 4.5 (fix-delta re-verification) の placemen
 
 ## Recommendation phrasing (skill-specific)
 
-- **CRIT**: fix BEFORE push (Copilot R で必ず flag される)
-- **IMP**: push 前 fix 推奨 (Copilot R で 80% flag 確率)
+- **CRIT**: fix BEFORE push (post-push の single-pass Copilot review でほぼ確実に flag される。loop が無くなった分、ここで取り切る重要度が上がっている)
+- **IMP**: push 前 fix 推奨 (single-pass Copilot review で flag される可能性が高い)
 - **MIN**: judgment (defer 可、landing memo で justify)
 - **FP**: ignore (user 確認後)
 
