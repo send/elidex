@@ -1062,13 +1062,10 @@ fn reposition_atomic_box(
     let Some(unoffset_origin) = unoffset_origin else {
         return;
     };
-    if dom
-        .world()
-        .get::<&elidex_plugin::LayoutBox>(atomic)
-        .is_err()
-    {
-        return;
-    }
+    // `Some(unoffset_origin)` ⟹ the atomic was laid out by `layout_atomic_items`
+    // (which inserts the map entry and the `LayoutBox` together), so the box exists;
+    // the final `content.origin` write is `if let Ok`-guarded regardless, so no
+    // separate box-existence guard is needed here.
     // inline-axis → physical x (horizontal) or y (vertical); block-axis → the other.
     let target = if is_vertical {
         Point::new(block_abs, inline_abs)

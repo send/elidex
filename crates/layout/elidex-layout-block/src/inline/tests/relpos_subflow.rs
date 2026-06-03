@@ -766,3 +766,54 @@ fn relpos_atomic_repositioned_in_vertical_ifc() {
         "the relpos atomic ib2 must not be a flow member"
     );
 }
+
+#[test]
+fn sticky_atomic_persists_and_repositions_not_a_flow_member() {
+    // The `positioned` collect predicate covers `Sticky` too (`matches!(position,
+    // Relative | Sticky)`): a `position:sticky` atomic takes the same non-flow-member
+    // reposition path as a relpos one. `dispatch_layout_child` bakes no offset for
+    // sticky (scroll offset unimplemented), so it repositions to the bare on-line
+    // position — but the routing (gate-drop + not a flow member + reposition) must
+    // match. Mirrors `relpos_atomic_persists_and_repositions_not_a_flow_member` with
+    // Sticky, exercising the otherwise-untested arm of the predicate.
+    let Some((mut dom, parent, style, font_db)) = setup_inline_test("a") else {
+        return;
+    };
+    let a_text = dom.composed_children(parent)[0];
+    let ib = append_inline_block(&mut dom, parent, &style.font_family, Position::Sticky);
+
+    let children = dom.composed_children(parent);
+    layout_inline_context(
+        &mut dom,
+        &children,
+        800.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+    );
+
+    // The run persists (a sticky atomic does not gate it).
+    let flow = dom
+        .world()
+        .get::<&InlineFlow>(a_text)
+        .expect("a run containing a sticky atomic persists (gate dropped, same as relpos)");
+    let members: Vec<_> = flow.lines.iter().flat_map(|l| l.runs.iter()).collect();
+    // The sticky atomic is NOT an AtomicBox flow member (Layer 6 paints it).
+    assert!(
+        members
+            .iter()
+            .all(|m| matches!(m, InlineFlowRun::Text { .. }) && m.entity() != ib),
+        "the sticky atomic must NOT be an AtomicBox flow member — got {members:?}"
+    );
+    // Its box was repositioned off the IFC origin (on-line after `a`, or wrapped).
+    let lb = dom
+        .world()
+        .get::<&LayoutBox>(ib)
+        .expect("the sticky atomic has a LayoutBox");
+    assert!(
+        lb.content.origin.x > 0.0 || lb.content.origin.y > 0.0,
+        "the sticky atomic was repositioned off the IFC origin, got ({}, {})",
+        lb.content.origin.x,
+        lb.content.origin.y
+    );
+}
