@@ -25,6 +25,7 @@ Agent prompt は「Read axes.md Axis N → apply `Detect` の `[diff]`/`[plan]`/
 - **Symptom-level patch when root fix is in-context** → Axis 3 専属 (Axis 2 で data-flow gap 検出 → Axis 3 が対応方法を評価)
 - **Past lesson 違反** (lesson #235 trait cascade 等) → Axis 5 (lesson #276 を除く)
 - **Host-side OO inheritance** → Axis 1 sub-check 1a + Axis 2 sub-check 2a 両 flag (genuine overlap、Step 3.5 で subsumption)
+- **docstring-stated 契約 ↔ body 違反** (promise-returning native の `Result` swallow 等) → **Axis 3 専属** (generic "wrong value on error" は /code-review、「自 file 契約違反 + ideal-over-pragmatic」design 角度が Axis 3 領分)
 
 ---
 
@@ -135,6 +136,7 @@ Rule: CLAUDE.md § "Layering mandate (2026-05-04 incident 由来)" — "Core vs 
 - `[plan]` plan が「test 簡略化のため scope 削る」/「失敗 test drop」/「IDL gap workaround 経由 test」 — broken assumption の root fix が plan 内 OR 別 PR slot で明示されているか確認
 - `[plan]` plan が既存 TODO を引き取らない (該当 area で `grep TODO` 痕跡があるのに plan 内 close 予定無し)
 - `[plan]` plan §Defer の新規 slot に `Why deferred` + `Re-evaluation trigger` + `Re-evaluation date` の 3 要素が揃っていない (1 つでも欠落で MIN)
+- `[diff]` **docstring-contract ↔ body 違反** — `Result`-返す host native (特に promise-returning `*_outcome` family) の body が backend/IO `Result` を `unwrap_or(_)` / `unwrap_or_default()` / `.ok().flatten()` で握り潰すが、file/fn docstring か同 file の sibling op (`open`/`put` 等) が「failure → reject/propagate」契約を明示 → silent-wrong-on-error + self-inconsistency。**Required action**: 契約通り `?`-propagate + `map_err`。(#275 R1 = cache read 8 op; bar = generalizable[promise-returning native family 横断] かつ grep-detectable[`*_outcome` 終端の `Result` swallow] ゆえ axis 化)
 
 ### Output format
 
