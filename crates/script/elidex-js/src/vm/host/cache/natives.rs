@@ -336,9 +336,11 @@ fn cache_put_outcome(
     args: &[JsValue],
 ) -> Result<CacheDelivery, VmError> {
     let name = require_cache_name(ctx, this)?;
-    let req_arg = args.first().copied().unwrap_or(JsValue::Undefined);
     let resp_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-    let (url, method, headers) = marshal::resolve_request(ctx, Some(&req_arg))?;
+    // §5.4.5: `request` is a required WebIDL argument — a 0-arg call must
+    // reject via `resolve_request`'s `None` path (parity with `match` /
+    // `delete`), not coerce a missing `undefined` as a URL string.
+    let (url, method, headers) = marshal::resolve_request(ctx, args.first())?;
     // §5.4.5: only GET requests can be cached.
     if !method.eq_ignore_ascii_case("GET") {
         return Err(VmError::type_error(

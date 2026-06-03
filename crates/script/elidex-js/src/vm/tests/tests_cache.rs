@@ -396,6 +396,45 @@ fn match_requires_a_request_argument() {
 }
 
 #[test]
+fn put_requires_a_request_argument() {
+    // §5.4.5: `request` is WebIDL-required; `c.put()` (0 args) must reject
+    // with a TypeError, not coerce a missing `undefined` into a URL.
+    with_vm(|vm| {
+        let out = drive_string(
+            vm,
+            r"
+            caches.open('v1')
+              .then(c => c.put())
+              .then(() => { globalThis.__out = 'resolved'; },
+                    e => { globalThis.__out = 'rejected:' + (e instanceof TypeError); });
+            ",
+        );
+        assert_eq!(out, "rejected:true");
+    });
+}
+
+#[test]
+fn caches_match_cache_name_null_restricts_to_literal_null() {
+    // WebIDL: `{ cacheName: null }` is *present* and coerces to the
+    // `DOMString` "null" (not treated as absent), so the cross-cache search
+    // is restricted to a cache literally named "null" — a miss here.  (If
+    // null were treated as absent, every cache would be searched and the
+    // entry in cache 'a' would hit.)
+    with_vm(|vm| {
+        let out = drive_string(
+            vm,
+            r"
+            caches.open('a')
+              .then(a => a.put('https://e.com/x', new Response('from-a')))
+              .then(() => caches.match('https://e.com/x', { cacheName: null }))
+              .then(r => { globalThis.__out = r === undefined ? 'miss' : 'hit'; });
+            ",
+        );
+        assert_eq!(out, "miss");
+    });
+}
+
+#[test]
 fn match_of_synthetic_response_has_empty_url() {
     // Fetch §2.2.6: a synthetic `new Response(...)` has `url === ''`; the
     // Cache must not synthesize the request URL into the matched response.

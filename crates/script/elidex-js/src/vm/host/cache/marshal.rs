@@ -365,7 +365,9 @@ fn read_bool_member(
 
 /// Read the optional `cacheName` member of a `CacheStorage.match` options
 /// dict (§5.5.1) — when present, the cross-cache search is restricted to
-/// that one cache.  Returns `None` for absent / `undefined`.
+/// that one cache.  Returns `None` for absent / `undefined`; an explicit
+/// `null` is *present* and coerces to the `DOMString` `"null"` (WebIDL
+/// non-nullable `DOMString` conversion, parity with `cache_name_arg`).
 pub(super) fn read_cache_name_option(
     ctx: &mut NativeContext<'_>,
     arg: JsValue,
@@ -375,7 +377,7 @@ pub(super) fn read_cache_name_option(
     };
     let key = PropertyKey::String(ctx.vm.strings.intern("cacheName"));
     let val = ctx.get_property_value(id, key)?;
-    if matches!(val, JsValue::Undefined | JsValue::Null) {
+    if matches!(val, JsValue::Undefined) {
         return Ok(None);
     }
     let sid = super::super::super::coerce::to_string(ctx.vm, val)?;
