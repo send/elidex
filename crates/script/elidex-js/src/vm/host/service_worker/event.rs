@@ -218,21 +218,6 @@ pub(crate) fn dispatch_event_at_sw_scope(
 // Natives
 // ---------------------------------------------------------------------------
 
-/// `Promise.resolve(value)` as an `ObjectId` — a fresh promise that adopts
-/// `value` (a real promise is followed; a plain value fulfils immediately).
-/// Reactions fire on the next `drain_microtasks` in the SW loop.  `value` is
-/// rooted across `create_promise` (which can GC) defensively, independent of
-/// the caller's argument-stack rooting.
-fn promise_resolve(vm: &mut VmInner, value: JsValue) -> ObjectId {
-    let mut g = vm.push_temp_root(value);
-    let promise = super::super::super::natives_promise::create_promise(&mut g);
-    let mut g2 = g.push_temp_root(JsValue::Object(promise));
-    super::super::blob::resolve_promise_sync(&mut g2, promise, value);
-    drop(g2);
-    drop(g);
-    promise
-}
-
 /// `ExtendableEvent.waitUntil(f)` (SW §4.4.1 + Install/Activate `#install` /
 /// `#activate`): add `Promise.resolve(f)` to the event's lifetime-promise
 /// list; the lifecycle loop holds `LifecycleComplete` until all settle (a
@@ -253,7 +238,7 @@ fn native_extendable_wait_until(
         ));
     }
     let value = args.first().copied().unwrap_or(JsValue::Undefined);
-    let promise = promise_resolve(ctx.vm, value);
+    let promise = super::promise_resolve(ctx.vm, value);
     if let Some(state) = ctx.vm.extendable_event_states.get_mut(&id) {
         state.lifetime_promises.push(promise);
     }
@@ -286,7 +271,7 @@ fn native_fetch_event_respond_with(
         ));
     }
     let value = args.first().copied().unwrap_or(JsValue::Undefined);
-    let promise = promise_resolve(ctx.vm, value);
+    let promise = super::promise_resolve(ctx.vm, value);
     if let Some(state) = ctx.vm.fetch_event_states.get_mut(&id) {
         state.responded = true;
         state.response_promise = Some(promise);

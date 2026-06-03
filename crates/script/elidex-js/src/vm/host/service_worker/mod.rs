@@ -175,7 +175,22 @@ fn native_skip_waiting(
 ) -> Result<JsValue, VmError> {
     ctx.vm
         .queue_sw_message(elidex_api_sw::SwToContent::SkipWaiting);
-    let promise = super::super::natives_promise::create_promise(ctx.vm);
-    super::blob::resolve_promise_sync(ctx.vm, promise, JsValue::Undefined);
-    Ok(JsValue::Object(promise))
+    Ok(JsValue::Object(promise_resolve(ctx.vm, JsValue::Undefined)))
+}
+
+/// A fresh promise resolved with `value` — the SW realm's `Promise.resolve`
+/// (`value` is followed if it is itself a promise, else fulfilled
+/// immediately; reactions fire on the next `drain_microtasks` in the SW
+/// loop).  `value` is rooted across `create_promise` (which can GC) so a
+/// freshly built `Response` / `Client` held only in this local is not swept
+/// before it reaches the promise.  Shared by `skipWaiting` / `clients.*` /
+/// `respondWith` / `waitUntil`.
+pub(super) fn promise_resolve(vm: &mut VmInner, value: JsValue) -> ObjectId {
+    let mut g = vm.push_temp_root(value);
+    let promise = super::super::natives_promise::create_promise(&mut g);
+    let mut g2 = g.push_temp_root(JsValue::Object(promise));
+    super::blob::resolve_promise_sync(&mut g2, promise, value);
+    drop(g2);
+    drop(g);
+    promise
 }

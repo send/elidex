@@ -416,6 +416,42 @@ fn non_response_fulfilled_value_passes_through() {
     h.shutdown();
 }
 
+#[test]
+fn network_error_response_passes_through() {
+    // SW §4.6.7: respondWith(Response.error()) is a network error → passthrough,
+    // not a bogus status-0 response delivered to the page.
+    let h = Harness::spawn("self.onfetch = e => e.respondWith(Response.error());");
+    h.send(fetch_event("https://example.com/x", "c1"));
+    assert!(matches!(h.recv(), SwToContent::FetchPassthrough { .. }));
+    h.shutdown();
+}
+
+#[test]
+fn respond_with_survives_gc_in_listener() {
+    // GC-safety regression: the respondWith promise lives ONLY in the
+    // fetch_event_states side-store between the native and the SW loop reading
+    // it. The listener allocates heavily AFTER respondWith (forcing a GC while
+    // the side-store is the sole owner), so the promise — and its Response —
+    // must be marked as a root by the GC mark phase, else it is swept and the
+    // fetch wrongly passes through (or the loop panics on a recycled id).
+    let h = Harness::spawn(
+        "self.onfetch = e => {
+            e.respondWith(new Response('survived'));
+            let sink = [];
+            for (let i = 0; i < 200000; i++) { sink.push({ n: i }); }
+            globalThis.__sink = sink.length;
+        };",
+    );
+    h.send(fetch_event("https://example.com/x", "c1"));
+    match h.recv() {
+        SwToContent::FetchResponse { response, .. } => {
+            assert_eq!(body_string(&response), "survived");
+        }
+        other => panic!("expected FetchResponse (promise swept by GC?), got {other:?}"),
+    }
+    h.shutdown();
+}
+
 // ---------------------------------------------------------------------------
 // FetchEvent.request marshalling
 // ---------------------------------------------------------------------------

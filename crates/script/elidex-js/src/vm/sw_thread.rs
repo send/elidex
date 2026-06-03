@@ -13,7 +13,7 @@
 //! ## DR-C — the real `respondWith(promise)` drain
 //!
 //! The central novelty boa cannot do: after `dispatch_script_event` fires
-//! `onfetch`, the loop ([`pump_settled`]) drains microtasks + timers +
+//! `onfetch`, the loop (`pump_response`) drains microtasks + timers +
 //! **network ticks** until the `respondWith` promise settles, so
 //! `respondWith(fetch(req))` actually resolves (boa reads the response
 //! synchronously right after the listener → a fetched Response never
@@ -219,10 +219,14 @@ pub(crate) fn run_service_worker(
         );
         match channel.recv_timeout(timeout) {
             Ok(msg) => {
-                last_activity = Instant::now();
                 if !handle_message(&mut vm, channel, msg, pump_timeout) {
                     break; // Shutdown
                 }
+                // Reset AFTER handling (a respondWith / waitUntil pump can take
+                // seconds): the idle window is measured from work *completion*,
+                // not request receipt, so a heavy SW isn't torn down moments
+                // after finishing a slow fetch.
+                last_activity = Instant::now();
             }
             Err(RecvTimeoutError::Timeout) => {
                 if last_activity.elapsed() >= DEFAULT_IDLE_TIMEOUT {
@@ -304,10 +308,12 @@ fn handle_message(
 /// the bound elapsed (SW §4.4.1).
 fn run_lifecycle(vm: &mut Vm, event_type: &str, pump_timeout: Duration) -> bool {
     let event_id = event::create_extendable_event(&mut vm.inner, event_type);
-    // Root the event + its lifetime promises on the VM operand stack across
-    // dispatch + pump (GC runs during `drain_microtasks`; the side-store key
-    // does not root the object, and the promises live only in the side-store
-    // value — the cache `matchAll` rooting precedent).
+    // Root the event object on the VM operand stack across dispatch + pump:
+    // GC runs during `drain_microtasks`, and the side-store key does not root
+    // the object.  The lifetime promises themselves are rooted by the GC mark
+    // phase (`gc/collect.rs` marks `extendable_event_states.lifetime_promises`
+    // while the entry lives) — which is why the loop must NOT `mem::take` them
+    // out of the side-store: the clone leaves them in place for the marker.
     let mut scope = vm.inner.push_stack_scope();
     scope.stack.push(JsValue::Object(event_id));
     let _ = event::dispatch_event_at_sw_scope(&mut scope, event_id);
@@ -316,9 +322,6 @@ fn run_lifecycle(vm: &mut Vm, event_type: &str, pump_timeout: Duration) -> bool 
         .get(&event_id)
         .map(|s| s.lifetime_promises.clone())
         .unwrap_or_default();
-    for &p in &promises {
-        scope.stack.push(JsValue::Object(p));
-    }
     let deadline = Instant::now() + pump_timeout;
     let success = pump_lifetime(&mut scope, &promises, deadline);
     scope.extendable_event_states.remove(&event_id);
@@ -339,9 +342,12 @@ fn run_fetch(
 ) -> Option<SwResponse> {
     let request_url = request.url.clone();
     let request_obj = marshal::build_request_from_sw_request(&mut vm.inner, request);
-    // Root the request, the event, and (below) the response promise on the
-    // VM operand stack across `create_fetch_event` + dispatch + the DR-C pump
-    // (GC runs during `drain_microtasks` / `tick_network`).
+    // Root the request + the event object on the VM operand stack across
+    // `create_fetch_event` + dispatch + the DR-C pump (GC runs during
+    // `drain_microtasks` / `tick_network`; the event roots `request_obj` as an
+    // own prop).  The `respondWith` promise is rooted by the GC mark phase
+    // (`gc/collect.rs` marks `fetch_event_states.response_promise` while the
+    // entry lives), and its fulfilled value via the promise's `result`.
     let mut scope = vm.inner.push_stack_scope();
     scope.stack.push(JsValue::Object(request_obj));
     let event_id =
@@ -356,12 +362,8 @@ fn run_fetch(
 
     let result = match (responded, response_promise) {
         (true, Some(promise)) => {
-            scope.stack.push(JsValue::Object(promise));
             let deadline = Instant::now() + pump_timeout;
             match pump_response(&mut scope, promise, deadline) {
-                // The fulfilled value is rooted via `promise.result` (the
-                // promise is on the stack); `response_to_sw_response` only
-                // reads, so no GC runs before the extract.
                 Some(value) => marshal::response_to_sw_response(&scope, value, request_url).ok(),
                 None => None,
             }
@@ -371,6 +373,11 @@ fn run_fetch(
         _ => None,
     };
 
+    // A FetchEvent's `waitUntil(f)` (FetchEvent : ExtendableEvent) is best-
+    // effort in PR-2: any synchronous-ish `f` reactions already ran during the
+    // response pump above (`pump_once` drains microtasks), but extending the
+    // SW's lifetime to hold it alive *past* the response is deferred — the
+    // entry is torn down here → slot `#11-sw-fetchevent-waituntil`.
     scope.fetch_event_states.remove(&event_id);
     scope.extendable_event_states.remove(&event_id);
     drop(scope);

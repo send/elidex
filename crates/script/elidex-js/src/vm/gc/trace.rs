@@ -486,11 +486,10 @@ pub(super) fn trace_work_list(
             // `Client` (SW §4.2) — payload-free brand; the snapshot in
             // `client_states` holds only owned data (no `ObjectId`).  The
             // sweep tail prunes dead `client_states` keys.  (FetchEvent /
-            // ExtendableEvent are `ObjectKind::Event` — traced there; their
-            // `respondWith` / `waitUntil` promises live only during the SW
-            // loop's dispatch+pump window, rooted on the VM operand stack by
-            // `sw_thread::run_fetch` / `run_lifecycle` — not a persistent
-            // root, so no root-walk entry is needed.)
+            // ExtendableEvent are `ObjectKind::Event` — traced via that arm;
+            // their `respondWith` / `waitUntil` promises are marked as roots
+            // from `fetch_event_states` / `extendable_event_states` in the
+            // `gc/collect.rs` mark phase for the dispatch+pump window.)
             #[cfg(feature = "engine")]
             ObjectKind::Client => {}
             // No ObjectId references — only StringId / scalar fields.

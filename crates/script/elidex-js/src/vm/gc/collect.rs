@@ -1097,6 +1097,33 @@ impl VmInner {
             &mut self.gc_work_list,
         );
 
+        // Service Worker realm (D-19 PR-2): root the in-flight `respondWith` /
+        // `waitUntil` promises.  They live ONLY in these side-stores during a
+        // single event's dispatch+pump window (`sw_thread::run_fetch` /
+        // `run_lifecycle` remove the entry afterward), and the
+        // `respondWith`/`waitUntil` native returns control to the listener
+        // body (which runs with GC enabled) before the SW loop reads them
+        // back — so a GC mid-listener would otherwise sweep a promise still
+        // owed to the loop.  A no-op (empty maps) outside that window.  The
+        // event objects themselves are `ObjectKind::Event`, rooted via the
+        // operand stack + `dispatched_events`; only their side-store promises
+        // need this explicit root.
+        #[cfg(feature = "engine")]
+        {
+            let marks = &mut self.gc_object_marks;
+            let work = &mut self.gc_work_list;
+            for state in self.fetch_event_states.values() {
+                if let Some(promise) = state.response_promise {
+                    super::mark_object(promise, marks, work);
+                }
+            }
+            for state in self.extendable_event_states.values() {
+                for &promise in &state.lifetime_promises {
+                    super::mark_object(promise, marks, work);
+                }
+            }
+        }
+
         // Copilot R8: empty fallbacks when HostData is absent — the
         // TreeWalker / NodeIterator trace fan-out arms can never
         // fire in that case (instances are stored only in HostData),

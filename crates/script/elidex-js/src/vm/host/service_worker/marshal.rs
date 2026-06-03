@@ -15,7 +15,7 @@ use super::super::super::value::{JsValue, Object, ObjectId, ObjectKind, Property
 use super::super::super::VmInner;
 use super::super::headers::HeadersGuard;
 use super::super::request_response::{
-    RedirectMode, RequestCache, RequestCredentials, RequestMode, RequestState,
+    RedirectMode, RequestCache, RequestCredentials, RequestMode, RequestState, ResponseType,
 };
 
 /// Intern `(name, value)` header pairs and install them as the `list` of
@@ -133,6 +133,17 @@ pub(crate) fn response_to_sw_response(
             "FetchEvent.respondWith: Response has no internal state",
         ));
     };
+    // SW §4.6.7: responding with a network-error Response (`Response.error()`,
+    // type "error") fails the fetch — surface it as an `Err` (→ network
+    // passthrough) rather than a bogus status-0 response delivered to the page.
+    // (An opaque response IS a valid respondWith value; `SwResponse` carries no
+    // type field, so it round-trips as its status-0 / empty-header shape, which
+    // is the closest the wire representation allows.)
+    if matches!(state.response_type, ResponseType::Error) {
+        return Err(VmError::type_error(
+            "FetchEvent.respondWith: a network-error Response cannot be delivered",
+        ));
+    }
     let status = state.status;
     let status_text = vm.strings.get_utf8(state.status_text_sid);
     let headers = headers_to_owned(vm, state.headers_id);

@@ -142,13 +142,13 @@ pub enum GlobalScopeKind {
     },
     /// Service Worker scope (WHATWG Service Workers §4.1
     /// `ServiceWorkerGlobalScope`), carrying the registration scope URL +
-    /// the SW script URL.  A worker-mode VM like [`DedicatedWorker`], but
+    /// the SW script URL.  A worker-mode VM like `DedicatedWorker`, but
     /// its `globalThis` is a `ServiceWorkerGlobalScope` (`clients` /
     /// `skipWaiting` + `oninstall`/`onactivate`/`onfetch`/`onmessage`) and
     /// its event loop is driven by `ContentToSw` messages
     /// (`vm/sw_thread.rs`) rather than `ParentToWorker` postMessage.
     ///
-    /// `engine`-only for the same reason as [`DedicatedWorker`] (the whole
+    /// `engine`-only for the same reason as `DedicatedWorker` (the whole
     /// worker surface is feature-gated and `credentials` is an
     /// `elidex_net` type).
     #[cfg(feature = "engine")]
@@ -161,7 +161,7 @@ pub enum GlobalScopeKind {
         script_url: url::Url,
         /// Whether the SW runs in a secure context (always true in
         /// practice — SW registration is HTTPS-only — but carried
-        /// explicitly to mirror [`DedicatedWorker`]).
+        /// explicitly to mirror `DedicatedWorker`).
         is_secure_context: bool,
         /// Credentials mode for the SW's own subresource fetches
         /// (`importScripts`).
@@ -2143,8 +2143,11 @@ pub(crate) struct VmInner {
     /// (`respondWith` rejects an Illegal invocation when absent) and the
     /// mutable post-dispatch state the SW loop reads back (DR-C).
     ///
-    /// GC contract: traced (the `response_promise` is a live `ObjectId`);
-    /// sweep prunes dead keys; cleared on [`Vm::unbind`].
+    /// GC contract: the `response_promise` is marked as a root by the GC
+    /// mark phase (`gc/collect.rs`) while the entry lives — it is reachable
+    /// ONLY through this side-store between the `respondWith` native and the
+    /// SW loop reading it back, and that window straddles GC-enabled listener
+    /// code.  Sweep prunes dead keys; cleared on [`Vm::unbind`].
     #[cfg(feature = "engine")]
     pub(crate) fetch_event_states: HashMap<ObjectId, host::service_worker::FetchEventState>,
     /// Per-`ExtendableEvent`-`ObjectId` `waitUntil` lifetime-promise list
@@ -2152,8 +2155,10 @@ pub(crate) struct VmInner {
     /// (FetchEvent : ExtendableEvent); serves as the ExtendableEvent brand
     /// for `waitUntil`.
     ///
-    /// GC contract: traced (each lifetime promise is a live `ObjectId`);
-    /// sweep prunes dead keys; cleared on [`Vm::unbind`].
+    /// GC contract: each lifetime promise is marked as a root by the GC mark
+    /// phase (`gc/collect.rs`) while the entry lives (same reachability
+    /// window as `fetch_event_states`).  Sweep prunes dead keys; cleared on
+    /// [`Vm::unbind`].
     #[cfg(feature = "engine")]
     pub(crate) extendable_event_states:
         HashMap<ObjectId, host::service_worker::ExtendableEventState>,

@@ -150,18 +150,11 @@ fn require_clients(ctx: &NativeContext<'_>, this: JsValue) -> Result<(), VmError
     ))
 }
 
-/// A fresh promise resolved with `value` (reactions fire on the next
-/// `drain_microtasks` in the SW loop).  `value` is rooted across
-/// `create_promise` (which can GC) — else a freshly built `Client` held only
-/// in this local would be swept before it reaches the promise.
+/// A fresh promise resolved with `value` (the `JsValue`-returning sugar over
+/// [`super::promise_resolve`], which roots `value` across the GC-capable
+/// `create_promise`).
 fn resolved_promise(vm: &mut VmInner, value: JsValue) -> JsValue {
-    let mut g = vm.push_temp_root(value);
-    let promise = super::super::super::natives_promise::create_promise(&mut g);
-    let mut g2 = g.push_temp_root(JsValue::Object(promise));
-    super::super::blob::resolve_promise_sync(&mut g2, promise, value);
-    drop(g2);
-    drop(g);
-    JsValue::Object(promise)
+    JsValue::Object(super::promise_resolve(vm, value))
 }
 
 // ---------------------------------------------------------------------------
