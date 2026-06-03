@@ -82,17 +82,24 @@ pub(super) enum PackItem {
     Placeholder { entity: Entity },
 }
 
-/// What kind of `InlineFlow` member `place_item` records for a placed item (only
-/// when persisting — `flow_align.is_some()`). A text segment coalesces into a
-/// contiguous same-entity [`InlineFlowRun::Text`]; an atomic inline-level box
-/// becomes its own [`InlineFlowRun::AtomicBox`] (render `walk()`s it at its
-/// repositioned `LayoutBox`).
+/// What `place_item` records for a placed item (only when persisting —
+/// `flow_align.is_some()`). A text segment coalesces into a contiguous same-entity
+/// [`InlineFlowRun::Text`]; a *static* atomic inline-level box becomes its own
+/// [`InlineFlowRun::AtomicBox`] flow member (render `walk()`s it at its
+/// repositioned `LayoutBox`); a *positioned* (relative/sticky) atomic is recorded
+/// in the separate `relpos_atomic_placements` reposition bucket — NOT a flow
+/// member, because render paints it in Layer 6 and a flow member would double-paint
+/// (`emit_inline_flow` walks every member in Layer 5 too; slice 3p-b-2).
 #[derive(Clone, Copy)]
 enum FlowMember<'a> {
     /// A text segment that contributes its `&str` to a text run.
     Text(&'a str),
     /// A static atomic inline-level box (no text; carries its own box geometry).
     Atomic,
+    /// A `position:relative`/`sticky` atomic inline-level box: in-flow (advances the
+    /// cursor) but painted in render Layer 6 from its own `LayoutBox`. Recorded in
+    /// the reposition bucket, not a flow member (avoids double-paint, slice 3p-b-2).
+    PositionedAtomic,
 }
 
 /// Build pack items from inline items.
@@ -236,6 +243,23 @@ pub(super) struct LinePacker {
     /// positioned-inline sub-flow). The caller folds each to absolute and persists
     /// one `InlineFlow` per key.
     pub flow_lines: HashMap<Entity, Vec<InlineFlowLine>>,
+    /// `position:relative`/`sticky` atomic boxes tentatively placed on the current
+    /// line, `(entity, IFC-local inline_start)`. Committed into
+    /// `relpos_atomic_placements` on a rendered-content flush (same commit-on-content
+    /// seam as `current_line_runs`), discarded on a suppressed line. A **flat
+    /// line-level `Vec`, NOT group-keyed** like `current_line_runs`: `text-align` is
+    /// one line-level offset shared across all groups, so a positioned atomic's align
+    /// shift equals every group's regardless of which (sub-)flow it sits inside.
+    current_line_relpos_atomics: Vec<(Entity, f32)>,
+    /// Committed `position:relative`/`sticky` atomic placements,
+    /// `(entity, IFC-local inline_start, IFC-local block_start)` with the per-line
+    /// `text-align` offset already baked into `inline_start`. The `inline_start` is
+    /// **IFC-root-local** (an atomic shares the parent IFC's cursor; it never
+    /// establishes a sub-flow of its own line geometry), so the caller folds it with
+    /// the **IFC-root** `content_origin` — like `static_positions`, NOT a sub-flow
+    /// origin — then repositions each box (NOT a flow member; render Layer 6 paints
+    /// it from the box). slice 3p-b-2.
+    pub relpos_atomic_placements: Vec<(Entity, f32, f32)>,
 }
 
 impl LinePacker {
@@ -257,6 +281,8 @@ impl LinePacker {
             last_placed_entity: None,
             current_line_last_hang: 0.0,
             flow_lines: HashMap::new(),
+            current_line_relpos_atomics: Vec::new(),
+            relpos_atomic_placements: Vec::new(),
         }
     }
 
@@ -324,14 +350,29 @@ impl LinePacker {
                             runs,
                         });
                 }
+                // Commit the line's positioned-atomic placements (relpos/sticky),
+                // baking the SAME line-level `offset` (the atomic shares the line —
+                // its align shift equals every group's, slice 3p-b-2). A flat list,
+                // not group-keyed: the caller folds with the IFC-root origin and
+                // repositions each box; these are NOT flow members (render Layer 6
+                // paints the positioned box, so a flow member would double-paint).
+                for (entity, inline_start) in self.current_line_relpos_atomics.drain(..) {
+                    self.relpos_atomic_placements.push((
+                        entity,
+                        inline_start + offset,
+                        block_start,
+                    ));
+                }
             }
             self.current_block_offset += self.current_line_height;
         } else {
             // Suppressed line (collapsible whitespace only): discard its rects so no
             // phantom getClientRects geometry is produced (CSS 2 §9.2.2.1). Likewise
-            // discard the tentative flow runs (no InlineFlowLine for a no-box line).
+            // discard the tentative flow runs + relpos-atomic placements (no box on a
+            // no-box line, so nothing to reposition).
             self.current_line_entity_rects.clear();
             self.current_line_runs.clear();
+            self.current_line_relpos_atomics.clear();
         }
         self.current_inline = 0.0;
         self.current_line_height = 0.0;
@@ -343,6 +384,10 @@ impl LinePacker {
         self.last_placed_entity = None;
     }
 
+    // A per-PackItem dispatch (Text / Atomic / Placeholder) with baseline capture +
+    // the static-vs-positioned atomic routing inline — naturally long, like the
+    // sibling `layout_inline_context_fragmented` / `layout_atomic_items`.
+    #[allow(clippy::too_many_lines)]
     pub fn pack(
         &mut self,
         pi: &PackItem,
@@ -436,6 +481,7 @@ impl LinePacker {
                     inline_size,
                     block_size,
                     group_key,
+                    positioned,
                 } = &items[*item_index]
                 else {
                     return;
@@ -465,13 +511,16 @@ impl LinePacker {
                 }
 
                 // Atomic boxes don't break internally; treat as a single unit. An
-                // atomic inline box is always rendered content. When persisting (a
-                // *static* atomic — relpos/sticky atomics are gated out via
-                // `has_relpos_sticky_atomic`), `place_item` records an `AtomicBox`
-                // member in this atomic's group bucket; render paints it by
-                // `walk()`-ing the entity at the `LayoutBox` layout repositions to
-                // the member's `inline_start` (slice 3p-a). A non-persisting run, or
-                // a member with a `None` group key, records nothing (render legacy).
+                // atomic inline box is always rendered content. When persisting:
+                // - a *static* atomic → `place_item` records an `AtomicBox` member in
+                //   this atomic's group bucket; render paints it by `walk()`-ing the
+                //   entity at the `LayoutBox` layout repositions to the member's
+                //   `inline_start` (slice 3p-a). A `None` group key records nothing.
+                // - a *positioned* (relpos/sticky) atomic → `FlowMember::PositionedAtomic`
+                //   records its on-line position in the flat reposition bucket (NOT a
+                //   flow member; render Layer 6 paints it, so a member would
+                //   double-paint), and layout repositions its box preserving the
+                //   applied relative offset (slice 3p-b-2).
                 self.place_item(
                     *inline_size,
                     *inline_size,
@@ -479,7 +528,11 @@ impl LinePacker {
                     *entity,
                     containing_inline_size,
                     true,
-                    FlowMember::Atomic,
+                    if *positioned {
+                        FlowMember::PositionedAtomic
+                    } else {
+                        FlowMember::Atomic
+                    },
                     *group_key,
                 );
             }
@@ -533,38 +586,57 @@ impl LinePacker {
             ));
         }
 
-        // Record the InlineFlow member for this placed item into its render-run-
-        // group bucket (only when persisting and the item has a group key — a
-        // positioned subtree with a direct block child has `None`, records nothing
-        // → render legacy). Text: coalesce contiguous same-entity break-pieces on
-        // this line into one run so render shapes whole words rather than per-break
-        // fragments (CSS Text 3 §5.6 Shaping Across Intra-word Breaks). "Contiguous"
-        // = the IMMEDIATELY-previous placed member was the same entity
-        // (`last_placed_entity`) — NOT merely the group bucket's last run, which
-        // with sub-flows can be a same-entity run separated by an intervening
-        // positioned member (the `a … c` gap in `a<span rel>b</span>c`). Same entity
-        // ⟹ same group, so the bucket's last IS that previous run. A different-
-        // entity / post-flush / atomic-interrupted segment starts a fresh run (an
-        // atomic's entity differs from surrounding text, so the contiguity check
-        // breaks naturally). Atomic: its own AtomicBox member at this position
-        // (render walk()s the entity at its repositioned LayoutBox).
-        if let (true, Some(gk)) = (self.flow_align.is_some(), group_key) {
-            let coalesce =
-                matches!(member, FlowMember::Text(_)) && self.last_placed_entity == Some(entity);
-            let bucket = self.current_line_runs.entry(gk).or_default();
+        // Record this placed item when persisting (`flow_align.is_some()`):
+        // - PositionedAtomic (relpos/sticky): its on-line position goes into the flat
+        //   `current_line_relpos_atomics` reposition bucket — NOT a group flow member
+        //   (render Layer 6 paints it; a member would double-paint), so it ignores
+        //   `group_key`. Layout repositions its box preserving the offset (3p-b-2).
+        // - Text / static Atomic: into the render-run-group bucket, but only with a
+        //   group key (a positioned subtree with a direct block child has `None`,
+        //   records nothing → render legacy). Text coalesces contiguous same-entity
+        //   break-pieces on this line into one run so render shapes whole words rather
+        //   than per-break fragments (CSS Text 3 §5.6 Shaping Across Intra-word
+        //   Breaks). "Contiguous" = the IMMEDIATELY-previous placed member was the
+        //   same entity (`last_placed_entity`) — NOT merely the group bucket's last
+        //   run, which with sub-flows can be a same-entity run separated by an
+        //   intervening positioned member (the `a … c` gap in `a<span rel>b</span>c`).
+        //   Same entity ⟹ same group, so the bucket's last IS that previous run. A
+        //   different-entity / post-flush / atomic-interrupted segment starts a fresh
+        //   run (an atomic's entity differs from surrounding text, so the contiguity
+        //   check breaks naturally). static Atomic: its own AtomicBox member at this
+        //   position (render walk()s the entity at its repositioned LayoutBox).
+        if self.flow_align.is_some() {
             match member {
-                FlowMember::Text(text) => match bucket.last_mut() {
-                    Some(InlineFlowRun::Text { text: t, .. }) if coalesce => t.push_str(text),
-                    _ => bucket.push(InlineFlowRun::Text {
-                        entity,
-                        text: text.to_string(),
-                        inline_start: seg_inline_start,
-                    }),
-                },
-                FlowMember::Atomic => bucket.push(InlineFlowRun::AtomicBox {
-                    entity,
-                    inline_start: seg_inline_start,
-                }),
+                FlowMember::PositionedAtomic => {
+                    self.current_line_relpos_atomics
+                        .push((entity, seg_inline_start));
+                }
+                FlowMember::Text(text) => {
+                    if let Some(gk) = group_key {
+                        let coalesce = self.last_placed_entity == Some(entity);
+                        let bucket = self.current_line_runs.entry(gk).or_default();
+                        match bucket.last_mut() {
+                            Some(InlineFlowRun::Text { text: t, .. }) if coalesce => {
+                                t.push_str(text);
+                            }
+                            _ => bucket.push(InlineFlowRun::Text {
+                                entity,
+                                text: text.to_string(),
+                                inline_start: seg_inline_start,
+                            }),
+                        }
+                    }
+                }
+                FlowMember::Atomic => {
+                    if let Some(gk) = group_key {
+                        self.current_line_runs.entry(gk).or_default().push(
+                            InlineFlowRun::AtomicBox {
+                                entity,
+                                inline_start: seg_inline_start,
+                            },
+                        );
+                    }
+                }
             }
         }
         // Track the last placed entity for the next member's contiguity check

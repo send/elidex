@@ -673,3 +673,107 @@ fn orphan_cell_wrapped_in_anonymous_row_and_table() {
         "Orphan <td> in <div> should be wrapped in anonymous row + table"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Slice 3p-b-2 — relpos atomic inline reposition preserves the relative offset
+// ---------------------------------------------------------------------------
+
+#[test]
+fn relpos_atomic_inline_reposition_preserves_offset() {
+    // A `position:relative` atomic inline (inline-block) in an IFC is repositioned to
+    // its on-line position while PRESERVING the relative offset that the real
+    // `dispatch_layout_child` bakes (slice 3p-b-2). `<body><div><ib1/><ib2/></div>`:
+    // ib1 is a sibling atomic so ib2 is NOT first in the IFC (it is repositioned off
+    // the content-origin placement); ib2 with `left:10;top:5` lands exactly 10/5 past
+    // where the same atomic lands when static. Two runs isolate the offset (cancel
+    // out the body margin / div origin / ib1 advance / the inline-block sizing
+    // details — whatever on-line position ib2 gets, the relpos run adds (10,5)). This
+    // needs the REAL dispatcher (which applies `apply_relative_offset`) — the
+    // `layout_block_only` stub in the layout-block unit tests does not, so the
+    // offset-preservation crux lives here.
+    fn layout_two_inline_blocks(relpos: bool) -> (EcsDom, Entity) {
+        let (mut dom, _root, _html, body) = build_styled_dom();
+        let div = dom.create_element("div", Attributes::default());
+        dom.append_child(body, div);
+        dom.world_mut().insert_one(
+            div,
+            ComputedStyle {
+                display: Display::Block,
+                ..Default::default()
+            },
+        );
+        // ib1: a sibling static inline-block, so ib2 is not the IFC's first in-flow
+        // box and the reposition must move ib2 off the content-origin placement.
+        let ib1 = dom.create_element("span", Attributes::default());
+        dom.append_child(div, ib1);
+        dom.world_mut().insert_one(
+            ib1,
+            ComputedStyle {
+                display: Display::InlineBlock,
+                width: Dimension::Length(30.0),
+                height: Dimension::Length(20.0),
+                ..Default::default()
+            },
+        );
+        // ib2: the atomic under test — static (baseline) or relative left:10/top:5.
+        let ib2 = dom.create_element("span", Attributes::default());
+        dom.append_child(div, ib2);
+        dom.world_mut().insert_one(
+            ib2,
+            ComputedStyle {
+                display: Display::InlineBlock,
+                position: if relpos {
+                    Position::Relative
+                } else {
+                    Position::Static
+                },
+                left: if relpos {
+                    Dimension::Length(10.0)
+                } else {
+                    Dimension::Auto
+                },
+                top: if relpos {
+                    Dimension::Length(5.0)
+                } else {
+                    Dimension::Auto
+                },
+                width: Dimension::Length(20.0),
+                height: Dimension::Length(20.0),
+                ..Default::default()
+            },
+        );
+        let font_db = FontDatabase::new();
+        layout_tree(&mut dom, Size::new(800.0, 600.0), &font_db);
+        (dom, ib2)
+    }
+
+    let (static_dom, static_ib2) = layout_two_inline_blocks(false);
+    let static_box = get_layout(&static_dom, static_ib2);
+    let (rel_dom, rel_ib2) = layout_two_inline_blocks(true);
+    let rel_box = get_layout(&rel_dom, rel_ib2);
+
+    // The reposition ran: the static ib2 is NOT left at the IFC content-origin
+    // placement (8,8) where `layout_atomic_items` initially put it — it moved to its
+    // on-line position (after ib1 on the same line, or on the next line, depending on
+    // inline-block sizing; either way off the origin).
+    assert!(
+        !approx_eq(static_box.content.origin.x, 8.0)
+            || !approx_eq(static_box.content.origin.y, 8.0),
+        "static ib2 repositioned off the IFC content origin (8,8), got {:?}",
+        static_box.content.origin
+    );
+    // The relpos ib2 = the same on-line position + the (left:10, top:5) offset, i.e.
+    // the offset is preserved through the reposition, not stripped or doubled.
+    assert!(
+        approx_eq(rel_box.content.origin.x, static_box.content.origin.x + 10.0),
+        "relpos atomic x = on-line + left:10 (offset preserved): static={}, rel={}",
+        static_box.content.origin.x,
+        rel_box.content.origin.x
+    );
+    assert!(
+        approx_eq(rel_box.content.origin.y, static_box.content.origin.y + 5.0),
+        "relpos atomic y = on-line + top:5 (offset preserved): static={}, rel={}",
+        static_box.content.origin.y,
+        rel_box.content.origin.y
+    );
+}

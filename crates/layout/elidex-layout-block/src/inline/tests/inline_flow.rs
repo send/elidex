@@ -3,7 +3,7 @@
 
 use super::*;
 use elidex_ecs::{InlineFlow, InlineFlowRun, PseudoElementMarker, TextContent};
-use elidex_plugin::{Direction, Position, TextAlign, TextTransform, WritingMode};
+use elidex_plugin::{Direction, TextAlign, TextTransform, WritingMode};
 
 /// Build a `LayoutEnv` for the test font db. `pub(super)` so the sibling
 /// `relpos_subflow` test module can reuse it.
@@ -255,46 +255,9 @@ fn persists_atomic_inline_as_box_member() {
     );
 }
 
-#[test]
-fn gate_excludes_relative_positioned_atomic() {
-    // A relpos/sticky *atomic* (inline-block) takes the atomic collect arm, which
-    // sets `has_relpos_sticky_atomic` so the run stays gated — render paints it in
-    // Layer 6 from its own `LayoutBox`. Converging it needs an offset-preserving box
-    // reposition (a *different* mechanism than the slice-3p-b sub-flow), deferred to
-    // slice 3p-b-2. Without the arm's `position` check it would persist an
-    // `AtomicBox` member and double-paint with Layer 6.
-    let Some((mut dom, parent, style, font_db)) = setup_inline_test("a") else {
-        return;
-    };
-    let ib = dom.create_element("span", Attributes::default());
-    let ib_style = ComputedStyle {
-        display: Display::InlineBlock,
-        position: Position::Relative,
-        width: Dimension::Length(20.0),
-        height: Dimension::Length(20.0),
-        font_family: style.font_family.clone(),
-        ..Default::default()
-    };
-    let _ = dom.world_mut().insert_one(ib, ib_style);
-    dom.append_child(parent, ib);
-
-    let children = dom.composed_children(parent);
-    let key = run_start(&dom, parent);
-    layout_inline_context(
-        &mut dom,
-        &children,
-        800.0,
-        parent,
-        Point::ZERO,
-        &env(&font_db),
-    );
-
-    assert!(
-        dom.world().get::<&InlineFlow>(key).is_err(),
-        "a relative-positioned atomic inline must NOT persist (has_relpos_sticky_atomic \
-         gates it via the atomic arm; it paints in render Layer 6) — else it double-paints"
-    );
-}
+// NOTE: the slice-3p-b-2 inversion of the old `gate_excludes_relative_positioned_atomic`
+// test (a relpos/sticky atomic now persists + repositions instead of gating) lives in
+// the sibling `relpos_subflow` module alongside the other positioned-inline tests.
 
 #[test]
 fn vertical_atomic_repositions_with_axis_swap() {
