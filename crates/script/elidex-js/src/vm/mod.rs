@@ -58,6 +58,8 @@ mod ops_property;
 pub mod pools;
 pub(crate) mod shape;
 mod shape_ops;
+#[cfg(feature = "engine")]
+pub mod sw_thread;
 mod temp_root;
 pub mod value;
 mod vm_api;
@@ -136,6 +138,33 @@ pub enum GlobalScopeKind {
         /// (`importScripts`, WHATWG HTML §10.2.6.3 `WorkerOptions.credentials`).
         /// Applied — with the worker's origin — to the `importScripts` request
         /// so cookie attachment is gated correctly.
+        credentials: elidex_net::CredentialsMode,
+    },
+    /// Service Worker scope (WHATWG Service Workers §4.1
+    /// `ServiceWorkerGlobalScope`), carrying the registration scope URL +
+    /// the SW script URL.  A worker-mode VM like [`DedicatedWorker`], but
+    /// its `globalThis` is a `ServiceWorkerGlobalScope` (`clients` /
+    /// `skipWaiting` + `oninstall`/`onactivate`/`onfetch`/`onmessage`) and
+    /// its event loop is driven by `ContentToSw` messages
+    /// (`vm/sw_thread.rs`) rather than `ParentToWorker` postMessage.
+    ///
+    /// `engine`-only for the same reason as [`DedicatedWorker`] (the whole
+    /// worker surface is feature-gated and `credentials` is an
+    /// `elidex_net` type).
+    #[cfg(feature = "engine")]
+    ServiceWorker {
+        /// Registration scope URL — backs `WorkerLocation` and the
+        /// `registration.scope` value (PR-3).
+        scope_url: url::Url,
+        /// SW script URL — source for error-report filenames and the
+        /// `importScripts` base.
+        script_url: url::Url,
+        /// Whether the SW runs in a secure context (always true in
+        /// practice — SW registration is HTTPS-only — but carried
+        /// explicitly to mirror [`DedicatedWorker`]).
+        is_secure_context: bool,
+        /// Credentials mode for the SW's own subresource fetches
+        /// (`importScripts`).
         credentials: elidex_net::CredentialsMode,
     },
 }
@@ -2105,6 +2134,71 @@ pub(crate) struct VmInner {
     pub(crate) cache_storage_prototype: Option<ObjectId>,
     #[cfg(feature = "engine")]
     pub(crate) cache_prototype: Option<ObjectId>,
+    // --- Service Worker realm (D-19 PR-2 `#11-service-workers-vm`; WHATWG
+    // Service Workers §4) -------------------------------------------------
+    /// Per-`FetchEvent`-`ObjectId` `respondWith` state (SW §4.6.7).  The
+    /// event object itself is an ordinary `ObjectKind::Event` (so it
+    /// dispatches through the shared `dispatch_script_event`, like
+    /// `MessageEvent`); this side-store is *both* the FetchEvent brand
+    /// (`respondWith` rejects an Illegal invocation when absent) and the
+    /// mutable post-dispatch state the SW loop reads back (DR-C).
+    ///
+    /// GC contract: traced (the `response_promise` is a live `ObjectId`);
+    /// sweep prunes dead keys; cleared on [`Vm::unbind`].
+    #[cfg(feature = "engine")]
+    pub(crate) fetch_event_states: HashMap<ObjectId, host::service_worker::FetchEventState>,
+    /// Per-`ExtendableEvent`-`ObjectId` `waitUntil` lifetime-promise list
+    /// (SW §4.4.1).  Present on install/activate events *and* fetch events
+    /// (FetchEvent : ExtendableEvent); serves as the ExtendableEvent brand
+    /// for `waitUntil`.
+    ///
+    /// GC contract: traced (each lifetime promise is a live `ObjectId`);
+    /// sweep prunes dead keys; cleared on [`Vm::unbind`].
+    #[cfg(feature = "engine")]
+    pub(crate) extendable_event_states:
+        HashMap<ObjectId, host::service_worker::ExtendableEventState>,
+    /// Per-`Client`-`ObjectId` snapshot (SW §4.2) — the brand + the data
+    /// backing `Client.id` / `url` / `type` / `frameType` accessors and
+    /// `Client.postMessage` routing (the client's own id is the route).
+    ///
+    /// GC contract: payload-free (the snapshot holds only owned data, no
+    /// `ObjectId`); sweep prunes dead keys; cleared on [`Vm::unbind`].
+    #[cfg(feature = "engine")]
+    pub(crate) client_states: HashMap<ObjectId, elidex_api_sw::ClientSnapshot>,
+    /// The SW realm's authoritative view of the clients it controls,
+    /// seeded by the spawn payload and replaced by `ContentToSw::ClientList`
+    /// (SW §4.1(3)).  Read (filtered) by `clients.matchAll()` /
+    /// `clients.get()`.  Not keyed by `ObjectId` — it is the *source list*,
+    /// not a per-`Clients`-instance store (`Clients` is a stateless,
+    /// brand-via-prototype façade).
+    #[cfg(feature = "engine")]
+    pub(crate) sw_clients: Vec<elidex_api_sw::ClientSnapshot>,
+    /// Outbound `SwToContent` messages queued by SW-realm natives
+    /// (`skipWaiting` → `SkipWaiting`, `clients.claim()` → `ClientsClaim`,
+    /// `Client.postMessage` → `PostMessage`), drained by the SW thread loop
+    /// (`vm/sw_thread.rs`) and forwarded over the channel.  The SW analog of
+    /// [`worker_outgoing`](Self::worker_outgoing) — natives have no channel
+    /// handle, so they enqueue here.
+    #[cfg(feature = "engine")]
+    pub(crate) sw_outgoing: Vec<elidex_api_sw::SwToContent>,
+    /// `ServiceWorkerGlobalScope.prototype` + the SW event-interface
+    /// prototypes (installed once at SW-realm global registration).
+    #[cfg(feature = "engine")]
+    pub(crate) service_worker_scope_prototype: Option<ObjectId>,
+    /// `ExtendableEvent.prototype` (chains to `Event.prototype`; carries
+    /// `waitUntil`).
+    #[cfg(feature = "engine")]
+    pub(crate) extendable_event_prototype: Option<ObjectId>,
+    /// `FetchEvent.prototype` (chains to `ExtendableEvent.prototype`;
+    /// carries `respondWith`).
+    #[cfg(feature = "engine")]
+    pub(crate) fetch_event_prototype: Option<ObjectId>,
+    /// `Clients.prototype` (`get` / `matchAll` / `claim`).
+    #[cfg(feature = "engine")]
+    pub(crate) clients_prototype: Option<ObjectId>,
+    /// `Client.prototype` (`postMessage` + `id`/`url`/`type`/`frameType`).
+    #[cfg(feature = "engine")]
+    pub(crate) client_prototype: Option<ObjectId>,
     /// Fan-out map for `AbortSignal` → in-flight `FetchId`s.  When a
     /// signal aborts, [`host::abort::abort_signal`] drains the entry
     /// for that signal's `ObjectId`, sends

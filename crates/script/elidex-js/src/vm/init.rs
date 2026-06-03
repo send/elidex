@@ -48,6 +48,34 @@ impl Vm {
         })
     }
 
+    /// Create a new Service Worker VM (WHATWG Service Workers §4.1
+    /// `ServiceWorkerGlobalScope`).
+    ///
+    /// The SW realm installs the `ServiceWorkerGlobalScope` surface
+    /// (`self` / `clients` / `skipWaiting` + `oninstall`/`onactivate`/
+    /// `onfetch`/`onmessage`) instead of `window` / `document` or the
+    /// dedicated-worker `postMessage`/`close`.  `scope_url` is the
+    /// registration scope (backs `WorkerLocation`); `script_url` labels
+    /// error reports and is the `importScripts` base.  The caller
+    /// (`vm/sw_thread.rs`) binds an empty `EcsDom` + SW scope entity,
+    /// installs the shared cache backend + a `Send` `NetworkHandle`, and
+    /// seeds the client snapshot before eval.
+    #[cfg(feature = "engine")]
+    #[must_use]
+    pub fn new_service_worker(
+        scope_url: url::Url,
+        script_url: url::Url,
+        is_secure_context: bool,
+        credentials: elidex_net::CredentialsMode,
+    ) -> Self {
+        Self::new_with_scope(super::GlobalScopeKind::ServiceWorker {
+            scope_url,
+            script_url,
+            is_secure_context,
+            credentials,
+        })
+    }
+
     /// Construct a VM for the given global scope kind, then register globals.
     ///
     /// `register_globals` runs at the tail (before any caller can observe the
@@ -598,6 +626,26 @@ impl Vm {
                 cache_storage_prototype: None,
                 #[cfg(feature = "engine")]
                 cache_prototype: None,
+                #[cfg(feature = "engine")]
+                fetch_event_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                extendable_event_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                client_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                sw_clients: Vec::new(),
+                #[cfg(feature = "engine")]
+                sw_outgoing: Vec::new(),
+                #[cfg(feature = "engine")]
+                service_worker_scope_prototype: None,
+                #[cfg(feature = "engine")]
+                extendable_event_prototype: None,
+                #[cfg(feature = "engine")]
+                fetch_event_prototype: None,
+                #[cfg(feature = "engine")]
+                clients_prototype: None,
+                #[cfg(feature = "engine")]
+                client_prototype: None,
                 #[cfg(feature = "engine")]
                 fetch_abort_observers: HashMap::new(),
                 #[cfg(feature = "engine")]

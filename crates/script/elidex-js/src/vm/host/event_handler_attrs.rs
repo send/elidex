@@ -106,6 +106,36 @@ impl VmInner {
         self.install_handler_attrs_from_list(target, WORKER_OBJECT_EVENT_HANDLER_ATTRS);
     }
 
+    /// Install the `ServiceWorkerGlobalScope` event-handler IDL attributes
+    /// (`oninstall` / `onactivate` / `onfetch` / `onmessage`, WHATWG SW
+    /// §4.1.5) onto the SW scope prototype, over the same Node-backed
+    /// [`native_event_handler_get`] / [`native_event_handler_set`] pair as
+    /// the worker handlers (the SW scope entity is a [`NodeKind::Worker`], so
+    /// `self.onfetch = fn` records into its `EventListeners` component and
+    /// the shared `dispatch_script_event` fires it).
+    ///
+    /// The SW event names are not in the `GlobalEventHandlers` source-of-
+    /// truth, so — like the VmObject installer — the event type is derived
+    /// by stripping the `on` prefix rather than consulting
+    /// `event_handler_attr_event_type`.
+    pub(in crate::vm) fn install_sw_handler_attrs(&mut self, target: ObjectId) {
+        const SW_EVENT_HANDLER_ATTRS: &[&str] =
+            &["oninstall", "onactivate", "onfetch", "onmessage"];
+        for on_name in SW_EVENT_HANDLER_ATTRS {
+            let event_type = on_name.strip_prefix("on").unwrap_or(on_name);
+            let attr_name_sid = self.strings.intern(on_name);
+            let event_type_sid = self.strings.intern(event_type);
+            self.install_bound_accessor_pair(
+                target,
+                attr_name_sid,
+                native_event_handler_get as NativeFn,
+                Some(native_event_handler_set as NativeFn),
+                event_type_sid,
+                PropertyAttrs::WEBIDL_RO_ACCESSOR,
+            );
+        }
+    }
+
     /// Install a fixed list of event-handler IDL attributes (by attribute
     /// name) on `target` over the shared
     /// [`native_event_handler_get`] / [`native_event_handler_set`] backend,

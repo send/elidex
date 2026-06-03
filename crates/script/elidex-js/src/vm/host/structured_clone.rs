@@ -283,6 +283,9 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         ObjectKind::CacheStorage => CloneKind::Unclonable("CacheStorage"),
         #[cfg(feature = "engine")]
         ObjectKind::Cache => CloneKind::Unclonable("Cache"),
+        // SW `Client` (§4.2) is not [Serializable] — identity is per-SW-realm.
+        #[cfg(feature = "engine")]
+        ObjectKind::Client => CloneKind::Unclonable("Client"),
         ObjectKind::Request => CloneKind::Unclonable("Request"),
         ObjectKind::Response => CloneKind::Unclonable("Response"),
         ObjectKind::TextEncoder => CloneKind::Unclonable("TextEncoder"),

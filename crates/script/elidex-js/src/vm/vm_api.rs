@@ -613,6 +613,15 @@ impl Vm {
             // wrappers resolve to `cache_handle_states` which is now empty,
             // and a fresh `caches.open(...)` re-registers post-rebind.
             self.inner.cache_handle_states.clear();
+            // Service Worker realm (D-19 PR-2): drop the SW event / client
+            // side-stores + the client snapshot + any unflushed outbound IPC.
+            // The events are per-dispatch-transient, but a rebind must not let
+            // a retained `Client` wrapper observe the prior bind's snapshot.
+            self.inner.fetch_event_states.clear();
+            self.inner.extendable_event_states.clear();
+            self.inner.client_states.clear();
+            self.inner.sw_clients.clear();
+            self.inner.sw_outgoing.clear();
             // D-8 PR-A2 — Range / TreeWalker / NodeIterator state
             // clearing on unbind.  These live on `HostData` (not
             // `VmInner`) because the bridge pair-install happens

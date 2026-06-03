@@ -383,14 +383,21 @@ fn native_worker_close(
 
 /// `self.importScripts(...urls)` (WHATWG HTML §10.3.1): synchronously fetch,
 /// validate, and evaluate each classic script in order, resolved against the
-/// worker script URL.
-fn native_import_scripts(
+/// worker script URL.  Shared by the dedicated-worker and Service Worker
+/// realms (both are `WorkerGlobalScope`s; SW §4.1 inherits `importScripts`),
+/// so it is `pub(in crate::vm)` for the SW scope prototype to install.
+pub(in crate::vm) fn native_import_scripts(
     ctx: &mut NativeContext<'_>,
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let (base, credentials) = match &ctx.vm.global_scope_kind {
         GlobalScopeKind::DedicatedWorker {
+            script_url,
+            credentials,
+            ..
+        }
+        | GlobalScopeKind::ServiceWorker {
             script_url,
             credentials,
             ..

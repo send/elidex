@@ -42,6 +42,55 @@ pub enum LifecycleEvent {
     Activate,
 }
 
+/// Client context type (WHATWG SW §4.2 `ClientType`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClientType {
+    Window,
+    Worker,
+    SharedWorker,
+}
+
+/// Frame type of a window client (WHATWG SW §4.2 `FrameType`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrameType {
+    TopLevel,
+    Nested,
+    Auxiliary,
+    None,
+}
+
+/// Page visibility of a window client (Page Visibility §4.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VisibilityState {
+    Visible,
+    Hidden,
+}
+
+/// An engine-independent, `Send` snapshot of one client controlled by the
+/// Service Worker (WHATWG SW §4.2 `Client`).
+///
+/// The engine-bound shell tracks live clients as `ClientState`
+/// (`sw_coordinator.rs`); this is the marshalled `Send` twin pushed to the
+/// SW thread (in the spawn payload and via [`ContentToSw::ClientList`]) so
+/// the SW realm's `clients.matchAll()` / `clients.get()` natives can answer
+/// without reaching back into the content/shell process.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClientSnapshot {
+    /// Opaque client id (UUID) — the `Client.id` value and the routing key
+    /// for `Client.postMessage`.
+    pub id: String,
+    /// The client's creation URL (`Client.url`).
+    pub url: String,
+    /// `Client.type`.
+    pub client_type: ClientType,
+    /// `WindowClient.frameType` (meaningful only for window clients).
+    pub frame_type: FrameType,
+    /// `WindowClient.visibilityState`.
+    pub visibility: VisibilityState,
+    /// `WindowClient.focused`.
+    pub focused: bool,
+}
+
 /// Messages from content thread to Service Worker thread.
 #[derive(Debug)]
 pub enum ContentToSw {
@@ -74,6 +123,11 @@ pub enum ContentToSw {
         tag: Option<String>,
         notification_data: Option<String>,
     },
+    /// Push (or replace) the SW realm's view of the clients it controls
+    /// (WHATWG SW §4.1(3) — feeds the `Clients` side-store read by
+    /// `clients.matchAll()` / `clients.get()`).  Coordinator-originated
+    /// (trusted shell); the SW VM treats it as the authoritative snapshot.
+    ClientList { clients: Vec<ClientSnapshot> },
     /// Shut down the SW thread.
     Shutdown,
 }

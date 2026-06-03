@@ -579,6 +579,41 @@ impl VmInner {
                 // `self` / `name` / `isSecureContext` (WHATWG HTML §10.2.1.1).
                 self.register_worker_globals(&name, is_secure_context);
             }
+            GlobalScopeKind::ServiceWorker {
+                scope_url,
+                // `script_url` / `credentials` are read at `importScripts`
+                // time from `global_scope_kind`, not during globals setup.
+                script_url: _,
+                is_secure_context,
+                credentials: _,
+            } => {
+                // `ServiceWorkerGlobalScope.prototype` (SW §4.1) — chains to
+                // `EventTarget.prototype`; carries `skipWaiting` /
+                // `importScripts` + `oninstall`/`onactivate`/`onfetch`/
+                // `onmessage`.  The `clients` singleton + the SW event /
+                // `Client` interface prototypes need `Event.prototype` /
+                // `Object.prototype` (registered after this match), so they
+                // are installed by `register_service_worker_globals` below.
+                self.register_service_worker_global_scope_prototype();
+                self.get_object_mut(self.global_object).prototype =
+                    self.service_worker_scope_prototype;
+                // `navigator` — WorkerNavigator (SW realms are
+                // `WorkerGlobalScope`s, WHATWG HTML §10.3.2).
+                self.register_worker_navigator_global();
+                // `performance` — HR-Time §5, shared with the Window path.
+                self.register_performance_global();
+                // `location` — WorkerLocation over the SW *scope* URL
+                // (SW §4.1 / WHATWG HTML §10.3.3).
+                self.register_worker_location_global(&scope_url);
+                // `self === globalThis` + `isSecureContext` (SW §4.1; no
+                // `name` — `ServiceWorkerGlobalScope` has no `name` member).
+                let self_sid = self.strings.intern("self");
+                self.globals
+                    .insert(self_sid, JsValue::Object(self.global_object));
+                let secure_key = self.strings.intern("isSecureContext");
+                self.globals
+                    .insert(secure_key, JsValue::Boolean(is_secure_context));
+            }
         }
 
         // `Event.prototype` + `Event` / `CustomEvent` globals (WebIDL §2.2
@@ -762,6 +797,19 @@ impl VmInner {
         // `.text()` / `.json()`.
         #[cfg(feature = "engine")]
         self.register_cache_api_global();
+
+        // Service Worker realm interfaces (WHATWG SW §4; slot
+        // `#11-service-workers-vm` / D-19 PR-2): the `ExtendableEvent` /
+        // `FetchEvent` / `Clients` / `Client` prototypes + the `clients`
+        // singleton.  SW-realm only, and ordered after `register_event_*`
+        // (the SW events chain to `Event.prototype`) + `register_request_*`
+        // / `register_response_*` (`FetchEvent.request` is a `Request`,
+        // `respondWith` consumes a `Response`).  The scope prototype itself
+        // was installed in the scope-kind match above.
+        #[cfg(feature = "engine")]
+        if self.is_service_worker() {
+            self.register_service_worker_globals();
+        }
 
         // `URLSearchParams` + `FormData` (WHATWG URL §6 / XHR §4.3).
         // Both rely only on `Object.prototype` (URLSearchParams) +

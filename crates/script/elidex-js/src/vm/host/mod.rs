@@ -303,6 +303,8 @@ pub(super) mod resize_observer;
 #[cfg(feature = "engine")]
 pub(super) mod selection_api;
 #[cfg(feature = "engine")]
+pub(crate) mod service_worker;
+#[cfg(feature = "engine")]
 pub(super) mod static_range_proto;
 #[cfg(feature = "engine")]
 pub(super) mod storage;
