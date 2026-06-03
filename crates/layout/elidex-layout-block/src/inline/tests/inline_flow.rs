@@ -768,6 +768,59 @@ fn persists_relative_positioned_inline_subflow_vertical() {
 }
 
 #[test]
+fn relpos_subflow_key_flattens_display_contents() {
+    // Render's `walk(span)` iterates `composed_children_flat` (display:contents
+    // flattened), so the sub-flow key must too: a `display:contents` first child of
+    // the relpos span keys the sub-flow on the CONTENTS element's flattened first
+    // child (= render's run[0]), NOT the contents wrapper — else render reads no
+    // flow and drops to legacy.
+    let Some((mut dom, parent, style, font_db)) = setup_inline_test("a") else {
+        return;
+    };
+    let span = dom.create_element("span", Attributes::default());
+    let _ = dom.world_mut().insert_one(
+        span,
+        ComputedStyle {
+            position: Position::Relative,
+            font_family: style.font_family.clone(),
+            ..Default::default()
+        },
+    );
+    let contents = dom.create_element("span", Attributes::default());
+    let _ = dom.world_mut().insert_one(
+        contents,
+        ComputedStyle {
+            display: Display::Contents,
+            font_family: style.font_family.clone(),
+            ..Default::default()
+        },
+    );
+    let b_text = dom.create_text("b");
+    dom.append_child(contents, b_text);
+    dom.append_child(span, contents);
+    dom.append_child(parent, span);
+
+    let children = dom.composed_children(parent);
+    layout_inline_context(
+        &mut dom,
+        &children,
+        800.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+    );
+
+    assert!(
+        dom.world().get::<&InlineFlow>(b_text).is_ok(),
+        "sub-flow keyed on the display:contents-flattened first child (render's run[0])"
+    );
+    assert!(
+        dom.world().get::<&InlineFlow>(contents).is_err(),
+        "NOT keyed on the display:contents wrapper (render flattens it away)"
+    );
+}
+
+#[test]
 fn gate_excludes_relative_positioned_atomic() {
     // A relpos/sticky *atomic* (inline-block) takes the atomic collect arm, which
     // sets `has_relpos_sticky_atomic` so the run stays gated — render paints it in
@@ -803,8 +856,8 @@ fn gate_excludes_relative_positioned_atomic() {
 
     assert!(
         dom.world().get::<&InlineFlow>(key).is_err(),
-        "a relative-positioned atomic inline must NOT persist (has_relpos_sticky gates \
-         it via the atomic arm; it paints in render Layer 6) — else it double-paints"
+        "a relative-positioned atomic inline must NOT persist (has_relpos_sticky_atomic \
+         gates it via the atomic arm; it paints in render Layer 6) — else it double-paints"
     );
 }
 

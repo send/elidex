@@ -237,30 +237,42 @@ fn has_direct_block_child(dom: &EcsDom, children: &[Entity]) -> bool {
     })
 }
 
-/// The render-run-group key a `position:relative`/`sticky` inline's members persist
-/// under: a per-subtree sub-flow keyed on the subtree's first eligible child (=
-/// render's `run[0]` for `walk(child)`). Returns `None` — no sub-flow, members fall
-/// to render's legacy path — when the subtree is **not a single linear inline run
-/// render can consume** in the IFC root's writing mode. The single boundary
-/// (One-issue-one-way: future cases — float-in-positioned, etc. — land here):
-/// - a direct block child → render splits the run (anonymous-block-in-inline, CSS 2
-///   §9.2.1.1); the single-sub-flow model would over-collect and double-paint.
+/// The render-run-group key a `position:relative`/`sticky` inline (`child`, the
+/// sub-flow's run-parent) persists its members under: a per-subtree sub-flow keyed
+/// on the subtree's first eligible child (= render's `run[0]` for `walk(child)`).
+/// Returns `None` — no sub-flow, members fall to render's legacy path — when the
+/// subtree is **not a single linear inline run render can consume** in the IFC
+/// root's writing mode. The single boundary (One-issue-one-way: future cases —
+/// float-in-positioned, etc. — land here):
 /// - a writing mode differing from the IFC root's → layout projects every group
 ///   with the root's axis, but render reads a sub-flow's axis off the span (its
 ///   `emit_inline_run` run-parent), so the sub-flow would be transposed (CSS
 ///   Writing Modes 4 §3.2 would blockify it to inline-block, which gates anyway).
+/// - a direct block child → render splits the run (anonymous-block-in-inline, CSS 2
+///   §9.2.1.1); the single-sub-flow model would over-collect and double-paint.
+///
+/// Both the block-split check and the key use **`composed_children_flat`** — the
+/// SAME `display:contents`-flattened child list render's `walk(child)` iterates
+/// ([walk.rs]) — NOT the raw `composed_children`. Otherwise a `display:contents`
+/// first child (or a block nested inside one) would key/gate differently than
+/// render's `run[0]`: a key mismatch silently drops to legacy, and a missed
+/// block-in-contents would over-collect into a sub-flow render then splits →
+/// double-paint. (Members are still collected by the raw recursion under the
+/// returned key — the key is what render reads off, so it must match render.)
 fn positioned_subflow_key(
     dom: &EcsDom,
-    grandchildren: &[Entity],
+    child: Entity,
     style: &ComputedStyle,
     root_horizontal: bool,
 ) -> Option<Entity> {
-    if has_direct_block_child(dom, grandchildren)
-        || style.writing_mode.is_horizontal() != root_horizontal
-    {
+    if style.writing_mode.is_horizontal() != root_horizontal {
         return None;
     }
-    first_eligible_child(dom, grandchildren)
+    let flat = crate::composed_children_flat(dom, child);
+    if has_direct_block_child(dom, &flat) {
+        return None;
+    }
+    first_eligible_child(dom, &flat)
 }
 
 /// Recursively collect inline items (text runs + atomic boxes) from inline children.
@@ -417,7 +429,7 @@ fn collect_inline_items_inner(
             // case `positioned_subflow_key` returns `None` and it falls to render's
             // legacy path. A non-positioned inline stays in the enclosing group.
             let child_group = if matches!(style.position, Position::Relative | Position::Sticky) {
-                positioned_subflow_key(dom, &grandchildren, &style, root_horizontal)
+                positioned_subflow_key(dom, child, &style, root_horizontal)
             } else {
                 group_key
             };
