@@ -30,6 +30,7 @@ engine = [
     "elidex-storage-core",
     "elidex-indexeddb",
     "elidex-cache-api",
+    "elidex-api-sw",
     "elidex-wasm-runtime",
     "bytes",
     "encoding_rs",
@@ -132,6 +133,13 @@ elidex-indexeddb = { workspace = true, optional = true }
 # Request; all open/has/delete/keys + match/put/delete/add_all
 # algorithm lives in the crate (CLAUDE.md "Layering mandate").
 elidex-cache-api = { workspace = true, optional = true }
+# Engine-independent Service Worker crate (IPC protocol `ContentToSw` /
+# `SwToContent` / `ClientSnapshot`, SW security/scope/update algorithms)
+# consumed by the SW-thread worker-mode VM (`vm/sw_thread.rs` +
+# `vm/host/service_worker/`, slot `#11-service-workers-vm` / D-19 PR-2).
+# The VM only marshals JsValue ↔ the crate's `Send` IPC types + drives the
+# per-SW event loop; all pure SW algorithm stays in the crate.
+elidex-api-sw = { workspace = true, optional = true }
 # WebAssembly engine-bridge crate (wasmtime backend behind engine-indep
 # `WasmRuntime` / `WasmModule` / `WasmInstance` / `WasmMemory` / `WasmTable` /
 # `WasmGlobal` / `WasmFunc` / `WasmMemoryView` / `WasmError` surface) consumed

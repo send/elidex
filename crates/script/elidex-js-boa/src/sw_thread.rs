@@ -279,6 +279,11 @@ fn sw_thread_run(
                         let props = [("tag", JsValue::from(js_string!(tag_str)))];
                         runtime.dispatch_sw_event(&mut session, &mut dom, doc, event_type, &props);
                     }
+                    ContentToSw::ClientList { .. } => {
+                        // The legacy boa SW runtime has no `Clients` side-store
+                        // (the VM twin in `elidex-js` consumes this — §4.1(3));
+                        // ignore so the shared IPC enum stays non-regressing.
+                    }
                     ContentToSw::Shutdown => {
                         runtime.bridge().clear_all_timers();
                         break;

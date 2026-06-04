@@ -43,5 +43,8 @@ pub use router::{evaluate_routes, RouterCondition, RouterRule, RouterSource, Url
 pub use scope::{default_scope, find_registration, matches_scope};
 pub use security::{is_secure_context, validate_mime_type, validate_registration};
 pub use sync::{SyncManager, SyncRegistration, SyncState};
-pub use types::{ContentToSw, LifecycleEvent, SwRequest, SwResponse, SwToContent};
+pub use types::{
+    ClientSnapshot, ClientType, ContentToSw, FrameType, LifecycleEvent, SwRequest, SwResponse,
+    SwToContent, VisibilityState,
+};
 pub use update::{hash_script, scripts_differ, UpdateChecker, UpdateResult};

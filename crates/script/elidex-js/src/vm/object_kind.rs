@@ -1176,6 +1176,27 @@ pub enum ObjectKind {
     /// collected.
     #[cfg(feature = "engine")]
     Cache,
+    // --- Service Worker realm (D-19 PR-2 `#11-service-workers-vm`; WHATWG
+    // Service Workers §4) ---
+    /// `Client` instance (SW §4.2) — vended by `clients.matchAll()` /
+    /// `clients.get()`.  Payload-free discriminator brand; the client
+    /// snapshot (id/url/type/frameType/...) lives in
+    /// `VmInner::client_states` keyed by this `ObjectId`, which is also the
+    /// brand-check for `Client.postMessage` / the `id` / `url` accessors.
+    ///
+    /// `FetchEvent` / `ExtendableEvent` deliberately do NOT get their own
+    /// brands: they must dispatch through `dispatch_script_event`, which
+    /// reads `ObjectKind::Event` internal slots (`unreachable!` otherwise),
+    /// so they stay `ObjectKind::Event` (the `MessageEvent` precedent) and
+    /// are branded by their `fetch_event_states` / `extendable_event_states`
+    /// side-store entries instead.  (StorageEvent's own brand only works
+    /// because it is never dispatched.)
+    ///
+    /// GC contract: payload-free (the side-store snapshot holds no
+    /// `ObjectId`).  Sweep tail prunes `client_states` entries whose key was
+    /// collected; cleared on `Vm::unbind`.
+    #[cfg(feature = "engine")]
+    Client,
     /// `Crypto` instance (WebCrypto §10) — accessed via `window.crypto`
     /// singleton.  Payload-free brand; the wrapper is stateless (every
     /// `getRandomValues` / `randomUUID` call routes to OS CSPRNG /

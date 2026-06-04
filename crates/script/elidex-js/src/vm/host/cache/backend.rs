@@ -36,10 +36,14 @@ pub(crate) struct CacheBackend {
 }
 
 impl CacheBackend {
-    // NOTE: the shell-facing `CacheBackend::new(Arc<Mutex<SqliteConnection>>)`
-    // constructor that wraps an `OriginStorageManager::cache_connection`
-    // handle lands with the PR-2 / D-26 shell wiring — it would be dead code
-    // here (PR-1 is window-realm only and uses the in-memory fallback).
+    /// Wrap a shared origin `Arc<Mutex<SqliteConnection>>` (DR-A): the
+    /// `OriginStorageManager::cache_connection` handle the coordinator hands
+    /// to both the window VM and the SW thread so they observe one shared
+    /// cache store within a session (D-19 PR-2 / D-26).  `Send + Sync`, so it
+    /// crosses the spawn boundary into the SW thread.
+    pub(crate) fn new(conn: Arc<Mutex<SqliteConnection>>) -> Self {
+        Self { conn }
+    }
 
     /// Mint a fresh in-memory backend (boa `ensure_cache_backend` parity).
     /// Used when no shell-owned origin handle was installed — the data is

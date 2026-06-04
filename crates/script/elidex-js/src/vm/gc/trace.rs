@@ -483,6 +483,15 @@ pub(super) fn trace_work_list(
             // whose key was collected (mirrors `headers_states`).
             #[cfg(feature = "engine")]
             ObjectKind::CacheStorage | ObjectKind::Cache => {}
+            // `Client` (SW §4.2) — payload-free brand; the snapshot in
+            // `client_states` holds only owned data (no `ObjectId`).  The
+            // sweep tail prunes dead `client_states` keys.  (FetchEvent /
+            // ExtendableEvent are `ObjectKind::Event` — traced via that arm;
+            // their `respondWith` / `waitUntil` promises are marked as roots
+            // from `fetch_event_states` / `extendable_event_states` in the
+            // `gc/collect.rs` mark phase for the dispatch+pump window.)
+            #[cfg(feature = "engine")]
+            ObjectKind::Client => {}
             // No ObjectId references — only StringId / scalar fields.
             ObjectKind::Ordinary
             | ObjectKind::NativeFunction(_)

@@ -128,6 +128,8 @@ mod tests_request_response;
 mod tests_resize_observer;
 mod tests_rest_param;
 mod tests_selection;
+#[cfg(feature = "engine")]
+mod tests_service_worker;
 mod tests_shadow_dom;
 mod tests_sparse_array;
 mod tests_storage;

@@ -2034,6 +2034,7 @@ dependencies = [
  "crossbeam-channel",
  "elidex-api-canvas",
  "elidex-api-observers",
+ "elidex-api-sw",
  "elidex-api-workers",
  "elidex-api-ws",
  "elidex-cache-api",

@@ -1004,6 +1004,31 @@ impl VmInner {
                 self.cache_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // Service Worker realm (D-19 PR-2): root the SW scope + event
+                // (`ExtendableEvent`/`FetchEvent`) + `Clients`/`Client`
+                // interface prototypes so `delete globalThis.FetchEvent` etc.
+                // cannot sweep a prototype while `VmInner` still hands its
+                // (recycled) `ObjectId` to the next UA-built SW event/client.
+                #[cfg(feature = "engine")]
+                self.service_worker_scope_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.extendable_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.fetch_event_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.clients_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
+                #[cfg(feature = "engine")]
+                self.client_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
             ],
             #[cfg(feature = "engine")]
             subclass_array_proto_roots: &self.subclass_array_prototypes,
@@ -1071,6 +1096,33 @@ impl VmInner {
             &mut self.gc_upvalue_marks,
             &mut self.gc_work_list,
         );
+
+        // Service Worker realm (D-19 PR-2): root the in-flight `respondWith` /
+        // `waitUntil` promises.  They live ONLY in these side-stores during a
+        // single event's dispatch+pump window (`sw_thread::run_fetch` /
+        // `run_lifecycle` remove the entry afterward), and the
+        // `respondWith`/`waitUntil` native returns control to the listener
+        // body (which runs with GC enabled) before the SW loop reads them
+        // back — so a GC mid-listener would otherwise sweep a promise still
+        // owed to the loop.  A no-op (empty maps) outside that window.  The
+        // event objects themselves are `ObjectKind::Event`, rooted via the
+        // operand stack + `dispatched_events`; only their side-store promises
+        // need this explicit root.
+        #[cfg(feature = "engine")]
+        {
+            let marks = &mut self.gc_object_marks;
+            let work = &mut self.gc_work_list;
+            for state in self.fetch_event_states.values() {
+                if let Some(promise) = state.response_promise {
+                    super::mark_object(promise, marks, work);
+                }
+            }
+            for state in self.extendable_event_states.values() {
+                for &promise in &state.lifetime_promises {
+                    super::mark_object(promise, marks, work);
+                }
+            }
+        }
 
         // Copilot R8: empty fallbacks when HostData is absent — the
         // TreeWalker / NodeIterator trace fan-out arms can never
@@ -1519,6 +1571,15 @@ impl VmInner {
             // / `headers_states`).
             self.cache_handle_states
                 .retain(|id, _| bit_get(marks, id.0));
+            // Service Worker realm (D-19 PR-2): prune the FetchEvent /
+            // ExtendableEvent / Client side-stores whose `ObjectId` was
+            // collected.  The events live only across one dispatch+pump (the
+            // loop removes them explicitly), but a GC mid-pump must not orphan
+            // a stale key onto a recycled id — same invariant as above.
+            self.fetch_event_states.retain(|id, _| bit_get(marks, id.0));
+            self.extendable_event_states
+                .retain(|id, _| bit_get(marks, id.0));
+            self.client_states.retain(|id, _| bit_get(marks, id.0));
             // `vm_event_listeners` — the unified listener home for the
             // non-entity EventTargets (AbortSignal / IDB / WebSocket /
             // EventSource).  When a target `ObjectId` was collected, prune
