@@ -2281,11 +2281,6 @@ pub(crate) struct VmInner {
     /// `bridge.queue_sw_register`.  Drained via [`Self::drain_sw_client_requests`].
     #[cfg(feature = "engine")]
     pub(crate) sw_client_outgoing: Vec<elidex_api_sw::SwClientRequest>,
-    /// `ServiceWorkerContainer.prototype` (SW §3.4) — the brand the container
-    /// singleton's receiver prototype is checked against (brand-via-prototype,
-    /// the `Clients` precedent).  Installed once at window-realm registration.
-    #[cfg(feature = "engine")]
-    pub(crate) sw_container_prototype: Option<ObjectId>,
     /// `ServiceWorkerRegistration.prototype` (SW §3.2) — the prototype each
     /// interned `ServiceWorkerRegistration` wrapper chains to.
     #[cfg(feature = "engine")]

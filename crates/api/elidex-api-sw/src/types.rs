@@ -1,6 +1,6 @@
 //! IPC message types between content thread and Service Worker thread.
 
-use crate::registration::SwState;
+use crate::registration::{SwState, UpdateViaCache};
 use crate::security::SwRegisterError;
 
 /// Request data sent to a Service Worker's fetch event.
@@ -217,6 +217,9 @@ pub enum SwClientUpdate {
         error: Option<SwRegisterError>,
         /// The registration's current worker on success.
         worker: Option<SwWorkerSnapshot>,
+        /// The registration's `updateViaCache` (SW §3.2.6); seeds the
+        /// `ServiceWorkerRegistration.updateViaCache` getter.
+        update_via_cache: UpdateViaCache,
     },
     /// A worker's lifecycle state advanced (drives `.state`, `onstatechange`,
     /// and — for a freshly installing worker — `onupdatefound`).
@@ -266,6 +269,8 @@ pub enum SwClientRequest {
         script_url: String,
         /// Resolved scope URL.
         scope: String,
+        /// The requested `updateViaCache` (SW §3.2.6 / register options).
+        update_via_cache: UpdateViaCache,
     },
     /// `ServiceWorkerRegistration.update()` — re-fetch + soft-update the SW.
     Update {

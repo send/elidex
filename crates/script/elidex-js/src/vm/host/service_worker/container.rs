@@ -16,7 +16,7 @@
 
 #![cfg(feature = "engine")]
 
-use elidex_api_sw::SwClientRequest;
+use elidex_api_sw::{SwClientRequest, UpdateViaCache};
 use url::Url;
 
 use super::super::super::coerce::to_string;
@@ -55,11 +55,10 @@ pub(crate) fn register_service_worker_container(vm: &mut VmInner) {
     install_ro_getter(vm, proto, "ready", native_container_get_ready);
 
     vm.install_vm_object_handler_attrs(proto, &["onmessage", "oncontrollerchange"]);
-    vm.sw_container_prototype = Some(proto);
     install_interface(vm, proto, "ServiceWorkerContainer");
 
     let singleton = vm.alloc_object(Object {
-        kind: ObjectKind::Ordinary,
+        kind: ObjectKind::ServiceWorkerContainer,
         storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
         prototype: Some(proto),
         extensible: true,
@@ -71,11 +70,14 @@ pub(crate) fn register_service_worker_container(vm: &mut VmInner) {
 // Brand check + Promise helpers
 // ---------------------------------------------------------------------------
 
-/// Brand-check that `this` is *a* `ServiceWorkerContainer` (receiver prototype
-/// identity — the singleton has no `ObjectKind`, §3.4 / lesson #276).
+/// Brand-check that `this` is the `ServiceWorkerContainer` singleton (its own
+/// `ObjectKind`, uniform with the other VmObject EventTargets, §3.4).
 fn require_container(ctx: &NativeContext<'_>, this: JsValue) -> Result<(), VmError> {
     if let JsValue::Object(id) = this {
-        if ctx.vm.get_object(id).prototype == ctx.vm.sw_container_prototype {
+        if matches!(
+            ctx.vm.get_object(id).kind,
+            ObjectKind::ServiceWorkerContainer
+        ) {
             return Ok(());
         }
     }
@@ -115,7 +117,8 @@ fn register_outcome(ctx: &mut NativeContext<'_>, args: &[JsValue]) -> Result<Obj
     };
     let script_sid = to_string(ctx.vm, script_arg)?;
     let raw_script = ctx.vm.strings.get_utf8(script_sid);
-    let raw_scope = read_scope_option(ctx, args.get(1).copied().unwrap_or(JsValue::Undefined))?;
+    let (raw_scope, update_via_cache) =
+        read_register_options(ctx, args.get(1).copied().unwrap_or(JsValue::Undefined))?;
 
     // Resolve the URLs against the document base URL (the same join the
     // content thread / coordinator use, so the canonical scope key matches the
@@ -151,19 +154,40 @@ fn register_outcome(ctx: &mut NativeContext<'_>, args: &[JsValue]) -> Result<Obj
     ctx.vm.queue_sw_client_request(SwClientRequest::Register {
         script_url: script_url.as_str().to_owned(),
         scope: canonical,
+        update_via_cache,
     });
     Ok(promise)
 }
 
-/// Read `options.scope` (SW §3.4.3) — a `USVString`, default `None`.
-fn read_scope_option(
+/// Read the `RegistrationOptions` dictionary (SW §3.4.3): `scope` (a
+/// `USVString`, default `None`) + `updateViaCache` (default `"imports"`).
+fn read_register_options(
     ctx: &mut NativeContext<'_>,
     options: JsValue,
-) -> Result<Option<String>, VmError> {
+) -> Result<(Option<String>, UpdateViaCache), VmError> {
     let JsValue::Object(opts_id) = options else {
-        return Ok(None);
+        return Ok((None, UpdateViaCache::default()));
     };
-    let key = PropertyKey::String(ctx.vm.strings.intern("scope"));
+    let scope = read_string_member(ctx, opts_id, "scope")?;
+    let update_via_cache = match read_string_member(ctx, opts_id, "updateViaCache")? {
+        Some(s) => UpdateViaCache::parse(&s).ok_or_else(|| {
+            VmError::type_error(
+                "Failed to register a ServiceWorker: updateViaCache must be \
+                 \"imports\", \"all\", or \"none\"",
+            )
+        })?,
+        None => UpdateViaCache::default(),
+    };
+    Ok((scope, update_via_cache))
+}
+
+/// Read a `USVString` dictionary member, `None` when absent/nullish.
+fn read_string_member(
+    ctx: &mut NativeContext<'_>,
+    opts_id: ObjectId,
+    name: &str,
+) -> Result<Option<String>, VmError> {
+    let key = PropertyKey::String(ctx.vm.strings.intern(name));
     let val = ctx.get_property_value(opts_id, key)?;
     if matches!(val, JsValue::Undefined | JsValue::Null) {
         return Ok(None);

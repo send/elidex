@@ -85,19 +85,12 @@ pub(crate) fn target_from_this(ctx: &NativeContext<'_>, this: JsValue) -> Option
         | ObjectKind::WebSocket
         | ObjectKind::EventSource
         | ObjectKind::FileReader
-        // `navigator.serviceWorker` client EventTargets (SW §3.1/§3.2, D-19
-        // PR-3): the worker (`statechange`) + the registration (`updatefound`).
+        // `navigator.serviceWorker` client EventTargets (SW §3.1/§3.2/§3.4,
+        // D-19 PR-3): the container (`controllerchange`/`message`), the worker
+        // (`statechange`), and the registration (`updatefound`).
+        | ObjectKind::ServiceWorkerContainer
         | ObjectKind::ServiceWorker
         | ObjectKind::ServiceWorkerRegistration => ctx
-            .vm
-            .host_data
-            .as_ref()
-            .map(|_| DispatchTarget::VmObject(id)),
-        // The `ServiceWorkerContainer` (`controllerchange`/`message`) is a
-        // brand-via-prototype singleton (no ObjectKind, the `Clients`
-        // precedent) but IS an EventTarget — recognize it by singleton
-        // identity so its `on*` handlers + `addEventListener` listeners work.
-        ObjectKind::Ordinary if ctx.vm.sw_container == Some(id) => ctx
             .vm
             .host_data
             .as_ref()

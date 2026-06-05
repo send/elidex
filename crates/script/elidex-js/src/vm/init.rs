@@ -670,8 +670,6 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 sw_client_outgoing: Vec::new(),
                 #[cfg(feature = "engine")]
-                sw_container_prototype: None,
-                #[cfg(feature = "engine")]
                 sw_registration_prototype: None,
                 #[cfg(feature = "engine")]
                 sw_worker_prototype: None,

@@ -11,7 +11,7 @@
 
 #![cfg(feature = "engine")]
 
-use elidex_api_sw::{SwClientRequest, SwClientUpdate, SwState, SwWorkerSnapshot};
+use elidex_api_sw::{SwClientRequest, SwClientUpdate, SwState, SwWorkerSnapshot, UpdateViaCache};
 use elidex_ecs::{Attributes, EcsDom};
 use elidex_script_session::SessionCore;
 use url::Url;
@@ -78,6 +78,7 @@ fn deliver_registered(vm: &mut Vm, state: SwState) {
         success: true,
         error: None,
         worker: Some(worker(state)),
+        update_via_cache: UpdateViaCache::default(),
     });
 }
 
@@ -127,7 +128,9 @@ fn register_resolves_with_registration_on_deliver() {
         // the canonical resolved script + default scope.
         let reqs = vm.drain_sw_client_requests();
         match reqs.as_slice() {
-            [SwClientRequest::Register { script_url, scope }] => {
+            [SwClientRequest::Register {
+                script_url, scope, ..
+            }] => {
                 assert_eq!(script_url, SCRIPT);
                 assert_eq!(scope, SCOPE);
             }
@@ -193,6 +196,34 @@ fn concurrent_register_same_scope_all_resolve() {
         deliver_registered(vm, SwState::Installing);
         // One deliver settles every same-scope waiter (D2).
         assert_eq!(eval_string(vm, "String(globalThis.__n)"), "2");
+    });
+}
+
+#[test]
+fn register_update_via_cache_round_trips() {
+    with_vm(|vm| {
+        vm.eval(
+            "navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }) \
+                .then(r => { globalThis.__reg = r; });",
+        )
+        .unwrap();
+        // The requested updateViaCache is carried in the outbound request.
+        let reqs = vm.drain_sw_client_requests();
+        match reqs.as_slice() {
+            [SwClientRequest::Register {
+                update_via_cache, ..
+            }] => assert_eq!(*update_via_cache, UpdateViaCache::None),
+            other => panic!("expected one Register, got {other:?}"),
+        }
+        // The deliver carries it back → the getter reflects it.
+        vm.deliver_sw_client_update(SwClientUpdate::Registered {
+            scope: url(SCOPE),
+            success: true,
+            error: None,
+            worker: Some(worker(SwState::Activated)),
+            update_via_cache: UpdateViaCache::None,
+        });
+        assert_eq!(eval_string(vm, "globalThis.__reg.updateViaCache"), "none");
     });
 }
 
@@ -346,6 +377,55 @@ fn new_installing_worker_fires_updatefound() {
             state: SwState::Installing,
         });
         assert_eq!(eval_string(vm, "String(__uf)"), "1");
+    });
+}
+
+// ---------------------------------------------------------------------------
+// controllerchange / message
+// ---------------------------------------------------------------------------
+
+#[test]
+fn controller_set_ignored_when_out_of_scope() {
+    with_vm(|vm| {
+        // The shell broadcasts ControllerSet to all same-origin tabs; a tab with
+        // no registration for that scope must NOT fire controllerchange or adopt
+        // a controller it isn't controlled by.
+        vm.eval(
+            "globalThis.__cc = 0; \
+             navigator.serviceWorker.oncontrollerchange = () => { globalThis.__cc++; };",
+        )
+        .unwrap();
+        vm.deliver_sw_client_update(SwClientUpdate::ControllerSet {
+            scope: Some(url("https://example.com/other/")),
+        });
+        assert_eq!(eval_string(vm, "String(__cc)"), "0");
+        assert!(eval_bool(vm, "navigator.serviceWorker.controller === null"));
+    });
+}
+
+#[test]
+fn message_enables_queue_via_onmessage_and_flushes_buffer() {
+    with_vm(|vm| {
+        // A message arriving before any listener is buffered (queue disabled).
+        vm.deliver_sw_client_update(SwClientUpdate::Message {
+            data: "\"first\"".to_owned(),
+            source_scope: url(SCOPE),
+        });
+        // Adding a `message` listener enables the queue (SW §3.4.6) — the next
+        // deliver latches it, flushes the buffered message, then fires the new one.
+        vm.eval(
+            "globalThis.__msgs = []; \
+             navigator.serviceWorker.onmessage = e => { globalThis.__msgs.push(e.data); };",
+        )
+        .unwrap();
+        vm.deliver_sw_client_update(SwClientUpdate::Message {
+            data: "\"second\"".to_owned(),
+            source_scope: url(SCOPE),
+        });
+        assert_eq!(
+            eval_string(vm, "globalThis.__msgs.join(',')"),
+            "first,second"
+        );
     });
 }
 

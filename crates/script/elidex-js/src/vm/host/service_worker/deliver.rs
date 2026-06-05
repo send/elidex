@@ -25,7 +25,7 @@
 use elidex_api_sw::{SwClientUpdate, SwRegisterError, SwState, SwWorkerSnapshot, UpdateViaCache};
 use url::Url;
 
-use super::super::super::value::{JsValue, NativeContext, ObjectId, VmError};
+use super::super::super::value::{JsValue, NativeContext, ObjectId, StringId, VmError};
 use super::super::super::wrapper_intern::{WrapperKey, WrapperKind};
 use super::super::super::VmInner;
 use super::super::event_target_dispatch_vm::{dispatch_vm_simple_event, fire_vm_message_event};
@@ -43,7 +43,8 @@ pub(crate) fn deliver_sw_client_update(ctx: &mut NativeContext<'_>, update: SwCl
             success,
             error,
             worker,
-        } => deliver_registered(ctx, &scope, success, error, worker),
+            update_via_cache,
+        } => deliver_registered(ctx, &scope, success, error, worker, update_via_cache),
         SwClientUpdate::StateChanged { scope, state } => deliver_state_changed(ctx, &scope, state),
         SwClientUpdate::ControllerSet { scope } => deliver_controller_set(ctx, scope),
         SwClientUpdate::Message { data, source_scope } => {
@@ -65,6 +66,7 @@ fn deliver_registered(
     success: bool,
     error: Option<SwRegisterError>,
     worker: Option<SwWorkerSnapshot>,
+    update_via_cache: UpdateViaCache,
 ) {
     let canonical = scope.as_str().to_owned();
 
@@ -98,9 +100,11 @@ fn deliver_registered(
             .entry(canonical.clone())
             .or_insert_with(|| SwRegistrationEntry {
                 scope_sid,
-                update_via_cache: UpdateViaCache::default(),
+                update_via_cache,
                 worker: None,
             });
+        // A re-register / update may change updateViaCache (SW §3.2.6).
+        entry.update_via_cache = update_via_cache;
         let prev = entry.worker.as_ref().map(|w| w.state);
         if let Some(w) = worker {
             entry.worker = Some(w);
@@ -119,14 +123,12 @@ fn deliver_registered(
         let _ = worker_object(ctx.vm, &canonical, scope_sid);
     }
 
-    // A freshly-installing worker is an `updatefound` (SW §3.2.10).
-    if matches!(cur_state, Some(SwState::Installing))
-        && !matches!(prev_state, Some(SwState::Installing))
-    {
-        fire_updatefound(ctx, reg);
-    }
-
     // Settle every waiter (D2 — concurrent same-scope register all resolve).
+    // Drain the pending list BEFORE firing any event handler: an `updatefound`
+    // handler that synchronously re-`register()`s the same scope pushes a NEW
+    // pending promise, which must wait for its own round-trip rather than being
+    // settled by this deliver.  (settle_promise queues the `.then` as a
+    // microtask, so the handler below still runs before register() resolves.)
     let waiters = ctx
         .vm
         .pending_registration_promises
@@ -135,6 +137,9 @@ fn deliver_registered(
     for promise in waiters {
         settle_resolve(ctx.vm, promise, JsValue::Object(reg));
     }
+
+    // A freshly-installing worker is an `updatefound` (SW §3.2.10).
+    fire_updatefound_if_new_installing(ctx, &canonical, scope_sid, prev_state, cur_state);
 
     if matches!(cur_state, Some(SwState::Activating | SwState::Activated)) {
         resolve_sw_ready(ctx.vm, &canonical, scope_sid);
@@ -178,13 +183,28 @@ fn deliver_state_changed(ctx: &mut NativeContext<'_>, scope: &Url, state: SwStat
     fire_statechange(ctx, worker);
 
     // A worker newly entering `installing` is an `updatefound` (an update).
-    if matches!(state, SwState::Installing) && !matches!(prev_state, Some(SwState::Installing)) {
-        let reg = registration_object(ctx.vm, &canonical, scope_sid);
-        fire_updatefound(ctx, reg);
-    }
+    fire_updatefound_if_new_installing(ctx, &canonical, scope_sid, prev_state, Some(state));
 
     if state.is_active() {
         resolve_sw_ready(ctx.vm, &canonical, scope_sid);
+    }
+}
+
+/// Fire `updatefound` on the registration when a worker newly enters the
+/// `installing` state (SW §3.2.10) — shared by the register + statechange
+/// delivers so the edge predicate has one definition.
+fn fire_updatefound_if_new_installing(
+    ctx: &mut NativeContext<'_>,
+    canonical: &str,
+    scope_sid: StringId,
+    prev_state: Option<SwState>,
+    new_state: Option<SwState>,
+) {
+    if matches!(new_state, Some(SwState::Installing))
+        && !matches!(prev_state, Some(SwState::Installing))
+    {
+        let reg = registration_object(ctx.vm, canonical, scope_sid);
+        fire_updatefound(ctx, reg);
     }
 }
 
@@ -193,17 +213,47 @@ fn deliver_state_changed(ctx: &mut NativeContext<'_>, scope: &Url, state: SwStat
 // ---------------------------------------------------------------------------
 
 fn deliver_controller_set(ctx: &mut NativeContext<'_>, scope: Option<Url>) {
-    ctx.vm.sw_controller_scope = scope.map(|s| s.as_str().to_owned());
+    // The shell broadcasts `ControllerSet` to every same-origin tab; a tab NOT
+    // within the registration scope has no such `sw_registrations` entry, so it
+    // must not adopt a controller it isn't controlled by (mirrors
+    // `deliver_state_changed`'s missing-entry early-return).
+    let new_scope = match scope {
+        Some(s) => {
+            let canonical = s.as_str().to_owned();
+            if !ctx.vm.sw_registrations.contains_key(&canonical) {
+                return;
+            }
+            Some(canonical)
+        }
+        None => None,
+    };
+    // `controllerchange` fires only on an actual change (SW §3.4.1).
+    if ctx.vm.sw_controller_scope == new_scope {
+        return;
+    }
+    ctx.vm.sw_controller_scope = new_scope;
     if let Some(container) = ctx.vm.sw_container {
         fire_controllerchange(ctx, container);
     }
 }
 
 // ---------------------------------------------------------------------------
-// Message — §3.4 (buffered until startMessages / first onmessage)
+// Message — §3.4.6 (buffered until the client message queue is enabled)
 // ---------------------------------------------------------------------------
 
 fn deliver_message(ctx: &mut NativeContext<'_>, data: &str, source_scope: &str) {
+    // Adding a `message` listener (`onmessage = …` or addEventListener) enables
+    // the client message queue, the same as `startMessages()` (SW §3.4.6) —
+    // latch it (which flushes any already-buffered messages) on first sight.
+    if !ctx.vm.sw_messages_enabled {
+        if let Some(container) = ctx.vm.sw_container {
+            if super::super::event_target_dispatch_vm::vm_path_has_listener(
+                ctx.vm, container, "message", false,
+            ) {
+                let _ = enable_sw_messages(ctx);
+            }
+        }
+    }
     if ctx.vm.sw_messages_enabled {
         fire_message(ctx, data, source_scope);
     } else {
