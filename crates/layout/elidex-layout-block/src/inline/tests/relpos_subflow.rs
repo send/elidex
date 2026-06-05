@@ -74,7 +74,11 @@ fn persists_relative_positioned_inline_as_subflow() {
         .world()
         .get::<&InlineFlow>(a_text)
         .expect("top-level flow persists on the first non-positioned child (slice 3p-b)");
-    let top_members: Vec<_> = top.lines.iter().flat_map(|l| l.runs.iter()).collect();
+    let top_members: Vec<_> = top.fragments[0]
+        .lines
+        .iter()
+        .flat_map(|l| l.runs.iter())
+        .collect();
     assert_eq!(
         top_members.len(),
         2,
@@ -92,7 +96,11 @@ fn persists_relative_positioned_inline_as_subflow() {
         .world()
         .get::<&InlineFlow>(b_text)
         .expect("relpos inline sub-flow persists on its first eligible child");
-    let sub_members: Vec<_> = sub.lines.iter().flat_map(|l| l.runs.iter()).collect();
+    let sub_members: Vec<_> = sub.fragments[0]
+        .lines
+        .iter()
+        .flat_map(|l| l.runs.iter())
+        .collect();
     assert_eq!(sub_members.len(), 1, "sub-flow holds only `b`");
     assert_eq!(sub_members[0].text(), Some("b"));
     assert_eq!(sub_members[0].entity(), span, "`b` is styled by the span");
@@ -143,7 +151,11 @@ fn realigns_run_start_past_leading_positioned() {
         .world()
         .get::<&InlineFlow>(c_text)
         .expect("top-level flow realigned onto the first non-positioned child `c`");
-    let top_members: Vec<_> = top.lines.iter().flat_map(|l| l.runs.iter()).collect();
+    let top_members: Vec<_> = top.fragments[0]
+        .lines
+        .iter()
+        .flat_map(|l| l.runs.iter())
+        .collect();
     assert_eq!(top_members.len(), 1);
     assert_eq!(top_members[0].text(), Some("c"));
     assert!(
@@ -208,7 +220,11 @@ fn nested_relpos_in_static_inline_subflow_no_double_paint() {
         .world()
         .get::<&InlineFlow>(a_text)
         .expect("top-level flow persists");
-    let top_members: Vec<_> = top.lines.iter().flat_map(|l| l.runs.iter()).collect();
+    let top_members: Vec<_> = top.fragments[0]
+        .lines
+        .iter()
+        .flat_map(|l| l.runs.iter())
+        .collect();
     // `a`(p), `x`(em), `y`(em), `c`(p) — NEVER the span (b is in the sub-flow).
     assert!(
         top_members.iter().all(|m| m.entity() != span),
@@ -220,7 +236,11 @@ fn nested_relpos_in_static_inline_subflow_no_double_paint() {
         .world()
         .get::<&InlineFlow>(b_text)
         .expect("sub-flow on the nested relpos span's first child");
-    let sub_members: Vec<_> = sub.lines.iter().flat_map(|l| l.runs.iter()).collect();
+    let sub_members: Vec<_> = sub.fragments[0]
+        .lines
+        .iter()
+        .flat_map(|l| l.runs.iter())
+        .collect();
     assert_eq!(sub_members.len(), 1);
     assert_eq!(sub_members[0].entity(), span);
     assert_eq!(sub_members[0].text(), Some("b"));
@@ -279,7 +299,7 @@ fn static_atomic_inside_relpos_subflow_repositions() {
         .world()
         .get::<&InlineFlow>(a_text)
         .expect("relpos sub-flow persists on its first child `a`");
-    let (atomic_inline, atomic_block) = sub
+    let (atomic_inline, atomic_block) = sub.fragments[0]
         .lines
         .iter()
         .flat_map(|line| line.runs.iter().map(move |r| (r, line.block_start)))
@@ -364,7 +384,11 @@ fn subflow_cleared_when_relpos_made_static() {
         .world()
         .get::<&InlineFlow>(a_text)
         .expect("top-level flow persists");
-    let top_members: Vec<_> = top.lines.iter().flat_map(|l| l.runs.iter()).collect();
+    let top_members: Vec<_> = top.fragments[0]
+        .lines
+        .iter()
+        .flat_map(|l| l.runs.iter())
+        .collect();
     assert!(
         top_members.iter().any(|m| m.entity() == span),
         "`b` is now an in-flow member of the top-level flow (entity = the static span)"
@@ -420,7 +444,11 @@ fn top_level_key_matches_render_for_leading_display_none() {
         .world()
         .get::<&InlineFlow>(hidden)
         .expect("InlineFlow keyed on the leading display:none child = render's run[0]");
-    let members: Vec<_> = flow.lines.iter().flat_map(|l| l.runs.iter()).collect();
+    let members: Vec<_> = flow.fragments[0]
+        .lines
+        .iter()
+        .flat_map(|l| l.runs.iter())
+        .collect();
     assert!(
         members.iter().any(|m| m.text() == Some("visible")),
         "the visible text is a member of the flow keyed on the display:none child"
@@ -526,7 +554,11 @@ fn persists_relative_positioned_inline_subflow_vertical() {
         .world()
         .get::<&InlineFlow>(b_text)
         .expect("matching-WM relpos sub-flow persists in a vertical IFC");
-    let members: Vec<_> = sub.lines.iter().flat_map(|l| l.runs.iter()).collect();
+    let members: Vec<_> = sub.fragments[0]
+        .lines
+        .iter()
+        .flat_map(|l| l.runs.iter())
+        .collect();
     assert_eq!(members.len(), 1);
     assert_eq!(members[0].text(), Some("b"));
 }
@@ -646,7 +678,11 @@ fn relpos_atomic_persists_and_repositions_not_a_flow_member() {
         .world()
         .get::<&InlineFlow>(a_text)
         .expect("slice 3p-b-2: a run containing a relpos atomic now persists (gate dropped)");
-    let members: Vec<_> = flow.lines.iter().flat_map(|l| l.runs.iter()).collect();
+    let members: Vec<_> = flow.fragments[0]
+        .lines
+        .iter()
+        .flat_map(|l| l.runs.iter())
+        .collect();
     // `a` and `c` both persist as Text members (the atomic interrupts coalescing).
     assert!(
         members.iter().any(|m| m.text() == Some("a"))
@@ -756,7 +792,8 @@ fn relpos_atomic_repositioned_in_vertical_ifc() {
     );
     // It is NOT a flow member (the flow keyed on ib1 holds only ib1's AtomicBox).
     let ib2_is_member = dom.world().get::<&InlineFlow>(ib1).is_ok_and(|flow| {
-        flow.lines
+        flow.fragments[0]
+            .lines
             .iter()
             .flat_map(|l| l.runs.iter())
             .any(|m| m.entity() == ib2)
@@ -797,7 +834,11 @@ fn sticky_atomic_persists_and_repositions_not_a_flow_member() {
         .world()
         .get::<&InlineFlow>(a_text)
         .expect("a run containing a sticky atomic persists (gate dropped, same as relpos)");
-    let members: Vec<_> = flow.lines.iter().flat_map(|l| l.runs.iter()).collect();
+    let members: Vec<_> = flow.fragments[0]
+        .lines
+        .iter()
+        .flat_map(|l| l.runs.iter())
+        .collect();
     // The sticky atomic is NOT an AtomicBox flow member (Layer 6 paints it).
     assert!(
         members

@@ -72,10 +72,12 @@ fn shift_descendants_inner(dom: &mut EcsDom, children: &[Entity], delta: Vector,
                 (delta.y, delta.x)
             };
             if let Ok(mut flow) = dom.world_mut().get::<&mut InlineFlow>(child) {
-                for line in &mut flow.lines {
-                    line.block_start += d_block;
-                    for run in &mut line.runs {
-                        *run.inline_start_mut() += d_inline;
+                for frag in &mut flow.fragments {
+                    for line in &mut frag.lines {
+                        line.block_start += d_block;
+                        for run in &mut line.runs {
+                            *run.inline_start_mut() += d_inline;
+                        }
                     }
                 }
             }

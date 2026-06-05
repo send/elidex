@@ -27,8 +27,9 @@ fn shift_block_children_moves_inner_inline_flow() {
     );
     dom.world_mut().insert_one(
         text,
-        elidex_ecs::InlineFlow {
-            lines: vec![elidex_ecs::InlineFlowLine {
+        elidex_ecs::InlineFlow::single(
+            0,
+            vec![elidex_ecs::InlineFlowLine {
                 block_start: 5.0,
                 block_size: 20.0,
                 runs: vec![elidex_ecs::InlineFlowRun::Text {
@@ -37,8 +38,7 @@ fn shift_block_children_moves_inner_inline_flow() {
                     inline_start: 0.0,
                 }],
             }],
-            layout_generation: 0,
-        },
+        ),
     );
 
     // Shift the block subtree by +30 along the block axis (horizontal → physical y).
@@ -63,6 +63,7 @@ fn shift_block_children_moves_inner_inline_flow() {
         .world()
         .get::<&elidex_ecs::InlineFlow>(text)
         .unwrap()
+        .fragments[0]
         .lines[0]
         .block_start;
     assert!(

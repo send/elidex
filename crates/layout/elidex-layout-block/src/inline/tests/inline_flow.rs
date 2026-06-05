@@ -66,8 +66,12 @@ fn persists_single_line_flow() {
         .world()
         .get::<&InlineFlow>(key)
         .expect("simple horizontal text run should persist an InlineFlow");
-    assert_eq!(flow.lines.len(), 1, "single short word → one line");
-    let line = &flow.lines[0];
+    assert_eq!(
+        flow.fragments[0].lines.len(),
+        1,
+        "single short word → one line"
+    );
+    let line = &flow.fragments[0].lines[0];
     assert_eq!(line.block_start, 0.0, "content origin is ZERO");
     assert_eq!(line.runs.len(), 1);
     assert_eq!(line.runs[0].text(), Some("Hello"));
@@ -94,13 +98,16 @@ fn coalesces_break_pieces_on_one_line() {
     );
 
     let flow = dom.world().get::<&InlineFlow>(key).expect("should persist");
-    assert_eq!(flow.lines.len(), 1);
+    assert_eq!(flow.fragments[0].lines.len(), 1);
     assert_eq!(
-        flow.lines[0].runs.len(),
+        flow.fragments[0].lines[0].runs.len(),
         1,
         "contiguous same-entity break pieces coalesce into one run"
     );
-    assert_eq!(flow.lines[0].runs[0].text(), Some("hello world"));
+    assert_eq!(
+        flow.fragments[0].lines[0].runs[0].text(),
+        Some("hello world")
+    );
 }
 
 #[test]
@@ -121,18 +128,18 @@ fn multi_line_wrap_has_increasing_block_start() {
     );
 
     let flow = dom.world().get::<&InlineFlow>(key).expect("should persist");
-    assert_eq!(flow.lines.len(), 2, "wraps into two lines");
-    assert_eq!(flow.lines[0].block_start, 0.0);
+    assert_eq!(flow.fragments[0].lines.len(), 2, "wraps into two lines");
+    assert_eq!(flow.fragments[0].lines[0].block_start, 0.0);
     assert!(
-        flow.lines[1].block_start > flow.lines[0].block_start,
+        flow.fragments[0].lines[1].block_start > flow.fragments[0].lines[0].block_start,
         "second line below the first (block_start {} > {})",
-        flow.lines[1].block_start,
-        flow.lines[0].block_start
+        flow.fragments[0].lines[1].block_start,
+        flow.fragments[0].lines[0].block_start
     );
-    assert!(flow.lines[0].runs[0]
+    assert!(flow.fragments[0].lines[0].runs[0]
         .text()
         .is_some_and(|t| t.starts_with("hello")));
-    assert_eq!(flow.lines[1].runs[0].text(), Some("world"));
+    assert_eq!(flow.fragments[0].lines[1].runs[0].text(), Some("world"));
 }
 
 #[test]
@@ -146,9 +153,12 @@ fn absolute_coordinates_offset_by_content_origin() {
     layout_inline_context(&mut dom, &children, 800.0, parent, origin, &env(&font_db));
 
     let flow = dom.world().get::<&InlineFlow>(key).expect("should persist");
-    assert_eq!(flow.lines[0].block_start, 20.0, "block_start = origin.y");
     assert_eq!(
-        flow.lines[0].runs[0].inline_start(),
+        flow.fragments[0].lines[0].block_start, 20.0,
+        "block_start = origin.y"
+    );
+    assert_eq!(
+        flow.fragments[0].lines[0].runs[0].inline_start(),
         10.0,
         "inline_start = origin.x (left-aligned)"
     );
@@ -175,9 +185,9 @@ fn text_align_center_bakes_offset_into_inline_start() {
 
     let flow = dom.world().get::<&InlineFlow>(key).expect("should persist");
     assert!(
-        flow.lines[0].runs[0].inline_start() > 0.0,
+        flow.fragments[0].lines[0].runs[0].inline_start() > 0.0,
         "centered text is offset from the line start, got {}",
-        flow.lines[0].runs[0].inline_start()
+        flow.fragments[0].lines[0].runs[0].inline_start()
     );
 }
 
@@ -222,7 +232,7 @@ fn persists_atomic_inline_as_box_member() {
     // width, so it wraps below the text onto its own line — which makes the D7
     // reposition's block-axis move observable: the box moves from content_origin
     // y=0 down to the line.)
-    let (atomic_inline, atomic_block) = flow
+    let (atomic_inline, atomic_block) = flow.fragments[0]
         .lines
         .iter()
         .flat_map(|line| line.runs.iter().map(move |r| (r, line.block_start)))
@@ -296,7 +306,7 @@ fn vertical_atomic_repositions_with_axis_swap() {
         .world()
         .get::<&InlineFlow>(key)
         .expect("vertical static atomic persists (slice 2 + 3p-a)");
-    let (atomic_inline, atomic_block) = flow
+    let (atomic_inline, atomic_block) = flow.fragments[0]
         .lines
         .iter()
         .flat_map(|line| line.runs.iter().map(move |r| (r, line.block_start)))
@@ -372,6 +382,7 @@ fn atomic_inner_text_inline_flow_shifts_with_box() {
         .world()
         .get::<&InlineFlow>(inner)
         .expect("the inner text persists an InlineFlow")
+        .fragments[0]
         .lines[0]
         .block_start;
     assert!(
@@ -424,7 +435,8 @@ fn persists_pseudo_element_flow() {
         .get::<&InlineFlow>(key)
         .expect("plain-LTR pseudo run with resolved text must persist (slice 3)");
     assert!(
-        flow.lines
+        flow.fragments[0]
+            .lines
             .iter()
             .flat_map(|l| &l.runs)
             .any(|r| r.text().is_some_and(|t| t.contains("AB"))),
@@ -558,7 +570,10 @@ fn gate_excludes_text_transform() {
 }
 
 #[test]
-fn gate_excludes_fragmented() {
+fn paged_fragmented_run_now_persists() {
+    // Slice 4 / I-paged inverts the old gate: a *paged* fragmented run now
+    // persists (per-page slice + continuation rebase + page-generation stamp).
+    // `available_block` is large, so the whole short run fits in one page fragment.
     let Some((mut dom, parent, _style, font_db)) = setup_inline_test("hello world") else {
         return;
     };
@@ -569,6 +584,41 @@ fn gate_excludes_fragmented() {
         orphans: 2,
         widows: 2,
         skip_lines: 0,
+        fragmentation_type: crate::FragmentationType::Page,
+    };
+    layout_inline_context_fragmented(
+        &mut dom,
+        &children,
+        800.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+        Some(&frag),
+    );
+
+    assert!(
+        dom.world().get::<&InlineFlow>(key).is_ok(),
+        "a paged fragmented run now persists an InlineFlow (slice 4 / I-paged)"
+    );
+}
+
+#[test]
+fn gate_excludes_multicol_fragmented() {
+    // Multicol (`Column`) stays gated to legacy until I-multicol (accumulate +
+    // column shift + balanced-fill probe-gating); the paged-scoped gate (F3) must
+    // not drop it, or it would persist column slices at absolute coords the
+    // multicol shift does not yet move.
+    let Some((mut dom, parent, _style, font_db)) = setup_inline_test("hello world") else {
+        return;
+    };
+    let children = dom.composed_children(parent);
+    let key = run_start(&dom, parent);
+    let frag = InlineFragConstraint {
+        available_block: 1000.0,
+        orphans: 2,
+        widows: 2,
+        skip_lines: 0,
+        fragmentation_type: crate::FragmentationType::Column,
     };
     layout_inline_context_fragmented(
         &mut dom,
@@ -582,7 +632,241 @@ fn gate_excludes_fragmented() {
 
     assert!(
         dom.world().get::<&InlineFlow>(key).is_err(),
-        "fragmented (paged) runs must not persist — flow_lines are not yet sliced per fragment"
+        "a multicol-constrained run must NOT persist yet (paged-scoped gate, F3)"
+    );
+}
+
+// --- slice 4 / I-paged: per-page slice + continuation rebase ---
+
+#[test]
+fn continuation_fragment_rebases_to_fragmentainer_top() {
+    // "hello world" wraps into 2 lines at width 1.0. A continuation (page 2)
+    // fragment skips line 0, keeps line 1 ("world"), and rebases it to the
+    // fragmentainer block-start (0.0) — NOT line 1's original second-line offset.
+    let Some((mut dom, parent, _style, font_db)) = setup_inline_test("hello world") else {
+        return;
+    };
+    let children = dom.composed_children(parent);
+    let key = run_start(&dom, parent);
+
+    // Baseline: the un-skipped flow puts line 1 below line 0.
+    layout_inline_context(
+        &mut dom,
+        &children,
+        1.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+    );
+    let original_line1 = dom
+        .world()
+        .get::<&InlineFlow>(key)
+        .expect("two-line flow persists")
+        .fragments[0]
+        .lines[1]
+        .block_start;
+    assert!(
+        original_line1 > 0.0,
+        "line 1 sits below line 0 pre-fragmentation"
+    );
+
+    // Continuation fragment (page 2) skipping the first line.
+    let frag = InlineFragConstraint {
+        available_block: 1000.0,
+        orphans: 1,
+        widows: 1,
+        skip_lines: 1,
+        fragmentation_type: crate::FragmentationType::Page,
+    };
+    layout_inline_context_fragmented(
+        &mut dom,
+        &children,
+        1.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+        Some(&frag),
+    );
+
+    let flow = dom
+        .world()
+        .get::<&InlineFlow>(key)
+        .expect("continuation fragment persists (I-paged)");
+    assert_eq!(
+        flow.fragments[0].lines.len(),
+        1,
+        "only the kept line 'world' is in this fragment"
+    );
+    assert_eq!(
+        flow.fragments[0].lines[0].block_start, 0.0,
+        "kept line rebased to fragmentainer top (was {original_line1} pre-rebase)"
+    );
+    assert_eq!(flow.fragments[0].lines[0].runs[0].text(), Some("world"));
+    assert_eq!(
+        flow.fragments[0].generation, 0,
+        "non-paged-builder generation stamp is 0 (env default)"
+    );
+}
+
+#[test]
+fn paged_fragment_clientrects_single_source_with_flow() {
+    // F2 single-source rebase: the persisted fragment lines and the inline
+    // element's `InlineClientRects` derive from the SAME packer block offset, so a
+    // continuation fragment's flow-line `block_start`s equal its clientRects tops
+    // (and the first is rebased to the fragmentainer top, 0.0).
+    let mut dom = EcsDom::new();
+    let parent = dom.create_element("p", Attributes::default());
+    let span = dom.create_element("span", Attributes::default());
+    let span_text = dom.create_text("aaa bbb ccc ddd");
+    dom.append_child(span, span_text);
+    dom.append_child(parent, span);
+    let font_db = FontDatabase::new();
+    let style = ComputedStyle {
+        font_family: vec![
+            "Arial".to_string(),
+            "Helvetica".to_string(),
+            "Liberation Sans".to_string(),
+            "DejaVu Sans".to_string(),
+            "Noto Sans".to_string(),
+            "Hiragino Sans".to_string(),
+        ],
+        ..Default::default()
+    };
+    let params = TextMeasureParams {
+        families: &[
+            "Arial",
+            "Helvetica",
+            "Liberation Sans",
+            "DejaVu Sans",
+            "Noto Sans",
+        ],
+        font_size: style.font_size,
+        weight: 400,
+        style: elidex_text::FontStyle::Normal,
+        letter_spacing: 0.0,
+        word_spacing: 0.0,
+    };
+    if measure_text(&font_db, &params, "x").is_none() {
+        return;
+    }
+    let _ = dom.world_mut().insert_one(parent, style.clone());
+    let _ = dom.world_mut().insert_one(span, style);
+    let children = dom.composed_children(parent);
+    let key = run_start(&dom, parent);
+
+    // Width 1.0 → four single-word lines; skip line 0 → keep [1,2,3] on page 2.
+    let frag = InlineFragConstraint {
+        available_block: 1000.0,
+        orphans: 1,
+        widows: 1,
+        skip_lines: 1,
+        fragmentation_type: crate::FragmentationType::Page,
+    };
+    layout_inline_context_fragmented(
+        &mut dom,
+        &children,
+        1.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+        Some(&frag),
+    );
+
+    let flow = dom
+        .world()
+        .get::<&InlineFlow>(key)
+        .expect("paged continuation persists");
+    assert_eq!(
+        flow.fragments[0].lines.len(),
+        3,
+        "three kept lines (bbb/ccc/ddd) after skipping line 0"
+    );
+    assert_eq!(
+        flow.fragments[0].lines[0].block_start, 0.0,
+        "first kept line rebased to fragmentainer top"
+    );
+    let rects = dom
+        .world()
+        .get::<&elidex_plugin::InlineClientRects>(span)
+        .expect("the multi-line span gets per-line client rects");
+    assert_eq!(
+        rects.0.len(),
+        flow.fragments[0].lines.len(),
+        "one client rect per kept line (sliced consistently with the flow)"
+    );
+    for (i, line) in flow.fragments[0].lines.iter().enumerate() {
+        assert!(
+            (line.block_start - rects.0[i].origin.y).abs() < 0.01,
+            "flow line {i} block_start {} == clientRects top {} (single source)",
+            line.block_start,
+            rects.0[i].origin.y
+        );
+    }
+}
+
+#[test]
+fn paged_fragment_drops_tail_after_break() {
+    // When orphans/widows force a break, the persisted fragment holds only the
+    // lines up to the break point — the tail (next page's lines) is dropped from
+    // this fragment's `lines` (and its box geometry), not left overshooting.
+    let Some((mut dom, parent, _style, font_db)) = setup_inline_test("aaa bbb ccc ddd") else {
+        return;
+    };
+    let children = dom.composed_children(parent);
+    let key = run_start(&dom, parent);
+
+    // Measure one line's block size from the un-fragmented 4-line flow.
+    layout_inline_context(
+        &mut dom,
+        &children,
+        1.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+    );
+    let measured = dom
+        .world()
+        .get::<&InlineFlow>(key)
+        .expect("four-line flow persists");
+    assert_eq!(
+        measured.fragments[0].lines.len(),
+        4,
+        "four single-word lines"
+    );
+    let line_h = measured.fragments[0].lines[1].block_start;
+    drop(measured);
+    assert!(line_h > 0.0);
+
+    // Available block fits ~2 lines → break after line 2 (orphans/widows = 1).
+    let frag = InlineFragConstraint {
+        available_block: line_h * 2.5,
+        orphans: 1,
+        widows: 1,
+        skip_lines: 0,
+        fragmentation_type: crate::FragmentationType::Page,
+    };
+    layout_inline_context_fragmented(
+        &mut dom,
+        &children,
+        1.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+        Some(&frag),
+    );
+
+    let flow = dom
+        .world()
+        .get::<&InlineFlow>(key)
+        .expect("first paged fragment persists");
+    assert_eq!(
+        flow.fragments[0].lines.len(),
+        2,
+        "only the two lines that fit this page; the tail moved to page 2"
+    );
+    assert_eq!(
+        flow.fragments[0].lines[0].block_start, 0.0,
+        "first fragment starts at the fragmentainer top (skip 0 → no rebase)"
     );
 }
 
@@ -599,10 +883,14 @@ fn persists_vertical_rl_flow() {
         .world()
         .get::<&InlineFlow>(key)
         .expect("vertical-rl text now persists an InlineFlow (slice 2)");
-    assert_eq!(flow.lines.len(), 1, "short text → one line/column");
-    assert_eq!(flow.lines[0].runs.len(), 1);
-    assert_eq!(flow.lines[0].runs[0].text(), Some("Hi"));
-    assert_eq!(flow.lines[0].runs[0].entity(), parent);
+    assert_eq!(
+        flow.fragments[0].lines.len(),
+        1,
+        "short text → one line/column"
+    );
+    assert_eq!(flow.fragments[0].lines[0].runs.len(), 1);
+    assert_eq!(flow.fragments[0].lines[0].runs[0].text(), Some("Hi"));
+    assert_eq!(flow.fragments[0].lines[0].runs[0].entity(), parent);
 }
 
 #[test]
@@ -631,11 +919,11 @@ fn vertical_absolute_coordinates_swap_axes() {
     };
     let flow = dom.world().get::<&InlineFlow>(key).expect("should persist");
     assert_eq!(
-        flow.lines[0].block_start, 10.0,
+        flow.fragments[0].lines[0].block_start, 10.0,
         "vertical: block-axis maps to physical x = origin.x"
     );
     assert_eq!(
-        flow.lines[0].runs[0].inline_start(),
+        flow.fragments[0].lines[0].runs[0].inline_start(),
         20.0,
         "vertical: inline-axis maps to physical y = origin.y (start-aligned)"
     );
@@ -651,13 +939,13 @@ fn vertical_multi_line_increasing_block_start() {
         return;
     };
     let flow = dom.world().get::<&InlineFlow>(key).expect("should persist");
-    assert_eq!(flow.lines.len(), 2, "wraps into two columns");
-    assert_eq!(flow.lines[0].block_start, 0.0);
+    assert_eq!(flow.fragments[0].lines.len(), 2, "wraps into two columns");
+    assert_eq!(flow.fragments[0].lines[0].block_start, 0.0);
     assert!(
-        flow.lines[1].block_start > flow.lines[0].block_start,
+        flow.fragments[0].lines[1].block_start > flow.fragments[0].lines[0].block_start,
         "second column is offset along the block axis (x): block_start {} > {}",
-        flow.lines[1].block_start,
-        flow.lines[0].block_start
+        flow.fragments[0].lines[1].block_start,
+        flow.fragments[0].lines[0].block_start
     );
 }
 

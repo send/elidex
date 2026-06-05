@@ -72,6 +72,7 @@ pub(super) fn flush_inline_run(
             orphans: parent_style.orphans,
             widows: parent_style.widows,
             skip_lines,
+            fragmentation_type: frag.fragmentation_type,
         }
     });
 

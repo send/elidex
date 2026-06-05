@@ -526,6 +526,7 @@ pub fn layout_block_inner(
                     orphans: style.orphans,
                     widows: style.widows,
                     skip_lines: inline_skip_lines,
+                    fragmentation_type: frag.fragmentation_type,
                 });
         let env = crate::LayoutEnv::from_input(input, layout_child);
         let inline_result = crate::inline::layout_inline_context_fragmented(
