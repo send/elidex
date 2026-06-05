@@ -1,5 +1,8 @@
 //! IPC message types between content thread and Service Worker thread.
 
+use crate::registration::{SwState, UpdateViaCache};
+use crate::security::SwRegisterError;
+
 /// Request data sent to a Service Worker's fetch event.
 #[derive(Debug, Clone)]
 pub struct SwRequest {
@@ -171,5 +174,119 @@ pub enum SwToContent {
         filename: String,
         lineno: u32,
         colno: u32,
+    },
+}
+
+/// A registration's single current worker, marshalled for the window-realm
+/// `navigator.serviceWorker` back-channel (WHATWG SW §3.1).
+///
+/// The shell coordinator holds one [`crate::registration::SwState`] per
+/// registration (one worker per scope); this is the `Send` twin the
+/// `ServiceWorkerRegistration.installing`/`waiting`/`active` getters and
+/// `ServiceWorker.scriptURL`/`state` read from after a back-channel deliver.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SwWorkerSnapshot {
+    /// `ServiceWorker.scriptURL` (the registered SW script URL).
+    pub script_url: String,
+    /// `ServiceWorker.state` (the worker's lifecycle state).
+    pub state: SwState,
+}
+
+/// An inbound update from the shell coordinator to a window-realm
+/// `navigator.serviceWorker` client (the browser→content direction of the
+/// DR-B back-channel, WHATWG SW §3.1/§3.4).
+///
+/// Engine-independent sibling of [`ContentToSw`]/[`SwToContent`].  The shell
+/// `BrowserToContent` SW variants map 1:1 onto this; the engine-bound VM
+/// settles `register()`/`unregister()` promises and fires `statechange` /
+/// `updatefound` / `controllerchange` / `message` from it
+/// (`Vm::deliver_sw_client_update`).
+#[derive(Debug, Clone)]
+pub enum SwClientUpdate {
+    /// A `register()` (or `update()`) job settled.  On success the
+    /// registration's current `worker` seeds the client state authoritatively
+    /// (so `.installing`/`.waiting`/`.active` have a write-path at resolve);
+    /// on failure the typed `error` rejects every waiter.
+    Registered {
+        /// Canonical scope URL the job registered.
+        scope: url::Url,
+        /// Whether the registration succeeded.
+        success: bool,
+        /// The rejection reason (mapped 1:1 to a `DOMException`) when
+        /// `success` is `false`.
+        error: Option<SwRegisterError>,
+        /// The registration's current worker on success.
+        worker: Option<SwWorkerSnapshot>,
+        /// The registration's `updateViaCache` (SW §3.2.7); seeds the
+        /// `ServiceWorkerRegistration.updateViaCache` getter.
+        update_via_cache: UpdateViaCache,
+    },
+    /// A worker's lifecycle state advanced (drives `.state`, `onstatechange`,
+    /// and — for a freshly installing worker — `onupdatefound`).
+    StateChanged {
+        /// Scope of the registration whose worker changed.
+        scope: url::Url,
+        /// The worker's new state.
+        state: SwState,
+    },
+    /// The page's controller changed (drives `controller` + `oncontrollerchange`).
+    /// `None` clears the controller.
+    ControllerSet {
+        /// Scope of the new controlling registration (or `None`).
+        scope: Option<url::Url>,
+    },
+    /// A worker `postMessage`d this client (drives `navigator.serviceWorker`
+    /// `onmessage`, buffered until `startMessages()`/first `onmessage`).
+    Message {
+        /// Serialized message payload.
+        data: String,
+        /// Scope of the sending registration.
+        source_scope: url::Url,
+    },
+    /// A registration was removed (`unregister()` or replacement) — drops it
+    /// from the client registry and settles pending `unregister()` waiters.
+    Unregistered {
+        /// Scope of the removed registration.
+        scope: url::Url,
+        /// Whether a registration was actually removed.
+        success: bool,
+    },
+}
+
+/// An outbound request from a window-realm `navigator.serviceWorker` client to
+/// the shell coordinator (the content→browser direction of the DR-B
+/// back-channel, WHATWG SW §3.2/§3.4).
+///
+/// Staged on the VM by the container/registration/worker natives and drained
+/// by the content event loop, which maps each onto a `ContentToBrowser` IPC
+/// message.  The engine-independent twin of boa's `bridge.queue_sw_register`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SwClientRequest {
+    /// `ServiceWorkerContainer.register(scriptURL, { scope })` — the URLs are
+    /// already resolved against the document base URL (canonical).
+    Register {
+        /// Resolved script URL.
+        script_url: String,
+        /// Resolved scope URL.
+        scope: String,
+        /// The requested `updateViaCache` (SW §3.2.7 / register options).
+        update_via_cache: UpdateViaCache,
+    },
+    /// `ServiceWorkerRegistration.update()` — re-fetch + soft-update the SW.
+    Update {
+        /// Scope of the registration to update.
+        scope: String,
+    },
+    /// `ServiceWorkerRegistration.unregister()`.
+    Unregister {
+        /// Scope of the registration to remove.
+        scope: String,
+    },
+    /// `ServiceWorker.postMessage(message)` — deliver to the worker at `scope`.
+    PostMessage {
+        /// Scope of the target worker.
+        scope: String,
+        /// Serialized message payload.
+        data: String,
     },
 }

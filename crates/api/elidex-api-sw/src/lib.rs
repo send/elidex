@@ -41,10 +41,10 @@ pub use persistence::SwPersistence;
 pub use registration::{SwRegistration, SwRegistrationStore, SwState, UpdateViaCache};
 pub use router::{evaluate_routes, RouterCondition, RouterRule, RouterSource, UrlPattern};
 pub use scope::{default_scope, find_registration, matches_scope};
-pub use security::{is_secure_context, validate_mime_type, validate_registration};
+pub use security::{is_secure_context, validate_mime_type, validate_registration, SwRegisterError};
 pub use sync::{SyncManager, SyncRegistration, SyncState};
 pub use types::{
-    ClientSnapshot, ClientType, ContentToSw, FrameType, LifecycleEvent, SwRequest, SwResponse,
-    SwToContent, VisibilityState,
+    ClientSnapshot, ClientType, ContentToSw, FrameType, LifecycleEvent, SwClientRequest,
+    SwClientUpdate, SwRequest, SwResponse, SwToContent, SwWorkerSnapshot, VisibilityState,
 };
 pub use update::{hash_script, scripts_differ, UpdateChecker, UpdateResult};

@@ -1197,6 +1197,52 @@ pub enum ObjectKind {
     /// collected; cleared on `Vm::unbind`.
     #[cfg(feature = "engine")]
     Client,
+    // --- Window-realm `navigator.serviceWorker` client (D-19 PR-3
+    // `#11-service-workers-vm`; WHATWG Service Workers §3.1/§3.2/§3.4) ---
+    /// `ServiceWorkerContainer` singleton — `navigator.serviceWorker` (SW §3.4).
+    /// Payload-free brand; the container state (controller / registry / pending
+    /// promises / ready / buffered messages) is VM-level, not per-instance, so
+    /// the singleton carries no side-store.  It IS an `EventTarget`
+    /// (`controllerchange`/`message`), so — unlike the non-dispatchable
+    /// `Clients` façade — it takes an `ObjectKind` brand uniform with the other
+    /// VmObject EventTargets (WebSocket / EventSource / IdbRequest), rather than
+    /// a brand-via-prototype + a dispatch special-case.  The singleton is held
+    /// by `VmInner::sw_container` + reachable via `navigator.serviceWorker`.
+    ///
+    /// GC contract: payload-free; reachable via `navigator.serviceWorker` (no
+    /// force-mark); cleared from `sw_container` only structurally (persists
+    /// across rebind like the prototypes).
+    #[cfg(feature = "engine")]
+    ServiceWorkerContainer,
+    /// `ServiceWorkerRegistration` (SW §3.2) — vended by
+    /// `navigator.serviceWorker` `register()` / `getRegistration(s)` / `.ready`.
+    /// Payload-free brand; the scope is recovered from
+    /// `VmInner::sw_registration_states` keyed by this `ObjectId`, and the
+    /// registration data lives in the per-realm `sw_registrations` registry
+    /// keyed by scope.  Identity is one-per-scope via the `wrapper_intern`
+    /// seam (`WrapperKind::ServiceWorkerRegistration`, `Scope`-owned), so
+    /// `reg === getRegistration()`.
+    ///
+    /// GC contract: payload-free.  The interned wrapper is marked by the
+    /// `sw_registrations` registry-walk loop in `vm/gc/collect.rs` (its
+    /// `mark_agent` is `NoProactiveMark`, so the seam loop skips it) and
+    /// pruned on `Unregistered`/`unregister` + `Vm::unbind`; the brand
+    /// side-store is value-mark swept.
+    #[cfg(feature = "engine")]
+    ServiceWorkerRegistration,
+    /// `ServiceWorker` (SW §3.1) — a registration's `installing`/`waiting`/
+    /// `active` worker and `navigator.serviceWorker.controller`.  Payload-free
+    /// brand; the scope is recovered from `VmInner::service_worker_states`
+    /// keyed by this `ObjectId`, and the worker's `scriptURL`/`state` live in
+    /// the `sw_registrations` registry entry for that scope.  Identity is
+    /// one-per-scope via the seam (`WrapperKind::ServiceWorker`, `Scope`-owned)
+    /// and preserved across state transitions (`deliver` mutates state in
+    /// place, never re-mints), so `reg.active === controller`.
+    ///
+    /// GC contract: payload-free — same discipline as
+    /// [`ObjectKind::ServiceWorkerRegistration`].
+    #[cfg(feature = "engine")]
+    ServiceWorker,
     /// `Crypto` instance (WebCrypto §10) — accessed via `window.crypto`
     /// singleton.  Payload-free brand; the wrapper is stateless (every
     /// `getRandomValues` / `randomUUID` call routes to OS CSPRNG /

@@ -622,6 +622,27 @@ impl Vm {
             self.inner.client_states.clear();
             self.inner.sw_clients.clear();
             self.inner.sw_outgoing.clear();
+            // `navigator.serviceWorker` client (D-19 PR-3): drop every side-store
+            // so an in-flight `register()` promise can't dangle GC-rooted across
+            // a rebind, and a JS-surviving wrapper can't read a prior bind's
+            // registry/controller (eager-clear, the `ce_*` precedent).  The
+            // interned `Scope`-owned wrappers are already dropped by the
+            // existing `wrapper_store.retain(kind == Node)` unbind pass (M3).
+            self.inner.pending_registration_promises.clear();
+            self.inner.pending_unregister_promises.clear();
+            self.inner.sw_ready_promise = None;
+            self.inner.sw_registrations.clear();
+            self.inner.sw_registration_states.clear();
+            self.inner.service_worker_states.clear();
+            self.inner.sw_controller_scope = None;
+            self.inner.sw_messages_enabled = false;
+            self.inner.sw_message_buffer.clear();
+            self.inner.sw_client_outgoing.clear();
+            // NB: the container singleton + the three interface prototypes are
+            // NOT cleared — like `navigator` / `clients_prototype` they are
+            // realm-structural and persist across a rebind (so a post-rebind
+            // deliver still finds the container); only the per-bind state above
+            // resets.
             // D-8 PR-A2 — Range / TreeWalker / NodeIterator state
             // clearing on unbind.  These live on `HostData` (not
             // `VmInner`) because the bridge pair-install happens
@@ -910,6 +931,51 @@ impl Vm {
     #[cfg(feature = "engine")]
     pub fn drain_worker_messages(&mut self) {
         self.inner.drain_worker_messages();
+    }
+
+    /// Deliver an inbound `navigator.serviceWorker` back-channel update
+    /// (DR-B'; WHATWG SW §3.1/§3.4, D-19 PR-3): settle `register()` /
+    /// `unregister()` promises and fire `statechange` / `updatefound` /
+    /// `controllerchange` / `message`.  The window-realm twin of PR-2's
+    /// SW-thread recv loop and the 7th member of this `deliver_*` family —
+    /// runs a trailing microtask checkpoint, silent no-op post-unbind.
+    ///
+    /// Harness-driven over the engine-independent `SwClientUpdate` contract;
+    /// the `content/event_loop.rs`→VM consumer wire (mapping
+    /// `BrowserToContent` SW variants 1:1 onto `SwClientUpdate`) is the D-26
+    /// boa→VM cutover, like PR-2's `ContentToSw`/`SwToContent` harness.
+    #[cfg(feature = "engine")]
+    pub fn deliver_sw_client_update(&mut self, update: elidex_api_sw::SwClientUpdate) {
+        self.inner.deliver_sw_client_update(update);
+    }
+
+    /// Take the outbound `navigator.serviceWorker` client requests staged by
+    /// the `register` / `update` / `unregister` / `postMessage` natives (D-19
+    /// PR-3).  The content event loop forwards these to the coordinator at the
+    /// D-26 cutover; tests assert on them directly.
+    #[cfg(feature = "engine")]
+    pub fn drain_sw_client_requests(&mut self) -> Vec<elidex_api_sw::SwClientRequest> {
+        self.inner.drain_sw_client_requests()
+    }
+
+    /// Seed the initial `navigator.serviceWorker` controller + registrations a
+    /// page is controlled by AT navigation (WHATWG SW §3.4.1, F2
+    /// construction-init seed), before any runtime
+    /// [`deliver_sw_client_update`](Self::deliver_sw_client_update).  The shell
+    /// populates this at document creation (D-26 cutover); tests call it
+    /// directly.  An uncontrolled page passes `None` + an empty slice.
+    #[cfg(feature = "engine")]
+    pub fn seed_sw_client(
+        &mut self,
+        controller: Option<url::Url>,
+        registrations: &[(url::Url, elidex_api_sw::SwWorkerSnapshot)],
+    ) {
+        let controller = controller.map(|u| u.as_str().to_owned());
+        let regs = registrations
+            .iter()
+            .map(|(u, w)| (u.as_str().to_owned(), w.clone()))
+            .collect();
+        self.inner.seed_sw_client(controller, regs);
     }
 
     /// Flush every dirty `<canvas>` (HTML §4.12.5 "The 2D rendering context"):

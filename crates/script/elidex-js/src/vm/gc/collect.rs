@@ -1122,6 +1122,46 @@ impl VmInner {
                     super::mark_object(promise, marks, work);
                 }
             }
+            // `navigator.serviceWorker` client (D-19 PR-3) — a pending
+            // `register()` / `unregister()` / `ready` promise is reachable
+            // ONLY through these side-stores until it settles, so force-mark
+            // them (the `pending_fetches` discipline; never value-swept,
+            // drained on settle).
+            for promises in self.pending_registration_promises.values() {
+                for &promise in promises {
+                    super::mark_object(promise, marks, work);
+                }
+            }
+            for promises in self.pending_unregister_promises.values() {
+                for &promise in promises {
+                    super::mark_object(promise, marks, work);
+                }
+            }
+            if let Some(promise) = self.sw_ready_promise {
+                super::mark_object(promise, marks, work);
+            }
+            // Live SW registrations keep their interned `ServiceWorkerRegistration`
+            // / `ServiceWorker` wrappers alive (so identity survives GC): the
+            // seam mark loop deliberately SKIPS the `Scope`-owned wrappers
+            // (`NoProactiveMark`), so walk the registry and mark each live
+            // (scope, kind) wrapper directly via the wrapper store (R2-3; the
+            // `fetch_event_states` precedent above).  `get_wrapper` is a `&self`
+            // method that would conflict with the `marks`/`work` borrows, so the
+            // store is read field-wise.
+            if let Some(hd) = self.host_data.as_deref() {
+                for entry in self.sw_registrations.values() {
+                    for kind in [
+                        super::super::wrapper_intern::WrapperKind::ServiceWorkerRegistration,
+                        super::super::wrapper_intern::WrapperKind::ServiceWorker,
+                    ] {
+                        let key =
+                            super::super::wrapper_intern::WrapperKey::scope(entry.scope_sid, kind);
+                        if let Some(&id) = hd.wrapper_store.get(&key) {
+                            super::mark_object(id, marks, work);
+                        }
+                    }
+                }
+            }
         }
 
         // Copilot R8: empty fallbacks when HostData is absent — the
@@ -1513,10 +1553,12 @@ impl VmInner {
                                 super::super::wrapper_intern::WrapperOwner::Object(owner_id) => {
                                     bit_get(marks, owner_id.0)
                                 }
-                                // No `ValueAndOwnerMark` kind is
-                                // entity-owned today; if one is added,
-                                // fall back to value-only liveness.
-                                super::super::wrapper_intern::WrapperOwner::Entity(_) => true,
+                                // No `ValueAndOwnerMark` kind is entity- or
+                                // scope-owned today (only FileList /
+                                // DataTransferItem, both Object-owned); if one
+                                // is added, fall back to value-only liveness.
+                                super::super::wrapper_intern::WrapperOwner::Entity(_)
+                                | super::super::wrapper_intern::WrapperOwner::Scope(_) => true,
                             };
                             bit_get(marks, value.0) && owner_live
                         }
@@ -1580,6 +1622,15 @@ impl VmInner {
             self.extendable_event_states
                 .retain(|id, _| bit_get(marks, id.0));
             self.client_states.retain(|id, _| bit_get(marks, id.0));
+            // `navigator.serviceWorker` client (D-19 PR-3) — prune the
+            // `ServiceWorkerRegistration` / `ServiceWorker` brand side-stores
+            // whose wrapper `ObjectId` was collected (the registry-walk mark
+            // above keeps live ones marked; a JS-held redundant worker survives
+            // by its own reachability).
+            self.sw_registration_states
+                .retain(|id, _| bit_get(marks, id.0));
+            self.service_worker_states
+                .retain(|id, _| bit_get(marks, id.0));
             // `vm_event_listeners` — the unified listener home for the
             // non-entity EventTargets (AbortSignal / IDB / WebSocket /
             // EventSource).  When a target `ObjectId` was collected, prune

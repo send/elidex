@@ -15,6 +15,7 @@ use super::super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
     PropertyValue, VmError,
 };
+use super::super::super::wrapper_intern::{WrapperKey, WrapperKind};
 use super::super::super::{NativeFn, VmInner};
 use super::install_interface;
 
@@ -93,34 +94,40 @@ fn frame_type_str(f: FrameType) -> &'static str {
     }
 }
 
-/// Allocate a `Client` (`ObjectKind::Client`) from a snapshot + register its
-/// `client_states` entry (the brand + postMessage routing).  `id` / `url` /
-/// `type` / `frameType` are readonly own-data props.
+/// Resolve the per-realm `Client` (`ObjectKind::Client`) for a snapshot,
+/// interned by client id so the SW §4.2 `[SameObject]` invariant holds
+/// (`clients.get(id) === clients.get(id)`, NG-1 — PR-2 minted a fresh object
+/// each call).  On first access it allocates the object, installs the readonly
+/// `id`/`url`/`type`/`frameType` own-data props, and registers its
+/// `client_states` entry (the brand + postMessage routing).
 fn build_client_object(vm: &mut VmInner, snap: &ClientSnapshot) -> ObjectId {
-    let proto = vm.client_prototype;
-    let id = vm.alloc_object(Object {
-        kind: ObjectKind::Client,
-        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-        prototype: proto,
-        extensible: true,
-    });
-    // Root the freshly-allocated `Client` across its attribute installs:
-    // `define_shaped_property` transitions the shape (and can GC) before the
-    // object is reachable from any root, so an un-rooted `id` would be swept
-    // mid-build and its slot recycled (the `build_response_from_entry`
-    // precedent).
-    let mut g = vm.push_temp_root(JsValue::Object(id));
-    let id_sid = g.strings.intern(&snap.id);
-    let url_sid = g.strings.intern(&snap.url);
-    let type_sid = g.strings.intern(client_type_str(snap.client_type));
-    let frame_sid = g.strings.intern(frame_type_str(snap.frame_type));
-    define_ro(&mut g, id, "id", JsValue::String(id_sid));
-    define_ro(&mut g, id, "url", JsValue::String(url_sid));
-    define_ro(&mut g, id, "type", JsValue::String(type_sid));
-    define_ro(&mut g, id, "frameType", JsValue::String(frame_sid));
-    g.client_states.insert(id, snap.clone());
-    drop(g);
-    id
+    let key = WrapperKey::scope(vm.strings.intern(&snap.id), WrapperKind::Client);
+    vm.intern_wrapper(key, |vm| {
+        let proto = vm.client_prototype;
+        let id = vm.alloc_object(Object {
+            kind: ObjectKind::Client,
+            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+            prototype: proto,
+            extensible: true,
+        });
+        // Root the freshly-allocated `Client` across its attribute installs:
+        // `define_shaped_property` transitions the shape (and can GC) before the
+        // object is reachable from any root, so an un-rooted `id` would be swept
+        // mid-build and its slot recycled (the `build_response_from_entry`
+        // precedent).
+        let mut g = vm.push_temp_root(JsValue::Object(id));
+        let id_sid = g.strings.intern(&snap.id);
+        let url_sid = g.strings.intern(&snap.url);
+        let type_sid = g.strings.intern(client_type_str(snap.client_type));
+        let frame_sid = g.strings.intern(frame_type_str(snap.frame_type));
+        define_ro(&mut g, id, "id", JsValue::String(id_sid));
+        define_ro(&mut g, id, "url", JsValue::String(url_sid));
+        define_ro(&mut g, id, "type", JsValue::String(type_sid));
+        define_ro(&mut g, id, "frameType", JsValue::String(frame_sid));
+        g.client_states.insert(id, snap.clone());
+        drop(g);
+        id
+    })
 }
 
 fn define_ro(vm: &mut VmInner, id: ObjectId, name: &str, value: JsValue) {

@@ -634,6 +634,36 @@ impl App {
         // Tick SW coordinator — drain lifecycle responses, advance state.
         self.sw_coordinator.tick();
 
+        // Broadcast SW back-channel updates to same-origin tabs (WHATWG SW
+        // §3.1/§3.4, DR-B — drives navigator.serviceWorker state/controller).
+        // `BrowserToContent` is not `Clone`, so reconstruct per recipient.
+        for update in self.sw_coordinator.drain_client_broadcasts() {
+            let scope_origin = update.scope().origin().ascii_serialization();
+            for tab in mgr.tabs_mut() {
+                let same_origin = tab
+                    .current_origin
+                    .as_ref()
+                    .is_some_and(|o| *o == scope_origin);
+                if !same_origin {
+                    continue;
+                }
+                let msg = match &update {
+                    sw_coordinator::SwClientBroadcast::StateChanged { scope, state } => {
+                        BrowserToContent::SwStateChanged {
+                            scope: scope.clone(),
+                            state: *state,
+                        }
+                    }
+                    sw_coordinator::SwClientBroadcast::ControllerSet { scope } => {
+                        BrowserToContent::SwControllerSet {
+                            scope: scope.clone(),
+                        }
+                    }
+                };
+                let _ = tab.channel.send(msg);
+            }
+        }
+
         // Open new tabs requested by window.open().
         for url in new_tab_urls {
             let (browser_chan, content_chan) = crate::ipc::channel_pair();

@@ -2204,6 +2204,91 @@ pub(crate) struct VmInner {
     /// `Client.prototype` (`postMessage` + `id`/`url`/`type`/`frameType`).
     #[cfg(feature = "engine")]
     pub(crate) client_prototype: Option<ObjectId>,
+    // --- Window-realm `navigator.serviceWorker` client (D-19 PR-3
+    // `#11-service-workers-vm`; WHATWG Service Workers §3.1/§3.2/§3.4) -------
+    /// Per-realm `ServiceWorkerRegistration` registry (SW §3.2) — the
+    /// authoritative live set, keyed by the **canonical scope string**
+    /// (`Url::as_str()`, shared with the coordinator's `SwRegistered.scope`
+    /// keying so a back-channel deliver finds its registry entry + waiters).
+    /// The container accessors read it; the GC registry-walk mark loop walks
+    /// it to keep live interned wrappers alive.
+    #[cfg(feature = "engine")]
+    pub(crate) sw_registrations: HashMap<String, host::service_worker::SwRegistrationEntry>,
+    /// Brand + scope-recovery side-store for `ServiceWorkerRegistration`
+    /// objects (SW §3.2): wrapper `ObjectId` → its canonical scope string.
+    /// `contains_key` is the brand-check; the value indexes `sw_registrations`.
+    ///
+    /// GC contract: payload-free (a `String`); sweep prunes dead keys; cleared
+    /// on [`Vm::unbind`].
+    #[cfg(feature = "engine")]
+    pub(crate) sw_registration_states: HashMap<ObjectId, String>,
+    /// Brand + scope-recovery side-store for `ServiceWorker` objects (SW
+    /// §3.1): wrapper `ObjectId` → its canonical scope string.  Mirror of
+    /// [`Self::sw_registration_states`] for the worker brand.
+    #[cfg(feature = "engine")]
+    pub(crate) service_worker_states: HashMap<ObjectId, String>,
+    /// Pending `register()` / `update()` promises awaiting a `Registered`
+    /// deliver, keyed by canonical scope (FIFO `Vec` — concurrent same-scope
+    /// `register()`s all resolve on one deliver).  **Op-segregated** from
+    /// [`Self::pending_unregister_promises`] so a `Registered` deliver never
+    /// settles a `Promise<boolean>` with a Registration.
+    ///
+    /// GC contract: **force-marked** as roots in the `gc/collect.rs` mark phase
+    /// (a pending register promise may have no JS reference); never
+    /// value-swept (drained on settle); cleared on [`Vm::unbind`].
+    #[cfg(feature = "engine")]
+    pub(crate) pending_registration_promises: HashMap<String, Vec<ObjectId>>,
+    /// Pending `unregister()` promises awaiting an `Unregistered` deliver,
+    /// keyed by canonical scope (resolves a `boolean`).  Op-segregated from
+    /// [`Self::pending_registration_promises`].  Same GC discipline.
+    #[cfg(feature = "engine")]
+    pub(crate) pending_unregister_promises: HashMap<String, Vec<ObjectId>>,
+    /// The `navigator.serviceWorker.ready` promise (SW §3.4.2) — ONE coalesced
+    /// `[SameObject]` promise per realm (the `whenDefined` idiom), minted
+    /// lazily, resolved once on the first active worker, never rejected.
+    ///
+    /// GC contract: **force-marked** while pending (it can be pending
+    /// indefinitely with no JS ref); cleared on [`Vm::unbind`].
+    #[cfg(feature = "engine")]
+    pub(crate) sw_ready_promise: Option<ObjectId>,
+    /// The `navigator.serviceWorker` container singleton (SW §3.4) — eagerly
+    /// constructed at realm setup so its `EventListeners` exist before a
+    /// pre-access `ControllerSet`/`Message` deliver (NG-5).  The dispatch
+    /// target for `controllerchange` / `message`.
+    ///
+    /// GC contract: reachable via `navigator.serviceWorker` (a global), so no
+    /// force-mark; cleared on [`Vm::unbind`].
+    #[cfg(feature = "engine")]
+    pub(crate) sw_container: Option<ObjectId>,
+    /// The page's controller scope (SW §3.4.1) — the canonical scope of the
+    /// active registration controlling this client, or `None`.  Seeded at VM
+    /// construction (a page controlled at navigation) + updated by
+    /// `ControllerSet` delivers.
+    #[cfg(feature = "engine")]
+    pub(crate) sw_controller_scope: Option<String>,
+    /// Whether the `navigator.serviceWorker` client message queue is enabled
+    /// (SW §3.4.6) — flipped by `startMessages()` / an `onmessage` listener.
+    /// Until then `Message` delivers buffer into [`Self::sw_message_buffer`].
+    #[cfg(feature = "engine")]
+    pub(crate) sw_messages_enabled: bool,
+    /// `message` events buffered until the client message queue is enabled
+    /// (SW §3.4.6): `(serialized data, source registration scope)`.
+    #[cfg(feature = "engine")]
+    pub(crate) sw_message_buffer: Vec<(String, String)>,
+    /// Outbound SW client requests staged by the container/registration/worker
+    /// natives (`register`/`update`/`unregister`/`postMessage`) for the content
+    /// event loop to forward (D-26) — the engine-indep twin of boa's
+    /// `bridge.queue_sw_register`.  Drained via [`Self::drain_sw_client_requests`].
+    #[cfg(feature = "engine")]
+    pub(crate) sw_client_outgoing: Vec<elidex_api_sw::SwClientRequest>,
+    /// `ServiceWorkerRegistration.prototype` (SW §3.2) — the prototype each
+    /// interned `ServiceWorkerRegistration` wrapper chains to.
+    #[cfg(feature = "engine")]
+    pub(crate) sw_registration_prototype: Option<ObjectId>,
+    /// `ServiceWorker.prototype` (SW §3.1) — the prototype each interned
+    /// `ServiceWorker` wrapper chains to.
+    #[cfg(feature = "engine")]
+    pub(crate) sw_worker_prototype: Option<ObjectId>,
     /// Fan-out map for `AbortSignal` → in-flight `FetchId`s.  When a
     /// signal aborts, [`host::abort::abort_signal`] drains the entry
     /// for that signal's `ObjectId`, sends

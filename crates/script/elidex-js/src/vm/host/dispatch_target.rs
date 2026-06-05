@@ -84,7 +84,13 @@ pub(crate) fn target_from_this(ctx: &NativeContext<'_>, this: JsValue) -> Option
         | ObjectKind::IdbDatabase
         | ObjectKind::WebSocket
         | ObjectKind::EventSource
-        | ObjectKind::FileReader => ctx
+        | ObjectKind::FileReader
+        // `navigator.serviceWorker` client EventTargets (SW §3.1/§3.2/§3.4,
+        // D-19 PR-3): the container (`controllerchange`/`message`), the worker
+        // (`statechange`), and the registration (`updatefound`).
+        | ObjectKind::ServiceWorkerContainer
+        | ObjectKind::ServiceWorker
+        | ObjectKind::ServiceWorkerRegistration => ctx
             .vm
             .host_data
             .as_ref()

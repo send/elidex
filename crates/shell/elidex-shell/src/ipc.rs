@@ -198,6 +198,15 @@ pub enum BrowserToContent {
         /// Scope URL of the controlling SW.
         scope: url::Url,
     },
+    /// A Service Worker's lifecycle state advanced (WHATWG SW §3.1) — drives
+    /// `ServiceWorker.state` / `onstatechange` / `onupdatefound` on the
+    /// window-realm `navigator.serviceWorker` client.
+    SwStateChanged {
+        /// Scope URL of the registration whose worker changed.
+        scope: url::Url,
+        /// The worker's new state.
+        state: elidex_api_sw::SwState,
+    },
     /// Parsed Web App Manifest from browser thread.
     ManifestParsed(Box<elidex_api_sw::WebAppManifest>),
     /// Service Worker FetchEvent response from browser thread.

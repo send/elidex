@@ -492,6 +492,19 @@ pub(super) fn trace_work_list(
             // `gc/collect.rs` mark phase for the dispatch+pump window.)
             #[cfg(feature = "engine")]
             ObjectKind::Client => {}
+            // `ServiceWorkerContainer` / `ServiceWorkerRegistration` /
+            // `ServiceWorker` (SW §3.1/§3.2/§3.4, D-19 PR-3) — payload-free
+            // brands.  The container state is VM-level; the registration/worker
+            // scope-recovery side-stores (`sw_registration_states` /
+            // `service_worker_states`) hold only a `StringId`, and the registry
+            // / worker data lives in `sw_registrations`.  No inline `ObjectId`,
+            // so no fan-out.  Live interned wrappers are marked by the
+            // `sw_registrations` registry-walk loop in `gc/collect.rs`; the
+            // brand side-stores are value-mark swept.
+            #[cfg(feature = "engine")]
+            ObjectKind::ServiceWorkerContainer
+            | ObjectKind::ServiceWorkerRegistration
+            | ObjectKind::ServiceWorker => {}
             // No ObjectId references — only StringId / scalar fields.
             ObjectKind::Ordinary
             | ObjectKind::NativeFunction(_)

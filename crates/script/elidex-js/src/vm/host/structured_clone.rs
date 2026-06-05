@@ -286,6 +286,14 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         // SW `Client` (§4.2) is not [Serializable] — identity is per-SW-realm.
         #[cfg(feature = "engine")]
         ObjectKind::Client => CloneKind::Unclonable("Client"),
+        // SW client objects (§3.1/§3.2/§3.4) are not [Serializable] — identity
+        // is per-realm (the container singleton; one reg/worker per scope, D-19 PR-3).
+        #[cfg(feature = "engine")]
+        ObjectKind::ServiceWorkerContainer => CloneKind::Unclonable("ServiceWorkerContainer"),
+        #[cfg(feature = "engine")]
+        ObjectKind::ServiceWorkerRegistration => CloneKind::Unclonable("ServiceWorkerRegistration"),
+        #[cfg(feature = "engine")]
+        ObjectKind::ServiceWorker => CloneKind::Unclonable("ServiceWorker"),
         ObjectKind::Request => CloneKind::Unclonable("Request"),
         ObjectKind::Response => CloneKind::Unclonable("Response"),
         ObjectKind::TextEncoder => CloneKind::Unclonable("TextEncoder"),

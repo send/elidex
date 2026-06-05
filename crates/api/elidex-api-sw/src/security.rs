@@ -11,43 +11,110 @@ const ALLOWED_MIME_TYPES: &[&str] = &[
     "text/ecmascript",
 ];
 
-/// Validate a Service Worker registration request.
+/// A typed Service Worker registration failure (WHATWG SW §3.4.3 register).
 ///
-/// Checks per WHATWG SW §4.2:
-/// - HTTPS-only (localhost/::1 exception)
-/// - Same-origin (script_url vs page_origin)
-/// - data: URL prohibition
-/// - Scope same-origin as script
+/// The variant is the JS exception the failure surfaces as, so an
+/// engine-bound binding can map it 1:1 onto a `TypeError` /
+/// `SecurityError` `DOMException` without re-deriving *which* rule was
+/// violated (the whole origin / scheme / scope-path / secure-context
+/// decision stays in this crate — the binding only marshals).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SwRegisterError {
+    /// "Start Register" — the script or scope URL does not use an
+    /// `http`/`https` scheme.  Surfaces as a `TypeError`.
+    TypeError(String),
+    /// "Register"/"Update" — cross-origin script/scope, a non-secure
+    /// context, or a scope outside the script directory.  Surfaces as a
+    /// `SecurityError` `DOMException`.
+    SecurityError(String),
+}
+
+impl SwRegisterError {
+    /// The human-readable failure message (both variants carry one).
+    #[must_use]
+    pub fn message(&self) -> &str {
+        match self {
+            Self::TypeError(m) | Self::SecurityError(m) => m,
+        }
+    }
+}
+
+impl std::fmt::Display for SwRegisterError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message())
+    }
+}
+
+/// Validate a Service Worker registration request (WHATWG SW §3.4.3 register).
 ///
-/// Note: scope path restriction (within script directory) is NOT enforced here.
-/// Use `validate_scope_path()` or `validate_service_worker_allowed()` separately.
-pub fn validate_registration(script_url: &Url, scope: &Url, page_url: &Url) -> Result<(), String> {
-    // HTTPS-only (localhost/::1 exception)
-    if !is_secure_context(page_url) {
-        return Err("Service Workers require a secure context (HTTPS or localhost)".into());
+/// Folds every client-side registration check into one typed result so the
+/// caller never re-implements an origin/scheme/scope comparison (CLAUDE.md
+/// Layering mandate):
+/// - "Start Register": script + scope must use an `http`/`https` scheme
+///   (`data:`/`file:`/`blob:`/… → [`SwRegisterError::TypeError`]).
+/// - "Register": secure context (HTTPS or localhost/::1).
+/// - "Register": script same-origin as the page; scope same-origin as
+///   the script.
+/// - "Update": scope within the script directory.  The client cannot see
+///   a `Service-Worker-Allowed` response header at this point, so the
+///   conservative directory check applies (a server widening the scope is the
+///   later [`validate_service_worker_allowed`] path).
+///
+/// The last four surface as [`SwRegisterError::SecurityError`].
+pub fn validate_registration(
+    script_url: &Url,
+    scope: &Url,
+    page_url: &Url,
+) -> Result<(), SwRegisterError> {
+    // "Start Register" — http(s) scheme only (rejects data:/file:/blob:/…).
+    if !is_http_scheme(script_url) {
+        return Err(SwRegisterError::TypeError(
+            "Service Worker script URL scheme must be \"http\" or \"https\"".into(),
+        ));
     }
-
-    // data: URL prohibition
-    if script_url.scheme() == "data" {
-        return Err("data: URLs cannot be used as Service Worker scripts".into());
-    }
-
-    // Same-origin check (script_url vs page_url)
-    if !same_origin(script_url, page_url) {
-        return Err(format!(
-            "Service Worker script must be same-origin as the page. \
-             Script: {}, Page: {}",
-            script_url.as_str(),
-            page_url.as_str()
+    if !is_http_scheme(scope) {
+        return Err(SwRegisterError::TypeError(
+            "Service Worker scope URL scheme must be \"http\" or \"https\"".into(),
         ));
     }
 
-    // Scope must be same-origin as script
+    // "Register" — secure context required (HTTPS, localhost, or ::1).
+    if !is_secure_context(page_url) {
+        return Err(SwRegisterError::SecurityError(
+            "Service Workers require a secure context (HTTPS or localhost)".into(),
+        ));
+    }
+
+    // "Register" — script same-origin as the page.
+    if !same_origin(script_url, page_url) {
+        return Err(SwRegisterError::SecurityError(format!(
+            "Service Worker script must be same-origin as the page \
+             (script: {}, page: {})",
+            script_url.as_str(),
+            page_url.as_str()
+        )));
+    }
+
+    // "Register" — scope same-origin as the script.
     if !same_origin(scope, script_url) {
-        return Err("Service Worker scope must be same-origin as the script URL".into());
+        return Err(SwRegisterError::SecurityError(
+            "Service Worker scope must be same-origin as the script URL".into(),
+        ));
+    }
+
+    // "Update" — scope within the script directory (no SW-Allowed header).
+    if !validate_scope_path(script_url, scope) {
+        return Err(SwRegisterError::SecurityError(
+            "Service Worker scope is not within the script directory".into(),
+        ));
     }
 
     Ok(())
+}
+
+/// Whether `url` uses an `http`/`https` scheme (SW "Start Register").
+fn is_http_scheme(url: &Url) -> bool {
+    matches!(url.scheme(), "http" | "https")
 }
 
 /// Validate scope against script URL directory (without Service-Worker-Allowed).
@@ -249,5 +316,61 @@ mod tests {
             script_directory(&url("https://example.com/js/sw.js")),
             "/js/"
         );
+    }
+
+    // --- Typed registration error (SW §3.4.3 register) — the variant a binding maps to ---
+
+    #[test]
+    fn bad_scheme_is_type_error() {
+        // data: (and any non-http(s)) script scheme → TypeError per Start Register.
+        let err = validate_registration(
+            &url("data:application/javascript,self.onmessage=()=>{}"),
+            &url("https://example.com/"),
+            &url("https://example.com/index.html"),
+        )
+        .unwrap_err();
+        assert!(matches!(err, SwRegisterError::TypeError(_)));
+    }
+
+    #[test]
+    fn non_secure_is_security_error() {
+        let err = validate_registration(
+            &url("http://example.com/sw.js"),
+            &url("http://example.com/"),
+            &url("http://example.com/index.html"),
+        )
+        .unwrap_err();
+        assert!(matches!(err, SwRegisterError::SecurityError(_)));
+    }
+
+    #[test]
+    fn cross_origin_is_security_error() {
+        let err = validate_registration(
+            &url("https://cdn.example.com/sw.js"),
+            &url("https://example.com/"),
+            &url("https://example.com/index.html"),
+        )
+        .unwrap_err();
+        assert!(matches!(err, SwRegisterError::SecurityError(_)));
+    }
+
+    #[test]
+    fn scope_outside_script_dir_is_security_error() {
+        // Folded scope-path check (SW §3.1 Update) — scope above the script
+        // directory, no Service-Worker-Allowed header at the client → SecurityError.
+        let err = validate_registration(
+            &url("https://example.com/js/sw.js"),
+            &url("https://example.com/"),
+            &url("https://example.com/index.html"),
+        )
+        .unwrap_err();
+        assert!(matches!(err, SwRegisterError::SecurityError(_)));
+    }
+
+    #[test]
+    fn register_error_message_accessor() {
+        let err = SwRegisterError::TypeError("boom".into());
+        assert_eq!(err.message(), "boom");
+        assert_eq!(err.to_string(), "boom");
     }
 }
