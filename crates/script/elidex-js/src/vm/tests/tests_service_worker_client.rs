@@ -312,6 +312,25 @@ fn ready_is_same_promise_and_resolves_on_active() {
 }
 
 #[test]
+fn ready_lazily_resolves_for_activating_worker() {
+    with_vm(|vm| {
+        // A worker reaches the `active` slot at `activating` (SW §3.2.4), so a
+        // `.ready` accessed AFTER that must resolve via the lazy
+        // `active_registration` path — not just the runtime deliver path.
+        vm.eval("navigator.serviceWorker.register('sw.js');")
+            .unwrap();
+        vm.drain_sw_client_requests();
+        deliver_registered(vm, SwState::Activating);
+        vm.eval(
+            "globalThis.__ready = false; \
+             navigator.serviceWorker.ready.then(() => { globalThis.__ready = true; });",
+        )
+        .unwrap();
+        assert!(eval_bool(vm, "globalThis.__ready"));
+    });
+}
+
+#[test]
 fn seed_controller_visible_before_deliver() {
     with_vm(|vm| {
         // A page controlled AT navigation — seeded, no runtime deliver (F2).

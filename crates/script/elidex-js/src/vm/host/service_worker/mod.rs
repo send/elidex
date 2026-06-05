@@ -91,7 +91,7 @@ pub(crate) struct SwRegistrationEntry {
     /// this registration's wrappers AND the GC registry-walk key (stored so the
     /// mark loop need not re-intern while it holds the wrapper-store borrow).
     pub(crate) scope_sid: super::super::value::StringId,
-    /// `ServiceWorkerRegistration.updateViaCache` (SW §3.2.x), default "imports".
+    /// `ServiceWorkerRegistration.updateViaCache` (SW §3.2.7), default "imports".
     pub(crate) update_via_cache: elidex_api_sw::UpdateViaCache,
     /// The registration's single current worker (one worker per scope in the
     /// shell's single-`SwState` model); `None` until a `Registered` deliver.
@@ -306,11 +306,23 @@ pub(super) fn promise_resolve(vm: &mut VmInner, value: JsValue) -> ObjectId {
 pub(super) fn promise_reject(vm: &mut VmInner, reason: JsValue) -> ObjectId {
     let mut g = vm.push_temp_root(reason);
     let promise = super::super::natives_promise::create_promise(&mut g);
+    drop(g);
+    settle_rooted(vm, promise, true, reason);
+    promise
+}
+
+/// Settle an existing `promise` with `value`, rooting BOTH across
+/// `settle_promise` (which runs reactions / may GC, so a value reachable only
+/// through this local must survive).  The single rooted-settle body shared by
+/// the `register()`/`unregister()` deliver settles + the `ready` resolve +
+/// [`promise_reject`].
+#[cfg(feature = "engine")]
+pub(super) fn settle_rooted(vm: &mut VmInner, promise: ObjectId, is_reject: bool, value: JsValue) {
+    let mut g = vm.push_temp_root(value);
     let mut g2 = g.push_temp_root(JsValue::Object(promise));
-    let _ = super::super::natives_promise::settle_promise(&mut g2, promise, true, reason);
+    let _ = super::super::natives_promise::settle_promise(&mut g2, promise, is_reject, value);
     drop(g2);
     drop(g);
-    promise
 }
 
 // ---------------------------------------------------------------------------
@@ -351,7 +363,7 @@ pub(super) fn install_ro_getter(vm: &mut VmInner, proto: ObjectId, name: &str, g
 }
 
 /// Map an engine-indep [`elidex_api_sw::SwRegisterError`] to its VM exception
-/// (SW §3.1) — the pure 1:1 WebIDL mapping the native owes; every
+/// (SW §3.4.3 register) — the pure 1:1 WebIDL mapping the native owes; every
 /// scheme/origin/scope-path/secure decision stays in `elidex-api-sw`.
 pub(super) fn map_sw_register_error(vm: &VmInner, err: &elidex_api_sw::SwRegisterError) -> VmError {
     match err {
@@ -412,14 +424,5 @@ pub(super) fn resolve_sw_ready(vm: &mut VmInner, scope: &str, scope_sid: StringI
         return;
     };
     let reg = registration_object(vm, scope, scope_sid);
-    let mut g = vm.push_temp_root(JsValue::Object(reg));
-    let mut g2 = g.push_temp_root(JsValue::Object(promise));
-    let _ = super::super::natives_promise::settle_promise(
-        &mut g2,
-        promise,
-        false,
-        JsValue::Object(reg),
-    );
-    drop(g2);
-    drop(g);
+    settle_rooted(vm, promise, false, JsValue::Object(reg));
 }

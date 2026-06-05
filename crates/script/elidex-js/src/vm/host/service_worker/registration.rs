@@ -9,7 +9,7 @@
 //!
 //! The `installing`/`waiting`/`active` getters return the registration's one
 //! worker (the shell's single-`SwState` model) iff its state matches the slot
-//! (SW §3.2.1-3): `installing` ↔ `installing`, `waiting` ↔ `installed`,
+//! (SW §3.2.2-4): `installing` ↔ `installing`, `waiting` ↔ `installed`,
 //! `active` ↔ {`activating`, `activated`}; else `null`.
 
 #![cfg(feature = "engine")]
@@ -77,10 +77,10 @@ fn require_registration_scope(ctx: &NativeContext<'_>, this: JsValue) -> Result<
 }
 
 // ---------------------------------------------------------------------------
-// scope / installing / waiting / active / updateViaCache — §3.2.1-6
+// scope / installing / waiting / active / updateViaCache — §3.2.2-7
 // ---------------------------------------------------------------------------
 
-/// `registration.scope` getter (SW §3.2.1).
+/// `registration.scope` getter (SW §3.2.6).
 fn native_registration_get_scope(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -136,12 +136,10 @@ fn native_registration_get_active(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    worker_slot(ctx, this, |s| {
-        matches!(s, SwState::Activating | SwState::Activated)
-    })
+    worker_slot(ctx, this, |s| s.is_active_slot())
 }
 
-/// `registration.updateViaCache` getter (SW §3.2.6).
+/// `registration.updateViaCache` getter (SW §3.2.7).
 fn native_registration_get_update_via_cache(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

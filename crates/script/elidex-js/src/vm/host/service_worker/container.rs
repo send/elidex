@@ -233,7 +233,8 @@ fn get_registration_outcome(
         _ => base.clone(),
     };
 
-    // Longest matching in-scope registration (SW §8.1 / matches_scope).
+    // Longest matching in-scope registration (SW "Match Service Worker
+    // Registration" algorithm / matches_scope).
     let mut best: Option<(String, StringId, usize)> = None;
     for (scope_str, entry) in &ctx.vm.sw_registrations {
         let Ok(scope_url) = Url::parse(scope_str) else {
@@ -333,13 +334,15 @@ fn native_container_get_ready(
     Ok(JsValue::Object(promise))
 }
 
-/// The first registration with an active worker (`ready`'s resolution target).
+/// The first registration with a worker in the `active` slot (`ready`'s
+/// resolution target — SW §3.4.2 resolves once `registration.active` is set,
+/// i.e. a worker reached `activating`, matching the runtime deliver predicate).
 fn active_registration(vm: &VmInner) -> Option<(String, StringId)> {
     vm.sw_registrations.iter().find_map(|(scope, entry)| {
         entry
             .worker
             .as_ref()
-            .filter(|w| w.state.is_active())
+            .filter(|w| w.state.is_active_slot())
             .map(|_| (scope.clone(), entry.scope_sid))
     })
 }

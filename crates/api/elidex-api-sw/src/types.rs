@@ -217,7 +217,7 @@ pub enum SwClientUpdate {
         error: Option<SwRegisterError>,
         /// The registration's current worker on success.
         worker: Option<SwWorkerSnapshot>,
-        /// The registration's `updateViaCache` (SW §3.2.6); seeds the
+        /// The registration's `updateViaCache` (SW §3.2.7); seeds the
         /// `ServiceWorkerRegistration.updateViaCache` getter.
         update_via_cache: UpdateViaCache,
     },
@@ -269,7 +269,7 @@ pub enum SwClientRequest {
         script_url: String,
         /// Resolved scope URL.
         scope: String,
-        /// The requested `updateViaCache` (SW §3.2.6 / register options).
+        /// The requested `updateViaCache` (SW §3.2.7 / register options).
         update_via_cache: UpdateViaCache,
     },
     /// `ServiceWorkerRegistration.update()` — re-fetch + soft-update the SW.

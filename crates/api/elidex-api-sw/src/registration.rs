@@ -25,9 +25,31 @@ impl SwState {
         *self == Self::Activated
     }
 
+    /// Whether a worker in this state occupies the registration's `active` slot
+    /// (WHATWG SW §3.2.4 — `registration.active` is the `activating` *or*
+    /// `activated` worker, so `navigator.serviceWorker.ready` resolves once a
+    /// worker reaches `activating`).  Distinct from [`Self::is_active`], which
+    /// is the narrower "can handle fetch" (`activated` only).
+    pub fn is_active_slot(&self) -> bool {
+        matches!(self, Self::Activating | Self::Activated)
+    }
+
     /// Whether this state can receive new events (install, activate, or active).
     pub fn is_alive(&self) -> bool {
         !matches!(self, Self::Redundant)
+    }
+
+    /// The `ServiceWorkerState` WebIDL enum string (WHATWG SW §3.1.3).
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Parsed => "parsed",
+            Self::Installing => "installing",
+            Self::Installed => "installed",
+            Self::Activating => "activating",
+            Self::Activated => "activated",
+            Self::Redundant => "redundant",
+        }
     }
 }
 

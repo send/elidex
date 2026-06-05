@@ -36,18 +36,6 @@ pub(crate) fn register_service_worker_interface(vm: &mut VmInner) {
     install_interface(vm, proto, "ServiceWorker");
 }
 
-/// `ServiceWorker.state` string (SW §3.1 `ServiceWorkerState`).
-fn sw_state_str(state: SwState) -> &'static str {
-    match state {
-        SwState::Parsed => "parsed",
-        SwState::Installing => "installing",
-        SwState::Installed => "installed",
-        SwState::Activating => "activating",
-        SwState::Activated => "activated",
-        SwState::Redundant => "redundant",
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Brand check
 // ---------------------------------------------------------------------------
@@ -68,10 +56,10 @@ fn require_worker_scope(ctx: &NativeContext<'_>, this: JsValue) -> Result<String
 }
 
 // ---------------------------------------------------------------------------
-// scriptURL / state — §3.1.1 / §3.1.2
+// scriptURL / state — §3.1.2 / §3.1.3
 // ---------------------------------------------------------------------------
 
-/// `ServiceWorker.scriptURL` getter (SW §3.1.1) — immutable per spec; read
+/// `ServiceWorker.scriptURL` getter (SW §3.1.2) — immutable per spec; read
 /// from the registry entry (empty once the registration is gone / redundant).
 fn native_worker_get_script_url(
     ctx: &mut NativeContext<'_>,
@@ -90,7 +78,7 @@ fn native_worker_get_script_url(
     Ok(JsValue::String(sid))
 }
 
-/// `ServiceWorker.state` getter (SW §3.1.2) — read from the registry entry; a
+/// `ServiceWorker.state` getter (SW §3.1.3) — read from the registry entry; a
 /// worker whose registration was removed reads `redundant`.
 fn native_worker_get_state(
     ctx: &mut NativeContext<'_>,
@@ -104,15 +92,15 @@ fn native_worker_get_state(
         .get(&scope)
         .and_then(|e| e.worker.as_ref())
         .map_or(SwState::Redundant, |w| w.state);
-    let sid = ctx.vm.strings.intern(sw_state_str(state));
+    let sid = ctx.vm.strings.intern(state.as_str());
     Ok(JsValue::String(sid))
 }
 
 // ---------------------------------------------------------------------------
-// postMessage(message) — §3.1.3
+// postMessage(message) — §3.1.4
 // ---------------------------------------------------------------------------
 
-/// `ServiceWorker.postMessage(message)` (SW §3.1.3): serialize the message
+/// `ServiceWorker.postMessage(message)` (SW §3.1.4): serialize the message
 /// (StructuredClone parity — circular refs throw `DataCloneError`) and stage a
 /// `PostMessage` request routed to this worker's scope.  Returns `undefined`.
 fn native_worker_post_message(

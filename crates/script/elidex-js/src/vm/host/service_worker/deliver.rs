@@ -27,7 +27,6 @@ use url::Url;
 
 use super::super::super::value::{JsValue, NativeContext, ObjectId, StringId, VmError};
 use super::super::super::wrapper_intern::{WrapperKey, WrapperKind};
-use super::super::super::VmInner;
 use super::super::event_target_dispatch_vm::{dispatch_vm_simple_event, fire_vm_message_event};
 use super::{
     map_sw_register_error, registration_object, resolve_sw_ready, worker_object,
@@ -85,7 +84,7 @@ fn deliver_registered(
         };
         let reason = ctx.vm.vm_error_to_thrown(&exc);
         for promise in waiters {
-            settle_reject(ctx.vm, promise, reason);
+            super::settle_rooted(ctx.vm, promise, true, reason);
         }
         return;
     }
@@ -103,7 +102,7 @@ fn deliver_registered(
                 update_via_cache,
                 worker: None,
             });
-        // A re-register / update may change updateViaCache (SW §3.2.6).
+        // A re-register / update may change updateViaCache (SW §3.2.7).
         entry.update_via_cache = update_via_cache;
         let prev = entry.worker.as_ref().map(|w| w.state);
         if let Some(w) = worker {
@@ -135,13 +134,13 @@ fn deliver_registered(
         .remove(&canonical)
         .unwrap_or_default();
     for promise in waiters {
-        settle_resolve(ctx.vm, promise, JsValue::Object(reg));
+        super::settle_rooted(ctx.vm, promise, false, JsValue::Object(reg));
     }
 
     // A freshly-installing worker is an `updatefound` (SW §3.2.10).
     fire_updatefound_if_new_installing(ctx, &canonical, scope_sid, prev_state, cur_state);
 
-    if matches!(cur_state, Some(SwState::Activating | SwState::Activated)) {
+    if cur_state.is_some_and(|s| s.is_active_slot()) {
         resolve_sw_ready(ctx.vm, &canonical, scope_sid);
     }
 }
@@ -152,22 +151,15 @@ fn deliver_registered(
 
 fn deliver_state_changed(ctx: &mut NativeContext<'_>, scope: &Url, state: SwState) {
     let canonical = scope.as_str().to_owned();
-    let Some(scope_sid) = ctx.vm.sw_registrations.get(&canonical).map(|e| e.scope_sid) else {
-        return;
-    };
-    let prev_state = ctx
-        .vm
-        .sw_registrations
-        .get(&canonical)
-        .and_then(|e| e.worker.as_ref().map(|w| w.state));
-
-    // Mutate the worker state in place (identity preserved, never re-minted).
-    {
-        let entry = ctx
-            .vm
-            .sw_registrations
-            .get_mut(&canonical)
-            .expect("registry entry checked above");
+    // One `get_mut`: read scope_sid + prev_state and mutate the worker state in
+    // place (identity preserved, never re-minted).  Early-return for an
+    // out-of-scope deliver (no registry entry).
+    let (scope_sid, prev_state) = {
+        let Some(entry) = ctx.vm.sw_registrations.get_mut(&canonical) else {
+            return;
+        };
+        let scope_sid = entry.scope_sid;
+        let prev_state = entry.worker.as_ref().map(|w| w.state);
         match entry.worker.as_mut() {
             Some(w) => w.state = state,
             None => {
@@ -177,15 +169,16 @@ fn deliver_state_changed(ctx: &mut NativeContext<'_>, scope: &Url, state: SwStat
                 });
             }
         }
-    }
+        (scope_sid, prev_state)
+    };
 
     let worker = worker_object(ctx.vm, &canonical, scope_sid);
-    fire_statechange(ctx, worker);
+    fire_simple(ctx, worker, "statechange");
 
     // A worker newly entering `installing` is an `updatefound` (an update).
     fire_updatefound_if_new_installing(ctx, &canonical, scope_sid, prev_state, Some(state));
 
-    if state.is_active() {
+    if state.is_active_slot() {
         resolve_sw_ready(ctx.vm, &canonical, scope_sid);
     }
 }
@@ -204,7 +197,7 @@ fn fire_updatefound_if_new_installing(
         && !matches!(prev_state, Some(SwState::Installing))
     {
         let reg = registration_object(ctx.vm, canonical, scope_sid);
-        fire_updatefound(ctx, reg);
+        fire_simple(ctx, reg, "updatefound");
     }
 }
 
@@ -233,7 +226,7 @@ fn deliver_controller_set(ctx: &mut NativeContext<'_>, scope: Option<Url>) {
     }
     ctx.vm.sw_controller_scope = new_scope;
     if let Some(container) = ctx.vm.sw_container {
-        fire_controllerchange(ctx, container);
+        fire_simple(ctx, container, "controllerchange");
     }
 }
 
@@ -301,7 +294,7 @@ fn deliver_unregistered(ctx: &mut NativeContext<'_>, scope: &Url, success: bool)
         .remove(&canonical)
         .unwrap_or_default();
     for promise in waiters {
-        settle_resolve(ctx.vm, promise, JsValue::Boolean(success));
+        super::settle_rooted(ctx.vm, promise, false, JsValue::Boolean(success));
     }
 }
 
@@ -309,19 +302,11 @@ fn deliver_unregistered(ctx: &mut NativeContext<'_>, scope: &Url, success: bool)
 // Dispatch + settle helpers
 // ---------------------------------------------------------------------------
 
-fn fire_statechange(ctx: &mut NativeContext<'_>, worker: ObjectId) {
-    let sid = ctx.vm.strings.intern("statechange");
-    let _ = dispatch_vm_simple_event(ctx, worker, sid, false, false);
-}
-
-fn fire_updatefound(ctx: &mut NativeContext<'_>, reg: ObjectId) {
-    let sid = ctx.vm.strings.intern("updatefound");
-    let _ = dispatch_vm_simple_event(ctx, reg, sid, false, false);
-}
-
-fn fire_controllerchange(ctx: &mut NativeContext<'_>, container: ObjectId) {
-    let sid = ctx.vm.strings.intern("controllerchange");
-    let _ = dispatch_vm_simple_event(ctx, container, sid, false, false);
+/// UA-fire a plain, non-bubbling, non-cancelable `Event` (`statechange` /
+/// `updatefound` / `controllerchange`) at a VmObject target.
+fn fire_simple(ctx: &mut NativeContext<'_>, target: ObjectId, event_type: &str) {
+    let sid = ctx.vm.strings.intern(event_type);
+    let _ = dispatch_vm_simple_event(ctx, target, sid, false, false);
 }
 
 fn fire_message(ctx: &mut NativeContext<'_>, data: &str, source_scope: &str) {
@@ -345,23 +330,4 @@ fn fire_message(ctx: &mut NativeContext<'_>, data: &str, source_scope: &str) {
         origin_sid,
         "",
     );
-}
-
-/// Resolve `promise` with `value`, rooting both across `settle_promise`
-/// (which runs reactions / may GC).
-fn settle_resolve(vm: &mut VmInner, promise: ObjectId, value: JsValue) {
-    let mut g = vm.push_temp_root(value);
-    let mut g2 = g.push_temp_root(JsValue::Object(promise));
-    let _ = super::super::super::natives_promise::settle_promise(&mut g2, promise, false, value);
-    drop(g2);
-    drop(g);
-}
-
-/// Reject `promise` with `reason`, rooting both across `settle_promise`.
-fn settle_reject(vm: &mut VmInner, promise: ObjectId, reason: JsValue) {
-    let mut g = vm.push_temp_root(reason);
-    let mut g2 = g.push_temp_root(JsValue::Object(promise));
-    let _ = super::super::super::natives_promise::settle_promise(&mut g2, promise, true, reason);
-    drop(g2);
-    drop(g);
 }
