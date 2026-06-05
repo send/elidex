@@ -188,11 +188,12 @@ pub struct TextContent(pub String);
 ///
 /// **Fragmentation (slice 4 / I).** A run that spans fragmentainers (paged-media
 /// pages; columns, once I-multicol lands) carries one [`InlineFragment`] per
-/// fragmentainer it spans — the inline portion of the project's fragment tree
-/// (`docs/design/en/15-rendering-pipeline.md` §15.5: a 1-entity → N-fragment
-/// relation fits a component, unlike the N:M layer tree). A non-fragmented run has
-/// a single fragment at generation `0`. The entity→fragments relation is 1:N
-/// (still one component on the run-start entity).
+/// fragmentainer it spans — the inline portion of the project's fragment tree.
+/// A 1-entity → N-fragment relation fits a component, unlike the N:M
+/// entity↔layer relation that forces the layer tree into a standalone structure
+/// (`docs/design/en/15-rendering-pipeline.md` §15.4.1 "Layer Tree as Independent
+/// Structure"). A non-fragmented run has a single fragment at generation `0`. The
+/// entity→fragments relation is 1:N (still one component on the run-start entity).
 #[derive(Debug, Clone, PartialEq)]
 pub struct InlineFlow {
     /// One entry per fragmentainer this IFC-run spans (a single entry for the
@@ -217,7 +218,9 @@ impl InlineFlow {
 
 /// One fragmentainer's worth of an [`InlineFlow`] — the per-(IFC-run,
 /// fragmentainer) collapsed + positioned line set. The inline node of the
-/// project's fragment tree (`docs/design/en/15-rendering-pipeline.md` §15.5).
+/// project's fragment tree (the 1:N entity→fragment relation that, unlike the
+/// N:M layer tree of `docs/design/en/15-rendering-pipeline.md` §15.4.1, fits an
+/// ECS component).
 #[derive(Debug, Clone, PartialEq)]
 pub struct InlineFragment {
     /// Fragmentainer discriminator, consumed exactly like render's per-page

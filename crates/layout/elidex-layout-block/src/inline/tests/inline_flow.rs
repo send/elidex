@@ -571,7 +571,9 @@ fn gate_excludes_text_transform() {
 
 #[test]
 fn paged_fragmented_run_now_persists() {
-    // Slice 4 / I-paged inverts the old gate: a *paged* fragmented run now
+    // Slice 4 / I-paged inverts the old `gate_excludes_fragmented` test: its
+    // reason ("flow_lines are not yet sliced per fragment") is resolved by THIS
+    // slice's `slice_and_rebase_fragment`, so a *paged* fragmented run now
     // persists (per-page slice + continuation rebase + page-generation stamp).
     // `available_block` is large, so the whole short run fits in one page fragment.
     let Some((mut dom, parent, _style, font_db)) = setup_inline_test("hello world") else {
