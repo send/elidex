@@ -209,7 +209,8 @@ fn deliver_controller_set(ctx: &mut NativeContext<'_>, scope: Option<Url>) {
     // The shell broadcasts `ControllerSet` to every same-origin tab; this client
     // must adopt the controller only if it is actually controlled by that
     // registration — the registration is known to this realm AND its scope
-    // contains the document URL (SW "Match Service Worker Registration"; with
+    // contains the document URL (SW "Match Service Worker Registration",
+    // `#match-service-worker-registration`; with
     // multiple same-origin registrations a non-controlling one must be ignored).
     let new_scope = match scope {
         Some(s) => {

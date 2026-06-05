@@ -238,7 +238,7 @@ fn get_registration_outcome(
     };
 
     // Longest matching in-scope registration (SW "Match Service Worker
-    // Registration" algorithm / matches_scope).
+    // Registration" `#match-service-worker-registration` / matches_scope).
     let mut best: Option<(String, StringId, usize)> = None;
     for (scope_str, entry) in &ctx.vm.sw_registrations {
         let Ok(scope_url) = Url::parse(scope_str) else {
