@@ -112,6 +112,20 @@ impl VmInner {
             PropertyAttrs::WEBIDL_RO,
         );
 
+        // `navigator.serviceWorker` (WHATWG SW §3.4; D-19 PR-3) — the
+        // `ServiceWorkerContainer` singleton `register_service_worker_client`
+        // built just before this call.  A `[SameObject]` readonly attribute, so
+        // a stable readonly data property (the container's state is VM-level).
+        if let Some(container) = self.sw_container {
+            let key = PropertyKey::String(self.strings.intern("serviceWorker"));
+            self.define_shaped_property(
+                obj_id,
+                key,
+                PropertyValue::Data(JsValue::Object(container)),
+                PropertyAttrs::WEBIDL_RO,
+            );
+        }
+
         let name = self.well_known.navigator;
         self.globals.insert(name, JsValue::Object(obj_id));
     }

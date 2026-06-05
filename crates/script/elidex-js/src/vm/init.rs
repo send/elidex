@@ -646,6 +646,35 @@ impl Vm {
                 clients_prototype: None,
                 #[cfg(feature = "engine")]
                 client_prototype: None,
+                // navigator.serviceWorker client (D-19 PR-3).
+                #[cfg(feature = "engine")]
+                sw_registrations: HashMap::new(),
+                #[cfg(feature = "engine")]
+                sw_registration_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                service_worker_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                pending_registration_promises: HashMap::new(),
+                #[cfg(feature = "engine")]
+                pending_unregister_promises: HashMap::new(),
+                #[cfg(feature = "engine")]
+                sw_ready_promise: None,
+                #[cfg(feature = "engine")]
+                sw_container: None,
+                #[cfg(feature = "engine")]
+                sw_controller_scope: None,
+                #[cfg(feature = "engine")]
+                sw_messages_enabled: false,
+                #[cfg(feature = "engine")]
+                sw_message_buffer: Vec::new(),
+                #[cfg(feature = "engine")]
+                sw_client_outgoing: Vec::new(),
+                #[cfg(feature = "engine")]
+                sw_container_prototype: None,
+                #[cfg(feature = "engine")]
+                sw_registration_prototype: None,
+                #[cfg(feature = "engine")]
+                sw_worker_prototype: None,
                 #[cfg(feature = "engine")]
                 fetch_abort_observers: HashMap::new(),
                 #[cfg(feature = "engine")]

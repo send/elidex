@@ -30,11 +30,17 @@ use elidex_ecs::Entity;
 ///
 /// Entity-owned wrappers (classList / dataset / style / collections / …) hang
 /// off a DOM [`Entity`]; the two wrapper-owned caches (`<input>.files` FileList,
-/// `DataTransfer` items) hang off an owning JS wrapper [`ObjectId`].
+/// `DataTransfer` items) hang off an owning JS wrapper [`ObjectId`]; the
+/// string-keyed wrappers hang off an interned [`StringId`] — a Service Worker
+/// registration scope URL (`ServiceWorkerRegistration` / `ServiceWorker`) or a
+/// `Client` id (UUID).  These have no DOM `Entity` or owning `Object`; their
+/// identity IS a string the UA mints (SW §3.1/§3.2/§4.2 per-realm object maps).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) enum WrapperOwner {
     Entity(Entity),
     Object(ObjectId),
+    /// Interned-string identity (SW scope URL / `Client` id) — see type docs.
+    Scope(StringId),
 }
 
 /// Discriminates *which kind* of wrapper a given owner carries, so one owner
@@ -95,6 +101,20 @@ pub(crate) enum WrapperKind {
     /// `DataTransferItem` per (DataTransfer wrapper, index) —
     /// `owner = Object(dt wrapper)`, `subkey = Index`.
     DataTransferItem,
+    /// `navigator.serviceWorker.getRegistration()` / `.ready` etc. → the per-
+    /// realm `ServiceWorkerRegistration` for a scope (`owner = Scope(scope)`).
+    /// One object per scope satisfies the SW §3.2 registration object map
+    /// (`reg === getRegistration()`).
+    ServiceWorkerRegistration,
+    /// A registration's `installing`/`waiting`/`active` worker + the
+    /// `controller` (`owner = Scope(scope)`).  One object per scope satisfies
+    /// the SW §3.1 service worker object map and keeps identity across state
+    /// transitions (`#update-worker-state` mutates in place).
+    ServiceWorker,
+    /// `clients.get(id)` / `matchAll()` → the per-realm `Client` for a client
+    /// id (`owner = Scope(client id)`).  One object per id satisfies the SW
+    /// §4.2 `[SameObject]` invariant (`clients.get(id) === clients.get(id)`).
+    Client,
 }
 
 /// The optional secondary discriminator, folding the heterogeneous key tails
@@ -161,6 +181,15 @@ impl WrapperKey {
             owner: WrapperOwner::Object(owner),
             kind,
             subkey: WrapperSubkey::Index(index),
+        }
+    }
+    /// String-keyed wrapper with no secondary discriminator (SW
+    /// `ServiceWorkerRegistration` / `ServiceWorker` by scope, `Client` by id).
+    pub(crate) fn scope(owner: StringId, kind: WrapperKind) -> Self {
+        Self {
+            owner: WrapperOwner::Scope(owner),
+            kind,
+            subkey: WrapperSubkey::None,
         }
     }
 }
@@ -250,6 +279,17 @@ impl super::VmInner {
             hd.wrapper_store.insert(key, id);
         }
     }
+
+    /// Remove an interned wrapper by [`WrapperKey`], returning the dropped
+    /// `ObjectId`.  The `Entity`+`Node`-hardwired `HostData::remove_wrapper`
+    /// cannot prune the `Scope`-owned SW wrappers, so a `ServiceWorker`
+    /// registration removed by `unregister` / replacement is pruned here
+    /// (R2-2).  No-op when no `HostData` is installed.
+    pub(crate) fn remove_wrapper_keyed(&mut self, key: WrapperKey) -> Option<ObjectId> {
+        self.host_data
+            .as_deref_mut()
+            .and_then(|hd| hd.wrapper_store.remove(&key))
+    }
 }
 
 impl WrapperKind {
@@ -258,7 +298,15 @@ impl WrapperKind {
             Self::Node => MarkAgent::StrongRoot,
             Self::CssStyleRule | Self::RuleStyle => MarkAgent::WeakViaOwnerEntityAndRuleId,
             Self::FileList => MarkAgent::ViaOwnerTrace,
-            Self::DataTransferItem => MarkAgent::NoProactiveMark,
+            // The SW client wrappers are scope/id-owned, not Entity-owned, so the
+            // seam mark loop (which extracts an owner `Entity`) must SKIP them.
+            // Live `ServiceWorkerRegistration`/`ServiceWorker` are kept by the
+            // explicit `sw_registrations` registry-walk mark loop (`gc/collect.rs`);
+            // a `Client` survives only while independently JS-reachable.
+            Self::DataTransferItem
+            | Self::ServiceWorkerRegistration
+            | Self::ServiceWorker
+            | Self::Client => MarkAgent::NoProactiveMark,
             // All other entity-owned secondaries.
             Self::Attr
             | Self::ClassList

@@ -60,6 +60,33 @@ pub struct ClientState {
     pub focused: bool,
 }
 
+/// A back-channel update produced by `tick()`'s lifecycle advance, buffered
+/// for the app loop to broadcast to same-origin content tabs (WHATWG SW
+/// §3.1/§3.4, DR-B).
+///
+/// `tick()` has no per-content reply channel (unlike `register()`), so it
+/// stages updates here and `App` drains them after `tick()` and reconstructs
+/// the per-tab `BrowserToContent` message (which is not `Clone`).  boa's
+/// content loop drops these today; the content→VM consumer wire is D-26.
+#[derive(Clone, Debug)]
+pub enum SwClientBroadcast {
+    /// A worker's lifecycle state advanced → `BrowserToContent::SwStateChanged`.
+    StateChanged { scope: url::Url, state: SwState },
+    /// Control was established for a scope → `BrowserToContent::SwControllerSet`.
+    ControllerSet { scope: url::Url },
+}
+
+impl SwClientBroadcast {
+    /// The registration scope this update concerns (its origin is the
+    /// same-origin broadcast routing key).
+    #[must_use]
+    pub fn scope(&self) -> &url::Url {
+        match self {
+            Self::StateChanged { scope, .. } | Self::ControllerSet { scope } => scope,
+        }
+    }
+}
+
 #[allow(dead_code)]
 pub struct SwCoordinator {
     store: SwRegistrationStore,
@@ -69,6 +96,9 @@ pub struct SwCoordinator {
     sync_manager: SyncManager,
     /// Active clients tracked for clients.matchAll()/get().
     client_states: HashMap<String, ClientState>,
+    /// Back-channel updates staged by `tick()` for the app loop to broadcast
+    /// to same-origin content tabs (drained via `drain_client_broadcasts`).
+    client_broadcasts: Vec<SwClientBroadcast>,
 }
 
 #[allow(dead_code)]
@@ -82,6 +112,7 @@ impl SwCoordinator {
             update_checker: UpdateChecker::new(),
             sync_manager: SyncManager::new(),
             client_states: HashMap::new(),
+            client_broadcasts: Vec::new(),
         }
     }
 
@@ -103,6 +134,7 @@ impl SwCoordinator {
             handles: HashMap::new(),
             update_checker: UpdateChecker::new(),
             sync_manager: SyncManager::new(),
+            client_broadcasts: Vec::new(),
         }
     }
 
@@ -122,13 +154,15 @@ impl SwCoordinator {
         >,
     ) {
         // Validate security constraints against the actual registering page URL.
-        if let Err(msg) = elidex_api_sw::validate_registration(script_url, scope, page_url) {
-            tracing::warn!(error = %msg, "SW registration rejected");
+        // `validate_registration` owns the whole scheme/origin/scope-path/secure
+        // decision (engine-indep); we only forward its message (WHATWG SW §3.1).
+        if let Err(err) = elidex_api_sw::validate_registration(script_url, scope, page_url) {
+            tracing::warn!(error = %err, "SW registration rejected");
             let _ = reply_channel.send(crate::ipc::BrowserToContent::SwRegistered(Box::new(
                 crate::ipc::SwRegisteredData {
                     scope: scope.clone(),
                     success: false,
-                    error: Some(msg),
+                    error: Some(err.message().to_owned()),
                 },
             )));
             return;
@@ -166,6 +200,17 @@ impl SwCoordinator {
 
         self.handles.insert(scope.to_string(), handle);
 
+        // WHATWG SW §3.1: register() resolves once the registration is *created*
+        // (not after activation).  Notify the registrant so its register()
+        // promise can settle with the new registration (DR-B success path).
+        let _ = reply_channel.send(crate::ipc::BrowserToContent::SwRegistered(Box::new(
+            crate::ipc::SwRegisteredData {
+                scope: scope.clone(),
+                success: true,
+                error: None,
+            },
+        )));
+
         tracing::info!(
             scope = %scope,
             script = %script_url,
@@ -188,12 +233,27 @@ impl SwCoordinator {
                             elidex_api_sw::LifecycleEvent::Install => {
                                 if success {
                                     handle.set_state(SwState::Installed);
+                                    self.client_broadcasts
+                                        .push(SwClientBroadcast::StateChanged {
+                                            scope: scope.clone(),
+                                            state: SwState::Installed,
+                                        });
                                     // Auto-activate (simplified: no waiting for controlled clients)
                                     handle.send(elidex_api_sw::ContentToSw::Activate);
                                     handle.set_state(SwState::Activating);
+                                    self.client_broadcasts
+                                        .push(SwClientBroadcast::StateChanged {
+                                            scope: scope.clone(),
+                                            state: SwState::Activating,
+                                        });
                                 } else {
                                     handle.set_state(SwState::Redundant);
                                     self.store.set_state(&scope, SwState::Redundant);
+                                    self.client_broadcasts
+                                        .push(SwClientBroadcast::StateChanged {
+                                            scope: scope.clone(),
+                                            state: SwState::Redundant,
+                                        });
                                     to_remove.push(scope_key.clone());
                                 }
                             }
@@ -201,6 +261,16 @@ impl SwCoordinator {
                                 if success {
                                     handle.set_state(SwState::Activated);
                                     self.store.set_state(&scope, SwState::Activated);
+                                    self.client_broadcasts
+                                        .push(SwClientBroadcast::StateChanged {
+                                            scope: scope.clone(),
+                                            state: SwState::Activated,
+                                        });
+                                    // The active worker now controls its scope.
+                                    self.client_broadcasts
+                                        .push(SwClientBroadcast::ControllerSet {
+                                            scope: scope.clone(),
+                                        });
                                     if let Some(ref persistence) = self.persistence {
                                         if let Some(reg) = self.store.get_by_scope(&scope) {
                                             let _ = persistence.save(reg);
@@ -210,6 +280,11 @@ impl SwCoordinator {
                                 } else {
                                     handle.set_state(SwState::Redundant);
                                     self.store.set_state(&scope, SwState::Redundant);
+                                    self.client_broadcasts
+                                        .push(SwClientBroadcast::StateChanged {
+                                            scope: scope.clone(),
+                                            state: SwState::Redundant,
+                                        });
                                     to_remove.push(scope_key.clone());
                                 }
                             }
@@ -222,6 +297,11 @@ impl SwCoordinator {
                             handle.send(elidex_api_sw::ContentToSw::Activate);
                             handle.set_state(SwState::Activating);
                             self.store.set_state(&scope, SwState::Activating);
+                            self.client_broadcasts
+                                .push(SwClientBroadcast::StateChanged {
+                                    scope,
+                                    state: SwState::Activating,
+                                });
                         }
                     }
                     elidex_api_sw::SwToContent::Error { message, .. } => {
@@ -238,6 +318,11 @@ impl SwCoordinator {
                 let scope = handle.scope().clone();
                 tracing::warn!(scope = %scope, "SW thread terminated unexpectedly");
                 self.store.set_state(&scope, SwState::Redundant);
+                self.client_broadcasts
+                    .push(SwClientBroadcast::StateChanged {
+                        scope,
+                        state: SwState::Redundant,
+                    });
                 to_remove.push(scope_key.clone());
             }
         }
@@ -245,6 +330,12 @@ impl SwCoordinator {
         for key in to_remove {
             self.handles.remove(&key);
         }
+    }
+
+    /// Take the back-channel updates staged by `tick()` so the app loop can
+    /// broadcast them to same-origin content tabs (DR-B, WHATWG SW §3.1/§3.4).
+    pub fn drain_client_broadcasts(&mut self) -> Vec<SwClientBroadcast> {
+        std::mem::take(&mut self.client_broadcasts)
     }
 
     /// Check if a URL is controlled by an active SW.

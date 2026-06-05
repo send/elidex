@@ -536,6 +536,10 @@ impl VmInner {
             GlobalScopeKind::Window => {
                 self.register_window_prototype();
                 self.get_object_mut(self.global_object).prototype = self.window_prototype;
+                // `navigator.serviceWorker` client surface (WHATWG SW §3.4;
+                // D-19 PR-3) — builds the ServiceWorkerContainer singleton that
+                // `register_navigator_global` exposes, so it MUST run first.
+                self.register_service_worker_client();
                 // `navigator` — static Navigator object (WHATWG HTML §8.10.1).
                 // Installed after the Window prototype chain is in place so
                 // `navigator.hasOwnProperty`, `Object.getPrototypeOf(navigator)`

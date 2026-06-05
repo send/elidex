@@ -584,6 +584,28 @@ fn clients_get_hit_and_miss() {
 }
 
 #[test]
+fn clients_get_returns_same_object_for_same_id() {
+    // NG-1: `clients.get(id)` returns the SAME object on every access — PR-2
+    // minted a fresh `Client` each call; PR-3 routes `build_client_object`
+    // through `intern_wrapper` (`WrapperKind::Client`, keyed by client id) so
+    // the §4.2 `[SameObject]` invariant holds.
+    let h = Harness::spawn_full(
+        "self.onfetch = e => e.respondWith(
+            Promise.all([clients.get('hit'), clients.get('hit')]).then(
+                arr => new Response(String(arr[0] === arr[1]))));",
+        vec![client("hit", "https://example.com/h", ClientType::Window)],
+        Vec::new(),
+        Duration::from_secs(2),
+    );
+    h.send(fetch_event("https://example.com/x", "hit"));
+    match h.recv() {
+        SwToContent::FetchResponse { response, .. } => assert_eq!(body_string(&response), "true"),
+        other => panic!("expected FetchResponse, got {other:?}"),
+    }
+    h.shutdown();
+}
+
+#[test]
 fn clients_claim_emits_claim_message() {
     let h = Harness::spawn("self.onactivate = e => e.waitUntil(clients.claim());");
     h.send(ContentToSw::Activate);

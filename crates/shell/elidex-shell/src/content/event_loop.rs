@@ -387,6 +387,7 @@ fn handle_message(msg: BrowserToContent, state: &mut ContentState) -> bool {
         | BrowserToContent::StoragePersistedResult { .. }
         | BrowserToContent::SwRegistered(_)
         | BrowserToContent::SwControllerSet { .. }
+        | BrowserToContent::SwStateChanged { .. }
         | BrowserToContent::ManifestParsed(_)
         | BrowserToContent::SwFetchResponse { .. } => {}
     }

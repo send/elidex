@@ -130,6 +130,7 @@ mod tests_rest_param;
 mod tests_selection;
 #[cfg(feature = "engine")]
 mod tests_service_worker;
+mod tests_service_worker_client;
 mod tests_shadow_dom;
 mod tests_sparse_array;
 mod tests_storage;
