@@ -206,14 +206,17 @@ fn fire_updatefound_if_new_installing(
 // ---------------------------------------------------------------------------
 
 fn deliver_controller_set(ctx: &mut NativeContext<'_>, scope: Option<Url>) {
-    // The shell broadcasts `ControllerSet` to every same-origin tab; a tab NOT
-    // within the registration scope has no such `sw_registrations` entry, so it
-    // must not adopt a controller it isn't controlled by (mirrors
-    // `deliver_state_changed`'s missing-entry early-return).
+    // The shell broadcasts `ControllerSet` to every same-origin tab; this client
+    // must adopt the controller only if it is actually controlled by that
+    // registration — the registration is known to this realm AND its scope
+    // contains the document URL (SW "Match Service Worker Registration"; with
+    // multiple same-origin registrations a non-controlling one must be ignored).
     let new_scope = match scope {
         Some(s) => {
             let canonical = s.as_str().to_owned();
-            if !ctx.vm.sw_registrations.contains_key(&canonical) {
+            if !ctx.vm.sw_registrations.contains_key(&canonical)
+                || !elidex_api_sw::matches_scope(&s, &ctx.vm.navigation.current_url)
+            {
                 return;
             }
             Some(canonical)

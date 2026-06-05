@@ -410,6 +410,26 @@ pub(super) fn worker_object(vm: &mut VmInner, scope: &str, scope_sid: StringId) 
             prototype: proto,
             extensible: true,
         });
+        // `ServiceWorker.scriptURL` is immutable (SW §3.1.2) — capture it as a
+        // readonly own-data prop at creation so a JS-held worker still reads its
+        // original URL after `unregister` drops the registry entry (a redundant
+        // worker's scriptURL must NOT change to "").
+        let script_url = vm
+            .sw_registrations
+            .get(scope)
+            .and_then(|e| e.worker.as_ref())
+            .map(|w| w.script_url.clone())
+            .unwrap_or_default();
+        let mut g = vm.push_temp_root(JsValue::Object(id));
+        let url_sid = g.strings.intern(&script_url);
+        let key = super::super::value::PropertyKey::String(g.strings.intern("scriptURL"));
+        g.define_shaped_property(
+            id,
+            key,
+            super::super::value::PropertyValue::Data(JsValue::String(url_sid)),
+            super::super::shape::PropertyAttrs::WEBIDL_RO,
+        );
+        drop(g);
         vm.service_worker_states.insert(id, scope_owned);
         id
     })

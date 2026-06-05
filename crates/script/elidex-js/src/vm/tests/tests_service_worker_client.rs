@@ -423,6 +423,36 @@ fn controller_set_ignored_when_out_of_scope() {
 }
 
 #[test]
+fn controller_set_ignored_for_non_controlling_registration() {
+    with_vm(|vm| {
+        // A registration THIS realm knows of, but whose scope (/other/) does not
+        // contain the document URL (/app/page.html), must not become the
+        // controller — `contains_key` alone is insufficient with multiple
+        // same-origin registrations (Copilot).
+        vm.deliver_sw_client_update(SwClientUpdate::Registered {
+            scope: url("https://example.com/other/"),
+            success: true,
+            error: None,
+            worker: Some(SwWorkerSnapshot {
+                script_url: "https://example.com/other/sw.js".to_owned(),
+                state: SwState::Activated,
+            }),
+            update_via_cache: UpdateViaCache::default(),
+        });
+        vm.eval(
+            "globalThis.__cc = 0; \
+             navigator.serviceWorker.oncontrollerchange = () => { globalThis.__cc++; };",
+        )
+        .unwrap();
+        vm.deliver_sw_client_update(SwClientUpdate::ControllerSet {
+            scope: Some(url("https://example.com/other/")),
+        });
+        assert_eq!(eval_string(vm, "String(__cc)"), "0");
+        assert!(eval_bool(vm, "navigator.serviceWorker.controller === null"));
+    });
+}
+
+#[test]
 fn message_enables_queue_via_onmessage_and_flushes_buffer() {
     with_vm(|vm| {
         // A message arriving before any listener is buffered (queue disabled).
@@ -533,6 +563,31 @@ fn worker_post_message_stages_request() {
             }
             other => panic!("expected one PostMessage, got {other:?}"),
         }
+    });
+}
+
+#[test]
+fn worker_script_url_is_immutable_across_unregister() {
+    with_vm(|vm| {
+        vm.eval("navigator.serviceWorker.register('sw.js').then(r => { globalThis.__reg = r; });")
+            .unwrap();
+        vm.drain_sw_client_requests();
+        deliver_registered(vm, SwState::Activated);
+        vm.eval("globalThis.__w = globalThis.__reg.active;")
+            .unwrap();
+        assert_eq!(eval_string(vm, "globalThis.__w.scriptURL"), SCRIPT);
+
+        // Unregister drops the registry entry; the JS-held worker's scriptURL is
+        // immutable (SW §3.1.2 — must NOT become "") while `state` becomes
+        // `redundant` (SW §3.1.3, mutable).
+        vm.eval("globalThis.__reg.unregister();").unwrap();
+        vm.drain_sw_client_requests();
+        vm.deliver_sw_client_update(SwClientUpdate::Unregistered {
+            scope: url(SCOPE),
+            success: true,
+        });
+        assert_eq!(eval_string(vm, "globalThis.__w.scriptURL"), SCRIPT);
+        assert_eq!(eval_string(vm, "globalThis.__w.state"), "redundant");
     });
 }
 

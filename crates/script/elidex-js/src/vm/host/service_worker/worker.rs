@@ -21,14 +21,15 @@ use super::{alloc_client_prototype, install_interface, install_ro_getter};
 // Interface registration
 // ---------------------------------------------------------------------------
 
-/// Allocate `ServiceWorker.prototype`, install the `scriptURL` / `state`
-/// accessors, the `postMessage` method, and the `onstatechange` handler attr.
+/// Allocate `ServiceWorker.prototype`, install the `state` accessor, the
+/// `postMessage` method, and the `onstatechange` handler attr.  `scriptURL` is
+/// an immutable readonly own-data prop set per-instance in `worker_object`
+/// (SW §3.1.2 — it must survive the registration's removal).
 pub(crate) fn register_service_worker_interface(vm: &mut VmInner) {
     let proto = alloc_client_prototype(vm);
     let methods: &[(&str, NativeFn)] = &[("postMessage", native_worker_post_message)];
     vm.install_methods(proto, methods);
 
-    install_ro_getter(vm, proto, "scriptURL", native_worker_get_script_url);
     install_ro_getter(vm, proto, "state", native_worker_get_state);
 
     vm.install_vm_object_handler_attrs(proto, &["onstatechange"]);
@@ -56,27 +57,8 @@ fn require_worker_scope(ctx: &NativeContext<'_>, this: JsValue) -> Result<String
 }
 
 // ---------------------------------------------------------------------------
-// scriptURL / state — §3.1.2 / §3.1.3
+// state — §3.1.3 (scriptURL §3.1.2 is an own-data prop set in `worker_object`)
 // ---------------------------------------------------------------------------
-
-/// `ServiceWorker.scriptURL` getter (SW §3.1.2) — immutable per spec; read
-/// from the registry entry (empty once the registration is gone / redundant).
-fn native_worker_get_script_url(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    _args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let scope = require_worker_scope(ctx, this)?;
-    let url = ctx
-        .vm
-        .sw_registrations
-        .get(&scope)
-        .and_then(|e| e.worker.as_ref())
-        .map(|w| w.script_url.clone())
-        .unwrap_or_default();
-    let sid = ctx.vm.strings.intern(&url);
-    Ok(JsValue::String(sid))
-}
 
 /// `ServiceWorker.state` getter (SW §3.1.3) — read from the registry entry; a
 /// worker whose registration was removed reads `redundant`.

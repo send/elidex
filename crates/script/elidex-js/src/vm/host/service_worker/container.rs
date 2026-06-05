@@ -1,13 +1,17 @@
 //! `ServiceWorkerContainer` — `navigator.serviceWorker` (WHATWG SW §3.4;
 //! D-19 PR-3).
 //!
-//! A **brand-via-prototype singleton** (no `ObjectKind`, the `Clients`
-//! precedent / lesson #276): the container's state — controller, the
-//! registration registry, the pending `register()` promises, the `ready`
-//! promise, the buffered messages — is VM-level (`VmInner`), not per-instance,
-//! so a per-instance brand would be redundant.  The singleton is eagerly
-//! constructed at realm setup so its `EventListeners` exist before a pre-access
-//! `controllerchange` / `message` deliver (NG-5).
+//! A **singleton** whose state — controller, the registration registry, the
+//! pending `register()` promises, the `ready` promise, the buffered messages —
+//! is VM-level (`VmInner`), not per-instance.  Unlike the non-dispatchable
+//! `Clients` façade (brand-via-prototype), the container IS an `EventTarget`
+//! (`controllerchange` / `message`), so it carries its own
+//! `ObjectKind::ServiceWorkerContainer` brand — uniform with the other VmObject
+//! EventTargets (WebSocket / EventSource / IdbRequest), which `target_from_this`
+//! routes to `vm_event_listeners` by `ObjectKind` (lesson #276: the brand is
+//! justified by EventTarget-dispatch-distinctness, not a unique state shape).
+//! The singleton is eagerly constructed at realm setup so its `EventListeners`
+//! exist before a pre-access `controllerchange` / `message` deliver (NG-5).
 //!
 //! Layering: every untrusted input (script/scope URLs, options) is validated
 //! by the engine-indep `elidex-api-sw` (`validate_registration` →
