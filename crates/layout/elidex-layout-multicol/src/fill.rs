@@ -47,12 +47,16 @@ fn extract_child_index(token: Option<&BreakToken>) -> Option<usize> {
 /// Fill columns sequentially (column-fill: auto).
 ///
 /// Each column is filled to `column_height` before overflowing to the next.
-/// Overflow columns beyond `max_columns` are still created (CSS §8).
+/// Overflow columns beyond the nominal column-count are created, up to
+/// `max_columns` (CSS §8).
 ///
 /// `max_columns` is capped at [`MAX_OVERFLOW_COLUMNS`] (1000) as a safety
-/// limit. Pass `u32::MAX` for "unlimited" (overflow columns allowed up to
-/// the cap), or `geom.count` to restrict to the computed column count
-/// (used by balanced fill probes).
+/// limit. Pass `u32::MAX` for "unlimited" (overflow columns allowed up to the
+/// cap), as the auto path and the balanced *definitive* pass do: `column-count`
+/// is a balance *target*, never a hard layout cap, so content that does not fit
+/// spills into overflow columns (CSS Multicol L1 §8.2) rather than being
+/// dropped. The balanced *search* probe instead passes `count + 1` — the
+/// minimal cap that still decides feasibility (`used_columns <= count`).
 ///
 /// Uses `stack_block_children` with `FragmentainerContext` for proper
 /// fragmentation. Break tokens are passed between columns so that
@@ -145,8 +149,29 @@ pub fn fill_columns_sequential(
 
 /// Fill columns with balanced heights (column-fill: balance).
 ///
-/// Uses binary search to find the minimum column height that fits all
-/// content into `geom.count` columns.
+/// Uses binary search to find the minimum column height at which the content
+/// fits into `geom.count` columns. `geom.count` is the balance *target* the
+/// feasibility test compares against (`used_columns <= count`), never a hard
+/// layout cap: when even `max_height` cannot fit the content in `geom.count`
+/// columns, the resolved height saturates at `max_height` and the surplus spills
+/// into overflow columns in the inline direction (CSS Multicol L1 §8.2) — the
+/// content is laid out, never dropped. The search probe is capped at `count + 1`
+/// (the minimal cap that decides feasibility); the definitive final pass is
+/// uncapped (`u32::MAX`) so it lays out the *full* child set.
+///
+/// Laying out the *full* child set in the definitive pass is also what
+/// reconciles inline state. The unconstrained probe (Step 1) persists a
+/// generation-0 `InlineFlow` on each child's IFC run-start at the column-0
+/// position. Since I-multicol (#291) a whole-in-column run persists its
+/// `InlineFlow`, shifted to its column's inline offset by the column shift, so
+/// the definitive pass re-lays-out each child in its column and *overwrites*
+/// that probe flow with the real per-column one (the per-run overwrite-safety
+/// the balanced path relies on — see `multicol_balanced_persists_one_fragment_per_run`).
+/// A child the definitive pass skipped is never overwritten, so its probe flow
+/// is stranded at column-0, which render paints as a ghost. The overwrite holds
+/// up to the [`MAX_OVERFLOW_COLUMNS`] runaway-safety cap (shared with the auto
+/// path): pathological content needing more columns than that is truncated, the
+/// same deliberate tradeoff that path already makes.
 ///
 /// Returns `(fragments, resolved_column_height)`.
 pub fn fill_columns_balanced(
@@ -183,14 +208,25 @@ pub fn fill_columns_balanced(
         low = high;
     }
 
-    // Step 3: Binary search — converge high toward the minimum fitting height.
+    // Step 3: Binary search — converge `high` toward the minimum fitting height.
+    //
+    // Feasibility of a height `mid` is "does the content fit in `<= count`
+    // columns?". The probe is capped at `count + 1` — the minimal cap that
+    // answers it: `used_columns <= count` ⇒ feasible (lower `high`); exactly
+    // `count + 1` ⇒ needs more than `count` columns, infeasible (raise `low`).
+    // Capping at `count` instead would make `used_columns <= count` vacuously
+    // true and collapse the search to `low`; capping higher (e.g. `u32::MAX`)
+    // just lays out overflow columns the feasibility test ignores. (The
+    // definitive final pass below uses `u32::MAX` — it alone must lay out the
+    // full child set.)
+    let probe_cap = env.geom.count.saturating_add(1);
     for _ in 0..MAX_BALANCE_ITERATIONS {
         if (high - low).abs() < 1.0 {
             break;
         }
 
         let mid = f32::midpoint(low, high);
-        let frags = fill_columns_sequential(dom, children, env, mid, env.geom.count);
+        let frags = fill_columns_sequential(dom, children, env, mid, probe_cap);
 
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let used_columns = frags.len() as u32;
@@ -202,9 +238,14 @@ pub fn fill_columns_balanced(
         }
     }
 
-    // Final pass at converged `high` to produce the definitive fragments
-    // and ensure children's LayoutBoxes match.
-    let best_frags = fill_columns_sequential(dom, children, env, high, env.geom.count);
+    // Definitive pass at converged `high` to produce the final fragments and
+    // ensure children's LayoutBoxes match. Unlike the bounded search probe, this
+    // is uncapped (`u32::MAX`) because it must lay out the *full* child set: when
+    // `high` (saturated at `max_height`) cannot fit the content in `geom.count`
+    // columns, the surplus spills into overflow columns (§8.2) instead of being
+    // dropped — which also overwrites every child's column-0 probe `InlineFlow`
+    // with its real per-column flow (see the function doc).
+    let best_frags = fill_columns_sequential(dom, children, env, high, u32::MAX);
 
     (best_frags, high)
 }
