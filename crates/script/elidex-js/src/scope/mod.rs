@@ -82,7 +82,7 @@ impl Binding {
     /// identifier, so this uniquely marks a placeholder — `resolve`
     /// reserves an unnamed slot for it rather than a named local.
     #[must_use]
-    pub fn is_param_placeholder(&self) -> bool {
+    pub(crate) fn is_param_placeholder(&self) -> bool {
         self.kind == BindingKind::Param && self.name == Atom::EMPTY
     }
 }
