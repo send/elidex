@@ -144,7 +144,21 @@ Emit one block per fix-tier finding:
 
 The aggregate of these blocks IS the philosophy-aligned fix proposal.  Step 4 references these IDs.
 
-**Pattern source**: 2026-05-19 D-31 PR trial of /elidex-review.  F10 initially listed 3 polish options; user pushed back twice and full re-evaluation produced ~8 polish→structural reversals.  Memory: `feedback_review-fix-philosophy-first.md`.
+**Pattern source**: 2026-05-19 D-31 PR trial of /elidex-review.  F10 initially listed 3 polish options; user pushed back twice and full re-evaluation produced ~8 polish→structural reversals.  Memory (incident record): `feedback_review-fix-philosophy-first.md`.
+
+### Disposition discipline + smell-word triggers (SSoT)
+
+This is the **operative SSoT** for finding-disposition (git-tracked here; the `memory/feedback_*` files are point-in-time incident records that *cite* this section, not the reverse). Applies to every review-fix aggregation — `/elidex-review`, `/external-review`, `/external-converge`, coworker comments.
+
+**Root failure to prevent** (#295, multi-round Codex): mis-categorizing "how to handle this finding / batch" as a *process / convergence* decision (judged by cost / time / fatigue) when it is a **design** decision (judged by merit). The category selects the lens; mis-categorizing silently routes to the pragmatic lens and skips Step 3.5.
+
+- **Every finding disposition is a design decision**: real → **fully fix** (incl. real MINs); FP → **reject** with a one-line spec / prior-decision citation. There is **no third "edge / nice-to-have / diminishing-returns" bucket** — that bucket *is* the forbidden pragmatic scope-cut.
+- **Loop-round count / fatigue / momentum are NOT inputs** to a disposition or a stop decision.
+- **Smell-word hard trigger (canonical list)** — if any of these, or the *impulse*, surfaces in your own reasoning, STOP and re-run Step 3.5 before acting: **"diminishing returns / ultra-edge / good enough / もう十分 / 一旦 merge / 一旦止める / scope 削る / そこまでやる価値ない"**.  The smell is the signal to re-derive, never the conclusion.
+- **Philosophy eval BEFORE surfacing to the user**: never present a pragmatic option as the *recommendation*; don't use `AskUserQuestion` to launder a pragmatic default (it is only for a genuinely user-owned question that *survives* this lens). A surfaced pragmatic option is labeled "deviation from the ideal default — needs your opt-in".
+- **Valid defer** = genuine cross-PR scope boundary with an explicit slot (`feedback_defer-slot-eligibility-audit-at-create`), never "rare / annoying / edge".
+
+Loop-specific convergence (stop = real-gap exhaustion, not round-count) → `memory/feedback_review-loop-convergence-merit-not-fatigue.md`, enforced as the `/external-converge` Step-4 **attestation gate** (the skill embeds the unskippable trip-wire; this section is the SSoT for the rules).
 
 ## Step 4 — User confirmation
 

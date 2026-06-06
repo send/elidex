@@ -1,6 +1,6 @@
 # /external-review project overlay — elidex
 
-Loaded by `~/.claude/skills/external-review/SKILL.md` (single-pass triage) when invoked from this repo. Provides project-specific calibration (reviewer identity / fetch / classify / layer-fit / fix-discipline). The full multi-round loop variant's calibration (round-count `failure_modes`, `wakeup_median`, TERMINAL accounting — Copilot-only) lives in `copilot-converge/project.md`.
+Loaded by `~/.claude/skills/external-review/SKILL.md` (single-pass triage) when invoked from this repo. Provides project-specific calibration (reviewer identity / fetch / classify / layer-fit / fix-discipline). The full multi-round loop variant's calibration (`wakeup_median`, historical `failure_modes`, TERMINAL = real-gap exhaustion) lives in `external-converge/project.md`.
 
 ## repo
 
@@ -46,7 +46,7 @@ Precedent (PR #213, 2026-05-20): R2 flagged nondeterministic `HashMap` callback 
 
 ## classification_calibration
 
-Past elidex incidents that calibrate Step 2 severity (these survive single-pass; the round-count lessons moved to `copilot-converge/project.md`):
+Past elidex incidents that calibrate Step 2 severity (these survive single-pass; the loop-round lessons live in `external-converge/project.md`):
 
 - PR #154 (2026-05-05) — ~50% of IMP were miscalibrated polish → apply the one-sentence "what concretely breaks?" test strictly; doc imprecision that doesn't misdirect is MINOR.
 - Layer-confusion FPs (broker-register-ack, lessons #135-141; PR #151, lesson #145) → Step 4 upward/downward drift screen, both directions.
@@ -56,7 +56,7 @@ Past elidex incidents that calibrate Step 2 severity (these survive single-pass;
 elidex's non-Claude diversity reviewer (Step 1 fetch filter / head-staleness / re-trigger):
 
 - `bot_login`: `chatgpt-codex-connector[bot]`
-- `name`: Codex (genuine OpenAI Codex Cloud, ChatGPT **Plus**-billed — *not* GitHub Copilot credits)
+- `name`: Codex (genuine OpenAI Codex Cloud, ChatGPT **Pro** — loop-affordable, no per-credit cost; *not* GitHub Copilot credits)
 - `trigger`: `@codex review` (or Codex auto-review, enabled at chatgpt.com/codex)
 
-**Identity caveat**: only the `chatgpt-codex-connector[bot]` review is the genuine Plus-billed Codex. A bare `@codex[agent]` mention instead routes to a GitHub-Copilot SWE agent (runs on `api.individual.githubcopilot.com`, billed as Copilot credits) — do **not** use it. The elidex review lenses reach Codex via `AGENTS.md` (`## Review guidelines` → `axes.md`). Quality validated on #295 (P1 GC-rooting + side-store/unbind panic + spec-accurate WebCrypto findings, catching gate-misses). Background → `memory/project_ai-review-setup.md`.
+**Identity caveat**: only the `chatgpt-codex-connector[bot]` review is the genuine Pro Codex. A bare `@codex[agent]` mention instead routes to a GitHub-Copilot SWE agent (runs on `api.individual.githubcopilot.com`, billed as Copilot credits) — do **not** use it. The elidex review lenses reach Codex via `AGENTS.md` (`## Review guidelines` → `axes.md`). Quality validated on #295 (P1 GC-rooting + side-store/unbind panic + spec-accurate WebCrypto findings, catching gate-misses). Background → `memory/project_ai-review-setup.md`.
