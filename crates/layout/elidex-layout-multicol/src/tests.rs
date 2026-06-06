@@ -2,12 +2,12 @@
 
 #![allow(unused_must_use)]
 
-use elidex_ecs::{Attributes, EcsDom, Entity};
+use elidex_ecs::{Attributes, EcsDom, Entity, InlineFlow};
 use elidex_plugin::{
     is_multicol, BoxSizing, ColumnFill, ColumnSpan, ComputedStyle, CssSize, Dimension, Display,
     EdgeSizes, Float, LayoutBox, MulticolInfo, Point, Position, Size, WritingMode,
 };
-use elidex_text::FontDatabase;
+use elidex_text::{measure_text, FontDatabase, FontStyle, TextMeasureParams};
 
 use crate::layout_multicol;
 use elidex_layout_block::LayoutInput;
@@ -944,3 +944,200 @@ fn children_positioned_with_gap() {
         lb_c.content.origin.x
     );
 }
+
+// --- slice 4 / I-multicol: whole-IFC-in-column InlineFlow persistence + column shift ---
+
+const TEST_FONTS: &[&str] = &[
+    "Arial",
+    "Helvetica",
+    "Liberation Sans",
+    "DejaVu Sans",
+    "Noto Sans",
+    "Hiragino Sans",
+];
+
+/// Skip-guard: usable fonts present (headless CI may have none → no text geometry).
+fn fonts_available(font_db: &FontDatabase) -> bool {
+    let params = TextMeasureParams {
+        families: TEST_FONTS,
+        font_size: 16.0,
+        weight: 400,
+        style: FontStyle::Normal,
+        letter_spacing: 0.0,
+        word_spacing: 0.0,
+    };
+    measure_text(font_db, &params, "x").is_some()
+}
+
+/// A block child carrying one text node, so its IFC persists an `InlineFlow`.
+/// `height` fixes the block extent so column distribution is deterministic.
+/// Returns `(div, text-node)` — the text node is the IFC run-start (`run[0]`) key.
+fn add_text_block(dom: &mut EcsDom, parent: Entity, text: &str, height: f32) -> (Entity, Entity) {
+    let div = elem(dom, "div");
+    dom.append_child(parent, div);
+    let style = ComputedStyle {
+        display: Display::Block,
+        height: Dimension::Length(height),
+        font_family: TEST_FONTS.iter().map(|&s| s.to_string()).collect(),
+        ..ComputedStyle::default()
+    };
+    let _ = dom.world_mut().insert_one(div, style);
+    let tnode = dom.create_text(text);
+    dom.append_child(div, tnode);
+    (div, tnode)
+}
+
+/// The absolute inline start of a run-start's single-fragment, single-line flow.
+fn flow_inline_start(dom: &EcsDom, run_start: Entity) -> f32 {
+    let flow = dom
+        .world()
+        .get::<&InlineFlow>(run_start)
+        .expect("the whole-in-column IFC persists an InlineFlow");
+    assert_eq!(flow.fragments.len(), 1, "whole-in-column = one fragment");
+    flow.fragments[0].lines[0].runs[0].inline_start()
+}
+
+#[test]
+fn multicol_column_run_shifted_to_column_offset() {
+    // Slice 4 / I-multicol crux: a whole-in-column IFC in column 1 has its persisted
+    // `InlineFlow` SHIFTED to the column's inline offset, not just its `LayoutBox`.
+    // Before the shifter convergence the column shift moved only `LayoutBox`, so the
+    // converged column's inline text repainted at column 0.
+    let font_db = make_font_db();
+    if !fonts_available(&font_db) {
+        return;
+    }
+    let mut dom = EcsDom::new();
+    let container = elem(&mut dom, "div");
+    let style = ComputedStyle {
+        display: Display::Block,
+        column_count: Some(2),
+        column_fill: ColumnFill::Auto,
+        height: Dimension::Length(50.0), // definite → sequential fill
+        ..ComputedStyle::default()
+    };
+    let _ = dom.world_mut().insert_one(container, style);
+    // Each block (height 50 == column height) fills a column: A in col 0, B in col 1.
+    let (_div_a, text_a) = add_text_block(&mut dom, container, "Alpha", 50.0);
+    let (div_b, text_b) = add_text_block(&mut dom, container, "Beta", 50.0);
+
+    let input = make_input(&font_db);
+    layout_multicol(&mut dom, container, &input, layout_child_fn);
+
+    // Container 600 wide, 2 columns, gap 0 → column 1 at x = 300.
+    let a_x = flow_inline_start(&dom, text_a);
+    let b_x = flow_inline_start(&dom, text_b);
+    let b_box_x = dom
+        .world()
+        .get::<&LayoutBox>(div_b)
+        .unwrap()
+        .content
+        .origin
+        .x;
+    assert!(a_x < 50.0, "column-0 flow stays at the left, got {a_x}");
+    assert!(
+        b_x > 250.0,
+        "column-1 flow shifted to the column offset (~300), got {b_x}"
+    );
+    assert!(
+        (b_x - b_box_x).abs() < 1.0,
+        "the flow moved WITH its box (flow {b_x} == box {b_box_x}) — not left behind at column 0"
+    );
+}
+
+#[test]
+fn multicol_balanced_persists_one_fragment_per_run() {
+    // D-mc3 overwrite-safety: balanced fill re-lays via probes (probe_total_height +
+    // binary search), but with no accumulate the final pass overwrites every probe
+    // flow — each run-start ends with EXACTLY ONE fragment, no probe garbage.
+    let font_db = make_font_db();
+    if !fonts_available(&font_db) {
+        return;
+    }
+    let mut dom = EcsDom::new();
+    let container = elem(&mut dom, "div");
+    let style = ComputedStyle {
+        display: Display::Block,
+        column_count: Some(2),
+        column_fill: ColumnFill::Balance, // → binary-search probes
+        ..ComputedStyle::default()        // auto block-size → always balances
+    };
+    let _ = dom.world_mut().insert_one(container, style);
+    let texts: Vec<Entity> = (0..4)
+        .map(|i| add_text_block(&mut dom, container, &format!("Item{i}"), 40.0).1)
+        .collect();
+
+    let input = make_input(&font_db);
+    layout_multicol(&mut dom, container, &input, layout_child_fn);
+
+    for tnode in texts {
+        let flow = dom
+            .world()
+            .get::<&InlineFlow>(tnode)
+            .expect("each whole-in-column IFC persists");
+        assert_eq!(
+            flow.fragments.len(),
+            1,
+            "balanced-fill probes must leave exactly one fragment (overwrite-safety, no accumulate)"
+        );
+    }
+}
+
+#[test]
+fn multicol_spanner_ifc_persists_nonfragmented() {
+    // A `column-span: all` spanner's IFC is laid full-width with `fragmentainer: None`
+    // → persists as a NON-fragmented InlineFlow at its real position (no column shift).
+    let font_db = make_font_db();
+    if !fonts_available(&font_db) {
+        return;
+    }
+    let mut dom = EcsDom::new();
+    let container = elem(&mut dom, "div");
+    let style = ComputedStyle {
+        display: Display::Block,
+        column_count: Some(2),
+        column_fill: ColumnFill::Auto,
+        height: Dimension::Length(100.0),
+        ..ComputedStyle::default()
+    };
+    let _ = dom.world_mut().insert_one(container, style);
+    let spanner = elem(&mut dom, "div");
+    dom.append_child(container, spanner);
+    let spanner_style = ComputedStyle {
+        display: Display::Block,
+        column_span: ColumnSpan::All,
+        height: Dimension::Length(30.0),
+        font_family: TEST_FONTS.iter().map(|&s| s.to_string()).collect(),
+        ..ComputedStyle::default()
+    };
+    let _ = dom.world_mut().insert_one(spanner, spanner_style);
+    let spanner_text = dom.create_text("Spanner");
+    dom.append_child(spanner, spanner_text);
+
+    let input = make_input(&font_db);
+    layout_multicol(&mut dom, container, &input, layout_child_fn);
+
+    let flow = dom
+        .world()
+        .get::<&InlineFlow>(spanner_text)
+        .expect("spanner IFC persists (non-fragmented, fragmentainer None)");
+    assert_eq!(
+        flow.fragments.len(),
+        1,
+        "spanner = a non-fragmented single flow"
+    );
+    assert_eq!(flow.fragments[0].generation, 0);
+    let x = flow.fragments[0].lines[0].runs[0].inline_start();
+    assert!(
+        x.abs() < 1.0,
+        "spanner flow at the full-width origin (not column-shifted), got {x}"
+    );
+}
+
+// NOTE (slice 4 / I-multicol): vertical-WM column shift is covered transitively, not by
+// a dedicated integration test here. The multicol→`shift_descendants` wiring is WM-agnostic
+// (proven by `multicol_column_run_shifted_to_column_offset`); the physical-delta→block/inline
+// projection by the run-start's parent WM is `shift_descendants`' own responsibility, tested in
+// `elidex-layout-block` (slice 3p-a/3p-b-2 vertical InlineFlow shift); and multicol's vertical
+// box shift (`Vector::y_only`) is exercised by `vertical_rl_columns`/`vertical_lr_columns`. The
+// vertical flow shift is the composition of these already-tested pieces.

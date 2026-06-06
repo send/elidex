@@ -797,29 +797,34 @@ pub fn layout_inline_context_fragmented(
         }
     }
 
-    // InlineFlow persistence gate: non-justify runs with no bidi (RTL) text and no
-    // text-transform, that are either non-fragmented or **paged** (slice 4 /
-    // I-paged). Each excluded case is a layout-IFC-vs-render divergence — all
-    // slice-4 / transform-slice cross-cutting concerns, NOT member-kind
-    // divergences. Slice 3p-a dropped the static-atomic gate; slice 3p-b dropped
-    // the *plain relpos/sticky inline* gate (sub-flows); slice 3p-b-2 dropped the
-    // relative/sticky *atomic* gate. Slice 4 / I-paged drops the gate for **paged**
-    // fragmentation: the per-fragment slice + continuation rebase (the
-    // `slice_and_rebase_fragment` call below) now models the per-page geometry, and
-    // the persisted fragment is stamped with the page generation. **Multicol stays
-    // gated** (`fragmentation_type == Column` → `frag_is_paged == false`): its
-    // accumulate-across-columns + column shift + balanced-fill probe-gating are
-    // I-multicol (a partial drop would persist column slices at absolute coords the
-    // multicol shift does not yet move). When the gate fails, render keeps its own
-    // collect/collapse/emit path. (Vertical writing modes persist too — the packer
-    // is axis-agnostic, the origin fold swaps axes.)
+    // InlineFlow persistence gate. The cross-cutting `no_legacy_gate` (justify / bidi
+    // (RTL) / text-transform) routes a run to render's legacy collect/collapse/emit
+    // path regardless of fragmentation — slice-4 / transform-slice work, NOT member-kind
+    // divergences (slice 3p-a dropped the static-atomic gate; 3p-b the plain
+    // relpos/sticky inline gate; 3p-b-2 the relative/sticky atomic gate). The
+    // fragmentation term is split: non-fragmented + **paged** (slice 4 / I-paged: the
+    // per-page slice + continuation rebase below model the per-page geometry, fragment
+    // stamped with the page generation) + **multicol whole-in-column** (slice 4 /
+    // I-multicol — refined post-pack, see `persist_flow` below).
+    //
+    // `persist_candidate` (here, pre-pack) drives only `flow_align` and is OPTIMISTIC for
+    // `Column`: the real multicol persist needs `break_after_line`/`skip_lines` (computed
+    // after packing) to require whole-in-column. Including `Column` here is safe because
+    // `flow_align` gates ONLY `flow_lines`/`relpos_atomic_placements` (discarded if the run
+    // does not ultimately persist), NOT `entity_bounds`/`static_positions`/`line_boxes`/the
+    // break computation (the packer commits those unconditionally) — so an optimistic
+    // candidate that resolves mid-break perturbs no box geometry. (Vertical writing modes
+    // persist too — the packer is axis-agnostic, the origin fold swaps axes.)
     let frag_is_paged =
         frag_constraint.is_some_and(|c| c.fragmentation_type == crate::FragmentationType::Page);
-    let persist_flow = (frag_constraint.is_none() || frag_is_paged)
-        && parent_style.text_align != TextAlign::Justify
+    let frag_is_column =
+        frag_constraint.is_some_and(|c| c.fragmentation_type == crate::FragmentationType::Column);
+    let no_legacy_gate = parent_style.text_align != TextAlign::Justify
         && !complexity.has_bidi
         && !complexity.has_text_transform;
-    let flow_align = persist_flow.then_some(pack::FlowAlign {
+    let persist_candidate =
+        no_legacy_gate && (frag_constraint.is_none() || frag_is_paged || frag_is_column);
+    let flow_align = persist_candidate.then_some(pack::FlowAlign {
         text_align: parent_style.text_align,
         direction: parent_style.direction,
         containing_inline_size,
@@ -885,6 +890,23 @@ pub fn layout_inline_context_fragmented(
     // Compute total block using only lines up to break point (if fragmented).
     let effective_line_count = break_after_line.unwrap_or(line_count);
     let skip_lines = frag_constraint.map_or(0, |c| c.skip_lines);
+
+    // Refined persistence gate (slice 4 / I-multicol). Paged drops the fragmentation
+    // gate wholesale (I-paged); multicol (`Column`) persists ONLY when the IFC is
+    // WHOLE in this column — it starts at line 0 (not a continuation carried from a
+    // prior column) AND is not truncated by a fragment break. A continuation
+    // (`skip_lines > 0`) would render only the tail (the prior column's lines were
+    // gated out → lost); a truncation (`break_after_line.is_some()`) drops its tail to
+    // a column the column shift won't reach. Either ⇒ legacy, so no lines are lost.
+    // Mid-IFC column break converges with box fragments at Z (G11: one
+    // LayoutBox/InlineFlow per entity; `position_column_fragments` shifts a run-start's
+    // whole subtree by one column's delta, so a two-fragment run-start cannot split
+    // across columns). `flow_align` was already decided pre-pack (`persist_candidate`);
+    // for a column run that resolves mid-break here it is simply not persisted (the
+    // built `flow_lines` are discarded — box geometry is `flow_align`-independent).
+    let column_is_whole = skip_lines == 0 && break_after_line.is_none();
+    let persist_flow = no_legacy_gate
+        && (frag_constraint.is_none() || frag_is_paged || (frag_is_column && column_is_whole));
     let total_block: f32 = packer
         .line_boxes
         .iter()
