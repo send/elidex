@@ -413,18 +413,24 @@ fn read_required_name(
 }
 
 /// WebIDL `[EnforceRange] unsigned long` conversion for the `length`
-/// member: ToNumber, then reject non-integers / out-of-range with a
-/// `TypeError` (per `[EnforceRange]`, NOT the wrapping `ToUint32`).
+/// member (Web IDL §3.3.6 `[EnforceRange]` / ConvertToInt step 6):
+/// ToNumber, reject NaN / ±∞ with a `TypeError`, then take `IntegerPart`
+/// (**truncate toward zero**) and range-check.  A finite fractional value
+/// such as `31.9` is therefore accepted as `31` — NOT rejected (and NOT
+/// the wrapping `ToUint32`).
 fn coerce_enforce_range_u32(
     ctx: &mut NativeContext<'_>,
     value: JsValue,
     method: &str,
 ) -> Result<u32, VmError> {
     let n = coerce::to_number(ctx.vm, value)?;
-    if n.is_finite() && n.fract() == 0.0 && n >= 0.0 && n <= f64::from(u32::MAX) {
-        // Exact integer within range; the cast is lossless.
+    // Web IDL: NaN / ±∞ throw before truncation; otherwise IntegerPart
+    // truncates toward zero, then the result is bounds-checked.
+    let truncated = n.trunc();
+    if n.is_finite() && truncated >= 0.0 && truncated <= f64::from(u32::MAX) {
+        // Truncated integer within range; the cast is lossless.
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        Ok(n as u32)
+        Ok(truncated as u32)
     } else {
         Err(VmError::type_error(format!(
             "Failed to execute '{method}' on 'SubtleCrypto': \
@@ -642,16 +648,26 @@ fn read_jwk_key_ops(
 }
 
 /// Read the `sequence<RsaOtherPrimesInfo> oth` `JsonWebKey` member,
-/// firing its getter (so a throwing `oth` accessor propagates, per the
-/// "read every declared member" rule) and discarding the value.  HMAC
-/// never consults `oth`; the full `sequence<RsaOtherPrimesInfo>`
-/// conversion (iterating the entries + reading each `r` / `d` / `t`) is
-/// RSA-only and lands with the RSA vertical (`#11-crypto-subtle-full`
-/// PR-5).
+/// discarding the entries.  `undefined` → absent; otherwise Web IDL
+/// sequence conversion applies, so a present non-iterable value (e.g.
+/// `oth: 123`) is a `TypeError` — the iterator protocol is exercised to
+/// surface that, and every `oth` getter / iterator step fires.  HMAC never
+/// consults `oth`, so each entry is iterated past without the nested
+/// `RsaOtherPrimesInfo` (`r` / `d` / `t`) conversion, which is RSA-only and
+/// lands with the RSA vertical (`#11-crypto-subtle-full` PR-5).
 fn read_jwk_oth(ctx: &mut NativeContext<'_>, obj: ObjectId) -> Result<(), VmError> {
     let key = PropertyKey::String(ctx.vm.strings.intern("oth"));
-    ctx.get_property_value(obj, key)?;
-    Ok(())
+    let val = ctx.get_property_value(obj, key)?;
+    if matches!(val, JsValue::Undefined) {
+        return Ok(());
+    }
+    for_each_sequence_element(
+        ctx,
+        val,
+        "Failed to execute 'importKey' on 'SubtleCrypto': \
+         JWK 'oth' member is not a sequence.",
+        |_ctx, _el| Ok(()),
+    )
 }
 
 /// Build a fresh JS object for an exported `oct` JWK.
@@ -725,19 +741,27 @@ fn build_jwk_object(ctx: &mut NativeContext<'_>, jwk: &JsonWebKey) -> ObjectId {
 }
 
 /// Run an operation body against a pre-rooted Promise, settling it.
-/// Shared shape for the five operation natives.
+/// Shared shape for the six operation natives (digest + the five HMAC ops).
+///
+/// WebCrypto §14.3 reports **all** errors asynchronously, including the
+/// Web IDL receiver brand check: a non-`SubtleCrypto` `this` (e.g.
+/// `crypto.subtle.sign.call({}, …)`) must reject the returned Promise, not
+/// throw synchronously.  So the brand check runs *inside* the settled
+/// closure, after the Promise is created.
 fn run_op(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     method: &'static str,
     body: impl FnOnce(&mut NativeContext<'_>) -> Result<JsValue, VmError>,
 ) -> Result<JsValue, VmError> {
-    require_subtle_crypto_this(ctx, this, method)?;
     let promise = create_promise(ctx.vm);
     let mut guard = ctx.vm.push_temp_root(JsValue::Object(promise));
     let mut rooted = NativeContext::new_call(&mut guard);
     let ctx = &mut rooted;
-    let result = body(ctx);
+    let result = match require_subtle_crypto_this(ctx, this, method) {
+        Ok(_) => body(ctx),
+        Err(e) => Err(e),
+    };
     settle_promise(ctx, promise, result);
     Ok(JsValue::Object(promise))
 }

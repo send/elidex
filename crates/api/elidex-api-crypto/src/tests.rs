@@ -339,9 +339,10 @@ fn ops_import_raw_sign_matches_vector() {
 }
 
 #[test]
-fn ops_import_raw_length_metadata_no_masking() {
-    // 4-byte key with length=28 → material is the full 4 bytes verbatim,
-    // algorithm.length=28; export returns all 4 bytes (no masking).
+fn ops_import_raw_length_masks_trailing_bits() {
+    // 4-byte (32-bit) key with length=28 → §31.6.4 step 8 "the first 28
+    // bits of data": the final octet's low 4 bits are zeroed (0xFF→0xF0),
+    // algorithm.length=28; export returns the masked material.
     let alg = hmac_keygen_alg(HashAlgorithm::Sha256, Some(28));
     let key = ops::import_key(
         KeyFormat::Raw,
@@ -351,11 +352,22 @@ fn ops_import_raw_length_metadata_no_masking() {
         KeyData::Raw(vec![0xFF, 0xFF, 0xFF, 0xFF]),
     )
     .unwrap();
-    assert_eq!(key.material.as_bytes(), &[0xFF, 0xFF, 0xFF, 0xFF]);
+    assert_eq!(key.material.as_bytes(), &[0xFF, 0xFF, 0xFF, 0xF0]);
     let ExportedKey::Raw(out) = ops::export_key(KeyFormat::Raw, &key).unwrap() else {
         panic!("expected raw export");
     };
-    assert_eq!(out, vec![0xFF, 0xFF, 0xFF, 0xFF]);
+    assert_eq!(out, vec![0xFF, 0xFF, 0xFF, 0xF0]);
+}
+
+#[test]
+fn ops_generate_sub_byte_length_masks_trailing_bits() {
+    // §31.6.3 step 3 "key of length length bits": generateKey with
+    // length=1 keeps only the top bit of the single CSPRNG octet.
+    let alg = hmac_keygen_alg(HashAlgorithm::Sha256, Some(1));
+    let key = ops::generate_key(alg, true, vec![KeyUsage::Sign], &[0xFF]).unwrap();
+    assert_eq!(key.material.as_bytes(), &[0x80]);
+    let crate::key::KeyAlgorithm::Hmac { length, .. } = key.algorithm;
+    assert_eq!(length, 1);
 }
 
 fn import_raw_len(len: u32) -> Result<crate::key::CryptoKeyData, AlgorithmError> {

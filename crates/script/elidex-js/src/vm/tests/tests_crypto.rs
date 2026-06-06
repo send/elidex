@@ -665,15 +665,25 @@ fn digest_resolves_with_array_buffer_constructor() {
 }
 
 #[test]
-fn digest_brand_checks_receiver() {
-    // `SubtleCrypto.prototype.digest.call({}, ...)` returns a
-    // SYNCHRONOUSLY-thrown TypeError because the brand check runs
-    // before the Promise is even allocated (matches Chrome).
-    let err = eval_err("SubtleCrypto.prototype.digest.call({}, 'SHA-256', new Uint8Array(0));");
-    assert!(
-        err.to_string().contains("Illegal invocation"),
-        "unexpected error: {err}"
-    );
+fn digest_illegal_receiver_rejects_promise() {
+    // `SubtleCrypto.prototype.digest.call({}, ...)` returns a Promise
+    // REJECTED with the brand-check TypeError — WebCrypto §14.3 reports
+    // every error asynchronously, including the Web IDL receiver check, so
+    // a promise-returning operation must not throw synchronously.
+    let src = "globalThis.r = 'pending'; \
+         SubtleCrypto.prototype.digest.call({}, 'SHA-256', new Uint8Array(0)) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "TypeError");
+}
+
+#[test]
+fn sign_illegal_receiver_rejects_promise() {
+    // Same async-error contract for the HMAC operations:
+    // `crypto.subtle.sign.call({}, …)` rejects rather than throwing.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.sign.call({}, 'HMAC', {}, new Uint8Array(1)) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "TypeError");
 }
 
 // ---------------------------------------------------------------------------
@@ -900,6 +910,72 @@ fn import_raw_empty_material_empty_usages_rejects_data_error() {
          crypto.subtle.importKey('raw', new Uint8Array(0), {name:'HMAC', hash:'SHA-256'}, true, []) \
            .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
     assert_eq!(eval_global_string(src, "r"), "DataError");
+}
+
+// ---------------------------------------------------------------------------
+// Web IDL conversion conformance (Codex review batch 3)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn generate_key_enforce_range_length_truncates_fraction() {
+    // HjoAz / Web IDL §3.3.6 [EnforceRange]: a finite fractional `length`
+    // truncates toward zero (31.9 → 31), it is NOT rejected; the resulting
+    // key reports algorithm.length === 31.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey({name:'HMAC', hash:'SHA-256', length: 31.9}, true, ['sign']) \
+           .then(k => { globalThis.r = String(k.algorithm.length); }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "31");
+}
+
+#[test]
+fn generate_key_enforce_range_rejects_below_lower_bound() {
+    // [EnforceRange] step 3: IntegerPart(-8) = -8 < lowerBound 0 → TypeError
+    // (a finite negative whose truncation falls below 0 is rejected, unlike
+    // a fraction in (-1, 0] which truncates to 0).
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey({name:'HMAC', hash:'SHA-256', length: -8}, true, ['sign']) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "TypeError");
+}
+
+#[test]
+fn import_jwk_empty_usages_bad_use_rejects_syntax_error() {
+    // HjoA3 / §31.6.4 step 7: the JWK `use` check only fires when usages
+    // is non-empty.  With empty usages, a present `use:'enc'` does NOT
+    // pre-empt with DataError — the generic empty-secret-usages
+    // SyntaxError (§14.3.9) is the correct rejection.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.importKey('jwk', {kty:'oct', k:'CwsLCwsLCwsLCwsLCwsLCwsLCws', use:'enc'}, \
+              {name:'HMAC', hash:'SHA-256'}, true, []) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "SyntaxError");
+}
+
+#[test]
+fn import_jwk_non_sequence_oth_rejects_type_error() {
+    // HjoA5 / Web IDL: the declared `sequence<RsaOtherPrimesInfo> oth`
+    // member undergoes sequence conversion during dictionary conversion, so
+    // a present non-iterable value (`oth:123`) rejects with a TypeError
+    // before the HMAC import ignores RSA fields.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.importKey('jwk', {kty:'oct', k:'CwsLCwsLCwsLCwsLCwsLCwsLCws', oth:123}, \
+              {name:'HMAC', hash:'SHA-256'}, true, ['sign']) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "TypeError");
+}
+
+#[test]
+fn import_raw_sub_byte_length_masks_then_signs_consistently() {
+    // HjoA1 / §31.6.4 step 8: importing 4 raw bytes with length=25 keeps
+    // the first 25 bits (top bit of the 4th octet), so exporting returns
+    // the masked material.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.importKey('raw', new Uint8Array([255,255,255,255]), \
+              {name:'HMAC', hash:'SHA-256', length:25}, true, ['sign']) \
+           .then(k => crypto.subtle.exportKey('raw', k)) \
+           .then(buf => { globalThis.r = Array.from(new Uint8Array(buf)).join(','); }, \
+                 e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "255,255,255,128");
 }
 
 #[test]

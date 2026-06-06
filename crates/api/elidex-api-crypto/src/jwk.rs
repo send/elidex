@@ -59,10 +59,16 @@ pub fn import_oct_hmac(
         }
     }
 
-    // use, if present, must be "sig" for a signing/verifying key.
-    if let Some(use_) = jwk.use_.as_deref() {
-        if use_ != "sig" {
-            return Err(data("JWK 'use' member must be 'sig'"));
+    // use, if present, must be "sig" for a signing/verifying key — but
+    // only when usages is non-empty (WebCrypto §31.6.4 step 7).  With
+    // empty usages the later generic empty-secret-usages SyntaxError
+    // (§14.3.9) is the correct rejection, so this DataError must not
+    // pre-empt it.
+    if !usages.is_empty() {
+        if let Some(use_) = jwk.use_.as_deref() {
+            if use_ != "sig" {
+                return Err(data("JWK 'use' member must be 'sig'"));
+            }
         }
     }
 

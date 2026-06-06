@@ -71,6 +71,11 @@ pub fn generate_key(
     require_secret_usages_nonempty(&usages)?;
     let usages = normalize_usages(usages);
     let bit_len = hmac::generate_key_bit_len(hash, length);
+    // §31.6.3 step 3 "Generate a key of length length bits": for a
+    // non-octet-aligned `length` the trailing low-order bits of the final
+    // octet are not part of the key, so zero them.
+    let mut material = rng_bytes.to_vec();
+    mask_to_bit_length(&mut material, bit_len);
     Ok(CryptoKeyData {
         key_type: KeyType::Secret,
         extractable,
@@ -79,7 +84,7 @@ pub fn generate_key(
             length: bit_len,
         },
         usages,
-        material: KeyMaterial::Raw(rng_bytes.to_vec()),
+        material: KeyMaterial::Raw(material),
     })
 }
 
@@ -135,6 +140,11 @@ pub fn import_key(
     // DataError/NotSupportedError from invalid material wins.
     require_secret_usages_nonempty(&usages)?;
     let usages = normalize_usages(usages);
+    // §31.6.4 step 8 "an HMAC key with the first length bits of data":
+    // step 7 admits a `length` member up to 7 bits below the data's bit
+    // length, so zero the unused trailing bits of the final octet.
+    let mut material = material;
+    mask_to_bit_length(&mut material, length);
     Ok(CryptoKeyData {
         key_type: KeyType::Secret,
         extractable,
@@ -220,6 +230,27 @@ fn require_secret_usages_nonempty(usages: &[KeyUsage]) -> Result<(), AlgorithmEr
         return Err(AlgorithmError::Syntax("usages cannot be empty".to_string()));
     }
     Ok(())
+}
+
+/// Zero the unused trailing (low-order) bits of the final octet so the
+/// material represents exactly the first `length_bits` bits of the key
+/// (WebCrypto §31.6.3 step 3 "key of length length bits" / §31.6.4 step 8
+/// "first length bits of data").
+///
+/// Both callers supply exactly `ceil(length_bits / 8)` octets — generate
+/// fills that many CSPRNG bytes, and the import range check (§31.6.4
+/// step 7) bounds `length_bits` to within 7 bits of the data — so the only
+/// partial octet is the last one, holding `length_bits mod 8` significant
+/// (high-order) bits.  An octet-aligned `length_bits` is a no-op.
+fn mask_to_bit_length(material: &mut [u8], length_bits: u32) {
+    let used_bits_in_last = (length_bits % 8) as u8;
+    if used_bits_in_last == 0 {
+        return; // octet-aligned (or empty) — nothing to mask
+    }
+    if let Some(last) = material.last_mut() {
+        // Keep the high `used` bits, zero the low `8 - used`.
+        *last &= 0xFFu8 << (8 - used_bits_in_last);
+    }
 }
 
 /// Resolve + range-check the HMAC import `length` member against the
