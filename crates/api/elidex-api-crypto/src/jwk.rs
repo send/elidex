@@ -103,21 +103,24 @@ pub fn export_oct_hmac(key: &CryptoKeyData, hash: HashAlgorithm) -> JsonWebKey {
     }
 }
 
-/// Each `key_ops` entry must be a recognized usage, with no duplicates,
-/// and the set must contain every requested usage (superset).
+/// `key_ops` must be a valid JWK key-operations array containing every
+/// requested usage (WebCrypto §31.6.4 step 8).
+///
+/// Validity is per JWK [RFC 7517 §4.3]: entries are arbitrary strings
+/// ("Other values MAY be used"), but duplicate values MUST NOT be present.
+/// So this checks duplicates + the requested-usage superset at the
+/// **string** level — extension / private operations (e.g. a custom
+/// `"derive-foo"` alongside `"sign"`) are ignored, not rejected.
 fn validate_key_ops(key_ops: &[String], usages: &[KeyUsage]) -> Result<(), AlgorithmError> {
-    let mut parsed: Vec<KeyUsage> = Vec::with_capacity(key_ops.len());
-    for op in key_ops {
-        let Some(usage) = KeyUsage::from_ident(op) else {
-            return Err(data("JWK 'key_ops' member contains an invalid usage"));
-        };
-        if parsed.contains(&usage) {
+    // RFC 7517 §4.3: no duplicate key operation values.
+    for (i, op) in key_ops.iter().enumerate() {
+        if key_ops[i + 1..].iter().any(|other| other == op) {
             return Err(data("JWK 'key_ops' member contains a duplicate entry"));
         }
-        parsed.push(usage);
     }
+    // §31.6.4 step 8: key_ops must contain all requested usages.
     for usage in usages {
-        if !parsed.contains(usage) {
+        if !key_ops.iter().any(|op| op == usage.as_str()) {
             return Err(data(
                 "JWK 'key_ops' member is not a superset of the requested usages",
             ));

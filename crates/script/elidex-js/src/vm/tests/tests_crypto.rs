@@ -1056,6 +1056,59 @@ fn generate_key_name_getter_fires_twice_during_normalization() {
     assert_eq!(eval_global_string(src, "r"), "err:second name read");
 }
 
+// ---------------------------------------------------------------------------
+// Web IDL / algorithm conformance (Codex review batch 5)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn import_jwk_key_ops_allows_extension_values() {
+    // Hlnbe / RFC 7517 §4.3 + §31.6.4 step 8: `key_ops` may carry
+    // extension operations beyond WebCrypto's usages; as long as it is a
+    // valid JWK array (no duplicates) containing every requested usage,
+    // unknown entries are ignored, not rejected.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.importKey('jwk', \
+              {kty:'oct', k:'CwsLCwsLCwsLCwsLCwsLCwsLCws', key_ops:['sign','custom-op']}, \
+              {name:'HMAC', hash:'SHA-256'}, true, ['sign']) \
+           .then(k => { globalThis.r = k.usages.join(','); }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "sign");
+}
+
+#[test]
+fn import_jwk_key_ops_duplicate_rejects_data_error() {
+    // Hlnbe: duplicate key operation values are still invalid per RFC 7517
+    // §4.3 → DataError.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.importKey('jwk', \
+              {kty:'oct', k:'CwsLCwsLCwsLCwsLCwsLCwsLCws', key_ops:['sign','sign']}, \
+              {name:'HMAC', hash:'SHA-256'}, true, ['sign']) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "DataError");
+}
+
+#[test]
+fn import_jwk_key_ops_missing_requested_usage_rejects_data_error() {
+    // Hlnbe: §31.6.4 step 8 still requires key_ops to contain every
+    // requested usage — `['verify']` lacks the requested `sign`.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.importKey('jwk', \
+              {kty:'oct', k:'CwsLCwsLCwsLCwsLCwsLCwsLCws', key_ops:['verify']}, \
+              {name:'HMAC', hash:'SHA-256'}, true, ['sign']) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "DataError");
+}
+
+#[test]
+fn generate_key_invalid_usage_beats_zero_length_error() {
+    // Hlnbh / §31.6.3 step 1: a non-sign/verify usage is a SyntaxError
+    // before the step-2 length handling, so `length:0` + `['encrypt']`
+    // rejects with SyntaxError, not the OperationError of a zero length.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey({name:'HMAC', hash:'SHA-256', length:0}, true, ['encrypt']) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "SyntaxError");
+}
+
 #[test]
 fn crypto_key_accessors() {
     // type / extractable / algorithm.name / algorithm.hash.name / usages.

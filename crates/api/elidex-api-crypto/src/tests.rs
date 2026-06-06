@@ -230,9 +230,14 @@ fn hmac_keygen_alg(hash: HashAlgorithm, length: Option<u32>) -> NormalizedAlgori
 #[test]
 fn ops_generate_sign_verify_roundtrip() {
     let alg = hmac_keygen_alg(HashAlgorithm::Sha256, None);
-    let rng = vec![0x42_u8; 64]; // deterministic "random"
-    let key = ops::generate_key(alg, true, vec![KeyUsage::Sign, KeyUsage::Verify], &rng).unwrap();
+    // deterministic "random": fill the crate-sized buffer with 0x42.
+    let key = ops::generate_key(alg, true, vec![KeyUsage::Sign, KeyUsage::Verify], |buf| {
+        buf.fill(0x42);
+        Ok(())
+    })
+    .unwrap();
     assert_eq!(key.key_type, KeyType::Secret);
+    assert_eq!(key.material.as_bytes().len(), 64); // SHA-256 block size
 
     let sig = ops::sign(NormalizedAlgorithm::Hmac, &key, b"message").unwrap();
     assert!(ops::verify(NormalizedAlgorithm::Hmac, &key, &sig, b"message").unwrap());
@@ -240,22 +245,29 @@ fn ops_generate_sign_verify_roundtrip() {
 }
 
 #[test]
-fn ops_generate_wrong_rng_length_is_operation_error() {
-    // Copilot #2: `ops::generate_key` validates the caller-supplied RNG
-    // length at the boundary.  SHA-256 default = 64 bytes; a short buffer
-    // is rejected rather than silently producing a short key.
-    let alg = hmac_keygen_alg(HashAlgorithm::Sha256, None);
-    assert!(matches!(
-        ops::generate_key(alg, true, vec![KeyUsage::Sign], &[0u8; 10]),
-        Err(AlgorithmError::Operation(_))
-    ));
+fn ops_generate_invalid_usage_kind_beats_length_error() {
+    // HjuLU/Hlnbh / §31.6.3 step 1: a non-sign/verify usage is a
+    // SyntaxError *before* the step-2 length handling — so `length: 0`
+    // (which would otherwise be an OperationError) does not pre-empt it,
+    // and the CSPRNG fill closure is never invoked.
+    let alg = hmac_keygen_alg(HashAlgorithm::Sha256, Some(0));
+    let mut filled = false;
+    let result = ops::generate_key(alg, true, vec![KeyUsage::Encrypt], |_buf| {
+        filled = true;
+        Ok(())
+    });
+    assert!(matches!(result, Err(AlgorithmError::Syntax(_))));
+    assert!(
+        !filled,
+        "fill closure must not run when usage validation fails"
+    );
 }
 
 #[test]
 fn ops_generate_empty_usages_is_syntax_error() {
     let alg = hmac_keygen_alg(HashAlgorithm::Sha256, None);
     assert!(matches!(
-        ops::generate_key(alg, true, vec![], &[0u8; 64]),
+        ops::generate_key(alg, true, vec![], |_buf| Ok(())),
         Err(AlgorithmError::Syntax(_))
     ));
 }
@@ -264,7 +276,7 @@ fn ops_generate_empty_usages_is_syntax_error() {
 fn ops_generate_invalid_usage_is_syntax_error() {
     let alg = hmac_keygen_alg(HashAlgorithm::Sha256, None);
     assert!(matches!(
-        ops::generate_key(alg, true, vec![KeyUsage::Encrypt], &[0u8; 64]),
+        ops::generate_key(alg, true, vec![KeyUsage::Encrypt], |_buf| Ok(())),
         Err(AlgorithmError::Syntax(_))
     ));
 }
@@ -364,7 +376,11 @@ fn ops_generate_sub_byte_length_masks_trailing_bits() {
     // §31.6.3 step 3 "key of length length bits": generateKey with
     // length=1 keeps only the top bit of the single CSPRNG octet.
     let alg = hmac_keygen_alg(HashAlgorithm::Sha256, Some(1));
-    let key = ops::generate_key(alg, true, vec![KeyUsage::Sign], &[0xFF]).unwrap();
+    let key = ops::generate_key(alg, true, vec![KeyUsage::Sign], |buf| {
+        buf.fill(0xFF);
+        Ok(())
+    })
+    .unwrap();
     assert_eq!(key.material.as_bytes(), &[0x80]);
     let crate::key::KeyAlgorithm::Hmac { length, .. } = key.algorithm;
     assert_eq!(length, 1);

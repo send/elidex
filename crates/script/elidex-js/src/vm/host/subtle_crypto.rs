@@ -831,25 +831,14 @@ fn native_subtle_crypto_generate_key(
         let normalized = crypto::normalize(Operation::GenerateKey, &raw)
             .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
 
-        let NormalizedAlgorithm::HmacKeyParams { hash, length } = normalized else {
-            return Err(algorithm_error_to_vm(
-                ctx.vm,
-                &AlgorithmError::NotSupported("algorithm is not supported for generateKey".into()),
-            ));
-        };
-        let byte_len = crypto::hmac::generate_key_byte_len(hash, length)
-            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
-        let mut bytes = vec![0u8; byte_len];
-        getrandom::fill(&mut bytes).map_err(|e| {
-            VmError::dom_exception(
-                ctx.vm.well_known.dom_exc_operation_error,
-                format!(
-                    "Failed to execute 'generateKey' on 'SubtleCrypto': OS CSPRNG failure ({e})"
-                ),
-            )
-        })?;
-        let key_data = crypto::ops::generate_key(normalized, extractable, usages, &bytes)
-            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+        // The crate owns usage validation → length sizing → fill ordering
+        // (§31.6.3); the VM only supplies entropy via the closure, so an
+        // invalid usage / zero length rejects before any buffer is sized.
+        let key_data = crypto::ops::generate_key(normalized, extractable, usages, |buf| {
+            getrandom::fill(buf)
+                .map_err(|e| AlgorithmError::Operation(format!("OS CSPRNG failure ({e})")))
+        })
+        .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
         let id = ctx.vm.alloc_crypto_key(key_data);
         Ok(JsValue::Object(id))
     })

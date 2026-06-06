@@ -36,45 +36,44 @@ pub enum ExportedKey {
     Jwk(JsonWebKey),
 }
 
-/// `generateKey` for HMAC (WebCrypto §14.3.6 + §31 Generate Key).
+/// `generateKey` for HMAC (WebCrypto §14.3.6 + §31.6.3 Generate Key).
 ///
-/// `rng_bytes` must be exactly [`hmac::generate_key_byte_len`] bytes,
-/// filled by the VM from the OS CSPRNG. The bytes are stored verbatim;
-/// `length` is recorded as metadata (no masking).
-pub fn generate_key(
+/// `fill_random` writes the OS CSPRNG bytes into the supplied buffer (the
+/// VM owns the entropy source).  It is invoked **after** the §31.6.3
+/// step-1 usage-kind check and step-2 length resolution, so an invalid
+/// usage or zero length is rejected before any key-sized buffer is
+/// allocated or filled — keeping all the spec ordering + validation inside
+/// this crate boundary (the VM only supplies entropy).
+pub fn generate_key<F>(
     algorithm: NormalizedAlgorithm,
     extractable: bool,
     usages: Vec<KeyUsage>,
-    rng_bytes: &[u8],
-) -> Result<CryptoKeyData, AlgorithmError> {
+    fill_random: F,
+) -> Result<CryptoKeyData, AlgorithmError>
+where
+    F: FnOnce(&mut [u8]) -> Result<(), AlgorithmError>,
+{
     let NormalizedAlgorithm::HmacKeyParams { hash, length } = algorithm else {
         return Err(not_supported_op("generateKey"));
     };
-    // §31.6.3 Generate Key step 1: a non-`sign`/`verify` usage is a
-    // SyntaxError, checked before the key is produced.
+    // §31.6.3 step 1: a non-`sign`/`verify` usage is a SyntaxError —
+    // before length sizing / buffer allocation (step 2+).
     validate_hmac_usage_kinds(&usages)?;
-    // `ops` owns argument validation (the layering boundary): re-derive
-    // the required byte count (this also runs the `length == 0` →
-    // OperationError check) and defensively confirm the caller filled
-    // exactly that many CSPRNG bytes, so a mis-sized `rng_bytes` cannot
-    // silently produce a wrong-length key.
-    let expected = hmac::generate_key_byte_len(hash, length)?;
-    if rng_bytes.len() != expected {
-        return Err(AlgorithmError::Operation(format!(
-            "HMAC key generation requires {expected} random byte(s), got {}",
-            rng_bytes.len()
-        )));
-    }
+    // §31.6.3 step 2: resolve the key length (`length == 0` →
+    // OperationError) and the byte count to fill.
+    let byte_len = hmac::generate_key_byte_len(hash, length)?;
+    let bit_len = hmac::generate_key_bit_len(hash, length);
+    // §31.6.3 step 3 "Generate a key of length length bits": allocate +
+    // fill only now that usage / length are valid.
+    let mut material = vec![0u8; byte_len];
+    fill_random(&mut material)?;
     // §14.3.6 generateKey generic step: a secret key with empty usages is
     // a SyntaxError — checked *after* the algorithm-specific op produced
     // the key (so an `OperationError`/`length` failure above wins).
     require_secret_usages_nonempty(&usages)?;
     let usages = normalize_usages(usages);
-    let bit_len = hmac::generate_key_bit_len(hash, length);
-    // §31.6.3 step 3 "Generate a key of length length bits": for a
-    // non-octet-aligned `length` the trailing low-order bits of the final
-    // octet are not part of the key, so zero them.
-    let mut material = rng_bytes.to_vec();
+    // For a non-octet-aligned `length` the trailing low-order bits of the
+    // final octet are not part of the key, so zero them.
     mask_to_bit_length(&mut material, bit_len);
     Ok(CryptoKeyData {
         key_type: KeyType::Secret,
