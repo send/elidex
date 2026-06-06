@@ -234,7 +234,14 @@ fn convert_node(handle: &Handle, dom: &mut EcsDom, opts: ParseFragmentOptions) -
         }
         NodeData::Text { contents } => {
             let text = contents.borrow().to_string();
-            if text.is_empty() || text.trim().is_empty() {
+            // Preserve whitespace-only text nodes: html5ever already places inter-element
+            // whitespace per WHATWG HTML §13.2.6 (framing whitespace it drops itself).
+            // Dropping whitespace-only nodes here was an elidex-specific over-deletion that
+            // diverged the tolerant path from the strict backend (§11.3 whitespace unify).
+            // The residual empty-string ("") drop keeps the two backends aligned: the strict
+            // parser inserts characters one at a time and so never creates a zero-length text
+            // node either, so dropping one here matches it (this is not a whitespace strip).
+            if text.is_empty() {
                 return None;
             }
             Some(dom.create_text(text))
