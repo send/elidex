@@ -664,7 +664,8 @@ pub struct InlineLayoutResult {
     pub break_after_line: Option<usize>,
 }
 
-/// Fragmentation constraint for inline layout (CSS Fragmentation L3 §4.3).
+/// Fragmentation constraint for inline layout (CSS Fragmentation L3 §3.3
+/// "Breaks Between Lines: orphans, widows").
 pub struct InlineFragConstraint {
     /// Available block-axis space from the current cursor position.
     pub available_block: f32,
@@ -842,7 +843,7 @@ pub fn layout_inline_context_fragmented(
 
     let line_count = packer.line_boxes.len();
 
-    // --- Fragmentation: orphans/widows enforcement (CSS Fragmentation L3 §4.3) ---
+    // --- Fragmentation: orphans/widows enforcement (CSS Fragmentation L3 §3.3) ---
     let break_after_line = if let Some(constraint) = frag_constraint {
         let skip = constraint.skip_lines;
         let line_heights: Vec<f32> = packer.line_boxes.iter().map(|lb| lb.block_size).collect();

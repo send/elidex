@@ -223,7 +223,7 @@ fn break_inside_avoid_penalizes_candidates() {
 }
 
 // ---------------------------------------------------------------------------
-// Orphans/widows inline fragmentation tests (CSS Fragmentation L3 §4.3)
+// Orphans/widows inline fragmentation tests (CSS Fragmentation L3 §3.3)
 // ---------------------------------------------------------------------------
 
 #[test]
