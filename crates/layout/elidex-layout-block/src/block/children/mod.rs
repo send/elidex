@@ -35,9 +35,9 @@ pub struct StackResult {
     pub first_baseline: Option<f32>,
     /// Break token if layout was interrupted by a fragmentainer break.
     pub break_token: Option<BreakToken>,
-    /// Propagated forced break-before from first child (CSS Frag L3 §3.2).
+    /// Propagated forced break-before from first child (CSS Frag L3 §3.1.1).
     pub propagated_break_before: Option<BreakValue>,
-    /// Propagated forced break-after from last child (CSS Frag L3 §3.2).
+    /// Propagated forced break-after from last child (CSS Frag L3 §3.1.1).
     pub propagated_break_after: Option<BreakValue>,
 }
 

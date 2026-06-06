@@ -57,9 +57,9 @@ pub struct LayoutOutcome {
     pub layout_box: LayoutBox,
     /// If layout was interrupted by a fragmentainer break, the token to resume.
     pub break_token: Option<BreakToken>,
-    /// CSS Fragmentation L3 3.2: propagated forced break-before from first child.
+    /// CSS Fragmentation L3 §3.1.1: propagated forced break-before from first child.
     pub propagated_break_before: Option<elidex_plugin::BreakValue>,
-    /// CSS Fragmentation L3 3.2: propagated forced break-after from last child.
+    /// CSS Fragmentation L3 §3.1.1: propagated forced break-after from last child.
     pub propagated_break_after: Option<elidex_plugin::BreakValue>,
 }
 

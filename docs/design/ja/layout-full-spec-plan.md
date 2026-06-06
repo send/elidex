@@ -99,7 +99,7 @@ G11 (Paged Media + margin boxes) ← G8
 ```rust
 // elidex-layout-block/src/lib.rs に追加
 
-/// Fragmentainer constraints for fragmentation (CSS Fragmentation L3 §3).
+/// Fragmentainer constraints for fragmentation (CSS Fragmentation L3 §2).
 #[derive(Clone, Copy, Debug)]
 pub struct FragmentainerContext {
     /// Remaining block-size available in current fragmentainer.
@@ -249,7 +249,7 @@ keyword_enum! { EmptyCells { Show => "show", Hide => "hide" } }  // inherited, d
 
 // computed_style/fragmentation.rs — 新ファイル
 keyword_enum! {
-    /// CSS Fragmentation L3 §3: break-before / break-after values.
+    /// CSS Fragmentation L3 §3.1: break-before / break-after values.
     BreakValue {
         Auto => "auto", Avoid => "avoid",
         AvoidPage => "avoid-page", AvoidColumn => "avoid-column",
@@ -259,14 +259,14 @@ keyword_enum! {
     }
 }
 keyword_enum! {
-    /// CSS Fragmentation L3 §3: break-inside values.
+    /// CSS Fragmentation L3 §3.2: break-inside values.
     BreakInsideValue {
         Auto => "auto", Avoid => "avoid",
         AvoidPage => "avoid-page", AvoidColumn => "avoid-column",
     }
 }
 keyword_enum! {
-    /// CSS Fragmentation L3 §4.2: box-decoration-break.
+    /// CSS Fragmentation L3 §5.4: box-decoration-break.
     BoxDecorationBreak { Slice => "slice", Cloned => "clone" }
     // variant 名を `Cloned` にして Rust の `Clone` trait との混同を回避
 }
@@ -284,7 +284,7 @@ pub empty_cells: EmptyCells,                  // Table §17.5.1, inherited
 pub break_before: BreakValue,                 // Frag L3, non-inherited
 pub break_after: BreakValue,                  // Frag L3, non-inherited
 pub break_inside: BreakInsideValue,           // Frag L3, non-inherited
-pub box_decoration_break: BoxDecorationBreak, // Frag L3 §4.2, non-inherited
+pub box_decoration_break: BoxDecorationBreak, // Frag L3 §5.4, non-inherited
 pub orphans: u32,                             // Frag L3, inherited, default 2
 pub widows: u32,                              // Frag L3, inherited, default 2
 pub column_count: Option<u32>,                // Multi-col §3, None = auto
@@ -655,7 +655,7 @@ fn should_force_break(value: &BreakValue) -> bool {
 }
 ```
 
-#### §3.2 Break Propagation
+#### §3.1.1 Break Propagation
 
 先頭/末尾の子の forced break を親に伝搬:
 
@@ -671,7 +671,7 @@ if is_last_child && should_force_break(&child_style.break_after) {
 }
 ```
 
-#### §3.3 Unforced Break Classification
+#### §4.1 Unforced Break Classification
 
 Break opportunity のクラス分け:
 
@@ -701,7 +701,7 @@ Break opportunity のクラス分け:
 > overflow (in the block flow direction of the fragmentation context)
 > other than visible."
 
-#### §3.4 Best Break Point Selection
+#### §4.5 Best Break Point Selection
 
 最初の機会で break するのではなく、最適な break 点を選択:
 
@@ -719,7 +719,7 @@ fn find_best_break(candidates: &[BreakCandidate]) -> Option<usize> {
 }
 ```
 
-#### §4.2 box-decoration-break
+#### §5.4 box-decoration-break
 
 ```rust
 // break 点で border/padding/background の処理

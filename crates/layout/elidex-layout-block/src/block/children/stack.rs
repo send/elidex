@@ -100,7 +100,7 @@ pub fn stack_block_children(
     let is_continuation = input.break_token.is_some();
     let frag_ctx = input.fragmentainer;
 
-    // CSS Fragmentation L3 §3.1: margins not collapsed across a fragmentation break.
+    // CSS Fragmentation L3 §5.2: margins not collapsed across a fragmentation break.
     // In continuation fragments, suppress collapse with "previous" content.
     if is_continuation {
         prev_margin_block_end = None;
@@ -119,7 +119,7 @@ pub fn stack_block_children(
     let mut propagated_break_after: Option<BreakValue> = None;
     let mut result_break_token: Option<BreakToken> = None;
 
-    // Track previous block child's break-after for avoid penalty (CSS Frag §3.4).
+    // Track previous block child's break-after for avoid penalty (CSS Frag §4.5).
     let mut prev_break_after: Option<BreakValue> = None;
     // Track whether we've seen any block children (for break candidate recording).
     let mut seen_block_child = false;
@@ -223,7 +223,7 @@ pub fn stack_block_children(
         if let Some(frag) = frag_ctx {
             let effective_break_before = child_style.break_before;
             if fragmentation::is_forced_break(effective_break_before, frag.fragmentation_type) {
-                // First child's forced break-before propagates to parent (§3.2).
+                // First child's forced break-before propagates to parent (§3.1.1).
                 if idx == start_index {
                     propagated_break_before = Some(effective_break_before);
                 }
@@ -261,7 +261,7 @@ pub fn stack_block_children(
 
         // --- Floated children: out of normal flow (CSS 2.1 §9.5) ---
         // TODO(G9): Float fragmentation — push float to next fragmentainer if it
-        // overflows. Requires fragmentainer-aware float placement (CSS Frag §3.3).
+        // overflows. Requires fragmentainer-aware float placement (CSS Frag §4.1).
         if child_float != Float::None {
             layout_float(
                 dom,
@@ -293,7 +293,7 @@ pub fn stack_block_children(
         // --- Fragmentation: record Class A break candidate between siblings ---
         if let Some(frag) = frag_ctx {
             if seen_block_child {
-                // §3.4: penalty from parent's break-inside, this child's break-before,
+                // §4.5: penalty from parent's break-inside, this child's break-before,
                 // AND the previous child's break-after.
                 let violates_avoid = fragmentation::is_avoid_break_inside(
                     parent_style.break_inside,
@@ -446,7 +446,7 @@ pub fn stack_block_children(
         // --- Fragmentation: forced break-after (§3.1) ---
         if let Some(frag) = frag_ctx {
             if fragmentation::is_forced_break(child_style.break_after, frag.fragmentation_type) {
-                // §3.2: Only propagate break-after if this is the last content child.
+                // §3.1.1: Only propagate break-after if this is the last content child.
                 let remaining_has_content = children[idx + 1..].iter().any(|&c| {
                     crate::try_get_style(dom, c).is_none_or(|s| {
                         s.display != Display::None
@@ -512,7 +512,7 @@ pub fn stack_block_children(
         }
     }
 
-    // CSS Fragmentation L3 §3.1: margins not collapsed at fragment end.
+    // CSS Fragmentation L3 §5.2: margins not collapsed at fragment end.
     if result_break_token.is_some() {
         last_child_margin_block_end = Some(0.0);
     }

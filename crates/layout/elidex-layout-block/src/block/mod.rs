@@ -434,7 +434,7 @@ pub fn layout_block_inner(
         // Parent-child margin collapse (CSS 2.1 §8.3.1):
         // First child's block-start margin collapses with parent's block-start margin
         // when parent has no block-start border/padding and doesn't establish BFC.
-        // CSS Fragmentation L3 §3.1: suppress in continuation fragments.
+        // CSS Fragmentation L3 §5.2: suppress in continuation fragments.
         let suppress_parent_child_collapse = input.break_token.is_some();
         let block_start_border = if is_horizontal {
             border.top
