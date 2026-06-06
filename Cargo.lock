@@ -2249,7 +2249,6 @@ dependencies = [
  "elidex-style",
  "elidex-text",
  "fontdb",
- "unicode-segmentation",
  "vello",
  "wgpu",
 ]
@@ -2282,6 +2281,7 @@ dependencies = [
  "elidex-plugin",
  "fontdb",
  "rustybuzz",
+ "unicode-segmentation",
 ]
 
 [[package]]

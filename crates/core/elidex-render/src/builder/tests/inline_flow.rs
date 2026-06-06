@@ -207,6 +207,60 @@ fn falls_back_without_inline_flow() {
     assert_eq!(items[0].len(), 10, "\"HelloWorld\" = 10 glyphs on one line");
 }
 
+/// The converged path must NOT re-apply `text-transform`: layout already
+/// transformed the persisted run text, so render paints it verbatim. We persist
+/// the same run text `"abc"` under a div whose `text-transform` is `None` vs
+/// `Uppercase`; the painted glyph ids must be identical (if render re-transformed,
+/// the `Uppercase` build would shape "ABC" — different glyph ids). CSS Text 3 §2.1.
+#[test]
+#[allow(unused_must_use)]
+fn converged_path_does_not_re_transform() {
+    fn glyph_ids(transform: elidex_plugin::TextTransform) -> Vec<u32> {
+        let (mut dom, div) = setup_block_element(
+            elidex_plugin::ComputedStyle {
+                display: elidex_plugin::Display::Block,
+                font_family: test_font_family_strings(),
+                text_transform: transform,
+                ..Default::default()
+            },
+            elidex_plugin::LayoutBox {
+                content: Rect::new(0.0, 0.0, 800.0, 20.0),
+                ..Default::default()
+            },
+        );
+        let text = dom.create_text("abc");
+        dom.append_child(div, text);
+        // Layout already applied the transform: the persisted text is final ("abc").
+        let flow = InlineFlow::single(
+            0,
+            vec![InlineFlowLine {
+                block_start: 0.0,
+                block_size: 20.0,
+                runs: vec![InlineFlowRun::Text {
+                    entity: div,
+                    text: "abc".to_string(),
+                    inline_start: 0.0,
+                }],
+            }],
+        );
+        dom.world_mut().insert_one(text, flow);
+        let font_db = elidex_text::FontDatabase::new();
+        let dl = build_display_list(&dom, &font_db);
+        text_item_glyphs(&dl)
+            .first()
+            .map(|g| g.iter().map(|e| e.glyph_id).collect())
+            .unwrap_or_default()
+    }
+
+    let baseline = glyph_ids(elidex_plugin::TextTransform::None);
+    assert!(!baseline.is_empty(), "verbatim 'abc' should paint glyphs");
+    assert_eq!(
+        glyph_ids(elidex_plugin::TextTransform::Uppercase),
+        baseline,
+        "converged path re-transformed the already-transformed run text (double-transform)"
+    );
+}
+
 /// Regression: an absolutely-positioned child interspersed between inline text
 /// under a stacking-context parent (here the root) must not cause the second
 /// text run to be painted twice. The stacking-context paint path (Layer 5) must

@@ -16,7 +16,7 @@
 use super::inline_flow::env;
 use super::*;
 use elidex_ecs::{InlineFlow, InlineFlowRun};
-use elidex_plugin::{Position, TextTransform, WritingMode};
+use elidex_plugin::{Position, WritingMode};
 
 /// Append a `position:relative` inline `<span>` containing `text` to `parent`, then
 /// a trailing text node `tail`. Returns `(span, span's text node, tail text node)`.
@@ -713,16 +713,15 @@ fn relpos_atomic_persists_and_repositions_not_a_flow_member() {
 }
 
 #[test]
-fn relpos_atomic_with_text_transform_stays_on_legacy() {
-    // D6 co-occurrence: a run that ALSO has `text-transform` stays gated (a
-    // transform-slice concern) and falls to render legacy ENTIRELY — the relpos
-    // atomic is then NOT repositioned (it stays at the IFC origin, as today). The
-    // relpos-atomic convergence only applies on the persistable path.
-    let Some((mut dom, parent, mut style, font_db)) = setup_inline_test("a") else {
+fn relpos_atomic_on_legacy_path_stays_unrepositioned() {
+    // D6 co-occurrence: a run that ALSO needs bidi reordering stays gated (slice 4
+    // bidi concern) and falls to render legacy ENTIRELY — the relpos atomic is then
+    // NOT repositioned (it stays at the IFC origin, as today). The relpos-atomic
+    // convergence only applies on the persistable path. (text-transform used to gate
+    // here too, but now persists — bidi is the remaining still-gating trigger.)
+    let Some((mut dom, parent, style, font_db)) = setup_inline_test("ש") else {
         return;
     };
-    style.text_transform = TextTransform::Uppercase;
-    let _ = dom.world_mut().insert_one(parent, style.clone());
     let a_text = dom.composed_children(parent)[0];
     let ib = append_inline_block(&mut dom, parent, &style.font_family, Position::Relative);
 
@@ -738,7 +737,7 @@ fn relpos_atomic_with_text_transform_stays_on_legacy() {
 
     assert!(
         dom.world().get::<&InlineFlow>(a_text).is_err(),
-        "text-transform gates the whole run → no InlineFlow persists"
+        "RTL/bidi gates the whole run → no InlineFlow persists"
     );
     let lb = dom
         .world()
