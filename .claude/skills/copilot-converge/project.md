@@ -1,6 +1,6 @@
 # /copilot-converge project overlay — elidex
 
-Loaded by `~/.claude/skills/copilot-converge/SKILL.md` (the full multi-round convergence loop) when invoked from this repo. Provides project-specific calibration for the loop — round-count `failure_modes`, `wakeup_median`, TERMINAL fix-delta pass. For the routine single-pass `/copilot-review`, see the lighter `copilot-review/project.md` overlay.
+Loaded by `~/.claude/skills/copilot-converge/SKILL.md` (the full multi-round convergence loop) when invoked from this repo. Provides project-specific calibration for the loop — round-count `failure_modes`, `wakeup_median`, TERMINAL fix-delta pass. For the routine single-pass `/external-review` (the reviewer-agnostic default, currently Codex), see the `external-review/project.md` overlay.
 
 ## repo
 

@@ -1,12 +1,12 @@
 ---
 name: elidex-review
-description: elidex project-specific pre-push design review (5-agent parallel). Checks Layering mandate / ECS-native lens (with component data-flow integrity) / pragmatic shortcut / spec citation / project-context beyond what generic /code-review + /review cover. Run BEFORE `git push` — the final design gate, now carrying the bulk of the design review since the post-push Copilot pass is a single-shot second opinion (/copilot-review), not a convergence loop.
+description: elidex project-specific pre-push design review (5-agent parallel). Checks Layering mandate / ECS-native lens (with component data-flow integrity) / pragmatic shortcut / spec citation / project-context beyond what generic /code-review + /review cover. Run BEFORE `git push` — the final design gate, now carrying the bulk of the design review since the post-push non-Claude pass is a single-shot second opinion (/external-review, currently Codex), not a convergence loop.
 user-invocable: true
 ---
 
 # elidex-review — pre-push diff review
 
-`/code-review` (correctness bugs) と `/review` (一般 PR review) **の上に重ねる** elidex 専門 design review。Pre-push 6 段 gate の最終段 (`/pre-push` Stage 6) = design 最終 gate。post-push の Copilot は single-shot second opinion (`/copilot-review`、convergence loop でない) になったので、この gate と Stage 3 の blast-radius effort が design review の主担。「後続 loop が残りを拾う」前提で圧縮するのでなく、ここで取り切る。
+`/code-review` (correctness bugs) と `/review` (一般 PR review) **の上に重ねる** elidex 専門 design review。Pre-push 6 段 gate の最終段 (`/pre-push` Stage 6) = design 最終 gate。post-push の 非-Claude reviewer は single-shot second opinion (`/external-review`、現 Codex/Plus) になったので、この gate と Stage 3 の blast-radius effort が design review の主担。「後続 loop が残りを拾う」前提で圧縮するのでなく、ここで取り切る。
 
 - **Axis SSoT**: `./axes.md` (5 axis 定義、`elidex-plan-review` と共有)
 - **Workflow SSoT**: `./workflow.md` (Step 1.5 / 1.6 rename-propagation sweep / 2 agent prompt template / 3 / 3.5 / 4 / 4.5 + anti-patterns)

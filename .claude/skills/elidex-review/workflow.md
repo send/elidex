@@ -38,7 +38,7 @@ For each **new/changed test case** AND **new code path that reads ECS components
 
 **Trigger**: the input **renames a symbol, moves/renames a file, renumbers a citation, or reframes terminology** (e.g. a framing change like "R-loop → single-pass", a §-number bump, an API rename). Skip if the change introduces no such token shift.
 
-A token changed at the sites the author was looking at but left un-propagated to its siblings is a recurring miss — and one a single-pass Copilot review *will* catch and bill you for, so catch it pre-push. PR #278 precedent: `elidex-review/SKILL.md` line 9 updated to "6 段 gate" but line 18 left at "5 段目" (+ omitted `/simplify`); a copied overlay left a stale `~/.claude/skills/copilot-review/SKILL.md` path that should have been `copilot-converge`. Memory: `feedback_mechanical-sweep-sibling-cite-scan-mandatory.md`.
+A token changed at the sites the author was looking at but left un-propagated to its siblings is a recurring miss — and one a single-pass external review (Codex) *will* catch, so catch it pre-push. PR #278 precedent: `elidex-review/SKILL.md` line 9 updated to "6 段 gate" but line 18 left at "5 段目" (+ omitted `/simplify`); a copied overlay left a stale `~/.claude/skills/copilot-review/SKILL.md` path that should have been `copilot-converge`. Memory: `feedback_mechanical-sweep-sibling-cite-scan-mandatory.md`.
 
 Mechanical (no agent), before dispatching Step 2. For each renamed/reframed token:
 
@@ -190,7 +190,7 @@ When a fix responds to a symptom-shaped finding, run a **root-cause re-derivatio
 ### Placement (blast-radius-weighted, NOT uniform)
 
 - **plan-review**: re-check each design-affecting / symptom-shaped fix **immediately** — plan fixes *compound* (later plan decisions build on the corrected one).
-- **elidex-review (diff) / copilot-review**: batch into **one cumulative pass at the end** (pre-push / pre-merge) — code fixes are more independent and the irreversible step is the natural gate.
+- **elidex-review (diff) / external-review**: batch into **one cumulative pass at the end** (pre-push / pre-merge) — code fixes are more independent and the irreversible step is the natural gate.
 
 When every fix is clerical under A **and** none answered a symptom-shaped finding under B, the **re-check/re-derivation is skipped** — classification itself is always done (that is how you established the fixes are clerical).
 

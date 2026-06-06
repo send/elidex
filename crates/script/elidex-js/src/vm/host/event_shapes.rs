@@ -48,7 +48,7 @@
 //! layout.  Per master roadmap §E-2 Round 20 PR7, the boa runtime
 //! crate is scheduled for full deletion (~-15,000 LoC).  Shape
 //! changes in this file are NOT mirrored to boa deliberately — the
-//! work would be throwaway.  When `/copilot-review` flags the
+//! work would be throwaway.  When `/external-review` flags the
 //! parallel for not being updated, resolve-with-cite this paragraph +
 //! `memory/project_boa_runtime_deletion.md`.
 

@@ -1,6 +1,6 @@
-# /copilot-review project overlay — elidex
+# /external-review project overlay — elidex
 
-Loaded by `~/.claude/skills/copilot-review/SKILL.md` (single-pass triage) when invoked from this repo. Provides project-specific calibration for the steps that survive in single-pass mode (fetch / classify / layer-fit / fix-discipline). The loop-only calibration (round-count `failure_modes`, `wakeup_median`, TERMINAL accounting) lives in `copilot-converge/project.md` instead.
+Loaded by `~/.claude/skills/external-review/SKILL.md` (single-pass triage) when invoked from this repo. Provides project-specific calibration (reviewer identity / fetch / classify / layer-fit / fix-discipline). The full multi-round loop variant's calibration (round-count `failure_modes`, `wakeup_median`, TERMINAL accounting — Copilot-only) lives in `copilot-converge/project.md`.
 
 ## repo
 
@@ -38,11 +38,11 @@ Acceptable marshalling use: prototype install / brand check / `JsValue` ↔ `Ent
 
 Applied at SKILL.md Step 5.1 (fix planning) — per-fix lens. SSoT: `<repo>/.claude/skills/elidex-review/workflow.md` (Step 3.5 + Step 4.5).
 
-**Step 5.1 (per-fix)**: apply Step 3.5 "Philosophy alignment" — symptom vs root through CLAUDE.md "ideal over pragmatic" + "設計優先" + "ECS-native first". Copilot's obvious patch is usually the smallest symptom-fix (sort / guard / cast); prefer a structural fix where the invariant holds by construction. Polish-domination smell → re-derive.
+**Step 5.1 (per-fix)**: apply Step 3.5 "Philosophy alignment" — symptom vs root through CLAUDE.md "ideal over pragmatic" + "設計優先" + "ECS-native first". The reviewer's obvious patch is usually the smallest symptom-fix (sort / guard / cast); prefer a structural fix where the invariant holds by construction. Polish-domination smell → re-derive.
 
 Precedent (PR #213, 2026-05-20): R2 flagged nondeterministic `HashMap` callback order; reactive patch was per-site `sort_by_key`. Philosophy-ideal was `BTreeMap` keyed by monotonic observer id — registration-order delivery as a *structural* invariant.
 
-**Step 5.5 fix-delta re-verify**: Copilot findings are frequently *symptom-shaped* ("add a guard", "handle this case"), and the fix delta never re-enters the pre-push `/elidex-review` philosophy gate. So when any fix this pass is symptom-shaped OR touches `layering.paths`, run one `/elidex-review` over the fix delta before the merge proposal — **Trigger B is the acute Copilot-specific risk** (see workflow.md Step 4.5). New findings → resolve before merge.
+**Step 5.5 fix-delta re-verify**: external-review findings are frequently *symptom-shaped* ("add a guard", "handle this case"), and the fix delta never re-enters the pre-push `/elidex-review` philosophy gate. So when any fix this pass is symptom-shaped OR touches `layering.paths`, run one `/elidex-review` over the fix delta before the merge proposal — **Trigger B is the acute external-review-specific risk** (see workflow.md Step 4.5). New findings → resolve before merge.
 
 ## classification_calibration
 
@@ -51,6 +51,12 @@ Past elidex incidents that calibrate Step 2 severity (these survive single-pass;
 - PR #154 (2026-05-05) — ~50% of IMP were miscalibrated polish → apply the one-sentence "what concretely breaks?" test strictly; doc imprecision that doesn't misdirect is MINOR.
 - Layer-confusion FPs (broker-register-ack, lessons #135-141; PR #151, lesson #145) → Step 4 upward/downward drift screen, both directions.
 
-## copilot_bot_id
+## reviewer
 
-`BOT_kgDOCnlnWA` — verified for `send/elidex`. (Used only if you manually re-trigger a review; single-pass does not auto-re-request.)
+elidex's non-Claude diversity reviewer (Step 1 fetch filter / head-staleness / re-trigger):
+
+- `bot_login`: `chatgpt-codex-connector[bot]`
+- `name`: Codex (genuine OpenAI Codex Cloud, ChatGPT **Plus**-billed — *not* GitHub Copilot credits)
+- `trigger`: `@codex review` (or Codex auto-review, enabled at chatgpt.com/codex)
+
+**Identity caveat**: only the `chatgpt-codex-connector[bot]` review is the genuine Plus-billed Codex. A bare `@codex[agent]` mention instead routes to a GitHub-Copilot SWE agent (runs on `api.individual.githubcopilot.com`, billed as Copilot credits) — do **not** use it. The elidex review lenses reach Codex via `AGENTS.md` (`## Review guidelines` → `axes.md`). Quality validated on #295 (P1 GC-rooting + side-store/unbind panic + spec-accurate WebCrypto findings, catching gate-misses). Background → `memory/project_ai-review-setup.md`.
