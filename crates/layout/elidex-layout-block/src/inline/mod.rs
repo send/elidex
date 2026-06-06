@@ -23,7 +23,9 @@ use elidex_plugin::{
 };
 #[cfg(test)]
 pub(crate) use elidex_text::FontDatabase;
-use elidex_text::{measure_text, to_fontdb_style, FontStyle, TextMeasureParams};
+use elidex_text::{
+    apply_text_transform, measure_text, to_fontdb_style, FontStyle, TextMeasureParams,
+};
 
 use crate::MAX_LAYOUT_DEPTH;
 
@@ -87,6 +89,11 @@ pub struct StyledRun {
     pub line_height: f32,
     /// CSS `white-space` (drives §4.1.1 collapsing / segment-break handling).
     pub white_space: WhiteSpace,
+    /// CSS `text-transform` (CSS Text 3 §2.1). Applied to `text` *after* §4.1.1
+    /// collapse and *before* measuring/packing (§2.1.2 order of operations), so
+    /// the persisted positions are for the final transformed glyphs and render
+    /// paints `text` verbatim (no re-transform).
+    pub text_transform: TextTransform,
     /// Which render-run-group this run's `InlineFlow` text member persists under:
     /// the run-start entity render reads `InlineFlow` off (its `run[0]`) for the
     /// `emit_inline_run` that paints this group — the IFC parent's first eligible
@@ -116,6 +123,7 @@ impl StyledRun {
             word_spacing: style.word_spacing.unwrap_or(0.0),
             line_height: style.line_height.resolve_px(style.font_size),
             white_space: style.white_space,
+            text_transform: style.text_transform,
             group_key,
         }
     }
@@ -181,16 +189,15 @@ fn is_atomic_inline(display: Display) -> bool {
 ///   positions runs in logical order, but render reorders them visually
 ///   (`bidi_visual_order`); consuming the logical order would scramble them
 ///   (slice 4).
-/// - `has_text_transform`: a run whose element applies `text-transform` — layout
-///   measures/positions the untransformed text, but render transforms it before
-///   shaping (`query_segment_font`), so the baked positions would be wrong
-///   (slice 3; the deeper fix is layout transforming before measuring).
+///
+/// (`text-transform` no longer gates: layout now transforms each run's text
+/// before measuring/packing — see [`apply_text_transforms`] — so the persisted
+/// positions are for the transformed glyphs and render paints them verbatim.)
 // Each field is an independent "gate out of InlineFlow persistence" reason;
 // a flag set is the natural representation.
 #[derive(Default, Clone, Copy)]
 pub(crate) struct RunComplexity {
     pub has_bidi: bool,
-    pub has_text_transform: bool,
 }
 
 /// Render's `run[0]` for the inline run rooted at the element whose composed
@@ -339,7 +346,31 @@ pub(crate) fn collect_inline_items(
         root_horizontal,
     );
     collapse_inline_whitespace(&mut items);
+    apply_text_transforms(&mut items);
     (items, complexity, candidate_keys)
+}
+
+/// Apply CSS `text-transform` (CSS Text 3 §2.1) to each text run's collapsed
+/// text, in place, *after* §4.1.1 white-space collapse and *before* the line
+/// packer measures/breaks it (§2.1.2 Order of Operations). Because the packer
+/// reads `run.text` for both break opportunities and width measurement, the
+/// transformed text drives line breaking and the persisted glyph positions, and
+/// render paints `run.text` verbatim (no re-transform). Each run is transformed
+/// independently — §2.1.1's "inline box boundaries must not introduce a word
+/// boundary" across runs is a pre-existing gap, matching render's prior
+/// per-segment behavior.
+fn apply_text_transforms(items: &mut [InlineItem]) {
+    for item in items {
+        if let InlineItem::Text(run) = item {
+            if run.text_transform != TextTransform::None {
+                if let std::borrow::Cow::Owned(transformed) =
+                    apply_text_transform(&run.text, run.text_transform)
+                {
+                    run.text = transformed;
+                }
+            }
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -406,16 +437,11 @@ fn collect_inline_items_inner(
             // own style (skip child recursion). The pre-layout generated-content
             // pass has already resolved `content` (incl. counter()) into the
             // pseudo's `TextContent`, so layout measures the real text. The run is
-            // still gated out of `InlineFlow` if it needs bidi reordering (slice 4)
-            // or text-transform (render transforms before shaping) — the same
-            // gates the text-node branch applies, here against the pseudo's own
-            // computed text-transform and its resolved text.
+            // still gated out of `InlineFlow` if it needs bidi reordering (slice 4);
+            // text-transform is applied in-place after collapse (no gate).
             if dom.world().get::<&PseudoElementMarker>(child).is_ok() {
                 if let Ok(tc) = dom.world().get::<&TextContent>(child) {
                     if !tc.0.is_empty() {
-                        if style.text_transform != TextTransform::None {
-                            complexity.has_text_transform = true;
-                        }
                         if elidex_text::text_has_rtl(&tc.0) {
                             complexity.has_bidi = true;
                         }
@@ -463,13 +489,9 @@ fn collect_inline_items_inner(
             // Text node: produce a run with the parent element's style.
             if !tc.0.is_empty() {
                 // Gate the run out of InlineFlow persistence if it needs bidi
-                // reordering (render reorders visually) or text-transform (render
-                // transforms before shaping, diverging from layout's measured
-                // positions). text-transform is inherited, so the parent element's
-                // computed value is the one render will apply to this text.
-                if parent_style.text_transform != TextTransform::None {
-                    complexity.has_text_transform = true;
-                }
+                // reordering (render reorders visually). text-transform no longer
+                // gates — it is applied in-place after collapse (`apply_text_transforms`),
+                // which threads the per-run value via `StyledRun::text_transform`.
                 if elidex_text::text_has_rtl(&tc.0) {
                     complexity.has_bidi = true;
                 }
@@ -822,9 +844,7 @@ pub fn layout_inline_context_fragmented(
         frag_constraint.is_some_and(|c| c.fragmentation_type == crate::FragmentationType::Page);
     let frag_is_column =
         frag_constraint.is_some_and(|c| c.fragmentation_type == crate::FragmentationType::Column);
-    let no_legacy_gate = parent_style.text_align != TextAlign::Justify
-        && !complexity.has_bidi
-        && !complexity.has_text_transform;
+    let no_legacy_gate = parent_style.text_align != TextAlign::Justify && !complexity.has_bidi;
     let persist_candidate =
         no_legacy_gate && (frag_constraint.is_none() || frag_is_paged || frag_is_column);
     let flow_align = persist_candidate.then_some(pack::FlowAlign {

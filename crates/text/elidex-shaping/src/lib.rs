@@ -16,7 +16,7 @@ pub use shaping::{
     shape_text, shape_text_vertical, shape_text_vertical_sideways, shape_text_with_fallback,
     ShapedGlyph, ShapedRun, ShapedText, ShapedTextWithFonts,
 };
-pub use unicode::is_word_separator;
+pub use unicode::{apply_text_transform, is_word_separator};
 
 /// Cross-platform fallback font families used by tests that need a system font.
 #[cfg(test)]

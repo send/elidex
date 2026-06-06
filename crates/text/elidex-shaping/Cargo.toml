@@ -15,6 +15,7 @@ categories = ["web-programming"]
 elidex-plugin.workspace = true
 fontdb.workspace = true
 rustybuzz.workspace = true
+unicode-segmentation.workspace = true
 
 [lints]
 workspace = true

@@ -3,8 +3,10 @@
 use std::borrow::Cow;
 
 use super::{families_as_refs, StyledTextSegment};
-use elidex_plugin::{Direction, TextAlign, TextTransform};
-use elidex_text::{measure_text, to_fontdb_style, FontDatabase, TextMeasureParams};
+use elidex_plugin::{Direction, TextAlign};
+use elidex_text::{
+    apply_text_transform, measure_text, to_fontdb_style, FontDatabase, TextMeasureParams,
+};
 
 /// Resolve `text-align: start/end` to physical `left/right` based on direction.
 ///
@@ -172,38 +174,4 @@ pub(crate) fn measure_segment_width(
         word_spacing: seg.word_spacing,
     };
     measure_text(font_db, &params, &transformed).map_or(0.0, |m| m.width)
-}
-
-/// Apply CSS `text-transform` to a string before shaping.
-#[must_use]
-pub(crate) fn apply_text_transform(text: &str, transform: TextTransform) -> Cow<'_, str> {
-    match transform {
-        TextTransform::None => Cow::Borrowed(text),
-        TextTransform::Uppercase => Cow::Owned(text.to_uppercase()),
-        TextTransform::Lowercase => Cow::Owned(text.to_lowercase()),
-        TextTransform::Capitalize => Cow::Owned(capitalize_words(text)),
-    }
-}
-
-/// Capitalize the first letter of each word per UAX #29 word boundaries.
-///
-/// Uses `unicode-segmentation` for word boundary detection (CSS Text Level 3
-/// §2.4). This correctly handles punctuation-adjacent boundaries and
-/// non-space separators (e.g. "hello-world" → "Hello-World").
-#[must_use]
-fn capitalize_words(text: &str) -> String {
-    use unicode_segmentation::UnicodeSegmentation;
-    let mut result = String::with_capacity(text.len());
-    for word in text.split_word_bounds() {
-        let mut chars = word.chars();
-        if let Some(first) = chars.next() {
-            if first.is_alphabetic() {
-                result.extend(first.to_uppercase());
-                result.push_str(chars.as_str());
-            } else {
-                result.push_str(word);
-            }
-        }
-    }
-    result
 }

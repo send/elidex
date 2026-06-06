@@ -468,7 +468,12 @@ fn emit_inline_flow(
                         }
                         // Style-only segment: the collapsed text comes from the flow
                         // member (`text`), so the segment's own text field is unused.
-                        let seg = StyledTextSegment::from_style(String::new(), &style);
+                        // Layout already applied `text-transform` before measuring, so
+                        // the persisted `text` is final — paint it verbatim (force the
+                        // segment's transform to `None` so the shared emit path does not
+                        // re-transform; CSS Text 3 §2.1, render = paint-only).
+                        let mut seg = StyledTextSegment::from_style(String::new(), &style);
+                        seg.text_transform = TextTransform::None;
                         if vertical {
                             let center_x = line.block_start + line.block_size / 2.0;
                             let mut cursor_y = *inline_start;

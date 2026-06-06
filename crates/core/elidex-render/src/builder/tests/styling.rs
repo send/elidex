@@ -464,31 +464,6 @@ fn border_corners_no_overlap() {
 }
 
 // ---------------------------------------------------------------------------
-// text-transform
-// ---------------------------------------------------------------------------
-
-#[test]
-fn apply_text_transform_cases() {
-    use elidex_plugin::TextTransform;
-    let cases = [
-        ("hello", TextTransform::Uppercase, "HELLO"),
-        ("HELLO", TextTransform::Lowercase, "hello"),
-        ("hello world", TextTransform::Capitalize, "Hello World"),
-        // UAX #29: punctuation-adjacent word boundaries.
-        ("hello-world", TextTransform::Capitalize, "Hello-World"),
-        ("it's a test", TextTransform::Capitalize, "It's A Test"),
-        ("Hello", TextTransform::None, "Hello"),
-    ];
-    for (input, transform, expected) in cases {
-        assert_eq!(
-            super::super::text::apply_text_transform(input, transform),
-            expected,
-            "input={input:?}, transform={transform:?}"
-        );
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Image rendering
 // ---------------------------------------------------------------------------
 
