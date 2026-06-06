@@ -225,6 +225,8 @@ pub(super) mod offscreen_canvas;
 pub(super) mod shadow_root_proto;
 
 #[cfg(feature = "engine")]
+pub(crate) mod crypto_key;
+#[cfg(feature = "engine")]
 pub(super) mod document_traversal;
 #[cfg(feature = "engine")]
 pub(super) mod dom_selection_proto;

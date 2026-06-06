@@ -119,7 +119,7 @@ Web APIs beyond the DOM follow the same core/compat/deprecated pattern applied t
 | P1 | WebSocket | elidex-api-ws | Real-time communication. |
 | P1 | requestIdleCallback | (built-in) | Low-priority task scheduling. Used by React Scheduler. |
 | P1 | Intersection / Resize Observer | elidex-api-observers | ECS change tracking maps naturally, like MutationObserver. |
-| P1 | Web Crypto API | elidex-api-crypto | Security foundation. Backed by ring/aws-lc-rs in Rust. |
+| P1 | Web Crypto API | elidex-api-crypto | Security foundation. Backed by RustCrypto — sha1/sha2/hmac in-tree (PR-1 HMAC vertical); aes-gcm/p256/rsa land with later verticals. |
 | P1 | CookieStore API | elidex-api-cookies | Async, Promise-based cookie access. Modern replacement for document.cookie. |
 | P1 | Broadcast Channel | elidex-api-broadcast | Cross-tab communication. Maps to multi-process IPC. |
 | P2 | IndexedDB | elidex-api-idb | Async client-side storage. |

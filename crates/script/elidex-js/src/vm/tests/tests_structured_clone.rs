@@ -518,3 +518,81 @@ fn structured_clone_options_transfer_via_getter_is_observed() {
     );
     assert!((gets - 1.0).abs() < f64::EPSILON);
 }
+
+// ---------------------------------------------------------------------------
+// CryptoKey `[Serializable]` (WebCrypto §13.5) — the serialized form is
+// the full `CryptoKeyData` (type / extractable / algorithm / usages /
+// handle), so the clone is a distinct wrapper observing the same key.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn crypto_key_structured_clone_roundtrips() {
+    let mut vm = Vm::new();
+    vm.eval(
+        "crypto.subtle.generateKey({name:'HMAC', hash:'SHA-256'}, true, ['sign','verify']) \
+           .then(k => { globalThis.key = k; globalThis.clone = structuredClone(k); });",
+    )
+    .unwrap();
+    // Distinct object, same observable shape (§13.5 deserialize).
+    assert!(eval_bool(&mut vm, "globalThis.clone !== globalThis.key"));
+    assert_eq!(eval_string(&mut vm, "globalThis.clone.type"), "secret");
+    assert!(eval_bool(&mut vm, "globalThis.clone.extractable === true"));
+    assert_eq!(
+        eval_string(&mut vm, "globalThis.clone.algorithm.name"),
+        "HMAC"
+    );
+    assert_eq!(
+        eval_string(&mut vm, "globalThis.clone.algorithm.hash.name"),
+        "SHA-256"
+    );
+    assert_eq!(
+        eval_string(&mut vm, "globalThis.clone.usages.join(',')"),
+        "sign,verify"
+    );
+    // The clone's cached accessors are its own (distinct object), but
+    // still internally stable (§13.4 cache applies per wrapper).
+    assert!(eval_bool(
+        &mut vm,
+        "globalThis.clone.algorithm !== globalThis.key.algorithm && \
+         globalThis.clone.algorithm === globalThis.clone.algorithm"
+    ));
+}
+
+#[test]
+fn crypto_key_clone_signs_identically() {
+    // The cloned key carries the same `[[handle]]` material, so it
+    // produces the same HMAC over the same input.
+    let mut vm = Vm::new();
+    vm.eval(
+        "globalThis.r = 'pending'; \
+         crypto.subtle.importKey('raw', new Uint8Array([1,2,3,4]), \
+              {name:'HMAC', hash:'SHA-256'}, true, ['sign']) \
+           .then(k => { globalThis.c = structuredClone(k); \
+                        return crypto.subtle.sign('HMAC', k, new Uint8Array([9,9])); }) \
+           .then(sigK => { globalThis.sigK = new Uint8Array(sigK).join(','); \
+                           return crypto.subtle.sign('HMAC', globalThis.c, new Uint8Array([9,9])); }) \
+           .then(sigC => { globalThis.r = \
+                           (new Uint8Array(sigC).join(',') === globalThis.sigK) ? 'match' : 'differ'; });",
+    )
+    .unwrap();
+    assert_eq!(eval_string(&mut vm, "globalThis.r"), "match");
+}
+
+#[test]
+fn crypto_key_clone_preserves_non_extractable() {
+    // §13.5 note: a non-extractable key stays non-extractable after the
+    // clone — its material must not leak via deserialization, so
+    // `exportKey` on the clone still rejects with InvalidAccessError.
+    let mut vm = Vm::new();
+    vm.eval(
+        "globalThis.r = 'pending'; \
+         crypto.subtle.importKey('raw', new Uint8Array([1,2,3,4]), \
+              {name:'HMAC', hash:'SHA-256'}, false, ['sign']) \
+           .then(k => { const c = structuredClone(k); globalThis.ext = c.extractable; \
+                        return crypto.subtle.exportKey('raw', c); }) \
+           .then(() => { globalThis.r = 'exported'; }, e => { globalThis.r = e.name; });",
+    )
+    .unwrap();
+    assert!(!eval_bool(&mut vm, "globalThis.ext"));
+    assert_eq!(eval_string(&mut vm, "globalThis.r"), "InvalidAccessError");
+}

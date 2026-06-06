@@ -409,6 +409,14 @@ impl VmInner {
                 self.subtle_crypto_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // `CryptoKey.prototype` (`#11-crypto-subtle-full`).
+                // Rooted so retained `CryptoKey` instances keep a live
+                // prototype; instances are not singletons, so only the
+                // prototype is a root.
+                #[cfg(feature = "engine")]
+                self.crypto_key_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
                 #[cfg(feature = "engine")]
                 self.crypto_instance,
                 #[cfg(not(feature = "engine"))]
@@ -1303,6 +1311,8 @@ impl VmInner {
             &self.idb_index_states,
             #[cfg(feature = "engine")]
             &self.idb_cursor_states,
+            #[cfg(feature = "engine")]
+            &self.crypto_key_js_cache,
             &mut self.gc_object_marks,
             &mut self.gc_upvalue_marks,
             &mut self.gc_work_list,
@@ -1341,6 +1351,17 @@ impl VmInner {
             // `StringId` pairs (pool-permanent) — no trace pass
             // needed during mark, only this post-sweep GC.
             self.dom_exception_states
+                .retain(|id, _| bit_get(marks, id.0));
+            // `CryptoKey` side table (`#11-crypto-subtle-full`).  Prune
+            // is a CORRECTNESS invariant, not just hygiene: `ObjectId`
+            // slots are reused (`alloc_object` free-list), so a stale
+            // entry left after collection would bind another wrapper's
+            // key material.  The cached `algorithm` / `usages` wrappers
+            // (`crypto_key_js_cache`) are traced via the
+            // `ObjectKind::CryptoKey` arm (so they survive while the key
+            // is reachable) and pruned here with the same key.
+            self.crypto_key_states.retain(|id, _| bit_get(marks, id.0));
+            self.crypto_key_js_cache
                 .retain(|id, _| bit_get(marks, id.0));
             // DOMRect value-type side table (GC contract on the field doc).
             self.dom_rect_states.retain(|id, _| bit_get(marks, id.0));

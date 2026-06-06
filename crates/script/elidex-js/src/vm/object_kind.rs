@@ -1261,8 +1261,9 @@ pub enum ObjectKind {
     Crypto,
     /// `SubtleCrypto` instance (WebCrypto §14) — accessed via the
     /// `Crypto.prototype.subtle` accessor (per spec `[SameObject]`).
-    /// Payload-free brand; current scope ships only
-    /// `digest(algorithm, data)`.
+    /// Payload-free brand; ships `digest` + the HMAC vertical
+    /// (`generateKey` / `importKey` / `exportKey` / `sign` / `verify`,
+    /// slot `#11-crypto-subtle-full` PR-1).
     ///
     /// `new SubtleCrypto()` throws TypeError per WebIDL §14.
     ///
@@ -1271,6 +1272,31 @@ pub enum ObjectKind {
     /// slot alongside `crypto_instance`.
     #[cfg(feature = "engine")]
     SubtleCrypto,
+    /// `CryptoKey` instance (WebCrypto §13) — vended by
+    /// `SubtleCrypto.{generateKey,importKey}`.  Payload-free brand; the
+    /// per-key state (`type` / `extractable` / `algorithm` / `usages` +
+    /// the secret key material) lives in `VmInner::crypto_key_states`
+    /// keyed by this `ObjectId` (engine-independent
+    /// `elidex_api_crypto::CryptoKeyData`).
+    ///
+    /// `new CryptoKey()` throws a TypeError: per Web IDL an interface
+    /// with no constructor operation is an illegal constructor, and
+    /// `CryptoKey` (WebCrypto §13) declares none — keys are produced
+    /// only by `SubtleCrypto` operations.
+    ///
+    /// GC contract: the trace arm marks the cached `algorithm` / `usages`
+    /// objects (`[[algorithm_cached]]` / `[[usages_cached]]`, §13.4) held
+    /// in `VmInner::crypto_key_js_cache` — they persist across native
+    /// calls (when GC runs) and must stay alive while the key is
+    /// reachable.  The key-material side-store (`crypto_key_states`) itself
+    /// holds only bytes + enums (no `ObjectId`).  The sweep tail prunes
+    /// both side-stores for collected keys (a correctness invariant —
+    /// `ObjectId` slots are reused, so a stale entry would otherwise be
+    /// read by an unrelated reused-id object).  `Vm::unbind` clears both
+    /// (the key-material payload is a cross-session leak otherwise; same
+    /// data-class as `wasm_module_storage`).
+    #[cfg(feature = "engine")]
+    CryptoKey,
     /// `WebSocket` instance (WHATWG WebSockets §9.3).  Payload-free
     /// brand; the per-instance state (4-state `readyState` + URL +
     /// negotiated protocol/extensions + `bufferedAmount` +

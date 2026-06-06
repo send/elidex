@@ -492,6 +492,7 @@ impl VmInner {
             // for shape parity with the surrounding `navigator` /
             // `performance` data-property neighbours.
             self.register_subtle_crypto_global();
+            self.register_crypto_key_global();
             self.register_crypto_global();
             // D-17 `#11-custom-elements-vm` (HTML §4.13.4). Window
             // scope only — `WorkerGlobalScope` does NOT expose

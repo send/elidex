@@ -13,9 +13,10 @@
 //! - Primitives copy by value.
 //! - Object values dispatch on [`ObjectKind`]; the supported set is
 //!   narrow and deliberately enumerated: Ordinary / Array / RegExp /
-//!   Error / primitive-wrappers / ArrayBuffer / Blob.  Everything
-//!   else throws `DOMException("DataCloneError")` per spec §2.9 step
-//!   27 ("otherwise throw DataCloneError").
+//!   Error / primitive-wrappers / ArrayBuffer / Blob / TypedArray /
+//!   DataView / CryptoKey (WebCrypto §13.5 `[Serializable]`).
+//!   Everything else throws `DOMException("DataCloneError")` per spec
+//!   §2.9 step 27 ("otherwise throw DataCloneError").
 //! - A cycle memo (source `ObjectId` → cloned `ObjectId`) makes
 //!   `a.self = a` round-trip and shared references observe the same
 //!   cloned identity on the output side.  **Memo insert happens
@@ -174,6 +175,7 @@ fn clone_recursive(
         CloneKind::Blob => Ok(JsValue::Object(clone_blob(vm, src_id, memo))),
         CloneKind::TypedArray => Ok(JsValue::Object(clone_typed_array(vm, src_id, memo)?)),
         CloneKind::DataView => Ok(JsValue::Object(clone_data_view(vm, src_id, memo)?)),
+        CloneKind::CryptoKey => Ok(JsValue::Object(clone_crypto_key(vm, src_id, memo)?)),
         CloneKind::Unclonable(label) => Err(data_clone_error(vm, label)),
     }
 }
@@ -216,6 +218,7 @@ enum CloneKind {
     Blob,
     TypedArray,
     DataView,
+    CryptoKey,
     Unclonable(&'static str),
 }
 
@@ -373,6 +376,12 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         // is non-spec).  Slot `#11-crypto-subtle-min`.
         ObjectKind::Crypto => CloneKind::Unclonable("Crypto"),
         ObjectKind::SubtleCrypto => CloneKind::Unclonable("SubtleCrypto"),
+        // `CryptoKey` is `[Serializable]` (WebCrypto §13.5).  Its
+        // serialized form is exactly the side-store `CryptoKeyData`
+        // ([[type]] / [[extractable]] / [[algorithm]] / [[usages]] /
+        // [[handle]]), so the clone is a value-clone of that record into
+        // a fresh wrapper (see `clone_crypto_key`).
+        ObjectKind::CryptoKey => CloneKind::CryptoKey,
         // D-12 `#11-net-ws-sse` — WebSocket / EventSource are not
         // structured-cloneable per WHATWG WebSockets §9.3 / HTML
         // §9.2.  Each wrapper holds a broker `conn_id` whose I/O
@@ -736,6 +745,39 @@ fn clone_blob(vm: &mut VmInner, src: ObjectId, memo: &mut HashMap<ObjectId, Obje
     let new_id = super::blob::create_blob_from_bytes(vm, new_bytes, type_sid);
     memo.insert(src, new_id);
     new_id
+}
+
+/// Clone a `CryptoKey` (WebCrypto §13.5 serialize + deserialize steps).
+///
+/// The serialized form is the side-store [`elidex_api_crypto::CryptoKeyData`]
+/// in full — `[[type]]` / `[[extractable]]` / `[[algorithm]]` /
+/// `[[usages]]` / `[[handle]]` (key material) — so serialize+deserialize
+/// collapse to a value-clone of that record into a fresh wrapper +
+/// side-store entry.  The clone preserves `[[extractable]]` exactly, so a
+/// non-extractable key stays non-extractable (its material is never
+/// exposed — `exportKey` still throws `InvalidAccessError`), satisfying
+/// the §13.5 note that material must not leak via deserialization.  The
+/// cloned wrapper starts with no `crypto_key_js_cache` entry; its first
+/// `algorithm` / `usages` read builds a fresh cached object (a clone is a
+/// distinct object, so distinct cached accessors are correct).
+///
+/// A `CryptoKey` brand that lost its side-store entry (e.g. retained
+/// across `Vm::unbind`) is a `DataCloneError`, mirroring the brand-check
+/// in the accessors / operations.
+fn clone_crypto_key(
+    vm: &mut VmInner,
+    src: ObjectId,
+    memo: &mut HashMap<ObjectId, ObjectId>,
+) -> Result<ObjectId, VmError> {
+    if let Some(&cached) = memo.get(&src) {
+        return Ok(cached);
+    }
+    let Some(data) = vm.crypto_key_states.get(&src).cloned() else {
+        return Err(data_clone_error(vm, "CryptoKey"));
+    };
+    let new_id = vm.alloc_crypto_key(data);
+    memo.insert(src, new_id);
+    Ok(new_id)
 }
 
 /// Clone a `TypedArray` view.  First clones the underlying
