@@ -433,32 +433,77 @@ fn coerce_enforce_range_u32(
     }
 }
 
-/// Marshal a JS `sequence<KeyUsage>` (an Array of enum strings) into a
-/// `Vec<KeyUsage>`.  A non-Array value or an unrecognized enum string is
-/// a WebIDL conversion `TypeError`.
+/// Web IDL `sequence<T>` conversion (§3.2.21 "create a sequence from an
+/// iterable"): get `value`'s `@@iterator`, then apply `f` to each yielded
+/// element in turn.  Converting per-element (rather than collecting a
+/// detached `Vec<JsValue>` first) keeps no un-rooted `JsValue` across an
+/// allocation — `f` may run user code (a getter / `toString`), during
+/// which GC may run.  A value with no usable `@@iterator` is a
+/// `TypeError`; an `f` that errors closes the iterator (ECMA-262 §7.4.11
+/// IteratorClose) before propagating, while a throw from the iterator's
+/// own `.next()` leaves it un-closed (the iterator already reported
+/// `[[Done]]`).  Mirrors the `headers::parse_init` sequence idiom.
+fn for_each_sequence_element<F>(
+    ctx: &mut NativeContext<'_>,
+    value: JsValue,
+    not_iterable_msg: &str,
+    mut f: F,
+) -> Result<(), VmError>
+where
+    F: FnMut(&mut NativeContext<'_>, JsValue) -> Result<(), VmError>,
+{
+    let iter = match ctx.vm.resolve_iterator(value)? {
+        Some(it @ JsValue::Object(_)) => it,
+        Some(_) => {
+            return Err(VmError::type_error(format!(
+                "{not_iterable_msg}: @@iterator must return an object."
+            )))
+        }
+        None => return Err(VmError::type_error(not_iterable_msg.to_string())),
+    };
+    loop {
+        match ctx.vm.iter_next(iter) {
+            Ok(Some(el)) => {
+                if let Err(e) = f(ctx, el) {
+                    let _ = ctx.vm.iter_close(iter);
+                    return Err(e);
+                }
+            }
+            Ok(None) => return Ok(()),
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+/// Marshal a JS `sequence<KeyUsage>` into a `Vec<KeyUsage>` (Web IDL).
+/// Any iterable is accepted (not just an Array); an unrecognized enum
+/// string or a non-iterable value is a WebIDL conversion `TypeError`.
 fn marshal_usages(
     ctx: &mut NativeContext<'_>,
     value: JsValue,
     method: &str,
 ) -> Result<Vec<KeyUsage>, VmError> {
-    let elements = read_array_elements(ctx, value).ok_or_else(|| {
-        VmError::type_error(format!(
+    let mut usages = Vec::new();
+    for_each_sequence_element(
+        ctx,
+        value,
+        &format!(
             "Failed to execute '{method}' on 'SubtleCrypto': \
              The provided value cannot be converted to a sequence."
-        ))
-    })?;
-    let mut usages = Vec::with_capacity(elements.len());
-    for el in elements {
-        let sid = coerce::to_string(ctx.vm, el)?;
-        let s = ctx.vm.strings.get_utf8(sid);
-        let usage = KeyUsage::from_ident(&s).ok_or_else(|| {
-            VmError::type_error(format!(
-                "Failed to execute '{method}' on 'SubtleCrypto': \
-                 The provided value '{s}' is not a valid enum value of type KeyUsage."
-            ))
-        })?;
-        usages.push(usage);
-    }
+        ),
+        |ctx, el| {
+            let sid = coerce::to_string(ctx.vm, el)?;
+            let s = ctx.vm.strings.get_utf8(sid);
+            let usage = KeyUsage::from_ident(&s).ok_or_else(|| {
+                VmError::type_error(format!(
+                    "Failed to execute '{method}' on 'SubtleCrypto': \
+                     The provided value '{s}' is not a valid enum value of type KeyUsage."
+                ))
+            })?;
+            usages.push(usage);
+            Ok(())
+        },
+    )?;
     Ok(usages)
 }
 
@@ -482,52 +527,81 @@ fn marshal_format(
     }
 }
 
-/// Marshal a JS object into a [`JsonWebKey`] (the `oct`-relevant members).
-/// A non-object value is a `TypeError` (the `jwk` branch requires a
-/// dictionary).
+/// Marshal a JS value into a [`JsonWebKey`] via Web IDL dictionary
+/// conversion.
+///
+/// - `null` / `undefined` convert to an **empty** dictionary (all members
+///   absent); the HMAC import path then rejects it with `DataError`
+///   (missing `kty` / `k`), not a `TypeError`.
+/// - A non-object, non-nullish value cannot be a dictionary → `TypeError`.
+/// - For an object, every declared `JsonWebKey` member is read **in
+///   lexicographic identifier order**, firing each getter and propagating
+///   its throws — even members HMAC ignores (the EC / RSA fields).  Only
+///   the `oct`-relevant subset (`kty` / `use` / `key_ops` / `alg` / `ext`
+///   / `k`) is retained.
 fn marshal_jwk(ctx: &mut NativeContext<'_>, value: JsValue) -> Result<JsonWebKey, VmError> {
-    let JsValue::Object(id) = value else {
-        return Err(VmError::type_error(
-            "Failed to execute 'importKey' on 'SubtleCrypto': \
-             The provided value is not a JSON Web Key dictionary.",
-        ));
+    let id = match value {
+        JsValue::Undefined | JsValue::Null => return Ok(JsonWebKey::default()),
+        JsValue::Object(id) => id,
+        _ => {
+            return Err(VmError::type_error(
+                "Failed to execute 'importKey' on 'SubtleCrypto': \
+                 The provided value is not a JSON Web Key dictionary.",
+            ))
+        }
     };
+    // Lexicographic identifier order of `JsonWebKey` members (WebCrypto
+    // §15): alg, crv, d, dp, dq, e, ext, k, key_ops, kty, n, oth, p, q,
+    // qi, use, x, y.  Read every member (firing getters / propagating
+    // throws); retain only the oct subset.
+    let alg = read_jwk_string(ctx, id, "alg")?;
+    read_jwk_string(ctx, id, "crv")?;
+    read_jwk_string(ctx, id, "d")?;
+    read_jwk_string(ctx, id, "dp")?;
+    read_jwk_string(ctx, id, "dq")?;
+    read_jwk_string(ctx, id, "e")?;
+    let ext = read_jwk_bool(ctx, id, "ext")?;
+    let k = read_jwk_string(ctx, id, "k")?;
+    let key_ops = read_jwk_key_ops(ctx, id)?;
+    let kty = read_jwk_string(ctx, id, "kty")?;
+    read_jwk_string(ctx, id, "n")?;
+    read_jwk_oth(ctx, id)?;
+    read_jwk_string(ctx, id, "p")?;
+    read_jwk_string(ctx, id, "q")?;
+    read_jwk_string(ctx, id, "qi")?;
+    let use_ = read_jwk_string(ctx, id, "use")?;
+    read_jwk_string(ctx, id, "x")?;
+    read_jwk_string(ctx, id, "y")?;
     Ok(JsonWebKey {
-        kty: read_optional_string(ctx, id, "kty")?,
-        k: read_optional_string(ctx, id, "k")?,
-        alg: read_optional_string(ctx, id, "alg")?,
-        use_: read_optional_string(ctx, id, "use")?,
-        key_ops: read_optional_string_array(ctx, id, "key_ops")?,
-        ext: read_optional_bool(ctx, id, "ext")?,
+        kty,
+        k,
+        alg,
+        use_,
+        key_ops,
+        ext,
     })
 }
 
-/// Read the `Array` elements of `value`, or `None` if it is not an Array.
-fn read_array_elements(ctx: &NativeContext<'_>, value: JsValue) -> Option<Vec<JsValue>> {
-    let JsValue::Object(id) = value else {
-        return None;
-    };
-    match &ctx.vm.get_object(id).kind {
-        ObjectKind::Array { elements } => Some(elements.clone()),
-        _ => None,
-    }
-}
-
-fn read_optional_string(
+/// Read a `DOMString` `JsonWebKey` member (Web IDL): `undefined` → absent
+/// (`None`); any other present value (including `null` → `"null"`) is
+/// converted via `ToString`.  Reading fires the member's getter.
+fn read_jwk_string(
     ctx: &mut NativeContext<'_>,
     obj: ObjectId,
     member: &str,
 ) -> Result<Option<String>, VmError> {
     let key = PropertyKey::String(ctx.vm.strings.intern(member));
     let val = ctx.get_property_value(obj, key)?;
-    if matches!(val, JsValue::Undefined | JsValue::Null) {
+    if matches!(val, JsValue::Undefined) {
         return Ok(None);
     }
     let sid = coerce::to_string(ctx.vm, val)?;
     Ok(Some(ctx.vm.strings.get_utf8(sid)))
 }
 
-fn read_optional_bool(
+/// Read the `boolean ext` `JsonWebKey` member: `undefined` → absent; any
+/// other value via `ToBoolean` (`null` → `false`).
+fn read_jwk_bool(
     ctx: &mut NativeContext<'_>,
     obj: ObjectId,
     member: &str,
@@ -540,28 +614,44 @@ fn read_optional_bool(
     Ok(Some(coerce::to_boolean(ctx.vm, val)))
 }
 
-fn read_optional_string_array(
+/// Read the `sequence<DOMString> key_ops` `JsonWebKey` member: `undefined`
+/// → absent; otherwise a Web IDL sequence conversion (any iterable, each
+/// element via `ToString`).  A non-iterable present value is a `TypeError`.
+fn read_jwk_key_ops(
     ctx: &mut NativeContext<'_>,
     obj: ObjectId,
-    member: &str,
 ) -> Result<Option<Vec<String>>, VmError> {
-    let key = PropertyKey::String(ctx.vm.strings.intern(member));
+    let key = PropertyKey::String(ctx.vm.strings.intern("key_ops"));
     let val = ctx.get_property_value(obj, key)?;
-    if matches!(val, JsValue::Undefined | JsValue::Null) {
+    if matches!(val, JsValue::Undefined) {
         return Ok(None);
     }
-    let Some(elements) = read_array_elements(ctx, val) else {
-        return Err(VmError::type_error(
-            "Failed to execute 'importKey' on 'SubtleCrypto': \
-             JWK 'key_ops' member is not a sequence.",
-        ));
-    };
-    let mut out = Vec::with_capacity(elements.len());
-    for el in elements {
-        let sid = coerce::to_string(ctx.vm, el)?;
-        out.push(ctx.vm.strings.get_utf8(sid));
-    }
+    let mut out = Vec::new();
+    for_each_sequence_element(
+        ctx,
+        val,
+        "Failed to execute 'importKey' on 'SubtleCrypto': \
+         JWK 'key_ops' member is not a sequence.",
+        |ctx, el| {
+            let sid = coerce::to_string(ctx.vm, el)?;
+            out.push(ctx.vm.strings.get_utf8(sid));
+            Ok(())
+        },
+    )?;
     Ok(Some(out))
+}
+
+/// Read the `sequence<RsaOtherPrimesInfo> oth` `JsonWebKey` member,
+/// firing its getter (so a throwing `oth` accessor propagates, per the
+/// "read every declared member" rule) and discarding the value.  HMAC
+/// never consults `oth`; the full `sequence<RsaOtherPrimesInfo>`
+/// conversion (iterating the entries + reading each `r` / `d` / `t`) is
+/// RSA-only and lands with the RSA vertical (`#11-crypto-subtle-full`
+/// PR-5).
+fn read_jwk_oth(ctx: &mut NativeContext<'_>, obj: ObjectId) -> Result<(), VmError> {
+    let key = PropertyKey::String(ctx.vm.strings.intern("oth"));
+    ctx.get_property_value(obj, key)?;
+    Ok(())
 }
 
 /// Build a fresh JS object for an exported `oct` JWK.
@@ -660,14 +750,21 @@ fn native_subtle_crypto_generate_key(
     let args = args.to_vec();
     run_op(ctx, this, "generateKey", move |ctx| {
         let algorithm_arg = args.first().copied().unwrap_or(JsValue::Undefined);
+        // Web IDL converts every argument (in order) before the operation
+        // runs, so `extractable` + the `keyUsages` sequence are converted
+        // *before* the algorithm is normalized (a bad `keyUsages` →
+        // TypeError must beat NotSupportedError).  `algorithm` itself is
+        // `(object or DOMString)` — no member is read at conversion time;
+        // `marshal_algorithm` (which reads `name` / `hash`) is the
+        // operation's normalize step.
         let extractable =
             coerce::to_boolean(ctx.vm, args.get(1).copied().unwrap_or(JsValue::Undefined));
         let usages_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
+        let usages = marshal_usages(ctx, usages_arg, "generateKey")?;
 
         let raw = marshal_algorithm(ctx, algorithm_arg, "generateKey", Operation::GenerateKey)?;
         let normalized = crypto::normalize(Operation::GenerateKey, &raw)
             .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
-        let usages = marshal_usages(ctx, usages_arg, "generateKey")?;
 
         let NormalizedAlgorithm::HmacKeyParams { hash, length } = normalized else {
             return Err(algorithm_error_to_vm(
@@ -711,11 +808,13 @@ fn native_subtle_crypto_import_key(
             coerce::to_boolean(ctx.vm, args.get(3).copied().unwrap_or(JsValue::Undefined));
         let usages_arg = args.get(4).copied().unwrap_or(JsValue::Undefined);
 
-        let raw = marshal_algorithm(ctx, algorithm_arg, "importKey", Operation::ImportKey)?;
-        let normalized = crypto::normalize(Operation::ImportKey, &raw)
-            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
-        let usages = marshal_usages(ctx, usages_arg, "importKey")?;
-
+        // Web IDL converts every argument (in order) before the operation
+        // normalizes the algorithm (§14.3.9 step 2): `keyData`
+        // (`(BufferSource or JsonWebKey)`) and the `keyUsages` sequence are
+        // converted here, so a JWK getter throw / bad-usage TypeError beats
+        // NotSupportedError.  `null` / `undefined` `keyData` converts to an
+        // empty `JsonWebKey` dictionary (the import then rejects with
+        // DataError, not TypeError).
         let key_data = match format {
             KeyFormat::Jwk => KeyData::Jwk(marshal_jwk(ctx, key_data_arg)?),
             _ => KeyData::Raw(extract_buffer_source_bytes(
@@ -726,6 +825,12 @@ fn native_subtle_crypto_import_key(
                 false,
             )?),
         };
+        let usages = marshal_usages(ctx, usages_arg, "importKey")?;
+
+        let raw = marshal_algorithm(ctx, algorithm_arg, "importKey", Operation::ImportKey)?;
+        let normalized = crypto::normalize(Operation::ImportKey, &raw)
+            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+
         let key = crypto::ops::import_key(format, normalized, extractable, usages, key_data)
             .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
         let id = ctx.vm.alloc_crypto_key(key);
@@ -776,9 +881,9 @@ fn native_subtle_crypto_sign(
         let key_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
         let data_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
 
-        let raw = marshal_algorithm(ctx, algorithm_arg, "sign", Operation::Sign)?;
-        let normalized = crypto::normalize(Operation::Sign, &raw)
-            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+        // Web IDL converts the `key` (CryptoKey) and `data` (BufferSource)
+        // arguments before the sign operation normalizes the algorithm, so
+        // a non-CryptoKey `key` → TypeError beats NotSupportedError.
         let key_id = require_crypto_key_arg(ctx, key_arg, "sign", 2)?;
         let data = extract_buffer_source_bytes(
             ctx,
@@ -787,6 +892,9 @@ fn native_subtle_crypto_sign(
             3,
             false,
         )?;
+        let raw = marshal_algorithm(ctx, algorithm_arg, "sign", Operation::Sign)?;
+        let normalized = crypto::normalize(Operation::Sign, &raw)
+            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
         let signature = {
             let key_data = &ctx.vm.crypto_key_states[&key_id];
             crypto::ops::sign(normalized, key_data, &data)
@@ -809,9 +917,10 @@ fn native_subtle_crypto_verify(
         let signature_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
         let data_arg = args.get(3).copied().unwrap_or(JsValue::Undefined);
 
-        let raw = marshal_algorithm(ctx, algorithm_arg, "verify", Operation::Verify)?;
-        let normalized = crypto::normalize(Operation::Verify, &raw)
-            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+        // Web IDL converts the `key` (CryptoKey), `signature` and `data`
+        // (BufferSource) arguments before the verify operation normalizes
+        // the algorithm, so a non-CryptoKey `key` → TypeError beats
+        // NotSupportedError.
         let key_id = require_crypto_key_arg(ctx, key_arg, "verify", 2)?;
         let signature = extract_buffer_source_bytes(
             ctx,
@@ -827,6 +936,9 @@ fn native_subtle_crypto_verify(
             4,
             false,
         )?;
+        let raw = marshal_algorithm(ctx, algorithm_arg, "verify", Operation::Verify)?;
+        let normalized = crypto::normalize(Operation::Verify, &raw)
+            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
         let ok = {
             let key_data = &ctx.vm.crypto_key_states[&key_id];
             crypto::ops::verify(normalized, key_data, &signature, &data)

@@ -50,8 +50,9 @@ pub fn generate_key(
     let NormalizedAlgorithm::HmacKeyParams { hash, length } = algorithm else {
         return Err(not_supported_op("generateKey"));
     };
-    validate_hmac_usages(&usages)?;
-    let usages = normalize_usages(usages);
+    // §31.6.3 Generate Key step 1: a non-`sign`/`verify` usage is a
+    // SyntaxError, checked before the key is produced.
+    validate_hmac_usage_kinds(&usages)?;
     // `ops` owns argument validation (the layering boundary): re-derive
     // the required byte count (this also runs the `length == 0` →
     // OperationError check) and defensively confirm the caller filled
@@ -64,6 +65,11 @@ pub fn generate_key(
             rng_bytes.len()
         )));
     }
+    // §14.3.6 generateKey generic step: a secret key with empty usages is
+    // a SyntaxError — checked *after* the algorithm-specific op produced
+    // the key (so an `OperationError`/`length` failure above wins).
+    require_secret_usages_nonempty(&usages)?;
+    let usages = normalize_usages(usages);
     let bit_len = hmac::generate_key_bit_len(hash, length);
     Ok(CryptoKeyData {
         key_type: KeyType::Secret,
@@ -88,8 +94,13 @@ pub fn import_key(
     let NormalizedAlgorithm::HmacKeyParams { hash, length } = algorithm else {
         return Err(not_supported_op("importKey"));
     };
-    validate_hmac_usages(&usages)?;
-    let usages = normalize_usages(usages);
+    // §31.6.4 Import Key step 2: a non-`sign`/`verify` usage is a
+    // SyntaxError, checked before the key material is parsed.  The
+    // *empty*-usages SyntaxError is a separate, later step
+    // (§14.3.9 generic, below) — so empty usages must NOT short-circuit
+    // material validation here, or `importKey('raw', new Uint8Array(0),
+    // …, [])` would surface SyntaxError instead of the required DataError.
+    validate_hmac_usage_kinds(&usages)?;
 
     let material = match (format, key_data) {
         (KeyFormat::Raw, KeyData::Raw(bytes)) => bytes,
@@ -119,6 +130,11 @@ pub fn import_key(
         ));
     }
     let length = resolve_import_length(material.len(), length)?;
+    // §14.3.9 importKey generic step: a secret key with empty usages is a
+    // SyntaxError — checked *after* the §31.6.4 op produced the key, so a
+    // DataError/NotSupportedError from invalid material wins.
+    require_secret_usages_nonempty(&usages)?;
+    let usages = normalize_usages(usages);
     Ok(CryptoKeyData {
         key_type: KeyType::Secret,
         extractable,
@@ -180,18 +196,28 @@ pub fn verify(
     ))
 }
 
-/// HMAC accepts only the `sign` / `verify` usages and rejects an empty
-/// usages set (WebCrypto §31 Generate/Import Key, `SyntaxError`).
-fn validate_hmac_usages(usages: &[KeyUsage]) -> Result<(), AlgorithmError> {
-    if usages.is_empty() {
-        return Err(AlgorithmError::Syntax("usages cannot be empty".to_string()));
-    }
+/// HMAC accepts only the `sign` / `verify` usages (WebCrypto §31.6.3 /
+/// §31.6.4 step 1/2 — algorithm-specific, runs *before* key material is
+/// produced).  Empty usages pass here; the empty-usages SyntaxError is a
+/// separate, later generic step ([`require_secret_usages_nonempty`]).
+fn validate_hmac_usage_kinds(usages: &[KeyUsage]) -> Result<(), AlgorithmError> {
     for usage in usages {
         if !matches!(usage, KeyUsage::Sign | KeyUsage::Verify) {
             return Err(AlgorithmError::Syntax(
                 "HMAC keys support only the 'sign' and 'verify' usages".to_string(),
             ));
         }
+    }
+    Ok(())
+}
+
+/// A secret (or private) key with empty usages is a SyntaxError
+/// (WebCrypto §14.3.6 generateKey / §14.3.9 importKey generic step).  This
+/// runs *after* the algorithm-specific op has produced the key, so a
+/// DataError / OperationError from invalid key material takes precedence.
+fn require_secret_usages_nonempty(usages: &[KeyUsage]) -> Result<(), AlgorithmError> {
+    if usages.is_empty() {
+        return Err(AlgorithmError::Syntax("usages cannot be empty".to_string()));
     }
     Ok(())
 }

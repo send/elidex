@@ -827,6 +827,81 @@ fn unrecognized_algorithm_rejects_not_supported() {
     assert_eq!(eval_global_string(src, "r"), "NotSupportedError");
 }
 
+// ---------------------------------------------------------------------------
+// Web IDL conversion conformance (Codex review batch 2)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn generate_key_accepts_non_array_iterable_usages() {
+    // HjRp7 / Web IDL §3.2.21: `sequence<KeyUsage>` is built from any
+    // iterable, not just an Array.  A custom `[Symbol.iterator]` yielding
+    // 'sign' must be accepted.
+    let src = "globalThis.r = 'pending'; \
+         const it = { [Symbol.iterator]() { let n = 0; return { next() { \
+             return n++ === 0 ? {value:'sign', done:false} : {value:undefined, done:true}; \
+         } }; } }; \
+         crypto.subtle.generateKey({name:'HMAC', hash:'SHA-256'}, true, it) \
+           .then(k => { globalThis.r = k.usages.join(','); }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "sign");
+}
+
+#[test]
+fn import_jwk_null_key_data_rejects_data_error() {
+    // HjRp9 / Web IDL: `(BufferSource or JsonWebKey)` from null converts to
+    // an empty JsonWebKey dictionary, so the HMAC import rejects with
+    // DataError (missing kty/k), not a TypeError.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.importKey('jwk', null, {name:'HMAC', hash:'SHA-256'}, true, ['sign']) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "DataError");
+}
+
+#[test]
+fn import_jwk_null_alg_member_coerces_to_string_null() {
+    // HjRp8 / Web IDL DOMString: a present `alg:null` converts to "null"
+    // (not dropped), so it mismatches the requested HS256 → DataError.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.importKey('jwk', {kty:'oct', k:'CwsLCwsLCwsLCwsLCwsLCwsLCws', alg:null}, \
+              {name:'HMAC', hash:'SHA-256'}, true, ['sign']) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "DataError");
+}
+
+#[test]
+fn import_jwk_reads_all_declared_members_firing_getters() {
+    // HjRp- / Web IDL: dictionary conversion reads every declared
+    // JsonWebKey member, even ones HMAC ignores (e.g. `x`), firing each
+    // getter — a throwing getter on an unused member rejects the import.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.importKey('jwk', \
+              {kty:'oct', k:'CwsLCwsLCwsLCwsLCwsLCwsLCws', get x(){ throw new Error('x read'); }}, \
+              {name:'HMAC', hash:'SHA-256'}, true, ['sign']) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = 'err:' + e.message; });";
+    assert_eq!(eval_global_string(src, "r"), "err:x read");
+}
+
+#[test]
+fn sign_converts_key_argument_before_normalizing_algorithm() {
+    // HjRp_ / Web IDL: the `key` (CryptoKey) argument is converted before
+    // the sign operation normalizes the algorithm, so a non-CryptoKey
+    // `key` rejects with TypeError, not NotSupportedError.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.sign('NoSuchAlgo', {}, new Uint8Array(1)) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "TypeError");
+}
+
+#[test]
+fn import_raw_empty_material_empty_usages_rejects_data_error() {
+    // HjRqA / §31.6.4 + §14.3.9: invalid key material (empty → DataError)
+    // is validated before the secret-key empty-usages SyntaxError (a later
+    // generic step), so empty material + empty usages → DataError.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.importKey('raw', new Uint8Array(0), {name:'HMAC', hash:'SHA-256'}, true, []) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "DataError");
+}
+
 #[test]
 fn crypto_key_accessors() {
     // type / extractable / algorithm.name / algorithm.hash.name / usages.

@@ -269,6 +269,53 @@ fn ops_generate_invalid_usage_is_syntax_error() {
     ));
 }
 
+#[test]
+fn ops_import_valid_material_empty_usages_is_syntax_error() {
+    // §14.3.9 step 10: a secret key with empty usages is a SyntaxError —
+    // still raised once the (valid) material has been accepted.
+    let alg = hmac_keygen_alg(HashAlgorithm::Sha256, None);
+    assert!(matches!(
+        ops::import_key(
+            KeyFormat::Raw,
+            alg,
+            true,
+            vec![],
+            KeyData::Raw(vec![0x0b; 20])
+        ),
+        Err(AlgorithmError::Syntax(_))
+    ));
+}
+
+#[test]
+fn ops_import_empty_material_empty_usages_is_data_error() {
+    // HjRqA: §31.6.4 empty-material DataError is validated *before* the
+    // §14.3.9 empty-usages SyntaxError, so invalid material + empty usages
+    // surfaces DataError (the material problem), not SyntaxError.
+    let alg = hmac_keygen_alg(HashAlgorithm::Sha256, None);
+    assert!(matches!(
+        ops::import_key(KeyFormat::Raw, alg, true, vec![], KeyData::Raw(vec![])),
+        Err(AlgorithmError::Data(_))
+    ));
+}
+
+#[test]
+fn ops_import_invalid_usage_kind_beats_material() {
+    // §31.6.4 step 2: a non-sign/verify usage is a SyntaxError raised
+    // before key material is parsed (so it wins over an empty-material
+    // DataError).
+    let alg = hmac_keygen_alg(HashAlgorithm::Sha256, None);
+    assert!(matches!(
+        ops::import_key(
+            KeyFormat::Raw,
+            alg,
+            true,
+            vec![KeyUsage::Encrypt],
+            KeyData::Raw(vec![]),
+        ),
+        Err(AlgorithmError::Syntax(_))
+    ));
+}
+
 // ---------------------------------------------------------------------------
 // ops: import raw + length range (F3) + length-as-metadata (F4 reversed)
 // ---------------------------------------------------------------------------
