@@ -1149,3 +1149,66 @@ fn multicol_spanner_ifc_persists_nonfragmented() {
 // `elidex-layout-block` (slice 3p-a/3p-b-2 vertical InlineFlow shift); and multicol's vertical
 // box shift (`Vector::y_only`) is exercised by `vertical_rl_columns`/`vertical_lr_columns`. The
 // vertical flow shift is the composition of these already-tested pieces.
+
+#[test]
+fn multicol_balanced_overflow_shifts_flow_to_columns_no_column_zero_ghost() {
+    // Regression (I-multicol correctness review 2026-06-06): with `column-fill:
+    // balance` and a `max-height` too small to fit content in `column-count`
+    // columns, the spec creates overflow columns in the inline direction (CSS
+    // Multicol L1 §8.2) — content is NOT dropped.
+    //
+    // The balanced fill's definitive pass used to cap at `column-count`, dropping
+    // the overflow children. With whole-in-column persistence (#291) the bug
+    // surfaces as a stale flow: the unconstrained height probe persists a gen-0
+    // `InlineFlow` at column-0 on every child's run-start; a child the capped
+    // definitive pass never re-laid-out kept that column-0 probe flow (never
+    // overwritten by its real per-column flow), which render paints as a ghost at
+    // column-0. This is the overflow complement of
+    // `multicol_balanced_persists_one_fragment_per_run` (the no-overflow
+    // overwrite-safety case): the definitive pass must lay out the *full* child
+    // set so every overflow child's flow is overwritten and shifted to its column.
+    let font_db = make_font_db();
+    if !fonts_available(&font_db) {
+        return;
+    }
+    let mut dom = EcsDom::new();
+    let container = elem(&mut dom, "div");
+    let style = ComputedStyle {
+        display: Display::Block,
+        column_count: Some(2),
+        column_fill: ColumnFill::Balance,
+        // 5 blocks × 50px = 250px content; at the 60px max-height column cap only
+        // one 50px block fits per column → 5 columns needed, far over `count = 2`
+        // (2 in-flow + 3 overflow).
+        max_height: Dimension::Length(60.0),
+        ..ComputedStyle::default()
+    };
+    let _ = dom.world_mut().insert_one(container, style);
+    let texts: Vec<Entity> = (0..5)
+        .map(|i| add_text_block(&mut dom, container, &format!("Col{i}"), 50.0).1)
+        .collect();
+
+    let input = make_input(&font_db);
+    layout_multicol(&mut dom, container, &input, layout_child_fn);
+
+    // Container 600 wide, 2 columns, gap 0 → column width 300. Child `i` is whole
+    // in column `i`, so its flow's inline_start == i × 300. An overflow child the
+    // old cap dropped would keep its probe flow stranded at column-0 (x ≈ 0).
+    for (i, &tnode) in texts.iter().enumerate() {
+        let x = flow_inline_start(&dom, tnode);
+        #[allow(clippy::cast_precision_loss)]
+        let expected = i as f32 * 300.0;
+        assert!(
+            (x - expected).abs() < 1.0,
+            "column {i} flow at x={x}, expected column offset {expected} (overflow child stranded at column-0?)"
+        );
+    }
+
+    // §8.2: overflow columns actually created — all 5 children participate.
+    let info = dom.world().get::<&MulticolInfo>(container).unwrap();
+    let total_columns: u32 = info.segments.iter().map(|&(count, _, _)| count).sum();
+    assert!(
+        total_columns >= 5,
+        "expected ≥5 columns (overflow per §8.2), got {total_columns}"
+    );
+}
