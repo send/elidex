@@ -56,7 +56,7 @@ Past elidex incidents that calibrate Step 2 severity (these survive single-pass;
 elidex's non-Claude diversity reviewer (Step 1 fetch filter / head-staleness / re-trigger):
 
 - `bot_login`: `chatgpt-codex-connector[bot]`
-- `name`: Codex (genuine OpenAI Codex Cloud, ChatGPT **Pro**-billed — *not* GitHub Copilot credits)
+- `name`: Codex (genuine OpenAI Codex Cloud, ChatGPT **Pro** — loop-affordable, no per-credit cost; *not* GitHub Copilot credits)
 - `trigger`: `@codex review` (or Codex auto-review, enabled at chatgpt.com/codex)
 
-**Identity caveat**: only the `chatgpt-codex-connector[bot]` review is the genuine Pro-billed Codex. A bare `@codex[agent]` mention instead routes to a GitHub-Copilot SWE agent (runs on `api.individual.githubcopilot.com`, billed as Copilot credits) — do **not** use it. The elidex review lenses reach Codex via `AGENTS.md` (`## Review guidelines` → `axes.md`). Quality validated on #295 (P1 GC-rooting + side-store/unbind panic + spec-accurate WebCrypto findings, catching gate-misses). Background → `memory/project_ai-review-setup.md`.
+**Identity caveat**: only the `chatgpt-codex-connector[bot]` review is the genuine Pro Codex. A bare `@codex[agent]` mention instead routes to a GitHub-Copilot SWE agent (runs on `api.individual.githubcopilot.com`, billed as Copilot credits) — do **not** use it. The elidex review lenses reach Codex via `AGENTS.md` (`## Review guidelines` → `axes.md`). Quality validated on #295 (P1 GC-rooting + side-store/unbind panic + spec-accurate WebCrypto findings, catching gate-misses). Background → `memory/project_ai-review-setup.md`.
