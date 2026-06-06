@@ -223,7 +223,7 @@ pub fn stack_block_children(
         if let Some(frag) = frag_ctx {
             let effective_break_before = child_style.break_before;
             if fragmentation::is_forced_break(effective_break_before, frag.fragmentation_type) {
-                // First child's forced break-before propagates to parent (§3.2).
+                // First child's forced break-before propagates to parent (§3.1.1).
                 if idx == start_index {
                     propagated_break_before = Some(effective_break_before);
                 }
@@ -446,7 +446,7 @@ pub fn stack_block_children(
         // --- Fragmentation: forced break-after (§3.1) ---
         if let Some(frag) = frag_ctx {
             if fragmentation::is_forced_break(child_style.break_after, frag.fragmentation_type) {
-                // §3.2: Only propagate break-after if this is the last content child.
+                // §3.1.1: Only propagate break-after if this is the last content child.
                 let remaining_has_content = children[idx + 1..].iter().any(|&c| {
                     crate::try_get_style(dom, c).is_none_or(|s| {
                         s.display != Display::None

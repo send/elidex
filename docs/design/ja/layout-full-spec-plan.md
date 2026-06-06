@@ -99,7 +99,7 @@ G11 (Paged Media + margin boxes) ← G8
 ```rust
 // elidex-layout-block/src/lib.rs に追加
 
-/// Fragmentainer constraints for fragmentation (CSS Fragmentation L3 §3).
+/// Fragmentainer constraints for fragmentation (CSS Fragmentation L3 §2).
 #[derive(Clone, Copy, Debug)]
 pub struct FragmentainerContext {
     /// Remaining block-size available in current fragmentainer.
@@ -249,7 +249,7 @@ keyword_enum! { EmptyCells { Show => "show", Hide => "hide" } }  // inherited, d
 
 // computed_style/fragmentation.rs — 新ファイル
 keyword_enum! {
-    /// CSS Fragmentation L3 §3: break-before / break-after values.
+    /// CSS Fragmentation L3 §3.1: break-before / break-after values.
     BreakValue {
         Auto => "auto", Avoid => "avoid",
         AvoidPage => "avoid-page", AvoidColumn => "avoid-column",
@@ -259,7 +259,7 @@ keyword_enum! {
     }
 }
 keyword_enum! {
-    /// CSS Fragmentation L3 §3: break-inside values.
+    /// CSS Fragmentation L3 §3.2: break-inside values.
     BreakInsideValue {
         Auto => "auto", Avoid => "avoid",
         AvoidPage => "avoid-page", AvoidColumn => "avoid-column",
@@ -284,7 +284,7 @@ pub empty_cells: EmptyCells,                  // Table §17.5.1, inherited
 pub break_before: BreakValue,                 // Frag L3, non-inherited
 pub break_after: BreakValue,                  // Frag L3, non-inherited
 pub break_inside: BreakInsideValue,           // Frag L3, non-inherited
-pub box_decoration_break: BoxDecorationBreak, // Frag L3 §4.2, non-inherited
+pub box_decoration_break: BoxDecorationBreak, // Frag L3 §5.4, non-inherited
 pub orphans: u32,                             // Frag L3, inherited, default 2
 pub widows: u32,                              // Frag L3, inherited, default 2
 pub column_count: Option<u32>,                // Multi-col §3, None = auto
