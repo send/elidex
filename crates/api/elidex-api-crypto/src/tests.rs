@@ -318,6 +318,45 @@ fn ops_import_unsupported_format() {
     ));
 }
 
+#[test]
+fn ops_import_empty_material_is_data_error() {
+    // WebCrypto §31.6.4: zero-length HMAC import material → DataError
+    // (the shared "if length is zero throw a DataError" step), for both
+    // raw and jwk.
+    assert!(matches!(
+        import_raw_len_data(vec![]),
+        Err(AlgorithmError::Data(_))
+    ));
+    let jwk = JsonWebKey {
+        kty: Some("oct".into()),
+        k: Some(String::new()), // base64url "" → empty material
+        alg: Some("HS256".into()),
+        use_: None,
+        key_ops: None,
+        ext: Some(true),
+    };
+    assert!(matches!(
+        ops::import_key(
+            KeyFormat::Jwk,
+            hmac_keygen_alg(HashAlgorithm::Sha256, None),
+            true,
+            vec![KeyUsage::Sign],
+            KeyData::Jwk(jwk),
+        ),
+        Err(AlgorithmError::Data(_))
+    ));
+}
+
+fn import_raw_len_data(bytes: Vec<u8>) -> Result<crate::key::CryptoKeyData, AlgorithmError> {
+    ops::import_key(
+        KeyFormat::Raw,
+        hmac_keygen_alg(HashAlgorithm::Sha256, None),
+        true,
+        vec![KeyUsage::Sign],
+        KeyData::Raw(bytes),
+    )
+}
+
 // ---------------------------------------------------------------------------
 // ops: export gate + jwk round-trip
 // ---------------------------------------------------------------------------

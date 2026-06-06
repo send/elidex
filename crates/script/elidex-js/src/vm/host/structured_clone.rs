@@ -375,9 +375,10 @@ fn classify(kind: &ObjectKind) -> CloneKind {
         ObjectKind::SubtleCrypto => CloneKind::Unclonable("SubtleCrypto"),
         // `CryptoKey` IS `[Serializable]` per WebCrypto §13, but
         // structured-clone of keys (the side-store `CryptoKeyData` +
-        // key-material lifetime) is deferred (PR-1 ships only the
-        // operations); treat as unclonable for now so `postMessage`
-        // surfaces a clear DataCloneError rather than silently dropping.
+        // key-material lifetime) is deferred under slot
+        // `#11-crypto-subtle-full` (PR-1 ships only the operations);
+        // treat as unclonable for now so `postMessage` surfaces a clear
+        // DataCloneError rather than silently dropping.
         ObjectKind::CryptoKey => CloneKind::Unclonable("CryptoKey"),
         // D-12 `#11-net-ws-sse` — WebSocket / EventSource are not
         // structured-cloneable per WHATWG WebSockets §9.3 / HTML

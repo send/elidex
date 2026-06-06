@@ -96,6 +96,14 @@ pub fn import_key(
         }
     };
 
+    // WebCrypto §31.6.4 HMAC Import Key (shared raw + jwk step): "Let
+    // length be the length in bits of data. If length is zero then throw
+    // a DataError." This fires regardless of the `length` member.
+    if material.is_empty() {
+        return Err(AlgorithmError::Data(
+            "HMAC key material must not be empty".to_string(),
+        ));
+    }
     let length = resolve_import_length(material.len(), length)?;
     Ok(CryptoKeyData {
         key_type: KeyType::Secret,
@@ -179,6 +187,8 @@ fn validate_hmac_usages(usages: &[KeyUsage]) -> Result<(), AlgorithmError> {
 /// `8·len − 8 < length ≤ 8·len`, else `DataError`. `length` is metadata
 /// only — the full `material` is the key.
 fn resolve_import_length(material_len: usize, length: Option<u32>) -> Result<u32, AlgorithmError> {
+    // Callers reject empty material first (§31.6.4 zero-length DataError),
+    // so `material_len >= 1` and `data_bits >= 8` here.
     let data_bits = u32::try_from(material_len)
         .ok()
         .and_then(|n| n.checked_mul(8))
@@ -186,10 +196,7 @@ fn resolve_import_length(material_len: usize, length: Option<u32>) -> Result<u32
     match length {
         None => Ok(data_bits),
         Some(l) => {
-            let too_large = l > data_bits;
-            let too_small = data_bits >= 8 && l <= data_bits - 8;
-            let nonzero_empty = data_bits == 0 && l != 0;
-            if too_large || too_small || nonzero_empty {
+            if l > data_bits || l <= data_bits - 8 {
                 return Err(AlgorithmError::Data(
                     "HMAC import 'length' is out of range for the supplied key material"
                         .to_string(),

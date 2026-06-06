@@ -36,9 +36,6 @@ engine = [
     "bytes",
     "encoding_rs",
     "base64",
-    "sha1",
-    "sha2",
-    "hmac",
     "getrandom",
     "uuid",
 ]
@@ -160,21 +157,16 @@ elidex-wasm-runtime = { workspace = true, optional = true }
 # (`ops::{import_key,generate_key,export_key,sign,verify}`); all
 # algorithm + spec-validation lives in the crate.
 elidex-api-crypto = { workspace = true, optional = true }
-# WebCrypto §10 / §14 backing for the `Crypto` + `SubtleCrypto`
-# VM thin bindings (slot `#11-crypto-subtle-min` / `-full`).
-# - `sha1` / `sha2`: digest impls re-exported through `elidex-api-crypto`
-#   (the crate owns `hash::digest`; elidex-js keeps the deps only for the
-#   `getRandomValues` / direct-CSPRNG paths in `crypto.rs`).
-# - `hmac`: HMAC `Mac` driver for `elidex-api-crypto::hmac` (digest 0.11
-#   ecosystem, constant-time `verify_slice`).
+# WebCrypto §10 RNG backing for the `Crypto` VM thin binding.  The
+# digest / HMAC algorithm impls (`sha1` / `sha2` / `hmac`) are NOT direct
+# deps here — they live in `elidex-api-crypto`, which `elidex-js` pulls
+# transitively (CLAUDE.md "Layering mandate": no algorithm crate in the
+# engine layer).  `elidex-js` keeps only the engine-bound RNG/UUID deps:
 # - `getrandom`: OS CSPRNG backing `Crypto.prototype.getRandomValues`,
 #   `randomUUID`, and HMAC `generateKey` key material.
 # - `uuid`: v4 UUID generation backing `Crypto.prototype.randomUUID`.
-# All engine-gated because the WebCrypto surface depends on the
+# Both engine-gated because the WebCrypto surface depends on the
 # engine-only Window + ArrayBuffer / TypedArray / DataView wrappers.
-sha1 = { workspace = true, optional = true }
-sha2 = { workspace = true, optional = true }
-hmac = { workspace = true, optional = true }
 getrandom = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 

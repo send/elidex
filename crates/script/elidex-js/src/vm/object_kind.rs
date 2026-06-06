@@ -1279,9 +1279,10 @@ pub enum ObjectKind {
     /// keyed by this `ObjectId` (engine-independent
     /// `elidex_api_crypto::CryptoKeyData`).
     ///
-    /// `new CryptoKey()` throws TypeError per WebIDL §13 (illegal
-    /// constructor — keys are only produced by `SubtleCrypto`
-    /// operations).
+    /// `new CryptoKey()` throws a TypeError: per Web IDL an interface
+    /// with no constructor operation is an illegal constructor, and
+    /// `CryptoKey` (WebCrypto §13) declares none — keys are produced
+    /// only by `SubtleCrypto` operations.
     ///
     /// GC contract: payload-free trace fan-out (the side-store value
     /// holds only bytes + enums, no `ObjectId`); the sweep tail prunes

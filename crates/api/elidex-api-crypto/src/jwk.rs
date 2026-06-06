@@ -42,8 +42,9 @@ pub fn import_oct_hmac(
     }
 
     // k is required and must be valid base64url (no padding). A
-    // zero-length result is permitted (the spec has no explicit
-    // minimum-length rejection for HMAC import).
+    // zero-length decode is rejected by the caller (`ops::import_key`)
+    // per the WebCrypto §31.6.4 shared "if length is zero, throw a
+    // DataError" step, so it is not special-cased here.
     let Some(k) = jwk.k.as_deref() else {
         return Err(data("JWK 'k' member is missing"));
     };
