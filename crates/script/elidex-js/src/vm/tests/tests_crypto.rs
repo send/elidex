@@ -1109,6 +1109,51 @@ fn generate_key_invalid_usage_beats_zero_length_error() {
     assert_eq!(eval_global_string(src, "r"), "SyntaxError");
 }
 
+// ---------------------------------------------------------------------------
+// WebIDL sequence + arg-conversion conformance (Codex review batch 6)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn generate_key_runaway_usages_iterator_is_capped() {
+    // Hl17H: a custom `keyUsages` iterable whose `.next()` never reports
+    // `done` must NOT hang the Promise — the shared sequence converter caps
+    // it and rejects with a TypeError.
+    let src = "globalThis.r = 'pending'; \
+         const it = { [Symbol.iterator]() { return { next() { \
+             return {value:'sign', done:false}; } }; } }; \
+         crypto.subtle.generateKey({name:'HMAC', hash:'SHA-256'}, true, it) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "TypeError");
+}
+
+#[test]
+fn generate_key_usages_iterator_close_error_takes_precedence() {
+    // Hl17E / ECMA-262 §7.4.11: when an element fails conversion AND the
+    // iterator's `.return()` throws, the `.return()` error wins over the
+    // element error.
+    let src = "globalThis.r = 'pending'; \
+         const it = { [Symbol.iterator]() { return { \
+             next() { return {value:'not-a-usage', done:false}; }, \
+             return() { throw new Error('return threw'); } }; } }; \
+         crypto.subtle.generateKey({name:'HMAC', hash:'SHA-256'}, true, it) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = 'err:' + e.message; });";
+    assert_eq!(eval_global_string(src, "r"), "err:return threw");
+}
+
+#[test]
+fn digest_converts_symbol_algorithm_before_data() {
+    // Hl17G / Web IDL: the `algorithm` `(object or DOMString)` conversion
+    // (arg 1) runs before the `data` (arg 2) conversion, so a `Symbol()`
+    // algorithm rejects with the Symbol-to-string TypeError (its message
+    // mentions Symbol), not the `data` TypeError.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.digest(Symbol(), 123) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { \
+             globalThis.r = (e instanceof TypeError && /[Ss]ymbol/.test(e.message)) \
+                 ? 'symbol-type-error' : ('other:' + e.message); });";
+    assert_eq!(eval_global_string(src, "r"), "symbol-type-error");
+}
+
 #[test]
 fn crypto_key_accessors() {
     // type / extractable / algorithm.name / algorithm.hash.name / usages.
