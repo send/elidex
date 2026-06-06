@@ -56,9 +56,9 @@ Historical **Copilot** R-loop incidents that calibrated the loop's defensive rul
 - PR #201 R9 (2026-05-17) — pre-request review counted as fresh round, real R10 with IMP arrived later → **Step 1 request-staleness gate**.
 - PR #213 R2 (2026-05-20) — reactive `HashMap`+per-site `sort` patch shipped through TERMINAL; philosophy-ideal was `BTreeMap` (structural delivery order) → **Step 5.1 design-philosophy lens** (`fix_discipline` overlay).
 
-## wakeup_median
+## wakeup_poll
 
-`3:00` — Codex (OpenAI cloud) review latency from the `@codex review` trigger to `chatgpt-codex-connector[bot]` posting. Observed ~2:00 (#288). **Note**: #295's ~30–90 min round gaps were *fix-time between rounds* (Claude fixing), NOT review latency — don't recalibrate off them. The skill's 90s polling fallback covers variance.
+`120s` — fixed poll cadence while waiting for Codex's review to land, **NOT a latency prediction**. Codex (OpenAI cloud) review latency is **unmeasured for the programmatic-trigger loop**: prior "~2 min" (#288) was a *manual-trigger one-off*, and #295's ~30–90 min round gaps were *fix-time between rounds* (Claude fixing), not review latency. So poll at this cadence (120s < 300s prompt-cache TTL = cache-warm) until the review lands; tune toward observed loop latency only after a few real `/external-converge` runs — never hard-code a predicted median off manual one-offs.
 
 ## reviewer
 
