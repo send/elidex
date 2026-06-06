@@ -310,12 +310,16 @@ fn touch_event_sequence_honours_array_iterator_override() {
 }
 
 #[test]
-fn touch_event_sequence_accepts_empty_string_as_iterable() {
-    // WebIDL §3.2.27: `sequence<T>` accepts any iterable; JS strings
-    // are iterable via `String.prototype[@@iterator]`.  Empty string
-    // yields no entries, so the resulting list is empty.
-    let out = run("var ev = new TouchEvent('touchstart', { touches: '' }); \
-         (ev.touches.length === 0) ? 'ok' : 'fail';");
+fn touch_event_sequence_rejects_string_primitive() {
+    // WebIDL §3.2.21 step 1: a `sequence<Touch>` source that is not an
+    // Object is a TypeError *before* `@@iterator` is consulted — a string
+    // primitive (even `''`) is rejected, NOT iterated per code point.
+    // (Reverses the earlier `accepts_empty_string_as_iterable`, which
+    // mirrored PR201's incorrect step-1-less converter.)
+    let out = run("var threw = false; \
+         try { new TouchEvent('touchstart', { touches: '' }); } \
+         catch (e) { threw = (e instanceof TypeError); } \
+         threw ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
 }
 

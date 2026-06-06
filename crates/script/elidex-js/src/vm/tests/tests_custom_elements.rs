@@ -400,6 +400,23 @@ fn attribute_changed_callback_skipped_for_unobserved() {
     assert_eq!(out, "no");
 }
 
+#[test]
+fn observed_attributes_string_primitive_rejected() {
+    // WebIDL §3.2.21 step 1: `observedAttributes` is converted to a
+    // `sequence<DOMString>`, so a string primitive (not an Object) is a
+    // TypeError during `define()` — it is NOT iterated per code point into
+    // single-char attribute names (the cross-cutting effect of the shared
+    // converter gaining step 1).
+    let err = run_throws(
+        "customElements.define('my-el', class extends HTMLElement { \
+             static get observedAttributes() { return 'abc'; } });",
+    );
+    assert!(
+        err.contains("TypeError") || err.contains("observedAttributes"),
+        "string observedAttributes must reject per WebIDL sequence step 1; got: {err}"
+    );
+}
+
 // --- upgrade() ----------------------------------------------------
 
 #[test]

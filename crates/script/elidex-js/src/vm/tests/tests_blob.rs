@@ -169,6 +169,22 @@ fn ctor_rejects_non_iterable_blob_parts() {
 }
 
 #[test]
+fn ctor_rejects_string_primitive_blob_parts() {
+    let mut vm = Vm::new();
+    // WebIDL §3.2.21 step 1: a string primitive is NOT an Object, so the
+    // `sequence<BlobPart>` conversion throws a TypeError *before* the string
+    // can be iterated per code point.  `new Blob('abc')` must reject — it
+    // must NOT silently build a 3-byte "abc" Blob from the characters
+    // (matches Chrome; this is the cross-cutting reason the shared converter
+    // gained step 1 over PR201's step-1-less behaviour).
+    assert!(eval_bool(
+        &mut vm,
+        "var r = false; try { new Blob('abc'); } \
+         catch (e) { r = e instanceof TypeError; } r;"
+    ));
+}
+
+#[test]
 fn ctor_honours_array_iterator_override() {
     // WebIDL §3.10.16 step 4: overridden Array `[Symbol.iterator]`
     // must win over dense storage.

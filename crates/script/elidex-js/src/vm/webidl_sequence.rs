@@ -1,12 +1,13 @@
-//! WebIDL §3.10.16 "Convert ECMAScript value to IDL sequence" helper.
+//! WebIDL §3.2.21 ("`sequence<T>`") — convert a JS value to an IDL
+//! sequence.
 //!
 //! Shared replacement for hand-rolled `sequence<T>` converters. Each
 //! site previously inlined the same four pieces — `@@iterator`
 //! resolution, `iter_next` loop, abrupt-completion `IteratorClose`
 //! (§7.4.11), and a per-call cap — with subtle drift between copies
 //! (notably the dense-`ObjectKind::Array` fast path, which skips
-//! `Array.prototype[@@iterator]` overrides in violation of §3.10.16
-//! step 4).
+//! `Array.prototype[@@iterator]` overrides in violation of §3.2.21
+//! step 2's `GetMethod`).
 //!
 //! Two entry points:
 //! - [`webidl_sequence_to_vec`] resolves the iterator from `raw`; use
@@ -31,9 +32,11 @@ use super::value::{JsValue, NativeContext, VmError};
 /// can keep its own legacy message (`"Failed to construct 'X'"` vs
 /// `"Failed to execute 'm' on 'X'"`).
 pub(crate) struct SeqMessages<'a> {
-    /// Thrown when the value has no `@@iterator` at all (numbers,
-    /// booleans, plain objects without the symbol).  WebIDL §3.10.16
-    /// step 3 → ES `GetIterator` step 2.
+    /// Thrown when the value cannot become a sequence — either it is
+    /// not an Object (WebIDL §3.2.21 step 1, e.g. a **string primitive**,
+    /// which is rejected outright rather than iterated per code point) or
+    /// it has no `@@iterator` at all (step 3 → ES `GetIterator` step 2 —
+    /// numbers, booleans, plain objects without the symbol).
     pub not_iterable: &'a str,
     /// Thrown when `@@iterator` resolves to a callable that returns a
     /// non-Object value (ES `GetIterator` step 5).
@@ -43,8 +46,12 @@ pub(crate) struct SeqMessages<'a> {
     pub cap_exceeded: &'a str,
 }
 
-/// Convert `raw` to an IDL `sequence<T>` per WebIDL §3.10.16,
+/// Convert `raw` to an IDL `sequence<T>` per WebIDL §3.2.21,
 /// validating each element via `validator` and collecting the results.
+///
+/// A non-Object `raw` (notably a string primitive) is rejected up front
+/// per step 1, before `@@iterator` is consulted — it is **not** iterated
+/// per code point.
 ///
 /// `validator` receives `(ctx, index, value)` so per-element errors can
 /// reference the failing index. A validator throw triggers
@@ -65,6 +72,15 @@ pub(crate) fn webidl_sequence_to_vec<T, F>(
 where
     F: FnMut(&mut NativeContext<'_>, usize, JsValue) -> Result<T, VmError>,
 {
+    // WebIDL §3.2.21 step 1: a non-Object value is a TypeError *before*
+    // `@@iterator` is looked up (step 2).  Without this guard,
+    // `resolve_iterator` would resolve `String.prototype[@@iterator]` for a
+    // string primitive and walk its code points — which the spec forbids
+    // for `sequence<T>` conversion (a string is not an Array/iterable
+    // sequence source).
+    if !matches!(raw, JsValue::Object(_)) {
+        return Err(VmError::type_error(msgs.not_iterable.to_owned()));
+    }
     let iter = match ctx.vm.resolve_iterator(raw)? {
         Some(iter @ JsValue::Object(_)) => iter,
         Some(_) => return Err(VmError::type_error(msgs.iter_not_object.to_owned())),

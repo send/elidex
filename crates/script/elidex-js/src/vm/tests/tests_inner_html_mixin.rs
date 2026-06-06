@@ -342,23 +342,23 @@ fn element_get_html_explicit_list_emits_closed_shadow_root() {
 }
 
 #[test]
-fn element_get_html_shadow_roots_string_iterates_per_codepoint() {
-    // PR201 Copilot R12 regression: WebIDL `sequence<T>` conversion
-    // accepts any iterable primitive — strings carry
-    // `String.prototype[@@iterator]` (code-point iteration). The
-    // earlier `JsValue::Object` guard up-front rejected strings with
-    // "not iterable", diverging from spec. The fix routes everything
-    // through `resolve_iterator`, so a string now iterates per
-    // code-point; each iteration yields a single-char string which
-    // is not a ShadowRoot → spec-correct TypeError saying
-    // "shadowRoots[0] is not a ShadowRoot" instead of the misleading
-    // "shadowRoots is not iterable". Both throw TypeError (so
-    // error.name checks work), but the message refines per spec.
+fn element_get_html_shadow_roots_rejects_string_primitive() {
+    // WebIDL §3.2.21 step 1: `getHTML({shadowRoots})` converts `shadowRoots`
+    // to a `sequence<ShadowRoot>`, and a non-Object value is a TypeError
+    // *before* `@@iterator` is consulted — `'abc'` is rejected outright, NOT
+    // iterated per code point into single-char ShadowRoot candidates.
+    // Reverses PR201 Copilot R12, which dropped the step-1 Object guard so a
+    // string iterated and failed later with "'shadowRoots[0]' is not a
+    // ShadowRoot"; the up-front step-1 rejection is the spec-correct
+    // behaviour (matches `new Blob('abc')` / Chrome).
     let out = run("var host = document.createElement('div'); \
          document.body.appendChild(host); \
          var caught = ''; \
-         try { host.getHTML({shadowRoots: 'abc'}); } catch (e) { caught = e.message; } \
-         (caught.indexOf(\"'shadowRoots[0]' is not a ShadowRoot\") !== -1) \
+         try { host.getHTML({shadowRoots: 'abc'}); } \
+         catch (e) { caught = e.name + '|' + e.message; } \
+         (caught.indexOf('TypeError|') === 0 \
+            && caught.indexOf('is not iterable') !== -1 \
+            && caught.indexOf('shadowRoots[0]') === -1) \
              ? 'ok' : ('fail:' + caught);");
     assert_eq!(out, "ok");
 }
