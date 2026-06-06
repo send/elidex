@@ -16,7 +16,7 @@
 use super::inline_flow::env;
 use super::*;
 use elidex_ecs::{InlineFlow, InlineFlowRun};
-use elidex_plugin::{Position, WritingMode};
+use elidex_plugin::{Position, TextAlign, WritingMode};
 
 /// Append a `position:relative` inline `<span>` containing `text` to `parent`, then
 /// a trailing text node `tail`. Returns `(span, span's text node, tail text node)`.
@@ -714,14 +714,17 @@ fn relpos_atomic_persists_and_repositions_not_a_flow_member() {
 
 #[test]
 fn relpos_atomic_on_legacy_path_stays_unrepositioned() {
-    // D6 co-occurrence: a run that ALSO needs bidi reordering stays gated (slice 4
-    // bidi concern) and falls to render legacy ENTIRELY — the relpos atomic is then
-    // NOT repositioned (it stays at the IFC origin, as today). The relpos-atomic
-    // convergence only applies on the persistable path. (text-transform used to gate
-    // here too, but now persists — bidi is the remaining still-gating trigger.)
-    let Some((mut dom, parent, style, font_db)) = setup_inline_test("ש") else {
+    // A run that falls to render's legacy path (here `text-align: justify`, the sole
+    // remaining gate trigger after the bidi slice) does NOT reposition its relpos
+    // atomic — it stays at the IFC origin. The relpos-atomic convergence only applies
+    // on the persistable path. (bidi and text-transform used to gate here too, but
+    // now persist: text-transform applied in-place, RTL runs persist in logical order
+    // and render reorders at paint — slice 4.)
+    let Some((mut dom, parent, mut style, font_db)) = setup_inline_test("a") else {
         return;
     };
+    style.text_align = TextAlign::Justify;
+    let _ = dom.world_mut().insert_one(parent, style.clone());
     let a_text = dom.composed_children(parent)[0];
     let ib = append_inline_block(&mut dom, parent, &style.font_family, Position::Relative);
 
@@ -737,7 +740,7 @@ fn relpos_atomic_on_legacy_path_stays_unrepositioned() {
 
     assert!(
         dom.world().get::<&InlineFlow>(a_text).is_err(),
-        "RTL/bidi gates the whole run → no InlineFlow persists"
+        "justify gates the whole run → no InlineFlow persists"
     );
     let lb = dom
         .world()

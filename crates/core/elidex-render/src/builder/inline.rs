@@ -120,24 +120,31 @@ pub(crate) fn emit_inline_run(
         });
         if consume {
             // The horizontal/vertical dispatch needs only the parent's `writing_mode`
-            // + `text_orientation` (Copy enums) — read those WITHOUT cloning the parent
-            // `ComputedStyle`. Render must interpret the persisted coordinates with the
-            // SAME writing mode layout used to project them — i.e. the IFC parent's — so
-            // the dispatch reads the parent's, not each member's. A styleless parent →
-            // horizontal default, mirroring layout's `get_style` `unwrap_or_default`
-            // tolerance (it persisted under the same default), so the flow still paints.
-            let (writing_mode, text_orientation) = ctx
-                .dom
-                .world()
-                .get::<&ComputedStyle>(parent)
-                .map_or((WritingMode::HorizontalTb, TextOrientation::Mixed), |s| {
-                    (s.writing_mode, s.text_orientation)
-                });
+            // + `text_orientation` + `direction` (Copy enums) — read those WITHOUT
+            // cloning the parent `ComputedStyle`. Render must interpret the persisted
+            // coordinates with the SAME writing mode layout used to project them — i.e.
+            // the IFC parent's — so the dispatch reads the parent's, not each member's.
+            // `direction` is the same situation: bidi visual reorder (UAX #9 L2) uses the
+            // IFC parent's paragraph embedding level, not the run-start child's (a
+            // `dir`-override first child would give the wrong base level). A styleless
+            // parent → horizontal / LTR default, mirroring layout's `get_style`
+            // `unwrap_or_default` tolerance (it persisted under the same default), so the
+            // flow still paints.
+            let (writing_mode, text_orientation, direction) =
+                ctx.dom.world().get::<&ComputedStyle>(parent).map_or(
+                    (
+                        WritingMode::HorizontalTb,
+                        TextOrientation::Mixed,
+                        Direction::Ltr,
+                    ),
+                    |s| (s.writing_mode, s.text_orientation, s.direction),
+                );
             emit_inline_flow(
                 ctx,
                 first,
                 writing_mode,
                 text_orientation,
+                direction,
                 depth,
                 child_perspective,
                 in_transform,
@@ -421,11 +428,29 @@ fn emit_text_segment(
 /// - **horizontal**: `inline_start` = physical x, `block_start` = physical line top.
 /// - **vertical**: `block_start`/`block_size` give the glyph-column center x;
 ///   `inline_start` = physical y (pen top). `text_orientation` selects the shaping.
+///
+/// **Bidi (UAX #9 L2)**: layout persists each line's `Text` runs in **logical**
+/// order; render owns the paint-time visual reorder (master §4.2 — bidi is a
+/// paint-time transform of already-collapsed, already-positioned logical runs; it
+/// does not change layout advance). Per line: build the `(text, idx)` adapter from
+/// the line's `Text` runs only and ask `bidi_visual_order` for the visual order
+/// under the IFC parent's `direction`. The common LTR case is an identity
+/// permutation → paint each run at its baked logical `inline_start` (no change). A
+/// non-identity line is painted in visual order from the line's visual inline-start
+/// (`min(inline_start)` = leftmost baked logical position = the span's left edge,
+/// since text-align/justify offset is already baked into every run), the shared
+/// cursor advancing by each run's shaped width. Atomics are NOT in the adapter
+/// (Option (c)): they stay collected + `walk()`-painted at their layout-baked
+/// `LayoutBox`, so an atomic+bidi line is a net fix over legacy (which flattened
+/// atomics to text). The atomic's own visual reposition within a bidi line is a
+/// pre-existing limitation legacy also lacks (deferred, no slot).
+#[allow(clippy::too_many_arguments)]
 fn emit_inline_flow(
     ctx: &mut PaintContext,
     first: Entity,
     writing_mode: WritingMode,
     text_orientation: TextOrientation,
+    direction: Direction,
     depth: usize,
     child_perspective: &Perspective,
     in_transform: bool,
@@ -452,56 +477,86 @@ fn emit_inline_flow(
             .filter(|frag| fragment_matches_page(frag, expected))
             .flat_map(|frag| frag.lines.iter())
         {
+            // Split the line's runs: `Text` runs (bidi-reordered for paint) vs atomics
+            // (collected here, `walk()`-ed after the flow borrow drops — Option (c):
+            // atomics are NOT in the reorder adapter, they paint at their baked box).
+            let mut text_runs: Vec<(Entity, &str, f32)> = Vec::new();
             for run in &line.runs {
                 match run {
                     InlineFlowRun::Text {
                         entity,
                         text,
                         inline_start,
-                    } => {
-                        let Ok(style) = dom.world().get::<&ComputedStyle>(*entity) else {
-                            continue;
-                        };
-                        // visibility: hidden text occupies space but is not painted.
-                        if style.visibility != Visibility::Visible {
-                            continue;
-                        }
-                        // Style-only segment: the collapsed text comes from the flow
-                        // member (`text`), so the segment's own text field is unused.
-                        // Layout already applied `text-transform` before measuring, so
-                        // the persisted `text` is final — paint it verbatim (force the
-                        // segment's transform to `None` so the shared emit path does not
-                        // re-transform; CSS Text 3 §2.1, render = paint-only).
-                        let mut seg = StyledTextSegment::from_style(String::new(), &style);
-                        seg.text_transform = TextTransform::None;
-                        if vertical {
-                            let center_x = line.block_start + line.block_size / 2.0;
-                            let mut cursor_y = *inline_start;
-                            emit_vertical_text_segment(
-                                text,
-                                &seg,
-                                orient,
-                                center_x,
-                                &mut cursor_y,
-                                ctx.font_db,
-                                ctx.font_cache,
-                                ctx.dl,
-                            );
-                        } else {
-                            let mut cursor_x = *inline_start;
-                            emit_text_segment(
-                                text,
-                                &seg,
-                                &mut cursor_x,
-                                line.block_start,
-                                0.0,
-                                ctx.font_db,
-                                ctx.font_cache,
-                                ctx.dl,
-                            );
-                        }
-                    }
+                    } => text_runs.push((*entity, text.as_str(), *inline_start)),
                     InlineFlowRun::AtomicBox { entity, .. } => atomics.push(*entity),
+                }
+            }
+            // UAX #9 L2 visual reorder (logical → visual) of this line's `Text` runs,
+            // under the IFC parent's paragraph direction. Fast path: a line with NO
+            // RTL character never reorders (an all-LTR line is one LTR level run
+            // regardless of `direction`), so skip the adapter allocation + bidi
+            // analysis entirely and paint logical — the overwhelmingly common case,
+            // zero overhead (mirrors layout's prior `text_has_rtl` persistence gate,
+            // now a render-side fast path). Otherwise build the `(text, idx)` adapter
+            // the legacy path also feeds `bidi_visual_order` — from `Text` runs ONLY
+            // (atomics excluded → no cross-type index confusion) — and reorder unless
+            // the result is still identity (e.g. a single RTL run).
+            let order = text_runs
+                .iter()
+                .any(|&(_, text, _)| elidex_text::text_has_rtl(text))
+                .then(|| {
+                    let adapter: Vec<(String, usize)> = text_runs
+                        .iter()
+                        .enumerate()
+                        .map(|(i, (_, text, _))| ((*text).to_string(), i))
+                        .collect();
+                    bidi_visual_order(&adapter, direction)
+                })
+                .filter(|order| order.iter().enumerate().any(|(i, &vi)| i != vi));
+            if let Some(order) = order {
+                // The line needs reorder: paint runs in visual order from the line's
+                // visual inline-start, the shared cursor advancing by each run's shaped
+                // width (exactly the legacy `emit_styled_segments` loop, now per line).
+                let line_start = text_runs
+                    .iter()
+                    .map(|&(_, _, inline_start)| inline_start)
+                    .fold(f32::INFINITY, f32::min);
+                let mut cursor = line_start;
+                for &vi in &order {
+                    let (entity, text, _) = text_runs[vi];
+                    emit_flow_text_run(
+                        dom,
+                        entity,
+                        text,
+                        &mut cursor,
+                        vertical,
+                        orient,
+                        line.block_start,
+                        line.block_size,
+                        ctx.font_db,
+                        ctx.font_cache,
+                        ctx.dl,
+                    );
+                }
+            } else {
+                // Logical order (LTR fast path, single RTL run, or empty line): paint
+                // each run at its baked logical `inline_start` — unchanged behavior, no
+                // LTR regression. The cursor is reset per run (positions are absolute).
+                for &(entity, text, inline_start) in &text_runs {
+                    let mut cursor = inline_start;
+                    emit_flow_text_run(
+                        dom,
+                        entity,
+                        text,
+                        &mut cursor,
+                        vertical,
+                        orient,
+                        line.block_start,
+                        line.block_size,
+                        ctx.font_db,
+                        ctx.font_cache,
+                        ctx.dl,
+                    );
                 }
             }
         }
@@ -511,6 +566,58 @@ fn emit_inline_flow(
     // (`paint_non_sc` walks block children at `depth + 1`).
     for atomic in atomics {
         walk(ctx, atomic, depth + 1, child_perspective, in_transform);
+    }
+}
+
+/// Paint one `InlineFlow` `Text` run at `cursor` (the inline-axis pen), advancing it
+/// by the run's shaped width. Shared by the converged `emit_inline_flow` identity
+/// (per-run baked `inline_start`) and reorder (shared accumulating cursor) branches.
+/// `block_start`/`block_size` give the line's cross-axis geometry: horizontal → line
+/// top; vertical → glyph-column center x. The run's `text-transform` was applied by
+/// layout before measuring, so the persisted `text` is final — paint it verbatim
+/// (force the segment transform to `None` so the shared emit path does not
+/// re-transform; CSS Text 3 §2.1, render = paint-only).
+#[allow(clippy::too_many_arguments)]
+fn emit_flow_text_run(
+    dom: &EcsDom,
+    entity: Entity,
+    text: &str,
+    cursor: &mut f32,
+    vertical: bool,
+    orient: TextOrientation,
+    block_start: f32,
+    block_size: f32,
+    font_db: &FontDatabase,
+    font_cache: &mut FontCache,
+    dl: &mut DisplayList,
+) {
+    let Ok(style) = dom.world().get::<&ComputedStyle>(entity) else {
+        return;
+    };
+    // visibility: hidden text occupies space but is not painted.
+    if style.visibility != Visibility::Visible {
+        return;
+    }
+    // Style-only segment: the collapsed text comes from the flow member (`text`),
+    // so the segment's own text field is unused.
+    let mut seg = StyledTextSegment::from_style(String::new(), &style);
+    seg.text_transform = TextTransform::None;
+    if vertical {
+        let center_x = block_start + block_size / 2.0;
+        emit_vertical_text_segment(
+            text, &seg, orient, center_x, cursor, font_db, font_cache, dl,
+        );
+    } else {
+        emit_text_segment(
+            text,
+            &seg,
+            cursor,
+            block_start,
+            0.0,
+            font_db,
+            font_cache,
+            dl,
+        );
     }
 }
 

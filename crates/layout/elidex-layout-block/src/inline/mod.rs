@@ -159,47 +159,6 @@ fn is_atomic_inline(display: Display) -> bool {
     )
 }
 
-/// Whether an inline run contains members that make its render-side treatment
-/// diverge from layout's IFC membership, so layout must **not** persist an
-/// `InlineFlow` for it (render falls back to its own collect/collapse/emit).
-///
-/// (Slice 3 removed `has_pseudo`: pseudo-element `content` — including
-/// `counter()` — is now resolved into the pseudo's `TextContent` by the
-/// pre-layout generated-content pass, so layout measures the resolved text and
-/// pseudo runs persist like any other text run, subject to the gates below.)
-///
-/// (Slice 3p-a removed `has_atomic`: a *static* `inline-block`/`-flex`/`-grid`/
-/// `-table` now persists as an `AtomicBox` member of `InlineFlow`, render paints
-/// it by `walk()`-ing the entity at its repositioned `LayoutBox`.)
-///
-/// (Slice 3p-b converged *plain* `position:relative`/`sticky` **inline** elements:
-/// they keep their text in the IFC (CSS 2 §9.4.3) and render paints their subtree
-/// in Layer 6 via `walk(root)`, so layout persists a **per-positioned-subtree
-/// sub-flow** keyed on the root's first eligible child — no gate flag.)
-///
-/// (Slice 3p-b-2 converged the relative/sticky **atomic** inline (a *different*
-/// mechanism than the sub-flow): it advances the IFC line cursor like any atomic
-/// but is painted in render's Layer 6 from its own `LayoutBox`, so layout
-/// repositions that box to its on-line position preserving the applied relative
-/// offset — recorded in a separate per-pass bucket, NOT an `InlineFlow` member,
-/// so it never gates persistence. The old `has_relpos_sticky_atomic` gate is gone;
-/// `InlineItem::Atomic::positioned` now routes it to the reposition bucket.)
-///
-/// - `has_bidi`: a run whose text contains right-to-left characters — layout
-///   positions runs in logical order, but render reorders them visually
-///   (`bidi_visual_order`); consuming the logical order would scramble them
-///   (slice 4).
-///
-/// (`text-transform` no longer gates: layout now transforms each run's text
-/// before measuring/packing — see [`apply_text_transforms`] — so the persisted
-/// positions are for the transformed glyphs and render paints them verbatim.)
-// Each field is an independent "gate out of InlineFlow persistence" reason;
-// a flag set is the natural representation.
-#[derive(Default, Clone, Copy)]
-pub(crate) struct RunComplexity {
-    pub has_bidi: bool,
-}
-
 /// Render's `run[0]` for the inline run rooted at the element whose composed
 /// children are `children` — it MUST match `paint_non_sc` / Layer-5 grouping
 /// exactly (`crates/core/elidex-render/src/builder/walk.rs`), since layout persists
@@ -304,14 +263,12 @@ fn positioned_subflow_key(
 /// produce placeholder items — they are laid out separately and placed as
 /// atomic units in the inline flow. Recursion stops at [`MAX_LAYOUT_DEPTH`].
 ///
-/// Also reports a [`RunComplexity`] describing run members that gate the run out
-/// of `InlineFlow` persistence (see its docs) and the **candidate-key set** for
-/// staleness reconciliation: a superset of every entity that could carry an
-/// `InlineFlow` for this IFC in any pass = the raw (unfiltered) direct children of
-/// the IFC parent plus the raw direct children of every inline element recursed
-/// into (each is some run-parent's direct child, hence a potential `run[0]`). The
-/// caller clears `InlineFlow` on candidates it does not persist (see the reconcile
-/// in `layout_inline_context_fragmented`).
+/// Also reports the **candidate-key set** for staleness reconciliation: a superset
+/// of every entity that could carry an `InlineFlow` for this IFC in any pass = the
+/// raw (unfiltered) direct children of the IFC parent plus the raw direct children
+/// of every inline element recursed into (each is some run-parent's direct child,
+/// hence a potential `run[0]`). The caller clears `InlineFlow` on candidates it does
+/// not persist (see the reconcile in `layout_inline_context_fragmented`).
 ///
 /// The top-level members are tagged with the **realigned** top-level run-start key
 /// ([`first_eligible_child`] of `children` — render's Layer-5 `run[0]`, which is NOT
@@ -322,9 +279,8 @@ pub(crate) fn collect_inline_items(
     children: &[Entity],
     parent_style: &ComputedStyle,
     parent_entity: Entity,
-) -> (Vec<InlineItem>, RunComplexity, Vec<Entity>) {
+) -> (Vec<InlineItem>, Vec<Entity>) {
     let mut items = Vec::new();
-    let mut complexity = RunComplexity::default();
     // Candidate keys: seed with the IFC parent's raw direct children, then collect
     // every recursed inline element's raw direct children during the walk.
     let mut candidate_keys: Vec<Entity> = children.to_vec();
@@ -340,14 +296,13 @@ pub(crate) fn collect_inline_items(
         parent_entity,
         0,
         &mut items,
-        &mut complexity,
         top_level_key,
         &mut candidate_keys,
         root_horizontal,
     );
     collapse_inline_whitespace(&mut items);
     apply_text_transforms(&mut items);
-    (items, complexity, candidate_keys)
+    (items, candidate_keys)
 }
 
 /// Apply CSS `text-transform` (CSS Text 3 §2.1) to each text run's collapsed
@@ -381,7 +336,6 @@ fn collect_inline_items_inner(
     parent_entity: Entity,
     depth: u32,
     items: &mut Vec<InlineItem>,
-    complexity: &mut RunComplexity,
     // Render-run-group this level's members persist under (the run-start `run[0]`
     // render reads `InlineFlow` off). `None` = not recorded (positioned subtree
     // with a direct block child → legacy; see `has_direct_block_child`).
@@ -436,15 +390,13 @@ fn collect_inline_items_inner(
             // Pseudo-element: use its resolved generated text directly with its
             // own style (skip child recursion). The pre-layout generated-content
             // pass has already resolved `content` (incl. counter()) into the
-            // pseudo's `TextContent`, so layout measures the real text. The run is
-            // still gated out of `InlineFlow` if it needs bidi reordering (slice 4);
-            // text-transform is applied in-place after collapse (no gate).
+            // pseudo's `TextContent`, so layout measures the real text. bidi and
+            // text-transform no longer gate: the run persists in logical order and
+            // render reorders for paint (slice 4) / transform is applied in-place
+            // after collapse (no gate).
             if dom.world().get::<&PseudoElementMarker>(child).is_ok() {
                 if let Ok(tc) = dom.world().get::<&TextContent>(child) {
                     if !tc.0.is_empty() {
-                        if elidex_text::text_has_rtl(&tc.0) {
-                            complexity.has_bidi = true;
-                        }
                         items.push(InlineItem::Text(StyledRun::from_style(
                             child,
                             tc.0.clone(),
@@ -480,21 +432,17 @@ fn collect_inline_items_inner(
                 child,
                 depth + 1,
                 items,
-                complexity,
                 child_group,
                 candidate_keys,
                 root_horizontal,
             );
         } else if let Ok(tc) = dom.world().get::<&TextContent>(child) {
-            // Text node: produce a run with the parent element's style.
+            // Text node: produce a run with the parent element's style. Neither bidi
+            // nor text-transform gates persistence any more: the run persists in
+            // logical order (render reorders RTL runs visually — slice 4) and
+            // text-transform is applied in-place after collapse
+            // (`apply_text_transforms`, threaded via `StyledRun::text_transform`).
             if !tc.0.is_empty() {
-                // Gate the run out of InlineFlow persistence if it needs bidi
-                // reordering (render reorders visually). text-transform no longer
-                // gates — it is applied in-place after collapse (`apply_text_transforms`),
-                // which threads the per-run value via `StyledRun::text_transform`.
-                if elidex_text::text_has_rtl(&tc.0) {
-                    complexity.has_bidi = true;
-                }
                 items.push(InlineItem::Text(StyledRun::from_style(
                     parent_entity,
                     tc.0.clone(),
@@ -765,7 +713,7 @@ pub fn layout_inline_context_fragmented(
     let parent_style = crate::get_style(dom, parent_entity);
     let font_db = env.font_db;
     let layout_child = env.layout_child;
-    let (mut items, complexity, candidate_keys) =
+    let (mut items, candidate_keys) =
         collect_inline_items(dom, children, &parent_style, parent_entity);
     // Staleness clear set: when nothing persists (here and the no-font return
     // below), clear `InlineFlow` on every candidate key (no persisted keys to
@@ -822,11 +770,13 @@ pub fn layout_inline_context_fragmented(
         }
     }
 
-    // InlineFlow persistence gate. The cross-cutting `no_legacy_gate` (justify / bidi
-    // (RTL) / text-transform) routes a run to render's legacy collect/collapse/emit
-    // path regardless of fragmentation — slice-4 / transform-slice work, NOT member-kind
-    // divergences (slice 3p-a dropped the static-atomic gate; 3p-b the plain
-    // relpos/sticky inline gate; 3p-b-2 the relative/sticky atomic gate). The
+    // InlineFlow persistence gate. The cross-cutting `no_legacy_gate` (now justify
+    // ONLY) routes a run to render's legacy collect/collapse/emit path regardless of
+    // fragmentation — slice-4 work, NOT member-kind divergences (slice 3p-a dropped
+    // the static-atomic gate; 3p-b the plain relpos/sticky inline gate; 3p-b-2 the
+    // relative/sticky atomic gate; the text-transform slice applies transforms
+    // in-place before packing; this bidi slice persists RTL runs in logical order and
+    // render reorders them at paint — UAX #9 L2, master §4.2). The
     // fragmentation term is split: non-fragmented + **paged** (slice 4 / I-paged: the
     // per-page slice + continuation rebase below model the per-page geometry, fragment
     // stamped with the page generation) + **multicol whole-in-column** (slice 4 /
@@ -844,7 +794,7 @@ pub fn layout_inline_context_fragmented(
         frag_constraint.is_some_and(|c| c.fragmentation_type == crate::FragmentationType::Page);
     let frag_is_column =
         frag_constraint.is_some_and(|c| c.fragmentation_type == crate::FragmentationType::Column);
-    let no_legacy_gate = parent_style.text_align != TextAlign::Justify && !complexity.has_bidi;
+    let no_legacy_gate = parent_style.text_align != TextAlign::Justify;
     let persist_candidate =
         no_legacy_gate && (frag_constraint.is_none() || frag_is_paged || frag_is_column);
     let flow_align = persist_candidate.then_some(pack::FlowAlign {
