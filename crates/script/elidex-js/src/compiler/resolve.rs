@@ -78,22 +78,10 @@ impl FunctionScope {
         }
     }
 
-    /// Reserve one local slot with no associated name, returning its index.
-    ///
-    /// Used for the anonymous positional slot of a destructuring parameter
-    /// (see `ScopeState::add_param_placeholder`): the caller fills it with
-    /// the incoming argument, and the parameter prologue reads it by slot
-    /// index (`GetLocal i`) before destructuring — it is never resolved by
-    /// name, so no `locals` entry is created.
-    pub fn reserve_slot(&mut self) -> u16 {
-        let slot = self.next_local;
-        self.next_local += 1;
-        slot
-    }
-
     /// Allocate a local slot for a binding in a specific scope.
     pub fn add_local(&mut self, scope_idx: usize, name: Atom, kind: BindingKind) -> u16 {
-        let slot = self.reserve_slot();
+        let slot = self.next_local;
+        self.next_local += 1;
         let needs_tdz = matches!(
             kind,
             BindingKind::Let | BindingKind::Const | BindingKind::Class
@@ -204,18 +192,8 @@ pub fn build_function_scopes(analysis: &ScopeAnalysis) -> (Vec<FunctionScope>, V
         let func_idx = scope_to_func[scope_idx];
         let func = &mut func_scopes[func_idx];
 
-        // First: allocate one slot per positional parameter, in source
-        // order. A nameless placeholder (`Atom::EMPTY`) marks the
-        // anonymous slot of a destructuring param — reserve it unnamed so
-        // each one gets a distinct slot (they cannot be deduplicated by
-        // name) and the prologue can read it by index. The pattern's own
-        // names are ordinary `Param` bindings registered *after* these, so
-        // they fall outside the `0..arity` positional region.
+        // First: allocate Param bindings in source order.
         for binding in &scope.bindings {
-            if binding.is_param_placeholder() {
-                func.reserve_slot();
-                continue;
-            }
             if binding.kind != BindingKind::Param {
                 continue;
             }

@@ -40,7 +40,6 @@ mod tests_cssom_sheet;
 mod tests_custom_elements;
 mod tests_data_view;
 mod tests_dataset;
-mod tests_destructuring_param;
 mod tests_dispatch_event;
 mod tests_document_global;
 mod tests_document_members;
