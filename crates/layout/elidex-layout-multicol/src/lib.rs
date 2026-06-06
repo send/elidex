@@ -419,15 +419,12 @@ fn position_column_fragments(
             Vector::y_only(inline_offset)
         };
 
-        // Shift every child of this column fragment (and its descendants) to the
-        // column's inline offset via block layout's canonical subtree shifter — the
-        // single project-wide implementation. It moves `LayoutBox` AND a persisted
-        // `InlineFlow` (absolute coords render consumes directly; the run-start carrying
-        // the flow is typically a styleless text node, so the shift is NOT gated by the
-        // block-level filter) by the writing-mode projection. Slice 4 / I-multicol:
-        // before this, the column shift moved only `LayoutBox`, so a converged column's
-        // inline text (whole-IFC-in-column) repainted at column 0. One-issue-one-way —
-        // reused instead of a second InlineFlow-aware shifter.
+        // Shift this column fragment's children (and descendants) to the column's inline
+        // offset via block layout's canonical subtree shifter — which moves `LayoutBox`
+        // AND a persisted `InlineFlow` (see its docstring). Slice 4 / I-multicol: before
+        // this, multicol's own LayoutBox-only shifter left a converged whole-in-column
+        // run's inline text painted at column 0. One-issue-one-way — reuse the single
+        // project-wide shifter instead of a second InlineFlow-aware copy.
         elidex_layout_block::block::shift_descendants(dom, &frag.children, delta);
     }
 }
