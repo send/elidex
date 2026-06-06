@@ -926,3 +926,39 @@ fn crypto_key_states_pruned_on_gc() {
         "unreachable key pruned from side-store"
     );
 }
+
+#[test]
+fn crypto_key_accessor_with_missing_side_store_entry_is_illegal_invocation() {
+    // Copilot #1 regression: a `CryptoKey` brand surviving WITHOUT its
+    // side-store entry (e.g. a reference retained across `Vm::unbind`,
+    // which clears the side-store) must surface as a TypeError, not a
+    // panic / stale-material read.
+    use elidex_api_crypto::key::{CryptoKeyData, KeyAlgorithm, KeyMaterial, KeyType, KeyUsage};
+    use elidex_api_crypto::HashAlgorithm;
+
+    let mut vm = Vm::new();
+    vm.eval("void crypto.subtle;").unwrap();
+    let data = CryptoKeyData {
+        key_type: KeyType::Secret,
+        extractable: true,
+        algorithm: KeyAlgorithm::Hmac {
+            hash: HashAlgorithm::Sha256,
+            length: 160,
+        },
+        usages: vec![KeyUsage::Sign],
+        material: KeyMaterial::Raw(vec![0xab; 20]),
+    };
+    let id = vm.inner.alloc_crypto_key(data);
+    let key = vm.inner.strings.intern("k");
+    vm.inner.globals.insert(key, JsValue::Object(id));
+    // Simulate the invariant violation (entry gone, wrapper retained).
+    vm.inner.crypto_key_states.remove(&id);
+
+    let r = vm
+        .eval("(() => { try { globalThis.k.type; return 'no-throw'; } catch (e) { return e.name; } })();")
+        .unwrap();
+    match r {
+        JsValue::String(sid) => assert_eq!(vm.get_string(sid), "TypeError"),
+        other => panic!("expected TypeError name, got {other:?}"),
+    }
+}

@@ -51,6 +51,18 @@ pub fn generate_key(
         return Err(not_supported_op("generateKey"));
     };
     validate_hmac_usages(&usages)?;
+    // `ops` owns argument validation (the layering boundary): re-derive
+    // the required byte count (this also runs the `length == 0` →
+    // OperationError check) and defensively confirm the caller filled
+    // exactly that many CSPRNG bytes, so a mis-sized `rng_bytes` cannot
+    // silently produce a wrong-length key.
+    let expected = hmac::generate_key_byte_len(hash, length)?;
+    if rng_bytes.len() != expected {
+        return Err(AlgorithmError::Operation(format!(
+            "HMAC key generation requires {expected} random byte(s), got {}",
+            rng_bytes.len()
+        )));
+    }
     let bit_len = hmac::generate_key_bit_len(hash, length);
     Ok(CryptoKeyData {
         key_type: KeyType::Secret,

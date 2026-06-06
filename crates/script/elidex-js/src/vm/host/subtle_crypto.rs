@@ -286,6 +286,11 @@ fn settle_promise(
 
 /// Brand-check a `CryptoKey` operation argument (NOT `this`).  A wrong
 /// type is a WebIDL conversion `TypeError`, settled on the Promise.
+///
+/// Confirms the side-store entry exists alongside the `ObjectKind` brand
+/// so the subsequent `crypto_key_states[&id]` index cannot panic (a
+/// brand surviving without its entry — e.g. retained across `Vm::unbind`
+/// — surfaces as the same not-a-CryptoKey `TypeError`).
 fn require_crypto_key_arg(
     ctx: &NativeContext<'_>,
     value: JsValue,
@@ -293,7 +298,9 @@ fn require_crypto_key_arg(
     param: u32,
 ) -> Result<ObjectId, VmError> {
     if let JsValue::Object(id) = value {
-        if matches!(ctx.vm.get_object(id).kind, ObjectKind::CryptoKey) {
+        if matches!(ctx.vm.get_object(id).kind, ObjectKind::CryptoKey)
+            && ctx.vm.crypto_key_states.contains_key(&id)
+        {
             return Ok(id);
         }
     }

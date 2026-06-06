@@ -221,6 +221,18 @@ fn ops_generate_sign_verify_roundtrip() {
 }
 
 #[test]
+fn ops_generate_wrong_rng_length_is_operation_error() {
+    // Copilot #2: `ops::generate_key` validates the caller-supplied RNG
+    // length at the boundary.  SHA-256 default = 64 bytes; a short buffer
+    // is rejected rather than silently producing a short key.
+    let alg = hmac_keygen_alg(HashAlgorithm::Sha256, None);
+    assert!(matches!(
+        ops::generate_key(alg, true, vec![KeyUsage::Sign], &[0u8; 10]),
+        Err(AlgorithmError::Operation(_))
+    ));
+}
+
+#[test]
 fn ops_generate_empty_usages_is_syntax_error() {
     let alg = hmac_keygen_alg(HashAlgorithm::Sha256, None);
     assert!(matches!(

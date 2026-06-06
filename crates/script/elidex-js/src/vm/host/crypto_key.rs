@@ -134,15 +134,26 @@ impl VmInner {
 // Brand check
 // ---------------------------------------------------------------------------
 
-/// Confirm `this` is a `CryptoKey`, returning its `ObjectId`.  Used by
-/// the accessors and by `SubtleCrypto.{exportKey,sign,verify}`.
+/// Confirm `this` is a `CryptoKey` **with a live side-store entry**,
+/// returning its `ObjectId`.  Used by the accessors and by
+/// `SubtleCrypto.{exportKey,sign,verify}` so the subsequent
+/// `crypto_key_states[&id]` index can never panic.
+///
+/// The side-store presence is checked alongside the `ObjectKind` brand
+/// (mirroring the other side-table-backed brands): the two are an
+/// invariant pair (`alloc_crypto_key` always inserts), but a brand
+/// surviving without its entry — e.g. a reference retained across
+/// `Vm::unbind`, which clears the side-store — must surface as an
+/// illegal invocation, not a panic / stale-material read.
 pub(super) fn require_crypto_key_this(
     ctx: &NativeContext<'_>,
     this: JsValue,
     accessor: &'static str,
 ) -> Result<ObjectId, VmError> {
     if let JsValue::Object(id) = this {
-        if matches!(ctx.vm.get_object(id).kind, ObjectKind::CryptoKey) {
+        if matches!(ctx.vm.get_object(id).kind, ObjectKind::CryptoKey)
+            && ctx.vm.crypto_key_states.contains_key(&id)
+        {
             return Ok(id);
         }
     }
