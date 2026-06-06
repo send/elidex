@@ -4,11 +4,13 @@ This repo's engineering rules, architecture, and design philosophy are the
 **`CLAUDE.md`** at the repo root — read it first; it is the single source of
 truth. Do not restate or fork its rules here.
 
-## For Codex when reviewing a pull request
+## Review guidelines
 
-The local pre-push gate (Claude-based) already covers generic correctness and
-style, so a generic review adds little. Add value by applying elidex's
-*project-specific* design lenses and flagging what a generic reviewer misses:
+Codex reads this section for PR code review (it keys on the literal
+`## Review guidelines` heading). The local pre-push gate (Claude-based) already
+covers generic correctness and style, so a generic review adds little. Add
+value by applying elidex's *project-specific* design lenses and flagging what a
+generic reviewer misses:
 
 - Read **`.claude/skills/elidex-review/axes.md`** — the 5-axis review SSoT
   (Layering mandate / ECS-native lens / pragmatic shortcut / spec citation /
