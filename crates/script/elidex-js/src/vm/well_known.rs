@@ -744,6 +744,13 @@ define_well_known_strings! {
         // DOMException name (no legacy code → `.code === 0`, so not
         // added to `legacy_code_for_name` in dom_exception.rs).
         dom_exc_encoding_error => "EncodingError",
+        // Added with `#11-crypto-subtle-full`: WebCrypto §14.3.x
+        // operations reject with DataError (malformed key material /
+        // out-of-range length) and OperationError (e.g. zero-length
+        // HMAC key generation). Modern DOMException names (no legacy
+        // code → not added to `legacy_code_for_name`).
+        dom_exc_data_error => "DataError",
+        dom_exc_operation_error => "OperationError",
     }
 
     "Headers (WHATWG Fetch §5.2)" {
@@ -1310,6 +1317,23 @@ define_well_known_strings! {
         random_uuid => "randomUUID",
         subtle => "subtle",
         digest => "digest",
+        // `#11-crypto-subtle-full`: `SubtleCrypto.prototype` operation
+        // methods + the `CryptoKey` constructor global + its four
+        // readonly accessors.  The `type` / `hash` / `length` / `name`
+        // accessor identifiers reuse the existing `event_type` /
+        // `hash_attr` / `length` / `name` well-known strings; the JWK
+        // member names (`kty` / `k` / `alg` / `key_ops` / `ext` /
+        // `use`) and key formats (`raw` / `jwk` / …) are interned
+        // on demand in the marshalling path (cold, idempotent).
+        generate_key => "generateKey",
+        import_key => "importKey",
+        export_key => "exportKey",
+        sign => "sign",
+        verify => "verify",
+        crypto_key_global => "CryptoKey",
+        extractable => "extractable",
+        algorithm => "algorithm",
+        usages => "usages",
     }
 
     "WebSocket / EventSource (WHATWG WebSockets §9.3 + HTML §9.2)" {

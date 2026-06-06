@@ -1261,8 +1261,9 @@ pub enum ObjectKind {
     Crypto,
     /// `SubtleCrypto` instance (WebCrypto §14) — accessed via the
     /// `Crypto.prototype.subtle` accessor (per spec `[SameObject]`).
-    /// Payload-free brand; current scope ships only
-    /// `digest(algorithm, data)`.
+    /// Payload-free brand; ships `digest` + the HMAC vertical
+    /// (`generateKey` / `importKey` / `exportKey` / `sign` / `verify`,
+    /// slot `#11-crypto-subtle-full` PR-1).
     ///
     /// `new SubtleCrypto()` throws TypeError per WebIDL §14.
     ///
@@ -1271,6 +1272,26 @@ pub enum ObjectKind {
     /// slot alongside `crypto_instance`.
     #[cfg(feature = "engine")]
     SubtleCrypto,
+    /// `CryptoKey` instance (WebCrypto §13) — vended by
+    /// `SubtleCrypto.{generateKey,importKey}`.  Payload-free brand; the
+    /// per-key state (`type` / `extractable` / `algorithm` / `usages` +
+    /// the secret key material) lives in `VmInner::crypto_key_states`
+    /// keyed by this `ObjectId` (engine-independent
+    /// `elidex_api_crypto::CryptoKeyData`).
+    ///
+    /// `new CryptoKey()` throws TypeError per WebIDL §13 (illegal
+    /// constructor — keys are only produced by `SubtleCrypto`
+    /// operations).
+    ///
+    /// GC contract: payload-free trace fan-out (the side-store value
+    /// holds only bytes + enums, no `ObjectId`); the sweep tail prunes
+    /// `crypto_key_states` for collected keys (a correctness invariant —
+    /// `ObjectId` slots are reused, so a stale entry would otherwise be
+    /// read by an unrelated reused-id object).  `Vm::unbind` clears the
+    /// side-store (the payload is key material → cross-session leak
+    /// otherwise; same data-class as `wasm_module_storage`).
+    #[cfg(feature = "engine")]
+    CryptoKey,
     /// `WebSocket` instance (WHATWG WebSockets §9.3).  Payload-free
     /// brand; the per-instance state (4-state `readyState` + URL +
     /// negotiated protocol/extensions + `bufferedAmount` +

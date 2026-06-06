@@ -702,8 +702,11 @@ pub(super) fn trace_work_list(
             // `VmInner::subtle_crypto_instance` (mark-roots step).
             // No side-table state, no inline `ObjectId` — trace
             // fan-out is a no-op.
+            // `CryptoKey` is payload-free for trace: the side-store
+            // value (`crypto_key_states`) holds only bytes + enums, no
+            // `ObjectId`.  The sweep tail prunes collected keys.
             #[cfg(feature = "engine")]
-            ObjectKind::Crypto | ObjectKind::SubtleCrypto => {}
+            ObjectKind::Crypto | ObjectKind::SubtleCrypto | ObjectKind::CryptoKey => {}
             // `CustomElementRegistry` is a payload-free singleton.
             // Registered constructor `ObjectId`s + pending whenDefined
             // resolvers live on `HostData` (per-VM, traced through the

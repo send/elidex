@@ -687,3 +687,217 @@ fn assert_typeerror(err: &VmError) {
         "expected TypeError, got: {err}"
     );
 }
+
+// ===========================================================================
+// HMAC vertical: generateKey / importKey / exportKey / sign / verify
+// (`#11-crypto-subtle-full` PR-1)
+// ===========================================================================
+
+/// JS helper installed at the top of each operation test: hex-encode an
+/// ArrayBuffer.
+const HEX_FN: &str = "globalThis.hex = b => Array.from(new Uint8Array(b)) \
+     .map(x => x.toString(16).padStart(2,'0')).join('');";
+
+#[test]
+fn generate_sign_verify_roundtrip_true() {
+    let src = format!(
+        "{HEX_FN} globalThis.r = 'pending'; \
+         const data = new Uint8Array([1,2,3,4]); \
+         crypto.subtle.generateKey({{name:'HMAC', hash:'SHA-256'}}, true, ['sign','verify']) \
+           .then(key => crypto.subtle.sign('HMAC', key, data) \
+             .then(sig => crypto.subtle.verify('HMAC', key, sig, data))) \
+           .then(ok => {{ globalThis.r = ok ? 'true' : 'false'; }}, \
+                 e => {{ globalThis.r = 'err:' + e.name; }});"
+    );
+    assert_eq!(eval_global_string(&src, "r"), "true");
+}
+
+#[test]
+fn verify_rejects_tampered_signature() {
+    let src = "globalThis.r = 'pending'; \
+         const data = new Uint8Array([1,2,3,4]); \
+         crypto.subtle.generateKey({name:'HMAC', hash:'SHA-256'}, true, ['sign','verify']) \
+           .then(key => crypto.subtle.sign('HMAC', key, data) \
+             .then(sig => { const u = new Uint8Array(sig); u[0] = 255 - u[0]; \
+                             return crypto.subtle.verify('HMAC', key, sig, data); })) \
+           .then(ok => { globalThis.r = ok ? 'true' : 'false'; });";
+    assert_eq!(eval_global_string(src, "r"), "false");
+}
+
+#[test]
+fn import_raw_sign_matches_rfc4231_vector() {
+    // RFC 4231 TC1: key = 0x0b×20, data = "Hi There", HMAC-SHA-256.
+    let src = format!(
+        "{HEX_FN} globalThis.r = 'pending'; \
+         const key = new Uint8Array(20).fill(0x0b); \
+         const data = new TextEncoder().encode('Hi There'); \
+         crypto.subtle.importKey('raw', key, {{name:'HMAC', hash:'SHA-256'}}, false, ['sign']) \
+           .then(k => crypto.subtle.sign('HMAC', k, data)) \
+           .then(sig => {{ globalThis.r = hex(sig); }}, e => {{ globalThis.r = 'err:' + e.name; }});"
+    );
+    assert_eq!(
+        eval_global_string(&src, "r"),
+        "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"
+    );
+}
+
+#[test]
+fn import_jwk_export_jwk_roundtrip() {
+    let src = "globalThis.r = 'pending'; \
+         const jwk = {kty:'oct', k:'CwsLCwsLCwsLCwsLCwsLCwsLCws', alg:'HS256', \
+                      key_ops:['sign','verify'], ext:true}; \
+         crypto.subtle.importKey('jwk', jwk, {name:'HMAC', hash:'SHA-256'}, true, ['sign','verify']) \
+           .then(k => crypto.subtle.exportKey('jwk', k)) \
+           .then(out => { globalThis.r = out.kty + '|' + out.k + '|' + out.alg + '|' + out.ext; }, \
+                 e => { globalThis.r = 'err:' + e.name; });";
+    assert_eq!(
+        eval_global_string(src, "r"),
+        "oct|CwsLCwsLCwsLCwsLCwsLCwsLCws|HS256|true"
+    );
+}
+
+#[test]
+fn export_raw_returns_key_bytes() {
+    let src = format!(
+        "{HEX_FN} globalThis.r = 'pending'; \
+         const key = new Uint8Array(4).fill(0xab); \
+         crypto.subtle.importKey('raw', key, {{name:'HMAC', hash:'SHA-256'}}, true, ['sign']) \
+           .then(k => crypto.subtle.exportKey('raw', k)) \
+           .then(out => {{ globalThis.r = hex(out); }});"
+    );
+    assert_eq!(eval_global_string(&src, "r"), "abababab");
+}
+
+#[test]
+fn export_non_extractable_rejects_invalid_access() {
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.importKey('raw', new Uint8Array(20), {name:'HMAC', hash:'SHA-256'}, false, ['sign']) \
+           .then(k => crypto.subtle.exportKey('raw', k)) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "InvalidAccessError");
+}
+
+#[test]
+fn generate_empty_usages_rejects_syntax_error() {
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey({name:'HMAC', hash:'SHA-256'}, true, []) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "SyntaxError");
+}
+
+#[test]
+fn import_unsupported_format_rejects_not_supported() {
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.importKey('pkcs8', new Uint8Array(20), {name:'HMAC', hash:'SHA-256'}, true, ['sign']) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "NotSupportedError");
+}
+
+#[test]
+fn sign_without_sign_usage_rejects_invalid_access() {
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.importKey('raw', new Uint8Array(20), {name:'HMAC', hash:'SHA-256'}, true, ['verify']) \
+           .then(k => crypto.subtle.sign('HMAC', k, new Uint8Array(1))) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "InvalidAccessError");
+}
+
+#[test]
+fn import_jwk_bad_kty_rejects_data_error() {
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.importKey('jwk', {kty:'RSA', k:'CwsL'}, {name:'HMAC', hash:'SHA-256'}, true, ['sign']) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "DataError");
+}
+
+#[test]
+fn import_missing_hash_rejects_type_error() {
+    // HmacImportParams.hash is a required member → TypeError at normalize.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.importKey('raw', new Uint8Array(20), {name:'HMAC'}, true, ['sign']) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "TypeError");
+}
+
+#[test]
+fn unrecognized_algorithm_rejects_not_supported() {
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey({name:'AES-Magic', hash:'SHA-256'}, true, ['sign']) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "NotSupportedError");
+}
+
+#[test]
+fn crypto_key_accessors() {
+    // type / extractable / algorithm.name / algorithm.hash.name / usages.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey({name:'HMAC', hash:'SHA-384'}, true, ['sign','verify']) \
+           .then(k => { globalThis.r = [k.type, k.extractable, k.algorithm.name, \
+                        k.algorithm.hash.name, k.usages.join(','), \
+                        k.algorithm.length].join('|'); });";
+    assert_eq!(
+        eval_global_string(src, "r"),
+        // SHA-384 HMAC default length = block size 1024 bits.
+        "secret|true|HMAC|SHA-384|sign,verify|1024"
+    );
+}
+
+#[test]
+fn crypto_key_constructor_is_illegal() {
+    let err = eval_err("new CryptoKey();");
+    assert_typeerror(&err);
+}
+
+#[test]
+fn crypto_key_usages_is_fresh_array_each_read() {
+    // Not [SameObject]: two reads yield distinct array objects.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey({name:'HMAC', hash:'SHA-256'}, true, ['sign']) \
+           .then(k => { globalThis.r = (k.usages === k.usages) ? 'same' : 'fresh'; });";
+    assert_eq!(eval_global_string(src, "r"), "fresh");
+}
+
+#[test]
+fn crypto_key_states_pruned_on_gc() {
+    // I1 correctness invariant: a CryptoKey unreachable from any root is
+    // pruned from `crypto_key_states` on collection (ObjectId slots are
+    // reused, so a stale entry would bind another wrapper's material).
+    use elidex_api_crypto::key::{CryptoKeyData, KeyAlgorithm, KeyMaterial, KeyType, KeyUsage};
+    use elidex_api_crypto::HashAlgorithm;
+
+    let mut vm = Vm::new();
+    // Trigger global registration so `crypto_key_prototype` is set.
+    vm.eval("void crypto.subtle;").unwrap();
+
+    let data = CryptoKeyData {
+        key_type: KeyType::Secret,
+        extractable: true,
+        algorithm: KeyAlgorithm::Hmac {
+            hash: HashAlgorithm::Sha256,
+            length: 160,
+        },
+        usages: vec![KeyUsage::Sign],
+        material: KeyMaterial::Raw(vec![0xab; 20]),
+    };
+    let id = vm.inner.alloc_crypto_key(data);
+    assert_eq!(vm.inner.crypto_key_states.len(), 1);
+
+    // Root it via a global; GC keeps it.
+    let key = vm.inner.strings.intern("rootedKey");
+    vm.inner.globals.insert(key, JsValue::Object(id));
+    vm.inner.collect_garbage();
+    assert_eq!(
+        vm.inner.crypto_key_states.len(),
+        1,
+        "rooted key survives GC"
+    );
+
+    // Drop the only root; GC prunes the side-store entry.
+    vm.inner.globals.insert(key, JsValue::Undefined);
+    vm.inner.collect_garbage();
+    assert_eq!(
+        vm.inner.crypto_key_states.len(),
+        0,
+        "unreachable key pruned from side-store"
+    );
+}

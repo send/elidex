@@ -247,6 +247,8 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 subtle_crypto_prototype: None,
                 #[cfg(feature = "engine")]
+                crypto_key_prototype: None,
+                #[cfg(feature = "engine")]
                 websocket_prototype: None,
                 #[cfg(feature = "engine")]
                 event_source_prototype: None,
@@ -386,6 +388,8 @@ impl Vm {
                 dom_exception_prototype: None,
                 #[cfg(feature = "engine")]
                 dom_exception_states: HashMap::new(),
+                #[cfg(feature = "engine")]
+                crypto_key_states: HashMap::new(),
                 #[cfg(feature = "engine")]
                 dom_rect_readonly_prototype: None,
                 #[cfg(feature = "engine")]

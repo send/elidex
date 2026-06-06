@@ -1,0 +1,20 @@
+[package]
+name = "elidex-api-crypto"
+description = "Engine-independent WebCrypto algorithms for elidex (CryptoKey lifecycle, algorithm normalization, HMAC, digest, JWK)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+keywords = ["browser-engine", "webcrypto", "hmac"]
+categories = ["web-programming", "cryptography"]
+
+[dependencies]
+base64.workspace = true
+hmac.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+
+[lints]
+workspace = true

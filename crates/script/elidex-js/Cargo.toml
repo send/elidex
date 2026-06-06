@@ -30,6 +30,7 @@ engine = [
     "elidex-storage-core",
     "elidex-indexeddb",
     "elidex-cache-api",
+    "elidex-api-crypto",
     "elidex-api-sw",
     "elidex-wasm-runtime",
     "bytes",
@@ -37,6 +38,7 @@ engine = [
     "base64",
     "sha1",
     "sha2",
+    "hmac",
     "getrandom",
     "uuid",
 ]
@@ -150,18 +152,29 @@ elidex-api-sw = { workspace = true, optional = true }
 # #1-#3, no `wasmtime::` token may appear in the elidex-js crate — the
 # engine-bridge crate encapsulates wasmtime internally.
 elidex-wasm-runtime = { workspace = true, optional = true }
+# Engine-independent WebCrypto algorithm crate (CryptoKey lifecycle,
+# §18.4 algorithm-normalize registry, HMAC sign/verify/key-gen, JWK
+# parse, digest) consumed by the `SubtleCrypto` VM thin binding
+# (slot `#11-crypto-subtle-full`).  Per CLAUDE.md "Layering mandate"
+# the VM only marshals JsValue ↔ the crate's `&[u8]` / typed-error API
+# (`ops::{import_key,generate_key,export_key,sign,verify}`); all
+# algorithm + spec-validation lives in the crate.
+elidex-api-crypto = { workspace = true, optional = true }
 # WebCrypto §10 / §14 backing for the `Crypto` + `SubtleCrypto`
-# VM thin bindings (slot `#11-crypto-subtle-min`).
-# - `sha1` / `sha2`: digest algorithms backing
-#   `SubtleCrypto.prototype.digest` (SHA-1 / SHA-256 / SHA-384 /
-#   SHA-512).
-# - `getrandom`: OS CSPRNG backing `Crypto.prototype.getRandomValues`
-#   and the random bytes consumed by `randomUUID`.
+# VM thin bindings (slot `#11-crypto-subtle-min` / `-full`).
+# - `sha1` / `sha2`: digest impls re-exported through `elidex-api-crypto`
+#   (the crate owns `hash::digest`; elidex-js keeps the deps only for the
+#   `getRandomValues` / direct-CSPRNG paths in `crypto.rs`).
+# - `hmac`: HMAC `Mac` driver for `elidex-api-crypto::hmac` (digest 0.11
+#   ecosystem, constant-time `verify_slice`).
+# - `getrandom`: OS CSPRNG backing `Crypto.prototype.getRandomValues`,
+#   `randomUUID`, and HMAC `generateKey` key material.
 # - `uuid`: v4 UUID generation backing `Crypto.prototype.randomUUID`.
 # All engine-gated because the WebCrypto surface depends on the
 # engine-only Window + ArrayBuffer / TypedArray / DataView wrappers.
 sha1 = { workspace = true, optional = true }
 sha2 = { workspace = true, optional = true }
+hmac = { workspace = true, optional = true }
 getrandom = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 

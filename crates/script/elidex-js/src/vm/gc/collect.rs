@@ -409,6 +409,14 @@ impl VmInner {
                 self.subtle_crypto_prototype,
                 #[cfg(not(feature = "engine"))]
                 None,
+                // `CryptoKey.prototype` (`#11-crypto-subtle-full`).
+                // Rooted so retained `CryptoKey` instances keep a live
+                // prototype; instances are not singletons, so only the
+                // prototype is a root.
+                #[cfg(feature = "engine")]
+                self.crypto_key_prototype,
+                #[cfg(not(feature = "engine"))]
+                None,
                 #[cfg(feature = "engine")]
                 self.crypto_instance,
                 #[cfg(not(feature = "engine"))]
@@ -1342,6 +1350,12 @@ impl VmInner {
             // needed during mark, only this post-sweep GC.
             self.dom_exception_states
                 .retain(|id, _| bit_get(marks, id.0));
+            // `CryptoKey` side table (`#11-crypto-subtle-full`).  Prune
+            // is a CORRECTNESS invariant, not just hygiene: `ObjectId`
+            // slots are reused (`alloc_object` free-list), so a stale
+            // entry left after collection would bind another wrapper's
+            // key material.  Payload holds no `ObjectId` → no trace pass.
+            self.crypto_key_states.retain(|id, _| bit_get(marks, id.0));
             // DOMRect value-type side table (GC contract on the field doc).
             self.dom_rect_states.retain(|id, _| bit_get(marks, id.0));
             // BeforeUnloadEvent.returnValue side table — pool-permanent

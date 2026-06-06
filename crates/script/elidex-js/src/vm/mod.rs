@@ -602,11 +602,21 @@ pub(crate) struct VmInner {
     #[cfg(feature = "engine")]
     pub(crate) crypto_prototype: Option<ObjectId>,
     /// `SubtleCrypto.prototype` (WebCrypto §14).  Chains to
-    /// `Object.prototype`.  Carries `digest` (current scope; full
-    /// surface in `#11-crypto-subtle-full`).  `None` until
+    /// `Object.prototype`.  Carries `digest` + the HMAC vertical
+    /// operations (`generateKey` / `importKey` / `exportKey` / `sign` /
+    /// `verify`, slot `#11-crypto-subtle-full` PR-1).  `None` until
     /// `register_subtle_crypto_global()` runs.
     #[cfg(feature = "engine")]
     pub(crate) subtle_crypto_prototype: Option<ObjectId>,
+    /// `CryptoKey.prototype` (WebCrypto §13).  Chains to
+    /// `Object.prototype`.  Carries the `type` / `extractable` /
+    /// `algorithm` / `usages` readonly accessors.  `None` until
+    /// `register_crypto_key_global()` runs during `register_globals()`.
+    /// Rooted via the proto-roots array so retained `CryptoKey`
+    /// instances keep a live prototype across GC; instances are NOT
+    /// singletons (many keys), so only the prototype is a root.
+    #[cfg(feature = "engine")]
+    pub(crate) crypto_key_prototype: Option<ObjectId>,
     /// `WebSocket.prototype` (WHATWG WebSockets §9.3).  Chains
     /// directly to `Object.prototype` (NOT `EventTarget.prototype`
     /// in this PR — addEventListener delivery for non-Entity
@@ -1023,6 +1033,25 @@ pub(crate) struct VmInner {
     ///   inherit stale `name` / `message`.
     #[cfg(feature = "engine")]
     pub(crate) dom_exception_states: HashMap<ObjectId, host::dom_exception::DomExceptionState>,
+    /// Per-`CryptoKey` state (WebCrypto §13), keyed by the instance's
+    /// own `ObjectId` (payload-free brand + side-store, same pattern as
+    /// [`Self::dom_exception_states`]).  The `type` / `extractable` /
+    /// `algorithm` / `usages` accessors and the `sign` / `verify` /
+    /// `exportKey` operations read the engine-independent
+    /// [`elidex_api_crypto::CryptoKeyData`] (algorithm descriptor +
+    /// usages + secret key material) through this table.
+    ///
+    /// GC contract:
+    /// - Trace step: no fan-out — the payload holds only bytes + enums
+    ///   (no `ObjectId`).
+    /// - Sweep tail: entries whose key was collected are pruned — a
+    ///   **correctness** invariant, since `alloc_object` reuses freed
+    ///   `ObjectId` slots and a stale entry would otherwise bind another
+    ///   wrapper's key material.
+    /// - `Vm::unbind`: cleared (key material → cross-session leak
+    ///   otherwise; same data-class as [`Self::wasm_module_storage`]).
+    #[cfg(feature = "engine")]
+    pub(crate) crypto_key_states: HashMap<ObjectId, elidex_api_crypto::CryptoKeyData>,
     /// `DOMRectReadOnly.prototype` (W3C Geometry Interfaces Module
     /// Level 1 §3).  Chains to `Object.prototype`.  Holds the
     /// getter-only `x` / `y` / `width` / `height` accessors plus the

@@ -26,6 +26,7 @@ members = [
     "crates/dom/elidex-form",
     "crates/api/elidex-api-observers",
     "crates/api/elidex-cache-api",
+    "crates/api/elidex-api-crypto",
     "crates/api/elidex-api-sw",
     "crates/api/elidex-api-fetch",
     "crates/api/elidex-api-ws",
@@ -107,6 +108,7 @@ url = "2"
 uuid = { version = "1", features = ["v4"] }
 sha1 = "0.11"
 sha2 = "0.11"
+hmac = "0.13"
 getrandom = "0.4"
 webpki-roots = "1"
 elidex-plugin = { path = "crates/core/elidex-plugin" }
@@ -151,6 +153,7 @@ elidex-form = { path = "crates/dom/elidex-form" }
 elidex-api-observers = { path = "crates/api/elidex-api-observers" }
 elidex-storage-core = { path = "crates/storage/elidex-storage-core" }
 elidex-cache-api = { path = "crates/api/elidex-cache-api" }
+elidex-api-crypto = { path = "crates/api/elidex-api-crypto" }
 elidex-api-sw = { path = "crates/api/elidex-api-sw" }
 elidex-api-fetch = { path = "crates/api/elidex-api-fetch" }
 elidex-api-ws = { path = "crates/api/elidex-api-ws" }
