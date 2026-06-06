@@ -546,6 +546,19 @@ impl Param {
             span,
         }
     }
+
+    /// Whether this parameter's top-level pattern is a plain identifier.
+    ///
+    /// A simple identifier parameter binds its positional argument slot
+    /// directly; any destructuring pattern instead receives its argument in
+    /// an anonymous slot that the function's parameter prologue unpacks.
+    /// Scope analysis (slot reservation) and the compiler (prologue) must
+    /// agree on this split, so both consult this single predicate — keeping
+    /// the positional-slot layout invariant in one place.
+    #[must_use]
+    pub fn is_simple_identifier(&self, patterns: &Arena<Pattern>) -> bool {
+        matches!(patterns.get(self.pattern).kind, PatternKind::Identifier(_))
+    }
 }
 
 /// Arrow function.
