@@ -41,7 +41,7 @@ WHATWG / W3C / TC39 (ECMA-262 / ECMA-402) / **CSS WG modules** の section numbe
 - **Push 前**: `mise run ci` (check + lint + test-all + doc + deny + ci-sweep cleanup; ci-sweep は `cargo-sweep` 未インストール時 no-op)
 - **テストは変更クレートに絞る**: `cargo test -p <crate> --all-features`。`--workspace` / `mise run test` は最終検証時のみ
 - **Git**: main 直接 push 禁止、PR 経由必須。`gh pr merge --auto` 禁止。CI 全 pass を目視確認してから squash merge
-- **並行セッション / worktree 隔離**: 他 Claude instance と working tree を共有し得る (parallel sessions)。**コミットするブランチは専用 `git worktree add <dir> -b <branch>` で隔離して作業** (shared main tree で直接 commit しない — 並行 instance の branch 切替/commit が HEAD を動かし、`git push HEAD:<branch>` で他人の commit が PR に混入する)。*自分が作っていない WIP / "file modified since read" / HEAD が動いた* のいずれかを見たら STOP → worktree 隔離。commit/push 直前に `git branch --show-current` + `git log --oneline origin/main..HEAD` でスコープ目視し、push は `HEAD:<other>` でなく明示 branch ref。背景 = 共有ツリー経由で並行セッションの commit が PR #285 に混入した incident。pre-push フック (`~/.claude/hooks/git-push-branch-guard.sh`) が branch-mismatch push を機械的にブロック。
+- **並行セッション / worktree 隔離**: 他 Claude instance と working tree を共有し得る (parallel sessions)。**コミットするブランチは専用 `git worktree add -b <branch> <dir>` で隔離して作業** (shared main tree で直接 commit しない — 並行 instance の branch 切替/commit が HEAD を動かし、`git push HEAD:<branch>` で他人の commit が PR に混入する)。*自分が作っていない WIP / "file modified since read" / HEAD が動いた* のいずれかを見たら STOP → worktree 隔離。commit/push 直前に `git branch --show-current` + `git log --oneline origin/main..HEAD` でスコープ目視し、push は `HEAD:<other>` でなく明示 branch ref。背景 = 共有ツリー経由で並行セッションの commit が PR #285 に混入した incident。pre-push フック (`~/.claude/hooks/git-push-branch-guard.sh`) が branch-mismatch push を機械的にブロック。
 
 ## Commands
 
