@@ -1,0 +1,33 @@
+name: Copilot Setup Steps
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+      - .claude/tools/webref
+      - .claude/tools/_webref/**
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+      - .claude/tools/webref
+      - .claude/tools/_webref/**
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Prime webref spec cache
+        run: |
+          python3 ./.claude/tools/webref heading ecma262 10.2.11 >/dev/null
+          python3 ./.claude/tools/webref aoid ecma402 CanonicalizeLocaleList >/dev/null
+          python3 ./.claude/tools/webref heading html 4.13 --exact >/dev/null
+          python3 ./.claude/tools/webref dfn html "reaction queue" >/dev/null
+          python3 ./.claude/tools/webref idl dom Node >/dev/null
+          python3 ./.claude/tools/webref css css-text-3 line-break >/dev/null
+          python3 ./.claude/tools/webref body html the-iframe-element >/dev/null
