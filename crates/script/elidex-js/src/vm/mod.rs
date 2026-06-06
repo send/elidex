@@ -1052,6 +1052,22 @@ pub(crate) struct VmInner {
     ///   otherwise; same data-class as [`Self::wasm_module_storage`]).
     #[cfg(feature = "engine")]
     pub(crate) crypto_key_states: HashMap<ObjectId, elidex_api_crypto::CryptoKeyData>,
+    /// Cached `algorithm` / `usages` ECMAScript objects per `CryptoKey`
+    /// (`[[algorithm_cached]]` / `[[usages_cached]]`, WebCrypto §13.3 /
+    /// §13.4), keyed by the wrapper's own `ObjectId` (same key as
+    /// [`Self::crypto_key_states`]).  The accessors return the cached
+    /// object so `key.algorithm === key.algorithm` holds (§13.4).
+    ///
+    /// GC contract:
+    /// - Trace step: the `ObjectKind::CryptoKey` arm marks the two cached
+    ///   `ObjectId`s — they outlive the native call that built them (GC
+    ///   runs between calls), so they MUST be kept alive while the key is
+    ///   reachable, mirroring `[[*_cached]]` slot ownership.
+    /// - Sweep tail: pruned with [`Self::crypto_key_states`] (same
+    ///   reused-slot correctness concern).
+    /// - `Vm::unbind`: cleared alongside the key state.
+    #[cfg(feature = "engine")]
+    pub(crate) crypto_key_js_cache: HashMap<ObjectId, host::crypto_key::CryptoKeyJsCache>,
     /// `DOMRectReadOnly.prototype` (W3C Geometry Interfaces Module
     /// Level 1 §3).  Chains to `Object.prototype`.  Holds the
     /// getter-only `x` / `y` / `width` / `height` accessors plus the

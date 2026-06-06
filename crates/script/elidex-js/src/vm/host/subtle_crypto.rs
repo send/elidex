@@ -315,13 +315,20 @@ fn require_crypto_key_arg(
 ///
 /// The `hash` / `length` members are read **only** for the operations
 /// whose params dictionaries carry them (`generateKey` / `importKey` —
-/// `HmacKeyGenParams` / `HmacImportParams`).  For `digest` / `sign` /
-/// `verify` the identifier is name-only (the spec's `Algorithm` dict), so
-/// those members are not consulted — this both avoids firing a
-/// user-defined `hash`/`length` getter where the spec never reads it and
-/// bounds the recursion: the nested `hash` is a [`marshal_hash_identifier`]
-/// **leaf** (a `HashAlgorithmIdentifier` never has its own `hash`), so a
-/// self-referential / deeply-nested algorithm object cannot recurse.
+/// `HmacKeyGenParams` / `HmacImportParams`) **and** only once the `name`
+/// has been recognized against the registry for `op`.  This mirrors
+/// §18.4.4: step 5 recognizes `algName` (returning `NotSupportedError`
+/// for an unregistered pair) *before* step 6 converts `alg` to the params
+/// dictionary, which is what reads `hash` / `length`.  An unregistered
+/// name (e.g. `generateKey({name:'AES-Magic', get hash(){throw}})`) must
+/// therefore reject with `NotSupportedError` and never fire the getter.
+/// For `digest` / `sign` / `verify` the identifier is name-only (the
+/// spec's `Algorithm` dict), so those members are not consulted either.
+///
+/// Bounding the recursion: the nested `hash` is a
+/// [`marshal_hash_identifier`] **leaf** (a `HashAlgorithmIdentifier` never
+/// has its own `hash`), so a self-referential / deeply-nested algorithm
+/// object cannot recurse.
 fn marshal_algorithm(
     ctx: &mut NativeContext<'_>,
     value: JsValue,
@@ -333,7 +340,12 @@ fn marshal_algorithm(
         JsValue::String(sid) => Ok(RawAlgorithm::from_name(ctx.vm.strings.get_utf8(sid))),
         JsValue::Object(id) => {
             let name = read_required_name(ctx, id, method)?;
-            let (hash, length) = if reads_key_params {
+            // §18.4.4 step 5 recognition gate: only read the params-
+            // dictionary getters (step 6) for a registered `(op, name)`.
+            // An unrecognized name yields a name-only `RawAlgorithm`,
+            // which `crypto::normalize` rejects as `NotSupportedError`
+            // without ever touching `hash` / `length`.
+            let (hash, length) = if reads_key_params && crypto::is_supported(op, &name) {
                 let hash_val =
                     ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.hash_attr))?;
                 let hash = if matches!(hash_val, JsValue::Undefined) {

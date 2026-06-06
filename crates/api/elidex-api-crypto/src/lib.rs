@@ -26,7 +26,9 @@ pub mod ops;
 #[cfg(test)]
 mod tests;
 
-pub use algorithm::{normalize, AlgorithmName, NormalizedAlgorithm, Operation, RawAlgorithm};
+pub use algorithm::{
+    is_supported, normalize, AlgorithmName, NormalizedAlgorithm, Operation, RawAlgorithm,
+};
 pub use error::AlgorithmError;
 pub use hash::HashAlgorithm;
 pub use jwk::JsonWebKey;

@@ -1284,13 +1284,17 @@ pub enum ObjectKind {
     /// `CryptoKey` (WebCrypto §13) declares none — keys are produced
     /// only by `SubtleCrypto` operations.
     ///
-    /// GC contract: payload-free trace fan-out (the side-store value
-    /// holds only bytes + enums, no `ObjectId`); the sweep tail prunes
-    /// `crypto_key_states` for collected keys (a correctness invariant —
+    /// GC contract: the trace arm marks the cached `algorithm` / `usages`
+    /// objects (`[[algorithm_cached]]` / `[[usages_cached]]`, §13.4) held
+    /// in `VmInner::crypto_key_js_cache` — they persist across native
+    /// calls (when GC runs) and must stay alive while the key is
+    /// reachable.  The key-material side-store (`crypto_key_states`) itself
+    /// holds only bytes + enums (no `ObjectId`).  The sweep tail prunes
+    /// both side-stores for collected keys (a correctness invariant —
     /// `ObjectId` slots are reused, so a stale entry would otherwise be
-    /// read by an unrelated reused-id object).  `Vm::unbind` clears the
-    /// side-store (the payload is key material → cross-session leak
-    /// otherwise; same data-class as `wasm_module_storage`).
+    /// read by an unrelated reused-id object).  `Vm::unbind` clears both
+    /// (the key-material payload is a cross-session leak otherwise; same
+    /// data-class as `wasm_module_storage`).
     #[cfg(feature = "engine")]
     CryptoKey,
     /// `WebSocket` instance (WHATWG WebSockets §9.3).  Payload-free

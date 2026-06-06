@@ -391,6 +391,8 @@ impl Vm {
                 #[cfg(feature = "engine")]
                 crypto_key_states: HashMap::new(),
                 #[cfg(feature = "engine")]
+                crypto_key_js_cache: HashMap::new(),
+                #[cfg(feature = "engine")]
                 dom_rect_readonly_prototype: None,
                 #[cfg(feature = "engine")]
                 dom_rect_prototype: None,

@@ -3,7 +3,7 @@
 //! HMAC vectors are from RFC 4231 (SHA-256/384/512) and RFC 2202
 //! (SHA-1); digest vectors from FIPS 180 examples.
 
-use crate::algorithm::{normalize, NormalizedAlgorithm, Operation, RawAlgorithm};
+use crate::algorithm::{is_supported, normalize, NormalizedAlgorithm, Operation, RawAlgorithm};
 use crate::error::AlgorithmError;
 use crate::hash::HashAlgorithm;
 use crate::jwk::JsonWebKey;
@@ -188,6 +188,25 @@ fn normalize_hmac_sign_is_name_only() {
         normalize(Operation::Sign, &raw).unwrap(),
         NormalizedAlgorithm::Hmac
     );
+}
+
+#[test]
+fn is_supported_mirrors_normalize_registry() {
+    // §18.4.4 step 5 recognition gate. The marshalling layer reads
+    // params getters only when this predicate is true, so it must agree
+    // with `normalize`'s registry membership exactly (no drift): both
+    // route through the same `resolve_registry` oracle.
+    assert!(is_supported(Operation::Digest, "sha-256")); // case-insensitive
+    assert!(is_supported(Operation::Sign, "HMAC"));
+    assert!(is_supported(Operation::Verify, "HMAC"));
+    assert!(is_supported(Operation::GenerateKey, "HMAC"));
+    assert!(is_supported(Operation::ImportKey, "HMAC"));
+    // Recognized name, wrong op for that name → not registered.
+    assert!(!is_supported(Operation::GenerateKey, "SHA-256"));
+    assert!(!is_supported(Operation::Digest, "HMAC"));
+    // Unrecognized name → not registered for any op.
+    assert!(!is_supported(Operation::GenerateKey, "AES-Magic"));
+    assert!(!is_supported(Operation::ImportKey, "ROT13"));
 }
 
 #[test]

@@ -874,12 +874,42 @@ fn sign_does_not_read_hash_member_getter() {
 }
 
 #[test]
-fn crypto_key_usages_is_fresh_array_each_read() {
-    // Not [SameObject]: two reads yield distinct array objects.
+fn generate_key_unsupported_name_does_not_read_hash_getter() {
+    // §18.4.4 step 5/6 ordering: an unregistered `(generateKey, name)`
+    // pair is rejected as NotSupportedError at step 5 — *before* step 6's
+    // params-dictionary conversion reads `hash` — so a throwing `hash`
+    // getter on an unsupported algorithm must NOT fire.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey( \
+            {name:'AES-Magic', get hash(){ throw new Error('should not read'); }}, \
+            true, ['sign']) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "NotSupportedError");
+}
+
+#[test]
+fn crypto_key_algorithm_and_usages_are_cached_objects() {
+    // §13.4: the `algorithm` / `usages` getters return the *cached*
+    // ECMAScript object (`[[algorithm_cached]]` / `[[usages_cached]]`), so
+    // identity is stable across reads — `key.algorithm === key.algorithm`
+    // and `key.usages === key.usages` are both `true`.
     let src = "globalThis.r = 'pending'; \
          crypto.subtle.generateKey({name:'HMAC', hash:'SHA-256'}, true, ['sign']) \
-           .then(k => { globalThis.r = (k.usages === k.usages) ? 'same' : 'fresh'; });";
-    assert_eq!(eval_global_string(src, "r"), "fresh");
+           .then(k => { globalThis.r = [k.algorithm === k.algorithm, \
+                        k.usages === k.usages, \
+                        k.algorithm.hash === k.algorithm.hash].join(','); });";
+    assert_eq!(eval_global_string(src, "r"), "true,true,true");
+}
+
+#[test]
+fn crypto_key_cached_algorithm_mutation_persists() {
+    // A consequence of caching (§13.4): because the same object is
+    // returned each read, a property written onto `key.algorithm` is
+    // observable on the next read (it is not rebuilt fresh).
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey({name:'HMAC', hash:'SHA-256'}, true, ['sign']) \
+           .then(k => { k.algorithm.marker = 42; globalThis.r = String(k.algorithm.marker); });";
+    assert_eq!(eval_global_string(src, "r"), "42");
 }
 
 #[test]
@@ -924,6 +954,82 @@ fn crypto_key_states_pruned_on_gc() {
         vm.inner.crypto_key_states.len(),
         0,
         "unreachable key pruned from side-store"
+    );
+}
+
+#[test]
+fn crypto_key_cached_algorithm_survives_gc_via_trace_arm() {
+    // The cached `[[algorithm_cached]]` object (§13.4) is reachable ONLY
+    // through `crypto_key_js_cache` after the callback returns — no JS var
+    // holds it.  A GC with the key still rooted must keep it alive via the
+    // `ObjectKind::CryptoKey` trace arm; otherwise the tagged property
+    // would be lost (the getter would rebuild a fresh object).
+    let mut vm = Vm::new();
+    vm.eval(
+        "crypto.subtle.generateKey({name:'HMAC', hash:'SHA-256'}, true, ['sign']) \
+           .then(key => { globalThis.k = key; key.algorithm.marker = 7; });",
+    )
+    .unwrap();
+    vm.inner.collect_garbage();
+    let r = vm.eval("String(globalThis.k.algorithm.marker)").unwrap();
+    match r {
+        JsValue::String(id) => assert_eq!(vm.get_string(id), "7", "cached object survived GC"),
+        other => panic!("expected string, got {other:?}"),
+    }
+}
+
+#[test]
+fn crypto_key_js_cache_pruned_on_gc() {
+    // The `algorithm` / `usages` cache (`crypto_key_js_cache`) is pruned
+    // alongside `crypto_key_states` when the key is collected — `ObjectId`
+    // slots are reused, so a stale cache entry would alias another
+    // wrapper's accessors.  Root the key directly via a global (not via a
+    // settled `generateKey` Promise, whose `[[PromiseResult]]` would keep
+    // the key reachable past the global drop).
+    use elidex_api_crypto::key::{CryptoKeyData, KeyAlgorithm, KeyMaterial, KeyType, KeyUsage};
+    use elidex_api_crypto::HashAlgorithm;
+
+    let mut vm = Vm::new();
+    // First eval registers the globals so `crypto_key_prototype` is set.
+    vm.eval("void crypto.subtle;").unwrap();
+    let id = vm.inner.alloc_crypto_key(CryptoKeyData {
+        key_type: KeyType::Secret,
+        extractable: true,
+        algorithm: KeyAlgorithm::Hmac {
+            hash: HashAlgorithm::Sha256,
+            length: 160,
+        },
+        usages: vec![KeyUsage::Sign],
+        material: KeyMaterial::Raw(vec![0xab; 20]),
+    });
+    let k = vm.inner.strings.intern("k");
+    vm.inner.globals.insert(k, JsValue::Object(id));
+
+    // Read both accessors (via JS, so the real getter populates the cache).
+    vm.eval("void globalThis.k.algorithm; void globalThis.k.usages;")
+        .unwrap();
+    assert!(
+        vm.inner.crypto_key_js_cache.contains_key(&id),
+        "both accessors populated the cache"
+    );
+
+    // Rooted → cache entry survives.
+    vm.inner.collect_garbage();
+    assert!(
+        vm.inner.crypto_key_js_cache.contains_key(&id),
+        "cache survives while key rooted"
+    );
+
+    // Drop the root → cache + key state both pruned.
+    vm.inner.globals.insert(k, JsValue::Undefined);
+    vm.inner.collect_garbage();
+    assert!(
+        !vm.inner.crypto_key_js_cache.contains_key(&id),
+        "cache pruned with collected key"
+    );
+    assert!(
+        !vm.inner.crypto_key_states.contains_key(&id),
+        "key state pruned with collected key"
     );
 }
 

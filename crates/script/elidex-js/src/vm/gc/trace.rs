@@ -190,6 +190,16 @@ pub(super) fn trace_work_list(
         ObjectId,
         super::super::host::indexeddb::IdbCursorState,
     >,
+    // `#11-crypto-subtle-full` — CryptoKey cached `algorithm` / `usages`
+    // wrappers (`[[algorithm_cached]]` / `[[usages_cached]]`, §13.4).  The
+    // `ObjectKind::CryptoKey` arm marks both cached `ObjectId`s so they
+    // survive while the key is reachable (they outlive the building native
+    // call, when GC may run); IDL has no `[SameObject]` but §13.4 prose
+    // mandates the caching, mirroring the WasmMemory `buffer_id` mark.
+    #[cfg(feature = "engine")] crypto_key_js_cache: &std::collections::HashMap<
+        ObjectId,
+        super::super::host::crypto_key::CryptoKeyJsCache,
+    >,
     obj_marks: &mut [u64],
     uv_marks: &mut [u64],
     work: &mut Vec<u32>,
@@ -702,11 +712,26 @@ pub(super) fn trace_work_list(
             // `VmInner::subtle_crypto_instance` (mark-roots step).
             // No side-table state, no inline `ObjectId` — trace
             // fan-out is a no-op.
-            // `CryptoKey` is payload-free for trace: the side-store
-            // value (`crypto_key_states`) holds only bytes + enums, no
-            // `ObjectId`.  The sweep tail prunes collected keys.
             #[cfg(feature = "engine")]
-            ObjectKind::Crypto | ObjectKind::SubtleCrypto | ObjectKind::CryptoKey => {}
+            ObjectKind::Crypto | ObjectKind::SubtleCrypto => {}
+            // `CryptoKey`: the key material side-store (`crypto_key_states`)
+            // holds only bytes + enums (no `ObjectId`), but the cached
+            // `algorithm` / `usages` wrappers (`[[algorithm_cached]]` /
+            // `[[usages_cached]]`, §13.4) are JS objects that must survive
+            // while the key is reachable — they persist across native
+            // calls, when GC runs, so mark both if built.  The sweep tail
+            // prunes both side-stores for collected keys.
+            #[cfg(feature = "engine")]
+            ObjectKind::CryptoKey => {
+                if let Some(cache) = crypto_key_js_cache.get(&ObjectId(obj_idx)) {
+                    if let Some(algorithm) = cache.algorithm {
+                        mark_object(algorithm, obj_marks, work);
+                    }
+                    if let Some(usages) = cache.usages {
+                        mark_object(usages, obj_marks, work);
+                    }
+                }
+            }
             // `CustomElementRegistry` is a payload-free singleton.
             // Registered constructor `ObjectId`s + pending whenDefined
             // resolvers live on `HostData` (per-VM, traced through the

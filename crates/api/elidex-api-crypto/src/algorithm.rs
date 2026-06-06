@@ -130,33 +130,75 @@ impl NormalizedAlgorithm {
 /// `crypto.subtle.digest('A'.repeat(N), …)` attack).
 const MAX_ECHOED_ALGO_NAME_LEN: usize = 64;
 
+/// The IDL dictionary type a recognized `(op, name)` pair resolves to
+/// (§18.4.4 step 5 `desiredType`), plus the bits `normalize` needs to
+/// build the result. This is the registry-membership oracle: a `Some`
+/// means the pair is in `supportedAlgorithms[op]` (step 5 found a key),
+/// a `None` means step 5 returns `NotSupportedError` before any
+/// params-dictionary member is read.
+///
+/// Both [`normalize`] and [`is_supported`] route through
+/// [`resolve_registry`] so the two cannot drift: there is one place that
+/// decides whether `(op, name)` is registered.
+enum DesiredType {
+    /// `digest`: name-only `Algorithm` — the name fully determines the
+    /// hash to compute.
+    Digest(HashAlgorithm),
+    /// `sign` / `verify` HMAC: name-only `Algorithm` (the hash comes from
+    /// the key's `[[algorithm]]`).
+    HmacSignVerify,
+    /// `generateKey` / `importKey` / `getKeyLength` HMAC: an
+    /// `HmacKeyGenParams` / `HmacImportParams` whose `hash` (required) and
+    /// `length` (optional) members are read by step 6.
+    HmacKeyParams,
+}
+
+/// §18.4.4 step 5: does `supportedAlgorithms[op]` contain a
+/// case-insensitive match for `name`, and if so, which IDL dictionary
+/// type does it resolve to? `None` ⇒ the spec returns `NotSupportedError`
+/// at step 5, *before* the step-6 WebIDL conversion reads any
+/// params-dictionary member (`hash` / `length`).
+fn resolve_registry(op: Operation, name: &str) -> Option<DesiredType> {
+    let name = AlgorithmName::recognize(name)?;
+    match (op, name) {
+        (Operation::Digest, _) => name.as_hash().map(DesiredType::Digest),
+        (Operation::Sign | Operation::Verify, AlgorithmName::Hmac) => {
+            Some(DesiredType::HmacSignVerify)
+        }
+        (
+            Operation::GenerateKey | Operation::ImportKey | Operation::GetKeyLength,
+            AlgorithmName::Hmac,
+        ) => Some(DesiredType::HmacKeyParams),
+        _ => None,
+    }
+}
+
+/// §18.4.4 step 5 as a predicate: is `(op, name)` a registered pair? The
+/// VM marshalling layer calls this to decide whether to read the
+/// params-dictionary getters (`hash` / `length`) at all — the spec only
+/// converts `alg` to the params dictionary (step 6, which fires those
+/// getters) *after* the name is recognized, so an unregistered name must
+/// never trigger a user-defined `hash` / `length` getter.
+pub fn is_supported(op: Operation, name: &str) -> bool {
+    resolve_registry(op, name).is_some()
+}
+
 /// Normalize an algorithm for `op` (WebCrypto §18.4.4).
 ///
 /// Returns `NotSupported` for an unregistered `(op, name)` pair, and
 /// `Type` for a missing required member (e.g. HMAC `hash`).
 pub fn normalize(op: Operation, raw: &RawAlgorithm) -> Result<NormalizedAlgorithm, AlgorithmError> {
-    let Some(name) = AlgorithmName::recognize(&raw.name) else {
-        return Err(unrecognized(&raw.name));
-    };
-    match (op, name) {
-        (Operation::Digest, _) => {
-            let Some(hash) = name.as_hash() else {
-                return Err(unrecognized(&raw.name));
-            };
-            Ok(NormalizedAlgorithm::Digest(hash))
-        }
-        (Operation::Sign | Operation::Verify, AlgorithmName::Hmac) => Ok(NormalizedAlgorithm::Hmac),
-        (
-            Operation::GenerateKey | Operation::ImportKey | Operation::GetKeyLength,
-            AlgorithmName::Hmac,
-        ) => {
+    match resolve_registry(op, &raw.name) {
+        None => Err(unrecognized(&raw.name)),
+        Some(DesiredType::Digest(hash)) => Ok(NormalizedAlgorithm::Digest(hash)),
+        Some(DesiredType::HmacSignVerify) => Ok(NormalizedAlgorithm::Hmac),
+        Some(DesiredType::HmacKeyParams) => {
             let hash = normalize_hmac_hash(raw)?;
             Ok(NormalizedAlgorithm::HmacKeyParams {
                 hash,
                 length: raw.length,
             })
         }
-        _ => Err(unrecognized(&raw.name)),
     }
 }
 

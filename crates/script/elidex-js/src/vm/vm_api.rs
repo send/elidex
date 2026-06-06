@@ -816,8 +816,12 @@ impl Vm {
             // secret key material → clear on unbind so it does not leak
             // into the next bind cycle (same data-class as
             // `wasm_module_storage`; distinct from the payload-free
-            // Crypto/SubtleCrypto singleton clear below).
+            // Crypto/SubtleCrypto singleton clear below).  The cached
+            // `algorithm` / `usages` wrappers (`crypto_key_js_cache`) hold
+            // ObjectIds into the per-VM object space and must clear with
+            // the key state so a stale id can't alias the next cycle.
             self.inner.crypto_key_states.clear();
+            self.inner.crypto_key_js_cache.clear();
         }
     }
 
