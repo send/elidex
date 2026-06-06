@@ -4,11 +4,12 @@ from __future__ import annotations
 import argparse
 import sys
 
-from ..sources.webref_data import fetch_json
+from ..section_sort import heading_number_title
+from ..sources.webref_data import fetch_data_json
 
 
 def cmd_dfn(args: argparse.Namespace) -> None:
-    data = fetch_json(f"dfns/{args.shortname}.json")
+    data = fetch_data_json("dfns", args.shortname)
     dfns = data.get("dfns", [])
     needle = args.term.lower()
 
@@ -28,8 +29,7 @@ def cmd_dfn(args: argparse.Namespace) -> None:
         ty = d.get("type", "?")
         fr = ",".join(d.get("for", [])) or "-"
         h = d.get("heading") or {}
-        hn = h.get("number", "?")
-        ht = h.get("title", "?")
-        print(f"  {lt!r} (type={ty}, for={fr})  →  §{hn} {ht}  #{d.get('id','?')}")
+        hn, ht = heading_number_title(h)
+        print(f"  {lt!r} (type={ty}, for={fr})  →  §{hn or '?'} {ht or '?'}  #{d.get('id','?')}")
     if len(hits) > 25:
         print(f"  ... ({len(hits)-25} more, narrow the term)")

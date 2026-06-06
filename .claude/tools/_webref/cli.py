@@ -28,7 +28,7 @@ Common shortnames:
   url          URL LS
   fetch        Fetch LS
   streams      Streams LS
-  webcrypto    Web Cryptography API
+  webcrypto    Web Cryptography API (series → current spec webcrypto-2)
   xhr          XMLHttpRequest LS
   webidl       Web IDL
   ecma262      ECMAScript Language Specification (tc39, biblio.json)
@@ -42,6 +42,9 @@ Examples:
   .claude/tools/webref idl html CustomElementRegistry
   .claude/tools/webref element html canvas                   # → HTMLCanvasElement
   .claude/tools/webref css css-overflow-3 overflow-x         # property metadata
+  .claude/tools/webref heading webcrypto 31                  # §31 HMAC (number recovered from title)
+  .claude/tools/webref dfn webcrypto 'normalize an algorithm'
+  .claude/tools/webref body webcrypto hmac                   # §31 HMAC algorithm prose
   .claude/tools/webref body ecma262 sec-iteratorclose        # §7.4.11 IteratorClose prose (multipage)
   .claude/tools/webref body ecma262 IteratorClose            # AO name resolves to anchor first
   .claude/tools/webref body html the-iframe-element          # §4.8.5 prose (multipage chapter)
@@ -156,9 +159,11 @@ def main() -> None:
     try:
         args.func(args)
     except NotFound as e:
-        # Centralized: subcommands that use fetch_json (no level fallback) let
-        # NotFound bubble; convert here to a clean CLI exit instead of a Python
-        # traceback for typo / unknown shortname.
+        # Safety net for the few raw `fetch_json` paths that let NotFound
+        # bubble (the `specs` keyword search + the lazy catalog load in
+        # `_data_index`, both hitting `index.json`). Per-spec data-kind
+        # fetches go through `fetch_data`, which exits with its own
+        # diagnostic. Convert here to a clean CLI exit instead of a traceback.
         sys.exit(f"webref: fetch failed: {e}")
     except json.JSONDecodeError as e:
         sys.exit(f"webref: invalid JSON from upstream: {e}")

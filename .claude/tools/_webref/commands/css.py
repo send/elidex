@@ -5,7 +5,7 @@ import argparse
 import json
 import sys
 
-from ..sources.webref_data import fetch_with_level_fallback
+from ..sources.webref_data import fetch_data_json
 
 # Display order for CSS property fields — most-relevant first; trailing href.
 _CSS_FIELDS = (
@@ -23,8 +23,7 @@ _CSS_SECTIONS = (
 
 
 def cmd_css(args: argparse.Namespace) -> None:
-    raw = fetch_with_level_fallback("css/{shortname}.json", args.shortname)
-    data = json.loads(raw)
+    data = fetch_data_json("css", args.shortname)
     found = False
     for key, label in _CSS_SECTIONS:
         for item in data.get(key, []):

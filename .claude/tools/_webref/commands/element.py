@@ -5,11 +5,11 @@ import argparse
 import json
 import sys
 
-from ..sources.webref_data import fetch_json
+from ..sources.webref_data import fetch_data_json
 
 
 def cmd_element(args: argparse.Namespace) -> None:
-    data = fetch_json(f"elements/{args.shortname}.json")
+    data = fetch_data_json("elements", args.shortname)
     els = data.get("elements", [])
     hits = [e for e in els if e.get("name") == args.name]
     if not hits:
