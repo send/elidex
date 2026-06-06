@@ -299,24 +299,33 @@ mod tests {
     // --- differential correctness: strict tree ≅ tolerant tree on valid HTML5 ---
 
     #[test]
-    fn strict_and_tolerant_agree_on_whitespace_free_conforming_html5() {
-        // Scope note: the corpus is intentionally **whitespace-free** between
-        // elements. The strict parser is spec-faithful and keeps inter-element
-        // whitespace text nodes, whereas the tolerant html5ever path strips
-        // them (convert.rs), so the two backends only produce identical trees
-        // when there is no inter-element whitespace to disagree about. That
-        // divergence is pinned separately by
-        // `strict_keeps_inter_element_whitespace_that_tolerant_strips`; here we
-        // prove that, modulo whitespace, strict reproduces the tolerant tree
-        // (tags / text / comments / doctype / attributes / child order) for
-        // conforming HTML5 — the safety property behind routing valid docs to
-        // strict.
+    fn strict_and_tolerant_agree_on_conforming_html5() {
+        // Both backends preserve inter-element whitespace per WHATWG HTML
+        // §13.2.6: the strict parser inserts every character, and since the
+        // §11.3 unify the tolerant html5ever path keeps html5ever's whitespace
+        // text nodes too (convert.rs no longer over-strips). So strict
+        // reproduces the tolerant tree — tags / text (whitespace included) /
+        // comments / doctype / attributes / child order — for conforming
+        // HTML5, the safety property behind routing valid docs to strict. The
+        // corpus mixes whitespace-free and indented documents; the focused
+        // whitespace-preservation pin is
+        // `tolerant_preserves_inter_element_whitespace_matching_strict`.
         let cases: &[&str] = &[
             "<!DOCTYPE html><html><head></head><body><p>Hello</p></body></html>",
             "<!DOCTYPE html><html><head></head><body><div><p>A</p><p>B</p></div></body></html>",
             r#"<!DOCTYPE html><html><head></head><body><a href="https://example.com" class="link">x</a></body></html>"#,
             "<!DOCTYPE html><html><head></head><body><ul><li>one</li><li>two</li></ul></body></html>",
             "<!DOCTYPE html><html><head><title>T</title></head><body><!-- note -->text</body></html>",
+            // Indented / whitespace-laden conforming documents — the §11.3 unify
+            // proof: with the tolerant strip gone, these agree byte-for-byte too.
+            "<!DOCTYPE html><html><head></head><body>\n  <p>A</p>\n  <p>B</p>\n</body></html>",
+            "<!DOCTYPE html><html><head></head><body><div>\n  <span>x</span>\n  <span>y</span>\n</div></body></html>",
+            // Whitespace in framing / head positions: §13.2.6 drops it before
+            // <head> ("initial"/"before html"/"before head" modes ignore the
+            // character) and retains it inside <head>/<body> ("in head"/"in body"
+            // modes insert it). Both backends apply the same §13.2.6 rules, so
+            // they agree on which framing whitespace survives.
+            "<!DOCTYPE html>\n<html>\n<head>\n<title>T</title>\n</head>\n<body><p>x</p></body>\n</html>",
         ];
         for (i, html) in cases.iter().enumerate() {
             let strict = parse_strict(html)
@@ -334,16 +343,14 @@ mod tests {
     }
 
     #[test]
-    fn strict_keeps_inter_element_whitespace_that_tolerant_strips() {
-        // Known, accepted §11.3 divergence (pinned so it stays visible rather
-        // than silently masked): the strict parser inserts every character
-        // (WHATWG HTML §13.2.5/§13.2.6), so a conforming *indented* document
-        // keeps whitespace-only text nodes between elements — the spec-correct
-        // DOM. The tolerant html5ever path drops them (convert.rs treats an
-        // all-whitespace text run as no node). Routing valid docs to strict
-        // therefore yields extra inter-element whitespace text nodes vs. the
-        // previous tolerant-only behaviour; downstream handling of those nodes
-        // is tracked as a follow-up.
+    fn tolerant_preserves_inter_element_whitespace_matching_strict() {
+        // §11.3 whitespace unify (was `strict_keeps_..._that_tolerant_strips`,
+        // which pinned the now-eliminated divergence): the tolerant html5ever
+        // path keeps the whitespace-only text nodes html5ever places between
+        // elements per WHATWG HTML §13.2.6 (convert.rs no longer over-strips
+        // them), so on a conforming *indented* document it agrees with the
+        // spec-faithful strict backend. This is the navigation(strict) ↔
+        // innerHTML(tolerant) DOM consistency the unify program targets.
         let html =
             "<!DOCTYPE html><html><head></head><body>\n  <p>Hi</p>\n  <p>Bye</p>\n</body></html>";
         let strict = parse_strict(html).expect("valid HTML5");
@@ -352,13 +359,22 @@ mod tests {
         let tbody = find_tag(&tolerant.dom, tolerant.document, "body").expect("tolerant body");
         let s_kids = strict.dom.children_iter(sbody).count();
         let t_kids = tolerant.dom.children_iter(tbody).count();
-        // Tolerant: only the two <p> elements (whitespace stripped).
-        assert_eq!(t_kids, 2, "tolerant strips inter-element whitespace");
-        // Strict: the two <p> elements plus surrounding whitespace text nodes.
-        assert!(
-            s_kids > t_kids,
-            "strict should keep inter-element whitespace text nodes \
-             (strict body children={s_kids}, tolerant={t_kids})"
+        // body = ws("\n  ") <p>Hi</p> ws("\n  ") <p>Bye</p> ws("\n") = 5 children.
+        assert_eq!(
+            t_kids, 5,
+            "tolerant keeps inter-element whitespace text nodes (§13.2.6)"
+        );
+        assert_eq!(
+            s_kids, t_kids,
+            "strict and tolerant agree on the whitespace-inclusive child set"
+        );
+        // Full-tree equivalence (tags / text incl. whitespace / order).
+        assert_subtree_eq(
+            &strict.dom,
+            strict.document,
+            &tolerant.dom,
+            tolerant.document,
+            "indented-conforming",
         );
     }
 
@@ -410,5 +426,37 @@ mod tests {
                     .ok())
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn parse_html_fragment_preserves_inter_element_whitespace() {
+        // §11.3 whitespace unify, innerHTML path: `parse_html_fragment` shares
+        // the `convert_node` text arm with document parsing, so removing the
+        // tolerant over-strip preserves inter-element whitespace in fragments
+        // too — the navigation(strict) ↔ innerHTML(tolerant) DOM consistency the
+        // unify program targets. (innerHTML uses this fragment entry point.)
+        let mut dom = EcsDom::new();
+        let parent = dom.create_element("div", Attributes::default());
+        let _ = dom.create_document_root();
+        let added = parse_html_fragment(
+            "<p>A</p>\n  <p>B</p>",
+            "div",
+            parent,
+            &mut dom,
+            ParseFragmentOptions {
+                allow_declarative_shadow: false,
+            },
+        );
+        // p ("A"), whitespace text ("\n  "), p ("B").
+        assert_eq!(
+            added.len(),
+            3,
+            "fragment keeps the inter-element whitespace text node"
+        );
+        let ws = dom
+            .world()
+            .get::<&TextContent>(added[1])
+            .expect("middle node is the preserved whitespace text node");
+        assert_eq!(ws.0, "\n  ", "the whitespace run is preserved verbatim");
     }
 }

@@ -32,6 +32,38 @@ fn init_select_collects_options() {
 }
 
 #[test]
+fn init_select_ignores_inter_option_whitespace() {
+    // §11.3 whitespace unify: a parsed indented <select> carries whitespace
+    // text nodes between its <option>s. Option collection is element-filtered
+    // (`has_tag(c, "option")`), so those whitespace nodes are correctly skipped
+    // — the option set is unchanged from the whitespace-free tree.
+    let mut dom = EcsDom::new();
+    let sel = dom.create_element("select", Attributes::default());
+    let lead = dom.create_text("\n  ");
+    let _ = dom.append_child(sel, lead);
+    for (text, val) in [("Red", "r"), ("Green", "g")] {
+        let mut a = Attributes::default();
+        a.set("value", val);
+        let opt = dom.create_element("option", a);
+        let tn = dom.create_text(text);
+        let _ = dom.append_child(opt, tn);
+        let _ = dom.append_child(sel, opt);
+        let ws = dom.create_text("\n  ");
+        let _ = dom.append_child(sel, ws);
+    }
+    let mut state = FormControlState::from_element("select", &Attributes::default()).unwrap();
+    init_select_options(&dom, sel, &mut state);
+    assert_eq!(
+        state.options.len(),
+        2,
+        "whitespace text nodes between options must not be collected as options"
+    );
+    assert_eq!(state.options[0].text, "Red");
+    assert_eq!(state.options[1].text, "Green");
+    assert_eq!(state.selected_index, 0);
+}
+
+#[test]
 fn select_option_changes_value() {
     let (dom, sel) = make_select_dom();
     let mut state = FormControlState::from_element("select", &Attributes::default()).unwrap();

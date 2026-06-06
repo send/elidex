@@ -269,4 +269,34 @@ mod tests {
             Some("Hello World".to_string())
         );
     }
+
+    #[test]
+    fn inter_element_whitespace_does_not_corrupt_accname() {
+        // §11.3 whitespace unify: with inter-element whitespace retained, the
+        // accname subtree walk sees whitespace-only text nodes between element
+        // children. `collect_text_content` collapses runs via split_whitespace,
+        // so they contribute no spurious tokens — the name matches the
+        // whitespace-free tree.
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let btn = dom.create_element("button", Attributes::default());
+        dom.append_child(root, btn);
+        let span1 = dom.create_element("span", Attributes::default());
+        dom.append_child(btn, span1);
+        let t1 = dom.create_text("A");
+        dom.append_child(span1, t1);
+        // Indentation whitespace text node between the two spans.
+        let ws = dom.create_text("\n  ");
+        dom.append_child(btn, ws);
+        let span2 = dom.create_element("span", Attributes::default());
+        dom.append_child(btn, span2);
+        let t2 = dom.create_text("B");
+        dom.append_child(span2, t2);
+
+        assert_eq!(
+            compute_accessible_name(&dom, btn),
+            Some("A B".to_string()),
+            "whitespace-only text nodes collapse and add no spurious tokens"
+        );
+    }
 }

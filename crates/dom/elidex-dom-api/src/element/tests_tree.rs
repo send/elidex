@@ -171,6 +171,36 @@ fn inner_html_void_elements() {
     assert_eq!(result, JsValue::String("<br><img src=\"test.png\">".into()));
 }
 
+#[test]
+fn inner_html_preserves_inter_element_whitespace() {
+    // §11.3 whitespace unify: with the tolerant parser retaining inter-element
+    // whitespace text nodes, serialization must round-trip them — a
+    // whitespace-only text child is emitted verbatim, not dropped (outerHTML /
+    // innerHTML fidelity for indented markup).
+    let mut dom = EcsDom::new();
+    let div = dom.create_element("div", Attributes::default());
+    let p1 = dom.create_element("p", Attributes::default());
+    let a = dom.create_text("A");
+    dom.append_child(p1, a);
+    let ws = dom.create_text("\n  ");
+    let p2 = dom.create_element("p", Attributes::default());
+    let b = dom.create_text("B");
+    dom.append_child(p2, b);
+    dom.append_child(div, p1);
+    dom.append_child(div, ws);
+    dom.append_child(div, p2);
+
+    let mut session = SessionCore::new();
+    let result = GetInnerHtml
+        .invoke(div, &[], &mut session, &mut dom)
+        .unwrap();
+    assert_eq!(
+        result,
+        JsValue::String("<p>A</p>\n  <p>B</p>".into()),
+        "inter-element whitespace must round-trip through innerHTML serialization"
+    );
+}
+
 // -----------------------------------------------------------------------
 // replaceChild tests (WHATWG DOM §4.4)
 // -----------------------------------------------------------------------
