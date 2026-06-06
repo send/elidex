@@ -90,8 +90,8 @@ Diff-stage 特記事項のみ: Step 4.5 (fix-delta re-verification) の placemen
 
 ## Recommendation phrasing (skill-specific)
 
-- **CRIT**: fix BEFORE push (post-push の single-pass Copilot review でほぼ確実に flag される。loop が無くなった分、ここで取り切る重要度が上がっている)
-- **IMP**: push 前 fix 推奨 (single-pass Copilot review で flag される可能性が高い)
+- **CRIT**: fix BEFORE push (post-push の single-pass external review (Codex) でほぼ確実に flag される。loop が無くなった分、ここで取り切る重要度が上がっている)
+- **IMP**: push 前 fix 推奨 (single-pass external review (Codex) で flag される可能性が高い)
 - **MIN**: judgment (defer 可、landing memo で justify)
 - **FP**: ignore (user 確認後)
 

@@ -36,8 +36,8 @@ mise run check && mise run lint && mise run test-all && mise run doc && mise run
 ### Stage 3 — `/code-review`
 Invoke the `code-review` skill, **effort scaled to blast radius**. This is now the primary correctness net: the post-push non-Claude pass is single-shot (`/external-review`, currently Codex), not a convergence loop, so the depth that used to come from looping a reviewer must come from here instead.
 
-- **Routine PR** → `/code-review high`. Broad coverage is the floor now — `low`/`medium` were calibrated for when the Copilot R-loop was the backstop, which it no longer is.
-- **High blast-radius PR** (layout / inline / whitespace / parser / edge-matrix-dense subsystems, large diff, or touching a `vm/host/` layering path) → `/code-review ultra`. The deep multi-agent cloud pass is the functional successor to the old multi-round Copilot loop — run it once here rather than looping Copilot post-push. (Billed under Claude usage, not per-credit Copilot; reserve `ultra` for genuinely high-risk PRs so it stays one pass per PR.)
+- **Routine PR** → `/code-review high`. Broad coverage is the floor now — `low`/`medium` were calibrated for when a looping post-push reviewer was the backstop, which it no longer is (the post-push reviewer is single-shot).
+- **High blast-radius PR** (layout / inline / whitespace / parser / edge-matrix-dense subsystems, large diff, or touching a `vm/host/` layering path) → `/code-review ultra`. The deep multi-agent cloud pass is the functional successor to the old multi-round post-push review loop — run it once here rather than relying on post-push looping. (Billed under Claude usage; reserve `ultra` for genuinely high-risk PRs so it stays one pass per PR.)
 
 Apply the fixes worth taking.
 
