@@ -1,0 +1,25 @@
+# CodeRabbit configuration — elidex
+#
+# Review LENSES are not configured here. elidex's project-specific review
+# guidance lives in `AGENTS.md` ("## Review guidelines") which delegates to
+# `.claude/skills/elidex-review/axes.md` (the 5-axis SSoT) and `CLAUDE.md`.
+# CodeRabbit reads AGENTS.md, so the lenses apply with no duplication here
+# (CLAUDE.md "One issue, one way").
+#
+# This file only tunes review *behavior*.
+language: "en-US"
+reviews:
+  # The local pre-push Claude gate already covers generic correctness/style;
+  # keep CodeRabbit low-noise and focused on substantive issues over nits.
+  profile: chill
+  poem: false
+  high_level_summary: true
+  path_instructions:
+    - path: "**"
+      instructions: >-
+        Apply the elidex review lenses defined in AGENTS.md ("## Review
+        guidelines") and .claude/skills/elidex-review/axes.md. Prioritize
+        design and correctness issues over naming/style nits — the local
+        pre-push gate covers generic correctness. For any spec claim, cite the
+        specific WHATWG / W3C / TC39 / CSS section rather than asserting from
+        memory.
