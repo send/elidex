@@ -20,9 +20,6 @@ use elidex_plugin::{
 use algo::{compute_column_geometry, ColumnGeometry};
 use fill::{fill_columns_balanced, fill_columns_sequential, ColumnFillEnv};
 
-/// Maximum depth for descendant walks to prevent infinite loops on corrupted trees.
-const MAX_DESCENDANT_DEPTH: usize = 10_000;
-
 /// Segment of children between `column-span: all` elements.
 enum Segment {
     /// Normal children to be laid out across columns.
@@ -422,31 +419,13 @@ fn position_column_fragments(
             Vector::y_only(inline_offset)
         };
 
-        // Shift all children in this column fragment.
-        for &child in &frag.children {
-            shift_entity_and_descendants(dom, child, delta);
-        }
-    }
-}
-
-/// Shift an entity and all its descendants by `delta`.
-///
-/// Depth is capped at [`MAX_DESCENDANT_DEPTH`] to prevent infinite loops.
-fn shift_entity_and_descendants(dom: &mut EcsDom, entity: Entity, delta: Vector) {
-    if let Ok(mut lb) = dom.world_mut().get::<&mut LayoutBox>(entity) {
-        lb.content.origin += delta;
-    }
-    let mut stack: Vec<(Entity, usize)> = dom.children_iter(entity).map(|c| (c, 0)).collect();
-    while let Some((e, depth)) = stack.pop() {
-        if depth >= MAX_DESCENDANT_DEPTH {
-            break;
-        }
-        if let Ok(mut lb) = dom.world_mut().get::<&mut LayoutBox>(e) {
-            lb.content.origin += delta;
-        }
-        for child in dom.children_iter(e) {
-            stack.push((child, depth + 1));
-        }
+        // Shift this column fragment's children (and descendants) to the column's inline
+        // offset via block layout's canonical subtree shifter — which moves `LayoutBox`
+        // AND a persisted `InlineFlow` (see its docstring). Slice 4 / I-multicol: before
+        // this, multicol's own LayoutBox-only shifter left a converged whole-in-column
+        // run's inline text painted at column 0. One-issue-one-way — reuse the single
+        // project-wide shifter instead of a second InlineFlow-aware copy.
+        elidex_layout_block::block::shift_descendants(dom, &frag.children, delta);
     }
 }
 

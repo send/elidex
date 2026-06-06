@@ -605,16 +605,37 @@ fn paged_fragmented_run_now_persists() {
 }
 
 #[test]
-fn gate_excludes_multicol_fragmented() {
-    // Multicol (`Column`) stays gated to legacy until I-multicol (accumulate +
-    // column shift + balanced-fill probe-gating); the paged-scoped gate (F3) must
-    // not drop it, or it would persist column slices at absolute coords the
-    // multicol shift does not yet move.
+fn multicol_whole_run_now_persists() {
+    // Slice 4 / I-multicol: a multicol (`Column`) run that is WHOLE in its column
+    // (`skip_lines == 0`, fits → no break) now persists an `InlineFlow` — it was gated
+    // to legacy pre-I-multicol. And persisting changes ONLY `InlineFlow` presence: the
+    // persisted geometry is byte-identical to the trusted non-fragmented layout of the
+    // same content (D-mc2 — the optimistic `flow_align` for `Column` does not perturb
+    // `entity_bounds`/the packer geometry, which the packer commits unconditionally).
     let Some((mut dom, parent, _style, font_db)) = setup_inline_test("hello world") else {
         return;
     };
     let children = dom.composed_children(parent);
     let key = run_start(&dom, parent);
+
+    // Reference: non-fragmented layout = the established-correct geometry.
+    layout_inline_context(
+        &mut dom,
+        &children,
+        800.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+    );
+    let ref_flow: InlineFlow = {
+        let g = dom
+            .world()
+            .get::<&InlineFlow>(key)
+            .expect("non-fragmented run persists");
+        (*g).clone()
+    };
+
+    // Column-whole: large available_block → the IFC fits one column, no break.
     let frag = InlineFragConstraint {
         available_block: 1000.0,
         orphans: 2,
@@ -632,9 +653,134 @@ fn gate_excludes_multicol_fragmented() {
         Some(&frag),
     );
 
+    let flow = dom
+        .world()
+        .get::<&InlineFlow>(key)
+        .expect("a whole-in-column multicol run now persists (I-multicol)");
+    assert_eq!(
+        flow.fragments.len(),
+        1,
+        "whole-in-column = a single fragment (length-1 Vec, no accumulate)"
+    );
+    assert_eq!(
+        flow.fragments[0].generation, 0,
+        "plain (non-paged) multicol stamps generation 0"
+    );
+    assert_eq!(
+        *flow, ref_flow,
+        "column-whole geometry is byte-identical to non-fragmented (gate widening is geometry-neutral)"
+    );
+}
+
+#[test]
+fn gate_excludes_multicol_continuation() {
+    // A multicol continuation (`skip_lines > 0` — the tail of a column-spanning IFC)
+    // must NOT persist: render consumes the whole `InlineFlow` off the paged path, so a
+    // tail-only flow would drop the prior column's lines. Mid-IFC column break stays on
+    // legacy (deferred to Z with box fragments — G11).
+    let Some((mut dom, parent, _style, font_db)) = setup_inline_test("hello world") else {
+        return;
+    };
+    let children = dom.composed_children(parent);
+    let key = run_start(&dom, parent);
+    let frag = InlineFragConstraint {
+        available_block: 1000.0,
+        orphans: 1,
+        widows: 1,
+        skip_lines: 1, // continuation from a prior column
+        fragmentation_type: crate::FragmentationType::Column,
+    };
+    layout_inline_context_fragmented(
+        &mut dom,
+        &children,
+        1.0, // narrow → "hello world" wraps to 2 lines so a continuation is meaningful
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+        Some(&frag),
+    );
     assert!(
         dom.world().get::<&InlineFlow>(key).is_err(),
-        "a multicol-constrained run must NOT persist yet (paged-scoped gate, F3)"
+        "a multicol continuation (skip_lines>0) must stay on legacy (mid-IFC → Z)"
+    );
+}
+
+#[test]
+fn gate_excludes_multicol_truncation() {
+    // A multicol run truncated by a fragment break (`break_after_line.is_some()`) must
+    // NOT persist: its tail goes to a column the single subtree shift won't reach. Only
+    // whole-in-column (skip 0 AND no break) persists.
+    let Some((mut dom, parent, _style, font_db)) = setup_inline_test("hello world") else {
+        return;
+    };
+    let children = dom.composed_children(parent);
+    let key = run_start(&dom, parent);
+    // Width 1.0 → 2 lines; tiny available_block forces a break (orphans=1 keeps line 0,
+    // line 1 truncated to the next column).
+    let frag = InlineFragConstraint {
+        available_block: 0.001,
+        orphans: 1,
+        widows: 1,
+        skip_lines: 0,
+        fragmentation_type: crate::FragmentationType::Column,
+    };
+    layout_inline_context_fragmented(
+        &mut dom,
+        &children,
+        1.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+        Some(&frag),
+    );
+    assert!(
+        dom.world().get::<&InlineFlow>(key).is_err(),
+        "a truncated multicol run (break_after_line Some) must stay on legacy (mid-IFC → Z)"
+    );
+}
+
+#[test]
+fn multicol_nested_in_paged_stamps_page_generation() {
+    // Multicol nested in paged media: a whole-in-column run's persisted fragment carries
+    // the PAGE generation (`env.layout_generation`), NOT a stale generation 0. Pins the
+    // D-mc3 overwrite-safety weakest link — the final fill pass stamps the page
+    // generation, overwriting any gen-0 flow `probe_total_height` (whose
+    // `LayoutInput::probe` hard-codes generation 0) may have left on the run-start.
+    let Some((mut dom, parent, _style, font_db)) = setup_inline_test("hello world") else {
+        return;
+    };
+    let children = dom.composed_children(parent);
+    let key = run_start(&dom, parent);
+    let env_page2 = crate::LayoutEnv {
+        font_db: &font_db,
+        layout_child: crate::layout_block_only,
+        depth: 0,
+        viewport: None,
+        layout_generation: 2, // multicol on page 2
+    };
+    let frag = InlineFragConstraint {
+        available_block: 1000.0,
+        orphans: 2,
+        widows: 2,
+        skip_lines: 0,
+        fragmentation_type: crate::FragmentationType::Column,
+    };
+    layout_inline_context_fragmented(
+        &mut dom,
+        &children,
+        800.0,
+        parent,
+        Point::ZERO,
+        &env_page2,
+        Some(&frag),
+    );
+    let flow = dom
+        .world()
+        .get::<&InlineFlow>(key)
+        .expect("whole-in-column persists");
+    assert_eq!(
+        flow.fragments[0].generation, 2,
+        "column run stamps the page generation (env.layout_generation), not gen 0"
     );
 }
 
