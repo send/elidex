@@ -994,7 +994,13 @@ fn flow_inline_start(dom: &EcsDom, run_start: Entity) -> f32 {
         .get::<&InlineFlow>(run_start)
         .expect("the whole-in-column IFC persists an InlineFlow");
     assert_eq!(flow.fragments.len(), 1, "whole-in-column = one fragment");
-    flow.fragments[0].lines[0].runs[0].inline_start()
+    let lines = &flow.fragments[0].lines;
+    assert_eq!(lines.len(), 1, "single-word block lays out as one line");
+    assert!(
+        !lines[0].runs.is_empty(),
+        "the line carries at least one run"
+    );
+    lines[0].runs[0].inline_start()
 }
 
 #[test]
@@ -1024,7 +1030,9 @@ fn multicol_column_run_shifted_to_column_offset() {
     let input = make_input(&font_db);
     layout_multicol(&mut dom, container, &input, layout_child_fn);
 
-    // Container 600 wide, 2 columns, gap 0 → column 1 at x = 300.
+    // Container 600 wide, 2 columns, gap 0 → column 0 at x=0, column 1 at x=300
+    // (offset = 1 * (geom.width + gap) = 1 * (300 + 0)). No padding/margin, so the
+    // run's inline_start equals the column's content-box left edge exactly.
     let a_x = flow_inline_start(&dom, text_a);
     let b_x = flow_inline_start(&dom, text_b);
     let b_box_x = dom
@@ -1034,10 +1042,10 @@ fn multicol_column_run_shifted_to_column_offset() {
         .content
         .origin
         .x;
-    assert!(a_x < 50.0, "column-0 flow stays at the left, got {a_x}");
+    assert!(a_x.abs() < 1.0, "column-0 flow stays at x=0, got {a_x}");
     assert!(
-        b_x > 250.0,
-        "column-1 flow shifted to the column offset (~300), got {b_x}"
+        (b_x - 300.0).abs() < 1.0,
+        "column-1 flow shifted to the exact column offset (width 300, gap 0), got {b_x}"
     );
     assert!(
         (b_x - b_box_x).abs() < 1.0,
