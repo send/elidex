@@ -627,9 +627,8 @@ fn text_transform_multi_line_each_line_transformed() {
     // Multi-line payoff: the legacy single-linear-pass mis-rendered wrapped
     // transformed runs; converged layout positions each line from the
     // transformed advances. Tiny container forces a wrap at the space.
-    let (mut dom, parent, mut style, font_db) = match setup_inline_test("hello world") {
-        Some(v) => v,
-        None => return,
+    let Some((mut dom, parent, mut style, font_db)) = setup_inline_test("hello world") else {
+        return;
     };
     style.text_transform = TextTransform::Uppercase;
     let _ = dom.world_mut().insert_one(parent, style);
