@@ -914,6 +914,11 @@ fn converged_bidi_vertical() {
 /// PERSISTS (no gate) — the Text runs reorder, while the atomic is NOT in the reorder
 /// adapter and paints via `walk()` at its layout-baked box. This is a net fix over
 /// legacy (which flattened atomics to text on the bidi path).
+///
+/// This covers the atomic AFTER the text runs. The atomic *interspersed between*
+/// reordered text runs (where the text cursor does not reserve the atomic's width →
+/// text can overprint the box) is the deferred Option (b) limitation, slot
+/// `#11-bidi-atomic-object-ordering` — not asserted here.
 #[test]
 #[allow(unused_must_use)]
 fn converged_bidi_line_with_atomic() {
@@ -1002,5 +1007,154 @@ fn converged_bidi_line_with_atomic() {
         (red_boxes[0].origin.x - 50.0).abs() < 0.5,
         "atomic stays at its layout-baked x=50 (not reordered), got {}",
         red_boxes[0].origin.x
+    );
+}
+
+/// Builds an RTL line `["א"(vis), middle, "ג"(vis)]` and returns the x of the
+/// trailing run `"ג"` after bidi reorder. The reorder shares one accumulating
+/// cursor, so `"ג"`'s position is the running advance past the earlier visual runs.
+/// `middle_hidden` toggles `visibility:hidden` on the middle run. A hidden run must
+/// still reserve its advance (CSS 2.1 §11.2), so the trailing run's x MUST be
+/// identical visible-vs-hidden — that equality is the regression assertion.
+#[allow(unused_must_use)]
+fn trailing_run_x_with_middle(middle_hidden: bool) -> Option<f32> {
+    let (mut dom, div) = setup_block_element(
+        elidex_plugin::ComputedStyle {
+            display: elidex_plugin::Display::Block,
+            font_family: test_font_family_strings(),
+            ..Default::default()
+        },
+        elidex_plugin::LayoutBox {
+            content: Rect::new(0.0, 0.0, 800.0, 20.0),
+            ..Default::default()
+        },
+    );
+    let text = dom.create_text("אמג");
+    dom.append_child(div, text);
+    // The middle run is a separate entity so it can carry its own visibility.
+    let mid = dom.create_element("span", elidex_ecs::Attributes::default());
+    dom.world_mut().insert_one(
+        mid,
+        elidex_plugin::ComputedStyle {
+            visibility: if middle_hidden {
+                elidex_plugin::Visibility::Hidden
+            } else {
+                elidex_plugin::Visibility::Visible
+            },
+            font_family: test_font_family_strings(),
+            ..Default::default()
+        },
+    );
+    dom.append_child(div, mid);
+
+    let flow = InlineFlow::single(
+        0,
+        vec![InlineFlowLine {
+            block_start: 0.0,
+            block_size: 20.0,
+            runs: vec![
+                InlineFlowRun::Text {
+                    entity: div,
+                    text: "א".to_string(),
+                    inline_start: 0.0,
+                },
+                InlineFlowRun::Text {
+                    entity: mid,
+                    text: "מ".to_string(),
+                    inline_start: 20.0,
+                },
+                InlineFlowRun::Text {
+                    entity: div,
+                    text: "ג".to_string(),
+                    inline_start: 40.0,
+                },
+            ],
+        }],
+    );
+    dom.world_mut().insert_one(text, flow);
+
+    let font_db = elidex_text::FontDatabase::new();
+    let dl = build_display_list(&dom, &font_db);
+    // Visual order reverses [0,1,2]→[2,1,0]; "ג" (logical idx 2) paints FIRST and "א"
+    // (logical idx 0) LAST. The LAST painted Text item is therefore "א"; its x is the
+    // running advance past "ג" + the middle run — which must not depend on whether the
+    // middle run is painted. Use the last item to capture the full accumulated advance.
+    let items = text_item_glyphs(&dl);
+    items.last().map(|g| g[0].position.x)
+}
+
+/// Regression (Codex P2, inline.rs hidden-run advance): a `visibility:hidden` run in
+/// the middle of a reordered RTL line must still advance the shared cursor, so the
+/// run painted after it lands at the same x whether the middle run is hidden or
+/// visible. Before the fix the hidden run early-returned without advancing, shifting
+/// the trailing run left by the hidden run's width.
+#[test]
+fn converged_bidi_hidden_run_reserves_advance() {
+    let Some(visible_x) = trailing_run_x_with_middle(false) else {
+        return;
+    };
+    let Some(hidden_x) = trailing_run_x_with_middle(true) else {
+        return;
+    };
+    assert!(
+        (visible_x - hidden_x).abs() < 0.5,
+        "hidden middle run must reserve its advance: trailing-run x should match \
+         visible ({visible_x}) vs hidden ({hidden_x})"
+    );
+}
+
+/// Regression (Codex P2, inline.rs RTL-base fast path): under an RTL paragraph, a line
+/// whose runs carry only NEUTRAL characters (here ASCII `!` / `..` — bidi class ON, no
+/// strong R/AL/AN, so `text_has_rtl` is false) still reorders per UAX #9 L2 (neutrals
+/// with no strong context inherit the odd paragraph level, N1/N2). The fast path must
+/// NOT skip bidi for an RTL container. Logical `["!"(1),".."(2)]` → visual reverse →
+/// paint-order glyph counts `[2,1]`. (ASCII neutrals chosen deliberately: an Arabic
+/// mark like U+061F is AL and `text_has_rtl` would catch it, so the test would pass
+/// even with the buggy fast path — it would not isolate the `direction == Rtl` gate.)
+#[test]
+#[allow(unused_must_use)]
+fn converged_bidi_rtl_base_neutral_runs_reorder() {
+    let (mut dom, div) = setup_block_element(
+        elidex_plugin::ComputedStyle {
+            display: elidex_plugin::Display::Block,
+            direction: elidex_plugin::Direction::Rtl,
+            font_family: test_font_family_strings(),
+            ..Default::default()
+        },
+        elidex_plugin::LayoutBox {
+            content: Rect::new(0.0, 0.0, 800.0, 20.0),
+            ..Default::default()
+        },
+    );
+    let text = dom.create_text("!..");
+    dom.append_child(div, text);
+
+    let flow = InlineFlow::single(
+        0,
+        vec![InlineFlowLine {
+            block_start: 0.0,
+            block_size: 20.0,
+            runs: vec![
+                InlineFlowRun::Text {
+                    entity: div,
+                    text: "!".to_string(),
+                    inline_start: 0.0,
+                },
+                InlineFlowRun::Text {
+                    entity: div,
+                    text: "..".to_string(),
+                    inline_start: 20.0,
+                },
+            ],
+        }],
+    );
+    dom.world_mut().insert_one(text, flow);
+
+    let font_db = elidex_text::FontDatabase::new();
+    let dl = build_display_list(&dom, &font_db);
+    assert_eq!(
+        text_item_glyph_counts(&dl),
+        vec![2, 1],
+        "RTL-base neutral-only runs reorder: logical [\"!\"(1),\"..\"(2)] → visual [\"..\"(2),\"!\"(1)]"
     );
 }
