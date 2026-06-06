@@ -1,6 +1,6 @@
 # /external-review project overlay — elidex
 
-Loaded by `~/.claude/skills/external-review/SKILL.md` (single-pass triage) when invoked from this repo. Provides project-specific calibration (reviewer identity / fetch / classify / layer-fit / fix-discipline). The full multi-round loop variant's calibration (round-count `failure_modes`, `wakeup_median`, TERMINAL accounting — Copilot-only) lives in `copilot-converge/project.md`.
+Loaded by `~/.claude/skills/external-review/SKILL.md` (single-pass triage) when invoked from this repo. Provides project-specific calibration (reviewer identity / fetch / classify / layer-fit / fix-discipline). The full multi-round loop variant's calibration (`wakeup_median`, historical `failure_modes`, TERMINAL = real-gap exhaustion) lives in `external-converge/project.md`.
 
 ## repo
 
@@ -46,7 +46,7 @@ Precedent (PR #213, 2026-05-20): R2 flagged nondeterministic `HashMap` callback 
 
 ## classification_calibration
 
-Past elidex incidents that calibrate Step 2 severity (these survive single-pass; the round-count lessons moved to `copilot-converge/project.md`):
+Past elidex incidents that calibrate Step 2 severity (these survive single-pass; the loop-round lessons live in `external-converge/project.md`):
 
 - PR #154 (2026-05-05) — ~50% of IMP were miscalibrated polish → apply the one-sentence "what concretely breaks?" test strictly; doc imprecision that doesn't misdirect is MINOR.
 - Layer-confusion FPs (broker-register-ack, lessons #135-141; PR #151, lesson #145) → Step 4 upward/downward drift screen, both directions.
