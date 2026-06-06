@@ -1154,6 +1154,38 @@ fn digest_converts_symbol_algorithm_before_data() {
     assert_eq!(eval_global_string(src, "r"), "symbol-type-error");
 }
 
+// ---------------------------------------------------------------------------
+// WebIDL dictionary member-order conformance (Codex review batch 7)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn generate_key_missing_hash_rejects_before_reading_length() {
+    // Hl-BT / Web IDL: `hash` is a required member read (lexicographically)
+    // before the optional `length`, so an omitted `hash` rejects with the
+    // missing-required-member TypeError without firing a throwing `length`
+    // getter.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey( \
+              {name:'HMAC', get length(){ throw new Error('length read'); }}, true, ['sign']) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { \
+             globalThis.r = (e instanceof TypeError && !/length read/.test(e.message)) \
+                 ? 'hash-required' : ('other:' + e.message); });";
+    assert_eq!(eval_global_string(src, "r"), "hash-required");
+}
+
+#[test]
+fn export_jwk_emits_members_in_lexicographic_order() {
+    // Hl-BU / Web IDL "convert dictionary to ES value": the exported
+    // `oct` JWK's own keys are created in lexicographic member order.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey({name:'HMAC', hash:'SHA-256'}, true, ['sign','verify']) \
+           .then(k => crypto.subtle.exportKey('jwk', k)) \
+           .then(jwk => { globalThis.r = Object.keys(jwk).join(','); }, e => { globalThis.r = e.name; });";
+    // Present members for an extractable HMAC oct export: alg, ext, k,
+    // key_ops, kty (no `use`).
+    assert_eq!(eval_global_string(src, "r"), "alg,ext,k,key_ops,kty");
+}
+
 #[test]
 fn crypto_key_accessors() {
     // type / extractable / algorithm.name / algorithm.hash.name / usages.

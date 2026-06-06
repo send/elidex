@@ -378,13 +378,21 @@ fn marshal_algorithm(
                 // is discarded, but its getter still fires, so a throw (or
                 // a now-missing `name`) on the second access propagates.
                 read_required_name(ctx, id, method)?;
+                // Members are read in lexicographic order — `hash` before
+                // `length`.  `hash` is a **required** `HmacKeyGenParams` /
+                // `HmacImportParams` member, so an undefined `hash` is a
+                // `TypeError` *before* the `length` getter is read (Web IDL
+                // dictionary conversion throws at the first missing required
+                // member).
                 let hash_val =
                     ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.hash_attr))?;
-                let hash = if matches!(hash_val, JsValue::Undefined) {
-                    None
-                } else {
-                    Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?))
-                };
+                if matches!(hash_val, JsValue::Undefined) {
+                    return Err(VmError::type_error(format!(
+                        "Failed to execute '{method}' on 'SubtleCrypto': \
+                         Algorithm: member hash is required"
+                    )));
+                }
+                let hash = Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?));
                 let length_val =
                     ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.length))?;
                 let length = if matches!(length_val, JsValue::Undefined) {
@@ -742,17 +750,24 @@ fn build_jwk_object(ctx: &mut NativeContext<'_>, jwk: &JsonWebKey) -> ObjectId {
             shape::PropertyAttrs::DATA,
         );
     };
-    if let Some(kty) = &jwk.kty {
-        set_string(ctx, "kty", kty);
-    }
-    if let Some(k) = &jwk.k {
-        set_string(ctx, "k", k);
-    }
+    // Web IDL "convert a dictionary to an ECMAScript value" creates own
+    // properties in **lexicographic member order** — for the `oct` subset:
+    // alg, ext, k, key_ops, kty, use — so `Object.keys(exportedJwk)`
+    // matches the spec / other engines.
     if let Some(alg) = &jwk.alg {
         set_string(ctx, "alg", alg);
     }
-    if let Some(use_) = &jwk.use_ {
-        set_string(ctx, "use", use_);
+    if let Some(ext) = jwk.ext {
+        let key = PropertyKey::String(ctx.intern("ext"));
+        ctx.vm.define_shaped_property(
+            obj,
+            key,
+            PropertyValue::Data(JsValue::Boolean(ext)),
+            shape::PropertyAttrs::DATA,
+        );
+    }
+    if let Some(k) = &jwk.k {
+        set_string(ctx, "k", k);
     }
     if let Some(key_ops) = &jwk.key_ops {
         let elements = key_ops
@@ -774,14 +789,11 @@ fn build_jwk_object(ctx: &mut NativeContext<'_>, jwk: &JsonWebKey) -> ObjectId {
             shape::PropertyAttrs::DATA,
         );
     }
-    if let Some(ext) = jwk.ext {
-        let key = PropertyKey::String(ctx.intern("ext"));
-        ctx.vm.define_shaped_property(
-            obj,
-            key,
-            PropertyValue::Data(JsValue::Boolean(ext)),
-            shape::PropertyAttrs::DATA,
-        );
+    if let Some(kty) = &jwk.kty {
+        set_string(ctx, "kty", kty);
+    }
+    if let Some(use_) = &jwk.use_ {
+        set_string(ctx, "use", use_);
     }
     obj
 }
