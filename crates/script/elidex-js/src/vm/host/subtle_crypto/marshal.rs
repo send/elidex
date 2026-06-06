@@ -1,287 +1,23 @@
-// boa skip: VM-only surface; the legacy boa runtime
-// (`crates/script/elidex-js-boa/`) is on the deletion path per
-// `m4-12-platform-gap-roadmap.md` §E-2 Round 20 PR7.  See
-// `memory/project_boa_runtime_deletion.md`.
-
-//! `SubtleCrypto` interface (WebCrypto §14) — VM thin binding to
-//! the lazy-allocated `crypto.subtle` singleton.
+//! JS-value → `elidex-api-crypto` input marshalling for the
+//! `SubtleCrypto` operations.
 //!
-//! ## Layering
-//!
-//! Per CLAUDE.md "Layering mandate", this file contains only the
-//! engine-bound responsibilities: prototype install, brand check, and
-//! marshalling JS values ↔ the engine-independent `elidex-api-crypto`
-//! API (algorithm normalization, key validation, HMAC, digest, and JWK
-//! all live in the crate).  BufferSource coercion is reused via
-//! [`super::text_encoding::extract_buffer_source_bytes`].
-//!
-//! Current scope (`#11-crypto-subtle-full` PR-1): `digest` +
-//! `CryptoKey` lifecycle + the HMAC vertical (`generateKey` /
-//! `importKey` / `exportKey` / `sign` / `verify`).  AES (PR-2),
-//! KDF + wrap/unwrap (PR-3), ECDSA/ECDH (PR-4), and RSA (PR-5) extend
-//! the crate registry by adding rows.
-//!
-//! ## Singleton storage
-//!
-//! - [`VmInner::subtle_crypto_instance`][]: cached `[SameObject]`
-//!   `SubtleCrypto` wrapper returned by the `Crypto.prototype.subtle`
-//!   accessor.  Lazily allocated via
-//!   [`VmInner::alloc_or_cached_subtle_crypto`] on the first
-//!   `crypto.subtle` read.  Cleared on `Vm::unbind` for GC-root
-//!   hygiene (the wrapper is stateless, so re-allocation is cheap).
-//! - [`VmInner::subtle_crypto_prototype`][]: `SubtleCrypto.prototype`
-//!   chained to `Object.prototype`; rooted via the proto-roots
-//!   array in `vm/gc/collect.rs`.
-//!
-//! ## GC interaction
-//!
-//! [`ObjectKind::SubtleCrypto`] is payload-free.  Singleton rooted
-//! via `VmInner::subtle_crypto_instance` (mark-roots step in
-//! `vm/gc/collect.rs`); trace fan-out is a no-op (see
-//! `vm/gc/trace.rs`).
-
-#![cfg(feature = "engine")]
+//! Per CLAUDE.md "Layering mandate", these helpers only convert Web
+//! IDL argument values into the engine-independent crate's input
+//! types (algorithm-identifier conversion + normalization inputs,
+//! `sequence<KeyUsage>` / `KeyFormat` / `JsonWebKey` conversion, the
+//! `[EnforceRange]` length coercion) and build the exported `oct` JWK
+//! object — all spec-validation lives in `elidex-api-crypto`.
 
 use elidex_api_crypto::key::KeyUsage;
-use elidex_api_crypto::{
-    self as crypto, AlgorithmError, ExportedKey, JsonWebKey, KeyData, KeyFormat,
-    NormalizedAlgorithm, Operation, RawAlgorithm,
-};
+use elidex_api_crypto::{self as crypto, JsonWebKey, KeyFormat, Operation, RawAlgorithm};
 
-use super::super::coerce;
-use super::super::natives_promise::create_promise;
-use super::super::shape;
-use super::super::value::{
+use super::super::super::coerce;
+use super::super::super::shape;
+use super::super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
     PropertyValue, VmError,
 };
-use super::super::webidl_sequence::{webidl_sequence_to_vec, SeqMessages};
-use super::super::{NativeFn, VmInner};
-use super::array_buffer::create_array_buffer_from_bytes;
-use super::blob::{reject_promise_sync, resolve_promise_sync};
-use super::text_encoding::extract_buffer_source_bytes;
-
-impl VmInner {
-    /// Allocate `SubtleCrypto.prototype` chained to `Object.prototype`,
-    /// install the `digest` method native, and expose the
-    /// `SubtleCrypto` constructor stub on `globalThis`.
-    ///
-    /// Called from `register_globals()` after `register_prototypes`.
-    /// Ordering relative to `register_crypto_global` does NOT matter
-    /// for the prototype install itself — `Crypto.prototype.subtle`'s
-    /// getter reads `subtle_crypto_prototype` lazily on the first
-    /// JS invocation of `crypto.subtle`, which always happens after
-    /// `register_globals()` has finished both registrations.  The
-    /// current ordering (subtle before crypto, see
-    /// `vm/globals.rs::register_globals`) is alphabetical / topological-
-    /// hint convenience, not a correctness requirement.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `object_prototype` is `None` — call-order
-    /// invariant from `register_globals()` violated.
-    pub(in crate::vm) fn register_subtle_crypto_global(&mut self) {
-        let object_proto = self
-            .object_prototype
-            .expect("register_subtle_crypto_global called before register_prototypes");
-
-        let proto_id = self.alloc_object(Object {
-            kind: ObjectKind::Ordinary,
-            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            prototype: Some(object_proto),
-            extensible: true,
-        });
-
-        // `SubtleCrypto.prototype` operation natives (WebCrypto §14.3).
-        let methods: [(_, NativeFn); 6] = [
-            (
-                self.well_known.digest,
-                native_subtle_crypto_digest as NativeFn,
-            ),
-            (
-                self.well_known.generate_key,
-                native_subtle_crypto_generate_key,
-            ),
-            (self.well_known.import_key, native_subtle_crypto_import_key),
-            (self.well_known.export_key, native_subtle_crypto_export_key),
-            (self.well_known.sign, native_subtle_crypto_sign),
-            (self.well_known.verify, native_subtle_crypto_verify),
-        ];
-        for (name_sid, func) in methods {
-            self.install_native_method(proto_id, name_sid, func, shape::PropertyAttrs::METHOD);
-        }
-
-        self.subtle_crypto_prototype = Some(proto_id);
-
-        // `SubtleCrypto` declares no constructor operation — registered as
-        // IllegalConstructor so both call/construct throw at the gate
-        // (Web Cryptography API §14 SubtleCrypto interface).
-        let ctor = self.create_illegal_constructor_function(
-            "SubtleCrypto",
-            super::super::value::native_illegal_constructor_unreachable,
-        );
-        let proto_key = PropertyKey::String(self.well_known.prototype);
-        self.define_shaped_property(
-            ctor,
-            proto_key,
-            PropertyValue::Data(JsValue::Object(proto_id)),
-            shape::PropertyAttrs::BUILTIN,
-        );
-        let ctor_key = PropertyKey::String(self.well_known.constructor);
-        self.define_shaped_property(
-            proto_id,
-            ctor_key,
-            PropertyValue::Data(JsValue::Object(ctor)),
-            shape::PropertyAttrs::METHOD,
-        );
-        let name_sid = self.well_known.subtle_crypto_global;
-        self.globals.insert(name_sid, JsValue::Object(ctor));
-    }
-
-    /// Return the per-VM `SubtleCrypto` `[SameObject]` wrapper,
-    /// allocating it on the first `Crypto.prototype.subtle` accessor
-    /// read.  Mirrors the [`super::dom_selection_proto`]
-    /// `alloc_or_cached_selection` shape: cached singleton, payload-
-    /// free, prototype-via-`subtle_crypto_prototype`.
-    ///
-    /// Re-allocates after `Vm::unbind` (which clears
-    /// `subtle_crypto_instance` for GC-root hygiene); the prototype
-    /// stays live so retained JS references continue to brand-check
-    /// and dispatch through the same `digest` native.
-    pub(in crate::vm) fn alloc_or_cached_subtle_crypto(&mut self) -> ObjectId {
-        if let Some(id) = self.subtle_crypto_instance {
-            return id;
-        }
-        let proto = self
-            .subtle_crypto_prototype
-            .expect("alloc_or_cached_subtle_crypto before register_subtle_crypto_global");
-        let id = self.alloc_object(Object {
-            kind: ObjectKind::SubtleCrypto,
-            storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
-            prototype: Some(proto),
-            extensible: false,
-        });
-        self.subtle_crypto_instance = Some(id);
-        id
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Brand check
-// ---------------------------------------------------------------------------
-
-/// Confirm `this` is a `SubtleCrypto` instance, returning a
-/// TypeError with the spec-conformant "Illegal invocation" wording
-/// otherwise.  Used by every `SubtleCrypto.prototype.*` method
-/// native.
-fn require_subtle_crypto_this(
-    ctx: &NativeContext<'_>,
-    this: JsValue,
-    method: &'static str,
-) -> Result<ObjectId, VmError> {
-    let JsValue::Object(id) = this else {
-        return Err(VmError::type_error(format!(
-            "Failed to execute '{method}' on 'SubtleCrypto': Illegal invocation"
-        )));
-    };
-    if !matches!(ctx.vm.get_object(id).kind, ObjectKind::SubtleCrypto) {
-        return Err(VmError::type_error(format!(
-            "Failed to execute '{method}' on 'SubtleCrypto': Illegal invocation"
-        )));
-    }
-    Ok(id)
-}
-
-// ---------------------------------------------------------------------------
-// `SubtleCrypto.prototype.digest(algorithm, data)` (WebCrypto §14.3.5)
-// ---------------------------------------------------------------------------
-
-fn native_subtle_crypto_digest(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let args = args.to_vec();
-    run_op(ctx, this, "digest", move |ctx| {
-        // Web IDL converts every argument in order before the digest
-        // operation normalizes the algorithm: the `algorithm`
-        // `(object or DOMString)` conversion (arg 1) runs *first* — so
-        // `digest(Symbol(), 123)` rejects for the algorithm `TypeError`,
-        // not the `data` one — then the `data` BufferSource snapshot
-        // (§13.2; required, `allow_undefined_as_empty: false`).  Only then
-        // is the algorithm normalized (`marshal_algorithm` reads `name`;
-        // name-only — `Operation::Digest` ignores `hash` / `length`).
-        let algorithm =
-            convert_algorithm_identifier(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
-        let bytes = extract_buffer_source_bytes(
-            ctx,
-            args.get(1).copied().unwrap_or(JsValue::Undefined),
-            "Failed to execute 'digest' on 'SubtleCrypto'",
-            2,
-            false,
-        )?;
-        let raw = marshal_algorithm(ctx, algorithm, "digest", Operation::Digest)?;
-        let normalized = crypto::normalize(Operation::Digest, &raw)
-            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
-        let NormalizedAlgorithm::Digest(hash) = normalized else {
-            return Err(algorithm_error_to_vm(
-                ctx.vm,
-                &AlgorithmError::NotSupported("algorithm is not supported for digest".into()),
-            ));
-        };
-        let buf = create_array_buffer_from_bytes(ctx.vm, hash.digest(&bytes));
-        Ok(JsValue::Object(buf))
-    })
-}
-
-// ===========================================================================
-// HMAC vertical: generateKey / importKey / exportKey / sign / verify
-// (`#11-crypto-subtle-full` PR-1).  Each native is a thin pipeline:
-// brand-check `this` (the only sync throw) → create Promise → marshal JS
-// args into the engine-independent `elidex-api-crypto` inputs → call the
-// crate `ops::*` entry → settle the Promise.  ALL spec-validation lives in
-// the crate; this file only marshals + maps `AlgorithmError` → DOMException.
-// ===========================================================================
-
-/// Map an engine-independent [`AlgorithmError`] to the JS exception the VM
-/// throws / rejects with (DOMException, or a plain `TypeError`).
-fn algorithm_error_to_vm(vm: &VmInner, err: &AlgorithmError) -> VmError {
-    let msg = err.message().to_string();
-    match err {
-        AlgorithmError::NotSupported(_) => {
-            VmError::dom_exception(vm.well_known.dom_exc_not_supported_error, msg)
-        }
-        AlgorithmError::Data(_) => VmError::dom_exception(vm.well_known.dom_exc_data_error, msg),
-        AlgorithmError::Syntax(_) => {
-            VmError::dom_exception(vm.well_known.dom_exc_syntax_error, msg)
-        }
-        AlgorithmError::InvalidAccess(_) => {
-            VmError::dom_exception(vm.well_known.dom_exc_invalid_access_error, msg)
-        }
-        AlgorithmError::Operation(_) => {
-            VmError::dom_exception(vm.well_known.dom_exc_operation_error, msg)
-        }
-        AlgorithmError::Type(_) => VmError::type_error(msg),
-    }
-}
-
-/// Settle a pre-allocated Promise with the result of an operation body.
-/// Brand-check failures are handled before this; every other failure
-/// (marshalling `VmError` or crate `AlgorithmError` already mapped to
-/// `VmError`) rejects the Promise rather than throwing synchronously.
-fn settle_promise(
-    ctx: &mut NativeContext<'_>,
-    promise: ObjectId,
-    result: Result<JsValue, VmError>,
-) {
-    match result {
-        Ok(value) => resolve_promise_sync(ctx.vm, promise, value),
-        Err(e) => {
-            let reason = ctx.vm.vm_error_to_thrown(&e);
-            reject_promise_sync(ctx.vm, promise, reason);
-        }
-    }
-}
+use super::super::super::webidl_sequence::{webidl_sequence_to_vec, SeqMessages};
 
 /// Brand-check a `CryptoKey` operation argument (NOT `this`).  A wrong
 /// type is a WebIDL conversion `TypeError`, settled on the Promise.
@@ -290,7 +26,7 @@ fn settle_promise(
 /// so the subsequent `crypto_key_states[&id]` index cannot panic (a
 /// brand surviving without its entry — e.g. retained across `Vm::unbind`
 /// — surfaces as the same not-a-CryptoKey `TypeError`).
-fn require_crypto_key_arg(
+pub(super) fn require_crypto_key_arg(
     ctx: &NativeContext<'_>,
     value: JsValue,
     method: &str,
@@ -318,7 +54,7 @@ fn require_crypto_key_arg(
 /// ahead of the other argument conversions makes `digest(Symbol(), 123)`
 /// reject for the first argument (a `TypeError` from the algorithm), not
 /// the second.
-fn convert_algorithm_identifier(
+pub(super) fn convert_algorithm_identifier(
     ctx: &mut NativeContext<'_>,
     value: JsValue,
 ) -> Result<JsValue, VmError> {
@@ -352,7 +88,7 @@ fn convert_algorithm_identifier(
 /// [`marshal_hash_identifier`] **leaf** (a `HashAlgorithmIdentifier` never
 /// has its own `hash`), so a self-referential / deeply-nested algorithm
 /// object cannot recurse.
-fn marshal_algorithm(
+pub(super) fn marshal_algorithm(
     ctx: &mut NativeContext<'_>,
     value: JsValue,
     method: &str,
@@ -515,7 +251,7 @@ where
 /// non-Object value is a conversion `TypeError`, and an unrecognized enum
 /// string is a `TypeError`.  Delegates the iterator protocol (IteratorClose
 /// precedence, runaway cap) to the canonical [`webidl_sequence_to_vec`].
-fn marshal_usages(
+pub(super) fn marshal_usages(
     ctx: &mut NativeContext<'_>,
     value: JsValue,
     method: &str,
@@ -542,7 +278,7 @@ fn marshal_usages(
 }
 
 /// Marshal a JS `KeyFormat` enum string into [`KeyFormat`].
-fn marshal_format(
+pub(super) fn marshal_format(
     ctx: &mut NativeContext<'_>,
     value: JsValue,
     method: &str,
@@ -573,7 +309,10 @@ fn marshal_format(
 ///   its throws — even members HMAC ignores (the EC / RSA fields).  Only
 ///   the `oct`-relevant subset (`kty` / `use` / `key_ops` / `alg` / `ext`
 ///   / `k`) is retained.
-fn marshal_jwk(ctx: &mut NativeContext<'_>, value: JsValue) -> Result<JsonWebKey, VmError> {
+pub(super) fn marshal_jwk(
+    ctx: &mut NativeContext<'_>,
+    value: JsValue,
+) -> Result<JsonWebKey, VmError> {
     let id = match value {
         JsValue::Undefined | JsValue::Null => return Ok(JsonWebKey::default()),
         JsValue::Object(id) => id,
@@ -732,7 +471,7 @@ fn read_jwk_oth(ctx: &mut NativeContext<'_>, obj: ObjectId) -> Result<(), VmErro
 /// `dispatch.rs` set `gc_enabled = false`; see `natives_array_hof.rs`),
 /// so `alloc_object` here never triggers a collection. Add temp-roots
 /// only if GC is ever permitted to run during native→JS callbacks.
-fn build_jwk_object(ctx: &mut NativeContext<'_>, jwk: &JsonWebKey) -> ObjectId {
+pub(super) fn build_jwk_object(ctx: &mut NativeContext<'_>, jwk: &JsonWebKey) -> ObjectId {
     let object_proto = ctx.vm.object_prototype;
     let obj = ctx.alloc_object(Object {
         kind: ObjectKind::Ordinary,
@@ -796,234 +535,4 @@ fn build_jwk_object(ctx: &mut NativeContext<'_>, jwk: &JsonWebKey) -> ObjectId {
         set_string(ctx, "use", use_);
     }
     obj
-}
-
-/// Run an operation body against a pre-rooted Promise, settling it.
-/// Shared shape for the six operation natives (digest + the five HMAC ops).
-///
-/// WebCrypto §14.3 reports **all** errors asynchronously, including the
-/// Web IDL receiver brand check: a non-`SubtleCrypto` `this` (e.g.
-/// `crypto.subtle.sign.call({}, …)`) must reject the returned Promise, not
-/// throw synchronously.  So the brand check runs *inside* the settled
-/// closure, after the Promise is created.
-fn run_op(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    method: &'static str,
-    body: impl FnOnce(&mut NativeContext<'_>) -> Result<JsValue, VmError>,
-) -> Result<JsValue, VmError> {
-    let promise = create_promise(ctx.vm);
-    let mut guard = ctx.vm.push_temp_root(JsValue::Object(promise));
-    let mut rooted = NativeContext::new_call(&mut guard);
-    let ctx = &mut rooted;
-    let result = match require_subtle_crypto_this(ctx, this, method) {
-        Ok(_) => body(ctx),
-        Err(e) => Err(e),
-    };
-    settle_promise(ctx, promise, result);
-    Ok(JsValue::Object(promise))
-}
-
-fn native_subtle_crypto_generate_key(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let args = args.to_vec();
-    run_op(ctx, this, "generateKey", move |ctx| {
-        // Web IDL converts every argument in order before the operation
-        // normalizes the algorithm: the `algorithm` `(object or DOMString)`
-        // conversion (arg 1) first, then `extractable`, then the
-        // `keyUsages` sequence — so a `Symbol()` algorithm beats a bad
-        // `keyUsages`, and a bad `keyUsages` beats NotSupportedError.
-        let algorithm =
-            convert_algorithm_identifier(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
-        let extractable =
-            coerce::to_boolean(ctx.vm, args.get(1).copied().unwrap_or(JsValue::Undefined));
-        let usages_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
-        let usages = marshal_usages(ctx, usages_arg, "generateKey")?;
-
-        let raw = marshal_algorithm(ctx, algorithm, "generateKey", Operation::GenerateKey)?;
-        let normalized = crypto::normalize(Operation::GenerateKey, &raw)
-            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
-
-        // The crate owns usage validation → length sizing → fill ordering
-        // (§31.6.3); the VM only supplies entropy via the closure, so an
-        // invalid usage / zero length rejects before any buffer is sized.
-        let key_data = crypto::ops::generate_key(normalized, extractable, usages, |buf| {
-            getrandom::fill(buf)
-                .map_err(|e| AlgorithmError::Operation(format!("OS CSPRNG failure ({e})")))
-        })
-        .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
-        let id = ctx.vm.alloc_crypto_key(key_data);
-        Ok(JsValue::Object(id))
-    })
-}
-
-fn native_subtle_crypto_import_key(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let args = args.to_vec();
-    run_op(ctx, this, "importKey", move |ctx| {
-        let format = marshal_format(
-            ctx,
-            args.first().copied().unwrap_or(JsValue::Undefined),
-            "importKey",
-        )?;
-        let key_data_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-        let usages_arg = args.get(4).copied().unwrap_or(JsValue::Undefined);
-
-        // Web IDL converts every argument in order before the operation
-        // normalizes the algorithm (§14.3.9 step 2): `format` (above),
-        // `keyData` (`(BufferSource or JsonWebKey)`), the `algorithm`
-        // `(object or DOMString)` conversion, `extractable`, then the
-        // `keyUsages` sequence — so a JWK getter throw / `Symbol()`
-        // algorithm / bad-usage TypeError beats NotSupportedError.  `null` /
-        // `undefined` `keyData` converts to an empty `JsonWebKey` dictionary
-        // (the import then rejects with DataError, not TypeError).
-        let key_data = match format {
-            KeyFormat::Jwk => KeyData::Jwk(marshal_jwk(ctx, key_data_arg)?),
-            _ => KeyData::Raw(extract_buffer_source_bytes(
-                ctx,
-                key_data_arg,
-                "Failed to execute 'importKey' on 'SubtleCrypto'",
-                2,
-                false,
-            )?),
-        };
-        let algorithm =
-            convert_algorithm_identifier(ctx, args.get(2).copied().unwrap_or(JsValue::Undefined))?;
-        let extractable =
-            coerce::to_boolean(ctx.vm, args.get(3).copied().unwrap_or(JsValue::Undefined));
-        let usages = marshal_usages(ctx, usages_arg, "importKey")?;
-
-        let raw = marshal_algorithm(ctx, algorithm, "importKey", Operation::ImportKey)?;
-        let normalized = crypto::normalize(Operation::ImportKey, &raw)
-            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
-
-        let key = crypto::ops::import_key(format, normalized, extractable, usages, key_data)
-            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
-        let id = ctx.vm.alloc_crypto_key(key);
-        Ok(JsValue::Object(id))
-    })
-}
-
-fn native_subtle_crypto_export_key(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let args = args.to_vec();
-    run_op(ctx, this, "exportKey", move |ctx| {
-        let format = marshal_format(
-            ctx,
-            args.first().copied().unwrap_or(JsValue::Undefined),
-            "exportKey",
-        )?;
-        let key_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-        let key_id = require_crypto_key_arg(ctx, key_arg, "exportKey", 2)?;
-        // Borrow the side-store key (incl. secret material) only for the
-        // pure crate call; drop it before re-borrowing `ctx.vm` to build
-        // the result — avoids cloning the secret material.
-        let exported = {
-            let key_data = &ctx.vm.crypto_key_states[&key_id];
-            crypto::ops::export_key(format, key_data)
-        }
-        .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
-        match exported {
-            ExportedKey::Raw(bytes) => {
-                let buf = create_array_buffer_from_bytes(ctx.vm, bytes);
-                Ok(JsValue::Object(buf))
-            }
-            ExportedKey::Jwk(jwk) => Ok(JsValue::Object(build_jwk_object(ctx, &jwk))),
-        }
-    })
-}
-
-fn native_subtle_crypto_sign(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let args = args.to_vec();
-    run_op(ctx, this, "sign", move |ctx| {
-        // Web IDL converts the arguments in order — `algorithm`
-        // `(object or DOMString)`, then `key` (CryptoKey), then `data`
-        // (BufferSource) — before the sign operation normalizes the
-        // algorithm, so a `Symbol()` algorithm beats a non-CryptoKey `key`,
-        // and a non-CryptoKey `key` beats NotSupportedError.
-        let algorithm =
-            convert_algorithm_identifier(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
-        let key_id = require_crypto_key_arg(
-            ctx,
-            args.get(1).copied().unwrap_or(JsValue::Undefined),
-            "sign",
-            2,
-        )?;
-        let data = extract_buffer_source_bytes(
-            ctx,
-            args.get(2).copied().unwrap_or(JsValue::Undefined),
-            "Failed to execute 'sign' on 'SubtleCrypto'",
-            3,
-            false,
-        )?;
-        let raw = marshal_algorithm(ctx, algorithm, "sign", Operation::Sign)?;
-        let normalized = crypto::normalize(Operation::Sign, &raw)
-            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
-        let signature = {
-            let key_data = &ctx.vm.crypto_key_states[&key_id];
-            crypto::ops::sign(normalized, key_data, &data)
-        }
-        .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
-        let buf = create_array_buffer_from_bytes(ctx.vm, signature);
-        Ok(JsValue::Object(buf))
-    })
-}
-
-fn native_subtle_crypto_verify(
-    ctx: &mut NativeContext<'_>,
-    this: JsValue,
-    args: &[JsValue],
-) -> Result<JsValue, VmError> {
-    let args = args.to_vec();
-    run_op(ctx, this, "verify", move |ctx| {
-        // Web IDL converts the arguments in order — `algorithm`
-        // `(object or DOMString)`, then `key` (CryptoKey), then `signature`
-        // and `data` (BufferSource) — before the verify operation
-        // normalizes the algorithm, so a `Symbol()` algorithm beats a
-        // non-CryptoKey `key`, which beats NotSupportedError.
-        let algorithm =
-            convert_algorithm_identifier(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
-        let key_id = require_crypto_key_arg(
-            ctx,
-            args.get(1).copied().unwrap_or(JsValue::Undefined),
-            "verify",
-            2,
-        )?;
-        let signature = extract_buffer_source_bytes(
-            ctx,
-            args.get(2).copied().unwrap_or(JsValue::Undefined),
-            "Failed to execute 'verify' on 'SubtleCrypto'",
-            3,
-            false,
-        )?;
-        let data = extract_buffer_source_bytes(
-            ctx,
-            args.get(3).copied().unwrap_or(JsValue::Undefined),
-            "Failed to execute 'verify' on 'SubtleCrypto'",
-            4,
-            false,
-        )?;
-        let raw = marshal_algorithm(ctx, algorithm, "verify", Operation::Verify)?;
-        let normalized = crypto::normalize(Operation::Verify, &raw)
-            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
-        let ok = {
-            let key_data = &ctx.vm.crypto_key_states[&key_id];
-            crypto::ops::verify(normalized, key_data, &signature, &data)
-        }
-        .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
-        Ok(JsValue::Boolean(ok))
-    })
 }
