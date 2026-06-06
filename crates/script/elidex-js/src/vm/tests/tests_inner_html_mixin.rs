@@ -351,13 +351,17 @@ fn element_get_html_shadow_roots_rejects_string_primitive() {
     // string iterated and failed later with "'shadowRoots[0]' is not a
     // ShadowRoot"; the up-front step-1 rejection is the spec-correct
     // behaviour (matches `new Blob('abc')` / Chrome).
+    // Asserts the step-1 rejection behaviourally (TypeError, and crucially
+    // NO per-element `shadowRoots[0]` message — proving the string was not
+    // iterated), without pinning the exact `not_iterable` wording (which a
+    // follow-up caller-hygiene sweep may refine to "cannot be converted to a
+    // sequence").
     let out = run("var host = document.createElement('div'); \
          document.body.appendChild(host); \
          var caught = ''; \
          try { host.getHTML({shadowRoots: 'abc'}); } \
          catch (e) { caught = e.name + '|' + e.message; } \
          (caught.indexOf('TypeError|') === 0 \
-            && caught.indexOf('is not iterable') !== -1 \
             && caught.indexOf('shadowRoots[0]') === -1) \
              ? 'ok' : ('fail:' + caught);");
     assert_eq!(out, "ok");

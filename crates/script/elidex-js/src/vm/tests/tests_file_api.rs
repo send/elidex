@@ -133,6 +133,23 @@ fn ctor_two_args_minimum_succeeds() {
 }
 
 #[test]
+fn ctor_rejects_string_primitive_file_bits() {
+    // WebIDL §3.2.21 step 1: `fileBits` is a `sequence<BlobPart>`, so a
+    // string primitive (not an Object) is a TypeError before it can be
+    // iterated per code point — `new File('abc', 'n.txt')` must reject, not
+    // build a 3-byte File from the characters.  File shares Blob's
+    // `collect_blob_parts_bytes_with_endings`, so the shared converter's
+    // step-1 guard covers this entry point too (sibling of
+    // `tests_blob::ctor_rejects_string_primitive_blob_parts`).
+    let mut vm = Vm::new();
+    assert!(eval_bool(
+        &mut vm,
+        "var r = false; try { new File('abc', 'n.txt'); } \
+         catch (e) { r = e instanceof TypeError; } r;"
+    ));
+}
+
+#[test]
 fn ctor_must_be_called_with_new() {
     let mut vm = Vm::new();
     let err = vm.eval("File([], 'a');").unwrap_err();
