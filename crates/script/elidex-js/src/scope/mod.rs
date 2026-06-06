@@ -75,6 +75,18 @@ pub struct Binding {
     pub is_hoisted: bool,
 }
 
+impl Binding {
+    /// Whether this is the nameless positional slot of a destructuring
+    /// parameter (see [`ScopeState::add_param_placeholder`]): a
+    /// [`BindingKind::Param`] with no name. The empty atom is never a valid
+    /// identifier, so this uniquely marks a placeholder — `resolve`
+    /// reserves an unnamed slot for it rather than a named local.
+    #[must_use]
+    pub(crate) fn is_param_placeholder(&self) -> bool {
+        self.kind == BindingKind::Param && self.name == Atom::EMPTY
+    }
+}
+
 /// What kind of declaration created this binding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BindingKind {
@@ -320,6 +332,33 @@ impl ScopeState {
             kind,
             span,
             is_hoisted: hoisted,
+        });
+    }
+
+    /// Reserve an anonymous positional slot for a destructuring parameter.
+    ///
+    /// A formal parameter occupies exactly one positional argument slot,
+    /// filled by the caller in source order. A simple `Identifier` param
+    /// names its slot directly via [`add_binding`]; a destructuring
+    /// (pattern) param has no single name for its slot, so this records a
+    /// nameless [`BindingKind::Param`] placeholder. `resolve` allocates one
+    /// local slot per placeholder, keeping subsequent simple params aligned
+    /// to their positional index, while the pattern's own bindings are
+    /// registered separately and land *after* the positional region.
+    ///
+    /// The placeholder is pushed directly (bypassing `add_binding`): it is
+    /// never referenced by name and `Atom::EMPTY` is not a valid identifier,
+    /// so it must not enter `binding_index` (where, under all-strict code,
+    /// two placeholders would otherwise collide as duplicate params).
+    pub(super) fn add_param_placeholder(&mut self, scope_idx: usize, span: Span) {
+        if self.at_error_limit() {
+            return;
+        }
+        self.scopes[scope_idx].bindings.push(Binding {
+            name: Atom::EMPTY,
+            kind: BindingKind::Param,
+            span,
+            is_hoisted: false,
         });
     }
 

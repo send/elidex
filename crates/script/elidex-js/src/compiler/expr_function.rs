@@ -11,6 +11,59 @@ use crate::scope::{BindingKind, ScopeAnalysis, ScopeKind};
 use crate::span::Span;
 
 use super::expr::compile_expr;
+use super::stmt_destructure::compile_destructure_pattern;
+
+/// Emit the formal-parameter prologue, shared by functions and arrows.
+///
+/// Each formal parameter occupies one positional slot (`slot == index`),
+/// already filled by the caller. For each parameter, in source order:
+///
+/// 1. If it has a default, replace the slot with the default expression
+///    when the incoming argument was `undefined` (ES2020: `undefined`
+///    only, not `null`).
+/// 2. If its pattern is a destructuring (non-`Identifier`) pattern, read
+///    the slot and destructure it into the names the pattern declares
+///    (allocated outside the `0..arity` positional region by `resolve`).
+///
+/// Left-to-right, default-then-destructure ordering mirrors §10.2.11
+/// FunctionDeclarationInstantiation, so a later parameter's default may
+/// observe an earlier parameter's already-destructured bindings.
+fn compile_param_prologue(
+    fc: &mut FunctionCompiler,
+    prog: &Program,
+    analysis: &ScopeAnalysis,
+    func_scopes: &mut [FunctionScope],
+    params: &[Param],
+) -> Result<(), CompileError> {
+    for (i, param) in params.iter().enumerate() {
+        let slot = i as u16;
+        if let Some(default_expr) = param.default {
+            fc.emit_u16(Op::GetLocal, slot);
+            fc.emit(Op::PushUndefined);
+            fc.emit(Op::StrictEq);
+            let skip = fc.emit_jump(Op::JumpIfFalse);
+            compile_expr(fc, prog, analysis, func_scopes, default_expr)?;
+            fc.emit_u16(Op::SetLocal, slot);
+            fc.emit(Op::Pop);
+            fc.patch_jump(skip);
+        }
+        // Simple identifier params bind their slot directly; only
+        // destructuring patterns need an unpacking prologue. `Var` kind
+        // selects no `InitLocal` — param bindings carry no TDZ.
+        if !param.is_simple_identifier(&prog.patterns) {
+            fc.emit_u16(Op::GetLocal, slot);
+            compile_destructure_pattern(
+                fc,
+                prog,
+                analysis,
+                func_scopes,
+                param.pattern,
+                VarKind::Var,
+            )?;
+        }
+    }
+    Ok(())
+}
 
 // ── Nested function compilation ────────────────────────────────────
 
@@ -79,20 +132,8 @@ pub(super) fn compile_nested_function(
         child_fc.emit(Op::Pop);
     }
 
-    // Compile default parameter values.
-    for (i, param) in func.params.iter().enumerate() {
-        if let Some(default_expr) = param.default {
-            let slot = i as u16;
-            child_fc.emit_u16(Op::GetLocal, slot);
-            child_fc.emit(Op::PushUndefined);
-            child_fc.emit(Op::StrictEq);
-            let skip = child_fc.emit_jump(Op::JumpIfFalse);
-            compile_expr(&mut child_fc, prog, analysis, func_scopes, default_expr)?;
-            child_fc.emit_u16(Op::SetLocal, slot);
-            child_fc.emit(Op::Pop);
-            child_fc.patch_jump(skip);
-        }
-    }
+    // Apply parameter defaults and unpack destructuring patterns.
+    compile_param_prologue(&mut child_fc, prog, analysis, func_scopes, &func.params)?;
 
     // Populate the `arguments` local only when actually referenced.
     if analysis.scopes[root_scope_idx].uses_arguments {
@@ -218,20 +259,8 @@ pub(super) fn compile_arrow_function(
         child_fc.emit(Op::Pop);
     }
 
-    // Compile default parameter values.
-    for (i, param) in arrow.params.iter().enumerate() {
-        if let Some(default_expr) = param.default {
-            let slot = i as u16;
-            child_fc.emit_u16(Op::GetLocal, slot);
-            child_fc.emit(Op::PushUndefined);
-            child_fc.emit(Op::StrictEq);
-            let skip = child_fc.emit_jump(Op::JumpIfFalse);
-            compile_expr(&mut child_fc, prog, analysis, func_scopes, default_expr)?;
-            child_fc.emit_u16(Op::SetLocal, slot);
-            child_fc.emit(Op::Pop);
-            child_fc.patch_jump(skip);
-        }
-    }
+    // Apply parameter defaults and unpack destructuring patterns.
+    compile_param_prologue(&mut child_fc, prog, analysis, func_scopes, &arrow.params)?;
 
     match &arrow.body {
         ArrowBody::Expression(expr_id) => {

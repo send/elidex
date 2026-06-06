@@ -402,12 +402,7 @@ pub(super) fn visit_expr(prog: &Program, state: &mut ScopeState, expr_id: NodeId
             state.push_scope(ScopeKind::Function, state.is_strict(), arrow.span);
             let arrow_scope_idx = state.current_scope();
             state.scopes[arrow_scope_idx].is_arrow = true;
-            for param in &arrow.params {
-                visit_pattern_binding(prog, state, param.pattern, BindingKind::Param);
-                if let Some(d) = param.default {
-                    visit_expr(prog, state, d);
-                }
-            }
+            visit_params(prog, state, &arrow.params);
             match &arrow.body {
                 ArrowBody::Expression(e) => visit_expr(prog, state, *e),
                 ArrowBody::Block(stmts) => {
@@ -481,18 +476,50 @@ fn visit_function(prog: &Program, state: &mut ScopeState, func: &Function, is_ex
         );
     }
 
-    for param in &func.params {
-        visit_pattern_binding(prog, state, param.pattern, BindingKind::Param);
-        if let Some(d) = param.default {
-            visit_expr(prog, state, d);
-        }
-    }
+    visit_params(prog, state, &func.params);
 
     for &s in &func.body {
         visit_stmt(prog, state, s);
     }
 
     state.pop_scope();
+}
+
+/// Register formal-parameter bindings for a function or arrow, in two
+/// phases so the positional-slot layout matches the runtime calling
+/// convention (`arg[i]` → `slot[i]`, for `i < arity`).
+///
+/// Phase 1 (source order) reserves one positional slot per formal
+/// parameter: a simple `Identifier` param binds its slot by name; any
+/// other (destructuring) pattern gets a nameless placeholder slot via
+/// [`ScopeState::add_param_placeholder`]. Param-level default
+/// expressions are visited here too.
+///
+/// Phase 2 registers the names declared *inside* destructuring patterns
+/// (and visits their nested defaults). Because these are registered
+/// after every positional slot, `resolve` allocates them *after* the
+/// `0..arity` region — so a destructuring param's bindings never steal a
+/// positional slot from a later simple param (the bug where `([a,b]) =>`
+/// behaved like `(a, b) =>`).
+fn visit_params(prog: &Program, state: &mut ScopeState, params: &[Param]) {
+    // Phase 1: one positional slot per formal parameter.
+    for param in params {
+        if param.is_simple_identifier(&prog.patterns) {
+            visit_pattern_binding(prog, state, param.pattern, BindingKind::Param);
+        } else {
+            let scope = state.current_scope();
+            state.add_param_placeholder(scope, prog.patterns.get(param.pattern).span);
+        }
+        if let Some(d) = param.default {
+            visit_expr(prog, state, d);
+        }
+    }
+    // Phase 2: names bound by destructuring patterns (post-positional).
+    for param in params {
+        if !param.is_simple_identifier(&prog.patterns) {
+            visit_pattern_binding(prog, state, param.pattern, BindingKind::Param);
+        }
+    }
 }
 
 fn visit_class(prog: &Program, state: &mut ScopeState, class: &Class) {
@@ -538,14 +565,9 @@ fn visit_class_body(prog: &Program, state: &mut ScopeState, body: &[ClassMember]
 
 /// S4: Check if a function has non-simple parameters (destructuring, default, rest).
 fn has_non_simple_params(prog: &Program, func: &Function) -> bool {
-    func.params.iter().any(|p| {
-        p.rest
-            || p.default.is_some()
-            || !matches!(
-                prog.patterns.get(p.pattern).kind,
-                PatternKind::Identifier(_)
-            )
-    })
+    func.params
+        .iter()
+        .any(|p| p.rest || p.default.is_some() || !p.is_simple_identifier(&prog.patterns))
 }
 
 /// Visit a pattern for binding registration.
