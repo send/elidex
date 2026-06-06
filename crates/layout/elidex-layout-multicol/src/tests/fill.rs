@@ -55,6 +55,13 @@ fn overflow_columns_beyond_count() {
     assert_eq!(lb.content.size.height, 50.0);
 
     let info = dom.world().get::<&MulticolInfo>(container).unwrap();
-    // Should have overflow columns (>2)
-    assert!(!info.segments.is_empty());
+    // Overflow columns (CSS Multicol L1 §8.2): 3 children at 50px each into
+    // 50px-tall columns → 3 realized columns, one beyond the requested count=2.
+    // Asserting the total column count (not just non-empty) validates that
+    // overflow columns were actually created.
+    let total_columns: u32 = info.segments.iter().map(|&(count, _, _)| count).sum();
+    assert!(
+        total_columns > 2,
+        "expected overflow columns beyond count=2, got {total_columns}"
+    );
 }

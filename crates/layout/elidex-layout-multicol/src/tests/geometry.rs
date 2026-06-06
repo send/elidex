@@ -23,8 +23,14 @@ fn basic_two_columns() {
     let lb = dom.world().get::<&LayoutBox>(container).unwrap();
     // Container width = 600
     assert_eq!(lb.content.size.width, 600.0);
-    // Height should be balanced: total 100 / 2 cols = 50
-    assert!(lb.content.size.height <= 100.0);
+    // Balanced: 2 × 50px across 2 columns → ~50px/column, not the 100px
+    // single-column stack. The balance search lands near 50 (not exactly), so
+    // assert proximity rather than the loose `<= 100`.
+    let h = lb.content.size.height;
+    assert!(
+        (h - 50.0).abs() < 2.0,
+        "height {h} should balance to ~50px (2×50px / 2 cols), not stack to 100px"
+    );
 
     let info = dom.world().get::<&MulticolInfo>(container).unwrap();
     assert_eq!(info.column_gap, 0.0);
@@ -51,11 +57,22 @@ fn basic_three_columns() {
 
     let lb = dom.world().get::<&LayoutBox>(container).unwrap();
     assert_eq!(lb.content.size.width, 600.0);
-    // 6 children × 30px = 180 total, balanced across 3 = 60px height
-    assert!(lb.content.size.height <= 180.0);
+    // 6 × 30px = 180 total, balanced across 3 columns → ~60px/column. Assert
+    // proximity to 60 (the balance search lands near, not exactly, 60) rather
+    // than the loose `<= 180`.
+    let h = lb.content.size.height;
+    assert!(
+        (h - 60.0).abs() < 2.0,
+        "height {h} should balance to ~60px (6×30px / 3 cols)"
+    );
 
     let info = dom.world().get::<&MulticolInfo>(container).unwrap();
-    assert!(!info.segments.is_empty());
+    // Exactly the 3 requested columns, balanced (no overflow).
+    let total_columns: u32 = info.segments.iter().map(|&(count, _, _)| count).sum();
+    assert_eq!(
+        total_columns, 3,
+        "expected exactly 3 balanced columns, got {total_columns}"
+    );
 }
 
 #[test]
@@ -126,8 +143,8 @@ fn column_count_one_degenerate() {
 
     let lb = dom.world().get::<&LayoutBox>(container).unwrap();
     assert_eq!(lb.content.size.width, 600.0);
-    // Single column: height = content height
-    assert!(lb.content.size.height >= 100.0);
+    // Single column: height = content height (one 100px block, exact).
+    assert_eq!(lb.content.size.height, 100.0);
 }
 
 #[test]
