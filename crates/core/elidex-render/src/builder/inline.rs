@@ -1,6 +1,8 @@
 //! Inline run collection and emission.
 
-use elidex_ecs::{EcsDom, Entity, InlineFlow, InlineFlowRun, PseudoElementMarker, TextContent};
+use elidex_ecs::{
+    EcsDom, Entity, InlineFlow, InlineFlowRun, InlineFragment, PseudoElementMarker, TextContent,
+};
 use elidex_plugin::transform_math::Perspective;
 use elidex_plugin::{
     ComputedStyle, CssColor, Direction, Display, FontStyle as PluginFontStyle, LayoutBox, Point,
@@ -76,6 +78,15 @@ pub(crate) struct InlineRunContext<'a> {
 /// Maximum recursion depth for inline text collection.
 const MAX_INLINE_DEPTH: u32 = 100;
 
+/// Whether a persisted [`InlineFragment`] belongs to the page currently being
+/// walked: every fragment off the paged path (`expected == None` — a
+/// non-fragmented flow has exactly one), else only the one stamped with this
+/// page's generation. The consume gate and the `emit_inline_flow` paint loop
+/// share this predicate so they never disagree on which fragments paint (D4).
+fn fragment_matches_page(frag: &InlineFragment, expected: Option<u32>) -> bool {
+    expected.is_none_or(|g| frag.generation == g)
+}
+
 /// Collect styled text segments from an inline run and render them.
 ///
 /// An inline run is a sequence of non-block children (text nodes and
@@ -93,18 +104,20 @@ pub(crate) fn emit_inline_run(
     // Converged path: if layout persisted an `InlineFlow` on this run's start
     // entity (`run[0]`, the same key both passes derive), consume its collapsed +
     // positioned members instead of re-collecting/re-collapsing/re-measuring the
-    // DOM. The generation check reads the flow's OWN `layout_generation`; off the
+    // DOM. The generation check reads each fragment's OWN `generation`; off the
     // paged path (`expected_generation == None`) it is a no-op and presence alone
     // gates, because layout explicitly clears the flow when a run becomes
-    // non-persistable. Read the gate as a bool so the `InlineFlow` borrow drops
-    // before `emit_inline_flow` takes `&mut ctx` (it re-gets the flow internally).
+    // non-persistable. On the paged path we consume iff SOME fragment matches this
+    // page (`emit_inline_flow` then paints only the matching fragment(s)). Read the
+    // gate as a bool so the `InlineFlow` borrow drops before `emit_inline_flow`
+    // takes `&mut ctx` (it re-gets the flow internally).
     if let Some(&first) = run.first() {
         let expected = ctx.expected_generation;
-        let consume = ctx
-            .dom
-            .world()
-            .get::<&InlineFlow>(first)
-            .is_ok_and(|flow| expected.is_none_or(|g| flow.layout_generation == g));
+        let consume = ctx.dom.world().get::<&InlineFlow>(first).is_ok_and(|flow| {
+            flow.fragments
+                .iter()
+                .any(|frag| fragment_matches_page(frag, expected))
+        });
         if consume {
             // The horizontal/vertical dispatch needs only the parent's `writing_mode`
             // + `text_orientation` (Copy enums) — read those WITHOUT cloning the parent
@@ -419,6 +432,11 @@ fn emit_inline_flow(
 ) {
     let vertical = !writing_mode.is_horizontal();
     let orient = vertical_text_orientation(writing_mode, text_orientation);
+    // On the paged path, paint only the fragment(s) belonging to this page
+    // (`expected_generation`); off it (`None`), paint every fragment — a
+    // non-fragmented flow has exactly one (generation 0). The matching
+    // gate mirrors the consume check in `emit_inline_run`.
+    let expected = ctx.expected_generation;
     // Atomic members collected here, walked after the `InlineFlow` borrow drops.
     let mut atomics: Vec<Entity> = Vec::new();
     {
@@ -428,7 +446,12 @@ fn emit_inline_flow(
         let Ok(flow) = dom.world().get::<&InlineFlow>(first) else {
             return;
         };
-        for line in &flow.lines {
+        for line in flow
+            .fragments
+            .iter()
+            .filter(|frag| fragment_matches_page(frag, expected))
+            .flat_map(|frag| frag.lines.iter())
+        {
             for run in &line.runs {
                 match run {
                     InlineFlowRun::Text {

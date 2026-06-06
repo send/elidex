@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::display_list::DisplayItem;
-use elidex_ecs::{InlineFlow, InlineFlowLine, InlineFlowRun};
+use elidex_ecs::{InlineFlow, InlineFlowLine, InlineFlowRun, InlineFragment};
 
 /// Collect the glyph vectors of every `Text` display item, in order.
 fn text_item_glyphs(
@@ -39,8 +39,9 @@ fn consumes_inline_flow_per_line() {
     dom.append_child(div, text);
 
     // Simulate layout output: two lines, runs styled by the div.
-    let flow = InlineFlow {
-        lines: vec![
+    let flow = InlineFlow::single(
+        0,
+        vec![
             InlineFlowLine {
                 block_start: 0.0,
                 block_size: 20.0,
@@ -60,8 +61,7 @@ fn consumes_inline_flow_per_line() {
                 }],
             },
         ],
-        layout_generation: 0,
-    };
+    );
     dom.world_mut().insert_one(text, flow);
 
     let font_db = elidex_text::FontDatabase::new();
@@ -130,8 +130,9 @@ fn consumes_atomic_box_member_paints_box() {
     );
     dom.append_child(div, ib);
 
-    let flow = InlineFlow {
-        lines: vec![InlineFlowLine {
+    let flow = InlineFlow::single(
+        0,
+        vec![InlineFlowLine {
             block_start: 0.0,
             block_size: 20.0,
             runs: vec![
@@ -146,8 +147,7 @@ fn consumes_atomic_box_member_paints_box() {
                 },
             ],
         }],
-        layout_generation: 0,
-    };
+    );
     dom.world_mut().insert_one(text, flow);
 
     let font_db = elidex_text::FontDatabase::new();
@@ -252,8 +252,9 @@ fn interspersed_abspos_does_not_double_paint() {
 
     // Layout persists one InlineFlow on the run-start (text1) spanning both runs
     // (the abspos is out-of-flow and contributes no run).
-    let flow = InlineFlow {
-        lines: vec![InlineFlowLine {
+    let flow = InlineFlow::single(
+        0,
+        vec![InlineFlowLine {
             block_start: 0.0,
             block_size: 20.0,
             runs: vec![
@@ -269,8 +270,7 @@ fn interspersed_abspos_does_not_double_paint() {
                 },
             ],
         }],
-        layout_generation: 0,
-    };
+    );
     dom.world_mut().insert_one(text1, flow);
 
     let font_db = elidex_text::FontDatabase::new();
@@ -321,8 +321,9 @@ fn consumes_inline_flow_vertical_columns() {
     // Both columns use the SAME text so their leading glyphs are identical — the
     // x comparison below then isolates the column-center delta without depending on
     // per-glyph metrics (which vary by the CI runner's first available font).
-    let flow = InlineFlow {
-        lines: vec![
+    let flow = InlineFlow::single(
+        0,
+        vec![
             InlineFlowLine {
                 block_start: 0.0,
                 block_size: 20.0,
@@ -342,8 +343,7 @@ fn consumes_inline_flow_vertical_columns() {
                 }],
             },
         ],
-        layout_generation: 0,
-    };
+    );
     dom.world_mut().insert_one(text, flow);
 
     let font_db = elidex_text::FontDatabase::new();
@@ -433,8 +433,9 @@ fn consumes_relpos_inline_subflow_with_gap() {
     // the GAP (24..40) is where the span's `b` sits; `c` is NOT at a's end.
     dom.world_mut().insert_one(
         a_text,
-        InlineFlow {
-            lines: vec![InlineFlowLine {
+        InlineFlow::single(
+            0,
+            vec![InlineFlowLine {
                 block_start: 0.0,
                 block_size: 20.0,
                 runs: vec![
@@ -450,15 +451,15 @@ fn consumes_relpos_inline_subflow_with_gap() {
                     },
                 ],
             }],
-            layout_generation: 0,
-        },
+        ),
     );
     // Sub-flow on the span's first child `b` (render's `walk(span)` run[0]): `b` in
     // the gap at x=24.
     dom.world_mut().insert_one(
         b_text,
-        InlineFlow {
-            lines: vec![InlineFlowLine {
+        InlineFlow::single(
+            0,
+            vec![InlineFlowLine {
                 block_start: 0.0,
                 block_size: 20.0,
                 runs: vec![InlineFlowRun::Text {
@@ -467,8 +468,7 @@ fn consumes_relpos_inline_subflow_with_gap() {
                     inline_start: 24.0,
                 }],
             }],
-            layout_generation: 0,
-        },
+        ),
     );
 
     let font_db = elidex_text::FontDatabase::new();
@@ -497,5 +497,92 @@ fn consumes_relpos_inline_subflow_with_gap() {
         (xs[2] - 40.0).abs() < 2.0,
         "`c` past the span at x≈40 (in-flow gap preserved, NOT x≈a's end), got {}",
         xs[2]
+    );
+}
+
+/// On the paged path (`expected_generation == Some(g)`), a flow carrying a
+/// fragment per page paints ONLY the fragment whose `generation` matches the
+/// page being walked — the render half of the I-paged per-page consume (D4).
+#[test]
+#[allow(unused_must_use)]
+fn paged_consume_paints_only_matching_generation() {
+    let (mut dom, div) = setup_block_element(
+        elidex_plugin::ComputedStyle {
+            display: elidex_plugin::Display::Block,
+            font_family: test_font_family_strings(),
+            ..Default::default()
+        },
+        elidex_plugin::LayoutBox {
+            content: Rect::new(0.0, 0.0, 800.0, 40.0),
+            ..Default::default()
+        },
+    );
+    let text = dom.create_text("PageOnePageTwo");
+    dom.append_child(div, text);
+
+    // The run-start carries two fragments — one per page it spans.
+    dom.world_mut().insert_one(
+        text,
+        InlineFlow {
+            fragments: vec![
+                InlineFragment {
+                    generation: 1,
+                    lines: vec![InlineFlowLine {
+                        block_start: 0.0,
+                        block_size: 20.0,
+                        runs: vec![InlineFlowRun::Text {
+                            entity: div,
+                            text: "PageOne".to_string(),
+                            inline_start: 0.0,
+                        }],
+                    }],
+                },
+                InlineFragment {
+                    generation: 2,
+                    lines: vec![InlineFlowLine {
+                        block_start: 0.0,
+                        block_size: 20.0,
+                        runs: vec![InlineFlowRun::Text {
+                            entity: div,
+                            text: "PageTwo".to_string(),
+                            inline_start: 0.0,
+                        }],
+                    }],
+                },
+            ],
+        },
+    );
+
+    // Render the inline run with the paged context pinned to page 2.
+    let font_db = elidex_text::FontDatabase::new();
+    let mut dl = crate::display_list::DisplayList::default();
+    let mut font_cache = FontCache::new();
+    let mut ctx = PaintContext {
+        dom: &dom,
+        font_db: &font_db,
+        font_cache: &mut font_cache,
+        dl: &mut dl,
+        caret_visible: false,
+        scroll_offset: elidex_plugin::Vector::<f32>::ZERO,
+        counter_state: elidex_style::counter::CounterState::new(),
+        paged: true,
+        expected_generation: Some(2),
+        continuation_entities: None,
+    };
+    emit_inline_run(
+        &mut ctx,
+        div,
+        &[text],
+        0,
+        &elidex_plugin::transform_math::Perspective::default(),
+        false,
+    );
+
+    // Exactly the page-2 fragment paints: one Text item (page 1 is filtered out).
+    let items = text_item_glyphs(&dl);
+    assert_eq!(
+        items.len(),
+        1,
+        "only the generation-2 fragment paints on page 2, not generation-1"
     );
 }

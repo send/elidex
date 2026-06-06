@@ -664,7 +664,8 @@ pub struct InlineLayoutResult {
     pub break_after_line: Option<usize>,
 }
 
-/// Fragmentation constraint for inline layout (CSS Fragmentation L3 §4.3).
+/// Fragmentation constraint for inline layout (CSS Fragmentation L3 §3.3
+/// "Breaks Between Lines: orphans, widows").
 pub struct InlineFragConstraint {
     /// Available block-axis space from the current cursor position.
     pub available_block: f32,
@@ -674,6 +675,13 @@ pub struct InlineFragConstraint {
     pub widows: u32,
     /// Number of lines to skip (for resuming after a break).
     pub skip_lines: usize,
+    /// Which fragmentation engine this run is inside, carried from
+    /// [`FragmentainerContext::fragmentation_type`](crate::FragmentainerContext).
+    /// The persist gate is **paged-scoped** (slice 4 / I-paged): only `Page` runs
+    /// persist an `InlineFlow` (per-page slice + continuation rebase, consumed via
+    /// the page generation); `Column` (multicol) stays gated to legacy until
+    /// I-multicol adds accumulate + column shift + probe-gating.
+    pub fragmentation_type: crate::FragmentationType,
 }
 
 /// Layout inline content (text nodes, inline elements, and atomic inline
@@ -789,18 +797,25 @@ pub fn layout_inline_context_fragmented(
         }
     }
 
-    // InlineFlow persistence gate: non-justify, non-fragmented runs with no bidi
-    // (RTL) text and no text-transform. Each excluded case is a layout-IFC-vs-render
-    // divergence (or, for fragmentation, a per-fragment slicing the persisted
-    // geometry does not yet model) — all slice-4 / transform-slice cross-cutting
-    // concerns, NOT member-kind divergences. Slice 3p-a dropped the static-atomic
-    // gate; slice 3p-b dropped the *plain relpos/sticky inline* gate (sub-flows);
-    // slice 3p-b-2 dropped the relative/sticky *atomic* gate — that atomic now
-    // advances the cursor and is repositioned (offset-preserving) via the packer's
-    // reposition bucket, never a flow member, so it does not gate. When the gate
-    // fails, render keeps its own collect/collapse/emit path. (Vertical writing
-    // modes persist too — the packer is axis-agnostic, the origin fold swaps axes.)
-    let persist_flow = frag_constraint.is_none()
+    // InlineFlow persistence gate: non-justify runs with no bidi (RTL) text and no
+    // text-transform, that are either non-fragmented or **paged** (slice 4 /
+    // I-paged). Each excluded case is a layout-IFC-vs-render divergence — all
+    // slice-4 / transform-slice cross-cutting concerns, NOT member-kind
+    // divergences. Slice 3p-a dropped the static-atomic gate; slice 3p-b dropped
+    // the *plain relpos/sticky inline* gate (sub-flows); slice 3p-b-2 dropped the
+    // relative/sticky *atomic* gate. Slice 4 / I-paged drops the gate for **paged**
+    // fragmentation: the per-fragment slice + continuation rebase (the
+    // `slice_and_rebase_fragment` call below) now models the per-page geometry, and
+    // the persisted fragment is stamped with the page generation. **Multicol stays
+    // gated** (`fragmentation_type == Column` → `frag_is_paged == false`): its
+    // accumulate-across-columns + column shift + balanced-fill probe-gating are
+    // I-multicol (a partial drop would persist column slices at absolute coords the
+    // multicol shift does not yet move). When the gate fails, render keeps its own
+    // collect/collapse/emit path. (Vertical writing modes persist too — the packer
+    // is axis-agnostic, the origin fold swaps axes.)
+    let frag_is_paged =
+        frag_constraint.is_some_and(|c| c.fragmentation_type == crate::FragmentationType::Page);
+    let persist_flow = (frag_constraint.is_none() || frag_is_paged)
         && parent_style.text_align != TextAlign::Justify
         && !complexity.has_bidi
         && !complexity.has_text_transform;
@@ -828,7 +843,7 @@ pub fn layout_inline_context_fragmented(
 
     let line_count = packer.line_boxes.len();
 
-    // --- Fragmentation: orphans/widows enforcement (CSS Fragmentation L3 §4.3) ---
+    // --- Fragmentation: orphans/widows enforcement (CSS Fragmentation L3 §3.3) ---
     let break_after_line = if let Some(constraint) = frag_constraint {
         let skip = constraint.skip_lines;
         let line_heights: Vec<f32> = packer.line_boxes.iter().map(|lb| lb.block_size).collect();
@@ -877,6 +892,24 @@ pub fn layout_inline_context_fragmented(
         .take(effective_line_count.saturating_sub(skip_lines))
         .map(|lb| lb.block_size)
         .sum();
+
+    // I-paged: slice every recorded geometry to this fragment's kept lines and
+    // continuation-rebase the block axis to the fragmentainer block-start, in a
+    // single pass over the packer's one block-offset source (F2). Runs BEFORE the
+    // box/static/flow consumers below so all of them (inline `LayoutBox`,
+    // `InlineClientRects`, static positions, persisted fragment) read the
+    // already-rebased values, and before the `content_origin` fold so the page
+    // offset is added exactly once. Paged-scoped: multicol (`Column`) stays gated
+    // to legacy (its column shift + accumulate is I-multicol), so its box geometry
+    // is left unrebased here too (no change vs today). The rebase is the missing
+    // continuation geometry the founding gate test flagged.
+    if frag_is_paged {
+        debug_assert!(
+            skip_lines <= effective_line_count && effective_line_count <= line_count,
+            "fragment slice bounds out of order: skip {skip_lines}, eff {effective_line_count}, count {line_count}"
+        );
+        packer.slice_and_rebase_fragment(skip_lines, effective_line_count);
+    }
 
     pack::assign_inline_layout_boxes(
         dom,
@@ -980,13 +1013,13 @@ pub fn layout_inline_context_fragmented(
                     }
                 }
             }
-            let _ = dom.world_mut().insert_one(
-                group_key,
-                InlineFlow {
-                    lines,
-                    layout_generation: env.layout_generation,
-                },
-            );
+            // I-paged writes one fragment per page (length-1 Vec): each page's full
+            // re-layout replaces it (render walks the page interleaved before the
+            // next), so the run-start carries this page's slice stamped with the
+            // page generation. Multicol's accumulate-across-columns is I-multicol.
+            let _ = dom
+                .world_mut()
+                .insert_one(group_key, InlineFlow::single(env.layout_generation, lines));
             persisted_keys.insert(group_key);
         }
         // Reposition each `position:relative`/`sticky` atomic's `LayoutBox` to its

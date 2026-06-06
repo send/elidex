@@ -223,7 +223,7 @@ fn break_inside_avoid_penalizes_candidates() {
 }
 
 // ---------------------------------------------------------------------------
-// Orphans/widows inline fragmentation tests (CSS Fragmentation L3 §4.3)
+// Orphans/widows inline fragmentation tests (CSS Fragmentation L3 §3.3)
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -234,6 +234,7 @@ fn orphans_widows_unit_basic() {
         orphans: 2,
         widows: 2,
         skip_lines: 0,
+        fragmentation_type: crate::FragmentationType::Page,
     };
     assert_eq!(constraint.orphans, 2);
     assert_eq!(constraint.widows, 2);
@@ -249,6 +250,7 @@ fn orphans_widows_monolithic_when_exceeds_total() {
         orphans: 5,
         widows: 5,
         skip_lines: 0,
+        fragmentation_type: crate::FragmentationType::Page,
     };
     assert_eq!(constraint.orphans, 5);
     assert_eq!(constraint.widows, 5);

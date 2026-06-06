@@ -185,18 +185,58 @@ pub struct TextContent(pub String);
 /// `inline_start` = physical y and `block_start` = physical x. Render therefore
 /// reads them without a coordinate transform, selecting the right field per writing
 /// mode (no vertical-rl block-axis reversal — matching the box convention).
+///
+/// **Fragmentation (slice 4 / I).** A run that spans fragmentainers (paged-media
+/// pages; columns, once I-multicol lands) carries one [`InlineFragment`] per
+/// fragmentainer it spans — the inline portion of the project's fragment tree.
+/// A 1-entity → N-fragment relation fits a component, unlike the N:M
+/// entity↔layer relation that forces the layer tree into a standalone structure
+/// (`docs/design/en/15-rendering-pipeline.md` §15.4.1 "Layer Tree as Independent
+/// Structure"). A non-fragmented run has a single fragment at generation `0`. The
+/// entity→fragments relation is 1:N (still one component on the run-start entity).
 #[derive(Debug, Clone, PartialEq)]
 pub struct InlineFlow {
-    /// Line boxes in block order.
-    pub lines: Vec<InlineFlowLine>,
-    /// Layout generation stamp (paged-media page discriminator; see render's
-    /// consume gate). Off the paged path this is `0` on every pass, so staleness
-    /// is reconciled by layout explicitly removing this component when a run
-    /// becomes non-persistable — not by generation comparison.
-    pub layout_generation: u32,
+    /// One entry per fragmentainer this IFC-run spans (a single entry for the
+    /// non-fragmented common case). Render paints the fragment(s) whose
+    /// [`generation`](InlineFragment::generation) matches the page being walked
+    /// (`expected_generation`), all of them off the paged path.
+    pub fragments: Vec<InlineFragment>,
 }
 
-/// One positioned line box within an [`InlineFlow`].
+impl InlineFlow {
+    /// A flow with a single [`InlineFragment`] — the common case: one
+    /// fragmentainer, or one paged page's per-page slice (paged writes the Vec at
+    /// length-1-per-page, replacing it each page's full re-layout). `generation`
+    /// is the fragmentainer discriminator (paged page number; `0` otherwise).
+    #[must_use]
+    pub fn single(generation: u32, lines: Vec<InlineFlowLine>) -> Self {
+        Self {
+            fragments: vec![InlineFragment { generation, lines }],
+        }
+    }
+}
+
+/// One fragmentainer's worth of an [`InlineFlow`] — the per-(IFC-run,
+/// fragmentainer) collapsed + positioned line set. The inline node of the
+/// project's fragment tree (the 1:N entity→fragment relation that, unlike the
+/// N:M layer tree of `docs/design/en/15-rendering-pipeline.md` §15.4.1, fits an
+/// ECS component).
+#[derive(Debug, Clone, PartialEq)]
+pub struct InlineFragment {
+    /// Fragmentainer discriminator, consumed exactly like render's per-page
+    /// `expected_generation` gate: the paged-media page number, or `0` for
+    /// non-paged content (a non-fragmented run, or — once I-multicol lands —
+    /// multicol columns, which coexist on one surface at absolute coords). Off the
+    /// paged path staleness is reconciled by layout explicitly removing the
+    /// [`InlineFlow`] component, not by generation comparison.
+    pub generation: u32,
+    /// This fragment's line boxes in block order, continuation-rebased so the
+    /// first kept line sits at the fragmentainer's block-start (absolute,
+    /// already-projected coords — render reads them without a transform).
+    pub lines: Vec<InlineFlowLine>,
+}
+
+/// One positioned line box within an [`InlineFragment`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct InlineFlowLine {
     /// Absolute block-axis offset of this line box's block-start edge — physical y
