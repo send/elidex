@@ -29,8 +29,10 @@ impl KeyType {
 }
 
 /// A `CryptoKey` usage (WebCrypto §13 `KeyUsage`). The full enum is
-/// declared now; HMAC only accepts `Sign` / `Verify`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// declared now; HMAC only accepts `Sign` / `Verify`. The variant
+/// declaration order is the WebCrypto §13.2 canonical order, so the
+/// derived `Ord` drives `normalize_usages`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum KeyUsage {
     Encrypt,
     Decrypt,
@@ -70,6 +72,16 @@ impl KeyUsage {
             _ => return None,
         })
     }
+}
+
+/// Normalize a usages list (WebCrypto "normalize usages" — used when
+/// setting `CryptoKey.[[usages]]`): deduplicate and return the entries
+/// in canonical (`KeyUsage` declaration) order, so `key.usages` and
+/// exported JWK `key_ops` never expose duplicates or caller order.
+pub fn normalize_usages(mut usages: Vec<KeyUsage>) -> Vec<KeyUsage> {
+    usages.sort_unstable();
+    usages.dedup();
+    usages
 }
 
 /// The canonical algorithm descriptor stored on a `CryptoKey`.

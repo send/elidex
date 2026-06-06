@@ -317,6 +317,21 @@ fn ops_import_raw_length_range() {
 }
 
 #[test]
+fn ops_import_normalizes_usages_dedup_and_order() {
+    // Codex #7: ['verify','sign','sign'] -> dedup + canonical order
+    // [sign, verify] (WebCrypto normalize usages).
+    let key = ops::import_key(
+        KeyFormat::Raw,
+        hmac_keygen_alg(HashAlgorithm::Sha256, None),
+        true,
+        vec![KeyUsage::Verify, KeyUsage::Sign, KeyUsage::Sign],
+        KeyData::Raw(vec![0x0b; 20]),
+    )
+    .unwrap();
+    assert_eq!(key.usages, vec![KeyUsage::Sign, KeyUsage::Verify]);
+}
+
+#[test]
 fn ops_import_unsupported_format() {
     assert!(matches!(
         ops::import_key(

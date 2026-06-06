@@ -220,6 +220,11 @@ fn native_crypto_key_get_usages(
 /// Build a fresh JS algorithm dictionary for the `algorithm` accessor.
 /// For HMAC: `{ name: "HMAC", hash: { name: "SHA-256" }, length: N }`
 /// (WebCrypto §31 `HmacKeyAlgorithm`).
+///
+/// The intermediate `hash_obj` / `obj` are not separately rooted across
+/// the inner `alloc_object` calls: GC is disabled for the whole duration
+/// of a `NativeFunction` call (see `natives_array_hof.rs`), so
+/// `alloc_object` here never triggers a collection.
 fn build_algorithm_object(ctx: &mut NativeContext<'_>, algorithm: KeyAlgorithm) -> ObjectId {
     let object_proto = ctx.vm.object_prototype;
     match algorithm {

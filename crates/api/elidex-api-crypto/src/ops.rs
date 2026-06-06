@@ -8,7 +8,7 @@ use crate::algorithm::NormalizedAlgorithm;
 use crate::error::AlgorithmError;
 use crate::hmac;
 use crate::jwk::{self, JsonWebKey};
-use crate::key::{CryptoKeyData, KeyAlgorithm, KeyMaterial, KeyType, KeyUsage};
+use crate::key::{normalize_usages, CryptoKeyData, KeyAlgorithm, KeyMaterial, KeyType, KeyUsage};
 
 /// The `KeyFormat` enum (WebCrypto §14.1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -51,6 +51,7 @@ pub fn generate_key(
         return Err(not_supported_op("generateKey"));
     };
     validate_hmac_usages(&usages)?;
+    let usages = normalize_usages(usages);
     // `ops` owns argument validation (the layering boundary): re-derive
     // the required byte count (this also runs the `length == 0` →
     // OperationError check) and defensively confirm the caller filled
@@ -88,6 +89,7 @@ pub fn import_key(
         return Err(not_supported_op("importKey"));
     };
     validate_hmac_usages(&usages)?;
+    let usages = normalize_usages(usages);
 
     let material = match (format, key_data) {
         (KeyFormat::Raw, KeyData::Raw(bytes)) => bytes,

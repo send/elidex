@@ -553,6 +553,13 @@ fn read_optional_string_array(
 }
 
 /// Build a fresh JS object for an exported `oct` JWK.
+///
+/// The intermediate `obj` / `key_ops` array are not separately rooted
+/// across the inner `alloc_object` calls: GC is disabled for the whole
+/// duration of a `NativeFunction` call (`interpreter.rs` /
+/// `dispatch.rs` set `gc_enabled = false`; see `natives_array_hof.rs`),
+/// so `alloc_object` here never triggers a collection. Add temp-roots
+/// only if GC is ever permitted to run during native→JS callbacks.
 fn build_jwk_object(ctx: &mut NativeContext<'_>, jwk: &JsonWebKey) -> ObjectId {
     let object_proto = ctx.vm.object_prototype;
     let obj = ctx.alloc_object(Object {
