@@ -4,29 +4,31 @@ from __future__ import annotations
 import argparse
 import sys
 
-from ..section_sort import sec_number_key
+from ..section_sort import heading_number_title, sec_number_key
 from ..sources.tc39 import TC39_FAMILY, tc39_biblio
-from ..sources.webref_data import fetch_json
+from ..sources.webref_data import fetch_data_json
 
 
 def cmd_heading(args: argparse.Namespace) -> None:
     if args.shortname in TC39_FAMILY:
         _cmd_heading_tc39(args)
         return
-    data = fetch_json(f"headings/{args.shortname}.json")
+    data = fetch_data_json("headings", args.shortname)
+    # Pre-resolve each heading's effective (number, title): recovers the
+    # section number for specs (Web Crypto algorithm chapters) that bake it
+    # into the title text instead of webref's `number` field.
+    headings = [(h, *heading_number_title(h)) for h in data.get("headings", [])]
     if args.exact:
-        matches = [h for h in data.get("headings", []) if h.get("number", "") == args.prefix]
+        matches = [(h, n, t) for h, n, t in headings if n == args.prefix]
         if not matches:
             title = data.get("spec", {}).get("title", args.shortname)
             sys.exit(f"webref: no exact heading match for §{args.prefix} in {title}")
     else:
-        matches = [h for h in data.get("headings", []) if h.get("number", "").startswith(args.prefix)]
+        matches = [(h, n, t) for h, n, t in headings if n.startswith(args.prefix)]
         if not matches:
             title = data.get("spec", {}).get("title", args.shortname)
             sys.exit(f"webref: no headings under §{args.prefix} in {title}")
-    for h in matches:
-        n = h.get("number", "")
-        t = h.get("title", "")
+    for h, n, t in matches:
         i = h.get("id", "")
         print(f"  §{n:<14} {t:<60} #{i}")
 

@@ -15,9 +15,9 @@ import re
 import sys
 
 from .cache import NotFound
-from .section_sort import sec_number_key
+from .section_sort import heading_number_title, sec_number_key
 from .sources.tc39 import TC39_FAMILY, tc39_biblio, tc39_clauses_by_id
-from .sources.webref_data import fetch_json
+from .sources.webref_data import try_fetch_data_json
 
 
 # tc39 multipage chapter file derivation is purely structural: the top-level
@@ -133,10 +133,7 @@ def webref_resolve_body_url(shortname: str, anchor: str) -> tuple[str, str] | No
     The fragment is split off so the cache key is the chapter HTML URL.
     Returns None only when both lookups miss; callers then surface an error.
     """
-    try:
-        data = fetch_json(f"headings/{shortname}.json")
-    except NotFound:
-        data = None
+    data = try_fetch_data_json("headings", shortname)
     if data is not None:
         for h in data.get("headings", []):
             if h.get("id") == anchor:
@@ -144,9 +141,8 @@ def webref_resolve_body_url(shortname: str, anchor: str) -> tuple[str, str] | No
                 if href:
                     return (href.split("#", 1)[0], anchor)
 
-    try:
-        ddata = fetch_json(f"dfns/{shortname}.json")
-    except NotFound:
+    ddata = try_fetch_data_json("dfns", shortname)
+    if ddata is None:
         return None
     for d in ddata.get("dfns", []):
         if d.get("id") == anchor:
@@ -240,13 +236,13 @@ def lookup_heading(shortname: str, prefix: str) -> tuple[str, str, str] | None:
             if e.get("number", "") == prefix:
                 return (e.get("number", ""), e.get("title", ""), f"{location}#{e.get('id','')}")
         return None
-    try:
-        data = fetch_json(f"headings/{shortname}.json")
-    except NotFound:
+    data = try_fetch_data_json("headings", shortname)
+    if data is None:
         return None
     for h in data.get("headings", []):
-        if h.get("number", "") == prefix:
-            return (h.get("number", ""), h.get("title", ""), f"#{h.get('id','')}")
+        number, title = heading_number_title(h)
+        if number == prefix:
+            return (number, title, f"#{h.get('id','')}")
     return None
 
 

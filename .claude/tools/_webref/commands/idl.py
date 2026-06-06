@@ -5,7 +5,7 @@ import argparse
 import re
 import sys
 
-from ..sources.webref_data import fetch_with_level_fallback
+from ..sources.webref_data import fetch_data
 
 # IDL block start: optional `partial`, then one of:
 #   interface [mixin] / dictionary / enum / callback [interface] / namespace
@@ -19,7 +19,7 @@ _IDL_DECL_RE = re.compile(
 
 
 def cmd_idl(args: argparse.Namespace) -> None:
-    text = fetch_with_level_fallback("idl/{shortname}.idl", args.shortname).decode("utf-8")
+    text = fetch_data("idl", args.shortname).decode("utf-8")
     iface_re = re.compile(rf"\b{re.escape(args.iface)}\b")
 
     out: list[str] = []
