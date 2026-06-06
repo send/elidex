@@ -91,11 +91,11 @@ pub(super) fn native_subtle_crypto_digest(
 
 // ===========================================================================
 // HMAC vertical: generateKey / importKey / exportKey / sign / verify
-// (`#11-crypto-subtle-full` PR-1).  Each native is a thin pipeline:
-// brand-check `this` (the only sync throw) → create Promise → marshal JS
-// args into the engine-independent `elidex-api-crypto` inputs → call the
-// crate `ops::*` entry → settle the Promise.  ALL spec-validation lives in
-// the crate; this module only marshals + maps `AlgorithmError` → DOMException.
+// (`#11-crypto-subtle-full` PR-1).  Same `run_op` pipeline as `digest`
+// above (see the module-level doc): the Promise is created first and the
+// receiver brand check runs *inside* the settled closure, so a bad
+// receiver — like any later marshalling error — rejects the Promise rather
+// than throwing synchronously (WebCrypto §14.3 async-error contract).
 // ===========================================================================
 
 pub(super) fn native_subtle_crypto_generate_key(
