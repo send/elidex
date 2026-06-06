@@ -202,10 +202,21 @@ fn native_subtle_crypto_digest(
 ) -> Result<JsValue, VmError> {
     let args = args.to_vec();
     run_op(ctx, this, "digest", move |ctx| {
-        // Same marshalling + crate-registry pipeline as the other five
-        // operations (no special-cased VM-side normalizer).  Digest's
-        // `AlgorithmIdentifier` is name-only (Operation::Digest does not
-        // read `hash`/`length`).
+        // Web IDL converts every argument before the digest operation
+        // normalizes the algorithm, so the `data` BufferSource snapshot
+        // (§13.2; `data` is required — `allow_undefined_as_empty: false`)
+        // is taken *first* — a non-BufferSource `data` → TypeError beats
+        // NotSupportedError.  `algorithm` is `(object or DOMString)`, no
+        // member is read at conversion time; `marshal_algorithm` +
+        // `normalize` is the operation step (name-only — `Operation::Digest`
+        // does not read `hash` / `length`).
+        let bytes = extract_buffer_source_bytes(
+            ctx,
+            args.get(1).copied().unwrap_or(JsValue::Undefined),
+            "Failed to execute 'digest' on 'SubtleCrypto'",
+            2,
+            false,
+        )?;
         let raw = marshal_algorithm(
             ctx,
             args.first().copied().unwrap_or(JsValue::Undefined),
@@ -220,16 +231,6 @@ fn native_subtle_crypto_digest(
                 &AlgorithmError::NotSupported("algorithm is not supported for digest".into()),
             ));
         };
-        // §13.2 BufferSource snapshot (owned `Vec<u8>`); `data` is
-        // required (`allow_undefined_as_empty: false`), so a missing
-        // 2nd arg settles the Promise with a TypeError.
-        let bytes = extract_buffer_source_bytes(
-            ctx,
-            args.get(1).copied().unwrap_or(JsValue::Undefined),
-            "Failed to execute 'digest' on 'SubtleCrypto'",
-            2,
-            false,
-        )?;
         let buf = create_array_buffer_from_bytes(ctx.vm, hash.digest(&bytes));
         Ok(JsValue::Object(buf))
     })
@@ -346,6 +347,15 @@ fn marshal_algorithm(
             // which `crypto::normalize` rejects as `NotSupportedError`
             // without ever touching `hash` / `length`.
             let (hash, length) = if reads_key_params && crypto::is_supported(op, &name) {
+                // §18.4.4 step 6: converting to the params dictionary
+                // (`HmacKeyGenParams` / `HmacImportParams`, both of which
+                // inherit `Algorithm`) re-reads the required inherited
+                // `name` member — before the derived `hash` / `length`, in
+                // dictionary member order.  The recognized name from step 5
+                // is authoritative (step 7), so the second read's *value*
+                // is discarded, but its getter still fires, so a throw (or
+                // a now-missing `name`) on the second access propagates.
+                read_required_name(ctx, id, method)?;
                 let hash_val =
                     ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.hash_attr))?;
                 let hash = if matches!(hash_val, JsValue::Undefined) {
@@ -439,16 +449,22 @@ fn coerce_enforce_range_u32(
     }
 }
 
-/// Web IDL `sequence<T>` conversion (§3.2.21 "create a sequence from an
-/// iterable"): get `value`'s `@@iterator`, then apply `f` to each yielded
-/// element in turn.  Converting per-element (rather than collecting a
-/// detached `Vec<JsValue>` first) keeps no un-rooted `JsValue` across an
-/// allocation — `f` may run user code (a getter / `toString`), during
-/// which GC may run.  A value with no usable `@@iterator` is a
-/// `TypeError`; an `f` that errors closes the iterator (ECMA-262 §7.4.11
-/// IteratorClose) before propagating, while a throw from the iterator's
-/// own `.next()` leaves it un-closed (the iterator already reported
-/// `[[Done]]`).  Mirrors the `headers::parse_init` sequence idiom.
+/// Web IDL `sequence<T>` conversion (the ECMAScript-value → `sequence`
+/// algorithm): if `Type(V)` is not Object throw a `TypeError`, else get
+/// `V`'s `@@iterator` and apply `f` to each yielded element in turn.  The
+/// non-Object guard matters because a JS **string primitive** is iterable
+/// at the language level but is NOT a valid `sequence<T>` source — e.g.
+/// `generateKey(…, 'sign')` or a JWK `key_ops: 'sign'` must reject with a
+/// conversion `TypeError`, not iterate the characters.
+///
+/// Converting per-element (rather than collecting a detached
+/// `Vec<JsValue>` first) keeps no un-rooted `JsValue` across an allocation
+/// — `f` may run user code (a getter / `toString`), during which GC may
+/// run.  A value with no usable `@@iterator` is a `TypeError`; an `f` that
+/// errors closes the iterator (ECMA-262 §7.4.11 IteratorClose) before
+/// propagating, while a throw from the iterator's own `.next()` leaves it
+/// un-closed (the iterator already reported `[[Done]]`).  Mirrors the
+/// `headers::parse_init` sequence idiom.
 fn for_each_sequence_element<F>(
     ctx: &mut NativeContext<'_>,
     value: JsValue,
@@ -458,6 +474,10 @@ fn for_each_sequence_element<F>(
 where
     F: FnMut(&mut NativeContext<'_>, JsValue) -> Result<(), VmError>,
 {
+    // Web IDL: `Type(V)` must be Object before `@@iterator` is consulted.
+    if !matches!(value, JsValue::Object(_)) {
+        return Err(VmError::type_error(not_iterable_msg.to_string()));
+    }
     let iter = match ctx.vm.resolve_iterator(value)? {
         Some(it @ JsValue::Object(_)) => it,
         Some(_) => {
@@ -647,14 +667,17 @@ fn read_jwk_key_ops(
     Ok(Some(out))
 }
 
-/// Read the `sequence<RsaOtherPrimesInfo> oth` `JsonWebKey` member,
-/// discarding the entries.  `undefined` → absent; otherwise Web IDL
-/// sequence conversion applies, so a present non-iterable value (e.g.
-/// `oth: 123`) is a `TypeError` — the iterator protocol is exercised to
-/// surface that, and every `oth` getter / iterator step fires.  HMAC never
-/// consults `oth`, so each entry is iterated past without the nested
-/// `RsaOtherPrimesInfo` (`r` / `d` / `t`) conversion, which is RSA-only and
-/// lands with the RSA vertical (`#11-crypto-subtle-full` PR-5).
+/// Read the `sequence<RsaOtherPrimesInfo> oth` `JsonWebKey` member, fully
+/// converting (then discarding) each entry per Web IDL.  `undefined` →
+/// absent; otherwise the value is converted to a sequence (a non-iterable
+/// such as `oth: 123` → `TypeError`), and each entry is converted to an
+/// `RsaOtherPrimesInfo` dictionary: `undefined` / `null` → an empty dict,
+/// an object → its (optional) `d` / `r` / `t` `DOMString` members read in
+/// lexicographic order (firing each getter), any other value → `TypeError`
+/// (e.g. `oth: [123]`).  HMAC never consults `oth`, but Web IDL dictionary
+/// conversion still performs the full member walk; the converted values
+/// are retained once the RSA vertical (`#11-crypto-subtle-full` PR-5)
+/// extends [`JsonWebKey`] to carry them.
 fn read_jwk_oth(ctx: &mut NativeContext<'_>, obj: ObjectId) -> Result<(), VmError> {
     let key = PropertyKey::String(ctx.vm.strings.intern("oth"));
     let val = ctx.get_property_value(obj, key)?;
@@ -666,7 +689,25 @@ fn read_jwk_oth(ctx: &mut NativeContext<'_>, obj: ObjectId) -> Result<(), VmErro
         val,
         "Failed to execute 'importKey' on 'SubtleCrypto': \
          JWK 'oth' member is not a sequence.",
-        |_ctx, _el| Ok(()),
+        |ctx, el| {
+            let entry = match el {
+                // `null` / `undefined` → an empty RsaOtherPrimesInfo dict.
+                JsValue::Undefined | JsValue::Null => return Ok(()),
+                JsValue::Object(id) => id,
+                _ => {
+                    return Err(VmError::type_error(
+                        "Failed to execute 'importKey' on 'SubtleCrypto': \
+                         JWK 'oth' entry is not an RsaOtherPrimesInfo dictionary.",
+                    ))
+                }
+            };
+            // RsaOtherPrimesInfo members in lexicographic order (d, r, t),
+            // all optional `DOMString`s — read (firing getters), discard.
+            read_jwk_string(ctx, entry, "d")?;
+            read_jwk_string(ctx, entry, "r")?;
+            read_jwk_string(ctx, entry, "t")?;
+            Ok(())
+        },
     )
 }
 

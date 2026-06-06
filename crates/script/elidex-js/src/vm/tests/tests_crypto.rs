@@ -978,6 +978,84 @@ fn import_raw_sub_byte_length_masks_then_signs_consistently() {
     assert_eq!(eval_global_string(src, "r"), "255,255,255,128");
 }
 
+// ---------------------------------------------------------------------------
+// Web IDL conversion conformance (Codex review batch 4)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn digest_converts_data_before_normalizing_algorithm() {
+    // HjuLU / Web IDL: the `data` (BufferSource) argument is converted
+    // before the digest operation normalizes the algorithm, so an
+    // unsupported algorithm + non-BufferSource `data` rejects with the data
+    // TypeError, not NotSupportedError.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.digest('NoSuchAlgo', 'not a buffer') \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "TypeError");
+}
+
+#[test]
+fn generate_key_string_usages_rejects_type_error() {
+    // HjuLW / Web IDL sequence conversion: a string primitive is not a
+    // valid `sequence<KeyUsage>` source (Type(V) must be Object), so it is a
+    // TypeError — NOT iterated into its characters.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey({name:'HMAC', hash:'SHA-256'}, true, 'sign') \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "TypeError");
+}
+
+#[test]
+fn import_jwk_string_key_ops_rejects_type_error() {
+    // HjuLW: the JWK `key_ops` `sequence<DOMString>` member likewise
+    // rejects a string primitive with a TypeError.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.importKey('jwk', \
+              {kty:'oct', k:'CwsLCwsLCwsLCwsLCwsLCwsLCws', key_ops:'sign'}, \
+              {name:'HMAC', hash:'SHA-256'}, true, ['sign']) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "TypeError");
+}
+
+#[test]
+fn import_jwk_oth_non_object_entry_rejects_type_error() {
+    // HjuLV / Web IDL: each `oth` entry is converted to an
+    // RsaOtherPrimesInfo dictionary, so a non-object entry (`oth:[123]`)
+    // rejects with a TypeError during dictionary conversion.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.importKey('jwk', \
+              {kty:'oct', k:'CwsLCwsLCwsLCwsLCwsLCwsLCws', oth:[123]}, \
+              {name:'HMAC', hash:'SHA-256'}, true, ['sign']) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "TypeError");
+}
+
+#[test]
+fn import_jwk_oth_entry_getter_fires() {
+    // HjuLV: a getter on an `oth` entry's RsaOtherPrimesInfo member fires
+    // during dictionary conversion, so a throwing one rejects the import.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.importKey('jwk', \
+              {kty:'oct', k:'CwsLCwsLCwsLCwsLCwsLCwsLCws', \
+               oth:[{ get r(){ throw new Error('oth r read'); } }]}, \
+              {name:'HMAC', hash:'SHA-256'}, true, ['sign']) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = 'err:' + e.message; });";
+    assert_eq!(eval_global_string(src, "r"), "err:oth r read");
+}
+
+#[test]
+fn generate_key_name_getter_fires_twice_during_normalization() {
+    // HjuLY / §18.4.4 step 6: converting to the params dictionary re-reads
+    // the inherited `name` member, so a getter that throws on its second
+    // access rejects the operation.
+    let src = "globalThis.r = 'pending'; let n = 0; \
+         crypto.subtle.generateKey( \
+              {get name(){ if (++n === 2) throw new Error('second name read'); return 'HMAC'; }, \
+               hash:'SHA-256'}, true, ['sign']) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = 'err:' + e.message; });";
+    assert_eq!(eval_global_string(src, "r"), "err:second name read");
+}
+
 #[test]
 fn crypto_key_accessors() {
     // type / extractable / algorithm.name / algorithm.hash.name / usages.
