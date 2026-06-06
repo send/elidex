@@ -266,7 +266,7 @@ keyword_enum! {
     }
 }
 keyword_enum! {
-    /// CSS Fragmentation L3 §4.2: box-decoration-break.
+    /// CSS Fragmentation L3 §5.4: box-decoration-break.
     BoxDecorationBreak { Slice => "slice", Cloned => "clone" }
     // variant 名を `Cloned` にして Rust の `Clone` trait との混同を回避
 }
@@ -655,7 +655,7 @@ fn should_force_break(value: &BreakValue) -> bool {
 }
 ```
 
-#### §3.2 Break Propagation
+#### §3.1.1 Break Propagation
 
 先頭/末尾の子の forced break を親に伝搬:
 
@@ -671,7 +671,7 @@ if is_last_child && should_force_break(&child_style.break_after) {
 }
 ```
 
-#### §3.3 Unforced Break Classification
+#### §4.1 Unforced Break Classification
 
 Break opportunity のクラス分け:
 
@@ -701,7 +701,7 @@ Break opportunity のクラス分け:
 > overflow (in the block flow direction of the fragmentation context)
 > other than visible."
 
-#### §3.4 Best Break Point Selection
+#### §4.5 Best Break Point Selection
 
 最初の機会で break するのではなく、最適な break 点を選択:
 
@@ -719,7 +719,7 @@ fn find_best_break(candidates: &[BreakCandidate]) -> Option<usize> {
 }
 ```
 
-#### §4.2 box-decoration-break
+#### §5.4 box-decoration-break
 
 ```rust
 // break 点で border/padding/background の処理

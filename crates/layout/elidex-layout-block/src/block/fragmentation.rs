@@ -32,7 +32,7 @@ pub fn is_forced_break(value: BreakValue, frag_type: FragmentationType) -> bool 
 }
 
 // ---------------------------------------------------------------------------
-// Avoid-break checks (§3.3-§3.4)
+// Avoid-break checks (§3.1-§3.2)
 // ---------------------------------------------------------------------------
 
 /// Check if `break-inside` requests avoiding breaks.
@@ -48,7 +48,7 @@ pub fn is_avoid_break_inside(inside: BreakInsideValue, frag_type: FragmentationT
 
 /// Check if `break-before`/`break-after` requests avoiding breaks.
 ///
-/// Used for break candidate penalty scoring (§3.4).
+/// Used for break candidate penalty scoring (§4.5).
 #[must_use]
 pub fn is_avoid_break_value(value: BreakValue, frag_type: FragmentationType) -> bool {
     match value {
@@ -76,10 +76,10 @@ pub fn is_monolithic(style: &ComputedStyle, has_intrinsic: bool) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Break candidate selection (§3.3-§3.4)
+// Break candidate selection (§4.1, §4.5)
 // ---------------------------------------------------------------------------
 
-/// CSS Fragmentation L3 §3.3: break point classification.
+/// CSS Fragmentation L3 §4.1: break point classification.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[allow(dead_code)]
 pub enum BreakClass {
@@ -105,7 +105,7 @@ pub struct BreakCandidate {
     pub orphan_widow_penalty: bool,
 }
 
-/// CSS Fragmentation L3 §3.4: select the best break point.
+/// CSS Fragmentation L3 §4.5: select the best break point.
 ///
 /// Among candidates that fit within `available` space:
 /// 1. Non-avoid over avoid

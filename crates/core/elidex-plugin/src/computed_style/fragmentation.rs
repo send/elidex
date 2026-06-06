@@ -19,7 +19,7 @@ keyword_enum! {
 }
 
 keyword_enum! {
-    /// The CSS `break-inside` property (CSS Fragmentation Level 3 §3.3).
+    /// The CSS `break-inside` property (CSS Fragmentation Level 3 §3.2).
     BreakInsideValue {
         Auto => "auto",
         Avoid => "avoid",
@@ -29,7 +29,7 @@ keyword_enum! {
 }
 
 keyword_enum! {
-    /// The CSS `box-decoration-break` property (CSS Fragmentation Level 3 §4).
+    /// The CSS `box-decoration-break` property (CSS Fragmentation Level 3 §5.4).
     BoxDecorationBreak {
         Slice => "slice",
         Cloned => "clone",
