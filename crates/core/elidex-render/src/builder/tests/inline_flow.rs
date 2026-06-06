@@ -207,11 +207,13 @@ fn falls_back_without_inline_flow() {
     assert_eq!(items[0].len(), 10, "\"HelloWorld\" = 10 glyphs on one line");
 }
 
-/// The converged path must NOT re-apply `text-transform`: layout already
-/// transformed the persisted run text, so render paints it verbatim. We persist
-/// the same run text `"abc"` under a div whose `text-transform` is `None` vs
-/// `Uppercase`; the painted glyph ids must be identical (if render re-transformed,
-/// the `Uppercase` build would shape "ABC" — different glyph ids). CSS Text 3 §2.1.
+/// The converged path must paint the persisted run text verbatim, NOT re-apply
+/// the entity's `text-transform` (layout already transformed before measuring).
+/// As a probe we hold the persisted run text constant at `"abc"` for two builds
+/// whose div `text-transform` differs (`None` vs `Uppercase`) — deliberately
+/// *unrealistic* for `Uppercase` (real layout would persist "ABC"), so that any
+/// style-driven re-transform on the paint path is observable: the glyph ids must
+/// be identical, since a re-transform would shape "ABC" (different ids). §2.1.
 #[test]
 #[allow(unused_must_use)]
 fn converged_path_does_not_re_transform() {
@@ -230,7 +232,9 @@ fn converged_path_does_not_re_transform() {
         );
         let text = dom.create_text("abc");
         dom.append_child(div, text);
-        // Layout already applied the transform: the persisted text is final ("abc").
+        // Probe: hold the persisted run text constant at "abc" regardless of the
+        // div's `text-transform` (real layout would persist "ABC" for Uppercase) so
+        // a style-driven re-transform on the paint path would change the glyph ids.
         let flow = InlineFlow::single(
             0,
             vec![InlineFlowLine {
