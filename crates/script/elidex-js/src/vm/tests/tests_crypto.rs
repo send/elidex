@@ -448,7 +448,7 @@ fn digest_sha512_returns_64_bytes() {
 
 #[test]
 fn digest_accepts_mixed_case_algo_name() {
-    // §18.2.1 ASCII-case-insensitive match — all three should
+    // §18.4.4 ASCII-case-insensitive match — all three should
     // produce the same hex digest of empty input.
     let lower = digest_hex("'sha-256'", "new Uint8Array(0)");
     let mixed = digest_hex("'Sha-256'", "new Uint8Array(0)");
@@ -459,7 +459,7 @@ fn digest_accepts_mixed_case_algo_name() {
 
 #[test]
 fn digest_accepts_dict_form_with_extra_keys_ignored() {
-    // §18.2.1: extra dict keys are IGNORED (only `name` consulted
+    // §18.4.4: extra dict keys are IGNORED (only `name` consulted
     // for `digest`).
     let plain = digest_hex("{name: 'SHA-256'}", "new Uint8Array(0)");
     let with_extra = digest_hex("{name: 'SHA-256', hash: 'ignored'}", "new Uint8Array(0)");
@@ -529,7 +529,7 @@ fn digest_rejects_unknown_algorithm_with_not_supported_error() {
 
 #[test]
 fn digest_unknown_algorithm_preserves_user_supplied_name_in_message() {
-    // Spec §18.2.1 step 9: preserve original-case name.
+    // Spec §18.4.4: preserve original-case name.
     assert!(eval_global_bool(
         "globalThis.r = false; \
          crypto.subtle.digest('NoSuchAlg', new Uint8Array(0)) \
