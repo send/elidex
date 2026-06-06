@@ -44,7 +44,7 @@
 
 use elidex_api_crypto::key::KeyUsage;
 use elidex_api_crypto::{
-    self as crypto, AlgorithmError, ExportedKey, HashAlgorithm, JsonWebKey, KeyData, KeyFormat,
+    self as crypto, AlgorithmError, ExportedKey, JsonWebKey, KeyData, KeyFormat,
     NormalizedAlgorithm, Operation, RawAlgorithm,
 };
 
@@ -195,204 +195,44 @@ fn require_subtle_crypto_this(
 // `SubtleCrypto.prototype.digest(algorithm, data)` (WebCrypto §14.3.5)
 // ---------------------------------------------------------------------------
 
-/// Canonical digest algorithm picked from the user-supplied
-/// `AlgorithmIdentifier` per §18.4.4 (case-insensitive
-/// match against the registered names).
-#[derive(Clone, Copy)]
-enum DigestAlgo {
-    Sha1,
-    Sha256,
-    Sha384,
-    Sha512,
-}
-
-impl DigestAlgo {
-    /// Map to the engine-independent crate hash.  The actual digest
-    /// computation lives in `elidex-api-crypto` (CLAUDE.md "Layering
-    /// mandate" — no RustCrypto driver calls in the VM layer).
-    fn to_hash(self) -> HashAlgorithm {
-        match self {
-            Self::Sha1 => HashAlgorithm::Sha1,
-            Self::Sha256 => HashAlgorithm::Sha256,
-            Self::Sha384 => HashAlgorithm::Sha384,
-            Self::Sha512 => HashAlgorithm::Sha512,
-        }
-    }
-}
-
-/// `normalize an algorithm` per WebCrypto §18.4.4 for the `digest`
-/// operation: accept DOMString (sole algorithm name) OR an object
-/// dictionary whose `name` member is the algorithm name.  Extra
-/// dictionary keys are IGNORED (spec §18.4.4 — only the
-/// `name` member is consulted for digest).  Returns the canonical
-/// algorithm; the user-supplied raw name (case-as-typed) is echoed
-/// in the `NotSupportedError` message per §18.4.4, truncated
-/// at [`MAX_ECHOED_ALGO_NAME_LEN`] to bound the per-call DOMException
-/// message allocation.
-fn normalize_digest_algorithm(
-    ctx: &mut NativeContext<'_>,
-    algorithm_arg: JsValue,
-) -> Result<DigestAlgo, VmError> {
-    let name_sid = match algorithm_arg {
-        JsValue::String(sid) => sid,
-        JsValue::Object(id) => {
-            // Dictionary form: read `name` member.  WebCrypto
-            // §18.4.4 references `[[Algorithm]]` which is
-            // `dictionary Algorithm { required DOMString name; }`
-            // (WebCrypto §10.1) — `required` means a missing /
-            // `undefined` member must throw TypeError during
-            // dictionary conversion, NOT ToString-coerce to
-            // `"undefined"` then reject with NotSupportedError.
-            let name_key_sid = ctx.vm.well_known.name;
-            let name_val = ctx.get_property_value(id, PropertyKey::String(name_key_sid))?;
-            if matches!(name_val, JsValue::Undefined) {
-                return Err(VmError::type_error(
-                    "Failed to execute 'digest' on 'SubtleCrypto': \
-                     Algorithm: name: Missing or not a string",
-                ));
-            }
-            super::super::coerce::to_string(ctx.vm, name_val)?
-        }
-        // Primitives other than string → coerce-via-ToString (matches
-        // Chrome where `crypto.subtle.digest(42, …)` ToString-coerces
-        // "42" then rejects with NotSupportedError).
-        other => super::super::coerce::to_string(ctx.vm, other)?,
-    };
-    // ASCII case-insensitive match against canonical names per
-    // §18.4.4.  Compare against the WTF-16 backing storage
-    // directly so the recognised-algorithm hot path does NOT
-    // allocate (the prior `get_utf8` path materialised a fresh
-    // `String` per call).  WTF-16 comparison also avoids a real
-    // semantic hazard: `get_utf8` is lossy for lone surrogates,
-    // and the recognised-vs-rejected decision should not depend
-    // on a lossy decode — `matches_ascii_ci_wtf16` rejects any
-    // code unit ≥ 128, so a name containing a lone surrogate
-    // unambiguously falls through to the rejected-name path.
-    let raw_wtf16 = ctx.vm.strings.get(name_sid);
-    if matches_ascii_ci_wtf16(raw_wtf16, b"SHA-1") {
-        Ok(DigestAlgo::Sha1)
-    } else if matches_ascii_ci_wtf16(raw_wtf16, b"SHA-256") {
-        Ok(DigestAlgo::Sha256)
-    } else if matches_ascii_ci_wtf16(raw_wtf16, b"SHA-384") {
-        Ok(DigestAlgo::Sha384)
-    } else if matches_ascii_ci_wtf16(raw_wtf16, b"SHA-512") {
-        Ok(DigestAlgo::Sha512)
-    } else {
-        // Rejected-name echo path — pay the UTF-8 conversion only
-        // here.  Truncate at a UTF-8 boundary to bound the message
-        // allocation — attacker-supplied `'A'.repeat(10_000_000)`
-        // would otherwise allocate a 10 MB error string per call.
-        //
-        // `get_utf8` is intentionally used here even though it
-        // replaces lone surrogates with U+FFFD: valid WebCrypto
-        // algorithm names are pure ASCII per §18.4.4 table, so any
-        // input containing a lone surrogate is by definition
-        // unrecognised and the `'\u{FFFD}'` rendering is no less
-        // informative than the original ill-formed sequence would
-        // have been in a console.
-        let raw = ctx.vm.strings.get_utf8(name_sid);
-        let echo = truncate_at_char_boundary(&raw, MAX_ECHOED_ALGO_NAME_LEN);
-        Err(VmError::dom_exception(
-            ctx.vm.well_known.dom_exc_not_supported_error,
-            format!("Unrecognized algorithm name: '{echo}'"),
-        ))
-    }
-}
-
-/// ASCII case-insensitive equality between a WTF-16 haystack and an
-/// ASCII byte needle.  Returns `false` immediately for any code unit
-/// outside ASCII (≥ 128) so a lone surrogate cannot accidentally
-/// equal `'a'..'z'` after a lossy decode.  Used by
-/// [`normalize_digest_algorithm`] to compare against canonical
-/// digest names (`"SHA-1"` etc.) without allocating.
-fn matches_ascii_ci_wtf16(haystack: &[u16], needle: &[u8]) -> bool {
-    haystack.len() == needle.len()
-        && haystack
-            .iter()
-            .zip(needle)
-            .all(|(&h, &n)| h < 0x80 && (h as u8).eq_ignore_ascii_case(&n))
-}
-
-/// Maximum byte length echoed back from an attacker-supplied
-/// algorithm name into the `NotSupportedError` message.  Bounds
-/// the per-call allocation so `crypto.subtle.digest('A'.repeat(N),
-/// data)` cannot trigger an O(N) error-message alloc.
-const MAX_ECHOED_ALGO_NAME_LEN: usize = 64;
-
-fn truncate_at_char_boundary(s: &str, max_bytes: usize) -> &str {
-    if s.len() <= max_bytes {
-        return s;
-    }
-    // Walk back to the nearest preceding UTF-8 boundary so we never
-    // cut mid-codepoint (which would panic on the slice).
-    let mut end = max_bytes;
-    while end > 0 && !s.is_char_boundary(end) {
-        end -= 1;
-    }
-    &s[..end]
-}
-
 fn native_subtle_crypto_digest(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    require_subtle_crypto_this(ctx, this, "digest")?;
-
-    // Pre-allocate the Promise so reject paths share the same
-    // exit shape as resolve paths (every public spec algorithm
-    // returns a Promise; failure modes settle the Promise, they
-    // do NOT throw synchronously).  See WebCrypto §10.3 step 1.
-    let promise = create_promise(ctx.vm);
-    // Root the promise across allocations below (algorithm
-    // normalization can trigger ToString → allocator).
-    let mut g = ctx.vm.push_temp_root(JsValue::Object(promise));
-    let mut rooted = NativeContext::new_call(&mut g);
-    let ctx = &mut rooted;
-
-    let algorithm_arg = args.first().copied().unwrap_or(JsValue::Undefined);
-    let data_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
-
-    // §18.4.4 normalize algorithm.  Failures settle the returned
-    // Promise with the rejection rather than throwing synchronously.
-    let algo = match normalize_digest_algorithm(ctx, algorithm_arg) {
-        Ok(algo) => algo,
-        Err(e) => {
-            let reason = ctx.vm.vm_error_to_thrown(&e);
-            super::blob::reject_promise_sync(ctx.vm, promise, reason);
-            return Ok(JsValue::Object(promise));
-        }
-    };
-
-    // §13.2 BufferSource snapshot: spec mandates a copy at call
-    // time so post-call mutation of the input view does not affect
-    // the digest result.  `extract_buffer_source_bytes` returns an
-    // owned `Vec<u8>` so the snapshot is implicit.
-    //
-    // `allow_undefined_as_empty: false` per WebCrypto §14.3.5
-    // IDL signature (`BufferSource data` — required, no `?`); a
-    // missing 2nd arg defaults to `JsValue::Undefined` and must
-    // settle the Promise with a TypeError, not silently hash empty
-    // input.
-    let bytes = match extract_buffer_source_bytes(
-        ctx,
-        data_arg,
-        "Failed to execute 'digest' on 'SubtleCrypto'",
-        2,
-        false,
-    ) {
-        Ok(b) => b,
-        Err(e) => {
-            let reason = ctx.vm.vm_error_to_thrown(&e);
-            super::blob::reject_promise_sync(ctx.vm, promise, reason);
-            return Ok(JsValue::Object(promise));
-        }
-    };
-
-    let digest_bytes = algo.to_hash().digest(&bytes);
-    let buf_id = create_array_buffer_from_bytes(ctx.vm, digest_bytes);
-    resolve_promise_sync(ctx.vm, promise, JsValue::Object(buf_id));
-    Ok(JsValue::Object(promise))
+    let args = args.to_vec();
+    run_op(ctx, this, "digest", move |ctx| {
+        // Same marshalling + crate-registry pipeline as the other five
+        // operations (no special-cased VM-side normalizer).  Digest's
+        // `AlgorithmIdentifier` is name-only (Operation::Digest does not
+        // read `hash`/`length`).
+        let raw = marshal_algorithm(
+            ctx,
+            args.first().copied().unwrap_or(JsValue::Undefined),
+            "digest",
+            Operation::Digest,
+        )?;
+        let normalized = crypto::normalize(Operation::Digest, &raw)
+            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+        let NormalizedAlgorithm::Digest(hash) = normalized else {
+            return Err(algorithm_error_to_vm(
+                ctx.vm,
+                &AlgorithmError::NotSupported("algorithm is not supported for digest".into()),
+            ));
+        };
+        // §13.2 BufferSource snapshot (owned `Vec<u8>`); `data` is
+        // required (`allow_undefined_as_empty: false`), so a missing
+        // 2nd arg settles the Promise with a TypeError.
+        let bytes = extract_buffer_source_bytes(
+            ctx,
+            args.get(1).copied().unwrap_or(JsValue::Undefined),
+            "Failed to execute 'digest' on 'SubtleCrypto'",
+            2,
+            false,
+        )?;
+        let buf = create_array_buffer_from_bytes(ctx.vm, hash.digest(&bytes));
+        Ok(JsValue::Object(buf))
+    })
 }
 
 // ===========================================================================
@@ -462,44 +302,49 @@ fn require_crypto_key_arg(
     )))
 }
 
-/// Marshal a JS `AlgorithmIdentifier` (string, or object with `name` +
-/// op-relevant `hash` / `length` members) into a [`RawAlgorithm`].  A
-/// missing / `undefined` required `name` member is a `TypeError`.
+/// Marshal a JS `AlgorithmIdentifier` (string, or object with a `name`
+/// member) into a [`RawAlgorithm`] for operation `op`.  A missing /
+/// `undefined` required `name` member is a `TypeError`.
+///
+/// The `hash` / `length` members are read **only** for the operations
+/// whose params dictionaries carry them (`generateKey` / `importKey` —
+/// `HmacKeyGenParams` / `HmacImportParams`).  For `digest` / `sign` /
+/// `verify` the identifier is name-only (the spec's `Algorithm` dict), so
+/// those members are not consulted — this both avoids firing a
+/// user-defined `hash`/`length` getter where the spec never reads it and
+/// bounds the recursion: the nested `hash` is a [`marshal_hash_identifier`]
+/// **leaf** (a `HashAlgorithmIdentifier` never has its own `hash`), so a
+/// self-referential / deeply-nested algorithm object cannot recurse.
 fn marshal_algorithm(
     ctx: &mut NativeContext<'_>,
     value: JsValue,
     method: &str,
+    op: Operation,
 ) -> Result<RawAlgorithm, VmError> {
+    let reads_key_params = matches!(op, Operation::GenerateKey | Operation::ImportKey);
     match value {
         JsValue::String(sid) => Ok(RawAlgorithm::from_name(ctx.vm.strings.get_utf8(sid))),
         JsValue::Object(id) => {
-            let name_val =
-                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.name))?;
-            if matches!(name_val, JsValue::Undefined) {
-                return Err(VmError::type_error(format!(
-                    "Failed to execute '{method}' on 'SubtleCrypto': \
-                     Algorithm: name: Missing or not a string"
-                )));
-            }
-            let name_sid = coerce::to_string(ctx.vm, name_val)?;
-            let name = ctx.vm.strings.get_utf8(name_sid);
-
-            let hash_val =
-                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.hash_attr))?;
-            let hash = if matches!(hash_val, JsValue::Undefined) {
-                None
+            let name = read_required_name(ctx, id, method)?;
+            let (hash, length) = if reads_key_params {
+                let hash_val =
+                    ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.hash_attr))?;
+                let hash = if matches!(hash_val, JsValue::Undefined) {
+                    None
+                } else {
+                    Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?))
+                };
+                let length_val =
+                    ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.length))?;
+                let length = if matches!(length_val, JsValue::Undefined) {
+                    None
+                } else {
+                    Some(coerce_enforce_range_u32(ctx, length_val, method)?)
+                };
+                (hash, length)
             } else {
-                Some(Box::new(marshal_algorithm(ctx, hash_val, method)?))
+                (None, None)
             };
-
-            let length_val =
-                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.length))?;
-            let length = if matches!(length_val, JsValue::Undefined) {
-                None
-            } else {
-                Some(coerce_enforce_range_u32(ctx, length_val, method)?)
-            };
-
             Ok(RawAlgorithm { name, hash, length })
         }
         // Primitive other than string → ToString-coerce (matches Chrome,
@@ -509,6 +354,43 @@ fn marshal_algorithm(
             Ok(RawAlgorithm::from_name(ctx.vm.strings.get_utf8(sid)))
         }
     }
+}
+
+/// Marshal a `HashAlgorithmIdentifier` (string or `{name}`) — a **leaf**
+/// digest identifier with no nested `hash`/`length`, so it cannot recurse.
+fn marshal_hash_identifier(
+    ctx: &mut NativeContext<'_>,
+    value: JsValue,
+    method: &str,
+) -> Result<RawAlgorithm, VmError> {
+    match value {
+        JsValue::String(sid) => Ok(RawAlgorithm::from_name(ctx.vm.strings.get_utf8(sid))),
+        JsValue::Object(id) => Ok(RawAlgorithm::from_name(read_required_name(
+            ctx, id, method,
+        )?)),
+        other => {
+            let sid = coerce::to_string(ctx.vm, other)?;
+            Ok(RawAlgorithm::from_name(ctx.vm.strings.get_utf8(sid)))
+        }
+    }
+}
+
+/// Read the required `name` member of an algorithm dictionary; a missing
+/// / `undefined` value is a `TypeError` (per Web IDL `required DOMString`).
+fn read_required_name(
+    ctx: &mut NativeContext<'_>,
+    id: ObjectId,
+    method: &str,
+) -> Result<String, VmError> {
+    let name_val = ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.name))?;
+    if matches!(name_val, JsValue::Undefined) {
+        return Err(VmError::type_error(format!(
+            "Failed to execute '{method}' on 'SubtleCrypto': \
+             Algorithm: name: Missing or not a string"
+        )));
+    }
+    let name_sid = coerce::to_string(ctx.vm, name_val)?;
+    Ok(ctx.vm.strings.get_utf8(name_sid))
 }
 
 /// WebIDL `[EnforceRange] unsigned long` conversion for the `length`
@@ -756,7 +638,7 @@ fn native_subtle_crypto_generate_key(
             coerce::to_boolean(ctx.vm, args.get(1).copied().unwrap_or(JsValue::Undefined));
         let usages_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
 
-        let raw = marshal_algorithm(ctx, algorithm_arg, "generateKey")?;
+        let raw = marshal_algorithm(ctx, algorithm_arg, "generateKey", Operation::GenerateKey)?;
         let normalized = crypto::normalize(Operation::GenerateKey, &raw)
             .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
         let usages = marshal_usages(ctx, usages_arg, "generateKey")?;
@@ -803,7 +685,7 @@ fn native_subtle_crypto_import_key(
             coerce::to_boolean(ctx.vm, args.get(3).copied().unwrap_or(JsValue::Undefined));
         let usages_arg = args.get(4).copied().unwrap_or(JsValue::Undefined);
 
-        let raw = marshal_algorithm(ctx, algorithm_arg, "importKey")?;
+        let raw = marshal_algorithm(ctx, algorithm_arg, "importKey", Operation::ImportKey)?;
         let normalized = crypto::normalize(Operation::ImportKey, &raw)
             .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
         let usages = marshal_usages(ctx, usages_arg, "importKey")?;
@@ -839,9 +721,14 @@ fn native_subtle_crypto_export_key(
         )?;
         let key_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
         let key_id = require_crypto_key_arg(ctx, key_arg, "exportKey", 2)?;
-        let key_data = ctx.vm.crypto_key_states[&key_id].clone();
-        let exported = crypto::ops::export_key(format, &key_data)
-            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+        // Borrow the side-store key (incl. secret material) only for the
+        // pure crate call; drop it before re-borrowing `ctx.vm` to build
+        // the result — avoids cloning the secret material.
+        let exported = {
+            let key_data = &ctx.vm.crypto_key_states[&key_id];
+            crypto::ops::export_key(format, key_data)
+        }
+        .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
         match exported {
             ExportedKey::Raw(bytes) => {
                 let buf = create_array_buffer_from_bytes(ctx.vm, bytes);
@@ -863,7 +750,7 @@ fn native_subtle_crypto_sign(
         let key_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
         let data_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
 
-        let raw = marshal_algorithm(ctx, algorithm_arg, "sign")?;
+        let raw = marshal_algorithm(ctx, algorithm_arg, "sign", Operation::Sign)?;
         let normalized = crypto::normalize(Operation::Sign, &raw)
             .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
         let key_id = require_crypto_key_arg(ctx, key_arg, "sign", 2)?;
@@ -874,9 +761,11 @@ fn native_subtle_crypto_sign(
             3,
             false,
         )?;
-        let key_data = ctx.vm.crypto_key_states[&key_id].clone();
-        let signature = crypto::ops::sign(normalized, &key_data, &data)
-            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+        let signature = {
+            let key_data = &ctx.vm.crypto_key_states[&key_id];
+            crypto::ops::sign(normalized, key_data, &data)
+        }
+        .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
         let buf = create_array_buffer_from_bytes(ctx.vm, signature);
         Ok(JsValue::Object(buf))
     })
@@ -894,7 +783,7 @@ fn native_subtle_crypto_verify(
         let signature_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
         let data_arg = args.get(3).copied().unwrap_or(JsValue::Undefined);
 
-        let raw = marshal_algorithm(ctx, algorithm_arg, "verify")?;
+        let raw = marshal_algorithm(ctx, algorithm_arg, "verify", Operation::Verify)?;
         let normalized = crypto::normalize(Operation::Verify, &raw)
             .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
         let key_id = require_crypto_key_arg(ctx, key_arg, "verify", 2)?;
@@ -912,9 +801,11 @@ fn native_subtle_crypto_verify(
             4,
             false,
         )?;
-        let key_data = ctx.vm.crypto_key_states[&key_id].clone();
-        let ok = crypto::ops::verify(normalized, &key_data, &signature, &data)
-            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+        let ok = {
+            let key_data = &ctx.vm.crypto_key_states[&key_id];
+            crypto::ops::verify(normalized, key_data, &signature, &data)
+        }
+        .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
         Ok(JsValue::Boolean(ok))
     })
 }

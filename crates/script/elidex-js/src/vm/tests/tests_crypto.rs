@@ -849,6 +849,31 @@ fn crypto_key_constructor_is_illegal() {
 }
 
 #[test]
+fn import_cyclic_algorithm_object_does_not_recurse() {
+    // C1 regression: a self-referential `hash` member must NOT recurse
+    // (the nested `hash` is marshalled as a name-only leaf). It rejects
+    // (`hash` "HMAC" is not a recognized digest), it does not crash.
+    let src = "globalThis.r = 'pending'; \
+         const a = {name:'HMAC'}; a.hash = a; \
+         crypto.subtle.importKey('raw', new Uint8Array(20), a, true, ['sign']) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "NotSupportedError");
+}
+
+#[test]
+fn sign_does_not_read_hash_member_getter() {
+    // C6 regression: sign's algorithm is name-only (the spec never reads
+    // `hash`/`length` for sign), so a throwing `hash` getter must NOT fire.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.importKey('raw', new Uint8Array(20), {name:'HMAC', hash:'SHA-256'}, true, ['sign']) \
+           .then(k => crypto.subtle.sign( \
+              {name:'HMAC', get hash(){ throw new Error('should not read'); }}, \
+              k, new Uint8Array(1))) \
+           .then(() => { globalThis.r = 'signed'; }, e => { globalThis.r = 'err:' + e.message; });";
+    assert_eq!(eval_global_string(src, "r"), "signed");
+}
+
+#[test]
 fn crypto_key_usages_is_fresh_array_each_read() {
     // Not [SameObject]: two reads yield distinct array objects.
     let src = "globalThis.r = 'pending'; \

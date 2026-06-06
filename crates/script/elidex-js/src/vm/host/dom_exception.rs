@@ -183,6 +183,12 @@ fn legacy_code_for_name(ctx: &NativeContext<'_>, name: StringId) -> u32 {
         11
     } else if name == wk.dom_exc_syntax_error {
         12
+    } else if name == wk.dom_exc_invalid_access_error {
+        // WebIDL legacy code table — surfaced by WebCrypto
+        // `exportKey`/`sign`/`verify` (`#11-crypto-subtle-full`) and
+        // WebSocket.close.  `DataError` / `OperationError` are modern
+        // names with no legacy code (→ 0), so they are not added here.
+        15
     } else if name == wk.abort_error {
         20
     } else if name == wk.dom_exc_timeout_error {
