@@ -101,25 +101,32 @@ pub(super) fn marshal_algorithm(
     match value {
         JsValue::String(sid) => Ok(RawAlgorithm::from_name(ctx.vm.strings.get_utf8(sid))),
         JsValue::Object(id) => {
+            // §18.4.4 step 2 + steps 4-5: convert to `Algorithm` (reads
+            // `name`) and recognize the `(op, name)` pair against the registry,
+            // which decides the step-6 `desiredType`.
             let name = read_required_name(ctx, id, method)?;
             let mut raw = RawAlgorithm::from_name(name.clone());
-            // §18.4.4 step 5 recognition gate: the registry decides which
-            // params-dictionary members this `(op, name)` carries.  An
-            // unregistered name (`None`) or a name-only `Algorithm`
-            // (`NameOnly` — digest / sign / verify / AES importKey) reads no
-            // further getters; `crypto::normalize` then accepts the
-            // name-only form or rejects it as `NotSupportedError`, never
-            // touching a user-defined params getter for an unregistered name.
             match crypto::params_shape(op, &name) {
-                None | Some(AlgorithmParams::NameOnly) => {}
+                // Unregistered name: §18.4.4 returns `NotSupportedError` at
+                // step 5, BEFORE the step-6 conversion — so no second `name`
+                // read and no params getters fire (`crypto::normalize` then
+                // produces the `NotSupportedError`).
+                None => {}
+                // Registered name-only `Algorithm` (digest / sign / verify /
+                // AES importKey / HKDF + PBKDF2 importKey + get-key-length):
+                // step 6 still converts the object to the `Algorithm`
+                // `desiredType`, which re-reads the inherited required `name`
+                // member — so a `name` getter that throws / changes on the
+                // second read is observed (the step-5 name stays authoritative,
+                // step 7).  There are no further params members to read.
+                Some(AlgorithmParams::NameOnly) => {
+                    read_required_name(ctx, id, method)?;
+                }
+                // Params-carrying `desiredType`: step 6 re-reads the inherited
+                // `name` member first (inherited members precede the derived
+                // ones in the Web IDL dictionary conversion), then the derived
+                // params members.
                 Some(shape) => {
-                    // §18.4.4 step 6: converting `alg` to its params
-                    // dictionary (each of which inherits `Algorithm`)
-                    // re-reads the required inherited `name` member first —
-                    // its getter fires again before the derived members, so
-                    // a throw / now-missing `name` on the second access
-                    // propagates (the step-5 name stays authoritative,
-                    // step 7).
                     read_required_name(ctx, id, method)?;
                     read_params(ctx, id, method, shape, &mut raw)?;
                 }
@@ -152,14 +159,12 @@ fn read_params(
         AlgorithmParams::HmacKeyParams => {
             // `HmacKeyGenParams` / `HmacImportParams`: hash (required), then
             // length (optional `unsigned long`) — lexicographic order.
-            let hash_val =
-                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.hash_attr))?;
-            if matches!(hash_val, JsValue::Undefined) {
-                return Err(required_member_error(method, "hash"));
-            }
-            raw.hash = Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?));
+            // step 6 (top-level getters, lexicographic hash < length):
+            let hash_val = read_required_hash_value(ctx, id, method)?;
             raw.length =
                 read_optional_length(ctx, id, method, "unsigned long", f64::from(u32::MAX))?;
+            // step 10: normalize the nested HashAlgorithmIdentifier (`hash.name`).
+            raw.hash = Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?));
         }
         AlgorithmParams::AesKeyGen => {
             // `AesKeyGenParams`: length (required `[EnforceRange] unsigned
@@ -229,6 +234,58 @@ fn read_params(
             // §18.4.4 step 10: snapshot the counter bytes (post-getters).
             raw.counter = Some(snapshot_buffer_source(ctx, counter_val, method, "counter")?);
             raw.length = Some(length);
+        }
+        AlgorithmParams::HkdfParams => {
+            // `HkdfParams`: hash (required), info (required `BufferSource`),
+            // salt (required `BufferSource`) — Web IDL lexicographic member
+            // order is hash < info < salt.  §18.4.4 step 6 reads every
+            // top-level member value in that order (the `hash` getter fires
+            // here, but its nested `HashAlgorithmIdentifier` is NOT yet
+            // normalized); step 10 then normalizes `hash` (reading `hash.name`,
+            // again first lexicographically) and copies the `info` / `salt`
+            // BufferSource bytes — so a throwing / mutating getter rejects in
+            // the spec order.
+            let hash_val = read_required_hash_value(ctx, id, method)?;
+            let info_val =
+                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.info))?;
+            require_buffer_source_member(ctx, info_val, method, "info")?;
+            let salt_val =
+                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.salt))?;
+            require_buffer_source_member(ctx, salt_val, method, "salt")?;
+            // step 10 (lexicographic hash < info < salt): normalize hash, then
+            // snapshot the BufferSource bytes.
+            raw.hash = Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?));
+            raw.info = Some(snapshot_buffer_source(ctx, info_val, method, "info")?);
+            raw.salt = Some(snapshot_buffer_source(ctx, salt_val, method, "salt")?);
+        }
+        AlgorithmParams::Pbkdf2Params => {
+            // `Pbkdf2Params`: hash (required), iterations (required
+            // `[EnforceRange] unsigned long`), salt (required `BufferSource`)
+            // — lexicographic order hash < iterations < salt.  §18.4.4 step 6
+            // reads every top-level member value in that order (`hash` getter
+            // + `iterations` ToNumber/EnforceRange + `salt` getter); step 10
+            // then normalizes `hash` (`hash.name`) and copies the `salt` bytes.
+            let hash_val = read_required_hash_value(ctx, id, method)?;
+            let iter_val =
+                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.iterations))?;
+            if matches!(iter_val, JsValue::Undefined) {
+                return Err(required_member_error(method, "iterations"));
+            }
+            raw.iterations = Some(coerce_enforce_range(
+                ctx,
+                iter_val,
+                method,
+                "iterations",
+                "unsigned long",
+                f64::from(u32::MAX),
+            )?);
+            let salt_val =
+                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.salt))?;
+            require_buffer_source_member(ctx, salt_val, method, "salt")?;
+            // step 10 (lexicographic hash < iterations < salt): normalize hash,
+            // then snapshot the salt bytes.
+            raw.hash = Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?));
+            raw.salt = Some(snapshot_buffer_source(ctx, salt_val, method, "salt")?);
         }
     }
     Ok(())
@@ -338,8 +395,43 @@ fn required_member_error(method: &str, member: &str) -> VmError {
     ))
 }
 
-/// Marshal a `HashAlgorithmIdentifier` (string or `{name}`) — a **leaf**
-/// digest identifier with no nested `hash`/`length`, so it cannot recurse.
+/// Read + step-6-convert the required `hash` member of a params dictionary that
+/// carries one (`HmacKeyGenParams` / `HmacImportParams`, `HkdfParams`,
+/// `Pbkdf2Params`) — the WebCrypto §18.4.4 **step 6** dictionary conversion
+/// (`hash` sorts first: before `info` / `iterations` / `length` / `salt`).  An
+/// absent / `undefined` value is the required-member `TypeError`.
+///
+/// Per Web IDL the `hash` member's `HashAlgorithmIdentifier` =
+/// `(object or DOMString)` union is converted *at step 6* (in lexicographic
+/// position, before the sibling members): an **object** is kept as-is, while
+/// any **non-object primitive** takes the DOMString arm and is `ToString`-ed
+/// **now** — so `hash: Symbol()` throws here, before the `info` / `salt` /
+/// `iterations` / `length` getters run.  Only the object case's `name` lookup
+/// is deferred: §18.4.4 **step 10** normalizes the (now object-or-DOMString)
+/// member, and the caller therefore reads every sibling top-level member
+/// first, then calls [`marshal_hash_identifier`] on the value returned here.
+fn read_required_hash_value(
+    ctx: &mut NativeContext<'_>,
+    id: ObjectId,
+    method: &str,
+) -> Result<JsValue, VmError> {
+    let hash_val = ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.hash_attr))?;
+    match hash_val {
+        JsValue::Undefined => Err(required_member_error(method, "hash")),
+        // Object arm: keep it; the `name` lookup is the step-10 deferral.
+        JsValue::Object(_) => Ok(hash_val),
+        // DOMString arm: ToString now (step 6) — a `Symbol` / `BigInt` throws
+        // here, before the sibling members are read.
+        other => Ok(JsValue::String(coerce::to_string(ctx.vm, other)?)),
+    }
+}
+
+/// Normalize a step-6-converted `HashAlgorithmIdentifier` (§18.4.4 step 10) —
+/// a **leaf** digest identifier (a `HashAlgorithmIdentifier` never has its own
+/// nested `hash`/`length`, so it cannot recurse).  The input is the value from
+/// [`read_required_hash_value`], so it is already either a `DOMString` (the
+/// step-6 union result for any primitive) or an object whose `name` is read
+/// here (the deferred step-10 lookup).
 fn marshal_hash_identifier(
     ctx: &mut NativeContext<'_>,
     value: JsValue,
@@ -350,9 +442,12 @@ fn marshal_hash_identifier(
         JsValue::Object(id) => Ok(RawAlgorithm::from_name(read_required_name(
             ctx, id, method,
         )?)),
+        // [`read_required_hash_value`] already took the §18.4.4 step-6 DOMString
+        // arm (`ToString`) for every non-object primitive, so this leaf only
+        // ever receives a `String` or an `Object` — the invariant the step-6 /
+        // step-10 split established.
         other => {
-            let sid = coerce::to_string(ctx.vm, other)?;
-            Ok(RawAlgorithm::from_name(ctx.vm.strings.get_utf8(sid)))
+            unreachable!("hash identifier was converted to String/Object at step 6, got {other:?}")
         }
     }
 }

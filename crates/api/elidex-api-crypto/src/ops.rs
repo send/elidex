@@ -7,9 +7,9 @@
 use crate::aes;
 use crate::algorithm::{AesVariant, NormalizedAlgorithm};
 use crate::error::AlgorithmError;
-use crate::hmac;
 use crate::jwk::{self, JsonWebKey};
 use crate::key::{normalize_usages, CryptoKeyData, KeyAlgorithm, KeyMaterial, KeyType, KeyUsage};
+use crate::{hkdf, hmac, pbkdf2};
 
 /// The `KeyFormat` enum (WebCrypto §14.1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -161,6 +161,12 @@ pub fn import_key(
         NormalizedAlgorithm::AesImport { variant } => {
             import_aes_key(format, variant, extractable, usages, key_data)
         }
+        NormalizedAlgorithm::Hkdf => {
+            import_kdf_key(format, KeyAlgorithm::Hkdf, extractable, usages, key_data)
+        }
+        NormalizedAlgorithm::Pbkdf2 => {
+            import_kdf_key(format, KeyAlgorithm::Pbkdf2, extractable, usages, key_data)
+        }
         _ => Err(not_supported_op("importKey")),
     }
 }
@@ -275,9 +281,68 @@ fn import_aes_key(
     })
 }
 
-/// `exportKey` (WebCrypto §14.3.10 + §31 Export Key). `extractable=false`
-/// gates every format with `InvalidAccessError`.
+/// HKDF / PBKDF2 `importKey` (WebCrypto §33.4.2 / §34.4.2 — `raw` only).
+/// `algorithm` is the name-only [`KeyAlgorithm::Hkdf`] / [`KeyAlgorithm::Pbkdf2`].
+///
+/// The imported material is the password / input keying material of any
+/// length (no length validation — unlike AES/HMAC); it is **never**
+/// extractable (step "extractable must be false"), so the key has no
+/// `exportKey` path.
+fn import_kdf_key(
+    format: KeyFormat,
+    algorithm: KeyAlgorithm,
+    extractable: bool,
+    usages: Vec<KeyUsage>,
+    key_data: KeyData,
+) -> Result<CryptoKeyData, AlgorithmError> {
+    // §33.4.2 / §34.4.2: only the `raw` format is supported (the spec lists
+    // no other branch — anything else is a NotSupportedError).
+    let material = match (format, key_data) {
+        (KeyFormat::Raw, KeyData::Raw(bytes)) => bytes,
+        (KeyFormat::Raw, _) => return Err(format_data_mismatch()),
+        _ => {
+            return Err(AlgorithmError::NotSupported(
+                "HKDF / PBKDF2 import supports only the 'raw' format".to_string(),
+            ));
+        }
+    };
+    // §33.4.2 / §34.4.2 step: a usage outside {deriveKey, deriveBits} is a
+    // SyntaxError (the empty-usages SyntaxError is the later generic step).
+    validate_usage_kinds(&usages, KeyUsage::is_kdf_usage, KDF_USAGE_MSG)?;
+    // §33.4.2 / §34.4.2 step: `extractable` must be false.
+    if extractable {
+        return Err(AlgorithmError::Syntax(
+            "HKDF / PBKDF2 keys must be imported with extractable set to false".to_string(),
+        ));
+    }
+    // §14.3.9 importKey generic step: a secret key with empty usages is a
+    // SyntaxError — checked after the algorithm-specific steps.
+    require_secret_usages_nonempty(&usages)?;
+    let usages = normalize_usages(usages);
+    Ok(CryptoKeyData {
+        key_type: KeyType::Secret,
+        extractable,
+        algorithm,
+        usages,
+        material: KeyMaterial::Raw(material),
+    })
+}
+
+/// `exportKey` (WebCrypto §14.3.10 + §31 Export Key).
 pub fn export_key(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKey, AlgorithmError> {
+    // §14.3.10 step 6: the key's algorithm must support the export key
+    // operation — checked BEFORE the step-7 extractable gate.  HKDF / PBKDF2
+    // register no exportKey (§33.4 / §34.4), so exporting one is a
+    // NotSupportedError regardless of (its always-false) extractability.
+    match key.algorithm {
+        KeyAlgorithm::Hmac { .. } | KeyAlgorithm::Aes { .. } => {}
+        KeyAlgorithm::Hkdf | KeyAlgorithm::Pbkdf2 => {
+            return Err(AlgorithmError::NotSupported(
+                "HKDF / PBKDF2 keys do not support the exportKey operation".to_string(),
+            ));
+        }
+    }
+    // §14.3.10 step 7: a non-extractable key is an InvalidAccessError.
     if !key.extractable {
         return Err(AlgorithmError::InvalidAccess(
             "key is not extractable".to_string(),
@@ -288,6 +353,8 @@ pub fn export_key(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKey,
         KeyFormat::Jwk => Ok(ExportedKey::Jwk(match key.algorithm {
             KeyAlgorithm::Hmac { hash, .. } => jwk::export_oct_hmac(key, hash),
             KeyAlgorithm::Aes { variant, length } => jwk::export_oct_aes(key, variant, length),
+            // KDF keys were rejected by the step-6 export-support check above.
+            KeyAlgorithm::Hkdf | KeyAlgorithm::Pbkdf2 => unreachable!("KDF rejected at step 6"),
         })),
         KeyFormat::Pkcs8 | KeyFormat::Spki => Err(AlgorithmError::NotSupported(
             "symmetric key export supports only the 'raw' and 'jwk' formats".to_string(),
@@ -307,7 +374,9 @@ pub fn sign(
         KeyAlgorithm::Hmac { hash, .. } => Ok(hmac::sign(hash, key.material.as_bytes(), data)),
         // `sign` only normalizes HMAC, so the name-match above rejects any
         // non-HMAC key before reaching here.
-        KeyAlgorithm::Aes { .. } => Err(not_supported_op("sign")),
+        KeyAlgorithm::Aes { .. } | KeyAlgorithm::Hkdf | KeyAlgorithm::Pbkdf2 => {
+            Err(not_supported_op("sign"))
+        }
     }
 }
 
@@ -324,7 +393,9 @@ pub fn verify(
         KeyAlgorithm::Hmac { hash, .. } => {
             Ok(hmac::verify(hash, key.material.as_bytes(), signature, data))
         }
-        KeyAlgorithm::Aes { .. } => Err(not_supported_op("verify")),
+        KeyAlgorithm::Aes { .. } | KeyAlgorithm::Hkdf | KeyAlgorithm::Pbkdf2 => {
+            Err(not_supported_op("verify"))
+        }
     }
 }
 
@@ -389,9 +460,139 @@ pub fn decrypt(
     }
 }
 
+/// `deriveBits` method-level op (WebCrypto §14.3.8): the name-equality
+/// (step 8) + `deriveBits`-usage (step 9) gates, then the algorithm-internal
+/// derive (§33.4.1 HKDF / §34.4.1 PBKDF2).  `length` is the `unsigned long?`
+/// argument (`None` ⇒ the §33.4.1 / §34.4.1 step-1 OperationError).
+#[allow(clippy::needless_pass_by_value)] // uniform ops signature; see `generate_key`
+pub fn derive_bits(
+    algorithm: NormalizedAlgorithm,
+    base_key: &CryptoKeyData,
+    length: Option<u32>,
+) -> Result<Vec<u8>, AlgorithmError> {
+    require_key_usable(&algorithm, base_key, KeyUsage::DeriveBits)?;
+    derive_bits_raw(&algorithm, base_key.material.as_bytes(), length)
+}
+
+/// The algorithm-internal derive-bits operation (WebCrypto §33.4.1 HKDF /
+/// §34.4.1 PBKDF2), shared by [`derive_bits`] and [`derive_key`].
+///
+/// `derive_key` calls this directly (NOT [`derive_bits`]) because §14.3.7
+/// step 15 performs the derive-bits *operation* without re-checking the
+/// `deriveBits` usage — the §14.3.7 step-13 gate is `deriveKey`, not
+/// `deriveBits` — and without re-matching the name (already done at step 12).
+///
+/// The §33.4.1 / §34.4.1 step-1 `length` constraint (null or not a multiple
+/// of 8 → OperationError) is common to both KDFs and enforced here, before
+/// dispatch; the PBKDF2-specific `iterations == 0` / `length == 0` steps
+/// live in [`crate::pbkdf2::derive_bits`].
+fn derive_bits_raw(
+    algorithm: &NormalizedAlgorithm,
+    key_material: &[u8],
+    length: Option<u32>,
+) -> Result<Vec<u8>, AlgorithmError> {
+    // §33.4.1 step 1 / §34.4.1 step 1: a null or non-multiple-of-8 length is
+    // an OperationError (a `deriveKey` whose `derivedKeyType` is itself a KDF
+    // gets `length = None` from get-key-length and degenerates here, which is
+    // spec-correct — there is no fixed-length KDF key to derive).
+    let length_bits = match length {
+        Some(l) if l % 8 == 0 => l,
+        _ => {
+            return Err(AlgorithmError::Operation(
+                "derived bit length must be a non-null multiple of 8".to_string(),
+            ));
+        }
+    };
+    match algorithm {
+        NormalizedAlgorithm::HkdfParams { hash, salt, info } => {
+            hkdf::derive_bits(*hash, key_material, salt, info, length_bits)
+        }
+        NormalizedAlgorithm::Pbkdf2Params {
+            salt,
+            iterations,
+            hash,
+        } => pbkdf2::derive_bits(*hash, key_material, salt, *iterations, length_bits),
+        // `derive_bits` / `derive_key` only normalize HKDF / PBKDF2 for the
+        // derive algorithm, so the name-match upstream rejects anything else.
+        _ => Err(not_supported_op("deriveBits")),
+    }
+}
+
+/// `deriveKey` (WebCrypto §14.3.7), composing the three normalized
+/// algorithms the VM supplies: `derive_algorithm` (op `deriveBits`),
+/// `import_algorithm` + `length_algorithm` (both the `derivedKeyType`,
+/// normalized for op `importKey` / `get key length`).
+///
+/// Steps: name-equality (step 12) + `deriveKey`-usage (step 13) on
+/// `base_key`; `length` = get-key-length(`length_algorithm`) (step 14);
+/// `secret` = derive-bits (step 15, no usage/name recheck — via the shared
+/// `derive_bits_raw`); `result` = importKey("raw", secret,
+/// `import_algorithm`, …) (step 16, which enforces the step-17 empty-usages
+/// SyntaxError for a secret key via `require_secret_usages_nonempty`).
+#[allow(clippy::needless_pass_by_value)] // uniform ops signature; see `generate_key`
+pub fn derive_key(
+    derive_algorithm: NormalizedAlgorithm,
+    base_key: &CryptoKeyData,
+    import_algorithm: NormalizedAlgorithm,
+    length_algorithm: NormalizedAlgorithm,
+    extractable: bool,
+    usages: Vec<KeyUsage>,
+) -> Result<CryptoKeyData, AlgorithmError> {
+    // §14.3.7 step 12 (name equality) + step 13 (deriveKey usage).
+    require_name_match(&derive_algorithm, base_key)?;
+    require_usage(base_key, KeyUsage::DeriveKey)?;
+    // step 14: length = get key length of the derivedKeyType.
+    let length = get_key_length(length_algorithm)?;
+    // step 15: derive `secret` (no deriveBits-usage / name recheck).
+    let secret = derive_bits_raw(&derive_algorithm, base_key.material.as_bytes(), length)?;
+    // step 16: importKey("raw", secret, derivedKeyType, extractable, usages)
+    // — also raises the step-17 empty-usages SyntaxError for a secret key.
+    import_key(
+        KeyFormat::Raw,
+        import_algorithm,
+        extractable,
+        usages,
+        KeyData::Raw(secret),
+    )
+}
+
+/// `get key length` (WebCrypto §27.7.6 / §28.4.6 / §29.4.6 AES, §31.6.6
+/// HMAC, §33.4.3 / §34.4.3 HKDF / PBKDF2), run on a `derivedKeyType` during
+/// `deriveKey` (§14.3.7 step 14).  `Ok(None)` is the KDF "null" length.
+#[allow(clippy::needless_pass_by_value)] // uniform ops signature; see `generate_key`
+pub fn get_key_length(algorithm: NormalizedAlgorithm) -> Result<Option<u32>, AlgorithmError> {
+    match algorithm {
+        // §27.7.6 / §28.4.6 / §29.4.6: 128/192/256 else OperationError. The
+        // `variant` is irrelevant to the length (AES-CTR/CBC/GCM share the
+        // rule); it rides along only so `NormalizedAlgorithm::name` is total.
+        NormalizedAlgorithm::AesKeyGen { length, .. } => match length {
+            128 | 192 | 256 => Ok(Some(length)),
+            _ => Err(AlgorithmError::Operation(
+                "AES key length must be 128, 192 or 256 bits".to_string(),
+            )),
+        },
+        // §31.6.6: `length` absent → the hash block size; present & non-zero
+        // → that value; zero → TypeError (HMAC is a common derivedKeyType, so
+        // PBKDF2/HKDF → HMAC signing keys exercise this arm).
+        NormalizedAlgorithm::HmacKeyParams { hash, length } => match length {
+            None => Ok(Some(hash.block_size_bits())),
+            Some(0) => Err(AlgorithmError::Type(
+                "HMAC key length must be greater than zero".to_string(),
+            )),
+            Some(l) => Ok(Some(l)),
+        },
+        // §33.4.3 / §34.4.3: KDFs return null (a `deriveKey` whose
+        // `derivedKeyType` is a KDF then degenerates at derive-bits).
+        NormalizedAlgorithm::Hkdf | NormalizedAlgorithm::Pbkdf2 => Ok(None),
+        _ => Err(not_supported_op("get key length")),
+    }
+}
+
 const HMAC_USAGE_MSG: &str = "HMAC keys support only the 'sign' and 'verify' usages";
 const AES_USAGE_MSG: &str =
     "AES keys support only the 'encrypt', 'decrypt', 'wrapKey' and 'unwrapKey' usages";
+const KDF_USAGE_MSG: &str =
+    "HKDF / PBKDF2 keys support only the 'deriveKey' and 'deriveBits' usages";
 
 /// Reject any usage the algorithm does not accept (WebCrypto generate/import
 /// step 1 — algorithm-specific, runs *before* key material is produced).

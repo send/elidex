@@ -38,6 +38,18 @@ impl HashAlgorithm {
         }
     }
 
+    /// The digest output length in bytes (`HashLen`): SHA-1 → 20, SHA-256 →
+    /// 32, SHA-384 → 48, SHA-512 → 64.  Used for the HKDF-Expand maximum
+    /// output bound `255 × HashLen` (RFC 5869 §2.3 / WebCrypto §33.4.1).
+    pub fn output_len_bytes(self) -> usize {
+        match self {
+            Self::Sha1 => 20,
+            Self::Sha256 => 32,
+            Self::Sha384 => 48,
+            Self::Sha512 => 64,
+        }
+    }
+
     /// The canonical WebCrypto algorithm name (`"SHA-256"` etc.).
     pub fn canonical_name(self) -> &'static str {
         match self {

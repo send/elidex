@@ -15,7 +15,9 @@ aes.workspace = true
 base64.workspace = true
 cbc = { workspace = true, features = ["alloc"] }
 ghash.workspace = true
+hkdf.workspace = true
 hmac.workspace = true
+pbkdf2.workspace = true
 sha1.workspace = true
 sha2.workspace = true
 subtle.workspace = true

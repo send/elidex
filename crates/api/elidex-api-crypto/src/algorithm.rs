@@ -41,6 +41,12 @@ pub enum AlgorithmName {
     AesCtr,
     AesCbc,
     AesGcm,
+    /// HKDF (WebCrypto §33) — `importKey` (raw), `deriveBits`, and
+    /// `get key length` (§33.4.3 → null, consumed by `deriveKey`).
+    Hkdf,
+    /// PBKDF2 (WebCrypto §34) — `importKey` (raw), `deriveBits`, and
+    /// `get key length` (§34.4.3 → null, consumed by `deriveKey`).
+    Pbkdf2,
 }
 
 impl AlgorithmName {
@@ -63,6 +69,10 @@ impl AlgorithmName {
             Some(Self::AesCbc)
         } else if name.eq_ignore_ascii_case("AES-GCM") {
             Some(Self::AesGcm)
+        } else if name.eq_ignore_ascii_case("HKDF") {
+            Some(Self::Hkdf)
+        } else if name.eq_ignore_ascii_case("PBKDF2") {
+            Some(Self::Pbkdf2)
         } else {
             None
         }
@@ -74,7 +84,9 @@ impl AlgorithmName {
             Self::Sha256 => Some(HashAlgorithm::Sha256),
             Self::Sha384 => Some(HashAlgorithm::Sha384),
             Self::Sha512 => Some(HashAlgorithm::Sha512),
-            Self::Hmac | Self::AesCtr | Self::AesCbc | Self::AesGcm => None,
+            Self::Hmac | Self::AesCtr | Self::AesCbc | Self::AesGcm | Self::Hkdf | Self::Pbkdf2 => {
+                None
+            }
         }
     }
 
@@ -83,7 +95,13 @@ impl AlgorithmName {
             Self::AesCtr => Some(AesVariant::Ctr),
             Self::AesCbc => Some(AesVariant::Cbc),
             Self::AesGcm => Some(AesVariant::Gcm),
-            Self::Sha1 | Self::Sha256 | Self::Sha384 | Self::Sha512 | Self::Hmac => None,
+            Self::Sha1
+            | Self::Sha256
+            | Self::Sha384
+            | Self::Sha512
+            | Self::Hmac
+            | Self::Hkdf
+            | Self::Pbkdf2 => None,
         }
     }
 }
@@ -148,10 +166,13 @@ impl AesVariant {
 /// `AlgorithmIdentifier`; `length` is the HMAC `unsigned long` /
 /// AES-CTR `octet` / AES key-gen `unsigned short`; `iv` / `counter` /
 /// `additional_data` are the AES `BufferSource` members (already snapshot-
-/// copied by the VM); `tag_length` is the AES-GCM `octet`.  Which members
-/// the VM populates is decided by [`params_shape`] for the `(op, name)`
-/// pair (the registry-driven §18.4.4 step-5 recognition gate), so getters
-/// never fire for an unregistered name.
+/// copied by the VM); `tag_length` is the AES-GCM `octet`; `salt` / `info`
+/// are the HKDF `BufferSource` members (`salt` shared with PBKDF2) and
+/// `iterations` is the PBKDF2 `unsigned long` (WebCrypto §33.3 `HkdfParams`
+/// / §34.3 `Pbkdf2Params`, snapshot-copied by the VM).  Which members the
+/// VM populates is decided by [`params_shape`] for the `(op, name)` pair
+/// (the registry-driven §18.4.4 step-5 recognition gate), so getters never
+/// fire for an unregistered name.
 #[derive(Clone, Debug, Default)]
 pub struct RawAlgorithm {
     pub name: String,
@@ -161,6 +182,9 @@ pub struct RawAlgorithm {
     pub counter: Option<Vec<u8>>,
     pub additional_data: Option<Vec<u8>>,
     pub tag_length: Option<u32>,
+    pub salt: Option<Vec<u8>>,
+    pub info: Option<Vec<u8>>,
+    pub iterations: Option<u32>,
 }
 
 impl RawAlgorithm {
@@ -184,12 +208,22 @@ impl RawAlgorithm {
 /// - `AesKeyGen` (generateKey) carries the variant + required key length.
 /// - `AesImport` (importKey) carries only the variant — the key length
 ///   derives from the imported material.
+/// - `AesKeyGen` (generateKey **and** AES get-key-length, §27.7.6 / §28.4.6
+///   / §29.4.6) carries the variant + key `length`; the get-key-length op
+///   reads only `length` (`AesDerivedKeyParams`, structurally identical to
+///   `AesKeyGenParams`) — the variant is carried so [`Self::name`] stays
+///   total without a sentinel.
 /// - `AesGcm` / `AesCbc` / `AesCtr` (encrypt + decrypt share one variant
 ///   each — the op direction is the `ops::encrypt` vs `ops::decrypt`
 ///   entry, not the params) carry the mode-specific params.
+/// - `Hkdf` / `Pbkdf2` (importKey + get-key-length) carry only the name —
+///   the KDF key's `[[algorithm]]` is name-only (§33.4.2 / §34.4.2) and the
+///   KDF get-key-length is null (§33.4.3 / §34.4.3).
+/// - `HkdfParams` / `Pbkdf2Params` (deriveBits) carry the §33.3 / §34.3
+///   derive params (the call-time `hash` lives here, not on the key).
 ///
-/// Not `Copy`: the AES variants own the marshalled `iv` / `counter` /
-/// `additionalData` byte sequences.
+/// Not `Copy`: the AES + KDF param variants own the marshalled `iv` /
+/// `counter` / `additionalData` / `salt` / `info` byte sequences.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NormalizedAlgorithm {
     Digest(HashAlgorithm),
@@ -217,6 +251,23 @@ pub enum NormalizedAlgorithm {
         counter: Vec<u8>,
         length: u32,
     },
+    /// HKDF / PBKDF2 name-only form (importKey + get-key-length).
+    Hkdf,
+    Pbkdf2,
+    /// HKDF deriveBits params (WebCrypto §33.3 `HkdfParams`): the `hash`
+    /// driving the HMAC, plus `salt` + `info` (both required `BufferSource`).
+    HkdfParams {
+        hash: HashAlgorithm,
+        salt: Vec<u8>,
+        info: Vec<u8>,
+    },
+    /// PBKDF2 deriveBits params (WebCrypto §34.3 `Pbkdf2Params`): `salt`
+    /// (required `BufferSource`), `iterations`, and the PRF `hash`.
+    Pbkdf2Params {
+        salt: Vec<u8>,
+        iterations: u32,
+        hash: HashAlgorithm,
+    },
 }
 
 impl NormalizedAlgorithm {
@@ -238,6 +289,8 @@ impl NormalizedAlgorithm {
             Self::AesGcm { .. } => AlgorithmName::AesGcm,
             Self::AesCbc { .. } => AlgorithmName::AesCbc,
             Self::AesCtr { .. } => AlgorithmName::AesCtr,
+            Self::Hkdf | Self::HkdfParams { .. } => AlgorithmName::Hkdf,
+            Self::Pbkdf2 | Self::Pbkdf2Params { .. } => AlgorithmName::Pbkdf2,
         }
     }
 }
@@ -268,8 +321,10 @@ enum DesiredType {
     /// `HmacKeyGenParams` / `HmacImportParams` whose `hash` (required) and
     /// `length` (optional) members are read by step 6.
     HmacKeyParams,
-    /// AES `generateKey`: an `AesKeyGenParams` whose `length` (required
-    /// `unsigned short`) member is read by step 6.
+    /// AES `generateKey` (`AesKeyGenParams`) or AES `get key length`
+    /// (`AesDerivedKeyParams`) — both name a `length` (required
+    /// `[EnforceRange] unsigned short`) read by step 6; the op (generate vs
+    /// get-key-length) is the [`crate::ops`] entry, not the params shape.
     AesKeyGen(AesVariant),
     /// AES `importKey`: a name-only `Algorithm` (registration params =
     /// `None`); the key length derives from the imported material.
@@ -277,6 +332,23 @@ enum DesiredType {
     /// AES `encrypt` / `decrypt`: the mode's params dictionary
     /// (`AesGcmParams` / `AesCbcParams` / `AesCtrParams`).
     AesEncryptDecrypt(AesVariant),
+    /// HKDF / PBKDF2 name-only form (`importKey` + `get key length`): a
+    /// name-only `Algorithm` (§33.4.2 / §34.4.2 import raw, §33.4.3 /
+    /// §34.4.3 get-key-length null).
+    KdfNameOnly(KdfKind),
+    /// HKDF `deriveBits`: an `HkdfParams` (`hash` + `salt` + `info`, all
+    /// required) read by step 6.
+    HkdfDeriveBits,
+    /// PBKDF2 `deriveBits`: a `Pbkdf2Params` (`salt` + `iterations` +
+    /// `hash`, all required) read by step 6.
+    Pbkdf2DeriveBits,
+}
+
+/// Which KDF a [`DesiredType::KdfNameOnly`] resolves to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum KdfKind {
+    Hkdf,
+    Pbkdf2,
 }
 
 /// §18.4.4 step 5: does `supportedAlgorithms[op]` contain a
@@ -295,7 +367,24 @@ fn resolve_registry(op: Operation, name: &str) -> Option<DesiredType> {
             Operation::GenerateKey | Operation::ImportKey | Operation::GetKeyLength,
             AlgorithmName::Hmac,
         ) => Some(DesiredType::HmacKeyParams),
-        (Operation::GenerateKey, _) => name.as_aes().map(DesiredType::AesKeyGen),
+        // HKDF / PBKDF2 (WebCrypto §33 / §34): import (raw) + deriveBits +
+        // get-key-length (null).  No generateKey / encrypt / export — those
+        // fall through to the AES catch-alls below, where `as_aes()` returns
+        // `None` for a KDF name, so they resolve to `None` (NotSupported).
+        (Operation::ImportKey | Operation::GetKeyLength, AlgorithmName::Hkdf) => {
+            Some(DesiredType::KdfNameOnly(KdfKind::Hkdf))
+        }
+        (Operation::ImportKey | Operation::GetKeyLength, AlgorithmName::Pbkdf2) => {
+            Some(DesiredType::KdfNameOnly(KdfKind::Pbkdf2))
+        }
+        (Operation::DeriveBits, AlgorithmName::Hkdf) => Some(DesiredType::HkdfDeriveBits),
+        (Operation::DeriveBits, AlgorithmName::Pbkdf2) => Some(DesiredType::Pbkdf2DeriveBits),
+        // AES generateKey / get-key-length both read a `length`-only dict
+        // (`AesKeyGenParams` / `AesDerivedKeyParams`); `as_aes()` filters the
+        // non-AES names (HMAC handled above, KDF handled above, SHA → None).
+        (Operation::GenerateKey | Operation::GetKeyLength, _) => {
+            name.as_aes().map(DesiredType::AesKeyGen)
+        }
         (Operation::ImportKey, _) => name.as_aes().map(DesiredType::AesImport),
         (Operation::Encrypt | Operation::Decrypt, _) => {
             name.as_aes().map(DesiredType::AesEncryptDecrypt)
@@ -326,6 +415,13 @@ pub enum AlgorithmParams {
     /// AES-CTR encrypt / decrypt: `counter` (required `BufferSource`) +
     /// `length` (required `[EnforceRange] octet`).
     AesCtrParams,
+    /// HKDF deriveBits (`HkdfParams`): `hash` (required), `info` (required
+    /// `BufferSource`), `salt` (required `BufferSource`).
+    HkdfParams,
+    /// PBKDF2 deriveBits (`Pbkdf2Params`): `hash` (required), `iterations`
+    /// (required `[EnforceRange] unsigned long`), `salt` (required
+    /// `BufferSource`).
+    Pbkdf2Params,
 }
 
 /// §18.4.4 step 5 + step-6 member plan: for a registered `(op, name)` pair
@@ -337,9 +433,10 @@ pub enum AlgorithmParams {
 /// never triggers a user-defined member getter.
 pub fn params_shape(op: Operation, name: &str) -> Option<AlgorithmParams> {
     resolve_registry(op, name).map(|d| match d {
-        DesiredType::Digest(_) | DesiredType::HmacSignVerify | DesiredType::AesImport(_) => {
-            AlgorithmParams::NameOnly
-        }
+        DesiredType::Digest(_)
+        | DesiredType::HmacSignVerify
+        | DesiredType::AesImport(_)
+        | DesiredType::KdfNameOnly(_) => AlgorithmParams::NameOnly,
         DesiredType::HmacKeyParams => AlgorithmParams::HmacKeyParams,
         DesiredType::AesKeyGen(_) => AlgorithmParams::AesKeyGen,
         DesiredType::AesEncryptDecrypt(variant) => match variant {
@@ -347,6 +444,8 @@ pub fn params_shape(op: Operation, name: &str) -> Option<AlgorithmParams> {
             AesVariant::Cbc => AlgorithmParams::AesCbcParams,
             AesVariant::Ctr => AlgorithmParams::AesCtrParams,
         },
+        DesiredType::HkdfDeriveBits => AlgorithmParams::HkdfParams,
+        DesiredType::Pbkdf2DeriveBits => AlgorithmParams::Pbkdf2Params,
     })
 }
 
@@ -374,7 +473,7 @@ pub fn normalize(op: Operation, raw: RawAlgorithm) -> Result<NormalizedAlgorithm
         Some(DesiredType::Digest(hash)) => Ok(NormalizedAlgorithm::Digest(hash)),
         Some(DesiredType::HmacSignVerify) => Ok(NormalizedAlgorithm::Hmac),
         Some(DesiredType::HmacKeyParams) => {
-            let hash = normalize_hmac_hash(&raw)?;
+            let hash = normalize_required_hash(&raw, "Algorithm")?;
             Ok(NormalizedAlgorithm::HmacKeyParams {
                 hash,
                 length: raw.length,
@@ -382,16 +481,46 @@ pub fn normalize(op: Operation, raw: RawAlgorithm) -> Result<NormalizedAlgorithm
         }
         Some(DesiredType::AesImport(variant)) => Ok(NormalizedAlgorithm::AesImport { variant }),
         Some(DesiredType::AesKeyGen(variant)) => {
-            // `AesKeyGenParams.length` is a `required` member: its absence is
-            // a WebIDL `TypeError` (the VM also enforces this at marshal
-            // time; this is the crate-side spec guard).  Its 128/192/256
-            // validity is an `OperationError` checked in `ops::generate_key`.
+            // `AesKeyGenParams.length` / `AesDerivedKeyParams.length` is a
+            // `required` member: its absence is a WebIDL `TypeError` (the VM
+            // also enforces this at marshal time; this is the crate-side spec
+            // guard).  Its 128/192/256 validity is an `OperationError` checked
+            // in `ops::generate_key` / `ops::get_key_length`.
             let length = raw
                 .length
                 .ok_or_else(|| required_member("length", "AesKeyGenParams"))?;
             Ok(NormalizedAlgorithm::AesKeyGen { variant, length })
         }
         Some(DesiredType::AesEncryptDecrypt(variant)) => normalize_aes_params(variant, raw),
+        Some(DesiredType::KdfNameOnly(KdfKind::Hkdf)) => Ok(NormalizedAlgorithm::Hkdf),
+        Some(DesiredType::KdfNameOnly(KdfKind::Pbkdf2)) => Ok(NormalizedAlgorithm::Pbkdf2),
+        Some(DesiredType::HkdfDeriveBits) => {
+            // `HkdfParams` — `hash` / `salt` / `info` all `required` (their
+            // absence is a `TypeError`, enforced at the VM marshal too).
+            let hash = normalize_required_hash(&raw, "HkdfParams")?;
+            let salt = raw
+                .salt
+                .ok_or_else(|| required_member("salt", "HkdfParams"))?;
+            let info = raw
+                .info
+                .ok_or_else(|| required_member("info", "HkdfParams"))?;
+            Ok(NormalizedAlgorithm::HkdfParams { hash, salt, info })
+        }
+        Some(DesiredType::Pbkdf2DeriveBits) => {
+            // `Pbkdf2Params` — `hash` / `iterations` / `salt` all `required`.
+            let hash = normalize_required_hash(&raw, "Pbkdf2Params")?;
+            let salt = raw
+                .salt
+                .ok_or_else(|| required_member("salt", "Pbkdf2Params"))?;
+            let iterations = raw
+                .iterations
+                .ok_or_else(|| required_member("iterations", "Pbkdf2Params"))?;
+            Ok(NormalizedAlgorithm::Pbkdf2Params {
+                salt,
+                iterations,
+                hash,
+            })
+        }
     }
 }
 
@@ -440,15 +569,18 @@ fn required_member(member: &str, dict: &str) -> AlgorithmError {
     AlgorithmError::Type(format!("{dict}: member {member} is required"))
 }
 
-/// Normalize the nested `hash` member of an `HmacKeyGenParams` /
-/// `HmacImportParams`. The member is IDL-`required`, so its absence is a
-/// `TypeError` raised during normalization (NOT a `DataError` from the
-/// downstream import path).
-fn normalize_hmac_hash(raw: &RawAlgorithm) -> Result<HashAlgorithm, AlgorithmError> {
+/// Normalize the nested required `hash` member of a params dictionary that
+/// carries one (`HmacKeyGenParams` / `HmacImportParams` §31, `HkdfParams`
+/// §33.3, `Pbkdf2Params` §34.3). The member is IDL-`required`, so its
+/// absence is a `TypeError` raised during normalization (NOT a `DataError`
+/// from a downstream path); an unrecognized hash name is a
+/// `NotSupportedError`. `dict` names the dictionary for the error message.
+fn normalize_required_hash(
+    raw: &RawAlgorithm,
+    dict: &str,
+) -> Result<HashAlgorithm, AlgorithmError> {
     let Some(hash_raw) = raw.hash.as_ref() else {
-        return Err(AlgorithmError::Type(
-            "Algorithm: member hash is required".to_string(),
-        ));
+        return Err(required_member("hash", dict));
     };
     match AlgorithmName::recognize(&hash_raw.name).and_then(AlgorithmName::as_hash) {
         Some(hash) => Ok(hash),

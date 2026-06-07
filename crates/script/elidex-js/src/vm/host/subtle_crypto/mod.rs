@@ -15,13 +15,14 @@
 //! all live in the crate).  BufferSource coercion is reused via
 //! [`super::text_encoding::extract_buffer_source_bytes`].
 //!
-//! Current scope (`#11-crypto-subtle-full` PR-1 + PR-2): `digest` +
-//! `CryptoKey` lifecycle + the HMAC vertical (`generateKey` /
-//! `importKey` / `exportKey` / `sign` / `verify`) + the AES-GCM /
+//! Current scope (`#11-crypto-subtle-full` PR-1 + PR-2 + PR-3a): `digest`,
+//! the `CryptoKey` lifecycle, the HMAC vertical (`generateKey` /
+//! `importKey` / `exportKey` / `sign` / `verify`), the AES-GCM /
 //! AES-CBC / AES-CTR vertical (`generateKey` / `importKey` /
-//! `exportKey` / `encrypt` / `decrypt`).  KDF + wrap/unwrap (PR-3),
-//! ECDSA/ECDH (PR-4), and RSA (PR-5) extend the crate registry by
-//! adding rows.
+//! `exportKey` / `encrypt` / `decrypt`), and the HKDF / PBKDF2 derive
+//! vertical (`importKey` / `deriveBits` / `deriveKey`).  wrap/unwrap with
+//! AES-KW (PR-3b), ECDSA/ECDH (PR-4), and RSA (PR-5) extend the crate
+//! registry by adding rows.
 //!
 //! ## Submodules
 //!
@@ -35,10 +36,10 @@
 //!   (algorithm-identifier conversion + normalization inputs, key-usage
 //!   / format / JWK conversion, the `[EnforceRange]` length coercion,
 //!   and the `oct`-JWK builder).
-//! - [`ops`] — the eight operation natives (`digest` + the HMAC
+//! - [`ops`] — the ten operation natives (`digest` + the HMAC
 //!   `generateKey` / `importKey` / `exportKey` / `sign` / `verify`
-//!   vertical + the AES `encrypt` / `decrypt`) plus the
-//!   `AlgorithmError` → DOMException mapping.
+//!   vertical + the AES `encrypt` / `decrypt` + the KDF `deriveBits` /
+//!   `deriveKey`) plus the `AlgorithmError` → DOMException mapping.
 //!
 //! ## Singleton storage
 //!
@@ -73,7 +74,8 @@ use super::super::value::{
 use super::super::{NativeFn, VmInner};
 use super::blob::{reject_promise_sync, resolve_promise_sync};
 use ops::{
-    native_subtle_crypto_decrypt, native_subtle_crypto_digest, native_subtle_crypto_encrypt,
+    native_subtle_crypto_decrypt, native_subtle_crypto_derive_bits,
+    native_subtle_crypto_derive_key, native_subtle_crypto_digest, native_subtle_crypto_encrypt,
     native_subtle_crypto_export_key, native_subtle_crypto_generate_key,
     native_subtle_crypto_import_key, native_subtle_crypto_sign, native_subtle_crypto_verify,
 };
@@ -110,7 +112,7 @@ impl VmInner {
         });
 
         // `SubtleCrypto.prototype` operation natives (WebCrypto §14.3).
-        let methods: [(_, NativeFn); 8] = [
+        let methods: [(_, NativeFn); 10] = [
             (
                 self.well_known.digest,
                 native_subtle_crypto_digest as NativeFn,
@@ -125,6 +127,11 @@ impl VmInner {
             (self.well_known.verify, native_subtle_crypto_verify),
             (self.well_known.encrypt, native_subtle_crypto_encrypt),
             (self.well_known.decrypt, native_subtle_crypto_decrypt),
+            (
+                self.well_known.derive_bits,
+                native_subtle_crypto_derive_bits,
+            ),
+            (self.well_known.derive_key, native_subtle_crypto_derive_key),
         ];
         for (name_sid, func) in methods {
             self.install_native_method(proto_id, name_sid, func, shape::PropertyAttrs::METHOD);
@@ -212,12 +219,12 @@ fn require_subtle_crypto_this(
 }
 
 // ---------------------------------------------------------------------------
-// Promise harness shared by the six operation natives
+// Promise harness shared by the operation natives
 // ---------------------------------------------------------------------------
 
 /// Run an operation body against a pre-rooted Promise, settling it.
-/// Shared shape for the eight operation natives (digest + the five HMAC
-/// ops + AES encrypt / decrypt).
+/// Shared shape for the ten operation natives (digest + the five HMAC ops +
+/// AES encrypt / decrypt + KDF deriveBits / deriveKey).
 ///
 /// WebCrypto §14.3 reports **all** errors asynchronously, including the
 /// Web IDL receiver brand check: a non-`SubtleCrypto` `this` (e.g.
