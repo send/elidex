@@ -1,20 +1,32 @@
-//! Line packing: `LinePacker`, `PackItem`, `build_pack_items`, `assign_inline_layout_boxes`.
+//! Line packing: the [`LinePacker`] state machine and its [`FlowAlign`] context.
 //!
-//! The `text-align`/`text-align: justify` math (`FlushReason`, alignment resolution,
-//! justification opportunity counting + baking) lives in the [`justify`] submodule.
+//! Supporting concerns live in submodules to keep this file under the repo's
+//! ~1000-line convention:
+//! - pack-item construction (`PackItem`/`FlowMember`/`build_pack_items`) → [`items`]
+//! - inline-element box assignment (`EntityBounds`/`InlineLineRect`/
+//!   `assign_inline_layout_boxes`) → [`boxes`]
+//! - fragmentation slice + rebase (`slice_and_rebase_fragment`) → [`fragment`]
+//! - the `text-align`/`text-align: justify` math (`FlushReason`, alignment resolution,
+//!   justification opportunity counting + baking) → [`justify`]
 
 use std::collections::HashMap;
 
 use elidex_ecs::{EcsDom, Entity, InlineFlowLine, InlineFlowRun};
-use elidex_plugin::{
-    ComputedStyle, Direction, EdgeSizes, LayoutBox, Point, Rect, TextAlign, WhiteSpace,
-};
+use elidex_plugin::{Direction, LayoutBox, Point, TextAlign, WhiteSpace};
 use elidex_text::{measure_text, BreakOpportunity, FontDatabase};
 
 use super::measure::measure_segment_widths;
 use super::InlineItem;
 
+mod boxes;
+mod fragment;
+mod items;
 mod justify;
+
+pub(super) use boxes::assign_inline_layout_boxes;
+use boxes::{EntityBounds, InlineLineRect};
+pub(super) use items::build_pack_items;
+use items::{FlowMember, PackItem};
 use justify::{align_offset, bake_justify, justify_opportunity_counts, resolve_align, FlushReason};
 
 /// Inline-alignment context for persisting an [`InlineFlow`](elidex_ecs::InlineFlow).
@@ -62,93 +74,6 @@ pub(super) struct FlowAlign {
 }
 
 // ---------------------------------------------------------------------------
-// Break segment — a piece of a StyledRun between break opportunities
-// ---------------------------------------------------------------------------
-
-/// A piece of inline content for line packing — either a text segment or an atomic box.
-pub(super) enum PackItem {
-    /// Text segment between break opportunities.
-    Text {
-        /// Index into the items array for style lookup.
-        item_index: usize,
-        /// The text of this segment.
-        text: String,
-        /// Break opportunity at the end of this segment, if any.
-        break_after: Option<BreakOpportunity>,
-    },
-    /// An atomic inline box (no break inside).
-    Atomic {
-        /// Index into the items array.
-        item_index: usize,
-    },
-    /// Absolutely positioned placeholder — records static position, zero-width.
-    Placeholder { entity: Entity },
-}
-
-/// What `place_item` records for a placed item (only when persisting —
-/// `flow_align.is_some()`). A text segment coalesces into a contiguous same-entity
-/// [`InlineFlowRun::Text`]; a *static* atomic inline-level box becomes its own
-/// [`InlineFlowRun::AtomicBox`] flow member (render `walk()`s it at its
-/// repositioned `LayoutBox`); a *positioned* (relative/sticky) atomic is recorded
-/// in the separate `relpos_atomic_placements` reposition bucket — NOT a flow
-/// member, because render paints it in Layer 6 and a flow member would double-paint
-/// (`emit_inline_flow` walks every member in Layer 5 too; slice 3p-b-2).
-#[derive(Clone, Copy)]
-enum FlowMember<'a> {
-    /// A text segment that contributes its `&str` to a text run.
-    Text(&'a str),
-    /// A static atomic inline-level box (no text; carries its own box geometry).
-    Atomic,
-    /// A `position:relative`/`sticky` atomic inline-level box: in-flow (advances the
-    /// cursor) but painted in render Layer 6 from its own `LayoutBox`. Recorded in
-    /// the reposition bucket, not a flow member (avoids double-paint, slice 3p-b-2).
-    PositionedAtomic,
-}
-
-/// Build pack items from inline items.
-///
-/// Text runs are split at break opportunities. Atomic boxes become single pack items.
-pub(super) fn build_pack_items(items: &[InlineItem]) -> Vec<PackItem> {
-    use elidex_text::find_break_opportunities;
-    let mut pack_items = Vec::new();
-    for (idx, item) in items.iter().enumerate() {
-        match item {
-            InlineItem::Text(run) => {
-                if run.text.is_empty() {
-                    continue;
-                }
-                let breaks = find_break_opportunities(&run.text);
-                let mut prev_pos = 0;
-                for &(bp, kind) in &breaks {
-                    if bp > prev_pos {
-                        pack_items.push(PackItem::Text {
-                            item_index: idx,
-                            text: run.text[prev_pos..bp].to_string(),
-                            break_after: Some(kind),
-                        });
-                    }
-                    prev_pos = bp;
-                }
-                if prev_pos < run.text.len() {
-                    pack_items.push(PackItem::Text {
-                        item_index: idx,
-                        text: run.text[prev_pos..].to_string(),
-                        break_after: None,
-                    });
-                }
-            }
-            InlineItem::Atomic { .. } => {
-                pack_items.push(PackItem::Atomic { item_index: idx });
-            }
-            InlineItem::Placeholder(entity) => {
-                pack_items.push(PackItem::Placeholder { entity: *entity });
-            }
-        }
-    }
-    pack_items
-}
-
-// ---------------------------------------------------------------------------
 // Line box — a positioned line within an inline formatting context
 // ---------------------------------------------------------------------------
 
@@ -156,33 +81,6 @@ pub(super) fn build_pack_items(items: &[InlineItem]) -> Vec<PackItem> {
 pub(super) struct LineBox {
     /// Block-axis size (height for horizontal writing mode).
     pub block_size: f32,
-}
-
-/// Per-line rectangle for an inline entity (used by `getClientRects()`).
-#[derive(Clone, Debug)]
-pub struct InlineLineRect {
-    /// Inline-axis start on this line.
-    pub inline_start: f32,
-    /// Inline-axis end on this line.
-    pub inline_end: f32,
-    /// Block-axis offset of this line.
-    pub block_start: f32,
-    /// Block-axis size of this line.
-    pub block_size: f32,
-}
-
-/// Tracks the bounding rectangle of an inline entity across line boxes.
-pub(super) struct EntityBounds {
-    /// Inline-axis start on the first line.
-    inline_start: f32,
-    /// Inline-axis end on the last line.
-    inline_end: f32,
-    /// Block-axis offset of the first line.
-    block_start: f32,
-    /// Block-axis offset + size of the last line.
-    block_end: f32,
-    /// Per-line rectangles for `getClientRects()`.
-    pub line_rects: Vec<InlineLineRect>,
 }
 
 // ---------------------------------------------------------------------------
@@ -879,196 +777,6 @@ impl LinePacker {
     pub fn finish(&mut self) {
         if self.on_line {
             self.flush_line(FlushReason::LastLine);
-        }
-    }
-
-    /// Slice every recorded geometry to this fragment's kept content lines
-    /// `[skip_lines, effective_line_count)` and **continuation-rebase** the block
-    /// axis so the first kept line sits at the fragmentainer's block-start (CSS
-    /// Fragmentation L3 §2). Slice 4 / I-paged.
-    ///
-    /// **Single source of the rebase (F2).** Every block coordinate the packer
-    /// records — flow-line `block_start`, per-entity rect `block_start` (→
-    /// `getClientRects` + the inline `LayoutBox` via `assign_inline_layout_boxes`),
-    /// abspos placeholder static positions, positioned-atomic placements — is a
-    /// snapshot of the *same* `current_block_offset` accumulator, taken on the same
-    /// content line. That accumulator IS the single SoT: the cumulative line-box
-    /// offsets (`line_boxes` partial sums) are bit-identical to those snapshots
-    /// (the same left-fold over the same per-line heights), so the block offset
-    /// alone classifies a recording's line and the rebase delta is subtracted
-    /// **once, here, before the caller's `content_origin` fold** (which adds the
-    /// fragmentainer cursor exactly once). No consumer re-derives or re-applies —
-    /// avoiding the cross-consumer desync four independent rebases would risk.
-    ///
-    /// `first_baseline` is intentionally *not* rebased: it is the parent-block
-    /// baseline scalar (cross-block alignment), captured from the first content
-    /// line — correct for the first fragment (delta 0) and an orthogonal
-    /// approximation for continuations, outside this line-geometry rebase's scope.
-    pub fn slice_and_rebase_fragment(&mut self, skip_lines: usize, effective_line_count: usize) {
-        // Block-offset boundaries: `rebase_delta` = offset of the first kept line
-        // (== that line's recorded snapshot, exactly); `break_offset` = offset of
-        // the first dropped line (== `total` when nothing breaks).
-        let rebase_delta: f32 = self
-            .line_boxes
-            .iter()
-            .take(skip_lines)
-            .map(|lb| lb.block_size)
-            .sum();
-        let break_offset: f32 = self
-            .line_boxes
-            .iter()
-            .take(effective_line_count)
-            .map(|lb| lb.block_size)
-            .sum();
-        // A recording on block offset `b` is kept iff its line is in the fragment.
-        // Boundaries are exact (same accumulation), so the half-open range needs no
-        // epsilon: the first kept line's `b == rebase_delta`, the first dropped
-        // line's `b == break_offset`.
-        let keep = |b: f32| b >= rebase_delta && b < break_offset;
-
-        // Flow lines (the persisted InlineFragment lines): retain kept, rebase,
-        // drop now-empty group buckets.
-        for lines in self.flow_lines.values_mut() {
-            lines.retain(|l| keep(l.block_start));
-            for l in lines.iter_mut() {
-                l.block_start -= rebase_delta;
-            }
-        }
-        self.flow_lines.retain(|_, lines| !lines.is_empty());
-
-        // Per-entity bounds (→ inline LayoutBox + InlineClientRects): retain kept
-        // per-line rects, rebase them, recompute the union from what's left; drop
-        // entities with no rect on a kept line.
-        self.entity_bounds.retain(|_, b| {
-            b.line_rects.retain(|r| keep(r.block_start));
-            if b.line_rects.is_empty() {
-                return false;
-            }
-            // Rebase the kept rects and recompute the union bounding box in one pass.
-            let (mut inline_start, mut inline_end) = (f32::INFINITY, f32::NEG_INFINITY);
-            let (mut block_start, mut block_end) = (f32::INFINITY, f32::NEG_INFINITY);
-            for r in &mut b.line_rects {
-                r.block_start -= rebase_delta;
-                inline_start = inline_start.min(r.inline_start);
-                inline_end = inline_end.max(r.inline_end);
-                block_start = block_start.min(r.block_start);
-                block_end = block_end.max(r.block_start + r.block_size);
-            }
-            b.inline_start = inline_start;
-            b.inline_end = inline_end;
-            b.block_start = block_start;
-            b.block_end = block_end;
-            true
-        });
-
-        // Abspos placeholder static positions (`Point(inline, block)`): rebase kept,
-        // drop those whose line went to another fragment.
-        self.static_positions.retain(|_, p| {
-            if keep(p.y) {
-                p.y -= rebase_delta;
-                true
-            } else {
-                false
-            }
-        });
-
-        // Positioned-atomic placements `(entity, inline_local, block_local)`: same.
-        self.relpos_atomic_placements
-            .retain_mut(|(_, _, block_local)| {
-                if keep(*block_local) {
-                    *block_local -= rebase_delta;
-                    true
-                } else {
-                    false
-                }
-            });
-    }
-}
-
-/// Assign `LayoutBox` to inline elements based on their bounding rects.
-///
-/// Each entity that has a `ComputedStyle` (i.e. is an element, not a text node)
-/// and was tracked during line packing receives a `LayoutBox` with its
-/// bounding rectangle in layout coordinates.
-pub(super) fn assign_inline_layout_boxes(
-    dom: &mut EcsDom,
-    entity_bounds: &HashMap<Entity, EntityBounds>,
-    content_origin: Point,
-    is_vertical: bool,
-    layout_generation: u32,
-) {
-    let (origin_x, origin_y) = (content_origin.x, content_origin.y);
-    for (entity, bounds) in entity_bounds {
-        if dom.world().get::<&ComputedStyle>(*entity).is_err() {
-            continue;
-        }
-        // Skip entities that already have a LayoutBox (e.g. from layout_child
-        // for atomic inline boxes like inline-block).
-        if dom.world().get::<&LayoutBox>(*entity).is_ok() {
-            continue;
-        }
-        let (x, y, w, h) = if is_vertical {
-            (
-                origin_x + bounds.block_start,
-                origin_y + bounds.inline_start,
-                bounds.block_end - bounds.block_start,
-                bounds.inline_end - bounds.inline_start,
-            )
-        } else {
-            (
-                origin_x + bounds.inline_start,
-                origin_y + bounds.block_start,
-                bounds.inline_end - bounds.inline_start,
-                bounds.block_end - bounds.block_start,
-            )
-        };
-        let lb = LayoutBox {
-            content: Rect::new(x, y, w, h),
-            padding: EdgeSizes::default(),
-            border: EdgeSizes::default(),
-            margin: EdgeSizes::default(),
-            first_baseline: None,
-            layout_generation,
-        };
-        let _ = dom.world_mut().insert_one(*entity, lb);
-
-        // Store per-line rects for getClientRects() (CSSOM View §6): one border-box
-        // fragment per line. A single-line element (`len() == 1` after the per-line
-        // merge) exposes its one rect via the LayoutBox border box (the getClientRects
-        // fallback), so no component is stored.
-        //
-        // NOTE (pre-existing, engine-wide — slot `#11-inline-relayout-box-staleness`):
-        // this runs only when the element has no LayoutBox yet (the `continue` above
-        // skips entities that already carry one). `layout_tree` never clears stale
-        // boxes, so on a *relayout* an inline element keeps its prior box and neither its
-        // LayoutBox nor a stale `InlineClientRects` is refreshed here. Reconciling that
-        // needs a generation-bump / box-teardown in the layout driver (it also leaves the
-        // LayoutBox itself stale), out of scope for this getClientRects-alignment slice.
-        if bounds.line_rects.len() > 1 {
-            let rects: Vec<elidex_plugin::Rect> = bounds
-                .line_rects
-                .iter()
-                .map(|lr| {
-                    if is_vertical {
-                        elidex_plugin::Rect::new(
-                            origin_x + lr.block_start,
-                            origin_y + lr.inline_start,
-                            lr.block_size,
-                            lr.inline_end - lr.inline_start,
-                        )
-                    } else {
-                        elidex_plugin::Rect::new(
-                            origin_x + lr.inline_start,
-                            origin_y + lr.block_start,
-                            lr.inline_end - lr.inline_start,
-                            lr.block_size,
-                        )
-                    }
-                })
-                .collect();
-            let _ = dom
-                .world_mut()
-                .insert_one(*entity, elidex_plugin::InlineClientRects(rects));
         }
     }
 }
