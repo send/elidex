@@ -6,13 +6,13 @@
 //! formats over a known P-256 vector.
 
 use super::fill_seq;
-use crate::algorithm::{EcAlgorithm, NamedCurve};
-use crate::key::{KeyType, KeyUsage};
+use crate::algorithm::{EcAlgorithm, EcdhPeer, NamedCurve};
+use crate::key::{KeyAlgorithm, KeyType, KeyUsage};
 use crate::ops::{
-    export_key, generate_key, import_key, sign, verify, ExportedKey, GeneratedKey, KeyData,
-    KeyFormat,
+    derive_bits, derive_key, export_key, generate_key, import_key, sign, verify, ExportedKey,
+    GeneratedKey, KeyData, KeyFormat,
 };
-use crate::{normalize, JsonWebKey, NormalizedAlgorithm, Operation};
+use crate::{normalize, CryptoKeyData, JsonWebKey, NormalizedAlgorithm, Operation};
 
 // RFC 7515 Appendix A.3.1 — the ES256 (P-256) example key (x / y / d are the
 // base64url coordinates / scalar).
@@ -360,6 +360,170 @@ fn ecdsa_sign_hash_mismatch_still_verifies_with_same_hash() {
     assert!(verify(ecdsa_params_alg("SHA-384"), &public, &sig, b"data").unwrap());
     // Verifying the SHA-384 signature under SHA-256 must fail.
     assert!(!verify(ecdsa_params_alg("SHA-256"), &public, &sig, b"data").unwrap());
+}
+
+// A second deterministic "random" fill, distinct from `fill_seq`, so two
+// generated EC key pairs differ (a genuine A ≠ B for the ECDH symmetry test).
+fn fill_offset(buf: &mut [u8]) -> Result<(), crate::error::AlgorithmError> {
+    for (i, b) in buf.iter_mut().enumerate() {
+        *b = (i as u8).wrapping_add(0x40);
+    }
+    Ok(())
+}
+
+fn ecdh_peer(key: &CryptoKeyData) -> EcdhPeer {
+    EcdhPeer {
+        key_type: key.key_type,
+        algorithm: key.algorithm.name(),
+        curve: key.algorithm.named_curve(),
+        public_point: key.material.ec_public_point().map(<[u8]>::to_vec),
+    }
+}
+
+fn ecdh_keypair<F>(curve: NamedCurve, fill: F) -> (CryptoKeyData, CryptoKeyData)
+where
+    F: FnMut(&mut [u8]) -> Result<(), crate::error::AlgorithmError>,
+{
+    expect_pair(
+        generate_key(
+            ec_alg(Operation::GenerateKey, EcAlgorithm::Ecdh, curve),
+            true,
+            vec![KeyUsage::DeriveBits, KeyUsage::DeriveKey],
+            fill,
+        )
+        .expect("ECDH keygen"),
+    )
+}
+
+#[test]
+fn ecdh_derive_bits_is_symmetric() {
+    let (a_pub, a_priv) = ecdh_keypair(NamedCurve::P256, fill_seq);
+    let (b_pub, b_priv) = ecdh_keypair(NamedCurve::P256, fill_offset);
+    // The two pairs must differ for a meaningful symmetry test.
+    assert_ne!(a_pub.material, b_pub.material);
+
+    let ab = derive_bits(
+        NormalizedAlgorithm::EcdhDerive {
+            peer: ecdh_peer(&b_pub),
+        },
+        &a_priv,
+        None,
+    )
+    .expect("A.priv × B.pub");
+    let ba = derive_bits(
+        NormalizedAlgorithm::EcdhDerive {
+            peer: ecdh_peer(&a_pub),
+        },
+        &b_priv,
+        None,
+    )
+    .expect("B.priv × A.pub");
+    // ECDH is symmetric, and the secret is the X coordinate (coordinate_len).
+    assert_eq!(ab, ba);
+    assert_eq!(ab.len(), NamedCurve::P256.coordinate_len());
+}
+
+#[test]
+fn ecdh_derive_bits_length_truncation() {
+    let (a_pub, _) = ecdh_keypair(NamedCurve::P256, fill_seq);
+    let (_, b_priv) = ecdh_keypair(NamedCurve::P256, fill_offset);
+    let peer = ecdh_peer(&a_pub);
+    let full = derive_bits(
+        NormalizedAlgorithm::EcdhDerive { peer: peer.clone() },
+        &b_priv,
+        None,
+    )
+    .unwrap();
+    // First 128 bits = the first 16 bytes of the full secret.
+    let short = derive_bits(
+        NormalizedAlgorithm::EcdhDerive { peer: peer.clone() },
+        &b_priv,
+        Some(128),
+    )
+    .unwrap();
+    assert_eq!(short, full[..16]);
+    // length > secret bit length → OperationError (P-256 secret is 256 bits).
+    let err =
+        derive_bits(NormalizedAlgorithm::EcdhDerive { peer }, &b_priv, Some(264)).unwrap_err();
+    assert!(matches!(err, crate::AlgorithmError::Operation(_)));
+}
+
+#[test]
+fn ecdh_derive_bits_peer_mismatches_are_invalid_access() {
+    let (_, base_priv) = ecdh_keypair(NamedCurve::P256, fill_seq);
+    let (good_pub, _) = ecdh_keypair(NamedCurve::P256, fill_offset);
+    let (wrong_curve_pub, _) = ecdh_keypair(NamedCurve::P384, fill_offset);
+
+    // Peer on a different curve (§24.4.2 step 5).
+    let err = derive_bits(
+        NormalizedAlgorithm::EcdhDerive {
+            peer: ecdh_peer(&wrong_curve_pub),
+        },
+        &base_priv,
+        None,
+    )
+    .unwrap_err();
+    assert!(matches!(err, crate::AlgorithmError::InvalidAccess(_)));
+
+    // Peer with the wrong algorithm name — ECDSA (§24.4.2 step 4).
+    let mut ecdsa_peer = ecdh_peer(&good_pub);
+    ecdsa_peer.algorithm = crate::AlgorithmName::Ecdsa;
+    let err = derive_bits(
+        NormalizedAlgorithm::EcdhDerive { peer: ecdsa_peer },
+        &base_priv,
+        None,
+    )
+    .unwrap_err();
+    assert!(matches!(err, crate::AlgorithmError::InvalidAccess(_)));
+
+    // Peer that is a private (not public) key (§24.4.2 step 3).
+    let mut private_peer = ecdh_peer(&good_pub);
+    private_peer.key_type = KeyType::Private;
+    let err = derive_bits(
+        NormalizedAlgorithm::EcdhDerive { peer: private_peer },
+        &base_priv,
+        None,
+    )
+    .unwrap_err();
+    assert!(matches!(err, crate::AlgorithmError::InvalidAccess(_)));
+}
+
+fn aes_import_alg() -> NormalizedAlgorithm {
+    normalize(
+        Operation::ImportKey,
+        crate::RawAlgorithm::from_name("AES-GCM"),
+    )
+    .expect("AES import normalizes")
+}
+
+fn aes_get_key_length_alg(bits: u32) -> NormalizedAlgorithm {
+    let mut raw = crate::RawAlgorithm::from_name("AES-GCM");
+    raw.length = Some(bits);
+    normalize(Operation::GetKeyLength, raw).expect("AES get-key-length normalizes")
+}
+
+#[test]
+fn ecdh_derive_key_to_aes_gcm() {
+    let (a_pub, _) = ecdh_keypair(NamedCurve::P256, fill_seq);
+    let (_, b_priv) = ecdh_keypair(NamedCurve::P256, fill_offset);
+    // §14.3.7 deriveKey: ECDH base + an AES-GCM derivedKeyType → a 256-bit AES
+    // key (P-256 secret is exactly 256 bits).
+    let derived = derive_key(
+        NormalizedAlgorithm::EcdhDerive {
+            peer: ecdh_peer(&a_pub),
+        },
+        &b_priv,
+        aes_import_alg(),
+        aes_get_key_length_alg(256),
+        true,
+        vec![KeyUsage::Encrypt, KeyUsage::Decrypt],
+    )
+    .expect("ECDH deriveKey → AES-GCM");
+    assert_eq!(derived.key_type, KeyType::Secret);
+    assert!(matches!(
+        derived.algorithm,
+        KeyAlgorithm::Aes { length: 256, .. }
+    ));
 }
 
 #[test]

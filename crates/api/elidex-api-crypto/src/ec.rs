@@ -20,7 +20,7 @@ use elliptic_curve::pkcs8::{DecodePrivateKey, EncodePrivateKey};
 use elliptic_curve::rand_core::{CryptoRng, RngCore};
 use elliptic_curve::sec1::ToEncodedPoint;
 
-use crate::algorithm::{EcAlgorithm, NamedCurve};
+use crate::algorithm::{EcAlgorithm, EcdhPeer, NamedCurve};
 use crate::error::AlgorithmError;
 use crate::hash::HashAlgorithm;
 use crate::jwk::{self, JsonWebKey};
@@ -544,6 +544,99 @@ pub(crate) fn verify(
 }
 
 // ---------------------------------------------------------------------------
+// ECDH deriveBits (WebCrypto §24.4.2)
+// ---------------------------------------------------------------------------
+
+/// ECDH `deriveBits` (WebCrypto §24.4.2): validate the §24.4.2
+/// InvalidAccessError precedence against the base key (steps 1, 3, 4, 5),
+/// perform the ECDH primitive (RFC 6090 §4) yielding the shared secret (the
+/// field-element-to-octet-string X coordinate, `coordinate_len` bytes), then
+/// apply the step-8 length semantics.  `peer` is the VM-extracted
+/// [`EcdhKeyDeriveParams.public`][EcdhPeer]; the §14.3.8 name + `deriveBits`-
+/// usage gate ran in [`crate::ops::derive_bits`] / [`crate::ops::derive_key`].
+///
+/// `length` semantics differ from the KDFs: `None` returns the **full**
+/// secret (not an OperationError); `Some(len)` returns the first `len` bits
+/// (sub-byte aligned, masking the final octet), or an OperationError if `len`
+/// exceeds the secret's bit length.
+pub(crate) fn derive_bits(
+    base_key: &CryptoKeyData,
+    peer: &EcdhPeer,
+    length: Option<u32>,
+) -> Result<Vec<u8>, AlgorithmError> {
+    // step 1: the base key must be private.
+    let scalar = ec_private_scalar(base_key)?;
+    let curve = base_key
+        .algorithm
+        .named_curve()
+        .expect("an ECDH base key has a curve");
+    // step 3: the peer must be public.
+    if peer.key_type != KeyType::Public {
+        return Err(invalid_access("the ECDH public key is not a public key"));
+    }
+    // step 4: the peer's algorithm name must equal the base key's (ECDH).
+    if peer.algorithm != base_key.algorithm.name() {
+        return Err(invalid_access(
+            "the ECDH public key algorithm does not match the base key",
+        ));
+    }
+    // step 5: the peer's curve must equal the base key's.
+    if peer.curve != Some(curve) {
+        return Err(invalid_access(
+            "the ECDH public key curve does not match the base key",
+        ));
+    }
+    let peer_point = peer
+        .public_point
+        .as_deref()
+        .ok_or_else(|| invalid_access("the ECDH public key has no point"))?;
+    // step 6: the ECDH primitive → the shared secret (X coordinate octets).
+    let secret = ecdh_shared_secret(curve, scalar, peer_point)?;
+    // step 8: the length semantics (null → full; else first `length` bits).
+    truncate_to_length(secret, length)
+}
+
+/// The ECDH primitive (WebCrypto §24.4.2 step 6 / RFC 6090 §4): scalar-
+/// multiply the peer point by the base scalar, returning the shared secret's
+/// X coordinate as octets (RFC 6090 §6.2, `coordinate_len` bytes big-endian).
+fn ecdh_shared_secret(
+    curve: NamedCurve,
+    scalar: &[u8],
+    peer_point: &[u8],
+) -> Result<Vec<u8>, AlgorithmError> {
+    with_curve!(curve, cc, {
+        let sk = cc::SecretKey::from_slice(scalar).map_err(|_| key_inaccessible())?;
+        let peer_pk = cc::PublicKey::from_sec1_bytes(peer_point)
+            .map_err(|_| operation("the ECDH public key point is invalid"))?;
+        let shared = cc::ecdh::diffie_hellman(sk.to_nonzero_scalar(), peer_pk.as_affine());
+        Ok(shared.raw_secret_bytes().to_vec())
+    })
+}
+
+/// WebCrypto §24.4.2 step 8: `None` returns the full secret; `Some(len)`
+/// returns the first `len` bits (masking the final partial octet), or an
+/// OperationError if `len` exceeds the secret's bit length.
+fn truncate_to_length(secret: Vec<u8>, length: Option<u32>) -> Result<Vec<u8>, AlgorithmError> {
+    let Some(length) = length else {
+        return Ok(secret);
+    };
+    let length = length as usize;
+    if length > secret.len() * 8 {
+        return Err(operation(
+            "the requested length exceeds the ECDH shared secret",
+        ));
+    }
+    let full_bytes = length / 8;
+    let rem_bits = length % 8; // 0..8
+    let mut out = secret[..full_bytes].to_vec();
+    if rem_bits != 0 {
+        // Keep the high `rem_bits` of the next octet, zero the rest.
+        out.push(secret[full_bytes] & (0xFFu8 << (8 - rem_bits)));
+    }
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------
 // exportKey (WebCrypto §23.7.5 / §24.4.4)
 // ---------------------------------------------------------------------------
 
@@ -720,6 +813,14 @@ fn decode_b64(s: &str) -> Result<Vec<u8>, AlgorithmError> {
 
 fn data(msg: &str) -> AlgorithmError {
     AlgorithmError::Data(msg.to_string())
+}
+
+fn invalid_access(msg: &str) -> AlgorithmError {
+    AlgorithmError::InvalidAccess(msg.to_string())
+}
+
+fn operation(msg: &str) -> AlgorithmError {
+    AlgorithmError::Operation(msg.to_string())
 }
 
 /// The §23.7.5 / §24.4.4 step-2 "key material cannot be accessed →

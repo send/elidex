@@ -633,7 +633,24 @@ pub fn derive_bits(
     length: Option<u32>,
 ) -> Result<Vec<u8>, AlgorithmError> {
     require_key_usable(&algorithm, base_key, KeyUsage::DeriveBits)?;
-    derive_bits_raw(&algorithm, base_key.material.as_bytes(), length)
+    derive_secret_bits(&algorithm, base_key, length)
+}
+
+/// The algorithm-internal derive-bits dispatch shared by [`derive_bits`] and
+/// [`derive_key`] (after their §14.3.8 / §14.3.7 name + usage gates): ECDH
+/// (§24.4.2) takes the base key + peer (a non-flat key material), while the
+/// KDFs (HKDF §33.4.1 / PBKDF2 §34.4.1) take the flat key material.  Routing
+/// here keeps the EC path off [`derive_bits_raw`]'s `as_bytes` + multiple-of-8
+/// length rule (the ECDH length semantics differ).
+fn derive_secret_bits(
+    algorithm: &NormalizedAlgorithm,
+    base_key: &CryptoKeyData,
+    length: Option<u32>,
+) -> Result<Vec<u8>, AlgorithmError> {
+    match algorithm {
+        NormalizedAlgorithm::EcdhDerive { peer } => crate::ec::derive_bits(base_key, peer, length),
+        _ => derive_bits_raw(algorithm, base_key.material.as_bytes(), length),
+    }
 }
 
 /// The algorithm-internal derive-bits operation (WebCrypto §33.4.1 HKDF /
@@ -705,8 +722,9 @@ pub fn derive_key(
     require_usage(base_key, KeyUsage::DeriveKey)?;
     // step 14: length = get key length of the derivedKeyType.
     let length = get_key_length(length_algorithm)?;
-    // step 15: derive `secret` (no deriveBits-usage / name recheck).
-    let secret = derive_bits_raw(&derive_algorithm, base_key.material.as_bytes(), length)?;
+    // step 15: derive `secret` (no deriveBits-usage / name recheck) — ECDH or
+    // a KDF, via the shared dispatch.
+    let secret = derive_secret_bits(&derive_algorithm, base_key, length)?;
     // step 16: importKey("raw", secret, derivedKeyType, extractable, usages)
     // — also raises the step-17 empty-usages SyntaxError for a secret key.
     import_key(

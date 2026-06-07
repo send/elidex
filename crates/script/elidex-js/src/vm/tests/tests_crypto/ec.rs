@@ -91,6 +91,47 @@ fn ecdsa_sign_with_public_key_rejects_invalid_access() {
 }
 
 #[test]
+fn ecdh_derive_bits_is_symmetric() {
+    // Two ECDH key pairs; deriveBits(A.priv, B.pub) == deriveBits(B.priv,
+    // A.pub) — exercises the §24.3 `public` CryptoKey member marshalling.
+    let src = "globalThis.r = 'pending'; \
+         const gen = () => crypto.subtle.generateKey({name:'ECDH', namedCurve:'P-256'}, true, ['deriveBits']); \
+         gen().then(a => gen().then(b => \
+           crypto.subtle.deriveBits({name:'ECDH', public: b.publicKey}, a.privateKey, 256).then(s1 => \
+             crypto.subtle.deriveBits({name:'ECDH', public: a.publicKey}, b.privateKey, 256).then(s2 => { \
+               const u1 = new Uint8Array(s1), u2 = new Uint8Array(s2); \
+               let eq = (u1.length === 32 && u2.length === 32); \
+               for (let i = 0; i < u1.length; i++) { if (u1[i] !== u2[i]) eq = false; } \
+               globalThis.r = eq ? 'equal' : 'diff'; \
+             })))) \
+           .catch(e => { globalThis.r = 'ERR:' + e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "equal");
+}
+
+#[test]
+fn ecdh_derive_bits_non_crypto_key_public_is_type_error() {
+    // §24.3 `public` is a required CryptoKey member — a plain object is a
+    // WebIDL TypeError (settled on the Promise).
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey({name:'ECDH', namedCurve:'P-256'}, true, ['deriveBits']) \
+           .then(p => crypto.subtle.deriveBits({name:'ECDH', public: {}}, p.privateKey, 128)) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "TypeError");
+}
+
+#[test]
+fn ecdh_derive_bits_curve_mismatch_rejects_invalid_access() {
+    // A P-384 peer against a P-256 base key → InvalidAccessError (§24.4.2
+    // step 5).
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey({name:'ECDH', namedCurve:'P-256'}, true, ['deriveBits']) \
+           .then(base => crypto.subtle.generateKey({name:'ECDH', namedCurve:'P-384'}, true, ['deriveBits']) \
+             .then(peer => crypto.subtle.deriveBits({name:'ECDH', public: peer.publicKey}, base.privateKey, 128))) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "InvalidAccessError");
+}
+
+#[test]
 fn crypto_key_pair_is_not_constructable() {
     // CryptoKeyPair is a plain dictionary, not an interface — there is no
     // global constructor for it.
