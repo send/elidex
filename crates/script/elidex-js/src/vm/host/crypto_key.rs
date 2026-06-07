@@ -279,6 +279,7 @@ fn native_crypto_key_get_usages(
 /// the inner `alloc_object` calls: GC is disabled for the whole duration
 /// of a `NativeFunction` call (see `natives_array_hof.rs`), so
 /// `alloc_object` here never triggers a collection.
+#[allow(clippy::too_many_lines)] // flat exhaustive match: one `[[algorithm]]` object-shape per KeyAlgorithm family — splitting scatters the per-family marshalling
 fn build_algorithm_object(ctx: &mut NativeContext<'_>, algorithm: KeyAlgorithm) -> ObjectId {
     let object_proto = ctx.vm.object_prototype;
     match algorithm {

@@ -146,6 +146,7 @@ pub(super) fn marshal_algorithm(
 /// value, key length) is validated later in the engine-independent crate
 /// (`crypto::normalize` + `crypto::ops`), at the op step where the spec
 /// throws.
+#[allow(clippy::too_many_lines)] // flat exhaustive match: one member-read block per AlgorithmParams shape — splitting scatters the spec-ordered per-dictionary marshalling
 fn read_params(
     ctx: &mut NativeContext<'_>,
     id: ObjectId,
@@ -308,8 +309,9 @@ fn read_params(
         AlgorithmParams::EcdhKeyDeriveParams => {
             // `EcdhKeyDeriveParams`: public (required `CryptoKey` peer) — the
             // novel CryptoKey-valued member.  Brand-check + extract the peer's
-            // metadata + SEC1 point (§2.2); the §24.4.2 InvalidAccessError
-            // checks against the base key run later in the crate.
+            // metadata + SEC1 point (the Layering-mandate marshalling boundary);
+            // the §24.4.2 InvalidAccessError checks against the base key run
+            // later in the crate.
             raw.peer = Some(read_ecdh_public_member(ctx, id, method)?);
         }
     }
@@ -320,7 +322,7 @@ fn read_params(
 /// (WebCrypto §24.3) and extract its spec-relevant metadata + SEC1 public
 /// point into an [`EcdhPeer`].  Per the Layering mandate this conveys
 /// **bytes + metadata** into the engine-independent crate, never a VM handle
-/// (§2.2 marshalling): a missing / non-CryptoKey value is a WebIDL
+/// (the marshalling boundary): a missing / non-CryptoKey value is a WebIDL
 /// `TypeError` here, while the §24.4.2 `InvalidAccessError` precedence (peer
 /// `[[type]]` = "public"; peer name = base name; peer curve = base curve) is
 /// validated against the base key in `crate::ops::derive_bits`.
@@ -340,7 +342,7 @@ fn read_ecdh_public_member(
         key_type: data.key_type,
         algorithm: data.algorithm.name(),
         curve: data.algorithm.named_curve(),
-        public_point: data.material.ec_public_point().map(|p| p.to_vec()),
+        public_point: data.material.ec_public_point().map(<[u8]>::to_vec),
     })
 }
 

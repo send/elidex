@@ -366,6 +366,9 @@ fn ecdsa_sign_hash_mismatch_still_verifies_with_same_hash() {
 
 // A second deterministic "random" fill, distinct from `fill_seq`, so two
 // generated EC key pairs differ (a genuine A ≠ B for the ECDH symmetry test).
+// (Same lints as `fill_seq`: the `fill_random` closure signature forces the
+// `Result`, and the `i as u8` deterministic fill is an intentional truncation.)
+#[allow(clippy::unnecessary_wraps, clippy::cast_possible_truncation)]
 fn fill_offset(buf: &mut [u8]) -> Result<(), crate::error::AlgorithmError> {
     for (i, b) in buf.iter_mut().enumerate() {
         *b = (i as u8).wrapping_add(0x40);

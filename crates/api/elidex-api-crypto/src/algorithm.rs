@@ -143,7 +143,7 @@ impl AlgorithmName {
 /// `encrypt` / `decrypt`).  All four share `generateKey` / `importKey` /
 /// `exportKey` / `get key length`, so the variant is the single discriminator
 /// across the normalized generate/import forms, the key's
-/// [`KeyAlgorithm`][crate::key::KeyAlgorithm], and the JWK `alg` mapping —
+/// [`KeyAlgorithm`], and the JWK `alg` mapping —
 /// dispatch stays typed rather than stringly.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AesVariant {
@@ -331,8 +331,8 @@ pub struct RawAlgorithm {
     /// [`NamedCurve`] by [`normalize`].
     pub named_curve: Option<String>,
     /// ECDH peer public key (WebCrypto §24.3 `EcdhKeyDeriveParams.public`)
-    /// — the VM-extracted metadata + SEC1 point ([`EcdhPeer`], §2.2
-    /// marshalling: the crate gets bytes + metadata, never a VM handle).
+    /// — the VM-extracted metadata + SEC1 point ([`EcdhPeer`]; the marshalling
+    /// boundary: the crate gets bytes + metadata, never a VM handle).
     pub peer: Option<EcdhPeer>,
 }
 

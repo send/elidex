@@ -112,8 +112,8 @@ const AES_KW_BLOCK: usize = 8;
 /// as the normal JWK import path rejects it (rather than silently accepted).
 /// The EC members (crv / x / y / d) are retained for the ECDSA / ECDH `jwk`
 /// round-trip (PR-4); the RSA members (n / e / …) of a non-`oct`/-EC key
-/// remain ignored until PR-5; malformed JSON or a non-object document is a
-/// `DataError`.
+/// remain ignored until the RSA vertical (PR-5, `#11-crypto-subtle-full`);
+/// malformed JSON or a non-object document is a `DataError`.
 pub fn from_json_bytes(bytes: &[u8]) -> Result<JsonWebKey, AlgorithmError> {
     let value: Value =
         serde_json::from_slice(bytes).map_err(|_| data("unwrapped key data is not valid JSON"))?;
