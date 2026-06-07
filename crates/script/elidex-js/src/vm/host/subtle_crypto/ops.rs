@@ -591,9 +591,11 @@ pub(super) fn native_subtle_crypto_derive_key(
 // wrapping key (AES-KW, or the AES-GCM/CBC/CTR encrypt fallback); unwrapKey
 // reverses it and imports the recovered key.  All wrap/export/import +
 // composition live in `elidex-api-crypto`; the VM only marshals + normalizes
-// (with the §14.3.11 / §14.3.12 wrap→encrypt / unwrap→decrypt fallback) and
-// performs the `jwk` JSON round-trip (`JSON.stringify` / "parse a JWK") that
-// is intrinsically an ECMAScript op over the JS object.
+// (with the §14.3.11 / §14.3.12 wrap→encrypt / unwrap→decrypt fallback).  The
+// `jwk` JSON round-trip (§14.3.11 step 14 / §9 "parse a JWK") runs in the
+// crate over the `JsonWebKey` struct, realm-isolated from the page ("a new
+// global object") — not over a JS object — so a page-defined
+// `Object.prototype` cannot observe or hijack a wrap / unwrap.
 // ===========================================================================
 
 pub(super) fn native_subtle_crypto_wrap_key(

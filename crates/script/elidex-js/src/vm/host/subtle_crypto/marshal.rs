@@ -580,6 +580,15 @@ pub(super) fn marshal_format(
 ///   its throws — even members HMAC ignores (the EC / RSA fields).  Only
 ///   the `oct`-relevant subset (`kty` / `use` / `key_ops` / `alg` / `ext`
 ///   / `k`) is retained.
+///
+/// This is the **live (JS-object) half** of a spec-forced mirror: `wrapKey` /
+/// `unwrapKey` re-implement the identical `JsonWebKey` dictionary conversion
+/// over JSON *bytes* in `elidex_api_crypto::jwk::from_json_bytes` (realm-
+/// isolated, no JS object — WebCrypto §9 "a new global object").  The two must
+/// stay in lockstep: adding an EC / RSA member here (PR-4 / PR-5) requires the
+/// same member in `from_json_bytes`, or wrap↔import coercion / error precedence
+/// diverge.  (A differential equivalence test is slotted for PR-4 under
+/// `#11-crypto-subtle-full`.)
 pub(super) fn marshal_jwk(
     ctx: &mut NativeContext<'_>,
     value: JsValue,
