@@ -73,11 +73,13 @@ where
     F: FnMut(&mut NativeContext<'_>, usize, JsValue) -> Result<T, VmError>,
 {
     // WebIDL §3.2.21 step 1: a non-Object value is a TypeError *before*
-    // `@@iterator` is looked up (step 2).  Without this guard,
-    // `resolve_iterator` would resolve `String.prototype[@@iterator]` for a
-    // string primitive and walk its code points — which the spec forbids
-    // for `sequence<T>` conversion (a string is not an Array/iterable
-    // sequence source).
+    // `@@iterator` is looked up (step 2).  This rejects a string
+    // **primitive** — which `resolve_iterator` would otherwise resolve
+    // `String.prototype[@@iterator]` for and walk per code point.  Only the
+    // *primitive* is forbidden as a `sequence<T>` source: a `String`
+    // *object* (`new String(..)`) is an Object, so it (correctly) passes
+    // this guard and proceeds to the step-2 `@@iterator` lookup like any
+    // other object.
     if !matches!(raw, JsValue::Object(_)) {
         return Err(VmError::type_error(msgs.not_iterable.to_owned()));
     }

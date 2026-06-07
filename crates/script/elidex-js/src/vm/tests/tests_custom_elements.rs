@@ -412,8 +412,8 @@ fn observed_attributes_string_primitive_rejected() {
              static get observedAttributes() { return 'abc'; } });",
     );
     assert!(
-        err.contains("TypeError") || err.contains("observedAttributes"),
-        "string observedAttributes must reject per WebIDL sequence step 1; got: {err}"
+        err.contains("TypeError") && err.contains("observedAttributes"),
+        "string observedAttributes must reject with a TypeError (WebIDL §3.2.21 step 1); got: {err}"
     );
 }
 
