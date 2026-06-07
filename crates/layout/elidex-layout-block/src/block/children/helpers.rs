@@ -363,6 +363,7 @@ pub(super) fn layout_float(
             dom,
             &grandchildren,
             elidex_plugin::Vector::new(delta_x, delta_y),
+            input.is_probe,
         );
     }
 }

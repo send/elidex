@@ -13,6 +13,7 @@ mod fragmentation_advanced;
 mod fragmentation_breaks;
 mod height_replaced;
 mod margin_collapse;
+mod shift_probe_guard;
 mod whitespace;
 mod width;
 mod writing_mode;
