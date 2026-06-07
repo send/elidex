@@ -178,6 +178,26 @@ fn hkdf_derivebits_member_getter_order() {
 }
 
 #[test]
+fn hkdf_derivebits_primitive_hash_converts_at_step6_before_siblings() {
+    // Codex R3 F4 / §18.4.4 step 6 + Web IDL `(object or DOMString)`: a
+    // non-object primitive `hash` (here `Symbol()`) takes the DOMString arm and
+    // is ToString-ed during the step-6 dictionary conversion — which throws
+    // BEFORE the sibling `info` / `salt` getters run (only an OBJECT hash's
+    // `name` lookup defers to step 10). So `order` stays empty and the
+    // rejection is the Symbol ToString TypeError.
+    let src = "globalThis.order = []; globalThis.r = 'pending'; \
+         const ikm = new Uint8Array(8).fill(0x0b); \
+         const alg = { name:'HKDF', hash: Symbol(), \
+           get info(){ globalThis.order.push('info'); return new Uint8Array(1); }, \
+           get salt(){ globalThis.order.push('salt'); return new Uint8Array(1); } }; \
+         crypto.subtle.importKey('raw', ikm, {name:'HKDF'}, false, ['deriveBits']) \
+           .then(k => crypto.subtle.deriveBits(alg, k, 256)) \
+           .then(() => { globalThis.r = 'resolved'; }, \
+                 e => { globalThis.r = e.name + '|' + globalThis.order.join(','); });";
+    assert_eq!(eval_global_string(src, "r"), "TypeError|");
+}
+
+#[test]
 fn hkdf_import_jwk_format_rejects_not_supported() {
     let src = "globalThis.r = 'pending'; \
          crypto.subtle.importKey('jwk', {kty:'oct', k:'AAAA'}, {name:'HKDF'}, false, ['deriveBits']) \

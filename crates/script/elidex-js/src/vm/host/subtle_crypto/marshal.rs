@@ -388,34 +388,43 @@ fn required_member_error(method: &str, member: &str) -> VmError {
     ))
 }
 
-/// Read the required `hash` member's **value** of a params dictionary that
+/// Read + step-6-convert the required `hash` member of a params dictionary that
 /// carries one (`HmacKeyGenParams` / `HmacImportParams`, `HkdfParams`,
-/// `Pbkdf2Params`) — the WebCrypto §18.4.4 **step 6** dictionary-conversion
-/// getter (`hash` sorts first: before `info` / `iterations` / `length` /
-/// `salt`).  An absent / `undefined` value is the required-member `TypeError`.
+/// `Pbkdf2Params`) — the WebCrypto §18.4.4 **step 6** dictionary conversion
+/// (`hash` sorts first: before `info` / `iterations` / `length` / `salt`).  An
+/// absent / `undefined` value is the required-member `TypeError`.
 ///
-/// This deliberately does NOT normalize the nested `HashAlgorithmIdentifier`
-/// (reading `hash.name`): §18.4.4 converts the whole dictionary at step 6
-/// (firing every top-level member getter in lexicographic order) and only
-/// then, at **step 10**, normalizes each `HashAlgorithmIdentifier` member.  So
-/// the caller reads every sibling top-level member first, then normalizes the
-/// returned value via [`marshal_hash_identifier`] — otherwise `hash.name`
-/// would fire before the `info` / `salt` / `iterations` / `length` getters and
-/// reject in the wrong order for a throwing / side-effecting getter.
+/// Per Web IDL the `hash` member's `HashAlgorithmIdentifier` =
+/// `(object or DOMString)` union is converted *at step 6* (in lexicographic
+/// position, before the sibling members): an **object** is kept as-is, while
+/// any **non-object primitive** takes the DOMString arm and is `ToString`-ed
+/// **now** — so `hash: Symbol()` throws here, before the `info` / `salt` /
+/// `iterations` / `length` getters run.  Only the object case's `name` lookup
+/// is deferred: §18.4.4 **step 10** normalizes the (now object-or-DOMString)
+/// member, and the caller therefore reads every sibling top-level member
+/// first, then calls [`marshal_hash_identifier`] on the value returned here.
 fn read_required_hash_value(
     ctx: &mut NativeContext<'_>,
     id: ObjectId,
     method: &str,
 ) -> Result<JsValue, VmError> {
     let hash_val = ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.hash_attr))?;
-    if matches!(hash_val, JsValue::Undefined) {
-        return Err(required_member_error(method, "hash"));
+    match hash_val {
+        JsValue::Undefined => Err(required_member_error(method, "hash")),
+        // Object arm: keep it; the `name` lookup is the step-10 deferral.
+        JsValue::Object(_) => Ok(hash_val),
+        // DOMString arm: ToString now (step 6) — a `Symbol` / `BigInt` throws
+        // here, before the sibling members are read.
+        other => Ok(JsValue::String(coerce::to_string(ctx.vm, other)?)),
     }
-    Ok(hash_val)
 }
 
-/// Marshal a `HashAlgorithmIdentifier` (string or `{name}`) — a **leaf**
-/// digest identifier with no nested `hash`/`length`, so it cannot recurse.
+/// Normalize a step-6-converted `HashAlgorithmIdentifier` (§18.4.4 step 10) —
+/// a **leaf** digest identifier (a `HashAlgorithmIdentifier` never has its own
+/// nested `hash`/`length`, so it cannot recurse).  The input is the value from
+/// [`read_required_hash_value`], so it is already either a `DOMString` (the
+/// step-6 union result for any primitive) or an object whose `name` is read
+/// here (the deferred step-10 lookup).
 fn marshal_hash_identifier(
     ctx: &mut NativeContext<'_>,
     value: JsValue,
