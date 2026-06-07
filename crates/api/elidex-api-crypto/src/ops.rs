@@ -485,16 +485,16 @@ fn aes_decrypt_op(
     }
 }
 
-/// `wrapKey` (WebCrypto §14.3.11), composing the export-then-wrap pipeline
-/// over the engine-independent ops so the VM only marshals and supplies the
-/// JWK-serialization step.
+/// `wrapKey` (WebCrypto §14.3.11), composing the full export-then-wrap pipeline
+/// in the engine-independent crate so the VM only marshals + normalizes.
 ///
 /// Steps, on `wrapping_key` then `key`: name-equality (step 9) with the
 /// `wrapKey` usage check (step 10); the export-support and extractable gates
 /// plus the export itself (steps 11-13, via [`export_key`]); the serialization
-/// (step 14, raw bytes verbatim, or — for `jwk` — the VM `serialize_jwk`
-/// closure running `JSON.stringify` then UTF-8 encoding, the one
-/// genuinely-ECMAScript step the crate cannot own); then the wrap-or-encrypt
+/// (step 14, raw bytes verbatim, or — for `jwk` — [`crate::jwk::to_json_bytes`],
+/// which serializes the `oct` JWK to JSON over the Rust struct **isolated from
+/// the page realm** per the §14.3.11 step-14 "new global object" requirement —
+/// no page `Object.prototype.toJSON` is invoked); then the wrap-or-encrypt
 /// dispatch (step 15), where AES-KW wraps via RFC 3394 while an AES-GCM/CBC/CTR
 /// wrapping key falls back to its encrypt *operation* (with no `encrypt`-usage
 /// recheck — §14.3.11 step 15 invokes the operation, not the `encrypt` method).
@@ -502,27 +502,21 @@ fn aes_decrypt_op(
 /// The wrappingKey gate (steps 9-10) runs **before** the key export (steps
 /// 11-13), matching the spec order (so a wrappingKey name/usage `InvalidAccess`
 /// wins over a non-exportable `key` `NotSupported`).
-pub fn wrap_key<F>(
+pub fn wrap_key(
     algorithm: NormalizedAlgorithm,
     wrapping_key: &CryptoKeyData,
     key: &CryptoKeyData,
     format: KeyFormat,
-    serialize_jwk: F,
-) -> Result<Vec<u8>, AlgorithmError>
-where
-    F: FnOnce(&JsonWebKey) -> Vec<u8>,
-{
+) -> Result<Vec<u8>, AlgorithmError> {
     // §14.3.11 step 9 (name equality) + step 10 (wrapKey usage) on wrappingKey.
     require_key_usable(&algorithm, wrapping_key, KeyUsage::WrapKey)?;
     // steps 11-13: export-support check + extractable gate + export the key.
     let bytes = match export_key(format, key)? {
         // step 14 (non-jwk): the exported bytes are the plaintext verbatim.
         ExportedKey::Raw(raw) => raw,
-        // step 14 (jwk): JSON.stringify the exported oct JWK + UTF-8 encode —
-        // delegated to the VM (the crate stays pure bytes; see CLAUDE.md
-        // Layering mandate). The serialization of a controlled oct JWK is
-        // infallible, so the closure is too.
-        ExportedKey::Jwk(jwk) => serialize_jwk(&jwk),
+        // step 14 (jwk): serialize the exported oct JWK to JSON bytes, in-crate
+        // and realm-isolated (no page `toJSON`).
+        ExportedKey::Jwk(jwk) => jwk::to_json_bytes(&jwk),
     };
     // step 15: wrap (AES-KW) or fall back to the encrypt op (AES-GCM/CBC/CTR).
     match algorithm {

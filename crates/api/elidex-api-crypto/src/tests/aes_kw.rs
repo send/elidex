@@ -259,28 +259,24 @@ fn ops_wrap_unwrap_raw_aes_kw_roundtrip() {
         vec![0x22u8; 16],
         vec![KeyUsage::Encrypt, KeyUsage::Decrypt],
     );
-    let wrapped = ops::wrap_key(
-        NormalizedAlgorithm::AesKwWrap,
-        &kek,
-        &key,
-        KeyFormat::Raw,
-        |_| unreachable!("raw format does not serialize a JWK"),
-    )
-    .unwrap();
+    let wrapped =
+        ops::wrap_key(NormalizedAlgorithm::AesKwWrap, &kek, &key, KeyFormat::Raw).unwrap();
     // RFC 3394 output is one 64-bit semiblock longer than the 16-byte key.
     assert_eq!(wrapped.len(), 24);
     let unwrapped = ops::unwrap_key(NormalizedAlgorithm::AesKwWrap, &kek, &wrapped).unwrap();
     assert_eq!(unwrapped, vec![0x22u8; 16]);
 }
 
-/// The §14.3.11 jwk path invokes the serialize closure with the exported oct
-/// JWK and wraps its bytes; unwrap recovers them.  (The real JSON round-trip is
-/// VM-side; here a controlled 16-byte serialization stands in.)
+/// The `jwk` wrap path serializes the exported oct JWK to JSON in-crate
+/// (realm-isolated, §14.3.11 step 14) and wraps the bytes; unwrap recovers the
+/// JSON, which parses back to the same `oct` JWK.  Uses AES-GCM (the encrypt
+/// fallback handles arbitrary lengths — an AES-KW wrap of the JSON would
+/// usually fail §30.3.1's multiple-of-64-bits rule, see the dedicated test).
 #[test]
-fn ops_wrap_key_jwk_invokes_serializer() {
+fn ops_wrap_unwrap_jwk_roundtrip_via_gcm() {
     let kek = import_raw(
-        AesVariant::Kw,
-        vec![0x33u8; 16],
+        AesVariant::Gcm,
+        vec![0x33u8; 32],
         vec![KeyUsage::WrapKey, KeyUsage::UnwrapKey],
     );
     let key = import_raw(
@@ -288,21 +284,28 @@ fn ops_wrap_key_jwk_invokes_serializer() {
         vec![0x44u8; 16],
         vec![KeyUsage::Encrypt, KeyUsage::Decrypt],
     );
-    let serialized = b"0123456789abcdef".to_vec(); // 16 bytes, a multiple of 8
-    let wrapped = ops::wrap_key(
-        NormalizedAlgorithm::AesKwWrap,
-        &kek,
-        &key,
+    let gcm = || NormalizedAlgorithm::AesGcm {
+        iv: vec![0x07u8; 12],
+        additional_data: None,
+        tag_length: 128,
+    };
+    let wrapped = ops::wrap_key(gcm(), &kek, &key, KeyFormat::Jwk).unwrap();
+    let json = ops::unwrap_key(gcm(), &kek, &wrapped).unwrap();
+    let jwk = crate::jwk::from_json_bytes(&json).unwrap();
+    assert_eq!(jwk.kty.as_deref(), Some("oct"));
+    assert_eq!(jwk.alg.as_deref(), Some("A128CBC"));
+    // Re-import the recovered JWK and confirm the key material round-trips.
+    let reimported = ops::import_key(
         KeyFormat::Jwk,
-        |jwk| {
-            assert_eq!(jwk.kty.as_deref(), Some("oct"));
-            assert_eq!(jwk.alg.as_deref(), Some("A128CBC"));
-            serialized.clone()
+        NormalizedAlgorithm::AesImport {
+            variant: AesVariant::Cbc,
         },
+        true,
+        vec![KeyUsage::Encrypt, KeyUsage::Decrypt],
+        KeyData::Jwk(jwk),
     )
     .unwrap();
-    let unwrapped = ops::unwrap_key(NormalizedAlgorithm::AesKwWrap, &kek, &wrapped).unwrap();
-    assert_eq!(unwrapped, b"0123456789abcdef");
+    assert_eq!(reimported.material, key.material);
 }
 
 /// The §14.3.11 step-15 encrypt fallback: an AES-GCM wrapping key wraps via its
@@ -324,10 +327,7 @@ fn ops_wrap_unwrap_aes_gcm_encrypt_fallback() {
         additional_data: None,
         tag_length: 128,
     };
-    let wrapped = ops::wrap_key(gcm(), &kek, &key, KeyFormat::Raw, |_| {
-        unreachable!("raw format does not serialize a JWK")
-    })
-    .unwrap();
+    let wrapped = ops::wrap_key(gcm(), &kek, &key, KeyFormat::Raw).unwrap();
     let unwrapped = ops::unwrap_key(gcm(), &kek, &wrapped).unwrap();
     assert_eq!(unwrapped, vec![0x66u8; 16]);
 }
@@ -339,13 +339,7 @@ fn ops_wrap_key_missing_wrap_usage_is_invalid_access() {
     let kek = import_raw(AesVariant::Kw, vec![0x11u8; 16], vec![KeyUsage::UnwrapKey]);
     let key = import_raw(AesVariant::Gcm, vec![0x22u8; 16], vec![KeyUsage::Encrypt]);
     assert!(matches!(
-        ops::wrap_key(
-            NormalizedAlgorithm::AesKwWrap,
-            &kek,
-            &key,
-            KeyFormat::Raw,
-            |_| Vec::new()
-        ),
+        ops::wrap_key(NormalizedAlgorithm::AesKwWrap, &kek, &key, KeyFormat::Raw),
         Err(AlgorithmError::InvalidAccess(_))
     ));
 }
@@ -370,13 +364,7 @@ fn ops_wrap_key_non_extractable_is_invalid_access() {
     )
     .unwrap();
     assert!(matches!(
-        ops::wrap_key(
-            NormalizedAlgorithm::AesKwWrap,
-            &kek,
-            &key,
-            KeyFormat::Raw,
-            |_| Vec::new()
-        ),
+        ops::wrap_key(NormalizedAlgorithm::AesKwWrap, &kek, &key, KeyFormat::Raw),
         Err(AlgorithmError::InvalidAccess(_))
     ));
 }
@@ -406,8 +394,7 @@ fn ops_wrap_key_name_mismatch_precedes_export_support() {
             NormalizedAlgorithm::AesKwWrap,
             &gcm_kek,
             &hkdf_key,
-            KeyFormat::Raw,
-            |_| Vec::new()
+            KeyFormat::Raw
         ),
         Err(AlgorithmError::InvalidAccess(_))
     ));
@@ -422,6 +409,63 @@ fn ops_unwrap_key_missing_unwrap_usage_is_invalid_access() {
         ops::unwrap_key(NormalizedAlgorithm::AesKwWrap, &kek, &[0u8; 24]),
         Err(AlgorithmError::InvalidAccess(_))
     ));
+}
+
+// ===========================================================================
+// JWK JSON round-trip (WebCrypto §14.3.11 step 14 / §9 parse-a-JWK) — done in
+// the crate over the `JsonWebKey` struct, isolated from any JS realm
+// ===========================================================================
+
+#[test]
+fn jwk_json_round_trip_omits_absent_members() {
+    let jwk = crate::JsonWebKey {
+        kty: Some("oct".to_string()),
+        k: Some("AAECAwQFBgcICQoLDA0ODw".to_string()),
+        alg: Some("A128KW".to_string()),
+        use_: None,
+        key_ops: Some(vec!["wrapKey".to_string(), "unwrapKey".to_string()]),
+        ext: Some(true),
+    };
+    let json = crate::jwk::to_json_bytes(&jwk);
+    let text = std::str::from_utf8(&json).unwrap();
+    // Absent `use` is omitted (skip_serializing_if), `use` member name is the
+    // `use_` field renamed.
+    assert!(
+        !text.contains("\"use\""),
+        "absent `use` must be omitted: {text}"
+    );
+    assert!(text.contains("\"key_ops\""));
+    assert_eq!(crate::jwk::from_json_bytes(&json).unwrap(), jwk);
+}
+
+#[test]
+fn jwk_from_json_ignores_unknown_members() {
+    // A full (EC) JWK parses to its `oct` subset; the EC fields are ignored,
+    // not rejected (so a wrapped key from another impl round-trips).
+    let json = br#"{"kty":"oct","k":"AAEC","crv":"P-256","x":"abc","ext":false}"#;
+    let jwk = crate::jwk::from_json_bytes(json).unwrap();
+    assert_eq!(jwk.kty.as_deref(), Some("oct"));
+    assert_eq!(jwk.k.as_deref(), Some("AAEC"));
+    assert_eq!(jwk.ext, Some(false));
+}
+
+#[test]
+fn jwk_from_json_malformed_is_data_error() {
+    for bad in [
+        &b"not json"[..],
+        &b"{ \"kty\": }"[..], // syntax error
+        &b"[1,2,3]"[..],      // not an object
+        &b"\"a-string\""[..], // not an object
+    ] {
+        assert!(
+            matches!(
+                crate::jwk::from_json_bytes(bad),
+                Err(AlgorithmError::Data(_))
+            ),
+            "malformed JWK JSON should be a DataError: {:?}",
+            std::str::from_utf8(bad)
+        );
+    }
 }
 
 // ===========================================================================

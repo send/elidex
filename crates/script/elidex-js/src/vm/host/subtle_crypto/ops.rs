@@ -10,18 +10,20 @@
 //! `elidex-api-crypto` inputs (via [`super::marshal`]), calls the crate
 //! `ops::*` entry, and returns the value `run_op` settles the Promise
 //! with.  ALL spec-validation lives in the crate; this module only
-//! marshals + maps [`AlgorithmError`] → DOMException.  The one
-//! genuinely-ECMAScript step the crate cannot own — the `jwk` wrap/unwrap
-//! `JSON.stringify` / `parse a JWK` round-trip — runs here over the JS
-//! object (`build_jwk_object` / `marshal_jwk` + the JSON natives), keeping
-//! the crate pure bytes (CLAUDE.md Layering mandate).
+//! marshals + maps [`AlgorithmError`] → DOMException.  The `importKey` /
+//! `exportKey` JWK marshalling reads / builds the caller's JS object here
+//! (`marshal_jwk` / `build_jwk_object`), but the `wrapKey` / `unwrapKey` JSON
+//! round-trip is done in the crate over the `JsonWebKey` struct
+//! ([`elidex_api_crypto::jwk::to_json_bytes`] / `from_json_bytes`) — WebCrypto
+//! §14.3.11 step 14 / §9 require it "in the context of a new global object",
+//! i.e. isolated from the page realm (no `Object.prototype.toJSON`, no
+//! caller-mutated prototypes).
 
 use elidex_api_crypto::{
     self as crypto, AlgorithmError, ExportedKey, KeyData, KeyFormat, NormalizedAlgorithm, Operation,
 };
 
 use super::super::super::coerce;
-use super::super::super::natives_json::{parse_json_str, stringify_to_string};
 use super::super::super::value::{JsValue, NativeContext, VmError};
 use super::super::super::VmInner;
 use super::super::array_buffer::create_array_buffer_from_bytes;
@@ -632,31 +634,14 @@ pub(super) fn native_subtle_crypto_wrap_key(
             Operation::WrapKey,
             Operation::Encrypt,
         )?;
-        // Clone the two key states: the §14.3.11 step-14 `JSON.stringify`
-        // closure below borrows `&mut ctx`, which would conflict with holding a
-        // side-store borrow across the crate call.  The symmetric key material
-        // is small; `exportKey` (no closure) can avoid the clone, `wrapKey`
-        // (which interleaves the VM-side serialization between export and wrap)
-        // cannot.
-        let wrapping_data = ctx.vm.crypto_key_states[&wrapping_key_id].clone();
-        let key_data = ctx.vm.crypto_key_states[&key_id].clone();
-        let wrapped = crypto::ops::wrap_key(normalized, &wrapping_data, &key_data, format, |jwk| {
-            // §14.3.11 step 14 (jwk): `JSON.stringify` the exported oct JWK,
-            // then UTF-8 encode.  The object is freshly built from controlled
-            // data (no user getters / `toJSON`, and GC is disabled for the
-            // native call), so `JSON.stringify` is total — the closure is
-            // infallible.
-            let obj = build_jwk_object(ctx, jwk);
-            stringify_to_string(
-                ctx,
-                JsValue::Object(obj),
-                JsValue::Undefined,
-                JsValue::Undefined,
-            )
-            .expect("JSON.stringify of a controlled oct JWK object cannot throw")
-            .expect("JSON.stringify of an object yields a string, not undefined")
-            .into_bytes()
-        })
+        // §14.3.11 steps 9-15 run entirely in the crate (gate → export →
+        // JSON-serialize the `jwk` form in a realm-isolated way → wrap): two
+        // shared side-store borrows, no clone of the secret material.
+        let wrapped = {
+            let wrapping_key = &ctx.vm.crypto_key_states[&wrapping_key_id];
+            let key = &ctx.vm.crypto_key_states[&key_id];
+            crypto::ops::wrap_key(normalized, wrapping_key, key, format)
+        }
         .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
         let buf = create_array_buffer_from_bytes(ctx.vm, wrapped);
         Ok(JsValue::Object(buf))
@@ -737,17 +722,14 @@ pub(super) fn native_subtle_crypto_unwrap_key(
         .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
 
         // step 15: "parse a JWK" (§9) for the `jwk` format, else the raw bytes.
+        // The JWK parse is done in the crate over the bytes (realm-isolated per
+        // §9 "new global object" — no page `Object.prototype` / `Array.prototype`
+        // is consulted), NOT via a JS object in the page realm.
         let key_data = match format {
-            KeyFormat::Jwk => {
-                // §9 "parse a JWK": interpret `bytes` as UTF-8, run `JSON.parse`,
-                // then convert the result to a `JsonWebKey` dictionary
-                // (`marshal_jwk`).  A malformed-JSON body rejects with the
-                // `JSON.parse` SyntaxError (the spec's step-4 propagation);
-                // a missing `kty` becomes the import's DataError.
-                let json = String::from_utf8_lossy(&bytes).into_owned();
-                let parsed = parse_json_str(ctx.vm, &json)?;
-                KeyData::Jwk(marshal_jwk(ctx, parsed)?)
-            }
+            KeyFormat::Jwk => KeyData::Jwk(
+                crypto::jwk::from_json_bytes(&bytes)
+                    .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?,
+            ),
             _ => KeyData::Raw(bytes),
         };
         // step 16: importKey(normalizedKeyAlgorithm, format, key, extractable,

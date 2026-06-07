@@ -1,13 +1,23 @@
 //! JSON Web Key (WebCrypto §15 `JsonWebKey`, RFC 7517) — the `oct`
-//! symmetric-key subset used by HMAC import/export.
+//! symmetric-key subset used by HMAC / AES import/export and the
+//! `wrapKey` / `unwrapKey` JWK round-trip.
 //!
-//! The VM marshals the live JS object into [`JsonWebKey`] fields (there
-//! is no JSON parse step — `keyData` arrives as a JS object, so member
-//! keys are inherently unique); this module validates the `oct` shape
-//! and decodes `k` (base64url, no padding, per RFC 7515 §2).
+//! For `importKey` / `exportKey` the VM marshals the live JS object into
+//! [`JsonWebKey`] fields (no JSON parse — `keyData` arrives as a JS object).
+//! For `wrapKey` / `unwrapKey` the JWK is serialized to / parsed from JSON
+//! **bytes** here ([`to_json_bytes`] / [`from_json_bytes`]) — WebCrypto
+//! §14.3.11 step 14 / §9 "parse a JWK" require the JSON representation to be
+//! produced "in the context of a new global object", i.e. **isolated from the
+//! page realm** (no page-defined `Object.prototype.toJSON`, no caller-mutated
+//! prototypes).  Doing it in this engine-independent crate over the
+//! `JsonWebKey` struct (never a JS object) is exactly that isolation, so a
+//! page that pollutes `Object.prototype` cannot observe or hijack a wrap /
+//! unwrap.  This module validates the `oct` shape and decodes `k` (base64url,
+//! no padding, per RFC 7515 §2).
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
+use serde::{Deserialize, Serialize};
 
 use crate::algorithm::AesVariant;
 use crate::error::AlgorithmError;
@@ -16,14 +26,51 @@ use crate::key::{CryptoKeyData, KeyUsage};
 
 /// A JSON Web Key (the members relevant to symmetric `oct` keys).
 /// `None` means the member was absent in the source object.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+///
+/// `Serialize` / `Deserialize` cover the `wrapKey` / `unwrapKey` JSON
+/// round-trip ([`to_json_bytes`] / [`from_json_bytes`]): absent members are
+/// omitted on serialize and tolerated on deserialize, and unknown JWK members
+/// (the EC / RSA fields of a non-`oct` key) are ignored rather than rejected,
+/// so a wrapped key from another implementation parses to its `oct` subset.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JsonWebKey {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub kty: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub k: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub alg: Option<String>,
+    #[serde(rename = "use", skip_serializing_if = "Option::is_none")]
     pub use_: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub key_ops: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ext: Option<bool>,
+}
+
+/// Serialize an `oct` [`JsonWebKey`] to JSON bytes for `wrapKey` (WebCrypto
+/// §14.3.11 step 14, the `jwk` branch).
+///
+/// The serialization runs entirely over the Rust struct — never a JS object —
+/// so it is isolated from the page realm (no `Object.prototype.toJSON` is
+/// invoked, satisfying the "new global object" requirement).  A plain struct
+/// of strings / bools / string sequences is always serializable, so this is
+/// infallible.
+pub fn to_json_bytes(jwk: &JsonWebKey) -> Vec<u8> {
+    serde_json::to_vec(jwk).expect("an oct JsonWebKey is always serializable")
+}
+
+/// Parse JSON bytes into a [`JsonWebKey`] for `unwrapKey` (WebCrypto §9 "parse
+/// a JWK", reached from §14.3.12 step 15).
+///
+/// The parse runs over the bytes directly — never via a JS object in the page
+/// realm — so caller-mutated `Object.prototype` / `Array.prototype` cannot run
+/// during the conversion (the "new global object" isolation).  Unknown JWK
+/// members are ignored; malformed JSON, a non-object document, or a wrong-typed
+/// `oct` member is a `DataError` (the unwrapped bytes are not a usable JWK).
+pub fn from_json_bytes(bytes: &[u8]) -> Result<JsonWebKey, AlgorithmError> {
+    serde_json::from_slice(bytes)
+        .map_err(|_| data("unwrapped key data is not a valid JSON Web Key"))
 }
 
 /// Validate an `oct` JWK for HMAC import and return the decoded key

@@ -189,3 +189,21 @@ fn wrap_non_cryptokey_argument_is_type_error() {
            .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
     assert_eq!(eval_global_string(src, "r"), "TypeError");
 }
+
+// ===========================================================================
+// Realm isolation (WebCrypto §14.3.11 step 14 / §9 parse-a-JWK "new global
+// object") — regression for the Codex R1 findings (#314).
+//
+// The fix makes the `jwk` wrap/unwrap JSON round-trip run entirely in the
+// engine-independent crate over the `JsonWebKey` struct — it never builds or
+// reads a JS object in the page realm — so a page-mutated `Object.prototype`
+// (`toJSON`, or a throwing inherited getter for an absent member) can neither
+// hijack a wrap nor spuriously reject an unwrap.  That isolation is enforced
+// *structurally* (the path has no JS-object step) and verified at the crate
+// level: `elidex-api-crypto::jwk::{to_json_bytes,from_json_bytes}` round-trip
+// + `ops_wrap_unwrap_jwk_roundtrip_via_gcm` in `tests/aes_kw.rs`.  A direct
+// VM-level prototype-pollution test is not expressible here — elidex does not
+// currently surface `Object.prototype` as a mutable property (a separate
+// core-engine gap; until it lands the attack is unreachable, but the spec
+// mandates the isolation unconditionally, so the crate owns it).
+// ===========================================================================
