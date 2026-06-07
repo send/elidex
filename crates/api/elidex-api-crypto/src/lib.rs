@@ -39,8 +39,8 @@ pub(crate) mod pbkdf2;
 mod tests;
 
 pub use algorithm::{
-    is_supported, normalize, params_shape, AesVariant, AlgorithmName, AlgorithmParams,
-    NormalizedAlgorithm, Operation, RawAlgorithm,
+    is_supported, normalize, params_shape, AesVariant, AlgorithmName, AlgorithmParams, EcAlgorithm,
+    EcdhPeer, NamedCurve, NormalizedAlgorithm, Operation, RawAlgorithm,
 };
 pub use error::AlgorithmError;
 pub use hash::HashAlgorithm;

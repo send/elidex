@@ -1349,6 +1349,12 @@ define_well_known_strings! {
         salt => "salt",
         info => "info",
         iterations => "iterations",
+        // EC params-dictionary members (EcKeyGenParams / EcKeyImportParams
+        // `namedCurve`, EcdhKeyDeriveParams `public`), read on the EC
+        // generateKey / importKey / deriveBits path.  `EcdsaParams.hash`
+        // reuses `hash_attr`.
+        named_curve => "namedCurve",
+        public_member => "public",
         crypto_key_global => "CryptoKey",
         extractable => "extractable",
         algorithm => "algorithm",

@@ -332,14 +332,18 @@ fn import_kdf_key(
     })
 }
 
-/// `exportKey` (WebCrypto §14.3.10 + §31 Export Key).
+/// `exportKey` (WebCrypto §14.3.10 + §31 / §23.7.5 / §24.4.4 Export Key).
 pub fn export_key(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKey, AlgorithmError> {
     // §14.3.10 step 6: the key's algorithm must support the export key
     // operation — checked BEFORE the step-7 extractable gate.  HKDF / PBKDF2
     // register no exportKey (§33.4 / §34.4), so exporting one is a
-    // NotSupportedError regardless of (its always-false) extractability.
+    // NotSupportedError regardless of (its always-false) extractability.  HMAC
+    // / AES (§31 / §27-§30) and EC (§23.7.5 / §24.4.4) all support it.
     match key.algorithm {
-        KeyAlgorithm::Hmac { .. } | KeyAlgorithm::Aes { .. } => {}
+        KeyAlgorithm::Hmac { .. }
+        | KeyAlgorithm::Aes { .. }
+        | KeyAlgorithm::Ecdsa { .. }
+        | KeyAlgorithm::Ecdh { .. } => {}
         KeyAlgorithm::Hkdf | KeyAlgorithm::Pbkdf2 => {
             return Err(AlgorithmError::NotSupported(
                 "HKDF / PBKDF2 keys do not support the exportKey operation".to_string(),
@@ -352,13 +356,35 @@ pub fn export_key(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKey,
             "key is not extractable".to_string(),
         ));
     }
+    // Per-family export dispatch (the format → bytes / JWK mapping differs by
+    // family): symmetric is raw-octets / oct-JWK; EC is SEC1 / SPKI / PKCS#8 /
+    // EC-JWK (the `ec` backend, PR-4 commit 2).
+    match key.algorithm {
+        KeyAlgorithm::Hmac { .. } | KeyAlgorithm::Aes { .. } => export_symmetric(format, key),
+        KeyAlgorithm::Ecdsa { .. } | KeyAlgorithm::Ecdh { .. } => {
+            Err(not_supported_op("exportKey"))
+        }
+        KeyAlgorithm::Hkdf | KeyAlgorithm::Pbkdf2 => unreachable!("KDF rejected at step 6"),
+    }
+}
+
+/// Export a symmetric (HMAC / AES) key (WebCrypto §31 / §27-§30 Export Key)
+/// — `raw` octets verbatim or the `oct` JWK; `pkcs8` / `spki` are
+/// asymmetric-only (NotSupportedError).  Called only for HMAC / AES (the
+/// step-6/step-7 gates ran in [`export_key`]).
+fn export_symmetric(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKey, AlgorithmError> {
     match format {
         KeyFormat::Raw => Ok(ExportedKey::Raw(key.material.as_bytes().to_vec())),
         KeyFormat::Jwk => Ok(ExportedKey::Jwk(match key.algorithm {
             KeyAlgorithm::Hmac { hash, .. } => jwk::export_oct_hmac(key, hash),
             KeyAlgorithm::Aes { variant, length } => jwk::export_oct_aes(key, variant, length),
-            // KDF keys were rejected by the step-6 export-support check above.
-            KeyAlgorithm::Hkdf | KeyAlgorithm::Pbkdf2 => unreachable!("KDF rejected at step 6"),
+            // Only HMAC / AES reach `export_symmetric`.
+            KeyAlgorithm::Hkdf
+            | KeyAlgorithm::Pbkdf2
+            | KeyAlgorithm::Ecdsa { .. }
+            | KeyAlgorithm::Ecdh { .. } => {
+                unreachable!("export_symmetric called only for HMAC/AES")
+            }
         })),
         KeyFormat::Pkcs8 | KeyFormat::Spki => Err(AlgorithmError::NotSupported(
             "symmetric key export supports only the 'raw' and 'jwk' formats".to_string(),
@@ -376,11 +402,13 @@ pub fn sign(
     require_key_usable(&algorithm, key, KeyUsage::Sign)?;
     match key.algorithm {
         KeyAlgorithm::Hmac { hash, .. } => Ok(hmac::sign(hash, key.material.as_bytes(), data)),
-        // `sign` only normalizes HMAC, so the name-match above rejects any
-        // non-HMAC key before reaching here.
-        KeyAlgorithm::Aes { .. } | KeyAlgorithm::Hkdf | KeyAlgorithm::Pbkdf2 => {
-            Err(not_supported_op("sign"))
-        }
+        // `sign` normalizes only HMAC + ECDSA, so the name-match above rejects
+        // any other key before reaching here.  (ECDSA lands in PR-4 commit 4.)
+        KeyAlgorithm::Aes { .. }
+        | KeyAlgorithm::Hkdf
+        | KeyAlgorithm::Pbkdf2
+        | KeyAlgorithm::Ecdsa { .. }
+        | KeyAlgorithm::Ecdh { .. } => Err(not_supported_op("sign")),
     }
 }
 
@@ -397,9 +425,12 @@ pub fn verify(
         KeyAlgorithm::Hmac { hash, .. } => {
             Ok(hmac::verify(hash, key.material.as_bytes(), signature, data))
         }
-        KeyAlgorithm::Aes { .. } | KeyAlgorithm::Hkdf | KeyAlgorithm::Pbkdf2 => {
-            Err(not_supported_op("verify"))
-        }
+        // `verify` normalizes only HMAC + ECDSA (ECDSA lands in PR-4 commit 4).
+        KeyAlgorithm::Aes { .. }
+        | KeyAlgorithm::Hkdf
+        | KeyAlgorithm::Pbkdf2
+        | KeyAlgorithm::Ecdsa { .. }
+        | KeyAlgorithm::Ecdh { .. } => Err(not_supported_op("verify")),
     }
 }
 

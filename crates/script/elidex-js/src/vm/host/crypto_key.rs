@@ -373,5 +373,37 @@ fn build_algorithm_object(ctx: &mut NativeContext<'_>, algorithm: KeyAlgorithm) 
             );
             obj
         }
+        // ECDSA / ECDH: `{ name: "ECDSA" | "ECDH", namedCurve: "P-256"… }`
+        // (WebCrypto §23.5 `EcKeyAlgorithm`, reused by ECDH §24).  Web IDL
+        // dictionary-to-ECMAScript-value order is lexicographic: `name` <
+        // `namedCurve`.
+        KeyAlgorithm::Ecdsa { curve } | KeyAlgorithm::Ecdh { curve } => {
+            let obj = ctx.alloc_object(Object {
+                kind: ObjectKind::Ordinary,
+                storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+                prototype: object_proto,
+                extensible: true,
+            });
+            let name = match algorithm {
+                KeyAlgorithm::Ecdsa { .. } => "ECDSA",
+                KeyAlgorithm::Ecdh { .. } => "ECDH",
+                _ => unreachable!("matched ECDSA / ECDH arm"),
+            };
+            let name_sid = ctx.intern(name);
+            ctx.vm.define_shaped_property(
+                obj,
+                PropertyKey::String(ctx.vm.well_known.name),
+                PropertyValue::Data(JsValue::String(name_sid)),
+                shape::PropertyAttrs::DATA,
+            );
+            let curve_sid = ctx.intern(curve.as_str());
+            ctx.vm.define_shaped_property(
+                obj,
+                PropertyKey::String(ctx.vm.well_known.named_curve),
+                PropertyValue::Data(JsValue::String(curve_sid)),
+                shape::PropertyAttrs::DATA,
+            );
+            obj
+        }
     }
 }
