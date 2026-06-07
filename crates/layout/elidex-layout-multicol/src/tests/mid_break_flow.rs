@@ -328,6 +328,94 @@ fn multicol_balanced_midbreak_ifc_one_fragment_no_probe_leftover() {
 // mid-break-IFC integration test is deferred for the same reason.)
 
 #[test]
+fn multicol_midbreak_ifc_with_atomic_text_still_persists() {
+    // Robustness (Codex PR#316 R1): a mid-break IFC containing a static atomic
+    // inline (an inline-block) must still persist its per-column TEXT correctly and
+    // carry the `AtomicBox` run (render walks it) without panicking. The atomic's
+    // per-column LayoutBox POSITION is committed-next (atomic-as-fragment, plan §C/§D)
+    // — a mid-break IFC re-runs `layout_atomic_items` for the whole IFC every column,
+    // so correct per-column atomic positioning needs the box-store fragment model;
+    // Z-1b deliberately does NOT reposition mid-break atomics (deferred whole, not
+    // half-fixed), keeping the pre-Z-1b box position. This pins the text deliverable's
+    // robustness to an atomic's presence.
+    let font_db = make_font_db();
+    if !fonts_available(&font_db) {
+        return;
+    }
+    let mut dom = EcsDom::new();
+    let container = elem(&mut dom, "div");
+    let _ = dom.world_mut().insert_one(
+        container,
+        ComputedStyle {
+            display: Display::Block,
+            column_count: Some(2),
+            column_fill: ColumnFill::Auto,
+            height: Dimension::Length(40.0),
+            ..ComputedStyle::default()
+        },
+    );
+    // IFC: leading wrapping text, an inline-block atomic, then more wrapping text —
+    // enough to overflow the column and break mid-IFC. Run-start = the first text node.
+    let div = elem(&mut dom, "div");
+    dom.append_child(container, div);
+    let _ = dom.world_mut().insert_one(
+        div,
+        ComputedStyle {
+            display: Display::Block,
+            font_family: TEST_FONTS.iter().map(|&s| s.to_string()).collect(),
+            ..ComputedStyle::default()
+        },
+    );
+    let run_start = dom.create_text(LONG_TEXT);
+    dom.append_child(div, run_start);
+    let ib = elem(&mut dom, "span");
+    let _ = dom.world_mut().insert_one(
+        ib,
+        ComputedStyle {
+            display: Display::InlineBlock,
+            width: Dimension::Length(30.0),
+            height: Dimension::Length(16.0),
+            font_family: TEST_FONTS.iter().map(|&s| s.to_string()).collect(),
+            ..ComputedStyle::default()
+        },
+    );
+    dom.append_child(div, ib);
+    let trailing = dom.create_text(LONG_TEXT);
+    dom.append_child(div, trailing);
+
+    let input = make_input(&font_db);
+    layout_multicol(&mut dom, container, &input, layout_child_fn);
+
+    // Text deliverable holds with the atomic present: the run-start persists an
+    // InlineFlow whose lines span ≥2 columns.
+    let flow = dom
+        .world()
+        .get::<&InlineFlow>(run_start)
+        .expect("mid-break IFC with an atomic still persists its text InlineFlow");
+    let xs: Vec<f32> = flow
+        .fragments
+        .iter()
+        .flat_map(|f| f.lines.iter())
+        .filter_map(|l| l.runs.first().map(elidex_ecs::InlineFlowRun::inline_start))
+        .collect();
+    assert!(
+        xs.iter().any(|x| x.abs() < 50.0) && xs.iter().any(|x| (x - 300.0).abs() < 50.0),
+        "text lines span columns 0 and 1 with the atomic present, got {xs:?}"
+    );
+    // The atomic is carried as an `AtomicBox` member somewhere in the flow (render
+    // walks it; its per-column position is committed-next).
+    let has_atomic = flow.fragments.iter().flat_map(|f| f.lines.iter()).any(|l| {
+        l.runs
+            .iter()
+            .any(|r| matches!(r, elidex_ecs::InlineFlowRun::AtomicBox { .. }))
+    });
+    assert!(
+        has_atomic,
+        "the inline-block atomic is carried as an AtomicBox run"
+    );
+}
+
+#[test]
 fn multicol_nested_block_midbreak_gets_no_inline_flow() {
     // D-Z2 (deferred): a div that breaks at *block-child* boundaries (nested-block
     // mid-break) is NOT an IFC container at the break — it stays legacy/G11 and gets

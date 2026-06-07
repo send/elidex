@@ -1010,43 +1010,52 @@ pub fn layout_inline_context_fragmented(
                     line
                 })
                 .collect();
-            // Reposition each *static* atomic inline's `LayoutBox` in THIS group to
-            // its on-line position (text-align already baked into `inline_start`).
-            // `layout_atomic_items` laid the atomic out at `content_origin` (IFC
-            // top-left); render paints it by `walk()`-ing its `LayoutBox`, so the box
-            // must reflect the line position (layout owns geometry — render does not
-            // paint-time-translate). Only *static* atomics are `AtomicBox` flow
-            // members; *relative/sticky* atomics are NOT members (they go through the
-            // `relpos_atomic_placements` reposition pass below — slice 3p-b-2), so
-            // this loop never touches one. The delta basis is the atomic's un-offset
-            // margin-box origin (`unoffset_origins`), which for a static atomic equals
-            // its current box origin → identical reposition to slice 3p-a. The loop
-            // runs per group, so a static atomic inside a relpos sub-flow is
-            // repositioned too. Block-axis = line top (baseline-naive; CSS 2 §10.8
-            // `vertical-align` within the line box is deferred — same as text runs).
-            // For `do_carrier` the box lands at column-0 base; the column inline shift
-            // is applied to the atomic's `LayoutBox` by the `col_children`
-            // `shift_descendants` in `position_column_fragments` (parallel to the box
-            // snapshot + the carrier lines' commit-time column offset).
-            for line in &lines {
-                for run in &line.runs {
-                    if let InlineFlowRun::AtomicBox {
-                        entity: atomic,
-                        inline_start,
-                    } = run
-                    {
-                        reposition_atomic_box(
-                            dom,
-                            *atomic,
-                            *inline_start,
-                            line.block_start,
-                            is_vertical,
-                            unoffset_origins.get(atomic).copied(),
-                        );
+            if persist_flow {
+                // Reposition each *static* atomic inline's `LayoutBox` in THIS group to
+                // its on-line position (text-align already baked into `inline_start`).
+                // `layout_atomic_items` laid the atomic out at `content_origin` (IFC
+                // top-left); render paints it by `walk()`-ing its `LayoutBox`, so the
+                // box must reflect the line position (layout owns geometry — render
+                // does not paint-time-translate). Only *static* atomics are `AtomicBox`
+                // flow members; *relative/sticky* atomics are NOT members (they go
+                // through the `relpos_atomic_placements` pass below — slice 3p-b-2). The
+                // delta basis is the atomic's un-offset margin-box origin
+                // (`unoffset_origins`), which for a static atomic equals its current box
+                // origin → identical reposition to slice 3p-a. Block-axis = line top
+                // (baseline-naive; CSS 2 §10.8 `vertical-align` within the line box is
+                // deferred — same as text runs).
+                //
+                // NOT run for `do_carrier` (mid-break): a multicol mid-break IFC re-runs
+                // `layout_atomic_items` for the WHOLE IFC every column (continuation),
+                // resetting any earlier-column atomic's box back to `content_origin`,
+                // and a single column's run only knows its own slice — so repositioning
+                // here would fix only the LAST column and leave earlier-column atomics
+                // displaced (Codex PR#316 R1). Correct per-fragment atomic positioning
+                // needs the box-store fragment model (it must carry the un-offset basis
+                // per column + position after the final re-lay) = the committed-next
+                // all-box-type program (atomic-as-fragment, plan §C/§D). Z-1b is
+                // text-only: the `AtomicBox` runs ARE carried in the per-column
+                // `InlineFlow` (so render walks them), but the atomic `LayoutBox`
+                // stays at its pre-Z-1b position (base + `col_children` shift) — no
+                // regression, deferred whole rather than half-fixed.
+                for line in &lines {
+                    for run in &line.runs {
+                        if let InlineFlowRun::AtomicBox {
+                            entity: atomic,
+                            inline_start,
+                        } = run
+                        {
+                            reposition_atomic_box(
+                                dom,
+                                *atomic,
+                                *inline_start,
+                                line.block_start,
+                                is_vertical,
+                                unoffset_origins.get(atomic).copied(),
+                            );
+                        }
                     }
                 }
-            }
-            if persist_flow {
                 // I-paged writes one fragment per page (length-1 Vec): each page's
                 // full re-layout replaces it (render walks the page interleaved before
                 // the next), so the run-start carries this page's slice stamped with
@@ -1060,6 +1069,8 @@ pub fn layout_inline_context_fragmented(
                 // do_carrier: this column's slice for this run-start group. multicol
                 // fill drains the carrier; `position_column_fragments` folds it into
                 // `group_key`'s `InlineFlow` offset to the column's inline position.
+                // Static-atomic / relpos-atomic reposition is intentionally NOT run for
+                // mid-break (see the `persist_flow` arm above) — committed-next.
                 carrier_groups.push((group_key, lines));
             }
         }
@@ -1072,18 +1083,20 @@ pub fn layout_inline_context_fragmented(
         // The delta basis is the atomic's un-offset margin-box origin: for a relpos
         // atomic the current box already carries the baked `apply_relative_offset`, so
         // `delta = target − un-offset` lands it at `target + offset` (offset preserved,
-        // not stripped). This runs even when no flow member persisted (e.g. a
-        // relpos-atomic-only line) — it is gated on `persist_flow || do_carrier` (the
-        // mid-break column shift moves these boxes to the column like the static ones).
-        for (atomic, inline_local, block_local) in packer.relpos_atomic_placements {
-            reposition_atomic_box(
-                dom,
-                atomic,
-                inline_local + inline_origin,
-                block_local + block_origin,
-                is_vertical,
-                unoffset_origins.get(&atomic).copied(),
-            );
+        // not stripped). Gated on `persist_flow` (NOT `do_carrier`) for the same reason
+        // as the static-atomic loop above — mid-break atomic positioning is
+        // committed-next, not half-fixed here.
+        if persist_flow {
+            for (atomic, inline_local, block_local) in packer.relpos_atomic_placements {
+                reposition_atomic_box(
+                    dom,
+                    atomic,
+                    inline_local + inline_origin,
+                    block_local + block_origin,
+                    is_vertical,
+                    unoffset_origins.get(&atomic).copied(),
+                );
+            }
         }
     }
     // Carrier reconcile (insert-or-remove, mirroring `clear_inline_flows`): the
