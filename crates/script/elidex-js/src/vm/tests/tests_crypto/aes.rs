@@ -305,6 +305,27 @@ fn gcm_wrong_additional_data_fails_auth() {
 }
 
 #[test]
+fn gcm_buffersource_params_snapshot_after_all_getters() {
+    // §18.4.4: step 6 converts the whole dict (firing every member getter)
+    // before step 10 snapshots the BufferSource bytes.  So an `iv` getter
+    // (read after `additionalData`) that mutates the additionalData buffer
+    // must be reflected in the captured AAD.  Encrypt with the mutating
+    // params, then decrypt supplying the *post-mutation* AAD ([99,2,3]); it
+    // round-trips only if encrypt snapshotted AAD after the iv getter ran.
+    let src = "globalThis.r = 'pending'; \
+         const aad = new Uint8Array([1,2,3]); \
+         const iv = new Uint8Array(12).fill(7); \
+         const msg = new TextEncoder().encode('m'); \
+         const params = {name:'AES-GCM', additionalData: aad, get iv() { aad[0] = 99; return iv; }}; \
+         crypto.subtle.generateKey({name:'AES-GCM', length:128}, true, ['encrypt','decrypt']) \
+           .then(k => crypto.subtle.encrypt(params, k, msg) \
+             .then(ct => crypto.subtle.decrypt({name:'AES-GCM', iv, additionalData: new Uint8Array([99,2,3])}, k, ct))) \
+           .then(pt => { globalThis.r = new TextDecoder().decode(pt); }, \
+                 e => { globalThis.r = 'err:' + e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "m");
+}
+
+#[test]
 fn encrypt_params_getter_runs_before_data_copy() {
     // §14.3.1 normalizes the algorithm (step 2 — which reads/snapshots the
     // AES params getters) *before* copying the data bytes (step 4).  So a

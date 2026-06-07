@@ -180,79 +180,80 @@ fn read_params(
         }
         AlgorithmParams::AesGcmParams => {
             // `AesGcmParams`: additionalData (optional), iv (required),
-            // tagLength (optional `[EnforceRange] octet`) — lexicographic.
+            // tagLength (optional `[EnforceRange] octet`).  WebCrypto §18.4.4
+            // step 6 converts the WHOLE dictionary (firing every member
+            // getter, lexicographic: additionalData, iv, tagLength) *before*
+            // step 10 snapshots the `BufferSource` members' bytes — so a
+            // later getter that mutates an earlier member's buffer must be
+            // reflected.  Read all getters first, then snapshot.
             let (aad_sid, iv_sid, tag_sid) = (
                 ctx.vm.well_known.additional_data,
                 ctx.vm.well_known.iv,
                 ctx.vm.well_known.tag_length,
             );
+            let aad_val = ctx.get_property_value(id, PropertyKey::String(aad_sid))?;
+            let iv_val = ctx.get_property_value(id, PropertyKey::String(iv_sid))?;
+            let tag_length = read_optional_octet(ctx, id, method, tag_sid, "tagLength")?;
+            // §18.4.4 step 10: snapshot the BufferSource bytes (post-getters).
             raw.additional_data =
-                read_optional_buffer_source(ctx, id, method, aad_sid, "additionalData")?;
-            raw.iv = Some(read_required_buffer_source(ctx, id, method, iv_sid, "iv")?);
-            raw.tag_length = read_optional_octet(ctx, id, method, tag_sid, "tagLength")?;
+                snapshot_optional_buffer_source(ctx, aad_val, method, "additionalData")?;
+            raw.iv = Some(snapshot_buffer_source(ctx, iv_val, method, "iv")?);
+            raw.tag_length = tag_length;
         }
         AlgorithmParams::AesCbcParams => {
-            // `AesCbcParams`: iv (required `BufferSource`).
+            // `AesCbcParams`: iv (required `BufferSource`) — the only member,
+            // so no sibling getter can mutate it before the snapshot.
             let iv_sid = ctx.vm.well_known.iv;
-            raw.iv = Some(read_required_buffer_source(ctx, id, method, iv_sid, "iv")?);
+            let iv_val = ctx.get_property_value(id, PropertyKey::String(iv_sid))?;
+            raw.iv = Some(snapshot_buffer_source(ctx, iv_val, method, "iv")?);
         }
         AlgorithmParams::AesCtrParams => {
             // `AesCtrParams`: counter (required), length (required
-            // `[EnforceRange] octet`) — lexicographic order.
-            let counter_sid = ctx.vm.well_known.counter;
-            raw.counter = Some(read_required_buffer_source(
-                ctx,
-                id,
-                method,
-                counter_sid,
-                "counter",
-            )?);
-            let length_val =
-                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.length))?;
+            // `[EnforceRange] octet`).  §18.4.4 step 6 fires both getters
+            // (lexicographic: counter, length) before the step-10 byte
+            // snapshot, so a `length` getter that mutates the counter buffer
+            // is reflected.
+            let (counter_sid, length_sid) = (ctx.vm.well_known.counter, ctx.vm.well_known.length);
+            let counter_val = ctx.get_property_value(id, PropertyKey::String(counter_sid))?;
+            let length_val = ctx.get_property_value(id, PropertyKey::String(length_sid))?;
             if matches!(length_val, JsValue::Undefined) {
                 return Err(required_member_error(method, "length"));
             }
-            raw.length = Some(coerce_enforce_range(
-                ctx, length_val, method, "length", "octet", 255.0,
-            )?);
+            let length = coerce_enforce_range(ctx, length_val, method, "length", "octet", 255.0)?;
+            // §18.4.4 step 10: snapshot the counter bytes (post-getters).
+            raw.counter = Some(snapshot_buffer_source(ctx, counter_val, method, "counter")?);
+            raw.length = Some(length);
         }
     }
     Ok(())
 }
 
-/// Read a required `BufferSource` member (e.g. AES `iv` / `counter`): an
-/// absent / non-BufferSource value is a member-named `TypeError`.
-/// `member_sid` is the pre-interned property key; `member` names it for the
-/// error message.
-fn read_required_buffer_source(
-    ctx: &mut NativeContext<'_>,
-    id: ObjectId,
+/// Snapshot-copy an **already-read** required `BufferSource` member value
+/// (AES `iv` / `counter`) to bytes — WebCrypto §18.4.4 step 10, run after
+/// every member getter has fired (step 6).  An absent / non-BufferSource
+/// value is a member-named `TypeError`.
+fn snapshot_buffer_source(
+    ctx: &NativeContext<'_>,
+    value: JsValue,
     method: &str,
-    member_sid: StringId,
     member: &str,
 ) -> Result<Vec<u8>, VmError> {
-    let val = ctx.get_property_value(id, PropertyKey::String(member_sid))?;
     let prefix = format!("Failed to execute '{method}' on 'SubtleCrypto'");
-    extract_buffer_source_member(ctx, val, &prefix, member)
+    extract_buffer_source_member(ctx, value, &prefix, member)
 }
 
-/// Read an optional `BufferSource` member (AES `additionalData`):
-/// `undefined` → absent; any present value is snapshot-copied.
-fn read_optional_buffer_source(
-    ctx: &mut NativeContext<'_>,
-    id: ObjectId,
+/// Snapshot-copy an **already-read** optional `BufferSource` member value
+/// (AES `additionalData`): `undefined` → absent (`None`).
+fn snapshot_optional_buffer_source(
+    ctx: &NativeContext<'_>,
+    value: JsValue,
     method: &str,
-    member_sid: StringId,
     member: &str,
 ) -> Result<Option<Vec<u8>>, VmError> {
-    let val = ctx.get_property_value(id, PropertyKey::String(member_sid))?;
-    if matches!(val, JsValue::Undefined) {
+    if matches!(value, JsValue::Undefined) {
         return Ok(None);
     }
-    let prefix = format!("Failed to execute '{method}' on 'SubtleCrypto'");
-    Ok(Some(extract_buffer_source_member(
-        ctx, val, &prefix, member,
-    )?))
+    Ok(Some(snapshot_buffer_source(ctx, value, method, member)?))
 }
 
 /// Read an optional `[EnforceRange] octet` member (AES-GCM `tagLength`):
