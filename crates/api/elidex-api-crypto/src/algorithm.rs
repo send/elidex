@@ -41,9 +41,11 @@ pub enum AlgorithmName {
     AesCtr,
     AesCbc,
     AesGcm,
-    /// HKDF (WebCrypto §33) — `importKey` (raw) + `deriveBits` only.
+    /// HKDF (WebCrypto §33) — `importKey` (raw), `deriveBits`, and
+    /// `get key length` (§33.4.3 → null, consumed by `deriveKey`).
     Hkdf,
-    /// PBKDF2 (WebCrypto §34) — `importKey` (raw) + `deriveBits` only.
+    /// PBKDF2 (WebCrypto §34) — `importKey` (raw), `deriveBits`, and
+    /// `get key length` (§34.4.3 → null, consumed by `deriveKey`).
     Pbkdf2,
 }
 

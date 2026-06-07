@@ -3,8 +3,9 @@
 //! hash.
 //!
 //! Built on the RustCrypto `pbkdf2` crate's `pbkdf2_hmac` (the digest-0.11
-//! ecosystem shared with `hmac` / `sha2`).  Reached only through
-//! [`crate::ops::derive_bits`] (which enforces the §34.4.1 step-1 `length`
+//! ecosystem shared with `hmac` / `sha2`).  Reached only through the
+//! crate-internal derive-bits seam shared by [`crate::ops::derive_bits`] and
+//! [`crate::ops::derive_key`] (which enforce the §34.4.1 step-1 `length`
 //! constraint), so the `&[u8]`-keyed primitive is not a public surface.
 
 use pbkdf2::pbkdf2_hmac;
@@ -18,7 +19,8 @@ use crate::hash::HashAlgorithm;
 /// `length_bits / 8` as dkLen).
 ///
 /// `length_bits` is a non-null multiple of 8 (the §34.4.1 step-1 constraint
-/// is enforced by the caller, [`crate::ops::derive_bits`]).  Per §34.4.1:
+/// is enforced upstream in the shared derive-bits seam reached by both
+/// [`crate::ops::derive_bits`] and [`crate::ops::derive_key`]).  Per §34.4.1:
 /// `iterations == 0` is an `OperationError` (step 2) and `length_bits == 0`
 /// returns the empty byte sequence (step 3).
 pub fn derive_bits(

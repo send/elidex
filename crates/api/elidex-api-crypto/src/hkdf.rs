@@ -3,8 +3,9 @@
 //!
 //! Built on the RustCrypto `hkdf` crate (`Hkdf<D>` = HKDF instantiated with
 //! `Hmac<D>`, the digest-0.11 ecosystem shared with `hmac` / `sha2`).
-//! Reached only through [`crate::ops::derive_bits`] (which enforces the
-//! §33.4.1 step-1 `length` constraint), so the `&[u8]`-keyed primitive is
+//! Reached only through the crate-internal derive-bits seam shared by
+//! [`crate::ops::derive_bits`] and [`crate::ops::derive_key`] (which enforce
+//! the §33.4.1 step-1 `length` constraint), so the `&[u8]`-keyed primitive is
 //! not a public surface.
 
 use hkdf::Hkdf;
@@ -18,7 +19,8 @@ use crate::hash::HashAlgorithm;
 /// `salt`, `info`, and `length_bits / 8` as L).
 ///
 /// `length_bits` is a non-null multiple of 8 (the §33.4.1 step-1 constraint
-/// is enforced by the caller, [`crate::ops::derive_bits`]).  A derivation
+/// is enforced upstream in the shared derive-bits seam reached by both
+/// [`crate::ops::derive_bits`] and [`crate::ops::derive_key`]).  A derivation
 /// failure — only an output longer than RFC 5869's `255 × HashLen` cap — is
 /// an `OperationError` (§33.4.1 step 4).
 pub fn derive_bits(
