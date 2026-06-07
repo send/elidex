@@ -312,3 +312,18 @@ fn sign_illegal_receiver_rejects_promise() {
            .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
     assert_eq!(eval_global_string(src, "r"), "TypeError");
 }
+
+#[test]
+fn digest_data_snapshot_after_normalize() {
+    // WebCrypto §14.3.5: step 2 normalizes the algorithm (firing its `name`
+    // getter), and step 4 *then* gets a copy of the data bytes.  So an
+    // algorithm getter that mutates the data buffer during normalization is
+    // reflected in the digest.  Here the `name` getter zeroes the buffer, so
+    // the digest must be of `[0,0,0,0]`, not the original `[1,2,3,4]`.
+    let mutated = digest_hex(
+        "{ get name() { globalThis.__b.fill(0); return 'SHA-256'; } }",
+        "(globalThis.__b = new Uint8Array([1, 2, 3, 4]))",
+    );
+    let zeroed = digest_hex("'SHA-256'", "new Uint8Array([0, 0, 0, 0])");
+    assert_eq!(mutated, zeroed);
+}

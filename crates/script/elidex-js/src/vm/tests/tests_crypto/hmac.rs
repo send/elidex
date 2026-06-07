@@ -492,3 +492,27 @@ fn export_jwk_emits_members_in_lexicographic_order() {
     // key_ops, kty (no `use`).
     assert_eq!(eval_global_string(src, "r"), "alg,ext,k,key_ops,kty");
 }
+
+#[test]
+fn sign_data_snapshot_after_normalize() {
+    // WebCrypto §14.3.3: step 2 normalizes the algorithm (firing its `name`
+    // getter — HMAC's sign-time params are name-only, the hash comes from the
+    // key), and step 4 *then* gets a copy of the data bytes.  So a `name`
+    // getter that zeroes the data buffer is reflected in what is signed: the
+    // signature is over `[0,0,0,0]`, so verifying it against an explicit
+    // zeroed buffer (with a plain algorithm) succeeds.  With the snapshot
+    // taken *before* normalization it would sign `[1,2,3,4]` and the verify
+    // would fail.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey({name:'HMAC', hash:'SHA-256'}, true, ['sign','verify']) \
+           .then(key => { \
+             globalThis.__b = new Uint8Array([1, 2, 3, 4]); \
+             return crypto.subtle.sign( \
+                 {get name(){ globalThis.__b.fill(0); return 'HMAC'; }}, \
+                 key, globalThis.__b) \
+               .then(sig => crypto.subtle.verify('HMAC', key, sig, new Uint8Array([0, 0, 0, 0]))); \
+           }) \
+           .then(ok => { globalThis.r = ok ? 'snapshot-after' : 'snapshot-before'; }, \
+                 e => { globalThis.r = 'err:' + e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "snapshot-after");
+}
