@@ -65,6 +65,15 @@ pub fn encrypt_gcm(
     plaintext: &[u8],
     tag_length_bits: u32,
 ) -> Result<Vec<u8>, AlgorithmError> {
+    // §29.4.1 step 1: plaintext longer than 2^39 - 256 bytes → OperationError.
+    // (The IV / additionalData > 2^64-1 byte limits of steps 2-3 are
+    // unreachable — a `Vec` cannot hold that many bytes.)
+    const MAX_GCM_PLAINTEXT: u64 = (1u64 << 39) - 256;
+    if plaintext.len() as u64 > MAX_GCM_PLAINTEXT {
+        return Err(operation(
+            "AES-GCM plaintext exceeds the maximum length (2^39 - 256 bytes)",
+        ));
+    }
     let tag_len = gcm_tag_len_bytes(tag_length_bits)?;
     let (mut ciphertext, full_tag) = match key.len() {
         16 => gcm_seal::<Aes128>(key, iv, additional_data, plaintext),
@@ -332,6 +341,21 @@ fn ctr_xor(
     // §27.7.1/.2 step 2: the counter length is 1..=128 bits.
     if length_bits == 0 || length_bits > 128 {
         return Err(operation("AES-CTR length must be between 1 and 128 bits"));
+    }
+    // §27.7.1/.2 step 3 delegates to NIST SP 800-38A §6.5 with the App. B.1
+    // incrementing function over the rightmost `length_bits` bits — period
+    // 2^length_bits.  A message of more than 2^length_bits blocks wraps the
+    // counter and reuses keystream under the same key (catastrophic; NIST
+    // requires distinct counter blocks), so reject it rather than emit
+    // insecure output.  The guard only bites narrow counter widths — for
+    // length_bits ≥ 64 the capacity dwarfs any in-memory message.
+    if length_bits < 128 {
+        let num_blocks = data.len().div_ceil(BLOCK) as u128;
+        if num_blocks > (1u128 << length_bits) {
+            return Err(operation(
+                "AES-CTR data is too large for the counter length (would reuse counter blocks)",
+            ));
+        }
     }
     let mut counter_block = [0u8; BLOCK];
     counter_block.copy_from_slice(counter);

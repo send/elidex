@@ -1011,6 +1011,26 @@ fn aes_ctr_invalid_params_are_operation_errors() {
     ));
 }
 
+#[test]
+fn aes_ctr_message_exceeding_counter_capacity_is_operation_error() {
+    // §27.7.1 step 3 / NIST SP 800-38A: a message of more than 2^length
+    // blocks wraps the counter and reuses keystream → reject (OperationError).
+    let key = from_hex("2b7e151628aed2a6abf7158809cf4f3c");
+    let counter = [0u8; 16];
+    // length=8 → counter space = 2^8 = 256 blocks = 4096 bytes. Exactly at
+    // capacity round-trips (all 256 counter values distinct).
+    let exact = vec![0u8; 256 * 16];
+    let ct = aes::encrypt_ctr(&key, &counter, 8, &exact).unwrap();
+    assert_eq!(aes::decrypt_ctr(&key, &counter, 8, &ct).unwrap(), exact);
+    // One block past capacity (257 blocks) would reuse counter 0 → reject.
+    assert!(matches!(
+        aes::encrypt_ctr(&key, &counter, 8, &[0u8; 256 * 16 + 1]),
+        Err(AlgorithmError::Operation(_))
+    ));
+    // A wide counter (length=128) imposes no practical limit.
+    assert!(aes::encrypt_ctr(&key, &counter, 128, &[0u8; 64]).is_ok());
+}
+
 // ===========================================================================
 // AES ops (generate / import / export + encrypt / decrypt validation)
 // ===========================================================================

@@ -265,3 +265,41 @@ fn missing_iv_rejects_type_error() {
            .then(_ => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
     assert_eq!(eval_global_string(src, "r"), "TypeError");
 }
+
+// ===========================================================================
+// AES-GCM additionalData + non-96-bit IV + non-default tagLength marshalling
+// (host member-read coverage beyond the crate-only KATs)
+// ===========================================================================
+
+#[test]
+fn gcm_additional_data_long_iv_truncated_tag_roundtrip() {
+    // End-to-end exercise of the host marshalling of `additionalData` + a
+    // non-96-bit IV (16 bytes) + a non-default `tagLength` (96); the crate
+    // KATs cover the algorithm, this covers the VM member reads + plumbing.
+    let src = "globalThis.r = 'pending'; \
+         const iv = new Uint8Array(16).fill(2); \
+         const aad = new TextEncoder().encode('header'); \
+         const msg = new TextEncoder().encode('aead payload'); \
+         crypto.subtle.generateKey({name:'AES-GCM', length:256}, true, ['encrypt','decrypt']) \
+           .then(k => crypto.subtle.encrypt({name:'AES-GCM', iv, additionalData: aad, tagLength: 96}, k, msg) \
+             .then(ct => { globalThis.tagBits = (ct.byteLength - msg.byteLength) * 8; \
+                            return crypto.subtle.decrypt({name:'AES-GCM', iv, additionalData: aad, tagLength: 96}, k, ct); })) \
+           .then(pt => { globalThis.r = new TextDecoder().decode(pt) + '|tag' + globalThis.tagBits; }, \
+                 e => { globalThis.r = 'err:' + e.name; });";
+    // The 96-bit tag means ciphertext = plaintext_len + 12 bytes.
+    assert_eq!(eval_global_string(src, "r"), "aead payload|tag96");
+}
+
+#[test]
+fn gcm_wrong_additional_data_fails_auth() {
+    // additionalData participates in the tag, so a mismatch on decrypt must
+    // fail authentication (validates the host threads aad into the op).
+    let src = "globalThis.r = 'pending'; \
+         const iv = new Uint8Array(12).fill(4); \
+         const msg = new TextEncoder().encode('x'); \
+         crypto.subtle.generateKey({name:'AES-GCM', length:128}, true, ['encrypt','decrypt']) \
+           .then(k => crypto.subtle.encrypt({name:'AES-GCM', iv, additionalData: new Uint8Array([1,2,3])}, k, msg) \
+             .then(ct => crypto.subtle.decrypt({name:'AES-GCM', iv, additionalData: new Uint8Array([9,9,9])}, k, ct))) \
+           .then(_ => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "OperationError");
+}
