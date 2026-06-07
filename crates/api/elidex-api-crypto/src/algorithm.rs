@@ -122,9 +122,11 @@ impl AesVariant {
         }
     }
 
-    /// The JWK `alg` value for an AES key of `length_bits` bits in this mode
-    /// (WebCrypto §27.7.4 / §28.4.4 / §29.4.4 import + export: `A128GCM` /
-    /// `A192CBC` / `A256CTR` …), or `None` for a non-AES key length.
+    /// The JWK `alg` value for an AES key of `length_bits` bits in this mode:
+    /// the `alg` set by the AES import algorithms (WebCrypto §27.7.4 /
+    /// §28.4.4 / §29.4.4) and emitted by the export algorithms (§27.7.5 /
+    /// §28.4.5 / §29.4.5) — `A128GCM` / `A192CBC` / `A256CTR` …, or `None` for
+    /// a non-AES key length.
     pub fn jwk_alg(self, length_bits: u32) -> Option<&'static str> {
         Some(match (length_bits, self) {
             (128, Self::Ctr) => "A128CTR",
