@@ -1032,7 +1032,13 @@ pub(super) fn assign_inline_layout_boxes(
         };
         let _ = dom.world_mut().insert_one(*entity, lb);
 
-        // Store per-line rects for getClientRects() (CSSOM View §5).
+        // Store per-line rects for getClientRects() (CSSOM View §6). A multi-line
+        // element exposes one border-box fragment per line; a single-line element
+        // exposes its one rect via the LayoutBox border box (the getClientRects
+        // fallback). On a relayout where an element that previously wrapped now fits one
+        // line, the merge yields a single `line_rects` entry — so REMOVE any stale
+        // multi-line `InlineClientRects` left from the prior layout, else getClientRects
+        // reads the stale component instead of falling back (`layout_query.rs`).
         if bounds.line_rects.len() > 1 {
             let rects: Vec<elidex_plugin::Rect> = bounds
                 .line_rects
@@ -1058,6 +1064,10 @@ pub(super) fn assign_inline_layout_boxes(
             let _ = dom
                 .world_mut()
                 .insert_one(*entity, elidex_plugin::InlineClientRects(rects));
+        } else {
+            let _ = dom
+                .world_mut()
+                .remove_one::<elidex_plugin::InlineClientRects>(*entity);
         }
     }
 }

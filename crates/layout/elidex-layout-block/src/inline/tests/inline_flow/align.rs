@@ -125,3 +125,49 @@ fn multi_word_single_line_span_merges_to_one_rect() {
         lb.content.size.width
     );
 }
+
+#[test]
+fn relayout_multiline_to_single_line_clears_stale_client_rects() {
+    // A span that wrapped to multiple lines gets `InlineClientRects` (one per line). On
+    // a relayout where it now fits one line, the merge yields a single rect, so
+    // `assign_inline_layout_boxes` must REMOVE the stale multi-line component — otherwise
+    // getClientRects reads the stale rects instead of falling back to the new LayoutBox
+    // border box (CSSOM VIEW 1 §6). Regression for the Codex P2 on PR #308.
+    let Some((mut dom, parent, span, font_db)) =
+        setup_span_align("hello world", TextAlign::Left, 1.0)
+    else {
+        return;
+    };
+    // Narrow → wraps to two lines → per-line InlineClientRects present.
+    assert!(
+        dom.world()
+            .get::<&elidex_plugin::InlineClientRects>(span)
+            .is_ok(),
+        "the narrow layout wraps and stores per-line InlineClientRects"
+    );
+    // Simulate the driver recomputing boxes on relayout: drop the LayoutBox so `assign`
+    // re-processes the span (the skip at the top of the loop is only for inline-blocks
+    // that already carry their own box).
+    let _ = dom.world_mut().remove_one::<LayoutBox>(span);
+    let children = dom.composed_children(parent);
+    layout_inline_context(
+        &mut dom,
+        &children,
+        800.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+    );
+    // Now one line → one merged rect → the stale multi-line component is cleared, so
+    // getClientRects falls back to the (single) LayoutBox border box.
+    assert!(
+        dom.world()
+            .get::<&elidex_plugin::InlineClientRects>(span)
+            .is_err(),
+        "relayout to one line clears the stale multi-line InlineClientRects"
+    );
+    assert!(
+        dom.world().get::<&LayoutBox>(span).is_ok(),
+        "the single-line span still has its (refreshed) LayoutBox"
+    );
+}
