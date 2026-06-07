@@ -32,15 +32,20 @@ pub(super) struct FlowAlign {
     /// The top-level run-group key (`first_eligible_child` of the IFC parent — render's
     /// `run[0]`). `text-align: justify` distributes free space over the **top-level
     /// group's** word-separators only; converged `position:relative`/`sticky` sub-flow
-    /// groups (keyed differently) stay start-aligned within their gap (`justify_word_spacing
-    /// = 0`), since per-flow justification of a sparse sub-flow over the parent's full
-    /// `containing_inline_size` would over-stretch it. The v1 degradation is benign:
-    /// the un-shifted sub-flow keeps its logical order with the surrounding top-level
-    /// runs (a top-level run *after* a mid-line sub-flow shifts right by the baked
-    /// expansion, opening a gap — it never shifts left into the sub-flow), so this is
-    /// suboptimal spacing, NOT overlap. Line-level justification *across* a sub-flow
-    /// boundary is deferred (slot `#11-justify-subflow-line-unified`). `None` when the
-    /// top-level run is itself unrecorded (no justification target).
+    /// groups (keyed differently) keep their natural `inline_start`s with
+    /// `justify_word_spacing = 0` — they neither justify internally (per-flow justify of
+    /// a sparse sub-flow over the parent's full `containing_inline_size` would
+    /// over-stretch it) nor ride the top-level group's cumulative expansion. **v1
+    /// LIMITATION**: because the sub-flow is NOT shifted by the justify expansion of
+    /// preceding top-level opportunities, a top-level run *before* a mid-line sub-flow
+    /// whose within-run separators expand by a large `extra` can paint its glyphs past
+    /// the sub-flow's un-shifted position — i.e. **possible overlap**, not merely a gap.
+    /// This is the same imperfection legacy had (legacy gated justify out entirely and
+    /// painted the relpos subtree separately at its un-justified box), so it is NOT a
+    /// regression; the correct treatment (cross-flow position coordination so sub-flow
+    /// content rides the line's justification) is deferred to slot
+    /// `#11-justify-subflow-line-unified`. `None` when the top-level run is itself
+    /// unrecorded (no justification target).
     pub top_level_key: Option<Entity>,
     /// Whether the IFC's writing mode is vertical — read in `flush_line` to suppress
     /// `text-align: justify` in vertical writing modes. (CSS Text 3 §6 justifies along
@@ -493,9 +498,11 @@ impl LinePacker {
                 // NOTE (justify v1): a positioned atomic on a *distributed* justify line
                 // does NOT receive `bake_justify`'s cumulative within-line expansion
                 // (only the line-level `offset`), same deferred class as sub-flow groups
-                // — positioned content keeps its natural in-flow position while top-level
-                // text justifies around it (a benign gap, not overlap; slot
-                // `#11-justify-subflow-line-unified`).
+                // (`top_level_key` doc) — positioned content keeps its natural in-flow
+                // position while top-level text justifies around it, which can mis-position
+                // it (including overlap if a preceding top-level run's within-run expansion
+                // is large). Non-regression vs legacy; correct cross-flow coordination is
+                // deferred to slot `#11-justify-subflow-line-unified`.
                 for (entity, inline_start) in self.current_line_relpos_atomics.drain(..) {
                     self.relpos_atomic_placements.push((
                         entity,
