@@ -343,6 +343,28 @@ impl InlineFlowRun {
     }
 }
 
+/// Transient per-column IFC-line carrier for a multicol **mid-break** inline
+/// formatting context (Z-1b, Option D — `memory/terminal-z-z1b-consume-delta.md`).
+///
+/// Written by `layout_inline_context_fragmented` on the **IFC container** entity
+/// (the multicol direct child that breaks mid-column) for the
+/// `frag_is_column && !column_is_whole` case, carrying — **per run-start group**
+/// (the same `group_key` the converged [`InlineFlow`] persist uses) — this
+/// column's folded [`InlineFlowLine`]s at column-0 base coords. Multicol fill
+/// **drains** it (get + remove) into the column's fragment snapshot, and
+/// `position_column_fragments` folds each column's lines (offset to the column's
+/// inline position) into the run-start's `InlineFlow::single` — the sink the
+/// existing `emit_inline_flow` consumes.
+///
+/// **Never read by render** — it lives only between the IFC layout (write) and the
+/// multicol fill (drain) within one layout pass (transport, not state), so it is a
+/// component (per-entity, `Send + Sync`, not a per-VM identity handle — the
+/// side-store→component rule), not a side-store. A stray write that is never
+/// drained is benign (render never reads it); the IFC reconciles it insert-or-
+/// remove each pass, mirroring `clear_inline_flows`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ColumnFlowSlice(pub Vec<(Entity, Vec<InlineFlowLine>)>);
+
 /// Inline style declarations on an element.
 ///
 /// Properties are stored in an `IndexMap` to preserve insertion order

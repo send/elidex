@@ -7,7 +7,7 @@
 pub mod algo;
 mod fill;
 
-use elidex_ecs::{EcsDom, Entity};
+use elidex_ecs::{EcsDom, Entity, InlineFlow};
 use elidex_layout_block::{
     adjust_min_max_for_border_box, clamp_min_max, composed_children_flat, resolve_dimension_value,
     resolve_padding, sanitize_border, ChildLayoutFn, LayoutInput, LayoutOutcome,
@@ -379,7 +379,14 @@ fn layout_normal_segment(
             // `fill_and_position` — they call `fill_columns_sequential` directly,
             // the F1 own-probe invariant). When true, suppress the store write so
             // an ancestor probe leaves no garbage fragments (P1).
-            position_column_fragments(dom, &frags, env.geom, env.col_ctx.wm, env.input.is_probe);
+            position_column_fragments(
+                dom,
+                &frags,
+                env.geom,
+                env.col_ctx.wm,
+                env.input.is_probe,
+                env.input.layout_generation,
+            );
             frags
         };
 
@@ -415,6 +422,7 @@ fn position_column_fragments(
     geom: &ColumnGeometry,
     wm: WritingModeContext,
     is_probe: bool,
+    layout_generation: u32,
 ) {
     // THIS multicol's own mid-break children — their box fragments are committed
     // born-absolute below (`bf.content.origin += delta`), so the per-column shift
@@ -423,8 +431,17 @@ fn position_column_fragments(
     // shift with the column delta.
     let own: std::collections::HashSet<Entity> = frags
         .iter()
-        .flat_map(|f| f.box_snapshots.iter().map(|(entity, _)| *entity))
+        .flat_map(|f| f.box_snapshots.iter().map(|s| s.entity))
         .collect();
+    // Per-run-start accumulator for the mid-break IFC lines (Z-1b, Option D): each
+    // column's drained `flow_groups` are folded here, offset to the column's inline
+    // position, then written as ONE `InlineFlow::single` per run-start AFTER the
+    // column loop — so the per-column `shift_descendants_excluding_own_fragments`
+    // below (which moves a persisted `InlineFlow`) runs while the run-start has NO
+    // flow yet (cleared each column by the IFC's `clear_inline_flows`), making these
+    // born-absolute lines excluded from the column shift by construction (timing).
+    let mut flows: std::collections::HashMap<Entity, Vec<elidex_ecs::InlineFlowLine>> =
+        std::collections::HashMap::new();
     for (i, frag) in frags.iter().enumerate() {
         #[allow(clippy::cast_precision_loss)]
         let inline_offset = i as f32 * (geom.width + geom.gap);
@@ -450,11 +467,28 @@ fn position_column_fragments(
         // and inherited by every child input — is true exactly then, so we skip the
         // commit and leave no ancestor-probe garbage. Column 0 commits at delta 0.
         if !is_probe {
-            for (entity, snapshot) in &frag.box_snapshots {
-                let mut bf = snapshot.clone();
+            for snap in &frag.box_snapshots {
+                // Box store (Z-1a dark data, committed-next consumes it).
+                let mut bf = snap.box_fragment.clone();
                 bf.content.origin += delta;
                 #[allow(clippy::cast_possible_truncation)]
-                dom.fragment_tree_mut().push_box(*entity, i as u32, bf);
+                dom.fragment_tree_mut().push_box(snap.entity, i as u32, bf);
+                // IFC lines (Z-1b live): fold this column's per-run-start lines into
+                // the accumulator, offset to the column's inline position. The line's
+                // `inline_start` is the inline-axis-projected physical coord, so the
+                // column offset (purely inline-axis) adds to it directly (block_start
+                // — the cross-axis — is unchanged); this matches the box `delta`
+                // (`x_only`/`y_only(inline_offset)`).
+                for (run_start, lines) in &snap.flow_groups {
+                    let entry = flows.entry(*run_start).or_default();
+                    for line in lines {
+                        let mut l = line.clone();
+                        for run in &mut l.runs {
+                            *run.inline_start_mut() += inline_offset;
+                        }
+                        entry.push(l);
+                    }
+                }
             }
         }
 
@@ -483,6 +517,41 @@ fn position_column_fragments(
             delta,
             &own,
         );
+    }
+
+    // Build the mid-break run-starts' `InlineFlow` AFTER the column loop (the
+    // double-shift guard, Z-1b Option D): each run-start now carries all columns'
+    // lines at their baked per-column inline offsets, as ONE `InlineFlow::single`
+    // (multicol columns coexist on one surface, discriminated by the baked offsets,
+    // NOT by per-column generations — `InlineFragment` doc). `generation` =
+    // `layout_generation` exactly like the whole-in-column `InlineFlow::single`
+    // persist (`inline/mod.rs`): `0` on the screen path (so `emit_inline_flow`'s
+    // `expected == None` paints the fragment's full line set = every column), or the
+    // page number under paged media (so the flow gates to its page). The existing
+    // `emit_inline_flow` consumes it unchanged.
+    //
+    // Built here (after the loop), NOT per column, is load-bearing for the
+    // double-shift guard: the per-column `shift_descendants_excluding_own_fragments`
+    // above shifts any `InlineFlow` it finds on a run-start in the subtree
+    // (`shift.rs` InlineFlow arm — it does NOT honor the `own` box-fragment
+    // exclusion, which is keyed on the container, not the run-start text node). The
+    // run-start carries no flow during that loop because each column's IFC re-run
+    // cleared it (`clear_inline_flows`; mid-break ⇒ not persisted ⇒ removed), and
+    // this `insert_one` (replace) writes the freshly-baked lines last — so the
+    // baked column offset is applied exactly once. (Moving this build INTO the loop
+    // would let a column's flow be re-shifted by a later column's shift = double
+    // offset; the assert below pins the cleared precondition.) `!is_probe`: `flows`
+    // is empty under a probe (the commit block is guarded), so this is a no-op there.
+    for (run_start, lines) in flows {
+        debug_assert!(
+            dom.world().get::<&InlineFlow>(run_start).is_err(),
+            "mid-break run-start must carry no InlineFlow at build time (cleared each \
+             column by clear_inline_flows) — else the per-column shift double-applied \
+             the column offset before this build"
+        );
+        let _ = dom
+            .world_mut()
+            .insert_one(run_start, InlineFlow::single(layout_generation, lines));
     }
 }
 

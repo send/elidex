@@ -15,7 +15,9 @@ mod pack;
 
 use std::collections::HashMap;
 
-use elidex_ecs::{EcsDom, Entity, InlineFlow, InlineFlowRun, PseudoElementMarker, TextContent};
+use elidex_ecs::{
+    ColumnFlowSlice, EcsDom, Entity, InlineFlow, InlineFlowRun, PseudoElementMarker, TextContent,
+};
 #[cfg(test)]
 pub(crate) use elidex_plugin::LayoutBox;
 use elidex_plugin::{ComputedStyle, Display, Point, Position, TextTransform, WhiteSpace};
@@ -724,6 +726,7 @@ pub fn layout_inline_context_fragmented(
     let no_persisted: std::collections::HashSet<Entity> = std::collections::HashSet::new();
     if items.is_empty() {
         clear_inline_flows(dom, &candidate_keys, &no_persisted);
+        let _ = dom.world_mut().remove_one::<ColumnFlowSlice>(parent_entity);
         return InlineLayoutResult {
             height: 0.0,
             static_positions: HashMap::new(),
@@ -762,6 +765,7 @@ pub fn layout_inline_context_fragmented(
         });
         if !any_font && !items.iter().any(|i| matches!(i, InlineItem::Atomic { .. })) {
             clear_inline_flows(dom, &candidate_keys, &no_persisted);
+            let _ = dom.world_mut().remove_one::<ColumnFlowSlice>(parent_entity);
             return InlineLayoutResult {
                 height: 0.0,
                 static_positions: HashMap::new(),
@@ -882,6 +886,15 @@ pub fn layout_inline_context_fragmented(
     // `flow_align`-independent, see `persist_candidate`).
     let column_is_whole = skip_lines == 0 && break_after_line.is_none();
     let persist_flow = persist_candidate && (!frag_is_column || column_is_whole);
+    // Multicol mid-break (the last non-persisted column route): the per-column line
+    // slice does not go to an `InlineFlow` here (the IFC runs per column at column-0
+    // base and does not know the column inline offset). It is captured into the
+    // transient `ColumnFlowSlice` carrier on `parent_entity`, drained by multicol
+    // fill, and folded into the run-start's `InlineFlow` (offset per column) by
+    // `position_column_fragments` (Z-1b, Option D). Mutually exclusive with
+    // `persist_flow`: `do_carrier` ⟹ `frag_is_column && !column_is_whole` ⟹
+    // `persist_flow == false`.
+    let do_carrier = frag_is_column && !column_is_whole;
     let total_block: f32 = packer
         .line_boxes
         .iter()
@@ -900,11 +913,21 @@ pub fn layout_inline_context_fragmented(
     // to legacy (its column shift + accumulate is I-multicol), so its box geometry
     // is left unrebased here too (no change vs today). The rebase is the missing
     // continuation geometry the founding gate test flagged.
-    if frag_is_paged {
+    if frag_is_paged || do_carrier {
         debug_assert!(
             skip_lines <= effective_line_count && effective_line_count <= line_count,
             "fragment slice bounds out of order: skip {skip_lines}, eff {effective_line_count}, count {line_count}"
         );
+        // Multicol mid-break (`do_carrier`) needs the SAME per-column slice +
+        // continuation rebase paged uses: this column's kept lines, the first
+        // rebased to the column block-start. The column inline offset is applied
+        // later (`position_column_fragments`), like the box snapshot. Like paged,
+        // this also slices+rebases `entity_bounds` (the inline `LayoutBox`es /
+        // `InlineClientRects`) and `static_positions` to this column — "more
+        // correct" per-column geometry, but those remain G11 last-column-wins
+        // (one box per entity) and are render-dark for text now (the `InlineFlow`
+        // carries paint); per-fragment inline `LayoutBox`/clientRects + abspos-in-
+        // mid-break placement is committed-next (cssom-view store consume).
         packer.slice_and_rebase_fragment(skip_lines, effective_line_count);
     }
 
@@ -950,7 +973,12 @@ pub fn layout_inline_context_fragmented(
     // realignment, a relpos→static transition, an abspos toggle, or a now-gated run.
     let first_baseline = packer.first_baseline;
     let mut persisted_keys: std::collections::HashSet<Entity> = std::collections::HashSet::new();
-    if persist_flow {
+    // The multicol mid-break carrier groups (run-start → this column's folded lines),
+    // populated in the `do_carrier` arm below and written to `ColumnFlowSlice`. Empty
+    // for the `persist_flow` case (lines go to `InlineFlow`) and for the no-content
+    // case (carrier cleared).
+    let mut carrier_groups: Vec<(Entity, Vec<elidex_ecs::InlineFlowLine>)> = Vec::new();
+    if persist_flow || do_carrier {
         // IFC-local logical → absolute physical, applying the SAME is_vertical
         // projection rule as `static_positions` and `assign_inline_layout_boxes`:
         // inline-axis → physical x (horizontal) / y (vertical), block-axis → the
@@ -963,7 +991,11 @@ pub fn layout_inline_context_fragmented(
             (content_origin.x, content_origin.y)
         };
         // Each group's bucket (keyed on its run-start `run[0]`): the top-level group
-        // and one per converged positioned-inline sub-flow.
+        // and one per converged positioned-inline sub-flow. The fold + static-atomic
+        // reposition are shared between the `persist_flow` sink (write each group's
+        // `InlineFlow` here) and the `do_carrier` sink (capture the group's lines into
+        // the carrier; multicol fill drains them and `position_column_fragments` folds
+        // them into the run-start's `InlineFlow` offset per column).
         for (group_key, group_lines) in packer.flow_lines {
             if group_lines.is_empty() {
                 continue;
@@ -992,6 +1024,10 @@ pub fn layout_inline_context_fragmented(
             // runs per group, so a static atomic inside a relpos sub-flow is
             // repositioned too. Block-axis = line top (baseline-naive; CSS 2 §10.8
             // `vertical-align` within the line box is deferred — same as text runs).
+            // For `do_carrier` the box lands at column-0 base; the column inline shift
+            // is applied to the atomic's `LayoutBox` by the `col_children`
+            // `shift_descendants` in `position_column_fragments` (parallel to the box
+            // snapshot + the carrier lines' commit-time column offset).
             for line in &lines {
                 for run in &line.runs {
                     if let InlineFlowRun::AtomicBox {
@@ -1010,14 +1046,22 @@ pub fn layout_inline_context_fragmented(
                     }
                 }
             }
-            // I-paged writes one fragment per page (length-1 Vec): each page's full
-            // re-layout replaces it (render walks the page interleaved before the
-            // next), so the run-start carries this page's slice stamped with the
-            // page generation. Multicol's accumulate-across-columns is I-multicol.
-            let _ = dom
-                .world_mut()
-                .insert_one(group_key, InlineFlow::single(env.layout_generation, lines));
-            persisted_keys.insert(group_key);
+            if persist_flow {
+                // I-paged writes one fragment per page (length-1 Vec): each page's
+                // full re-layout replaces it (render walks the page interleaved before
+                // the next), so the run-start carries this page's slice stamped with
+                // the page generation. Multicol whole-in-column persists its 1-fragment
+                // flow here too (shifted to its column by the column shift).
+                let _ = dom
+                    .world_mut()
+                    .insert_one(group_key, InlineFlow::single(env.layout_generation, lines));
+                persisted_keys.insert(group_key);
+            } else {
+                // do_carrier: this column's slice for this run-start group. multicol
+                // fill drains the carrier; `position_column_fragments` folds it into
+                // `group_key`'s `InlineFlow` offset to the column's inline position.
+                carrier_groups.push((group_key, lines));
+            }
         }
         // Reposition each `position:relative`/`sticky` atomic's `LayoutBox` to its
         // on-line position, PRESERVING the applied relative offset (slice 3p-b-2).
@@ -1029,7 +1073,8 @@ pub fn layout_inline_context_fragmented(
         // atomic the current box already carries the baked `apply_relative_offset`, so
         // `delta = target − un-offset` lands it at `target + offset` (offset preserved,
         // not stripped). This runs even when no flow member persisted (e.g. a
-        // relpos-atomic-only line) — it is gated only on `persist_flow`.
+        // relpos-atomic-only line) — it is gated on `persist_flow || do_carrier` (the
+        // mid-break column shift moves these boxes to the column like the static ones).
         for (atomic, inline_local, block_local) in packer.relpos_atomic_placements {
             reposition_atomic_box(
                 dom,
@@ -1040,6 +1085,18 @@ pub fn layout_inline_context_fragmented(
                 unoffset_origins.get(&atomic).copied(),
             );
         }
+    }
+    // Carrier reconcile (insert-or-remove, mirroring `clear_inline_flows`): the
+    // multicol mid-break IFC writes its per-column slice on `parent_entity`; every
+    // other case (whole/paged/non-fragmented persist, or empty) clears any stale one.
+    // `ColumnFlowSlice` is never read by render (drained-only by multicol fill), so a
+    // leak is benign; this keeps the entity clean across passes.
+    if do_carrier && !carrier_groups.is_empty() {
+        let _ = dom
+            .world_mut()
+            .insert_one(parent_entity, ColumnFlowSlice(carrier_groups));
+    } else {
+        let _ = dom.world_mut().remove_one::<ColumnFlowSlice>(parent_entity);
     }
     // Invariant: every persisted key must be a candidate (else it could never be
     // cleared on a later pass → stale-flow leak). Holds by construction — a
