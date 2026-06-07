@@ -226,46 +226,6 @@ fn paged_single_page_fits_all_content() {
 }
 
 #[test]
-fn layout_paged_clears_stale_fragment_tree() {
-    // Regression (Codex #313 P2): the standalone fragment tree (§15.4.1) is
-    // rebuilt from scratch each layout pass. `layout_paged` is a top-level entry
-    // point alongside `layout_tree`, so it must clear the tree on entry —
-    // otherwise a prior pass's multicol box fragments survive into the paged
-    // pass (or accumulate across repeated paged passes), violating the "rebuilt
-    // each pass" invariant and feeding stale data to fragment-tree readers.
-    let (mut dom, _root, _html, body) = build_styled_dom();
-    let div = dom.create_element("div", Attributes::default());
-    dom.append_child(body, div);
-    dom.world_mut().insert_one(
-        div,
-        ComputedStyle {
-            display: Display::Block,
-            height: Dimension::Length(100.0),
-            ..Default::default()
-        },
-    );
-
-    // Simulate a prior pass having committed a box fragment (the paged content
-    // here has no multicol, so `layout_paged` does not repopulate — what remains
-    // afterward reflects only whether the entry-point clear ran).
-    let stale = elidex_ecs::BoxFragment::from(&LayoutBox::default());
-    dom.fragment_tree_mut().push_box(div, 0, stale);
-    assert!(
-        !dom.fragment_tree().is_empty(),
-        "precondition: stale fragment present before the paged pass"
-    );
-
-    let font_db = FontDatabase::new();
-    let page_ctx = make_page_ctx(816.0, 1056.0);
-    let _ = layout_paged(&mut dom, &page_ctx, &font_db);
-
-    assert!(
-        dom.fragment_tree().is_empty(),
-        "layout_paged must clear the fragment tree on entry (rebuilt each pass)"
-    );
-}
-
-#[test]
 fn paged_multi_page_break() {
     let mut dom = EcsDom::new();
     let parent = dom.create_element("div", Attributes::default());

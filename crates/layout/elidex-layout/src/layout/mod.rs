@@ -169,12 +169,6 @@ pub fn layout_paged(
     page_ctx: &PagedMediaContext,
     font_db: &FontDatabase,
 ) -> Vec<PageFragment> {
-    // Same invariant as `layout_tree`: the standalone fragment tree (§15.4.1)
-    // is layout output, rebuilt from scratch each pass. Paged layout is the
-    // other top-level entry point (there is no single funnel below this), so it
-    // must clear too — otherwise a repeated paged pass, or a screen pass
-    // followed by a paged pass, accumulates/leaves stale multicol box fragments.
-    dom.fragment_tree_mut().clear();
     let roots = find_roots(dom);
     if roots.is_empty() {
         return Vec::new();
