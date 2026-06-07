@@ -442,9 +442,12 @@ fn marshal_hash_identifier(
         JsValue::Object(id) => Ok(RawAlgorithm::from_name(read_required_name(
             ctx, id, method,
         )?)),
+        // [`read_required_hash_value`] already took the §18.4.4 step-6 DOMString
+        // arm (`ToString`) for every non-object primitive, so this leaf only
+        // ever receives a `String` or an `Object` — the invariant the step-6 /
+        // step-10 split established.
         other => {
-            let sid = coerce::to_string(ctx.vm, other)?;
-            Ok(RawAlgorithm::from_name(ctx.vm.strings.get_utf8(sid)))
+            unreachable!("hash identifier was converted to String/Object at step 6, got {other:?}")
         }
     }
 }

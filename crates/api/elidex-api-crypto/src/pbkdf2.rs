@@ -42,6 +42,18 @@ pub fn derive_bits(
     if len == 0 {
         return Ok(Vec::new());
     }
+    // No pre-allocation cap (unlike `hkdf::derive_bits`): PBKDF2 has no
+    // spec-defined output-length bound — RFC 8018 allows any `dkLen` up to
+    // `(2^32 − 1) × hLen`, so there is no invalid-length region to reject
+    // early.  The `dk` buffer IS the caller's requested output, and a large
+    // `length` (like a large `iterations`) is a caller-chosen synchronous cost
+    // honored per the subtle vertical's deliberate synchronous-settle design;
+    // a non-spec `dkLen` cap would be the pragmatic deviation the program
+    // declined (the cross-cutting ideal is off-main-thread async-settle for the
+    // whole vertical, not a per-op cap).  HKDF differs only because its
+    // §33.4.1 step-4 / RFC 5869 §2.3 `255 × HashLen` ceiling makes an
+    // over-length request *invalid* (OperationError), worth rejecting before
+    // the wasted allocation.
     let mut dk = vec![0u8; len];
     match hash {
         HashAlgorithm::Sha1 => pbkdf2_hmac::<sha1::Sha1>(password, salt, iterations, &mut dk),
