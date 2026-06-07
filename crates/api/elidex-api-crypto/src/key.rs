@@ -73,6 +73,12 @@ impl KeyUsage {
         )
     }
 
+    /// Whether HKDF / PBKDF2 accept this usage (WebCrypto §33.4.2 /
+    /// §34.4.2 import step: `deriveKey` / `deriveBits` only).
+    pub fn is_kdf_usage(self) -> bool {
+        matches!(self, Self::DeriveKey | Self::DeriveBits)
+    }
+
     /// Parse a `KeyUsage` from its IDL identifier, or `None` if unrecognized.
     pub fn from_ident(s: &str) -> Option<Self> {
         Some(match s {
@@ -108,15 +114,25 @@ pub enum KeyAlgorithm {
     /// The algorithm object's `name` is `variant.canonical_name()`; an AES
     /// key has no `hash` member.
     Aes { variant: AesVariant, length: u32 },
+    /// HKDF (WebCrypto §33) — a name-only `KeyAlgorithm`: the key's
+    /// `[[algorithm]]` is `{ name: "HKDF" }` (the call-time `hash` / `salt`
+    /// / `info` live on the `deriveBits` algorithm, not the key).
+    Hkdf,
+    /// PBKDF2 (WebCrypto §34) — a name-only `KeyAlgorithm`:
+    /// `{ name: "PBKDF2" }`.
+    Pbkdf2,
 }
 
 impl KeyAlgorithm {
     /// The canonical algorithm name for `[[algorithm]]` name comparison
-    /// (WebCrypto sign/verify/encrypt/decrypt "name member equality" check).
+    /// (WebCrypto sign/verify/encrypt/decrypt/deriveBits/deriveKey "name
+    /// member equality" check).
     pub fn name(self) -> AlgorithmName {
         match self {
             Self::Hmac { .. } => AlgorithmName::Hmac,
             Self::Aes { variant, .. } => variant.algorithm_name(),
+            Self::Hkdf => AlgorithmName::Hkdf,
+            Self::Pbkdf2 => AlgorithmName::Pbkdf2,
         }
     }
 }

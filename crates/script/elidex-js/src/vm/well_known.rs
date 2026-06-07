@@ -1332,6 +1332,8 @@ define_well_known_strings! {
         verify => "verify",
         encrypt => "encrypt",
         decrypt => "decrypt",
+        derive_key => "deriveKey",
+        derive_bits => "deriveBits",
         // AES params-dictionary members (AesGcmParams / AesCbcParams /
         // AesCtrParams), read on the `encrypt` / `decrypt` hot path — pre-
         // interned alongside `hash_attr` / `length` rather than interned per
@@ -1340,6 +1342,11 @@ define_well_known_strings! {
         counter => "counter",
         additional_data => "additionalData",
         tag_length => "tagLength",
+        // KDF params-dictionary members (HkdfParams / Pbkdf2Params), read on
+        // the `deriveBits` / `deriveKey` path.  `hash` reuses `hash_attr`.
+        salt => "salt",
+        info => "info",
+        iterations => "iterations",
         crypto_key_global => "CryptoKey",
         extractable => "extractable",
         algorithm => "algorithm",

@@ -4,6 +4,7 @@
 //! (SHA-1); digest vectors from FIPS 180 examples.
 
 mod aes;
+mod derive;
 mod digest;
 mod hmac;
 mod hmac_ops;

@@ -271,7 +271,9 @@ fn native_crypto_key_get_usages(
 /// `{ name: "HMAC", hash: { name: "SHA-256" }, length: N }`
 /// (WebCrypto §31 `HmacKeyAlgorithm`); for AES:
 /// `{ name: "AES-GCM", length: N }` (WebCrypto `AesKeyAlgorithm`, no
-/// `hash` member).
+/// `hash` member); for HKDF / PBKDF2: `{ name: "HKDF" }` / `{ name:
+/// "PBKDF2" }` (WebCrypto §33.4.2 / §34.4.2 — a name-only `KeyAlgorithm`,
+/// no `hash` / `length`; the derive params live on the `deriveBits` call).
 ///
 /// The intermediate `hash_obj` / `obj` are not separately rooted across
 /// the inner `alloc_object` calls: GC is disabled for the whole duration
@@ -344,6 +346,29 @@ fn build_algorithm_object(ctx: &mut NativeContext<'_>, algorithm: KeyAlgorithm) 
                 obj,
                 PropertyKey::String(ctx.vm.well_known.length),
                 PropertyValue::Data(JsValue::Number(f64::from(length))),
+                shape::PropertyAttrs::DATA,
+            );
+            obj
+        }
+        // HKDF / PBKDF2: a name-only `{ name: "HKDF" }` / `{ name: "PBKDF2" }`
+        // (WebCrypto §33.4.2 / §34.4.2 set only the `name` attribute).
+        KeyAlgorithm::Hkdf | KeyAlgorithm::Pbkdf2 => {
+            let obj = ctx.alloc_object(Object {
+                kind: ObjectKind::Ordinary,
+                storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+                prototype: object_proto,
+                extensible: true,
+            });
+            let name = match algorithm {
+                KeyAlgorithm::Hkdf => "HKDF",
+                KeyAlgorithm::Pbkdf2 => "PBKDF2",
+                _ => unreachable!("matched HKDF / PBKDF2 arm"),
+            };
+            let name_sid = ctx.intern(name);
+            ctx.vm.define_shaped_property(
+                obj,
+                PropertyKey::String(ctx.vm.well_known.name),
+                PropertyValue::Data(JsValue::String(name_sid)),
                 shape::PropertyAttrs::DATA,
             );
             obj

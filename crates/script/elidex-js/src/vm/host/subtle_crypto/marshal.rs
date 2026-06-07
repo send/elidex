@@ -139,6 +139,11 @@ pub(super) fn marshal_algorithm(
 /// value, key length) is validated later in the engine-independent crate
 /// (`crypto::normalize` + `crypto::ops`), at the op step where the spec
 /// throws.
+// A member-reading dispatcher: its length scales with the number of
+// registered params dictionaries (one arm each), so it exceeds the
+// default line cap as the registry grows — matching the other big
+// match-dispatchers in the crate.
+#[allow(clippy::too_many_lines)]
 fn read_params(
     ctx: &mut NativeContext<'_>,
     id: ObjectId,
@@ -229,6 +234,58 @@ fn read_params(
             // §18.4.4 step 10: snapshot the counter bytes (post-getters).
             raw.counter = Some(snapshot_buffer_source(ctx, counter_val, method, "counter")?);
             raw.length = Some(length);
+        }
+        AlgorithmParams::HkdfParams => {
+            // `HkdfParams`: hash (required), info (required `BufferSource`),
+            // salt (required `BufferSource`) — Web IDL lexicographic member
+            // order is hash < info < salt.  Each member's getter / type is
+            // validated before the next is read (step 6); the `info` / `salt`
+            // byte snapshots run after every getter (step 10), so a later
+            // getter that mutates an earlier buffer is reflected.
+            let hash_val =
+                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.hash_attr))?;
+            if matches!(hash_val, JsValue::Undefined) {
+                return Err(required_member_error(method, "hash"));
+            }
+            raw.hash = Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?));
+            let info_val =
+                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.info))?;
+            require_buffer_source_member(ctx, info_val, method, "info")?;
+            let salt_val =
+                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.salt))?;
+            require_buffer_source_member(ctx, salt_val, method, "salt")?;
+            // step 10: snapshot the BufferSource bytes after all getters.
+            raw.info = Some(snapshot_buffer_source(ctx, info_val, method, "info")?);
+            raw.salt = Some(snapshot_buffer_source(ctx, salt_val, method, "salt")?);
+        }
+        AlgorithmParams::Pbkdf2Params => {
+            // `Pbkdf2Params`: hash (required), iterations (required
+            // `[EnforceRange] unsigned long`), salt (required `BufferSource`)
+            // — lexicographic order hash < iterations < salt.  `salt` is the
+            // last member, so its snapshot (step 10) follows every getter.
+            let hash_val =
+                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.hash_attr))?;
+            if matches!(hash_val, JsValue::Undefined) {
+                return Err(required_member_error(method, "hash"));
+            }
+            raw.hash = Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?));
+            let iter_val =
+                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.iterations))?;
+            if matches!(iter_val, JsValue::Undefined) {
+                return Err(required_member_error(method, "iterations"));
+            }
+            raw.iterations = Some(coerce_enforce_range(
+                ctx,
+                iter_val,
+                method,
+                "iterations",
+                "unsigned long",
+                f64::from(u32::MAX),
+            )?);
+            let salt_val =
+                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.salt))?;
+            require_buffer_source_member(ctx, salt_val, method, "salt")?;
+            raw.salt = Some(snapshot_buffer_source(ctx, salt_val, method, "salt")?);
         }
     }
     Ok(())

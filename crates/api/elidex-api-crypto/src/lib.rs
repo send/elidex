@@ -14,6 +14,8 @@
 //!   not a public surface.
 //! - [`hash`] — SHA-1/256/384/512 digest driver.
 //! - [`hmac`] — HMAC sign / verify / key-length resolution (§31).
+//! - `hkdf` (crate-internal) — HKDF derive-bits (§33.4.1, RFC 5869).
+//! - `pbkdf2` (crate-internal) — PBKDF2 derive-bits (§34.4.1, RFC 8018).
 //! - [`jwk`] — `oct` JSON Web Key parse / serialize (§15).
 //! - [`key`] — the [`key::CryptoKeyData`] model (§13).
 //! - [`ops`] — operation-level entry points owning all spec validation.
@@ -23,10 +25,12 @@ pub(crate) mod aes;
 pub mod algorithm;
 pub mod error;
 pub mod hash;
+pub(crate) mod hkdf;
 pub mod hmac;
 pub mod jwk;
 pub mod key;
 pub mod ops;
+pub(crate) mod pbkdf2;
 
 #[cfg(test)]
 mod tests;

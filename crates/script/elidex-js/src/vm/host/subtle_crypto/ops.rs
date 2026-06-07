@@ -1,7 +1,8 @@
-//! The eight `SubtleCrypto` operation natives — `digest` plus the HMAC
+//! The ten `SubtleCrypto` operation natives — `digest` plus the HMAC
 //! vertical (`generateKey` / `importKey` / `exportKey` / `sign` /
-//! `verify`, `#11-crypto-subtle-full` PR-1) and the AES `encrypt` /
-//! `decrypt` (PR-2).
+//! `verify`, `#11-crypto-subtle-full` PR-1), the AES `encrypt` /
+//! `decrypt` (PR-2), and the derive vertical (`deriveBits` / `deriveKey`,
+//! PR-3a).
 //!
 //! Each native is a thin pipeline: [`super::run_op`] creates the
 //! Promise + runs the receiver brand check (the only async-reported
@@ -454,4 +455,123 @@ fn run_cipher(
     .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
     let buf = create_array_buffer_from_bytes(ctx.vm, bytes);
     Ok(JsValue::Object(buf))
+}
+
+// ===========================================================================
+// Derive vertical: deriveBits / deriveKey (`#11-crypto-subtle-full` PR-3a).
+// Same `run_op` pipeline as `sign` above; Web IDL converts every argument
+// left-to-right *before* the method steps normalize the algorithm(s) — so a
+// `Symbol()` algorithm beats a non-CryptoKey `baseKey`, which beats a bad
+// `length` / `keyUsages`, which beats NotSupportedError.  All KDF math +
+// composition live in `elidex-api-crypto`; the VM only marshals + normalizes
+// (deriveKey normalizes the `derivedKeyType` twice — for importKey and for
+// get-key-length — the §14.3.7 two-algorithm pattern).
+// ===========================================================================
+
+pub(super) fn native_subtle_crypto_derive_bits(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let args = args.to_vec();
+    run_op(ctx, this, "deriveBits", move |ctx| {
+        // Web IDL arg conversion (§3.6) left-to-right: algorithm
+        // `(object or DOMString)`, baseKey `CryptoKey`, then `length`
+        // (`optional unsigned long? = null`).  §14.3.8 then step 2 normalizes.
+        let algorithm =
+            convert_algorithm_identifier(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
+        let base_key_id = require_crypto_key_arg(
+            ctx,
+            args.get(1).copied().unwrap_or(JsValue::Undefined),
+            "deriveBits",
+            2,
+        )?;
+        let length =
+            marshal_optional_length(ctx, args.get(2).copied().unwrap_or(JsValue::Undefined))?;
+        let raw = marshal_algorithm(ctx, algorithm, "deriveBits", Operation::DeriveBits)?;
+        let normalized = crypto::normalize(Operation::DeriveBits, raw)
+            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+        let bits = {
+            let base_key = &ctx.vm.crypto_key_states[&base_key_id];
+            crypto::ops::derive_bits(normalized, base_key, length)
+        }
+        .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+        let buf = create_array_buffer_from_bytes(ctx.vm, bits);
+        Ok(JsValue::Object(buf))
+    })
+}
+
+pub(super) fn native_subtle_crypto_derive_key(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let args = args.to_vec();
+    run_op(ctx, this, "deriveKey", move |ctx| {
+        // Web IDL arg conversion left-to-right: algorithm `(object or
+        // DOMString)`, baseKey `CryptoKey`, derivedKeyType `(object or
+        // DOMString)`, extractable `boolean`, keyUsages `sequence<KeyUsage>`.
+        let algorithm =
+            convert_algorithm_identifier(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
+        let base_key_id = require_crypto_key_arg(
+            ctx,
+            args.get(1).copied().unwrap_or(JsValue::Undefined),
+            "deriveKey",
+            2,
+        )?;
+        let derived_key_type =
+            convert_algorithm_identifier(ctx, args.get(2).copied().unwrap_or(JsValue::Undefined))?;
+        let extractable =
+            coerce::to_boolean(ctx.vm, args.get(3).copied().unwrap_or(JsValue::Undefined));
+        let usages = marshal_usages(
+            ctx,
+            args.get(4).copied().unwrap_or(JsValue::Undefined),
+            "deriveKey",
+        )?;
+
+        // §14.3.7 steps 2/4/6: normalize the base algorithm (op deriveBits)
+        // then the derivedKeyType twice (op importKey, then op get-key-length)
+        // — each normalize independently reads the dict members (firing
+        // getters in that step order, propagating any throw).
+        let raw_derive = marshal_algorithm(ctx, algorithm, "deriveKey", Operation::DeriveBits)?;
+        let derive_alg = crypto::normalize(Operation::DeriveBits, raw_derive)
+            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+        let raw_import =
+            marshal_algorithm(ctx, derived_key_type, "deriveKey", Operation::ImportKey)?;
+        let import_alg = crypto::normalize(Operation::ImportKey, raw_import)
+            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+        let raw_length =
+            marshal_algorithm(ctx, derived_key_type, "deriveKey", Operation::GetKeyLength)?;
+        let length_alg = crypto::normalize(Operation::GetKeyLength, raw_length)
+            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+
+        let key_data = {
+            let base_key = &ctx.vm.crypto_key_states[&base_key_id];
+            crypto::ops::derive_key(
+                derive_alg,
+                base_key,
+                import_alg,
+                length_alg,
+                extractable,
+                usages,
+            )
+        }
+        .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+        let id = ctx.vm.alloc_crypto_key(key_data);
+        Ok(JsValue::Object(id))
+    })
+}
+
+/// Marshal the `deriveBits` `length` argument (Web IDL `optional unsigned
+/// long? = null`): an absent / `undefined` / `null` value is `None`
+/// (the §33.4.1 / §34.4.1 step-1 OperationError); any other value is the
+/// default (non-`[EnforceRange]`) `unsigned long` `ToUint32` conversion.
+fn marshal_optional_length(
+    ctx: &mut NativeContext<'_>,
+    value: JsValue,
+) -> Result<Option<u32>, VmError> {
+    match value {
+        JsValue::Undefined | JsValue::Null => Ok(None),
+        v => Ok(Some(coerce::to_uint32(ctx.vm, v)?)),
+    }
 }
