@@ -310,6 +310,18 @@ pub fn layout_fragmented_with_tokens(
 /// `elidex_style::resolve_styles()` must have been called first so that
 /// every element has a [`ComputedStyle`] component.
 pub fn layout_tree(dom: &mut EcsDom, viewport: Size, font_db: &FontDatabase) {
+    // The standalone fragment tree (§15.4.1) is layout output, rebuilt from
+    // scratch each pass — clear it before the full-from-root relayout (the
+    // rebuild is the reconcile; no incremental / staleness model). Z-1a's only
+    // populator is multicol box fragments, and this screen pass is the only path
+    // the Z-1b render fragment-walk consumer reads; screen render always runs
+    // `layout_tree` first (shell pipeline), so it sees a freshly-rebuilt tree.
+    // The paged render path (`build_paged_display_lists_interleaved` →
+    // `layout_fragmented_with_tokens` + per-page `dispatch_layout_child`) does
+    // NOT clear here and may leave incidental dark fragments; folding paged media
+    // into the store (and its hygiene) is committed-next, per the
+    // `FragmentNode::fragmentainer` docstring.
+    dom.fragment_tree_mut().clear();
     let roots = find_roots(dom);
     for root in roots {
         layout_root(dom, root, viewport, font_db);

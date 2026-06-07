@@ -2,7 +2,7 @@
 //!
 //! CSS Multi-column Layout Level 1 §7 (column-fill) and §8 (overflow columns).
 
-use elidex_ecs::{EcsDom, Entity, ImageData};
+use elidex_ecs::{BoxFragment, EcsDom, Entity, ImageData};
 use elidex_layout_block::block::stack_block_children;
 use elidex_layout_block::{
     BreakToken, BreakTokenData, FragmentainerContext, FragmentationType, LayoutEnv, LayoutInput,
@@ -26,6 +26,24 @@ pub struct ColumnFillEnv<'a> {
 pub struct ColumnFragment {
     /// Entities laid out in this column (direct children).
     pub children: Vec<Entity>,
+    /// Per-column box-model snapshots of the **spanning** (mid-break) children
+    /// laid out in this column, captured at column-0 base coords **before** the
+    /// next column's layout overwrites their `LayoutBox` (the G11 last-column-wins
+    /// gap). `position_column_fragments` commits these to the standalone fragment
+    /// tree (definitive-pass-only),
+    /// offset to this column's inline position. Empty for a column whose
+    /// children all fit whole (those use the shifted `LayoutBox`, I-multicol).
+    /// Z-1a *dark data* — render does not yet consume the fragment tree.
+    pub box_snapshots: Vec<(Entity, BoxFragment)>,
+}
+
+/// Snapshot an entity's current `LayoutBox` as a [`BoxFragment`] (box-model
+/// geometry minus the component-era `layout_generation`). `None` if the entity
+/// has no `LayoutBox` (e.g. it was suppressed) — captured at this column's
+/// base coords; the column inline-offset is applied at commit.
+fn snapshot_box(dom: &EcsDom, entity: Entity) -> Option<BoxFragment> {
+    let lb = dom.world().get::<&LayoutBox>(entity).ok()?;
+    Some(BoxFragment::from(&*lb))
 }
 
 /// Maximum number of binary search iterations for balanced fill.
@@ -71,6 +89,12 @@ pub fn fill_columns_sequential(
     let mut fragments = Vec::new();
     let mut col_index: u32 = 0;
     let mut carry_break_token: Option<BreakToken> = None;
+    // The child the PREVIOUS column broke mid-way on — it continues into this
+    // column, so its per-column box fragment must be snapshotted here too (the
+    // `next == prev` mid-break test below only catches the column a child
+    // *breaks out of*, not the column it *resumes and finishes in*). `None`
+    // when the previous column ended at a clean child boundary.
+    let mut carry_midbreak: Option<Entity> = None;
 
     // Safety limit to prevent infinite loops.
     let total_limit = max_columns.min(MAX_OVERFLOW_COLUMNS);
@@ -121,10 +145,11 @@ pub fn fill_columns_sequential(
         // When next > prev AND the child at next is mid-break, we do NOT
         // include it — the ECS model has one LayoutBox per entity, so the next
         // column's layout will overwrite it. Multi-fragment tracking is G11.
-        let col_children = if next_child_idx == prev_child_idx
+        let is_midbreak = next_child_idx == prev_child_idx
             && result.break_token.is_some()
-            && next_child_idx < children.len()
-        {
+            && next_child_idx < children.len();
+
+        let col_children = if is_midbreak {
             // Mid-child break: only this partially-laid-out child.
             vec![children[next_child_idx]]
         } else {
@@ -132,8 +157,35 @@ pub fn fill_columns_sequential(
                 .to_vec()
         };
 
+        // Snapshot the per-column box fragments of this column's SPANNING children,
+        // before the next column overwrites their `LayoutBox` (G11). A direct child
+        // has a fragment in this column iff it was laid PARTIALLY here — the precise
+        // signal is the break token's `child_break_token`, which `stack_block_children`
+        // sets ONLY when it fragmented a child mid-way (a clean inter-sibling break or
+        // a monolithic deferral leaves it None and lays the child whole in one column,
+        // where the I-multicol shifted `LayoutBox` suffices). This column's two
+        // spanning slots are the child that breaks OUT of it (`break_out_child`) and
+        // the one that continued INTO it (`carry_midbreak` = the prior column's
+        // break-out); they coincide for the middle column of a 3+-column span, so the
+        // break-out slot is dropped when it equals the carry. Z-1a dark data; the
+        // column inline-offset is applied at commit in `position_column_fragments`.
+        let break_out_child = result
+            .break_token
+            .as_ref()
+            .filter(|bt| bt.child_break_token.is_some())
+            .and_then(|_| children.get(next_child_idx).copied());
+        let mut box_snapshots = Vec::new();
+        let dedup_break_out = break_out_child.filter(|&b| Some(b) != carry_midbreak);
+        for entity in carry_midbreak.into_iter().chain(dedup_break_out) {
+            if let Some(bf) = snapshot_box(dom, entity) {
+                box_snapshots.push((entity, bf));
+            }
+        }
+        carry_midbreak = break_out_child;
+
         fragments.push(ColumnFragment {
             children: col_children,
+            box_snapshots,
         });
 
         carry_break_token = result.break_token;

@@ -408,9 +408,6 @@ fn position_column_fragments(
     wm: WritingModeContext,
 ) {
     for (i, frag) in frags.iter().enumerate() {
-        if i == 0 {
-            continue; // Column 0 has no inline offset.
-        }
         #[allow(clippy::cast_precision_loss)]
         let inline_offset = i as f32 * (geom.width + geom.gap);
         let delta = if wm.is_horizontal() {
@@ -418,6 +415,40 @@ fn position_column_fragments(
         } else {
             Vector::y_only(inline_offset)
         };
+
+        // Commit this column's spanning-child box fragments to the standalone
+        // fragment tree (§15.4.1), offset to the column's inline position. This
+        // is the ONLY store-write site, and `position_column_fragments` runs
+        // ONLY via `fill_and_position` on the definitive pass (this multicol's
+        // OWN balanced-fill probes call `fill_columns_sequential` directly, never
+        // positioning), so it never accumulates THIS multicol's own probe
+        // garbage.
+        //
+        // KNOWN GAP (Z-1b prereq, dark-data-only): the definitive-pass-only
+        // guarantee holds against a multicol's own probes but NOT against an
+        // ANCESTOR multicol's probes. A nested multicol laid out inside a
+        // balanced outer multicol's probe (`fill_columns_balanced` →
+        // `fill_columns_sequential`/`probe_total_height`) re-enters the child's
+        // full `layout_multicol` → `fill_and_position`, which writes here even
+        // though the outer pass is non-definitive — leaving probe fragments
+        // mixed with final ones in a single `layout_tree` pass. Suppressing this
+        // needs a probe-mode signal threaded through `LayoutInput` and inherited
+        // by descendants (the very flag the F1 "no flag" design deferred); it is
+        // settled with the nested-multicol ancestor-shift integration before the
+        // Z-1b render consumer reads the tree. Harmless while dark data.
+        //
+        // Column 0 commits at delta 0. Z-1a dark data: render does not yet
+        // consume it.
+        for (entity, snapshot) in &frag.box_snapshots {
+            let mut bf = snapshot.clone();
+            bf.content.origin += delta;
+            #[allow(clippy::cast_possible_truncation)]
+            dom.fragment_tree_mut().push_box(*entity, i as u32, bf);
+        }
+
+        if i == 0 {
+            continue; // Column 0's LayoutBoxes need no inline shift.
+        }
 
         // Shift this column fragment's children (and descendants) to the column's inline
         // offset via block layout's canonical subtree shifter — which moves `LayoutBox`

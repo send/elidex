@@ -5,6 +5,7 @@
 
 mod components;
 mod dom;
+mod fragment_tree;
 
 /// The placeholder `about:blank` base URL used while
 /// `#11-document-url-real-navigation` slot is pending (no real
@@ -36,6 +37,7 @@ pub use dom::equality::{
 };
 pub use dom::shadow::{ShadowAttachError, ShadowInit, SlotAssignError};
 pub use dom::{EcsDom, MutationDispatcher, MutationEvent, MAX_ANCESTOR_DEPTH};
+pub use fragment_tree::{BoxFragment, FragmentContent, FragmentId, FragmentNode, FragmentTree};
 
 // Re-export hecs Entity for downstream consumers.
 pub use hecs::Entity;

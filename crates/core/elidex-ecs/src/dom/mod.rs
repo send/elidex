@@ -60,6 +60,12 @@ pub struct EcsDom {
     /// recursively from within a consumer's `dispatch` body (violates
     /// the re-entry contract on [`MutationDispatcher::dispatch`]).
     dispatch_depth: u8,
+    /// Standalone fragment tree — layout's output for N:M-fragmented content
+    /// (§15.4.1), a sibling structure to `world` rather than a per-entity
+    /// component. Populated by layout (multicol box fragments, Z-1a), read by
+    /// render. Cleared + rebuilt each layout pass. See
+    /// [`crate::FragmentTree`].
+    fragment_tree: crate::FragmentTree,
 }
 
 /// Panic-safe Drop guard for [`EcsDom::dispatch_event`]: restores the
@@ -104,7 +110,23 @@ impl EcsDom {
             document_root: None,
             dispatcher: None,
             dispatch_depth: 0,
+            fragment_tree: crate::FragmentTree::default(),
         }
+    }
+
+    // ---- Fragment tree (standalone layout-output structure, §15.4.1) ----
+
+    /// Read access to the standalone [`FragmentTree`](crate::FragmentTree)
+    /// (render's consume entry; layout's read-back).
+    #[must_use]
+    pub fn fragment_tree(&self) -> &crate::FragmentTree {
+        &self.fragment_tree
+    }
+
+    /// Mutable access to the standalone [`FragmentTree`](crate::FragmentTree)
+    /// (layout populates box fragments here).
+    pub fn fragment_tree_mut(&mut self) -> &mut crate::FragmentTree {
+        &mut self.fragment_tree
     }
 
     // ---- Mutation event dispatcher ----
