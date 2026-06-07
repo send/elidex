@@ -534,6 +534,64 @@ fn justify_single_line_is_last_line_not_justified() {
 }
 
 #[test]
+fn justify_suppressed_line_rtl_is_start_aligned() {
+    // A suppressed justify line (here a single = last line) is start-aligned per
+    // CSS Text 3 §6.3 (`text-align-last: auto` → `start`), NOT left-aligned. The
+    // start edge in an RTL block is the RIGHT edge, so the run is offset to
+    // `inline_start = free > 0` — regression for the bug where `align_offset(Justify)`
+    // returned 0 and pinned the RTL last line to the left edge.
+    let Some((mut dom, parent, mut style, font_db)) = setup_inline_test("aa bb") else {
+        return;
+    };
+    style.text_align = TextAlign::Justify;
+    style.direction = Direction::Rtl;
+    let _ = dom.world_mut().insert_one(parent, style);
+    let children = dom.composed_children(parent);
+    let key = run_start(&dom, parent);
+    layout_inline_context(
+        &mut dom,
+        &children,
+        800.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+    );
+
+    {
+        let flow = dom.world().get::<&InlineFlow>(key).expect("persists");
+        let line = &flow.fragments[0].lines[0];
+        assert_eq!(line.justify_word_spacing, 0.0, "last line not justified");
+        assert!(
+            line.runs[0].inline_start() > 0.0,
+            "RTL last line is start(right)-aligned (inline_start = free > 0), not left-pinned; got {}",
+            line.runs[0].inline_start()
+        );
+    }
+    // Sanity: an LTR last line stays at the left (start) edge — offset 0.
+    let mut ltr = crate::get_style(&dom, parent);
+    ltr.direction = Direction::Ltr;
+    let _ = dom.world_mut().insert_one(parent, ltr);
+    let children = dom.composed_children(parent);
+    layout_inline_context(
+        &mut dom,
+        &children,
+        800.0,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+    );
+    let inline_start = dom
+        .world()
+        .get::<&InlineFlow>(key)
+        .expect("persists")
+        .fragments[0]
+        .lines[0]
+        .runs[0]
+        .inline_start();
+    assert_eq!(inline_start, 0.0, "LTR last line start edge = left = 0");
+}
+
+#[test]
 fn justify_overflow_line_no_negative_stretch() {
     // A line wider than the container (free < 0, clamped to 0) → no stretch, no
     // div-by-zero, no negative spacing. Tiny container forces a wrap; every line

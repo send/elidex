@@ -89,8 +89,11 @@ fn resolve_align(align: TextAlign, direction: Direction) -> TextAlign {
 }
 
 /// Inline-start offset for a resolved alignment given the line's free space
-/// (`container_inline_size − trimmed_line_width`). `justify` is gated out before
-/// reaching here, so it falls to the default `0.0`.
+/// (`container_inline_size − trimmed_line_width`). A *distributed* `justify` line
+/// reaches here as `Justify` and falls to `0.0` (it fills the box from the start
+/// edge; `bake_justify` does the distribution); a *suppressed* justify line is
+/// resolved to `Start` by the caller first (§6.3), so it never reaches here as raw
+/// `Justify` with non-zero intended offset.
 fn align_offset(resolved: TextAlign, free: f32) -> f32 {
     match resolved {
         TextAlign::Center => free / 2.0,
@@ -425,12 +428,8 @@ impl LinePacker {
             // same amount. Each group with runs appends one InlineFlowLine to its own
             // flow_lines bucket.
             if let Some(fa) = self.flow_align {
-                // Start/center/end offset uses the *trimmed* line width (trailing
-                // collapsible space hangs, CSS Text 3 §4.1.2). `align_offset` returns
-                // 0 for `justify` — justify positions are baked by the `cum` walk below.
                 let line_width = self.current_inline - self.current_line_last_hang;
                 let free = (fa.containing_inline_size - line_width).max(0.0);
-                let offset = align_offset(resolve_align(fa.text_align, fa.direction), free);
                 let block_start = self.current_block_offset;
                 let block_size = self.current_line_height;
                 // `text-align: justify` (CSS Text 3 §6.4) is suppressed on the block's
@@ -444,6 +443,21 @@ impl LinePacker {
                 let justify_lines = fa.text_align == TextAlign::Justify
                     && !fa.is_vertical
                     && reason == FlushReason::SoftWrap;
+                // Line-level start/center/end offset, baked into every run's
+                // `inline_start` (uses the *trimmed* line width — trailing collapsible
+                // space hangs, §4.1.2). For `justify`: a *distributed* line resolves to
+                // `Justify` → `align_offset` 0 (it fills the box from the start edge;
+                // `bake_justify` does the distribution). A *suppressed* justify line
+                // (last / forced-break / vertical) is start-aligned per §6.3
+                // (`text-align-last: auto` → `start`), NOT left-aligned — so resolve
+                // `Justify → Start` here, giving an RTL block's last/only line its
+                // (right) start-edge offset instead of pinning it to the left.
+                let offset_align = if fa.text_align == TextAlign::Justify && !justify_lines {
+                    resolve_align(TextAlign::Start, fa.direction)
+                } else {
+                    resolve_align(fa.text_align, fa.direction)
+                };
+                let offset = align_offset(offset_align, free);
                 // Untrimmed line advance — the `free`/opportunity basis `bake_justify`
                 // needs (read here to avoid borrowing `*self` inside the drain loop).
                 let line_advance = self.current_inline;
@@ -476,6 +490,12 @@ impl LinePacker {
                 // not group-keyed: the caller folds with the IFC-root origin and
                 // repositions each box; these are NOT flow members (render Layer 6
                 // paints the positioned box, so a flow member would double-paint).
+                // NOTE (justify v1): a positioned atomic on a *distributed* justify line
+                // does NOT receive `bake_justify`'s cumulative within-line expansion
+                // (only the line-level `offset`), same deferred class as sub-flow groups
+                // — positioned content keeps its natural in-flow position while top-level
+                // text justifies around it (a benign gap, not overlap; slot
+                // `#11-justify-subflow-line-unified`).
                 for (entity, inline_start) in self.current_line_relpos_atomics.drain(..) {
                     self.relpos_atomic_placements.push((
                         entity,
