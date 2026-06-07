@@ -310,6 +310,11 @@ pub fn layout_fragmented_with_tokens(
 /// `elidex_style::resolve_styles()` must have been called first so that
 /// every element has a [`ComputedStyle`] component.
 pub fn layout_tree(dom: &mut EcsDom, viewport: Size, font_db: &FontDatabase) {
+    // The standalone fragment tree (§15.4.1) is layout output, rebuilt from
+    // scratch each pass — clear it before the full-from-root relayout (the
+    // rebuild is the reconcile; no incremental / staleness model). Z-1a's only
+    // populator is multicol box fragments.
+    dom.fragment_tree_mut().clear();
     let roots = find_roots(dom);
     for root in roots {
         layout_root(dom, root, viewport, font_db);

@@ -12,6 +12,7 @@ use elidex_text::{measure_text, FontDatabase, FontStyle, TextMeasureParams};
 use crate::layout_multicol;
 use elidex_layout_block::LayoutInput;
 
+mod box_fragment;
 mod fill;
 mod geometry;
 mod inline_flow;
