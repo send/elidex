@@ -49,6 +49,19 @@ pub struct JsonWebKey {
     pub key_ops: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ext: Option<bool>,
+    // Elliptic-curve members (WebCrypto §15 + RFC 7518 / JWA §6.2): `crv` is
+    // the curve name; `x` / `y` are the base64url public-point coordinates;
+    // `d` is the base64url private scalar (present iff a private key).  Read /
+    // written in both mirror halves (`marshal_jwk` live + [`from_json_bytes`])
+    // for the ECDSA / ECDH `jwk` import / export round-trip (PR-4).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crv: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub x: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub y: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub d: Option<String>,
 }
 
 /// Serialize an `oct` [`JsonWebKey`] to JSON bytes for `wrapKey` (WebCrypto
@@ -97,8 +110,10 @@ const AES_KW_BLOCK: usize = 8;
 /// sequence → `DataError`).  This matches the live `importKey` marshalling, so
 /// a wrapped `{ "ext": null }` / `{ "key_ops": null }` is rejected here exactly
 /// as the normal JWK import path rejects it (rather than silently accepted).
-/// Unknown JWK members (the EC / RSA fields of a non-`oct` key) are ignored;
-/// malformed JSON or a non-object document is a `DataError`.
+/// The EC members (crv / x / y / d) are retained for the ECDSA / ECDH `jwk`
+/// round-trip (PR-4); the RSA members (n / e / …) of a non-`oct`/-EC key
+/// remain ignored until PR-5; malformed JSON or a non-object document is a
+/// `DataError`.
 pub fn from_json_bytes(bytes: &[u8]) -> Result<JsonWebKey, AlgorithmError> {
     let value: Value =
         serde_json::from_slice(bytes).map_err(|_| data("unwrapped key data is not valid JSON"))?;
@@ -131,6 +146,13 @@ pub fn from_json_bytes(bytes: &[u8]) -> Result<JsonWebKey, AlgorithmError> {
         use_: member_domstring(&map, "use"),
         key_ops,
         ext: member_boolean(&map, "ext"),
+        // EC members (retained for the ECDSA / ECDH jwk wrap↔import round-trip,
+        // PR-4) — the live `marshal_jwk` half reads the same members, so the
+        // two stay in lockstep (the differential equivalence test pins it).
+        crv: member_domstring(&map, "crv"),
+        x: member_domstring(&map, "x"),
+        y: member_domstring(&map, "y"),
+        d: member_domstring(&map, "d"),
     };
     // §9 "parse a JWK" step 6: the `kty` member must be defined (a present member,
     // even if its value is the empty string) — a `DataError` here, BEFORE the
@@ -325,6 +347,11 @@ pub fn export_oct_hmac(key: &CryptoKeyData, hash: HashAlgorithm) -> JsonWebKey {
         use_: None,
         key_ops: Some(key.usages.iter().map(|u| u.as_str().to_string()).collect()),
         ext: Some(key.extractable),
+        // The EC members are absent for an `oct` key.
+        crv: None,
+        x: None,
+        y: None,
+        d: None,
     }
 }
 
@@ -405,6 +432,11 @@ pub fn export_oct_aes(key: &CryptoKeyData, variant: AesVariant, length_bits: u32
         use_: None,
         key_ops: Some(key.usages.iter().map(|u| u.as_str().to_string()).collect()),
         ext: Some(key.extractable),
+        // The EC members are absent for an `oct` key.
+        crv: None,
+        x: None,
+        y: None,
+        d: None,
     }
 }
 
@@ -425,7 +457,12 @@ fn bit_len(byte_len: usize) -> Result<u32, AlgorithmError> {
 /// So this checks duplicates + the requested-usage superset at the
 /// **string** level — extension / private operations (e.g. a custom
 /// `"derive-foo"` alongside `"sign"`) are ignored, not rejected.
-fn validate_key_ops(key_ops: &[String], usages: &[KeyUsage]) -> Result<(), AlgorithmError> {
+///
+/// Shared by the `oct` HMAC / AES imports + the EC import (`crate::ec`).
+pub(crate) fn validate_key_ops(
+    key_ops: &[String],
+    usages: &[KeyUsage],
+) -> Result<(), AlgorithmError> {
     // RFC 7517 §4.3: no duplicate key operation values.
     for (i, op) in key_ops.iter().enumerate() {
         if key_ops[i + 1..].iter().any(|other| other == op) {

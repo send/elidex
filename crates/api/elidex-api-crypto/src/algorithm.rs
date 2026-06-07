@@ -10,7 +10,7 @@
 
 use crate::error::AlgorithmError;
 use crate::hash::HashAlgorithm;
-use crate::key::KeyType;
+use crate::key::{KeyAlgorithm, KeyType};
 
 /// A WebCrypto operation (the `op` argument of §18.4.4). The full set is
 /// declared now; only the PR-1 subset (`Digest`, `Sign`, `Verify`,
@@ -266,6 +266,15 @@ impl EcAlgorithm {
         match self {
             Self::Ecdsa => AlgorithmName::Ecdsa,
             Self::Ecdh => AlgorithmName::Ecdh,
+        }
+    }
+
+    /// The key's `[[algorithm]]` for this EC family + curve (WebCrypto §23.5
+    /// / §24 `EcKeyAlgorithm`) — used by both EC import and generateKey.
+    pub(crate) fn key_algorithm(self, curve: NamedCurve) -> KeyAlgorithm {
+        match self {
+            Self::Ecdsa => KeyAlgorithm::Ecdsa { curve },
+            Self::Ecdh => KeyAlgorithm::Ecdh { curve },
         }
     }
 }

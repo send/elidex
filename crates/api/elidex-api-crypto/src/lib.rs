@@ -14,6 +14,9 @@
 //!   not a public surface.
 //! - `aes_kw` (crate-internal) — AES-KW key wrap / unwrap (§30.3.1 /
 //!   §30.3.2, RFC 3394); reached only through [`ops`], so `pub(crate)`.
+//! - `ec` (crate-internal) — ECDSA / ECDH key import / export + sign /
+//!   verify / deriveBits (§23 / §24, over the `p256` / `p384` / `p521`
+//!   curve crates); reached only through [`ops`], so `pub(crate)`.
 //! - [`hash`] — SHA-1/256/384/512 digest driver.
 //! - [`hmac`] — HMAC sign / verify / key-length resolution (§31).
 //! - `hkdf` (crate-internal) — HKDF derive-bits (§33.4.1, RFC 5869).
@@ -26,6 +29,7 @@
 pub(crate) mod aes;
 pub(crate) mod aes_kw;
 pub mod algorithm;
+pub(crate) mod ec;
 pub mod error;
 pub mod hash;
 pub(crate) mod hkdf;

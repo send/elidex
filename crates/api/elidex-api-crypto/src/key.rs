@@ -86,6 +86,28 @@ impl KeyUsage {
         matches!(self, Self::DeriveKey | Self::DeriveBits)
     }
 
+    /// Whether ECDSA accepts this usage for a key of `key_type` (WebCrypto
+    /// §23.7.3 / §23.7.4): a public key accepts only `verify`; a private key
+    /// only `sign`.  Unlike the symmetric predicates this is key-type-
+    /// dependent (the usage split across the generated key pair).
+    pub fn is_ecdsa_usage(self, key_type: KeyType) -> bool {
+        match key_type {
+            KeyType::Public => matches!(self, Self::Verify),
+            KeyType::Private => matches!(self, Self::Sign),
+            KeyType::Secret => false,
+        }
+    }
+
+    /// Whether ECDH accepts this usage for a key of `key_type` (WebCrypto
+    /// §24.4.1 / §24.4.3): a public key accepts **none** (ECDH public keys
+    /// have no usages); a private key accepts `deriveKey` / `deriveBits`.
+    pub fn is_ecdh_usage(self, key_type: KeyType) -> bool {
+        match key_type {
+            KeyType::Private => matches!(self, Self::DeriveKey | Self::DeriveBits),
+            KeyType::Public | KeyType::Secret => false,
+        }
+    }
+
     /// Parse a `KeyUsage` from its IDL identifier, or `None` if unrecognized.
     pub fn from_ident(s: &str) -> Option<Self> {
         Some(match s {

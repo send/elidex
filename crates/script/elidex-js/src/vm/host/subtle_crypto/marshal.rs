@@ -654,18 +654,19 @@ pub(super) fn marshal_format(
 /// - A non-object, non-nullish value cannot be a dictionary → `TypeError`.
 /// - For an object, every declared `JsonWebKey` member is read **in
 ///   lexicographic identifier order**, firing each getter and propagating
-///   its throws — even members HMAC ignores (the EC / RSA fields).  Only
-///   the `oct`-relevant subset (`kty` / `use` / `key_ops` / `alg` / `ext`
-///   / `k`) is retained.
+///   its throws — even members the importing algorithm ignores.  The `oct`
+///   (`kty` / `use` / `key_ops` / `alg` / `ext` / `k`) and EC (`crv` / `x` /
+///   `y` / `d`) members are retained; the RSA fields are still read (for the
+///   getter side-effects) but discarded until PR-5.
 ///
 /// This is the **live (JS-object) half** of a spec-forced mirror: `wrapKey` /
 /// `unwrapKey` re-implement the identical `JsonWebKey` dictionary conversion
 /// over JSON *bytes* in `elidex_api_crypto::jwk::from_json_bytes` (realm-
 /// isolated, no JS object — WebCrypto §9 "a new global object").  The two must
-/// stay in lockstep: adding an EC / RSA member here (PR-4 / PR-5) requires the
-/// same member in `from_json_bytes`, or wrap↔import coercion / error precedence
-/// diverge.  (A differential equivalence test is slotted for PR-4 under
-/// `#11-crypto-subtle-full`.)
+/// stay in lockstep: a member read here must be retained identically in
+/// `from_json_bytes`, or wrap↔import coercion / error precedence diverge.  The
+/// EC members landed in PR-4 (RSA in PR-5); the differential equivalence test
+/// (`#11-crypto-subtle-full`) mechanically pins the two halves in lockstep.
 pub(super) fn marshal_jwk(
     ctx: &mut NativeContext<'_>,
     value: JsValue,
@@ -685,8 +686,8 @@ pub(super) fn marshal_jwk(
     // qi, use, x, y.  Read every member (firing getters / propagating
     // throws); retain only the oct subset.
     let alg = read_jwk_string(ctx, id, "alg")?;
-    read_jwk_string(ctx, id, "crv")?;
-    read_jwk_string(ctx, id, "d")?;
+    let crv = read_jwk_string(ctx, id, "crv")?;
+    let d = read_jwk_string(ctx, id, "d")?;
     read_jwk_string(ctx, id, "dp")?;
     read_jwk_string(ctx, id, "dq")?;
     read_jwk_string(ctx, id, "e")?;
@@ -700,8 +701,8 @@ pub(super) fn marshal_jwk(
     read_jwk_string(ctx, id, "q")?;
     read_jwk_string(ctx, id, "qi")?;
     let use_ = read_jwk_string(ctx, id, "use")?;
-    read_jwk_string(ctx, id, "x")?;
-    read_jwk_string(ctx, id, "y")?;
+    let x = read_jwk_string(ctx, id, "x")?;
+    let y = read_jwk_string(ctx, id, "y")?;
     Ok(JsonWebKey {
         kty,
         k,
@@ -709,6 +710,10 @@ pub(super) fn marshal_jwk(
         use_,
         key_ops,
         ext,
+        crv,
+        x,
+        y,
+        d,
     })
 }
 
@@ -847,11 +852,17 @@ pub(super) fn build_jwk_object(ctx: &mut NativeContext<'_>, jwk: &JsonWebKey) ->
         );
     };
     // Web IDL "convert a dictionary to an ECMAScript value" creates own
-    // properties in **lexicographic member order** — for the `oct` subset:
-    // alg, ext, k, key_ops, kty, use — so `Object.keys(exportedJwk)`
-    // matches the spec / other engines.
+    // properties in **lexicographic member order** — across the `oct` + EC
+    // subsets: alg, crv, d, ext, k, key_ops, kty, use, x, y — so
+    // `Object.keys(exportedJwk)` matches the spec / other engines.
     if let Some(alg) = &jwk.alg {
         set_string(ctx, "alg", alg);
+    }
+    if let Some(crv) = &jwk.crv {
+        set_string(ctx, "crv", crv);
+    }
+    if let Some(d) = &jwk.d {
+        set_string(ctx, "d", d);
     }
     if let Some(ext) = jwk.ext {
         let key = PropertyKey::String(ctx.intern("ext"));
@@ -890,6 +901,12 @@ pub(super) fn build_jwk_object(ctx: &mut NativeContext<'_>, jwk: &JsonWebKey) ->
     }
     if let Some(use_) = &jwk.use_ {
         set_string(ctx, "use", use_);
+    }
+    if let Some(x) = &jwk.x {
+        set_string(ctx, "x", x);
+    }
+    if let Some(y) = &jwk.y {
+        set_string(ctx, "y", y);
     }
     obj
 }

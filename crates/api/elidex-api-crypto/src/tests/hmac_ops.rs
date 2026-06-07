@@ -244,6 +244,7 @@ fn ops_import_empty_material_is_data_error() {
         use_: None,
         key_ops: None,
         ext: Some(true),
+        ..Default::default()
     };
     assert!(matches!(
         ops::import_key(
@@ -297,6 +298,7 @@ fn ops_import_jwk_export_jwk_roundtrip() {
         use_: None,
         key_ops: Some(vec!["sign".into(), "verify".into()]),
         ext: Some(true),
+        ..Default::default()
     };
     let key = ops::import_key(
         KeyFormat::Jwk,
@@ -340,6 +342,7 @@ fn base_jwk() -> JsonWebKey {
         use_: None,
         key_ops: None,
         ext: Some(true),
+        ..Default::default()
     }
 }
 

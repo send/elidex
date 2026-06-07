@@ -433,6 +433,7 @@ fn jwk_json_round_trip_omits_absent_members() {
         use_: None,
         key_ops: Some(vec!["wrapKey".to_string(), "unwrapKey".to_string()]),
         ext: Some(true),
+        ..Default::default()
     };
     let json = crate::jwk::to_json_bytes(&jwk);
     let text = std::str::from_utf8(&json).unwrap();
@@ -539,6 +540,7 @@ fn jwk_to_json_bytes_is_padded_to_aes_kw_block() {
         use_: None,
         key_ops: Some(vec!["wrapKey".to_string()]),
         ext: Some(true),
+        ..Default::default()
     };
     let bytes = crate::jwk::to_json_bytes(&jwk);
     assert_eq!(

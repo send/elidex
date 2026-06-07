@@ -4,7 +4,7 @@
 //! lives here; the VM host only marshals JS ↔ these plain-Rust inputs
 //! and settles the returned Promise.
 
-use crate::algorithm::{AesVariant, NormalizedAlgorithm};
+use crate::algorithm::{AesVariant, EcAlgorithm, NormalizedAlgorithm};
 use crate::error::AlgorithmError;
 use crate::jwk::{self, JsonWebKey};
 use crate::key::{normalize_usages, CryptoKeyData, KeyAlgorithm, KeyMaterial, KeyType, KeyUsage};
@@ -168,6 +168,9 @@ pub fn import_key(
         }
         NormalizedAlgorithm::Pbkdf2 => {
             import_kdf_key(format, KeyAlgorithm::Pbkdf2, extractable, usages, key_data)
+        }
+        NormalizedAlgorithm::EcImport { algorithm, curve } => {
+            crate::ec::import(algorithm, curve, format, extractable, usages, key_data)
         }
         _ => Err(not_supported_op("importKey")),
     }
@@ -361,9 +364,8 @@ pub fn export_key(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKey,
     // EC-JWK (the `ec` backend, PR-4 commit 2).
     match key.algorithm {
         KeyAlgorithm::Hmac { .. } | KeyAlgorithm::Aes { .. } => export_symmetric(format, key),
-        KeyAlgorithm::Ecdsa { .. } | KeyAlgorithm::Ecdh { .. } => {
-            Err(not_supported_op("exportKey"))
-        }
+        KeyAlgorithm::Ecdsa { curve } => crate::ec::export(EcAlgorithm::Ecdsa, curve, format, key),
+        KeyAlgorithm::Ecdh { curve } => crate::ec::export(EcAlgorithm::Ecdh, curve, format, key),
         KeyAlgorithm::Hkdf | KeyAlgorithm::Pbkdf2 => unreachable!("KDF rejected at step 6"),
     }
 }
@@ -760,8 +762,9 @@ fn aes_key_byte_len(length_bits: u32) -> Result<usize, AlgorithmError> {
 }
 
 /// A `format` / `keyData` shape mismatch — the VM marshals them
-/// consistently, so this is a defensive `TypeError`.
-fn format_data_mismatch() -> AlgorithmError {
+/// consistently, so this is a defensive `TypeError`.  Shared with the EC
+/// import backend (`crate::ec`).
+pub(crate) fn format_data_mismatch() -> AlgorithmError {
     AlgorithmError::Type("keyData does not match the requested format".to_string())
 }
 
