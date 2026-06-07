@@ -521,9 +521,11 @@ fn stale_flow_cleared_when_run_becomes_gated_out() {
 }
 
 #[test]
-fn gate_excludes_rtl_text() {
-    // Hebrew text needs bidi visual reordering, which render applies but layout's
-    // logical-order positions do not encode → must fall back (slice 4 handles bidi).
+fn rtl_text_persists_logical_order() {
+    // Slice 4 / bidi inverts the old `gate_excludes_rtl_text`: an RTL run now
+    // persists an `InlineFlow` in **logical** order — layout stays logical, render
+    // owns the UAX #9 L2 visual reorder at paint (master §4.2). So the persisted run
+    // carries the logical (source-order) text, NOT a pre-reordered string.
     let Some((mut dom, parent, _style, font_db)) = setup_inline_test("שלום עולם") else {
         return;
     };
@@ -538,9 +540,14 @@ fn gate_excludes_rtl_text() {
         &env(&font_db),
     );
 
-    assert!(
-        dom.world().get::<&InlineFlow>(key).is_err(),
-        "RTL/bidi text must not persist — render reorders visually, layout positions logically"
+    let flow = dom
+        .world()
+        .get::<&InlineFlow>(key)
+        .expect("RTL run must now persist (render reorders visually, layout positions logically)");
+    assert_eq!(
+        flow.fragments[0].lines[0].runs[0].text(),
+        Some("שלום עולם"),
+        "persisted run carries the logical source-order text; visual reorder is render's job"
     );
 }
 

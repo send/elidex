@@ -120,24 +120,31 @@ pub(crate) fn emit_inline_run(
         });
         if consume {
             // The horizontal/vertical dispatch needs only the parent's `writing_mode`
-            // + `text_orientation` (Copy enums) — read those WITHOUT cloning the parent
-            // `ComputedStyle`. Render must interpret the persisted coordinates with the
-            // SAME writing mode layout used to project them — i.e. the IFC parent's — so
-            // the dispatch reads the parent's, not each member's. A styleless parent →
-            // horizontal default, mirroring layout's `get_style` `unwrap_or_default`
-            // tolerance (it persisted under the same default), so the flow still paints.
-            let (writing_mode, text_orientation) = ctx
-                .dom
-                .world()
-                .get::<&ComputedStyle>(parent)
-                .map_or((WritingMode::HorizontalTb, TextOrientation::Mixed), |s| {
-                    (s.writing_mode, s.text_orientation)
-                });
+            // + `text_orientation` + `direction` (Copy enums) — read those WITHOUT
+            // cloning the parent `ComputedStyle`. Render must interpret the persisted
+            // coordinates with the SAME writing mode layout used to project them — i.e.
+            // the IFC parent's — so the dispatch reads the parent's, not each member's.
+            // `direction` is the same situation: bidi visual reorder (UAX #9 L2) uses the
+            // IFC parent's paragraph embedding level, not the run-start child's (a
+            // `dir`-override first child would give the wrong base level). A styleless
+            // parent → horizontal / LTR default, mirroring layout's `get_style`
+            // `unwrap_or_default` tolerance (it persisted under the same default), so the
+            // flow still paints.
+            let (writing_mode, text_orientation, direction) =
+                ctx.dom.world().get::<&ComputedStyle>(parent).map_or(
+                    (
+                        WritingMode::HorizontalTb,
+                        TextOrientation::Mixed,
+                        Direction::Ltr,
+                    ),
+                    |s| (s.writing_mode, s.text_orientation, s.direction),
+                );
             emit_inline_flow(
                 ctx,
                 first,
                 writing_mode,
                 text_orientation,
+                direction,
                 depth,
                 child_perspective,
                 in_transform,
@@ -296,6 +303,9 @@ fn emit_styled_segments(
             &mut cursor_x,
             lb.content.origin.y,
             align_result.justify_extra_word_spacing,
+            // Legacy `collect_styled_inline_text` already drops hidden text, so every
+            // collected segment is visible.
+            true,
             font_db,
             font_cache,
             dl,
@@ -311,6 +321,13 @@ fn emit_styled_segments(
 /// (CSS 2 §10.8.1 leading is not yet modelled — preserved from the legacy path).
 /// `cursor_x` is advanced past the segment so the caller can place the next one;
 /// the converged path sets it explicitly per run instead.
+///
+/// `visible` gates *painting* only — a `visibility: hidden` run still shapes and
+/// **advances `cursor_x`** (CSS 2.1 §11.2: a hidden box still affects layout /
+/// reserves space) but emits no glyphs or decorations. This matters on the
+/// converged bidi-reorder path, where runs share one accumulating cursor: a hidden
+/// run between visible ones must reserve its width so the next run is not painted
+/// over it. The legacy path filters hidden text upstream and always passes `true`.
 #[allow(clippy::too_many_arguments)]
 fn emit_text_segment(
     text: &str,
@@ -318,6 +335,7 @@ fn emit_text_segment(
     cursor_x: &mut f32,
     line_top_y: f32,
     justify_extra_word_spacing: f32,
+    visible: bool,
     font_db: &FontDatabase,
     font_cache: &mut FontCache,
     dl: &mut DisplayList,
@@ -348,6 +366,11 @@ fn emit_text_segment(
         &transformed,
     );
     let seg_width = *cursor_x - seg_start_x;
+
+    // `visibility: hidden`: the run reserved its advance above but paints nothing.
+    if !visible {
+        return;
+    }
 
     dl.push(DisplayItem::Text {
         glyphs,
@@ -421,11 +444,37 @@ fn emit_text_segment(
 /// - **horizontal**: `inline_start` = physical x, `block_start` = physical line top.
 /// - **vertical**: `block_start`/`block_size` give the glyph-column center x;
 ///   `inline_start` = physical y (pen top). `text_orientation` selects the shaping.
+///
+/// **Bidi (UAX #9 L2)**: layout persists each line's `Text` runs in **logical**
+/// order; render owns the paint-time visual reorder (master §4.2 — bidi is a
+/// paint-time transform of already-collapsed, already-positioned logical runs; it
+/// does not change layout advance). Per line: build the `(text, idx)` adapter from
+/// the line's `Text` runs only and ask `bidi_visual_order` for the visual order
+/// under the IFC parent's `direction`. The common LTR case is an identity
+/// permutation → paint each run at its baked logical `inline_start` (no change). A
+/// non-identity line is painted in visual order from the line's visual inline-start
+/// (`min(inline_start)` = leftmost baked logical position = the span's left edge,
+/// since text-align/justify offset is already baked into every run), the shared
+/// cursor advancing by each run's shaped width (a hidden run still advances the
+/// cursor — its reserved width is preserved — but paints nothing; see
+/// `emit_flow_text_run`). Atomics are NOT in the adapter (Option (c)): they stay
+/// collected + `walk()`-painted at their layout-baked `LayoutBox`, so an atomic+bidi
+/// line is a net fix over legacy (which flattened atomics to text). LIMITATION: an
+/// atomic *between* reordered text runs is not treated as a UAX #9 object-replacement
+/// (U+FFFC) member — the text cursor does not reserve its width, so reordered text can
+/// paint across the atomic's baked box, and the atomic is not visually repositioned.
+/// This is one facet of the deferred **full-UBA bidi-fidelity** program, slot
+/// `#11-bidi-full-uba-fidelity` (with paragraph-level cross-line level resolution and
+/// cross-sub-flow reorder; larger scope = elidex-bidi object modelling +
+/// box-reposition-at-paint). The current path runs the per-segment `analyze_bidi_simple`
+/// per persisted line — the same approximation level as the legacy path (master §4.2).
+#[allow(clippy::too_many_arguments)]
 fn emit_inline_flow(
     ctx: &mut PaintContext,
     first: Entity,
     writing_mode: WritingMode,
     text_orientation: TextOrientation,
+    direction: Direction,
     depth: usize,
     child_perspective: &Perspective,
     in_transform: bool,
@@ -452,56 +501,91 @@ fn emit_inline_flow(
             .filter(|frag| fragment_matches_page(frag, expected))
             .flat_map(|frag| frag.lines.iter())
         {
+            // Split the line's runs: `Text` runs (bidi-reordered for paint) vs atomics
+            // (collected here, `walk()`-ed after the flow borrow drops — Option (c):
+            // atomics are NOT in the reorder adapter, they paint at their baked box).
+            let mut text_runs: Vec<(Entity, &str, f32)> = Vec::new();
             for run in &line.runs {
                 match run {
                     InlineFlowRun::Text {
                         entity,
                         text,
                         inline_start,
-                    } => {
-                        let Ok(style) = dom.world().get::<&ComputedStyle>(*entity) else {
-                            continue;
-                        };
-                        // visibility: hidden text occupies space but is not painted.
-                        if style.visibility != Visibility::Visible {
-                            continue;
-                        }
-                        // Style-only segment: the collapsed text comes from the flow
-                        // member (`text`), so the segment's own text field is unused.
-                        // Layout already applied `text-transform` before measuring, so
-                        // the persisted `text` is final — paint it verbatim (force the
-                        // segment's transform to `None` so the shared emit path does not
-                        // re-transform; CSS Text 3 §2.1, render = paint-only).
-                        let mut seg = StyledTextSegment::from_style(String::new(), &style);
-                        seg.text_transform = TextTransform::None;
-                        if vertical {
-                            let center_x = line.block_start + line.block_size / 2.0;
-                            let mut cursor_y = *inline_start;
-                            emit_vertical_text_segment(
-                                text,
-                                &seg,
-                                orient,
-                                center_x,
-                                &mut cursor_y,
-                                ctx.font_db,
-                                ctx.font_cache,
-                                ctx.dl,
-                            );
-                        } else {
-                            let mut cursor_x = *inline_start;
-                            emit_text_segment(
-                                text,
-                                &seg,
-                                &mut cursor_x,
-                                line.block_start,
-                                0.0,
-                                ctx.font_db,
-                                ctx.font_cache,
-                                ctx.dl,
-                            );
-                        }
-                    }
+                    } => text_runs.push((*entity, text.as_str(), *inline_start)),
                     InlineFlowRun::AtomicBox { entity, .. } => atomics.push(*entity),
+                }
+            }
+            // UAX #9 L2 visual reorder (logical → visual) of this line's `Text` runs,
+            // under the IFC parent's paragraph direction. Fast path: under an **LTR**
+            // base, a line with NO strong-RTL character never reorders (every run
+            // resolves to the even base level 0), so skip the adapter allocation + bidi
+            // analysis and paint logical — the overwhelmingly common case, zero
+            // overhead. The fast path is gated on `direction == Ltr` because under an
+            // **RTL** base even neutral-only runs (punctuation/spaces) inherit the odd
+            // paragraph level and can be reordered by L2, which `text_has_rtl` (strong
+            // R/AL/AN only) would miss — so an RTL container always runs bidi. Otherwise
+            // build the `(text, idx)` adapter the legacy path also feeds
+            // `bidi_visual_order` — from `Text` runs ONLY (atomics excluded → no
+            // cross-type index confusion) — and reorder unless the result is still
+            // identity (e.g. a single run, or no actual L2 swap).
+            let needs_bidi = direction == Direction::Rtl
+                || text_runs
+                    .iter()
+                    .any(|&(_, text, _)| elidex_text::text_has_rtl(text));
+            let order = needs_bidi
+                .then(|| {
+                    let adapter: Vec<(String, usize)> = text_runs
+                        .iter()
+                        .enumerate()
+                        .map(|(i, (_, text, _))| ((*text).to_string(), i))
+                        .collect();
+                    bidi_visual_order(&adapter, direction)
+                })
+                .filter(|order| order.iter().enumerate().any(|(i, &vi)| i != vi));
+            if let Some(order) = order {
+                // The line needs reorder: paint runs in visual order from the line's
+                // visual inline-start, the shared cursor advancing by each run's shaped
+                // width (exactly the legacy `emit_styled_segments` loop, now per line).
+                let line_start = text_runs
+                    .iter()
+                    .map(|&(_, _, inline_start)| inline_start)
+                    .fold(f32::INFINITY, f32::min);
+                let mut cursor = line_start;
+                for &vi in &order {
+                    let (entity, text, _) = text_runs[vi];
+                    emit_flow_text_run(
+                        dom,
+                        entity,
+                        text,
+                        &mut cursor,
+                        vertical,
+                        orient,
+                        line.block_start,
+                        line.block_size,
+                        ctx.font_db,
+                        ctx.font_cache,
+                        ctx.dl,
+                    );
+                }
+            } else {
+                // Logical order (LTR fast path, single RTL run, or empty line): paint
+                // each run at its baked logical `inline_start` — unchanged behavior, no
+                // LTR regression. The cursor is reset per run (positions are absolute).
+                for &(entity, text, inline_start) in &text_runs {
+                    let mut cursor = inline_start;
+                    emit_flow_text_run(
+                        dom,
+                        entity,
+                        text,
+                        &mut cursor,
+                        vertical,
+                        orient,
+                        line.block_start,
+                        line.block_size,
+                        ctx.font_db,
+                        ctx.font_cache,
+                        ctx.dl,
+                    );
                 }
             }
         }
@@ -511,6 +595,59 @@ fn emit_inline_flow(
     // (`paint_non_sc` walks block children at `depth + 1`).
     for atomic in atomics {
         walk(ctx, atomic, depth + 1, child_perspective, in_transform);
+    }
+}
+
+/// Paint one `InlineFlow` `Text` run at `cursor` (the inline-axis pen), advancing it
+/// by the run's shaped width. Shared by the converged `emit_inline_flow` identity
+/// (per-run baked `inline_start`) and reorder (shared accumulating cursor) branches.
+/// `block_start`/`block_size` give the line's cross-axis geometry: horizontal → line
+/// top; vertical → glyph-column center x. The run's `text-transform` was applied by
+/// layout before measuring, so the persisted `text` is final — paint it verbatim
+/// (force the segment transform to `None` so the shared emit path does not
+/// re-transform; CSS Text 3 §2.1, render = paint-only).
+#[allow(clippy::too_many_arguments)]
+fn emit_flow_text_run(
+    dom: &EcsDom,
+    entity: Entity,
+    text: &str,
+    cursor: &mut f32,
+    vertical: bool,
+    orient: TextOrientation,
+    block_start: f32,
+    block_size: f32,
+    font_db: &FontDatabase,
+    font_cache: &mut FontCache,
+    dl: &mut DisplayList,
+) {
+    let Ok(style) = dom.world().get::<&ComputedStyle>(entity) else {
+        return;
+    };
+    // visibility: hidden text reserves its advance but is not painted — pass
+    // `visible` to the emit so the shared reorder cursor still moves past a hidden
+    // run (CSS 2.1 §11.2; the bidi-reorder branch shares one accumulating cursor).
+    let visible = style.visibility == Visibility::Visible;
+    // Style-only segment: the collapsed text comes from the flow member (`text`),
+    // so the segment's own text field is unused.
+    let mut seg = StyledTextSegment::from_style(String::new(), &style);
+    seg.text_transform = TextTransform::None;
+    if vertical {
+        let center_x = block_start + block_size / 2.0;
+        emit_vertical_text_segment(
+            text, &seg, orient, center_x, cursor, visible, font_db, font_cache, dl,
+        );
+    } else {
+        emit_text_segment(
+            text,
+            &seg,
+            cursor,
+            block_start,
+            0.0,
+            visible,
+            font_db,
+            font_cache,
+            dl,
+        );
     }
 }
 
@@ -570,6 +707,8 @@ fn emit_styled_segments_vertical(
             text_orientation,
             center_x,
             &mut cursor_y,
+            // Legacy collection already drops hidden text — every segment is visible.
+            true,
             font_db,
             font_cache,
             dl,
@@ -601,6 +740,9 @@ fn vertical_text_orientation(
 /// [`emit_inline_flow`] (mirrors the horizontal [`emit_text_segment`]).
 /// `center_x` is the glyph-column center; `text_orientation` selects the shaping
 /// strategy (CSS Writing Modes Level 4 §5.1).
+///
+/// `visible` gates painting only — a hidden run still advances `cursor_y` (CSS 2.1
+/// §11.2 reserved space) but emits no glyphs/decorations; see [`emit_text_segment`].
 #[allow(clippy::too_many_arguments)]
 fn emit_vertical_text_segment(
     text: &str,
@@ -608,6 +750,7 @@ fn emit_vertical_text_segment(
     text_orientation: TextOrientation,
     center_x: f32,
     cursor_y: &mut f32,
+    visible: bool,
     font_db: &FontDatabase,
     font_cache: &mut FontCache,
     dl: &mut DisplayList,
@@ -642,23 +785,32 @@ fn emit_vertical_text_segment(
         // for vertical layout (diacritics direction), but is acceptable
         // for most Latin/CJK text.
         for glyph in &shaped.glyphs {
-            let x = center_x + glyph.x_offset - glyph.x_advance / 2.0;
-            let y = *cursor_y + glyph.y_offset;
-            dl.push(DisplayItem::Text {
-                glyphs: vec![GlyphEntry {
-                    glyph_id: u32::from(glyph.glyph_id),
-                    position: Point::new(x, y),
-                }],
-                font_blob: font_blob.clone(),
-                font_index,
-                font_size: seg.font_size,
-                color: text_color,
-            });
+            // Advance the column cursor regardless; paint only when visible
+            // (hidden run reserves its vertical advance — CSS 2.1 §11.2).
+            if visible {
+                let x = center_x + glyph.x_offset - glyph.x_advance / 2.0;
+                let y = *cursor_y + glyph.y_offset;
+                dl.push(DisplayItem::Text {
+                    glyphs: vec![GlyphEntry {
+                        glyph_id: u32::from(glyph.glyph_id),
+                        position: Point::new(x, y),
+                    }],
+                    font_blob: font_blob.clone(),
+                    font_index,
+                    font_size: seg.font_size,
+                    color: text_color,
+                });
+            }
             *cursor_y += glyph.x_advance;
         }
         return;
     };
     let glyphs = place_glyphs_vertical(&shaped.glyphs, center_x, cursor_y);
+
+    // `visibility: hidden`: the run reserved its vertical advance above, paints nothing.
+    if !visible {
+        return;
+    }
 
     dl.push(DisplayItem::Text {
         glyphs,
