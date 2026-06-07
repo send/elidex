@@ -1549,3 +1549,202 @@ fn vertical_justify_persists_start_aligned() {
         );
     }
 }
+
+// --- text-align/justify offset is applied to inline-element getClientRects/LayoutBox
+// (entity_bounds), not only the persisted runs — so paint and CSSOM geometry agree.
+// `commit_aligned_entity_rects` (CSSOM VIEW 1 §6 / CSS Text 3 §6.4). ---
+
+/// Build `<p style="text-align:{align}"><span>{text}</span></p>`, lay it out at
+/// `width`, and return `(dom, parent, span, font_db)`. The inner text's run is owned
+/// by the span (its nearest styled ancestor), so the span gets an `entity_bounds`
+/// rect → `LayoutBox` / `InlineClientRects`. `InlineFlow` persists on the span (the
+/// run-start key) so a test can compare painted run geometry to the span's box.
+fn setup_span_align(
+    text: &str,
+    align: TextAlign,
+    width: f32,
+) -> Option<(EcsDom, Entity, Entity, FontDatabase)> {
+    let mut dom = EcsDom::new();
+    let parent = dom.create_element("p", Attributes::default());
+    let span = dom.create_element("span", Attributes::default());
+    let span_text = dom.create_text(text);
+    dom.append_child(span, span_text);
+    dom.append_child(parent, span);
+    let font_db = FontDatabase::new();
+    let params = TextMeasureParams {
+        families: TEST_FAMILIES,
+        font_size: ComputedStyle::default().font_size,
+        weight: 400,
+        style: elidex_text::FontStyle::Normal,
+        letter_spacing: 0.0,
+        word_spacing: 0.0,
+    };
+    measure_text(&font_db, &params, "x")?;
+    let style = ComputedStyle {
+        font_family: TEST_FAMILIES.iter().map(|&s| s.to_string()).collect(),
+        text_align: align,
+        direction: Direction::Ltr,
+        ..Default::default()
+    };
+    let _ = dom.world_mut().insert_one(parent, style.clone());
+    let _ = dom.world_mut().insert_one(span, style);
+    let children = dom.composed_children(parent);
+    layout_inline_context(
+        &mut dom,
+        &children,
+        width,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+    );
+    Some((dom, parent, span, font_db))
+}
+
+#[test]
+fn center_aligns_inline_element_client_rect() {
+    // A centered single-line `<span>`: its box (getClientRects fallback = LayoutBox
+    // border box) must sit at the painted, centered position — == the persisted run's
+    // start — not at the un-aligned line start (the pre-existing gap).
+    let Some((dom, _parent, span, _fd)) = setup_span_align("Hi", TextAlign::Center, 800.0) else {
+        return;
+    };
+    let flow = dom
+        .world()
+        .get::<&InlineFlow>(span)
+        .expect("centered span persists an InlineFlow");
+    let run_start_x = flow.fragments[0].lines[0].runs[0].inline_start();
+    assert!(
+        run_start_x > 0.0,
+        "centered run is offset from the line start, got {run_start_x}"
+    );
+    let lb = dom
+        .world()
+        .get::<&LayoutBox>(span)
+        .expect("the inline span gets a LayoutBox from entity_bounds");
+    assert!(
+        (lb.content.origin.x - run_start_x).abs() < 0.5,
+        "span LayoutBox/getClientRects start ({}) tracks the painted centered run start ({run_start_x})",
+        lb.content.origin.x
+    );
+    // Single-line span → merged to one fragment → no per-line InlineClientRects (the
+    // getClientRects fallback to the LayoutBox border box is exercised).
+    assert!(
+        dom.world()
+            .get::<&elidex_plugin::InlineClientRects>(span)
+            .is_err(),
+        "a single-line span exposes one rect via LayoutBox, not InlineClientRects"
+    );
+}
+
+#[test]
+fn right_aligns_inline_element_client_rect() {
+    let Some((dom, _parent, span, _fd)) = setup_span_align("Hi", TextAlign::Right, 800.0) else {
+        return;
+    };
+    let flow = dom
+        .world()
+        .get::<&InlineFlow>(span)
+        .expect("right-aligned span persists an InlineFlow");
+    let run_start_x = flow.fragments[0].lines[0].runs[0].inline_start();
+    let lb = dom
+        .world()
+        .get::<&LayoutBox>(span)
+        .expect("the inline span gets a LayoutBox");
+    assert!(
+        (lb.content.origin.x - run_start_x).abs() < 0.5,
+        "right-aligned span box ({}) tracks the painted run start ({run_start_x})",
+        lb.content.origin.x
+    );
+    // Right edge of the box reaches (near) the container's right edge.
+    assert!(
+        lb.content.origin.x + lb.content.size.width > 700.0,
+        "right-aligned box ends near the container right edge, got {}",
+        lb.content.origin.x + lb.content.size.width
+    );
+}
+
+#[test]
+fn multi_word_single_line_span_merges_to_one_rect() {
+    // Two words on one line are placed as two break-segment rects, but getClientRects
+    // returns ONE box fragment per line per inline element (CSSOM VIEW 1 §6): the
+    // segment rects merge, so a single-line span has no multi-rect InlineClientRects.
+    let Some((dom, _parent, span, _fd)) = setup_span_align("hello world", TextAlign::Left, 800.0)
+    else {
+        return;
+    };
+    assert!(
+        dom.world()
+            .get::<&elidex_plugin::InlineClientRects>(span)
+            .is_err(),
+        "a single-line two-word span merges to one rect (LayoutBox), not N InlineClientRects"
+    );
+    let lb = dom
+        .world()
+        .get::<&LayoutBox>(span)
+        .expect("the span gets a LayoutBox spanning the whole line");
+    assert_eq!(lb.content.origin.x, 0.0, "left-aligned starts at 0");
+    assert!(
+        lb.content.size.width > 0.0,
+        "the merged rect spans the whole word run, got width {}",
+        lb.content.size.width
+    );
+}
+
+#[test]
+fn justify_widens_inline_element_client_rect() {
+    // A justified (non-last) line distributes free space at word separators, filling
+    // the line to the box edge. The span's per-line client rect must WIDEN with the
+    // painted text (CSS Text 3 §6.4) — reach the container's inline-end — not stay at
+    // its natural (shorter) width.
+    let text = "aaa bbb ccc ddd eee fff ggg hhh";
+    let Some(full) = (|| {
+        let (_d, _p, _s, fd) = setup_span_align(text, TextAlign::Left, 100_000.0)?;
+        Some(measure_width(&fd, text))
+    })() else {
+        return;
+    };
+    // ~45% of the natural width → wraps into several lines; the first is justified.
+    let width = full * 0.45;
+
+    // Read the first-line client-rect inline-end of the span under an alignment.
+    let first_line_rect_end = |align: TextAlign| -> Option<f32> {
+        let (dom, _parent, span, _fd) = setup_span_align(text, align, width)?;
+        let line_count = dom.world().get::<&InlineFlow>(span).ok()?.fragments[0]
+            .lines
+            .len();
+        assert!(
+            line_count >= 2,
+            "text wraps into ≥2 lines, got {line_count}"
+        );
+        let rects = dom
+            .world()
+            .get::<&elidex_plugin::InlineClientRects>(span)
+            .expect("a multi-line span gets per-line InlineClientRects");
+        let r0 = rects.0[0];
+        assert!(
+            r0.origin.x < 1.0,
+            "first-line rect starts at the line start"
+        );
+        Some(r0.origin.x + r0.size.width)
+    };
+
+    let Some(left_end) = first_line_rect_end(TextAlign::Left) else {
+        return;
+    };
+    let Some(justify_end) = first_line_rect_end(TextAlign::Justify) else {
+        return;
+    };
+
+    // Under left-align the first line stops at its natural content end (free space to
+    // its right); under justify the same words spread to fill the box, so the span's
+    // first-line client rect WIDENS to (at least) the container inline-end. Without the
+    // fix the justified rect would stay at the un-expanded left-aligned width.
+    assert!(
+        justify_end > left_end + 1.0,
+        "justified first-line rect ({justify_end}) widens past the left-aligned one ({left_end})"
+    );
+    assert!(
+        justify_end >= width - 1.0,
+        "justified first-line rect fills to the box edge {width}, got end {justify_end}"
+    );
+}
