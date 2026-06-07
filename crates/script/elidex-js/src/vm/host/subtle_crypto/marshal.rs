@@ -219,38 +219,12 @@ fn coerce_enforce_range_u32(
 /// values); mirrors the `dom_inner_html` shadow-roots cap.
 const MAX_CRYPTO_SEQUENCE_LEN: usize = 4096;
 
-/// `SubtleCrypto` `sequence<T>` conversion: WebIDL §3.10.16 **step 1**
-/// (a non-Object value — notably a **string primitive** — is a `TypeError`
-/// before `@@iterator` is consulted, matching Chrome, which rejects e.g.
-/// `generateKey(…, 'sign')`) followed by the canonical
-/// [`webidl_sequence_to_vec`] (steps 2-3 + IteratorClose precedence + the
-/// runaway cap).
-///
-/// The shared helper does not itself apply step 1 — several existing
-/// callers (`Blob` / `TouchEvent` / `getHTML`) instead iterate a string's
-/// code points, a pre-existing project-wide divergence from the current
-/// spec.  Until that is unified, crypto applies step 1 here so the new
-/// `SubtleCrypto` surface is spec-faithful.
-fn crypto_sequence_to_vec<T, F>(
-    ctx: &mut NativeContext<'_>,
-    value: JsValue,
-    msgs: &SeqMessages<'_>,
-    validator: F,
-) -> Result<Vec<T>, VmError>
-where
-    F: FnMut(&mut NativeContext<'_>, usize, JsValue) -> Result<T, VmError>,
-{
-    if !matches!(value, JsValue::Object(_)) {
-        return Err(VmError::type_error(msgs.not_iterable.to_owned()));
-    }
-    webidl_sequence_to_vec(ctx, value, MAX_CRYPTO_SEQUENCE_LEN, msgs, validator)
-}
-
 /// Marshal a JS `sequence<KeyUsage>` into a `Vec<KeyUsage>` (WebIDL
-/// §3.10.16): any iterable Object is accepted, a string primitive / other
-/// non-Object value is a conversion `TypeError`, and an unrecognized enum
-/// string is a `TypeError`.  Delegates the iterator protocol (IteratorClose
-/// precedence, runaway cap) to the canonical [`webidl_sequence_to_vec`].
+/// §3.2.21): any iterable Object is accepted, a string primitive / other
+/// non-Object value is a step-1 conversion `TypeError`, and an unrecognized
+/// enum string is a `TypeError`.  Delegates the whole iterator protocol
+/// (step-1 non-Object guard, IteratorClose precedence, runaway cap) to the
+/// canonical [`webidl_sequence_to_vec`].
 pub(super) fn marshal_usages(
     ctx: &mut NativeContext<'_>,
     value: JsValue,
@@ -266,15 +240,21 @@ pub(super) fn marshal_usages(
         iter_not_object: &iter_not_object,
         cap_exceeded: &cap_exceeded,
     };
-    crypto_sequence_to_vec(ctx, value, &msgs, |ctx, _idx, el| {
-        let sid = coerce::to_string(ctx.vm, el)?;
-        let s = ctx.vm.strings.get_utf8(sid);
-        KeyUsage::from_ident(&s).ok_or_else(|| {
-            VmError::type_error(format!(
+    webidl_sequence_to_vec(
+        ctx,
+        value,
+        MAX_CRYPTO_SEQUENCE_LEN,
+        &msgs,
+        |ctx, _idx, el| {
+            let sid = coerce::to_string(ctx.vm, el)?;
+            let s = ctx.vm.strings.get_utf8(sid);
+            KeyUsage::from_ident(&s).ok_or_else(|| {
+                VmError::type_error(format!(
                 "{prefix}: The provided value '{s}' is not a valid enum value of type KeyUsage."
             ))
-        })
-    })
+            })
+        },
+    )
 }
 
 /// Marshal a JS `KeyFormat` enum string into [`KeyFormat`].
@@ -407,7 +387,7 @@ fn read_jwk_key_ops(
         cap_exceeded: "Failed to execute 'importKey' on 'SubtleCrypto': \
                        JWK 'key_ops' exceeds the maximum length.",
     };
-    let out = crypto_sequence_to_vec(ctx, val, &msgs, |ctx, _idx, el| {
+    let out = webidl_sequence_to_vec(ctx, val, MAX_CRYPTO_SEQUENCE_LEN, &msgs, |ctx, _idx, el| {
         let sid = coerce::to_string(ctx.vm, el)?;
         Ok(ctx.vm.strings.get_utf8(sid))
     })?;
@@ -441,7 +421,7 @@ fn read_jwk_oth(ctx: &mut NativeContext<'_>, obj: ObjectId) -> Result<(), VmErro
     };
     // Returns `Vec<()>` — `oth` entries are converted (firing getters) for
     // Web IDL conformance, then discarded (HMAC ignores them).
-    crypto_sequence_to_vec(ctx, val, &msgs, |ctx, _idx, el| {
+    webidl_sequence_to_vec(ctx, val, MAX_CRYPTO_SEQUENCE_LEN, &msgs, |ctx, _idx, el| {
         let entry = match el {
             // `null` / `undefined` → an empty RsaOtherPrimesInfo dict.
             JsValue::Undefined | JsValue::Null => return Ok(()),
