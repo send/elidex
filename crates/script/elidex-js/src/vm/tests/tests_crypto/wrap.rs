@@ -101,6 +101,29 @@ fn wrap_unwrap_aes_gcm_jwk_json_roundtrip() {
     assert_eq!(eval_global_string(src, "r"), "jwk roundtrip");
 }
 
+/// AES-KW can wrap a `jwk` key: the JWK JSON is padded to a multiple of 64 bits
+/// (§14.3.11 step-14 Note), so the round-trip succeeds and the unwrapped key
+/// self-encrypts/decrypts a message (Codex R-batch regression — AES-KW jwk was
+/// previously rejected for the non-multiple-of-64-bits payload).
+#[test]
+fn wrap_unwrap_aes_kw_jwk_roundtrip() {
+    let src = "globalThis.r = 'pending'; \
+         const iv = new Uint8Array(16).fill(4); \
+         const msg = new TextEncoder().encode('aes-kw jwk'); \
+         crypto.subtle.importKey('raw', new Uint8Array(32).fill(0x55), {name:'AES-KW'}, \
+              false, ['wrapKey','unwrapKey']) \
+           .then(kek => crypto.subtle.importKey('raw', new Uint8Array(16).fill(0x22), \
+                 {name:'AES-CBC'}, true, ['encrypt','decrypt']) \
+             .then(key => crypto.subtle.wrapKey('jwk', key, kek, {name:'AES-KW'}) \
+               .then(w => crypto.subtle.unwrapKey('jwk', w, kek, {name:'AES-KW'}, \
+                     {name:'AES-CBC'}, true, ['encrypt','decrypt'])) \
+               .then(uk => crypto.subtle.encrypt({name:'AES-CBC', iv}, uk, msg) \
+                 .then(ct => crypto.subtle.decrypt({name:'AES-CBC', iv}, uk, ct))))) \
+           .then(pt => { globalThis.r = new TextDecoder().decode(pt); }, \
+                 e => { globalThis.r = 'err:' + e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "aes-kw jwk");
+}
+
 /// The unwrapped key's `[[algorithm]]` / `[[usages]]` / `[[extractable]]` come
 /// from the unwrapKey arguments (the unwrappedKeyAlgorithm + extractable +
 /// keyUsages), independent of the wrapped JWK's own `ext` / `key_ops`.

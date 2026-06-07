@@ -59,9 +59,27 @@ pub struct JsonWebKey {
 /// invoked, satisfying the "new global object" requirement).  A plain struct
 /// of strings / bools / string sequences is always serializable, so this is
 /// infallible.
+///
+/// The output is padded to a multiple of 8 bytes with trailing ASCII spaces.
+/// §14.3.11 step 14's Note explicitly allows adapting a flexible key-format
+/// serialization to the wrapping algorithm's size constraints ("JSON.stringify
+/// is not normatively required"); AES-KW requires the wrapped payload be a
+/// multiple of 64 bits (8 bytes), so the padding lets a `jwk` key be
+/// AES-KW-wrapped (as browsers / WPT expect) instead of failing §30.3.1 step 1.
+/// Trailing whitespace is valid JSON ignored by [`from_json_bytes`], so it is
+/// harmless for the AES-GCM/CBC/CTR fallback (any length).
 pub fn to_json_bytes(jwk: &JsonWebKey) -> Vec<u8> {
-    serde_json::to_vec(jwk).expect("an oct JsonWebKey is always serializable")
+    let mut bytes = serde_json::to_vec(jwk).expect("an oct JsonWebKey is always serializable");
+    let rem = bytes.len() % AES_KW_BLOCK;
+    if rem != 0 {
+        bytes.resize(bytes.len() + (AES_KW_BLOCK - rem), b' ');
+    }
+    bytes
 }
+
+/// The AES-KW semiblock size in bytes (64 bits) — the wrap payload granularity
+/// [`to_json_bytes`] pads to.
+const AES_KW_BLOCK: usize = 8;
 
 /// Parse JSON bytes into a [`JsonWebKey`] for `unwrapKey` (WebCrypto §9 "parse
 /// a JWK", reached from §14.3.12 step 15).
@@ -89,6 +107,14 @@ pub fn from_json_bytes(bytes: &[u8]) -> Result<JsonWebKey, AlgorithmError> {
     let Value::Object(map) = value else {
         return Err(data("unwrapped key data is not a JSON object"));
     };
+    // The full WebIDL `JsonWebKey` dictionary conversion also converts `oth`
+    // (`sequence<RsaOtherPrimesInfo>`); the live `importKey` marshaller performs
+    // and validates it before an AES/HMAC import discards the RSA fields, so a
+    // malformed `oth` must reject here identically (the converted values are
+    // unused for `oct` keys — only the validation matters).  The DOMString and
+    // `ext` members never fail conversion for a JSON value, so `key_ops` and
+    // `oth` are the only members that can produce a conversion error.
+    validate_oth(&map)?;
     Ok(JsonWebKey {
         kty: member_domstring(&map, "kty"),
         k: member_domstring(&map, "k"),
@@ -97,6 +123,35 @@ pub fn from_json_bytes(bytes: &[u8]) -> Result<JsonWebKey, AlgorithmError> {
         key_ops: member_string_sequence(&map, "key_ops")?,
         ext: member_boolean(&map, "ext"),
     })
+}
+
+/// Convert (for validation only) the `oth` member
+/// (`sequence<RsaOtherPrimesInfo>`), matching the live `importKey` marshaller:
+/// absent → ok; a present non-array is not a sequence → `TypeError`; each entry
+/// must be an object (a JS array is also an object, with no `d`/`r`/`t`) or
+/// `null` (an empty dictionary) — a primitive entry is not a dictionary →
+/// `TypeError`.  The `d`/`r`/`t` members are optional `DOMString`s that always
+/// convert, so they need no per-entry check; the values are discarded.
+fn validate_oth(map: &Map<String, Value>) -> Result<(), AlgorithmError> {
+    let Some(oth) = map.get("oth") else {
+        return Ok(());
+    };
+    let Value::Array(entries) = oth else {
+        return Err(AlgorithmError::Type(
+            "JWK 'oth' member is not a sequence".to_string(),
+        ));
+    };
+    for entry in entries {
+        match entry {
+            Value::Null | Value::Object(_) | Value::Array(_) => {}
+            Value::Bool(_) | Value::Number(_) | Value::String(_) => {
+                return Err(AlgorithmError::Type(
+                    "JWK 'oth' entry is not an RsaOtherPrimesInfo dictionary".to_string(),
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Read a `DOMString` JWK member by presence (WebIDL): absent → `None`; a

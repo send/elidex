@@ -67,12 +67,15 @@ fn rfc3394_4_6_256kek_256key() {
 // AES-KW length + integrity error paths (WebCrypto §30.3.1 / §30.3.2)
 // ===========================================================================
 
-/// §30.3.1 step 1: a plaintext that is not a multiple of 64 bits (8 bytes) is
-/// an OperationError.
+/// §30.3.1 step 1 + NIST SP 800-38F §5.3.1: a plaintext that is not a multiple
+/// of 64 bits, OR is fewer than two 64-bit semiblocks (< 16 bytes — e.g. an
+/// exported 8-byte HMAC key), is an OperationError.  `8` is a multiple of 8 but
+/// a single semiblock, so it must still reject (the `aes-kw` crate would
+/// otherwise emit a nonstandard 16-byte wrap).
 #[test]
-fn wrap_non_multiple_of_64_bits_is_operation_error() {
+fn wrap_invalid_length_is_operation_error() {
     let kek = from_hex("000102030405060708090a0b0c0d0e0f");
-    for len in [1usize, 5, 7, 9, 15] {
+    for len in [0usize, 1, 5, 7, 8, 9, 15] {
         assert!(
             matches!(
                 aes_kw::wrap(&kek, &vec![0u8; len]),
@@ -81,6 +84,8 @@ fn wrap_non_multiple_of_64_bits_is_operation_error() {
             "wrapping {len} bytes should be an OperationError"
         );
     }
+    // The smallest valid AES-KW input is two semiblocks (16 bytes).
+    assert!(aes_kw::wrap(&kek, &[0u8; 16]).is_ok());
 }
 
 /// §30.3.2 step 2: a tampered wrapped key fails the RFC 3394 integrity check →
@@ -110,12 +115,15 @@ fn unwrap_wrong_kek_is_operation_error() {
     ));
 }
 
-/// §30.3.2: a wrapped input that is not a multiple of 64 bits (or too short)
-/// is an OperationError, not a panic.
+/// §30.3.2 + NIST SP 800-38F: a wrapped input that is not a multiple of 64 bits
+/// OR fewer than three semiblocks (< 24 bytes — IV + two plaintext semiblocks)
+/// is an OperationError, not a panic.  `8` (the bare IV) and `16` (IV + one
+/// semiblock — the `aes-kw` crate's nonstandard single-block wrap) are multiples
+/// of 8 but still too short, so they must reject.
 #[test]
-fn unwrap_bad_length_is_operation_error() {
+fn unwrap_invalid_length_is_operation_error() {
     let kek = from_hex("000102030405060708090a0b0c0d0e0f");
-    for len in [0usize, 4, 8, 12, 20] {
+    for len in [0usize, 4, 8, 12, 16, 20] {
         assert!(
             matches!(
                 aes_kw::unwrap(&kek, &vec![0u8; len]),
@@ -516,6 +524,90 @@ fn jwk_from_json_domstring_array_coercion_matches_tostring() {
     let jwk2 = crate::jwk::from_json_bytes(br#"{"kty":[null],"k":{}}"#).unwrap();
     assert_eq!(jwk2.kty.as_deref(), Some(""));
     assert_eq!(jwk2.k.as_deref(), Some("[object Object]"));
+}
+
+/// Codex R-batch regression: `to_json_bytes` pads the serialization to a
+/// multiple of the AES-KW semiblock (8 bytes) with trailing JSON whitespace
+/// (§14.3.11 step-14 Note), so a `jwk` key can be AES-KW-wrapped; the padding
+/// is still valid JSON that `from_json_bytes` parses.
+#[test]
+fn jwk_to_json_bytes_is_padded_to_aes_kw_block() {
+    let jwk = crate::JsonWebKey {
+        kty: Some("oct".to_string()),
+        k: Some("AAECAwQFBgcICQoLDA0ODw".to_string()),
+        alg: Some("A128KW".to_string()),
+        use_: None,
+        key_ops: Some(vec!["wrapKey".to_string()]),
+        ext: Some(true),
+    };
+    let bytes = crate::jwk::to_json_bytes(&jwk);
+    assert_eq!(
+        bytes.len() % 8,
+        0,
+        "JWK JSON must be padded to a multiple of 8"
+    );
+    // Trailing whitespace is ignored on parse → round-trips.
+    assert_eq!(crate::jwk::from_json_bytes(&bytes).unwrap(), jwk);
+}
+
+/// Codex R-batch regression: AES-KW can now wrap a `jwk` key (the JSON is
+/// padded to a multiple of 64 bits), round-tripping through wrap → unwrap →
+/// parse.
+#[test]
+fn ops_wrap_unwrap_jwk_roundtrip_via_aes_kw() {
+    let kek = import_raw(
+        AesVariant::Kw,
+        vec![0x33u8; 32],
+        vec![KeyUsage::WrapKey, KeyUsage::UnwrapKey],
+    );
+    let key = import_raw(
+        AesVariant::Cbc,
+        vec![0x44u8; 16],
+        vec![KeyUsage::Encrypt, KeyUsage::Decrypt],
+    );
+    let wrapped =
+        ops::wrap_key(NormalizedAlgorithm::AesKwWrap, &kek, &key, KeyFormat::Jwk).unwrap();
+    assert_eq!(wrapped.len() % 8, 0);
+    let json = ops::unwrap_key(NormalizedAlgorithm::AesKwWrap, &kek, &wrapped).unwrap();
+    let jwk = crate::jwk::from_json_bytes(&json).unwrap();
+    assert_eq!(jwk.kty.as_deref(), Some("oct"));
+    assert_eq!(jwk.alg.as_deref(), Some("A128CBC"));
+}
+
+/// Codex R-batch regression: `from_json_bytes` converts (for validation) the
+/// `oth` member like the live `importKey` path — a non-array `oth` or a
+/// primitive entry is a `TypeError`; an array of objects / `null` (incl. an
+/// empty array) is accepted (the values are discarded for `oct` keys).
+#[test]
+fn jwk_from_json_oth_matches_import_validation() {
+    // Malformed `oth` → TypeError.
+    for bad in [
+        &br#"{"kty":"oct","k":"AAEC","oth":123}"#[..],
+        &br#"{"kty":"oct","k":"AAEC","oth":"x"}"#[..],
+        &br#"{"kty":"oct","k":"AAEC","oth":[123]}"#[..],
+        &br#"{"kty":"oct","k":"AAEC","oth":["s"]}"#[..],
+    ] {
+        assert!(
+            matches!(
+                crate::jwk::from_json_bytes(bad),
+                Err(AlgorithmError::Type(_))
+            ),
+            "malformed oth should be a TypeError: {:?}",
+            std::str::from_utf8(bad)
+        );
+    }
+    // Well-formed / empty `oth` is accepted (ignored for oct keys).
+    for ok in [
+        &br#"{"kty":"oct","k":"AAEC","oth":[]}"#[..],
+        &br#"{"kty":"oct","k":"AAEC","oth":[{"r":"x","d":"y","t":"z"}]}"#[..],
+        &br#"{"kty":"oct","k":"AAEC","oth":[null]}"#[..],
+    ] {
+        assert!(
+            crate::jwk::from_json_bytes(ok).is_ok(),
+            "well-formed oth should parse: {:?}",
+            std::str::from_utf8(ok)
+        );
+    }
 }
 
 #[test]
