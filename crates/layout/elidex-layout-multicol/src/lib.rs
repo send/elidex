@@ -419,11 +419,26 @@ fn position_column_fragments(
         // Commit this column's spanning-child box fragments to the standalone
         // fragment tree (§15.4.1), offset to the column's inline position. This
         // is the ONLY store-write site, and `position_column_fragments` runs
-        // ONLY via `fill_and_position` on the definitive pass (balanced-fill
-        // probes call `fill_columns_sequential` directly, never positioning), so
-        // the append-only fragment tree never accumulates probe garbage — the
-        // store write is definitive-pass-only by construction (Z-1a). Column 0
-        // commits at delta 0. Z-1a dark data: render does not yet consume it.
+        // ONLY via `fill_and_position` on the definitive pass (this multicol's
+        // OWN balanced-fill probes call `fill_columns_sequential` directly, never
+        // positioning), so it never accumulates THIS multicol's own probe
+        // garbage.
+        //
+        // KNOWN GAP (Z-1b prereq, dark-data-only): the definitive-pass-only
+        // guarantee holds against a multicol's own probes but NOT against an
+        // ANCESTOR multicol's probes. A nested multicol laid out inside a
+        // balanced outer multicol's probe (`fill_columns_balanced` →
+        // `fill_columns_sequential`/`probe_total_height`) re-enters the child's
+        // full `layout_multicol` → `fill_and_position`, which writes here even
+        // though the outer pass is non-definitive — leaving probe fragments
+        // mixed with final ones in a single `layout_tree` pass. Suppressing this
+        // needs a probe-mode signal threaded through `LayoutInput` and inherited
+        // by descendants (the very flag the F1 "no flag" design deferred); it is
+        // settled with the nested-multicol ancestor-shift integration before the
+        // Z-1b render consumer reads the tree. Harmless while dark data.
+        //
+        // Column 0 commits at delta 0. Z-1a dark data: render does not yet
+        // consume it.
         for (entity, snapshot) in &frag.box_snapshots {
             let mut bf = snapshot.clone();
             bf.content.origin += delta;
