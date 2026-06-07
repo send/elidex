@@ -47,6 +47,10 @@ pub enum AlgorithmName {
     /// PBKDF2 (WebCrypto §34) — `importKey` (raw), `deriveBits`, and
     /// `get key length` (§34.4.3 → null, consumed by `deriveKey`).
     Pbkdf2,
+    /// AES-KW (WebCrypto §30) — `generateKey` / `importKey` / `exportKey` /
+    /// `wrapKey` / `unwrapKey` / `get key length`.  It is a key-wrap-only
+    /// cipher: it registers no `encrypt` / `decrypt` operation.
+    AesKw,
 }
 
 impl AlgorithmName {
@@ -73,6 +77,8 @@ impl AlgorithmName {
             Some(Self::Hkdf)
         } else if name.eq_ignore_ascii_case("PBKDF2") {
             Some(Self::Pbkdf2)
+        } else if name.eq_ignore_ascii_case("AES-KW") {
+            Some(Self::AesKw)
         } else {
             None
         }
@@ -84,17 +90,26 @@ impl AlgorithmName {
             Self::Sha256 => Some(HashAlgorithm::Sha256),
             Self::Sha384 => Some(HashAlgorithm::Sha384),
             Self::Sha512 => Some(HashAlgorithm::Sha512),
-            Self::Hmac | Self::AesCtr | Self::AesCbc | Self::AesGcm | Self::Hkdf | Self::Pbkdf2 => {
-                None
-            }
+            Self::Hmac
+            | Self::AesCtr
+            | Self::AesCbc
+            | Self::AesGcm
+            | Self::AesKw
+            | Self::Hkdf
+            | Self::Pbkdf2 => None,
         }
     }
 
+    /// The AES variant for this name (CTR / CBC / GCM / KW), or `None` for a
+    /// non-AES name.  The three block-cipher modes participate in `encrypt` /
+    /// `decrypt`; AES-KW (§30) is wrap-only, so the registry filters it out of
+    /// the `encrypt` / `decrypt` pairs.
     fn as_aes(self) -> Option<AesVariant> {
         match self {
             Self::AesCtr => Some(AesVariant::Ctr),
             Self::AesCbc => Some(AesVariant::Cbc),
             Self::AesGcm => Some(AesVariant::Gcm),
+            Self::AesKw => Some(AesVariant::Kw),
             Self::Sha1
             | Self::Sha256
             | Self::Sha384
@@ -106,19 +121,20 @@ impl AlgorithmName {
     }
 }
 
-/// The three AES block-cipher modes that support `encrypt` / `decrypt`
-/// (WebCrypto §27 AES-CTR / §28 AES-CBC / §29 AES-GCM).  The discriminator
-/// is shared by the normalized generate/import forms and the key's
-/// [`KeyAlgorithm`][crate::key::KeyAlgorithm], so dispatch stays typed
-/// rather than stringly.  (AES-KW, §30, supports only `wrapKey` /
-/// `unwrapKey` and lands with the `#11-crypto-subtle-full` PR-3 wrap
-/// surface — it is not a variant
-/// here.)
+/// The four AES key kinds.  CTR / CBC / GCM (WebCrypto §27 / §28 / §29) are
+/// the block-cipher modes that support `encrypt` / `decrypt`; KW (§30 AES-KW)
+/// is a key-wrap-only cipher supporting `wrapKey` / `unwrapKey` (and **no**
+/// `encrypt` / `decrypt`).  All four share `generateKey` / `importKey` /
+/// `exportKey` / `get key length`, so the variant is the single discriminator
+/// across the normalized generate/import forms, the key's
+/// [`KeyAlgorithm`][crate::key::KeyAlgorithm], and the JWK `alg` mapping —
+/// dispatch stays typed rather than stringly.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AesVariant {
     Ctr,
     Cbc,
     Gcm,
+    Kw,
 }
 
 impl AesVariant {
@@ -129,6 +145,7 @@ impl AesVariant {
             Self::Ctr => "AES-CTR",
             Self::Cbc => "AES-CBC",
             Self::Gcm => "AES-GCM",
+            Self::Kw => "AES-KW",
         }
     }
 
@@ -137,25 +154,29 @@ impl AesVariant {
             Self::Ctr => AlgorithmName::AesCtr,
             Self::Cbc => AlgorithmName::AesCbc,
             Self::Gcm => AlgorithmName::AesGcm,
+            Self::Kw => AlgorithmName::AesKw,
         }
     }
 
     /// The JWK `alg` value for an AES key of `length_bits` bits in this mode:
     /// the `alg` set by the AES import algorithms (WebCrypto §27.7.4 /
-    /// §28.4.4 / §29.4.4) and emitted by the export algorithms (§27.7.5 /
-    /// §28.4.5 / §29.4.5) — `A128GCM` / `A192CBC` / `A256CTR` …, or `None` for
-    /// a non-AES key length.
+    /// §28.4.4 / §29.4.4 / §30.3.4) and emitted by the export algorithms
+    /// (§27.7.5 / §28.4.5 / §29.4.5 / §30.3.5) — `A128GCM` / `A192CBC` /
+    /// `A256KW` …, or `None` for a non-AES key length.
     pub fn jwk_alg(self, length_bits: u32) -> Option<&'static str> {
         Some(match (length_bits, self) {
             (128, Self::Ctr) => "A128CTR",
             (128, Self::Cbc) => "A128CBC",
             (128, Self::Gcm) => "A128GCM",
+            (128, Self::Kw) => "A128KW",
             (192, Self::Ctr) => "A192CTR",
             (192, Self::Cbc) => "A192CBC",
             (192, Self::Gcm) => "A192GCM",
+            (192, Self::Kw) => "A192KW",
             (256, Self::Ctr) => "A256CTR",
             (256, Self::Cbc) => "A256CBC",
             (256, Self::Gcm) => "A256GCM",
+            (256, Self::Kw) => "A256KW",
             _ => return None,
         })
     }
@@ -221,6 +242,10 @@ impl RawAlgorithm {
 ///   KDF get-key-length is null (§33.4.3 / §34.4.3).
 /// - `HkdfParams` / `Pbkdf2Params` (deriveBits) carry the §33.3 / §34.3
 ///   derive params (the call-time `hash` lives here, not on the key).
+/// - `AesKwWrap` (wrapKey / unwrapKey, §30.3.1 / §30.3.2) carries only the
+///   name — AES-KW uses the fixed RFC 3394 default IV, so there is no
+///   per-call param. (AES-KW generate/import reuse `AesKeyGen{Kw,..}` /
+///   `AesImport{Kw}`.)
 ///
 /// Not `Copy`: the AES + KDF param variants own the marshalled `iv` /
 /// `counter` / `additionalData` / `salt` / `info` byte sequences.
@@ -268,6 +293,9 @@ pub enum NormalizedAlgorithm {
         iterations: u32,
         hash: HashAlgorithm,
     },
+    /// AES-KW wrapKey / unwrapKey (WebCrypto §30.3.1 / §30.3.2) — name-only
+    /// (the RFC 3394 default IV is fixed, so there is no per-call param).
+    AesKwWrap,
 }
 
 impl NormalizedAlgorithm {
@@ -291,6 +319,7 @@ impl NormalizedAlgorithm {
             Self::AesCtr { .. } => AlgorithmName::AesCtr,
             Self::Hkdf | Self::HkdfParams { .. } => AlgorithmName::Hkdf,
             Self::Pbkdf2 | Self::Pbkdf2Params { .. } => AlgorithmName::Pbkdf2,
+            Self::AesKwWrap => AlgorithmName::AesKw,
         }
     }
 }
@@ -330,8 +359,15 @@ enum DesiredType {
     /// `None`); the key length derives from the imported material.
     AesImport(AesVariant),
     /// AES `encrypt` / `decrypt`: the mode's params dictionary
-    /// (`AesGcmParams` / `AesCbcParams` / `AesCtrParams`).
+    /// (`AesGcmParams` / `AesCbcParams` / `AesCtrParams`).  Never carries
+    /// `AesVariant::Kw` — AES-KW (§30) registers no encrypt/decrypt op, so
+    /// [`resolve_registry`] filters it out of these pairs.
     AesEncryptDecrypt(AesVariant),
+    /// AES-KW `wrapKey` / `unwrapKey` (WebCrypto §30.3.1 / §30.3.2): a
+    /// name-only `Algorithm` — AES-KW takes no IV/nonce param (it uses the
+    /// fixed RFC 3394 default IV), so the wrap algorithm carries nothing
+    /// beyond `name`.
+    AesKwWrap,
     /// HKDF / PBKDF2 name-only form (`importKey` + `get key length`): a
     /// name-only `Algorithm` (§33.4.2 / §34.4.2 import raw, §33.4.3 /
     /// §34.4.3 get-key-length null).
@@ -379,16 +415,28 @@ fn resolve_registry(op: Operation, name: &str) -> Option<DesiredType> {
         }
         (Operation::DeriveBits, AlgorithmName::Hkdf) => Some(DesiredType::HkdfDeriveBits),
         (Operation::DeriveBits, AlgorithmName::Pbkdf2) => Some(DesiredType::Pbkdf2DeriveBits),
+        // AES-KW (WebCrypto §30): wrapKey / unwrapKey take a name-only
+        // algorithm (the fixed RFC 3394 default IV — no params).  Its
+        // generateKey / importKey / get-key-length share the AES catch-alls
+        // below (`as_aes()` maps "AES-KW" → `AesVariant::Kw`).
+        (Operation::WrapKey | Operation::UnwrapKey, AlgorithmName::AesKw) => {
+            Some(DesiredType::AesKwWrap)
+        }
         // AES generateKey / get-key-length both read a `length`-only dict
         // (`AesKeyGenParams` / `AesDerivedKeyParams`); `as_aes()` filters the
-        // non-AES names (HMAC handled above, KDF handled above, SHA → None).
+        // non-AES names (HMAC handled above, KDF handled above, SHA → None)
+        // and admits all four AES variants incl. AES-KW (§30.3.3 / §30.3.6).
         (Operation::GenerateKey | Operation::GetKeyLength, _) => {
             name.as_aes().map(DesiredType::AesKeyGen)
         }
         (Operation::ImportKey, _) => name.as_aes().map(DesiredType::AesImport),
-        (Operation::Encrypt | Operation::Decrypt, _) => {
-            name.as_aes().map(DesiredType::AesEncryptDecrypt)
-        }
+        // encrypt / decrypt: only the three block-cipher modes — AES-KW (§30)
+        // is wrap-only and registers no encrypt/decrypt op, so it must stay
+        // unregistered here (returns NotSupported), NOT fall to AesEncryptDecrypt.
+        (Operation::Encrypt | Operation::Decrypt, _) => name
+            .as_aes()
+            .filter(|variant| !matches!(variant, AesVariant::Kw))
+            .map(DesiredType::AesEncryptDecrypt),
         _ => None,
     }
 }
@@ -436,13 +484,16 @@ pub fn params_shape(op: Operation, name: &str) -> Option<AlgorithmParams> {
         DesiredType::Digest(_)
         | DesiredType::HmacSignVerify
         | DesiredType::AesImport(_)
-        | DesiredType::KdfNameOnly(_) => AlgorithmParams::NameOnly,
+        | DesiredType::KdfNameOnly(_)
+        | DesiredType::AesKwWrap => AlgorithmParams::NameOnly,
         DesiredType::HmacKeyParams => AlgorithmParams::HmacKeyParams,
         DesiredType::AesKeyGen(_) => AlgorithmParams::AesKeyGen,
         DesiredType::AesEncryptDecrypt(variant) => match variant {
             AesVariant::Gcm => AlgorithmParams::AesGcmParams,
             AesVariant::Cbc => AlgorithmParams::AesCbcParams,
             AesVariant::Ctr => AlgorithmParams::AesCtrParams,
+            // `resolve_registry` never builds `AesEncryptDecrypt(Kw)`.
+            AesVariant::Kw => unreachable!("AES-KW has no encrypt/decrypt params"),
         },
         DesiredType::HkdfDeriveBits => AlgorithmParams::HkdfParams,
         DesiredType::Pbkdf2DeriveBits => AlgorithmParams::Pbkdf2Params,
@@ -492,6 +543,8 @@ pub fn normalize(op: Operation, raw: RawAlgorithm) -> Result<NormalizedAlgorithm
             Ok(NormalizedAlgorithm::AesKeyGen { variant, length })
         }
         Some(DesiredType::AesEncryptDecrypt(variant)) => normalize_aes_params(variant, raw),
+        // AES-KW wrapKey / unwrapKey: name-only (§30.3.1 / §30.3.2 default IV).
+        Some(DesiredType::AesKwWrap) => Ok(NormalizedAlgorithm::AesKwWrap),
         Some(DesiredType::KdfNameOnly(KdfKind::Hkdf)) => Ok(NormalizedAlgorithm::Hkdf),
         Some(DesiredType::KdfNameOnly(KdfKind::Pbkdf2)) => Ok(NormalizedAlgorithm::Pbkdf2),
         Some(DesiredType::HkdfDeriveBits) => {
@@ -562,6 +615,9 @@ fn normalize_aes_params(
                 .ok_or_else(|| required_member("length", "AesCtrParams"))?;
             Ok(NormalizedAlgorithm::AesCtr { counter, length })
         }
+        // AES-KW never reaches here: it normalizes via `DesiredType::AesKwWrap`
+        // (name-only), not `AesEncryptDecrypt`.
+        AesVariant::Kw => unreachable!("AES-KW has no encrypt/decrypt params dictionary"),
     }
 }
 

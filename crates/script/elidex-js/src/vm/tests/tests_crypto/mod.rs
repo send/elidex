@@ -18,6 +18,9 @@
 //!   `importKey` / `exportKey` / `encrypt` / `decrypt`, PR-2).
 //! - [`derive`] — the HKDF / PBKDF2 derive vertical (`importKey` /
 //!   `deriveBits` / `deriveKey`, PR-3a).
+//! - [`wrap`] — the wrap vertical (`wrapKey` / `unwrapKey`, AES-KW + the
+//!   AES-GCM/CBC/CTR encrypt/decrypt fallback + the `jwk` JSON round-trip,
+//!   PR-3b).
 //! - [`crypto_key`] — `CryptoKey` accessors + the `[[algorithm]]` /
 //!   `[[usages]]` §13.4 caches and their GC / side-store invariants.
 
@@ -29,6 +32,7 @@ mod crypto_key;
 mod derive;
 mod digest;
 mod hmac;
+mod wrap;
 
 use super::super::value::JsValue;
 use super::super::Vm;

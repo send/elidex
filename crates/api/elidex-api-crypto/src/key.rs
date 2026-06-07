@@ -64,13 +64,20 @@ impl KeyUsage {
         matches!(self, Self::Sign | Self::Verify)
     }
 
-    /// Whether AES accepts this usage (WebCrypto §27.7.3 / §28.4.3 /
-    /// §29.4.3 step 1: `encrypt` / `decrypt` / `wrapKey` / `unwrapKey`).
+    /// Whether an AES block-cipher mode (CTR / CBC / GCM) accepts this usage
+    /// (WebCrypto §27.7.3 / §28.4.3 / §29.4.3 step 1: `encrypt` / `decrypt` /
+    /// `wrapKey` / `unwrapKey`).  AES-KW uses the stricter [`Self::is_aes_kw_usage`].
     pub fn is_aes_usage(self) -> bool {
         matches!(
             self,
             Self::Encrypt | Self::Decrypt | Self::WrapKey | Self::UnwrapKey
         )
+    }
+
+    /// Whether AES-KW accepts this usage (WebCrypto §30.3.3 / §30.3.4 step 1:
+    /// `wrapKey` / `unwrapKey` only — AES-KW has no encrypt/decrypt op).
+    pub fn is_aes_kw_usage(self) -> bool {
+        matches!(self, Self::WrapKey | Self::UnwrapKey)
     }
 
     /// Whether HKDF / PBKDF2 accept this usage (WebCrypto §33.4.2 /

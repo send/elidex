@@ -1,8 +1,8 @@
-//! The ten `SubtleCrypto` operation natives — `digest` plus the HMAC
+//! The twelve `SubtleCrypto` operation natives — `digest` plus the HMAC
 //! vertical (`generateKey` / `importKey` / `exportKey` / `sign` /
 //! `verify`, `#11-crypto-subtle-full` PR-1), the AES `encrypt` /
-//! `decrypt` (PR-2), and the derive vertical (`deriveBits` / `deriveKey`,
-//! PR-3a).
+//! `decrypt` (PR-2), the derive vertical (`deriveBits` / `deriveKey`,
+//! PR-3a), and the wrap vertical (`wrapKey` / `unwrapKey`, PR-3b).
 //!
 //! Each native is a thin pipeline: [`super::run_op`] creates the
 //! Promise + runs the receiver brand check (the only async-reported
@@ -10,13 +10,18 @@
 //! `elidex-api-crypto` inputs (via [`super::marshal`]), calls the crate
 //! `ops::*` entry, and returns the value `run_op` settles the Promise
 //! with.  ALL spec-validation lives in the crate; this module only
-//! marshals + maps [`AlgorithmError`] → DOMException.
+//! marshals + maps [`AlgorithmError`] → DOMException.  The one
+//! genuinely-ECMAScript step the crate cannot own — the `jwk` wrap/unwrap
+//! `JSON.stringify` / `parse a JWK` round-trip — runs here over the JS
+//! object (`build_jwk_object` / `marshal_jwk` + the JSON natives), keeping
+//! the crate pure bytes (CLAUDE.md Layering mandate).
 
 use elidex_api_crypto::{
     self as crypto, AlgorithmError, ExportedKey, KeyData, KeyFormat, NormalizedAlgorithm, Operation,
 };
 
 use super::super::super::coerce;
+use super::super::super::natives_json::{parse_json_str, stringify_to_string};
 use super::super::super::value::{JsValue, NativeContext, VmError};
 use super::super::super::VmInner;
 use super::super::array_buffer::create_array_buffer_from_bytes;
@@ -26,6 +31,41 @@ use super::marshal::{
     marshal_usages, require_crypto_key_arg,
 };
 use super::run_op;
+
+/// Marshal an already-[`convert_algorithm_identifier`]-converted
+/// `AlgorithmIdentifier` and normalize it for `op` in one step (WebCrypto
+/// §18.4.4) — the marshal+normalize unit every operation native shares.
+fn marshal_normalize(
+    ctx: &mut NativeContext<'_>,
+    algorithm: JsValue,
+    method: &str,
+    op: Operation,
+) -> Result<NormalizedAlgorithm, VmError> {
+    let raw = marshal_algorithm(ctx, algorithm, method, op)?;
+    crypto::normalize(op, raw).map_err(|e| algorithm_error_to_vm(ctx.vm, &e))
+}
+
+/// Normalize an `AlgorithmIdentifier` for a wrap/unwrap op with the §14.3.11 /
+/// §14.3.12 encrypt/decrypt fallback: normalize for `primary` (`wrapKey` /
+/// `unwrapKey`); on **any** error, normalize for `fallback` (`encrypt` /
+/// `decrypt`) so an AES-GCM/CBC/CTR key can wrap/unwrap via its cipher op.
+///
+/// Each branch independently re-marshals the identifier — matching the spec's
+/// double "normalize an algorithm" — so the (name-only) wrap normalize reads
+/// only `name` while the encrypt normalize reads the cipher params (`iv` etc.);
+/// a getter on a cipher param therefore fires once, on the fallback path.
+fn normalize_wrap_with_fallback(
+    ctx: &mut NativeContext<'_>,
+    algorithm: JsValue,
+    method: &str,
+    primary: Operation,
+    fallback: Operation,
+) -> Result<NormalizedAlgorithm, VmError> {
+    match marshal_normalize(ctx, algorithm, method, primary) {
+        Ok(normalized) => Ok(normalized),
+        Err(_) => marshal_normalize(ctx, algorithm, method, fallback),
+    }
+}
 
 /// Map an engine-independent [`AlgorithmError`] to the JS exception the VM
 /// throws / rejects with (DOMException, or a plain `TypeError`).
@@ -102,9 +142,7 @@ pub(super) fn native_subtle_crypto_digest(
             "Failed to execute 'digest' on 'SubtleCrypto'",
             2,
         )?;
-        let raw = marshal_algorithm(ctx, algorithm, "digest", Operation::Digest)?;
-        let normalized = crypto::normalize(Operation::Digest, raw)
-            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+        let normalized = marshal_normalize(ctx, algorithm, "digest", Operation::Digest)?;
         let bytes = extract_buffer_source_bytes(
             ctx,
             data_arg,
@@ -151,9 +189,7 @@ pub(super) fn native_subtle_crypto_generate_key(
         let usages_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
         let usages = marshal_usages(ctx, usages_arg, "generateKey")?;
 
-        let raw = marshal_algorithm(ctx, algorithm, "generateKey", Operation::GenerateKey)?;
-        let normalized = crypto::normalize(Operation::GenerateKey, raw)
-            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+        let normalized = marshal_normalize(ctx, algorithm, "generateKey", Operation::GenerateKey)?;
 
         // The crate owns usage validation → length sizing → fill ordering
         // (§31.6.3); the VM only supplies entropy via the closure, so an
@@ -207,9 +243,7 @@ pub(super) fn native_subtle_crypto_import_key(
             coerce::to_boolean(ctx.vm, args.get(3).copied().unwrap_or(JsValue::Undefined));
         let usages = marshal_usages(ctx, usages_arg, "importKey")?;
 
-        let raw = marshal_algorithm(ctx, algorithm, "importKey", Operation::ImportKey)?;
-        let normalized = crypto::normalize(Operation::ImportKey, raw)
-            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+        let normalized = marshal_normalize(ctx, algorithm, "importKey", Operation::ImportKey)?;
 
         let key = crypto::ops::import_key(format, normalized, extractable, usages, key_data)
             .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
@@ -279,9 +313,7 @@ pub(super) fn native_subtle_crypto_sign(
             "Failed to execute 'sign' on 'SubtleCrypto'",
             3,
         )?;
-        let raw = marshal_algorithm(ctx, algorithm, "sign", Operation::Sign)?;
-        let normalized = crypto::normalize(Operation::Sign, raw)
-            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+        let normalized = marshal_normalize(ctx, algorithm, "sign", Operation::Sign)?;
         let data = extract_buffer_source_bytes(
             ctx,
             data_arg,
@@ -336,9 +368,7 @@ pub(super) fn native_subtle_crypto_verify(
             "Failed to execute 'verify' on 'SubtleCrypto'",
             4,
         )?;
-        let raw = marshal_algorithm(ctx, algorithm, "verify", Operation::Verify)?;
-        let normalized = crypto::normalize(Operation::Verify, raw)
-            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+        let normalized = marshal_normalize(ctx, algorithm, "verify", Operation::Verify)?;
         let signature = extract_buffer_source_bytes(
             ctx,
             signature_arg,
@@ -443,8 +473,7 @@ fn run_cipher(
     // Web IDL `data` BufferSource *type* conversion (bind time, no byte copy /
     // no detached check) — runs before the algorithm normalization.
     require_buffer_source_arg(ctx, data_arg, &error_prefix, 3)?;
-    let raw = marshal_algorithm(ctx, algorithm, method, op)?;
-    let normalized = crypto::normalize(op, raw).map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+    let normalized = marshal_normalize(ctx, algorithm, method, op)?;
     // §14.3.x step 4: get a copy of the data bytes (detached → TypeError),
     // after normalization.
     let data = extract_buffer_source_bytes(ctx, data_arg, &error_prefix, 3, false)?;
@@ -488,9 +517,7 @@ pub(super) fn native_subtle_crypto_derive_bits(
         )?;
         let length =
             marshal_optional_length(ctx, args.get(2).copied().unwrap_or(JsValue::Undefined))?;
-        let raw = marshal_algorithm(ctx, algorithm, "deriveBits", Operation::DeriveBits)?;
-        let normalized = crypto::normalize(Operation::DeriveBits, raw)
-            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+        let normalized = marshal_normalize(ctx, algorithm, "deriveBits", Operation::DeriveBits)?;
         let bits = {
             let base_key = &ctx.vm.crypto_key_states[&base_key_id];
             crypto::ops::derive_bits(normalized, base_key, length)
@@ -533,17 +560,11 @@ pub(super) fn native_subtle_crypto_derive_key(
         // then the derivedKeyType twice (op importKey, then op get-key-length)
         // — each normalize independently reads the dict members (firing
         // getters in that step order, propagating any throw).
-        let raw_derive = marshal_algorithm(ctx, algorithm, "deriveKey", Operation::DeriveBits)?;
-        let derive_alg = crypto::normalize(Operation::DeriveBits, raw_derive)
-            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
-        let raw_import =
-            marshal_algorithm(ctx, derived_key_type, "deriveKey", Operation::ImportKey)?;
-        let import_alg = crypto::normalize(Operation::ImportKey, raw_import)
-            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
-        let raw_length =
-            marshal_algorithm(ctx, derived_key_type, "deriveKey", Operation::GetKeyLength)?;
-        let length_alg = crypto::normalize(Operation::GetKeyLength, raw_length)
-            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+        let derive_alg = marshal_normalize(ctx, algorithm, "deriveKey", Operation::DeriveBits)?;
+        let import_alg =
+            marshal_normalize(ctx, derived_key_type, "deriveKey", Operation::ImportKey)?;
+        let length_alg =
+            marshal_normalize(ctx, derived_key_type, "deriveKey", Operation::GetKeyLength)?;
 
         let key_data = {
             let base_key = &ctx.vm.crypto_key_states[&base_key_id];
@@ -558,6 +579,182 @@ pub(super) fn native_subtle_crypto_derive_key(
         }
         .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
         let id = ctx.vm.alloc_crypto_key(key_data);
+        Ok(JsValue::Object(id))
+    })
+}
+
+// ===========================================================================
+// Wrap vertical: wrapKey / unwrapKey (`#11-crypto-subtle-full` PR-3b).  Same
+// `run_op` pipeline as `sign` above.  wrapKey wraps an exported key under a
+// wrapping key (AES-KW, or the AES-GCM/CBC/CTR encrypt fallback); unwrapKey
+// reverses it and imports the recovered key.  All wrap/export/import +
+// composition live in `elidex-api-crypto`; the VM only marshals + normalizes
+// (with the §14.3.11 / §14.3.12 wrap→encrypt / unwrap→decrypt fallback) and
+// performs the `jwk` JSON round-trip (`JSON.stringify` / "parse a JWK") that
+// is intrinsically an ECMAScript op over the JS object.
+// ===========================================================================
+
+pub(super) fn native_subtle_crypto_wrap_key(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let args = args.to_vec();
+    run_op(ctx, this, "wrapKey", move |ctx| {
+        // Web IDL arg conversion (§3.6) left-to-right: format (KeyFormat),
+        // key (CryptoKey), wrappingKey (CryptoKey), wrapAlgorithm
+        // (object or DOMString) — so a bad `format` beats a non-CryptoKey
+        // `key`, which beats a `Symbol()` `wrapAlgorithm`.
+        let format = marshal_format(
+            ctx,
+            args.first().copied().unwrap_or(JsValue::Undefined),
+            "wrapKey",
+        )?;
+        let key_id = require_crypto_key_arg(
+            ctx,
+            args.get(1).copied().unwrap_or(JsValue::Undefined),
+            "wrapKey",
+            2,
+        )?;
+        let wrapping_key_id = require_crypto_key_arg(
+            ctx,
+            args.get(2).copied().unwrap_or(JsValue::Undefined),
+            "wrapKey",
+            3,
+        )?;
+        let wrap_algorithm =
+            convert_algorithm_identifier(ctx, args.get(3).copied().unwrap_or(JsValue::Undefined))?;
+        // §14.3.11 steps 2-4: normalize op=wrapKey → on error op=encrypt.
+        let normalized = normalize_wrap_with_fallback(
+            ctx,
+            wrap_algorithm,
+            "wrapKey",
+            Operation::WrapKey,
+            Operation::Encrypt,
+        )?;
+        // Clone the two key states: the §14.3.11 step-14 `JSON.stringify`
+        // closure below borrows `&mut ctx`, which would conflict with holding a
+        // side-store borrow across the crate call.  The symmetric key material
+        // is small; `exportKey` (no closure) can avoid the clone, `wrapKey`
+        // (which interleaves the VM-side serialization between export and wrap)
+        // cannot.
+        let wrapping_data = ctx.vm.crypto_key_states[&wrapping_key_id].clone();
+        let key_data = ctx.vm.crypto_key_states[&key_id].clone();
+        let wrapped = crypto::ops::wrap_key(normalized, &wrapping_data, &key_data, format, |jwk| {
+            // §14.3.11 step 14 (jwk): `JSON.stringify` the exported oct JWK,
+            // then UTF-8 encode.  The object is freshly built from controlled
+            // data (no user getters / `toJSON`, and GC is disabled for the
+            // native call), so `JSON.stringify` is total — the closure is
+            // infallible.
+            let obj = build_jwk_object(ctx, jwk);
+            stringify_to_string(
+                ctx,
+                JsValue::Object(obj),
+                JsValue::Undefined,
+                JsValue::Undefined,
+            )
+            .expect("JSON.stringify of a controlled oct JWK object cannot throw")
+            .expect("JSON.stringify of an object yields a string, not undefined")
+            .into_bytes()
+        })
+        .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+        let buf = create_array_buffer_from_bytes(ctx.vm, wrapped);
+        Ok(JsValue::Object(buf))
+    })
+}
+
+pub(super) fn native_subtle_crypto_unwrap_key(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let args = args.to_vec();
+    run_op(ctx, this, "unwrapKey", move |ctx| {
+        // Web IDL arg conversion left-to-right: format (KeyFormat), wrappedKey
+        // (BufferSource *type* check — the byte copy is the later step 7),
+        // unwrappingKey (CryptoKey), unwrapAlgorithm + unwrappedKeyAlgorithm
+        // (object or DOMString), extractable (boolean), keyUsages
+        // (sequence<KeyUsage>).
+        let format = marshal_format(
+            ctx,
+            args.first().copied().unwrap_or(JsValue::Undefined),
+            "unwrapKey",
+        )?;
+        let wrapped_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+        require_buffer_source_arg(
+            ctx,
+            wrapped_arg,
+            "Failed to execute 'unwrapKey' on 'SubtleCrypto'",
+            2,
+        )?;
+        let unwrapping_key_id = require_crypto_key_arg(
+            ctx,
+            args.get(2).copied().unwrap_or(JsValue::Undefined),
+            "unwrapKey",
+            3,
+        )?;
+        let unwrap_algorithm =
+            convert_algorithm_identifier(ctx, args.get(3).copied().unwrap_or(JsValue::Undefined))?;
+        let unwrapped_key_algorithm =
+            convert_algorithm_identifier(ctx, args.get(4).copied().unwrap_or(JsValue::Undefined))?;
+        let extractable =
+            coerce::to_boolean(ctx.vm, args.get(5).copied().unwrap_or(JsValue::Undefined));
+        let usages = marshal_usages(
+            ctx,
+            args.get(6).copied().unwrap_or(JsValue::Undefined),
+            "unwrapKey",
+        )?;
+
+        // §14.3.12 steps 2-3: normalize unwrapAlgorithm op=unwrapKey → on error
+        // op=decrypt.  step 5: normalize unwrappedKeyAlgorithm op=importKey.
+        let unwrap_alg = normalize_wrap_with_fallback(
+            ctx,
+            unwrap_algorithm,
+            "unwrapKey",
+            Operation::UnwrapKey,
+            Operation::Decrypt,
+        )?;
+        let import_alg = marshal_normalize(
+            ctx,
+            unwrapped_key_algorithm,
+            "unwrapKey",
+            Operation::ImportKey,
+        )?;
+        // step 7: snapshot the wrappedKey bytes (after the normalizations).
+        let wrapped = extract_buffer_source_bytes(
+            ctx,
+            wrapped_arg,
+            "Failed to execute 'unwrapKey' on 'SubtleCrypto'",
+            2,
+            false,
+        )?;
+
+        // steps 12-14: name-match + unwrapKey-usage gate, then unwrap/decrypt.
+        let bytes = {
+            let unwrapping_key = &ctx.vm.crypto_key_states[&unwrapping_key_id];
+            crypto::ops::unwrap_key(unwrap_alg, unwrapping_key, &wrapped)
+        }
+        .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+
+        // step 15: "parse a JWK" (§9) for the `jwk` format, else the raw bytes.
+        let key_data = match format {
+            KeyFormat::Jwk => {
+                // §9 "parse a JWK": interpret `bytes` as UTF-8, run `JSON.parse`,
+                // then convert the result to a `JsonWebKey` dictionary
+                // (`marshal_jwk`).  A malformed-JSON body rejects with the
+                // `JSON.parse` SyntaxError (the spec's step-4 propagation);
+                // a missing `kty` becomes the import's DataError.
+                let json = String::from_utf8_lossy(&bytes).into_owned();
+                let parsed = parse_json_str(ctx.vm, &json)?;
+                KeyData::Jwk(marshal_jwk(ctx, parsed)?)
+            }
+            _ => KeyData::Raw(bytes),
+        };
+        // step 16: importKey(normalizedKeyAlgorithm, format, key, extractable,
+        // usages) — also raises the step-17 empty-secret-usages SyntaxError.
+        let key = crypto::ops::import_key(format, import_alg, extractable, usages, key_data)
+            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+        let id = ctx.vm.alloc_crypto_key(key);
         Ok(JsValue::Object(id))
     })
 }

@@ -4,12 +4,11 @@
 //! lives here; the VM host only marshals JS ↔ these plain-Rust inputs
 //! and settles the returned Promise.
 
-use crate::aes;
 use crate::algorithm::{AesVariant, NormalizedAlgorithm};
 use crate::error::AlgorithmError;
 use crate::jwk::{self, JsonWebKey};
 use crate::key::{normalize_usages, CryptoKeyData, KeyAlgorithm, KeyMaterial, KeyType, KeyUsage};
-use crate::{hkdf, hmac, pbkdf2};
+use crate::{aes, aes_kw, hkdf, hmac, pbkdf2};
 
 /// The `KeyFormat` enum (WebCrypto §14.1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -123,9 +122,12 @@ fn generate_aes_key<F>(
 where
     F: FnOnce(&mut [u8]) -> Result<(), AlgorithmError>,
 {
-    // step 1: a usage outside {encrypt, decrypt, wrapKey, unwrapKey} is a
-    // SyntaxError — before key sizing (step 2+).
-    validate_usage_kinds(&usages, KeyUsage::is_aes_usage, AES_USAGE_MSG)?;
+    // step 1: an unsupported usage is a SyntaxError — before key sizing
+    // (step 2+).  AES-KW accepts only {wrapKey, unwrapKey} (§30.3.3); the
+    // block-cipher modes also accept {encrypt, decrypt} (§27.7.3 / §28.4.3 /
+    // §29.4.3).
+    let (allowed, msg) = aes_usage_rule(variant);
+    validate_usage_kinds(&usages, allowed, msg)?;
     // step 2: the key length must be 128/192/256 bits, else OperationError.
     let byte_len = aes_key_byte_len(length)?;
     // step 3 "Generate an AES key of length length bits".
@@ -239,10 +241,12 @@ fn import_aes_key(
     usages: Vec<KeyUsage>,
     key_data: KeyData,
 ) -> Result<CryptoKeyData, AlgorithmError> {
-    // step 1: a usage outside {encrypt, decrypt, wrapKey, unwrapKey} is a
-    // SyntaxError, before the material is parsed (empty-usages is the later
-    // generic step).
-    validate_usage_kinds(&usages, KeyUsage::is_aes_usage, AES_USAGE_MSG)?;
+    // step 1: an unsupported usage is a SyntaxError, before the material is
+    // parsed (empty-usages is the later generic step).  AES-KW accepts only
+    // {wrapKey, unwrapKey} (§30.3.4); the block-cipher modes also accept
+    // {encrypt, decrypt} (§27.7.4 / §28.4.4 / §29.4.4).
+    let (allowed, msg) = aes_usage_rule(variant);
+    validate_usage_kinds(&usages, allowed, msg)?;
 
     let material = match (format, key_data) {
         (KeyFormat::Raw, KeyData::Raw(bytes)) => {
@@ -409,7 +413,18 @@ pub fn encrypt(
     data: &[u8],
 ) -> Result<Vec<u8>, AlgorithmError> {
     require_key_usable(&algorithm, key, KeyUsage::Encrypt)?;
-    let material = key.material.as_bytes();
+    aes_encrypt_op(algorithm, key.material.as_bytes(), data)
+}
+
+/// The AES encrypt *operation* dispatch (no §14.3.1 name/usage gate) — shared
+/// by [`encrypt`] (after its gate) and the [`wrap_key`] §14.3.11 step-15
+/// encrypt fallback (whose gate is the `wrapKey` usage, not `encrypt`).  The
+/// caller has already validated the key length to 16/24/32 bytes.
+fn aes_encrypt_op(
+    algorithm: NormalizedAlgorithm,
+    material: &[u8],
+    data: &[u8],
+) -> Result<Vec<u8>, AlgorithmError> {
     match algorithm {
         NormalizedAlgorithm::AesGcm {
             iv,
@@ -426,8 +441,8 @@ pub fn encrypt(
         NormalizedAlgorithm::AesCtr { counter, length } => {
             aes::encrypt_ctr(material, &counter, length, data)
         }
-        // `encrypt` only normalizes the AES modes, so the name-match above
-        // rejects any other key/algorithm before reaching here.
+        // Only the AES modes normalize to an encrypt op; the name-match in the
+        // caller rejects any other key/algorithm before reaching here.
         _ => Err(not_supported_op("encrypt")),
     }
 }
@@ -439,7 +454,17 @@ pub fn decrypt(
     data: &[u8],
 ) -> Result<Vec<u8>, AlgorithmError> {
     require_key_usable(&algorithm, key, KeyUsage::Decrypt)?;
-    let material = key.material.as_bytes();
+    aes_decrypt_op(algorithm, key.material.as_bytes(), data)
+}
+
+/// The AES decrypt *operation* dispatch (no §14.3.2 name/usage gate) — shared
+/// by [`decrypt`] (after its gate) and the [`unwrap_key`] §14.3.12 step-14
+/// decrypt fallback (whose gate is the `unwrapKey` usage, not `decrypt`).
+fn aes_decrypt_op(
+    algorithm: NormalizedAlgorithm,
+    material: &[u8],
+    data: &[u8],
+) -> Result<Vec<u8>, AlgorithmError> {
     match algorithm {
         NormalizedAlgorithm::AesGcm {
             iv,
@@ -457,6 +482,77 @@ pub fn decrypt(
             aes::decrypt_ctr(material, &counter, length, data)
         }
         _ => Err(not_supported_op("decrypt")),
+    }
+}
+
+/// `wrapKey` (WebCrypto §14.3.11), composing the export-then-wrap pipeline
+/// over the engine-independent ops so the VM only marshals and supplies the
+/// JWK-serialization step.
+///
+/// Steps, on `wrapping_key` then `key`: name-equality (step 9) with the
+/// `wrapKey` usage check (step 10); the export-support and extractable gates
+/// plus the export itself (steps 11-13, via [`export_key`]); the serialization
+/// (step 14, raw bytes verbatim, or — for `jwk` — the VM `serialize_jwk`
+/// closure running `JSON.stringify` then UTF-8 encoding, the one
+/// genuinely-ECMAScript step the crate cannot own); then the wrap-or-encrypt
+/// dispatch (step 15), where AES-KW wraps via RFC 3394 while an AES-GCM/CBC/CTR
+/// wrapping key falls back to its encrypt *operation* (with no `encrypt`-usage
+/// recheck — §14.3.11 step 15 invokes the operation, not the `encrypt` method).
+///
+/// The wrappingKey gate (steps 9-10) runs **before** the key export (steps
+/// 11-13), matching the spec order (so a wrappingKey name/usage `InvalidAccess`
+/// wins over a non-exportable `key` `NotSupported`).
+pub fn wrap_key<F>(
+    algorithm: NormalizedAlgorithm,
+    wrapping_key: &CryptoKeyData,
+    key: &CryptoKeyData,
+    format: KeyFormat,
+    serialize_jwk: F,
+) -> Result<Vec<u8>, AlgorithmError>
+where
+    F: FnOnce(&JsonWebKey) -> Vec<u8>,
+{
+    // §14.3.11 step 9 (name equality) + step 10 (wrapKey usage) on wrappingKey.
+    require_key_usable(&algorithm, wrapping_key, KeyUsage::WrapKey)?;
+    // steps 11-13: export-support check + extractable gate + export the key.
+    let bytes = match export_key(format, key)? {
+        // step 14 (non-jwk): the exported bytes are the plaintext verbatim.
+        ExportedKey::Raw(raw) => raw,
+        // step 14 (jwk): JSON.stringify the exported oct JWK + UTF-8 encode —
+        // delegated to the VM (the crate stays pure bytes; see CLAUDE.md
+        // Layering mandate). The serialization of a controlled oct JWK is
+        // infallible, so the closure is too.
+        ExportedKey::Jwk(jwk) => serialize_jwk(&jwk),
+    };
+    // step 15: wrap (AES-KW) or fall back to the encrypt op (AES-GCM/CBC/CTR).
+    match algorithm {
+        NormalizedAlgorithm::AesKwWrap => aes_kw::wrap(wrapping_key.material.as_bytes(), &bytes),
+        _ => aes_encrypt_op(algorithm, wrapping_key.material.as_bytes(), &bytes),
+    }
+}
+
+/// `unwrapKey` (WebCrypto §14.3.12) decrypt half: the name-equality (step 12)
+/// and `unwrapKey`-usage (step 13) gate on `unwrapping_key`, then the unwrap
+/// (or decrypt-fallback) operation (step 14) yielding the wrapped key's bytes.
+///
+/// The VM completes the method: "parse a JWK" (step 15, for `jwk` format) and
+/// the `importKey` of the bytes (step 16, via [`import_key`], which also
+/// enforces the step-17 empty-secret-usages SyntaxError).  Unlike [`wrap_key`]
+/// this needs no closure — the JSON parse + import happen entirely *after* this
+/// op returns, so the op stays a plain gate-then-decrypt.
+pub fn unwrap_key(
+    algorithm: NormalizedAlgorithm,
+    unwrapping_key: &CryptoKeyData,
+    wrapped_key: &[u8],
+) -> Result<Vec<u8>, AlgorithmError> {
+    // §14.3.12 step 12 (name equality) + step 13 (unwrapKey usage).
+    require_key_usable(&algorithm, unwrapping_key, KeyUsage::UnwrapKey)?;
+    // step 14: unwrap (AES-KW) or fall back to the decrypt op (AES-GCM/CBC/CTR).
+    match algorithm {
+        NormalizedAlgorithm::AesKwWrap => {
+            aes_kw::unwrap(unwrapping_key.material.as_bytes(), wrapped_key)
+        }
+        _ => aes_decrypt_op(algorithm, unwrapping_key.material.as_bytes(), wrapped_key),
     }
 }
 
@@ -591,8 +687,22 @@ pub fn get_key_length(algorithm: NormalizedAlgorithm) -> Result<Option<u32>, Alg
 const HMAC_USAGE_MSG: &str = "HMAC keys support only the 'sign' and 'verify' usages";
 const AES_USAGE_MSG: &str =
     "AES keys support only the 'encrypt', 'decrypt', 'wrapKey' and 'unwrapKey' usages";
+const AES_KW_USAGE_MSG: &str = "AES-KW keys support only the 'wrapKey' and 'unwrapKey' usages";
 const KDF_USAGE_MSG: &str =
     "HKDF / PBKDF2 keys support only the 'deriveKey' and 'deriveBits' usages";
+
+/// The generate/import usage predicate + its error message for an AES key of
+/// `variant` (WebCrypto generate/import step 1).  AES-KW (§30) is wrap-only
+/// ({wrapKey, unwrapKey}); the three block-cipher modes also accept
+/// {encrypt, decrypt} (§27 / §28 / §29).
+fn aes_usage_rule(variant: AesVariant) -> (fn(KeyUsage) -> bool, &'static str) {
+    match variant {
+        AesVariant::Kw => (KeyUsage::is_aes_kw_usage, AES_KW_USAGE_MSG),
+        AesVariant::Ctr | AesVariant::Cbc | AesVariant::Gcm => {
+            (KeyUsage::is_aes_usage, AES_USAGE_MSG)
+        }
+    }
+}
 
 /// Reject any usage the algorithm does not accept (WebCrypto generate/import
 /// step 1 — algorithm-specific, runs *before* key material is produced).

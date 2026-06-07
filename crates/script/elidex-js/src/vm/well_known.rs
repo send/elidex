@@ -1334,6 +1334,8 @@ define_well_known_strings! {
         decrypt => "decrypt",
         derive_key => "deriveKey",
         derive_bits => "deriveBits",
+        wrap_key => "wrapKey",
+        unwrap_key => "unwrapKey",
         // AES params-dictionary members (AesGcmParams / AesCbcParams /
         // AesCtrParams), read on the `encrypt` / `decrypt` hot path — pre-
         // interned alongside `hash_attr` / `length` rather than interned per

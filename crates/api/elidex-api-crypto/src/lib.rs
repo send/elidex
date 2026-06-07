@@ -12,6 +12,8 @@
 //!   decrypt (§27-§29); reached only through [`ops`] (which validates the
 //!   key length), so it is `pub(crate)` — the raw `&[u8]`-key cipher fns are
 //!   not a public surface.
+//! - `aes_kw` (crate-internal) — AES-KW key wrap / unwrap (§30.3.1 /
+//!   §30.3.2, RFC 3394); reached only through [`ops`], so `pub(crate)`.
 //! - [`hash`] — SHA-1/256/384/512 digest driver.
 //! - [`hmac`] — HMAC sign / verify / key-length resolution (§31).
 //! - `hkdf` (crate-internal) — HKDF derive-bits (§33.4.1, RFC 5869).
@@ -22,6 +24,7 @@
 //! - [`error`] — the [`error::AlgorithmError`] → DOMException taxonomy.
 
 pub(crate) mod aes;
+pub(crate) mod aes_kw;
 pub mod algorithm;
 pub mod error;
 pub mod hash;
