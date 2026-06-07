@@ -1,6 +1,7 @@
-//! The six `SubtleCrypto` operation natives — `digest` plus the HMAC
+//! The eight `SubtleCrypto` operation natives — `digest` plus the HMAC
 //! vertical (`generateKey` / `importKey` / `exportKey` / `sign` /
-//! `verify`, `#11-crypto-subtle-full` PR-1).
+//! `verify`, `#11-crypto-subtle-full` PR-1) and the AES `encrypt` /
+//! `decrypt` (PR-2).
 //!
 //! Each native is a thin pipeline: [`super::run_op`] creates the
 //! Promise + runs the receiver brand check (the only async-reported
@@ -18,7 +19,7 @@ use super::super::super::coerce;
 use super::super::super::value::{JsValue, NativeContext, VmError};
 use super::super::super::VmInner;
 use super::super::array_buffer::create_array_buffer_from_bytes;
-use super::super::text_encoding::extract_buffer_source_bytes;
+use super::super::text_encoding::{extract_buffer_source_bytes, is_buffer_source};
 use super::marshal::{
     build_jwk_object, convert_algorithm_identifier, marshal_algorithm, marshal_format, marshal_jwk,
     marshal_usages, require_crypto_key_arg,
@@ -47,6 +48,30 @@ fn algorithm_error_to_vm(vm: &VmInner, err: &AlgorithmError) -> VmError {
     }
 }
 
+/// Web IDL `BufferSource` *type* conversion for a positional `data` /
+/// `signature` argument: argument conversion precedes the operation's method
+/// steps (Web IDL §3.6), so a non-BufferSource is a `TypeError` *before* the
+/// algorithm is normalized — the algorithm's params getters never fire.  The
+/// matching byte snapshot ([`extract_buffer_source_bytes`]) runs *after*
+/// normalization (the WebCrypto §14.3.x "let data be … a copy of the bytes"
+/// step, after the "normalize an algorithm" step), so an algorithm getter that
+/// mutates the buffer is reflected in the snapshot — and a huge buffer is not
+/// copied if normalization rejects first.
+fn require_buffer_source_arg(
+    ctx: &mut NativeContext<'_>,
+    value: JsValue,
+    error_prefix: &str,
+    index: usize,
+) -> Result<(), VmError> {
+    if is_buffer_source(ctx, value) {
+        Ok(())
+    } else {
+        Err(VmError::type_error(format!(
+            "{error_prefix}: parameter {index} is not of type 'BufferSource'"
+        )))
+    }
+}
+
 // ---------------------------------------------------------------------------
 // `SubtleCrypto.prototype.digest(algorithm, data)` (WebCrypto §14.3.5)
 // ---------------------------------------------------------------------------
@@ -58,26 +83,34 @@ pub(super) fn native_subtle_crypto_digest(
 ) -> Result<JsValue, VmError> {
     let args = args.to_vec();
     run_op(ctx, this, "digest", move |ctx| {
-        // Web IDL converts every argument in order before the digest
-        // operation normalizes the algorithm: the `algorithm`
-        // `(object or DOMString)` conversion (arg 1) runs *first* — so
-        // `digest(Symbol(), 123)` rejects for the algorithm `TypeError`,
-        // not the `data` one — then the `data` BufferSource snapshot
-        // (§13.2; required, `allow_undefined_as_empty: false`).  Only then
-        // is the algorithm normalized (`marshal_algorithm` reads `name`;
-        // name-only — `Operation::Digest` ignores `hash` / `length`).
+        // Ordering (Web IDL §3.6 + WebCrypto §14.3.5): argument conversion runs
+        // left-to-right *before* the method steps — the `algorithm`
+        // `(object or DOMString)` conversion (arg 1) first (so
+        // `digest(Symbol(), 123)` rejects for the algorithm `TypeError`, not
+        // the `data` one), then the `data` BufferSource *type* check.  §14.3.5
+        // then step 2 normalizes the algorithm (`marshal_algorithm` reads
+        // `name`; name-only — `Operation::Digest` ignores `hash` / `length`),
+        // and step 4 gets a copy of the data bytes.  So: data type-check →
+        // normalize → data byte-snapshot (after normalization).
         let algorithm =
             convert_algorithm_identifier(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
+        let data_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
+        require_buffer_source_arg(
+            ctx,
+            data_arg,
+            "Failed to execute 'digest' on 'SubtleCrypto'",
+            2,
+        )?;
+        let raw = marshal_algorithm(ctx, algorithm, "digest", Operation::Digest)?;
+        let normalized = crypto::normalize(Operation::Digest, raw)
+            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
         let bytes = extract_buffer_source_bytes(
             ctx,
-            args.get(1).copied().unwrap_or(JsValue::Undefined),
+            data_arg,
             "Failed to execute 'digest' on 'SubtleCrypto'",
             2,
             false,
         )?;
-        let raw = marshal_algorithm(ctx, algorithm, "digest", Operation::Digest)?;
-        let normalized = crypto::normalize(Operation::Digest, &raw)
-            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
         let NormalizedAlgorithm::Digest(hash) = normalized else {
             return Err(algorithm_error_to_vm(
                 ctx.vm,
@@ -118,7 +151,7 @@ pub(super) fn native_subtle_crypto_generate_key(
         let usages = marshal_usages(ctx, usages_arg, "generateKey")?;
 
         let raw = marshal_algorithm(ctx, algorithm, "generateKey", Operation::GenerateKey)?;
-        let normalized = crypto::normalize(Operation::GenerateKey, &raw)
+        let normalized = crypto::normalize(Operation::GenerateKey, raw)
             .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
 
         // The crate owns usage validation → length sizing → fill ordering
@@ -174,7 +207,7 @@ pub(super) fn native_subtle_crypto_import_key(
         let usages = marshal_usages(ctx, usages_arg, "importKey")?;
 
         let raw = marshal_algorithm(ctx, algorithm, "importKey", Operation::ImportKey)?;
-        let normalized = crypto::normalize(Operation::ImportKey, &raw)
+        let normalized = crypto::normalize(Operation::ImportKey, raw)
             .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
 
         let key = crypto::ops::import_key(format, normalized, extractable, usages, key_data)
@@ -223,11 +256,13 @@ pub(super) fn native_subtle_crypto_sign(
 ) -> Result<JsValue, VmError> {
     let args = args.to_vec();
     run_op(ctx, this, "sign", move |ctx| {
-        // Web IDL converts the arguments in order — `algorithm`
-        // `(object or DOMString)`, then `key` (CryptoKey), then `data`
-        // (BufferSource) — before the sign operation normalizes the
-        // algorithm, so a `Symbol()` algorithm beats a non-CryptoKey `key`,
-        // and a non-CryptoKey `key` beats NotSupportedError.
+        // Ordering (Web IDL §3.6 + WebCrypto §14.3.3): argument conversion runs
+        // left-to-right *before* the method steps — `algorithm`
+        // `(object or DOMString)`, then `key` (CryptoKey), then the `data`
+        // `BufferSource` *type* check — so a `Symbol()` algorithm beats a
+        // non-CryptoKey `key`, which beats a non-BufferSource `data`.  §14.3.3
+        // then step 2 normalizes the algorithm and step 4 gets a copy of the
+        // data bytes.  So: data type-check → normalize → data byte-snapshot.
         let algorithm =
             convert_algorithm_identifier(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
         let key_id = require_crypto_key_arg(
@@ -236,16 +271,23 @@ pub(super) fn native_subtle_crypto_sign(
             "sign",
             2,
         )?;
+        let data_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
+        require_buffer_source_arg(
+            ctx,
+            data_arg,
+            "Failed to execute 'sign' on 'SubtleCrypto'",
+            3,
+        )?;
+        let raw = marshal_algorithm(ctx, algorithm, "sign", Operation::Sign)?;
+        let normalized = crypto::normalize(Operation::Sign, raw)
+            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
         let data = extract_buffer_source_bytes(
             ctx,
-            args.get(2).copied().unwrap_or(JsValue::Undefined),
+            data_arg,
             "Failed to execute 'sign' on 'SubtleCrypto'",
             3,
             false,
         )?;
-        let raw = marshal_algorithm(ctx, algorithm, "sign", Operation::Sign)?;
-        let normalized = crypto::normalize(Operation::Sign, &raw)
-            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
         let signature = {
             let key_data = &ctx.vm.crypto_key_states[&key_id];
             crypto::ops::sign(normalized, key_data, &data)
@@ -263,11 +305,14 @@ pub(super) fn native_subtle_crypto_verify(
 ) -> Result<JsValue, VmError> {
     let args = args.to_vec();
     run_op(ctx, this, "verify", move |ctx| {
-        // Web IDL converts the arguments in order — `algorithm`
-        // `(object or DOMString)`, then `key` (CryptoKey), then `signature`
-        // and `data` (BufferSource) — before the verify operation
-        // normalizes the algorithm, so a `Symbol()` algorithm beats a
-        // non-CryptoKey `key`, which beats NotSupportedError.
+        // Ordering (Web IDL §3.6 + WebCrypto §14.3.4): argument conversion runs
+        // left-to-right *before* the method steps — `algorithm`
+        // `(object or DOMString)`, then `key` (CryptoKey), then the `signature`
+        // and `data` `BufferSource` *type* checks — so a `Symbol()` algorithm
+        // beats a non-CryptoKey `key`, which beats a non-BufferSource
+        // `signature` / `data`.  §14.3.4 then step 2 normalizes the algorithm,
+        // step 4 copies the signature bytes, step 5 copies the data bytes.  So:
+        // type-checks → normalize → byte-snapshots (after normalization).
         let algorithm =
             convert_algorithm_identifier(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
         let key_id = require_crypto_key_arg(
@@ -276,23 +321,37 @@ pub(super) fn native_subtle_crypto_verify(
             "verify",
             2,
         )?;
+        let signature_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
+        let data_arg = args.get(3).copied().unwrap_or(JsValue::Undefined);
+        require_buffer_source_arg(
+            ctx,
+            signature_arg,
+            "Failed to execute 'verify' on 'SubtleCrypto'",
+            3,
+        )?;
+        require_buffer_source_arg(
+            ctx,
+            data_arg,
+            "Failed to execute 'verify' on 'SubtleCrypto'",
+            4,
+        )?;
+        let raw = marshal_algorithm(ctx, algorithm, "verify", Operation::Verify)?;
+        let normalized = crypto::normalize(Operation::Verify, raw)
+            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
         let signature = extract_buffer_source_bytes(
             ctx,
-            args.get(2).copied().unwrap_or(JsValue::Undefined),
+            signature_arg,
             "Failed to execute 'verify' on 'SubtleCrypto'",
             3,
             false,
         )?;
         let data = extract_buffer_source_bytes(
             ctx,
-            args.get(3).copied().unwrap_or(JsValue::Undefined),
+            data_arg,
             "Failed to execute 'verify' on 'SubtleCrypto'",
             4,
             false,
         )?;
-        let raw = marshal_algorithm(ctx, algorithm, "verify", Operation::Verify)?;
-        let normalized = crypto::normalize(Operation::Verify, &raw)
-            .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
         let ok = {
             let key_data = &ctx.vm.crypto_key_states[&key_id];
             crypto::ops::verify(normalized, key_data, &signature, &data)
@@ -300,4 +359,99 @@ pub(super) fn native_subtle_crypto_verify(
         .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
         Ok(JsValue::Boolean(ok))
     })
+}
+
+// ===========================================================================
+// AES vertical: encrypt / decrypt (`#11-crypto-subtle-full` PR-2).  Same
+// `run_op` pipeline as `sign` above; the algorithm `(object or DOMString)`
+// conversion (arg 1) runs first, then the `CryptoKey` brand check (arg 2),
+// then the `data` BufferSource snapshot (arg 3) — so a `Symbol()` algorithm
+// beats a non-CryptoKey `key`, which beats NotSupportedError.  All cipher
+// math + validation live in `elidex-api-crypto`; the result is an
+// `ArrayBuffer` (digest's return shape).
+// ===========================================================================
+
+pub(super) fn native_subtle_crypto_encrypt(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let args = args.to_vec();
+    run_op(ctx, this, "encrypt", move |ctx| {
+        run_cipher(
+            ctx,
+            &args,
+            "encrypt",
+            Operation::Encrypt,
+            crypto::ops::encrypt,
+        )
+    })
+}
+
+pub(super) fn native_subtle_crypto_decrypt(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let args = args.to_vec();
+    run_op(ctx, this, "decrypt", move |ctx| {
+        run_cipher(
+            ctx,
+            &args,
+            "decrypt",
+            Operation::Decrypt,
+            crypto::ops::decrypt,
+        )
+    })
+}
+
+/// The crate `encrypt` / `decrypt` entry point shared by [`run_cipher`].
+type CipherOp =
+    fn(NormalizedAlgorithm, &crypto::CryptoKeyData, &[u8]) -> Result<Vec<u8>, AlgorithmError>;
+
+/// Shared `encrypt` / `decrypt` body: marshal `(algorithm, key, data)`,
+/// normalize for `op`, run the crate `cipher_op`, and wrap the bytes in an
+/// `ArrayBuffer`.
+fn run_cipher(
+    ctx: &mut NativeContext<'_>,
+    args: &[JsValue],
+    method: &'static str,
+    op: Operation,
+    cipher_op: CipherOp,
+) -> Result<JsValue, VmError> {
+    // Argument/operation ordering (Web IDL §3.6 + WebCrypto §14.3.1/§14.3.2):
+    //  1. Web IDL converts every argument left-to-right *before* the method
+    //     steps run — algorithm `(object or DOMString)`, key `CryptoKey`
+    //     brand, and the `data` `BufferSource` **type** check.  A non-
+    //     BufferSource `data` is therefore a TypeError before the algorithm
+    //     is normalized (so its params getters never fire).
+    //  2. §14.3.x step 2 normalizes the algorithm (which reads + snapshots
+    //     the AES `iv` / `counter` / `additionalData` members), THEN step 4
+    //     gets a copy of the data bytes (detached → error).
+    // So: data type-check → normalize → data byte-copy.
+    let algorithm =
+        convert_algorithm_identifier(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
+    let key_id = require_crypto_key_arg(
+        ctx,
+        args.get(1).copied().unwrap_or(JsValue::Undefined),
+        method,
+        2,
+    )?;
+    let data_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
+    let error_prefix = format!("Failed to execute '{method}' on 'SubtleCrypto'");
+    // Web IDL `data` BufferSource *type* conversion (bind time, no byte copy /
+    // no detached check) — runs before the algorithm normalization.
+    require_buffer_source_arg(ctx, data_arg, &error_prefix, 3)?;
+    let raw = marshal_algorithm(ctx, algorithm, method, op)?;
+    let normalized = crypto::normalize(op, raw).map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+    // §14.3.x step 4: get a copy of the data bytes (detached → TypeError),
+    // after normalization.
+    let data = extract_buffer_source_bytes(ctx, data_arg, &error_prefix, 3, false)?;
+    let bytes = {
+        let key_data = &ctx.vm.crypto_key_states[&key_id];
+        cipher_op(normalized, key_data, &data)
+    }
+    .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+    let buf = create_array_buffer_from_bytes(ctx.vm, bytes);
+    Ok(JsValue::Object(buf))
 }

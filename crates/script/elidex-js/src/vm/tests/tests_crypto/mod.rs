@@ -14,11 +14,14 @@
 //! - [`hmac`] — the HMAC vertical (`generateKey` / `importKey` /
 //!   `exportKey` / `sign` / `verify`) and the Web IDL argument /
 //!   sequence / dictionary conversion conformance batches.
+//! - [`aes`] — the AES-GCM / AES-CBC / AES-CTR vertical (`generateKey` /
+//!   `importKey` / `exportKey` / `encrypt` / `decrypt`, PR-2).
 //! - [`crypto_key`] — `CryptoKey` accessors + the `[[algorithm]]` /
 //!   `[[usages]]` §13.4 caches and their GC / side-store invariants.
 
 #![cfg(feature = "engine")]
 
+mod aes;
 mod crypto_global;
 mod crypto_key;
 mod digest;

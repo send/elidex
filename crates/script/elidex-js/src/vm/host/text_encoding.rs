@@ -711,60 +711,114 @@ fn parse_decode_stream(ctx: &mut NativeContext<'_>, options_arg: JsValue) -> Res
 pub(super) fn extract_buffer_source_bytes(
     ctx: &NativeContext<'_>,
     input_arg: JsValue,
-    error_prefix: &'static str,
+    error_prefix: &str,
     param_index: u32,
     allow_undefined_as_empty: bool,
 ) -> Result<Vec<u8>, VmError> {
-    match input_arg {
-        JsValue::Undefined if allow_undefined_as_empty => Ok(Vec::new()),
-        JsValue::Object(id) => match ctx.vm.get_object(id).kind {
-            ObjectKind::ArrayBuffer => {
-                // Web IDL §4.2 `BufferSource` typedef + ECMA-262
-                // §25.1.3.4 IsDetachedBuffer at the WebIDL conversion
-                // boundary: a detached ArrayBuffer must surface
-                // TypeError before any byte read.  Without this
-                // check, `array_buffer_bytes` would return an empty
-                // `Vec` and the consumer would silently process zero
-                // bytes — divergent from browser behaviour.
-                if super::array_buffer::is_detached_buffer(ctx.vm, id) {
-                    return Err(VmError::type_error(format!(
-                        "{error_prefix}: parameter {param_index} is a detached ArrayBuffer"
-                    )));
-                }
-                Ok(super::array_buffer::array_buffer_bytes(ctx.vm, id))
+    if allow_undefined_as_empty && matches!(input_arg, JsValue::Undefined) {
+        return Ok(Vec::new());
+    }
+    buffer_source_to_vec(ctx, input_arg).map_err(|e| {
+        VmError::type_error(format!(
+            "{error_prefix}: parameter {param_index} {}",
+            e.describe()
+        ))
+    })
+}
+
+/// Like [`extract_buffer_source_bytes`] but for a named dictionary member
+/// (e.g. the AES `iv` / `counter` / `additionalData` members of an
+/// `AlgorithmIdentifier`), producing a member-named TypeError instead of a
+/// positional-argument one.  `undefined` is **not** treated as empty —
+/// callers handle the optional-vs-required member distinction.
+pub(super) fn extract_buffer_source_member(
+    ctx: &NativeContext<'_>,
+    value: JsValue,
+    error_prefix: &str,
+    member: &str,
+) -> Result<Vec<u8>, VmError> {
+    buffer_source_to_vec(ctx, value).map_err(|e| {
+        VmError::type_error(format!(
+            "{error_prefix}: the '{member}' member {}",
+            e.describe()
+        ))
+    })
+}
+
+/// A `BufferSource` → bytes conversion failure (Web IDL §4.2 `BufferSource`
+/// typedef + ECMA-262 §25.1.3.4 IsDetachedBuffer), carrying enough to build
+/// either a positional or member-named TypeError message.
+enum BufferSourceError {
+    Detached,
+    ViewDetached,
+    NotBufferSource,
+}
+
+impl BufferSourceError {
+    fn describe(&self) -> &'static str {
+        match self {
+            Self::Detached => "is a detached ArrayBuffer",
+            Self::ViewDetached => "is a view onto a detached ArrayBuffer",
+            Self::NotBufferSource => "is not of type 'BufferSource'",
+        }
+    }
+}
+
+/// Snapshot-copy a `BufferSource` (ArrayBuffer / TypedArray / DataView) to a
+/// `Vec<u8>`, or report the conversion failure.  A detached buffer must
+/// surface a TypeError before any byte read (otherwise the consumer would
+/// silently process zero bytes — divergent from browser behaviour).
+/// Whether `value` is a `BufferSource` *type* (ArrayBuffer / TypedArray /
+/// DataView) — the Web IDL type check, with **no** detached check and **no**
+/// byte copy.  Used for WebCrypto §18.4.4 step-6 member-by-member validation,
+/// which must classify each member before reading the next; the detached
+/// check + byte copy happen later (step 10, via [`extract_buffer_source_member`]).
+pub(super) fn is_buffer_source(ctx: &NativeContext<'_>, value: JsValue) -> bool {
+    match value {
+        JsValue::Object(id) => matches!(
+            ctx.vm.get_object(id).kind,
+            ObjectKind::ArrayBuffer | ObjectKind::TypedArray { .. } | ObjectKind::DataView { .. }
+        ),
+        _ => false,
+    }
+}
+
+fn buffer_source_to_vec(
+    ctx: &NativeContext<'_>,
+    input: JsValue,
+) -> Result<Vec<u8>, BufferSourceError> {
+    let JsValue::Object(id) = input else {
+        return Err(BufferSourceError::NotBufferSource);
+    };
+    match ctx.vm.get_object(id).kind {
+        ObjectKind::ArrayBuffer => {
+            if super::array_buffer::is_detached_buffer(ctx.vm, id) {
+                return Err(BufferSourceError::Detached);
             }
-            ObjectKind::TypedArray {
+            Ok(super::array_buffer::array_buffer_bytes(ctx.vm, id))
+        }
+        ObjectKind::TypedArray {
+            buffer_id,
+            byte_offset,
+            byte_length,
+            ..
+        }
+        | ObjectKind::DataView {
+            buffer_id,
+            byte_offset,
+            byte_length,
+        } => {
+            if super::array_buffer::is_detached_buffer(ctx.vm, buffer_id) {
+                return Err(BufferSourceError::ViewDetached);
+            }
+            Ok(super::array_buffer::array_buffer_view_bytes(
+                ctx.vm,
                 buffer_id,
-                byte_offset,
-                byte_length,
-                ..
-            }
-            | ObjectKind::DataView {
-                buffer_id,
-                byte_offset,
-                byte_length,
-            } => {
-                // Same WebIDL-boundary detach check, applied to the
-                // view's `[[ViewedArrayBuffer]]`.
-                if super::array_buffer::is_detached_buffer(ctx.vm, buffer_id) {
-                    return Err(VmError::type_error(format!(
-                        "{error_prefix}: parameter {param_index} is a view onto a detached ArrayBuffer"
-                    )));
-                }
-                Ok(super::array_buffer::array_buffer_view_bytes(
-                    ctx.vm,
-                    buffer_id,
-                    byte_offset as usize,
-                    byte_length as usize,
-                ))
-            }
-            _ => Err(VmError::type_error(format!(
-                "{error_prefix}: parameter {param_index} is not of type 'BufferSource'"
-            ))),
-        },
-        _ => Err(VmError::type_error(format!(
-            "{error_prefix}: parameter {param_index} is not of type 'BufferSource'"
-        ))),
+                byte_offset as usize,
+                byte_length as usize,
+            ))
+        }
+        _ => Err(BufferSourceError::NotBufferSource),
     }
 }
 

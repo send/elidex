@@ -38,6 +38,9 @@ pub enum AlgorithmName {
     Sha384,
     Sha512,
     Hmac,
+    AesCtr,
+    AesCbc,
+    AesGcm,
 }
 
 impl AlgorithmName {
@@ -54,6 +57,12 @@ impl AlgorithmName {
             Some(Self::Sha512)
         } else if name.eq_ignore_ascii_case("HMAC") {
             Some(Self::Hmac)
+        } else if name.eq_ignore_ascii_case("AES-CTR") {
+            Some(Self::AesCtr)
+        } else if name.eq_ignore_ascii_case("AES-CBC") {
+            Some(Self::AesCbc)
+        } else if name.eq_ignore_ascii_case("AES-GCM") {
+            Some(Self::AesGcm)
         } else {
             None
         }
@@ -65,29 +74,102 @@ impl AlgorithmName {
             Self::Sha256 => Some(HashAlgorithm::Sha256),
             Self::Sha384 => Some(HashAlgorithm::Sha384),
             Self::Sha512 => Some(HashAlgorithm::Sha512),
-            Self::Hmac => None,
+            Self::Hmac | Self::AesCtr | Self::AesCbc | Self::AesGcm => None,
+        }
+    }
+
+    fn as_aes(self) -> Option<AesVariant> {
+        match self {
+            Self::AesCtr => Some(AesVariant::Ctr),
+            Self::AesCbc => Some(AesVariant::Cbc),
+            Self::AesGcm => Some(AesVariant::Gcm),
+            Self::Sha1 | Self::Sha256 | Self::Sha384 | Self::Sha512 | Self::Hmac => None,
         }
     }
 }
 
+/// The three AES block-cipher modes that support `encrypt` / `decrypt`
+/// (WebCrypto §27 AES-CTR / §28 AES-CBC / §29 AES-GCM).  The discriminator
+/// is shared by the normalized generate/import forms and the key's
+/// [`KeyAlgorithm`][crate::key::KeyAlgorithm], so dispatch stays typed
+/// rather than stringly.  (AES-KW, §30, supports only `wrapKey` /
+/// `unwrapKey` and lands with the `#11-crypto-subtle-full` PR-3 wrap
+/// surface — it is not a variant
+/// here.)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AesVariant {
+    Ctr,
+    Cbc,
+    Gcm,
+}
+
+impl AesVariant {
+    /// The canonical WebCrypto algorithm name (`"AES-GCM"` etc.) for the
+    /// key's `[[algorithm]]` `name` attribute and the JWK `alg` mapping.
+    pub fn canonical_name(self) -> &'static str {
+        match self {
+            Self::Ctr => "AES-CTR",
+            Self::Cbc => "AES-CBC",
+            Self::Gcm => "AES-GCM",
+        }
+    }
+
+    pub(crate) fn algorithm_name(self) -> AlgorithmName {
+        match self {
+            Self::Ctr => AlgorithmName::AesCtr,
+            Self::Cbc => AlgorithmName::AesCbc,
+            Self::Gcm => AlgorithmName::AesGcm,
+        }
+    }
+
+    /// The JWK `alg` value for an AES key of `length_bits` bits in this mode:
+    /// the `alg` set by the AES import algorithms (WebCrypto §27.7.4 /
+    /// §28.4.4 / §29.4.4) and emitted by the export algorithms (§27.7.5 /
+    /// §28.4.5 / §29.4.5) — `A128GCM` / `A192CBC` / `A256CTR` …, or `None` for
+    /// a non-AES key length.
+    pub fn jwk_alg(self, length_bits: u32) -> Option<&'static str> {
+        Some(match (length_bits, self) {
+            (128, Self::Ctr) => "A128CTR",
+            (128, Self::Cbc) => "A128CBC",
+            (128, Self::Gcm) => "A128GCM",
+            (192, Self::Ctr) => "A192CTR",
+            (192, Self::Cbc) => "A192CBC",
+            (192, Self::Gcm) => "A192GCM",
+            (256, Self::Ctr) => "A256CTR",
+            (256, Self::Cbc) => "A256CBC",
+            (256, Self::Gcm) => "A256GCM",
+            _ => return None,
+        })
+    }
+}
+
 /// The VM-marshalled raw algorithm identifier: `name` plus the members
-/// the current operation may consult (`hash` is itself a nested
-/// `AlgorithmIdentifier`, `length` an `unsigned long`).
+/// the current operation may consult.  `hash` is itself a nested
+/// `AlgorithmIdentifier`; `length` is the HMAC `unsigned long` /
+/// AES-CTR `octet` / AES key-gen `unsigned short`; `iv` / `counter` /
+/// `additional_data` are the AES `BufferSource` members (already snapshot-
+/// copied by the VM); `tag_length` is the AES-GCM `octet`.  Which members
+/// the VM populates is decided by [`params_shape`] for the `(op, name)`
+/// pair (the registry-driven §18.4.4 step-5 recognition gate), so getters
+/// never fire for an unregistered name.
 #[derive(Clone, Debug, Default)]
 pub struct RawAlgorithm {
     pub name: String,
     pub hash: Option<Box<RawAlgorithm>>,
     pub length: Option<u32>,
+    pub iv: Option<Vec<u8>>,
+    pub counter: Option<Vec<u8>>,
+    pub additional_data: Option<Vec<u8>>,
+    pub tag_length: Option<u32>,
 }
 
 impl RawAlgorithm {
     /// Construct from a bare name (the string form of an
-    /// `AlgorithmIdentifier`).
+    /// `AlgorithmIdentifier`); all params-dictionary members absent.
     pub fn from_name(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
-            hash: None,
-            length: None,
+            ..Self::default()
         }
     }
 }
@@ -99,7 +181,16 @@ impl RawAlgorithm {
 ///   the key's `[[algorithm]]`.
 /// - `HmacKeyParams` (generateKey/importKey) carries the required nested
 ///   hash + optional length.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// - `AesKeyGen` (generateKey) carries the variant + required key length.
+/// - `AesImport` (importKey) carries only the variant — the key length
+///   derives from the imported material.
+/// - `AesGcm` / `AesCbc` / `AesCtr` (encrypt + decrypt share one variant
+///   each — the op direction is the `ops::encrypt` vs `ops::decrypt`
+///   entry, not the params) carry the mode-specific params.
+///
+/// Not `Copy`: the AES variants own the marshalled `iv` / `counter` /
+/// `additionalData` byte sequences.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NormalizedAlgorithm {
     Digest(HashAlgorithm),
     Hmac,
@@ -107,12 +198,32 @@ pub enum NormalizedAlgorithm {
         hash: HashAlgorithm,
         length: Option<u32>,
     },
+    AesKeyGen {
+        variant: AesVariant,
+        length: u32,
+    },
+    AesImport {
+        variant: AesVariant,
+    },
+    AesGcm {
+        iv: Vec<u8>,
+        additional_data: Option<Vec<u8>>,
+        tag_length: u32,
+    },
+    AesCbc {
+        iv: Vec<u8>,
+    },
+    AesCtr {
+        counter: Vec<u8>,
+        length: u32,
+    },
 }
 
 impl NormalizedAlgorithm {
-    /// The canonical algorithm name, for the sign/verify "name member
-    /// equals the key's `[[algorithm]]` name" check.
-    pub fn name(self) -> AlgorithmName {
+    /// The canonical algorithm name, for the operation "normalized
+    /// algorithm `name` equals the key's `[[algorithm]]` name" check
+    /// (sign / verify / encrypt / decrypt).
+    pub fn name(&self) -> AlgorithmName {
         match self {
             Self::Digest(h) => match h {
                 HashAlgorithm::Sha1 => AlgorithmName::Sha1,
@@ -121,6 +232,12 @@ impl NormalizedAlgorithm {
                 HashAlgorithm::Sha512 => AlgorithmName::Sha512,
             },
             Self::Hmac | Self::HmacKeyParams { .. } => AlgorithmName::Hmac,
+            Self::AesKeyGen { variant, .. } | Self::AesImport { variant } => {
+                variant.algorithm_name()
+            }
+            Self::AesGcm { .. } => AlgorithmName::AesGcm,
+            Self::AesCbc { .. } => AlgorithmName::AesCbc,
+            Self::AesCtr { .. } => AlgorithmName::AesCtr,
         }
     }
 }
@@ -151,13 +268,22 @@ enum DesiredType {
     /// `HmacKeyGenParams` / `HmacImportParams` whose `hash` (required) and
     /// `length` (optional) members are read by step 6.
     HmacKeyParams,
+    /// AES `generateKey`: an `AesKeyGenParams` whose `length` (required
+    /// `unsigned short`) member is read by step 6.
+    AesKeyGen(AesVariant),
+    /// AES `importKey`: a name-only `Algorithm` (registration params =
+    /// `None`); the key length derives from the imported material.
+    AesImport(AesVariant),
+    /// AES `encrypt` / `decrypt`: the mode's params dictionary
+    /// (`AesGcmParams` / `AesCbcParams` / `AesCtrParams`).
+    AesEncryptDecrypt(AesVariant),
 }
 
 /// §18.4.4 step 5: does `supportedAlgorithms[op]` contain a
 /// case-insensitive match for `name`, and if so, which IDL dictionary
 /// type does it resolve to? `None` ⇒ the spec returns `NotSupportedError`
 /// at step 5, *before* the step-6 WebIDL conversion reads any
-/// params-dictionary member (`hash` / `length`).
+/// params-dictionary member.
 fn resolve_registry(op: Operation, name: &str) -> Option<DesiredType> {
     let name = AlgorithmName::recognize(name)?;
     match (op, name) {
@@ -169,37 +295,149 @@ fn resolve_registry(op: Operation, name: &str) -> Option<DesiredType> {
             Operation::GenerateKey | Operation::ImportKey | Operation::GetKeyLength,
             AlgorithmName::Hmac,
         ) => Some(DesiredType::HmacKeyParams),
+        (Operation::GenerateKey, _) => name.as_aes().map(DesiredType::AesKeyGen),
+        (Operation::ImportKey, _) => name.as_aes().map(DesiredType::AesImport),
+        (Operation::Encrypt | Operation::Decrypt, _) => {
+            name.as_aes().map(DesiredType::AesEncryptDecrypt)
+        }
         _ => None,
     }
 }
 
-/// §18.4.4 step 5 as a predicate: is `(op, name)` a registered pair? The
-/// VM marshalling layer calls this to decide whether to read the
-/// params-dictionary getters (`hash` / `length`) at all — the spec only
-/// converts `alg` to the params dictionary (step 6, which fires those
-/// getters) *after* the name is recognized, so an unregistered name must
-/// never trigger a user-defined `hash` / `length` getter.
+/// The params-dictionary members the VM must read for a recognized
+/// `(op, name)` pair (WebCrypto §18.4.4 step 6 "convert `alg` to the IDL
+/// dictionary"), so the registry — not the VM marshalling layer — owns
+/// which members each operation consults.  Returned by [`params_shape`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AlgorithmParams {
+    /// No params-dictionary members beyond `name` (digest / sign / verify /
+    /// AES importKey).
+    NameOnly,
+    /// HMAC generateKey / importKey: `hash` (required) + `length` (optional
+    /// `unsigned long`).
+    HmacKeyParams,
+    /// AES generateKey: `length` (required `[EnforceRange] unsigned short`).
+    AesKeyGen,
+    /// AES-GCM encrypt / decrypt: `iv` (required), `additionalData`
+    /// (optional), `tagLength` (optional `[EnforceRange] octet`).
+    AesGcmParams,
+    /// AES-CBC encrypt / decrypt: `iv` (required `BufferSource`).
+    AesCbcParams,
+    /// AES-CTR encrypt / decrypt: `counter` (required `BufferSource`) +
+    /// `length` (required `[EnforceRange] octet`).
+    AesCtrParams,
+}
+
+/// §18.4.4 step 5 + step-6 member plan: for a registered `(op, name)` pair
+/// return which params-dictionary members the VM should read; `None` ⇒ the
+/// pair is unregistered, so the spec returns `NotSupportedError` at step 5
+/// *before* any getter fires.  The VM marshalling layer routes through this
+/// (rather than re-deriving the dictionary shape from the name string), so
+/// the registry stays the single source of truth and an unregistered name
+/// never triggers a user-defined member getter.
+pub fn params_shape(op: Operation, name: &str) -> Option<AlgorithmParams> {
+    resolve_registry(op, name).map(|d| match d {
+        DesiredType::Digest(_) | DesiredType::HmacSignVerify | DesiredType::AesImport(_) => {
+            AlgorithmParams::NameOnly
+        }
+        DesiredType::HmacKeyParams => AlgorithmParams::HmacKeyParams,
+        DesiredType::AesKeyGen(_) => AlgorithmParams::AesKeyGen,
+        DesiredType::AesEncryptDecrypt(variant) => match variant {
+            AesVariant::Gcm => AlgorithmParams::AesGcmParams,
+            AesVariant::Cbc => AlgorithmParams::AesCbcParams,
+            AesVariant::Ctr => AlgorithmParams::AesCtrParams,
+        },
+    })
+}
+
+/// §18.4.4 step 5 as a predicate: is `(op, name)` a registered pair?
+/// (`params_shape(op, name).is_some()`.)
 pub fn is_supported(op: Operation, name: &str) -> bool {
-    resolve_registry(op, name).is_some()
+    params_shape(op, name).is_some()
 }
 
 /// Normalize an algorithm for `op` (WebCrypto §18.4.4).
 ///
 /// Returns `NotSupported` for an unregistered `(op, name)` pair, and
-/// `Type` for a missing required member (e.g. HMAC `hash`).
-pub fn normalize(op: Operation, raw: &RawAlgorithm) -> Result<NormalizedAlgorithm, AlgorithmError> {
+/// `Type` for a missing required member (e.g. HMAC `hash`, AES key-gen
+/// `length`, AES `iv` / `counter`).  Per-mode *operational* validation
+/// (iv / counter byte length, `tagLength` validity, key length 128/192/256)
+/// lives in the crate-internal `aes` module + [`crate::ops`] at the op step
+/// where the spec throws `OperationError`, not here.
+/// Takes the freshly-marshalled `RawAlgorithm` **by value** so the AES
+/// `iv` / `counter` / `additionalData` byte buffers move straight into the
+/// [`NormalizedAlgorithm`] (and thence to the cipher) without a second copy
+/// beyond the VM's marshal-time snapshot.
+pub fn normalize(op: Operation, raw: RawAlgorithm) -> Result<NormalizedAlgorithm, AlgorithmError> {
     match resolve_registry(op, &raw.name) {
         None => Err(unrecognized(&raw.name)),
         Some(DesiredType::Digest(hash)) => Ok(NormalizedAlgorithm::Digest(hash)),
         Some(DesiredType::HmacSignVerify) => Ok(NormalizedAlgorithm::Hmac),
         Some(DesiredType::HmacKeyParams) => {
-            let hash = normalize_hmac_hash(raw)?;
+            let hash = normalize_hmac_hash(&raw)?;
             Ok(NormalizedAlgorithm::HmacKeyParams {
                 hash,
                 length: raw.length,
             })
         }
+        Some(DesiredType::AesImport(variant)) => Ok(NormalizedAlgorithm::AesImport { variant }),
+        Some(DesiredType::AesKeyGen(variant)) => {
+            // `AesKeyGenParams.length` is a `required` member: its absence is
+            // a WebIDL `TypeError` (the VM also enforces this at marshal
+            // time; this is the crate-side spec guard).  Its 128/192/256
+            // validity is an `OperationError` checked in `ops::generate_key`.
+            let length = raw
+                .length
+                .ok_or_else(|| required_member("length", "AesKeyGenParams"))?;
+            Ok(NormalizedAlgorithm::AesKeyGen { variant, length })
+        }
+        Some(DesiredType::AesEncryptDecrypt(variant)) => normalize_aes_params(variant, raw),
     }
+}
+
+/// Structure the per-mode AES encrypt/decrypt params from the marshalled
+/// `RawAlgorithm` (WebCrypto §27.3 / §28.3 / §29.3 dictionaries), moving the
+/// byte buffers out of `raw`.  Required `BufferSource` members (`iv` /
+/// `counter`) and the required AES-CTR `length` are `TypeError` if absent
+/// (the VM enforces this too); byte-length / value validity is deferred to
+/// the op (`OperationError`).
+fn normalize_aes_params(
+    variant: AesVariant,
+    raw: RawAlgorithm,
+) -> Result<NormalizedAlgorithm, AlgorithmError> {
+    match variant {
+        AesVariant::Gcm => {
+            let iv = raw
+                .iv
+                .ok_or_else(|| required_member("iv", "AesGcmParams"))?;
+            Ok(NormalizedAlgorithm::AesGcm {
+                iv,
+                additional_data: raw.additional_data,
+                // §29.4.1/.2 step "tagLength not present → 128"; a *present*
+                // out-of-set value is an `OperationError` in `aes`.
+                tag_length: raw.tag_length.unwrap_or(128),
+            })
+        }
+        AesVariant::Cbc => {
+            let iv = raw
+                .iv
+                .ok_or_else(|| required_member("iv", "AesCbcParams"))?;
+            Ok(NormalizedAlgorithm::AesCbc { iv })
+        }
+        AesVariant::Ctr => {
+            let counter = raw
+                .counter
+                .ok_or_else(|| required_member("counter", "AesCtrParams"))?;
+            let length = raw
+                .length
+                .ok_or_else(|| required_member("length", "AesCtrParams"))?;
+            Ok(NormalizedAlgorithm::AesCtr { counter, length })
+        }
+    }
+}
+
+fn required_member(member: &str, dict: &str) -> AlgorithmError {
+    AlgorithmError::Type(format!("{dict}: member {member} is required"))
 }
 
 /// Normalize the nested `hash` member of an `HmacKeyGenParams` /

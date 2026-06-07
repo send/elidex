@@ -4,7 +4,8 @@
 //! lives here; the VM host only marshals JS ↔ these plain-Rust inputs
 //! and settles the returned Promise.
 
-use crate::algorithm::NormalizedAlgorithm;
+use crate::aes;
+use crate::algorithm::{AesVariant, NormalizedAlgorithm};
 use crate::error::AlgorithmError;
 use crate::hmac;
 use crate::jwk::{self, JsonWebKey};
@@ -44,6 +45,11 @@ pub enum ExportedKey {
 /// usage or zero length is rejected before any key-sized buffer is
 /// allocated or filled — keeping all the spec ordering + validation inside
 /// this crate boundary (the VM only supplies entropy).
+// The ops entry points take the freshly-normalized algorithm by value (the
+// VM transfers ownership per call): `encrypt`/`decrypt` move the params'
+// `iv`/`counter` out, and generate/import/sign/verify share that uniform
+// signature even though they only inspect it.
+#[allow(clippy::needless_pass_by_value)]
 pub fn generate_key<F>(
     algorithm: NormalizedAlgorithm,
     extractable: bool,
@@ -53,12 +59,30 @@ pub fn generate_key<F>(
 where
     F: FnOnce(&mut [u8]) -> Result<(), AlgorithmError>,
 {
-    let NormalizedAlgorithm::HmacKeyParams { hash, length } = algorithm else {
-        return Err(not_supported_op("generateKey"));
-    };
+    match algorithm {
+        NormalizedAlgorithm::HmacKeyParams { hash, length } => {
+            generate_hmac_key(hash, length, extractable, usages, fill_random)
+        }
+        NormalizedAlgorithm::AesKeyGen { variant, length } => {
+            generate_aes_key(variant, length, extractable, usages, fill_random)
+        }
+        _ => Err(not_supported_op("generateKey")),
+    }
+}
+
+fn generate_hmac_key<F>(
+    hash: crate::hash::HashAlgorithm,
+    length: Option<u32>,
+    extractable: bool,
+    usages: Vec<KeyUsage>,
+    fill_random: F,
+) -> Result<CryptoKeyData, AlgorithmError>
+where
+    F: FnOnce(&mut [u8]) -> Result<(), AlgorithmError>,
+{
     // §31.6.3 step 1: a non-`sign`/`verify` usage is a SyntaxError —
     // before length sizing / buffer allocation (step 2+).
-    validate_hmac_usage_kinds(&usages)?;
+    validate_usage_kinds(&usages, KeyUsage::is_hmac_usage, HMAC_USAGE_MSG)?;
     // §31.6.3 step 2: resolve the key length (`length == 0` →
     // OperationError) and the byte count to fill.
     let byte_len = hmac::generate_key_byte_len(hash, length)?;
@@ -87,7 +111,42 @@ where
     })
 }
 
-/// `importKey` for HMAC (WebCrypto §14.3.9 + §31 Import Key).
+/// AES `generateKey` (WebCrypto §27.7.3 / §28.4.3 / §29.4.3 — identical
+/// step shape across the three modes).
+fn generate_aes_key<F>(
+    variant: AesVariant,
+    length: u32,
+    extractable: bool,
+    usages: Vec<KeyUsage>,
+    fill_random: F,
+) -> Result<CryptoKeyData, AlgorithmError>
+where
+    F: FnOnce(&mut [u8]) -> Result<(), AlgorithmError>,
+{
+    // step 1: a usage outside {encrypt, decrypt, wrapKey, unwrapKey} is a
+    // SyntaxError — before key sizing (step 2+).
+    validate_usage_kinds(&usages, KeyUsage::is_aes_usage, AES_USAGE_MSG)?;
+    // step 2: the key length must be 128/192/256 bits, else OperationError.
+    let byte_len = aes_key_byte_len(length)?;
+    // step 3 "Generate an AES key of length length bits".
+    let mut material = vec![0u8; byte_len];
+    fill_random(&mut material)?;
+    // §14.3.6 generic step: empty usages → SyntaxError, after the op
+    // produced the key (so the length OperationError above wins).
+    require_secret_usages_nonempty(&usages)?;
+    let usages = normalize_usages(usages);
+    Ok(CryptoKeyData {
+        key_type: KeyType::Secret,
+        extractable,
+        algorithm: KeyAlgorithm::Aes { variant, length },
+        usages,
+        material: KeyMaterial::Raw(material),
+    })
+}
+
+/// `importKey` (WebCrypto §14.3.9), dispatching on the normalized
+/// algorithm family.
+#[allow(clippy::needless_pass_by_value)] // uniform ops signature; see `generate_key`
 pub fn import_key(
     format: KeyFormat,
     algorithm: NormalizedAlgorithm,
@@ -95,16 +154,32 @@ pub fn import_key(
     usages: Vec<KeyUsage>,
     key_data: KeyData,
 ) -> Result<CryptoKeyData, AlgorithmError> {
-    let NormalizedAlgorithm::HmacKeyParams { hash, length } = algorithm else {
-        return Err(not_supported_op("importKey"));
-    };
+    match algorithm {
+        NormalizedAlgorithm::HmacKeyParams { hash, length } => {
+            import_hmac_key(format, hash, length, extractable, usages, key_data)
+        }
+        NormalizedAlgorithm::AesImport { variant } => {
+            import_aes_key(format, variant, extractable, usages, key_data)
+        }
+        _ => Err(not_supported_op("importKey")),
+    }
+}
+
+fn import_hmac_key(
+    format: KeyFormat,
+    hash: crate::hash::HashAlgorithm,
+    length: Option<u32>,
+    extractable: bool,
+    usages: Vec<KeyUsage>,
+    key_data: KeyData,
+) -> Result<CryptoKeyData, AlgorithmError> {
     // §31.6.4 Import Key step 2: a non-`sign`/`verify` usage is a
     // SyntaxError, checked before the key material is parsed.  The
     // *empty*-usages SyntaxError is a separate, later step
     // (§14.3.9 generic, below) — so empty usages must NOT short-circuit
     // material validation here, or `importKey('raw', new Uint8Array(0),
     // …, [])` would surface SyntaxError instead of the required DataError.
-    validate_hmac_usage_kinds(&usages)?;
+    validate_usage_kinds(&usages, KeyUsage::is_hmac_usage, HMAC_USAGE_MSG)?;
 
     let material = match (format, key_data) {
         (KeyFormat::Raw, KeyData::Raw(bytes)) => bytes,
@@ -118,11 +193,7 @@ pub fn import_key(
         }
         // Format / data shape mismatch — the VM marshals them
         // consistently, so this is a defensive guard.
-        _ => {
-            return Err(AlgorithmError::Type(
-                "keyData does not match the requested format".to_string(),
-            ));
-        }
+        _ => return Err(format_data_mismatch()),
     };
 
     // WebCrypto §31.6.4 HMAC Import Key (shared raw + jwk step): "Let
@@ -153,6 +224,57 @@ pub fn import_key(
     })
 }
 
+/// AES `importKey` (WebCrypto §27.7.4 / §28.4.4 / §29.4.4 — identical step
+/// shape across the three modes; the key length derives from the material).
+fn import_aes_key(
+    format: KeyFormat,
+    variant: AesVariant,
+    extractable: bool,
+    usages: Vec<KeyUsage>,
+    key_data: KeyData,
+) -> Result<CryptoKeyData, AlgorithmError> {
+    // step 1: a usage outside {encrypt, decrypt, wrapKey, unwrapKey} is a
+    // SyntaxError, before the material is parsed (empty-usages is the later
+    // generic step).
+    validate_usage_kinds(&usages, KeyUsage::is_aes_usage, AES_USAGE_MSG)?;
+
+    let material = match (format, key_data) {
+        (KeyFormat::Raw, KeyData::Raw(bytes)) => {
+            // raw substep 2: the length in bits must be 128/192/256.
+            if !matches!(bytes.len(), 16 | 24 | 32) {
+                return Err(AlgorithmError::Data(
+                    "AES key material must be 16, 24 or 32 bytes (128/192/256-bit)".to_string(),
+                ));
+            }
+            bytes
+        }
+        (KeyFormat::Jwk, KeyData::Jwk(jwk)) => {
+            jwk::import_oct_aes(&jwk, variant, extractable, &usages)?
+        }
+        (KeyFormat::Pkcs8 | KeyFormat::Spki, _) => {
+            return Err(AlgorithmError::NotSupported(
+                "AES import supports only the 'raw' and 'jwk' formats".to_string(),
+            ));
+        }
+        _ => return Err(format_data_mismatch()),
+    };
+
+    // Material length is validated to 16/24/32 bytes above (raw + jwk), so
+    // the bit length is exactly 128/192/256 and fits a `u32`.
+    let length = u32::try_from(material.len() * 8).expect("AES key length validated to ≤ 32 bytes");
+    // §14.3.9 generic step: empty usages → SyntaxError, after the op
+    // produced the key (so a DataError from invalid material wins).
+    require_secret_usages_nonempty(&usages)?;
+    let usages = normalize_usages(usages);
+    Ok(CryptoKeyData {
+        key_type: KeyType::Secret,
+        extractable,
+        algorithm: KeyAlgorithm::Aes { variant, length },
+        usages,
+        material: KeyMaterial::Raw(material),
+    })
+}
+
 /// `exportKey` (WebCrypto §14.3.10 + §31 Export Key). `extractable=false`
 /// gates every format with `InvalidAccessError`.
 pub fn export_key(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKey, AlgorithmError> {
@@ -163,61 +285,148 @@ pub fn export_key(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKey,
     }
     match format {
         KeyFormat::Raw => Ok(ExportedKey::Raw(key.material.as_bytes().to_vec())),
-        KeyFormat::Jwk => Ok(ExportedKey::Jwk(jwk::export_oct_hmac(
-            key,
-            key.algorithm.hash(),
-        ))),
+        KeyFormat::Jwk => Ok(ExportedKey::Jwk(match key.algorithm {
+            KeyAlgorithm::Hmac { hash, .. } => jwk::export_oct_hmac(key, hash),
+            KeyAlgorithm::Aes { variant, length } => jwk::export_oct_aes(key, variant, length),
+        })),
         KeyFormat::Pkcs8 | KeyFormat::Spki => Err(AlgorithmError::NotSupported(
-            "HMAC export supports only the 'raw' and 'jwk' formats".to_string(),
+            "symmetric key export supports only the 'raw' and 'jwk' formats".to_string(),
         )),
     }
 }
 
 /// `sign` (WebCrypto §14.3.3 + §31 Sign).
+#[allow(clippy::needless_pass_by_value)] // uniform ops signature; see `generate_key`
 pub fn sign(
     algorithm: NormalizedAlgorithm,
     key: &CryptoKeyData,
     data: &[u8],
 ) -> Result<Vec<u8>, AlgorithmError> {
-    require_usage(key, KeyUsage::Sign)?;
-    require_name_match(algorithm, key)?;
-    Ok(hmac::sign(
-        key.algorithm.hash(),
-        key.material.as_bytes(),
-        data,
-    ))
+    require_key_usable(&algorithm, key, KeyUsage::Sign)?;
+    match key.algorithm {
+        KeyAlgorithm::Hmac { hash, .. } => Ok(hmac::sign(hash, key.material.as_bytes(), data)),
+        // `sign` only normalizes HMAC, so the name-match above rejects any
+        // non-HMAC key before reaching here.
+        KeyAlgorithm::Aes { .. } => Err(not_supported_op("sign")),
+    }
 }
 
 /// `verify` (WebCrypto §14.3.4 + §31 Verify).
+#[allow(clippy::needless_pass_by_value)] // uniform ops signature; see `generate_key`
 pub fn verify(
     algorithm: NormalizedAlgorithm,
     key: &CryptoKeyData,
     signature: &[u8],
     data: &[u8],
 ) -> Result<bool, AlgorithmError> {
-    require_usage(key, KeyUsage::Verify)?;
-    require_name_match(algorithm, key)?;
-    Ok(hmac::verify(
-        key.algorithm.hash(),
-        key.material.as_bytes(),
-        signature,
-        data,
-    ))
+    require_key_usable(&algorithm, key, KeyUsage::Verify)?;
+    match key.algorithm {
+        KeyAlgorithm::Hmac { hash, .. } => {
+            Ok(hmac::verify(hash, key.material.as_bytes(), signature, data))
+        }
+        KeyAlgorithm::Aes { .. } => Err(not_supported_op("verify")),
+    }
 }
 
-/// HMAC accepts only the `sign` / `verify` usages (WebCrypto §31.6.3 /
-/// §31.6.4 step 1/2 — algorithm-specific, runs *before* key material is
-/// produced).  Empty usages pass here; the empty-usages SyntaxError is a
-/// separate, later generic step ([`require_secret_usages_nonempty`]).
-fn validate_hmac_usage_kinds(usages: &[KeyUsage]) -> Result<(), AlgorithmError> {
-    for usage in usages {
-        if !matches!(usage, KeyUsage::Sign | KeyUsage::Verify) {
-            return Err(AlgorithmError::Syntax(
-                "HMAC keys support only the 'sign' and 'verify' usages".to_string(),
-            ));
+/// `encrypt` (WebCrypto §14.3.1 → §27.7.1 / §28.4.1 / §29.4.1).  Consumes
+/// the normalized params, moving the `iv` / `counter` / `additionalData`
+/// out and passing them straight to the cipher (no copy beyond the
+/// marshal-time snapshot).
+pub fn encrypt(
+    algorithm: NormalizedAlgorithm,
+    key: &CryptoKeyData,
+    data: &[u8],
+) -> Result<Vec<u8>, AlgorithmError> {
+    require_key_usable(&algorithm, key, KeyUsage::Encrypt)?;
+    let material = key.material.as_bytes();
+    match algorithm {
+        NormalizedAlgorithm::AesGcm {
+            iv,
+            additional_data,
+            tag_length,
+        } => aes::encrypt_gcm(
+            material,
+            &iv,
+            additional_data.as_deref().unwrap_or(&[]),
+            data,
+            tag_length,
+        ),
+        NormalizedAlgorithm::AesCbc { iv } => aes::encrypt_cbc(material, &iv, data),
+        NormalizedAlgorithm::AesCtr { counter, length } => {
+            aes::encrypt_ctr(material, &counter, length, data)
+        }
+        // `encrypt` only normalizes the AES modes, so the name-match above
+        // rejects any other key/algorithm before reaching here.
+        _ => Err(not_supported_op("encrypt")),
+    }
+}
+
+/// `decrypt` (WebCrypto §14.3.2 → §27.7.2 / §28.4.2 / §29.4.2).
+pub fn decrypt(
+    algorithm: NormalizedAlgorithm,
+    key: &CryptoKeyData,
+    data: &[u8],
+) -> Result<Vec<u8>, AlgorithmError> {
+    require_key_usable(&algorithm, key, KeyUsage::Decrypt)?;
+    let material = key.material.as_bytes();
+    match algorithm {
+        NormalizedAlgorithm::AesGcm {
+            iv,
+            additional_data,
+            tag_length,
+        } => aes::decrypt_gcm(
+            material,
+            &iv,
+            additional_data.as_deref().unwrap_or(&[]),
+            data,
+            tag_length,
+        ),
+        NormalizedAlgorithm::AesCbc { iv } => aes::decrypt_cbc(material, &iv, data),
+        NormalizedAlgorithm::AesCtr { counter, length } => {
+            aes::decrypt_ctr(material, &counter, length, data)
+        }
+        _ => Err(not_supported_op("decrypt")),
+    }
+}
+
+const HMAC_USAGE_MSG: &str = "HMAC keys support only the 'sign' and 'verify' usages";
+const AES_USAGE_MSG: &str =
+    "AES keys support only the 'encrypt', 'decrypt', 'wrapKey' and 'unwrapKey' usages";
+
+/// Reject any usage the algorithm does not accept (WebCrypto generate/import
+/// step 1 — algorithm-specific, runs *before* key material is produced).
+/// Empty usages pass here; the empty-usages SyntaxError is a separate, later
+/// generic step ([`require_secret_usages_nonempty`]).
+fn validate_usage_kinds(
+    usages: &[KeyUsage],
+    allowed: impl Fn(KeyUsage) -> bool,
+    msg: &str,
+) -> Result<(), AlgorithmError> {
+    for &usage in usages {
+        if !allowed(usage) {
+            return Err(AlgorithmError::Syntax(msg.to_string()));
         }
     }
     Ok(())
+}
+
+/// AES generate-key length validation (WebCrypto §27.7.3 / §28.4.3 /
+/// §29.4.3 step 2): 128/192/256 bits → 16/24/32 bytes, else OperationError.
+fn aes_key_byte_len(length_bits: u32) -> Result<usize, AlgorithmError> {
+    match length_bits {
+        128 => Ok(16),
+        192 => Ok(24),
+        256 => Ok(32),
+        _ => Err(AlgorithmError::Operation(
+            "AES key length must be 128, 192 or 256 bits".to_string(),
+        )),
+    }
+}
+
+/// A `format` / `keyData` shape mismatch — the VM marshals them
+/// consistently, so this is a defensive `TypeError`.
+fn format_data_mismatch() -> AlgorithmError {
+    AlgorithmError::Type("keyData does not match the requested format".to_string())
 }
 
 /// A secret (or private) key with empty usages is a SyntaxError
@@ -277,6 +486,20 @@ fn resolve_import_length(material_len: usize, length: Option<u32>) -> Result<u32
     }
 }
 
+/// Gate a sign/verify/encrypt/decrypt op on the key (WebCrypto §14.3.x):
+/// the normalized algorithm `name` must equal the key's `[[algorithm]]`
+/// name, then the key's `[[usages]]` must contain the op's usage — both
+/// `InvalidAccessError`, in that spec step order.
+fn require_key_usable(
+    algorithm: &NormalizedAlgorithm,
+    key: &CryptoKeyData,
+    usage: KeyUsage,
+) -> Result<(), AlgorithmError> {
+    require_name_match(algorithm, key)?;
+    require_usage(key, usage)?;
+    Ok(())
+}
+
 fn require_usage(key: &CryptoKeyData, usage: KeyUsage) -> Result<(), AlgorithmError> {
     if key.has_usage(usage) {
         Ok(())
@@ -289,7 +512,7 @@ fn require_usage(key: &CryptoKeyData, usage: KeyUsage) -> Result<(), AlgorithmEr
 }
 
 fn require_name_match(
-    algorithm: NormalizedAlgorithm,
+    algorithm: &NormalizedAlgorithm,
     key: &CryptoKeyData,
 ) -> Result<(), AlgorithmError> {
     if algorithm.name() == key.algorithm.name() {
