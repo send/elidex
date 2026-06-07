@@ -4,7 +4,7 @@
 //! lives here; the VM host only marshals JS ↔ these plain-Rust inputs
 //! and settles the returned Promise.
 
-use crate::algorithm::{AesVariant, NormalizedAlgorithm};
+use crate::algorithm::{AesVariant, EcAlgorithm, NormalizedAlgorithm};
 use crate::error::AlgorithmError;
 use crate::jwk::{self, JsonWebKey};
 use crate::key::{normalize_usages, CryptoKeyData, KeyAlgorithm, KeyMaterial, KeyType, KeyUsage};
@@ -36,14 +36,33 @@ pub enum ExportedKey {
     Jwk(JsonWebKey),
 }
 
-/// `generateKey` for HMAC (WebCrypto §14.3.6 + §31.6.3 Generate Key).
+/// `generateKey` result (WebCrypto §14.3.6 `(CryptoKey or CryptoKeyPair)`
+/// union): a [`Self::Single`] key for the symmetric algorithms (HMAC / AES),
+/// or a [`Self::Pair`] for the asymmetric ones (EC).  The VM dispatches the
+/// two shapes — one `CryptoKey` wrapper, or two wrappers assembled into a
+/// `CryptoKeyPair` dictionary (§17).
+#[derive(Clone, Debug)]
+pub enum GeneratedKey {
+    Single(CryptoKeyData),
+    Pair {
+        public: CryptoKeyData,
+        private: CryptoKeyData,
+    },
+}
+
+/// `generateKey` (WebCrypto §14.3.6) — a single key (symmetric: HMAC §31.6.3
+/// / AES §27-§30) or a key pair (asymmetric: EC §23.7.3 / §24.4.1), returned
+/// as the [`GeneratedKey`] union.
 ///
 /// `fill_random` writes the OS CSPRNG bytes into the supplied buffer (the
-/// VM owns the entropy source).  It is invoked **after** the §31.6.3
-/// step-1 usage-kind check and step-2 length resolution, so an invalid
-/// usage or zero length is rejected before any key-sized buffer is
-/// allocated or filled — keeping all the spec ordering + validation inside
-/// this crate boundary (the VM only supplies entropy).
+/// VM owns the entropy source).  For the symmetric algorithms it is invoked
+/// **after** the step-1 usage-kind check and step-2 length resolution, so an
+/// invalid usage or zero length is rejected before any key-sized buffer is
+/// allocated or filled; for EC it backs `SecretKey::random` via the crate's
+/// `ClosureRng`.  All spec ordering + validation stays inside this crate
+/// boundary (the VM only supplies entropy).  The bound is `FnMut` (not
+/// `FnOnce`) because EC key generation may draw multiple times (rejection
+/// sampling); the symmetric paths still call it once.
 // The ops entry points take the freshly-normalized algorithm by value (the
 // VM transfers ownership per call): `encrypt`/`decrypt` move the params'
 // `iv`/`counter` out, and generate/import/sign/verify share that uniform
@@ -54,17 +73,24 @@ pub fn generate_key<F>(
     extractable: bool,
     usages: Vec<KeyUsage>,
     fill_random: F,
-) -> Result<CryptoKeyData, AlgorithmError>
+) -> Result<GeneratedKey, AlgorithmError>
 where
-    F: FnOnce(&mut [u8]) -> Result<(), AlgorithmError>,
+    F: FnMut(&mut [u8]) -> Result<(), AlgorithmError>,
 {
     match algorithm {
         NormalizedAlgorithm::HmacKeyParams { hash, length } => {
             generate_hmac_key(hash, length, extractable, usages, fill_random)
+                .map(GeneratedKey::Single)
         }
         NormalizedAlgorithm::AesKeyGen { variant, length } => {
             generate_aes_key(variant, length, extractable, usages, fill_random)
+                .map(GeneratedKey::Single)
         }
+        NormalizedAlgorithm::EcKeyGen {
+            algorithm: ec_algorithm,
+            curve,
+        } => crate::ec::generate(ec_algorithm, curve, extractable, &usages, fill_random)
+            .map(|(public, private)| GeneratedKey::Pair { public, private }),
         _ => Err(not_supported_op("generateKey")),
     }
 }
@@ -168,6 +194,9 @@ pub fn import_key(
         }
         NormalizedAlgorithm::Pbkdf2 => {
             import_kdf_key(format, KeyAlgorithm::Pbkdf2, extractable, usages, key_data)
+        }
+        NormalizedAlgorithm::EcImport { algorithm, curve } => {
+            crate::ec::import(algorithm, curve, format, extractable, usages, key_data)
         }
         _ => Err(not_supported_op("importKey")),
     }
@@ -332,14 +361,18 @@ fn import_kdf_key(
     })
 }
 
-/// `exportKey` (WebCrypto §14.3.10 + §31 Export Key).
+/// `exportKey` (WebCrypto §14.3.10 + §31 / §23.7.5 / §24.4.4 Export Key).
 pub fn export_key(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKey, AlgorithmError> {
     // §14.3.10 step 6: the key's algorithm must support the export key
     // operation — checked BEFORE the step-7 extractable gate.  HKDF / PBKDF2
     // register no exportKey (§33.4 / §34.4), so exporting one is a
-    // NotSupportedError regardless of (its always-false) extractability.
+    // NotSupportedError regardless of (its always-false) extractability.  HMAC
+    // / AES (§31 / §27-§30) and EC (§23.7.5 / §24.4.4) all support it.
     match key.algorithm {
-        KeyAlgorithm::Hmac { .. } | KeyAlgorithm::Aes { .. } => {}
+        KeyAlgorithm::Hmac { .. }
+        | KeyAlgorithm::Aes { .. }
+        | KeyAlgorithm::Ecdsa { .. }
+        | KeyAlgorithm::Ecdh { .. } => {}
         KeyAlgorithm::Hkdf | KeyAlgorithm::Pbkdf2 => {
             return Err(AlgorithmError::NotSupported(
                 "HKDF / PBKDF2 keys do not support the exportKey operation".to_string(),
@@ -352,13 +385,34 @@ pub fn export_key(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKey,
             "key is not extractable".to_string(),
         ));
     }
+    // Per-family export dispatch (the format → bytes / JWK mapping differs by
+    // family): symmetric is raw-octets / oct-JWK; EC is SEC1 / SPKI / PKCS#8 /
+    // EC-JWK (the `ec` backend, PR-4 commit 2).
+    match key.algorithm {
+        KeyAlgorithm::Hmac { .. } | KeyAlgorithm::Aes { .. } => export_symmetric(format, key),
+        KeyAlgorithm::Ecdsa { curve } => crate::ec::export(EcAlgorithm::Ecdsa, curve, format, key),
+        KeyAlgorithm::Ecdh { curve } => crate::ec::export(EcAlgorithm::Ecdh, curve, format, key),
+        KeyAlgorithm::Hkdf | KeyAlgorithm::Pbkdf2 => unreachable!("KDF rejected at step 6"),
+    }
+}
+
+/// Export a symmetric (HMAC / AES) key (WebCrypto §31 / §27-§30 Export Key)
+/// — `raw` octets verbatim or the `oct` JWK; `pkcs8` / `spki` are
+/// asymmetric-only (NotSupportedError).  Called only for HMAC / AES (the
+/// step-6/step-7 gates ran in [`export_key`]).
+fn export_symmetric(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKey, AlgorithmError> {
     match format {
         KeyFormat::Raw => Ok(ExportedKey::Raw(key.material.as_bytes().to_vec())),
         KeyFormat::Jwk => Ok(ExportedKey::Jwk(match key.algorithm {
             KeyAlgorithm::Hmac { hash, .. } => jwk::export_oct_hmac(key, hash),
             KeyAlgorithm::Aes { variant, length } => jwk::export_oct_aes(key, variant, length),
-            // KDF keys were rejected by the step-6 export-support check above.
-            KeyAlgorithm::Hkdf | KeyAlgorithm::Pbkdf2 => unreachable!("KDF rejected at step 6"),
+            // Only HMAC / AES reach `export_symmetric`.
+            KeyAlgorithm::Hkdf
+            | KeyAlgorithm::Pbkdf2
+            | KeyAlgorithm::Ecdsa { .. }
+            | KeyAlgorithm::Ecdh { .. } => {
+                unreachable!("export_symmetric called only for HMAC/AES")
+            }
         })),
         KeyFormat::Pkcs8 | KeyFormat::Spki => Err(AlgorithmError::NotSupported(
             "symmetric key export supports only the 'raw' and 'jwk' formats".to_string(),
@@ -376,11 +430,21 @@ pub fn sign(
     require_key_usable(&algorithm, key, KeyUsage::Sign)?;
     match key.algorithm {
         KeyAlgorithm::Hmac { hash, .. } => Ok(hmac::sign(hash, key.material.as_bytes(), data)),
-        // `sign` only normalizes HMAC, so the name-match above rejects any
-        // non-HMAC key before reaching here.
-        KeyAlgorithm::Aes { .. } | KeyAlgorithm::Hkdf | KeyAlgorithm::Pbkdf2 => {
-            Err(not_supported_op("sign"))
+        KeyAlgorithm::Ecdsa { curve } => {
+            // The name-match above admitted this ECDSA key, so `sign`
+            // normalized to `EcdsaParams` (the only ECDSA sign form); its
+            // `hash` is the signature hash.
+            let NormalizedAlgorithm::EcdsaParams { hash } = algorithm else {
+                return Err(not_supported_op("sign"));
+            };
+            crate::ec::sign(curve, hash, key, data)
         }
+        // `sign` normalizes only HMAC + ECDSA, so the name-match above rejects
+        // any other key before reaching here.
+        KeyAlgorithm::Aes { .. }
+        | KeyAlgorithm::Hkdf
+        | KeyAlgorithm::Pbkdf2
+        | KeyAlgorithm::Ecdh { .. } => Err(not_supported_op("sign")),
     }
 }
 
@@ -397,9 +461,17 @@ pub fn verify(
         KeyAlgorithm::Hmac { hash, .. } => {
             Ok(hmac::verify(hash, key.material.as_bytes(), signature, data))
         }
-        KeyAlgorithm::Aes { .. } | KeyAlgorithm::Hkdf | KeyAlgorithm::Pbkdf2 => {
-            Err(not_supported_op("verify"))
+        KeyAlgorithm::Ecdsa { curve } => {
+            let NormalizedAlgorithm::EcdsaParams { hash } = algorithm else {
+                return Err(not_supported_op("verify"));
+            };
+            crate::ec::verify(curve, hash, key, signature, data)
         }
+        // `verify` normalizes only HMAC + ECDSA.
+        KeyAlgorithm::Aes { .. }
+        | KeyAlgorithm::Hkdf
+        | KeyAlgorithm::Pbkdf2
+        | KeyAlgorithm::Ecdh { .. } => Err(not_supported_op("verify")),
     }
 }
 
@@ -561,7 +633,24 @@ pub fn derive_bits(
     length: Option<u32>,
 ) -> Result<Vec<u8>, AlgorithmError> {
     require_key_usable(&algorithm, base_key, KeyUsage::DeriveBits)?;
-    derive_bits_raw(&algorithm, base_key.material.as_bytes(), length)
+    derive_secret_bits(&algorithm, base_key, length)
+}
+
+/// The algorithm-internal derive-bits dispatch shared by [`derive_bits`] and
+/// [`derive_key`] (after their §14.3.8 / §14.3.7 name + usage gates): ECDH
+/// (§24.4.2) takes the base key + peer (a non-flat key material), while the
+/// KDFs (HKDF §33.4.1 / PBKDF2 §34.4.1) take the flat key material.  Routing
+/// here keeps the EC path off [`derive_bits_raw`]'s `as_bytes` + multiple-of-8
+/// length rule (the ECDH length semantics differ).
+fn derive_secret_bits(
+    algorithm: &NormalizedAlgorithm,
+    base_key: &CryptoKeyData,
+    length: Option<u32>,
+) -> Result<Vec<u8>, AlgorithmError> {
+    match algorithm {
+        NormalizedAlgorithm::EcdhDerive { peer } => crate::ec::derive_bits(base_key, peer, length),
+        _ => derive_bits_raw(algorithm, base_key.material.as_bytes(), length),
+    }
 }
 
 /// The algorithm-internal derive-bits operation (WebCrypto §33.4.1 HKDF /
@@ -633,8 +722,9 @@ pub fn derive_key(
     require_usage(base_key, KeyUsage::DeriveKey)?;
     // step 14: length = get key length of the derivedKeyType.
     let length = get_key_length(length_algorithm)?;
-    // step 15: derive `secret` (no deriveBits-usage / name recheck).
-    let secret = derive_bits_raw(&derive_algorithm, base_key.material.as_bytes(), length)?;
+    // step 15: derive `secret` (no deriveBits-usage / name recheck) — ECDH or
+    // a KDF, via the shared dispatch.
+    let secret = derive_secret_bits(&derive_algorithm, base_key, length)?;
     // step 16: importKey("raw", secret, derivedKeyType, extractable, usages)
     // — also raises the step-17 empty-usages SyntaxError for a secret key.
     import_key(
@@ -729,8 +819,9 @@ fn aes_key_byte_len(length_bits: u32) -> Result<usize, AlgorithmError> {
 }
 
 /// A `format` / `keyData` shape mismatch — the VM marshals them
-/// consistently, so this is a defensive `TypeError`.
-fn format_data_mismatch() -> AlgorithmError {
+/// consistently, so this is a defensive `TypeError`.  Shared with the EC
+/// import backend (`crate::ec`).
+pub(crate) fn format_data_mismatch() -> AlgorithmError {
     AlgorithmError::Type("keyData does not match the requested format".to_string())
 }
 

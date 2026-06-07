@@ -148,13 +148,12 @@ fn aes_kw_gen(length: u32) -> NormalizedAlgorithm {
 
 #[test]
 fn ops_aes_kw_generate_sets_key_algorithm() {
-    let key = ops::generate_key(
+    let key = super::expect_single(ops::generate_key(
         aes_kw_gen(256),
         true,
         vec![KeyUsage::WrapKey, KeyUsage::UnwrapKey],
         fill_seq,
-    )
-    .unwrap();
+    ));
     assert!(matches!(
         key.algorithm,
         KeyAlgorithm::Aes {
@@ -433,6 +432,7 @@ fn jwk_json_round_trip_omits_absent_members() {
         use_: None,
         key_ops: Some(vec!["wrapKey".to_string(), "unwrapKey".to_string()]),
         ext: Some(true),
+        ..Default::default()
     };
     let json = crate::jwk::to_json_bytes(&jwk);
     let text = std::str::from_utf8(&json).unwrap();
@@ -539,6 +539,7 @@ fn jwk_to_json_bytes_is_padded_to_aes_kw_block() {
         use_: None,
         key_ops: Some(vec!["wrapKey".to_string()]),
         ext: Some(true),
+        ..Default::default()
     };
     let bytes = crate::jwk::to_json_bytes(&jwk);
     assert_eq!(

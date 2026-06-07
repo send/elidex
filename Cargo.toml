@@ -117,6 +117,16 @@ cbc = "0.2"
 ghash = "0.6"
 subtle = "2"
 getrandom = "0.4"
+# Elliptic-curve stack for WebCrypto ECDSA / ECDH (PR-4).  The stable 0.13 EC
+# line (digest 0.10 / rand_core 0.6 generation); ECDSA is driven via
+# `sign_prehash` / `verify_prehash` so our `sha2 0.11` digest stays decoupled
+# from ecdsa's digest generation.  `pkcs8` enables both PKCS#8 (private) and
+# SPKI (public) DER; `arithmetic` is required for ECDH scalar multiplication.
+elliptic-curve = { version = "0.13", features = ["arithmetic", "sec1", "ecdh", "pkcs8"] }
+ecdsa = "0.16"
+p256 = { version = "0.13", features = ["ecdsa", "ecdh", "pkcs8", "arithmetic"] }
+p384 = { version = "0.13", features = ["ecdsa", "ecdh", "pkcs8", "arithmetic"] }
+p521 = { version = "0.13", features = ["ecdsa", "ecdh", "pkcs8", "arithmetic"] }
 webpki-roots = "1"
 elidex-plugin = { path = "crates/core/elidex-plugin" }
 elidex-ecs = { path = "crates/core/elidex-ecs" }

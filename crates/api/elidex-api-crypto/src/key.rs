@@ -7,7 +7,7 @@
 //! store the full material, so `material` is the source of truth and
 //! export round-trips deterministically).
 
-use crate::algorithm::{AesVariant, AlgorithmName};
+use crate::algorithm::{AesVariant, AlgorithmName, NamedCurve};
 use crate::hash::HashAlgorithm;
 
 /// `CryptoKey.type` (WebCrypto §13 `KeyType`).
@@ -86,6 +86,28 @@ impl KeyUsage {
         matches!(self, Self::DeriveKey | Self::DeriveBits)
     }
 
+    /// Whether ECDSA accepts this usage for a key of `key_type` (WebCrypto
+    /// §23.7.3 / §23.7.4): a public key accepts only `verify`; a private key
+    /// only `sign`.  Unlike the symmetric predicates this is key-type-
+    /// dependent (the usage split across the generated key pair).
+    pub fn is_ecdsa_usage(self, key_type: KeyType) -> bool {
+        match key_type {
+            KeyType::Public => matches!(self, Self::Verify),
+            KeyType::Private => matches!(self, Self::Sign),
+            KeyType::Secret => false,
+        }
+    }
+
+    /// Whether ECDH accepts this usage for a key of `key_type` (WebCrypto
+    /// §24.4.1 / §24.4.3): a public key accepts **none** (ECDH public keys
+    /// have no usages); a private key accepts `deriveKey` / `deriveBits`.
+    pub fn is_ecdh_usage(self, key_type: KeyType) -> bool {
+        match key_type {
+            KeyType::Private => matches!(self, Self::DeriveKey | Self::DeriveBits),
+            KeyType::Public | KeyType::Secret => false,
+        }
+    }
+
     /// Parse a `KeyUsage` from its IDL identifier, or `None` if unrecognized.
     pub fn from_ident(s: &str) -> Option<Self> {
         Some(match s {
@@ -128,6 +150,14 @@ pub enum KeyAlgorithm {
     /// PBKDF2 (WebCrypto §34) — a name-only `KeyAlgorithm`:
     /// `{ name: "PBKDF2" }`.
     Pbkdf2,
+    /// ECDSA (WebCrypto §23) — the named curve.  The key's `[[algorithm]]`
+    /// is the `EcKeyAlgorithm` `{ name: "ECDSA", namedCurve: "P-256"… }`
+    /// (§23.5); the call-time signature `hash` lives on `EcdsaParams`
+    /// (§23.3), not the key — mirroring the HMAC / HKDF hash split.
+    Ecdsa { curve: NamedCurve },
+    /// ECDH (WebCrypto §24) — the named curve.  The key's `[[algorithm]]`
+    /// is the `EcKeyAlgorithm` `{ name: "ECDH", namedCurve: "P-256"… }`.
+    Ecdh { curve: NamedCurve },
 }
 
 impl KeyAlgorithm {
@@ -140,21 +170,71 @@ impl KeyAlgorithm {
             Self::Aes { variant, .. } => variant.algorithm_name(),
             Self::Hkdf => AlgorithmName::Hkdf,
             Self::Pbkdf2 => AlgorithmName::Pbkdf2,
+            Self::Ecdsa { .. } => AlgorithmName::Ecdsa,
+            Self::Ecdh { .. } => AlgorithmName::Ecdh,
+        }
+    }
+
+    /// The EC named curve for an ECDSA / ECDH key, or `None` for a
+    /// symmetric key (WebCrypto §23.5 / §24 `EcKeyAlgorithm.namedCurve`).
+    pub fn named_curve(self) -> Option<NamedCurve> {
+        match self {
+            Self::Ecdsa { curve } | Self::Ecdh { curve } => Some(curve),
+            Self::Hmac { .. } | Self::Aes { .. } | Self::Hkdf | Self::Pbkdf2 => None,
         }
     }
 }
 
-/// The raw key bytes. (PR-1 ships only symmetric `Raw` material;
-/// asymmetric DER/PEM variants land in later PRs.)
+/// The engine-independent key material.  Symmetric algorithms (HMAC / AES)
+/// and KDF input keying material use [`Self::Raw`]; elliptic-curve keys
+/// (WebCrypto §23 ECDSA / §24 ECDH) use [`Self::Ec`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum KeyMaterial {
+    /// Symmetric / KDF key bytes (the full octet string).
     Raw(Vec<u8>),
+    /// Elliptic-curve key material.  `public_point` is the SEC1 §2.3.3
+    /// uncompressed encoding `0x04‖x‖y` (always present — derived from the
+    /// scalar for a private key at import / generate time); `private_scalar`
+    /// is `Some` iff this is a private key (the big-endian secret scalar,
+    /// `NamedCurve::coordinate_len` bytes).  The typed curve key is
+    /// reconstructed in the `ec` backend at op time (the asymmetric analogue
+    /// of `Raw(bytes)` → cipher).
+    Ec {
+        public_point: Vec<u8>,
+        private_scalar: Option<Vec<u8>>,
+    },
 }
 
 impl KeyMaterial {
+    /// The flat octet form of a symmetric (`Raw`) key.  EC key material has
+    /// no single flat form (it carries a public point plus an optional
+    /// scalar), and every symmetric op gates on an algorithm-name match
+    /// before reading the material, so an EC key never reaches this arm —
+    /// EC ops use [`Self::ec_public_point`] / [`Self::ec_private_scalar`].
     pub fn as_bytes(&self) -> &[u8] {
         match self {
             Self::Raw(b) => b,
+            Self::Ec { .. } => {
+                unreachable!("EC key material has no flat byte form; use the ec_* accessors")
+            }
+        }
+    }
+
+    /// The SEC1 uncompressed public point of an EC key, or `None` for a
+    /// symmetric key.
+    pub fn ec_public_point(&self) -> Option<&[u8]> {
+        match self {
+            Self::Ec { public_point, .. } => Some(public_point),
+            Self::Raw(_) => None,
+        }
+    }
+
+    /// The big-endian private scalar of an EC **private** key, or `None`
+    /// for a public or symmetric key.
+    pub fn ec_private_scalar(&self) -> Option<&[u8]> {
+        match self {
+            Self::Ec { private_scalar, .. } => private_scalar.as_deref(),
+            Self::Raw(_) => None,
         }
     }
 }

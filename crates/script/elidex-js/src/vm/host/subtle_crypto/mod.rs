@@ -64,6 +64,8 @@
 
 #![cfg(feature = "engine")]
 
+#[cfg(test)]
+mod differential;
 mod marshal;
 mod ops;
 

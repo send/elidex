@@ -29,8 +29,8 @@ use super::super::super::VmInner;
 use super::super::array_buffer::create_array_buffer_from_bytes;
 use super::super::text_encoding::{extract_buffer_source_bytes, is_buffer_source};
 use super::marshal::{
-    build_jwk_object, convert_algorithm_identifier, marshal_algorithm, marshal_format, marshal_jwk,
-    marshal_usages, require_crypto_key_arg,
+    build_crypto_key_pair, build_jwk_object, convert_algorithm_identifier, marshal_algorithm,
+    marshal_format, marshal_jwk, marshal_usages, require_crypto_key_arg,
 };
 use super::run_op;
 
@@ -193,16 +193,32 @@ pub(super) fn native_subtle_crypto_generate_key(
 
         let normalized = marshal_normalize(ctx, algorithm, "generateKey", Operation::GenerateKey)?;
 
-        // The crate owns usage validation → length sizing → fill ordering
-        // (§31.6.3); the VM only supplies entropy via the closure, so an
-        // invalid usage / zero length rejects before any buffer is sized.
-        let key_data = crypto::ops::generate_key(normalized, extractable, usages, |buf| {
+        // The crate owns usage validation → length sizing / curve keygen →
+        // fill ordering (§14.3.6 + the per-algorithm steps); the VM only
+        // supplies entropy via the closure, so an invalid usage / zero length
+        // rejects before any buffer is sized.
+        let generated = crypto::ops::generate_key(normalized, extractable, usages, |buf| {
             getrandom::fill(buf)
                 .map_err(|e| AlgorithmError::Operation(format!("OS CSPRNG failure ({e})")))
         })
         .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
-        let id = ctx.vm.alloc_crypto_key(key_data);
-        Ok(JsValue::Object(id))
+        match generated {
+            // Symmetric (HMAC / AES): one `CryptoKey` wrapper (as before).
+            crypto::GeneratedKey::Single(key_data) => {
+                Ok(JsValue::Object(ctx.vm.alloc_crypto_key(key_data)))
+            }
+            // Asymmetric (EC): two wrappers assembled into a `CryptoKeyPair`
+            // dict (§14.3.6 union → §17).  GC is disabled for the whole native
+            // call, so the two allocs + the dict assembly have no
+            // mid-collection window.
+            crypto::GeneratedKey::Pair { public, private } => {
+                let public_id = ctx.vm.alloc_crypto_key(public);
+                let private_id = ctx.vm.alloc_crypto_key(private);
+                Ok(JsValue::Object(build_crypto_key_pair(
+                    ctx, public_id, private_id,
+                )))
+            }
+        }
     })
 }
 

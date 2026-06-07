@@ -10,6 +10,7 @@
 
 use crate::error::AlgorithmError;
 use crate::hash::HashAlgorithm;
+use crate::key::{KeyAlgorithm, KeyType};
 
 /// A WebCrypto operation (the `op` argument of §18.4.4). The full set is
 /// declared now; only the PR-1 subset (`Digest`, `Sign`, `Verify`,
@@ -51,6 +52,13 @@ pub enum AlgorithmName {
     /// `wrapKey` / `unwrapKey` / `get key length`.  It is a key-wrap-only
     /// cipher: it registers no `encrypt` / `decrypt` operation.
     AesKw,
+    /// ECDSA (WebCrypto §23) — `generateKey` / `importKey` / `exportKey` /
+    /// `sign` / `verify`.  Asymmetric: no `get key length` (§23.2).
+    Ecdsa,
+    /// ECDH (WebCrypto §24) — `generateKey` / `importKey` / `exportKey` /
+    /// `deriveBits` / `deriveKey`.  No `sign` / `verify` / `get key length`
+    /// (§24.2).
+    Ecdh,
 }
 
 impl AlgorithmName {
@@ -79,6 +87,10 @@ impl AlgorithmName {
             Some(Self::Pbkdf2)
         } else if name.eq_ignore_ascii_case("AES-KW") {
             Some(Self::AesKw)
+        } else if name.eq_ignore_ascii_case("ECDSA") {
+            Some(Self::Ecdsa)
+        } else if name.eq_ignore_ascii_case("ECDH") {
+            Some(Self::Ecdh)
         } else {
             None
         }
@@ -96,7 +108,9 @@ impl AlgorithmName {
             | Self::AesGcm
             | Self::AesKw
             | Self::Hkdf
-            | Self::Pbkdf2 => None,
+            | Self::Pbkdf2
+            | Self::Ecdsa
+            | Self::Ecdh => None,
         }
     }
 
@@ -116,7 +130,9 @@ impl AlgorithmName {
             | Self::Sha512
             | Self::Hmac
             | Self::Hkdf
-            | Self::Pbkdf2 => None,
+            | Self::Pbkdf2
+            | Self::Ecdsa
+            | Self::Ecdh => None,
         }
     }
 }
@@ -127,7 +143,7 @@ impl AlgorithmName {
 /// `encrypt` / `decrypt`).  All four share `generateKey` / `importKey` /
 /// `exportKey` / `get key length`, so the variant is the single discriminator
 /// across the normalized generate/import forms, the key's
-/// [`KeyAlgorithm`][crate::key::KeyAlgorithm], and the JWK `alg` mapping —
+/// [`KeyAlgorithm`], and the JWK `alg` mapping —
 /// dispatch stays typed rather than stringly.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AesVariant {
@@ -182,6 +198,110 @@ impl AesVariant {
     }
 }
 
+/// A WebCrypto EC named curve (WebCrypto §23.4 `NamedCurve` typedef =
+/// `DOMString`).  Unlike a Web IDL `enum`, an unrecognized value is a
+/// `NotSupportedError` (prose-validated at the algorithm-specific step,
+/// §23.7.3 / §24.4.1 / §23.7.4), NOT a WebIDL `TypeError` — so the VM
+/// marshals the raw string and [`normalize`] recognizes it here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NamedCurve {
+    P256,
+    P384,
+    P521,
+}
+
+impl NamedCurve {
+    /// Recognize a `NamedCurve` value (exact match — the curve names are
+    /// case-sensitive, unlike algorithm names).
+    pub fn from_name(name: &str) -> Option<Self> {
+        Some(match name {
+            "P-256" => Self::P256,
+            "P-384" => Self::P384,
+            "P-521" => Self::P521,
+            _ => return None,
+        })
+    }
+
+    /// The canonical curve name for `[[algorithm]].namedCurve` + JWK `crv`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::P256 => "P-256",
+            Self::P384 => "P-384",
+            Self::P521 => "P-521",
+        }
+    }
+
+    /// The field-element / coordinate length in bytes = `⌈log2(p) / 8⌉`:
+    /// P-256 → 32, P-384 → 48, **P-521 → 66** (`⌈521 / 8⌉ = 66`, NOT 65 —
+    /// the well-known P-521 edge).  Also the ECDH shared-secret length and
+    /// each ECDSA signature half (`r`, `s`).
+    pub fn coordinate_len(self) -> usize {
+        match self {
+            Self::P256 => 32,
+            Self::P384 => 48,
+            Self::P521 => 66,
+        }
+    }
+
+    /// The raw ECDSA signature length (`r‖s`) = `2 * coordinate_len`
+    /// (WebCrypto §23.7.1 / §23.7.2): P-256 → 64, P-384 → 96, P-521 → 132.
+    pub fn signature_len(self) -> usize {
+        2 * self.coordinate_len()
+    }
+}
+
+/// Which EC algorithm family a generate / import resolves to (ECDSA vs
+/// ECDH).  `EcKeyGenParams` (§23.4) and `EcKeyImportParams` (§23.6) carry
+/// only `namedCurve`, so this discriminator rides alongside the curve to
+/// decide the produced key's `[[algorithm]]` — the EC analogue of
+/// [`AesVariant`] inside `AesKeyGen` / `AesImport`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EcAlgorithm {
+    Ecdsa,
+    Ecdh,
+}
+
+impl EcAlgorithm {
+    pub(crate) fn algorithm_name(self) -> AlgorithmName {
+        match self {
+            Self::Ecdsa => AlgorithmName::Ecdsa,
+            Self::Ecdh => AlgorithmName::Ecdh,
+        }
+    }
+
+    /// The key's `[[algorithm]]` for this EC family + curve (WebCrypto §23.5
+    /// / §24 `EcKeyAlgorithm`) — used by both EC import and generateKey.
+    pub(crate) fn key_algorithm(self, curve: NamedCurve) -> KeyAlgorithm {
+        match self {
+            Self::Ecdsa => KeyAlgorithm::Ecdsa { curve },
+            Self::Ecdh => KeyAlgorithm::Ecdh { curve },
+        }
+    }
+}
+
+/// The ECDH peer public key conveyed from the VM into `deriveBits`
+/// (WebCrypto §24.3 `EcdhKeyDeriveParams.public`).  `public` is a
+/// `CryptoKey` (a VM object), so per the Layering mandate the VM extracts
+/// its spec-relevant metadata + the SEC1 public-point **bytes** here — the
+/// engine-independent crate never holds a VM handle.  [`crate::ops::derive_bits`]
+/// validates the §24.4.2 `InvalidAccessError` precedence (peer `[[type]]`
+/// is "public"; peer `[[algorithm]]` name equals the base key's; peer curve
+/// equals the base key's) against the base key, so the conveyed fields cover
+/// every check.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EcdhPeer {
+    /// The peer key's `[[type]]` (§24.4.2: must be "public").
+    pub key_type: KeyType,
+    /// The peer key's `[[algorithm]]` name (§24.4.2: must equal base name).
+    pub algorithm: AlgorithmName,
+    /// The peer key's curve — `Some` iff it is an EC key (the §24.4.2 curve
+    /// check runs only once the name check confirms the same ECDH family).
+    pub curve: Option<NamedCurve>,
+    /// The peer key's SEC1 uncompressed public point — `Some` iff it is an
+    /// EC public key (the ECDH input, used once validation passes).
+    pub public_point: Option<Vec<u8>>,
+}
+
 /// The VM-marshalled raw algorithm identifier: `name` plus the members
 /// the current operation may consult.  `hash` is itself a nested
 /// `AlgorithmIdentifier`; `length` is the HMAC `unsigned long` /
@@ -206,6 +326,14 @@ pub struct RawAlgorithm {
     pub salt: Option<Vec<u8>>,
     pub info: Option<Vec<u8>>,
     pub iterations: Option<u32>,
+    /// EC `namedCurve` (WebCrypto §23.4 `EcKeyGenParams` / §23.6
+    /// `EcKeyImportParams`) — the raw DOMString, validated to a
+    /// [`NamedCurve`] by [`normalize`].
+    pub named_curve: Option<String>,
+    /// ECDH peer public key (WebCrypto §24.3 `EcdhKeyDeriveParams.public`)
+    /// — the VM-extracted metadata + SEC1 point ([`EcdhPeer`]; the marshalling
+    /// boundary: the crate gets bytes + metadata, never a VM handle).
+    pub peer: Option<EcdhPeer>,
 }
 
 impl RawAlgorithm {
@@ -296,6 +424,31 @@ pub enum NormalizedAlgorithm {
     /// AES-KW wrapKey / unwrapKey (WebCrypto §30.3.1 / §30.3.2) — name-only
     /// (the RFC 3394 default IV is fixed, so there is no per-call param).
     AesKwWrap,
+    /// EC generateKey (WebCrypto §23.4 `EcKeyGenParams` / §24.4.1) — the EC
+    /// family (ECDSA / ECDH) + the curve.  The single requested `usages`
+    /// list is split across the produced key pair by the op (§23.7.3 /
+    /// §24.4.1), so it is not carried here.
+    EcKeyGen {
+        algorithm: EcAlgorithm,
+        curve: NamedCurve,
+    },
+    /// EC importKey (WebCrypto §23.6 `EcKeyImportParams` / §24.4.3) — the EC
+    /// family + the curve the imported material must match.
+    EcImport {
+        algorithm: EcAlgorithm,
+        curve: NamedCurve,
+    },
+    /// ECDSA sign / verify params (WebCrypto §23.3 `EcdsaParams`): the
+    /// signature `hash` (the curve comes from the key's `[[algorithm]]`).
+    EcdsaParams {
+        hash: HashAlgorithm,
+    },
+    /// ECDH deriveBits params (WebCrypto §24.3 `EcdhKeyDeriveParams`): the
+    /// VM-extracted peer public key ([`EcdhPeer`]).  `derive_bits` validates
+    /// the §24.4.2 peer checks against the base key.
+    EcdhDerive {
+        peer: EcdhPeer,
+    },
 }
 
 impl NormalizedAlgorithm {
@@ -320,6 +473,11 @@ impl NormalizedAlgorithm {
             Self::Hkdf | Self::HkdfParams { .. } => AlgorithmName::Hkdf,
             Self::Pbkdf2 | Self::Pbkdf2Params { .. } => AlgorithmName::Pbkdf2,
             Self::AesKwWrap => AlgorithmName::AesKw,
+            Self::EcKeyGen { algorithm, .. } | Self::EcImport { algorithm, .. } => {
+                algorithm.algorithm_name()
+            }
+            Self::EcdsaParams { .. } => AlgorithmName::Ecdsa,
+            Self::EcdhDerive { .. } => AlgorithmName::Ecdh,
         }
     }
 }
@@ -378,6 +536,17 @@ enum DesiredType {
     /// PBKDF2 `deriveBits`: a `Pbkdf2Params` (`salt` + `iterations` +
     /// `hash`, all required) read by step 6.
     Pbkdf2DeriveBits,
+    /// EC `generateKey` (`EcKeyGenParams`, §23.4 / §24.4.1): a `namedCurve`
+    /// (required `NamedCurve`) read by step 6.
+    EcKeyGen(EcAlgorithm),
+    /// EC `importKey` (`EcKeyImportParams`, §23.6 / §24.4.3): a `namedCurve`
+    /// (required) read by step 6.
+    EcImport(EcAlgorithm),
+    /// ECDSA `sign` / `verify` (`EcdsaParams`, §23.3): a `hash` (required).
+    EcdsaParams,
+    /// ECDH `deriveBits` (`EcdhKeyDeriveParams`, §24.3): a `public` CryptoKey
+    /// peer (required) — the novel CryptoKey-valued algorithm member.
+    EcdhDerive,
 }
 
 /// Which KDF a [`DesiredType::KdfNameOnly`] resolves to.
@@ -422,6 +591,31 @@ fn resolve_registry(op: Operation, name: &str) -> Option<DesiredType> {
         (Operation::WrapKey | Operation::UnwrapKey, AlgorithmName::AesKw) => {
             Some(DesiredType::AesKwWrap)
         }
+        // ECDSA / ECDH (WebCrypto §23 / §24).  generateKey + importKey carry
+        // only `namedCurve` (EcKeyGenParams §23.4 / EcKeyImportParams §23.6);
+        // ECDSA adds sign / verify (EcdsaParams §23.3) and ECDH adds
+        // deriveBits (EcdhKeyDeriveParams §24.3).  Neither registers
+        // get-key-length (§23.2 / §24.2): a `(GetKeyLength, Ecdsa|Ecdh)` pair
+        // falls to the AES catch-all below where `as_aes()` returns `None`, so
+        // it resolves to NotSupported.  These arms precede the AES catch-alls
+        // (and the `(ImportKey, _)` catch-all) so an EC name never resolves to
+        // an AES desiredType.
+        (Operation::GenerateKey, AlgorithmName::Ecdsa) => {
+            Some(DesiredType::EcKeyGen(EcAlgorithm::Ecdsa))
+        }
+        (Operation::GenerateKey, AlgorithmName::Ecdh) => {
+            Some(DesiredType::EcKeyGen(EcAlgorithm::Ecdh))
+        }
+        (Operation::ImportKey, AlgorithmName::Ecdsa) => {
+            Some(DesiredType::EcImport(EcAlgorithm::Ecdsa))
+        }
+        (Operation::ImportKey, AlgorithmName::Ecdh) => {
+            Some(DesiredType::EcImport(EcAlgorithm::Ecdh))
+        }
+        (Operation::Sign | Operation::Verify, AlgorithmName::Ecdsa) => {
+            Some(DesiredType::EcdsaParams)
+        }
+        (Operation::DeriveBits, AlgorithmName::Ecdh) => Some(DesiredType::EcdhDerive),
         // AES generateKey / get-key-length both read a `length`-only dict
         // (`AesKeyGenParams` / `AesDerivedKeyParams`); `as_aes()` filters the
         // non-AES names (HMAC handled above, KDF handled above, SHA → None)
@@ -470,6 +664,15 @@ pub enum AlgorithmParams {
     /// (required `[EnforceRange] unsigned long`), `salt` (required
     /// `BufferSource`).
     Pbkdf2Params,
+    /// EC generateKey / importKey (`EcKeyGenParams` §23.4 / `EcKeyImportParams`
+    /// §23.6): `namedCurve` (required `NamedCurve` = DOMString).
+    EcKeyGen,
+    /// ECDSA sign / verify (`EcdsaParams` §23.3): `hash` (required
+    /// `HashAlgorithmIdentifier`).
+    EcdsaParams,
+    /// ECDH deriveBits (`EcdhKeyDeriveParams` §24.3): `public` (required
+    /// `CryptoKey` — the peer public key; the novel CryptoKey-valued member).
+    EcdhKeyDeriveParams,
 }
 
 /// §18.4.4 step 5 + step-6 member plan: for a registered `(op, name)` pair
@@ -497,6 +700,12 @@ pub fn params_shape(op: Operation, name: &str) -> Option<AlgorithmParams> {
         },
         DesiredType::HkdfDeriveBits => AlgorithmParams::HkdfParams,
         DesiredType::Pbkdf2DeriveBits => AlgorithmParams::Pbkdf2Params,
+        // EC generateKey + importKey share `EcKeyGenParams` / `EcKeyImportParams`
+        // (both name-only `namedCurve`); the op (generate vs import) is the
+        // `crate::ops` entry, not the params shape.
+        DesiredType::EcKeyGen(_) | DesiredType::EcImport(_) => AlgorithmParams::EcKeyGen,
+        DesiredType::EcdsaParams => AlgorithmParams::EcdsaParams,
+        DesiredType::EcdhDerive => AlgorithmParams::EcdhKeyDeriveParams,
     })
 }
 
@@ -574,7 +783,48 @@ pub fn normalize(op: Operation, raw: RawAlgorithm) -> Result<NormalizedAlgorithm
                 hash,
             })
         }
+        Some(DesiredType::EcKeyGen(algorithm)) => {
+            let curve = normalize_required_curve(&raw, "EcKeyGenParams")?;
+            Ok(NormalizedAlgorithm::EcKeyGen { algorithm, curve })
+        }
+        Some(DesiredType::EcImport(algorithm)) => {
+            let curve = normalize_required_curve(&raw, "EcKeyImportParams")?;
+            Ok(NormalizedAlgorithm::EcImport { algorithm, curve })
+        }
+        Some(DesiredType::EcdsaParams) => {
+            let hash = normalize_required_hash(&raw, "EcdsaParams")?;
+            Ok(NormalizedAlgorithm::EcdsaParams { hash })
+        }
+        Some(DesiredType::EcdhDerive) => {
+            // §24.3 `public` is a required CryptoKey member; the VM brand-checks
+            // it (a non-CryptoKey → TypeError at marshal) and conveys its
+            // metadata + SEC1 point as the `peer`.  Its absence is the
+            // required-member TypeError (the VM enforces this too).
+            let peer = raw
+                .peer
+                .ok_or_else(|| required_member("public", "EcdhKeyDeriveParams"))?;
+            Ok(NormalizedAlgorithm::EcdhDerive { peer })
+        }
     }
+}
+
+/// Recognize the required `namedCurve` member of an EC params dictionary
+/// (`EcKeyGenParams` §23.4 / `EcKeyImportParams` §23.6).  Its absence is a
+/// `TypeError` (IDL-`required`, enforced at the VM marshal too); an
+/// unrecognized curve is a `NotSupportedError` (the §23.7.3 / §24.4.1 /
+/// §23.7.4 "Otherwise: throw a NotSupportedError" curve step — `NamedCurve`
+/// is a typedef, NOT a WebIDL `enum`, so it is prose-validated here, not at
+/// the WebIDL conversion).
+fn normalize_required_curve(raw: &RawAlgorithm, dict: &str) -> Result<NamedCurve, AlgorithmError> {
+    let Some(name) = raw.named_curve.as_deref() else {
+        return Err(required_member("namedCurve", dict));
+    };
+    NamedCurve::from_name(name).ok_or_else(|| {
+        AlgorithmError::NotSupported(format!(
+            "Unrecognized named curve: '{}'",
+            truncate_at_char_boundary(name, MAX_ECHOED_ALGO_NAME_LEN)
+        ))
+    })
 }
 
 /// Structure the per-mode AES encrypt/decrypt params from the marshalled
