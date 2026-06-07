@@ -416,6 +416,49 @@ fn multicol_midbreak_ifc_with_atomic_text_still_persists() {
 }
 
 #[test]
+fn multicol_with_direct_inline_midbreak_leaves_no_stale_carrier() {
+    // Codex PR#316 R1 (P2): direct inline content in a multicol container makes the
+    // IFC `parent_entity` BE the multicol itself, so `fill` (which drains carriers off
+    // its snapshotted direct mid-break *children*) never drains the self-carrier. If
+    // left on the container and the container is later an OUTER multicol's mid-break
+    // direct child, the outer `fill` would fold this stale carrier at the outer column
+    // offset (garbage). `layout_multicol` must clear its own container's carrier after
+    // laying. Pin: a multicol whose direct inline content breaks mid-column carries NO
+    // `ColumnFlowSlice` afterward.
+    let font_db = make_font_db();
+    if !fonts_available(&font_db) {
+        return;
+    }
+    let mut dom = EcsDom::new();
+    let container = elem(&mut dom, "div");
+    let _ = dom.world_mut().insert_one(
+        container,
+        ComputedStyle {
+            display: Display::Block,
+            column_count: Some(2),
+            column_fill: ColumnFill::Auto,
+            height: Dimension::Length(40.0),
+            font_family: TEST_FONTS.iter().map(|&s| s.to_string()).collect(),
+            ..ComputedStyle::default()
+        },
+    );
+    // Direct inline content (a text node child of the multicol container itself).
+    let text = dom.create_text(LONG_TEXT);
+    dom.append_child(container, text);
+
+    let input = make_input(&font_db);
+    layout_multicol(&mut dom, container, &input, layout_child_fn);
+
+    assert!(
+        dom.world()
+            .get::<&elidex_ecs::ColumnFlowSlice>(container)
+            .is_err(),
+        "multicol container's own self-carrier is cleared after layout (no leak to an \
+         ancestor multicol's drain)"
+    );
+}
+
+#[test]
 fn multicol_nested_block_midbreak_gets_no_inline_flow() {
     // D-Z2 (deferred): a div that breaks at *block-child* boundaries (nested-block
     // mid-break) is NOT an IFC container at the break — it stays legacy/G11 and gets

@@ -358,6 +358,23 @@ pub fn layout_multicol(
         );
     }
 
+    // Clear any `ColumnFlowSlice` carrier left on the multicol container itself
+    // (Codex PR#316 R1, nested-multicol carrier hygiene). The carrier is keyed on
+    // the IFC `parent_entity`; `fill` drains it only when that entity is one of THIS
+    // multicol's snapshotted direct mid-break children. When the IFC container IS
+    // this multicol (direct inline content in a multicol — `parent_entity == entity`,
+    // no block direct child to snapshot), `fill` never drains it, so it would
+    // otherwise persist on `entity`. If `entity` is then an OUTER multicol's
+    // mid-break direct child, the outer `fill` would drain this stale carrier and
+    // fold THIS multicol's inner-column lines into an `InlineFlow` at the OUTER
+    // column offset — breaking the "render never reads the carrier" invariant in
+    // nested multicol. A multicol's own self-carrier is never consumable (the
+    // direct-inline mid-break case is committed-next), so clear it here, after this
+    // multicol's fill and before returning to any ancestor's `fill` drain.
+    let _ = dom
+        .world_mut()
+        .remove_one::<elidex_ecs::ColumnFlowSlice>(entity);
+
     lb.into()
 }
 
