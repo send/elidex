@@ -463,8 +463,11 @@ fn emit_text_segment(
 /// atomic *between* reordered text runs is not treated as a UAX #9 object-replacement
 /// (U+FFFC) member — the text cursor does not reserve its width, so reordered text can
 /// paint across the atomic's baked box, and the atomic is not visually repositioned.
-/// Full atomic participation in bidi ordering (Option (b)) is deferred to slot
-/// `#11-bidi-atomic-object-ordering` (larger scope: box-reposition-at-paint).
+/// This is one facet of the deferred **full-UBA bidi-fidelity** program, slot
+/// `#11-bidi-full-uba-fidelity` (with paragraph-level cross-line level resolution and
+/// cross-sub-flow reorder; larger scope = elidex-bidi object modelling +
+/// box-reposition-at-paint). The current path runs the per-segment `analyze_bidi_simple`
+/// per persisted line — the same approximation level as the legacy path (master §4.2).
 #[allow(clippy::too_many_arguments)]
 fn emit_inline_flow(
     ctx: &mut PaintContext,

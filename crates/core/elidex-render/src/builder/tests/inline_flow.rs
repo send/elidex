@@ -917,8 +917,8 @@ fn converged_bidi_vertical() {
 ///
 /// This covers the atomic AFTER the text runs. The atomic *interspersed between*
 /// reordered text runs (where the text cursor does not reserve the atomic's width →
-/// text can overprint the box) is the deferred Option (b) limitation, slot
-/// `#11-bidi-atomic-object-ordering` — not asserted here.
+/// text can overprint the box) is a facet of the deferred full-UBA bidi-fidelity
+/// program, slot `#11-bidi-full-uba-fidelity` — not asserted here.
 #[test]
 #[allow(unused_must_use)]
 fn converged_bidi_line_with_atomic() {
