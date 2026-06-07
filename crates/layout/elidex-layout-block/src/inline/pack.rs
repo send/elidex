@@ -640,8 +640,9 @@ impl LinePacker {
     /// per entity into a single `[min start, max end]` line rect, then mapped
     /// natural→painted by the SAME per-line transform the persisted runs / positioned
     /// atomics use: `offset` (the line-level `text-align` shift) plus `cum_at` (CSS Text 3
-    /// §6.4 cumulative inter-word justify expansion to the left of a position; the
-    /// trailing collapsible-space hang is already excluded from `cum_at`, §4.1.2). This is
+    /// §6.4.1 Expanding and Compressing Text — the cumulative inter-word justify expansion
+    /// to the left of a position; the trailing collapsible-space hang is already excluded
+    /// from `cum_at`, §4.1.2). This is
     /// the 4th consumer of that one transform — runs (via [`bake_justify`]), sub-flow
     /// runs, and positioned atomics being the other three (one-issue-one-way: a single
     /// natural→painted map, not a 4th ad-hoc shift). For non-justify lines `cum_at ≡ 0`,
