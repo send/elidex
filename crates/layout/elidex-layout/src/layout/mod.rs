@@ -201,6 +201,7 @@ pub fn layout_paged(
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        is_probe: false,
     };
 
     let fragments = layout_fragmented(dom, root, &input, frag_ctx);
@@ -362,6 +363,7 @@ fn layout_root(dom: &mut EcsDom, root: Entity, viewport: Size, font_db: &FontDat
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        is_probe: false,
     };
 
     if let Some(display) = root_display {

@@ -502,6 +502,12 @@ pub fn layout_absolutely_positioned(
         break_token: None,
         subgrid: None,
         layout_generation: env.layout_generation,
+        // Inherit the ancestor-probe flag (P1): `layout_positioned_children` is
+        // reached during an ancestor's probe too (its `pos_env` carries
+        // `input.is_probe`), so an abspos multicol laid here while an ancestor is
+        // probing must still suppress its fragment-tree store write. `false` only
+        // in real (definitive) layout, where `env.is_probe` is already false.
+        is_probe: env.is_probe,
     };
     let child_lb = (env.layout_child)(dom, entity, &child_input).layout_box;
 

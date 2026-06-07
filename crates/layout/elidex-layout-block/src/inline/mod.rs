@@ -746,6 +746,7 @@ pub fn layout_inline_context_fragmented(
         layout_child,
         is_vertical,
         env.layout_generation,
+        env.is_probe,
     );
 
     // Verify at least one text run has a usable font (atomics don't need fonts).

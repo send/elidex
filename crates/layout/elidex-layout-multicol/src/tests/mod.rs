@@ -17,6 +17,7 @@ mod fill;
 mod geometry;
 mod inline_flow;
 mod is_multicol;
+mod prereqs;
 mod spanner;
 
 fn make_font_db() -> FontDatabase {
@@ -36,6 +37,7 @@ fn make_input(font_db: &FontDatabase) -> LayoutInput<'_> {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        is_probe: false,
     }
 }
 

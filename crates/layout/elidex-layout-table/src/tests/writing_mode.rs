@@ -307,6 +307,7 @@ fn vertical_rl_padding_percent_resolves_against_inline_size() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let outcome = crate::layout_table(&mut dom, table, &input, test_layout_child);
 

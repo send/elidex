@@ -336,6 +336,7 @@ pub fn build_paged_display_lists_interleaved(
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        is_probe: false,
     };
 
     // Phase 1: determine page count + break token chain.
@@ -358,6 +359,7 @@ pub fn build_paged_display_lists_interleaved(
             fragmentainer: Some(&frag_ctx),
             break_token: prev_token,
             layout_generation: generation,
+            is_probe: false,
             ..base_input
         };
         let outcome = elidex_layout::dispatch_layout_child(dom, root, &frag_input);

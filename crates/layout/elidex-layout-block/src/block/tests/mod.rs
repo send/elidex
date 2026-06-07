@@ -98,6 +98,7 @@ fn base_input(font_db: &FontDatabase) -> crate::LayoutInput<'_> {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        is_probe: false,
     }
 }
 

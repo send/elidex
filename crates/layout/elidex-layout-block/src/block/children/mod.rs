@@ -14,7 +14,7 @@ use crate::{BreakToken, BreakTokenData};
 pub(crate) use helpers::max_content_width;
 pub use helpers::resolve_block_height;
 pub(in crate::block) use shift::shift_block_children;
-pub use shift::shift_descendants;
+pub use shift::{shift_descendants, shift_descendants_excluding_own_fragments};
 pub use stack::stack_block_children;
 
 /// Result of stacking block children, including margin info for parent-child collapse.

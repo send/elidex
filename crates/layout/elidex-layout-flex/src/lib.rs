@@ -346,6 +346,7 @@ pub fn layout_flex(
         depth,
         viewport: input.viewport,
         layout_generation: input.layout_generation,
+        is_probe: input.is_probe,
     };
 
     // --- Parse break token for resumption ---
@@ -521,6 +522,7 @@ pub fn layout_flex(
             depth,
             viewport: input.viewport,
             layout_generation: input.layout_generation,
+            is_probe: input.is_probe,
         };
         elidex_layout_block::positioned::layout_positioned_children(
             dom,

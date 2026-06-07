@@ -297,6 +297,7 @@ pub(super) fn layout_float(
         break_token: None,
         subgrid: None,
         layout_generation: input.layout_generation,
+        is_probe: input.is_probe,
     };
     let child_box = layout_child(dom, child, &temp_input).layout_box;
     let content_width = child_box.content.size.width;

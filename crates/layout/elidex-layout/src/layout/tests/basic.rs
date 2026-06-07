@@ -777,3 +777,86 @@ fn relpos_atomic_inline_reposition_preserves_offset() {
         rel_box.content.origin.y
     );
 }
+
+#[test]
+fn multicol_in_table_cell_writes_no_duplicate_box_fragments() {
+    // P1 (Z-1b-0): a table cell is laid out TWICE per layout pass — a height-probe
+    // at a temporary position (`elidex-layout-table` `cell_input`) + a final
+    // relayout at the resolved position. The height-probe is a throwaway
+    // measurement, so it is marked `is_probe: true`; otherwise a multicol inside
+    // the cell would run `position_column_fragments` on BOTH passes with
+    // `is_probe == false` and APPEND duplicate per-column box fragments to the
+    // append-only standalone store (which has no per-(entity, fragmentainer)
+    // dedup). With the probe mark, the spanning div gets exactly its 2 real
+    // fragments (one per column), not 4. (Flex's measure pass already uses
+    // `..LayoutInput::probe`; this pins the table analogue.)
+    use elidex_plugin::ColumnFill;
+    let (mut dom, _root, _html, body) = build_styled_dom();
+
+    let table = dom.create_element("div", Attributes::default());
+    dom.append_child(body, table);
+    let _ = dom.world_mut().insert_one(
+        table,
+        ComputedStyle {
+            display: Display::Table,
+            ..Default::default()
+        },
+    );
+    let cell = dom.create_element("div", Attributes::default());
+    dom.append_child(table, cell);
+    let _ = dom.world_mut().insert_one(
+        cell,
+        ComputedStyle {
+            display: Display::TableCell,
+            ..Default::default()
+        },
+    );
+    // A multicol in the cell: 2 columns, 50px tall → its spanning div breaks col-0/col-1.
+    let mc = dom.create_element("div", Attributes::default());
+    dom.append_child(cell, mc);
+    let _ = dom.world_mut().insert_one(
+        mc,
+        ComputedStyle {
+            display: Display::Block,
+            column_count: Some(2),
+            column_fill: ColumnFill::Auto,
+            height: Dimension::Length(50.0),
+            ..Default::default()
+        },
+    );
+    let span = dom.create_element("div", Attributes::default());
+    dom.append_child(mc, span);
+    let _ = dom.world_mut().insert_one(
+        span,
+        ComputedStyle {
+            display: Display::Block,
+            ..Default::default()
+        },
+    );
+    for _ in 0..2 {
+        let part = dom.create_element("div", Attributes::default());
+        dom.append_child(span, part);
+        let _ = dom.world_mut().insert_one(
+            part,
+            ComputedStyle {
+                display: Display::Block,
+                height: Dimension::Length(50.0),
+                ..Default::default()
+            },
+        );
+    }
+
+    let font_db = FontDatabase::new();
+    layout_tree(&mut dom, Size::new(800.0, 600.0), &font_db);
+
+    let cols: Vec<u32> = dom
+        .fragment_tree()
+        .fragments_for(span)
+        .map(|n| n.fragmentainer)
+        .collect();
+    assert_eq!(
+        cols.len(),
+        2,
+        "multicol-in-table-cell span gets exactly 2 box fragments (height-probe suppressed, no duplicate), got {cols:?}"
+    );
+}
