@@ -324,6 +324,7 @@ pub fn layout_table(
                 break_token: None,
                 subgrid: None,
                 layout_generation: input.layout_generation,
+                is_probe: input.is_probe,
             };
             let cap_lb = layout_child(dom, cap, &cap_input).layout_box;
             caption_top_height += box_total_height(&cap_lb);
@@ -461,6 +462,7 @@ pub fn layout_table(
         depth,
         viewport: input.viewport,
         layout_generation: input.layout_generation,
+        is_probe: input.is_probe,
     };
     let col_widths = compute_column_widths(dom, &col_input, &table_env);
 
@@ -515,6 +517,12 @@ pub fn layout_table(
             break_token: None,
             subgrid: None,
             layout_generation: input.layout_generation,
+            // Height-probe pass (temporary position) — a throwaway measurement
+            // re-laid definitively below at the final position, so a multicol in
+            // this cell must NOT write the fragment-tree store here (P1); else it
+            // would append duplicate per-column box fragments alongside the final
+            // pass's. Same posture as flex's measure pass (`..LayoutInput::probe`).
+            is_probe: true,
         };
         let cell_lb = layout_child(dom, cell.entity, &cell_input).layout_box;
 
@@ -700,6 +708,7 @@ pub fn layout_table(
             break_token: None,
             subgrid: None,
             layout_generation: input.layout_generation,
+            is_probe: input.is_probe,
         };
         let cell_lb = layout_child(dom, cell.entity, &cell_relayout_input).layout_box;
         let _ = dom.world_mut().insert_one(cell.entity, cell_lb);
@@ -724,6 +733,7 @@ pub fn layout_table(
                 break_token: None,
                 subgrid: None,
                 layout_generation: input.layout_generation,
+                is_probe: input.is_probe,
             };
             let cap_lb = layout_child(dom, cap, &cap_input).layout_box;
             caption_bottom_height += box_total_height(&cap_lb);
@@ -793,6 +803,7 @@ pub fn layout_table(
             depth,
             viewport: input.viewport,
             layout_generation: input.layout_generation,
+            is_probe: input.is_probe,
         };
         elidex_layout_block::positioned::layout_positioned_children(
             dom,

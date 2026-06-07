@@ -152,6 +152,7 @@ mod tests {
             depth: 0,
             viewport: None,
             layout_generation: 0,
+            is_probe: false,
         }
     }
 

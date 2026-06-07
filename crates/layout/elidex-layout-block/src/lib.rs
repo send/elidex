@@ -205,12 +205,23 @@ pub struct LayoutInput<'a> {
     pub subgrid: Option<&'a SubgridContext>,
     /// Layout generation counter for paged media (0 = non-paged, always visible).
     pub layout_generation: u32,
+    /// `true` when this layout is a **throwaway probe** whose outputs are
+    /// discarded — intrinsic sizing (min/max-content, [`probe`](Self::probe)) or a
+    /// multicol balanced-fill search probe. Inherited by every child input
+    /// (threaded like `layout_generation`), so a multicol nested inside an
+    /// ancestor's probe sees `is_probe == true` and **suppresses its standalone
+    /// fragment-tree store write** (`position_column_fragments` is the only store
+    /// writer; the F1 own-probe invariant covers a multicol's OWN search probe,
+    /// this flag covers an ANCESTOR's). `false` on the real (definitive) layout.
+    pub is_probe: bool,
 }
 
 impl<'a> LayoutInput<'a> {
     /// Create a probe `LayoutInput` for intrinsic sizing (min/max-content).
     ///
-    /// Sets `offset` to zero, all optional context fields to `None`.
+    /// Sets `offset` to zero, all optional context fields to `None`, and
+    /// `is_probe` to `true` (intrinsic sizing is a throwaway pass — its multicol
+    /// descendants must not write the fragment-tree store).
     /// Use struct update syntax to override individual fields if needed:
     /// ```ignore
     /// let input = LayoutInput { containing_height: Some(h), ..LayoutInput::probe(&env, w) };
@@ -229,6 +240,7 @@ impl<'a> LayoutInput<'a> {
             break_token: None,
             subgrid: None,
             layout_generation: 0,
+            is_probe: true,
         }
     }
 }
@@ -249,6 +261,11 @@ pub struct LayoutEnv<'a> {
     pub viewport: Option<Size>,
     /// Layout generation counter for paged media (propagated to child inputs).
     pub layout_generation: u32,
+    /// Throwaway-probe flag (see [`LayoutInput::is_probe`]) carried through the
+    /// `LayoutEnv` path so a multicol reached via the env (e.g. an atomic inline
+    /// laid by `layout_atomic_items` during an ancestor's intrinsic-sizing /
+    /// balanced-fill probe) suppresses its fragment-tree store write.
+    pub is_probe: bool,
 }
 
 impl<'a> LayoutEnv<'a> {
@@ -261,6 +278,7 @@ impl<'a> LayoutEnv<'a> {
             depth: input.depth,
             viewport: input.viewport,
             layout_generation: input.layout_generation,
+            is_probe: input.is_probe,
         }
     }
 

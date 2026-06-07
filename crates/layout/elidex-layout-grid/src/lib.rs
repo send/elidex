@@ -569,6 +569,7 @@ pub fn layout_grid(
         depth,
         viewport: input.viewport,
         layout_generation: input.layout_generation,
+        is_probe: input.is_probe,
     };
     let grid_baseline = position::position_items(dom, &items, &placement, &grid_env);
 
@@ -653,6 +654,7 @@ pub fn layout_grid(
             depth,
             viewport: input.viewport,
             layout_generation: input.layout_generation,
+            is_probe: input.is_probe,
         };
         for child in abs_children {
             let cb = resolve_grid_abspos_cb(dom, child, &col_axis, &row_axis, content_origin, &pb);

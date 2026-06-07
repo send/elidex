@@ -205,6 +205,7 @@ pub fn layout_multicol(
                     depth,
                     viewport: input.viewport,
                     layout_generation: input.layout_generation,
+                    is_probe: input.is_probe,
                 };
                 let env = ColumnFillEnv {
                     input,
@@ -260,6 +261,7 @@ pub fn layout_multicol(
                     break_token: None,
                     subgrid: None,
                     layout_generation: input.layout_generation,
+                    is_probe: input.is_probe,
                 };
                 let outcome = layout_child(dom, *spanner_entity, &spanner_input);
                 // Use margin_box() for spanner block extent.
@@ -345,6 +347,7 @@ pub fn layout_multicol(
             depth,
             viewport: input.viewport,
             layout_generation: input.layout_generation,
+            is_probe: input.is_probe,
         };
         elidex_layout_block::positioned::layout_positioned_children(
             dom,
@@ -371,14 +374,19 @@ fn layout_normal_segment(
 ) -> (Vec<fill::ColumnFragment>, f32) {
     let fill_and_position =
         |dom: &mut EcsDom, frags: Vec<fill::ColumnFragment>| -> Vec<fill::ColumnFragment> {
-            position_column_fragments(dom, &frags, env.geom, env.col_ctx.wm);
+            // `env.input.is_probe` is true iff an ANCESTOR multicol/intrinsic pass
+            // is probing (this multicol's OWN balanced search probes never reach
+            // `fill_and_position` — they call `fill_columns_sequential` directly,
+            // the F1 own-probe invariant). When true, suppress the store write so
+            // an ancestor probe leaves no garbage fragments (P1).
+            position_column_fragments(dom, &frags, env.geom, env.col_ctx.wm, env.input.is_probe);
             frags
         };
 
     match (definite_height, style.column_fill) {
         // Definite height + auto fill → sequential
         (Some(h), ColumnFill::Auto) => {
-            let frags = fill_columns_sequential(dom, children, env, h, u32::MAX);
+            let frags = fill_columns_sequential(dom, children, env, h, u32::MAX, false);
             let frags = fill_and_position(dom, frags);
             (frags, h)
         }
@@ -406,6 +414,7 @@ fn position_column_fragments(
     frags: &[fill::ColumnFragment],
     geom: &ColumnGeometry,
     wm: WritingModeContext,
+    is_probe: bool,
 ) {
     for (i, frag) in frags.iter().enumerate() {
         #[allow(clippy::cast_precision_loss)]
@@ -421,29 +430,23 @@ fn position_column_fragments(
         // is the ONLY store-write site, and `position_column_fragments` runs
         // ONLY via `fill_and_position` on the definitive pass (this multicol's
         // OWN balanced-fill probes call `fill_columns_sequential` directly, never
-        // positioning), so it never accumulates THIS multicol's own probe
-        // garbage.
+        // positioning), so it never accumulates THIS multicol's own probe garbage.
         //
-        // KNOWN GAP (Z-1b prereq, dark-data-only): the definitive-pass-only
-        // guarantee holds against a multicol's own probes but NOT against an
-        // ANCESTOR multicol's probes. A nested multicol laid out inside a
-        // balanced outer multicol's probe (`fill_columns_balanced` →
-        // `fill_columns_sequential`/`probe_total_height`) re-enters the child's
-        // full `layout_multicol` → `fill_and_position`, which writes here even
-        // though the outer pass is non-definitive — leaving probe fragments
-        // mixed with final ones in a single `layout_tree` pass. Suppressing this
-        // needs a probe-mode signal threaded through `LayoutInput` and inherited
-        // by descendants (the very flag the F1 "no flag" design deferred); it is
-        // settled with the nested-multicol ancestor-shift integration before the
-        // Z-1b render consumer reads the tree. Harmless while dark data.
-        //
-        // Column 0 commits at delta 0. Z-1a dark data: render does not yet
-        // consume it.
-        for (entity, snapshot) in &frag.box_snapshots {
-            let mut bf = snapshot.clone();
-            bf.content.origin += delta;
-            #[allow(clippy::cast_possible_truncation)]
-            dom.fragment_tree_mut().push_box(*entity, i as u32, bf);
+        // P1 (Z-1b-0): the definitive-pass-only structure protects against a
+        // multicol's OWN probes but NOT against an ANCESTOR's. A nested multicol
+        // laid inside a balanced outer multicol's probe (or any intrinsic-sizing
+        // probe) re-enters this child's full `layout_multicol` → `fill_and_position`,
+        // which would write here even though the outer pass is throwaway. The
+        // `is_probe` flag — set by `LayoutInput::probe` / the balanced search probe
+        // and inherited by every child input — is true exactly then, so we skip the
+        // commit and leave no ancestor-probe garbage. Column 0 commits at delta 0.
+        if !is_probe {
+            for (entity, snapshot) in &frag.box_snapshots {
+                let mut bf = snapshot.clone();
+                bf.content.origin += delta;
+                #[allow(clippy::cast_possible_truncation)]
+                dom.fragment_tree_mut().push_box(*entity, i as u32, bf);
+            }
         }
 
         if i == 0 {
@@ -456,7 +459,20 @@ fn position_column_fragments(
         // this, multicol's own LayoutBox-only shifter left a converged whole-in-column
         // run's inline text painted at column 0. One-issue-one-way — reuse the single
         // project-wide shifter instead of a second InlineFlow-aware copy.
-        elidex_layout_block::block::shift_descendants(dom, &frag.children, delta);
+        //
+        // EXCLUDING fragments: this multicol's OWN box fragments are born-absolute
+        // (the column offset is baked above at `bf.content.origin += delta`), so
+        // re-shifting them here would double-apply the offset. Ancestor shifts of
+        // this whole subtree (relpos / margin-collapse / an OUTER multicol's column
+        // shift) DO move the fragments — they use the fragment-including
+        // `shift_descendants` (P2). Nested-multicol-in-mid-break (a descendant with
+        // its own fragments under a mid-break child) is out of Z-1b scope (D-Z2,
+        // committed-next), so no descendant fragment needs shifting here.
+        elidex_layout_block::block::shift_descendants_excluding_fragments(
+            dom,
+            &frag.children,
+            delta,
+        );
     }
 }
 

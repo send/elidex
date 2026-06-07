@@ -85,6 +85,7 @@ pub fn fill_columns_sequential(
     env: &ColumnFillEnv<'_>,
     column_height: f32,
     max_columns: u32,
+    probe: bool,
 ) -> Vec<ColumnFragment> {
     let mut fragments = Vec::new();
     let mut col_index: u32 = 0;
@@ -120,6 +121,7 @@ pub fn fill_columns_sequential(
             col_pos,
             env.col_ctx.wm,
             carry_break_token.as_ref(),
+            probe,
         );
 
         let result = stack_block_children(
@@ -136,18 +138,34 @@ pub fn fill_columns_sequential(
             extract_child_index(result.break_token.as_ref()).unwrap_or(children.len());
         let prev_child_idx = extract_child_index(carry_break_token.as_ref()).unwrap_or(0);
 
+        // Precise per-column "the break-out child was laid PARTIALLY here" signal
+        // (P3): the break token carries a `child_break_token`, which
+        // `stack_block_children` sets ONLY when it fragmented a child mid-way. A
+        // clean inter-sibling break (`break-before`/`break-after: column`) or a
+        // monolithic deferral leaves it `None` and lays the child whole in ONE
+        // column (where the I-multicol shifted `LayoutBox` suffices). This single
+        // signal drives BOTH the `col_children` shift membership below AND the
+        // box-fragment snapshot — converged (Z-1b-0). Using the coarse
+        // `result.break_token.is_some()` positional proxy here instead would
+        // misclassify a `break-before: column` resume point (where `next == prev`
+        // but no child split) as mid-break and additively double-shift the
+        // deferred child.
+        let break_out_child = result
+            .break_token
+            .as_ref()
+            .filter(|bt| bt.child_break_token.is_some())
+            .and_then(|_| children.get(next_child_idx).copied());
+
         // Build the children list for this column fragment.
         //
-        // Mid-child break (next == prev): the child is fragmented mid-way and
-        // only partially laid out in this column. Include it so that
-        // position_column_fragments can shift it with the rest of this column.
+        // Mid-child break (next == prev AND the child genuinely split here): the
+        // child is fragmented mid-way and only partially laid out in this column.
+        // Include it so that position_column_fragments shifts it with this column.
         //
-        // When next > prev AND the child at next is mid-break, we do NOT
-        // include it — the ECS model has one LayoutBox per entity, so the next
-        // column's layout will overwrite it. Multi-fragment tracking is G11.
-        let is_midbreak = next_child_idx == prev_child_idx
-            && result.break_token.is_some()
-            && next_child_idx < children.len();
+        // When next > prev, children[prev..next] fit here; a child at `next` that
+        // broke out belongs to the NEXT column — the ECS model has one LayoutBox
+        // per entity, so the next column's layout overwrites it (G11).
+        let is_midbreak = next_child_idx == prev_child_idx && break_out_child.is_some();
 
         let col_children = if is_midbreak {
             // Mid-child break: only this partially-laid-out child.
@@ -158,22 +176,13 @@ pub fn fill_columns_sequential(
         };
 
         // Snapshot the per-column box fragments of this column's SPANNING children,
-        // before the next column overwrites their `LayoutBox` (G11). A direct child
-        // has a fragment in this column iff it was laid PARTIALLY here — the precise
-        // signal is the break token's `child_break_token`, which `stack_block_children`
-        // sets ONLY when it fragmented a child mid-way (a clean inter-sibling break or
-        // a monolithic deferral leaves it None and lays the child whole in one column,
-        // where the I-multicol shifted `LayoutBox` suffices). This column's two
-        // spanning slots are the child that breaks OUT of it (`break_out_child`) and
-        // the one that continued INTO it (`carry_midbreak` = the prior column's
-        // break-out); they coincide for the middle column of a 3+-column span, so the
-        // break-out slot is dropped when it equals the carry. Z-1a dark data; the
-        // column inline-offset is applied at commit in `position_column_fragments`.
-        let break_out_child = result
-            .break_token
-            .as_ref()
-            .filter(|bt| bt.child_break_token.is_some())
-            .and_then(|_| children.get(next_child_idx).copied());
+        // before the next column overwrites their `LayoutBox` (G11). This column's
+        // two spanning slots are the child that breaks OUT of it (`break_out_child`,
+        // the precise signal above) and the one that continued INTO it
+        // (`carry_midbreak` = the prior column's break-out); they coincide for the
+        // middle column of a 3+-column span, so the break-out slot is dropped when
+        // it equals the carry. Z-1a dark data; the column inline-offset is applied
+        // at commit in `position_column_fragments`.
         let mut box_snapshots = Vec::new();
         let dedup_break_out = break_out_child.filter(|&b| Some(b) != carry_midbreak);
         for entity in carry_midbreak.into_iter().chain(dedup_break_out) {
@@ -278,7 +287,9 @@ pub fn fill_columns_balanced(
         }
 
         let mid = f32::midpoint(low, high);
-        let frags = fill_columns_sequential(dom, children, env, mid, probe_cap);
+        // Search probe = a throwaway feasibility pass; mark probe=true so a nested
+        // multicol suppresses its store write (P1).
+        let frags = fill_columns_sequential(dom, children, env, mid, probe_cap, true);
 
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let used_columns = frags.len() as u32;
@@ -297,7 +308,10 @@ pub fn fill_columns_balanced(
     // columns, the surplus spills into overflow columns (§8.2) instead of being
     // dropped — which also overwrites every child's column-0 probe `InlineFlow`
     // with its real per-column flow (see the function doc).
-    let best_frags = fill_columns_sequential(dom, children, env, high, u32::MAX);
+    // Definitive pass: probe=false. (It still inherits an ANCESTOR's probe via
+    // `env.input.is_probe` inside `build_column_input` — this `false` only says
+    // "not a balanced search probe of THIS multicol".)
+    let best_frags = fill_columns_sequential(dom, children, env, high, u32::MAX, false);
 
     (best_frags, high)
 }
@@ -389,6 +403,11 @@ fn base_column_position(ctx: &ColumnLayoutCtx) -> Point {
 }
 
 /// Build a `LayoutInput` for a single column.
+///
+/// `probe` marks a balanced-fill **search** probe (a throwaway feasibility pass);
+/// it is OR'd with the ancestor's `input.is_probe` so a multicol nested in this
+/// column inherits the throwaway flag and suppresses its own fragment-tree store
+/// write (P1).
 fn build_column_input<'a>(
     input: &LayoutInput<'a>,
     geom: &ColumnGeometry,
@@ -396,6 +415,7 @@ fn build_column_input<'a>(
     col_pos: Point,
     wm: WritingModeContext,
     break_token: Option<&'a BreakToken>,
+    probe: bool,
 ) -> LayoutInput<'a> {
     let is_horizontal = wm.is_horizontal();
     LayoutInput {
@@ -423,5 +443,8 @@ fn build_column_input<'a>(
         break_token,
         subgrid: None,
         layout_generation: input.layout_generation,
+        // Throwaway iff this is a search probe OR an ancestor is already probing
+        // — so a nested multicol suppresses its store write (P1).
+        is_probe: probe || input.is_probe,
     }
 }

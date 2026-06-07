@@ -17,6 +17,7 @@ fn empty_text_zero_height() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let h = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env).height;
     assert!(h.abs() < f32::EPSILON);
@@ -34,6 +35,7 @@ fn no_children_zero_height() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let h = layout_inline_context(&mut dom, &[], 800.0, parent_entity, Point::ZERO, &env).height;
     assert!(h.abs() < f32::EPSILON);
@@ -53,6 +55,7 @@ fn single_line_text() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let h = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env).height;
     assert!((h - css_line_height).abs() < f32::EPSILON);
@@ -74,6 +77,7 @@ fn normal_collapses_newline_to_space() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let h = layout_inline_context(&mut dom, &children, 8000.0, parent, Point::ZERO, &env).height;
     assert!(
@@ -100,6 +104,7 @@ fn pre_preserves_newline_as_break() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let h = layout_inline_context(&mut dom, &children, 8000.0, parent, Point::ZERO, &env).height;
     assert!(
@@ -126,6 +131,7 @@ fn pre_blank_line_keeps_height() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let h = layout_inline_context(&mut dom, &children, 8000.0, parent, Point::ZERO, &env).height;
     assert!(
@@ -154,6 +160,7 @@ fn pre_newline_only_keeps_line_height() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let h = layout_inline_context(&mut dom, &children, 8000.0, parent, Point::ZERO, &env).height;
     assert!(
@@ -181,6 +188,7 @@ fn pre_spaces_only_keeps_line_height() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let h = layout_inline_context(&mut dom, &children, 8000.0, parent, Point::ZERO, &env).height;
     assert!(
@@ -203,6 +211,7 @@ fn collapsible_whitespace_only_generates_no_line_box() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let result = layout_inline_context(&mut dom, &children, 8000.0, parent, Point::ZERO, &env);
     assert_eq!(
@@ -233,6 +242,7 @@ fn nbsp_only_line_generates_a_box() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let result = layout_inline_context(&mut dom, &children, 8000.0, parent, Point::ZERO, &env);
     assert_eq!(
@@ -454,6 +464,7 @@ fn text_wrapping_increases_height() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let h = layout_inline_context(&mut dom, &children, 1.0, parent, Point::ZERO, &env).height;
     assert!(h > css_line_height);
@@ -476,6 +487,7 @@ fn vertical_mode_uses_font_size_line_advance() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let block_dim =
         layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env).height;
@@ -502,6 +514,7 @@ fn vertical_lr_same_as_vertical_rl_for_height() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let block_dim =
         layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env).height;
@@ -527,6 +540,7 @@ fn horizontal_tb_uses_line_height() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let h = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env).height;
     assert!(
@@ -600,6 +614,7 @@ fn multi_style_line_height_uses_max() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let h = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env).height;
     assert!(
@@ -668,6 +683,7 @@ fn inline_span_gets_layout_box() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let _result = layout_inline_context(
         &mut dom,
@@ -731,6 +747,7 @@ fn whitespace_only_inline_span_gets_no_layout_box() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let _ = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env);
 
@@ -770,6 +787,7 @@ fn multi_line_inline_box_unions_fragment_bounds() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let _ = layout_inline_context(&mut dom, &children, 8000.0, parent, Point::ZERO, &env);
 
@@ -807,6 +825,7 @@ fn parent_entity_does_not_get_inline_layout_box() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let _result = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env);
 
@@ -852,6 +871,7 @@ fn inline_block_participates_in_ifc() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let h = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env).height;
 
@@ -931,6 +951,7 @@ fn mixed_block_inline_anonymous_box() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let result = crate::block::stack_block_children(
         &mut dom,
@@ -992,6 +1013,7 @@ fn block_only_children_no_anonymous_boxes() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let result = crate::block::stack_block_children(
         &mut dom,
@@ -1052,6 +1074,7 @@ fn display_none_skipped_in_block_context() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let result = crate::block::stack_block_children(
         &mut dom,

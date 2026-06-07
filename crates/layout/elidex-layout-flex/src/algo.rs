@@ -496,6 +496,7 @@ fn relayout_item_at_position(
         break_token: None,
         subgrid: None,
         layout_generation: env.layout_generation,
+        is_probe: env.is_probe,
     };
     let child_lb = (env.layout_child)(dom, item.entity, &child_input).layout_box;
 

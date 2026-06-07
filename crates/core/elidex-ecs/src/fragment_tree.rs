@@ -19,7 +19,9 @@
 //! makes render walk the tree as primary. The node types here are the Z-final
 //! shape (a tree of fragments); Z-1a populates it flat (no nesting yet).
 
-use elidex_plugin::{EdgeSizes, Rect};
+use std::collections::HashMap;
+
+use elidex_plugin::{EdgeSizes, Rect, Vector};
 use hecs::Entity;
 
 /// Index of a node in a [`FragmentTree`]'s arena.
@@ -33,6 +35,15 @@ pub struct FragmentId(pub u32);
 #[derive(Clone, Debug, Default)]
 pub struct FragmentTree {
     nodes: Vec<FragmentNode>,
+    /// Entity → box-fragment ids index (D-Z7). Keyed on **box-root** entities
+    /// only (`entity == Some(e)` nodes inserted via [`push_box`](Self::push_box));
+    /// anonymous line/anon-block nodes (`entity: None`, arriving with the
+    /// committed-next inline fold) are **not** indexed — they are reached via
+    /// their box parent's [`children`](FragmentNode::children) arena link. Makes
+    /// the render router / [`shift_entity`](Self::shift_entity) / `fragments_for`
+    /// O(1)-per-entity (the Z-1a `fragments_for` O(nodes) scan the paint walk was
+    /// forbidden from calling).
+    index: HashMap<Entity, Vec<FragmentId>>,
 }
 
 /// One node of the [`FragmentTree`]. The fields are the Z-final tree shape;
@@ -70,13 +81,13 @@ pub enum FragmentContent {
     /// **absolute** coords (already column-offset, so render reads it without a
     /// transform).
     ///
-    /// Caveat for the Z-1b render-consume integration: these coords are committed
-    /// at the multicol container's frame and are **not** re-shifted by an
-    /// ancestor's `shift_descendants` (which moves `LayoutBox`/`InlineFlow` but
-    /// does not walk this tree). For a multicol nested inside a later-shifted
-    /// subtree (outer multicol column shift, margin-collapse, relpos), the
-    /// fragment would need shifting too — harmless while the tree is dark data
-    /// (Z-1a), but a prerequisite to settle when Z-1b makes it painted.
+    /// Ancestor reposition (Z-1b-0, P2): an ancestor subtree shift
+    /// (`shift_descendants` — relpos / margin-collapse / an outer multicol's
+    /// column shift) moves these coords too, via
+    /// [`shift_entity`](FragmentTree::shift_entity), so a multicol nested inside a
+    /// later-shifted subtree stays absolute-correct. The multicol's OWN
+    /// column-positioning shift does NOT move them (they are born-absolute, offset
+    /// baked at commit) — it uses the fragment-excluding shifter.
     Box(BoxFragment),
 }
 
@@ -120,6 +131,7 @@ impl FragmentTree {
     /// rebuilt from scratch every pass; full-from-root relayout is the reconcile).
     pub fn clear(&mut self) {
         self.nodes.clear();
+        self.index.clear();
     }
 
     /// `true` if the tree has no nodes.
@@ -146,6 +158,7 @@ impl FragmentTree {
             fragmentainer,
             content: FragmentContent::Box(box_fragment),
         });
+        self.index.entry(entity).or_default().push(id);
         id
     }
 
@@ -154,13 +167,41 @@ impl FragmentTree {
     /// entity — the **positive presence** of a fragment is the render router
     /// (Z-1b), never `LayoutBox`-absence.
     ///
-    /// This is an O(nodes) scan, fine for the layout-side queries and tests that
-    /// use it today. The Z-1b render consume must NOT call this per entity inside
-    /// the paint walk (that would make the walk O(entities × fragments)) — it
-    /// should iterate [`nodes`](Self::nodes) once, or build an entity→fragment
-    /// index, when the consumer lands.
+    /// O(1)-keyed via the D-Z7 entity index (box-roots only), so the
+    /// Z-1b render router may call it per entity inside the paint walk. Anonymous
+    /// `InlineLines` child nodes are NOT returned here — they are reached via a
+    /// box node's [`children`](FragmentNode::children) arena link.
     pub fn fragments_for(&self, entity: Entity) -> impl Iterator<Item = &FragmentNode> {
-        self.nodes.iter().filter(move |n| n.entity == Some(entity))
+        self.index
+            .get(&entity)
+            .into_iter()
+            .flatten()
+            .map(move |id| &self.nodes[id.0 as usize])
+    }
+
+    /// Shift all box fragments of `entity` by physical `delta` (P2 — keep store
+    /// coords absolute-correct after an ancestor subtree shift). Mirrors the
+    /// `LayoutBox`/`InlineFlow` arms of block layout's `shift_descendants`, called
+    /// per visited entity; O(1) per entity via the index. A box origin shifts by
+    /// the raw physical `delta` (a [`Rect`] origin is physical, exactly like
+    /// `LayoutBox.content.origin`). The anonymous `InlineLines` child nodes (the
+    /// committed-next inline fold) are reached via the box node's `children` arena
+    /// link and shift with the writing-mode-projected delta — added with that
+    /// variant; Z-1a / Z-1b-0 has box nodes only.
+    pub fn shift_entity(&mut self, entity: Entity, delta: Vector) {
+        let Some(ids) = self.index.get(&entity) else {
+            return;
+        };
+        // The id list is tiny (one box per spanned column); clone it so we can
+        // mutate `self.nodes` without holding the `self.index` borrow. Every
+        // indexed id is a box root (the index keys box-roots only), so the match
+        // is irrefutable today; Z-1b's `InlineLines` variant turns this into a
+        // match whose lines arm applies the WM-projected delta (those nodes are
+        // reached via `children`, not the index).
+        for id in ids.clone() {
+            let FragmentContent::Box(bf) = &mut self.nodes[id.0 as usize].content;
+            bf.content.origin += delta;
+        }
     }
 
     /// All nodes (the committed-next render-walk entry; Z-1a tests read it).
@@ -258,5 +299,67 @@ mod tests {
         assert!(tree.is_empty());
         assert_eq!(tree.nodes().len(), 0);
         assert_eq!(tree.fragments_for(e).count(), 0);
+        // The D-Z7 index is cleared alongside the arena (else a stale id would
+        // dangle into the rebuilt arena next pass).
+        let again = entity(&mut w);
+        tree.push_box(again, 0, box_at(0.0));
+        assert_eq!(tree.fragments_for(again).count(), 1);
+        assert_eq!(
+            tree.fragments_for(e).count(),
+            0,
+            "old entity gone after clear"
+        );
+    }
+
+    #[test]
+    fn shift_entity_moves_all_box_fragments_of_one_entity() {
+        use elidex_plugin::Vector;
+        let mut w = hecs::World::new();
+        let span = entity(&mut w);
+        let other = entity(&mut w);
+        let mut tree = FragmentTree::default();
+        tree.push_box(span, 0, box_at(0.0));
+        tree.push_box(other, 0, box_at(10.0));
+        tree.push_box(span, 1, box_at(300.0));
+
+        tree.shift_entity(span, Vector::new(5.0, 7.0));
+
+        let xs: Vec<f32> = tree
+            .fragments_for(span)
+            .map(|n| {
+                let FragmentContent::Box(bf) = &n.content;
+                (bf.content.origin.x, bf.content.origin.y)
+            })
+            .map(|(x, _)| x)
+            .collect();
+        assert_eq!(
+            xs,
+            vec![5.0, 305.0],
+            "both of span's fragments shifted by +5 x"
+        );
+        let ys: Vec<f32> = tree
+            .fragments_for(span)
+            .map(|n| {
+                let FragmentContent::Box(bf) = &n.content;
+                bf.content.origin.y
+            })
+            .collect();
+        assert_eq!(ys, vec![7.0, 7.0], "both shifted by +7 y");
+        // The unrelated entity is untouched (index is entity-scoped).
+        let FragmentContent::Box(o) = &tree.fragments_for(other).next().unwrap().content;
+        assert_eq!((o.content.origin.x, o.content.origin.y), (10.0, 0.0));
+    }
+
+    #[test]
+    fn shift_entity_absent_is_noop() {
+        use elidex_plugin::Vector;
+        let mut w = hecs::World::new();
+        let e = entity(&mut w);
+        let absent = entity(&mut w);
+        let mut tree = FragmentTree::default();
+        tree.push_box(e, 0, box_at(0.0));
+        tree.shift_entity(absent, Vector::new(5.0, 5.0));
+        let FragmentContent::Box(bf) = &tree.fragments_for(e).next().unwrap().content;
+        assert_eq!((bf.content.origin.x, bf.content.origin.y), (0.0, 0.0));
     }
 }

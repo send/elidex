@@ -25,12 +25,29 @@ pub(in crate::block) fn shift_block_children(
     } else {
         Vector::x_only(delta)
     };
-    shift_descendants_inner(dom, children, v, true);
+    // Margin-collapse is an ancestor reposition of an already-built subtree, so a
+    // standalone box fragment under it moves too (shift_fragments = true).
+    shift_descendants_inner(dom, children, v, true, true);
 }
 
-/// Shift descendants by (dx, dy), used to reposition float/positioned contents after placement.
+/// Shift descendants by (dx, dy), used to reposition float/positioned contents
+/// after placement, and as the canonical ancestor-reposition shifter (relative
+/// positioning, margin collapse, outer-multicol column shift of a NESTED
+/// multicol). Moves `LayoutBox`, a persisted `InlineFlow`, **and** a standalone
+/// fragment-tree box fragment (P2) — all hold absolute coords that an ancestor
+/// shift must carry.
 pub fn shift_descendants(dom: &mut EcsDom, children: &[Entity], delta: Vector) {
-    shift_descendants_inner(dom, children, delta, false);
+    shift_descendants_inner(dom, children, delta, false, true);
+}
+
+/// Like [`shift_descendants`] but does **not** move standalone fragment-tree box
+/// fragments — for a multicol positioning its OWN columns
+/// (`position_column_fragments`), where the box fragments are **born-absolute**
+/// (the column offset is baked at commit, like a paged fragment), so re-shifting
+/// them here would double-apply the offset. `LayoutBox`/`InlineFlow` are
+/// born-at-base and still shift to the column (I-multicol).
+pub fn shift_descendants_excluding_fragments(dom: &mut EcsDom, children: &[Entity], delta: Vector) {
+    shift_descendants_inner(dom, children, delta, false, false);
 }
 
 /// Iterative tree walk that shifts `LayoutBox` (and persisted `InlineFlow`)
@@ -38,8 +55,16 @@ pub fn shift_descendants(dom: &mut EcsDom, children: &[Entity], delta: Vector) {
 ///
 /// When `block_only` is true, only block-level entities (with a `ComputedStyle`)
 /// are shifted; non-block children are skipped (but their descendants are still
-/// walked).
-fn shift_descendants_inner(dom: &mut EcsDom, children: &[Entity], delta: Vector, block_only: bool) {
+/// walked). When `shift_fragments` is true, standalone fragment-tree box
+/// fragments are also moved (the ancestor-reposition case); a multicol shifting
+/// its OWN born-absolute column fragments passes false.
+fn shift_descendants_inner(
+    dom: &mut EcsDom,
+    children: &[Entity],
+    delta: Vector,
+    block_only: bool,
+    shift_fragments: bool,
+) {
     let mut stack: Vec<Entity> = children.to_vec();
     while let Some(child) = stack.pop() {
         let skip_shift = block_only
@@ -81,6 +106,18 @@ fn shift_descendants_inner(dom: &mut EcsDom, children: &[Entity], delta: Vector,
                     }
                 }
             }
+        }
+        // A standalone fragment-tree box fragment (multicol mid-break, Z-1a) also
+        // holds ABSOLUTE coords, so an ANCESTOR subtree shift must move it too —
+        // else the converged box (and, in Z-1b, its inline lines) would paint at
+        // its pre-shift position once render consumes the store. Gated on
+        // `shift_fragments` (false only for a multicol shifting its OWN
+        // born-absolute column fragments, where the offset is already baked at
+        // commit). Un-gated by `block_only` (the fragment is the entity's
+        // regardless of its block-level-ness). O(1) via the entity index; a no-op
+        // for the common entity that has no box fragment (P2).
+        if shift_fragments {
+            dom.fragment_tree_mut().shift_entity(child, delta);
         }
         // Always walk descendants regardless of block_only filter.
         stack.extend(dom.composed_children(child));

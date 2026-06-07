@@ -12,7 +12,12 @@ use elidex_ecs::FragmentContent;
 /// columns (col-0 → col-1); `parts == 3` spans three (exercising the middle
 /// column, where a child both resumes-into AND breaks-out-of the column). Returns
 /// the spanning div (the mid-break direct child of the multicol container).
-fn add_spanning_block(dom: &mut EcsDom, parent: Entity, parts: usize, part_height: f32) -> Entity {
+pub(super) fn add_spanning_block(
+    dom: &mut EcsDom,
+    parent: Entity,
+    parts: usize,
+    part_height: f32,
+) -> Entity {
     let div = elem(dom, "div");
     dom.append_child(parent, div);
     let _ = dom.world_mut().insert_one(

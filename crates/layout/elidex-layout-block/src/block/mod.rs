@@ -27,7 +27,10 @@ use crate::{
     sanitize_border, LayoutInput, MAX_LAYOUT_DEPTH,
 };
 
-pub use children::{resolve_block_height, shift_descendants, stack_block_children, StackResult};
+pub use children::{
+    resolve_block_height, shift_descendants, shift_descendants_excluding_fragments,
+    stack_block_children, StackResult,
+};
 pub use margin::resolve_margin;
 
 use children::shift_block_children;
@@ -90,6 +93,7 @@ pub fn layout_block(
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        is_probe: false,
     };
     layout_block_inner(dom, entity, &input, crate::layout_block_only).layout_box
 }
@@ -121,6 +125,7 @@ pub fn layout_block_with_height(
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        is_probe: false,
     };
     layout_block_inner(dom, entity, &input, crate::layout_block_only).layout_box
 }
@@ -421,6 +426,7 @@ pub fn layout_block_inner(
             break_token: child_bt_for_stack,
             subgrid: None,
             layout_generation: input.layout_generation,
+            is_probe: input.is_probe,
         };
         let is_bfc = establishes_bfc(&style);
         let mut result =
@@ -628,6 +634,7 @@ pub fn layout_block_inner(
             depth,
             viewport: input.viewport,
             layout_generation: input.layout_generation,
+            is_probe: input.is_probe,
         };
         crate::positioned::layout_positioned_children(
             dom,

@@ -16,6 +16,7 @@ fn inline_baseline_from_text() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let result = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env);
 
@@ -59,6 +60,7 @@ fn inline_baseline_with_atomic_box() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let result = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env);
 
@@ -82,6 +84,7 @@ fn empty_inline_no_baseline() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let result = layout_inline_context(&mut dom, &[], 800.0, parent_entity, Point::ZERO, &env);
 
@@ -106,6 +109,7 @@ fn vertical_writing_mode_no_baseline() {
         depth: 0,
         viewport: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let result = layout_inline_context(&mut dom, &children, 800.0, parent, Point::ZERO, &env);
 
@@ -138,6 +142,7 @@ fn block_inline_text_baseline() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let result = crate::block::stack_block_children(
         &mut dom,
@@ -192,6 +197,7 @@ fn nested_block_baseline_propagation() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let result = crate::block::stack_block_children(
         &mut dom,
@@ -243,6 +249,7 @@ fn block_without_baseline_none() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let result = crate::block::stack_block_children(
         &mut dom,
@@ -299,6 +306,7 @@ fn mixed_block_inline_baseline() {
         break_token: None,
         subgrid: None,
         layout_generation: 0,
+        is_probe: false,
     };
     let result = crate::block::stack_block_children(
         &mut dom,
