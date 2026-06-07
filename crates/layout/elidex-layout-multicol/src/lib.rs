@@ -416,6 +416,15 @@ fn position_column_fragments(
     wm: WritingModeContext,
     is_probe: bool,
 ) {
+    // THIS multicol's own mid-break children — their box fragments are committed
+    // born-absolute below (`bf.content.origin += delta`), so the per-column shift
+    // must NOT re-move them. Everything else in a column subtree (incl. a NESTED
+    // multicol's own fragments, committed at this multicol's column-0 base) DOES
+    // shift with the column delta.
+    let own: std::collections::HashSet<Entity> = frags
+        .iter()
+        .flat_map(|f| f.box_snapshots.iter().map(|(entity, _)| *entity))
+        .collect();
     for (i, frag) in frags.iter().enumerate() {
         #[allow(clippy::cast_precision_loss)]
         let inline_offset = i as f32 * (geom.width + geom.gap);
@@ -460,18 +469,19 @@ fn position_column_fragments(
         // run's inline text painted at column 0. One-issue-one-way — reuse the single
         // project-wide shifter instead of a second InlineFlow-aware copy.
         //
-        // EXCLUDING fragments: this multicol's OWN box fragments are born-absolute
-        // (the column offset is baked above at `bf.content.origin += delta`), so
-        // re-shifting them here would double-apply the offset. Ancestor shifts of
-        // this whole subtree (relpos / margin-collapse / an OUTER multicol's column
-        // shift) DO move the fragments — they use the fragment-including
-        // `shift_descendants` (P2). Nested-multicol-in-mid-break (a descendant with
-        // its own fragments under a mid-break child) is out of Z-1b scope (D-Z2,
-        // committed-next), so no descendant fragment needs shifting here.
-        elidex_layout_block::block::shift_descendants_excluding_fragments(
+        // EXCLUDING this multicol's OWN fragments: they are born-absolute (the
+        // column offset was baked above at `bf.content.origin += delta`), so
+        // re-shifting them here would double-apply it. But a NESTED multicol that
+        // is whole-in-this-column has already committed ITS spanning-child
+        // fragments at this multicol's column-0 base — those are NOT in `own`, so
+        // they DO shift with the column delta (else they would paint back in
+        // column 0 once consumed). Ancestor shifts of this whole subtree (relpos /
+        // margin-collapse) move every fragment via `shift_descendants` (P2).
+        elidex_layout_block::block::shift_descendants_excluding_own_fragments(
             dom,
             &frag.children,
             delta,
+            &own,
         );
     }
 }

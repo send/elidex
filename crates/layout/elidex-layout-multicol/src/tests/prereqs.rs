@@ -232,12 +232,12 @@ fn p2_ancestor_shift_moves_box_fragments() {
 }
 
 #[test]
-fn p2_excluding_fragments_variant_does_not_move_box_fragments() {
+fn p2_excluding_own_fragments_variant_does_not_move_own_box_fragments() {
     // The multicol's OWN column-positioning shifter
-    // (`shift_descendants_excluding_fragments`) must NOT move the born-absolute box
-    // fragments (their column offset is baked at commit) — else the column shift
-    // would double-apply it. This is exactly why `position_column_fragments` uses
-    // the excluding variant.
+    // (`shift_descendants_excluding_own_fragments`) must NOT move the born-absolute
+    // box fragments of the entities in `own` (their column offset is baked at
+    // commit) — else the column shift would double-apply it. This is exactly why
+    // `position_column_fragments` excludes its own mid-break snapshots.
     let mut dom = EcsDom::new();
     let container = elem(&mut dom, "div");
     let _ = dom.world_mut().insert_one(
@@ -256,15 +256,67 @@ fn p2_excluding_fragments_variant_does_not_move_box_fragments() {
     layout_multicol(&mut dom, container, &input, layout_child_fn);
 
     let before = box_fragment_cols(&dom, span);
-    elidex_layout_block::block::shift_descendants_excluding_fragments(
+    let own: std::collections::HashSet<_> = std::iter::once(span).collect();
+    elidex_layout_block::block::shift_descendants_excluding_own_fragments(
         &mut dom,
         &[container],
         Vector::new(40.0, 70.0),
+        &own,
     );
     let after = box_fragment_cols(&dom, span);
     assert_eq!(
         before, after,
-        "excluding-fragments shift leaves box fragments put"
+        "excluding-own shift leaves the owner's born-absolute box fragments put"
+    );
+}
+
+#[test]
+fn p2_whole_nested_multicol_fragments_shift_with_outer_column() {
+    // Codex #315 P2: an OUTER multicol places a WHOLE nested multicol in column 1.
+    // The nested multicol has already committed its spanning grandchild's box
+    // fragments at the OUTER column-0 base (the outer lays all columns at base).
+    // The outer's column-1 shift must move those NESTED fragments by the column
+    // delta — they are NOT the outer's own born-absolute snapshots, so the
+    // per-entity exclusion must let them through (else they paint in column 0 once
+    // consumed). Without the per-entity fix (blanket exclusion) the grandchild's
+    // fragments stay at x≈0; with it they land at the outer column-1 offset.
+    let mut dom = EcsDom::new();
+    let outer = elem(&mut dom, "div");
+    let _ = dom.world_mut().insert_one(
+        outer,
+        ComputedStyle {
+            display: Display::Block,
+            column_count: Some(2),
+            column_fill: ColumnFill::Auto,
+            height: Dimension::Length(50.0),
+            ..ComputedStyle::default()
+        },
+    );
+    // Outer column 0: a 50px filler so the nested multicol is pushed to column 1.
+    let _filler = add_block_child(&mut dom, outer, 50.0);
+    // The nested multicol fits whole in outer column 1 (its own 2 columns, 25px
+    // tall, hold its spanning grandchild which breaks across the nested columns).
+    let inner = add_multicol(&mut dom, outer, 2, 25.0);
+    let gspan = add_spanning_block(&mut dom, inner, 2, 25.0);
+
+    let font_db = make_font_db();
+    let input = make_input(&font_db);
+    layout_multicol(&mut dom, outer, &input, layout_child_nested);
+
+    // Outer 600 wide / 2 columns → outer column width 300; the nested multicol sits
+    // in outer column 1, so its content (and its grandchild's box fragments) are
+    // offset by ~300. The grandchild's first nested-column fragment must therefore
+    // be at x ≳ 300 (moved with the outer column), NOT at x≈0.
+    let frags = box_fragment_cols(&dom, gspan);
+    assert_eq!(
+        frags.len(),
+        2,
+        "nested grandchild spans the inner 2 columns, got {frags:?}"
+    );
+    assert!(
+        frags[0].1 >= 290.0,
+        "nested grandchild's outer-column-1 fragments shifted with the outer column (x≈300, not 0), got {}",
+        frags[0].1
     );
 }
 

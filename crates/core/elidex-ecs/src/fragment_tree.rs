@@ -140,8 +140,19 @@ impl FragmentTree {
         self.nodes.is_empty()
     }
 
-    /// Push a root box fragment for `entity` in fragmentainer `fragmentainer`,
+    /// Upsert a root box fragment for `entity` in fragmentainer `fragmentainer`,
     /// returning its id. Z-1a fragments are flat roots (no parenting yet).
+    ///
+    /// **Upsert, not append** (last definitive write wins, keyed on
+    /// `(entity, fragmentainer)`): a subtree can be laid out more than once within
+    /// a single layout pass — a multicol child attempted in one column then
+    /// deferred and re-laid in the next, a table cell's height-probe + final
+    /// relayout, a flex item's measure + reposition — and each definitive lay
+    /// re-commits the same `(entity, fragmentainer)` fragment. Replacing rather
+    /// than appending keeps exactly one fragment per `(entity, fragmentainer)` at
+    /// its final position, mirroring how the `InlineFlow`/`LayoutBox` components
+    /// use `insert_one` (replace). (Throwaway *probe* re-lays are suppressed
+    /// upstream by `is_probe`; this dedups the unavoidable definitive re-lays.)
     #[allow(clippy::cast_possible_truncation)]
     pub fn push_box(
         &mut self,
@@ -149,6 +160,15 @@ impl FragmentTree {
         fragmentainer: u32,
         box_fragment: BoxFragment,
     ) -> FragmentId {
+        // Replace an existing (entity, fragmentainer) node if one is present.
+        if let Some(ids) = self.index.get(&entity) {
+            for &id in ids {
+                if self.nodes[id.0 as usize].fragmentainer == fragmentainer {
+                    self.nodes[id.0 as usize].content = FragmentContent::Box(box_fragment);
+                    return id;
+                }
+            }
+        }
         let id = FragmentId(self.nodes.len() as u32);
         self.nodes.push(FragmentNode {
             id,

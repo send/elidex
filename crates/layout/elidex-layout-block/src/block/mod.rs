@@ -28,7 +28,7 @@ use crate::{
 };
 
 pub use children::{
-    resolve_block_height, shift_descendants, shift_descendants_excluding_fragments,
+    resolve_block_height, shift_descendants, shift_descendants_excluding_own_fragments,
     stack_block_children, StackResult,
 };
 pub use margin::resolve_margin;
