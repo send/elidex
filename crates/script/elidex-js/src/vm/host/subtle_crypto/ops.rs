@@ -1,6 +1,7 @@
-//! The six `SubtleCrypto` operation natives — `digest` plus the HMAC
+//! The eight `SubtleCrypto` operation natives — `digest` plus the HMAC
 //! vertical (`generateKey` / `importKey` / `exportKey` / `sign` /
-//! `verify`, `#11-crypto-subtle-full` PR-1).
+//! `verify`, `#11-crypto-subtle-full` PR-1) and the AES `encrypt` /
+//! `decrypt` (PR-2).
 //!
 //! Each native is a thin pipeline: [`super::run_op`] creates the
 //! Promise + runs the receiver brand check (the only async-reported
@@ -76,7 +77,7 @@ pub(super) fn native_subtle_crypto_digest(
             false,
         )?;
         let raw = marshal_algorithm(ctx, algorithm, "digest", Operation::Digest)?;
-        let normalized = crypto::normalize(Operation::Digest, &raw)
+        let normalized = crypto::normalize(Operation::Digest, raw)
             .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
         let NormalizedAlgorithm::Digest(hash) = normalized else {
             return Err(algorithm_error_to_vm(
@@ -118,7 +119,7 @@ pub(super) fn native_subtle_crypto_generate_key(
         let usages = marshal_usages(ctx, usages_arg, "generateKey")?;
 
         let raw = marshal_algorithm(ctx, algorithm, "generateKey", Operation::GenerateKey)?;
-        let normalized = crypto::normalize(Operation::GenerateKey, &raw)
+        let normalized = crypto::normalize(Operation::GenerateKey, raw)
             .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
 
         // The crate owns usage validation → length sizing → fill ordering
@@ -174,7 +175,7 @@ pub(super) fn native_subtle_crypto_import_key(
         let usages = marshal_usages(ctx, usages_arg, "importKey")?;
 
         let raw = marshal_algorithm(ctx, algorithm, "importKey", Operation::ImportKey)?;
-        let normalized = crypto::normalize(Operation::ImportKey, &raw)
+        let normalized = crypto::normalize(Operation::ImportKey, raw)
             .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
 
         let key = crypto::ops::import_key(format, normalized, extractable, usages, key_data)
@@ -244,7 +245,7 @@ pub(super) fn native_subtle_crypto_sign(
             false,
         )?;
         let raw = marshal_algorithm(ctx, algorithm, "sign", Operation::Sign)?;
-        let normalized = crypto::normalize(Operation::Sign, &raw)
+        let normalized = crypto::normalize(Operation::Sign, raw)
             .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
         let signature = {
             let key_data = &ctx.vm.crypto_key_states[&key_id];
@@ -291,7 +292,7 @@ pub(super) fn native_subtle_crypto_verify(
             false,
         )?;
         let raw = marshal_algorithm(ctx, algorithm, "verify", Operation::Verify)?;
-        let normalized = crypto::normalize(Operation::Verify, &raw)
+        let normalized = crypto::normalize(Operation::Verify, raw)
             .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
         let ok = {
             let key_data = &ctx.vm.crypto_key_states[&key_id];
@@ -300,4 +301,89 @@ pub(super) fn native_subtle_crypto_verify(
         .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
         Ok(JsValue::Boolean(ok))
     })
+}
+
+// ===========================================================================
+// AES vertical: encrypt / decrypt (`#11-crypto-subtle-full` PR-2).  Same
+// `run_op` pipeline as `sign` above; the algorithm `(object or DOMString)`
+// conversion (arg 1) runs first, then the `CryptoKey` brand check (arg 2),
+// then the `data` BufferSource snapshot (arg 3) — so a `Symbol()` algorithm
+// beats a non-CryptoKey `key`, which beats NotSupportedError.  All cipher
+// math + validation live in `elidex-api-crypto`; the result is an
+// `ArrayBuffer` (digest's return shape).
+// ===========================================================================
+
+pub(super) fn native_subtle_crypto_encrypt(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let args = args.to_vec();
+    run_op(ctx, this, "encrypt", move |ctx| {
+        run_cipher(
+            ctx,
+            &args,
+            "encrypt",
+            Operation::Encrypt,
+            crypto::ops::encrypt,
+        )
+    })
+}
+
+pub(super) fn native_subtle_crypto_decrypt(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    let args = args.to_vec();
+    run_op(ctx, this, "decrypt", move |ctx| {
+        run_cipher(
+            ctx,
+            &args,
+            "decrypt",
+            Operation::Decrypt,
+            crypto::ops::decrypt,
+        )
+    })
+}
+
+/// The crate `encrypt` / `decrypt` entry point shared by [`run_cipher`].
+type CipherOp =
+    fn(NormalizedAlgorithm, &crypto::CryptoKeyData, &[u8]) -> Result<Vec<u8>, AlgorithmError>;
+
+/// Shared `encrypt` / `decrypt` body: marshal `(algorithm, key, data)`,
+/// normalize for `op`, run the crate `cipher_op`, and wrap the bytes in an
+/// `ArrayBuffer`.
+fn run_cipher(
+    ctx: &mut NativeContext<'_>,
+    args: &[JsValue],
+    method: &'static str,
+    op: Operation,
+    cipher_op: CipherOp,
+) -> Result<JsValue, VmError> {
+    let algorithm =
+        convert_algorithm_identifier(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
+    let key_id = require_crypto_key_arg(
+        ctx,
+        args.get(1).copied().unwrap_or(JsValue::Undefined),
+        method,
+        2,
+    )?;
+    let error_prefix = format!("Failed to execute '{method}' on 'SubtleCrypto'");
+    let data = extract_buffer_source_bytes(
+        ctx,
+        args.get(2).copied().unwrap_or(JsValue::Undefined),
+        &error_prefix,
+        3,
+        false,
+    )?;
+    let raw = marshal_algorithm(ctx, algorithm, method, op)?;
+    let normalized = crypto::normalize(op, raw).map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+    let bytes = {
+        let key_data = &ctx.vm.crypto_key_states[&key_id];
+        cipher_op(normalized, key_data, &data)
+    }
+    .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
+    let buf = create_array_buffer_from_bytes(ctx.vm, bytes);
+    Ok(JsValue::Object(buf))
 }

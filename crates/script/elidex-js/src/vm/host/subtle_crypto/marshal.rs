@@ -9,15 +9,18 @@
 //! object — all spec-validation lives in `elidex-api-crypto`.
 
 use elidex_api_crypto::key::KeyUsage;
-use elidex_api_crypto::{self as crypto, JsonWebKey, KeyFormat, Operation, RawAlgorithm};
+use elidex_api_crypto::{
+    self as crypto, AlgorithmParams, JsonWebKey, KeyFormat, Operation, RawAlgorithm,
+};
 
 use super::super::super::coerce;
 use super::super::super::shape;
 use super::super::super::value::{
     JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
-    PropertyValue, VmError,
+    PropertyValue, StringId, VmError,
 };
 use super::super::super::webidl_sequence::{webidl_sequence_to_vec, SeqMessages};
+use super::super::text_encoding::extract_buffer_source_member;
 
 /// Brand-check a `CryptoKey` operation argument (NOT `this`).  A wrong
 /// type is a WebIDL conversion `TypeError`, settled on the Promise.
@@ -72,17 +75,18 @@ pub(super) fn convert_algorithm_identifier(
 /// normalization), run after every argument has been converted.  A missing
 /// / `undefined` required `name` member is a `TypeError`.
 ///
-/// The `hash` / `length` members are read **only** for the operations
-/// whose params dictionaries carry them (`generateKey` / `importKey` —
-/// `HmacKeyGenParams` / `HmacImportParams`) **and** only once the `name`
-/// has been recognized against the registry for `op`.  This mirrors
-/// §18.4.4: step 5 recognizes `algName` (returning `NotSupportedError`
-/// for an unregistered pair) *before* step 6 converts `alg` to the params
-/// dictionary, which is what reads `hash` / `length`.  An unregistered
-/// name (e.g. `generateKey({name:'AES-Magic', get hash(){throw}})`) must
-/// therefore reject with `NotSupportedError` and never fire the getter.
-/// For `digest` / `sign` / `verify` the identifier is name-only (the
-/// spec's `Algorithm` dict), so those members are not consulted either.
+/// The derived params-dictionary members (HMAC `hash` / `length`; AES
+/// `iv` / `counter` / `additionalData` / `tagLength` / key-gen `length`)
+/// are read by [`read_params`] **only** once `crypto::params_shape(op,
+/// name)` recognizes the `(op, name)` pair, and only those members that
+/// pair's dictionary carries.  This mirrors §18.4.4: step 5 recognizes
+/// `algName` (returning `NotSupportedError` for an unregistered pair)
+/// *before* step 6 converts `alg` to the params dictionary, which is what
+/// fires those getters.  An unregistered name (e.g.
+/// `encrypt({name:'AES-Magic', get iv(){throw}}, …)`) must therefore reject
+/// with `NotSupportedError` and never fire the getter.  For `digest` /
+/// `sign` / `verify` / AES `importKey` the identifier is a name-only
+/// `Algorithm`, so no derived member is consulted.
 ///
 /// Bounding the recursion: the nested `hash` is a
 /// [`marshal_hash_identifier`] **leaf** (a `HashAlgorithmIdentifier` never
@@ -94,58 +98,209 @@ pub(super) fn marshal_algorithm(
     method: &str,
     op: Operation,
 ) -> Result<RawAlgorithm, VmError> {
-    let reads_key_params = matches!(op, Operation::GenerateKey | Operation::ImportKey);
     match value {
         JsValue::String(sid) => Ok(RawAlgorithm::from_name(ctx.vm.strings.get_utf8(sid))),
         JsValue::Object(id) => {
             let name = read_required_name(ctx, id, method)?;
-            // §18.4.4 step 5 recognition gate: only read the params-
-            // dictionary getters (step 6) for a registered `(op, name)`.
-            // An unrecognized name yields a name-only `RawAlgorithm`,
-            // which `crypto::normalize` rejects as `NotSupportedError`
-            // without ever touching `hash` / `length`.
-            let (hash, length) = if reads_key_params && crypto::is_supported(op, &name) {
-                // §18.4.4 step 6: converting to the params dictionary
-                // (`HmacKeyGenParams` / `HmacImportParams`, both of which
-                // inherit `Algorithm`) re-reads the required inherited
-                // `name` member — before the derived `hash` / `length`, in
-                // dictionary member order.  The recognized name from step 5
-                // is authoritative (step 7), so the second read's *value*
-                // is discarded, but its getter still fires, so a throw (or
-                // a now-missing `name`) on the second access propagates.
-                read_required_name(ctx, id, method)?;
-                // Members are read in lexicographic order — `hash` before
-                // `length`.  `hash` is a **required** `HmacKeyGenParams` /
-                // `HmacImportParams` member, so an undefined `hash` is a
-                // `TypeError` *before* the `length` getter is read (Web IDL
-                // dictionary conversion throws at the first missing required
-                // member).
-                let hash_val =
-                    ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.hash_attr))?;
-                if matches!(hash_val, JsValue::Undefined) {
-                    return Err(VmError::type_error(format!(
-                        "Failed to execute '{method}' on 'SubtleCrypto': \
-                         Algorithm: member hash is required"
-                    )));
+            let mut raw = RawAlgorithm::from_name(name.clone());
+            // §18.4.4 step 5 recognition gate: the registry decides which
+            // params-dictionary members this `(op, name)` carries.  An
+            // unregistered name (`None`) or a name-only `Algorithm`
+            // (`NameOnly` — digest / sign / verify / AES importKey) reads no
+            // further getters; `crypto::normalize` then accepts the
+            // name-only form or rejects it as `NotSupportedError`, never
+            // touching a user-defined params getter for an unregistered name.
+            match crypto::params_shape(op, &name) {
+                None | Some(AlgorithmParams::NameOnly) => {}
+                Some(shape) => {
+                    // §18.4.4 step 6: converting `alg` to its params
+                    // dictionary (each of which inherits `Algorithm`)
+                    // re-reads the required inherited `name` member first —
+                    // its getter fires again before the derived members, so
+                    // a throw / now-missing `name` on the second access
+                    // propagates (the step-5 name stays authoritative,
+                    // step 7).
+                    read_required_name(ctx, id, method)?;
+                    read_params(ctx, id, method, shape, &mut raw)?;
                 }
-                let hash = Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?));
-                let length_val =
-                    ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.length))?;
-                let length = if matches!(length_val, JsValue::Undefined) {
-                    None
-                } else {
-                    Some(coerce_enforce_range_u32(ctx, length_val, method)?)
-                };
-                (hash, length)
-            } else {
-                (None, None)
-            };
-            Ok(RawAlgorithm { name, hash, length })
+            }
+            Ok(raw)
         }
         // `value` is post-[`convert_algorithm_identifier`], so it is always
         // an Object or a `String` — any other variant is a caller bug.
         other => unreachable!("algorithm must be converted first, got {other:?}"),
     }
+}
+
+/// Read the derived params-dictionary members for a recognized `(op, name)`
+/// (WebCrypto §18.4.4 step 6), in Web IDL **lexicographic member order** so
+/// getter side effects fire in the spec order.  A missing required member is
+/// a `TypeError`; the value validity (iv/counter byte length, tagLength
+/// value, key length) is validated later in the engine-independent crate
+/// (`crypto::normalize` + `crypto::ops`), at the op step where the spec
+/// throws.
+fn read_params(
+    ctx: &mut NativeContext<'_>,
+    id: ObjectId,
+    method: &str,
+    shape: AlgorithmParams,
+    raw: &mut RawAlgorithm,
+) -> Result<(), VmError> {
+    match shape {
+        // Handled by the caller (no derived members).
+        AlgorithmParams::NameOnly => {}
+        AlgorithmParams::HmacKeyParams => {
+            // `HmacKeyGenParams` / `HmacImportParams`: hash (required), then
+            // length (optional `unsigned long`) — lexicographic order.
+            let hash_val =
+                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.hash_attr))?;
+            if matches!(hash_val, JsValue::Undefined) {
+                return Err(required_member_error(method, "hash"));
+            }
+            raw.hash = Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?));
+            raw.length =
+                read_optional_length(ctx, id, method, "unsigned long", f64::from(u32::MAX))?;
+        }
+        AlgorithmParams::AesKeyGen => {
+            // `AesKeyGenParams`: length (required `[EnforceRange] unsigned
+            // short`).
+            let length_val =
+                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.length))?;
+            if matches!(length_val, JsValue::Undefined) {
+                return Err(required_member_error(method, "length"));
+            }
+            raw.length = Some(coerce_enforce_range(
+                ctx,
+                length_val,
+                method,
+                "length",
+                "unsigned short",
+                65535.0,
+            )?);
+        }
+        AlgorithmParams::AesGcmParams => {
+            // `AesGcmParams`: additionalData (optional), iv (required),
+            // tagLength (optional `[EnforceRange] octet`) — lexicographic.
+            let (aad_sid, iv_sid, tag_sid) = (
+                ctx.vm.well_known.additional_data,
+                ctx.vm.well_known.iv,
+                ctx.vm.well_known.tag_length,
+            );
+            raw.additional_data =
+                read_optional_buffer_source(ctx, id, method, aad_sid, "additionalData")?;
+            raw.iv = Some(read_required_buffer_source(ctx, id, method, iv_sid, "iv")?);
+            raw.tag_length = read_optional_octet(ctx, id, method, tag_sid, "tagLength")?;
+        }
+        AlgorithmParams::AesCbcParams => {
+            // `AesCbcParams`: iv (required `BufferSource`).
+            let iv_sid = ctx.vm.well_known.iv;
+            raw.iv = Some(read_required_buffer_source(ctx, id, method, iv_sid, "iv")?);
+        }
+        AlgorithmParams::AesCtrParams => {
+            // `AesCtrParams`: counter (required), length (required
+            // `[EnforceRange] octet`) — lexicographic order.
+            let counter_sid = ctx.vm.well_known.counter;
+            raw.counter = Some(read_required_buffer_source(
+                ctx,
+                id,
+                method,
+                counter_sid,
+                "counter",
+            )?);
+            let length_val =
+                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.length))?;
+            if matches!(length_val, JsValue::Undefined) {
+                return Err(required_member_error(method, "length"));
+            }
+            raw.length = Some(coerce_enforce_range(
+                ctx, length_val, method, "length", "octet", 255.0,
+            )?);
+        }
+    }
+    Ok(())
+}
+
+/// Read a required `BufferSource` member (e.g. AES `iv` / `counter`): an
+/// absent / non-BufferSource value is a member-named `TypeError`.
+/// `member_sid` is the pre-interned property key; `member` names it for the
+/// error message.
+fn read_required_buffer_source(
+    ctx: &mut NativeContext<'_>,
+    id: ObjectId,
+    method: &str,
+    member_sid: StringId,
+    member: &str,
+) -> Result<Vec<u8>, VmError> {
+    let val = ctx.get_property_value(id, PropertyKey::String(member_sid))?;
+    let prefix = format!("Failed to execute '{method}' on 'SubtleCrypto'");
+    extract_buffer_source_member(ctx, val, &prefix, member)
+}
+
+/// Read an optional `BufferSource` member (AES `additionalData`):
+/// `undefined` → absent; any present value is snapshot-copied.
+fn read_optional_buffer_source(
+    ctx: &mut NativeContext<'_>,
+    id: ObjectId,
+    method: &str,
+    member_sid: StringId,
+    member: &str,
+) -> Result<Option<Vec<u8>>, VmError> {
+    let val = ctx.get_property_value(id, PropertyKey::String(member_sid))?;
+    if matches!(val, JsValue::Undefined) {
+        return Ok(None);
+    }
+    let prefix = format!("Failed to execute '{method}' on 'SubtleCrypto'");
+    Ok(Some(extract_buffer_source_member(
+        ctx, val, &prefix, member,
+    )?))
+}
+
+/// Read an optional `[EnforceRange] octet` member (AES-GCM `tagLength`):
+/// `undefined` → absent.
+fn read_optional_octet(
+    ctx: &mut NativeContext<'_>,
+    id: ObjectId,
+    method: &str,
+    member_sid: StringId,
+    member: &str,
+) -> Result<Option<u32>, VmError> {
+    let val = ctx.get_property_value(id, PropertyKey::String(member_sid))?;
+    if matches!(val, JsValue::Undefined) {
+        return Ok(None);
+    }
+    Ok(Some(coerce_enforce_range(
+        ctx, val, method, member, "octet", 255.0,
+    )?))
+}
+
+/// Read an optional `[EnforceRange] unsigned long` `length` member (HMAC):
+/// `undefined` → absent.
+fn read_optional_length(
+    ctx: &mut NativeContext<'_>,
+    id: ObjectId,
+    method: &str,
+    idl_type: &str,
+    max_inclusive: f64,
+) -> Result<Option<u32>, VmError> {
+    let val = ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.length))?;
+    if matches!(val, JsValue::Undefined) {
+        return Ok(None);
+    }
+    Ok(Some(coerce_enforce_range(
+        ctx,
+        val,
+        method,
+        "length",
+        idl_type,
+        max_inclusive,
+    )?))
+}
+
+fn required_member_error(method: &str, member: &str) -> VmError {
+    VmError::type_error(format!(
+        "Failed to execute '{method}' on 'SubtleCrypto': \
+         Algorithm: member {member} is required"
+    ))
 }
 
 /// Marshal a `HashAlgorithmIdentifier` (string or `{name}`) — a **leaf**
@@ -185,29 +340,35 @@ fn read_required_name(
     Ok(ctx.vm.strings.get_utf8(name_sid))
 }
 
-/// WebIDL `[EnforceRange] unsigned long` conversion for the `length`
-/// member (Web IDL §3.3.6 `[EnforceRange]` / ConvertToInt step 6):
-/// ToNumber, reject NaN / ±∞ with a `TypeError`, then take `IntegerPart`
-/// (**truncate toward zero**) and range-check.  A finite fractional value
-/// such as `31.9` is therefore accepted as `31` — NOT rejected (and NOT
-/// the wrapping `ToUint32`).
-fn coerce_enforce_range_u32(
+/// WebIDL `[EnforceRange]` integer conversion for an algorithm `member`
+/// (Web IDL §3.3.6 `[EnforceRange]` / ConvertToInt step 6): ToNumber,
+/// reject NaN / ±∞ with a `TypeError`, then take `IntegerPart` (**truncate
+/// toward zero**) and range-check against `[0, max_inclusive]`.  A finite
+/// fractional value such as `31.9` is therefore accepted as `31` — NOT
+/// rejected (and NOT the wrapping `ToUint32`).  `idl_type` names the IDL
+/// integer type (`unsigned long` / `unsigned short` / `octet`) for the
+/// error message and `max_inclusive` is that type's maximum.
+fn coerce_enforce_range(
     ctx: &mut NativeContext<'_>,
     value: JsValue,
     method: &str,
+    member: &str,
+    idl_type: &str,
+    max_inclusive: f64,
 ) -> Result<u32, VmError> {
     let n = coerce::to_number(ctx.vm, value)?;
     // Web IDL: NaN / ±∞ throw before truncation; otherwise IntegerPart
     // truncates toward zero, then the result is bounds-checked.
     let truncated = n.trunc();
-    if n.is_finite() && truncated >= 0.0 && truncated <= f64::from(u32::MAX) {
-        // Truncated integer within range; the cast is lossless.
+    if n.is_finite() && truncated >= 0.0 && truncated <= max_inclusive {
+        // Truncated integer within range (max_inclusive ≤ u32::MAX); the
+        // cast is lossless.
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         Ok(truncated as u32)
     } else {
         Err(VmError::type_error(format!(
             "Failed to execute '{method}' on 'SubtleCrypto': \
-             Algorithm: length: Value is outside the 'unsigned long' value range"
+             Algorithm: {member}: Value is outside the '{idl_type}' value range"
         )))
     }
 }

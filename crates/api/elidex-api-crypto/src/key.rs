@@ -7,7 +7,7 @@
 //! store the full material, so `material` is the source of truth and
 //! export round-trips deterministically).
 
-use crate::algorithm::AlgorithmName;
+use crate::algorithm::{AesVariant, AlgorithmName};
 use crate::hash::HashAlgorithm;
 
 /// `CryptoKey.type` (WebCrypto §13 `KeyType`).
@@ -58,6 +58,21 @@ impl KeyUsage {
         }
     }
 
+    /// Whether HMAC accepts this usage (WebCrypto §31.6.3/.4 step 1:
+    /// `sign` / `verify` only).
+    pub fn is_hmac_usage(self) -> bool {
+        matches!(self, Self::Sign | Self::Verify)
+    }
+
+    /// Whether AES accepts this usage (WebCrypto §27.7.3 / §28.4.3 /
+    /// §29.4.3 step 1: `encrypt` / `decrypt` / `wrapKey` / `unwrapKey`).
+    pub fn is_aes_usage(self) -> bool {
+        matches!(
+            self,
+            Self::Encrypt | Self::Decrypt | Self::WrapKey | Self::UnwrapKey
+        )
+    }
+
     /// Parse a `KeyUsage` from its IDL identifier, or `None` if unrecognized.
     pub fn from_ident(s: &str) -> Option<Self> {
         Some(match s {
@@ -89,21 +104,19 @@ pub fn normalize_usages(mut usages: Vec<KeyUsage>) -> Vec<KeyUsage> {
 pub enum KeyAlgorithm {
     /// HMAC: the hash + the (informational) bit length.
     Hmac { hash: HashAlgorithm, length: u32 },
+    /// AES (CTR / CBC / GCM): the mode + the key bit length (128/192/256).
+    /// The algorithm object's `name` is `variant.canonical_name()`; an AES
+    /// key has no `hash` member.
+    Aes { variant: AesVariant, length: u32 },
 }
 
 impl KeyAlgorithm {
-    /// The hash backing this key's algorithm.
-    pub fn hash(self) -> HashAlgorithm {
-        match self {
-            Self::Hmac { hash, .. } => hash,
-        }
-    }
-
     /// The canonical algorithm name for `[[algorithm]]` name comparison
-    /// (WebCrypto sign/verify "name member equality" check).
+    /// (WebCrypto sign/verify/encrypt/decrypt "name member equality" check).
     pub fn name(self) -> AlgorithmName {
         match self {
             Self::Hmac { .. } => AlgorithmName::Hmac,
+            Self::Aes { variant, .. } => variant.algorithm_name(),
         }
     }
 }

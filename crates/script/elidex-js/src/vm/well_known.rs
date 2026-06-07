@@ -1330,6 +1330,16 @@ define_well_known_strings! {
         export_key => "exportKey",
         sign => "sign",
         verify => "verify",
+        encrypt => "encrypt",
+        decrypt => "decrypt",
+        // AES params-dictionary members (AesGcmParams / AesCbcParams /
+        // AesCtrParams), read on the `encrypt` / `decrypt` hot path — pre-
+        // interned alongside `hash_attr` / `length` rather than interned per
+        // call.
+        iv => "iv",
+        counter => "counter",
+        additional_data => "additionalData",
+        tag_length => "tagLength",
         crypto_key_global => "CryptoKey",
         extractable => "extractable",
         algorithm => "algorithm",
