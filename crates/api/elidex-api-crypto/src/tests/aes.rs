@@ -2,7 +2,7 @@
 // AES-GCM (McGrew & Viega "GCM" test vectors / NIST GCMVS)
 // ===========================================================================
 
-use super::{from_hex, to_hex};
+use super::{fill_seq, from_hex, to_hex};
 use crate::aes;
 use crate::algorithm::{
     is_supported, normalize, params_shape, AesVariant, AlgorithmParams, NormalizedAlgorithm,
@@ -372,17 +372,6 @@ fn aes_ctr_message_exceeding_counter_capacity_is_operation_error() {
 // ===========================================================================
 // AES ops (generate / import / export + encrypt / decrypt validation)
 // ===========================================================================
-
-// Deterministic key material for the ops tests; the `Result` shape + the
-// truncating index cast match the `fill_random` closure contract (the key
-// is at most 32 bytes, so the index never exceeds a `u8`).
-#[allow(clippy::unnecessary_wraps, clippy::cast_possible_truncation)]
-fn fill_seq(buf: &mut [u8]) -> Result<(), AlgorithmError> {
-    for (i, b) in buf.iter_mut().enumerate() {
-        *b = i as u8;
-    }
-    Ok(())
-}
 
 fn aes_gcm_params(iv: Vec<u8>) -> NormalizedAlgorithm {
     NormalizedAlgorithm::AesGcm {

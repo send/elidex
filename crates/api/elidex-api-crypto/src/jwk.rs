@@ -1,13 +1,24 @@
 //! JSON Web Key (WebCrypto §15 `JsonWebKey`, RFC 7517) — the `oct`
-//! symmetric-key subset used by HMAC import/export.
+//! symmetric-key subset used by HMAC / AES import/export and the
+//! `wrapKey` / `unwrapKey` JWK round-trip.
 //!
-//! The VM marshals the live JS object into [`JsonWebKey`] fields (there
-//! is no JSON parse step — `keyData` arrives as a JS object, so member
-//! keys are inherently unique); this module validates the `oct` shape
-//! and decodes `k` (base64url, no padding, per RFC 7515 §2).
+//! For `importKey` / `exportKey` the VM marshals the live JS object into
+//! [`JsonWebKey`] fields (no JSON parse — `keyData` arrives as a JS object).
+//! For `wrapKey` / `unwrapKey` the JWK is serialized to / parsed from JSON
+//! **bytes** here ([`to_json_bytes`] / [`from_json_bytes`]) — WebCrypto
+//! §14.3.11 step 14 / §9 "parse a JWK" require the JSON representation to be
+//! produced "in the context of a new global object", i.e. **isolated from the
+//! page realm** (no page-defined `Object.prototype.toJSON`, no caller-mutated
+//! prototypes).  Doing it in this engine-independent crate over the
+//! `JsonWebKey` struct (never a JS object) is exactly that isolation, so a
+//! page that pollutes `Object.prototype` cannot observe or hijack a wrap /
+//! unwrap.  This module validates the `oct` shape and decodes `k` (base64url,
+//! no padding, per RFC 7515 §2).
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
+use serde::Serialize;
+use serde_json::{Map, Value};
 
 use crate::algorithm::AesVariant;
 use crate::error::AlgorithmError;
@@ -16,14 +27,227 @@ use crate::key::{CryptoKeyData, KeyUsage};
 
 /// A JSON Web Key (the members relevant to symmetric `oct` keys).
 /// `None` means the member was absent in the source object.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+///
+/// `Serialize` covers the `wrapKey` JSON serialization ([`to_json_bytes`]):
+/// absent members are omitted.  The `unwrapKey` parse ([`from_json_bytes`])
+/// does **not** derive `Deserialize` — it converts a parsed
+/// [`serde_json::Value`] per the WebIDL `JsonWebKey` dictionary rules so a
+/// present explicit `null` is distinguished from an absent member (a derived
+/// `Deserialize` would collapse both to `None`, diverging from the spec
+/// `importKey` conversion of `ext: null` / `key_ops: null`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct JsonWebKey {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub kty: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub k: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub alg: Option<String>,
+    #[serde(rename = "use", skip_serializing_if = "Option::is_none")]
     pub use_: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub key_ops: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ext: Option<bool>,
+}
+
+/// Serialize an `oct` [`JsonWebKey`] to JSON bytes for `wrapKey` (WebCrypto
+/// §14.3.11 step 14, the `jwk` branch).
+///
+/// The serialization runs entirely over the Rust struct — never a JS object —
+/// so it is isolated from the page realm (no `Object.prototype.toJSON` is
+/// invoked, satisfying the "new global object" requirement).  A plain struct
+/// of strings / bools / string sequences is always serializable, so this is
+/// infallible.
+///
+/// The output is padded to a multiple of 8 bytes with trailing ASCII spaces.
+/// §14.3.11 step 14's Note explicitly allows adapting a flexible key-format
+/// serialization to the wrapping algorithm's size constraints ("JSON.stringify
+/// is not normatively required"); AES-KW requires the wrapped payload be a
+/// multiple of 64 bits (8 bytes), so the padding lets a `jwk` key be
+/// AES-KW-wrapped (as browsers / WPT expect) instead of failing §30.3.1 step 1.
+/// Trailing whitespace is valid JSON ignored by [`from_json_bytes`], so it is
+/// harmless for the AES-GCM/CBC/CTR fallback (any length).
+pub fn to_json_bytes(jwk: &JsonWebKey) -> Vec<u8> {
+    let mut bytes = serde_json::to_vec(jwk).expect("an oct JsonWebKey is always serializable");
+    let rem = bytes.len() % AES_KW_BLOCK;
+    if rem != 0 {
+        bytes.resize(bytes.len() + (AES_KW_BLOCK - rem), b' ');
+    }
+    bytes
+}
+
+/// The AES-KW semiblock size in bytes (64 bits) — the wrap payload granularity
+/// [`to_json_bytes`] pads to.
+const AES_KW_BLOCK: usize = 8;
+
+/// Parse JSON bytes into a [`JsonWebKey`] for `unwrapKey` (WebCrypto §9 "parse
+/// a JWK", reached from §14.3.12 step 15).
+///
+/// The parse runs over the bytes directly — never via a JS object in the page
+/// realm — so caller-mutated `Object.prototype` / `Array.prototype` cannot run
+/// during the conversion (the "new global object" isolation).
+///
+/// After `JSON.parse`, the result is converted to the `JsonWebKey` IDL
+/// dictionary: each member is read by **presence** (so an explicit `null` is a
+/// *present* member, not an absent one) and converted per WebIDL — `DOMString`
+/// members via ECMAScript `ToString` (an explicit `null` becomes `"null"`),
+/// `ext` via `ToBoolean` (`null` → `false`), and `key_ops` as a
+/// `sequence<DOMString>` (a present non-array, including `null`, is not a
+/// sequence → `DataError`).  This matches the live `importKey` marshalling, so
+/// a wrapped `{ "ext": null }` / `{ "key_ops": null }` is rejected here exactly
+/// as the normal JWK import path rejects it (rather than silently accepted).
+/// Unknown JWK members (the EC / RSA fields of a non-`oct` key) are ignored;
+/// malformed JSON or a non-object document is a `DataError`.
+pub fn from_json_bytes(bytes: &[u8]) -> Result<JsonWebKey, AlgorithmError> {
+    let value: Value =
+        serde_json::from_slice(bytes).map_err(|_| data("unwrapped key data is not valid JSON"))?;
+    // §9 step 5 / WebIDL §3.2.17 dictionary conversion of the `JSON.parse`
+    // result: an object converts directly; `null` (and an array — an Object with
+    // no named JWK members) converts to a dictionary with all members absent (no
+    // error — the missing `kty` is caught at step 6 below); any other primitive
+    // (string / number / boolean) is not an object → `TypeError`.
+    let map = match value {
+        Value::Object(map) => map,
+        Value::Null | Value::Array(_) => Map::new(),
+        Value::String(_) | Value::Number(_) | Value::Bool(_) => {
+            return Err(AlgorithmError::Type(
+                "unwrapped key data is not a JSON Web Key dictionary".to_string(),
+            ));
+        }
+    };
+    // Step 5 dictionary conversion: the only members that can raise a conversion
+    // error for a JSON value are `key_ops` and `oth` (both `sequence`s); the
+    // `DOMString` / `ext` members always convert.  They are converted in WebIDL
+    // member order (`key_ops` before `oth`), matching the live `importKey`
+    // marshaller, so the error precedence agrees.  The `oth` values are unused
+    // for `oct` keys — only its validation matters.
+    let key_ops = member_string_sequence(&map, "key_ops")?;
+    validate_oth(&map)?;
+    let jwk = JsonWebKey {
+        kty: member_domstring(&map, "kty"),
+        k: member_domstring(&map, "k"),
+        alg: member_domstring(&map, "alg"),
+        use_: member_domstring(&map, "use"),
+        key_ops,
+        ext: member_boolean(&map, "ext"),
+    };
+    // §9 "parse a JWK" step 6: the `kty` member must be defined (a present member,
+    // even if its value is the empty string) — a `DataError` here, BEFORE the
+    // §14.3.12 step-16 import, so the error precedence does not depend on the
+    // requested import algorithm (e.g. an HKDF unwrap of a `kty`-less JWK rejects
+    // with this DataError, not HKDF's later "jwk unsupported" NotSupportedError).
+    if jwk.kty.is_none() {
+        return Err(data("JWK 'kty' member is missing"));
+    }
+    Ok(jwk)
+}
+
+/// Convert (for validation only) the `oth` member
+/// (`sequence<RsaOtherPrimesInfo>`), matching the live `importKey` marshaller:
+/// absent → ok; a present non-array is not a sequence → `TypeError`; each entry
+/// must be an object (a JS array is also an object, with no `d`/`r`/`t`) or
+/// `null` (an empty dictionary) — a primitive entry is not a dictionary →
+/// `TypeError`.  The `d`/`r`/`t` members are optional `DOMString`s that always
+/// convert, so they need no per-entry check; the values are discarded.
+fn validate_oth(map: &Map<String, Value>) -> Result<(), AlgorithmError> {
+    let Some(oth) = map.get("oth") else {
+        return Ok(());
+    };
+    let Value::Array(entries) = oth else {
+        return Err(AlgorithmError::Type(
+            "JWK 'oth' member is not a sequence".to_string(),
+        ));
+    };
+    for entry in entries {
+        match entry {
+            Value::Null | Value::Object(_) | Value::Array(_) => {}
+            Value::Bool(_) | Value::Number(_) | Value::String(_) => {
+                return Err(AlgorithmError::Type(
+                    "JWK 'oth' entry is not an RsaOtherPrimesInfo dictionary".to_string(),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Read a `DOMString` JWK member by presence (WebIDL): absent → `None`; a
+/// present value (incl. explicit `null`) → its ECMAScript `ToString`.
+fn member_domstring(map: &Map<String, Value>, key: &str) -> Option<String> {
+    map.get(key).map(json_to_domstring)
+}
+
+/// Read the `boolean ext` JWK member by presence (WebIDL): absent → `None`; a
+/// present value (incl. explicit `null` → `false`) → its ECMAScript `ToBoolean`.
+fn member_boolean(map: &Map<String, Value>, key: &str) -> Option<bool> {
+    map.get(key).map(json_to_boolean)
+}
+
+/// Read the `sequence<DOMString> key_ops` JWK member by presence (WebIDL):
+/// absent → `None`; a present array → each element `ToString`-ed; a present
+/// non-array is not a sequence → `TypeError`.
+///
+/// The `TypeError` (not `DataError`) matches the live `importKey` path: a JSON
+/// `null` / string / number / boolean is not an `Object` (Web IDL §3.2.21
+/// step 1) and a JSON object has no `@@iterator`, so the sequence conversion
+/// throws a `TypeError` in both cases — exactly what
+/// `webidl_sequence_to_vec` raises for the same inputs.
+fn member_string_sequence(
+    map: &Map<String, Value>,
+    key: &str,
+) -> Result<Option<Vec<String>>, AlgorithmError> {
+    match map.get(key) {
+        None => Ok(None),
+        Some(Value::Array(items)) => Ok(Some(items.iter().map(json_to_domstring).collect())),
+        Some(_) => Err(AlgorithmError::Type(
+            "JWK 'key_ops' member is not a sequence".to_string(),
+        )),
+    }
+}
+
+/// ECMAScript `ToString` of a parsed JSON value (the WebIDL `DOMString`
+/// conversion in "parse a JWK"), matching the live `importKey` marshalling's
+/// `ToString` so an array / object member coerces identically (e.g.
+/// `["oct"]` → `"oct"`) rather than failing on JSON text.
+fn json_to_domstring(value: &Value) -> String {
+    match value {
+        Value::Null => "null".to_string(),
+        Value::Bool(b) => b.to_string(),
+        // JS parses every JSON number as an `f64` and `ToString`s the `f64`
+        // value, so `1`, `1.0`, and `1.00` all stringify to `"1"`.
+        // `serde_json::Number::to_string` would instead preserve the source
+        // spelling (`"1.0"`), which would make e.g. `key_ops:[1, 1.0]` miss a
+        // duplicate the WebIDL conversion catches — so go through `f64`.
+        Value::Number(n) => n.as_f64().map_or_else(|| n.to_string(), |f| f.to_string()),
+        Value::String(s) => s.clone(),
+        // `Array.prototype.toString` = `join(",")`: each element is `ToString`-ed,
+        // except `null` / `undefined` elements, which join renders as the empty
+        // string (JSON has no `undefined`).
+        Value::Array(items) => items
+            .iter()
+            .map(|item| match item {
+                Value::Null => String::new(),
+                other => json_to_domstring(other),
+            })
+            .collect::<Vec<_>>()
+            .join(","),
+        // A plain object (a `JSON.parse` result has the pristine
+        // `Object.prototype` in the "new global object") stringifies to
+        // `"[object Object]"`.
+        Value::Object(_) => "[object Object]".to_string(),
+    }
+}
+
+/// ECMAScript `ToBoolean` of a parsed JSON value (the WebIDL `boolean`
+/// conversion in "parse a JWK"): `null` / `false` / `0` / `""` are falsy.
+fn json_to_boolean(value: &Value) -> bool {
+    match value {
+        Value::Null | Value::Bool(false) => false,
+        Value::Bool(true) | Value::Array(_) | Value::Object(_) => true,
+        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0 && !f.is_nan()),
+        Value::String(s) => !s.is_empty(),
+    }
 }
 
 /// Validate an `oct` JWK for HMAC import and return the decoded key

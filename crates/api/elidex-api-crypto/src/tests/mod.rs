@@ -4,11 +4,24 @@
 //! (SHA-1); digest vectors from FIPS 180 examples.
 
 mod aes;
+mod aes_kw;
 mod derive;
 mod digest;
 mod hmac;
 mod hmac_ops;
 mod normalize;
+
+/// Deterministic key material for the AES / AES-KW ops tests, matching the
+/// `fill_random` closure contract of [`crate::ops::generate_key`].  The `Result`
+/// shape is required by that contract and the truncating index cast is sound
+/// (a generated key is at most 32 bytes, so the index never exceeds a `u8`).
+#[allow(clippy::unnecessary_wraps, clippy::cast_possible_truncation)]
+pub(super) fn fill_seq(buf: &mut [u8]) -> Result<(), crate::error::AlgorithmError> {
+    for (i, b) in buf.iter_mut().enumerate() {
+        *b = i as u8;
+    }
+    Ok(())
+}
 
 pub(super) fn to_hex(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
