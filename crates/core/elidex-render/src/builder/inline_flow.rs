@@ -171,6 +171,7 @@ pub(super) fn emit_inline_flow(
                         orient,
                         line.block_start,
                         line.block_size,
+                        line.justify_word_spacing,
                         ctx.font_db,
                         ctx.font_cache,
                         ctx.dl,
@@ -191,6 +192,7 @@ pub(super) fn emit_inline_flow(
                         orient,
                         line.block_start,
                         line.block_size,
+                        line.justify_word_spacing,
                         ctx.font_db,
                         ctx.font_cache,
                         ctx.dl,
@@ -225,6 +227,7 @@ fn emit_flow_text_run(
     orient: TextOrientation,
     block_start: f32,
     block_size: f32,
+    justify_word_spacing: f32,
     font_db: &FontDatabase,
     font_cache: &mut FontCache,
     dl: &mut DisplayList,
@@ -241,17 +244,26 @@ fn emit_flow_text_run(
     let mut seg = StyledTextSegment::from_style(String::new(), &style);
     seg.text_transform = TextTransform::None;
     if vertical {
+        // Vertical text is start-aligned (no inter-word justification on the block
+        // axis, CSS Text 3 §6.4) — layout always persists `justify_word_spacing = 0`
+        // for vertical, so there is no value to thread into the vertical emit.
         let center_x = block_start + block_size / 2.0;
         emit_vertical_text_segment(
             text, &seg, orient, center_x, cursor, visible, font_db, font_cache, dl,
         );
     } else {
+        // `text-align: justify` extra advance (CSS Text 3 §6.4), applied by
+        // `place_glyphs` at each within-run word-separator cluster. In the identity
+        // branch the between-run expansion is already baked into the run's
+        // `inline_start` (layout); in the bidi-reorder branch the shared cursor
+        // re-accumulates it (the cursor advances by the justify-expanded run width) —
+        // either way this one per-line value is all render needs.
         emit_text_segment(
             text,
             &seg,
             cursor,
             block_start,
-            0.0,
+            justify_word_spacing,
             visible,
             font_db,
             font_cache,

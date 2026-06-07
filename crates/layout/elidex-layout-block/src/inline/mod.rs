@@ -18,9 +18,7 @@ use std::collections::HashMap;
 use elidex_ecs::{EcsDom, Entity, InlineFlow, InlineFlowRun, PseudoElementMarker, TextContent};
 #[cfg(test)]
 pub(crate) use elidex_plugin::LayoutBox;
-use elidex_plugin::{
-    ComputedStyle, Display, Point, Position, TextAlign, TextTransform, WhiteSpace,
-};
+use elidex_plugin::{ComputedStyle, Display, Point, Position, TextTransform, WhiteSpace};
 #[cfg(test)]
 pub(crate) use elidex_text::FontDatabase;
 use elidex_text::{
@@ -279,7 +277,7 @@ pub(crate) fn collect_inline_items(
     children: &[Entity],
     parent_style: &ComputedStyle,
     parent_entity: Entity,
-) -> (Vec<InlineItem>, Vec<Entity>) {
+) -> (Vec<InlineItem>, Vec<Entity>, Option<Entity>) {
     let mut items = Vec::new();
     // Candidate keys: seed with the IFC parent's raw direct children, then collect
     // every recursed inline element's raw direct children during the walk.
@@ -302,7 +300,10 @@ pub(crate) fn collect_inline_items(
     );
     collapse_inline_whitespace(&mut items);
     apply_text_transforms(&mut items);
-    (items, candidate_keys)
+    // `top_level_key` (render's `run[0]`) is the justification target group:
+    // `text-align: justify` distributes free space over the top-level run group only
+    // (see `FlowAlign::top_level_key`), so it is returned for the caller's `FlowAlign`.
+    (items, candidate_keys, top_level_key)
 }
 
 /// Apply CSS `text-transform` (CSS Text 3 §2.1) to each text run's collapsed
@@ -713,7 +714,7 @@ pub fn layout_inline_context_fragmented(
     let parent_style = crate::get_style(dom, parent_entity);
     let font_db = env.font_db;
     let layout_child = env.layout_child;
-    let (mut items, candidate_keys) =
+    let (mut items, candidate_keys, top_level_key) =
         collect_inline_items(dom, children, &parent_style, parent_entity);
     // Staleness clear set: when nothing persists (here and the no-font return
     // below), clear `InlineFlow` on every candidate key (no persisted keys to
@@ -770,17 +771,19 @@ pub fn layout_inline_context_fragmented(
         }
     }
 
-    // InlineFlow persistence gate. The cross-cutting `no_legacy_gate` (now justify
-    // ONLY) routes a run to render's legacy collect/collapse/emit path regardless of
-    // fragmentation — slice-4 work, NOT member-kind divergences (slice 3p-a dropped
-    // the static-atomic gate; 3p-b the plain relpos/sticky inline gate; 3p-b-2 the
-    // relative/sticky atomic gate; the text-transform slice applies transforms
-    // in-place before packing; this bidi slice persists RTL runs in logical order and
-    // render reorders them at paint — UAX #9 L2, master §4.2). The
-    // fragmentation term is split: non-fragmented + **paged** (slice 4 / I-paged: the
+    // InlineFlow persistence gate. There is NO cross-cutting legacy route left: the
+    // three text-feature gates that once forced render's legacy collect/collapse/emit
+    // path — text-transform, bidi, and **justify** — have all converged into the
+    // packer (text-transform applied in-place before packing; RTL runs persisted in
+    // logical order and reordered at paint, UAX #9 L2; justify positions baked here,
+    // `flush_line`/`bake_justify`, like the other three alignments — CSS Text 3 §6).
+    // Member-kind divergences are likewise gone (slice 3p-a static-atomic / 3p-b
+    // relpos/sticky inline / 3p-b-2 relative/sticky atomic). The ONLY remaining gate is
+    // fragmentation: persist when non-fragmented, **paged** (slice 4 / I-paged: the
     // per-page slice + continuation rebase below model the per-page geometry, fragment
-    // stamped with the page generation) + **multicol whole-in-column** (slice 4 /
-    // I-multicol — refined post-pack, see `persist_flow` below).
+    // stamped with the page generation), or **multicol whole-in-column** (slice 4 /
+    // I-multicol — refined post-pack, see `persist_flow` below). A multicol IFC split
+    // mid-column is the last legacy route (→ Z).
     //
     // `persist_candidate` (here, pre-pack) drives only `flow_align` and is OPTIMISTIC for
     // `Column`: the real multicol persist needs `break_after_line`/`skip_lines` (computed
@@ -794,13 +797,13 @@ pub fn layout_inline_context_fragmented(
         frag_constraint.is_some_and(|c| c.fragmentation_type == crate::FragmentationType::Page);
     let frag_is_column =
         frag_constraint.is_some_and(|c| c.fragmentation_type == crate::FragmentationType::Column);
-    let no_legacy_gate = parent_style.text_align != TextAlign::Justify;
-    let persist_candidate =
-        no_legacy_gate && (frag_constraint.is_none() || frag_is_paged || frag_is_column);
+    let persist_candidate = frag_constraint.is_none() || frag_is_paged || frag_is_column;
     let flow_align = persist_candidate.then_some(pack::FlowAlign {
         text_align: parent_style.text_align,
         direction: parent_style.direction,
         containing_inline_size,
+        top_level_key,
+        is_vertical,
     });
 
     let pack_items = pack::build_pack_items(&items);

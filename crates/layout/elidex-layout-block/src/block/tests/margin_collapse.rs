@@ -32,6 +32,7 @@ fn shift_block_children_moves_inner_inline_flow() {
             vec![elidex_ecs::InlineFlowLine {
                 block_start: 5.0,
                 block_size: 20.0,
+                justify_word_spacing: 0.0,
                 runs: vec![elidex_ecs::InlineFlowRun::Text {
                     entity: block,
                     text: "x".to_string(),

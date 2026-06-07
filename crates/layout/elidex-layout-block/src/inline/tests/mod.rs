@@ -24,6 +24,22 @@ fn collect_styled_runs(
         .collect()
 }
 
+/// Measure the natural (single-line, no extra spacing) advance of `text` in the
+/// test font — used by `text-align: justify` tests to pick a container width that
+/// forces a wrap with a known amount of free space (the system font's exact glyph
+/// metrics are not knowable at write-time).
+fn measure_width(font_db: &FontDatabase, text: &str) -> f32 {
+    let params = TextMeasureParams {
+        families: TEST_FAMILIES,
+        font_size: ComputedStyle::default().font_size,
+        weight: 400,
+        style: elidex_text::FontStyle::Normal,
+        letter_spacing: 0.0,
+        word_spacing: 0.0,
+    };
+    measure_text(font_db, &params, text).map_or(0.0, |m| m.width)
+}
+
 const TEST_FAMILIES: &[&str] = &[
     "Arial",
     "Helvetica",
