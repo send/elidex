@@ -155,6 +155,17 @@ pub(super) fn emit_inline_flow(
                 // The line needs reorder: paint runs in visual order from the line's
                 // visual inline-start, the shared cursor advancing by each run's shaped
                 // width (exactly the legacy `emit_styled_segments` loop, now per line).
+                //
+                // justify + bidi LIMITATION: this branch re-derives positions from a
+                // fresh visual-order cursor (it must — the runs paint in visual, not
+                // logical, order), so it discards layout's baked between-run `cum` and
+                // re-accrues the justify expansion at *visually*-adjacent boundaries via
+                // `justify_word_spacing`. For a single-direction line (pure RTL) that
+                // matches (visual order = reversed logical, same word pairs), but for a
+                // MIXED-direction justified line the expanded gaps can land between
+                // different word pairs than layout measured. Full justify-through-bidi
+                // fidelity (carry the per-run cumulative offsets through the reorder) is
+                // part of the deferred UBA program, slot `#11-bidi-full-uba-fidelity`.
                 let line_start = text_runs
                     .iter()
                     .map(|&(_, _, inline_start)| inline_start)

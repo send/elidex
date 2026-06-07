@@ -860,3 +860,56 @@ fn sticky_atomic_persists_and_repositions_not_a_flow_member() {
         lb.content.origin.y
     );
 }
+
+#[test]
+fn justify_shifts_subflow_to_ride_distribution() {
+    // `<p justify>aa bb <span rel>cc</span> wwww…</p>`: on the justified soft-wrapped
+    // line, the relpos sub-flow `cc` is shifted right by the cumulative top-level
+    // justify expansion at its position (`cum_at`), so it RIDES the justification
+    // instead of staying at its natural cursor and being overlapped by the expanded
+    // top-level text. Differential: its persisted `inline_start` under justify exceeds
+    // the left-aligned natural position (the cross-flow positioning fix; the trailing
+    // space before the sub-flow stays an opportunity so the shift matches the painted
+    // top-level end).
+    let Some((mut dom, parent, mut style, font_db)) = setup_inline_test("aa bb ") else {
+        return;
+    };
+    let (_span, cc_text, _tail) = append_relpos_span(
+        &mut dom,
+        parent,
+        &style.font_family,
+        "cc",
+        " wwwwwwwwwwwwwwwwwwww",
+    );
+    // Fits "aa bb cc" on line 0 but wraps the long tail word.
+    let container = measure_width(&font_db, "aa bb cc") + measure_width(&font_db, "aa");
+
+    let mut sub_start = |dom: &mut EcsDom, align: TextAlign| -> f32 {
+        style.text_align = align;
+        let _ = dom.world_mut().insert_one(parent, style.clone());
+        let children = dom.composed_children(parent);
+        layout_inline_context(
+            dom,
+            &children,
+            container,
+            parent,
+            Point::ZERO,
+            &env(&font_db),
+        );
+        dom.world()
+            .get::<&InlineFlow>(cc_text)
+            .expect("relpos sub-flow persists")
+            .fragments[0]
+            .lines[0]
+            .runs[0]
+            .inline_start()
+    };
+
+    let natural = sub_start(&mut dom, TextAlign::Left);
+    let justified = sub_start(&mut dom, TextAlign::Justify);
+    assert!(
+        justified > natural + 0.5,
+        "the relpos sub-flow rides the justify expansion (shifted right): \
+         justified {justified} vs natural {natural}"
+    );
+}
