@@ -17,7 +17,8 @@
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
+use serde_json::{Map, Value};
 
 use crate::algorithm::AesVariant;
 use crate::error::AlgorithmError;
@@ -27,12 +28,14 @@ use crate::key::{CryptoKeyData, KeyUsage};
 /// A JSON Web Key (the members relevant to symmetric `oct` keys).
 /// `None` means the member was absent in the source object.
 ///
-/// `Serialize` / `Deserialize` cover the `wrapKey` / `unwrapKey` JSON
-/// round-trip ([`to_json_bytes`] / [`from_json_bytes`]): absent members are
-/// omitted on serialize and tolerated on deserialize, and unknown JWK members
-/// (the EC / RSA fields of a non-`oct` key) are ignored rather than rejected,
-/// so a wrapped key from another implementation parses to its `oct` subset.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// `Serialize` covers the `wrapKey` JSON serialization ([`to_json_bytes`]):
+/// absent members are omitted.  The `unwrapKey` parse ([`from_json_bytes`])
+/// does **not** derive `Deserialize` — it converts a parsed
+/// [`serde_json::Value`] per the WebIDL `JsonWebKey` dictionary rules so a
+/// present explicit `null` is distinguished from an absent member (a derived
+/// `Deserialize` would collapse both to `None`, diverging from the spec
+/// `importKey` conversion of `ext: null` / `key_ops: null`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct JsonWebKey {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kty: Option<String>,
@@ -65,12 +68,88 @@ pub fn to_json_bytes(jwk: &JsonWebKey) -> Vec<u8> {
 ///
 /// The parse runs over the bytes directly — never via a JS object in the page
 /// realm — so caller-mutated `Object.prototype` / `Array.prototype` cannot run
-/// during the conversion (the "new global object" isolation).  Unknown JWK
-/// members are ignored; malformed JSON, a non-object document, or a wrong-typed
-/// `oct` member is a `DataError` (the unwrapped bytes are not a usable JWK).
+/// during the conversion (the "new global object" isolation).
+///
+/// After `JSON.parse`, the result is converted to the `JsonWebKey` IDL
+/// dictionary: each member is read by **presence** (so an explicit `null` is a
+/// *present* member, not an absent one) and converted per WebIDL — `DOMString`
+/// members via ECMAScript `ToString` (an explicit `null` becomes `"null"`),
+/// `ext` via `ToBoolean` (`null` → `false`), and `key_ops` as a
+/// `sequence<DOMString>` (a present non-array, including `null`, is not a
+/// sequence → `DataError`).  This matches the live `importKey` marshalling, so
+/// a wrapped `{ "ext": null }` / `{ "key_ops": null }` is rejected here exactly
+/// as the normal JWK import path rejects it (rather than silently accepted).
+/// Unknown JWK members (the EC / RSA fields of a non-`oct` key) are ignored;
+/// malformed JSON or a non-object document is a `DataError`.
 pub fn from_json_bytes(bytes: &[u8]) -> Result<JsonWebKey, AlgorithmError> {
-    serde_json::from_slice(bytes)
-        .map_err(|_| data("unwrapped key data is not a valid JSON Web Key"))
+    let value: Value =
+        serde_json::from_slice(bytes).map_err(|_| data("unwrapped key data is not valid JSON"))?;
+    // WebIDL dictionary conversion requires an object (a non-object — array,
+    // string, number, … — is not a dictionary → DataError).
+    let Value::Object(map) = value else {
+        return Err(data("unwrapped key data is not a JSON object"));
+    };
+    Ok(JsonWebKey {
+        kty: member_domstring(&map, "kty"),
+        k: member_domstring(&map, "k"),
+        alg: member_domstring(&map, "alg"),
+        use_: member_domstring(&map, "use"),
+        key_ops: member_string_sequence(&map, "key_ops")?,
+        ext: member_boolean(&map, "ext"),
+    })
+}
+
+/// Read a `DOMString` JWK member by presence (WebIDL): absent → `None`; a
+/// present value (incl. explicit `null`) → its ECMAScript `ToString`.
+fn member_domstring(map: &Map<String, Value>, key: &str) -> Option<String> {
+    map.get(key).map(json_to_domstring)
+}
+
+/// Read the `boolean ext` JWK member by presence (WebIDL): absent → `None`; a
+/// present value (incl. explicit `null` → `false`) → its ECMAScript `ToBoolean`.
+fn member_boolean(map: &Map<String, Value>, key: &str) -> Option<bool> {
+    map.get(key).map(json_to_boolean)
+}
+
+/// Read the `sequence<DOMString> key_ops` JWK member by presence (WebIDL):
+/// absent → `None`; a present array → each element `ToString`-ed; a present
+/// non-array (including explicit `null`) is not a sequence → `DataError`.
+fn member_string_sequence(
+    map: &Map<String, Value>,
+    key: &str,
+) -> Result<Option<Vec<String>>, AlgorithmError> {
+    match map.get(key) {
+        None => Ok(None),
+        Some(Value::Array(items)) => Ok(Some(items.iter().map(json_to_domstring).collect())),
+        Some(_) => Err(data("JWK 'key_ops' member is not a sequence")),
+    }
+}
+
+/// ECMAScript `ToString` of a parsed JSON value (the WebIDL `DOMString`
+/// conversion in "parse a JWK").  A JWK `DOMString` member is normally a
+/// string; an array / object is malformed and `ToString`s to a value that
+/// fails the downstream `oct` validation (`DataError`) either way, so the JSON
+/// text is used rather than replicating the ECMAScript array/object `ToString`
+/// quirks.
+fn json_to_domstring(value: &Value) -> String {
+    match value {
+        Value::Null => "null".to_string(),
+        Value::Bool(b) => b.to_string(),
+        Value::Number(n) => n.to_string(),
+        Value::String(s) => s.clone(),
+        Value::Array(_) | Value::Object(_) => value.to_string(),
+    }
+}
+
+/// ECMAScript `ToBoolean` of a parsed JSON value (the WebIDL `boolean`
+/// conversion in "parse a JWK"): `null` / `false` / `0` / `""` are falsy.
+fn json_to_boolean(value: &Value) -> bool {
+    match value {
+        Value::Null | Value::Bool(false) => false,
+        Value::Bool(true) | Value::Array(_) | Value::Object(_) => true,
+        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0 && !f.is_nan()),
+        Value::String(s) => !s.is_empty(),
+    }
 }
 
 /// Validate an `oct` JWK for HMAC import and return the decoded key

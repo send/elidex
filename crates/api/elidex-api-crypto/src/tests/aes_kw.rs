@@ -449,6 +449,47 @@ fn jwk_from_json_ignores_unknown_members() {
     assert_eq!(jwk.ext, Some(false));
 }
 
+/// Codex R2 regression: an explicit `null` is a *present* member converted per
+/// WebIDL, NOT an absent one.  `ext: null` → `Some(false)` (ToBoolean), so a
+/// wrapped `{…,"ext":null}` unwrapped with `extractable=true` is rejected
+/// (DataError) exactly as the normal `importKey` path rejects it — not silently
+/// accepted.
+#[test]
+fn jwk_from_json_present_null_ext_is_false() {
+    let jwk =
+        crate::jwk::from_json_bytes(br#"{"kty":"oct","k":"AAECAwQFBgcICQoLDA0ODw","ext":null}"#)
+            .unwrap();
+    assert_eq!(jwk.ext, Some(false));
+    // End-to-end: importing it as a 128-bit AES-GCM key with extractable=true
+    // is a DataError (ext=false cannot satisfy extractable=true).
+    assert!(matches!(
+        ops::import_key(
+            KeyFormat::Jwk,
+            NormalizedAlgorithm::AesImport {
+                variant: AesVariant::Gcm,
+            },
+            true,
+            vec![KeyUsage::Encrypt],
+            KeyData::Jwk(jwk),
+        ),
+        Err(AlgorithmError::Data(_))
+    ));
+}
+
+/// Codex R2 regression: a present `key_ops: null` is an invalid sequence →
+/// DataError (so it cannot silently bypass the key_ops usage-superset check),
+/// whereas an absent `key_ops` is `None`.
+#[test]
+fn jwk_from_json_present_null_key_ops_is_data_error() {
+    assert!(matches!(
+        crate::jwk::from_json_bytes(br#"{"kty":"oct","k":"AAEC","key_ops":null}"#),
+        Err(AlgorithmError::Data(_))
+    ));
+    // Absent key_ops parses cleanly to None.
+    let jwk = crate::jwk::from_json_bytes(br#"{"kty":"oct","k":"AAEC"}"#).unwrap();
+    assert_eq!(jwk.key_ops, None);
+}
+
 #[test]
 fn jwk_from_json_malformed_is_data_error() {
     for bad in [
