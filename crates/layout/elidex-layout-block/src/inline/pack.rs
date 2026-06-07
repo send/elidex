@@ -115,19 +115,25 @@ fn separators(text: &str) -> usize {
 
 /// Per-run `text-align: justify` opportunity counts for a line's top-level group.
 /// Every interior word-separator is an opportunity, but the **trailing collapsible
-/// whitespace of the last text run hangs** (CSS Text 3 §4.1.2) and is excluded — so a
+/// whitespace at the line's end hangs** (CSS Text 3 §4.1.2) and is excluded — so a
 /// soft-wrapped line ending in a space distributes free space only between the visible
 /// words, filling them to the line-box edge (counting it would assign `extra` to the
 /// hung space and under-fill the visible content). A no-break space (U+00A0) never
 /// hangs, so a trailing nbsp stays an opportunity. `AtomicBox` members contribute 0.
+///
+/// The hang is trimmed ONLY when the line's **last member is itself a text run** ending
+/// in collapsible whitespace. If the line ends with an `AtomicBox` (`text ␠ <inline-block>`),
+/// the preceding text run's trailing space sits BETWEEN inline-level content — a genuine
+/// justification opportunity, not a line-end hang — so it must NOT be trimmed (else a
+/// line whose only expandable gap precedes a trailing atomic would mis-classify as
+/// unexpandable and start-align instead of justifying).
 fn justify_opportunity_counts(runs: &[InlineFlowRun]) -> Vec<usize> {
-    let last_text = runs
-        .iter()
-        .rposition(|r| matches!(r, InlineFlowRun::Text { .. }));
+    let last_idx = runs.len().checked_sub(1);
+    let last_is_text = matches!(runs.last(), Some(InlineFlowRun::Text { .. }));
     runs.iter()
         .enumerate()
         .map(|(i, r)| match r {
-            InlineFlowRun::Text { text, .. } if Some(i) == last_text => {
+            InlineFlowRun::Text { text, .. } if last_is_text && Some(i) == last_idx => {
                 separators(text.trim_end_matches(super::is_collapsible_space))
             }
             InlineFlowRun::Text { text, .. } => separators(text),
@@ -1014,5 +1020,68 @@ pub(super) fn assign_inline_layout_boxes(
                 .world_mut()
                 .insert_one(*entity, elidex_plugin::InlineClientRects(rects));
         }
+    }
+}
+
+#[cfg(test)]
+mod justify_opportunity_tests {
+    use super::*;
+
+    // A throwaway entity to stamp on synthetic runs (its value is irrelevant —
+    // `justify_opportunity_counts` matches on the variant + reads `text` only).
+    fn entity() -> Entity {
+        EcsDom::new().create_text("x")
+    }
+
+    fn text(s: &str) -> InlineFlowRun {
+        InlineFlowRun::Text {
+            entity: entity(),
+            text: s.to_string(),
+            inline_start: 0.0,
+        }
+    }
+
+    fn atomic() -> InlineFlowRun {
+        InlineFlowRun::AtomicBox {
+            entity: entity(),
+            inline_start: 0.0,
+        }
+    }
+
+    #[test]
+    fn trailing_text_hang_is_excluded() {
+        // Last member is a text run ending in a collapsible space → that space hangs
+        // (§4.1.2) and is NOT an opportunity; the interior "aa␠bb" gap is.
+        assert_eq!(
+            justify_opportunity_counts(&[text("aa "), text("bb ")]),
+            vec![1, 0]
+        );
+    }
+
+    #[test]
+    fn gap_before_trailing_atomic_is_kept() {
+        // Last member is an AtomicBox → the preceding text run's trailing space sits
+        // BETWEEN inline-level content (a real opportunity), so it is NOT trimmed.
+        // (The bug being guarded: trimming the last *text* run unconditionally would
+        // yield `[0, 0]` here and mis-classify the line as unexpandable.)
+        assert_eq!(
+            justify_opportunity_counts(&[text("aa "), atomic()]),
+            vec![1, 0]
+        );
+    }
+
+    #[test]
+    fn trailing_nbsp_is_not_trimmed() {
+        // A no-break space (U+00A0) never hangs, so a trailing nbsp stays an opportunity.
+        assert_eq!(justify_opportunity_counts(&[text("aa\u{00A0}")]), vec![1]);
+    }
+
+    #[test]
+    fn interior_atomic_keeps_both_text_gaps() {
+        // text "a ", atomic, text "b " (last) → "a " gap kept, "b " trailing hang trimmed.
+        assert_eq!(
+            justify_opportunity_counts(&[text("a "), atomic(), text("b ")]),
+            vec![1, 0, 0]
+        );
     }
 }
