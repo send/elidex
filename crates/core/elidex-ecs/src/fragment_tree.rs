@@ -26,13 +26,13 @@ use hecs::Entity;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FragmentId(pub u32);
 
-/// The standalone fragment tree: an arena of [`FragmentNode`]s plus the ids of
-/// the root nodes. Cleared and rebuilt each layout pass (full-from-root
-/// relayout is the reconcile — no incremental / staleness model).
+/// The standalone fragment tree: an arena of [`FragmentNode`]s. Cleared and
+/// rebuilt each layout pass (full-from-root relayout is the reconcile — no
+/// incremental / staleness model). Root nodes are those with no
+/// [`parent`](FragmentNode::parent); Z-1a populates only flat roots.
 #[derive(Clone, Debug, Default)]
 pub struct FragmentTree {
     nodes: Vec<FragmentNode>,
-    roots: Vec<FragmentId>,
 }
 
 /// One node of the [`FragmentTree`]. The fields are the Z-final tree shape;
@@ -120,7 +120,6 @@ impl FragmentTree {
     /// rebuilt from scratch every pass; full-from-root relayout is the reconcile).
     pub fn clear(&mut self) {
         self.nodes.clear();
-        self.roots.clear();
     }
 
     /// `true` if the tree has no nodes.
@@ -147,7 +146,6 @@ impl FragmentTree {
             fragmentainer,
             content: FragmentContent::Box(box_fragment),
         });
-        self.roots.push(id);
         id
     }
 
@@ -166,15 +164,10 @@ impl FragmentTree {
     }
 
     /// All nodes (the committed-next render-walk entry; Z-1a tests read it).
+    /// Root nodes are those whose [`parent`](FragmentNode::parent) is `None`.
     #[must_use]
     pub fn nodes(&self) -> &[FragmentNode] {
         &self.nodes
-    }
-
-    /// The root node ids (every node in Z-1a, since the tree is flat).
-    #[must_use]
-    pub fn roots(&self) -> &[FragmentId] {
-        &self.roots
     }
 }
 
@@ -207,10 +200,13 @@ mod tests {
         let id = tree.push_box(e, 1, box_at(300.0));
 
         assert!(!tree.is_empty());
-        assert_eq!(tree.roots(), &[id], "Z-1a fragments are flat roots");
+        assert_eq!(tree.nodes().len(), 1);
         let node = &tree.nodes()[0];
         assert_eq!(node.id, id);
-        assert_eq!(node.parent, None, "flat: no parent in Z-1a");
+        assert_eq!(
+            node.parent, None,
+            "Z-1a fragments are flat roots (no parent)"
+        );
         assert!(node.children.is_empty(), "flat: no children in Z-1a");
         assert_eq!(node.entity, Some(e));
         assert_eq!(node.fragmentainer, 1);
@@ -260,7 +256,7 @@ mod tests {
         tree.clear();
 
         assert!(tree.is_empty());
-        assert!(tree.roots().is_empty());
+        assert_eq!(tree.nodes().len(), 0);
         assert_eq!(tree.fragments_for(e).count(), 0);
     }
 }

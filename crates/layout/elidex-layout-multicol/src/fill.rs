@@ -157,37 +157,26 @@ pub fn fill_columns_sequential(
                 .to_vec()
         };
 
-        // Snapshot the per-column box fragments of the SPANNING children laid out
-        // in this column, before the next column overwrites their `LayoutBox`
-        // (G11). A direct child is *partial* in this column (has a fragment here)
-        // iff it was FRAGMENTED at the boundary — the precise signal is the break
-        // token carrying a `child_break_token`: `stack_block_children` wraps a
-        // child's own break token ONLY when it laid that child PARTIALLY (block/
-        // children/stack.rs `child_outcome.break_token` arm); a clean inter-sibling
-        // break or a monolithic deferral leaves `child_break_token` None and the
-        // child is laid wholly in one column, where the I-multicol shifted
-        // `LayoutBox` suffices (no fragment). So this column's spanning members are
-        // the child that BREAKS OUT of it (`break_out_child`, its partial tail here)
-        // plus the child that continued INTO it from the prior column
-        // (`carry_midbreak` = the prior column's break-out child); the two coincide
-        // for a middle column of a 3+-column span — dedup. (`child_break_token`
-        // coincides with the `is_midbreak`/`next == prev` test that drives
-        // `col_children` above, because the engine defers a child to a clean column
-        // boundary before ever splitting it — so a spanning child's first fragment
-        // always lands where it fills the column mid-stream — but `child_break_token`
-        // is the direct "laid partially here" signal, not a positional proxy.)
-        // Z-1a dark data; the column inline-offset is applied at commit in
-        // `position_column_fragments`.
+        // Snapshot the per-column box fragments of this column's SPANNING children,
+        // before the next column overwrites their `LayoutBox` (G11). A direct child
+        // has a fragment in this column iff it was laid PARTIALLY here — the precise
+        // signal is the break token's `child_break_token`, which `stack_block_children`
+        // sets ONLY when it fragmented a child mid-way (a clean inter-sibling break or
+        // a monolithic deferral leaves it None and lays the child whole in one column,
+        // where the I-multicol shifted `LayoutBox` suffices). This column's two
+        // spanning slots are the child that breaks OUT of it (`break_out_child`) and
+        // the one that continued INTO it (`carry_midbreak` = the prior column's
+        // break-out); they coincide for the middle column of a 3+-column span, so the
+        // break-out slot is dropped when it equals the carry. Z-1a dark data; the
+        // column inline-offset is applied at commit in `position_column_fragments`.
         let break_out_child = result
             .break_token
             .as_ref()
             .filter(|bt| bt.child_break_token.is_some())
             .and_then(|_| children.get(next_child_idx).copied());
         let mut box_snapshots = Vec::new();
-        for entity in carry_midbreak.into_iter().chain(break_out_child) {
-            if box_snapshots.iter().any(|(e, _)| *e == entity) {
-                continue; // carry == break-out (middle column of a 3+ span) — once.
-            }
+        let dedup_break_out = break_out_child.filter(|&b| Some(b) != carry_midbreak);
+        for entity in carry_midbreak.into_iter().chain(dedup_break_out) {
             if let Some(bf) = snapshot_box(dom, entity) {
                 box_snapshots.push((entity, bf));
             }
