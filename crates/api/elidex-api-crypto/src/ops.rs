@@ -430,12 +430,20 @@ pub fn sign(
     require_key_usable(&algorithm, key, KeyUsage::Sign)?;
     match key.algorithm {
         KeyAlgorithm::Hmac { hash, .. } => Ok(hmac::sign(hash, key.material.as_bytes(), data)),
+        KeyAlgorithm::Ecdsa { curve } => {
+            // The name-match above admitted this ECDSA key, so `sign`
+            // normalized to `EcdsaParams` (the only ECDSA sign form); its
+            // `hash` is the signature hash.
+            let NormalizedAlgorithm::EcdsaParams { hash } = algorithm else {
+                return Err(not_supported_op("sign"));
+            };
+            crate::ec::sign(curve, hash, key, data)
+        }
         // `sign` normalizes only HMAC + ECDSA, so the name-match above rejects
-        // any other key before reaching here.  (ECDSA lands in PR-4 commit 4.)
+        // any other key before reaching here.
         KeyAlgorithm::Aes { .. }
         | KeyAlgorithm::Hkdf
         | KeyAlgorithm::Pbkdf2
-        | KeyAlgorithm::Ecdsa { .. }
         | KeyAlgorithm::Ecdh { .. } => Err(not_supported_op("sign")),
     }
 }
@@ -453,11 +461,16 @@ pub fn verify(
         KeyAlgorithm::Hmac { hash, .. } => {
             Ok(hmac::verify(hash, key.material.as_bytes(), signature, data))
         }
-        // `verify` normalizes only HMAC + ECDSA (ECDSA lands in PR-4 commit 4).
+        KeyAlgorithm::Ecdsa { curve } => {
+            let NormalizedAlgorithm::EcdsaParams { hash } = algorithm else {
+                return Err(not_supported_op("verify"));
+            };
+            crate::ec::verify(curve, hash, key, signature, data)
+        }
+        // `verify` normalizes only HMAC + ECDSA.
         KeyAlgorithm::Aes { .. }
         | KeyAlgorithm::Hkdf
         | KeyAlgorithm::Pbkdf2
-        | KeyAlgorithm::Ecdsa { .. }
         | KeyAlgorithm::Ecdh { .. } => Err(not_supported_op("verify")),
     }
 }

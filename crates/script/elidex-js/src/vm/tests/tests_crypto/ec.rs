@@ -64,6 +64,33 @@ fn ecdsa_generate_key_missing_named_curve_is_type_error() {
 }
 
 #[test]
+fn ecdsa_sign_then_verify_round_trips() {
+    // generateKey → sign(privateKey) → verify(publicKey) end-to-end.
+    let src = "globalThis.r = 'pending'; \
+         const data = new Uint8Array([1, 2, 3, 4, 5]); \
+         crypto.subtle.generateKey({name:'ECDSA', namedCurve:'P-256'}, false, ['sign','verify']) \
+           .then(p => crypto.subtle.sign({name:'ECDSA', hash:'SHA-256'}, p.privateKey, data) \
+             .then(sig => crypto.subtle.verify({name:'ECDSA', hash:'SHA-256'}, p.publicKey, sig, data) \
+               .then(ok => crypto.subtle.verify({name:'ECDSA', hash:'SHA-256'}, p.publicKey, \
+                       new Uint8Array(64), data) \
+                 .then(bad => { globalThis.r = (ok === true && bad === false) ? 'ok' : \
+                       ('ok=' + ok + ' bad=' + bad); })))) \
+           .catch(e => { globalThis.r = 'ERR:' + e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "ok");
+}
+
+#[test]
+fn ecdsa_sign_with_public_key_rejects_invalid_access() {
+    // The public key lacks the `sign` usage → InvalidAccessError (async).
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey({name:'ECDSA', namedCurve:'P-256'}, true, ['sign','verify']) \
+           .then(p => crypto.subtle.sign({name:'ECDSA', hash:'SHA-256'}, p.publicKey, \
+                   new Uint8Array([1]))) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "InvalidAccessError");
+}
+
+#[test]
 fn crypto_key_pair_is_not_constructable() {
     // CryptoKeyPair is a plain dictionary, not an interface — there is no
     // global constructor for it.

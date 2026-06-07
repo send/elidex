@@ -14,6 +14,7 @@
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
+use ecdsa::signature::hazmat::{PrehashSigner, PrehashVerifier};
 use elliptic_curve::pkcs8::spki::{DecodePublicKey, EncodePublicKey};
 use elliptic_curve::pkcs8::{DecodePrivateKey, EncodePrivateKey};
 use elliptic_curve::rand_core::{CryptoRng, RngCore};
@@ -21,6 +22,7 @@ use elliptic_curve::sec1::ToEncodedPoint;
 
 use crate::algorithm::{EcAlgorithm, NamedCurve};
 use crate::error::AlgorithmError;
+use crate::hash::HashAlgorithm;
 use crate::jwk::{self, JsonWebKey};
 use crate::key::{normalize_usages, CryptoKeyData, KeyMaterial, KeyType, KeyUsage};
 use crate::ops::{format_data_mismatch, ExportedKey, KeyData, KeyFormat};
@@ -474,6 +476,72 @@ impl RngCore for ClosureRng<'_> {
 }
 
 impl CryptoRng for ClosureRng<'_> {}
+
+// ---------------------------------------------------------------------------
+// ECDSA sign / verify (WebCrypto §23.7.1 / §23.7.2)
+// ---------------------------------------------------------------------------
+
+/// ECDSA `sign` (WebCrypto §23.7.1): hash `message` with `hash`, then sign the
+/// digest, returning the raw `r‖s` concatenation (each `coordinate_len` bytes,
+/// NOT DER).  The §14.3.3 name / `sign`-usage gate ran in [`crate::ops::sign`];
+/// this enforces step 1 ([[type]] must be private) + the signing.  Uses
+/// `sign_prehash` (RFC 6979 deterministic — spec-acceptable, no RNG) so our
+/// `sha2 0.11` digest stays decoupled from ecdsa's digest generation.
+pub(crate) fn sign(
+    curve: NamedCurve,
+    hash: HashAlgorithm,
+    key: &CryptoKeyData,
+    message: &[u8],
+) -> Result<Vec<u8>, AlgorithmError> {
+    // §23.7.1 step 1: the key must be private.
+    let scalar = ec_private_scalar(key)?;
+    // step 3: M = digest(hash, message); steps 4-6: ECDSA sign → raw r‖s.
+    let digest = hash.digest(message);
+    with_curve!(curve, cc, {
+        let signing_key =
+            cc::ecdsa::SigningKey::from_slice(scalar).map_err(|_| key_inaccessible())?;
+        let sig: cc::ecdsa::Signature = signing_key
+            .sign_prehash(&digest)
+            .map_err(|_| AlgorithmError::Operation("ECDSA signing failed".to_string()))?;
+        // `to_bytes` is the fixed-size `r‖s` (each coordinate_len bytes,
+        // big-endian, zero-padded) — exactly the WebCrypto §23.7.1 format.
+        Ok(sig.to_bytes().to_vec())
+    })
+}
+
+/// ECDSA `verify` (WebCrypto §23.7.2): hash `message`, parse the raw `r‖s`
+/// signature, and verify.  The §14.3.4 name / `verify`-usage gate ran in
+/// [`crate::ops::verify`]; this enforces step 1 ([[type]] must be public),
+/// returns **false** (not an error) when the signature is not `2n` bytes or
+/// `(r, s)` is out of range, and otherwise the verification result.
+pub(crate) fn verify(
+    curve: NamedCurve,
+    hash: HashAlgorithm,
+    key: &CryptoKeyData,
+    signature: &[u8],
+    message: &[u8],
+) -> Result<bool, AlgorithmError> {
+    // §23.7.2 step 1: the key must be public.
+    require_public(key)?;
+    // step 6.2: a signature that is not exactly 2·coordinate_len bytes → false.
+    if signature.len() != curve.signature_len() {
+        return Ok(false);
+    }
+    let point = ec_public_point(key);
+    let digest = hash.digest(message);
+    with_curve!(curve, cc, {
+        let Ok(verifying_key) = cc::ecdsa::VerifyingKey::from_sec1_bytes(point) else {
+            // The stored point was validated at import / generate, so this is
+            // unreachable; a parse failure means no valid signature → false.
+            return Ok(false);
+        };
+        // A malformed `(r, s)` (zero / ≥ n) is an invalid signature → false.
+        let Ok(sig) = cc::ecdsa::Signature::from_slice(signature) else {
+            return Ok(false);
+        };
+        Ok(verifying_key.verify_prehash(&digest, &sig).is_ok())
+    })
+}
 
 // ---------------------------------------------------------------------------
 // exportKey (WebCrypto §23.7.5 / §24.4.4)

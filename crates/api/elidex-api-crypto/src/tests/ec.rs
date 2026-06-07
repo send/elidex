@@ -9,7 +9,8 @@ use super::fill_seq;
 use crate::algorithm::{EcAlgorithm, NamedCurve};
 use crate::key::{KeyType, KeyUsage};
 use crate::ops::{
-    export_key, generate_key, import_key, ExportedKey, GeneratedKey, KeyData, KeyFormat,
+    export_key, generate_key, import_key, sign, verify, ExportedKey, GeneratedKey, KeyData,
+    KeyFormat,
 };
 use crate::{normalize, JsonWebKey, NormalizedAlgorithm, Operation};
 
@@ -288,6 +289,77 @@ fn ec_generate_all_curves_round_trip_through_pkcs8() {
         .expect("PKCS#8 re-import");
         assert_eq!(reimported.material, private.material);
     }
+}
+
+fn ecdsa_params_alg(hash: &str) -> NormalizedAlgorithm {
+    let mut raw = crate::RawAlgorithm::from_name("ECDSA");
+    raw.hash = Some(Box::new(crate::RawAlgorithm::from_name(hash)));
+    normalize(Operation::Sign, raw).expect("EcdsaParams normalizes")
+}
+
+#[test]
+fn ecdsa_sign_verify_round_trip_all_curves() {
+    // (curve, signature hash, raw r‖s length).
+    for (curve, hash, sig_len) in [
+        (NamedCurve::P256, "SHA-256", 64),
+        (NamedCurve::P384, "SHA-384", 96),
+        (NamedCurve::P521, "SHA-512", 132),
+    ] {
+        let (public, private) = expect_pair(
+            generate_key(
+                ec_alg(Operation::GenerateKey, EcAlgorithm::Ecdsa, curve),
+                true,
+                vec![KeyUsage::Sign, KeyUsage::Verify],
+                fill_seq,
+            )
+            .expect("keygen"),
+        );
+        let msg = b"the quick brown fox jumps over the lazy dog";
+        let sig = sign(ecdsa_params_alg(hash), &private, msg).expect("sign");
+        assert_eq!(sig.len(), sig_len, "raw r‖s length for {}", curve.as_str());
+        // A genuine signature verifies.
+        assert!(verify(ecdsa_params_alg(hash), &public, &sig, msg).unwrap());
+        // A tampered message does not (returns false, not an error).
+        assert!(!verify(ecdsa_params_alg(hash), &public, &sig, b"other message").unwrap());
+        // A wrong-length signature returns false (§23.7.2 step 6.2), not error.
+        assert!(!verify(ecdsa_params_alg(hash), &public, &sig[..sig_len - 1], msg).unwrap());
+    }
+}
+
+#[test]
+fn ecdsa_sign_with_public_key_is_invalid_access() {
+    let (public, _private) = expect_pair(
+        generate_key(
+            ec_alg(Operation::GenerateKey, EcAlgorithm::Ecdsa, NamedCurve::P256),
+            true,
+            vec![KeyUsage::Sign, KeyUsage::Verify],
+            fill_seq,
+        )
+        .unwrap(),
+    );
+    // The public key lacks the `sign` usage → InvalidAccessError at the gate.
+    let err = sign(ecdsa_params_alg("SHA-256"), &public, b"m").unwrap_err();
+    assert!(matches!(err, crate::AlgorithmError::InvalidAccess(_)));
+}
+
+#[test]
+fn ecdsa_sign_hash_mismatch_still_verifies_with_same_hash() {
+    // The signature hash comes from the call params, not the key, so signing
+    // with SHA-384 and verifying with SHA-384 round-trips on a P-256 key
+    // (curve and hash are independent).
+    let (public, private) = expect_pair(
+        generate_key(
+            ec_alg(Operation::GenerateKey, EcAlgorithm::Ecdsa, NamedCurve::P256),
+            true,
+            vec![KeyUsage::Sign, KeyUsage::Verify],
+            fill_seq,
+        )
+        .unwrap(),
+    );
+    let sig = sign(ecdsa_params_alg("SHA-384"), &private, b"data").unwrap();
+    assert!(verify(ecdsa_params_alg("SHA-384"), &public, &sig, b"data").unwrap());
+    // Verifying the SHA-384 signature under SHA-256 must fail.
+    assert!(!verify(ecdsa_params_alg("SHA-256"), &public, &sig, b"data").unwrap());
 }
 
 #[test]
