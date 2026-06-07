@@ -132,6 +132,27 @@ fn ecdh_derive_bits_curve_mismatch_rejects_invalid_access() {
 }
 
 #[test]
+fn ecdh_key_cannot_sign() {
+    // ECDH registers no sign operation → NotSupportedError (the registry
+    // excludes (Sign, ECDH)).
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey({name:'ECDH', namedCurve:'P-256'}, true, ['deriveBits']) \
+           .then(p => crypto.subtle.sign({name:'ECDH'}, p.privateKey, new Uint8Array([1]))) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "NotSupportedError");
+}
+
+#[test]
+fn ecdsa_key_cannot_derive_bits() {
+    // ECDSA registers no deriveBits operation → NotSupportedError.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey({name:'ECDSA', namedCurve:'P-256'}, true, ['sign','verify']) \
+           .then(p => crypto.subtle.deriveBits({name:'ECDSA', public: p.publicKey}, p.privateKey, 128)) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "NotSupportedError");
+}
+
+#[test]
 fn crypto_key_pair_is_not_constructable() {
     // CryptoKeyPair is a plain dictionary, not an interface — there is no
     // global constructor for it.

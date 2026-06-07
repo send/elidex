@@ -1,9 +1,11 @@
-//! EC (ECDSA / ECDH) import / export round-trip tests (WebCrypto §23 / §24).
+//! EC (ECDSA / ECDH) crate-level tests (WebCrypto §23 / §24): the import /
+//! export round-trips across the four formats over P-256 / P-384 / P-521, the
+//! generateKey usage-split, ECDSA sign / verify, ECDH deriveBits / deriveKey,
+//! and the §23.7.4 / §24.4.3 invalid-shape (DataError / SyntaxError) set.
 //!
-//! The comprehensive per-format / per-curve matrix + the invalid-shape set +
-//! the JWK mirror differential test land in PR-4 commit 6; these are the
-//! backend smoke tests proving import → export round-trips across the four
-//! formats over a known P-256 vector.
+//! The JS-level vertical (the Promise / marshalling surface) lives in the VM
+//! crate's `tests_crypto::ec`; the `marshal_jwk` ≡ `from_json_bytes` JWK
+//! mirror differential test lives in `subtle_crypto::differential`.
 
 use super::fill_seq;
 use crate::algorithm::{EcAlgorithm, EcdhPeer, NamedCurve};
@@ -523,6 +525,114 @@ fn ecdh_derive_key_to_aes_gcm() {
     assert!(matches!(
         derived.algorithm,
         KeyAlgorithm::Aes { length: 256, .. }
+    ));
+}
+
+// --- invalid-shape matrix (the §23.7.4 / §24.4.3 DataError / SyntaxError sets) ---
+
+fn import_ecdsa_jwk(jwk: JsonWebKey, usages: Vec<KeyUsage>) -> crate::error::AlgorithmError {
+    import_key(
+        KeyFormat::Jwk,
+        ec_import_alg(EcAlgorithm::Ecdsa, NamedCurve::P256),
+        true,
+        usages,
+        KeyData::Jwk(jwk),
+    )
+    .expect_err("import should fail")
+}
+
+#[test]
+fn ec_jwk_invalid_shapes_are_data_errors() {
+    use crate::error::AlgorithmError::Data;
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+
+    // kty not "EC".
+    let mut jwk = private_jwk();
+    jwk.kty = Some("oct".to_string());
+    assert!(matches!(
+        import_ecdsa_jwk(jwk, vec![KeyUsage::Sign]),
+        Data(_)
+    ));
+
+    // x not valid base64url.
+    let mut jwk = private_jwk();
+    jwk.x = Some("not base64!!".to_string());
+    assert!(matches!(
+        import_ecdsa_jwk(jwk, vec![KeyUsage::Sign]),
+        Data(_)
+    ));
+
+    // x the wrong length for the curve (31 bytes ≠ 32).
+    let mut jwk = private_jwk();
+    jwk.x = Some(URL_SAFE_NO_PAD.encode([0u8; 31]));
+    assert!(matches!(
+        import_ecdsa_jwk(jwk, vec![KeyUsage::Sign]),
+        Data(_)
+    ));
+
+    // d present but inconsistent with x / y (a different valid scalar).
+    let mut jwk = private_jwk();
+    jwk.d = Some(URL_SAFE_NO_PAD.encode([0x42u8; 32]));
+    assert!(matches!(
+        import_ecdsa_jwk(jwk, vec![KeyUsage::Sign]),
+        Data(_)
+    ));
+
+    // ECDSA `alg` mismatched with the curve (ES384 on a P-256 key).
+    let mut jwk = private_jwk();
+    jwk.alg = Some("ES384".to_string());
+    assert!(matches!(
+        import_ecdsa_jwk(jwk, vec![KeyUsage::Sign]),
+        Data(_)
+    ));
+}
+
+#[test]
+fn ecdsa_jwk_private_with_verify_usage_is_syntax_error() {
+    // §23.7.4 jwk step 2: `d` present + a usage other than "sign" → SyntaxError.
+    let err = import_ecdsa_jwk(private_jwk(), vec![KeyUsage::Verify]);
+    assert!(matches!(err, crate::error::AlgorithmError::Syntax(_)));
+}
+
+#[test]
+fn ec_import_garbage_der_and_point_are_data_errors() {
+    use crate::error::AlgorithmError::Data;
+    let garbage = vec![0x01, 0x02, 0x03, 0x04];
+    // raw: not a valid SEC1 point.
+    assert!(matches!(
+        import_key(
+            KeyFormat::Raw,
+            ec_import_alg(EcAlgorithm::Ecdsa, NamedCurve::P256),
+            true,
+            vec![KeyUsage::Verify],
+            KeyData::Raw(garbage.clone()),
+        )
+        .unwrap_err(),
+        Data(_)
+    ));
+    // spki: not a valid SubjectPublicKeyInfo.
+    assert!(matches!(
+        import_key(
+            KeyFormat::Spki,
+            ec_import_alg(EcAlgorithm::Ecdsa, NamedCurve::P256),
+            true,
+            vec![KeyUsage::Verify],
+            KeyData::Raw(garbage.clone()),
+        )
+        .unwrap_err(),
+        Data(_)
+    ));
+    // pkcs8: not a valid PrivateKeyInfo.
+    assert!(matches!(
+        import_key(
+            KeyFormat::Pkcs8,
+            ec_import_alg(EcAlgorithm::Ecdsa, NamedCurve::P256),
+            true,
+            vec![KeyUsage::Sign],
+            KeyData::Raw(garbage),
+        )
+        .unwrap_err(),
+        Data(_)
     ));
 }
 
