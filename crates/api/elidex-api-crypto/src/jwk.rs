@@ -113,7 +113,13 @@ fn member_boolean(map: &Map<String, Value>, key: &str) -> Option<bool> {
 
 /// Read the `sequence<DOMString> key_ops` JWK member by presence (WebIDL):
 /// absent → `None`; a present array → each element `ToString`-ed; a present
-/// non-array (including explicit `null`) is not a sequence → `DataError`.
+/// non-array is not a sequence → `TypeError`.
+///
+/// The `TypeError` (not `DataError`) matches the live `importKey` path: a JSON
+/// `null` / string / number / boolean is not an `Object` (Web IDL §3.2.21
+/// step 1) and a JSON object has no `@@iterator`, so the sequence conversion
+/// throws a `TypeError` in both cases — exactly what
+/// `webidl_sequence_to_vec` raises for the same inputs.
 fn member_string_sequence(
     map: &Map<String, Value>,
     key: &str,
@@ -121,23 +127,37 @@ fn member_string_sequence(
     match map.get(key) {
         None => Ok(None),
         Some(Value::Array(items)) => Ok(Some(items.iter().map(json_to_domstring).collect())),
-        Some(_) => Err(data("JWK 'key_ops' member is not a sequence")),
+        Some(_) => Err(AlgorithmError::Type(
+            "JWK 'key_ops' member is not a sequence".to_string(),
+        )),
     }
 }
 
 /// ECMAScript `ToString` of a parsed JSON value (the WebIDL `DOMString`
-/// conversion in "parse a JWK").  A JWK `DOMString` member is normally a
-/// string; an array / object is malformed and `ToString`s to a value that
-/// fails the downstream `oct` validation (`DataError`) either way, so the JSON
-/// text is used rather than replicating the ECMAScript array/object `ToString`
-/// quirks.
+/// conversion in "parse a JWK"), matching the live `importKey` marshalling's
+/// `ToString` so an array / object member coerces identically (e.g.
+/// `["oct"]` → `"oct"`) rather than failing on JSON text.
 fn json_to_domstring(value: &Value) -> String {
     match value {
         Value::Null => "null".to_string(),
         Value::Bool(b) => b.to_string(),
         Value::Number(n) => n.to_string(),
         Value::String(s) => s.clone(),
-        Value::Array(_) | Value::Object(_) => value.to_string(),
+        // `Array.prototype.toString` = `join(",")`: each element is `ToString`-ed,
+        // except `null` / `undefined` elements, which join renders as the empty
+        // string (JSON has no `undefined`).
+        Value::Array(items) => items
+            .iter()
+            .map(|item| match item {
+                Value::Null => String::new(),
+                other => json_to_domstring(other),
+            })
+            .collect::<Vec<_>>()
+            .join(","),
+        // A plain object (a `JSON.parse` result has the pristine
+        // `Object.prototype` in the "new global object") stringifies to
+        // `"[object Object]"`.
+        Value::Object(_) => "[object Object]".to_string(),
     }
 }
 

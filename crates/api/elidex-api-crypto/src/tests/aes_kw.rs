@@ -476,18 +476,46 @@ fn jwk_from_json_present_null_ext_is_false() {
     ));
 }
 
-/// Codex R2 regression: a present `key_ops: null` is an invalid sequence →
-/// DataError (so it cannot silently bypass the key_ops usage-superset check),
-/// whereas an absent `key_ops` is `None`.
+/// Codex R2 regression: a present non-array `key_ops` (incl. explicit `null`)
+/// is not a sequence → `TypeError` (matching `importKey`'s
+/// `webidl_sequence_to_vec` step-1, so it cannot silently bypass the key_ops
+/// usage-superset check), whereas an absent `key_ops` is `None`.
 #[test]
-fn jwk_from_json_present_null_key_ops_is_data_error() {
-    assert!(matches!(
-        crate::jwk::from_json_bytes(br#"{"kty":"oct","k":"AAEC","key_ops":null}"#),
-        Err(AlgorithmError::Data(_))
-    ));
+fn jwk_from_json_present_non_array_key_ops_is_type_error() {
+    for body in [
+        &br#"{"kty":"oct","k":"AAEC","key_ops":null}"#[..],
+        &br#"{"kty":"oct","k":"AAEC","key_ops":"sign"}"#[..],
+        &br#"{"kty":"oct","k":"AAEC","key_ops":{}}"#[..],
+    ] {
+        assert!(
+            matches!(
+                crate::jwk::from_json_bytes(body),
+                Err(AlgorithmError::Type(_))
+            ),
+            "non-array key_ops should be a TypeError: {:?}",
+            std::str::from_utf8(body)
+        );
+    }
     // Absent key_ops parses cleanly to None.
     let jwk = crate::jwk::from_json_bytes(br#"{"kty":"oct","k":"AAEC"}"#).unwrap();
     assert_eq!(jwk.key_ops, None);
+}
+
+/// Codex R3 regression: a `DOMString` JWK member that parses to a JSON array /
+/// object is coerced via ECMAScript `ToString` (matching the live `importKey`
+/// path), NOT serialized as JSON text — so `kty:["oct"]` coerces to `"oct"`,
+/// `["a","b"]` → `"a,b"`, `[null]` → `""`, and an object → `"[object Object]"`.
+#[test]
+fn jwk_from_json_domstring_array_coercion_matches_tostring() {
+    let jwk =
+        crate::jwk::from_json_bytes(br#"{"kty":["oct"],"k":["AAEC"],"alg":["a","b"]}"#).unwrap();
+    assert_eq!(jwk.kty.as_deref(), Some("oct"));
+    assert_eq!(jwk.k.as_deref(), Some("AAEC"));
+    assert_eq!(jwk.alg.as_deref(), Some("a,b"));
+    // `[null]` joins to "" and a `{}` member stringifies to "[object Object]".
+    let jwk2 = crate::jwk::from_json_bytes(br#"{"kty":[null],"k":{}}"#).unwrap();
+    assert_eq!(jwk2.kty.as_deref(), Some(""));
+    assert_eq!(jwk2.k.as_deref(), Some("[object Object]"));
 }
 
 #[test]
