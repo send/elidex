@@ -11,6 +11,7 @@ mod bidi;
 mod form;
 mod glyph;
 mod inline;
+mod inline_flow;
 mod paint;
 mod text;
 pub(crate) mod transform;
