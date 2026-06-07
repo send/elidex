@@ -7,10 +7,12 @@
 use super::*;
 use elidex_ecs::FragmentContent;
 
-/// A block child holding two fixed-height block children, so it breaks at the
-/// child boundary when a column is shorter than its total height. Returns the
-/// spanning div (the mid-break direct child of the multicol container).
-fn add_spanning_block(dom: &mut EcsDom, parent: Entity, part_height: f32) -> Entity {
+/// A block child holding `parts` fixed-height block children, so it breaks at
+/// each child boundary when a column fits only one part. `parts == 2` spans two
+/// columns (col-0 → col-1); `parts == 3` spans three (exercising the middle
+/// column, where a child both resumes-into AND breaks-out-of the column). Returns
+/// the spanning div (the mid-break direct child of the multicol container).
+fn add_spanning_block(dom: &mut EcsDom, parent: Entity, parts: usize, part_height: f32) -> Entity {
     let div = elem(dom, "div");
     dom.append_child(parent, div);
     let _ = dom.world_mut().insert_one(
@@ -20,8 +22,9 @@ fn add_spanning_block(dom: &mut EcsDom, parent: Entity, part_height: f32) -> Ent
             ..ComputedStyle::default()
         },
     );
-    add_block_child(dom, div, part_height);
-    add_block_child(dom, div, part_height);
+    for _ in 0..parts {
+        add_block_child(dom, div, part_height);
+    }
     div
 }
 
@@ -54,7 +57,7 @@ fn multicol_midbreak_block_populates_one_box_fragment_per_column() {
         ..ComputedStyle::default()
     };
     let _ = dom.world_mut().insert_one(container, style);
-    let span = add_spanning_block(&mut dom, container, 50.0);
+    let span = add_spanning_block(&mut dom, container, 2, 50.0);
 
     let font_db = make_font_db();
     let input = make_input(&font_db);
@@ -80,6 +83,61 @@ fn multicol_midbreak_block_populates_one_box_fragment_per_column() {
         "column-1 fragment shifted to the exact column offset x≈300, got {}",
         frags[1].1
     );
+
+    // Behavior-neutral (dark data): Z-1a does NOT remove the mid-break child's
+    // `LayoutBox` (that is Z-1b, paired with the render store-consume). The box is
+    // retained, so the child still paints via legacy/G11 exactly as before — the
+    // store is purely additive. (The render-doesn't-read-the-store invariant, F7,
+    // is verified structurally: `crates/core/elidex-render/` has zero `fragment_tree`
+    // references, and the render + shell golden suites show zero churn.)
+    assert!(
+        dom.world().get::<&LayoutBox>(span).is_ok(),
+        "Z-1a retains the LayoutBox (removal is Z-1b) — population is purely additive"
+    );
+}
+
+#[test]
+fn multicol_midbreak_block_spanning_three_columns_populates_three_fragments() {
+    // A div whose content (three 50px blocks) spans THREE 50px columns exercises
+    // the middle column (column 1), where the div both RESUMES into the column
+    // (`carry_midbreak`) AND BREAKS OUT of it (`is_midbreak`) — the dedup path that
+    // must snapshot the middle fragment exactly once. The 2-column tests never hit
+    // this (the resume-finish column is also the last). Plan §8 "spans 3+ columns".
+    let mut dom = EcsDom::new();
+    let container = elem(&mut dom, "div");
+    let style = ComputedStyle {
+        display: Display::Block,
+        column_count: Some(3),
+        column_fill: ColumnFill::Auto,
+        height: Dimension::Length(50.0), // column height 50 → one 50px part per column
+        ..ComputedStyle::default()
+    };
+    let _ = dom.world_mut().insert_one(container, style);
+    let span = add_spanning_block(&mut dom, container, 3, 50.0);
+
+    let font_db = make_font_db();
+    let input = make_input(&font_db);
+    layout_multicol(&mut dom, container, &input, layout_child_fn);
+
+    // Container 600 wide, 3 columns, gap 0 → column width 200. One fragment per
+    // column at x = i × 200, the middle one snapshotted exactly once (no dedup dup).
+    let frags = box_fragments(&dom, span);
+    assert_eq!(
+        frags.len(),
+        3,
+        "spanning div gets exactly one box fragment per column (middle deduped once), got {frags:?}"
+    );
+    for (i, &(fragmentainer, x)) in frags.iter().enumerate() {
+        #[allow(clippy::cast_possible_truncation)]
+        let expected_col = i as u32;
+        #[allow(clippy::cast_precision_loss)]
+        let expected_x = i as f32 * 200.0;
+        assert_eq!(fragmentainer, expected_col, "fragment {i} in column {i}");
+        assert!(
+            (x - expected_x).abs() < 1.0,
+            "fragment {i} at column offset x≈{expected_x}, got {x}"
+        );
+    }
 }
 
 #[test]
@@ -138,7 +196,7 @@ fn multicol_balanced_midbreak_no_probe_leftover() {
     };
     let _ = dom.world_mut().insert_one(container, style);
     // 100px content, 2 columns → balances to ~50px columns → div breaks col-0/col-1.
-    let span = add_spanning_block(&mut dom, container, 50.0);
+    let span = add_spanning_block(&mut dom, container, 2, 50.0);
 
     let font_db = make_font_db();
     let input = make_input(&font_db);

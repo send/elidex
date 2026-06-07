@@ -69,6 +69,14 @@ pub enum FragmentContent {
     /// A box fragment: this entity's box model for this fragmentainer, in
     /// **absolute** coords (already column-offset, so render reads it without a
     /// transform).
+    ///
+    /// Caveat for the Z-1b render-consume integration: these coords are committed
+    /// at the multicol container's frame and are **not** re-shifted by an
+    /// ancestor's `shift_descendants` (which moves `LayoutBox`/`InlineFlow` but
+    /// does not walk this tree). For a multicol nested inside a later-shifted
+    /// subtree (outer multicol column shift, margin-collapse, relpos), the
+    /// fragment would need shifting too — harmless while the tree is dark data
+    /// (Z-1a), but a prerequisite to settle when Z-1b makes it painted.
     Box(BoxFragment),
 }
 
