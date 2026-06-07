@@ -102,27 +102,45 @@ const AES_KW_BLOCK: usize = 8;
 pub fn from_json_bytes(bytes: &[u8]) -> Result<JsonWebKey, AlgorithmError> {
     let value: Value =
         serde_json::from_slice(bytes).map_err(|_| data("unwrapped key data is not valid JSON"))?;
-    // WebIDL dictionary conversion requires an object (a non-object — array,
-    // string, number, … — is not a dictionary → DataError).
-    let Value::Object(map) = value else {
-        return Err(data("unwrapped key data is not a JSON object"));
+    // §9 step 5 / WebIDL §3.2.17 dictionary conversion of the `JSON.parse`
+    // result: an object converts directly; `null` (and an array — an Object with
+    // no named JWK members) converts to a dictionary with all members absent (no
+    // error — the missing `kty` is caught at step 6 below); any other primitive
+    // (string / number / boolean) is not an object → `TypeError`.
+    let map = match value {
+        Value::Object(map) => map,
+        Value::Null | Value::Array(_) => Map::new(),
+        Value::String(_) | Value::Number(_) | Value::Bool(_) => {
+            return Err(AlgorithmError::Type(
+                "unwrapped key data is not a JSON Web Key dictionary".to_string(),
+            ));
+        }
     };
-    // The full WebIDL `JsonWebKey` dictionary conversion also converts `oth`
-    // (`sequence<RsaOtherPrimesInfo>`); the live `importKey` marshaller performs
-    // and validates it before an AES/HMAC import discards the RSA fields, so a
-    // malformed `oth` must reject here identically (the converted values are
-    // unused for `oct` keys — only the validation matters).  The DOMString and
-    // `ext` members never fail conversion for a JSON value, so `key_ops` and
-    // `oth` are the only members that can produce a conversion error.
+    // Step 5 dictionary conversion: the only members that can raise a conversion
+    // error for a JSON value are `key_ops` and `oth` (both `sequence`s); the
+    // `DOMString` / `ext` members always convert.  They are converted in WebIDL
+    // member order (`key_ops` before `oth`), matching the live `importKey`
+    // marshaller, so the error precedence agrees.  The `oth` values are unused
+    // for `oct` keys — only its validation matters.
+    let key_ops = member_string_sequence(&map, "key_ops")?;
     validate_oth(&map)?;
-    Ok(JsonWebKey {
+    let jwk = JsonWebKey {
         kty: member_domstring(&map, "kty"),
         k: member_domstring(&map, "k"),
         alg: member_domstring(&map, "alg"),
         use_: member_domstring(&map, "use"),
-        key_ops: member_string_sequence(&map, "key_ops")?,
+        key_ops,
         ext: member_boolean(&map, "ext"),
-    })
+    };
+    // §9 "parse a JWK" step 6: the `kty` member must be defined (a present member,
+    // even if its value is the empty string) — a `DataError` here, BEFORE the
+    // §14.3.12 step-16 import, so the error precedence does not depend on the
+    // requested import algorithm (e.g. an HKDF unwrap of a `kty`-less JWK rejects
+    // with this DataError, not HKDF's later "jwk unsupported" NotSupportedError).
+    if jwk.kty.is_none() {
+        return Err(data("JWK 'kty' member is missing"));
+    }
+    Ok(jwk)
 }
 
 /// Convert (for validation only) the `oth` member
@@ -196,7 +214,12 @@ fn json_to_domstring(value: &Value) -> String {
     match value {
         Value::Null => "null".to_string(),
         Value::Bool(b) => b.to_string(),
-        Value::Number(n) => n.to_string(),
+        // JS parses every JSON number as an `f64` and `ToString`s the `f64`
+        // value, so `1`, `1.0`, and `1.00` all stringify to `"1"`.
+        // `serde_json::Number::to_string` would instead preserve the source
+        // spelling (`"1.0"`), which would make e.g. `key_ops:[1, 1.0]` miss a
+        // duplicate the WebIDL conversion catches — so go through `f64`.
+        Value::Number(n) => n.as_f64().map_or_else(|| n.to_string(), |f| f.to_string()),
         Value::String(s) => s.clone(),
         // `Array.prototype.toString` = `join(",")`: each element is `ToString`-ed,
         // except `null` / `undefined` elements, which join renders as the empty

@@ -613,20 +613,62 @@ fn jwk_from_json_oth_matches_import_validation() {
 #[test]
 fn jwk_from_json_malformed_is_data_error() {
     for bad in [
-        &b"not json"[..],
-        &b"{ \"kty\": }"[..], // syntax error
-        &b"[1,2,3]"[..],      // not an object
-        &b"\"a-string\""[..], // not an object
+        &b"not json"[..],         // invalid JSON syntax
+        &b"{ \"kty\": }"[..],     // invalid JSON syntax
+        &b"{}"[..],               // §9 step 6: object with no kty
+        &b"{\"k\":\"AAEC\"}"[..], // §9 step 6: kty member missing
+        &b"[1,2,3]"[..],          // array → empty dict → kty missing
+        &b"null"[..],             // null → empty dict → kty missing
     ] {
         assert!(
             matches!(
                 crate::jwk::from_json_bytes(bad),
                 Err(AlgorithmError::Data(_))
             ),
-            "malformed JWK JSON should be a DataError: {:?}",
+            "malformed / kty-less JWK JSON should be a DataError: {:?}",
             std::str::from_utf8(bad)
         );
     }
+}
+
+/// Codex R4 regression (§9 step 5 / WebIDL §3.2.17): valid JSON that is a
+/// primitive (string / number / boolean) is not a dictionary → `TypeError`
+/// (NOT `DataError`), distinguishing it from `null` / arrays (missing-kty
+/// `DataError`, covered above).
+#[test]
+fn jwk_from_json_primitive_is_type_error() {
+    for bad in [&b"\"a-string\""[..], &b"123"[..], &b"true"[..]] {
+        assert!(
+            matches!(
+                crate::jwk::from_json_bytes(bad),
+                Err(AlgorithmError::Type(_))
+            ),
+            "a primitive JWK document should be a TypeError: {:?}",
+            std::str::from_utf8(bad)
+        );
+    }
+}
+
+/// Codex R4 regression (§9 step 6): a `kty`-less JWK rejects with a parse-time
+/// `DataError` regardless of the requested import algorithm — e.g. an HKDF
+/// unwrap of `{}` is a DataError, not HKDF's later "jwk unsupported"
+/// NotSupportedError.
+#[test]
+fn jwk_missing_kty_rejects_before_import() {
+    assert!(matches!(
+        crate::jwk::from_json_bytes(br#"{"k":"AAEC","alg":"A128KW"}"#),
+        Err(AlgorithmError::Data(_))
+    ));
+}
+
+/// Codex R4 regression (§9 step 5): numeric JWK members are `ToString`-ed as
+/// the JS `f64` value, so `1` and `1.0` both become `"1"` (a duplicate
+/// `key_ops` the WebIDL conversion would catch), not the source spelling.
+#[test]
+fn jwk_from_json_number_uses_js_f64_stringification() {
+    let jwk =
+        crate::jwk::from_json_bytes(br#"{"kty":"oct","k":"AAEC","key_ops":[1,1.0]}"#).unwrap();
+    assert_eq!(jwk.key_ops, Some(vec!["1".to_string(), "1".to_string()]));
 }
 
 // ===========================================================================
