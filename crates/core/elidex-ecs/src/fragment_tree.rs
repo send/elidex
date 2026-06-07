@@ -98,6 +98,23 @@ pub struct BoxFragment {
     pub first_baseline: Option<f32>,
 }
 
+impl From<&elidex_plugin::LayoutBox> for BoxFragment {
+    /// Project a [`LayoutBox`](elidex_plugin::LayoutBox) to its box-fragment
+    /// geometry, dropping the component-era `layout_generation` (the node's
+    /// `fragmentainer` discriminates instead). The single source of the
+    /// `LayoutBox`↔`BoxFragment` field correspondence — a new box-model field on
+    /// `LayoutBox` surfaces here.
+    fn from(lb: &elidex_plugin::LayoutBox) -> Self {
+        Self {
+            content: lb.content,
+            padding: lb.padding,
+            border: lb.border,
+            margin: lb.margin,
+            first_baseline: lb.first_baseline,
+        }
+    }
+}
+
 impl FragmentTree {
     /// Remove all nodes — called at the start of each layout pass (the tree is
     /// rebuilt from scratch every pass; full-from-root relayout is the reconcile).
@@ -138,6 +155,12 @@ impl FragmentTree {
     /// insertion (fragmentainer) order. Empty for a non-fragmented / non-store
     /// entity — the **positive presence** of a fragment is the render router
     /// (Z-1b), never `LayoutBox`-absence.
+    ///
+    /// This is an O(nodes) scan, fine for the layout-side queries and tests that
+    /// use it today. The Z-1b render consume must NOT call this per entity inside
+    /// the paint walk (that would make the walk O(entities × fragments)) — it
+    /// should iterate [`nodes`](Self::nodes) once, or build an entity→fragment
+    /// index, when the consumer lands.
     pub fn fragments_for(&self, entity: Entity) -> impl Iterator<Item = &FragmentNode> {
         self.nodes.iter().filter(move |n| n.entity == Some(entity))
     }

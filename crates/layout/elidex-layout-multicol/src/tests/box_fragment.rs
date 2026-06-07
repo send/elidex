@@ -141,6 +141,41 @@ fn multicol_midbreak_block_spanning_three_columns_populates_three_fragments() {
 }
 
 #[test]
+fn multicol_spanning_child_after_whole_sibling_does_not_falsely_fragment() {
+    // A whole sibling A followed by a child B that does not fit in the remaining
+    // column space. This engine's fragmentation DEFERS B to a clean column boundary
+    // (it never splits a child *starting* after a whole sibling) — so B is laid
+    // WHOLE in column 1, not split. Assert B therefore gets NO box fragment (it uses
+    // the I-multicol shifted `LayoutBox`), pinning that the `child_break_token`
+    // capture signal does not false-positive on a deferred-then-whole child. (This is
+    // why the capture's "laid partially here" signal — `child_break_token.is_some()`
+    // — coincides with `next == prev` in practice: a spanning child's first fragment
+    // always lands at a clean boundary where it then fills the column mid-stream.)
+    let mut dom = EcsDom::new();
+    let container = elem(&mut dom, "div");
+    let style = ComputedStyle {
+        display: Display::Block,
+        column_count: Some(2),
+        column_fill: ColumnFill::Auto,
+        height: Dimension::Length(50.0),
+        ..ComputedStyle::default()
+    };
+    let _ = dom.world_mut().insert_one(container, style);
+    let _a = add_block_child(&mut dom, container, 30.0); // whole in col 0
+    let b = add_spanning_block(&mut dom, container, 2, 15.0); // 30px → deferred whole to col 1
+
+    let font_db = make_font_db();
+    let input = make_input(&font_db);
+    layout_multicol(&mut dom, container, &input, layout_child_fn);
+
+    assert_eq!(
+        box_fragments(&dom, b).len(),
+        0,
+        "B is deferred whole to column 1 (not split) → no box fragment, only its shifted LayoutBox"
+    );
+}
+
+#[test]
 fn multicol_whole_in_column_block_has_no_box_fragment() {
     // A block that fits entirely in one column is NOT a mid-break child → it uses
     // the shifted `LayoutBox` (I-multicol), NOT a standalone box fragment. Only
