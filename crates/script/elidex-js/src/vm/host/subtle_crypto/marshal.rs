@@ -101,25 +101,32 @@ pub(super) fn marshal_algorithm(
     match value {
         JsValue::String(sid) => Ok(RawAlgorithm::from_name(ctx.vm.strings.get_utf8(sid))),
         JsValue::Object(id) => {
+            // §18.4.4 step 2 + steps 4-5: convert to `Algorithm` (reads
+            // `name`) and recognize the `(op, name)` pair against the registry,
+            // which decides the step-6 `desiredType`.
             let name = read_required_name(ctx, id, method)?;
             let mut raw = RawAlgorithm::from_name(name.clone());
-            // §18.4.4 step 5 recognition gate: the registry decides which
-            // params-dictionary members this `(op, name)` carries.  An
-            // unregistered name (`None`) or a name-only `Algorithm`
-            // (`NameOnly` — digest / sign / verify / AES importKey) reads no
-            // further getters; `crypto::normalize` then accepts the
-            // name-only form or rejects it as `NotSupportedError`, never
-            // touching a user-defined params getter for an unregistered name.
             match crypto::params_shape(op, &name) {
-                None | Some(AlgorithmParams::NameOnly) => {}
+                // Unregistered name: §18.4.4 returns `NotSupportedError` at
+                // step 5, BEFORE the step-6 conversion — so no second `name`
+                // read and no params getters fire (`crypto::normalize` then
+                // produces the `NotSupportedError`).
+                None => {}
+                // Registered name-only `Algorithm` (digest / sign / verify /
+                // AES importKey / HKDF + PBKDF2 importKey + get-key-length):
+                // step 6 still converts the object to the `Algorithm`
+                // `desiredType`, which re-reads the inherited required `name`
+                // member — so a `name` getter that throws / changes on the
+                // second read is observed (the step-5 name stays authoritative,
+                // step 7).  There are no further params members to read.
+                Some(AlgorithmParams::NameOnly) => {
+                    read_required_name(ctx, id, method)?;
+                }
+                // Params-carrying `desiredType`: step 6 re-reads the inherited
+                // `name` member first (inherited members precede the derived
+                // ones in the Web IDL dictionary conversion), then the derived
+                // params members.
                 Some(shape) => {
-                    // §18.4.4 step 6: converting `alg` to its params
-                    // dictionary (each of which inherits `Algorithm`)
-                    // re-reads the required inherited `name` member first —
-                    // its getter fires again before the derived members, so
-                    // a throw / now-missing `name` on the second access
-                    // propagates (the step-5 name stays authoritative,
-                    // step 7).
                     read_required_name(ctx, id, method)?;
                     read_params(ctx, id, method, shape, &mut raw)?;
                 }
