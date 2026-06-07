@@ -304,42 +304,17 @@ impl LinePacker {
             self.line_boxes.push(LineBox {
                 block_size: self.current_line_height,
             });
-            // Commit the line's inline-element rectangles into entity_bounds. Each
-            // fragment takes the line's *final* height (it may have grown after the
-            // fragment was placed), and the per-entity bounds are the union of all
-            // committed fragments (a multi-line inline's box must enclose every line).
-            //
-            // PRE-EXISTING GAP (all non-start alignments, NOT justify-specific): these
-            // rects use the natural `seg_inline_start`; the line-level `text-align`
-            // `offset` (and, for justify, the per-run `bake_justify` `cum`) baked into
-            // the persisted runs below is NOT applied here, so an inline element's
-            // `entity_bounds` (→ inline `LayoutBox` / `getClientRects()`) diverges from
-            // its painted position under center/right/justify alike. Justify's per-run
-            // expansion makes the divergence non-uniform, but the root predates this
-            // slice (center/right have the same uniform-offset divergence). A proper fix
-            // applies the alignment offset to `entity_bounds` for every alignment —
-            // tracked as a separate cross-cutting follow-up, not this justify PR's scope.
+            // Commit this line's inline-element rectangles into entity_bounds (→ each
+            // inline element's LayoutBox / getClientRects geometry). The commit is done
+            // inside the alignment arms below: when persisting (`flow_align.is_some()`)
+            // the rects ride the SAME per-line natural→painted transform as the runs
+            // (`offset` + justify `cum_at`), merged to one box fragment per line per
+            // element (`commit_aligned_entity_rects`); the non-persisting fragmentation
+            // path keeps the natural per-segment commit (path 2 — deferred, the `else`
+            // arm). Each fragment takes the line's *final* height (it may have grown after
+            // the fragment was placed); per-entity bounds union all committed fragments (a
+            // multi-line inline's box must enclose every line).
             let line_height = self.current_line_height;
-            for (entity, mut rect) in self.current_line_entity_rects.drain(..) {
-                rect.block_size = line_height;
-                let line_block_end = rect.block_start + rect.block_size;
-                self.entity_bounds
-                    .entry(entity)
-                    .and_modify(|b| {
-                        b.inline_start = b.inline_start.min(rect.inline_start);
-                        b.inline_end = b.inline_end.max(rect.inline_end);
-                        b.block_start = b.block_start.min(rect.block_start);
-                        b.block_end = b.block_end.max(line_block_end);
-                        b.line_rects.push(rect.clone());
-                    })
-                    .or_insert(EntityBounds {
-                        inline_start: rect.inline_start,
-                        inline_end: rect.inline_end,
-                        block_start: rect.block_start,
-                        block_end: line_block_end,
-                        line_rects: vec![rect],
-                    });
-            }
             // Commit the line's positioned members into flow_lines, per group,
             // baking the per-line text-align offset into each run's inline_start.
             // The offset is line-level (computed once from the whole line's trimmed
@@ -455,6 +430,11 @@ impl LinePacker {
                     })
                 };
                 let extra = justify_dist.as_ref().map(|(e, _)| *e);
+                // Commit this line's inline-element rects (getClientRects / LayoutBox) in
+                // painted coords — the 4th consumer of the same per-line natural→painted
+                // transform the runs (`bake_justify`) and relpos placements use (`offset`
+                // + `cum_at`), merged to one box fragment per line per element.
+                self.commit_aligned_entity_rects(line_height, offset, cum_at);
                 for (group_key, mut runs) in self.current_line_runs.drain() {
                     if runs.is_empty() {
                         continue;
@@ -503,6 +483,34 @@ impl LinePacker {
                         block_start,
                     ));
                 }
+            } else {
+                // flow_align == None: non-persisting fragmentation (block/flex/grid/table —
+                // path 2). The packer carries no alignment info here (it lives only in
+                // `FlowAlign`), so commit entity rects at the natural cursor, per break
+                // segment, unmerged, as before. Aligning these too needs un-gating
+                // alignment knowledge from run persistence — deferred slot
+                // `#11-inline-align-clientrects-nonpersist-path` (re-evaluate at Z-slice
+                // landing, which deletes the non-persist paths).
+                for (entity, mut rect) in self.current_line_entity_rects.drain(..) {
+                    rect.block_size = line_height;
+                    let line_block_end = rect.block_start + rect.block_size;
+                    self.entity_bounds
+                        .entry(entity)
+                        .and_modify(|b| {
+                            b.inline_start = b.inline_start.min(rect.inline_start);
+                            b.inline_end = b.inline_end.max(rect.inline_end);
+                            b.block_start = b.block_start.min(rect.block_start);
+                            b.block_end = b.block_end.max(line_block_end);
+                            b.line_rects.push(rect.clone());
+                        })
+                        .or_insert(EntityBounds {
+                            inline_start: rect.inline_start,
+                            inline_end: rect.inline_end,
+                            block_start: rect.block_start,
+                            block_end: line_block_end,
+                            line_rects: vec![rect],
+                        });
+                }
             }
             self.current_block_offset += self.current_line_height;
         } else {
@@ -522,6 +530,79 @@ impl LinePacker {
         // drained/cleared above, but reset explicitly so coalescing can't reach
         // across the line break).
         self.last_placed_entity = None;
+    }
+
+    /// Commit this line's inline-element rectangles into `entity_bounds` in PAINTED
+    /// coordinates, merged to one box fragment per line per element.
+    ///
+    /// `getClientRects()` (CSSOM VIEW 1 §6 Extensions to the Element Interface) returns
+    /// one border-box fragment per line per inline element, in painted coordinates. The
+    /// per-break-segment rects `place_item` collected at the natural cursor are folded
+    /// per entity into a single `[min start, max end]` line rect, then mapped
+    /// natural→painted by the SAME per-line transform the persisted runs / positioned
+    /// atomics use: `offset` (the line-level `text-align` shift) plus `cum_at` (CSS Text 3
+    /// §6.4.1 Expanding and Compressing Text — the cumulative inter-word justify expansion
+    /// to the left of a position; the trailing collapsible-space hang is already excluded
+    /// from `cum_at`, §4.1.2). This is
+    /// the 4th consumer of that one transform — runs (via [`bake_justify`]), sub-flow
+    /// runs, and positioned atomics being the other three (one-issue-one-way: a single
+    /// natural→painted map, not a 4th ad-hoc shift). For non-justify lines `cum_at ≡ 0`,
+    /// so the rect is a uniform per-line translation by `offset` (correct for
+    /// center/right); for start-aligned lines it is the identity.
+    ///
+    /// Folding *before* the transform makes it exact at element granularity:
+    /// `cum_at(max_end)` counts the element's own interior separators (the element's run
+    /// start `< max_end`), so the rect widens by its internal justify expansion, while
+    /// `cum_at(min_start)` counts only separators to the element's left. The union into
+    /// `entity_bounds` therefore runs over merged rects only (one per line) — a
+    /// multi-segment line contributes exactly one `line_rects` entry, matching the CSSOM
+    /// one-fragment-per-line shape and keeping the single-line fallback (`len() == 1` →
+    /// `LayoutBox` border box in `getClientRects`).
+    fn commit_aligned_entity_rects(
+        &mut self,
+        line_height: f32,
+        offset: f32,
+        cum_at: impl Fn(f32) -> f32,
+    ) {
+        // Fold this line's per-break-segment rects into one (min_start, max_end,
+        // block_start) per entity. All segments on a line share `block_start` (the
+        // `current_block_offset` snapshot at place time), so any segment's is the line's.
+        // A small Vec (not a HashMap) keeps deterministic order and is cheap — at most a
+        // handful of distinct inline elements per line.
+        let mut merged: Vec<(Entity, f32, f32, f32)> = Vec::new();
+        for (entity, rect) in self.current_line_entity_rects.drain(..) {
+            if let Some(m) = merged.iter_mut().find(|(e, ..)| *e == entity) {
+                m.1 = m.1.min(rect.inline_start);
+                m.2 = m.2.max(rect.inline_end);
+            } else {
+                merged.push((entity, rect.inline_start, rect.inline_end, rect.block_start));
+            }
+        }
+        for (entity, min_start, max_end, block_start) in merged {
+            let painted = InlineLineRect {
+                inline_start: min_start + offset + cum_at(min_start),
+                inline_end: max_end + offset + cum_at(max_end),
+                block_start,
+                block_size: line_height,
+            };
+            let line_block_end = painted.block_start + painted.block_size;
+            self.entity_bounds
+                .entry(entity)
+                .and_modify(|b| {
+                    b.inline_start = b.inline_start.min(painted.inline_start);
+                    b.inline_end = b.inline_end.max(painted.inline_end);
+                    b.block_start = b.block_start.min(painted.block_start);
+                    b.block_end = b.block_end.max(line_block_end);
+                    b.line_rects.push(painted.clone());
+                })
+                .or_insert(EntityBounds {
+                    inline_start: painted.inline_start,
+                    inline_end: painted.inline_end,
+                    block_start: painted.block_start,
+                    block_end: line_block_end,
+                    line_rects: vec![painted],
+                });
+        }
     }
 
     // A per-PackItem dispatch (Text / Atomic / Placeholder) with baseline capture +
@@ -951,7 +1032,18 @@ pub(super) fn assign_inline_layout_boxes(
         };
         let _ = dom.world_mut().insert_one(*entity, lb);
 
-        // Store per-line rects for getClientRects() (CSSOM View §5).
+        // Store per-line rects for getClientRects() (CSSOM View §6): one border-box
+        // fragment per line. A single-line element (`len() == 1` after the per-line
+        // merge) exposes its one rect via the LayoutBox border box (the getClientRects
+        // fallback), so no component is stored.
+        //
+        // NOTE (pre-existing, engine-wide — slot `#11-inline-relayout-box-staleness`):
+        // this runs only when the element has no LayoutBox yet (the `continue` above
+        // skips entities that already carry one). `layout_tree` never clears stale
+        // boxes, so on a *relayout* an inline element keeps its prior box and neither its
+        // LayoutBox nor a stale `InlineClientRects` is refreshed here. Reconciling that
+        // needs a generation-bump / box-teardown in the layout driver (it also leaves the
+        // LayoutBox itself stale), out of scope for this getClientRects-alignment slice.
         if bounds.line_rects.len() > 1 {
             let rects: Vec<elidex_plugin::Rect> = bounds
                 .line_rects

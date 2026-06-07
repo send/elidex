@@ -56,3 +56,50 @@ fn layout_vertical(
     );
     Some((dom, parent, key))
 }
+
+/// Build `<p style="text-align:{align}"><span>{text}</span></p>`, lay it out at
+/// `width`, and return `(dom, parent, span, font_db)`. The inner text's run is owned
+/// by the span (its nearest styled ancestor), so the span gets an `entity_bounds`
+/// rect → `LayoutBox` / `InlineClientRects`. `InlineFlow` persists on the span (the
+/// run-start key) so a test can compare painted run geometry to the span's box.
+/// Shared by the `align` and `justify` submodules (getClientRects ↔ paint).
+pub(super) fn setup_span_align(
+    text: &str,
+    align: elidex_plugin::TextAlign,
+    width: f32,
+) -> Option<(EcsDom, Entity, Entity, FontDatabase)> {
+    let mut dom = EcsDom::new();
+    let parent = dom.create_element("p", Attributes::default());
+    let span = dom.create_element("span", Attributes::default());
+    let span_text = dom.create_text(text);
+    dom.append_child(span, span_text);
+    dom.append_child(parent, span);
+    let font_db = FontDatabase::new();
+    let params = TextMeasureParams {
+        families: TEST_FAMILIES,
+        font_size: ComputedStyle::default().font_size,
+        weight: 400,
+        style: elidex_text::FontStyle::Normal,
+        letter_spacing: 0.0,
+        word_spacing: 0.0,
+    };
+    measure_text(&font_db, &params, "x")?;
+    let style = ComputedStyle {
+        font_family: TEST_FAMILIES.iter().map(|&s| s.to_string()).collect(),
+        text_align: align,
+        direction: elidex_plugin::Direction::Ltr,
+        ..Default::default()
+    };
+    let _ = dom.world_mut().insert_one(parent, style.clone());
+    let _ = dom.world_mut().insert_one(span, style);
+    let children = dom.composed_children(parent);
+    layout_inline_context(
+        &mut dom,
+        &children,
+        width,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+    );
+    Some((dom, parent, span, font_db))
+}

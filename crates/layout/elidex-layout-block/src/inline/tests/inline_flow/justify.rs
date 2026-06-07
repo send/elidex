@@ -347,3 +347,62 @@ fn justify_bakes_between_run_offset() {
         "em run shifted by jws×{preceding}: baked {baked_em} vs natural {natural_em} + {expected_shift}"
     );
 }
+
+#[test]
+fn justify_widens_inline_element_client_rect() {
+    // A justified (non-last) line distributes free space at word separators, filling
+    // the line to the box edge. The span's per-line client rect must WIDEN with the
+    // painted text (CSS Text 3 §6.4.1) — reach the container's inline-end — not stay
+    // at its natural (shorter) width.
+    let text = "aaa bbb ccc ddd eee fff ggg hhh";
+    let Some(full) = (|| {
+        let (_d, _p, _s, fd) = setup_span_align(text, TextAlign::Left, 100_000.0)?;
+        Some(measure_width(&fd, text))
+    })() else {
+        return;
+    };
+    // ~45% of the natural width → wraps into several lines; the first is justified.
+    let width = full * 0.45;
+
+    // Read the first-line client-rect inline-end of the span under an alignment.
+    let first_line_rect_end = |align: TextAlign| -> Option<f32> {
+        let (dom, _parent, span, _fd) = setup_span_align(text, align, width)?;
+        let line_count = dom.world().get::<&InlineFlow>(span).ok()?.fragments[0]
+            .lines
+            .len();
+        assert!(
+            line_count >= 2,
+            "text wraps into ≥2 lines, got {line_count}"
+        );
+        let rects = dom
+            .world()
+            .get::<&elidex_plugin::InlineClientRects>(span)
+            .expect("a multi-line span gets per-line InlineClientRects");
+        let r0 = rects.0[0];
+        assert!(
+            r0.origin.x < 1.0,
+            "first-line rect starts at the line start"
+        );
+        Some(r0.origin.x + r0.size.width)
+    };
+
+    let Some(left_end) = first_line_rect_end(TextAlign::Left) else {
+        return;
+    };
+    let Some(justify_end) = first_line_rect_end(TextAlign::Justify) else {
+        return;
+    };
+
+    // Under left-align the first line stops at its natural content end (free space to
+    // its right); under justify the same words spread to fill the box, so the span's
+    // first-line client rect WIDENS to (at least) the container inline-end. Without the
+    // fix the justified rect would stay at the un-expanded left-aligned width.
+    assert!(
+        justify_end > left_end + 1.0,
+        "justified first-line rect ({justify_end}) widens past the left-aligned one ({left_end})"
+    );
+    assert!(
+        justify_end >= width - 1.0,
+        "justified first-line rect fills to the box edge {width}, got end {justify_end}"
+    );
+}
