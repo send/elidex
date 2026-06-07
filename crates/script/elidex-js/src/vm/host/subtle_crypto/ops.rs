@@ -19,7 +19,7 @@ use super::super::super::coerce;
 use super::super::super::value::{JsValue, NativeContext, VmError};
 use super::super::super::VmInner;
 use super::super::array_buffer::create_array_buffer_from_bytes;
-use super::super::text_encoding::extract_buffer_source_bytes;
+use super::super::text_encoding::{extract_buffer_source_bytes, is_buffer_source};
 use super::marshal::{
     build_jwk_object, convert_algorithm_identifier, marshal_algorithm, marshal_format, marshal_jwk,
     marshal_usages, require_crypto_key_arg,
@@ -361,13 +361,16 @@ fn run_cipher(
     op: Operation,
     cipher_op: CipherOp,
 ) -> Result<JsValue, VmError> {
-    // §14.3.1/§14.3.2: after the Web IDL argument conversions (algorithm
-    // union + CryptoKey brand), the operation **normalizes the algorithm
-    // (step 2) before copying the data bytes (step 4)** — and §18.4.4
-    // normalization is what reads (and snapshots) the AES `iv` / `counter` /
-    // `additionalData` BufferSource members.  So a throwing params getter
-    // must win over a later data error; do the normalize before the data
-    // copy.
+    // Argument/operation ordering (Web IDL §3.6 + WebCrypto §14.3.1/§14.3.2):
+    //  1. Web IDL converts every argument left-to-right *before* the method
+    //     steps run — algorithm `(object or DOMString)`, key `CryptoKey`
+    //     brand, and the `data` `BufferSource` **type** check.  A non-
+    //     BufferSource `data` is therefore a TypeError before the algorithm
+    //     is normalized (so its params getters never fire).
+    //  2. §14.3.x step 2 normalizes the algorithm (which reads + snapshots
+    //     the AES `iv` / `counter` / `additionalData` members), THEN step 4
+    //     gets a copy of the data bytes (detached → error).
+    // So: data type-check → normalize → data byte-copy.
     let algorithm =
         convert_algorithm_identifier(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
     let key_id = require_crypto_key_arg(
@@ -376,16 +379,20 @@ fn run_cipher(
         method,
         2,
     )?;
+    let data_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
+    let error_prefix = format!("Failed to execute '{method}' on 'SubtleCrypto'");
+    // Web IDL `data` BufferSource *type* conversion (bind time, no byte copy /
+    // no detached check) — runs before the algorithm normalization.
+    if !is_buffer_source(ctx, data_arg) {
+        return Err(VmError::type_error(format!(
+            "{error_prefix}: parameter 3 is not of type 'BufferSource'"
+        )));
+    }
     let raw = marshal_algorithm(ctx, algorithm, method, op)?;
     let normalized = crypto::normalize(op, raw).map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
-    let error_prefix = format!("Failed to execute '{method}' on 'SubtleCrypto'");
-    let data = extract_buffer_source_bytes(
-        ctx,
-        args.get(2).copied().unwrap_or(JsValue::Undefined),
-        &error_prefix,
-        3,
-        false,
-    )?;
+    // §14.3.x step 4: get a copy of the data bytes (detached → TypeError),
+    // after normalization.
+    let data = extract_buffer_source_bytes(ctx, data_arg, &error_prefix, 3, false)?;
     let bytes = {
         let key_data = &ctx.vm.crypto_key_states[&key_id];
         cipher_op(normalized, key_data, &data)

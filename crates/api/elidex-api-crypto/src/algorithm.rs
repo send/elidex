@@ -360,8 +360,8 @@ pub fn is_supported(op: Operation, name: &str) -> bool {
 /// `Type` for a missing required member (e.g. HMAC `hash`, AES key-gen
 /// `length`, AES `iv` / `counter`).  Per-mode *operational* validation
 /// (iv / counter byte length, `tagLength` validity, key length 128/192/256)
-/// lives in [`crate::aes`] + [`crate::ops`] at the op step where the spec
-/// throws `OperationError`, not here.
+/// lives in the crate-internal `aes` module + [`crate::ops`] at the op step
+/// where the spec throws `OperationError`, not here.
 /// Takes the freshly-marshalled `RawAlgorithm` **by value** so the AES
 /// `iv` / `counter` / `additionalData` byte buffers move straight into the
 /// [`NormalizedAlgorithm`] (and thence to the cipher) without a second copy

@@ -8,7 +8,10 @@
 //! # Layout
 //!
 //! - [`algorithm`] — §18.4 "normalize an algorithm" registry.
-//! - [`aes`] — AES-GCM / AES-CBC / AES-CTR encrypt / decrypt (§27-§29).
+//! - `aes` (crate-internal) — AES-GCM / AES-CBC / AES-CTR encrypt /
+//!   decrypt (§27-§29); reached only through [`ops`] (which validates the
+//!   key length), so it is `pub(crate)` — the raw `&[u8]`-key cipher fns are
+//!   not a public surface.
 //! - [`hash`] — SHA-1/256/384/512 digest driver.
 //! - [`hmac`] — HMAC sign / verify / key-length resolution (§31).
 //! - [`jwk`] — `oct` JSON Web Key parse / serialize (§15).
@@ -16,7 +19,7 @@
 //! - [`ops`] — operation-level entry points owning all spec validation.
 //! - [`error`] — the [`error::AlgorithmError`] → DOMException taxonomy.
 
-pub mod aes;
+pub(crate) mod aes;
 pub mod algorithm;
 pub mod error;
 pub mod hash;
