@@ -20,7 +20,7 @@ use super::super::super::value::{
     PropertyValue, StringId, VmError,
 };
 use super::super::super::webidl_sequence::{webidl_sequence_to_vec, SeqMessages};
-use super::super::text_encoding::extract_buffer_source_member;
+use super::super::text_encoding::{extract_buffer_source_member, is_buffer_source};
 
 /// Brand-check a `CryptoKey` operation argument (NOT `this`).  A wrong
 /// type is a WebIDL conversion `TypeError`, settled on the Promise.
@@ -181,40 +181,46 @@ fn read_params(
         AlgorithmParams::AesGcmParams => {
             // `AesGcmParams`: additionalData (optional), iv (required),
             // tagLength (optional `[EnforceRange] octet`).  WebCrypto §18.4.4
-            // step 6 converts the WHOLE dictionary (firing every member
-            // getter, lexicographic: additionalData, iv, tagLength) *before*
-            // step 10 snapshots the `BufferSource` members' bytes — so a
-            // later getter that mutates an earlier member's buffer must be
-            // reflected.  Read all getters first, then snapshot.
+            // step 6 converts the dictionary **member-by-member** in
+            // lexicographic order — each member's getter is read and its
+            // required-ness / type validated *before the next member is
+            // read* — while step 10 snapshots the `BufferSource` bytes
+            // afterwards (so a later getter that mutated an earlier member's
+            // buffer is reflected, but a missing/invalid earlier member still
+            // errors before a later getter runs).
             let (aad_sid, iv_sid, tag_sid) = (
                 ctx.vm.well_known.additional_data,
                 ctx.vm.well_known.iv,
                 ctx.vm.well_known.tag_length,
             );
+            // step 6, member-by-member (validate type, defer the byte copy):
             let aad_val = ctx.get_property_value(id, PropertyKey::String(aad_sid))?;
+            if !matches!(aad_val, JsValue::Undefined) && !is_buffer_source(ctx, aad_val) {
+                return Err(not_buffer_source_error(method, "additionalData"));
+            }
             let iv_val = ctx.get_property_value(id, PropertyKey::String(iv_sid))?;
+            require_buffer_source_member(ctx, iv_val, method, "iv")?;
             let tag_length = read_optional_octet(ctx, id, method, tag_sid, "tagLength")?;
-            // §18.4.4 step 10: snapshot the BufferSource bytes (post-getters).
+            // step 10: snapshot the BufferSource bytes (detached check + copy).
             raw.additional_data =
                 snapshot_optional_buffer_source(ctx, aad_val, method, "additionalData")?;
             raw.iv = Some(snapshot_buffer_source(ctx, iv_val, method, "iv")?);
             raw.tag_length = tag_length;
         }
         AlgorithmParams::AesCbcParams => {
-            // `AesCbcParams`: iv (required `BufferSource`) — the only member,
-            // so no sibling getter can mutate it before the snapshot.
+            // `AesCbcParams`: iv (required `BufferSource`).
             let iv_sid = ctx.vm.well_known.iv;
             let iv_val = ctx.get_property_value(id, PropertyKey::String(iv_sid))?;
+            require_buffer_source_member(ctx, iv_val, method, "iv")?;
             raw.iv = Some(snapshot_buffer_source(ctx, iv_val, method, "iv")?);
         }
         AlgorithmParams::AesCtrParams => {
             // `AesCtrParams`: counter (required), length (required
-            // `[EnforceRange] octet`).  §18.4.4 step 6 fires both getters
-            // (lexicographic: counter, length) before the step-10 byte
-            // snapshot, so a `length` getter that mutates the counter buffer
-            // is reflected.
+            // `[EnforceRange] octet`).  §18.4.4 step 6 validates each member
+            // (counter then length) before step 10's counter-byte snapshot.
             let (counter_sid, length_sid) = (ctx.vm.well_known.counter, ctx.vm.well_known.length);
             let counter_val = ctx.get_property_value(id, PropertyKey::String(counter_sid))?;
+            require_buffer_source_member(ctx, counter_val, method, "counter")?;
             let length_val = ctx.get_property_value(id, PropertyKey::String(length_sid))?;
             if matches!(length_val, JsValue::Undefined) {
                 return Err(required_member_error(method, "length"));
@@ -226,6 +232,34 @@ fn read_params(
         }
     }
     Ok(())
+}
+
+/// Validate an **already-read** required `BufferSource` member's type
+/// (WebCrypto §18.4.4 step 6, member-by-member — run before the next member
+/// is read, and before the step-10 byte snapshot): `undefined` → required
+/// `TypeError`; a present non-BufferSource → type `TypeError`.
+fn require_buffer_source_member(
+    ctx: &NativeContext<'_>,
+    value: JsValue,
+    method: &str,
+    member: &str,
+) -> Result<(), VmError> {
+    if matches!(value, JsValue::Undefined) {
+        return Err(required_member_error(method, member));
+    }
+    if !is_buffer_source(ctx, value) {
+        return Err(not_buffer_source_error(method, member));
+    }
+    Ok(())
+}
+
+/// A member-named "not a `BufferSource`" `TypeError` (Web IDL type-check at
+/// §18.4.4 step 6).
+fn not_buffer_source_error(method: &str, member: &str) -> VmError {
+    VmError::type_error(format!(
+        "Failed to execute '{method}' on 'SubtleCrypto': \
+         the '{member}' member is not of type 'BufferSource'"
+    ))
 }
 
 /// Snapshot-copy an **already-read** required `BufferSource` member value

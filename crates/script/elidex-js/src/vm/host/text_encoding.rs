@@ -768,6 +768,21 @@ impl BufferSourceError {
 /// `Vec<u8>`, or report the conversion failure.  A detached buffer must
 /// surface a TypeError before any byte read (otherwise the consumer would
 /// silently process zero bytes — divergent from browser behaviour).
+/// Whether `value` is a `BufferSource` *type* (ArrayBuffer / TypedArray /
+/// DataView) — the Web IDL type check, with **no** detached check and **no**
+/// byte copy.  Used for WebCrypto §18.4.4 step-6 member-by-member validation,
+/// which must classify each member before reading the next; the detached
+/// check + byte copy happen later (step 10, via [`extract_buffer_source_member`]).
+pub(super) fn is_buffer_source(ctx: &NativeContext<'_>, value: JsValue) -> bool {
+    match value {
+        JsValue::Object(id) => matches!(
+            ctx.vm.get_object(id).kind,
+            ObjectKind::ArrayBuffer | ObjectKind::TypedArray { .. } | ObjectKind::DataView { .. }
+        ),
+        _ => false,
+    }
+}
+
 fn buffer_source_to_vec(
     ctx: &NativeContext<'_>,
     input: JsValue,

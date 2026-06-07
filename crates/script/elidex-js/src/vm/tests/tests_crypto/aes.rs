@@ -326,6 +326,23 @@ fn gcm_buffersource_params_snapshot_after_all_getters() {
 }
 
 #[test]
+fn missing_required_member_beats_later_throwing_getter() {
+    // §18.4.4 step 6 validates each member (required/type) before reading the
+    // next, so a missing required `iv` must error *before* the later
+    // `tagLength` getter (a distinguishable string-throw) runs.  With member-
+    // by-member validation the iv-required TypeError wins; without it the
+    // tagLength getter would throw first.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey({name:'AES-GCM', length:128}, true, ['encrypt']) \
+           .then(k => crypto.subtle.encrypt( \
+                  {name:'AES-GCM', iv: undefined, get tagLength() { throw 'tag-getter-ran'; }}, \
+                  k, new Uint8Array(1))) \
+           .then(_ => { globalThis.r = 'resolved'; }, \
+                 e => { globalThis.r = (typeof e === 'string') ? e : ('err:' + e.name); });";
+    assert_eq!(eval_global_string(src, "r"), "err:TypeError");
+}
+
+#[test]
 fn encrypt_params_getter_runs_before_data_copy() {
     // §14.3.1 normalizes the algorithm (step 2 — which reads/snapshots the
     // AES params getters) *before* copying the data bytes (step 4).  So a
