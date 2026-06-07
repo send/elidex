@@ -592,6 +592,84 @@ fn justify_suppressed_line_rtl_is_start_aligned() {
 }
 
 #[test]
+fn justify_excludes_trailing_hang_from_opportunities() {
+    // A soft-wrapped justify line ending in a collapsible space: that trailing space
+    // HANGS (CSS Text 3 §4.1.2) and is NOT a justification opportunity, so the single
+    // interior gap ("aa␠bb") absorbs ALL the (trimmed) free space and the visible words
+    // reach the line-box edge. `justify_word_spacing` therefore equals the full trimmed
+    // free (1 opportunity) — NOT half of it (which counting the trailing space would
+    // give, under-filling the visible line).
+    let Some((mut dom, parent, mut style, font_db)) = setup_inline_test("aa bb cccc") else {
+        return;
+    };
+    style.text_align = TextAlign::Justify;
+    let _ = dom.world_mut().insert_one(parent, style);
+    let children = dom.composed_children(parent);
+    let key = run_start(&dom, parent);
+    // Fits "aa bb " (trailing space hangs) but wraps "cccc".
+    let prefix = measure_width(&font_db, "aa bb");
+    let container = prefix + measure_width(&font_db, "aa");
+    layout_inline_context(
+        &mut dom,
+        &children,
+        container,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+    );
+
+    let flow = dom.world().get::<&InlineFlow>(key).expect("persists");
+    let lines = &flow.fragments[0].lines;
+    assert_eq!(lines.len(), 2, "'cccc' wraps");
+    let jws = lines[0].justify_word_spacing;
+    let trimmed_free = container - prefix;
+    assert!(
+        (jws - trimmed_free).abs() < 3.0,
+        "1 interior opportunity → jws == full trimmed free ({trimmed_free}), trailing space \
+         excluded; got {jws} (≈half would mean the trailing hang was counted)"
+    );
+}
+
+#[test]
+fn justify_unexpandable_line_rtl_is_start_aligned() {
+    // A soft-wrapped (NON-last) justify line with NO interior opportunities — a single
+    // word whose trailing space hangs — is "unexpandable" (CSS Text 3 §6.4.3): it falls
+    // back to `text-align-last: auto` → start. In RTL that is the RIGHT edge, so the
+    // word lands at `inline_start = free > 0`, not pinned to the left.
+    let Some((mut dom, parent, mut style, font_db)) = setup_inline_test("wwwwwwww xxxxxxxx") else {
+        return;
+    };
+    style.text_align = TextAlign::Justify;
+    style.direction = Direction::Rtl;
+    let _ = dom.world_mut().insert_one(parent, style);
+    let children = dom.composed_children(parent);
+    let key = run_start(&dom, parent);
+    // Fits one word per line → line 0 = "wwwwwwww " (0 interior opportunities), soft-wrap.
+    let container = measure_width(&font_db, "wwwwwwww") + measure_width(&font_db, "ww");
+    layout_inline_context(
+        &mut dom,
+        &children,
+        container,
+        parent,
+        Point::ZERO,
+        &env(&font_db),
+    );
+
+    let flow = dom.world().get::<&InlineFlow>(key).expect("persists");
+    let lines = &flow.fragments[0].lines;
+    assert_eq!(lines.len(), 2, "one word per line");
+    assert_eq!(
+        lines[0].justify_word_spacing, 0.0,
+        "no interior opportunity → unexpandable, no distribution"
+    );
+    assert!(
+        lines[0].runs[0].inline_start() > 0.0,
+        "RTL unexpandable soft-wrap line is start(right)-aligned, not left-pinned; got {}",
+        lines[0].runs[0].inline_start()
+    );
+}
+
+#[test]
 fn justify_overflow_line_no_negative_stretch() {
     // A line wider than the container (free < 0, clamped to 0) → no stretch, no
     // div-by-zero, no negative spacing. Tiny container forces a wrap; every line
