@@ -361,6 +361,13 @@ fn run_cipher(
     op: Operation,
     cipher_op: CipherOp,
 ) -> Result<JsValue, VmError> {
+    // §14.3.1/§14.3.2: after the Web IDL argument conversions (algorithm
+    // union + CryptoKey brand), the operation **normalizes the algorithm
+    // (step 2) before copying the data bytes (step 4)** — and §18.4.4
+    // normalization is what reads (and snapshots) the AES `iv` / `counter` /
+    // `additionalData` BufferSource members.  So a throwing params getter
+    // must win over a later data error; do the normalize before the data
+    // copy.
     let algorithm =
         convert_algorithm_identifier(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
     let key_id = require_crypto_key_arg(
@@ -369,6 +376,8 @@ fn run_cipher(
         method,
         2,
     )?;
+    let raw = marshal_algorithm(ctx, algorithm, method, op)?;
+    let normalized = crypto::normalize(op, raw).map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
     let error_prefix = format!("Failed to execute '{method}' on 'SubtleCrypto'");
     let data = extract_buffer_source_bytes(
         ctx,
@@ -377,8 +386,6 @@ fn run_cipher(
         3,
         false,
     )?;
-    let raw = marshal_algorithm(ctx, algorithm, method, op)?;
-    let normalized = crypto::normalize(op, raw).map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
     let bytes = {
         let key_data = &ctx.vm.crypto_key_states[&key_id];
         cipher_op(normalized, key_data, &data)

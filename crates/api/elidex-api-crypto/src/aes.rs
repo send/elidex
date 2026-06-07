@@ -47,6 +47,14 @@ const BLOCK: usize = 16;
 /// comparison is on whole octets.
 const VALID_GCM_TAG_LENGTHS: [u32; 7] = [32, 64, 96, 104, 112, 120, 128];
 
+/// The maximum AES-GCM message length in bytes.  NIST SP 800-38D §5.2.1.1
+/// caps the plaintext at 2^39 − 256 **bits** = (2^32 − 2) × 16 = 2^36 − 32
+/// bytes — exactly the 32-bit GCTR counter capacity (the data counter starts
+/// at `inc32(J0)` and must not wrap, else keystream blocks repeat).  WebCrypto
+/// §29.4.1 step 1 phrases the bound in bytes, but the underlying value is the
+/// NIST bit-count, so the byte cap is that bit-count / 8.
+const MAX_GCM_MESSAGE_BYTES: u64 = (1u64 << 36) - 32;
+
 fn operation(msg: impl Into<String>) -> AlgorithmError {
     AlgorithmError::Operation(msg.into())
 }
@@ -65,14 +73,13 @@ pub fn encrypt_gcm(
     plaintext: &[u8],
     tag_length_bits: u32,
 ) -> Result<Vec<u8>, AlgorithmError> {
-    // §29.4.1 step 1: plaintext longer than 2^39 - 256 bytes → OperationError.
-    // (The IV / additionalData > 2^64-1 byte limits of steps 2-3 are
-    // unreachable — a `Vec` cannot hold that many bytes.)
-    const MAX_GCM_PLAINTEXT: u64 = (1u64 << 39) - 256;
-    if plaintext.len() as u64 > MAX_GCM_PLAINTEXT {
-        return Err(operation(
-            "AES-GCM plaintext exceeds the maximum length (2^39 - 256 bytes)",
-        ));
+    // §29.4.1 step 1 / NIST SP 800-38D §5.2.1.1: a plaintext beyond the GCM
+    // message limit would wrap the 32-bit GCTR counter and reuse keystream
+    // (catastrophic) → OperationError.  (The IV / additionalData > 2^64-1
+    // byte limits of steps 2-3 are unreachable — a `Vec` cannot hold that
+    // many bytes.)
+    if plaintext.len() as u64 > MAX_GCM_MESSAGE_BYTES {
+        return Err(operation("AES-GCM plaintext exceeds the maximum length"));
     }
     let tag_len = gcm_tag_len_bytes(tag_length_bits)?;
     let (mut ciphertext, full_tag) = match key.len() {
@@ -104,6 +111,11 @@ pub fn decrypt_gcm(
         return Err(operation("AES-GCM ciphertext is shorter than the tag"));
     }
     let (actual_ct, provided_tag) = ciphertext.split_at(ciphertext.len() - tag_len);
+    // §29.4.2 / NIST SP 800-38D: the actual ciphertext is GCTR-decrypted, so
+    // it is bounded by the same 32-bit-counter message limit as encryption.
+    if actual_ct.len() as u64 > MAX_GCM_MESSAGE_BYTES {
+        return Err(operation("AES-GCM ciphertext exceeds the maximum length"));
+    }
     let plaintext = match key.len() {
         16 => gcm_open::<Aes128>(key, iv, additional_data, actual_ct, provided_tag),
         24 => gcm_open::<Aes192>(key, iv, additional_data, actual_ct, provided_tag),

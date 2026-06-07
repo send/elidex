@@ -303,3 +303,18 @@ fn gcm_wrong_additional_data_fails_auth() {
            .then(_ => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
     assert_eq!(eval_global_string(src, "r"), "OperationError");
 }
+
+#[test]
+fn encrypt_params_getter_runs_before_data_copy() {
+    // §14.3.1 normalizes the algorithm (step 2 — which reads/snapshots the
+    // AES params getters) *before* copying the data bytes (step 4).  So a
+    // throwing `iv` getter must win over a bad (non-BufferSource) `data`
+    // argument; the getter throws a string sentinel we can distinguish from
+    // the data TypeError.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey({name:'AES-GCM', length:128}, true, ['encrypt']) \
+           .then(k => crypto.subtle.encrypt({name:'AES-GCM', get iv() { throw 'iv-getter-ran'; }}, k, 123)) \
+           .then(_ => { globalThis.r = 'resolved'; }, \
+                 e => { globalThis.r = (typeof e === 'string') ? e : ('err:' + e.name); });";
+    assert_eq!(eval_global_string(src, "r"), "iv-getter-ran");
+}
