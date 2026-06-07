@@ -383,7 +383,7 @@ fn aes_gcm_params(iv: Vec<u8>) -> NormalizedAlgorithm {
 
 #[test]
 fn ops_aes_generate_encrypt_decrypt_roundtrip() {
-    let key = ops::generate_key(
+    let key = super::expect_single(ops::generate_key(
         NormalizedAlgorithm::AesKeyGen {
             variant: AesVariant::Gcm,
             length: 256,
@@ -391,8 +391,7 @@ fn ops_aes_generate_encrypt_decrypt_roundtrip() {
         true,
         vec![KeyUsage::Encrypt, KeyUsage::Decrypt],
         fill_seq,
-    )
-    .unwrap();
+    ));
     assert!(matches!(
         key.algorithm,
         KeyAlgorithm::Aes {

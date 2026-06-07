@@ -5,9 +5,12 @@
 //! backend smoke tests proving import → export round-trips across the four
 //! formats over a known P-256 vector.
 
+use super::fill_seq;
 use crate::algorithm::{EcAlgorithm, NamedCurve};
 use crate::key::{KeyType, KeyUsage};
-use crate::ops::{export_key, import_key, ExportedKey, KeyData, KeyFormat};
+use crate::ops::{
+    export_key, generate_key, import_key, ExportedKey, GeneratedKey, KeyData, KeyFormat,
+};
 use crate::{normalize, JsonWebKey, NormalizedAlgorithm, Operation};
 
 // RFC 7515 Appendix A.3.1 — the ES256 (P-256) example key (x / y / d are the
@@ -16,14 +19,18 @@ const P256_X: &str = "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU";
 const P256_Y: &str = "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0";
 const P256_D: &str = "jpsQnnGQmL-YBIffH1136cspYG6-0iY7X1fCE9-E9LI";
 
-fn ec_import_alg(algorithm: EcAlgorithm, curve: NamedCurve) -> NormalizedAlgorithm {
+fn ec_alg(op: Operation, algorithm: EcAlgorithm, curve: NamedCurve) -> NormalizedAlgorithm {
     let name = match algorithm {
         EcAlgorithm::Ecdsa => "ECDSA",
         EcAlgorithm::Ecdh => "ECDH",
     };
     let mut raw = crate::RawAlgorithm::from_name(name);
     raw.named_curve = Some(curve.as_str().to_string());
-    normalize(Operation::ImportKey, raw).expect("EC import algorithm normalizes")
+    normalize(op, raw).expect("EC algorithm normalizes")
+}
+
+fn ec_import_alg(algorithm: EcAlgorithm, curve: NamedCurve) -> NormalizedAlgorithm {
+    ec_alg(Operation::ImportKey, algorithm, curve)
 }
 
 fn private_jwk() -> JsonWebKey {
@@ -180,6 +187,107 @@ fn ecdh_public_import_requires_empty_usages() {
     )
     .expect("ECDH public JWK with empty usages imports");
     assert_eq!(ok.key_type, KeyType::Public);
+}
+
+fn expect_pair(generated: GeneratedKey) -> (crate::CryptoKeyData, crate::CryptoKeyData) {
+    match generated {
+        GeneratedKey::Pair { public, private } => (public, private),
+        GeneratedKey::Single(_) => panic!("EC generateKey yields a CryptoKeyPair"),
+    }
+}
+
+#[test]
+fn ecdsa_generate_key_splits_usages_and_extractable() {
+    let (public, private) = expect_pair(
+        generate_key(
+            ec_alg(Operation::GenerateKey, EcAlgorithm::Ecdsa, NamedCurve::P256),
+            false, // private key extractable = false
+            vec![KeyUsage::Sign, KeyUsage::Verify],
+            fill_seq,
+        )
+        .expect("ECDSA keygen"),
+    );
+    // public: usages ∩ {verify}; always extractable.
+    assert_eq!(public.key_type, KeyType::Public);
+    assert!(public.extractable);
+    assert_eq!(public.usages, vec![KeyUsage::Verify]);
+    // private: usages ∩ {sign}; extractable = requested (false).
+    assert_eq!(private.key_type, KeyType::Private);
+    assert!(!private.extractable);
+    assert_eq!(private.usages, vec![KeyUsage::Sign]);
+    // Both halves share the public point; only the private carries the scalar.
+    assert_eq!(
+        public.material.ec_public_point(),
+        private.material.ec_public_point()
+    );
+    assert!(private.material.ec_private_scalar().is_some());
+    assert!(public.material.ec_private_scalar().is_none());
+}
+
+#[test]
+fn ecdh_generate_key_public_has_no_usages() {
+    let (public, private) = expect_pair(
+        generate_key(
+            ec_alg(Operation::GenerateKey, EcAlgorithm::Ecdh, NamedCurve::P384),
+            true,
+            vec![KeyUsage::DeriveBits, KeyUsage::DeriveKey],
+            fill_seq,
+        )
+        .expect("ECDH keygen"),
+    );
+    assert!(public.usages.is_empty()); // §24.4.1 step 11: empty list
+    assert!(public.extractable);
+    assert_eq!(
+        private.usages,
+        vec![KeyUsage::DeriveKey, KeyUsage::DeriveBits]
+    );
+    assert!(private.extractable);
+    // P-384 public point = 0x04 ‖ x ‖ y = 1 + 2·48 bytes.
+    assert_eq!(
+        public.material.ec_public_point().unwrap().len(),
+        1 + 2 * NamedCurve::P384.coordinate_len()
+    );
+}
+
+#[test]
+fn ecdsa_generate_verify_only_leaves_private_empty_is_syntax_error() {
+    // usages = [verify] → private ∩ {sign} = empty → §14.3.6 SyntaxError.
+    let err = generate_key(
+        ec_alg(Operation::GenerateKey, EcAlgorithm::Ecdsa, NamedCurve::P256),
+        true,
+        vec![KeyUsage::Verify],
+        fill_seq,
+    )
+    .unwrap_err();
+    assert!(matches!(err, crate::AlgorithmError::Syntax(_)));
+}
+
+#[test]
+fn ec_generate_all_curves_round_trip_through_pkcs8() {
+    for curve in [NamedCurve::P256, NamedCurve::P384, NamedCurve::P521] {
+        let (_public, private) = expect_pair(
+            generate_key(
+                ec_alg(Operation::GenerateKey, EcAlgorithm::Ecdsa, curve),
+                true,
+                vec![KeyUsage::Sign],
+                fill_seq,
+            )
+            .expect("keygen"),
+        );
+        let der = match export_key(KeyFormat::Pkcs8, &private).expect("PKCS#8 export") {
+            ExportedKey::Raw(bytes) => bytes,
+            ExportedKey::Jwk(_) => panic!("PKCS#8 export is DER bytes"),
+        };
+        let reimported = import_key(
+            KeyFormat::Pkcs8,
+            ec_import_alg(EcAlgorithm::Ecdsa, curve),
+            true,
+            vec![KeyUsage::Sign],
+            KeyData::Raw(der),
+        )
+        .expect("PKCS#8 re-import");
+        assert_eq!(reimported.material, private.material);
+    }
 }
 
 #[test]

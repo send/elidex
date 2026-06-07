@@ -16,6 +16,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use elliptic_curve::pkcs8::spki::{DecodePublicKey, EncodePublicKey};
 use elliptic_curve::pkcs8::{DecodePrivateKey, EncodePrivateKey};
+use elliptic_curve::rand_core::{CryptoRng, RngCore};
 use elliptic_curve::sec1::ToEncodedPoint;
 
 use crate::algorithm::{EcAlgorithm, NamedCurve};
@@ -287,6 +288,194 @@ fn import_jwk(
 }
 
 // ---------------------------------------------------------------------------
+// generateKey (WebCrypto §23.7.3 / §24.4.1)
+// ---------------------------------------------------------------------------
+
+/// `generateKey` for an EC algorithm (WebCrypto §23.7.3 ECDSA / §24.4.1 ECDH)
+/// — returns the `(publicKey, privateKey)` pair (the §14.3.6 `CryptoKeyPair`).
+/// `fill_random` is the VM entropy seam, fed through [`ClosureRng`] into
+/// `SecretKey::random`'s vetted rejection sampling.
+pub(crate) fn generate<F>(
+    algorithm: EcAlgorithm,
+    curve: NamedCurve,
+    extractable: bool,
+    usages: &[KeyUsage],
+    fill_random: F,
+) -> Result<(CryptoKeyData, CryptoKeyData), AlgorithmError>
+where
+    F: FnMut(&mut [u8]) -> Result<(), AlgorithmError>,
+{
+    // §23.7.3 step 1 / §24.4.1 step 1: a usage outside the algorithm's set is a
+    // SyntaxError — before key generation.
+    validate_generate_usages(algorithm, usages)?;
+    // §23.7.3 step 2-3 / §24.4.1 step 2-3: generate the curve key pair (a
+    // generation failure is an OperationError, surfaced by the ClosureRng).
+    let (public_point, private_scalar) = generate_keypair(curve, fill_random)?;
+    let key_alg = algorithm.key_algorithm(curve);
+    // steps 7-11: the public key — usages = ∩(usages, public-permitted),
+    // [[extractable]] always true.
+    let public = CryptoKeyData {
+        key_type: KeyType::Public,
+        extractable: true,
+        algorithm: key_alg,
+        usages: split_usages(algorithm, KeyType::Public, usages),
+        material: KeyMaterial::Ec {
+            public_point: public_point.clone(),
+            private_scalar: None,
+        },
+    };
+    // steps 12-16: the private key — usages = ∩(usages, private-permitted),
+    // [[extractable]] = the requested value.
+    let private_usages = split_usages(algorithm, KeyType::Private, usages);
+    // §14.3.6 generateKey generic step: a CryptoKeyPair whose privateKey has
+    // empty usages is a SyntaxError.
+    if private_usages.is_empty() {
+        return Err(AlgorithmError::Syntax("usages cannot be empty".to_string()));
+    }
+    let private = CryptoKeyData {
+        key_type: KeyType::Private,
+        extractable,
+        algorithm: key_alg,
+        usages: private_usages,
+        material: KeyMaterial::Ec {
+            public_point,
+            private_scalar: Some(private_scalar),
+        },
+    };
+    Ok((public, private))
+}
+
+/// Generate a curve key pair, returning the SEC1 uncompressed public point +
+/// the big-endian private scalar.  The scalar is produced by
+/// `SecretKey::random`'s rejection sampling over the [`ClosureRng`] (the VM
+/// entropy seam); a `fill_random` failure surfaces as an OperationError.
+fn generate_keypair<F>(
+    curve: NamedCurve,
+    mut fill_random: F,
+) -> Result<(Vec<u8>, Vec<u8>), AlgorithmError>
+where
+    F: FnMut(&mut [u8]) -> Result<(), AlgorithmError>,
+{
+    with_curve!(curve, cc, {
+        let mut rng = ClosureRng::new(&mut fill_random);
+        let sk = cc::SecretKey::random(&mut rng);
+        // Surface any `fill_random` error before using the (otherwise garbage)
+        // key.
+        rng.into_result()?;
+        Ok((
+            sk.public_key().to_encoded_point(false).as_bytes().to_vec(),
+            sk.to_bytes().to_vec(),
+        ))
+    })
+}
+
+/// The §23.7.3 / §24.4.1 step-1 usage check: every requested usage must be
+/// valid for *either* the public or the private key of the pair (the union of
+/// the split sets).
+fn validate_generate_usages(
+    algorithm: EcAlgorithm,
+    usages: &[KeyUsage],
+) -> Result<(), AlgorithmError> {
+    let permitted = |u: KeyUsage| {
+        ec_usage_permitted(algorithm, KeyType::Public, u)
+            || ec_usage_permitted(algorithm, KeyType::Private, u)
+    };
+    if usages.iter().all(|&u| permitted(u)) {
+        Ok(())
+    } else {
+        Err(AlgorithmError::Syntax(generate_usage_message(algorithm)))
+    }
+}
+
+fn generate_usage_message(algorithm: EcAlgorithm) -> String {
+    match algorithm {
+        EcAlgorithm::Ecdsa => "ECDSA keys support only the 'sign' and 'verify' usages",
+        EcAlgorithm::Ecdh => "ECDH keys support only the 'deriveKey' and 'deriveBits' usages",
+    }
+    .to_string()
+}
+
+/// The usage intersection for the `key_type` half of a generated key pair
+/// (§23.7.3 steps 11 / 16, §24.4.1 steps 11 / 16): keep the requested usages
+/// permitted for that key type, deduplicated + canonically ordered.
+fn split_usages(algorithm: EcAlgorithm, key_type: KeyType, usages: &[KeyUsage]) -> Vec<KeyUsage> {
+    normalize_usages(
+        usages
+            .iter()
+            .copied()
+            .filter(|&u| ec_usage_permitted(algorithm, key_type, u))
+            .collect(),
+    )
+}
+
+/// An RNG adapter over the VM's `fill_random` closure, so EC key generation
+/// draws from the single VM entropy seam (the closure ultimately calls the OS
+/// CSPRNG) rather than a separate `getrandom` path, while `SecretKey::random`
+/// still does the vetted rejection sampling.
+///
+/// `fill_random` is fallible but `RngCore::fill_bytes` is infallible, so a
+/// closure error is captured and surfaced by [`Self::into_result`] after
+/// keygen.  On error the buffer is filled with the canonical scalar `1`
+/// (big-endian `…01`) — a valid non-zero scalar on every supported curve —
+/// so `SecretKey::random`'s rejection loop terminates (a zero / out-of-range
+/// fill would loop forever); the resulting key is then discarded because
+/// `into_result` returns the captured error.
+struct ClosureRng<'a> {
+    fill: &'a mut dyn FnMut(&mut [u8]) -> Result<(), AlgorithmError>,
+    error: Option<AlgorithmError>,
+}
+
+impl<'a> ClosureRng<'a> {
+    fn new(fill: &'a mut dyn FnMut(&mut [u8]) -> Result<(), AlgorithmError>) -> Self {
+        Self { fill, error: None }
+    }
+
+    fn into_result(self) -> Result<(), AlgorithmError> {
+        match self.error {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
+    }
+}
+
+impl RngCore for ClosureRng<'_> {
+    fn next_u32(&mut self) -> u32 {
+        let mut b = [0u8; 4];
+        self.fill_bytes(&mut b);
+        u32::from_le_bytes(b)
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        let mut b = [0u8; 8];
+        self.fill_bytes(&mut b);
+        u64::from_le_bytes(b)
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        if self.error.is_none() {
+            if let Err(e) = (self.fill)(dest) {
+                self.error = Some(e);
+            }
+        }
+        if self.error.is_some() {
+            // Canonical scalar `1` so the rejection loop terminates; the key is
+            // discarded via `into_result`.
+            dest.fill(0);
+            if let Some(last) = dest.last_mut() {
+                *last = 1;
+            }
+        }
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), elliptic_curve::rand_core::Error> {
+        self.fill_bytes(dest);
+        Ok(())
+    }
+}
+
+impl CryptoRng for ClosureRng<'_> {}
+
+// ---------------------------------------------------------------------------
 // exportKey (WebCrypto §23.7.5 / §24.4.4)
 // ---------------------------------------------------------------------------
 
@@ -393,16 +582,24 @@ fn validate_import_usages(
     key_type: KeyType,
     usages: &[KeyUsage],
 ) -> Result<(), AlgorithmError> {
-    let permitted = |u: KeyUsage| match algorithm {
-        EcAlgorithm::Ecdsa => u.is_ecdsa_usage(key_type),
-        EcAlgorithm::Ecdh => u.is_ecdh_usage(key_type),
-    };
-    if usages.iter().all(|&u| permitted(u)) {
+    if usages
+        .iter()
+        .all(|&u| ec_usage_permitted(algorithm, key_type, u))
+    {
         Ok(())
     } else {
         Err(AlgorithmError::Syntax(ec_usage_message(
             algorithm, key_type,
         )))
+    }
+}
+
+/// Whether `usage` is permitted for an EC key of `(algorithm, key_type)`
+/// (the per-family, per-key-type usage rules — §23.7 ECDSA / §24.4 ECDH).
+fn ec_usage_permitted(algorithm: EcAlgorithm, key_type: KeyType, usage: KeyUsage) -> bool {
+    match algorithm {
+        EcAlgorithm::Ecdsa => usage.is_ecdsa_usage(key_type),
+        EcAlgorithm::Ecdh => usage.is_ecdh_usage(key_type),
     }
 }
 

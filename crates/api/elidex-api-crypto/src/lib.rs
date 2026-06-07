@@ -50,4 +50,4 @@ pub use error::AlgorithmError;
 pub use hash::HashAlgorithm;
 pub use jwk::JsonWebKey;
 pub use key::{CryptoKeyData, KeyAlgorithm, KeyMaterial, KeyType, KeyUsage};
-pub use ops::{ExportedKey, KeyData, KeyFormat};
+pub use ops::{ExportedKey, GeneratedKey, KeyData, KeyFormat};

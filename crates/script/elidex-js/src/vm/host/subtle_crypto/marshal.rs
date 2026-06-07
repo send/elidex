@@ -910,3 +910,45 @@ pub(super) fn build_jwk_object(ctx: &mut NativeContext<'_>, jwk: &JsonWebKey) ->
     }
     obj
 }
+
+/// Build the `CryptoKeyPair` dictionary (WebCrypto §17) returned by an EC
+/// `generateKey` (§14.3.6 `(CryptoKey or CryptoKeyPair)`): a plain object
+/// `{ privateKey, publicKey }` with **no** `ObjectKind` brand — an ordinary
+/// object like the exported JWK object, not a `CryptoKey`.  Web IDL converts
+/// a dictionary to an ECMAScript value member-by-member in **lexicographic**
+/// order (Web IDL §3.2.17), so `privateKey` (`p-r`) precedes `publicKey`
+/// (`p-u`) — matching `Object.keys(keyPair)` in other engines.
+///
+/// GC is disabled for the whole `NativeFunction` call (see
+/// [`build_jwk_object`]), so the two `alloc_crypto_key` calls in the caller
+/// plus this assembly have no mid-collection window; the two wrappers stay
+/// reachable through these own properties (and via `crypto_key_states` /
+/// `crypto_key_js_cache`, traced + unbind-cleared per their `ObjectId`).
+pub(super) fn build_crypto_key_pair(
+    ctx: &mut NativeContext<'_>,
+    public_id: ObjectId,
+    private_id: ObjectId,
+) -> ObjectId {
+    let object_proto = ctx.vm.object_prototype;
+    let pair = ctx.alloc_object(Object {
+        kind: ObjectKind::Ordinary,
+        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+        prototype: object_proto,
+        extensible: true,
+    });
+    let private_key = PropertyKey::String(ctx.intern("privateKey"));
+    ctx.vm.define_shaped_property(
+        pair,
+        private_key,
+        PropertyValue::Data(JsValue::Object(private_id)),
+        shape::PropertyAttrs::DATA,
+    );
+    let public_key = PropertyKey::String(ctx.intern("publicKey"));
+    ctx.vm.define_shaped_property(
+        pair,
+        public_key,
+        PropertyValue::Data(JsValue::Object(public_id)),
+        shape::PropertyAttrs::DATA,
+    );
+    pair
+}

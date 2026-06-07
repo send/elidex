@@ -36,14 +36,33 @@ pub enum ExportedKey {
     Jwk(JsonWebKey),
 }
 
-/// `generateKey` for HMAC (WebCrypto §14.3.6 + §31.6.3 Generate Key).
+/// `generateKey` result (WebCrypto §14.3.6 `(CryptoKey or CryptoKeyPair)`
+/// union): a [`Self::Single`] key for the symmetric algorithms (HMAC / AES),
+/// or a [`Self::Pair`] for the asymmetric ones (EC).  The VM dispatches the
+/// two shapes — one `CryptoKey` wrapper, or two wrappers assembled into a
+/// `CryptoKeyPair` dictionary (§17).
+#[derive(Clone, Debug)]
+pub enum GeneratedKey {
+    Single(CryptoKeyData),
+    Pair {
+        public: CryptoKeyData,
+        private: CryptoKeyData,
+    },
+}
+
+/// `generateKey` (WebCrypto §14.3.6) — a single key (symmetric: HMAC §31.6.3
+/// / AES §27-§30) or a key pair (asymmetric: EC §23.7.3 / §24.4.1), returned
+/// as the [`GeneratedKey`] union.
 ///
 /// `fill_random` writes the OS CSPRNG bytes into the supplied buffer (the
-/// VM owns the entropy source).  It is invoked **after** the §31.6.3
-/// step-1 usage-kind check and step-2 length resolution, so an invalid
-/// usage or zero length is rejected before any key-sized buffer is
-/// allocated or filled — keeping all the spec ordering + validation inside
-/// this crate boundary (the VM only supplies entropy).
+/// VM owns the entropy source).  For the symmetric algorithms it is invoked
+/// **after** the step-1 usage-kind check and step-2 length resolution, so an
+/// invalid usage or zero length is rejected before any key-sized buffer is
+/// allocated or filled; for EC it backs `SecretKey::random` via the crate's
+/// `ClosureRng`.  All spec ordering + validation stays inside this crate
+/// boundary (the VM only supplies entropy).  The bound is `FnMut` (not
+/// `FnOnce`) because EC key generation may draw multiple times (rejection
+/// sampling); the symmetric paths still call it once.
 // The ops entry points take the freshly-normalized algorithm by value (the
 // VM transfers ownership per call): `encrypt`/`decrypt` move the params'
 // `iv`/`counter` out, and generate/import/sign/verify share that uniform
@@ -54,17 +73,24 @@ pub fn generate_key<F>(
     extractable: bool,
     usages: Vec<KeyUsage>,
     fill_random: F,
-) -> Result<CryptoKeyData, AlgorithmError>
+) -> Result<GeneratedKey, AlgorithmError>
 where
-    F: FnOnce(&mut [u8]) -> Result<(), AlgorithmError>,
+    F: FnMut(&mut [u8]) -> Result<(), AlgorithmError>,
 {
     match algorithm {
         NormalizedAlgorithm::HmacKeyParams { hash, length } => {
             generate_hmac_key(hash, length, extractable, usages, fill_random)
+                .map(GeneratedKey::Single)
         }
         NormalizedAlgorithm::AesKeyGen { variant, length } => {
             generate_aes_key(variant, length, extractable, usages, fill_random)
+                .map(GeneratedKey::Single)
         }
+        NormalizedAlgorithm::EcKeyGen {
+            algorithm: ec_algorithm,
+            curve,
+        } => crate::ec::generate(ec_algorithm, curve, extractable, &usages, fill_random)
+            .map(|(public, private)| GeneratedKey::Pair { public, private }),
         _ => Err(not_supported_op("generateKey")),
     }
 }

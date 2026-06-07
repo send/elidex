@@ -24,6 +24,19 @@ pub(super) fn fill_seq(buf: &mut [u8]) -> Result<(), crate::error::AlgorithmErro
     Ok(())
 }
 
+/// Unwrap a symmetric (HMAC / AES) `generateKey` result, which is always a
+/// [`crate::ops::GeneratedKey::Single`] (only EC keygen yields a `Pair`).
+pub(super) fn expect_single(
+    result: Result<crate::ops::GeneratedKey, crate::error::AlgorithmError>,
+) -> crate::key::CryptoKeyData {
+    match result.expect("symmetric generateKey succeeds") {
+        crate::ops::GeneratedKey::Single(key) => key,
+        crate::ops::GeneratedKey::Pair { .. } => {
+            panic!("symmetric generateKey yields a single key, not a pair")
+        }
+    }
+}
+
 pub(super) fn to_hex(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
     bytes.iter().fold(String::new(), |mut s, b| {

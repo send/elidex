@@ -148,13 +148,12 @@ fn aes_kw_gen(length: u32) -> NormalizedAlgorithm {
 
 #[test]
 fn ops_aes_kw_generate_sets_key_algorithm() {
-    let key = ops::generate_key(
+    let key = super::expect_single(ops::generate_key(
         aes_kw_gen(256),
         true,
         vec![KeyUsage::WrapKey, KeyUsage::UnwrapKey],
         fill_seq,
-    )
-    .unwrap();
+    ));
     assert!(matches!(
         key.algorithm,
         KeyAlgorithm::Aes {
