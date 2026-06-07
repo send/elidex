@@ -1065,6 +1065,19 @@ pub fn layout_inline_context_fragmented(
                     .world_mut()
                     .insert_one(group_key, InlineFlow::single(env.layout_generation, lines));
                 persisted_keys.insert(group_key);
+            } else if env.is_probe {
+                // do_carrier under a throwaway probe (Codex PR#316 R3, P2): the
+                // run-start's `InlineFlow` is built by `position_column_fragments`,
+                // which is `is_probe`-guarded and so does NOT rebuild during a probe.
+                // If we let `clear_inline_flows` clear this run-start here (do_carrier
+                // ⇒ not in `persisted_keys`), a throwaway probe running AFTER a
+                // definitive layout would ERASE the live mid-break flow, dropping
+                // render to the legacy single-linear path until the next definitive
+                // layout. Make the clear `is_probe`-symmetric with the build: PRESERVE
+                // the existing flow (mark it persisted so it is not cleared) and write
+                // no carrier (the probe's geometry is discarded). The definitive pass
+                // owns the real clear + rebuild.
+                persisted_keys.insert(group_key);
             } else {
                 // do_carrier: this column's slice for this run-start group. multicol
                 // fill drains the carrier; `position_column_fragments` folds it into

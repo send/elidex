@@ -416,6 +416,54 @@ fn multicol_midbreak_ifc_with_atomic_text_still_persists() {
 }
 
 #[test]
+fn multicol_midbreak_flow_survives_a_throwaway_probe() {
+    // Codex PR#316 R3 (P2): the run-start `InlineFlow` is built by
+    // `position_column_fragments` (is_probe-guarded → not rebuilt during a probe),
+    // but the IFC's `clear_inline_flows` is NOT is_probe-guarded. So a throwaway
+    // probe running AFTER a definitive layout would clear the live mid-break flow
+    // without rebuilding it, dropping render to legacy. Fix: the do_carrier path
+    // preserves the flow during a probe. Pin: lay definitively (flow built), then
+    // re-lay with is_probe=true (an ancestor/intrinsic probe) — the flow survives.
+    let font_db = make_font_db();
+    if !fonts_available(&font_db) {
+        return;
+    }
+    let mut dom = EcsDom::new();
+    let container = elem(&mut dom, "div");
+    let _ = dom.world_mut().insert_one(
+        container,
+        ComputedStyle {
+            display: Display::Block,
+            column_count: Some(2),
+            column_fill: ColumnFill::Auto,
+            height: Dimension::Length(40.0),
+            ..ComputedStyle::default()
+        },
+    );
+    let (_div, tnode) = add_wrapping_text_block(&mut dom, container, LONG_TEXT);
+
+    let input = make_input(&font_db);
+    layout_multicol(&mut dom, container, &input, layout_child_fn);
+    assert!(
+        dom.world().get::<&InlineFlow>(tnode).is_ok(),
+        "definitive layout builds the mid-break flow"
+    );
+
+    // A throwaway probe over the same subtree (e.g. an ancestor's balanced search /
+    // intrinsic re-measure) must NOT erase the live flow.
+    let probe_input = LayoutInput {
+        is_probe: true,
+        ..make_input(&font_db)
+    };
+    layout_multicol(&mut dom, container, &probe_input, layout_child_fn);
+    assert!(
+        dom.world().get::<&InlineFlow>(tnode).is_ok(),
+        "a throwaway probe after the definitive layout must NOT erase the live \
+         mid-break InlineFlow (else render drops to the legacy path)"
+    );
+}
+
+#[test]
 fn multicol_with_direct_inline_midbreak_leaves_no_stale_carrier() {
     // Codex PR#316 R1 (P2): direct inline content in a multicol container makes the
     // IFC `parent_entity` BE the multicol itself, so `fill` (which drains carriers off
