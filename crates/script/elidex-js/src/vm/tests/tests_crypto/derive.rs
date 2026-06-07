@@ -146,6 +146,38 @@ fn hkdf_import_non_derive_usage_rejects_syntax() {
 }
 
 #[test]
+fn hkdf_export_key_rejects_not_supported() {
+    // Codex R2 F2 / §14.3.10: the export-support check (step 6) precedes the
+    // extractable check (step 7), so a KDF key's exportKey is NotSupportedError
+    // (NOT InvalidAccessError from the always-false extractable gate).
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.importKey('raw', new Uint8Array([1,2,3]), {name:'HKDF'}, false, ['deriveBits']) \
+           .then(k => crypto.subtle.exportKey('raw', k)) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "NotSupportedError");
+}
+
+#[test]
+fn hkdf_derivebits_member_getter_order() {
+    // Codex R2 F1 / §18.4.4: step 6 converts the whole dictionary (top-level
+    // getters in lexicographic order hash < info < salt), then step 10
+    // normalizes the nested HashAlgorithmIdentifier (`hash.name`). So `hash.name`
+    // must fire AFTER the info/salt getters, not immediately after `hash`.
+    let src = "globalThis.order = []; globalThis.r = 'pending'; \
+         const ikm = new Uint8Array(8).fill(0x0b); \
+         const alg = { name:'HKDF', \
+           get hash(){ globalThis.order.push('hash'); \
+             return { get name(){ globalThis.order.push('hash.name'); return 'SHA-256'; } }; }, \
+           get info(){ globalThis.order.push('info'); return new Uint8Array(1); }, \
+           get salt(){ globalThis.order.push('salt'); return new Uint8Array(1); } }; \
+         crypto.subtle.importKey('raw', ikm, {name:'HKDF'}, false, ['deriveBits']) \
+           .then(k => crypto.subtle.deriveBits(alg, k, 256)) \
+           .then(() => { globalThis.r = globalThis.order.join(','); }, \
+                 e => { globalThis.r = 'err:' + e.name + '|' + globalThis.order.join(','); });";
+    assert_eq!(eval_global_string(src, "r"), "hash,info,salt,hash.name");
+}
+
+#[test]
 fn hkdf_import_jwk_format_rejects_not_supported() {
     let src = "globalThis.r = 'pending'; \
          crypto.subtle.importKey('jwk', {kty:'oct', k:'AAAA'}, {name:'HKDF'}, false, ['deriveBits']) \

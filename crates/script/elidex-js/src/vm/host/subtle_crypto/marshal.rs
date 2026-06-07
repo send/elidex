@@ -152,9 +152,12 @@ fn read_params(
         AlgorithmParams::HmacKeyParams => {
             // `HmacKeyGenParams` / `HmacImportParams`: hash (required), then
             // length (optional `unsigned long`) — lexicographic order.
-            read_required_hash(ctx, id, method, raw)?;
+            // step 6 (top-level getters, lexicographic hash < length):
+            let hash_val = read_required_hash_value(ctx, id, method)?;
             raw.length =
                 read_optional_length(ctx, id, method, "unsigned long", f64::from(u32::MAX))?;
+            // step 10: normalize the nested HashAlgorithmIdentifier (`hash.name`).
+            raw.hash = Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?));
         }
         AlgorithmParams::AesKeyGen => {
             // `AesKeyGenParams`: length (required `[EnforceRange] unsigned
@@ -228,27 +231,34 @@ fn read_params(
         AlgorithmParams::HkdfParams => {
             // `HkdfParams`: hash (required), info (required `BufferSource`),
             // salt (required `BufferSource`) — Web IDL lexicographic member
-            // order is hash < info < salt.  Each member's getter / type is
-            // validated before the next is read (step 6); the `info` / `salt`
-            // byte snapshots run after every getter (step 10), so a later
-            // getter that mutates an earlier buffer is reflected.
-            read_required_hash(ctx, id, method, raw)?;
+            // order is hash < info < salt.  §18.4.4 step 6 reads every
+            // top-level member value in that order (the `hash` getter fires
+            // here, but its nested `HashAlgorithmIdentifier` is NOT yet
+            // normalized); step 10 then normalizes `hash` (reading `hash.name`,
+            // again first lexicographically) and copies the `info` / `salt`
+            // BufferSource bytes — so a throwing / mutating getter rejects in
+            // the spec order.
+            let hash_val = read_required_hash_value(ctx, id, method)?;
             let info_val =
                 ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.info))?;
             require_buffer_source_member(ctx, info_val, method, "info")?;
             let salt_val =
                 ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.salt))?;
             require_buffer_source_member(ctx, salt_val, method, "salt")?;
-            // step 10: snapshot the BufferSource bytes after all getters.
+            // step 10 (lexicographic hash < info < salt): normalize hash, then
+            // snapshot the BufferSource bytes.
+            raw.hash = Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?));
             raw.info = Some(snapshot_buffer_source(ctx, info_val, method, "info")?);
             raw.salt = Some(snapshot_buffer_source(ctx, salt_val, method, "salt")?);
         }
         AlgorithmParams::Pbkdf2Params => {
             // `Pbkdf2Params`: hash (required), iterations (required
             // `[EnforceRange] unsigned long`), salt (required `BufferSource`)
-            // — lexicographic order hash < iterations < salt.  `salt` is the
-            // last member, so its snapshot (step 10) follows every getter.
-            read_required_hash(ctx, id, method, raw)?;
+            // — lexicographic order hash < iterations < salt.  §18.4.4 step 6
+            // reads every top-level member value in that order (`hash` getter
+            // + `iterations` ToNumber/EnforceRange + `salt` getter); step 10
+            // then normalizes `hash` (`hash.name`) and copies the `salt` bytes.
+            let hash_val = read_required_hash_value(ctx, id, method)?;
             let iter_val =
                 ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.iterations))?;
             if matches!(iter_val, JsValue::Undefined) {
@@ -265,6 +275,9 @@ fn read_params(
             let salt_val =
                 ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.salt))?;
             require_buffer_source_member(ctx, salt_val, method, "salt")?;
+            // step 10 (lexicographic hash < iterations < salt): normalize hash,
+            // then snapshot the salt bytes.
+            raw.hash = Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?));
             raw.salt = Some(snapshot_buffer_source(ctx, salt_val, method, "salt")?);
         }
     }
@@ -375,23 +388,30 @@ fn required_member_error(method: &str, member: &str) -> VmError {
     ))
 }
 
-/// Read the required nested `hash` member of a params dictionary that carries
-/// one (`HmacKeyGenParams` / `HmacImportParams`, `HkdfParams`, `Pbkdf2Params`)
-/// into `raw.hash` (WebCrypto §18.4.4 step 6, the first member in each — `hash`
-/// sorts before `info` / `iterations` / `length` / `salt`).  An absent /
-/// `undefined` value is the required-member `TypeError`.
-fn read_required_hash(
+/// Read the required `hash` member's **value** of a params dictionary that
+/// carries one (`HmacKeyGenParams` / `HmacImportParams`, `HkdfParams`,
+/// `Pbkdf2Params`) — the WebCrypto §18.4.4 **step 6** dictionary-conversion
+/// getter (`hash` sorts first: before `info` / `iterations` / `length` /
+/// `salt`).  An absent / `undefined` value is the required-member `TypeError`.
+///
+/// This deliberately does NOT normalize the nested `HashAlgorithmIdentifier`
+/// (reading `hash.name`): §18.4.4 converts the whole dictionary at step 6
+/// (firing every top-level member getter in lexicographic order) and only
+/// then, at **step 10**, normalizes each `HashAlgorithmIdentifier` member.  So
+/// the caller reads every sibling top-level member first, then normalizes the
+/// returned value via [`marshal_hash_identifier`] — otherwise `hash.name`
+/// would fire before the `info` / `salt` / `iterations` / `length` getters and
+/// reject in the wrong order for a throwing / side-effecting getter.
+fn read_required_hash_value(
     ctx: &mut NativeContext<'_>,
     id: ObjectId,
     method: &str,
-    raw: &mut RawAlgorithm,
-) -> Result<(), VmError> {
+) -> Result<JsValue, VmError> {
     let hash_val = ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.hash_attr))?;
     if matches!(hash_val, JsValue::Undefined) {
         return Err(required_member_error(method, "hash"));
     }
-    raw.hash = Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?));
-    Ok(())
+    Ok(hash_val)
 }
 
 /// Marshal a `HashAlgorithmIdentifier` (string or `{name}`) — a **leaf**

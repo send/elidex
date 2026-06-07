@@ -328,9 +328,21 @@ fn import_kdf_key(
     })
 }
 
-/// `exportKey` (WebCrypto §14.3.10 + §31 Export Key). `extractable=false`
-/// gates every format with `InvalidAccessError`.
+/// `exportKey` (WebCrypto §14.3.10 + §31 Export Key).
 pub fn export_key(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKey, AlgorithmError> {
+    // §14.3.10 step 6: the key's algorithm must support the export key
+    // operation — checked BEFORE the step-7 extractable gate.  HKDF / PBKDF2
+    // register no exportKey (§33.4 / §34.4), so exporting one is a
+    // NotSupportedError regardless of (its always-false) extractability.
+    match key.algorithm {
+        KeyAlgorithm::Hmac { .. } | KeyAlgorithm::Aes { .. } => {}
+        KeyAlgorithm::Hkdf | KeyAlgorithm::Pbkdf2 => {
+            return Err(AlgorithmError::NotSupported(
+                "HKDF / PBKDF2 keys do not support the exportKey operation".to_string(),
+            ));
+        }
+    }
+    // §14.3.10 step 7: a non-extractable key is an InvalidAccessError.
     if !key.extractable {
         return Err(AlgorithmError::InvalidAccess(
             "key is not extractable".to_string(),
@@ -341,16 +353,8 @@ pub fn export_key(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKey,
         KeyFormat::Jwk => Ok(ExportedKey::Jwk(match key.algorithm {
             KeyAlgorithm::Hmac { hash, .. } => jwk::export_oct_hmac(key, hash),
             KeyAlgorithm::Aes { variant, length } => jwk::export_oct_aes(key, variant, length),
-            // HKDF / PBKDF2 keys are never extractable (import forces
-            // `extractable=false` and there is no generateKey), so the
-            // extractable gate above already returned InvalidAccessError —
-            // this arm is unreachable, but the spec also defines no JWK
-            // export for them (§33.4 / §34.4 register no exportKey).
-            KeyAlgorithm::Hkdf | KeyAlgorithm::Pbkdf2 => {
-                return Err(AlgorithmError::NotSupported(
-                    "HKDF / PBKDF2 keys cannot be exported".to_string(),
-                ))
-            }
+            // KDF keys were rejected by the step-6 export-support check above.
+            KeyAlgorithm::Hkdf | KeyAlgorithm::Pbkdf2 => unreachable!("KDF rejected at step 6"),
         })),
         KeyFormat::Pkcs8 | KeyFormat::Spki => Err(AlgorithmError::NotSupported(
             "symmetric key export supports only the 'raw' and 'jwk' formats".to_string(),

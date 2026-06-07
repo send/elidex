@@ -9,8 +9,8 @@ use super::to_hex;
 use crate::algorithm::{AesVariant, NormalizedAlgorithm};
 use crate::error::AlgorithmError;
 use crate::hash::HashAlgorithm;
-use crate::key::{CryptoKeyData, KeyAlgorithm, KeyType, KeyUsage};
-use crate::ops::{self, KeyData, KeyFormat};
+use crate::key::{CryptoKeyData, KeyAlgorithm, KeyMaterial, KeyType, KeyUsage};
+use crate::ops::{self, ExportedKey, KeyData, KeyFormat};
 
 /// Import a raw HKDF / PBKDF2 key (the input keying material / password).
 fn import_kdf(alg: NormalizedAlgorithm, material: &[u8], usages: Vec<KeyUsage>) -> CryptoKeyData {
@@ -155,6 +155,87 @@ fn pbkdf2_derive_bits_rfc7914_sha256() {
         "55ac046e56e3089fec1691c22544b605f94185216dde0465e68b9d57c20dacbc\
          49ca9cccf179b645991664b39d77ef317c71b845b1e30bd509112041d3a19783"
     );
+}
+
+#[test]
+fn hkdf_oversized_length_is_operation_error() {
+    // §33.4.1 step 4 / RFC 5869 §2.3: HKDF-SHA-256 caps output at 255×32 =
+    // 8160 bytes (65280 bits). A request above the cap is an OperationError —
+    // and must reject WITHOUT allocating the oversized buffer (Codex R2 F3).
+    let key = import_kdf(
+        NormalizedAlgorithm::Hkdf,
+        b"ikm",
+        vec![KeyUsage::DeriveBits],
+    );
+    let over = NormalizedAlgorithm::HkdfParams {
+        hash: HashAlgorithm::Sha256,
+        salt: b"s".to_vec(),
+        info: b"i".to_vec(),
+    };
+    assert!(matches!(
+        ops::derive_bits(over, &key, Some(65288)), // 8161 bytes > 8160 cap
+        Err(AlgorithmError::Operation(_))
+    ));
+    // At the cap (8160 bytes = 65280 bits) the derivation succeeds.
+    let at_cap = NormalizedAlgorithm::HkdfParams {
+        hash: HashAlgorithm::Sha256,
+        salt: b"s".to_vec(),
+        info: b"i".to_vec(),
+    };
+    assert_eq!(
+        ops::derive_bits(at_cap, &key, Some(65280)).unwrap().len(),
+        8160
+    );
+}
+
+#[test]
+fn kdf_export_key_is_not_supported_before_extractable() {
+    // Codex R2 F2 / §14.3.10: the step-6 export-support check precedes the
+    // step-7 extractable check, so a KDF key's exportKey is NotSupportedError
+    // — even for a (hypothetically) extractable KDF key, NOT InvalidAccess.
+    let extractable_kdf = CryptoKeyData {
+        key_type: KeyType::Secret,
+        extractable: true,
+        algorithm: KeyAlgorithm::Hkdf,
+        usages: vec![KeyUsage::DeriveBits],
+        material: KeyMaterial::Raw(b"ikm".to_vec()),
+    };
+    assert!(matches!(
+        ops::export_key(KeyFormat::Raw, &extractable_kdf),
+        Err(AlgorithmError::NotSupported(_))
+    ));
+    assert!(matches!(
+        ops::export_key(KeyFormat::Jwk, &extractable_kdf),
+        Err(AlgorithmError::NotSupported(_))
+    ));
+    // The as-imported (non-extractable) PBKDF2 key likewise → NotSupported,
+    // not InvalidAccess.
+    let imported = import_kdf(
+        NormalizedAlgorithm::Pbkdf2,
+        b"pw",
+        vec![KeyUsage::DeriveBits],
+    );
+    assert!(matches!(
+        ops::export_key(KeyFormat::Raw, &imported),
+        Err(AlgorithmError::NotSupported(_))
+    ));
+    // Sanity: an extractable HMAC key still exports (step 6 passes, step 7
+    // passes) — the reordering didn't regress the supported algorithms.
+    let hmac = ops::import_key(
+        KeyFormat::Raw,
+        NormalizedAlgorithm::HmacKeyParams {
+            hash: HashAlgorithm::Sha256,
+            length: None,
+        },
+        true,
+        vec![KeyUsage::Sign],
+        KeyData::Raw(vec![0x0b; 32]),
+    )
+    .unwrap();
+    assert!(matches!(
+        ops::export_key(KeyFormat::Raw, &hmac),
+        Ok(ExportedKey::Raw(_))
+    ));
 }
 
 #[test]

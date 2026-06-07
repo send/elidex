@@ -31,6 +31,16 @@ pub fn derive_bits(
     length_bits: u32,
 ) -> Result<Vec<u8>, AlgorithmError> {
     let len = (length_bits / 8) as usize;
+    // §33.4.1 step 4 / RFC 5869 §2.3: HKDF-Expand fails for an output longer
+    // than `255 × HashLen`.  Check the cap BEFORE allocating, so an oversized
+    // `deriveBits` request returns the spec `OperationError` instead of first
+    // allocating the full (attacker-controlled, up to ~512 MiB) buffer — which
+    // on a memory-constrained host could abort the process rather than reject.
+    if len > 255 * hash.output_len_bytes() {
+        return Err(AlgorithmError::Operation(
+            "HKDF derived length exceeds the maximum (255 × hash output)".to_string(),
+        ));
+    }
     let mut okm = vec![0u8; len];
     // `salt` is the §33.3 required member (possibly empty); RFC 5869 §2.2
     // treats an empty salt identically to the all-zero default, so passing
