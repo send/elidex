@@ -12,6 +12,7 @@ use super::*;
 /// either drop the gap or — for a nested relpos — double-paint).
 #[test]
 #[allow(unused_must_use)]
+#[allow(clippy::too_many_lines)]
 fn consumes_relpos_inline_subflow_with_gap() {
     let mut dom = elidex_ecs::EcsDom::new();
     let root = dom.create_document_root();
@@ -65,6 +66,7 @@ fn consumes_relpos_inline_subflow_with_gap() {
             vec![InlineFlowLine {
                 block_start: 0.0,
                 block_size: 20.0,
+                justify_word_spacing: 0.0,
                 runs: vec![
                     InlineFlowRun::Text {
                         entity: root,
@@ -89,6 +91,7 @@ fn consumes_relpos_inline_subflow_with_gap() {
             vec![InlineFlowLine {
                 block_start: 0.0,
                 block_size: 20.0,
+                justify_word_spacing: 0.0,
                 runs: vec![InlineFlowRun::Text {
                     entity: span,
                     text: "b".to_string(),

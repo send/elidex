@@ -31,6 +31,7 @@ fn consumes_inline_flow_per_line() {
             InlineFlowLine {
                 block_start: 0.0,
                 block_size: 20.0,
+                justify_word_spacing: 0.0,
                 runs: vec![InlineFlowRun::Text {
                     entity: div,
                     text: "Hello".to_string(),
@@ -40,6 +41,7 @@ fn consumes_inline_flow_per_line() {
             InlineFlowLine {
                 block_start: 20.0,
                 block_size: 20.0,
+                justify_word_spacing: 0.0,
                 runs: vec![InlineFlowRun::Text {
                     entity: div,
                     text: "World".to_string(),
@@ -121,6 +123,7 @@ fn consumes_atomic_box_member_paints_box() {
         vec![InlineFlowLine {
             block_start: 0.0,
             block_size: 20.0,
+            justify_word_spacing: 0.0,
             runs: vec![
                 InlineFlowRun::Text {
                     entity: div,
@@ -226,6 +229,7 @@ fn converged_path_does_not_re_transform() {
             vec![InlineFlowLine {
                 block_start: 0.0,
                 block_size: 20.0,
+                justify_word_spacing: 0.0,
                 runs: vec![InlineFlowRun::Text {
                     entity: div,
                     text: "abc".to_string(),
@@ -301,6 +305,7 @@ fn interspersed_abspos_does_not_double_paint() {
         vec![InlineFlowLine {
             block_start: 0.0,
             block_size: 20.0,
+            justify_word_spacing: 0.0,
             runs: vec![
                 InlineFlowRun::Text {
                     entity: root,

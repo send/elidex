@@ -33,6 +33,7 @@ fn paged_consume_paints_only_matching_generation() {
                     lines: vec![InlineFlowLine {
                         block_start: 0.0,
                         block_size: 20.0,
+                        justify_word_spacing: 0.0,
                         runs: vec![InlineFlowRun::Text {
                             entity: div,
                             text: "PageOne".to_string(),
@@ -45,6 +46,7 @@ fn paged_consume_paints_only_matching_generation() {
                     lines: vec![InlineFlowLine {
                         block_start: 0.0,
                         block_size: 20.0,
+                        justify_word_spacing: 0.0,
                         runs: vec![InlineFlowRun::Text {
                             entity: div,
                             text: "PageTwo".to_string(),

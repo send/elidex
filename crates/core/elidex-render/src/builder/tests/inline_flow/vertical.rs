@@ -39,6 +39,7 @@ fn consumes_inline_flow_vertical_columns() {
             InlineFlowLine {
                 block_start: 0.0,
                 block_size: 20.0,
+                justify_word_spacing: 0.0,
                 runs: vec![InlineFlowRun::Text {
                     entity: div,
                     text: "AB".to_string(),
@@ -48,6 +49,7 @@ fn consumes_inline_flow_vertical_columns() {
             InlineFlowLine {
                 block_start: 20.0,
                 block_size: 20.0,
+                justify_word_spacing: 0.0,
                 runs: vec![InlineFlowRun::Text {
                     entity: div,
                     text: "AB".to_string(),

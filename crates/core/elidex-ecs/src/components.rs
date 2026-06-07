@@ -251,6 +251,12 @@ pub struct InlineFlowLine {
     /// Logical-order paintable members on this line ([`InlineFlowRun::Text`] runs
     /// and [`InlineFlowRun::AtomicBox`] inline-level boxes, interleaved in order).
     pub runs: Vec<InlineFlowRun>,
+    /// `text-align: justify` within-run extra advance: render's `place_glyphs` adds
+    /// this once per within-run `is_word_separator` cluster (CSS Text 3 §6.4). `0.0`
+    /// for every non-justified line (the common case). Layout bakes the *between-run*
+    /// expansion into each run's `inline_start` separately, so the two are disjoint;
+    /// the layout/render split rationale lives on the producer (`pack::bake_justify`).
+    pub justify_word_spacing: f32,
 }
 
 /// One paintable member of an [`InlineFlowLine`], stored in logical order.

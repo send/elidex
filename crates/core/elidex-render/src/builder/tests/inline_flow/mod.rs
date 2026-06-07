@@ -17,6 +17,7 @@ use elidex_ecs::{InlineFlow, InlineFlowLine, InlineFlowRun, InlineFragment};
 
 mod bidi;
 mod consume;
+mod justify;
 mod paged;
 mod relpos;
 mod vertical;

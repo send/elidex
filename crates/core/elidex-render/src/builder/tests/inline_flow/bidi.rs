@@ -36,6 +36,7 @@ fn converged_bidi_reorders_runs() {
         vec![InlineFlowLine {
             block_start: 0.0,
             block_size: 20.0,
+            justify_word_spacing: 0.0,
             runs: vec![
                 InlineFlowRun::Text {
                     entity: div,
@@ -94,6 +95,7 @@ fn converged_ltr_identity_no_reorder() {
         vec![InlineFlowLine {
             block_start: 0.0,
             block_size: 20.0,
+            justify_word_spacing: 0.0,
             runs: vec![
                 InlineFlowRun::Text {
                     entity: div,
@@ -153,6 +155,7 @@ fn converged_bidi_multi_line() {
             InlineFlowLine {
                 block_start: 0.0,
                 block_size: 20.0,
+                justify_word_spacing: 0.0,
                 runs: vec![
                     InlineFlowRun::Text {
                         entity: div,
@@ -169,6 +172,7 @@ fn converged_bidi_multi_line() {
             InlineFlowLine {
                 block_start: 20.0,
                 block_size: 20.0,
+                justify_word_spacing: 0.0,
                 runs: vec![
                     InlineFlowRun::Text {
                         entity: div,
@@ -230,6 +234,7 @@ fn converged_bidi_vertical() {
         vec![InlineFlowLine {
             block_start: 0.0,
             block_size: 20.0,
+            justify_word_spacing: 0.0,
             runs: vec![
                 InlineFlowRun::Text {
                     entity: div,
@@ -310,6 +315,7 @@ fn converged_bidi_line_with_atomic() {
         vec![InlineFlowLine {
             block_start: 0.0,
             block_size: 20.0,
+            justify_word_spacing: 0.0,
             runs: vec![
                 InlineFlowRun::Text {
                     entity: div,
@@ -404,6 +410,7 @@ fn trailing_run_x_with_middle(middle_hidden: bool) -> Option<f32> {
         vec![InlineFlowLine {
             block_start: 0.0,
             block_size: 20.0,
+            justify_word_spacing: 0.0,
             runs: vec![
                 InlineFlowRun::Text {
                     entity: div,
@@ -486,6 +493,7 @@ fn converged_bidi_rtl_base_neutral_runs_reorder() {
         vec![InlineFlowLine {
             block_start: 0.0,
             block_size: 20.0,
+            justify_word_spacing: 0.0,
             runs: vec![
                 InlineFlowRun::Text {
                     entity: div,

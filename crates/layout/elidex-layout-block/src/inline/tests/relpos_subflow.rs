@@ -713,13 +713,13 @@ fn relpos_atomic_persists_and_repositions_not_a_flow_member() {
 }
 
 #[test]
-fn relpos_atomic_on_legacy_path_stays_unrepositioned() {
-    // A run that falls to render's legacy path (here `text-align: justify`, the sole
-    // remaining gate trigger after the bidi slice) does NOT reposition its relpos
-    // atomic — it stays at the IFC origin. The relpos-atomic convergence only applies
-    // on the persistable path. (bidi and text-transform used to gate here too, but
-    // now persist: text-transform applied in-place, RTL runs persist in logical order
-    // and render reorders at paint — slice 4.)
+fn relpos_atomic_repositioned_under_justify() {
+    // Slice 4 PR-3 inverts the old `relpos_atomic_on_legacy_path_stays_unrepositioned`:
+    // `text-align: justify` was the SOLE remaining text-feature gate, and it has now
+    // converged (justify positions are layout-baked like the other alignments). So a
+    // justified run persists AND repositions its relpos atomic — the relpos-atomic
+    // convergence is no longer suppressed by justify. (There is no cross-cutting legacy
+    // route left; only multicol-mid-IFC fragmentation still gates → Z.)
     let Some((mut dom, parent, mut style, font_db)) = setup_inline_test("a") else {
         return;
     };
@@ -739,18 +739,18 @@ fn relpos_atomic_on_legacy_path_stays_unrepositioned() {
     );
 
     assert!(
-        dom.world().get::<&InlineFlow>(a_text).is_err(),
-        "justify gates the whole run → no InlineFlow persists"
+        dom.world().get::<&InlineFlow>(a_text).is_ok(),
+        "justify now persists an InlineFlow (converged, slice 4)"
     );
     let lb = dom
         .world()
         .get::<&LayoutBox>(ib)
-        .expect("the atomic is still laid out (at the IFC origin)");
-    assert_eq!(
-        lb.content.origin,
-        Point::ZERO,
-        "a gated run does NOT reposition its relpos atomic — it stays where \
-         layout_atomic_items placed it (the IFC content origin = ZERO here)"
+        .expect("the relpos atomic has a LayoutBox");
+    assert!(
+        lb.content.origin.x > 0.0 || lb.content.origin.y > 0.0,
+        "the relpos atomic is repositioned off the IFC origin (after 'a'), got ({}, {})",
+        lb.content.origin.x,
+        lb.content.origin.y
     );
 }
 
@@ -858,5 +858,58 @@ fn sticky_atomic_persists_and_repositions_not_a_flow_member() {
         "the sticky atomic was repositioned off the IFC origin, got ({}, {})",
         lb.content.origin.x,
         lb.content.origin.y
+    );
+}
+
+#[test]
+fn justify_shifts_subflow_to_ride_distribution() {
+    // `<p justify>aa bb <span rel>cc</span> wwww…</p>`: on the justified soft-wrapped
+    // line, the relpos sub-flow `cc` is shifted right by the cumulative top-level
+    // justify expansion at its position (`cum_at`), so it RIDES the justification
+    // instead of staying at its natural cursor and being overlapped by the expanded
+    // top-level text. Differential: its persisted `inline_start` under justify exceeds
+    // the left-aligned natural position (the cross-flow positioning fix; the trailing
+    // space before the sub-flow stays an opportunity so the shift matches the painted
+    // top-level end).
+    let Some((mut dom, parent, mut style, font_db)) = setup_inline_test("aa bb ") else {
+        return;
+    };
+    let (_span, cc_text, _tail) = append_relpos_span(
+        &mut dom,
+        parent,
+        &style.font_family,
+        "cc",
+        " wwwwwwwwwwwwwwwwwwww",
+    );
+    // Fits "aa bb cc" on line 0 but wraps the long tail word.
+    let container = measure_width(&font_db, "aa bb cc") + measure_width(&font_db, "aa");
+
+    let mut sub_start = |dom: &mut EcsDom, align: TextAlign| -> f32 {
+        style.text_align = align;
+        let _ = dom.world_mut().insert_one(parent, style.clone());
+        let children = dom.composed_children(parent);
+        layout_inline_context(
+            dom,
+            &children,
+            container,
+            parent,
+            Point::ZERO,
+            &env(&font_db),
+        );
+        dom.world()
+            .get::<&InlineFlow>(cc_text)
+            .expect("relpos sub-flow persists")
+            .fragments[0]
+            .lines[0]
+            .runs[0]
+            .inline_start()
+    };
+
+    let natural = sub_start(&mut dom, TextAlign::Left);
+    let justified = sub_start(&mut dom, TextAlign::Justify);
+    assert!(
+        justified > natural + 0.5,
+        "the relpos sub-flow rides the justify expansion (shifted right): \
+         justified {justified} vs natural {natural}"
     );
 }

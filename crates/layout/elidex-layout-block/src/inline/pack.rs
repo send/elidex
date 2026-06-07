@@ -6,7 +6,7 @@ use elidex_ecs::{EcsDom, Entity, InlineFlowLine, InlineFlowRun};
 use elidex_plugin::{
     ComputedStyle, Direction, EdgeSizes, LayoutBox, Point, Rect, TextAlign, WhiteSpace,
 };
-use elidex_text::{measure_text, BreakOpportunity, FontDatabase};
+use elidex_text::{is_word_separator, measure_text, BreakOpportunity, FontDatabase};
 
 use super::measure::measure_segment_widths;
 use super::InlineItem;
@@ -14,19 +14,62 @@ use super::InlineItem;
 /// Inline-alignment context for persisting an [`InlineFlow`](elidex_ecs::InlineFlow).
 ///
 /// Present (`Some`) when the run is persistable (gated in — see
-/// `layout_inline_context_fragmented`); `None` skips all flow recording (e.g.
-/// `text-align: justify`, which falls to render's fallback). When present,
+/// `layout_inline_context_fragmented`); `None` skips all flow recording. When present,
 /// `LinePacker` records per-line positioned text runs with `text-align` baked into
-/// each run's `inline_start`. Writing-mode-agnostic: the resolution operates on the
-/// **inline axis** (`Left/Start → inline-start`, `Right/End → inline-end`,
-/// `Center → mid`), and `containing_inline_size` is the inline-axis extent (content
-/// width for horizontal, height for vertical), so the same logic positions both
-/// horizontal and vertical text along their inline axis.
+/// each run's `inline_start` — **including `justify`** (the 4th alignment; CSS Text 3
+/// §6), whose between-run expansion is baked here and whose within-run amount is
+/// persisted per line as [`InlineFlowLine::justify_word_spacing`](elidex_ecs::InlineFlowLine).
+/// Writing-mode-agnostic: the resolution operates on the **inline axis**
+/// (`Left/Start → inline-start`, `Right/End → inline-end`, `Center → mid`), and
+/// `containing_inline_size` is the inline-axis extent (content width for horizontal,
+/// height for vertical), so the same logic positions both horizontal and vertical text
+/// along their inline axis.
 #[derive(Clone, Copy)]
 pub(super) struct FlowAlign {
     pub text_align: TextAlign,
     pub direction: Direction,
     pub containing_inline_size: f32,
+    /// The top-level run-group key (`first_eligible_child` of the IFC parent — render's
+    /// `run[0]`). `text-align: justify` *distributes* free space within the **top-level
+    /// group's** word-separators only (it is the group whose `InlineFlowLine` carries
+    /// `justify_word_spacing > 0`). Converged `position:relative`/`sticky` sub-flow
+    /// groups (keyed differently) do NOT justify internally — `justify_word_spacing = 0`
+    /// — since per-flow justify of a sparse sub-flow over the parent's full
+    /// `containing_inline_size` would over-stretch it (that line-unified case is slot
+    /// `#11-justify-subflow-line-unified`). They ARE, however, shifted by the cumulative
+    /// top-level justify expansion at their inline position (`flush_line`'s `cum_at`), so
+    /// positioned content rides the same justification as the surrounding text and does
+    /// not overlap it. `None` when the top-level run is itself unrecorded (no
+    /// justification target).
+    pub top_level_key: Option<Entity>,
+    /// Whether the IFC's writing mode is vertical — read in `flush_line` to suppress
+    /// `text-align: justify` in vertical writing modes. (CSS Text 3 §6 justifies along
+    /// the *inline* axis, which is vertical here, so vertical justify IS spec-valid;
+    /// implementing it needs word-spacing in render's vertical glyph path
+    /// (`place_glyphs_vertical`, which has none) + a vertical bake — tracked as slot
+    /// `#11-justify-vertical-writing-mode`. Until then a vertical line stays
+    /// start-aligned with `justify_word_spacing = 0`, matching legacy [which never
+    /// justified vertical text], so persisting it is non-regression.) Lives here — not on
+    /// `LinePacker` — because its only consumer is justify resolution, gated on a `Some`
+    /// `FlowAlign` (an alignment-resolution input like `text_align`).
+    pub is_vertical: bool,
+}
+
+/// Why a line was flushed — drives the `text-align: justify` last-line / forced-break
+/// suppression (CSS Text 3 §6.3 `text-align-last: auto` → start on the block's last
+/// line; §6.1 the last line before a forced break is start-aligned). The reason is
+/// knowable at every `flush_line` call site (a soft-wrap/overflow flush, a forced
+/// `<br>`/segment-break flush, or the final `finish` flush), so justification is gated
+/// here rather than re-derived post-pack.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum FlushReason {
+    /// A soft-wrap or overflow break mid-paragraph — the only justifiable line kind.
+    SoftWrap,
+    /// A forced break (`<br>` or a preserved segment break) ended this line — §6.1
+    /// start-aligns it (not justified).
+    Forced,
+    /// The block's final line (`finish`) — §6.3 `text-align-last: auto` start-aligns it.
+    LastLine,
 }
 
 /// Resolve `text-align: start/end` to the corresponding edge for the given inline
@@ -48,13 +91,72 @@ fn resolve_align(align: TextAlign, direction: Direction) -> TextAlign {
 }
 
 /// Inline-start offset for a resolved alignment given the line's free space
-/// (`container_inline_size − trimmed_line_width`). `justify` is gated out before
-/// reaching here, so it falls to the default `0.0`.
+/// (`container_inline_size − trimmed_line_width`). A *distributed* `justify` line
+/// reaches here as `Justify` and falls to `0.0` (it fills the box from the start
+/// edge; `bake_justify` does the distribution); a *suppressed* justify line is
+/// resolved to `Start` by the caller first (§6.3), so it never reaches here as raw
+/// `Justify` with non-zero intended offset.
 fn align_offset(resolved: TextAlign, free: f32) -> f32 {
     match resolved {
         TextAlign::Center => free / 2.0,
         TextAlign::Right | TextAlign::End => free,
         _ => 0.0,
+    }
+}
+
+/// Count `text-align: justify` opportunities in `text` — every `is_word_separator`
+/// cluster (CSS Text 3 §6.4 inter-word justification).
+fn separators(text: &str) -> usize {
+    text.chars().filter(|c| is_word_separator(*c)).count()
+}
+
+/// Per-run `text-align: justify` opportunity counts for a line's top-level group.
+/// Every interior word-separator is an opportunity, but the **trailing collapsible
+/// whitespace at the line's end hangs** (CSS Text 3 §4.1.2) and is excluded — so a
+/// soft-wrapped line ending in a space distributes free space only between the visible
+/// words, filling them to the line-box edge (counting it would assign `extra` to the
+/// hung space and under-fill the visible content). A no-break space (U+00A0) never
+/// hangs, so a trailing nbsp stays an opportunity. `AtomicBox` members contribute 0.
+///
+/// The trailing hang is trimmed only when BOTH (a) `group_is_line_last` — nothing (a
+/// sub-flow run or positioned atomic) sits inline-after this group on the line — AND
+/// (b) the group's own last member is a text run. If the line ends with an `AtomicBox`,
+/// or a sub-flow follows the top-level group (`text ␠ <span rel>…</span>`), the
+/// preceding text run's trailing space sits BETWEEN inline-level content — a genuine
+/// opportunity, not a line-end hang — so it is kept (trimming it would under-count,
+/// under-shift the following content via `cum_at`, and re-introduce overlap).
+fn justify_opportunity_counts(runs: &[InlineFlowRun], group_is_line_last: bool) -> Vec<usize> {
+    let last_idx = runs.len().checked_sub(1);
+    let trim_last = group_is_line_last && matches!(runs.last(), Some(InlineFlowRun::Text { .. }));
+    runs.iter()
+        .enumerate()
+        .map(|(i, r)| match r {
+            InlineFlowRun::Text { text, .. } if trim_last && Some(i) == last_idx => {
+                separators(text.trim_end_matches(super::is_collapsible_space))
+            }
+            InlineFlowRun::Text { text, .. } => separators(text),
+            InlineFlowRun::AtomicBox { .. } => 0,
+        })
+        .collect()
+}
+
+/// Bake the *between-run* `text-align: justify` expansion into the top-level group's
+/// `runs` (CSS Text 3 §6.4): each run's `inline_start` advances by the accumulated
+/// expansion of all preceding word-separators (`extra` per opportunity in `per_run`,
+/// summed in inline/placement order). `per_run` has the trailing hang already excluded;
+/// `extra = free / Σ per_run` is computed by the caller (which feeds the SAME `extra` to
+/// the cross-flow `cum_at` shift, so sub-flow groups + positioned atomics ride the same
+/// expansion and never overlap the justified text). Render's `place_glyphs` adds `extra`
+/// *within* each run at every `is_word_separator` cluster; the two are disjoint (no
+/// double-count). An `AtomicBox` contributes 0 opportunities but its `inline_start` still
+/// rides the accumulated `cum`.
+fn bake_justify(runs: &mut [InlineFlowRun], extra: f32, per_run: &[usize]) {
+    let mut cum = 0.0_f32;
+    for (r, &seps) in runs.iter_mut().zip(per_run) {
+        *r.inline_start_mut() += cum;
+        #[allow(clippy::cast_precision_loss)]
+        let seps = seps as f32;
+        cum += extra * seps;
     }
 }
 
@@ -291,7 +393,12 @@ impl LinePacker {
     /// generates no box at all (CSS 2 §9.2.2.1 / §9.2.1.1): it is not pushed and
     /// does not advance the block cursor, so it does not skew `line_count` or
     /// fragmentation.
-    fn flush_line(&mut self) {
+    // A cohesive per-line commit: line box, entity-rect bounds, and the per-group
+    // text-align/justify flow-line bake (incl. cross-flow `cum_at` positioning) — long
+    // like the sibling `pack` / `layout_inline_context_fragmented`. (File-size split of
+    // the justify helpers is tracked as a follow-up chore.)
+    #[allow(clippy::too_many_lines)]
+    fn flush_line(&mut self, reason: FlushReason) {
         if self.any_rendered_content {
             self.line_boxes.push(LineBox {
                 block_size: self.current_line_height,
@@ -300,6 +407,17 @@ impl LinePacker {
             // fragment takes the line's *final* height (it may have grown after the
             // fragment was placed), and the per-entity bounds are the union of all
             // committed fragments (a multi-line inline's box must enclose every line).
+            //
+            // PRE-EXISTING GAP (all non-start alignments, NOT justify-specific): these
+            // rects use the natural `seg_inline_start`; the line-level `text-align`
+            // `offset` (and, for justify, the per-run `bake_justify` `cum`) baked into
+            // the persisted runs below is NOT applied here, so an inline element's
+            // `entity_bounds` (→ inline `LayoutBox` / `getClientRects()`) diverges from
+            // its painted position under center/right/justify alike. Justify's per-run
+            // expansion makes the divergence non-uniform, but the root predates this
+            // slice (center/right have the same uniform-offset divergence). A proper fix
+            // applies the alignment offset to `entity_bounds` for every alignment —
+            // tracked as a separate cross-cutting follow-up, not this justify PR's scope.
             let line_height = self.current_line_height;
             for (entity, mut rect) in self.current_line_entity_rects.drain(..) {
                 rect.block_size = line_height;
@@ -329,18 +447,137 @@ impl LinePacker {
             // same amount. Each group with runs appends one InlineFlowLine to its own
             // flow_lines bucket.
             if let Some(fa) = self.flow_align {
+                // Trimmed line width / free space — trailing collapsible spaces hang and
+                // count toward neither alignment NOR justification (CSS Text 3 §4.1.2).
                 let line_width = self.current_inline - self.current_line_last_hang;
                 let free = (fa.containing_inline_size - line_width).max(0.0);
-                let offset = align_offset(resolve_align(fa.text_align, fa.direction), free);
                 let block_start = self.current_block_offset;
                 let block_size = self.current_line_height;
+                // `text-align: justify` (CSS Text 3 §6.4) is suppressed on the block's
+                // last line / a forced-break line (§6.3/§6.1 → start-aligned) and in
+                // vertical writing modes (pre-existing render-capability limit — the
+                // vertical path lacks word-spacing; see `is_vertical`), matching legacy.
+                // Only the TOP-LEVEL run group *distributes* free space within itself
+                // (`justify_word_spacing > 0`); a sub-flow group does NOT justify
+                // internally (per-flow justify of a sparse sub-flow over the parent's
+                // full width would over-stretch it — that line-unified case is slot
+                // `#11-justify-subflow-line-unified`). But sub-flow groups + positioned
+                // atomics ARE shifted by the cumulative top-level expansion at their
+                // inline position (`cum_at` below), so positioned content rides the same
+                // justification as the surrounding text and never overlaps it.
+                let justify_eligible = fa.text_align == TextAlign::Justify
+                    && !fa.is_vertical
+                    && reason == FlushReason::SoftWrap;
+                // Per-run justification opportunities of the top-level group (interior
+                // word-separators; the trailing collapsible hang of the last run is
+                // excluded, §4.1.2). A justify line with zero opportunities (a single
+                // word, or a word before an inline-block that forced the wrap) is
+                // *unexpandable* — §6.4.3 falls back to `text-align-last` = start.
+                // Computed before the drain so it drives BOTH the offset and the bake.
+                // Is the top-level group the line's inline-last content? (nothing — a
+                // sub-flow run or a positioned atomic — sits inline-after it). Only then
+                // does its last text run's trailing space hang; otherwise that space
+                // precedes more inline-level content and stays an opportunity.
+                let top_group_is_line_last = justify_eligible && {
+                    let top_last = fa
+                        .top_level_key
+                        .and_then(|k| self.current_line_runs.get(&k))
+                        .and_then(|r| r.last())
+                        .map_or(f32::NEG_INFINITY, InlineFlowRun::inline_start);
+                    let others_max = self
+                        .current_line_runs
+                        .iter()
+                        .filter(|(k, _)| Some(**k) != fa.top_level_key)
+                        .flat_map(|(_, r)| r.iter())
+                        .map(InlineFlowRun::inline_start)
+                        .chain(self.current_line_relpos_atomics.iter().map(|(_, s)| *s))
+                        .fold(f32::NEG_INFINITY, f32::max);
+                    top_last >= others_max
+                };
+                let top_run_opportunities = justify_eligible
+                    .then(|| {
+                        fa.top_level_key
+                            .and_then(|k| self.current_line_runs.get(&k))
+                    })
+                    .flatten()
+                    .map(|runs| justify_opportunity_counts(runs, top_group_is_line_last));
+                let distribute = top_run_opportunities
+                    .as_ref()
+                    .is_some_and(|c| c.iter().sum::<usize>() > 0);
+                // Line-level start/center/end offset, baked into every run's
+                // `inline_start`. A *distributed* justify line resolves to `Justify` →
+                // `align_offset` 0 (it fills the box from the start edge; `bake_justify`
+                // does the distribution). Any other justify line — suppressed
+                // (last/forced/vertical) OR unexpandable (zero opportunities) — is
+                // start-aligned per §6.3/§6.4.3 (`text-align-last: auto` → `start`), NOT
+                // left-pinned, so an RTL such line lands on the right (start) edge.
+                let offset_align = if fa.text_align == TextAlign::Justify && !distribute {
+                    resolve_align(TextAlign::Start, fa.direction)
+                } else {
+                    resolve_align(fa.text_align, fa.direction)
+                };
+                let offset = align_offset(offset_align, free);
+                // Cross-flow justify coordination. When distributing, capture the
+                // top-level group's (natural `inline_start`, opportunity count) pairs and
+                // `extra = free / Σ opportunities`. `cum_at(pos)` is the cumulative
+                // expansion of all top-level opportunities *before* `pos` — the same `cum`
+                // `bake_justify` accrues for the top-level runs, exposed position-keyed so
+                // sub-flow groups + positioned atomics ride the identical justification
+                // (they shift right with the surrounding text instead of staying at their
+                // natural cursor and being overlapped). `None` (non-distributing line) →
+                // `cum_at` is 0 and every group gets only the line-level `offset`.
+                let justify_dist = distribute.then(|| {
+                    let per_run = top_run_opportunities.as_ref().expect("distribute ⇒ Some");
+                    #[allow(clippy::cast_precision_loss)] // opportunity count is small
+                    let extra = free / per_run.iter().sum::<usize>() as f32;
+                    let positions: Vec<(f32, usize)> = fa
+                        .top_level_key
+                        .and_then(|k| self.current_line_runs.get(&k))
+                        .map(|runs| {
+                            runs.iter()
+                                .map(InlineFlowRun::inline_start)
+                                .zip(per_run.iter().copied())
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    (extra, positions)
+                });
+                let cum_at = |pos: f32| -> f32 {
+                    justify_dist.as_ref().map_or(0.0, |(extra, positions)| {
+                        #[allow(clippy::cast_precision_loss)]
+                        let seps = positions
+                            .iter()
+                            .filter(|(start, _)| *start < pos)
+                            .map(|(_, n)| *n)
+                            .sum::<usize>() as f32;
+                        extra * seps
+                    })
+                };
+                let extra = justify_dist.as_ref().map(|(e, _)| *e);
                 for (group_key, mut runs) in self.current_line_runs.drain() {
                     if runs.is_empty() {
                         continue;
                     }
-                    for r in &mut runs {
-                        *r.inline_start_mut() += offset;
-                    }
+                    let justify_word_spacing = if let (true, Some(e)) =
+                        (Some(group_key) == fa.top_level_key, extra)
+                    {
+                        // Top-level distributing group: line offset + `bake_justify`'s
+                        // sequential `cum` (== `cum_at` at each run's position). jws = extra.
+                        for r in &mut runs {
+                            *r.inline_start_mut() += offset;
+                        }
+                        bake_justify(&mut runs, e, top_run_opportunities.as_ref().expect("Some"));
+                        e
+                    } else {
+                        // Sub-flow group (or any non-distributing group): line offset +
+                        // the cumulative top-level expansion at the run's natural position,
+                        // so it rides the justification (no overlap). No internal justify.
+                        for r in &mut runs {
+                            let shift = offset + cum_at(r.inline_start());
+                            *r.inline_start_mut() += shift;
+                        }
+                        0.0
+                    };
                     self.flow_lines
                         .entry(group_key)
                         .or_default()
@@ -348,18 +585,20 @@ impl LinePacker {
                             block_start,
                             block_size,
                             runs,
+                            justify_word_spacing,
                         });
                 }
-                // Commit the line's positioned-atomic placements (relpos/sticky),
-                // baking the SAME line-level `offset` (the atomic shares the line —
-                // its align shift equals every group's, slice 3p-b-2). A flat list,
-                // not group-keyed: the caller folds with the IFC-root origin and
-                // repositions each box; these are NOT flow members (render Layer 6
-                // paints the positioned box, so a flow member would double-paint).
+                // Commit the line's positioned-atomic placements (relpos/sticky): line
+                // `offset` + the cumulative top-level justify expansion at the atomic's
+                // natural position (`cum_at`), so the box rides the same justification as
+                // the surrounding text (slice 3p-b-2 + justify). A flat list, not
+                // group-keyed: the caller folds with the IFC-root origin and repositions
+                // each box; these are NOT flow members (render Layer 6 paints the
+                // positioned box, so a flow member would double-paint).
                 for (entity, inline_start) in self.current_line_relpos_atomics.drain(..) {
                     self.relpos_atomic_placements.push((
                         entity,
-                        inline_start + offset,
+                        inline_start + offset + cum_at(inline_start),
                         block_start,
                     ));
                 }
@@ -560,7 +799,7 @@ impl LinePacker {
         group_key: Option<Entity>,
     ) {
         if self.current_inline + trimmed_width > containing_inline_size && self.on_line {
-            self.flush_line();
+            self.flush_line(FlushReason::SoftWrap);
         }
 
         let seg_inline_start = self.current_inline;
@@ -651,13 +890,13 @@ impl LinePacker {
         // transformed to spaces upstream, so this path is reached only for genuine
         // forced breaks; mark the line as rendered content so it keeps its height.
         self.any_rendered_content = true;
-        self.flush_line();
+        self.flush_line(FlushReason::Forced);
         self.on_line = false;
     }
 
     pub fn finish(&mut self) {
         if self.on_line {
-            self.flush_line();
+            self.flush_line(FlushReason::LastLine);
         }
     }
 
@@ -838,5 +1077,83 @@ pub(super) fn assign_inline_layout_boxes(
                 .world_mut()
                 .insert_one(*entity, elidex_plugin::InlineClientRects(rects));
         }
+    }
+}
+
+#[cfg(test)]
+mod justify_opportunity_tests {
+    use super::*;
+
+    // A throwaway entity to stamp on synthetic runs (its value is irrelevant —
+    // `justify_opportunity_counts` matches on the variant + reads `text` only).
+    fn entity() -> Entity {
+        EcsDom::new().create_text("x")
+    }
+
+    fn text(s: &str) -> InlineFlowRun {
+        InlineFlowRun::Text {
+            entity: entity(),
+            text: s.to_string(),
+            inline_start: 0.0,
+        }
+    }
+
+    fn atomic() -> InlineFlowRun {
+        InlineFlowRun::AtomicBox {
+            entity: entity(),
+            inline_start: 0.0,
+        }
+    }
+
+    #[test]
+    fn trailing_text_hang_is_excluded() {
+        // Last member is a text run ending in a collapsible space → that space hangs
+        // (§4.1.2) and is NOT an opportunity; the interior "aa␠bb" gap is.
+        assert_eq!(
+            justify_opportunity_counts(&[text("aa "), text("bb ")], true),
+            vec![1, 0]
+        );
+    }
+
+    #[test]
+    fn gap_before_trailing_atomic_is_kept() {
+        // Last member is an AtomicBox → the preceding text run's trailing space sits
+        // BETWEEN inline-level content (a real opportunity), so it is NOT trimmed.
+        // (The bug being guarded: trimming the last *text* run unconditionally would
+        // yield `[0, 0]` here and mis-classify the line as unexpandable.)
+        assert_eq!(
+            justify_opportunity_counts(&[text("aa "), atomic()], true),
+            vec![1, 0]
+        );
+    }
+
+    #[test]
+    fn trailing_space_kept_when_subflow_follows() {
+        // group_is_line_last == false (a sub-flow / atomic sits inline-after this group)
+        // → the top-level group's last text run's trailing space is interior, NOT a hang,
+        // so it stays an opportunity (else the following sub-flow is under-shifted by
+        // cum_at and the justified text overlaps it).
+        assert_eq!(
+            justify_opportunity_counts(&[text("aa "), text("bb ")], false),
+            vec![1, 1]
+        );
+    }
+
+    #[test]
+    fn trailing_nbsp_is_not_trimmed() {
+        // A no-break space (U+00A0) never hangs, so a trailing nbsp stays an opportunity.
+        assert_eq!(
+            justify_opportunity_counts(&[text("aa\u{00A0}")], true),
+            vec![1]
+        );
+    }
+
+    #[test]
+    fn interior_atomic_keeps_both_text_gaps() {
+        // text "a ", atomic, text "b " (last) → "a " gap kept, "b " trailing hang trimmed.
+        assert_eq!(
+            justify_opportunity_counts(&[text("a "), atomic(), text("b ")], true),
+            vec![1, 0, 0]
+        );
     }
 }
