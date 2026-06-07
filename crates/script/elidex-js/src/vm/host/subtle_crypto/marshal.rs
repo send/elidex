@@ -139,11 +139,6 @@ pub(super) fn marshal_algorithm(
 /// value, key length) is validated later in the engine-independent crate
 /// (`crypto::normalize` + `crypto::ops`), at the op step where the spec
 /// throws.
-// A member-reading dispatcher: its length scales with the number of
-// registered params dictionaries (one arm each), so it exceeds the
-// default line cap as the registry grows — matching the other big
-// match-dispatchers in the crate.
-#[allow(clippy::too_many_lines)]
 fn read_params(
     ctx: &mut NativeContext<'_>,
     id: ObjectId,
@@ -157,12 +152,7 @@ fn read_params(
         AlgorithmParams::HmacKeyParams => {
             // `HmacKeyGenParams` / `HmacImportParams`: hash (required), then
             // length (optional `unsigned long`) — lexicographic order.
-            let hash_val =
-                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.hash_attr))?;
-            if matches!(hash_val, JsValue::Undefined) {
-                return Err(required_member_error(method, "hash"));
-            }
-            raw.hash = Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?));
+            read_required_hash(ctx, id, method, raw)?;
             raw.length =
                 read_optional_length(ctx, id, method, "unsigned long", f64::from(u32::MAX))?;
         }
@@ -242,12 +232,7 @@ fn read_params(
             // validated before the next is read (step 6); the `info` / `salt`
             // byte snapshots run after every getter (step 10), so a later
             // getter that mutates an earlier buffer is reflected.
-            let hash_val =
-                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.hash_attr))?;
-            if matches!(hash_val, JsValue::Undefined) {
-                return Err(required_member_error(method, "hash"));
-            }
-            raw.hash = Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?));
+            read_required_hash(ctx, id, method, raw)?;
             let info_val =
                 ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.info))?;
             require_buffer_source_member(ctx, info_val, method, "info")?;
@@ -263,12 +248,7 @@ fn read_params(
             // `[EnforceRange] unsigned long`), salt (required `BufferSource`)
             // — lexicographic order hash < iterations < salt.  `salt` is the
             // last member, so its snapshot (step 10) follows every getter.
-            let hash_val =
-                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.hash_attr))?;
-            if matches!(hash_val, JsValue::Undefined) {
-                return Err(required_member_error(method, "hash"));
-            }
-            raw.hash = Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?));
+            read_required_hash(ctx, id, method, raw)?;
             let iter_val =
                 ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.iterations))?;
             if matches!(iter_val, JsValue::Undefined) {
@@ -393,6 +373,25 @@ fn required_member_error(method: &str, member: &str) -> VmError {
         "Failed to execute '{method}' on 'SubtleCrypto': \
          Algorithm: member {member} is required"
     ))
+}
+
+/// Read the required nested `hash` member of a params dictionary that carries
+/// one (`HmacKeyGenParams` / `HmacImportParams`, `HkdfParams`, `Pbkdf2Params`)
+/// into `raw.hash` (WebCrypto §18.4.4 step 6, the first member in each — `hash`
+/// sorts before `info` / `iterations` / `length` / `salt`).  An absent /
+/// `undefined` value is the required-member `TypeError`.
+fn read_required_hash(
+    ctx: &mut NativeContext<'_>,
+    id: ObjectId,
+    method: &str,
+    raw: &mut RawAlgorithm,
+) -> Result<(), VmError> {
+    let hash_val = ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.hash_attr))?;
+    if matches!(hash_val, JsValue::Undefined) {
+        return Err(required_member_error(method, "hash"));
+    }
+    raw.hash = Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?));
+    Ok(())
 }
 
 /// Marshal a `HashAlgorithmIdentifier` (string or `{name}`) — a **leaf**
