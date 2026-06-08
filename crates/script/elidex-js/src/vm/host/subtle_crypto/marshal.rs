@@ -733,6 +733,10 @@ pub(super) fn marshal_format(
 /// `from_json_bytes`, or wrap↔import coercion / error precedence diverge.  The
 /// EC members landed in PR-4 (RSA in PR-5); the differential equivalence test
 /// (`#11-crypto-subtle-full`) mechanically pins the two halves in lockstep.
+// The single-char locals (d / e / k / n / p / q / x / y) are the canonical JWK
+// member identifiers (RFC 7517 / 7518) — renaming them would obscure, not
+// clarify, the spec mapping.
+#[allow(clippy::many_single_char_names)]
 pub(super) fn marshal_jwk(
     ctx: &mut NativeContext<'_>,
     value: JsValue,

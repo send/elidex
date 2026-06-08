@@ -246,7 +246,7 @@ pub(super) fn native_subtle_crypto_import_key(
         // `undefined` `keyData` converts to an empty `JsonWebKey` dictionary
         // (the import then rejects with DataError, not TypeError).
         let key_data = match format {
-            KeyFormat::Jwk => KeyData::Jwk(marshal_jwk(ctx, key_data_arg)?),
+            KeyFormat::Jwk => KeyData::Jwk(Box::new(marshal_jwk(ctx, key_data_arg)?)),
             _ => KeyData::Raw(extract_buffer_source_bytes(
                 ctx,
                 key_data_arg,
@@ -750,10 +750,10 @@ pub(super) fn native_subtle_crypto_unwrap_key(
         // §9 "new global object" — no page `Object.prototype` / `Array.prototype`
         // is consulted), NOT via a JS object in the page realm.
         let key_data = match format {
-            KeyFormat::Jwk => KeyData::Jwk(
+            KeyFormat::Jwk => KeyData::Jwk(Box::new(
                 crypto::jwk::from_json_bytes(&bytes)
                     .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?,
-            ),
+            )),
             _ => KeyData::Raw(bytes),
         };
         // step 16: importKey(normalizedKeyAlgorithm, format, key, extractable,

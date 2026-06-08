@@ -21,19 +21,21 @@ pub enum KeyFormat {
 
 /// `importKey` key material, already marshalled from JS by the VM:
 /// `Raw` for the `raw` format (BufferSource bytes), `Jwk` for the `jwk`
-/// format (the live JS object's members).
+/// format (the live JS object's members).  The `JsonWebKey` is boxed: it
+/// carries the full oct + EC + RSA member set (the RSA private key alone is
+/// 8+ base64url strings), so an unboxed variant dwarfs `Raw`.
 #[derive(Clone, Debug)]
 pub enum KeyData {
     Raw(Vec<u8>),
-    Jwk(JsonWebKey),
+    Jwk(Box<JsonWebKey>),
 }
 
 /// `exportKey` result — plain-Rust shapes the VM turns into an
-/// `ArrayBuffer` or a JS object.
+/// `ArrayBuffer` or a JS object.  The `JsonWebKey` is boxed (see [`KeyData`]).
 #[derive(Clone, Debug)]
 pub enum ExportedKey {
     Raw(Vec<u8>),
-    Jwk(JsonWebKey),
+    Jwk(Box<JsonWebKey>),
 }
 
 /// `generateKey` result (WebCrypto §14.3.6 `(CryptoKey or CryptoKeyPair)`
@@ -99,7 +101,7 @@ where
         } => crate::rsa::generate(
             variant,
             modulus_length,
-            public_exponent,
+            &public_exponent,
             hash,
             extractable,
             &usages,
@@ -425,7 +427,7 @@ pub fn export_key(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKey,
 fn export_symmetric(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKey, AlgorithmError> {
     match format {
         KeyFormat::Raw => Ok(ExportedKey::Raw(key.material.as_bytes().to_vec())),
-        KeyFormat::Jwk => Ok(ExportedKey::Jwk(match key.algorithm {
+        KeyFormat::Jwk => Ok(ExportedKey::Jwk(Box::new(match key.algorithm {
             KeyAlgorithm::Hmac { hash, .. } => jwk::export_oct_hmac(key, hash),
             KeyAlgorithm::Aes { variant, length } => jwk::export_oct_aes(key, variant, length),
             // Only HMAC / AES reach `export_symmetric`.
@@ -436,7 +438,7 @@ fn export_symmetric(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKe
             | KeyAlgorithm::Rsa { .. } => {
                 unreachable!("export_symmetric called only for HMAC/AES")
             }
-        })),
+        }))),
         KeyFormat::Pkcs8 | KeyFormat::Spki => Err(AlgorithmError::NotSupported(
             "symmetric key export supports only the 'raw' and 'jwk' formats".to_string(),
         )),

@@ -272,7 +272,7 @@ fn jwk_primes(jwk: &JsonWebKey) -> Result<Vec<BigUint>, AlgorithmError> {
 pub(crate) fn generate<F>(
     variant: RsaVariant,
     modulus_length: u32,
-    public_exponent: Vec<u8>,
+    public_exponent: &[u8],
     hash: HashAlgorithm,
     extractable: bool,
     usages: &[KeyUsage],
@@ -285,7 +285,7 @@ where
     // SyntaxError — before key generation.
     validate_generate_usages(variant, usages)?;
     // §20.8.3 step 2-3: generate the RSA key pair (failure → OperationError).
-    let exp = BigUint::from_bytes_be(&public_exponent);
+    let exp = BigUint::from_bytes_be(public_exponent);
     let privkey = {
         let mut rng = ClosureRng::new(&mut fill_random);
         let result = RsaPrivateKey::new_with_exp(&mut rng, modulus_length as usize, &exp);
@@ -501,7 +501,7 @@ pub(crate) fn export(
             // §20.8.5 pkcs8: [[type]] must be private.
             Ok(ExportedKey::Raw(rsa_private_der(key)?.to_vec()))
         }
-        KeyFormat::Jwk => Ok(ExportedKey::Jwk(export_jwk(variant, hash, key)?)),
+        KeyFormat::Jwk => Ok(ExportedKey::Jwk(Box::new(export_jwk(variant, hash, key)?))),
         KeyFormat::Raw => Err(AlgorithmError::NotSupported(
             "RSA export supports only the 'spki', 'pkcs8' and 'jwk' formats".to_string(),
         )),

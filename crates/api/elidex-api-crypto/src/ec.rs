@@ -598,7 +598,9 @@ pub(crate) fn export(
             let scalar = ec_private_scalar(key)?;
             Ok(ExportedKey::Raw(export_pkcs8(curve, scalar)?))
         }
-        KeyFormat::Jwk => Ok(ExportedKey::Jwk(export_jwk(algorithm, curve, key)?)),
+        KeyFormat::Jwk => Ok(ExportedKey::Jwk(Box::new(export_jwk(
+            algorithm, curve, key,
+        )?))),
     }
 }
 

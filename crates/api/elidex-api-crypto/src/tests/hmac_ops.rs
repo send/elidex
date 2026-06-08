@@ -255,7 +255,7 @@ fn ops_import_empty_material_is_data_error() {
             hmac_keygen_alg(HashAlgorithm::Sha256, None),
             true,
             vec![KeyUsage::Sign],
-            KeyData::Jwk(jwk),
+            KeyData::Jwk(Box::new(jwk)),
         ),
         Err(AlgorithmError::Data(_))
     ));
@@ -308,7 +308,7 @@ fn ops_import_jwk_export_jwk_roundtrip() {
         hmac_keygen_alg(HashAlgorithm::Sha256, None),
         true,
         vec![KeyUsage::Sign, KeyUsage::Verify],
-        KeyData::Jwk(jwk),
+        KeyData::Jwk(Box::new(jwk)),
     )
     .unwrap();
     assert_eq!(key.material.as_bytes(), &vec![0x0b; 20][..]);
@@ -332,7 +332,7 @@ fn import_jwk(jwk: JsonWebKey, usages: Vec<KeyUsage>) -> Result<(), AlgorithmErr
         hmac_keygen_alg(HashAlgorithm::Sha256, None),
         true,
         usages,
-        KeyData::Jwk(jwk),
+        KeyData::Jwk(Box::new(jwk)),
     )
     .map(|_| ())
 }

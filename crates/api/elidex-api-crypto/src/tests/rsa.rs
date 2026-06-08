@@ -82,7 +82,7 @@ fn generate_pair(
 
 fn expect_jwk(exported: ExportedKey) -> JsonWebKey {
     match exported {
-        ExportedKey::Jwk(jwk) => jwk,
+        ExportedKey::Jwk(jwk) => *jwk,
         ExportedKey::Raw(_) => panic!("expected a JWK export"),
     }
 }
@@ -219,7 +219,7 @@ fn jwk_private_round_trip_includes_crt_members() {
         import_alg(RsaVariant::RsassaPkcs1V15, HashAlgorithm::Sha256),
         true,
         vec![KeyUsage::Sign],
-        KeyData::Jwk(jwk),
+        KeyData::Jwk(Box::new(jwk)),
     )
     .expect("JWK re-import");
     assert_eq!(reimported.material, private.material);
@@ -244,7 +244,7 @@ fn jwk_public_round_trip() {
         import_alg(RsaVariant::RsaPss, HashAlgorithm::Sha512),
         true,
         vec![KeyUsage::Verify],
-        KeyData::Jwk(jwk),
+        KeyData::Jwk(Box::new(jwk)),
     )
     .expect("public JWK re-import");
     assert_eq!(reimported.key_type, KeyType::Public);
@@ -284,7 +284,7 @@ fn jwk_multiprime_oth_is_not_supported() {
         import_alg(RsaVariant::RsassaPkcs1V15, HashAlgorithm::Sha256),
         true,
         vec![KeyUsage::Sign],
-        KeyData::Jwk(jwk),
+        KeyData::Jwk(Box::new(jwk)),
     )
     .expect_err("multi-prime RSA is NotSupported");
     assert!(
@@ -487,7 +487,7 @@ fn import_public_jwk_err(jwk: JsonWebKey) -> AlgorithmError {
         import_alg(RsaVariant::RsassaPkcs1V15, HashAlgorithm::Sha256),
         true,
         vec![KeyUsage::Verify],
-        KeyData::Jwk(jwk),
+        KeyData::Jwk(Box::new(jwk)),
     )
     .expect_err("invalid JWK is rejected")
 }
@@ -499,7 +499,7 @@ fn import_private_jwk_err(jwk: JsonWebKey) -> AlgorithmError {
         import_alg(RsaVariant::RsassaPkcs1V15, HashAlgorithm::Sha256),
         true,
         vec![KeyUsage::Sign],
-        KeyData::Jwk(jwk),
+        KeyData::Jwk(Box::new(jwk)),
     )
     .expect_err("invalid JWK is rejected")
 }
