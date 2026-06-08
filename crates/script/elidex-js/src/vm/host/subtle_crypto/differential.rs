@@ -81,12 +81,42 @@ fn jwk_mirror_ec_present_null_members() {
 }
 
 #[test]
-fn jwk_mirror_ignores_rsa_and_unknown_members_identically() {
-    // RSA members (n / e / …) and unknown members are read (for getter side
-    // effects) but retained by neither half, so the structs still match.
+fn jwk_mirror_retains_rsa_members_and_ignores_unknown_identically() {
+    // RSA members (n / e / …) are retained by both halves (PR-5a); unknown
+    // members are read (for getter side effects) but retained by neither — so
+    // the structs still match.
     assert_mirror(
         "{kty:'EC',crv:'P-256',x:'eHh4',y:'eXl5',n:'big',e:'AQAB',unknown:'x'}",
         r#"{"kty":"EC","crv":"P-256","x":"eHh4","y":"eXl5","n":"big","e":"AQAB","unknown":"x"}"#,
+    );
+}
+
+#[test]
+fn jwk_mirror_rsa_public() {
+    assert_mirror(
+        "{kty:'RSA',n:'bbbb',e:'AQAB',alg:'RS256',ext:true,key_ops:['verify']}",
+        r#"{"kty":"RSA","n":"bbbb","e":"AQAB","alg":"RS256","ext":true,"key_ops":["verify"]}"#,
+    );
+}
+
+#[test]
+fn jwk_mirror_rsa_private_all_crt_members() {
+    // The full RSA private member set (n / e / d / p / q / dp / dq / qi) is
+    // read + retained identically by the live and bytes halves.
+    assert_mirror(
+        "{kty:'RSA',n:'bbbb',e:'AQAB',d:'ZGRk',p:'cHA',q:'cXE',dp:'ZHA',dq:'ZHE',qi:'cWk',alg:'RS384'}",
+        r#"{"kty":"RSA","n":"bbbb","e":"AQAB","d":"ZGRk","p":"cHA","q":"cXE","dp":"ZHA","dq":"ZHE","qi":"cWk","alg":"RS384"}"#,
+    );
+}
+
+#[test]
+fn jwk_mirror_rsa_oth_multiprime() {
+    // The `oth` (otherPrimeInfos) sequence + its per-entry r / d / t members
+    // mirror identically (multi-prime import is later rejected, but the
+    // marshalled struct must still match for the wrap↔import lockstep).
+    assert_mirror(
+        "{kty:'RSA',n:'bbbb',e:'AQAB',d:'ZGRk',oth:[{r:'cjE',d:'ZDE',t:'dDE'},{r:'cjI'}]}",
+        r#"{"kty":"RSA","n":"bbbb","e":"AQAB","d":"ZGRk","oth":[{"r":"cjE","d":"ZDE","t":"dDE"},{"r":"cjI"}]}"#,
     );
 }
 

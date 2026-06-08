@@ -59,6 +59,15 @@ pub enum AlgorithmName {
     /// `deriveBits` / `deriveKey`.  No `sign` / `verify` / `get key length`
     /// (§24.2).
     Ecdh,
+    /// RSASSA-PKCS1-v1_5 (WebCrypto §20) — `generateKey` / `importKey` /
+    /// `exportKey` / `sign` / `verify`.  Asymmetric: no `get key length`
+    /// (§20.2).  The signature `hash` rides on the key
+    /// (`RsaHashedKeyAlgorithm`, §20.6), and sign / verify take name-only
+    /// params (no per-call dictionary).
+    RsassaPkcs1V15,
+    /// RSA-PSS (WebCrypto §21) — the same op-set as RSASSA-PKCS1-v1_5; sign
+    /// / verify add only the `RsaPssParams.saltLength` (§21.3).
+    RsaPss,
 }
 
 impl AlgorithmName {
@@ -91,6 +100,10 @@ impl AlgorithmName {
             Some(Self::Ecdsa)
         } else if name.eq_ignore_ascii_case("ECDH") {
             Some(Self::Ecdh)
+        } else if name.eq_ignore_ascii_case("RSASSA-PKCS1-v1_5") {
+            Some(Self::RsassaPkcs1V15)
+        } else if name.eq_ignore_ascii_case("RSA-PSS") {
+            Some(Self::RsaPss)
         } else {
             None
         }
@@ -110,7 +123,9 @@ impl AlgorithmName {
             | Self::Hkdf
             | Self::Pbkdf2
             | Self::Ecdsa
-            | Self::Ecdh => None,
+            | Self::Ecdh
+            | Self::RsassaPkcs1V15
+            | Self::RsaPss => None,
         }
     }
 
@@ -132,7 +147,9 @@ impl AlgorithmName {
             | Self::Hkdf
             | Self::Pbkdf2
             | Self::Ecdsa
-            | Self::Ecdh => None,
+            | Self::Ecdh
+            | Self::RsassaPkcs1V15
+            | Self::RsaPss => None,
         }
     }
 }
@@ -279,6 +296,72 @@ impl EcAlgorithm {
     }
 }
 
+/// Which RSA signing family a generate / import / sign / verify resolves to
+/// (RSASSA-PKCS1-v1_5 §20 vs RSA-PSS §21).  The §20.4 `RsaHashedKeyGenParams`
+/// / §20.7 `RsaHashedImportParams` dicts carry no family marker, so this
+/// discriminator rides alongside the key params to decide the produced key's
+/// `[[algorithm]]` and the sign / verify padding — the RSA analogue of
+/// [`EcAlgorithm`] / [`AesVariant`].  (RSA-OAEP §22 — the encrypt family —
+/// lands its variant in PR-5b.)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RsaVariant {
+    RsassaPkcs1V15,
+    RsaPss,
+}
+
+impl RsaVariant {
+    /// The canonical WebCrypto algorithm name (`"RSASSA-PKCS1-v1_5"` /
+    /// `"RSA-PSS"`) for the key's `[[algorithm]]` `name` attribute.
+    pub fn canonical_name(self) -> &'static str {
+        match self {
+            Self::RsassaPkcs1V15 => "RSASSA-PKCS1-v1_5",
+            Self::RsaPss => "RSA-PSS",
+        }
+    }
+
+    pub(crate) fn algorithm_name(self) -> AlgorithmName {
+        match self {
+            Self::RsassaPkcs1V15 => AlgorithmName::RsassaPkcs1V15,
+            Self::RsaPss => AlgorithmName::RsaPss,
+        }
+    }
+
+    /// The key's `[[algorithm]]` for this RSA family (WebCrypto §20.6 / §21
+    /// `RsaHashedKeyAlgorithm`) — used by both RSA import and generateKey.
+    pub(crate) fn key_algorithm(
+        self,
+        modulus_length: u32,
+        public_exponent: Vec<u8>,
+        hash: HashAlgorithm,
+    ) -> KeyAlgorithm {
+        KeyAlgorithm::Rsa {
+            variant: self,
+            modulus_length,
+            public_exponent,
+            hash,
+        }
+    }
+
+    /// The JWK `alg` value for this RSA family + `hash`, emitted on export
+    /// (WebCrypto §20.8.5 RSASSA / §21.4.5 RSA-PSS jwk) and matched on import
+    /// (§20.8.4 / §21.4.4): `RS1` / `RS256` / `RS384` / `RS512` for
+    /// RSASSA-PKCS1-v1_5, `PS1` / `PS256` / `PS384` / `PS512` for RSA-PSS.
+    /// Total over the four hashes — WebCrypto defines the SHA-1 `RS1` / `PS1`
+    /// values explicitly (unlike RFC 7518, which omits them).
+    pub fn jwk_alg(self, hash: HashAlgorithm) -> &'static str {
+        match (self, hash) {
+            (Self::RsassaPkcs1V15, HashAlgorithm::Sha1) => "RS1",
+            (Self::RsassaPkcs1V15, HashAlgorithm::Sha256) => "RS256",
+            (Self::RsassaPkcs1V15, HashAlgorithm::Sha384) => "RS384",
+            (Self::RsassaPkcs1V15, HashAlgorithm::Sha512) => "RS512",
+            (Self::RsaPss, HashAlgorithm::Sha1) => "PS1",
+            (Self::RsaPss, HashAlgorithm::Sha256) => "PS256",
+            (Self::RsaPss, HashAlgorithm::Sha384) => "PS384",
+            (Self::RsaPss, HashAlgorithm::Sha512) => "PS512",
+        }
+    }
+}
+
 /// The ECDH peer public key conveyed from the VM into `deriveBits`
 /// (WebCrypto §24.3 `EcdhKeyDeriveParams.public`).  `public` is a
 /// `CryptoKey` (a VM object), so per the Layering mandate the VM extracts
@@ -334,6 +417,17 @@ pub struct RawAlgorithm {
     /// — the VM-extracted metadata + SEC1 point ([`EcdhPeer`]; the marshalling
     /// boundary: the crate gets bytes + metadata, never a VM handle).
     pub peer: Option<EcdhPeer>,
+    /// RSA `modulusLength` (WebCrypto §20.4 `RsaHashedKeyGenParams` —
+    /// `[EnforceRange] unsigned long`), read on generateKey.
+    pub modulus_length: Option<u32>,
+    /// RSA `publicExponent` (WebCrypto §20.3 `RsaKeyGenParams` — the only
+    /// WebCrypto `BigInteger` = big-endian `Uint8Array` octets, snapshot-
+    /// copied by the VM), read on generateKey; moved by-value into the key
+    /// like `iv`.
+    pub public_exponent: Option<Vec<u8>>,
+    /// RSA-PSS `saltLength` (WebCrypto §21.3 `RsaPssParams` —
+    /// `[EnforceRange] unsigned long`), read on sign / verify.
+    pub salt_length: Option<u32>,
 }
 
 impl RawAlgorithm {
@@ -449,6 +543,32 @@ pub enum NormalizedAlgorithm {
     EcdhDerive {
         peer: EcdhPeer,
     },
+    /// RSA generateKey (WebCrypto §20.4 `RsaHashedKeyGenParams` / §21.4.3) —
+    /// the RSA family, the modulus bit length, the public exponent octets,
+    /// and the message hash (carried on the key, §20.6).  The single
+    /// requested `usages` list is split across the produced key pair by the
+    /// op (§20.8.3 / §21.4.3), so it is not carried here.
+    RsaKeyGen {
+        variant: RsaVariant,
+        modulus_length: u32,
+        public_exponent: Vec<u8>,
+        hash: HashAlgorithm,
+    },
+    /// RSA importKey (WebCrypto §20.7 `RsaHashedImportParams` / §21.4.4) —
+    /// the RSA family + the message hash the imported key carries.
+    RsaImport {
+        variant: RsaVariant,
+        hash: HashAlgorithm,
+    },
+    /// RSASSA-PKCS1-v1_5 sign / verify params (WebCrypto §20.8.1 / §20.8.2) —
+    /// name-only: the dictionary is the bare `Algorithm` (the signature hash
+    /// comes from the key's `[[algorithm]]`, §20.6).
+    RsassaParams,
+    /// RSA-PSS sign / verify params (WebCrypto §21.3 `RsaPssParams`): the
+    /// `saltLength` (the hash still comes from the key's `[[algorithm]]`).
+    RsaPssParams {
+        salt_length: u32,
+    },
 }
 
 impl NormalizedAlgorithm {
@@ -478,6 +598,11 @@ impl NormalizedAlgorithm {
             }
             Self::EcdsaParams { .. } => AlgorithmName::Ecdsa,
             Self::EcdhDerive { .. } => AlgorithmName::Ecdh,
+            Self::RsaKeyGen { variant, .. } | Self::RsaImport { variant, .. } => {
+                variant.algorithm_name()
+            }
+            Self::RsassaParams => AlgorithmName::RsassaPkcs1V15,
+            Self::RsaPssParams { .. } => AlgorithmName::RsaPss,
         }
     }
 }
@@ -547,6 +672,19 @@ enum DesiredType {
     /// ECDH `deriveBits` (`EcdhKeyDeriveParams`, §24.3): a `public` CryptoKey
     /// peer (required) — the novel CryptoKey-valued algorithm member.
     EcdhDerive,
+    /// RSA `generateKey` (`RsaHashedKeyGenParams`, §20.4 / §21.4.3): a
+    /// `modulusLength` (required `[EnforceRange] unsigned long`), a
+    /// `publicExponent` (required `BigInteger`), and a `hash` (required).
+    RsaKeyGen(RsaVariant),
+    /// RSA `importKey` (`RsaHashedImportParams`, §20.7 / §21.4.4): a `hash`
+    /// (required `HashAlgorithmIdentifier`).
+    RsaImport(RsaVariant),
+    /// RSASSA-PKCS1-v1_5 `sign` / `verify` (§20.8.1 / §20.8.2): a name-only
+    /// `Algorithm` (the hash comes from the key's `[[algorithm]]`).
+    RsassaParams,
+    /// RSA-PSS `sign` / `verify` (`RsaPssParams`, §21.3): a `saltLength`
+    /// (required `[EnforceRange] unsigned long`).
+    RsaPssParams,
 }
 
 /// Which KDF a [`DesiredType::KdfNameOnly`] resolves to.
@@ -616,6 +754,33 @@ fn resolve_registry(op: Operation, name: &str) -> Option<DesiredType> {
             Some(DesiredType::EcdsaParams)
         }
         (Operation::DeriveBits, AlgorithmName::Ecdh) => Some(DesiredType::EcdhDerive),
+        // RSASSA-PKCS1-v1_5 / RSA-PSS (WebCrypto §20 / §21).  generateKey +
+        // importKey carry the RsaHashed key params (RsaHashedKeyGenParams §20.4
+        // / RsaHashedImportParams §20.7); RSASSA sign / verify are name-only
+        // (§20.8.1 / §20.8.2) while RSA-PSS adds RsaPssParams (§21.3).  Neither
+        // registers get-key-length (§20.2): a `(GetKeyLength, Rsassa|RsaPss)`
+        // pair falls to the AES catch-all below where `as_aes()` returns `None`
+        // → NotSupported.  These arms precede the AES catch-alls (and the
+        // `(ImportKey, _)` catch-all) so an RSA name never resolves to an AES
+        // desiredType.
+        (Operation::GenerateKey, AlgorithmName::RsassaPkcs1V15) => {
+            Some(DesiredType::RsaKeyGen(RsaVariant::RsassaPkcs1V15))
+        }
+        (Operation::GenerateKey, AlgorithmName::RsaPss) => {
+            Some(DesiredType::RsaKeyGen(RsaVariant::RsaPss))
+        }
+        (Operation::ImportKey, AlgorithmName::RsassaPkcs1V15) => {
+            Some(DesiredType::RsaImport(RsaVariant::RsassaPkcs1V15))
+        }
+        (Operation::ImportKey, AlgorithmName::RsaPss) => {
+            Some(DesiredType::RsaImport(RsaVariant::RsaPss))
+        }
+        (Operation::Sign | Operation::Verify, AlgorithmName::RsassaPkcs1V15) => {
+            Some(DesiredType::RsassaParams)
+        }
+        (Operation::Sign | Operation::Verify, AlgorithmName::RsaPss) => {
+            Some(DesiredType::RsaPssParams)
+        }
         // AES generateKey / get-key-length both read a `length`-only dict
         // (`AesKeyGenParams` / `AesDerivedKeyParams`); `as_aes()` filters the
         // non-AES names (HMAC handled above, KDF handled above, SHA → None)
@@ -673,6 +838,17 @@ pub enum AlgorithmParams {
     /// ECDH deriveBits (`EcdhKeyDeriveParams` §24.3): `public` (required
     /// `CryptoKey` — the peer public key; the novel CryptoKey-valued member).
     EcdhKeyDeriveParams,
+    /// RSA generateKey (`RsaHashedKeyGenParams` §20.4 / §21.4.3):
+    /// `modulusLength` (required `[EnforceRange] unsigned long`),
+    /// `publicExponent` (required `BigInteger` = `Uint8Array`), `hash`
+    /// (required `HashAlgorithmIdentifier`).
+    RsaHashedKeyGen,
+    /// RSA importKey (`RsaHashedImportParams` §20.7 / §21.4.4): `hash`
+    /// (required `HashAlgorithmIdentifier`).
+    RsaHashedImport,
+    /// RSA-PSS sign / verify (`RsaPssParams` §21.3): `saltLength` (required
+    /// `[EnforceRange] unsigned long`).
+    RsaPssParams,
 }
 
 /// §18.4.4 step 5 + step-6 member plan: for a registered `(op, name)` pair
@@ -688,7 +864,8 @@ pub fn params_shape(op: Operation, name: &str) -> Option<AlgorithmParams> {
         | DesiredType::HmacSignVerify
         | DesiredType::AesImport(_)
         | DesiredType::KdfNameOnly(_)
-        | DesiredType::AesKwWrap => AlgorithmParams::NameOnly,
+        | DesiredType::AesKwWrap
+        | DesiredType::RsassaParams => AlgorithmParams::NameOnly,
         DesiredType::HmacKeyParams => AlgorithmParams::HmacKeyParams,
         DesiredType::AesKeyGen(_) => AlgorithmParams::AesKeyGen,
         DesiredType::AesEncryptDecrypt(variant) => match variant {
@@ -706,6 +883,14 @@ pub fn params_shape(op: Operation, name: &str) -> Option<AlgorithmParams> {
         DesiredType::EcKeyGen(_) | DesiredType::EcImport(_) => AlgorithmParams::EcKeyGen,
         DesiredType::EcdsaParams => AlgorithmParams::EcdsaParams,
         DesiredType::EcdhDerive => AlgorithmParams::EcdhKeyDeriveParams,
+        // RSA generateKey + importKey carry distinct dictionaries
+        // (`RsaHashedKeyGenParams` §20.4 has modulusLength + publicExponent +
+        // hash; `RsaHashedImportParams` §20.7 has only hash).  RSA-PSS sign /
+        // verify read `saltLength`; RSASSA sign / verify are name-only
+        // (folded into the `NameOnly` group above).
+        DesiredType::RsaKeyGen(_) => AlgorithmParams::RsaHashedKeyGen,
+        DesiredType::RsaImport(_) => AlgorithmParams::RsaHashedImport,
+        DesiredType::RsaPssParams => AlgorithmParams::RsaPssParams,
     })
 }
 
@@ -804,6 +989,48 @@ pub fn normalize(op: Operation, raw: RawAlgorithm) -> Result<NormalizedAlgorithm
                 .peer
                 .ok_or_else(|| required_member("public", "EcdhKeyDeriveParams"))?;
             Ok(NormalizedAlgorithm::EcdhDerive { peer })
+        }
+        Some(DesiredType::RsaKeyGen(variant)) => {
+            // `RsaHashedKeyGenParams` — `modulusLength` / `publicExponent`
+            // (inherited from `RsaKeyGenParams`) then `hash` (the derived
+            // member) are all `required` (absence is a `TypeError`).  Validate
+            // presence in that Web IDL inherited-first order so a malformed
+            // `RawAlgorithm` reports the same missing member as the spec + the
+            // VM marshaller (which fires getters in that order); the owned
+            // `publicExponent` is *extracted* last to keep the `&raw` hash read
+            // borrow-legal, but the precedence-defining checks run in order.
+            // modulusLength validity + the exponent value are the rsa-crate's
+            // OperationError at generate (§20.8.3 step 3), honored as-is.
+            let modulus_length = raw
+                .modulus_length
+                .ok_or_else(|| required_member("modulusLength", "RsaHashedKeyGenParams"))?;
+            if raw.public_exponent.is_none() {
+                return Err(required_member("publicExponent", "RsaHashedKeyGenParams"));
+            }
+            let hash = normalize_required_hash(&raw, "RsaHashedKeyGenParams")?;
+            let public_exponent = raw
+                .public_exponent
+                .expect("publicExponent presence checked above");
+            Ok(NormalizedAlgorithm::RsaKeyGen {
+                variant,
+                modulus_length,
+                public_exponent,
+                hash,
+            })
+        }
+        Some(DesiredType::RsaImport(variant)) => {
+            let hash = normalize_required_hash(&raw, "RsaHashedImportParams")?;
+            Ok(NormalizedAlgorithm::RsaImport { variant, hash })
+        }
+        Some(DesiredType::RsassaParams) => Ok(NormalizedAlgorithm::RsassaParams),
+        Some(DesiredType::RsaPssParams) => {
+            // `RsaPssParams` — `saltLength` (required `[EnforceRange] unsigned
+            // long`; its absence is a `TypeError`, enforced at the VM marshal
+            // too).
+            let salt_length = raw
+                .salt_length
+                .ok_or_else(|| required_member("saltLength", "RsaPssParams"))?;
+            Ok(NormalizedAlgorithm::RsaPssParams { salt_length })
         }
     }
 }

@@ -17,7 +17,6 @@ use base64::Engine as _;
 use ecdsa::signature::hazmat::{PrehashSigner, PrehashVerifier};
 use elliptic_curve::pkcs8::spki::{DecodePublicKey, EncodePublicKey};
 use elliptic_curve::pkcs8::{DecodePrivateKey, EncodePrivateKey};
-use elliptic_curve::rand_core::{CryptoRng, RngCore};
 use elliptic_curve::sec1::ToEncodedPoint;
 
 use crate::algorithm::{EcAlgorithm, EcdhPeer, NamedCurve};
@@ -26,6 +25,7 @@ use crate::hash::HashAlgorithm;
 use crate::jwk::{self, JsonWebKey};
 use crate::key::{normalize_usages, CryptoKeyData, KeyMaterial, KeyType, KeyUsage};
 use crate::ops::{format_data_mismatch, ExportedKey, KeyData, KeyFormat};
+use crate::rng::ClosureRng;
 
 /// Dispatch to the RustCrypto curve crate matching `$curve`, binding it as
 /// `$cc` inside `$body`.  Each curve crate (`p256` / `p384` / `p521`)
@@ -319,7 +319,7 @@ where
     let public = CryptoKeyData {
         key_type: KeyType::Public,
         extractable: true,
-        algorithm: key_alg,
+        algorithm: key_alg.clone(),
         usages: split_usages(algorithm, KeyType::Public, usages),
         material: KeyMaterial::Ec {
             public_point: public_point.clone(),
@@ -409,73 +409,6 @@ fn split_usages(algorithm: EcAlgorithm, key_type: KeyType, usages: &[KeyUsage]) 
             .collect(),
     )
 }
-
-/// An RNG adapter over the VM's `fill_random` closure, so EC key generation
-/// draws from the single VM entropy seam (the closure ultimately calls the OS
-/// CSPRNG) rather than a separate `getrandom` path, while `SecretKey::random`
-/// still does the vetted rejection sampling.
-///
-/// `fill_random` is fallible but `RngCore::fill_bytes` is infallible, so a
-/// closure error is captured and surfaced by [`Self::into_result`] after
-/// keygen.  On error the buffer is filled with the canonical scalar `1`
-/// (big-endian `…01`) — a valid non-zero scalar on every supported curve —
-/// so `SecretKey::random`'s rejection loop terminates (a zero / out-of-range
-/// fill would loop forever); the resulting key is then discarded because
-/// `into_result` returns the captured error.
-struct ClosureRng<'a> {
-    fill: &'a mut dyn FnMut(&mut [u8]) -> Result<(), AlgorithmError>,
-    error: Option<AlgorithmError>,
-}
-
-impl<'a> ClosureRng<'a> {
-    fn new(fill: &'a mut dyn FnMut(&mut [u8]) -> Result<(), AlgorithmError>) -> Self {
-        Self { fill, error: None }
-    }
-
-    fn into_result(self) -> Result<(), AlgorithmError> {
-        match self.error {
-            Some(e) => Err(e),
-            None => Ok(()),
-        }
-    }
-}
-
-impl RngCore for ClosureRng<'_> {
-    fn next_u32(&mut self) -> u32 {
-        let mut b = [0u8; 4];
-        self.fill_bytes(&mut b);
-        u32::from_le_bytes(b)
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        let mut b = [0u8; 8];
-        self.fill_bytes(&mut b);
-        u64::from_le_bytes(b)
-    }
-
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        if self.error.is_none() {
-            if let Err(e) = (self.fill)(dest) {
-                self.error = Some(e);
-            }
-        }
-        if self.error.is_some() {
-            // Canonical scalar `1` so the rejection loop terminates; the key is
-            // discarded via `into_result`.
-            dest.fill(0);
-            if let Some(last) = dest.last_mut() {
-                *last = 1;
-            }
-        }
-    }
-
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), elliptic_curve::rand_core::Error> {
-        self.fill_bytes(dest);
-        Ok(())
-    }
-}
-
-impl CryptoRng for ClosureRng<'_> {}
 
 // ---------------------------------------------------------------------------
 // ECDSA sign / verify (WebCrypto §23.7.1 / §23.7.2)
@@ -665,7 +598,9 @@ pub(crate) fn export(
             let scalar = ec_private_scalar(key)?;
             Ok(ExportedKey::Raw(export_pkcs8(curve, scalar)?))
         }
-        KeyFormat::Jwk => Ok(ExportedKey::Jwk(export_jwk(algorithm, curve, key)?)),
+        KeyFormat::Jwk => Ok(ExportedKey::Jwk(Box::new(export_jwk(
+            algorithm, curve, key,
+        )?))),
     }
 }
 
@@ -723,10 +658,18 @@ fn export_jwk(
             .map(|s| URL_SAFE_NO_PAD.encode(s)),
         key_ops: Some(key.usages.iter().map(|u| u.as_str().to_string()).collect()),
         ext: Some(key.extractable),
-        // The `oct` members are absent for an EC key.
+        // The `oct` / RSA members are absent for an EC key.
         k: None,
         alg: None,
         use_: None,
+        n: None,
+        e: None,
+        p: None,
+        q: None,
+        dp: None,
+        dq: None,
+        qi: None,
+        oth: None,
     })
 }
 

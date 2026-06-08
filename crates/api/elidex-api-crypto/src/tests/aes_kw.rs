@@ -210,6 +210,7 @@ fn ops_aes_kw_import_raw_then_export_jwk_roundtrip() {
         },
         true,
         vec![KeyUsage::WrapKey, KeyUsage::UnwrapKey],
+        // `jwk` is already a `Box<JsonWebKey>` (the `ExportedKey::Jwk` payload).
         KeyData::Jwk(jwk),
     )
     .unwrap();
@@ -309,7 +310,7 @@ fn ops_wrap_unwrap_jwk_roundtrip_via_gcm() {
         },
         true,
         vec![KeyUsage::Encrypt, KeyUsage::Decrypt],
-        KeyData::Jwk(jwk),
+        KeyData::Jwk(Box::new(jwk)),
     )
     .unwrap();
     assert_eq!(reimported.material, key.material);
@@ -478,7 +479,7 @@ fn jwk_from_json_present_null_ext_is_false() {
             },
             true,
             vec![KeyUsage::Encrypt],
-            KeyData::Jwk(jwk),
+            KeyData::Jwk(Box::new(jwk)),
         ),
         Err(AlgorithmError::Data(_))
     ));

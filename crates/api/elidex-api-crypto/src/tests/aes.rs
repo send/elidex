@@ -524,6 +524,7 @@ fn ops_aes_export_jwk_roundtrip() {
         },
         true,
         vec![KeyUsage::Encrypt, KeyUsage::Decrypt],
+        // `jwk` is already a `Box<JsonWebKey>` (the `ExportedKey::Jwk` payload).
         KeyData::Jwk(jwk),
     )
     .unwrap();

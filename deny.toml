@@ -1,6 +1,55 @@
 [advisories]
 unmaintained = "workspace"
 yanked = "warn"
+ignore = [
+    # RUSTSEC-2023-0071 — "Marvin Attack": a timing sidechannel in the `rsa`
+    # crate's RSA private-key operations (classically the PKCS#1 v1.5 / OAEP
+    # **decryption** unpadding oracle).  There is no patched `rsa` release (the
+    # fix is pending upstream, RustCrypto/RSA#626) and no alternative mature
+    # pure-Rust RSA crate with key generation (`ring` has no RSA keygen), so the
+    # advisory is unavoidable for any RSA support — and `cargo-deny`'s `ignore`
+    # is per-advisory-ID (global), with no per-call-path scoping.
+    #
+    # Why this is acceptable for PR-5a (#11-crypto-subtle-full, RSA signing):
+    #   - The Marvin DECRYPTION oracle is absent: PR-5a adds no RSA decryption
+    #     (RSA-OAEP `decrypt`/`unwrapKey` is the follow-on PR-5b).
+    #   - The RSA SIGNING path IS mitigated, not merely "avoided": `crypto::rsa::sign`
+    #     blinds the private-key exponentiation — the documented mitigation for
+    #     timing-observable signing (RustCrypto/RSA docs).  Both families are
+    #     covered: RSASSA-PKCS1-v1_5 (`Pkcs1v15Sign` + `sign_with_rng`) blinds
+    #     unconditionally once an RNG is supplied, and RSA-PSS uses the **blinded**
+    #     `Pss::new_blinded_with_salt` constructor (a plain `new_with_salt` leaves
+    #     rsa 0.9's `blinded` flag false and would run the exponentiation
+    #     unblinded — pinned by `tests::rsa::rsapss_sign_blinds_the_private_key_exponentiation`).
+    #     Authoritative scope: the Marvin attack's discoverer (H. Kario,
+    #     people.redhat.com/~hkario/marvin/) states the attack can target signing
+    #     as well as decryption, and that an RSA operation is safe only if BOTH
+    #     (a) the blinding is implemented in side-channel-free code AND (b) the
+    #     conversion from the numeric result to a byte string is side-channel-free.
+    #     elidex's signing path satisfies both: (a) `sign_with_rng` /
+    #     `Pss::new_blinded_with_salt` apply blinding (pinned by the test cited
+    #     below); and (b) is moot for signing — a signature is *public* output, so
+    #     there is no secret whose integer-to-byte-string conversion timing could
+    #     leak (condition (b) exists to protect the secret plaintext recovered
+    #     during *decryption*, which signing never produces). So the decryption
+    #     unpadding-oracle the advisory centers on is absent here and the signing
+    #     timing surface is closed by blinding. This holds regardless of how often
+    #     a page calls `sign()`: blinding randomizes each private-key op with fresh
+    #     entropy, so repeated invocations build no key-recovery timing oracle.
+    #     (CVSS 5.9 MEDIUM, AC:H, confidentiality-only.)
+    #   - keygen / import / export are not timing-oracle surfaces.
+    #
+    # MANDATORY RE-EVALUATION at PR-5b (RSA-OAEP `decrypt`/`unwrapKey`) — the
+    # path the Marvin attack actually targets: that PR MUST gate on either a
+    # fixed `rsa` release (drop this ignore) or an explicit, security-reviewed
+    # acceptance of the decryption timing risk under the WebCrypto threat model.
+    # This is NOT enforced by cargo-deny (a workspace-wide `ignore` downgrades
+    # the advisory globally), so an *enforceable* tripwire backs it:
+    # `elidex-api-crypto` `tests::rsa::rsa_backend_has_no_decryption_while_marvin_advisory_is_ignored`
+    # scans the whole crate source and fails the build if RSA decryption appears
+    # while this ignore is present.  Do NOT let PR-5b inherit this ignore silently.
+    "RUSTSEC-2023-0071",
+]
 
 [licenses]
 allow = [

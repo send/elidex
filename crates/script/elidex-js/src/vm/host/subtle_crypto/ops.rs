@@ -246,7 +246,7 @@ pub(super) fn native_subtle_crypto_import_key(
         // `undefined` `keyData` converts to an empty `JsonWebKey` dictionary
         // (the import then rejects with DataError, not TypeError).
         let key_data = match format {
-            KeyFormat::Jwk => KeyData::Jwk(marshal_jwk(ctx, key_data_arg)?),
+            KeyFormat::Jwk => KeyData::Jwk(Box::new(marshal_jwk(ctx, key_data_arg)?)),
             _ => KeyData::Raw(extract_buffer_source_bytes(
                 ctx,
                 key_data_arg,
@@ -341,7 +341,14 @@ pub(super) fn native_subtle_crypto_sign(
         )?;
         let signature = {
             let key_data = &ctx.vm.crypto_key_states[&key_id];
-            crypto::ops::sign(normalized, key_data, &data)
+            // `fill_random` is the VM entropy seam (the same as `generateKey`):
+            // HMAC / ECDSA draw nothing (ECDSA uses an RFC 6979 deterministic
+            // nonce), but BOTH RSA families consume it — RSASSA-PKCS1-v1_5 blinds
+            // the private-key exponentiation, RSA-PSS blinds + draws the salt.
+            crypto::ops::sign(normalized, key_data, &data, |buf| {
+                getrandom::fill(buf)
+                    .map_err(|e| AlgorithmError::Operation(format!("OS CSPRNG failure ({e})")))
+            })
         }
         .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
         let buf = create_array_buffer_from_bytes(ctx.vm, signature);
@@ -744,10 +751,10 @@ pub(super) fn native_subtle_crypto_unwrap_key(
         // §9 "new global object" — no page `Object.prototype` / `Array.prototype`
         // is consulted), NOT via a JS object in the page realm.
         let key_data = match format {
-            KeyFormat::Jwk => KeyData::Jwk(
+            KeyFormat::Jwk => KeyData::Jwk(Box::new(
                 crypto::jwk::from_json_bytes(&bytes)
                     .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?,
-            ),
+            )),
             _ => KeyData::Raw(bytes),
         };
         // step 16: importKey(normalizedKeyAlgorithm, format, key, extractable,

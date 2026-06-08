@@ -25,6 +25,17 @@ use crate::error::AlgorithmError;
 use crate::hash::HashAlgorithm;
 use crate::key::{CryptoKeyData, KeyUsage};
 
+/// Cap on every WebCrypto `sequence<T>` length — the JWK `key_ops` / `oth`
+/// members here, and the live `importKey` marshaller's `keyUsages` / `key_ops`
+/// / `oth` conversions (which `use` this constant).  Far above any legitimate
+/// list (there are only a handful of `KeyUsage` values; a real RSA key has no
+/// `oth`).  This is the **single source of truth** so the live (JS object →
+/// `JsonWebKey`) and bytes ([`from_json_bytes`]) halves of the `wrapKey` /
+/// `unwrapKey` mirror reject an oversized sequence identically — a script must
+/// not be able to feed a huge `oth` / `key_ops` array through one half that the
+/// other caps (an `unwrapKey` memory / CPU DoS on the VM thread otherwise).
+pub const MAX_CRYPTO_SEQUENCE_LEN: usize = 4096;
+
 /// A JSON Web Key (the members relevant to symmetric `oct` keys).
 /// `None` means the member was absent in the source object.
 ///
@@ -53,7 +64,8 @@ pub struct JsonWebKey {
     // the curve name; `x` / `y` are the base64url public-point coordinates;
     // `d` is the base64url private scalar (present iff a private key).  Read /
     // written in both mirror halves (`marshal_jwk` live + [`from_json_bytes`])
-    // for the ECDSA / ECDH `jwk` import / export round-trip (PR-4).
+    // for the ECDSA / ECDH `jwk` import / export round-trip (PR-4).  `d` is
+    // shared with RSA (the private exponent).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub crv: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -62,6 +74,45 @@ pub struct JsonWebKey {
     pub y: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub d: Option<String>,
+    // RSA members (WebCrypto §15 + RFC 7518 / JWA §6.3): `n` / `e` are the
+    // base64url modulus / public exponent; `p` / `q` are the first / second
+    // prime; `dp` / `dq` are the CRT exponents; `qi` is the CRT coefficient;
+    // `oth` is the multi-prime `otherPrimeInfos` (>2 primes — rejected at
+    // import as NotSupported, see `rsa::import`, but retained for the
+    // live↔bytes mirror).  Read / written in both mirror halves for the
+    // RSASSA-PKCS1-v1_5 / RSA-PSS `jwk` round-trip (PR-5a).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub n: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub e: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub p: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub q: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dp: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dq: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub qi: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub oth: Option<Vec<RsaOtherPrimesInfo>>,
+}
+
+/// A JWK `RsaOtherPrimesInfo` entry (RFC 7518 §6.3.2.7) — the prime `r`, its
+/// CRT exponent `d`, and its CRT coefficient `t`, for a multi-prime (>2)
+/// RSA key.  Retained in both mirror halves (`marshal_jwk` live +
+/// [`from_json_bytes`]) so the live↔bytes equivalence holds; multi-prime
+/// import itself is a NotSupportedError (`rsa::import` — the rsa crate's DER
+/// encoder rejects >2 primes, `#11-rsa-multiprime-jwk`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct RsaOtherPrimesInfo {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub r: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub d: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub t: Option<String>,
 }
 
 /// Serialize an `oct` [`JsonWebKey`] to JSON bytes for `wrapKey` (WebCrypto
@@ -138,7 +189,7 @@ pub fn from_json_bytes(bytes: &[u8]) -> Result<JsonWebKey, AlgorithmError> {
     // marshaller, so the error precedence agrees.  The `oth` values are unused
     // for `oct` keys — only its validation matters.
     let key_ops = member_string_sequence(&map, "key_ops")?;
-    validate_oth(&map)?;
+    let oth = read_oth(&map)?;
     let jwk = JsonWebKey {
         kty: member_domstring(&map, "kty"),
         k: member_domstring(&map, "k"),
@@ -153,6 +204,16 @@ pub fn from_json_bytes(bytes: &[u8]) -> Result<JsonWebKey, AlgorithmError> {
         x: member_domstring(&map, "x"),
         y: member_domstring(&map, "y"),
         d: member_domstring(&map, "d"),
+        // RSA members (retained for the RSASSA-PKCS1-v1_5 / RSA-PSS jwk
+        // round-trip, PR-5a) — same lockstep with the live `marshal_jwk` half.
+        n: member_domstring(&map, "n"),
+        e: member_domstring(&map, "e"),
+        p: member_domstring(&map, "p"),
+        q: member_domstring(&map, "q"),
+        dp: member_domstring(&map, "dp"),
+        dq: member_domstring(&map, "dq"),
+        qi: member_domstring(&map, "qi"),
+        oth,
     };
     // §9 "parse a JWK" step 6: the `kty` member must be defined (a present member,
     // even if its value is the empty string) — a `DataError` here, BEFORE the
@@ -165,33 +226,54 @@ pub fn from_json_bytes(bytes: &[u8]) -> Result<JsonWebKey, AlgorithmError> {
     Ok(jwk)
 }
 
-/// Convert (for validation only) the `oth` member
-/// (`sequence<RsaOtherPrimesInfo>`), matching the live `importKey` marshaller:
-/// absent → ok; a present non-array is not a sequence → `TypeError`; each entry
-/// must be an object (a JS array is also an object, with no `d`/`r`/`t`) or
-/// `null` (an empty dictionary) — a primitive entry is not a dictionary →
-/// `TypeError`.  The `d`/`r`/`t` members are optional `DOMString`s that always
-/// convert, so they need no per-entry check; the values are discarded.
-fn validate_oth(map: &Map<String, Value>) -> Result<(), AlgorithmError> {
+/// Convert the `oth` member (`sequence<RsaOtherPrimesInfo>`), matching the
+/// live `importKey` marshaller: absent → `None`; a present non-array is not a
+/// sequence → `TypeError`; each entry must be an object (a JS array is also an
+/// object, with no `d`/`r`/`t`) or `null` (an empty dictionary) — a primitive
+/// entry is not a dictionary → `TypeError`.  The `r`/`d`/`t` members are
+/// optional `DOMString`s that always convert (read in WebIDL lexicographic
+/// order d < r < t, matching the live half), and are retained so the
+/// live↔bytes mirror holds (multi-prime import itself is NotSupported).
+fn read_oth(map: &Map<String, Value>) -> Result<Option<Vec<RsaOtherPrimesInfo>>, AlgorithmError> {
     let Some(oth) = map.get("oth") else {
-        return Ok(());
+        return Ok(None);
     };
     let Value::Array(entries) = oth else {
         return Err(AlgorithmError::Type(
             "JWK 'oth' member is not a sequence".to_string(),
         ));
     };
+    // Mirror the live marshaller's `MAX_CRYPTO_SEQUENCE_LEN` cap before
+    // allocating / iterating: a huge `oth` array on the `unwrapKey` bytes path
+    // is otherwise a memory / CPU DoS the live half already rejects (multi-prime
+    // `oth` is `NotSupported` regardless, but the cap fires first, as in the
+    // live half, so the live↔bytes precedence agrees).
+    if entries.len() > MAX_CRYPTO_SEQUENCE_LEN {
+        return Err(AlgorithmError::Type(
+            "JWK 'oth' member exceeds the maximum length".to_string(),
+        ));
+    }
+    let mut out = Vec::with_capacity(entries.len());
     for entry in entries {
-        match entry {
-            Value::Null | Value::Object(_) | Value::Array(_) => {}
+        let info = match entry {
+            // `null` / an array → an empty `RsaOtherPrimesInfo` dictionary
+            // (an array is an Object with no named `d`/`r`/`t` members).
+            Value::Null | Value::Array(_) => RsaOtherPrimesInfo::default(),
+            Value::Object(obj) => RsaOtherPrimesInfo {
+                // WebIDL lexicographic member order: d < r < t.
+                d: member_domstring(obj, "d"),
+                r: member_domstring(obj, "r"),
+                t: member_domstring(obj, "t"),
+            },
             Value::Bool(_) | Value::Number(_) | Value::String(_) => {
                 return Err(AlgorithmError::Type(
                     "JWK 'oth' entry is not an RsaOtherPrimesInfo dictionary".to_string(),
                 ));
             }
-        }
+        };
+        out.push(info);
     }
-    Ok(())
+    Ok(Some(out))
 }
 
 /// Read a `DOMString` JWK member by presence (WebIDL): absent → `None`; a
@@ -221,7 +303,17 @@ fn member_string_sequence(
 ) -> Result<Option<Vec<String>>, AlgorithmError> {
     match map.get(key) {
         None => Ok(None),
-        Some(Value::Array(items)) => Ok(Some(items.iter().map(json_to_domstring).collect())),
+        Some(Value::Array(items)) => {
+            // Mirror the live marshaller's `MAX_CRYPTO_SEQUENCE_LEN` cap (a
+            // `sequence<DOMString>`): reject before materializing the whole
+            // array so an `unwrapKey` of a huge `key_ops` cannot DoS the parse.
+            if items.len() > MAX_CRYPTO_SEQUENCE_LEN {
+                return Err(AlgorithmError::Type(
+                    "JWK 'key_ops' member exceeds the maximum length".to_string(),
+                ));
+            }
+            Ok(Some(items.iter().map(json_to_domstring).collect()))
+        }
         Some(_) => Err(AlgorithmError::Type(
             "JWK 'key_ops' member is not a sequence".to_string(),
         )),
@@ -347,11 +439,19 @@ pub fn export_oct_hmac(key: &CryptoKeyData, hash: HashAlgorithm) -> JsonWebKey {
         use_: None,
         key_ops: Some(key.usages.iter().map(|u| u.as_str().to_string()).collect()),
         ext: Some(key.extractable),
-        // The EC members are absent for an `oct` key.
+        // The EC / RSA members are absent for an `oct` key.
         crv: None,
         x: None,
         y: None,
         d: None,
+        n: None,
+        e: None,
+        p: None,
+        q: None,
+        dp: None,
+        dq: None,
+        qi: None,
+        oth: None,
     }
 }
 
@@ -432,11 +532,19 @@ pub fn export_oct_aes(key: &CryptoKeyData, variant: AesVariant, length_bits: u32
         use_: None,
         key_ops: Some(key.usages.iter().map(|u| u.as_str().to_string()).collect()),
         ext: Some(key.extractable),
-        // The EC members are absent for an `oct` key.
+        // The EC / RSA members are absent for an `oct` key.
         crv: None,
         x: None,
         y: None,
         d: None,
+        n: None,
+        e: None,
+        p: None,
+        q: None,
+        dp: None,
+        dq: None,
+        qi: None,
+        oth: None,
     }
 }
 

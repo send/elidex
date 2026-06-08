@@ -7,7 +7,7 @@
 //! crate's `tests_crypto::ec`; the `marshal_jwk` ≡ `from_json_bytes` JWK
 //! mirror differential test lives in `subtle_crypto::differential`.
 
-use super::fill_seq;
+use super::{fill_seq, no_rng};
 use crate::algorithm::{EcAlgorithm, EcdhPeer, NamedCurve};
 use crate::key::{KeyAlgorithm, KeyType, KeyUsage};
 use crate::ops::{
@@ -49,7 +49,7 @@ fn private_jwk() -> JsonWebKey {
 
 fn expect_jwk(exported: ExportedKey) -> JsonWebKey {
     match exported {
-        ExportedKey::Jwk(jwk) => jwk,
+        ExportedKey::Jwk(jwk) => *jwk,
         ExportedKey::Raw(_) => panic!("expected a JWK export"),
     }
 }
@@ -69,7 +69,7 @@ fn ecdsa_jwk_private_import_export_round_trip() {
         alg,
         true,
         vec![KeyUsage::Sign],
-        KeyData::Jwk(private_jwk()),
+        KeyData::Jwk(Box::new(private_jwk())),
     )
     .expect("private EC JWK imports");
     assert_eq!(key.key_type, KeyType::Private);
@@ -93,7 +93,7 @@ fn ecdsa_private_pkcs8_round_trip() {
         ec_import_alg(EcAlgorithm::Ecdsa, NamedCurve::P256),
         true,
         vec![KeyUsage::Sign],
-        KeyData::Jwk(private_jwk()),
+        KeyData::Jwk(Box::new(private_jwk())),
     )
     .unwrap();
 
@@ -120,7 +120,7 @@ fn ecdsa_public_raw_and_spki_round_trip() {
         ec_import_alg(EcAlgorithm::Ecdsa, NamedCurve::P256),
         true,
         vec![KeyUsage::Sign],
-        KeyData::Jwk(private_jwk()),
+        KeyData::Jwk(Box::new(private_jwk())),
     )
     .unwrap();
     // A private key cannot export `raw` (public-only) → InvalidAccessError.
@@ -134,7 +134,7 @@ fn ecdsa_public_raw_and_spki_round_trip() {
         ec_import_alg(EcAlgorithm::Ecdsa, NamedCurve::P256),
         true,
         vec![KeyUsage::Verify],
-        KeyData::Jwk(public_jwk),
+        KeyData::Jwk(Box::new(public_jwk)),
     )
     .unwrap();
     assert_eq!(public.key_type, KeyType::Public);
@@ -175,7 +175,7 @@ fn ecdh_public_import_requires_empty_usages() {
         ec_import_alg(EcAlgorithm::Ecdh, NamedCurve::P256),
         true,
         vec![KeyUsage::DeriveBits],
-        KeyData::Jwk(public_jwk.clone()),
+        KeyData::Jwk(Box::new(public_jwk.clone())),
     )
     .unwrap_err();
     assert!(matches!(err, crate::AlgorithmError::Syntax(_)));
@@ -186,7 +186,7 @@ fn ecdh_public_import_requires_empty_usages() {
         ec_import_alg(EcAlgorithm::Ecdh, NamedCurve::P256),
         true,
         vec![],
-        KeyData::Jwk(public_jwk),
+        KeyData::Jwk(Box::new(public_jwk)),
     )
     .expect("ECDH public JWK with empty usages imports");
     assert_eq!(ok.key_type, KeyType::Public);
@@ -317,7 +317,7 @@ fn ecdsa_sign_verify_round_trip_all_curves() {
             .expect("keygen"),
         );
         let msg = b"the quick brown fox jumps over the lazy dog";
-        let sig = sign(ecdsa_params_alg(hash), &private, msg).expect("sign");
+        let sig = sign(ecdsa_params_alg(hash), &private, msg, no_rng).expect("sign");
         assert_eq!(sig.len(), sig_len, "raw r‖s length for {}", curve.as_str());
         // A genuine signature verifies.
         assert!(verify(ecdsa_params_alg(hash), &public, &sig, msg).unwrap());
@@ -340,7 +340,7 @@ fn ecdsa_sign_with_public_key_is_invalid_access() {
         .unwrap(),
     );
     // The public key lacks the `sign` usage → InvalidAccessError at the gate.
-    let err = sign(ecdsa_params_alg("SHA-256"), &public, b"m").unwrap_err();
+    let err = sign(ecdsa_params_alg("SHA-256"), &public, b"m", no_rng).unwrap_err();
     assert!(matches!(err, crate::AlgorithmError::InvalidAccess(_)));
 }
 
@@ -358,7 +358,7 @@ fn ecdsa_sign_hash_mismatch_still_verifies_with_same_hash() {
         )
         .unwrap(),
     );
-    let sig = sign(ecdsa_params_alg("SHA-384"), &private, b"data").unwrap();
+    let sig = sign(ecdsa_params_alg("SHA-384"), &private, b"data", no_rng).unwrap();
     assert!(verify(ecdsa_params_alg("SHA-384"), &public, &sig, b"data").unwrap());
     // Verifying the SHA-384 signature under SHA-256 must fail.
     assert!(!verify(ecdsa_params_alg("SHA-256"), &public, &sig, b"data").unwrap());
@@ -539,7 +539,7 @@ fn import_ecdsa_jwk(jwk: JsonWebKey, usages: Vec<KeyUsage>) -> crate::error::Alg
         ec_import_alg(EcAlgorithm::Ecdsa, NamedCurve::P256),
         true,
         usages,
-        KeyData::Jwk(jwk),
+        KeyData::Jwk(Box::new(jwk)),
     )
     .expect_err("import should fail")
 }
@@ -647,7 +647,7 @@ fn ec_import_curve_mismatch_is_data_error() {
         ec_import_alg(EcAlgorithm::Ecdsa, NamedCurve::P384),
         true,
         vec![KeyUsage::Sign],
-        KeyData::Jwk(private_jwk()),
+        KeyData::Jwk(Box::new(private_jwk())),
     )
     .unwrap_err();
     assert!(matches!(err, crate::AlgorithmError::Data(_)));

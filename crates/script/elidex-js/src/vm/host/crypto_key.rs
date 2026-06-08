@@ -35,10 +35,11 @@ use elidex_api_crypto::key::{CryptoKeyData, KeyAlgorithm};
 
 use super::super::shape;
 use super::super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
-    PropertyValue, VmError,
+    ElementKind, JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey,
+    PropertyStorage, PropertyValue, VmError,
 };
 use super::super::{NativeFn, VmInner};
+use super::array_buffer::create_typed_array_from_bytes;
 
 /// Per-`CryptoKey` cache of the ECMAScript objects returned by the
 /// `algorithm` / `usages` accessors — the `[[algorithm_cached]]` /
@@ -232,7 +233,10 @@ fn native_crypto_key_get_algorithm(
     {
         return Ok(JsValue::Object(cached));
     }
-    let algorithm = ctx.vm.crypto_key_states[&id].algorithm;
+    // `KeyAlgorithm` is no longer `Copy` (the RSA variant owns the
+    // public-exponent octets), so clone the side-store descriptor before the
+    // re-borrow that builds the JS object.
+    let algorithm = ctx.vm.crypto_key_states[&id].algorithm.clone();
     let obj = build_algorithm_object(ctx, algorithm);
     ctx.vm.crypto_key_js_cache.entry(id).or_default().algorithm = Some(obj);
     Ok(JsValue::Object(obj))
@@ -375,9 +379,10 @@ fn build_algorithm_object(ctx: &mut NativeContext<'_>, algorithm: KeyAlgorithm) 
             obj
         }
         // ECDSA / ECDH: `{ name: "ECDSA" | "ECDH", namedCurve: "P-256"… }`
-        // (WebCrypto §23.5 `EcKeyAlgorithm`, reused by ECDH §24).  Web IDL
-        // dictionary-to-ECMAScript-value order is lexicographic: `name` <
-        // `namedCurve`.
+        // (WebCrypto §23.5 `EcKeyAlgorithm`, reused by ECDH §24).  Web IDL §2.7
+        // orders members inherited-first: `name` (KeyAlgorithm) then
+        // `namedCurve` (EcKeyAlgorithm) — here that coincides with lexicographic
+        // (`name` < `namedCurve`), but see the RSA arm for where the two differ.
         KeyAlgorithm::Ecdsa { curve } | KeyAlgorithm::Ecdh { curve } => {
             let obj = ctx.alloc_object(Object {
                 kind: ObjectKind::Ordinary,
@@ -402,6 +407,85 @@ fn build_algorithm_object(ctx: &mut NativeContext<'_>, algorithm: KeyAlgorithm) 
                 obj,
                 PropertyKey::String(ctx.vm.well_known.named_curve),
                 PropertyValue::Data(JsValue::String(curve_sid)),
+                shape::PropertyAttrs::DATA,
+            );
+            obj
+        }
+        // RSASSA-PKCS1-v1_5 / RSA-PSS: `{ name, modulusLength, publicExponent,
+        // hash: { name } }` (WebCrypto §20.6 / §21 `RsaHashedKeyAlgorithm`).
+        // Web IDL §2.7 orders dictionary members *inherited-first* (least- to
+        // most-derived), lexicographic within each level.  For
+        // `RsaHashedKeyAlgorithm : RsaKeyAlgorithm : KeyAlgorithm` that is
+        // `name` (KeyAlgorithm) ‖ `modulusLength`, `publicExponent`
+        // (RsaKeyAlgorithm) ‖ `hash` (RsaHashedKeyAlgorithm), so
+        // `Object.keys(key.algorithm)` is `name, modulusLength, publicExponent,
+        // hash` — *not* the plain lexicographic `hash < modulusLength < name <
+        // publicExponent` (the deeper, 3-level inheritance is why only RSA
+        // diverges from a flat lexicographic emit; the shallower AES / EC / HMAC
+        // dicts coincide).  The nested `hash` dict reuses the HMAC hash-object
+        // shape; `publicExponent` (`RsaKeyAlgorithm.publicExponent`, §20.5) is a
+        // fresh `Uint8Array` over the stored big-endian octets — the §13.4
+        // `algorithm` getter materializes a new ArrayBuffer per read, so the
+        // publicExponent round-trips byte-identical.
+        KeyAlgorithm::Rsa {
+            variant,
+            modulus_length,
+            public_exponent,
+            hash,
+        } => {
+            // Nested hash dictionary `{ name: "SHA-256" }`.
+            let hash_obj = ctx.alloc_object(Object {
+                kind: ObjectKind::Ordinary,
+                storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+                prototype: object_proto,
+                extensible: true,
+            });
+            let hash_name = ctx.intern(hash.canonical_name());
+            ctx.vm.define_shaped_property(
+                hash_obj,
+                PropertyKey::String(ctx.vm.well_known.name),
+                PropertyValue::Data(JsValue::String(hash_name)),
+                shape::PropertyAttrs::DATA,
+            );
+
+            let obj = ctx.alloc_object(Object {
+                kind: ObjectKind::Ordinary,
+                storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+                prototype: object_proto,
+                extensible: true,
+            });
+            // name (KeyAlgorithm)
+            let name_sid = ctx.intern(variant.canonical_name());
+            ctx.vm.define_shaped_property(
+                obj,
+                PropertyKey::String(ctx.vm.well_known.name),
+                PropertyValue::Data(JsValue::String(name_sid)),
+                shape::PropertyAttrs::DATA,
+            );
+            // modulusLength (RsaKeyAlgorithm)
+            ctx.vm.define_shaped_property(
+                obj,
+                PropertyKey::String(ctx.vm.well_known.modulus_length),
+                PropertyValue::Data(JsValue::Number(f64::from(modulus_length))),
+                shape::PropertyAttrs::DATA,
+            );
+            // publicExponent (RsaKeyAlgorithm) — a fresh Uint8Array over the
+            // stored octets.  The octets are a whole number of u8 elements and
+            // far below 4 GiB, so the typed-array build is infallible here.
+            let exp_array =
+                create_typed_array_from_bytes(ctx.vm, public_exponent, ElementKind::Uint8)
+                    .expect("publicExponent octets are a valid Uint8Array");
+            ctx.vm.define_shaped_property(
+                obj,
+                PropertyKey::String(ctx.vm.well_known.public_exponent),
+                PropertyValue::Data(JsValue::Object(exp_array)),
+                shape::PropertyAttrs::DATA,
+            );
+            // hash (RsaHashedKeyAlgorithm, most-derived → last)
+            ctx.vm.define_shaped_property(
+                obj,
+                PropertyKey::String(ctx.vm.well_known.hash_attr),
+                PropertyValue::Data(JsValue::Object(hash_obj)),
                 shape::PropertyAttrs::DATA,
             );
             obj

@@ -21,19 +21,21 @@ pub enum KeyFormat {
 
 /// `importKey` key material, already marshalled from JS by the VM:
 /// `Raw` for the `raw` format (BufferSource bytes), `Jwk` for the `jwk`
-/// format (the live JS object's members).
+/// format (the live JS object's members).  The `JsonWebKey` is boxed: it
+/// carries the full oct + EC + RSA member set (the RSA private key alone is
+/// 8+ base64url strings), so an unboxed variant dwarfs `Raw`.
 #[derive(Clone, Debug)]
 pub enum KeyData {
     Raw(Vec<u8>),
-    Jwk(JsonWebKey),
+    Jwk(Box<JsonWebKey>),
 }
 
 /// `exportKey` result — plain-Rust shapes the VM turns into an
-/// `ArrayBuffer` or a JS object.
+/// `ArrayBuffer` or a JS object.  The `JsonWebKey` is boxed (see [`KeyData`]).
 #[derive(Clone, Debug)]
 pub enum ExportedKey {
     Raw(Vec<u8>),
-    Jwk(JsonWebKey),
+    Jwk(Box<JsonWebKey>),
 }
 
 /// `generateKey` result (WebCrypto §14.3.6 `(CryptoKey or CryptoKeyPair)`
@@ -91,6 +93,21 @@ where
             curve,
         } => crate::ec::generate(ec_algorithm, curve, extractable, &usages, fill_random)
             .map(|(public, private)| GeneratedKey::Pair { public, private }),
+        NormalizedAlgorithm::RsaKeyGen {
+            variant,
+            modulus_length,
+            public_exponent,
+            hash,
+        } => crate::rsa::generate(
+            variant,
+            modulus_length,
+            &public_exponent,
+            hash,
+            extractable,
+            &usages,
+            fill_random,
+        )
+        .map(|(public, private)| GeneratedKey::Pair { public, private }),
         _ => Err(not_supported_op("generateKey")),
     }
 }
@@ -197,6 +214,9 @@ pub fn import_key(
         }
         NormalizedAlgorithm::EcImport { algorithm, curve } => {
             crate::ec::import(algorithm, curve, format, extractable, usages, key_data)
+        }
+        NormalizedAlgorithm::RsaImport { variant, hash } => {
+            crate::rsa::import(variant, hash, format, extractable, usages, key_data)
         }
         _ => Err(not_supported_op("importKey")),
     }
@@ -372,7 +392,8 @@ pub fn export_key(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKey,
         KeyAlgorithm::Hmac { .. }
         | KeyAlgorithm::Aes { .. }
         | KeyAlgorithm::Ecdsa { .. }
-        | KeyAlgorithm::Ecdh { .. } => {}
+        | KeyAlgorithm::Ecdh { .. }
+        | KeyAlgorithm::Rsa { .. } => {}
         KeyAlgorithm::Hkdf | KeyAlgorithm::Pbkdf2 => {
             return Err(AlgorithmError::NotSupported(
                 "HKDF / PBKDF2 keys do not support the exportKey operation".to_string(),
@@ -392,6 +413,9 @@ pub fn export_key(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKey,
         KeyAlgorithm::Hmac { .. } | KeyAlgorithm::Aes { .. } => export_symmetric(format, key),
         KeyAlgorithm::Ecdsa { curve } => crate::ec::export(EcAlgorithm::Ecdsa, curve, format, key),
         KeyAlgorithm::Ecdh { curve } => crate::ec::export(EcAlgorithm::Ecdh, curve, format, key),
+        // RSA export (§20.8.5 / §21.4.5) — the variant + hash drive the jwk
+        // `alg` (RS256 / PS384 / …); spki / pkcs8 are verbatim canonical DER.
+        KeyAlgorithm::Rsa { variant, hash, .. } => crate::rsa::export(variant, hash, format, key),
         KeyAlgorithm::Hkdf | KeyAlgorithm::Pbkdf2 => unreachable!("KDF rejected at step 6"),
     }
 }
@@ -403,30 +427,42 @@ pub fn export_key(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKey,
 fn export_symmetric(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKey, AlgorithmError> {
     match format {
         KeyFormat::Raw => Ok(ExportedKey::Raw(key.material.as_bytes().to_vec())),
-        KeyFormat::Jwk => Ok(ExportedKey::Jwk(match key.algorithm {
+        KeyFormat::Jwk => Ok(ExportedKey::Jwk(Box::new(match key.algorithm {
             KeyAlgorithm::Hmac { hash, .. } => jwk::export_oct_hmac(key, hash),
             KeyAlgorithm::Aes { variant, length } => jwk::export_oct_aes(key, variant, length),
             // Only HMAC / AES reach `export_symmetric`.
             KeyAlgorithm::Hkdf
             | KeyAlgorithm::Pbkdf2
             | KeyAlgorithm::Ecdsa { .. }
-            | KeyAlgorithm::Ecdh { .. } => {
+            | KeyAlgorithm::Ecdh { .. }
+            | KeyAlgorithm::Rsa { .. } => {
                 unreachable!("export_symmetric called only for HMAC/AES")
             }
-        })),
+        }))),
         KeyFormat::Pkcs8 | KeyFormat::Spki => Err(AlgorithmError::NotSupported(
             "symmetric key export supports only the 'raw' and 'jwk' formats".to_string(),
         )),
     }
 }
 
-/// `sign` (WebCrypto §14.3.3 + §31 Sign).
+/// `sign` (WebCrypto §14.3.3 + §31 HMAC / §23.7.1 ECDSA / §20.8.1
+/// RSASSA-PKCS1-v1_5 / §21.4.1 RSA-PSS).  `fill_random` is the VM entropy seam.
+/// HMAC and ECDSA are deterministic (ECDSA uses an RFC 6979 deterministic
+/// nonce), so the closure is never invoked for them.  BOTH RSA families consume
+/// it: RSASSA-PKCS1-v1_5 blinds the private-key exponentiation (`sign_with_rng`)
+/// even though its signature *output* is deterministic, and RSA-PSS additionally
+/// draws the random salt — so any RSA `sign` requires a CSPRNG-quality seam (a
+/// failing / dummy RNG fails the operation or weakens the blinding).
 #[allow(clippy::needless_pass_by_value)] // uniform ops signature; see `generate_key`
-pub fn sign(
+pub fn sign<F>(
     algorithm: NormalizedAlgorithm,
     key: &CryptoKeyData,
     data: &[u8],
-) -> Result<Vec<u8>, AlgorithmError> {
+    fill_random: F,
+) -> Result<Vec<u8>, AlgorithmError>
+where
+    F: FnMut(&mut [u8]) -> Result<(), AlgorithmError>,
+{
     require_key_usable(&algorithm, key, KeyUsage::Sign)?;
     match key.algorithm {
         KeyAlgorithm::Hmac { hash, .. } => Ok(hmac::sign(hash, key.material.as_bytes(), data)),
@@ -439,8 +475,17 @@ pub fn sign(
             };
             crate::ec::sign(curve, hash, key, data)
         }
-        // `sign` normalizes only HMAC + ECDSA, so the name-match above rejects
-        // any other key before reaching here.
+        // RSA: the variant + hash ride on the key (§20.6); RSA-PSS reads its
+        // `saltLength` from the normalized params (RSASSA params are name-only).
+        KeyAlgorithm::Rsa { variant, hash, .. } => {
+            let salt_length = match algorithm {
+                NormalizedAlgorithm::RsaPssParams { salt_length } => Some(salt_length),
+                _ => None,
+            };
+            crate::rsa::sign(variant, hash, key, data, salt_length, fill_random)
+        }
+        // `sign` normalizes only HMAC + ECDSA + RSA, so the name-match above
+        // rejects any other key before reaching here.
         KeyAlgorithm::Aes { .. }
         | KeyAlgorithm::Hkdf
         | KeyAlgorithm::Pbkdf2
@@ -448,7 +493,8 @@ pub fn sign(
     }
 }
 
-/// `verify` (WebCrypto §14.3.4 + §31 Verify).
+/// `verify` (WebCrypto §14.3.4 + §31 HMAC / §23.7.2 ECDSA / §20.8.2
+/// RSASSA-PKCS1-v1_5 / §21.4.2 RSA-PSS).
 #[allow(clippy::needless_pass_by_value)] // uniform ops signature; see `generate_key`
 pub fn verify(
     algorithm: NormalizedAlgorithm,
@@ -467,7 +513,15 @@ pub fn verify(
             };
             crate::ec::verify(curve, hash, key, signature, data)
         }
-        // `verify` normalizes only HMAC + ECDSA.
+        // RSA: variant + hash from the key; RSA-PSS `saltLength` from the params.
+        KeyAlgorithm::Rsa { variant, hash, .. } => {
+            let salt_length = match algorithm {
+                NormalizedAlgorithm::RsaPssParams { salt_length } => Some(salt_length),
+                _ => None,
+            };
+            crate::rsa::verify(variant, hash, key, signature, data, salt_length)
+        }
+        // `verify` normalizes only HMAC + ECDSA + RSA.
         KeyAlgorithm::Aes { .. }
         | KeyAlgorithm::Hkdf
         | KeyAlgorithm::Pbkdf2

@@ -11,13 +11,14 @@
 use elidex_api_crypto::key::KeyUsage;
 use elidex_api_crypto::{
     self as crypto, AlgorithmParams, EcdhPeer, JsonWebKey, KeyFormat, Operation, RawAlgorithm,
+    RsaOtherPrimesInfo, MAX_CRYPTO_SEQUENCE_LEN,
 };
 
 use super::super::super::coerce;
 use super::super::super::shape;
 use super::super::super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
-    PropertyValue, StringId, VmError,
+    ElementKind, JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey,
+    PropertyStorage, PropertyValue, StringId, VmError,
 };
 use super::super::super::webidl_sequence::{webidl_sequence_to_vec, SeqMessages};
 use super::super::text_encoding::{extract_buffer_source_member, is_buffer_source};
@@ -314,6 +315,73 @@ fn read_params(
             // later in the crate.
             raw.peer = Some(read_ecdh_public_member(ctx, id, method)?);
         }
+        AlgorithmParams::RsaHashedKeyGen => {
+            // `RsaHashedKeyGenParams : RsaKeyGenParams` (§20.4 / §20.3): Web IDL
+            // dictionary conversion processes **inherited members before derived
+            // ones** (Web IDL §3.2.17), so the §18.4.4 step-6 getter order is
+            // modulusLength, publicExponent (the RsaKeyGenParams base,
+            // lexicographic) THEN hash (the RsaHashedKeyGenParams member) — NOT
+            // hash-first.  `modulusLength` is ToNumber/EnforceRange-converted;
+            // `publicExponent` is a `BigInteger` = the `Uint8Array` typedef
+            // (§20.3), so a non-Uint8Array is a TypeError (not any BufferSource);
+            // `hash`'s getter fires last (its nested identifier normalizes at
+            // step 10).  Step 10 snapshots the publicExponent bytes (inherited)
+            // then normalizes the nested hash (derived).
+            let ml_val =
+                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.modulus_length))?;
+            if matches!(ml_val, JsValue::Undefined) {
+                return Err(required_member_error(method, "modulusLength"));
+            }
+            raw.modulus_length = Some(coerce_enforce_range(
+                ctx,
+                ml_val,
+                method,
+                "modulusLength",
+                "unsigned long",
+                f64::from(u32::MAX),
+            )?);
+            let exp_val =
+                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.public_exponent))?;
+            if matches!(exp_val, JsValue::Undefined) {
+                return Err(required_member_error(method, "publicExponent"));
+            }
+            if !is_uint8_array(ctx, exp_val) {
+                return Err(not_uint8_array_error(method, "publicExponent"));
+            }
+            let hash_val = read_required_hash_value(ctx, id, method)?;
+            // step 10: snapshot publicExponent (inherited) then normalize hash.
+            raw.public_exponent = Some(snapshot_buffer_source(
+                ctx,
+                exp_val,
+                method,
+                "publicExponent",
+            )?);
+            raw.hash = Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?));
+        }
+        AlgorithmParams::RsaHashedImport => {
+            // `RsaHashedImportParams` (§20.7): hash (required
+            // `HashAlgorithmIdentifier`, the only member) — same step-6 /
+            // step-10 split as EcdsaParams.
+            let hash_val = read_required_hash_value(ctx, id, method)?;
+            raw.hash = Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?));
+        }
+        AlgorithmParams::RsaPssParams => {
+            // `RsaPssParams` (§21.3): saltLength (required `[EnforceRange]
+            // unsigned long`, the only member).
+            let salt_val =
+                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.salt_length))?;
+            if matches!(salt_val, JsValue::Undefined) {
+                return Err(required_member_error(method, "saltLength"));
+            }
+            raw.salt_length = Some(coerce_enforce_range(
+                ctx,
+                salt_val,
+                method,
+                "saltLength",
+                "unsigned long",
+                f64::from(u32::MAX),
+            )?);
+        }
     }
     Ok(())
 }
@@ -395,6 +463,29 @@ fn not_buffer_source_error(method: &str, member: &str) -> VmError {
     VmError::type_error(format!(
         "Failed to execute '{method}' on 'SubtleCrypto': \
          the '{member}' member is not of type 'BufferSource'"
+    ))
+}
+
+/// Whether `value` is specifically a `Uint8Array` — the WebCrypto `BigInteger`
+/// typedef (§20.3 `RsaKeyGenParams.publicExponent`), NOT any `BufferSource`
+/// (an `ArrayBuffer` / `DataView` / other typed array is a Web IDL `TypeError`).
+fn is_uint8_array(ctx: &NativeContext<'_>, value: JsValue) -> bool {
+    matches!(
+        value,
+        JsValue::Object(id)
+            if matches!(
+                ctx.vm.get_object(id).kind,
+                ObjectKind::TypedArray { element_kind: ElementKind::Uint8, .. }
+            )
+    )
+}
+
+/// A member-named "not a `Uint8Array`" `TypeError` (the `BigInteger` typedef
+/// type-check at §18.4.4 step 6).
+fn not_uint8_array_error(method: &str, member: &str) -> VmError {
+    VmError::type_error(format!(
+        "Failed to execute '{method}' on 'SubtleCrypto': \
+         the '{member}' member is not of type 'Uint8Array'"
     ))
 }
 
@@ -582,13 +673,6 @@ fn coerce_enforce_range(
     }
 }
 
-/// Cap on every `SubtleCrypto` `sequence<T>` conversion (`keyUsages`, JWK
-/// `key_ops` / `oth`) — bounds a script-controlled iterable whose `.next()`
-/// never reports `done` (which would otherwise hang the Promise forever).
-/// Far above any legitimate list (there are only a handful of `KeyUsage`
-/// values); mirrors the `dom_inner_html` shadow-roots cap.
-const MAX_CRYPTO_SEQUENCE_LEN: usize = 4096;
-
 /// Marshal a JS `sequence<KeyUsage>` into a `Vec<KeyUsage>` (WebIDL
 /// §3.2.21): any iterable Object is accepted, a string primitive / other
 /// non-Object value is a step-1 conversion `TypeError`, and an unrecognized
@@ -669,6 +753,10 @@ pub(super) fn marshal_format(
 /// `from_json_bytes`, or wrap↔import coercion / error precedence diverge.  The
 /// EC members landed in PR-4 (RSA in PR-5); the differential equivalence test
 /// (`#11-crypto-subtle-full`) mechanically pins the two halves in lockstep.
+// The single-char locals (d / e / k / n / p / q / x / y) are the canonical JWK
+// member identifiers (RFC 7517 / 7518) — renaming them would obscure, not
+// clarify, the spec mapping.
+#[allow(clippy::many_single_char_names)]
 pub(super) fn marshal_jwk(
     ctx: &mut NativeContext<'_>,
     value: JsValue,
@@ -685,23 +773,23 @@ pub(super) fn marshal_jwk(
     };
     // Lexicographic identifier order of `JsonWebKey` members (WebCrypto
     // §15): alg, crv, d, dp, dq, e, ext, k, key_ops, kty, n, oth, p, q,
-    // qi, use, x, y.  Read every member (firing getters / propagating
-    // throws); retain only the oct subset.
+    // qi, use, x, y.  Read every member in this order (firing getters /
+    // propagating throws); retain the oct + EC + RSA subsets.
     let alg = read_jwk_string(ctx, id, "alg")?;
     let crv = read_jwk_string(ctx, id, "crv")?;
     let d = read_jwk_string(ctx, id, "d")?;
-    read_jwk_string(ctx, id, "dp")?;
-    read_jwk_string(ctx, id, "dq")?;
-    read_jwk_string(ctx, id, "e")?;
+    let dp = read_jwk_string(ctx, id, "dp")?;
+    let dq = read_jwk_string(ctx, id, "dq")?;
+    let e = read_jwk_string(ctx, id, "e")?;
     let ext = read_jwk_bool(ctx, id, "ext")?;
     let k = read_jwk_string(ctx, id, "k")?;
     let key_ops = read_jwk_key_ops(ctx, id)?;
     let kty = read_jwk_string(ctx, id, "kty")?;
-    read_jwk_string(ctx, id, "n")?;
-    read_jwk_oth(ctx, id)?;
-    read_jwk_string(ctx, id, "p")?;
-    read_jwk_string(ctx, id, "q")?;
-    read_jwk_string(ctx, id, "qi")?;
+    let n = read_jwk_string(ctx, id, "n")?;
+    let oth = read_jwk_oth(ctx, id)?;
+    let p = read_jwk_string(ctx, id, "p")?;
+    let q = read_jwk_string(ctx, id, "q")?;
+    let qi = read_jwk_string(ctx, id, "qi")?;
     let use_ = read_jwk_string(ctx, id, "use")?;
     let x = read_jwk_string(ctx, id, "x")?;
     let y = read_jwk_string(ctx, id, "y")?;
@@ -716,6 +804,14 @@ pub(super) fn marshal_jwk(
         x,
         y,
         d,
+        n,
+        e,
+        p,
+        q,
+        dp,
+        dq,
+        qi,
+        oth,
     })
 }
 
@@ -779,21 +875,22 @@ fn read_jwk_key_ops(
 }
 
 /// Read the `sequence<RsaOtherPrimesInfo> oth` `JsonWebKey` member, fully
-/// converting (then discarding) each entry per Web IDL.  `undefined` →
-/// absent; otherwise the value is converted to a sequence (a non-iterable
-/// such as `oth: 123` → `TypeError`), and each entry is converted to an
+/// converting each entry per Web IDL.  `undefined` → absent (`None`);
+/// otherwise the value is converted to a sequence (a non-iterable such as
+/// `oth: 123` → `TypeError`), and each entry is converted to an
 /// `RsaOtherPrimesInfo` dictionary: `undefined` / `null` → an empty dict,
 /// an object → its (optional) `d` / `r` / `t` `DOMString` members read in
 /// lexicographic order (firing each getter), any other value → `TypeError`
-/// (e.g. `oth: [123]`).  HMAC never consults `oth`, but Web IDL dictionary
-/// conversion still performs the full member walk; the converted values
-/// are retained once the RSA vertical (`#11-crypto-subtle-full` PR-5)
-/// extends [`JsonWebKey`] to carry them.
-fn read_jwk_oth(ctx: &mut NativeContext<'_>, obj: ObjectId) -> Result<(), VmError> {
+/// (e.g. `oth: [123]`).  The converted entries are retained (PR-5a) so the
+/// live↔bytes mirror holds; multi-prime import itself is NotSupported.
+fn read_jwk_oth(
+    ctx: &mut NativeContext<'_>,
+    obj: ObjectId,
+) -> Result<Option<Vec<RsaOtherPrimesInfo>>, VmError> {
     let key = PropertyKey::String(ctx.vm.strings.intern("oth"));
     let val = ctx.get_property_value(obj, key)?;
     if matches!(val, JsValue::Undefined) {
-        return Ok(());
+        return Ok(None);
     }
     let msgs = SeqMessages {
         not_iterable: "Failed to execute 'importKey' on 'SubtleCrypto': \
@@ -803,12 +900,10 @@ fn read_jwk_oth(ctx: &mut NativeContext<'_>, obj: ObjectId) -> Result<(), VmErro
         cap_exceeded: "Failed to execute 'importKey' on 'SubtleCrypto': \
                        JWK 'oth' exceeds the maximum length.",
     };
-    // Returns `Vec<()>` — `oth` entries are converted (firing getters) for
-    // Web IDL conformance, then discarded (HMAC ignores them).
-    webidl_sequence_to_vec(ctx, val, MAX_CRYPTO_SEQUENCE_LEN, &msgs, |ctx, _idx, el| {
+    let out = webidl_sequence_to_vec(ctx, val, MAX_CRYPTO_SEQUENCE_LEN, &msgs, |ctx, _idx, el| {
         let entry = match el {
             // `null` / `undefined` → an empty RsaOtherPrimesInfo dict.
-            JsValue::Undefined | JsValue::Null => return Ok(()),
+            JsValue::Undefined | JsValue::Null => return Ok(RsaOtherPrimesInfo::default()),
             JsValue::Object(id) => id,
             _ => {
                 return Err(VmError::type_error(
@@ -818,13 +913,13 @@ fn read_jwk_oth(ctx: &mut NativeContext<'_>, obj: ObjectId) -> Result<(), VmErro
             }
         };
         // RsaOtherPrimesInfo members in lexicographic order (d, r, t), all
-        // optional `DOMString`s — read (firing getters), discard.
-        read_jwk_string(ctx, entry, "d")?;
-        read_jwk_string(ctx, entry, "r")?;
-        read_jwk_string(ctx, entry, "t")?;
-        Ok(())
+        // optional `DOMString`s — read (firing getters) + retain.
+        let d = read_jwk_string(ctx, entry, "d")?;
+        let r = read_jwk_string(ctx, entry, "r")?;
+        let t = read_jwk_string(ctx, entry, "t")?;
+        Ok(RsaOtherPrimesInfo { r, d, t })
     })?;
-    Ok(())
+    Ok(Some(out))
 }
 
 /// Build a fresh JS object for an exported `oct` JWK.
@@ -854,9 +949,10 @@ pub(super) fn build_jwk_object(ctx: &mut NativeContext<'_>, jwk: &JsonWebKey) ->
         );
     };
     // Web IDL "convert a dictionary to an ECMAScript value" creates own
-    // properties in **lexicographic member order** — across the `oct` + EC
-    // subsets: alg, crv, d, ext, k, key_ops, kty, use, x, y — so
-    // `Object.keys(exportedJwk)` matches the spec / other engines.
+    // properties in **lexicographic member order** — across the `oct` + EC +
+    // RSA subsets: alg, crv, d, dp, dq, e, ext, k, key_ops, kty, n, p, q, qi,
+    // use, x, y — so `Object.keys(exportedJwk)` matches the spec / other
+    // engines.  (`oth` is never emitted: multi-prime export does not occur.)
     if let Some(alg) = &jwk.alg {
         set_string(ctx, "alg", alg);
     }
@@ -865,6 +961,15 @@ pub(super) fn build_jwk_object(ctx: &mut NativeContext<'_>, jwk: &JsonWebKey) ->
     }
     if let Some(d) = &jwk.d {
         set_string(ctx, "d", d);
+    }
+    if let Some(dp) = &jwk.dp {
+        set_string(ctx, "dp", dp);
+    }
+    if let Some(dq) = &jwk.dq {
+        set_string(ctx, "dq", dq);
+    }
+    if let Some(e) = &jwk.e {
+        set_string(ctx, "e", e);
     }
     if let Some(ext) = jwk.ext {
         let key = PropertyKey::String(ctx.intern("ext"));
@@ -900,6 +1005,18 @@ pub(super) fn build_jwk_object(ctx: &mut NativeContext<'_>, jwk: &JsonWebKey) ->
     }
     if let Some(kty) = &jwk.kty {
         set_string(ctx, "kty", kty);
+    }
+    if let Some(n) = &jwk.n {
+        set_string(ctx, "n", n);
+    }
+    if let Some(p) = &jwk.p {
+        set_string(ctx, "p", p);
+    }
+    if let Some(q) = &jwk.q {
+        set_string(ctx, "q", q);
+    }
+    if let Some(qi) = &jwk.qi {
+        set_string(ctx, "qi", qi);
     }
     if let Some(use_) = &jwk.use_ {
         set_string(ctx, "use", use_);
