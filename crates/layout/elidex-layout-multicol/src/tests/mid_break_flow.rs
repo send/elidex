@@ -417,13 +417,15 @@ fn multicol_midbreak_ifc_with_atomic_text_still_persists() {
 
 #[test]
 fn multicol_midbreak_flow_survives_a_throwaway_probe() {
-    // Codex PR#316 R3 (P2): the run-start `InlineFlow` is built by
-    // `position_column_fragments` (is_probe-guarded → not rebuilt during a probe),
-    // but the IFC's `clear_inline_flows` is NOT is_probe-guarded. So a throwaway
-    // probe running AFTER a definitive layout would clear the live mid-break flow
-    // without rebuilding it, dropping render to legacy. Fix: the do_carrier path
-    // preserves the flow during a probe. Pin: lay definitively (flow built), then
-    // re-lay with is_probe=true (an ancestor/intrinsic probe) — the flow survives.
+    // Codex PR#316 R3 (P2) + R4 (Z-1b-0.5 prereq #318): the run-start `InlineFlow` is
+    // built by `position_column_fragments` (is_probe-guarded → not rebuilt during a
+    // probe). A throwaway probe running AFTER a definitive layout must leave that live
+    // flow BIT-FOR-BIT intact — neither erased (R3d: the do_carrier path preserves it
+    // under is_probe instead of clearing) NOR shifted (R4: the is_probe-aware
+    // `shift_descendants` skips the persisted-`InlineFlow` arm during a probe). Pin:
+    // lay definitively (flow built at per-column coords), snapshot the coords, re-lay
+    // with is_probe=true (an ancestor/intrinsic probe) — the flow survives at the SAME
+    // coordinates (presence alone is too weak; a probe-shift would pass it).
     let font_db = make_font_db();
     if !fonts_available(&font_db) {
         return;
@@ -442,25 +444,77 @@ fn multicol_midbreak_flow_survives_a_throwaway_probe() {
     );
     let (_div, tnode) = add_wrapping_text_block(&mut dom, container, LONG_TEXT);
 
+    // Snapshot every line's (block_start, per-run inline_start) — the absolute coords
+    // render consumes — so the post-probe assertion catches a shift, not just erasure.
+    let flow_coords = |dom: &EcsDom| -> Vec<(f32, Vec<f32>)> {
+        dom.world()
+            .get::<&InlineFlow>(tnode)
+            .ok()
+            .map(|flow| {
+                flow.fragments
+                    .iter()
+                    .flat_map(|f| f.lines.iter())
+                    .map(|l| {
+                        (
+                            l.block_start,
+                            l.runs
+                                .iter()
+                                .map(elidex_ecs::InlineFlowRun::inline_start)
+                                .collect(),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+
     let input = make_input(&font_db);
     layout_multicol(&mut dom, container, &input, layout_child_fn);
+    let before = flow_coords(&dom);
     assert!(
-        dom.world().get::<&InlineFlow>(tnode).is_ok(),
-        "definitive layout builds the mid-break flow"
+        !before.is_empty(),
+        "definitive layout builds the mid-break flow with lines"
     );
 
     // A throwaway probe over the same subtree (e.g. an ancestor's balanced search /
-    // intrinsic re-measure) must NOT erase the live flow.
+    // intrinsic re-measure) must NOT erase OR shift the live flow.
     let probe_input = LayoutInput {
         is_probe: true,
         ..make_input(&font_db)
     };
     layout_multicol(&mut dom, container, &probe_input, layout_child_fn);
+    let after = flow_coords(&dom);
     assert!(
-        dom.world().get::<&InlineFlow>(tnode).is_ok(),
+        !after.is_empty(),
         "a throwaway probe after the definitive layout must NOT erase the live \
          mid-break InlineFlow (else render drops to the legacy path)"
     );
+    assert_eq!(
+        before.len(),
+        after.len(),
+        "probe must not change the mid-break flow's line count"
+    );
+    for (i, (b, a)) in before.iter().zip(after.iter()).enumerate() {
+        assert!(
+            (b.0 - a.0).abs() < 0.01,
+            "line {i} block_start unchanged by the probe: before {} after {}",
+            b.0,
+            a.0
+        );
+        assert_eq!(
+            b.1.len(),
+            a.1.len(),
+            "line {i} run count unchanged by the probe"
+        );
+        for (bx, ax) in b.1.iter().zip(a.1.iter()) {
+            assert!(
+                (bx - ax).abs() < 0.01,
+                "line {i} run inline_start unchanged by the probe (the per-column \
+                 baked offset must survive — a probe-shift would corrupt it): \
+                 before {bx} after {ax}"
+            );
+        }
+    }
 }
 
 #[test]

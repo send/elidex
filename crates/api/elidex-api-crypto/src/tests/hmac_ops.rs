@@ -18,11 +18,15 @@ fn hmac_keygen_alg(hash: HashAlgorithm, length: Option<u32>) -> NormalizedAlgori
 fn ops_generate_sign_verify_roundtrip() {
     let alg = hmac_keygen_alg(HashAlgorithm::Sha256, None);
     // deterministic "random": fill the crate-sized buffer with 0x42.
-    let key = ops::generate_key(alg, true, vec![KeyUsage::Sign, KeyUsage::Verify], |buf| {
-        buf.fill(0x42);
-        Ok(())
-    })
-    .unwrap();
+    let key = super::expect_single(ops::generate_key(
+        alg,
+        true,
+        vec![KeyUsage::Sign, KeyUsage::Verify],
+        |buf| {
+            buf.fill(0x42);
+            Ok(())
+        },
+    ));
     assert_eq!(key.key_type, KeyType::Secret);
     assert_eq!(key.material.as_bytes().len(), 64); // SHA-256 block size
 
@@ -163,11 +167,10 @@ fn ops_generate_sub_byte_length_masks_trailing_bits() {
     // §31.6.3 step 3 "key of length length bits": generateKey with
     // length=1 keeps only the top bit of the single CSPRNG octet.
     let alg = hmac_keygen_alg(HashAlgorithm::Sha256, Some(1));
-    let key = ops::generate_key(alg, true, vec![KeyUsage::Sign], |buf| {
+    let key = super::expect_single(ops::generate_key(alg, true, vec![KeyUsage::Sign], |buf| {
         buf.fill(0xFF);
         Ok(())
-    })
-    .unwrap();
+    }));
     assert_eq!(key.material.as_bytes(), &[0x80]);
     let crate::key::KeyAlgorithm::Hmac { length, .. } = key.algorithm else {
         panic!("expected an HMAC key algorithm");
@@ -244,6 +247,7 @@ fn ops_import_empty_material_is_data_error() {
         use_: None,
         key_ops: None,
         ext: Some(true),
+        ..Default::default()
     };
     assert!(matches!(
         ops::import_key(
@@ -297,6 +301,7 @@ fn ops_import_jwk_export_jwk_roundtrip() {
         use_: None,
         key_ops: Some(vec!["sign".into(), "verify".into()]),
         ext: Some(true),
+        ..Default::default()
     };
     let key = ops::import_key(
         KeyFormat::Jwk,
@@ -340,6 +345,7 @@ fn base_jwk() -> JsonWebKey {
         use_: None,
         key_ops: None,
         ext: Some(true),
+        ..Default::default()
     }
 }
 

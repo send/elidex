@@ -10,7 +10,7 @@
 
 use elidex_api_crypto::key::KeyUsage;
 use elidex_api_crypto::{
-    self as crypto, AlgorithmParams, JsonWebKey, KeyFormat, Operation, RawAlgorithm,
+    self as crypto, AlgorithmParams, EcdhPeer, JsonWebKey, KeyFormat, Operation, RawAlgorithm,
 };
 
 use super::super::super::coerce;
@@ -146,6 +146,7 @@ pub(super) fn marshal_algorithm(
 /// value, key length) is validated later in the engine-independent crate
 /// (`crypto::normalize` + `crypto::ops`), at the op step where the spec
 /// throws.
+#[allow(clippy::too_many_lines)] // flat exhaustive match: one member-read block per AlgorithmParams shape — splitting scatters the spec-ordered per-dictionary marshalling
 fn read_params(
     ctx: &mut NativeContext<'_>,
     id: ObjectId,
@@ -287,8 +288,86 @@ fn read_params(
             raw.hash = Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?));
             raw.salt = Some(snapshot_buffer_source(ctx, salt_val, method, "salt")?);
         }
+        AlgorithmParams::EcKeyGen => {
+            // `EcKeyGenParams` / `EcKeyImportParams`: namedCurve (required
+            // `NamedCurve` = DOMString typedef → ToString coercion; the
+            // curve-recognition / NotSupportedError is the crate's job).
+            let curve_val =
+                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.named_curve))?;
+            if matches!(curve_val, JsValue::Undefined) {
+                return Err(required_member_error(method, "namedCurve"));
+            }
+            let sid = coerce::to_string(ctx.vm, curve_val)?;
+            raw.named_curve = Some(ctx.vm.strings.get_utf8(sid));
+        }
+        AlgorithmParams::EcdsaParams => {
+            // `EcdsaParams`: hash (required `HashAlgorithmIdentifier`, the only
+            // member) — same step-6 / step-10 split as HMAC / HKDF.
+            let hash_val = read_required_hash_value(ctx, id, method)?;
+            raw.hash = Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?));
+        }
+        AlgorithmParams::EcdhKeyDeriveParams => {
+            // `EcdhKeyDeriveParams`: public (required `CryptoKey` peer) — the
+            // novel CryptoKey-valued member.  Brand-check + extract the peer's
+            // metadata + SEC1 point (the Layering-mandate marshalling boundary);
+            // the §24.4.2 InvalidAccessError checks against the base key run
+            // later in the crate.
+            raw.peer = Some(read_ecdh_public_member(ctx, id, method)?);
+        }
     }
     Ok(())
+}
+
+/// Read the required `public` CryptoKey member of `EcdhKeyDeriveParams`
+/// (WebCrypto §24.3) and extract its spec-relevant metadata + SEC1 public
+/// point into an [`EcdhPeer`].  Per the Layering mandate this conveys
+/// **bytes + metadata** into the engine-independent crate, never a VM handle
+/// (the marshalling boundary): a missing / non-CryptoKey value is a WebIDL
+/// `TypeError` here, while the §24.4.2 `InvalidAccessError` precedence (peer
+/// `[[type]]` = "public"; peer name = base name; peer curve = base curve) is
+/// validated against the base key in `crate::ops::derive_bits`.
+fn read_ecdh_public_member(
+    ctx: &mut NativeContext<'_>,
+    id: ObjectId,
+    method: &str,
+) -> Result<EcdhPeer, VmError> {
+    let public_val =
+        ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.public_member))?;
+    if matches!(public_val, JsValue::Undefined) {
+        return Err(required_member_error(method, "public"));
+    }
+    let peer_id = require_crypto_key_member(ctx, public_val, method, "public")?;
+    let data = &ctx.vm.crypto_key_states[&peer_id];
+    Ok(EcdhPeer {
+        key_type: data.key_type,
+        algorithm: data.algorithm.name(),
+        curve: data.algorithm.named_curve(),
+        public_point: data.material.ec_public_point().map(<[u8]>::to_vec),
+    })
+}
+
+/// Brand-check a `CryptoKey`-valued **algorithm dictionary member** (e.g.
+/// `EcdhKeyDeriveParams.public`), returning its `ObjectId`.  Mirrors
+/// [`require_crypto_key_arg`] but reports a member-named (not parameter-
+/// indexed) WebIDL `TypeError`, and confirms the side-store entry alongside
+/// the brand so the subsequent `crypto_key_states[&id]` index cannot panic.
+fn require_crypto_key_member(
+    ctx: &NativeContext<'_>,
+    value: JsValue,
+    method: &str,
+    member: &str,
+) -> Result<ObjectId, VmError> {
+    if let JsValue::Object(id) = value {
+        if matches!(ctx.vm.get_object(id).kind, ObjectKind::CryptoKey)
+            && ctx.vm.crypto_key_states.contains_key(&id)
+        {
+            return Ok(id);
+        }
+    }
+    Err(VmError::type_error(format!(
+        "Failed to execute '{method}' on 'SubtleCrypto': \
+         the '{member}' member is not of type 'CryptoKey'."
+    )))
 }
 
 /// Validate an **already-read** required `BufferSource` member's type
@@ -577,18 +656,19 @@ pub(super) fn marshal_format(
 /// - A non-object, non-nullish value cannot be a dictionary → `TypeError`.
 /// - For an object, every declared `JsonWebKey` member is read **in
 ///   lexicographic identifier order**, firing each getter and propagating
-///   its throws — even members HMAC ignores (the EC / RSA fields).  Only
-///   the `oct`-relevant subset (`kty` / `use` / `key_ops` / `alg` / `ext`
-///   / `k`) is retained.
+///   its throws — even members the importing algorithm ignores.  The `oct`
+///   (`kty` / `use` / `key_ops` / `alg` / `ext` / `k`) and EC (`crv` / `x` /
+///   `y` / `d`) members are retained; the RSA fields are still read (for the
+///   getter side-effects) but discarded until PR-5.
 ///
 /// This is the **live (JS-object) half** of a spec-forced mirror: `wrapKey` /
 /// `unwrapKey` re-implement the identical `JsonWebKey` dictionary conversion
 /// over JSON *bytes* in `elidex_api_crypto::jwk::from_json_bytes` (realm-
 /// isolated, no JS object — WebCrypto §9 "a new global object").  The two must
-/// stay in lockstep: adding an EC / RSA member here (PR-4 / PR-5) requires the
-/// same member in `from_json_bytes`, or wrap↔import coercion / error precedence
-/// diverge.  (A differential equivalence test is slotted for PR-4 under
-/// `#11-crypto-subtle-full`.)
+/// stay in lockstep: a member read here must be retained identically in
+/// `from_json_bytes`, or wrap↔import coercion / error precedence diverge.  The
+/// EC members landed in PR-4 (RSA in PR-5); the differential equivalence test
+/// (`#11-crypto-subtle-full`) mechanically pins the two halves in lockstep.
 pub(super) fn marshal_jwk(
     ctx: &mut NativeContext<'_>,
     value: JsValue,
@@ -608,8 +688,8 @@ pub(super) fn marshal_jwk(
     // qi, use, x, y.  Read every member (firing getters / propagating
     // throws); retain only the oct subset.
     let alg = read_jwk_string(ctx, id, "alg")?;
-    read_jwk_string(ctx, id, "crv")?;
-    read_jwk_string(ctx, id, "d")?;
+    let crv = read_jwk_string(ctx, id, "crv")?;
+    let d = read_jwk_string(ctx, id, "d")?;
     read_jwk_string(ctx, id, "dp")?;
     read_jwk_string(ctx, id, "dq")?;
     read_jwk_string(ctx, id, "e")?;
@@ -623,8 +703,8 @@ pub(super) fn marshal_jwk(
     read_jwk_string(ctx, id, "q")?;
     read_jwk_string(ctx, id, "qi")?;
     let use_ = read_jwk_string(ctx, id, "use")?;
-    read_jwk_string(ctx, id, "x")?;
-    read_jwk_string(ctx, id, "y")?;
+    let x = read_jwk_string(ctx, id, "x")?;
+    let y = read_jwk_string(ctx, id, "y")?;
     Ok(JsonWebKey {
         kty,
         k,
@@ -632,6 +712,10 @@ pub(super) fn marshal_jwk(
         use_,
         key_ops,
         ext,
+        crv,
+        x,
+        y,
+        d,
     })
 }
 
@@ -770,11 +854,17 @@ pub(super) fn build_jwk_object(ctx: &mut NativeContext<'_>, jwk: &JsonWebKey) ->
         );
     };
     // Web IDL "convert a dictionary to an ECMAScript value" creates own
-    // properties in **lexicographic member order** — for the `oct` subset:
-    // alg, ext, k, key_ops, kty, use — so `Object.keys(exportedJwk)`
-    // matches the spec / other engines.
+    // properties in **lexicographic member order** — across the `oct` + EC
+    // subsets: alg, crv, d, ext, k, key_ops, kty, use, x, y — so
+    // `Object.keys(exportedJwk)` matches the spec / other engines.
     if let Some(alg) = &jwk.alg {
         set_string(ctx, "alg", alg);
+    }
+    if let Some(crv) = &jwk.crv {
+        set_string(ctx, "crv", crv);
+    }
+    if let Some(d) = &jwk.d {
+        set_string(ctx, "d", d);
     }
     if let Some(ext) = jwk.ext {
         let key = PropertyKey::String(ctx.intern("ext"));
@@ -814,5 +904,53 @@ pub(super) fn build_jwk_object(ctx: &mut NativeContext<'_>, jwk: &JsonWebKey) ->
     if let Some(use_) = &jwk.use_ {
         set_string(ctx, "use", use_);
     }
+    if let Some(x) = &jwk.x {
+        set_string(ctx, "x", x);
+    }
+    if let Some(y) = &jwk.y {
+        set_string(ctx, "y", y);
+    }
     obj
+}
+
+/// Build the `CryptoKeyPair` dictionary (WebCrypto §17) returned by an EC
+/// `generateKey` (§14.3.6 `(CryptoKey or CryptoKeyPair)`): a plain object
+/// `{ privateKey, publicKey }` with **no** `ObjectKind` brand — an ordinary
+/// object like the exported JWK object, not a `CryptoKey`.  Web IDL converts
+/// a dictionary to an ECMAScript value member-by-member in **lexicographic**
+/// order (Web IDL §3.2.17), so `privateKey` (`p-r`) precedes `publicKey`
+/// (`p-u`) — matching `Object.keys(keyPair)` in other engines.
+///
+/// GC is disabled for the whole `NativeFunction` call (see
+/// [`build_jwk_object`]), so the two `alloc_crypto_key` calls in the caller
+/// plus this assembly have no mid-collection window; the two wrappers stay
+/// reachable through these own properties (and via `crypto_key_states` /
+/// `crypto_key_js_cache`, traced + unbind-cleared per their `ObjectId`).
+pub(super) fn build_crypto_key_pair(
+    ctx: &mut NativeContext<'_>,
+    public_id: ObjectId,
+    private_id: ObjectId,
+) -> ObjectId {
+    let object_proto = ctx.vm.object_prototype;
+    let pair = ctx.alloc_object(Object {
+        kind: ObjectKind::Ordinary,
+        storage: PropertyStorage::shaped(shape::ROOT_SHAPE),
+        prototype: object_proto,
+        extensible: true,
+    });
+    let private_key = PropertyKey::String(ctx.intern("privateKey"));
+    ctx.vm.define_shaped_property(
+        pair,
+        private_key,
+        PropertyValue::Data(JsValue::Object(private_id)),
+        shape::PropertyAttrs::DATA,
+    );
+    let public_key = PropertyKey::String(ctx.intern("publicKey"));
+    ctx.vm.define_shaped_property(
+        pair,
+        public_key,
+        PropertyValue::Data(JsValue::Object(public_id)),
+        shape::PropertyAttrs::DATA,
+    );
+    pair
 }

@@ -528,11 +528,19 @@ fn position_column_fragments(
         // they DO shift with the column delta (else they would paint back in
         // column 0 once consumed). Ancestor shifts of this whole subtree (relpos /
         // margin-collapse) move every fragment via `shift_descendants` (P2).
+        //
+        // `is_probe` (Z-1b-0.5): when an ANCESTOR pass is a throwaway probe this
+        // re-runs over a subtree the prior definitive pass already persisted, so the
+        // shifter must NOT move the persisted `InlineFlow` / box store (it is not
+        // rebuilt by the probe). This mirrors the `push_box` suppression above
+        // (`if !is_probe`) — the col-shift now honors the same flag the col-commit
+        // already does, so a probe neither pushes nor shifts persisted render state.
         elidex_layout_block::block::shift_descendants_excluding_own_fragments(
             dom,
             &frag.children,
             delta,
             &own,
+            is_probe,
         );
     }
 

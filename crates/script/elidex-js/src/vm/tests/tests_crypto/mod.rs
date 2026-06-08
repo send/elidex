@@ -31,6 +31,7 @@ mod crypto_global;
 mod crypto_key;
 mod derive;
 mod digest;
+mod ec;
 mod hmac;
 mod wrap;
 

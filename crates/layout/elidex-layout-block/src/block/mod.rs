@@ -460,7 +460,7 @@ pub fn layout_block_inner(
             if let Some(first_mbs) = result.first_child_margin_top {
                 let new_mbs = collapse_margins(margin_block_start, first_mbs);
                 let delta = (new_mbs - collapsed_margin_block_start) - first_mbs;
-                shift_block_children(dom, &children, delta, wm);
+                shift_block_children(dom, &children, delta, wm, input.is_probe);
                 collapsed_margin_block_start = new_mbs;
             }
         }
