@@ -25,9 +25,11 @@ pub(super) fn fill_seq(buf: &mut [u8]) -> Result<(), crate::error::AlgorithmErro
     Ok(())
 }
 
-/// A `fill_random` closure for [`crate::ops::sign`] on the deterministic
-/// algorithms (HMAC / ECDSA / RSASSA-PKCS1-v1_5) — they draw no entropy, so
-/// this is never invoked (only RSA-PSS consumes the seam).
+/// A `fill_random` closure for [`crate::ops::sign`] on the entropy-free
+/// algorithms (HMAC / ECDSA — ECDSA uses an RFC 6979 deterministic nonce), so
+/// the closure is never invoked for them.  It must NOT be used for an RSA
+/// `sign`: both RSASSA-PKCS1-v1_5 (blinding) and RSA-PSS (blinding + salt)
+/// consume the seam.
 #[allow(clippy::unnecessary_wraps)]
 pub(super) fn no_rng(_buf: &mut [u8]) -> Result<(), crate::error::AlgorithmError> {
     Ok(())

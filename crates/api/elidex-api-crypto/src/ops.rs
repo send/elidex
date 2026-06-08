@@ -446,9 +446,13 @@ fn export_symmetric(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKe
 }
 
 /// `sign` (WebCrypto §14.3.3 + §31 HMAC / §23.7.1 ECDSA / §20.8.1
-/// RSASSA-PKCS1-v1_5 / §21.4.1 RSA-PSS).  `fill_random` is the VM entropy seam
-/// — only the RSA-PSS salt draws from it (HMAC / ECDSA / RSASSA-PKCS1-v1_5 are
-/// deterministic), so for those algorithms the closure is never invoked.
+/// RSASSA-PKCS1-v1_5 / §21.4.1 RSA-PSS).  `fill_random` is the VM entropy seam.
+/// HMAC and ECDSA are deterministic (ECDSA uses an RFC 6979 deterministic
+/// nonce), so the closure is never invoked for them.  BOTH RSA families consume
+/// it: RSASSA-PKCS1-v1_5 blinds the private-key exponentiation (`sign_with_rng`)
+/// even though its signature *output* is deterministic, and RSA-PSS additionally
+/// draws the random salt — so any RSA `sign` requires a CSPRNG-quality seam (a
+/// failing / dummy RNG fails the operation or weakens the blinding).
 #[allow(clippy::needless_pass_by_value)] // uniform ops signature; see `generate_key`
 pub fn sign<F>(
     algorithm: NormalizedAlgorithm,

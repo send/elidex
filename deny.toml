@@ -17,6 +17,15 @@ ignore = [
     #     uses `sign_with_rng` (`crypto::rsa::sign`), the crate's own blinding of
     #     the private-key exponentiation — the documented mitigation for
     #     timing-observable signing (RustCrypto/RSA `sign_with_rng` docs).
+    #     Authoritative scope: the Marvin attack's discoverer (H. Kario) states
+    #     the RSA-PSS and PKCS#1 v1.5 *signing* APIs are NOT affected, conditional
+    #     only on correct blinding — which `sign_with_rng` provides
+    #     (people.redhat.com/~hkario/marvin/). This holds regardless of how often
+    #     a page calls `sign()`: blinding randomizes each private-key op with
+    #     fresh entropy, so repeated invocations build no key-recovery timing
+    #     oracle. Signing also has no secret plaintext, so the decryption-only
+    #     "unblinding / integer→bytes conversion" leak the advisory describes does
+    #     not exist here. (CVSS 5.9 MEDIUM, AC:H, confidentiality-only.)
     #   - keygen / import / export are not timing-oracle surfaces.
     #
     # MANDATORY RE-EVALUATION at PR-5b (RSA-OAEP `decrypt`/`unwrapKey`) — the
