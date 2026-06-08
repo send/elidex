@@ -31,13 +31,21 @@ use crate::key::{normalize_usages, CryptoKeyData, KeyMaterial, KeyType, KeyUsage
 use crate::ops::{format_data_mismatch, ExportedKey, KeyData, KeyFormat};
 use crate::rng::ClosureRng;
 
-/// Upper bound on `RsaHashedKeyGenParams.modulusLength` (bits) accepted by
-/// `generateKey`.  WebCrypto sets no maximum, but the value is script-
-/// controlled and the keygen runs synchronously on the VM thread, so an
-/// unbounded `modulusLength` is an engine DoS.  16384 is generously above any
-/// real RSA key (4096 is already large; 8192 / 16384 are paranoid-but-real),
-/// so this rejects only abuse, not legitimate use.
-const MAX_RSA_MODULUS_BITS: u32 = 16384;
+/// Upper bound on an RSA modulus (bits) — the script-controlled
+/// `generateKey` `modulusLength` (an unbounded value would DoS the synchronous
+/// VM-thread keygen) and every imported modulus ([`check_modulus_bits`]).
+///
+/// Pinned to the rsa crate's `RsaPublicKey::MAX_SIZE` (4096): public keys are
+/// reconstructed with `RsaPublicKey::new` / `from_public_key_der`, which reject
+/// a modulus above `MAX_SIZE` with `ModulusTooLarge`.  Advertising a higher
+/// ceiling would be inconsistent — `generateKey` (whose `new_with_exp` enforces
+/// no size) could mint a key whose public half then fails to reconstruct, and
+/// large imported verification keys would fail despite the stated policy.  4096
+/// covers every standard RSA key; supporting larger moduli needs the
+/// `new_with_max_size` constructor on every public-key path plus a custom SPKI
+/// decode (follow-on `#11-rsa-modulus-above-4096`).  Kept in lockstep by
+/// `tests::rsa::modulus_ceiling_matches_rsa_crate_max_size`.
+pub(crate) const MAX_RSA_MODULUS_BITS: u32 = 4096;
 
 /// Liveness probe drawn from the entropy seam **before** an RSA private-key
 /// *signing* exponentiation (see [`sign`]).  A CSPRNG seam is live or down for

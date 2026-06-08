@@ -182,6 +182,42 @@ fn normalize_rsa_keygen_reports_members_in_webidl_order() {
 }
 
 #[test]
+fn modulus_ceiling_matches_rsa_crate_max_size() {
+    // `MAX_RSA_MODULUS_BITS` must not exceed `rsa::RsaPublicKey::MAX_SIZE`:
+    // public keys are reconstructed via `RsaPublicKey::new` /
+    // `from_public_key_der`, which reject a modulus above MAX_SIZE.  A higher
+    // ceiling would let `generateKey` mint a key whose public half can't be
+    // reconstructed, and reject large imported keys despite the stated policy
+    // (Codex R14).
+    assert!(
+        crate::rsa::MAX_RSA_MODULUS_BITS as usize <= rsa::RsaPublicKey::MAX_SIZE,
+        "MAX_RSA_MODULUS_BITS ({}) exceeds rsa::RsaPublicKey::MAX_SIZE ({})",
+        crate::rsa::MAX_RSA_MODULUS_BITS,
+        rsa::RsaPublicKey::MAX_SIZE,
+    );
+}
+
+#[test]
+fn rsa_backend_has_no_decryption_while_marvin_advisory_is_ignored() {
+    // Enforceable tripwire for the deny.toml RUSTSEC-2023-0071 (Marvin) ignore.
+    // PR-5a is signing-only; RSA *decryption* (RSA-OAEP, the follow-on) is the
+    // path the Marvin timing attack actually targets, and the deny.toml ignore
+    // is workspace-wide so cargo-deny cannot fail when decryption lands — this
+    // test does.  If RSA decryption appears in the backend, this fails: you MUST
+    // first address RUSTSEC-2023-0071 (drop the ignore for a fixed `rsa` release,
+    // or security-review the decryption timing risk under the WebCrypto threat
+    // model — the deny.toml gate).  (Codex R14.)
+    let backend = include_str!("../rsa.rs");
+    for marker in [".decrypt(", "Oaep", "Pkcs1v15Encrypt"] {
+        assert!(
+            !backend.contains(marker),
+            "RSA decryption marker `{marker}` appeared in rsa.rs — address \
+             RUSTSEC-2023-0071 (deny.toml Marvin gate) before adding RSA decryption"
+        );
+    }
+}
+
+#[test]
 fn private_pkcs8_round_trip() {
     let (_public, private) = generate_pair(
         RsaVariant::RsassaPkcs1V15,
@@ -352,7 +388,7 @@ fn jwk_public_with_oth_member_is_ignored() {
 
 #[test]
 fn jwk_oversized_modulus_is_rejected_before_recovery() {
-    // A modulus wider than `MAX_RSA_MODULUS_BITS` (16384) must be rejected
+    // A modulus wider than `MAX_RSA_MODULUS_BITS` (4096) must be rejected
     // before the rsa crate validates / recovers — the d-only private path would
     // otherwise run `from_components` prime recovery on attacker-controlled
     // `n` / `e` / `d` (NIST SP 800-56B C.2), an engine DoS (Codex R5). 2200
