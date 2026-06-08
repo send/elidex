@@ -610,6 +610,133 @@ fn multicol_midbreak_multigroup_probe_preserves_all_subflows() {
 }
 
 #[test]
+fn multicol_balanced_midbreak_flow_survives_probe_total_height() {
+    // Codex PR#316 R2 (P2): `fill_columns_balanced` Step 1 (`probe_total_height`) lays
+    // the IFC with NO fragmentainer (`is_probe=true`), so a mid-break IFC reaches the
+    // `persist_flow` arm and (pre-fix) overwrote the live all-column mid-break flow
+    // with single-column col-0 probe geometry; the probe-guarded column positioning
+    // does not rebuild it, so the corruption survives to render. The earlier
+    // probe-survival test uses `column-fill:auto` (no `probe_total_height`); this one
+    // uses `balance` to exercise the persist_flow WRITE face. Pin: lay definitively
+    // (per-column flow built), re-lay under an ancestor probe — coords unchanged.
+    let font_db = make_font_db();
+    if !fonts_available(&font_db) {
+        return;
+    }
+    let mut dom = EcsDom::new();
+    let container = elem(&mut dom, "div");
+    let _ = dom.world_mut().insert_one(
+        container,
+        ComputedStyle {
+            display: Display::Block,
+            column_count: Some(2),
+            column_fill: ColumnFill::Balance,
+            height: Dimension::Length(40.0),
+            ..ComputedStyle::default()
+        },
+    );
+    let (_div, tnode) = add_wrapping_text_block(&mut dom, container, LONG_TEXT);
+
+    let coords = |dom: &EcsDom| -> Vec<(f32, f32)> {
+        dom.world()
+            .get::<&InlineFlow>(tnode)
+            .ok()
+            .map(|f| {
+                f.fragments
+                    .iter()
+                    .flat_map(|fr| fr.lines.iter())
+                    .map(|l| {
+                        (
+                            l.block_start,
+                            l.runs
+                                .first()
+                                .map_or(0.0, elidex_ecs::InlineFlowRun::inline_start),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+
+    let input = make_input(&font_db);
+    layout_multicol(&mut dom, container, &input, layout_child_fn);
+    let before = coords(&dom);
+    assert!(
+        !before.is_empty(),
+        "balanced definitive layout builds the mid-break flow"
+    );
+
+    let probe_input = LayoutInput {
+        is_probe: true,
+        ..make_input(&font_db)
+    };
+    layout_multicol(&mut dom, container, &probe_input, layout_child_fn);
+    let after = coords(&dom);
+    assert_eq!(
+        before, after,
+        "a probe (incl. the balanced `probe_total_height` no-fragmentainer pass) must \
+         NOT overwrite the live mid-break flow with single-column col-0 geometry"
+    );
+}
+
+#[test]
+fn multicol_midbreak_clipping_block_stays_legacy_no_inline_flow() {
+    // Codex PR#316 R2 (P2): a mid-break IFC whose own block clips overflow must NOT
+    // use Option D. Render consumes the converged all-column `InlineFlow` under the
+    // block's single (last-column) padding-box clip, so the col-0 lines (x≈0) fall
+    // LEFT of the clip and are clipped away — content the pre-Z-1b legacy path painted
+    // VISIBLY (beginning at the clip origin) now disappears under `overflow:hidden`.
+    // Until per-fragment clipping (committed-next), a clipping mid-break block stays
+    // on the legacy single-linear path (no `InlineFlow`), so nothing vanishes. Pin:
+    // `overflow:hidden` on the block ⇒ NO `InlineFlow`; same DOM without the clip ⇒
+    // `InlineFlow` IS persisted (Option D).
+    let font_db = make_font_db();
+    if !fonts_available(&font_db) {
+        return;
+    }
+    let run_start_has_flow = |clip: bool| -> bool {
+        let mut dom = EcsDom::new();
+        let container = elem(&mut dom, "div");
+        let _ = dom.world_mut().insert_one(
+            container,
+            ComputedStyle {
+                display: Display::Block,
+                column_count: Some(2),
+                column_fill: ColumnFill::Auto,
+                height: Dimension::Length(40.0),
+                ..ComputedStyle::default()
+            },
+        );
+        let div = elem(&mut dom, "div");
+        dom.append_child(container, div);
+        let mut div_style = ComputedStyle {
+            display: Display::Block,
+            font_family: TEST_FONTS.iter().map(|&s| s.to_string()).collect(),
+            ..ComputedStyle::default()
+        };
+        if clip {
+            div_style.overflow_x = elidex_plugin::Overflow::Hidden;
+        }
+        let _ = dom.world_mut().insert_one(div, div_style);
+        let tnode = dom.create_text(LONG_TEXT);
+        dom.append_child(div, tnode);
+        let input = make_input(&font_db);
+        layout_multicol(&mut dom, container, &input, layout_child_fn);
+        let has_flow = dom.world().get::<&InlineFlow>(tnode).is_ok();
+        has_flow
+    };
+    assert!(
+        run_start_has_flow(false),
+        "a non-clipping mid-break block persists the converged per-column InlineFlow (Option D)"
+    );
+    assert!(
+        !run_start_has_flow(true),
+        "a clipping (overflow:hidden) mid-break block stays on the legacy path — NO \
+         InlineFlow — so its col-0 content is not clipped away by the last-column clip"
+    );
+}
+
+#[test]
 fn multicol_with_direct_inline_midbreak_leaves_no_stale_carrier() {
     // Codex PR#316 R1 (P2): direct inline content in a multicol container makes the
     // IFC `parent_entity` BE the multicol itself, so `fill` (which drains carriers off

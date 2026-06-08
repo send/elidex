@@ -894,7 +894,21 @@ pub fn layout_inline_context_fragmented(
     // `position_column_fragments` (Z-1b, Option D). Mutually exclusive with
     // `persist_flow`: `do_carrier` ⟹ `frag_is_column && !column_is_whole` ⟹
     // `persist_flow == false`.
-    let do_carrier = frag_is_column && !column_is_whole;
+    //
+    // EXCEPT a mid-break IFC whose own block clips overflow (Codex PR#316 R2, P2):
+    // render consumes the converged all-column `InlineFlow` during a SINGLE DOM walk
+    // of the spanning block, pushing the block's clip rect from its one `LayoutBox`
+    // (overwritten + shifted to the LAST column). The col-0 lines (x≈0) then fall
+    // LEFT of the last-column padding-box clip and are clipped away — content the
+    // pre-Z-1b legacy single-linear path painted VISIBLY (it began at the clip
+    // origin) now disappears under `overflow:hidden`. Correct per-column clipping
+    // needs the per-fragment render walk (committed-next); until then, a clipping
+    // mid-break block stays on the legacy path (no `InlineFlow` ⇒ render's
+    // `emit_styled_segments`), so nothing vanishes. (A pure transform without a clip
+    // is NOT a regression — both eras are equally mis-referenced, nothing
+    // disappears — so it keeps Option D.)
+    let midbreak_clips = frag_is_column && !column_is_whole && parent_style.clips_overflow();
+    let do_carrier = frag_is_column && !column_is_whole && !midbreak_clips;
     let total_block: f32 = packer
         .line_boxes
         .iter()
@@ -1062,26 +1076,41 @@ pub fn layout_inline_context_fragmented(
                 // the next), so the run-start carries this page's slice stamped with
                 // the page generation. Multicol whole-in-column persists its 1-fragment
                 // flow here too (shifted to its column by the column shift).
-                let _ = dom
-                    .world_mut()
-                    .insert_one(group_key, InlineFlow::single(env.layout_generation, lines));
-                persisted_keys.insert(group_key);
-            } else if env.is_probe {
-                // do_carrier under a throwaway probe (Codex PR#316 R3, P2): write NO
-                // carrier — the probe's per-column geometry is discarded, and
-                // `position_column_fragments` (is_probe-guarded) does not rebuild the
-                // flow. The live mid-break `InlineFlow` is preserved by the
-                // `is_probe`-gated `clear_inline_flows` below (which protects ALL
-                // groups, not just this column's — the multi-group case), so this arm
-                // only needs to skip the carrier push. The definitive pass owns the
-                // real clear + rebuild.
-            } else {
+                //
+                // A throwaway probe must NOT overwrite a persisted flow (Codex PR#316
+                // R2, P2): `probe_total_height` (balanced-multicol fill, Step 1) lays
+                // the IFC with NO fragmentainer, so a mid-break IFC reaches THIS
+                // `persist_flow` arm (no column ⇒ `column_is_whole`) and would clobber
+                // the live all-column mid-break flow with single-column col-0 probe
+                // geometry — and the probe-guarded `position_column_fragments` will not
+                // rebuild it, so the corruption survives to render. Skip the write
+                // during a probe: the existing flow is preserved (the clear below is
+                // `is_probe`-gated) and the definitive pass writes the real flow. This
+                // completes probe-mutation-freeness — a probe neither PUSHes (box
+                // store, #315/#318), SHIFTs (#318), CLEARs (R1), nor WRITEs persisted
+                // render state. (The static-atomic reposition above still runs: it is
+                // `is_probe`-aware and moves only the throwaway `LayoutBox`.)
+                if !env.is_probe {
+                    let _ = dom
+                        .world_mut()
+                        .insert_one(group_key, InlineFlow::single(env.layout_generation, lines));
+                    persisted_keys.insert(group_key);
+                }
+            } else if do_carrier && !env.is_probe {
                 // do_carrier: this column's slice for this run-start group. multicol
                 // fill drains the carrier; `position_column_fragments` folds it into
                 // `group_key`'s `InlineFlow` offset to the column's inline position.
                 // Static-atomic / relpos-atomic reposition is intentionally NOT run for
                 // mid-break (see the `persist_flow` arm above) — committed-next.
                 carrier_groups.push((group_key, lines));
+                // Else: a throwaway probe over a do_carrier run (write NO carrier — the
+                // probe's per-column geometry is discarded; `position_column_fragments`
+                // is `is_probe`-guarded and the live mid-break `InlineFlow` is preserved
+                // by the `is_probe`-gated `clear_inline_flows` below, Codex PR#316 R3),
+                // OR a clipping mid-break block (`midbreak_clips` ⇒ `do_carrier ==
+                // false` ⇒ no carrier, no flow ⇒ render stays on the legacy
+                // single-linear path, Codex PR#316 R2 — `clear_inline_flows` drops any
+                // stale converged flow so the switch to legacy is clean).
             }
         }
         // Reposition each `position:relative`/`sticky` atomic's `LayoutBox` to its
