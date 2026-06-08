@@ -198,6 +198,9 @@ pub fn import_key(
         NormalizedAlgorithm::EcImport { algorithm, curve } => {
             crate::ec::import(algorithm, curve, format, extractable, usages, key_data)
         }
+        NormalizedAlgorithm::RsaImport { variant, hash } => {
+            crate::rsa::import(variant, hash, format, extractable, usages, key_data)
+        }
         _ => Err(not_supported_op("importKey")),
     }
 }
@@ -393,9 +396,9 @@ pub fn export_key(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKey,
         KeyAlgorithm::Hmac { .. } | KeyAlgorithm::Aes { .. } => export_symmetric(format, key),
         KeyAlgorithm::Ecdsa { curve } => crate::ec::export(EcAlgorithm::Ecdsa, curve, format, key),
         KeyAlgorithm::Ecdh { curve } => crate::ec::export(EcAlgorithm::Ecdh, curve, format, key),
-        // RSA export — stubbed NotSupported in commit 1; the `rsa` backend
-        // dispatch (§20.8.5 / §21.4.5) lands in commit 2.
-        KeyAlgorithm::Rsa { .. } => Err(not_supported_op("exportKey")),
+        // RSA export (§20.8.5 / §21.4.5) — the variant + hash drive the jwk
+        // `alg` (RS256 / PS384 / …); spki / pkcs8 are verbatim canonical DER.
+        KeyAlgorithm::Rsa { variant, hash, .. } => crate::rsa::export(variant, hash, format, key),
         KeyAlgorithm::Hkdf | KeyAlgorithm::Pbkdf2 => unreachable!("KDF rejected at step 6"),
     }
 }

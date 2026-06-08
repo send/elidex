@@ -21,7 +21,10 @@
 //! - [`hmac`] — HMAC sign / verify / key-length resolution (§31).
 //! - `hkdf` (crate-internal) — HKDF derive-bits (§33.4.1, RFC 5869).
 //! - `pbkdf2` (crate-internal) — PBKDF2 derive-bits (§34.4.1, RFC 8018).
-//! - [`jwk`] — `oct` JSON Web Key parse / serialize (§15).
+//! - `rsa` (crate-internal) — RSASSA-PKCS1-v1_5 / RSA-PSS key import /
+//!   export + sign / verify (§20 / §21, over the `rsa` crate); reached only
+//!   through [`ops`], so `pub(crate)`.
+//! - [`jwk`] — `oct` / EC / RSA JSON Web Key parse / serialize (§15).
 //! - [`key`] — the [`key::CryptoKeyData`] model (§13).
 //! - [`ops`] — operation-level entry points owning all spec validation.
 //! - [`error`] — the [`error::AlgorithmError`] → DOMException taxonomy.
@@ -38,6 +41,7 @@ pub mod jwk;
 pub mod key;
 pub mod ops;
 pub(crate) mod pbkdf2;
+pub(crate) mod rsa;
 
 #[cfg(test)]
 mod tests;
@@ -48,6 +52,6 @@ pub use algorithm::{
 };
 pub use error::AlgorithmError;
 pub use hash::HashAlgorithm;
-pub use jwk::JsonWebKey;
+pub use jwk::{JsonWebKey, RsaOtherPrimesInfo};
 pub use key::{CryptoKeyData, KeyAlgorithm, KeyMaterial, KeyType, KeyUsage};
 pub use ops::{ExportedKey, GeneratedKey, KeyData, KeyFormat};

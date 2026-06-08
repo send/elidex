@@ -723,10 +723,18 @@ fn export_jwk(
             .map(|s| URL_SAFE_NO_PAD.encode(s)),
         key_ops: Some(key.usages.iter().map(|u| u.as_str().to_string()).collect()),
         ext: Some(key.extractable),
-        // The `oct` members are absent for an EC key.
+        // The `oct` / RSA members are absent for an EC key.
         k: None,
         alg: None,
         use_: None,
+        n: None,
+        e: None,
+        p: None,
+        q: None,
+        dp: None,
+        dq: None,
+        qi: None,
+        oth: None,
     })
 }
 

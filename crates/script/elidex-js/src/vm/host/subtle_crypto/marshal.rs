@@ -11,6 +11,7 @@
 use elidex_api_crypto::key::KeyUsage;
 use elidex_api_crypto::{
     self as crypto, AlgorithmParams, EcdhPeer, JsonWebKey, KeyFormat, Operation, RawAlgorithm,
+    RsaOtherPrimesInfo,
 };
 
 use super::super::super::coerce;
@@ -748,23 +749,23 @@ pub(super) fn marshal_jwk(
     };
     // Lexicographic identifier order of `JsonWebKey` members (WebCrypto
     // §15): alg, crv, d, dp, dq, e, ext, k, key_ops, kty, n, oth, p, q,
-    // qi, use, x, y.  Read every member (firing getters / propagating
-    // throws); retain only the oct subset.
+    // qi, use, x, y.  Read every member in this order (firing getters /
+    // propagating throws); retain the oct + EC + RSA subsets.
     let alg = read_jwk_string(ctx, id, "alg")?;
     let crv = read_jwk_string(ctx, id, "crv")?;
     let d = read_jwk_string(ctx, id, "d")?;
-    read_jwk_string(ctx, id, "dp")?;
-    read_jwk_string(ctx, id, "dq")?;
-    read_jwk_string(ctx, id, "e")?;
+    let dp = read_jwk_string(ctx, id, "dp")?;
+    let dq = read_jwk_string(ctx, id, "dq")?;
+    let e = read_jwk_string(ctx, id, "e")?;
     let ext = read_jwk_bool(ctx, id, "ext")?;
     let k = read_jwk_string(ctx, id, "k")?;
     let key_ops = read_jwk_key_ops(ctx, id)?;
     let kty = read_jwk_string(ctx, id, "kty")?;
-    read_jwk_string(ctx, id, "n")?;
-    read_jwk_oth(ctx, id)?;
-    read_jwk_string(ctx, id, "p")?;
-    read_jwk_string(ctx, id, "q")?;
-    read_jwk_string(ctx, id, "qi")?;
+    let n = read_jwk_string(ctx, id, "n")?;
+    let oth = read_jwk_oth(ctx, id)?;
+    let p = read_jwk_string(ctx, id, "p")?;
+    let q = read_jwk_string(ctx, id, "q")?;
+    let qi = read_jwk_string(ctx, id, "qi")?;
     let use_ = read_jwk_string(ctx, id, "use")?;
     let x = read_jwk_string(ctx, id, "x")?;
     let y = read_jwk_string(ctx, id, "y")?;
@@ -779,6 +780,14 @@ pub(super) fn marshal_jwk(
         x,
         y,
         d,
+        n,
+        e,
+        p,
+        q,
+        dp,
+        dq,
+        qi,
+        oth,
     })
 }
 
@@ -842,21 +851,22 @@ fn read_jwk_key_ops(
 }
 
 /// Read the `sequence<RsaOtherPrimesInfo> oth` `JsonWebKey` member, fully
-/// converting (then discarding) each entry per Web IDL.  `undefined` →
-/// absent; otherwise the value is converted to a sequence (a non-iterable
-/// such as `oth: 123` → `TypeError`), and each entry is converted to an
+/// converting each entry per Web IDL.  `undefined` → absent (`None`);
+/// otherwise the value is converted to a sequence (a non-iterable such as
+/// `oth: 123` → `TypeError`), and each entry is converted to an
 /// `RsaOtherPrimesInfo` dictionary: `undefined` / `null` → an empty dict,
 /// an object → its (optional) `d` / `r` / `t` `DOMString` members read in
 /// lexicographic order (firing each getter), any other value → `TypeError`
-/// (e.g. `oth: [123]`).  HMAC never consults `oth`, but Web IDL dictionary
-/// conversion still performs the full member walk; the converted values
-/// are retained once the RSA vertical (`#11-crypto-subtle-full` PR-5)
-/// extends [`JsonWebKey`] to carry them.
-fn read_jwk_oth(ctx: &mut NativeContext<'_>, obj: ObjectId) -> Result<(), VmError> {
+/// (e.g. `oth: [123]`).  The converted entries are retained (PR-5a) so the
+/// live↔bytes mirror holds; multi-prime import itself is NotSupported.
+fn read_jwk_oth(
+    ctx: &mut NativeContext<'_>,
+    obj: ObjectId,
+) -> Result<Option<Vec<RsaOtherPrimesInfo>>, VmError> {
     let key = PropertyKey::String(ctx.vm.strings.intern("oth"));
     let val = ctx.get_property_value(obj, key)?;
     if matches!(val, JsValue::Undefined) {
-        return Ok(());
+        return Ok(None);
     }
     let msgs = SeqMessages {
         not_iterable: "Failed to execute 'importKey' on 'SubtleCrypto': \
@@ -866,12 +876,10 @@ fn read_jwk_oth(ctx: &mut NativeContext<'_>, obj: ObjectId) -> Result<(), VmErro
         cap_exceeded: "Failed to execute 'importKey' on 'SubtleCrypto': \
                        JWK 'oth' exceeds the maximum length.",
     };
-    // Returns `Vec<()>` — `oth` entries are converted (firing getters) for
-    // Web IDL conformance, then discarded (HMAC ignores them).
-    webidl_sequence_to_vec(ctx, val, MAX_CRYPTO_SEQUENCE_LEN, &msgs, |ctx, _idx, el| {
+    let out = webidl_sequence_to_vec(ctx, val, MAX_CRYPTO_SEQUENCE_LEN, &msgs, |ctx, _idx, el| {
         let entry = match el {
             // `null` / `undefined` → an empty RsaOtherPrimesInfo dict.
-            JsValue::Undefined | JsValue::Null => return Ok(()),
+            JsValue::Undefined | JsValue::Null => return Ok(RsaOtherPrimesInfo::default()),
             JsValue::Object(id) => id,
             _ => {
                 return Err(VmError::type_error(
@@ -881,13 +889,13 @@ fn read_jwk_oth(ctx: &mut NativeContext<'_>, obj: ObjectId) -> Result<(), VmErro
             }
         };
         // RsaOtherPrimesInfo members in lexicographic order (d, r, t), all
-        // optional `DOMString`s — read (firing getters), discard.
-        read_jwk_string(ctx, entry, "d")?;
-        read_jwk_string(ctx, entry, "r")?;
-        read_jwk_string(ctx, entry, "t")?;
-        Ok(())
+        // optional `DOMString`s — read (firing getters) + retain.
+        let d = read_jwk_string(ctx, entry, "d")?;
+        let r = read_jwk_string(ctx, entry, "r")?;
+        let t = read_jwk_string(ctx, entry, "t")?;
+        Ok(RsaOtherPrimesInfo { r, d, t })
     })?;
-    Ok(())
+    Ok(Some(out))
 }
 
 /// Build a fresh JS object for an exported `oct` JWK.
@@ -917,9 +925,10 @@ pub(super) fn build_jwk_object(ctx: &mut NativeContext<'_>, jwk: &JsonWebKey) ->
         );
     };
     // Web IDL "convert a dictionary to an ECMAScript value" creates own
-    // properties in **lexicographic member order** — across the `oct` + EC
-    // subsets: alg, crv, d, ext, k, key_ops, kty, use, x, y — so
-    // `Object.keys(exportedJwk)` matches the spec / other engines.
+    // properties in **lexicographic member order** — across the `oct` + EC +
+    // RSA subsets: alg, crv, d, dp, dq, e, ext, k, key_ops, kty, n, p, q, qi,
+    // use, x, y — so `Object.keys(exportedJwk)` matches the spec / other
+    // engines.  (`oth` is never emitted: multi-prime export does not occur.)
     if let Some(alg) = &jwk.alg {
         set_string(ctx, "alg", alg);
     }
@@ -928,6 +937,15 @@ pub(super) fn build_jwk_object(ctx: &mut NativeContext<'_>, jwk: &JsonWebKey) ->
     }
     if let Some(d) = &jwk.d {
         set_string(ctx, "d", d);
+    }
+    if let Some(dp) = &jwk.dp {
+        set_string(ctx, "dp", dp);
+    }
+    if let Some(dq) = &jwk.dq {
+        set_string(ctx, "dq", dq);
+    }
+    if let Some(e) = &jwk.e {
+        set_string(ctx, "e", e);
     }
     if let Some(ext) = jwk.ext {
         let key = PropertyKey::String(ctx.intern("ext"));
@@ -963,6 +981,18 @@ pub(super) fn build_jwk_object(ctx: &mut NativeContext<'_>, jwk: &JsonWebKey) ->
     }
     if let Some(kty) = &jwk.kty {
         set_string(ctx, "kty", kty);
+    }
+    if let Some(n) = &jwk.n {
+        set_string(ctx, "n", n);
+    }
+    if let Some(p) = &jwk.p {
+        set_string(ctx, "p", p);
+    }
+    if let Some(q) = &jwk.q {
+        set_string(ctx, "q", q);
+    }
+    if let Some(qi) = &jwk.qi {
+        set_string(ctx, "qi", qi);
     }
     if let Some(use_) = &jwk.use_ {
         set_string(ctx, "use", use_);

@@ -127,6 +127,16 @@ ecdsa = "0.16"
 p256 = { version = "0.13", features = ["ecdsa", "ecdh", "pkcs8", "arithmetic"] }
 p384 = { version = "0.13", features = ["ecdsa", "ecdh", "pkcs8", "arithmetic"] }
 p521 = { version = "0.13", features = ["ecdsa", "ecdh", "pkcs8", "arithmetic"] }
+# RSA stack for WebCrypto RSASSA-PKCS1-v1_5 / RSA-PSS (PR-5a).  The stable
+# 0.9 line (digest 0.10 / rand_core 0.6 generation — already in the tree via
+# the EC 0.13 stack; num-bigint-dig is the new transitive).  `std` only (no
+# `pem`: WebCrypto is DER-only); keygen RNG is passed explicitly (no
+# `getrandom`).  Signing uses the prehash `RsaPrivateKey::sign` /
+# `RsaPublicKey::verify` so the message digest stays on hash.rs (sha2 0.11);
+# the `sha1` / `sha2` features re-export the 0.10 `oid` digest types
+# (`rsa::sha2::Sha256` …) used only as the `AssociatedOid` markers for the
+# PKCS#1 v1.5 DigestInfo prefix + the PSS MGF1 hash.
+rsa = { version = "0.9", default-features = false, features = ["std", "sha1", "sha2"] }
 webpki-roots = "1"
 elidex-plugin = { path = "crates/core/elidex-plugin" }
 elidex-ecs = { path = "crates/core/elidex-ecs" }
