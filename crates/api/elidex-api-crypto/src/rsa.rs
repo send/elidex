@@ -39,6 +39,13 @@ use crate::rng::ClosureRng;
 /// so this rejects only abuse, not legitimate use.
 const MAX_RSA_MODULUS_BITS: u32 = 16384;
 
+/// Liveness probe drawn from the entropy seam **before** an RSA private-key
+/// *signing* exponentiation (see [`sign`]).  A CSPRNG seam is live or down for
+/// the whole call, so one byte suffices to detect a down seam and fail before
+/// any private-key work runs.  `pub(crate)` so the blinding test can subtract
+/// it from the seam-draw count.
+pub(crate) const ENTROPY_PROBE_LEN: usize = 1;
+
 // ---------------------------------------------------------------------------
 // importKey (WebCrypto §20.8.4 / §21.4.4)
 // ---------------------------------------------------------------------------
@@ -495,6 +502,20 @@ where
     // §20.8.1 / §21.4.1 step 1: the key must be private (reconstruct from the
     // stored PKCS#8 DER, InvalidAccessError if public).
     let privkey = reconstruct_private(key)?;
+    // Fail BEFORE the private-key exponentiation if the entropy seam is down.
+    // `sign_with_rng` blinds (and, for PSS, salts) via `ClosureRng`, whose
+    // infallible `fill_bytes` falls back to a *deterministic* stream on a
+    // `fill_random` error so the rsa op can still complete — acceptable for
+    // keygen (the candidate key is discarded), but for *signing* an existing
+    // key it would run the exponentiation with predictable blinding, exactly
+    // the timing-observable private-key work the Marvin (RUSTSEC-2023-0071)
+    // mitigation must avoid.  Probe the seam first so a down CSPRNG rejects the
+    // sign before any private-key work runs.  (A CSPRNG seam is live or down
+    // for the whole call; the per-arm `into_result()` below is the backstop for
+    // the non-realistic case where the probe succeeds but a later draw fails —
+    // the op then runs on the fallback but its signature is still rejected.)
+    let mut entropy_probe = [0u8; ENTROPY_PROBE_LEN];
+    fill_random(&mut entropy_probe)?;
     let digest = hash.digest(message);
     match variant {
         RsaVariant::RsassaPkcs1V15 => {
@@ -504,7 +525,8 @@ where
             // still deterministic; only the exponentiation timing is masked.
             let mut rng = ClosureRng::new(&mut fill_random);
             let result = privkey.sign_with_rng(&mut rng, pkcs1v15_scheme(hash), &digest);
-            // A `fill_random` failure surfaces here — never sign unblinded.
+            // Backstop for a draw that fails after the pre-op probe: reject the
+            // (fallback-blinded) signature rather than return it.
             rng.into_result()?;
             result.map_err(|_| operation("RSASSA-PKCS1-v1_5 signing failed"))
         }

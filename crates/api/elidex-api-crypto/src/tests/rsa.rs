@@ -443,8 +443,9 @@ fn rsapss_sign_blinds_the_private_key_exponentiation() {
     // `blinded` flag is set, so an *unblinded* `Pss::new_with_salt` would draw
     // exactly `saltLength` bytes from the seam (just the PSS salt), whereas the
     // blinded `new_blinded_with_salt` additionally draws the modulus-sized
-    // blinding factor.  Asserting the seam is consumed *beyond* the salt is a
-    // precise regression boundary for "blinding is active" (Codex R8).
+    // blinding factor.  Asserting the seam is consumed *beyond* the salt (plus
+    // the fixed pre-op entropy probe, R10) is a precise regression boundary for
+    // "blinding is active" (Codex R8).
     let (_public, private) = generate_pair(
         RsaVariant::RsaPss,
         HashAlgorithm::Sha256,
@@ -465,12 +466,37 @@ fn rsapss_sign_blinds_the_private_key_exponentiation() {
         counting,
     )
     .expect("RSA-PSS sign");
+    // The seam supplies the pre-op probe + the PSS salt + (iff blinded) the
+    // modulus-sized blinding factor.  An unblinded scheme would draw only
+    // probe + salt, so requiring strictly more proves blinding ran.
+    let floor = salt_length as usize + crate::rsa::ENTROPY_PROBE_LEN;
     assert!(
-        drawn.get() > salt_length as usize,
-        "RSA-PSS sign drew {} bytes (<= saltLength {salt_length}): the private-key \
+        drawn.get() > floor,
+        "RSA-PSS sign drew {} bytes (<= probe+saltLength {floor}): the private-key \
          exponentiation was NOT blinded",
         drawn.get(),
     );
+}
+
+#[test]
+fn rsapss_sign_surfaces_entropy_failure() {
+    // RSA-PSS sign must fail-fast on a down entropy seam — the pre-op probe
+    // rejects before the private-key exponentiation, so the op never runs on
+    // the deterministic `ClosureRng` fallback with predictable blinding (R10).
+    let (_public, private) = generate_pair(
+        RsaVariant::RsaPss,
+        HashAlgorithm::Sha256,
+        vec![KeyUsage::Sign],
+    );
+    let always_fail = |_: &mut [u8]| Err(AlgorithmError::Operation("entropy unavailable".into()));
+    let err = sign(
+        sign_alg(RsaVariant::RsaPss, Some(32)),
+        &private,
+        b"m",
+        always_fail,
+    )
+    .expect_err("an entropy failure must surface, not sign on the deterministic fallback");
+    assert!(matches!(err, AlgorithmError::Operation(_)), "got {err:?}");
 }
 
 #[test]
