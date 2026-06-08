@@ -130,7 +130,7 @@ pub fn dispatch_layout_child(
         let _ = dom.world_mut().insert_one(entity, offset_lb);
         if delta.x.abs() > f32::EPSILON || delta.y.abs() > f32::EPSILON {
             let children: Vec<_> = dom.children_iter(entity).collect();
-            elidex_layout_block::block::shift_descendants(dom, &children, delta);
+            elidex_layout_block::block::shift_descendants(dom, &children, delta, input.is_probe);
         }
     }
 

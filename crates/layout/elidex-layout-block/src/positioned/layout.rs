@@ -526,6 +526,6 @@ pub fn layout_absolutely_positioned(
     let delta = content_origin - child_lb.content.origin;
     if delta.x.abs() > f32::EPSILON || delta.y.abs() > f32::EPSILON {
         let grandchildren = dom.composed_children(entity);
-        crate::block::children::shift_descendants(dom, &grandchildren, delta);
+        crate::block::children::shift_descendants(dom, &grandchildren, delta, env.is_probe);
     }
 }

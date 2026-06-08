@@ -1006,6 +1006,7 @@ pub fn layout_inline_context_fragmented(
                             line.block_start,
                             is_vertical,
                             unoffset_origins.get(atomic).copied(),
+                            env.is_probe,
                         );
                     }
                 }
@@ -1038,6 +1039,7 @@ pub fn layout_inline_context_fragmented(
                 block_local + block_origin,
                 is_vertical,
                 unoffset_origins.get(&atomic).copied(),
+                env.is_probe,
             );
         }
     }
@@ -1088,6 +1090,7 @@ fn reposition_atomic_box(
     block_abs: f32,
     is_vertical: bool,
     unoffset_origin: Option<Point>,
+    is_probe: bool,
 ) {
     let Some(unoffset_origin) = unoffset_origin else {
         return;
@@ -1107,7 +1110,7 @@ fn reposition_atomic_box(
         return;
     }
     let children = dom.composed_children(atomic);
-    crate::block::shift_descendants(dom, &children, delta);
+    crate::block::shift_descendants(dom, &children, delta, is_probe);
     if let Ok(mut lb) = dom.world_mut().get::<&mut elidex_plugin::LayoutBox>(atomic) {
         lb.content.origin += delta;
     }

@@ -221,7 +221,12 @@ fn p2_ancestor_shift_moves_box_fragments() {
 
     // Ancestor reposition (e.g. relpos top/left, or an outer multicol's column
     // shift of THIS whole multicol): fragments move with the subtree.
-    elidex_layout_block::block::shift_descendants(&mut dom, &[container], Vector::new(40.0, 70.0));
+    elidex_layout_block::block::shift_descendants(
+        &mut dom,
+        &[container],
+        Vector::new(40.0, 70.0),
+        false,
+    );
 
     let after = box_fragment_cols(&dom, span);
     assert_eq!(after.len(), 2, "shift does not add/remove fragments");
@@ -229,6 +234,66 @@ fn p2_ancestor_shift_moves_box_fragments() {
     assert!((after[0].2 - (c0y + 70.0)).abs() < 0.01, "col0 y +70");
     assert!((after[1].1 - (c1x + 40.0)).abs() < 0.01, "col1 x +40");
     assert!((after[1].2 - (c1y + 70.0)).abs() < 0.01, "col1 y +70");
+}
+
+#[test]
+fn probe_shift_does_not_move_persisted_box_fragments_but_moves_layout_box() {
+    // Z-1b-0.5 (P1 completion): a THROWAWAY PROBE re-lays a subtree the prior
+    // definitive pass already persisted, so the shifter must NOT move the
+    // render-consumed standalone box store (it is not rebuilt by the probe) — but
+    // it MUST still move the `LayoutBox` (the throwaway measurement geometry the
+    // probe reads). This is the asymmetry the `is_probe` guard creates; the
+    // contrasting definitive case (`is_probe=false`) above DOES move the store.
+    let mut dom = EcsDom::new();
+    let container = elem(&mut dom, "div");
+    let _ = dom.world_mut().insert_one(
+        container,
+        ComputedStyle {
+            display: Display::Block,
+            column_count: Some(2),
+            column_fill: ColumnFill::Auto,
+            height: Dimension::Length(50.0),
+            ..ComputedStyle::default()
+        },
+    );
+    let span = add_spanning_block(&mut dom, container, 2, 50.0);
+    let font_db = make_font_db();
+    let input = make_input(&font_db);
+    layout_multicol(&mut dom, container, &input, layout_child_fn);
+
+    let before = box_fragment_cols(&dom, span);
+    assert_eq!(before.len(), 2);
+    let lb_before = dom
+        .world()
+        .get::<&LayoutBox>(span)
+        .map(|lb| lb.content.origin)
+        .expect("span has a LayoutBox after layout");
+
+    // Same delta as the definitive ancestor-shift test, but flagged as a probe.
+    elidex_layout_block::block::shift_descendants(
+        &mut dom,
+        &[container],
+        Vector::new(40.0, 70.0),
+        true,
+    );
+
+    // Box store: untouched (persisted render state survives the throwaway probe).
+    let after = box_fragment_cols(&dom, span);
+    assert_eq!(
+        before, after,
+        "a probe leaves the persisted box-store fragments put (no PUSH-then-stale corruption)"
+    );
+    // LayoutBox: moved (the probe needs the measurement geometry shifted).
+    let lb_after = dom
+        .world()
+        .get::<&LayoutBox>(span)
+        .map(|lb| lb.content.origin)
+        .expect("span still has a LayoutBox");
+    assert!(
+        (lb_after.x - (lb_before.x + 40.0)).abs() < 0.01
+            && (lb_after.y - (lb_before.y + 70.0)).abs() < 0.01,
+        "a probe still moves the LayoutBox measurement geometry (asymmetry, not a blanket no-op)"
+    );
 }
 
 #[test]
@@ -262,6 +327,7 @@ fn p2_excluding_own_fragments_variant_does_not_move_own_box_fragments() {
         &[container],
         Vector::new(40.0, 70.0),
         &own,
+        false,
     );
     let after = box_fragment_cols(&dom, span);
     assert_eq!(

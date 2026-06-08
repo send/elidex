@@ -47,7 +47,7 @@ fn shift_block_children_moves_inner_inline_flow() {
         elidex_plugin::WritingMode::HorizontalTb,
         Direction::Ltr,
     );
-    shift_block_children(&mut dom, &[block], 30.0, wm);
+    shift_block_children(&mut dom, &[block], 30.0, wm, false);
 
     let box_y = dom
         .world()
