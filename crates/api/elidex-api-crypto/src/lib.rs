@@ -53,6 +53,6 @@ pub use algorithm::{
 };
 pub use error::AlgorithmError;
 pub use hash::HashAlgorithm;
-pub use jwk::{JsonWebKey, RsaOtherPrimesInfo};
+pub use jwk::{JsonWebKey, RsaOtherPrimesInfo, MAX_CRYPTO_SEQUENCE_LEN};
 pub use key::{CryptoKeyData, KeyAlgorithm, KeyMaterial, KeyType, KeyUsage};
 pub use ops::{ExportedKey, GeneratedKey, KeyData, KeyFormat};

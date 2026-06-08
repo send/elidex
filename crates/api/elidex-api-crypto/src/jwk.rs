@@ -25,6 +25,17 @@ use crate::error::AlgorithmError;
 use crate::hash::HashAlgorithm;
 use crate::key::{CryptoKeyData, KeyUsage};
 
+/// Cap on every WebCrypto `sequence<T>` length — the JWK `key_ops` / `oth`
+/// members here, and the live `importKey` marshaller's `keyUsages` / `key_ops`
+/// / `oth` conversions (which `use` this constant).  Far above any legitimate
+/// list (there are only a handful of `KeyUsage` values; a real RSA key has no
+/// `oth`).  This is the **single source of truth** so the live (JS object →
+/// `JsonWebKey`) and bytes ([`from_json_bytes`]) halves of the `wrapKey` /
+/// `unwrapKey` mirror reject an oversized sequence identically — a script must
+/// not be able to feed a huge `oth` / `key_ops` array through one half that the
+/// other caps (an `unwrapKey` memory / CPU DoS on the VM thread otherwise).
+pub const MAX_CRYPTO_SEQUENCE_LEN: usize = 4096;
+
 /// A JSON Web Key (the members relevant to symmetric `oct` keys).
 /// `None` means the member was absent in the source object.
 ///
@@ -232,6 +243,16 @@ fn read_oth(map: &Map<String, Value>) -> Result<Option<Vec<RsaOtherPrimesInfo>>,
             "JWK 'oth' member is not a sequence".to_string(),
         ));
     };
+    // Mirror the live marshaller's `MAX_CRYPTO_SEQUENCE_LEN` cap before
+    // allocating / iterating: a huge `oth` array on the `unwrapKey` bytes path
+    // is otherwise a memory / CPU DoS the live half already rejects (multi-prime
+    // `oth` is `NotSupported` regardless, but the cap fires first, as in the
+    // live half, so the live↔bytes precedence agrees).
+    if entries.len() > MAX_CRYPTO_SEQUENCE_LEN {
+        return Err(AlgorithmError::Type(
+            "JWK 'oth' member exceeds the maximum length".to_string(),
+        ));
+    }
     let mut out = Vec::with_capacity(entries.len());
     for entry in entries {
         let info = match entry {
@@ -282,7 +303,17 @@ fn member_string_sequence(
 ) -> Result<Option<Vec<String>>, AlgorithmError> {
     match map.get(key) {
         None => Ok(None),
-        Some(Value::Array(items)) => Ok(Some(items.iter().map(json_to_domstring).collect())),
+        Some(Value::Array(items)) => {
+            // Mirror the live marshaller's `MAX_CRYPTO_SEQUENCE_LEN` cap (a
+            // `sequence<DOMString>`): reject before materializing the whole
+            // array so an `unwrapKey` of a huge `key_ops` cannot DoS the parse.
+            if items.len() > MAX_CRYPTO_SEQUENCE_LEN {
+                return Err(AlgorithmError::Type(
+                    "JWK 'key_ops' member exceeds the maximum length".to_string(),
+                ));
+            }
+            Ok(Some(items.iter().map(json_to_domstring).collect()))
+        }
         Some(_) => Err(AlgorithmError::Type(
             "JWK 'key_ops' member is not a sequence".to_string(),
         )),

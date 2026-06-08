@@ -114,14 +114,19 @@ struct Imported {
 /// validates the rsaEncryption OID + the RSA structure (a non-RSA / malformed
 /// SPKI → decode error → DataError).
 fn parse_spki(der: &[u8]) -> Result<RsaPublicKey, AlgorithmError> {
-    RsaPublicKey::from_public_key_der(der)
-        .map_err(|_| data("invalid SubjectPublicKeyInfo RSA public key"))
+    let key = RsaPublicKey::from_public_key_der(der)
+        .map_err(|_| data("invalid SubjectPublicKeyInfo RSA public key"))?;
+    check_modulus_bits(key.n().bits())?;
+    Ok(key)
 }
 
 /// Parse a PKCS#8 PrivateKeyInfo (WebCrypto §20.8.4 pkcs8): `from_pkcs8_der`
 /// validates the rsaEncryption OID + the RSA structure.
 fn parse_pkcs8(der: &[u8]) -> Result<RsaPrivateKey, AlgorithmError> {
-    RsaPrivateKey::from_pkcs8_der(der).map_err(|_| data("invalid PKCS#8 RSA private key"))
+    let key =
+        RsaPrivateKey::from_pkcs8_der(der).map_err(|_| data("invalid PKCS#8 RSA private key"))?;
+    check_modulus_bits(key.n().bits())?;
+    Ok(key)
 }
 
 /// Build the [`Imported`] facts for a public key: the canonical SPKI DER +
@@ -226,6 +231,10 @@ fn import_jwk(
     // n / e are required for both public and private keys (RFC 7518 §6.3.1).
     let n = decode_biguint(jwk.n.as_deref(), "n")?;
     let e = decode_biguint(jwk.e.as_deref(), "e")?;
+    // Bound the modulus BEFORE constructing the key — the private branch's
+    // `from_components` runs prime recovery on a d-only JWK, which must not be
+    // reached on an oversized attacker-controlled `n` (DoS).
+    check_modulus_bits(n.bits())?;
     match key_type {
         KeyType::Public => {
             let pubkey = RsaPublicKey::new(n, e)
@@ -748,6 +757,24 @@ fn encode_spki(pubkey: &RsaPublicKey) -> Result<Vec<u8>, AlgorithmError> {
 /// The modulus bit length (`RsaHashedKeyAlgorithm.modulusLength`, §20.6).
 fn modulus_bits<K: PublicKeyParts>(key: &K) -> Result<u32, AlgorithmError> {
     u32::try_from(key.n().bits()).map_err(|_| data("RSA modulus length is too large"))
+}
+
+/// Reject an imported RSA modulus wider than [`MAX_RSA_MODULUS_BITS`] — the same
+/// bound [`generate`] applies to a script-controlled `modulusLength`.  WebCrypto
+/// §20.8.4 sets no import maximum, but every import path validates / operates on
+/// the modulus on the VM thread, and the d-only JWK path runs NIST SP 800-56B
+/// C.2 prime *recovery* on attacker-controlled `n` / `e` / `d`, so an unbounded
+/// modulus is an engine-hang / OOM DoS via untrusted script.  Checked *before*
+/// the rsa crate does that work (the JWK path checks the decoded `n`; the
+/// spki / pkcs8 paths re-check the parsed key, keeping import↔generate
+/// symmetric).  A capability boundary, not malformed material → NotSupported.
+fn check_modulus_bits(bits: usize) -> Result<(), AlgorithmError> {
+    if bits > MAX_RSA_MODULUS_BITS as usize {
+        return Err(AlgorithmError::NotSupported(
+            "RSA modulus length exceeds the supported maximum".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 /// Decode a required RFC 7518 §2 `Base64urlUInt` JWK member into a `BigUint`.

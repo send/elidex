@@ -9,6 +9,8 @@
 //! `from_json_bytes` JWK mirror differential test lives in
 //! `subtle_crypto::differential`.
 
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine as _;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
 
 use crate::algorithm::RsaVariant;
@@ -291,6 +293,77 @@ fn jwk_multiprime_oth_is_not_supported() {
         matches!(err, AlgorithmError::NotSupported(_)),
         "got {err:?}"
     );
+}
+
+#[test]
+fn jwk_oversized_modulus_is_rejected_before_recovery() {
+    // A modulus wider than `MAX_RSA_MODULUS_BITS` (16384) must be rejected
+    // before the rsa crate validates / recovers — the d-only private path would
+    // otherwise run `from_components` prime recovery on attacker-controlled
+    // `n` / `e` / `d` (NIST SP 800-56B C.2), an engine DoS (Codex R5). 2200
+    // octets = a 17600-bit modulus.
+    let big_n = URL_SAFE_NO_PAD.encode(vec![0xFFu8; 2200]);
+    // Public JWK (no `d`): rejected before `RsaPublicKey::new`.
+    let public = JsonWebKey {
+        kty: Some("RSA".to_string()),
+        n: Some(big_n.clone()),
+        e: Some("AQAB".to_string()),
+        ..Default::default()
+    };
+    let err = import_key(
+        KeyFormat::Jwk,
+        import_alg(RsaVariant::RsassaPkcs1V15, HashAlgorithm::Sha256),
+        true,
+        vec![KeyUsage::Verify],
+        KeyData::Jwk(Box::new(public)),
+    )
+    .expect_err("oversized public modulus is NotSupported");
+    assert!(
+        matches!(err, AlgorithmError::NotSupported(_)),
+        "got {err:?}"
+    );
+    // d-only private JWK: rejected before the `from_components` recovery.
+    let private = JsonWebKey {
+        kty: Some("RSA".to_string()),
+        n: Some(big_n),
+        e: Some("AQAB".to_string()),
+        d: Some("aaaa".to_string()),
+        ..Default::default()
+    };
+    let err = import_key(
+        KeyFormat::Jwk,
+        import_alg(RsaVariant::RsassaPkcs1V15, HashAlgorithm::Sha256),
+        true,
+        vec![KeyUsage::Sign],
+        KeyData::Jwk(Box::new(private)),
+    )
+    .expect_err("oversized d-only modulus is NotSupported");
+    assert!(
+        matches!(err, AlgorithmError::NotSupported(_)),
+        "got {err:?}"
+    );
+}
+
+#[test]
+fn from_json_bytes_oversized_oth_is_rejected() {
+    // The `unwrapKey` bytes parser must cap `oth` at `MAX_CRYPTO_SEQUENCE_LEN`,
+    // mirroring the live `importKey` marshaller — otherwise a huge `oth` array
+    // DoSes the parse before RSA rejects it as multi-prime (Codex R5).
+    let entries = vec!["{}"; crate::MAX_CRYPTO_SEQUENCE_LEN + 1].join(",");
+    let json = format!(r#"{{"kty":"RSA","n":"AQAB","e":"AQAB","oth":[{entries}]}}"#);
+    let err = crate::jwk::from_json_bytes(json.as_bytes()).expect_err("oversized oth is rejected");
+    assert!(matches!(err, AlgorithmError::Type(_)), "got {err:?}");
+}
+
+#[test]
+fn from_json_bytes_oversized_key_ops_is_rejected() {
+    // The sibling `key_ops` sequence shares the same cap (the audit half of the
+    // oth finding) — the live↔bytes mirror must hold for every JWK sequence.
+    let entries = vec![r#""sign""#; crate::MAX_CRYPTO_SEQUENCE_LEN + 1].join(",");
+    let json = format!(r#"{{"kty":"oct","k":"AAEC","key_ops":[{entries}]}}"#);
+    let err =
+        crate::jwk::from_json_bytes(json.as_bytes()).expect_err("oversized key_ops is rejected");
+    assert!(matches!(err, AlgorithmError::Type(_)), "got {err:?}");
 }
 
 // ---------------------------------------------------------------------------

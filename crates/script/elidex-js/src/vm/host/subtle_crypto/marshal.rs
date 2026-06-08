@@ -11,7 +11,7 @@
 use elidex_api_crypto::key::KeyUsage;
 use elidex_api_crypto::{
     self as crypto, AlgorithmParams, EcdhPeer, JsonWebKey, KeyFormat, Operation, RawAlgorithm,
-    RsaOtherPrimesInfo,
+    RsaOtherPrimesInfo, MAX_CRYPTO_SEQUENCE_LEN,
 };
 
 use super::super::super::coerce;
@@ -672,13 +672,6 @@ fn coerce_enforce_range(
         )))
     }
 }
-
-/// Cap on every `SubtleCrypto` `sequence<T>` conversion (`keyUsages`, JWK
-/// `key_ops` / `oth`) — bounds a script-controlled iterable whose `.next()`
-/// never reports `done` (which would otherwise hang the Promise forever).
-/// Far above any legitimate list (there are only a handful of `KeyUsage`
-/// values); mirrors the `dom_inner_html` shadow-roots cap.
-const MAX_CRYPTO_SEQUENCE_LEN: usize = 4096;
 
 /// Marshal a JS `sequence<KeyUsage>` into a `Vec<KeyUsage>` (WebIDL
 /// §3.2.21): any iterable Object is accepted, a string primitive / other

@@ -43,6 +43,28 @@ fn rsassa_generate_key_returns_crypto_key_pair_with_algorithm() {
 }
 
 #[test]
+fn rsa_algorithm_keys_are_in_webidl_inheritance_order() {
+    // Web IDL §2.7 orders dictionary members inherited-first (least- to
+    // most-derived), lexicographic within a level.  For `RsaHashedKeyAlgorithm
+    // : RsaKeyAlgorithm : KeyAlgorithm`, `Object.keys(key.algorithm)` is
+    // `name, modulusLength, publicExponent, hash` — NOT the flat lexicographic
+    // `hash, modulusLength, name, publicExponent` (Codex R5).  Both keys of the
+    // pair share the `RsaHashedKeyAlgorithm` shape.
+    let src = format!(
+        "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey({RSASSA_GEN}, false, ['sign','verify']) \
+           .then(p => {{ globalThis.r = [ \
+             Object.keys(p.publicKey.algorithm).join(','), \
+             Object.keys(p.privateKey.algorithm).join(',') \
+           ].join('|'); }}, e => {{ globalThis.r = 'ERR:' + e.name; }});"
+    );
+    assert_eq!(
+        eval_global_string(&src, "r"),
+        "name,modulusLength,publicExponent,hash|name,modulusLength,publicExponent,hash"
+    );
+}
+
+#[test]
 fn rsassa_sign_then_verify_round_trips_with_name_only_params() {
     // generateKey → sign(privateKey) → verify(publicKey).  RSASSA sign / verify
     // take a name-only `Algorithm` (the hash rides on the key, §20.6).
