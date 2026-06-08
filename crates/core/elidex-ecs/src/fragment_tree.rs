@@ -11,13 +11,16 @@
 //! standalone), so the fragment tree is a sibling field of [`EcsDom`], built by
 //! layout as output and read by render.
 //!
-//! **Scope (Z-1a):** the tree is populated with multicol mid-break **box**
-//! fragments only, as *dark data* — render does not yet consume it. Z-1b adds
-//! the per-column inline-line fold ([`FragmentContent::InlineLines`], when it
-//! lands) and the render consume; the committed-next program adds block / flex /
-//! grid / table box fragments + the entity-less line / anonymous-block nodes and
-//! makes render walk the tree as primary. The node types here are the Z-final
-//! shape (a tree of fragments); Z-1a populates it flat (no nesting yet).
+//! **Scope (Z-1a / Z-1b):** the tree is populated with multicol mid-break **box**
+//! fragments only, as *dark data* — render does not consume it. (Z-1b folds the
+//! per-column inline **text** into the run-start's `InlineFlow` component instead —
+//! the converged `emit_inline_flow` sink — leaving this store dark; see
+//! `memory/terminal-z-z1b-consume-delta.md`, Option D.) The **committed-next**
+//! program is the first render consumer: it adds the per-column inline-line fold
+//! ([`FragmentContent::InlineLines`], when it lands) + block / flex / grid / table
+//! box fragments + the entity-less line / anonymous-block nodes, and makes render
+//! walk the tree as primary. The node types here are the Z-final shape (a tree of
+//! fragments); Z-1a populates it flat (no nesting yet).
 
 use std::collections::HashMap;
 
@@ -71,10 +74,10 @@ pub struct FragmentNode {
     pub content: FragmentContent,
 }
 
-/// What a [`FragmentNode`] carries. Z-1a needs only [`Box`](Self::Box); the
-/// per-column IFC line fold (`InlineLines`) arrives in Z-1b and the block / flex
-/// / grid / table specializations in the committed-next program — variants are
-/// *added*, never reshaping the existing one.
+/// What a [`FragmentNode`] carries. Z-1a / Z-1b need only [`Box`](Self::Box); the
+/// per-column IFC line fold (`InlineLines`) and the block / flex / grid / table
+/// specializations arrive in the committed-next program (the first render consumer
+/// of this store) — variants are *added*, never reshaping the existing one.
 #[derive(Clone, Debug)]
 pub enum FragmentContent {
     /// A box fragment: this entity's box model for this fragmentainer, in
@@ -187,8 +190,8 @@ impl FragmentTree {
     /// entity — the **positive presence** of a fragment is the render router
     /// (Z-1b), never `LayoutBox`-absence.
     ///
-    /// O(1)-keyed via the D-Z7 entity index (box-roots only), so the
-    /// Z-1b render router may call it per entity inside the paint walk. Anonymous
+    /// O(1)-keyed via the D-Z7 entity index (box-roots only), so the committed-next
+    /// render router may call it per entity inside the paint walk. Anonymous
     /// `InlineLines` child nodes are NOT returned here — they are reached via a
     /// box node's [`children`](FragmentNode::children) arena link.
     pub fn fragments_for(&self, entity: Entity) -> impl Iterator<Item = &FragmentNode> {
@@ -207,7 +210,7 @@ impl FragmentTree {
     /// `LayoutBox.content.origin`). The anonymous `InlineLines` child nodes (the
     /// committed-next inline fold) are reached via the box node's `children` arena
     /// link and shift with the writing-mode-projected delta — added with that
-    /// variant; Z-1a / Z-1b-0 has box nodes only.
+    /// variant; Z-1a / Z-1b has box nodes only.
     pub fn shift_entity(&mut self, entity: Entity, delta: Vector) {
         let Some(ids) = self.index.get(&entity) else {
             return;
@@ -215,9 +218,9 @@ impl FragmentTree {
         // The id list is tiny (one box per spanned column); clone it so we can
         // mutate `self.nodes` without holding the `self.index` borrow. Every
         // indexed id is a box root (the index keys box-roots only), so the match
-        // is irrefutable today; Z-1b's `InlineLines` variant turns this into a
-        // match whose lines arm applies the WM-projected delta (those nodes are
-        // reached via `children`, not the index).
+        // is irrefutable today; the committed-next `InlineLines` variant turns this
+        // into a match whose lines arm applies the WM-projected delta (those nodes
+        // are reached via `children`, not the index).
         for id in ids.clone() {
             let FragmentContent::Box(bf) = &mut self.nodes[id.0 as usize].content;
             bf.content.origin += delta;

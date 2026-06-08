@@ -17,6 +17,7 @@ mod fill;
 mod geometry;
 mod inline_flow;
 mod is_multicol;
+mod mid_break_flow;
 mod prereqs;
 mod spanner;
 

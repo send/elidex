@@ -2,7 +2,7 @@
 //!
 //! CSS Multi-column Layout Level 1 §7 (column-fill) and §8 (overflow columns).
 
-use elidex_ecs::{BoxFragment, EcsDom, Entity, ImageData};
+use elidex_ecs::{BoxFragment, ColumnFlowSlice, EcsDom, Entity, ImageData, InlineFlowLine};
 use elidex_layout_block::block::stack_block_children;
 use elidex_layout_block::{
     BreakToken, BreakTokenData, FragmentainerContext, FragmentationType, LayoutEnv, LayoutInput,
@@ -26,15 +26,38 @@ pub struct ColumnFillEnv<'a> {
 pub struct ColumnFragment {
     /// Entities laid out in this column (direct children).
     pub children: Vec<Entity>,
-    /// Per-column box-model snapshots of the **spanning** (mid-break) children
-    /// laid out in this column, captured at column-0 base coords **before** the
-    /// next column's layout overwrites their `LayoutBox` (the G11 last-column-wins
-    /// gap). `position_column_fragments` commits these to the standalone fragment
-    /// tree (definitive-pass-only),
-    /// offset to this column's inline position. Empty for a column whose
-    /// children all fit whole (those use the shifted `LayoutBox`, I-multicol).
-    /// Z-1a *dark data* — render does not yet consume the fragment tree.
-    pub box_snapshots: Vec<(Entity, BoxFragment)>,
+    /// Per-column snapshots of the **spanning** (mid-break) children laid out in
+    /// this column, captured at column-0 base coords **before** the next column's
+    /// layout overwrites their `LayoutBox` (the G11 last-column-wins gap).
+    /// `position_column_fragments` commits each (definitive-pass-only), offset to
+    /// this column's inline position. Empty for a column whose children all fit
+    /// whole (those use the shifted `LayoutBox`/`InlineFlow`, I-multicol).
+    pub box_snapshots: Vec<FragmentSnapshot>,
+}
+
+/// One mid-break spanning child's per-column snapshot: its box-model geometry
+/// (committed to the standalone fragment-tree box store as Z-1a *dark data* —
+/// render does not yet consume it) **and** the drained IFC line carrier
+/// ([`ColumnFlowSlice`]) — this column's per-run-start [`InlineFlowLine`]s at
+/// column-0 base, which `position_column_fragments` folds (offset per column) into
+/// the run-start's `InlineFlow` (the sink render's `emit_inline_flow` consumes,
+/// Z-1b Option D). `flow_groups` is empty unless the multicol's **direct child**
+/// IS the IFC container that broke mid-column (the carrier is written on the IFC
+/// `parent_entity` and drained here keyed on the spanning direct child — they must
+/// coincide). A deeper IFC (the direct child is a block wrapping a separate IFC
+/// container) writes its carrier on that inner container, which this drain (keyed
+/// on the direct child) never reaches: the carrier leaks (benign — render never
+/// reads it) and the inner IFC stays legacy/G11. Likewise a nested-block mid-break
+/// (the direct child breaks at a *block-child* boundary, not mid-IFC). Both are
+/// committed-next, no regression (these were legacy before Z-1b too).
+#[derive(Clone, Debug)]
+pub struct FragmentSnapshot {
+    /// The spanning (mid-break) child entity (= the IFC container `parent_entity`).
+    pub entity: Entity,
+    /// Box-model geometry at column-0 base (Z-1a box store, dark).
+    pub box_fragment: BoxFragment,
+    /// Drained per-run-start IFC lines for this column (Z-1b InlineFlow source).
+    pub flow_groups: Vec<(Entity, Vec<InlineFlowLine>)>,
 }
 
 /// Snapshot an entity's current `LayoutBox` as a [`BoxFragment`] (box-model
@@ -187,7 +210,22 @@ pub fn fill_columns_sequential(
         let dedup_break_out = break_out_child.filter(|&b| Some(b) != carry_midbreak);
         for entity in carry_midbreak.into_iter().chain(dedup_break_out) {
             if let Some(bf) = snapshot_box(dom, entity) {
-                box_snapshots.push((entity, bf));
+                // Drain (get + remove) the IFC line carrier this mid-break container
+                // wrote for THIS column (the IFC re-ran for this column just above,
+                // overwriting any prior column's carrier). `position_column_fragments`
+                // folds these per-run-start lines into the run-start's `InlineFlow`,
+                // offset to the column's inline position (Z-1b Option D). Drained-only
+                // — render never reads `ColumnFlowSlice`; empty for a non-IFC span.
+                let flow_groups = dom
+                    .world_mut()
+                    .remove_one::<ColumnFlowSlice>(entity)
+                    .map(|c| c.0)
+                    .unwrap_or_default();
+                box_snapshots.push(FragmentSnapshot {
+                    entity,
+                    box_fragment: bf,
+                    flow_groups,
+                });
             }
         }
         carry_midbreak = break_out_child;
