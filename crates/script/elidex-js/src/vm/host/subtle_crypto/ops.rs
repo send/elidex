@@ -341,9 +341,10 @@ pub(super) fn native_subtle_crypto_sign(
         )?;
         let signature = {
             let key_data = &ctx.vm.crypto_key_states[&key_id];
-            // `fill_random` supplies the RSA-PSS salt (HMAC / ECDSA / RSASSA are
-            // deterministic, so it is never invoked for them) — the same VM
-            // entropy seam as `generateKey`.
+            // `fill_random` is the VM entropy seam (the same as `generateKey`):
+            // HMAC / ECDSA draw nothing (ECDSA uses an RFC 6979 deterministic
+            // nonce), but BOTH RSA families consume it — RSASSA-PKCS1-v1_5 blinds
+            // the private-key exponentiation, RSA-PSS blinds + draws the salt.
             crypto::ops::sign(normalized, key_data, &data, |buf| {
                 getrandom::fill(buf)
                     .map_err(|e| AlgorithmError::Operation(format!("OS CSPRNG failure ({e})")))

@@ -156,6 +156,32 @@ fn generate_invalid_usage_is_syntax_error() {
 }
 
 #[test]
+fn normalize_rsa_keygen_reports_members_in_webidl_order() {
+    // RsaHashedKeyGenParams : RsaKeyGenParams : Algorithm — Web IDL validates
+    // the inherited `modulusLength` / `publicExponent` before the derived
+    // `hash`.  A malformed raw must report the inherited member first, matching
+    // the spec + the VM marshaller (which fires getters in that order), not the
+    // borrow-driven hash-first order (Codex R12).
+    // modulusLength + hash absent (publicExponent present) → modulusLength first.
+    let mut raw = RawAlgorithm::from_name(RsaVariant::RsassaPkcs1V15.canonical_name());
+    raw.public_exponent = Some(vec![0x01, 0x00, 0x01]);
+    let err = normalize(Operation::GenerateKey, raw).expect_err("missing modulusLength");
+    assert!(
+        matches!(&err, AlgorithmError::Type(m) if m.contains("modulusLength")),
+        "expected the modulusLength TypeError first, got {err:?}"
+    );
+    // publicExponent + hash absent (modulusLength present) → publicExponent
+    // (inherited) before hash (derived).
+    let mut raw = RawAlgorithm::from_name(RsaVariant::RsaPss.canonical_name());
+    raw.modulus_length = Some(2048);
+    let err = normalize(Operation::GenerateKey, raw).expect_err("missing publicExponent");
+    assert!(
+        matches!(&err, AlgorithmError::Type(m) if m.contains("publicExponent")),
+        "expected the publicExponent TypeError before hash, got {err:?}"
+    );
+}
+
+#[test]
 fn private_pkcs8_round_trip() {
     let (_public, private) = generate_pair(
         RsaVariant::RsassaPkcs1V15,

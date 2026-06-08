@@ -991,20 +991,26 @@ pub fn normalize(op: Operation, raw: RawAlgorithm) -> Result<NormalizedAlgorithm
             Ok(NormalizedAlgorithm::EcdhDerive { peer })
         }
         Some(DesiredType::RsaKeyGen(variant)) => {
-            // `RsaHashedKeyGenParams` — `hash` / `modulusLength` /
-            // `publicExponent` all `required` (absence is a `TypeError`,
-            // enforced at the VM marshal too).  modulusLength validity + the
-            // exponent value are the rsa-crate's OperationError at generate
-            // (§20.8.3 step 3), honored as-is (no extra range check here).
-            // Read the borrowed `hash` before moving the owned `publicExponent`
-            // octets out of `raw`.
-            let hash = normalize_required_hash(&raw, "RsaHashedKeyGenParams")?;
+            // `RsaHashedKeyGenParams` — `modulusLength` / `publicExponent`
+            // (inherited from `RsaKeyGenParams`) then `hash` (the derived
+            // member) are all `required` (absence is a `TypeError`).  Validate
+            // presence in that Web IDL inherited-first order so a malformed
+            // `RawAlgorithm` reports the same missing member as the spec + the
+            // VM marshaller (which fires getters in that order); the owned
+            // `publicExponent` is *extracted* last to keep the `&raw` hash read
+            // borrow-legal, but the precedence-defining checks run in order.
+            // modulusLength validity + the exponent value are the rsa-crate's
+            // OperationError at generate (§20.8.3 step 3), honored as-is.
             let modulus_length = raw
                 .modulus_length
                 .ok_or_else(|| required_member("modulusLength", "RsaHashedKeyGenParams"))?;
+            if raw.public_exponent.is_none() {
+                return Err(required_member("publicExponent", "RsaHashedKeyGenParams"));
+            }
+            let hash = normalize_required_hash(&raw, "RsaHashedKeyGenParams")?;
             let public_exponent = raw
                 .public_exponent
-                .ok_or_else(|| required_member("publicExponent", "RsaHashedKeyGenParams"))?;
+                .expect("publicExponent presence checked above");
             Ok(NormalizedAlgorithm::RsaKeyGen {
                 variant,
                 modulus_length,
