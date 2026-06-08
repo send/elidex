@@ -781,3 +781,80 @@ fn rsassa_sign_surfaces_entropy_failure() {
     .expect_err("an entropy failure must surface, not sign unblinded");
     assert!(matches!(err, AlgorithmError::Operation(_)), "got {err:?}");
 }
+
+// ---------------------------------------------------------------------------
+// Codex R3: modulusLength DoS bound + Base64urlUInt minimality + d-only JWK
+// ---------------------------------------------------------------------------
+
+#[test]
+fn generate_oversized_modulus_length_is_rejected() {
+    // An untrusted `generateKey({modulusLength: 2^32-1})` is rejected BEFORE the
+    // rsa crate prime-searches at that size (engine DoS guard).
+    let mut raw = RawAlgorithm::from_name(RsaVariant::RsassaPkcs1V15.canonical_name());
+    raw.modulus_length = Some(u32::MAX);
+    raw.public_exponent = Some(vec![0x01, 0x00, 0x01]);
+    raw.hash = Some(Box::new(RawAlgorithm::from_name(
+        HashAlgorithm::Sha256.canonical_name(),
+    )));
+    let alg = normalize(Operation::GenerateKey, raw).expect("normalizes");
+    let err = generate_key(
+        alg,
+        true,
+        vec![KeyUsage::Sign, KeyUsage::Verify],
+        seeded_fill(8),
+    )
+    .expect_err("an oversized modulusLength must be rejected");
+    assert!(matches!(err, AlgorithmError::Operation(_)), "got {err:?}");
+}
+
+#[test]
+fn jwk_non_minimal_base64urluint_is_data_error() {
+    // RFC 7518 §2: Base64urlUInt is the minimal big-endian encoding.  A
+    // leading-zero `n` ("AAEAAQ" = [0,1,0,1]) is malformed → DataError.
+    let jwk = rsa_jwk(&[("n", "AAEAAQ"), ("e", "AQAB")]);
+    assert!(
+        matches!(import_public_jwk_err(jwk), AlgorithmError::Data(_)),
+        "a non-minimal Base64urlUInt must be a DataError"
+    );
+}
+
+#[test]
+fn jwk_d_only_imports_via_prime_recovery() {
+    // A CRT-less (d-only) private JWK with the standard exponent (65537) imports
+    // via from_components' prime recovery; it is functionally equivalent (a
+    // signature verifies under the original public key).
+    let (public, private) = generate_pair(
+        RsaVariant::RsassaPkcs1V15,
+        HashAlgorithm::Sha256,
+        vec![KeyUsage::Sign, KeyUsage::Verify],
+    );
+    let mut jwk = expect_jwk(export_key(KeyFormat::Jwk, &private).expect("jwk export"));
+    jwk.p = None;
+    jwk.q = None;
+    jwk.dp = None;
+    jwk.dq = None;
+    jwk.qi = None;
+    let recovered = import_key(
+        KeyFormat::Jwk,
+        import_alg(RsaVariant::RsassaPkcs1V15, HashAlgorithm::Sha256),
+        true,
+        vec![KeyUsage::Sign],
+        KeyData::Jwk(Box::new(jwk)),
+    )
+    .expect("d-only JWK imports via recovery (e=65537)");
+    assert_eq!(recovered.key_type, KeyType::Private);
+    let sig = sign(
+        sign_alg(RsaVariant::RsassaPkcs1V15, None),
+        &recovered,
+        b"d-only",
+        seeded_fill(11),
+    )
+    .expect("sign with the recovered key");
+    assert!(verify(
+        verify_alg(RsaVariant::RsassaPkcs1V15, None),
+        &public,
+        &sig,
+        b"d-only"
+    )
+    .unwrap());
+}

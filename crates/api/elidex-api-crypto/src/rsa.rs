@@ -31,6 +31,14 @@ use crate::key::{normalize_usages, CryptoKeyData, KeyMaterial, KeyType, KeyUsage
 use crate::ops::{format_data_mismatch, ExportedKey, KeyData, KeyFormat};
 use crate::rng::ClosureRng;
 
+/// Upper bound on `RsaHashedKeyGenParams.modulusLength` (bits) accepted by
+/// `generateKey`.  WebCrypto sets no maximum, but the value is script-
+/// controlled and the keygen runs synchronously on the VM thread, so an
+/// unbounded `modulusLength` is an engine DoS.  16384 is generously above any
+/// real RSA key (4096 is already large; 8192 / 16384 are paranoid-but-real),
+/// so this rejects only abuse, not legitimate use.
+const MAX_RSA_MODULUS_BITS: u32 = 16384;
+
 // ---------------------------------------------------------------------------
 // importKey (WebCrypto §20.8.4 / §21.4.4)
 // ---------------------------------------------------------------------------
@@ -229,6 +237,30 @@ fn import_jwk(
             // qi are all-or-nothing (RFC 7518 §6.3.2 — see [`jwk_primes`]).
             let d = decode_biguint(jwk.d.as_deref(), "d")?;
             let primes = jwk_primes(jwk)?;
+            // A CRT-less (d-only) JWK relies on `from_components`' prime
+            // recovery (NIST SP 800-56B C.2), which the rsa crate supports only
+            // for a public exponent in (2^16, 2^256).  A *valid* d-only key with
+            // an out-of-range exponent (e.g. e=3) is a crate-capability
+            // boundary, not malformed input → NotSupportedError
+            // (`#11-rsa-jwk-d-only-small-exponent`); checked explicitly so it
+            // stays distinct from the DataError below for an in-range-but-
+            // inconsistent key (where `from_components` recovery genuinely fails
+            // on bad n/e/d).
+            if primes.is_empty() {
+                // recover_primes requires 2^16 < e < 2^256.  2^16 = 65536;
+                // 2^256 is a 1 byte followed by 32 zero bytes.
+                let e_min = BigUint::from(65536u32);
+                let mut e_max_bytes = [0u8; 33];
+                e_max_bytes[0] = 1;
+                let e_max = BigUint::from_bytes_be(&e_max_bytes);
+                if e <= e_min || e >= e_max {
+                    return Err(AlgorithmError::NotSupported(
+                        "RSA private JWK without prime factors (p / q) is supported only for a \
+                         public exponent in (2^16, 2^256)"
+                            .to_string(),
+                    ));
+                }
+            }
             let privkey = RsaPrivateKey::from_components(n, e, d, primes)
                 .map_err(|_| data("JWK RSA private key is invalid or inconsistent"))?;
             // `from_components` recomputes the CRT values from p / q / d, so a
@@ -276,19 +308,19 @@ fn jwk_primes(jwk: &JsonWebKey) -> Result<Vec<BigUint>, AlgorithmError> {
 #[allow(clippy::similar_names)]
 fn validate_jwk_crt(jwk: &JsonWebKey, privkey: &RsaPrivateKey) -> Result<(), AlgorithmError> {
     // All-or-nothing: if `dp` is absent so are `dq` / `qi` (jwk_primes gate).
-    let Some(dp) = jwk.dp.as_deref() else {
+    if jwk.dp.is_none() {
         return Ok(());
-    };
+    }
     let expected_dp = privkey.dp().ok_or_else(key_inaccessible)?;
     let expected_dq = privkey.dq().ok_or_else(key_inaccessible)?;
     let expected_qi = privkey.crt_coefficient().ok_or_else(key_inaccessible)?;
-    if &BigUint::from_bytes_be(&decode_b64(dp)?) != expected_dp {
+    if &decode_biguint(jwk.dp.as_deref(), "dp")? != expected_dp {
         return Err(data("JWK 'dp' is inconsistent with the RSA private key"));
     }
-    if &BigUint::from_bytes_be(&decode_b64(jwk.dq.as_deref().unwrap_or_default())?) != expected_dq {
+    if &decode_biguint(jwk.dq.as_deref(), "dq")? != expected_dq {
         return Err(data("JWK 'dq' is inconsistent with the RSA private key"));
     }
-    if BigUint::from_bytes_be(&decode_b64(jwk.qi.as_deref().unwrap_or_default())?) != expected_qi {
+    if decode_biguint(jwk.qi.as_deref(), "qi")? != expected_qi {
         return Err(data("JWK 'qi' is inconsistent with the RSA private key"));
     }
     Ok(())
@@ -321,6 +353,15 @@ where
     // §20.8.3 step 1 / §21.4.3 step 1: a usage outside {sign, verify} is a
     // SyntaxError — before key generation.
     validate_generate_usages(variant, usages)?;
+    // Bound the script-controlled `modulusLength` BEFORE the rsa crate
+    // allocates + prime-searches at that bit size.  WebCrypto §20.8.3 sets no
+    // maximum, but `modulusLength` is `[EnforceRange] unsigned long`, so an
+    // untrusted `generateKey({modulusLength: 2**32 - 1})` would otherwise
+    // OOM / hang the engine (the keygen runs on the VM thread).  No real RSA
+    // key approaches `MAX_RSA_MODULUS_BITS`, so this rejects only abuse.
+    if modulus_length > MAX_RSA_MODULUS_BITS {
+        return Err(operation("RSA modulusLength exceeds the supported maximum"));
+    }
     // §20.8.3 step 2-3: generate the RSA key pair (failure → OperationError).
     let exp = BigUint::from_bytes_be(public_exponent);
     let privkey = {
@@ -709,10 +750,19 @@ fn modulus_bits<K: PublicKeyParts>(key: &K) -> Result<u32, AlgorithmError> {
     u32::try_from(key.n().bits()).map_err(|_| data("RSA modulus length is too large"))
 }
 
-/// Decode a required base64url `BigInteger` JWK member into a `BigUint`.
+/// Decode a required RFC 7518 §2 `Base64urlUInt` JWK member into a `BigUint`.
+/// The encoding is the **minimal-length** big-endian octets (zero is `"AA"` =
+/// `[0x00]`), so an empty value or a non-minimal leading-zero octet is a
+/// malformed member → DataError (do not silently canonicalize it).
 fn decode_biguint(value: Option<&str>, member: &str) -> Result<BigUint, AlgorithmError> {
     let value = value.ok_or_else(|| data_owned(format!("JWK '{member}' member is missing")))?;
-    Ok(BigUint::from_bytes_be(&decode_b64(value)?))
+    let bytes = decode_b64(value)?;
+    if bytes.is_empty() || (bytes.len() > 1 && bytes[0] == 0) {
+        return Err(data_owned(format!(
+            "JWK '{member}' member is not a minimal Base64urlUInt"
+        )));
+    }
+    Ok(BigUint::from_bytes_be(&bytes))
 }
 
 /// base64url (no padding) of a `BigUint`'s minimal big-endian octets (the
