@@ -518,6 +518,98 @@ fn multicol_midbreak_flow_survives_a_throwaway_probe() {
 }
 
 #[test]
+fn multicol_midbreak_multigroup_probe_preserves_all_subflows() {
+    // Codex PR#316 R3 post-rebase (P2): a mid-break IFC is laid PER-COLUMN, so a
+    // probe of column 0 sees only column-0 run groups in `persisted_keys`. The
+    // `clear_inline_flows` call (now `is_probe`-gated) must NOT erase a run group
+    // whose lines fall in a LATER column — a `position:relative` inline sub-flow is a
+    // separate group keyed on the span's first child, and the probe deliberately does
+    // not rebuild it (`position_column_fragments` is `is_probe`-guarded). The earlier
+    // single-group `multicol_midbreak_flow_survives_a_throwaway_probe` cannot catch
+    // this: it needs ≥2 groups in one IFC, with one group absent from column 0's
+    // slice. Pin: lay definitively (both the top-level text AND the relpos sub-flow
+    // get flows), probe, assert EVERY group that had a flow still has one.
+    let font_db = make_font_db();
+    if !fonts_available(&font_db) {
+        return;
+    }
+    let mut dom = EcsDom::new();
+    let container = elem(&mut dom, "div");
+    let _ = dom.world_mut().insert_one(
+        container,
+        ComputedStyle {
+            display: Display::Block,
+            column_count: Some(2),
+            column_fill: ColumnFill::Auto,
+            height: Dimension::Length(40.0),
+            ..ComputedStyle::default()
+        },
+    );
+    // ONE IFC (a div) with TWO run groups: a long top-level text (fills column 0 and
+    // wraps into column 1) + a trailing `position:relative` inline span whose own
+    // text is a SEPARATE sub-flow (keyed on the span's text node), landing in a later
+    // column.
+    let div = elem(&mut dom, "div");
+    dom.append_child(container, div);
+    let _ = dom.world_mut().insert_one(
+        div,
+        ComputedStyle {
+            display: Display::Block,
+            font_family: TEST_FONTS.iter().map(|&s| s.to_string()).collect(),
+            ..ComputedStyle::default()
+        },
+    );
+    let prefix = dom.create_text(LONG_TEXT);
+    dom.append_child(div, prefix);
+    let span = elem(&mut dom, "span");
+    let _ = dom.world_mut().insert_one(
+        span,
+        ComputedStyle {
+            position: Position::Relative,
+            font_family: TEST_FONTS.iter().map(|&s| s.to_string()).collect(),
+            ..ComputedStyle::default()
+        },
+    );
+    let span_text = dom.create_text("relative positioned sub-flow trailing text content");
+    dom.append_child(span, span_text);
+    dom.append_child(div, span);
+
+    let input = make_input(&font_db);
+    layout_multicol(&mut dom, container, &input, layout_child_fn);
+
+    // Every run-start carrying a flow after the definitive layout (presence is the
+    // facet under test — the probe-clear erasure).
+    let with_flow = |dom: &EcsDom| -> Vec<Entity> {
+        [prefix, span_text]
+            .into_iter()
+            .filter(|&e| dom.world().get::<&InlineFlow>(e).is_ok())
+            .collect()
+    };
+    let before = with_flow(&dom);
+    assert_eq!(
+        before.len(),
+        2,
+        "the definitive layout persists BOTH the top-level text flow and the relpos \
+         span sub-flow (multi-group mid-break); got {before:?}"
+    );
+
+    // A throwaway probe must preserve ALL existing mid-break sub-flows, not just the
+    // groups present in the first column's slice.
+    let probe_input = LayoutInput {
+        is_probe: true,
+        ..make_input(&font_db)
+    };
+    layout_multicol(&mut dom, container, &probe_input, layout_child_fn);
+
+    let after = with_flow(&dom);
+    assert_eq!(
+        before, after,
+        "a throwaway probe must NOT clear a later-column run group's InlineFlow (the \
+         multi-group clear-erasure facet) — every group that had a flow keeps it"
+    );
+}
+
+#[test]
 fn multicol_with_direct_inline_midbreak_leaves_no_stale_carrier() {
     // Codex PR#316 R1 (P2): direct inline content in a multicol container makes the
     // IFC `parent_entity` BE the multicol itself, so `fill` (which drains carriers off
