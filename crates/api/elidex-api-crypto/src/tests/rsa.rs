@@ -493,6 +493,33 @@ fn jwk_oversized_modulus_is_rejected_before_recovery() {
 }
 
 #[test]
+fn jwk_public_exponent_over_cap_is_not_supported() {
+    // A public JWK whose `e` exceeds the rsa crate's `MAX_PUB_EXPONENT`
+    // (2^33 − 1) is a NotSupported capability boundary, not the rsa crate's
+    // generic DataError (Codex R16).  Real keys use e=65537; this `e` is 2^48−1.
+    let jwk = JsonWebKey {
+        kty: Some("RSA".to_string()),
+        // A small valid modulus so the size cap passes and the exponent check
+        // is reached.
+        n: Some("AQAB".to_string()),
+        e: Some(URL_SAFE_NO_PAD.encode([0xFFu8; 6])),
+        ..Default::default()
+    };
+    let err = import_key(
+        KeyFormat::Jwk,
+        import_alg(RsaVariant::RsassaPkcs1V15, HashAlgorithm::Sha256),
+        true,
+        vec![KeyUsage::Verify],
+        KeyData::Jwk(Box::new(jwk)),
+    )
+    .expect_err("a public exponent over the cap is NotSupported");
+    assert!(
+        matches!(err, AlgorithmError::NotSupported(_)),
+        "got {err:?}"
+    );
+}
+
+#[test]
 fn from_json_bytes_oversized_oth_is_rejected() {
     // The `unwrapKey` bytes parser must cap `oth` at `MAX_CRYPTO_SEQUENCE_LEN`,
     // mirroring the live `importKey` marshaller — otherwise a huge `oth` array

@@ -127,16 +127,24 @@ struct Imported {
 
 /// Parse a SubjectPublicKeyInfo (WebCrypto §20.8.4 spki): `from_public_key_der`
 /// validates the rsaEncryption OID + the RSA structure (a non-RSA / malformed
-/// SPKI → decode error → DataError).
+/// SPKI → decode error → DataError).  It also enforces the modulus
+/// (`RsaPublicKey::MAX_SIZE`) and exponent (`MAX_PUB_EXPONENT`) caps *during*
+/// construction, so an oversized / large-exponent SPKI key is a DataError here
+/// rather than the JWK path's NotSupported capability error — surfacing that as
+/// NotSupported would need a custom SPKI decode of `n` / `e` before the rsa
+/// crate's capped `try_from`, deferred to `#11-rsa-modulus-above-4096`
+/// (the constructor caps make a separate `check_modulus_bits` here dead code).
 fn parse_spki(der: &[u8]) -> Result<RsaPublicKey, AlgorithmError> {
-    let key = RsaPublicKey::from_public_key_der(der)
-        .map_err(|_| data("invalid SubjectPublicKeyInfo RSA public key"))?;
-    check_modulus_bits(key.n().bits())?;
-    Ok(key)
+    RsaPublicKey::from_public_key_der(der)
+        .map_err(|_| data("invalid SubjectPublicKeyInfo RSA public key"))
 }
 
 /// Parse a PKCS#8 PrivateKeyInfo (WebCrypto §20.8.4 pkcs8): `from_pkcs8_der`
-/// validates the rsaEncryption OID + the RSA structure.
+/// validates the rsaEncryption OID + the RSA structure.  Unlike
+/// `from_public_key_der`, `from_pkcs8_der` does NOT apply `RsaPublicKey::MAX_SIZE`,
+/// so the explicit `check_modulus_bits` is *reached* and required — without it a
+/// private key whose modulus exceeds `MAX_RSA_MODULUS_BITS` would import yet be
+/// unusable (its public half can't be reconstructed via `RsaPublicKey::new`).
 fn parse_pkcs8(der: &[u8]) -> Result<RsaPrivateKey, AlgorithmError> {
     let key =
         RsaPrivateKey::from_pkcs8_der(der).map_err(|_| data("invalid PKCS#8 RSA private key"))?;
@@ -238,10 +246,14 @@ fn import_jwk(
     // n / e are required for both public and private keys (RFC 7518 §6.3.1).
     let n = decode_biguint(jwk.n.as_deref(), "n")?;
     let e = decode_biguint(jwk.e.as_deref(), "e")?;
-    // Bound the modulus BEFORE constructing the key — the private branch's
-    // `from_components` runs prime recovery on a d-only JWK, which must not be
-    // reached on an oversized attacker-controlled `n` (DoS).
+    // Bound the modulus + exponent BEFORE constructing the key, as NotSupported
+    // capability boundaries (not the rsa crate's generic DataError): the private
+    // branch's `from_components` runs prime recovery on a d-only JWK, which must
+    // not be reached on an oversized attacker-controlled `n` (DoS), and a public
+    // exponent over the rsa crate's cap is an unsupported capability, not
+    // malformed material.
     check_modulus_bits(n.bits())?;
+    check_public_exponent(&e)?;
     match key_type {
         KeyType::Public => {
             let pubkey = RsaPublicKey::new(n, e)
@@ -813,6 +825,23 @@ fn check_modulus_bits(bits: usize) -> Result<(), AlgorithmError> {
     if bits > MAX_RSA_MODULUS_BITS as usize {
         return Err(AlgorithmError::NotSupported(
             "RSA modulus length exceeds the supported maximum".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Reject a public exponent above the rsa crate's `RsaPublicKey::MAX_PUB_EXPONENT`
+/// (2^33 − 1) as a NotSupported capability boundary, rather than letting
+/// `RsaPublicKey::new` surface it as a generic `DataError`.  WebCrypto / JWA
+/// accept any valid `Base64urlUInt` `e`, but the rsa crate caps it (every real
+/// key uses e=65537 ≪ 2^33), so an over-cap `e` is an unsupported capability,
+/// not malformed material.  Checked on the JWK path (where `e` is decoded
+/// before construction); the spki / pkcs8 DER paths hit the rsa crate's cap
+/// first (DataError) — see [`parse_spki`].  (Codex R16.)
+fn check_public_exponent(e: &BigUint) -> Result<(), AlgorithmError> {
+    if *e > BigUint::from(RsaPublicKey::MAX_PUB_EXPONENT) {
+        return Err(AlgorithmError::NotSupported(
+            "RSA public exponent exceeds the supported maximum".to_string(),
         ));
     }
     Ok(())
