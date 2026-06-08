@@ -342,7 +342,12 @@ where
     else {
         unreachable!("private_imported always returns KeyMaterial::Rsa");
     };
-    let key_alg = variant.key_algorithm(imported.modulus_length, imported.public_exponent, hash);
+    // §20.8.3 step 7: the key's `publicExponent` is the `publicExponent`
+    // member of the *normalized algorithm* (the caller's input bytes), NOT the
+    // canonical form re-derived from the parsed key — so a non-minimal input
+    // (e.g. a leading-zero `[0, 1, 0, 1]`) round-trips byte-identical.  The
+    // modulus length is the generated key's actual bit length.
+    let key_alg = variant.key_algorithm(imported.modulus_length, public_exponent.to_vec(), hash);
     // §20.8.3 steps 19-22: the public key — usages = ∩(usages, {verify}),
     // [[extractable]] always true.
     let public = CryptoKeyData {
@@ -419,8 +424,13 @@ fn split_usages(key_type: KeyType, usages: &[KeyUsage]) -> Vec<KeyUsage> {
 /// EMSA-PSS + MGF1 over a random `salt_length`-byte salt (§9.1).  The §14.3.3
 /// name / `sign`-usage gate ran in
 /// [`crate::ops::sign`]; this enforces step 1 ([[type]] must be private — via
-/// the stored PKCS#8 DER).  `fill_random` is the VM entropy seam — consumed
-/// for the PSS salt; RSASSA-PKCS1-v1_5 draws nothing.
+/// the stored PKCS#8 DER).  `fill_random` is the VM entropy seam — both
+/// families consume it: RSA-PSS for the salt, and RSASSA-PKCS1-v1_5 to
+/// **blind** the private-key exponentiation (`sign_with_rng` masks the
+/// modular exponentiation against timing sidechannels — important since
+/// WebCrypto exposes signing to untrusted script; the signature output stays
+/// deterministic).  An entropy failure surfaces as an OperationError (the
+/// private-key op is never run unblinded).
 pub(crate) fn sign<F>(
     variant: RsaVariant,
     hash: HashAlgorithm,
@@ -437,9 +447,17 @@ where
     let privkey = reconstruct_private(key)?;
     let digest = hash.digest(message);
     match variant {
-        RsaVariant::RsassaPkcs1V15 => privkey
-            .sign(pkcs1v15_scheme(hash), &digest)
-            .map_err(|_| operation("RSASSA-PKCS1-v1_5 signing failed")),
+        RsaVariant::RsassaPkcs1V15 => {
+            // `sign_with_rng` (not `sign`) so the rsa crate blinds the
+            // private-key operation with the entropy seam — `sign` uses a
+            // DummyRng (no blinding).  The EMSA-PKCS1-v1_5 signature output is
+            // still deterministic; only the exponentiation timing is masked.
+            let mut rng = ClosureRng::new(&mut fill_random);
+            let result = privkey.sign_with_rng(&mut rng, pkcs1v15_scheme(hash), &digest);
+            // A `fill_random` failure surfaces here — never sign unblinded.
+            rng.into_result()?;
+            result.map_err(|_| operation("RSASSA-PKCS1-v1_5 signing failed"))
+        }
         RsaVariant::RsaPss => {
             let salt_len = pss_salt_len(salt_length)?;
             // RFC 3447 §9.1.1: EMSA-PSS encoding requires emLen ≥ hLen +

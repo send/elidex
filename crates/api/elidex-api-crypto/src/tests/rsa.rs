@@ -724,3 +724,60 @@ fn jwk_empty_oth_is_not_supported() {
         "got {err:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Codex R2: publicExponent preservation + RSASSA blinding
+// ---------------------------------------------------------------------------
+
+#[test]
+fn generate_preserves_non_minimal_public_exponent() {
+    // §20.8.3 step 7: the key's publicExponent reflects the caller's input
+    // bytes (normalizedAlgorithm.publicExponent) — a non-minimal `[0,1,0,1]`
+    // is NOT canonicalized to `[1,0,1]`.
+    let mut raw = RawAlgorithm::from_name(RsaVariant::RsassaPkcs1V15.canonical_name());
+    raw.modulus_length = Some(2048);
+    raw.public_exponent = Some(vec![0x00, 0x01, 0x00, 0x01]);
+    raw.hash = Some(Box::new(RawAlgorithm::from_name(
+        HashAlgorithm::Sha256.canonical_name(),
+    )));
+    let alg = normalize(Operation::GenerateKey, raw).expect("normalizes");
+    let public = match generate_key(
+        alg,
+        true,
+        vec![KeyUsage::Sign, KeyUsage::Verify],
+        seeded_fill(7),
+    )
+    .unwrap()
+    {
+        GeneratedKey::Pair { public, .. } => public,
+        GeneratedKey::Single(_) => panic!("RSA keygen yields a pair"),
+    };
+    let KeyAlgorithm::Rsa {
+        public_exponent, ..
+    } = &public.algorithm
+    else {
+        panic!("RSA key");
+    };
+    assert_eq!(public_exponent, &vec![0x00, 0x01, 0x00, 0x01]);
+}
+
+#[test]
+fn rsassa_sign_surfaces_entropy_failure() {
+    // RSASSA-PKCS1-v1_5 sign blinds the private-key op via the entropy seam
+    // (`sign_with_rng`), so a `fill_random` failure surfaces as an error rather
+    // than running the exponentiation unblinded.
+    let (_public, private) = generate_pair(
+        RsaVariant::RsassaPkcs1V15,
+        HashAlgorithm::Sha256,
+        vec![KeyUsage::Sign],
+    );
+    let always_fail = |_: &mut [u8]| Err(AlgorithmError::Operation("entropy unavailable".into()));
+    let err = sign(
+        sign_alg(RsaVariant::RsassaPkcs1V15, None),
+        &private,
+        b"m",
+        always_fail,
+    )
+    .expect_err("an entropy failure must surface, not sign unblinded");
+    assert!(matches!(err, AlgorithmError::Operation(_)), "got {err:?}");
+}
