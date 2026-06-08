@@ -341,7 +341,13 @@ pub(super) fn native_subtle_crypto_sign(
         )?;
         let signature = {
             let key_data = &ctx.vm.crypto_key_states[&key_id];
-            crypto::ops::sign(normalized, key_data, &data)
+            // `fill_random` supplies the RSA-PSS salt (HMAC / ECDSA / RSASSA are
+            // deterministic, so it is never invoked for them) — the same VM
+            // entropy seam as `generateKey`.
+            crypto::ops::sign(normalized, key_data, &data, |buf| {
+                getrandom::fill(buf)
+                    .map_err(|e| AlgorithmError::Operation(format!("OS CSPRNG failure ({e})")))
+            })
         }
         .map_err(|e| algorithm_error_to_vm(ctx.vm, &e))?;
         let buf = create_array_buffer_from_bytes(ctx.vm, signature);

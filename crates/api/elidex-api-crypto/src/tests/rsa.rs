@@ -16,7 +16,8 @@ use crate::error::AlgorithmError;
 use crate::hash::HashAlgorithm;
 use crate::key::{KeyAlgorithm, KeyType, KeyUsage};
 use crate::ops::{
-    export_key, generate_key, import_key, ExportedKey, GeneratedKey, KeyData, KeyFormat,
+    export_key, generate_key, import_key, sign, verify, ExportedKey, GeneratedKey, KeyData,
+    KeyFormat,
 };
 use crate::{normalize, CryptoKeyData, JsonWebKey, NormalizedAlgorithm, Operation, RawAlgorithm};
 
@@ -46,6 +47,18 @@ fn import_alg(variant: RsaVariant, hash: HashAlgorithm) -> NormalizedAlgorithm {
     let mut raw = RawAlgorithm::from_name(variant.canonical_name());
     raw.hash = Some(Box::new(RawAlgorithm::from_name(hash.canonical_name())));
     normalize(Operation::ImportKey, raw).expect("RSA import algorithm normalizes")
+}
+
+fn sign_alg(variant: RsaVariant, salt_length: Option<u32>) -> NormalizedAlgorithm {
+    let mut raw = RawAlgorithm::from_name(variant.canonical_name());
+    raw.salt_length = salt_length;
+    normalize(Operation::Sign, raw).expect("RSA sign algorithm normalizes")
+}
+
+fn verify_alg(variant: RsaVariant, salt_length: Option<u32>) -> NormalizedAlgorithm {
+    let mut raw = RawAlgorithm::from_name(variant.canonical_name());
+    raw.salt_length = salt_length;
+    normalize(Operation::Verify, raw).expect("RSA verify algorithm normalizes")
 }
 
 /// Generate a `(public, private)` RSA key pair at 2048 bits over a fixed seed.
@@ -278,4 +291,187 @@ fn jwk_multiprime_oth_is_not_supported() {
         matches!(err, AlgorithmError::NotSupported(_)),
         "got {err:?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// sign / verify
+// ---------------------------------------------------------------------------
+
+#[test]
+fn rsassa_sign_verify_round_trip_all_hashes() {
+    for hash in [
+        HashAlgorithm::Sha256,
+        HashAlgorithm::Sha384,
+        HashAlgorithm::Sha512,
+    ] {
+        let (public, private) = generate_pair(
+            RsaVariant::RsassaPkcs1V15,
+            hash,
+            vec![KeyUsage::Sign, KeyUsage::Verify],
+        );
+        let msg = b"RSASSA-PKCS1-v1_5 message";
+        let sig = sign(
+            sign_alg(RsaVariant::RsassaPkcs1V15, None),
+            &private,
+            msg,
+            seeded_fill(1),
+        )
+        .expect("RSASSA sign");
+        let ok = verify(
+            verify_alg(RsaVariant::RsassaPkcs1V15, None),
+            &public,
+            &sig,
+            msg,
+        )
+        .expect("RSASSA verify");
+        assert!(
+            ok,
+            "RSASSA-PKCS1-v1_5 round-trip should verify for {hash:?}"
+        );
+    }
+}
+
+#[test]
+fn rsapss_sign_verify_round_trip_salt_variants() {
+    // RSA-PSS over SHA-256 (hLen = 32): saltLength 0 (deterministic) and 32.
+    for salt_length in [0u32, 32] {
+        let (public, private) = generate_pair(
+            RsaVariant::RsaPss,
+            HashAlgorithm::Sha256,
+            vec![KeyUsage::Sign, KeyUsage::Verify],
+        );
+        let msg = b"RSA-PSS message";
+        let sig = sign(
+            sign_alg(RsaVariant::RsaPss, Some(salt_length)),
+            &private,
+            msg,
+            seeded_fill(2),
+        )
+        .expect("RSA-PSS sign");
+        let ok = verify(
+            verify_alg(RsaVariant::RsaPss, Some(salt_length)),
+            &public,
+            &sig,
+            msg,
+        )
+        .expect("RSA-PSS verify");
+        assert!(
+            ok,
+            "RSA-PSS round-trip should verify (saltLength={salt_length})"
+        );
+    }
+}
+
+#[test]
+fn sign_with_public_key_is_invalid_access() {
+    let (public, _private) = generate_pair(
+        RsaVariant::RsassaPkcs1V15,
+        HashAlgorithm::Sha256,
+        vec![KeyUsage::Sign, KeyUsage::Verify],
+    );
+    // A public key has no private DER → InvalidAccessError (the crate gate; the
+    // usage gate is the VM `ops::sign` layer).
+    let err = sign(
+        sign_alg(RsaVariant::RsassaPkcs1V15, None),
+        &public,
+        b"m",
+        seeded_fill(3),
+    )
+    .expect_err("signing with a public key is rejected");
+    assert!(
+        matches!(err, AlgorithmError::InvalidAccess(_)),
+        "got {err:?}"
+    );
+}
+
+#[test]
+fn verify_rejects_tampered_signature_and_message() {
+    let (public, private) = generate_pair(
+        RsaVariant::RsassaPkcs1V15,
+        HashAlgorithm::Sha256,
+        vec![KeyUsage::Sign, KeyUsage::Verify],
+    );
+    let msg = b"authentic";
+    let mut sig = sign(
+        sign_alg(RsaVariant::RsassaPkcs1V15, None),
+        &private,
+        msg,
+        seeded_fill(4),
+    )
+    .expect("sign");
+    // A flipped signature byte → false (no throw).
+    sig[0] ^= 0xFF;
+    assert!(!verify(
+        verify_alg(RsaVariant::RsassaPkcs1V15, None),
+        &public,
+        &sig,
+        msg
+    )
+    .unwrap());
+    // A different message → false.
+    sig[0] ^= 0xFF; // restore
+    assert!(!verify(
+        verify_alg(RsaVariant::RsassaPkcs1V15, None),
+        &public,
+        &sig,
+        b"forged"
+    )
+    .unwrap());
+}
+
+#[test]
+fn rsapss_verify_wrong_salt_length_is_false() {
+    let (public, private) = generate_pair(
+        RsaVariant::RsaPss,
+        HashAlgorithm::Sha256,
+        vec![KeyUsage::Sign, KeyUsage::Verify],
+    );
+    let msg = b"salt-bound";
+    // Sign with saltLength = 32, verify with saltLength = 0 → invalid → false.
+    let sig = sign(
+        sign_alg(RsaVariant::RsaPss, Some(32)),
+        &private,
+        msg,
+        seeded_fill(5),
+    )
+    .expect("PSS sign");
+    let ok = verify(verify_alg(RsaVariant::RsaPss, Some(0)), &public, &sig, msg).unwrap();
+    assert!(!ok, "a saltLength mismatch must fail verification");
+}
+
+#[test]
+fn cross_hash_verify_is_false() {
+    // A signature made with a SHA-256 key does not verify under a public key of
+    // the same material re-imported with hash = SHA-384 (the DigestInfo prefix
+    // + digest length differ).
+    let (public, private) = generate_pair(
+        RsaVariant::RsassaPkcs1V15,
+        HashAlgorithm::Sha256,
+        vec![KeyUsage::Sign, KeyUsage::Verify],
+    );
+    let msg = b"hash-bound";
+    let sig = sign(
+        sign_alg(RsaVariant::RsassaPkcs1V15, None),
+        &private,
+        msg,
+        seeded_fill(6),
+    )
+    .expect("sign");
+    let spki = expect_raw(export_key(KeyFormat::Spki, &public).expect("spki"));
+    let public384 = import_key(
+        KeyFormat::Spki,
+        import_alg(RsaVariant::RsassaPkcs1V15, HashAlgorithm::Sha384),
+        true,
+        vec![KeyUsage::Verify],
+        KeyData::Raw(spki),
+    )
+    .expect("import public under SHA-384");
+    let ok = verify(
+        verify_alg(RsaVariant::RsassaPkcs1V15, None),
+        &public384,
+        &sig,
+        msg,
+    )
+    .unwrap();
+    assert!(!ok, "a SHA-384 verify of a SHA-256 signature must fail");
 }

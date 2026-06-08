@@ -132,11 +132,15 @@ p521 = { version = "0.13", features = ["ecdsa", "ecdh", "pkcs8", "arithmetic"] }
 # the EC 0.13 stack; num-bigint-dig is the new transitive).  `std` only (no
 # `pem`: WebCrypto is DER-only); keygen RNG is passed explicitly (no
 # `getrandom`).  Signing uses the prehash `RsaPrivateKey::sign` /
-# `RsaPublicKey::verify` so the message digest stays on hash.rs (sha2 0.11);
-# the `sha1` / `sha2` features re-export the 0.10 `oid` digest types
-# (`rsa::sha2::Sha256` …) used only as the `AssociatedOid` markers for the
+# `RsaPublicKey::verify`, so the message digest stays on hash.rs (sha2 0.11);
+# the digest *types* below supply only the `AssociatedOid` markers for the
 # PKCS#1 v1.5 DigestInfo prefix + the PSS MGF1 hash.
-rsa = { version = "0.9", default-features = false, features = ["std", "sha1", "sha2"] }
+rsa = { version = "0.9", default-features = false, features = ["std"] }
+# sha1 / sha2 0.10 (the rsa 0.9 digest generation) — `oid` for the
+# `AssociatedOid` marker types only; aliased so they coexist with the 0.11
+# sha1 / sha2 hash.rs uses for the actual digest computation.
+sha1-oid = { package = "sha1", version = "0.10", features = ["oid"] }
+sha2-oid = { package = "sha2", version = "0.10", features = ["oid"] }
 # rand_core 0.6 (the EC 0.13 / rsa 0.9 generation) — direct dep for the shared
 # `ClosureRng` entropy-seam adapter feeding both EC `SecretKey::random` and RSA
 # `RsaPrivateKey::new_with_exp` from the VM's single `fill_random` closure.

@@ -25,6 +25,14 @@ pub(super) fn fill_seq(buf: &mut [u8]) -> Result<(), crate::error::AlgorithmErro
     Ok(())
 }
 
+/// A `fill_random` closure for [`crate::ops::sign`] on the deterministic
+/// algorithms (HMAC / ECDSA / RSASSA-PKCS1-v1_5) — they draw no entropy, so
+/// this is never invoked (only RSA-PSS consumes the seam).
+#[allow(clippy::unnecessary_wraps)]
+pub(super) fn no_rng(_buf: &mut [u8]) -> Result<(), crate::error::AlgorithmError> {
+    Ok(())
+}
+
 /// Unwrap a symmetric (HMAC / AES) `generateKey` result, which is always a
 /// [`crate::ops::GeneratedKey::Single`] (only EC keygen yields a `Pair`).
 pub(super) fn expect_single(

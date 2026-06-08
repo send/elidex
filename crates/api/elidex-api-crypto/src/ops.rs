@@ -443,13 +443,20 @@ fn export_symmetric(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKe
     }
 }
 
-/// `sign` (WebCrypto §14.3.3 + §31 Sign).
+/// `sign` (WebCrypto §14.3.3 + §31 HMAC / §23.7.1 ECDSA / §20.8.1
+/// RSASSA-PKCS1-v1_5 / §21.4.1 RSA-PSS).  `fill_random` is the VM entropy seam
+/// — only the RSA-PSS salt draws from it (HMAC / ECDSA / RSASSA-PKCS1-v1_5 are
+/// deterministic), so for those algorithms the closure is never invoked.
 #[allow(clippy::needless_pass_by_value)] // uniform ops signature; see `generate_key`
-pub fn sign(
+pub fn sign<F>(
     algorithm: NormalizedAlgorithm,
     key: &CryptoKeyData,
     data: &[u8],
-) -> Result<Vec<u8>, AlgorithmError> {
+    fill_random: F,
+) -> Result<Vec<u8>, AlgorithmError>
+where
+    F: FnMut(&mut [u8]) -> Result<(), AlgorithmError>,
+{
     require_key_usable(&algorithm, key, KeyUsage::Sign)?;
     match key.algorithm {
         KeyAlgorithm::Hmac { hash, .. } => Ok(hmac::sign(hash, key.material.as_bytes(), data)),
@@ -462,15 +469,21 @@ pub fn sign(
             };
             crate::ec::sign(curve, hash, key, data)
         }
-        // `sign` normalizes only HMAC + ECDSA (+ RSA from commit 4 / 5), so the
-        // name-match above rejects any other key before reaching here.  RSA is
-        // stubbed NotSupported in commit 1 — the RSASSA / RSA-PSS sign wiring
-        // lands in commit 4 / 5.
+        // RSA: the variant + hash ride on the key (§20.6); RSA-PSS reads its
+        // `saltLength` from the normalized params (RSASSA params are name-only).
+        KeyAlgorithm::Rsa { variant, hash, .. } => {
+            let salt_length = match algorithm {
+                NormalizedAlgorithm::RsaPssParams { salt_length } => Some(salt_length),
+                _ => None,
+            };
+            crate::rsa::sign(variant, hash, key, data, salt_length, fill_random)
+        }
+        // `sign` normalizes only HMAC + ECDSA + RSA, so the name-match above
+        // rejects any other key before reaching here.
         KeyAlgorithm::Aes { .. }
         | KeyAlgorithm::Hkdf
         | KeyAlgorithm::Pbkdf2
-        | KeyAlgorithm::Ecdh { .. }
-        | KeyAlgorithm::Rsa { .. } => Err(not_supported_op("sign")),
+        | KeyAlgorithm::Ecdh { .. } => Err(not_supported_op("sign")),
     }
 }
 
@@ -493,13 +506,19 @@ pub fn verify(
             };
             crate::ec::verify(curve, hash, key, signature, data)
         }
-        // `verify` normalizes only HMAC + ECDSA (+ RSA from commit 4 / 5).  RSA
-        // is stubbed NotSupported in commit 1.
+        // RSA: variant + hash from the key; RSA-PSS `saltLength` from the params.
+        KeyAlgorithm::Rsa { variant, hash, .. } => {
+            let salt_length = match algorithm {
+                NormalizedAlgorithm::RsaPssParams { salt_length } => Some(salt_length),
+                _ => None,
+            };
+            crate::rsa::verify(variant, hash, key, signature, data, salt_length)
+        }
+        // `verify` normalizes only HMAC + ECDSA + RSA.
         KeyAlgorithm::Aes { .. }
         | KeyAlgorithm::Hkdf
         | KeyAlgorithm::Pbkdf2
-        | KeyAlgorithm::Ecdh { .. }
-        | KeyAlgorithm::Rsa { .. } => Err(not_supported_op("verify")),
+        | KeyAlgorithm::Ecdh { .. } => Err(not_supported_op("verify")),
     }
 }
 

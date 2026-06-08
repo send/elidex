@@ -19,7 +19,9 @@ use base64::Engine as _;
 use rsa::pkcs8::spki::{DecodePublicKey, EncodePublicKey};
 use rsa::pkcs8::{DecodePrivateKey, EncodePrivateKey};
 use rsa::traits::{PrivateKeyParts, PublicKeyParts};
-use rsa::{BigUint, RsaPrivateKey, RsaPublicKey};
+use rsa::{BigUint, Pkcs1v15Sign, Pss, RsaPrivateKey, RsaPublicKey};
+use sha1_oid::Sha1;
+use sha2_oid::{Sha256, Sha384, Sha512};
 
 use crate::algorithm::RsaVariant;
 use crate::error::AlgorithmError;
@@ -370,6 +372,111 @@ fn split_usages(key_type: KeyType, usages: &[KeyUsage]) -> Vec<KeyUsage> {
 }
 
 // ---------------------------------------------------------------------------
+// sign / verify (WebCrypto §20.8.1/.2 RSASSA-PKCS1-v1_5 / §21.4.1/.2 RSA-PSS)
+// ---------------------------------------------------------------------------
+
+/// RSA `sign` (WebCrypto §20.8.1 RSASSA-PKCS1-v1_5 / §21.4.1 RSA-PSS): digest
+/// `message` with the key's `hash` (carried on `[[algorithm]]`, §20.6), then
+/// apply the family padding — RSASSA = EMSA-PKCS1-v1_5 (RFC 3447 §8.2,
+/// deterministic), RSA-PSS = EMSA-PSS + MGF1 over a random `salt_length`-byte
+/// salt (RFC 3447 §8.1).  The §14.3.3 name / `sign`-usage gate ran in
+/// [`crate::ops::sign`]; this enforces step 1 ([[type]] must be private — via
+/// the stored PKCS#8 DER).  `fill_random` is the VM entropy seam — consumed
+/// for the PSS salt; RSASSA-PKCS1-v1_5 draws nothing.
+pub(crate) fn sign<F>(
+    variant: RsaVariant,
+    hash: HashAlgorithm,
+    key: &CryptoKeyData,
+    message: &[u8],
+    salt_length: Option<u32>,
+    mut fill_random: F,
+) -> Result<Vec<u8>, AlgorithmError>
+where
+    F: FnMut(&mut [u8]) -> Result<(), AlgorithmError>,
+{
+    // §20.8.1 / §21.4.1 step 1: the key must be private (reconstruct from the
+    // stored PKCS#8 DER, InvalidAccessError if public).
+    let privkey = reconstruct_private(key)?;
+    let digest = hash.digest(message);
+    match variant {
+        RsaVariant::RsassaPkcs1V15 => privkey
+            .sign(pkcs1v15_scheme(hash), &digest)
+            .map_err(|_| operation("RSASSA-PKCS1-v1_5 signing failed")),
+        RsaVariant::RsaPss => {
+            let salt_len = pss_salt_len(salt_length)?;
+            let mut rng = ClosureRng::new(&mut fill_random);
+            let result = privkey.sign_with_rng(&mut rng, pss_scheme(hash, salt_len), &digest);
+            // A `fill_random` error wins over the (otherwise opaque) PSS error.
+            rng.into_result()?;
+            result.map_err(|_| operation("RSA-PSS signing failed"))
+        }
+    }
+}
+
+/// RSA `verify` (WebCrypto §20.8.2 RSASSA-PKCS1-v1_5 / §21.4.2 RSA-PSS): digest
+/// `message`, then verify `signature` against the public key.  The §14.3.4 name
+/// / `verify`-usage gate ran in [`crate::ops::verify`]; this enforces step 1
+/// ([[type]] must be public) and returns **false** (not an error) on an invalid
+/// signature.  For RSA-PSS the `salt_length` is enforced (RFC 3447 §9.1.2 — a
+/// signature whose recovered salt length differs is invalid → false).
+pub(crate) fn verify(
+    variant: RsaVariant,
+    hash: HashAlgorithm,
+    key: &CryptoKeyData,
+    signature: &[u8],
+    message: &[u8],
+    salt_length: Option<u32>,
+) -> Result<bool, AlgorithmError> {
+    // §20.8.2 / §21.4.2 step 1: the key must be public.
+    require_public(key)?;
+    let pubkey = reconstruct_public(key)?;
+    let digest = hash.digest(message);
+    let ok = match variant {
+        RsaVariant::RsassaPkcs1V15 => pubkey
+            .verify(pkcs1v15_scheme(hash), &digest, signature)
+            .is_ok(),
+        RsaVariant::RsaPss => {
+            let salt_len = pss_salt_len(salt_length)?;
+            pubkey
+                .verify(pss_scheme(hash, salt_len), &digest, signature)
+                .is_ok()
+        }
+    };
+    Ok(ok)
+}
+
+/// The `Pkcs1v15Sign` scheme for `hash` — `Pkcs1v15Sign::new::<D>()` derives
+/// the RFC 3447 §9.2 DigestInfo prefix from the digest's OID (the `rsa::sha*`
+/// 0.10 marker type), while the digest itself is the prehashed bytes from
+/// hash.rs (sha2 0.11).
+fn pkcs1v15_scheme(hash: HashAlgorithm) -> Pkcs1v15Sign {
+    match hash {
+        HashAlgorithm::Sha1 => Pkcs1v15Sign::new::<Sha1>(),
+        HashAlgorithm::Sha256 => Pkcs1v15Sign::new::<Sha256>(),
+        HashAlgorithm::Sha384 => Pkcs1v15Sign::new::<Sha384>(),
+        HashAlgorithm::Sha512 => Pkcs1v15Sign::new::<Sha512>(),
+    }
+}
+
+/// The `Pss` scheme for `hash` + `salt_len` — `Pss::new_with_salt::<D>(len)`
+/// sets the MGF1 hash + the enforced salt length (RFC 3447 §8.1 / §9.1).
+fn pss_scheme(hash: HashAlgorithm, salt_len: usize) -> Pss {
+    match hash {
+        HashAlgorithm::Sha1 => Pss::new_with_salt::<Sha1>(salt_len),
+        HashAlgorithm::Sha256 => Pss::new_with_salt::<Sha256>(salt_len),
+        HashAlgorithm::Sha384 => Pss::new_with_salt::<Sha384>(salt_len),
+        HashAlgorithm::Sha512 => Pss::new_with_salt::<Sha512>(salt_len),
+    }
+}
+
+/// The RSA-PSS `saltLength` as a `usize` — required (the registry guarantees
+/// `RsaPssParams.saltLength` is present for a PSS sign / verify, §21.3), so its
+/// absence is a defensive OperationError.
+fn pss_salt_len(salt_length: Option<u32>) -> Result<usize, AlgorithmError> {
+    Ok(salt_length.ok_or_else(|| operation("RSA-PSS requires a saltLength"))? as usize)
+}
+
+// ---------------------------------------------------------------------------
 // exportKey (WebCrypto §20.8.5 / §21.4.5)
 // ---------------------------------------------------------------------------
 
@@ -568,6 +675,10 @@ fn data(msg: &str) -> AlgorithmError {
 
 fn data_owned(msg: String) -> AlgorithmError {
     AlgorithmError::Data(msg)
+}
+
+fn operation(msg: &str) -> AlgorithmError {
+    AlgorithmError::Operation(msg.to_string())
 }
 
 /// The §20.8.5 step-2 "key material cannot be accessed → OperationError" —

@@ -5,7 +5,7 @@
 // RFC 6070 (SHA-1) and RFC 7914 §11 (SHA-256).
 // ---------------------------------------------------------------------------
 
-use super::to_hex;
+use super::{no_rng, to_hex};
 use crate::algorithm::{AesVariant, NormalizedAlgorithm};
 use crate::error::AlgorithmError;
 use crate::hash::HashAlgorithm;
@@ -570,7 +570,7 @@ fn derive_key_hkdf_to_hmac_signs() {
         }
     );
     assert_eq!(derived.material.as_bytes().len(), 64);
-    let sig = ops::sign(NormalizedAlgorithm::Hmac, &derived, b"hi").unwrap();
+    let sig = ops::sign(NormalizedAlgorithm::Hmac, &derived, b"hi", no_rng).unwrap();
     assert!(ops::verify(NormalizedAlgorithm::Hmac, &derived, &sig, b"hi").unwrap());
 }
 

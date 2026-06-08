@@ -7,7 +7,7 @@
 //! crate's `tests_crypto::ec`; the `marshal_jwk` ≡ `from_json_bytes` JWK
 //! mirror differential test lives in `subtle_crypto::differential`.
 
-use super::fill_seq;
+use super::{fill_seq, no_rng};
 use crate::algorithm::{EcAlgorithm, EcdhPeer, NamedCurve};
 use crate::key::{KeyAlgorithm, KeyType, KeyUsage};
 use crate::ops::{
@@ -317,7 +317,7 @@ fn ecdsa_sign_verify_round_trip_all_curves() {
             .expect("keygen"),
         );
         let msg = b"the quick brown fox jumps over the lazy dog";
-        let sig = sign(ecdsa_params_alg(hash), &private, msg).expect("sign");
+        let sig = sign(ecdsa_params_alg(hash), &private, msg, no_rng).expect("sign");
         assert_eq!(sig.len(), sig_len, "raw r‖s length for {}", curve.as_str());
         // A genuine signature verifies.
         assert!(verify(ecdsa_params_alg(hash), &public, &sig, msg).unwrap());
@@ -340,7 +340,7 @@ fn ecdsa_sign_with_public_key_is_invalid_access() {
         .unwrap(),
     );
     // The public key lacks the `sign` usage → InvalidAccessError at the gate.
-    let err = sign(ecdsa_params_alg("SHA-256"), &public, b"m").unwrap_err();
+    let err = sign(ecdsa_params_alg("SHA-256"), &public, b"m", no_rng).unwrap_err();
     assert!(matches!(err, crate::AlgorithmError::InvalidAccess(_)));
 }
 
@@ -358,7 +358,7 @@ fn ecdsa_sign_hash_mismatch_still_verifies_with_same_hash() {
         )
         .unwrap(),
     );
-    let sig = sign(ecdsa_params_alg("SHA-384"), &private, b"data").unwrap();
+    let sig = sign(ecdsa_params_alg("SHA-384"), &private, b"data", no_rng).unwrap();
     assert!(verify(ecdsa_params_alg("SHA-384"), &public, &sig, b"data").unwrap());
     // Verifying the SHA-384 signature under SHA-256 must fail.
     assert!(!verify(ecdsa_params_alg("SHA-256"), &public, &sig, b"data").unwrap());

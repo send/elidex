@@ -2,7 +2,7 @@
 // ops: generate / sign / verify round-trip
 // ---------------------------------------------------------------------------
 
-use super::to_hex;
+use super::{no_rng, to_hex};
 use crate::algorithm::NormalizedAlgorithm;
 use crate::error::AlgorithmError;
 use crate::hash::{self, HashAlgorithm};
@@ -30,7 +30,7 @@ fn ops_generate_sign_verify_roundtrip() {
     assert_eq!(key.key_type, KeyType::Secret);
     assert_eq!(key.material.as_bytes().len(), 64); // SHA-256 block size
 
-    let sig = ops::sign(NormalizedAlgorithm::Hmac, &key, b"message").unwrap();
+    let sig = ops::sign(NormalizedAlgorithm::Hmac, &key, b"message", no_rng).unwrap();
     assert!(ops::verify(NormalizedAlgorithm::Hmac, &key, &sig, b"message").unwrap());
     assert!(!ops::verify(NormalizedAlgorithm::Hmac, &key, &sig, b"tampered").unwrap());
 }
@@ -134,7 +134,7 @@ fn ops_import_raw_sign_matches_vector() {
         KeyData::Raw(vec![0x0b; 20]),
     )
     .unwrap();
-    let sig = ops::sign(NormalizedAlgorithm::Hmac, &key, b"Hi There").unwrap();
+    let sig = ops::sign(NormalizedAlgorithm::Hmac, &key, b"Hi There", no_rng).unwrap();
     assert_eq!(
         to_hex(&sig),
         "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"
@@ -435,7 +435,7 @@ fn ops_sign_without_sign_usage_is_invalid_access() {
     )
     .unwrap();
     assert!(matches!(
-        ops::sign(NormalizedAlgorithm::Hmac, &key, b"x"),
+        ops::sign(NormalizedAlgorithm::Hmac, &key, b"x", no_rng),
         Err(AlgorithmError::InvalidAccess(_))
     ));
 }
