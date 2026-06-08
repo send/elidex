@@ -207,9 +207,12 @@ fn import_jwk(
             return Err(data("JWK 'alg' member does not match the algorithm / hash"));
         }
     }
-    // Multi-prime keys (`oth` present + non-empty) are not supported — the rsa
-    // crate's DER encoder rejects >2 primes (`#11-rsa-multiprime-jwk`).
-    if jwk.oth.as_ref().is_some_and(|oth| !oth.is_empty()) {
+    // Multi-prime keys are not supported — the rsa crate's DER encoder rejects
+    // >2 primes (`#11-rsa-multiprime-jwk`).  WebCrypto rejects the `oth` member
+    // whenever it is *present* (§20.8.4 / §21.4.4), independent of its length:
+    // RFC 7518 §6.3.2.7 says `oth` MUST be absent for a two-prime key, so even
+    // an empty `oth: []` is an unsupported multi-prime shape, not a 2-prime key.
+    if jwk.oth.is_some() {
         return Err(multiprime_unsupported());
     }
     // n / e are required for both public and private keys (RFC 7518 §6.3.1).
@@ -228,6 +231,12 @@ fn import_jwk(
             let primes = jwk_primes(jwk)?;
             let privkey = RsaPrivateKey::from_components(n, e, d, primes)
                 .map_err(|_| data("JWK RSA private key is invalid or inconsistent"))?;
+            // `from_components` recomputes the CRT values from p / q / d, so a
+            // JWK carrying *corrupted* dp / dq / qi would otherwise import +
+            // silently re-export with repaired values.  RFC 7518 §6.3.2 defines
+            // those members as part of the private key, so reject inconsistent
+            // material as a DataError rather than repairing it.
+            validate_jwk_crt(jwk, &privkey)?;
             private_imported(&privkey)
         }
         KeyType::Secret => unreachable!("RSA keys are never secret"),
@@ -255,6 +264,34 @@ fn jwk_primes(jwk: &JsonWebKey) -> Result<Vec<BigUint>, AlgorithmError> {
     let p = decode_biguint(jwk.p.as_deref(), "p")?;
     let q = decode_biguint(jwk.q.as_deref(), "q")?;
     Ok(vec![p, q])
+}
+
+/// Validate the JWK's supplied CRT members (`dp` / `dq` / `qi`) against the
+/// values recomputed from p / q / d (RFC 7518 §6.3.2.4-.6).  Absent → ok (the
+/// CRT members are all-or-nothing, [`jwk_primes`]); present but inconsistent →
+/// DataError (the key material is malformed — do not silently repair it).
+// `dp` / `dq` (and `expected_dp` / `expected_dq`) are the canonical RFC 7518
+// CRT-exponent member names — renaming them to satisfy `similar_names` would
+// obscure the spec mapping.
+#[allow(clippy::similar_names)]
+fn validate_jwk_crt(jwk: &JsonWebKey, privkey: &RsaPrivateKey) -> Result<(), AlgorithmError> {
+    // All-or-nothing: if `dp` is absent so are `dq` / `qi` (jwk_primes gate).
+    let Some(dp) = jwk.dp.as_deref() else {
+        return Ok(());
+    };
+    let expected_dp = privkey.dp().ok_or_else(key_inaccessible)?;
+    let expected_dq = privkey.dq().ok_or_else(key_inaccessible)?;
+    let expected_qi = privkey.crt_coefficient().ok_or_else(key_inaccessible)?;
+    if &BigUint::from_bytes_be(&decode_b64(dp)?) != expected_dp {
+        return Err(data("JWK 'dp' is inconsistent with the RSA private key"));
+    }
+    if &BigUint::from_bytes_be(&decode_b64(jwk.dq.as_deref().unwrap_or_default())?) != expected_dq {
+        return Err(data("JWK 'dq' is inconsistent with the RSA private key"));
+    }
+    if BigUint::from_bytes_be(&decode_b64(jwk.qi.as_deref().unwrap_or_default())?) != expected_qi {
+        return Err(data("JWK 'qi' is inconsistent with the RSA private key"));
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

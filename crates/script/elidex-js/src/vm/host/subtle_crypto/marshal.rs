@@ -17,8 +17,8 @@ use elidex_api_crypto::{
 use super::super::super::coerce;
 use super::super::super::shape;
 use super::super::super::value::{
-    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage,
-    PropertyValue, StringId, VmError,
+    ElementKind, JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey,
+    PropertyStorage, PropertyValue, StringId, VmError,
 };
 use super::super::super::webidl_sequence::{webidl_sequence_to_vec, SeqMessages};
 use super::super::text_encoding::{extract_buffer_source_member, is_buffer_source};
@@ -316,18 +316,17 @@ fn read_params(
             raw.peer = Some(read_ecdh_public_member(ctx, id, method)?);
         }
         AlgorithmParams::RsaHashedKeyGen => {
-            // `RsaHashedKeyGenParams` (§20.4): hash (required
-            // `HashAlgorithmIdentifier`), modulusLength (required
-            // `[EnforceRange] unsigned long`), publicExponent (required
-            // `BigInteger` = `Uint8Array`).  Web IDL lexicographic member order
-            // is hash < modulusLength < publicExponent.  §18.4.4 step 6 reads
-            // each top-level member value in that order (the `hash` getter fires
-            // but its nested identifier is not yet normalized; `modulusLength`
-            // is ToNumber/EnforceRange-converted; `publicExponent`'s BufferSource
-            // type is checked); step 10 then normalizes `hash` (reading
-            // `hash.name`) and snapshots the `publicExponent` bytes — so a
-            // throwing / mutating getter rejects in the spec order.
-            let hash_val = read_required_hash_value(ctx, id, method)?;
+            // `RsaHashedKeyGenParams : RsaKeyGenParams` (§20.4 / §20.3): Web IDL
+            // dictionary conversion processes **inherited members before derived
+            // ones** (Web IDL §3.2.17), so the §18.4.4 step-6 getter order is
+            // modulusLength, publicExponent (the RsaKeyGenParams base,
+            // lexicographic) THEN hash (the RsaHashedKeyGenParams member) — NOT
+            // hash-first.  `modulusLength` is ToNumber/EnforceRange-converted;
+            // `publicExponent` is a `BigInteger` = the `Uint8Array` typedef
+            // (§20.3), so a non-Uint8Array is a TypeError (not any BufferSource);
+            // `hash`'s getter fires last (its nested identifier normalizes at
+            // step 10).  Step 10 snapshots the publicExponent bytes (inherited)
+            // then normalizes the nested hash (derived).
             let ml_val =
                 ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.modulus_length))?;
             if matches!(ml_val, JsValue::Undefined) {
@@ -343,16 +342,21 @@ fn read_params(
             )?);
             let exp_val =
                 ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.public_exponent))?;
-            require_buffer_source_member(ctx, exp_val, method, "publicExponent")?;
-            // step 10 (lexicographic hash < modulusLength < publicExponent):
-            // normalize hash, then snapshot the publicExponent bytes.
-            raw.hash = Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?));
+            if matches!(exp_val, JsValue::Undefined) {
+                return Err(required_member_error(method, "publicExponent"));
+            }
+            if !is_uint8_array(ctx, exp_val) {
+                return Err(not_uint8_array_error(method, "publicExponent"));
+            }
+            let hash_val = read_required_hash_value(ctx, id, method)?;
+            // step 10: snapshot publicExponent (inherited) then normalize hash.
             raw.public_exponent = Some(snapshot_buffer_source(
                 ctx,
                 exp_val,
                 method,
                 "publicExponent",
             )?);
+            raw.hash = Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?));
         }
         AlgorithmParams::RsaHashedImport => {
             // `RsaHashedImportParams` (§20.7): hash (required
@@ -459,6 +463,29 @@ fn not_buffer_source_error(method: &str, member: &str) -> VmError {
     VmError::type_error(format!(
         "Failed to execute '{method}' on 'SubtleCrypto': \
          the '{member}' member is not of type 'BufferSource'"
+    ))
+}
+
+/// Whether `value` is specifically a `Uint8Array` — the WebCrypto `BigInteger`
+/// typedef (§20.3 `RsaKeyGenParams.publicExponent`), NOT any `BufferSource`
+/// (an `ArrayBuffer` / `DataView` / other typed array is a Web IDL `TypeError`).
+fn is_uint8_array(ctx: &NativeContext<'_>, value: JsValue) -> bool {
+    matches!(
+        value,
+        JsValue::Object(id)
+            if matches!(
+                ctx.vm.get_object(id).kind,
+                ObjectKind::TypedArray { element_kind: ElementKind::Uint8, .. }
+            )
+    )
+}
+
+/// A member-named "not a `Uint8Array`" `TypeError` (the `BigInteger` typedef
+/// type-check at §18.4.4 step 6).
+fn not_uint8_array_error(method: &str, member: &str) -> VmError {
+    VmError::type_error(format!(
+        "Failed to execute '{method}' on 'SubtleCrypto': \
+         the '{member}' member is not of type 'Uint8Array'"
     ))
 }
 

@@ -669,3 +669,58 @@ fn rsapss_sign_oversized_salt_length_is_rejected_without_oom() {
     .expect_err("an oversized saltLength must be rejected up front");
     assert!(matches!(err, AlgorithmError::Operation(_)), "got {err:?}");
 }
+
+// ---------------------------------------------------------------------------
+// Codex R1: CRT consistency + empty-oth rejection
+// ---------------------------------------------------------------------------
+
+#[test]
+fn jwk_inconsistent_crt_member_is_data_error() {
+    // A private JWK whose `dp` does not match the value recomputed from p/q/d
+    // is malformed key material → DataError (not silently repaired).
+    let (_public, private) = generate_pair(
+        RsaVariant::RsassaPkcs1V15,
+        HashAlgorithm::Sha256,
+        vec![KeyUsage::Sign],
+    );
+    let mut jwk = expect_jwk(export_key(KeyFormat::Jwk, &private).expect("jwk export"));
+    // Corrupt `dp` to a clearly-wrong value (65537) while leaving dq/qi intact
+    // (the CRT members stay all-present, so the all-or-nothing gate passes and
+    // the consistency check is what rejects it).
+    jwk.dp = Some("AQAB".to_string());
+    let err = import_key(
+        KeyFormat::Jwk,
+        import_alg(RsaVariant::RsassaPkcs1V15, HashAlgorithm::Sha256),
+        true,
+        vec![KeyUsage::Sign],
+        KeyData::Jwk(Box::new(jwk)),
+    )
+    .expect_err("an inconsistent CRT member is a DataError");
+    assert!(matches!(err, AlgorithmError::Data(_)), "got {err:?}");
+}
+
+#[test]
+fn jwk_empty_oth_is_not_supported() {
+    // A *present* `oth` (even empty `[]`) is an unsupported multi-prime shape
+    // (RFC 7518 §6.3.2.7: `oth` MUST be absent for a two-prime key).
+    let jwk = JsonWebKey {
+        kty: Some("RSA".to_string()),
+        d: Some("aaaa".to_string()),
+        n: Some("aaaa".to_string()),
+        e: Some("AQAB".to_string()),
+        oth: Some(vec![]),
+        ..Default::default()
+    };
+    let err = import_key(
+        KeyFormat::Jwk,
+        import_alg(RsaVariant::RsassaPkcs1V15, HashAlgorithm::Sha256),
+        true,
+        vec![KeyUsage::Sign],
+        KeyData::Jwk(Box::new(jwk)),
+    )
+    .expect_err("a present empty oth is NotSupported");
+    assert!(
+        matches!(err, AlgorithmError::NotSupported(_)),
+        "got {err:?}"
+    );
+}

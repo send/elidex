@@ -1,6 +1,20 @@
 [advisories]
 unmaintained = "workspace"
 yanked = "warn"
+ignore = [
+    # RUSTSEC-2023-0071 — "Marvin Attack": a timing sidechannel in the `rsa`
+    # crate's RSA **decryption** (the PKCS#1 v1.5 / OAEP unpadding oracle).
+    # There is no patched `rsa` release (the fix is pending upstream,
+    # RustCrypto/RSA#626) and no alternative mature pure-Rust RSA crate with
+    # key generation (`ring` has no RSA keygen).  PR-5a (#11-crypto-subtle-full)
+    # uses `rsa` only for RSASSA-PKCS1-v1_5 / RSA-PSS **signing** + keygen +
+    # import/export — none of which exercise the decryption timing oracle the
+    # Marvin attack targets, so the vulnerable path is unreachable here.
+    # RE-EVALUATE at PR-5b (RSA-OAEP `decrypt`/`unwrapKey`), which DOES use RSA
+    # decryption: gate that PR on either a fixed `rsa` release or an explicit,
+    # documented acceptance of the timing risk under the WebCrypto threat model.
+    "RUSTSEC-2023-0071",
+]
 
 [licenses]
 allow = [

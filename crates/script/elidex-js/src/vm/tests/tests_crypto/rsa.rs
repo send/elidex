@@ -143,3 +143,31 @@ fn rsa_key_cannot_derive_bits() {
     );
     assert_eq!(eval_global_string(&src, "r"), "NotSupportedError");
 }
+
+#[test]
+fn rsa_generate_key_non_uint8array_public_exponent_is_type_error() {
+    // §20.3: `RsaKeyGenParams.publicExponent` is a `BigInteger` (the `Uint8Array`
+    // typedef), NOT any `BufferSource` — an `ArrayBuffer` is a Web IDL TypeError.
+    let src = "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey({name:'RSASSA-PKCS1-v1_5', modulusLength:2048, \
+                 publicExponent: new ArrayBuffer(3), hash:'SHA-256'}, false, ['sign','verify']) \
+           .then(() => { globalThis.r = 'resolved'; }, e => { globalThis.r = e.name; });";
+    assert_eq!(eval_global_string(src, "r"), "TypeError");
+}
+
+#[test]
+fn rsa_generate_key_reads_inherited_members_before_hash() {
+    // RsaHashedKeyGenParams : RsaKeyGenParams — Web IDL converts the inherited
+    // modulusLength / publicExponent before the derived hash, so the getter
+    // firing order is modulusLength, publicExponent, hash (NOT hash-first).
+    let src = "globalThis.order = []; globalThis.r = 'pending'; \
+         crypto.subtle.generateKey({ \
+             name: 'RSASSA-PKCS1-v1_5', \
+             get modulusLength() { globalThis.order.push('ml'); return 2048; }, \
+             get publicExponent() { globalThis.order.push('pe'); return new Uint8Array([1,0,1]); }, \
+             get hash() { globalThis.order.push('h'); return 'SHA-256'; } \
+           }, false, ['sign','verify']) \
+           .then(() => { globalThis.r = globalThis.order.join(','); }, \
+                 e => { globalThis.r = 'ERR:' + globalThis.order.join(','); });";
+    assert_eq!(eval_global_string(src, "r"), "ml,pe,h");
+}
