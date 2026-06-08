@@ -372,7 +372,8 @@ pub fn export_key(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKey,
         KeyAlgorithm::Hmac { .. }
         | KeyAlgorithm::Aes { .. }
         | KeyAlgorithm::Ecdsa { .. }
-        | KeyAlgorithm::Ecdh { .. } => {}
+        | KeyAlgorithm::Ecdh { .. }
+        | KeyAlgorithm::Rsa { .. } => {}
         KeyAlgorithm::Hkdf | KeyAlgorithm::Pbkdf2 => {
             return Err(AlgorithmError::NotSupported(
                 "HKDF / PBKDF2 keys do not support the exportKey operation".to_string(),
@@ -392,6 +393,9 @@ pub fn export_key(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKey,
         KeyAlgorithm::Hmac { .. } | KeyAlgorithm::Aes { .. } => export_symmetric(format, key),
         KeyAlgorithm::Ecdsa { curve } => crate::ec::export(EcAlgorithm::Ecdsa, curve, format, key),
         KeyAlgorithm::Ecdh { curve } => crate::ec::export(EcAlgorithm::Ecdh, curve, format, key),
+        // RSA export — stubbed NotSupported in commit 1; the `rsa` backend
+        // dispatch (§20.8.5 / §21.4.5) lands in commit 2.
+        KeyAlgorithm::Rsa { .. } => Err(not_supported_op("exportKey")),
         KeyAlgorithm::Hkdf | KeyAlgorithm::Pbkdf2 => unreachable!("KDF rejected at step 6"),
     }
 }
@@ -410,7 +414,8 @@ fn export_symmetric(format: KeyFormat, key: &CryptoKeyData) -> Result<ExportedKe
             KeyAlgorithm::Hkdf
             | KeyAlgorithm::Pbkdf2
             | KeyAlgorithm::Ecdsa { .. }
-            | KeyAlgorithm::Ecdh { .. } => {
+            | KeyAlgorithm::Ecdh { .. }
+            | KeyAlgorithm::Rsa { .. } => {
                 unreachable!("export_symmetric called only for HMAC/AES")
             }
         })),
@@ -439,12 +444,15 @@ pub fn sign(
             };
             crate::ec::sign(curve, hash, key, data)
         }
-        // `sign` normalizes only HMAC + ECDSA, so the name-match above rejects
-        // any other key before reaching here.
+        // `sign` normalizes only HMAC + ECDSA (+ RSA from commit 4 / 5), so the
+        // name-match above rejects any other key before reaching here.  RSA is
+        // stubbed NotSupported in commit 1 — the RSASSA / RSA-PSS sign wiring
+        // lands in commit 4 / 5.
         KeyAlgorithm::Aes { .. }
         | KeyAlgorithm::Hkdf
         | KeyAlgorithm::Pbkdf2
-        | KeyAlgorithm::Ecdh { .. } => Err(not_supported_op("sign")),
+        | KeyAlgorithm::Ecdh { .. }
+        | KeyAlgorithm::Rsa { .. } => Err(not_supported_op("sign")),
     }
 }
 
@@ -467,11 +475,13 @@ pub fn verify(
             };
             crate::ec::verify(curve, hash, key, signature, data)
         }
-        // `verify` normalizes only HMAC + ECDSA.
+        // `verify` normalizes only HMAC + ECDSA (+ RSA from commit 4 / 5).  RSA
+        // is stubbed NotSupported in commit 1.
         KeyAlgorithm::Aes { .. }
         | KeyAlgorithm::Hkdf
         | KeyAlgorithm::Pbkdf2
-        | KeyAlgorithm::Ecdh { .. } => Err(not_supported_op("verify")),
+        | KeyAlgorithm::Ecdh { .. }
+        | KeyAlgorithm::Rsa { .. } => Err(not_supported_op("verify")),
     }
 }
 

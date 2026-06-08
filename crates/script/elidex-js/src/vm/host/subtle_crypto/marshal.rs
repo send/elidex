@@ -314,6 +314,69 @@ fn read_params(
             // later in the crate.
             raw.peer = Some(read_ecdh_public_member(ctx, id, method)?);
         }
+        AlgorithmParams::RsaHashedKeyGen => {
+            // `RsaHashedKeyGenParams` (§20.4): hash (required
+            // `HashAlgorithmIdentifier`), modulusLength (required
+            // `[EnforceRange] unsigned long`), publicExponent (required
+            // `BigInteger` = `Uint8Array`).  Web IDL lexicographic member order
+            // is hash < modulusLength < publicExponent.  §18.4.4 step 6 reads
+            // each top-level member value in that order (the `hash` getter fires
+            // but its nested identifier is not yet normalized; `modulusLength`
+            // is ToNumber/EnforceRange-converted; `publicExponent`'s BufferSource
+            // type is checked); step 10 then normalizes `hash` (reading
+            // `hash.name`) and snapshots the `publicExponent` bytes — so a
+            // throwing / mutating getter rejects in the spec order.
+            let hash_val = read_required_hash_value(ctx, id, method)?;
+            let ml_val =
+                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.modulus_length))?;
+            if matches!(ml_val, JsValue::Undefined) {
+                return Err(required_member_error(method, "modulusLength"));
+            }
+            raw.modulus_length = Some(coerce_enforce_range(
+                ctx,
+                ml_val,
+                method,
+                "modulusLength",
+                "unsigned long",
+                f64::from(u32::MAX),
+            )?);
+            let exp_val =
+                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.public_exponent))?;
+            require_buffer_source_member(ctx, exp_val, method, "publicExponent")?;
+            // step 10 (lexicographic hash < modulusLength < publicExponent):
+            // normalize hash, then snapshot the publicExponent bytes.
+            raw.hash = Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?));
+            raw.public_exponent = Some(snapshot_buffer_source(
+                ctx,
+                exp_val,
+                method,
+                "publicExponent",
+            )?);
+        }
+        AlgorithmParams::RsaHashedImport => {
+            // `RsaHashedImportParams` (§20.7): hash (required
+            // `HashAlgorithmIdentifier`, the only member) — same step-6 /
+            // step-10 split as EcdsaParams.
+            let hash_val = read_required_hash_value(ctx, id, method)?;
+            raw.hash = Some(Box::new(marshal_hash_identifier(ctx, hash_val, method)?));
+        }
+        AlgorithmParams::RsaPssParams => {
+            // `RsaPssParams` (§21.3): saltLength (required `[EnforceRange]
+            // unsigned long`, the only member).
+            let salt_val =
+                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.salt_length))?;
+            if matches!(salt_val, JsValue::Undefined) {
+                return Err(required_member_error(method, "saltLength"));
+            }
+            raw.salt_length = Some(coerce_enforce_range(
+                ctx,
+                salt_val,
+                method,
+                "saltLength",
+                "unsigned long",
+                f64::from(u32::MAX),
+            )?);
+        }
     }
     Ok(())
 }

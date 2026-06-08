@@ -1355,6 +1355,14 @@ define_well_known_strings! {
         // reuses `hash_attr`.
         named_curve => "namedCurve",
         public_member => "public",
+        // RSA params-dictionary members (RsaHashedKeyGenParams
+        // `modulusLength` / `publicExponent`, RsaPssParams `saltLength`),
+        // read on the RSA generateKey / sign / verify path.
+        // `RsaHashedKeyGenParams.hash` / `RsaHashedImportParams.hash` reuse
+        // `hash_attr`.  (RSA-OAEP `label` lands in PR-5b.)
+        modulus_length => "modulusLength",
+        public_exponent => "publicExponent",
+        salt_length => "saltLength",
         crypto_key_global => "CryptoKey",
         extractable => "extractable",
         algorithm => "algorithm",

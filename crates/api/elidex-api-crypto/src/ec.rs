@@ -319,7 +319,7 @@ where
     let public = CryptoKeyData {
         key_type: KeyType::Public,
         extractable: true,
-        algorithm: key_alg,
+        algorithm: key_alg.clone(),
         usages: split_usages(algorithm, KeyType::Public, usages),
         material: KeyMaterial::Ec {
             public_point: public_point.clone(),

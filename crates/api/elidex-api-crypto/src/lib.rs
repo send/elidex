@@ -44,7 +44,7 @@ mod tests;
 
 pub use algorithm::{
     is_supported, normalize, params_shape, AesVariant, AlgorithmName, AlgorithmParams, EcAlgorithm,
-    EcdhPeer, NamedCurve, NormalizedAlgorithm, Operation, RawAlgorithm,
+    EcdhPeer, NamedCurve, NormalizedAlgorithm, Operation, RawAlgorithm, RsaVariant,
 };
 pub use error::AlgorithmError;
 pub use hash::HashAlgorithm;

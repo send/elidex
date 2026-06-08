@@ -7,7 +7,7 @@
 //! store the full material, so `material` is the source of truth and
 //! export round-trips deterministically).
 
-use crate::algorithm::{AesVariant, AlgorithmName, NamedCurve};
+use crate::algorithm::{AesVariant, AlgorithmName, NamedCurve, RsaVariant};
 use crate::hash::HashAlgorithm;
 
 /// `CryptoKey.type` (WebCrypto §13 `KeyType`).
@@ -108,6 +108,19 @@ impl KeyUsage {
         }
     }
 
+    /// Whether an RSA signing algorithm (RSASSA-PKCS1-v1_5 §20 / RSA-PSS
+    /// §21) accepts this usage for a key of `key_type` (WebCrypto §20.8.3 /
+    /// §20.8.4 / §21.4.3 / §21.4.4): a public key accepts only `verify`; a
+    /// private key only `sign`.  Key-type-dependent (the usage split across
+    /// the generated key pair), like [`Self::is_ecdsa_usage`].
+    pub fn is_rsa_sign_usage(self, key_type: KeyType) -> bool {
+        match key_type {
+            KeyType::Public => matches!(self, Self::Verify),
+            KeyType::Private => matches!(self, Self::Sign),
+            KeyType::Secret => false,
+        }
+    }
+
     /// Parse a `KeyUsage` from its IDL identifier, or `None` if unrecognized.
     pub fn from_ident(s: &str) -> Option<Self> {
         Some(match s {
@@ -135,7 +148,12 @@ pub fn normalize_usages(mut usages: Vec<KeyUsage>) -> Vec<KeyUsage> {
 }
 
 /// The canonical algorithm descriptor stored on a `CryptoKey`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+///
+/// Not `Copy`: the RSA variant carries the public-exponent octets
+/// (`RsaHashedKeyAlgorithm.publicExponent`, §20.6 — a `BigInteger`, the
+/// only one in WebCrypto), an owned `Vec<u8>`.  The symmetric / EC variants
+/// are still trivially clonable.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum KeyAlgorithm {
     /// HMAC: the hash + the (informational) bit length.
     Hmac { hash: HashAlgorithm, length: u32 },
@@ -158,13 +176,30 @@ pub enum KeyAlgorithm {
     /// ECDH (WebCrypto §24) — the named curve.  The key's `[[algorithm]]`
     /// is the `EcKeyAlgorithm` `{ name: "ECDH", namedCurve: "P-256"… }`.
     Ecdh { curve: NamedCurve },
+    /// RSA signing families (WebCrypto §20 RSASSA-PKCS1-v1_5 / §21 RSA-PSS) —
+    /// the `RsaHashedKeyAlgorithm` (§20.6): the family `variant`, the public
+    /// modulus bit length, the public exponent octets, and the message
+    /// `hash`.  Unlike ECDSA (whose signature `hash` lives on the call
+    /// params, `EcdsaParams`), RSA carries the hash on the **key** (§20.6) —
+    /// `sign` / `verify` read it from here, not the normalized call algorithm
+    /// (RSASSA params are name-only; RSA-PSS adds only `saltLength`).  The
+    /// `public_exponent` is the big-endian `BigInteger` octets (typically
+    /// `[0x01, 0x00, 0x01]` = 65537), round-tripped byte-identical through
+    /// the §13.4 `publicExponent` getter.
+    Rsa {
+        variant: RsaVariant,
+        modulus_length: u32,
+        public_exponent: Vec<u8>,
+        hash: HashAlgorithm,
+    },
 }
 
 impl KeyAlgorithm {
     /// The canonical algorithm name for `[[algorithm]]` name comparison
     /// (WebCrypto sign/verify/encrypt/decrypt/deriveBits/deriveKey "name
-    /// member equality" check).
-    pub fn name(self) -> AlgorithmName {
+    /// member equality" check).  Takes `&self` (the enum is no longer `Copy`
+    /// — the RSA variant owns the public-exponent octets).
+    pub fn name(&self) -> AlgorithmName {
         match self {
             Self::Hmac { .. } => AlgorithmName::Hmac,
             Self::Aes { variant, .. } => variant.algorithm_name(),
@@ -172,15 +207,18 @@ impl KeyAlgorithm {
             Self::Pbkdf2 => AlgorithmName::Pbkdf2,
             Self::Ecdsa { .. } => AlgorithmName::Ecdsa,
             Self::Ecdh { .. } => AlgorithmName::Ecdh,
+            Self::Rsa { variant, .. } => variant.algorithm_name(),
         }
     }
 
     /// The EC named curve for an ECDSA / ECDH key, or `None` for a
-    /// symmetric key (WebCrypto §23.5 / §24 `EcKeyAlgorithm.namedCurve`).
-    pub fn named_curve(self) -> Option<NamedCurve> {
+    /// symmetric / RSA key (WebCrypto §23.5 / §24 `EcKeyAlgorithm.namedCurve`).
+    pub fn named_curve(&self) -> Option<NamedCurve> {
         match self {
-            Self::Ecdsa { curve } | Self::Ecdh { curve } => Some(curve),
-            Self::Hmac { .. } | Self::Aes { .. } | Self::Hkdf | Self::Pbkdf2 => None,
+            Self::Ecdsa { curve } | Self::Ecdh { curve } => Some(*curve),
+            Self::Hmac { .. } | Self::Aes { .. } | Self::Hkdf | Self::Pbkdf2 | Self::Rsa { .. } => {
+                None
+            }
         }
     }
 }
@@ -203,38 +241,78 @@ pub enum KeyMaterial {
         public_point: Vec<u8>,
         private_scalar: Option<Vec<u8>>,
     },
+    /// RSA key material (WebCrypto §20 / §21) stored as the canonical DER:
+    /// `public_spki_der` is the SubjectPublicKeyInfo (always present —
+    /// derived from the private key at import / generate), and
+    /// `private_pkcs8_der` is the PKCS#8 PrivateKeyInfo (`Some` iff a
+    /// private key).  RSA has no flat semantic byte form (its key is 8+
+    /// BigUints) — so, exactly as `Ec` stores the canonical SEC1 bytes and
+    /// reconstructs the typed curve key at op time, the typed
+    /// `rsa::RsaPublicKey` / `RsaPrivateKey` is reconstructed in the `rsa`
+    /// backend from this DER (the asymmetric analogue of `Raw(bytes)` →
+    /// cipher).
+    Rsa {
+        public_spki_der: Vec<u8>,
+        private_pkcs8_der: Option<Vec<u8>>,
+    },
 }
 
 impl KeyMaterial {
-    /// The flat octet form of a symmetric (`Raw`) key.  EC key material has
-    /// no single flat form (it carries a public point plus an optional
-    /// scalar), and every symmetric op gates on an algorithm-name match
-    /// before reading the material, so an EC key never reaches this arm —
-    /// EC ops use [`Self::ec_public_point`] / [`Self::ec_private_scalar`].
+    /// The flat octet form of a symmetric (`Raw`) key.  EC / RSA key
+    /// material has no single flat form (EC carries a public point plus an
+    /// optional scalar; RSA is multi-component DER), and every symmetric op
+    /// gates on an algorithm-name match before reading the material, so an
+    /// asymmetric key never reaches this arm — EC ops use the `ec_*`
+    /// accessors and RSA ops the `rsa_*` accessors.
     pub fn as_bytes(&self) -> &[u8] {
         match self {
             Self::Raw(b) => b,
             Self::Ec { .. } => {
                 unreachable!("EC key material has no flat byte form; use the ec_* accessors")
             }
+            Self::Rsa { .. } => {
+                unreachable!("RSA key material has no flat byte form; use the rsa_* accessors")
+            }
         }
     }
 
     /// The SEC1 uncompressed public point of an EC key, or `None` for a
-    /// symmetric key.
+    /// symmetric / RSA key.
     pub fn ec_public_point(&self) -> Option<&[u8]> {
         match self {
             Self::Ec { public_point, .. } => Some(public_point),
-            Self::Raw(_) => None,
+            Self::Raw(_) | Self::Rsa { .. } => None,
         }
     }
 
     /// The big-endian private scalar of an EC **private** key, or `None`
-    /// for a public or symmetric key.
+    /// for a public / symmetric / RSA key.
     pub fn ec_private_scalar(&self) -> Option<&[u8]> {
         match self {
             Self::Ec { private_scalar, .. } => private_scalar.as_deref(),
-            Self::Raw(_) => None,
+            Self::Raw(_) | Self::Rsa { .. } => None,
+        }
+    }
+
+    /// The SubjectPublicKeyInfo DER of an RSA key (always present), or
+    /// `None` for a symmetric / EC key.
+    pub fn rsa_public_der(&self) -> Option<&[u8]> {
+        match self {
+            Self::Rsa {
+                public_spki_der, ..
+            } => Some(public_spki_der),
+            Self::Raw(_) | Self::Ec { .. } => None,
+        }
+    }
+
+    /// The PKCS#8 PrivateKeyInfo DER of an RSA **private** key, or `None`
+    /// for a public / symmetric / EC key.
+    pub fn rsa_private_der(&self) -> Option<&[u8]> {
+        match self {
+            Self::Rsa {
+                private_pkcs8_der, ..
+            } => private_pkcs8_der.as_deref(),
+            Self::Raw(_) | Self::Ec { .. } => None,
         }
     }
 }
