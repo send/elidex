@@ -227,14 +227,6 @@ fn import_jwk(
             return Err(data("JWK 'alg' member does not match the algorithm / hash"));
         }
     }
-    // Multi-prime keys are not supported — the rsa crate's DER encoder rejects
-    // >2 primes (`#11-rsa-multiprime-jwk`).  WebCrypto rejects the `oth` member
-    // whenever it is *present* (§20.8.4 / §21.4.4), independent of its length:
-    // RFC 7518 §6.3.2.7 says `oth` MUST be absent for a two-prime key, so even
-    // an empty `oth: []` is an unsupported multi-prime shape, not a 2-prime key.
-    if jwk.oth.is_some() {
-        return Err(multiprime_unsupported());
-    }
     // n / e are required for both public and private keys (RFC 7518 §6.3.1).
     let n = decode_biguint(jwk.n.as_deref(), "n")?;
     let e = decode_biguint(jwk.e.as_deref(), "e")?;
@@ -249,6 +241,17 @@ fn import_jwk(
             public_imported(&pubkey)
         }
         KeyType::Private => {
+            // Multi-prime (`oth` present) private keys are not supported — the
+            // rsa crate's DER encoder rejects >2 primes (`#11-rsa-multiprime-jwk`);
+            // RFC 7518 §6.3.2.7 says `oth` MUST be absent for a two-prime key,
+            // so even an empty `oth: []` is an unsupported multi-prime shape.
+            // This is checked ONLY on the private branch: WebCrypto interprets a
+            // *public* JWK per RFC 7518 §6.3.1 (n / e only — §20.8.4 / §21.4.4
+            // "Otherwise" step), which never references `oth`, so a public import
+            // ignores it exactly as it already ignores p / q / d.
+            if jwk.oth.is_some() {
+                return Err(multiprime_unsupported());
+            }
             // d is required (the §-determined private branch); p / q / dp / dq /
             // qi are all-or-nothing (RFC 7518 §6.3.2 — see [`jwk_primes`]).
             let d = decode_biguint(jwk.d.as_deref(), "d")?;

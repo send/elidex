@@ -271,8 +271,10 @@ fn raw_format_is_not_supported() {
 
 #[test]
 fn jwk_multiprime_oth_is_not_supported() {
-    // A private RSA JWK with a non-empty `oth` (multi-prime) is rejected before
-    // the key is reconstructed (the DER storage cannot encode >2 primes).
+    // A *private* RSA JWK with a non-empty `oth` (multi-prime) is rejected
+    // before the key is reconstructed (the DER storage cannot encode >2 primes).
+    // The reject is scoped to the private branch (see the public-import test
+    // below).
     let jwk = JsonWebKey {
         kty: Some("RSA".to_string()),
         d: Some("aaaa".to_string()),
@@ -293,6 +295,33 @@ fn jwk_multiprime_oth_is_not_supported() {
         matches!(err, AlgorithmError::NotSupported(_)),
         "got {err:?}"
     );
+}
+
+#[test]
+fn jwk_public_with_oth_member_is_ignored() {
+    // A *public* RSA JWK (no `d`) carrying a stray `oth` member must import
+    // successfully: WebCrypto interprets a public JWK per RFC 7518 §6.3.1
+    // (n / e only — §20.8.4 / §21.4.4 "Otherwise" step), which never references
+    // `oth`, so it is ignored exactly as p / q already are.  The multi-prime
+    // rejection is private-branch-only (Codex R11).
+    let (public, _private) = generate_pair(
+        RsaVariant::RsassaPkcs1V15,
+        HashAlgorithm::Sha256,
+        vec![KeyUsage::Sign, KeyUsage::Verify],
+    );
+    let mut jwk = expect_jwk(export_key(KeyFormat::Jwk, &public).expect("JWK export"));
+    assert!(jwk.d.is_none(), "the exported public JWK must have no `d`");
+    jwk.oth = Some(vec![crate::RsaOtherPrimesInfo::default()]);
+    let reimported = import_key(
+        KeyFormat::Jwk,
+        import_alg(RsaVariant::RsassaPkcs1V15, HashAlgorithm::Sha256),
+        true,
+        vec![KeyUsage::Verify],
+        KeyData::Jwk(Box::new(jwk)),
+    )
+    .expect("a public JWK with a stray `oth` imports (oth ignored)");
+    assert_eq!(reimported.key_type, KeyType::Public);
+    assert_eq!(reimported.material, public.material);
 }
 
 #[test]
