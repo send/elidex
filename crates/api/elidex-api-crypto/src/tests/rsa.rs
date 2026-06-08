@@ -475,3 +475,154 @@ fn cross_hash_verify_is_false() {
     .unwrap();
     assert!(!ok, "a SHA-384 verify of a SHA-256 signature must fail");
 }
+
+// ---------------------------------------------------------------------------
+// invalid-shape matrix (§20.8.4 DataError / SyntaxError)
+// ---------------------------------------------------------------------------
+
+/// Import a public JWK (usages = `verify`) and return the error.
+fn import_public_jwk_err(jwk: JsonWebKey) -> AlgorithmError {
+    import_key(
+        KeyFormat::Jwk,
+        import_alg(RsaVariant::RsassaPkcs1V15, HashAlgorithm::Sha256),
+        true,
+        vec![KeyUsage::Verify],
+        KeyData::Jwk(jwk),
+    )
+    .expect_err("invalid JWK is rejected")
+}
+
+/// Import a private JWK (usages = `sign`) and return the error.
+fn import_private_jwk_err(jwk: JsonWebKey) -> AlgorithmError {
+    import_key(
+        KeyFormat::Jwk,
+        import_alg(RsaVariant::RsassaPkcs1V15, HashAlgorithm::Sha256),
+        true,
+        vec![KeyUsage::Sign],
+        KeyData::Jwk(jwk),
+    )
+    .expect_err("invalid JWK is rejected")
+}
+
+fn rsa_jwk(members: &[(&str, &str)]) -> JsonWebKey {
+    let mut jwk = JsonWebKey {
+        kty: Some("RSA".to_string()),
+        ..Default::default()
+    };
+    for &(k, v) in members {
+        let v = Some(v.to_string());
+        match k {
+            "n" => jwk.n = v,
+            "e" => jwk.e = v,
+            "d" => jwk.d = v,
+            "p" => jwk.p = v,
+            "q" => jwk.q = v,
+            "dp" => jwk.dp = v,
+            "dq" => jwk.dq = v,
+            "qi" => jwk.qi = v,
+            other => panic!("unknown JWK member {other}"),
+        }
+    }
+    jwk
+}
+
+#[test]
+fn garbage_spki_der_is_data_error() {
+    let err = import_key(
+        KeyFormat::Spki,
+        import_alg(RsaVariant::RsassaPkcs1V15, HashAlgorithm::Sha256),
+        true,
+        vec![KeyUsage::Verify],
+        KeyData::Raw(vec![0xDE, 0xAD, 0xBE, 0xEF]),
+    )
+    .expect_err("garbage SPKI is a DataError");
+    assert!(matches!(err, AlgorithmError::Data(_)), "got {err:?}");
+}
+
+#[test]
+fn garbage_pkcs8_der_is_data_error() {
+    let err = import_key(
+        KeyFormat::Pkcs8,
+        import_alg(RsaVariant::RsassaPkcs1V15, HashAlgorithm::Sha256),
+        true,
+        vec![KeyUsage::Sign],
+        KeyData::Raw(vec![0x30, 0x03, 0x02, 0x01, 0x00]),
+    )
+    .expect_err("garbage PKCS#8 is a DataError");
+    assert!(matches!(err, AlgorithmError::Data(_)), "got {err:?}");
+}
+
+#[test]
+fn jwk_wrong_kty_is_data_error() {
+    let jwk = JsonWebKey {
+        kty: Some("EC".to_string()),
+        n: Some("AQID".to_string()),
+        e: Some("AQAB".to_string()),
+        ..Default::default()
+    };
+    assert!(
+        matches!(import_public_jwk_err(jwk), AlgorithmError::Data(_)),
+        "wrong kty must be a DataError"
+    );
+}
+
+#[test]
+fn jwk_public_missing_n_or_e_is_data_error() {
+    // n missing.
+    assert!(matches!(
+        import_public_jwk_err(rsa_jwk(&[("e", "AQAB")])),
+        AlgorithmError::Data(_)
+    ));
+    // e missing.
+    assert!(matches!(
+        import_public_jwk_err(rsa_jwk(&[("n", "AQID")])),
+        AlgorithmError::Data(_)
+    ));
+}
+
+#[test]
+fn jwk_private_partial_crt_members_is_data_error() {
+    // `p` present without q / dp / dq / qi → all-or-nothing violation.
+    let jwk = rsa_jwk(&[("n", "AQID"), ("e", "AQAB"), ("d", "AQID"), ("p", "AQ")]);
+    assert!(
+        matches!(import_private_jwk_err(jwk), AlgorithmError::Data(_)),
+        "a partial CRT member set must be a DataError"
+    );
+}
+
+#[test]
+fn jwk_private_inconsistent_d_is_data_error() {
+    // n / e / d that do not form a valid RSA key → from_components rejects it.
+    let jwk = rsa_jwk(&[("n", "AQID"), ("e", "AQAB"), ("d", "AQID")]);
+    assert!(
+        matches!(import_private_jwk_err(jwk), AlgorithmError::Data(_)),
+        "an inconsistent private key must be a DataError"
+    );
+}
+
+#[test]
+fn jwk_member_not_base64url_is_data_error() {
+    // A `+` / `/` (standard base64, not URL-safe) in `n` → decode failure.
+    let jwk = rsa_jwk(&[("n", "a+/b"), ("e", "AQAB")]);
+    assert!(
+        matches!(import_public_jwk_err(jwk), AlgorithmError::Data(_)),
+        "non-base64url members are a DataError"
+    );
+}
+
+#[test]
+fn public_exponent_round_trips_byte_identical() {
+    // The stored publicExponent is the canonical big-endian 65537 = [1, 0, 1].
+    let (public, _private) = generate_pair(
+        RsaVariant::RsassaPkcs1V15,
+        HashAlgorithm::Sha256,
+        vec![KeyUsage::Sign, KeyUsage::Verify],
+    );
+    let KeyAlgorithm::Rsa {
+        public_exponent, ..
+    } = &public.algorithm
+    else {
+        panic!("RSA key");
+    };
+    assert_eq!(public_exponent, &vec![0x01, 0x00, 0x01]);
+}

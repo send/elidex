@@ -33,6 +33,7 @@ mod derive;
 mod digest;
 mod ec;
 mod hmac;
+mod rsa;
 mod wrap;
 
 use super::super::value::JsValue;
