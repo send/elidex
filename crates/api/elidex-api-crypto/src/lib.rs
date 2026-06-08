@@ -41,6 +41,7 @@ pub mod jwk;
 pub mod key;
 pub mod ops;
 pub(crate) mod pbkdf2;
+pub(crate) mod rng;
 pub(crate) mod rsa;
 
 #[cfg(test)]

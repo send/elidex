@@ -11,6 +11,7 @@ mod ec;
 mod hmac;
 mod hmac_ops;
 mod normalize;
+mod rsa;
 
 /// Deterministic key material for the AES / AES-KW ops tests, matching the
 /// `fill_random` closure contract of [`crate::ops::generate_key`].  The `Result`

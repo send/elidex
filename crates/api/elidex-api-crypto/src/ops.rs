@@ -91,6 +91,21 @@ where
             curve,
         } => crate::ec::generate(ec_algorithm, curve, extractable, &usages, fill_random)
             .map(|(public, private)| GeneratedKey::Pair { public, private }),
+        NormalizedAlgorithm::RsaKeyGen {
+            variant,
+            modulus_length,
+            public_exponent,
+            hash,
+        } => crate::rsa::generate(
+            variant,
+            modulus_length,
+            public_exponent,
+            hash,
+            extractable,
+            &usages,
+            fill_random,
+        )
+        .map(|(public, private)| GeneratedKey::Pair { public, private }),
         _ => Err(not_supported_op("generateKey")),
     }
 }

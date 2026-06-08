@@ -137,6 +137,10 @@ p521 = { version = "0.13", features = ["ecdsa", "ecdh", "pkcs8", "arithmetic"] }
 # (`rsa::sha2::Sha256` …) used only as the `AssociatedOid` markers for the
 # PKCS#1 v1.5 DigestInfo prefix + the PSS MGF1 hash.
 rsa = { version = "0.9", default-features = false, features = ["std", "sha1", "sha2"] }
+# rand_core 0.6 (the EC 0.13 / rsa 0.9 generation) — direct dep for the shared
+# `ClosureRng` entropy-seam adapter feeding both EC `SecretKey::random` and RSA
+# `RsaPrivateKey::new_with_exp` from the VM's single `fill_random` closure.
+rand_core = "0.6"
 webpki-roots = "1"
 elidex-plugin = { path = "crates/core/elidex-plugin" }
 elidex-ecs = { path = "crates/core/elidex-ecs" }

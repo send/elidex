@@ -27,6 +27,7 @@ use crate::hash::HashAlgorithm;
 use crate::jwk::{self, JsonWebKey};
 use crate::key::{normalize_usages, CryptoKeyData, KeyMaterial, KeyType, KeyUsage};
 use crate::ops::{format_data_mismatch, ExportedKey, KeyData, KeyFormat};
+use crate::rng::ClosureRng;
 
 // ---------------------------------------------------------------------------
 // importKey (WebCrypto §20.8.4 / §21.4.4)
@@ -252,6 +253,120 @@ fn jwk_primes(jwk: &JsonWebKey) -> Result<Vec<BigUint>, AlgorithmError> {
     let p = decode_biguint(jwk.p.as_deref(), "p")?;
     let q = decode_biguint(jwk.q.as_deref(), "q")?;
     Ok(vec![p, q])
+}
+
+// ---------------------------------------------------------------------------
+// generateKey (WebCrypto §20.8.3 / §21.4.3)
+// ---------------------------------------------------------------------------
+
+/// `generateKey` for an RSA signing algorithm (WebCrypto §20.8.3
+/// RSASSA-PKCS1-v1_5 / §21.4.3 RSA-PSS) — returns the `(publicKey, privateKey)`
+/// pair (the §14.3.6 `CryptoKeyPair`).  `fill_random` is the VM entropy seam,
+/// fed through [`ClosureRng`] into `RsaPrivateKey::new_with_exp`'s vetted prime
+/// generation.  `public_exponent` is the `RsaKeyGenParams.publicExponent`
+/// big-endian `BigInteger`; WebCrypto does not constrain its value, so an even
+/// / `< 3` exponent (or an unusable modulus length) surfaces as the §20.8.3
+/// step-3 OperationError from the rsa crate (honored as-is).
+pub(crate) fn generate<F>(
+    variant: RsaVariant,
+    modulus_length: u32,
+    public_exponent: Vec<u8>,
+    hash: HashAlgorithm,
+    extractable: bool,
+    usages: &[KeyUsage],
+    mut fill_random: F,
+) -> Result<(CryptoKeyData, CryptoKeyData), AlgorithmError>
+where
+    F: FnMut(&mut [u8]) -> Result<(), AlgorithmError>,
+{
+    // §20.8.3 step 1 / §21.4.3 step 1: a usage outside {sign, verify} is a
+    // SyntaxError — before key generation.
+    validate_generate_usages(variant, usages)?;
+    // §20.8.3 step 2-3: generate the RSA key pair (failure → OperationError).
+    let exp = BigUint::from_bytes_be(&public_exponent);
+    let privkey = {
+        let mut rng = ClosureRng::new(&mut fill_random);
+        let result = RsaPrivateKey::new_with_exp(&mut rng, modulus_length as usize, &exp);
+        // Surface any `fill_random` error before the (otherwise opaque)
+        // generation error.
+        rng.into_result()?;
+        result.map_err(|_| AlgorithmError::Operation("RSA key generation failed".to_string()))?
+    };
+    // The canonical DER + the actual modulus length / exponent for the key's
+    // `[[algorithm]]` (the rsa crate guarantees a 2-prime key, so this never
+    // hits the multi-prime branch).
+    let imported = private_imported(&privkey)?;
+    let KeyMaterial::Rsa {
+        public_spki_der,
+        private_pkcs8_der,
+    } = imported.material
+    else {
+        unreachable!("private_imported always returns KeyMaterial::Rsa");
+    };
+    let key_alg = variant.key_algorithm(imported.modulus_length, imported.public_exponent, hash);
+    // §20.8.3 steps 19-22: the public key — usages = ∩(usages, {verify}),
+    // [[extractable]] always true.
+    let public = CryptoKeyData {
+        key_type: KeyType::Public,
+        extractable: true,
+        algorithm: key_alg.clone(),
+        usages: split_usages(KeyType::Public, usages),
+        material: KeyMaterial::Rsa {
+            public_spki_der: public_spki_der.clone(),
+            private_pkcs8_der: None,
+        },
+    };
+    // §20.8.3 steps 23-27: the private key — usages = ∩(usages, {sign}),
+    // [[extractable]] = the requested value.
+    let private_usages = split_usages(KeyType::Private, usages);
+    // §14.3.6 generateKey generic step: a CryptoKeyPair whose privateKey has
+    // empty usages is a SyntaxError.
+    if private_usages.is_empty() {
+        return Err(AlgorithmError::Syntax("usages cannot be empty".to_string()));
+    }
+    let private = CryptoKeyData {
+        key_type: KeyType::Private,
+        extractable,
+        algorithm: key_alg,
+        usages: private_usages,
+        material: KeyMaterial::Rsa {
+            public_spki_der,
+            private_pkcs8_der,
+        },
+    };
+    Ok((public, private))
+}
+
+/// The §20.8.3 / §21.4.3 step-1 usage check: every requested usage must be
+/// `sign` or `verify` (valid for one half of the produced pair).
+fn validate_generate_usages(
+    variant: RsaVariant,
+    usages: &[KeyUsage],
+) -> Result<(), AlgorithmError> {
+    let permitted =
+        |u: KeyUsage| u.is_rsa_sign_usage(KeyType::Public) || u.is_rsa_sign_usage(KeyType::Private);
+    if usages.iter().copied().all(permitted) {
+        Ok(())
+    } else {
+        Err(AlgorithmError::Syntax(format!(
+            "{} keys support only the 'sign' and 'verify' usages",
+            variant.canonical_name()
+        )))
+    }
+}
+
+/// The usage intersection for the `key_type` half of a generated key pair
+/// (§20.8.3 steps 21 / 25): keep the requested usages permitted for that key
+/// type (public → {verify}, private → {sign}), deduplicated + canonically
+/// ordered.
+fn split_usages(key_type: KeyType, usages: &[KeyUsage]) -> Vec<KeyUsage> {
+    normalize_usages(
+        usages
+            .iter()
+            .copied()
+            .filter(|&u| u.is_rsa_sign_usage(key_type))
+            .collect(),
+    )
 }
 
 // ---------------------------------------------------------------------------
