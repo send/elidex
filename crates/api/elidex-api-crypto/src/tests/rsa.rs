@@ -626,3 +626,46 @@ fn public_exponent_round_trips_byte_identical() {
     };
     assert_eq!(public_exponent, &vec![0x01, 0x00, 0x01]);
 }
+
+// ---------------------------------------------------------------------------
+// robustness: entropy failure + oversized PSS salt (must not hang / OOM)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn generate_surfaces_entropy_failure_without_hanging() {
+    // When the VM `fill_random` seam errors, generateKey must TERMINATE with
+    // the OperationError — not spin RSA prime-search forever (the ClosureRng
+    // fallback must vary so `new_with_exp` converges, then `into_result` errors
+    // and the key is discarded).  A 512-bit modulus keeps the discarded keygen
+    // fast.  (Pre-fix: a constant fallback fill hangs this test.)
+    let always_fail = |_: &mut [u8]| Err(AlgorithmError::Operation("entropy unavailable".into()));
+    let err = generate_key(
+        keygen_alg(RsaVariant::RsassaPkcs1V15, 512, HashAlgorithm::Sha256),
+        true,
+        vec![KeyUsage::Sign, KeyUsage::Verify],
+        always_fail,
+    )
+    .expect_err("an entropy-seam failure must surface as an error");
+    assert!(matches!(err, AlgorithmError::Operation(_)), "got {err:?}");
+}
+
+#[test]
+fn rsapss_sign_oversized_salt_length_is_rejected_without_oom() {
+    // A saltLength larger than the modulus is always an invalid PSS signature
+    // (RFC 3447 §9.1.1) and must be rejected BEFORE the rsa crate allocates a
+    // salt-sized buffer — an attacker-supplied saltLength = u32::MAX would
+    // otherwise allocate / fill ~4 GiB.
+    let (_public, private) = generate_pair(
+        RsaVariant::RsaPss,
+        HashAlgorithm::Sha256,
+        vec![KeyUsage::Sign],
+    );
+    let err = sign(
+        sign_alg(RsaVariant::RsaPss, Some(u32::MAX)),
+        &private,
+        b"m",
+        seeded_fill(9),
+    )
+    .expect_err("an oversized saltLength must be rejected up front");
+    assert!(matches!(err, AlgorithmError::Operation(_)), "got {err:?}");
+}

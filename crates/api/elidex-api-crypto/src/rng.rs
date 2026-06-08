@@ -17,19 +17,31 @@ use crate::error::AlgorithmError;
 ///
 /// `fill_random` is fallible but `RngCore::fill_bytes` is infallible, so a
 /// closure error is captured and surfaced by [`Self::into_result`] **after**
-/// key generation.  On error the buffer is filled with the canonical scalar
-/// `1` (big-endian `…01`) — a valid non-zero value — so a rejection-sampling
-/// loop (`SecretKey::random`) terminates rather than spinning on a zero /
-/// out-of-range fill; the resulting key is then discarded because
-/// `into_result` returns the captured error.
+/// key generation.  Once the error is latched, the buffer is filled from a
+/// deterministic but *varying* SplitMix64 stream so the consumer's
+/// rejection-sampling loop still **terminates** — and the resulting key is
+/// discarded because `into_result` returns the captured error.
+///
+/// The fill must *vary* per call, not be constant: EC's `SecretKey::random`
+/// would accept a constant valid scalar after one iteration, but RSA's
+/// `RsaPrivateKey::new_with_exp` does iterative **prime search** — a *constant*
+/// candidate never becomes prime, so a fixed fill would spin its loop forever
+/// (the entropy error would never surface). The SplitMix64 stream feeds the
+/// prime search fresh candidates so it converges, then the key is discarded.
 pub(crate) struct ClosureRng<'a> {
     fill: &'a mut dyn FnMut(&mut [u8]) -> Result<(), AlgorithmError>,
     error: Option<AlgorithmError>,
+    /// SplitMix64 state for the post-error fallback fill (see the type doc).
+    fallback: u64,
 }
 
 impl<'a> ClosureRng<'a> {
     pub(crate) fn new(fill: &'a mut dyn FnMut(&mut [u8]) -> Result<(), AlgorithmError>) -> Self {
-        Self { fill, error: None }
+        Self {
+            fill,
+            error: None,
+            fallback: 0,
+        }
     }
 
     /// The first captured `fill_random` error, if any — checked by the caller
@@ -62,11 +74,19 @@ impl RngCore for ClosureRng<'_> {
             }
         }
         if self.error.is_some() {
-            // Canonical value `1` so a rejection loop terminates; the key is
-            // discarded via `into_result`.
-            dest.fill(0);
-            if let Some(last) = dest.last_mut() {
-                *last = 1;
+            // The entropy seam failed: emit a deterministic but *varying*
+            // SplitMix64 stream so the consumer's rejection sampling converges
+            // (EC scalar search AND RSA prime search both need fresh bytes per
+            // iteration — a constant fill would spin RSA keygen forever). The
+            // key built over these bytes is discarded via `into_result`.
+            for chunk in dest.chunks_mut(8) {
+                self.fallback = self.fallback.wrapping_add(0x9E37_79B9_7F4A_7C15);
+                let mut z = self.fallback;
+                z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+                z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+                z ^= z >> 31;
+                let bytes = z.to_le_bytes();
+                chunk.copy_from_slice(&bytes[..chunk.len()]);
             }
         }
     }

@@ -405,6 +405,16 @@ where
             .map_err(|_| operation("RSASSA-PKCS1-v1_5 signing failed")),
         RsaVariant::RsaPss => {
             let salt_len = pss_salt_len(salt_length)?;
+            // RFC 3447 §9.1.1: EMSA-PSS encoding requires emLen ≥ hLen +
+            // saltLength + 2, so a saltLength exceeding the modulus byte size
+            // is always an invalid signature.  Reject it BEFORE the rsa crate
+            // allocates + random-fills a `vec![0; saltLength]` (it checks the
+            // encoding bound only *after* that alloc) — otherwise an
+            // attacker-supplied `saltLength = 2^32 − 1` would OOM the thread.
+            let modulus_bytes = privkey.n().bits().div_ceil(8);
+            if salt_len > modulus_bytes {
+                return Err(operation("RSA-PSS saltLength exceeds the modulus size"));
+            }
             let mut rng = ClosureRng::new(&mut fill_random);
             let result = privkey.sign_with_rng(&mut rng, pss_scheme(hash, salt_len), &digest);
             // A `fill_random` error wins over the (otherwise opaque) PSS error.
