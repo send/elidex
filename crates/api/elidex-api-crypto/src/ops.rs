@@ -489,7 +489,8 @@ where
     }
 }
 
-/// `verify` (WebCrypto §14.3.4 + §31 Verify).
+/// `verify` (WebCrypto §14.3.4 + §31 HMAC / §23.7.2 ECDSA / §20.8.2
+/// RSASSA-PKCS1-v1_5 / §21.4.2 RSA-PSS).
 #[allow(clippy::needless_pass_by_value)] // uniform ops signature; see `generate_key`
 pub fn verify(
     algorithm: NormalizedAlgorithm,

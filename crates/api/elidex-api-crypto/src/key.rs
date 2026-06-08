@@ -184,8 +184,9 @@ pub enum KeyAlgorithm {
     /// `sign` / `verify` read it from here, not the normalized call algorithm
     /// (RSASSA params are name-only; RSA-PSS adds only `saltLength`).  The
     /// `public_exponent` is the big-endian `BigInteger` octets (typically
-    /// `[0x01, 0x00, 0x01]` = 65537), round-tripped byte-identical through
-    /// the §13.4 `publicExponent` getter.
+    /// `[0x01, 0x00, 0x01]` = 65537) of the `RsaKeyAlgorithm.publicExponent`
+    /// member (§20.5, inherited by §20.6), round-tripped byte-identical when
+    /// the §13.4 `algorithm` getter re-materializes it as a `Uint8Array`.
     Rsa {
         variant: RsaVariant,
         modulus_length: u32,

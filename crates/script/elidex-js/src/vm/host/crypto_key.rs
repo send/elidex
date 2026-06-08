@@ -414,10 +414,11 @@ fn build_algorithm_object(ctx: &mut NativeContext<'_>, algorithm: KeyAlgorithm) 
         // hash: { name } }` (WebCrypto §20.6 / §21 `RsaHashedKeyAlgorithm`).
         // Web IDL dictionary-to-ECMAScript-value order is lexicographic: `hash`
         // < `modulusLength` < `name` < `publicExponent`.  The nested `hash`
-        // dict reuses the HMAC hash-object shape; `publicExponent` is a fresh
-        // `Uint8Array` over the stored big-endian octets (the §13.4 getter
-        // materializes a new ArrayBuffer per read — the publicExponent
-        // round-trips byte-identical).
+        // dict reuses the HMAC hash-object shape; `publicExponent`
+        // (`RsaKeyAlgorithm.publicExponent`, §20.5) is a fresh `Uint8Array`
+        // over the stored big-endian octets — the §13.4 `algorithm` getter
+        // materializes a new ArrayBuffer per read, so the publicExponent
+        // round-trips byte-identical.
         KeyAlgorithm::Rsa {
             variant,
             modulus_length,

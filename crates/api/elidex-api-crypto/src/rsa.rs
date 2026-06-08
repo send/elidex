@@ -377,9 +377,10 @@ fn split_usages(key_type: KeyType, usages: &[KeyUsage]) -> Vec<KeyUsage> {
 
 /// RSA `sign` (WebCrypto §20.8.1 RSASSA-PKCS1-v1_5 / §21.4.1 RSA-PSS): digest
 /// `message` with the key's `hash` (carried on `[[algorithm]]`, §20.6), then
-/// apply the family padding — RSASSA = EMSA-PKCS1-v1_5 (RFC 3447 §8.2,
-/// deterministic), RSA-PSS = EMSA-PSS + MGF1 over a random `salt_length`-byte
-/// salt (RFC 3447 §8.1).  The §14.3.3 name / `sign`-usage gate ran in
+/// apply the family padding — RSASSA-PKCS1-v1_5 (RFC 3447 §8.2) applies the
+/// EMSA-PKCS1-v1_5 encoding (§9.2, deterministic); RSA-PSS (§8.1) applies
+/// EMSA-PSS + MGF1 over a random `salt_length`-byte salt (§9.1).  The §14.3.3
+/// name / `sign`-usage gate ran in
 /// [`crate::ops::sign`]; this enforces step 1 ([[type]] must be private — via
 /// the stored PKCS#8 DER).  `fill_random` is the VM entropy seam — consumed
 /// for the PSS salt; RSASSA-PKCS1-v1_5 draws nothing.
@@ -459,7 +460,8 @@ fn pkcs1v15_scheme(hash: HashAlgorithm) -> Pkcs1v15Sign {
 }
 
 /// The `Pss` scheme for `hash` + `salt_len` — `Pss::new_with_salt::<D>(len)`
-/// sets the MGF1 hash + the enforced salt length (RFC 3447 §8.1 / §9.1).
+/// sets the MGF1 hash + the enforced salt length (the EMSA-PSS encoding,
+/// RFC 3447 §9.1).
 fn pss_scheme(hash: HashAlgorithm, salt_len: usize) -> Pss {
     match hash {
         HashAlgorithm::Sha1 => Pss::new_with_salt::<Sha1>(salt_len),
