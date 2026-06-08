@@ -428,8 +428,8 @@ where
     // (e.g. a leading-zero `[0, 1, 0, 1]`) round-trips byte-identical.  The
     // modulus length is the generated key's actual bit length.
     let key_alg = variant.key_algorithm(imported.modulus_length, public_exponent.to_vec(), hash);
-    // §20.8.3 steps 19-22: the public key — usages = ∩(usages, {verify}),
-    // [[extractable]] always true.
+    // §20.8.3 steps 9-13: the public key — [[extractable]] always true (step 12),
+    // usages = ∩(usages, {verify}) (step 13).
     let public = CryptoKeyData {
         key_type: KeyType::Public,
         extractable: true,
@@ -440,8 +440,8 @@ where
             private_pkcs8_der: None,
         },
     };
-    // §20.8.3 steps 23-27: the private key — usages = ∩(usages, {sign}),
-    // [[extractable]] = the requested value.
+    // §20.8.3 steps 14-18: the private key — [[extractable]] = the requested
+    // value (step 17), usages = ∩(usages, {sign}) (step 18).
     let private_usages = split_usages(KeyType::Private, usages);
     // §14.3.6 generateKey generic step: a CryptoKeyPair whose privateKey has
     // empty usages is a SyntaxError.
@@ -480,7 +480,7 @@ fn validate_generate_usages(
 }
 
 /// The usage intersection for the `key_type` half of a generated key pair
-/// (§20.8.3 steps 21 / 25): keep the requested usages permitted for that key
+/// (§20.8.3 steps 13 / 18): keep the requested usages permitted for that key
 /// type (public → {verify}, private → {sign}), deduplicated + canonically
 /// ordered.
 fn split_usages(key_type: KeyType, usages: &[KeyUsage]) -> Vec<KeyUsage> {
@@ -555,12 +555,14 @@ where
         }
         RsaVariant::RsaPss => {
             let salt_len = pss_salt_len(salt_length)?;
-            // RFC 3447 §9.1.1: EMSA-PSS encoding requires emLen ≥ hLen +
-            // saltLength + 2, so a saltLength exceeding the modulus byte size
-            // is always an invalid signature.  Reject it BEFORE the rsa crate
-            // allocates + random-fills a `vec![0; saltLength]` (it checks the
-            // encoding bound only *after* that alloc) — otherwise an
-            // attacker-supplied `saltLength = 2^32 − 1` would OOM the thread.
+            // DoS ceiling (a cheap over-approximation, NOT the exact §9.1.1
+            // validity bound): the rsa crate allocates + random-fills a
+            // `vec![0; saltLength]` and only *then* checks the EMSA-PSS encoding
+            // bound, so an attacker-supplied `saltLength = 2^32 − 1` would OOM the
+            // thread first.  RFC 3447 §9.1.1 requires emLen ≥ hLen + saltLength +
+            // 2, so any saltLength past the modulus byte size is certainly invalid
+            // — reject those up front here; the rsa crate still rejects the narrow,
+            // alloc-bounded window just below the ceiling as an OperationError.
             let modulus_bytes = privkey.n().bits().div_ceil(8);
             if salt_len > modulus_bytes {
                 return Err(operation("RSA-PSS saltLength exceeds the modulus size"));

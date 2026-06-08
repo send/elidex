@@ -21,15 +21,22 @@ ignore = [
     #     `Pss::new_blinded_with_salt` constructor (a plain `new_with_salt` leaves
     #     rsa 0.9's `blinded` flag false and would run the exponentiation
     #     unblinded — pinned by `tests::rsa::rsapss_sign_blinds_the_private_key_exponentiation`).
-    #     Authoritative scope: the Marvin attack's discoverer (H. Kario) states
-    #     the RSA-PSS and PKCS#1 v1.5 *signing* APIs are NOT affected, conditional
-    #     only on correct blinding — which `sign_with_rng` provides
-    #     (people.redhat.com/~hkario/marvin/). This holds regardless of how often
-    #     a page calls `sign()`: blinding randomizes each private-key op with
-    #     fresh entropy, so repeated invocations build no key-recovery timing
-    #     oracle. Signing also has no secret plaintext, so the decryption-only
-    #     "unblinding / integer→bytes conversion" leak the advisory describes does
-    #     not exist here. (CVSS 5.9 MEDIUM, AC:H, confidentiality-only.)
+    #     Authoritative scope: the Marvin attack's discoverer (H. Kario,
+    #     people.redhat.com/~hkario/marvin/) states the attack can target signing
+    #     as well as decryption, and that an RSA operation is safe only if BOTH
+    #     (a) the blinding is implemented in side-channel-free code AND (b) the
+    #     conversion from the numeric result to a byte string is side-channel-free.
+    #     elidex's signing path satisfies both: (a) `sign_with_rng` /
+    #     `Pss::new_blinded_with_salt` apply blinding (pinned by the test cited
+    #     below); and (b) is moot for signing — a signature is *public* output, so
+    #     there is no secret whose integer-to-byte-string conversion timing could
+    #     leak (condition (b) exists to protect the secret plaintext recovered
+    #     during *decryption*, which signing never produces). So the decryption
+    #     unpadding-oracle the advisory centers on is absent here and the signing
+    #     timing surface is closed by blinding. This holds regardless of how often
+    #     a page calls `sign()`: blinding randomizes each private-key op with fresh
+    #     entropy, so repeated invocations build no key-recovery timing oracle.
+    #     (CVSS 5.9 MEDIUM, AC:H, confidentiality-only.)
     #   - keygen / import / export are not timing-oracle surfaces.
     #
     # MANDATORY RE-EVALUATION at PR-5b (RSA-OAEP `decrypt`/`unwrapKey`) — the
