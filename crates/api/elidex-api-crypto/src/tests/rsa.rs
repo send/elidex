@@ -203,18 +203,75 @@ fn rsa_backend_has_no_decryption_while_marvin_advisory_is_ignored() {
     // PR-5a is signing-only; RSA *decryption* (RSA-OAEP, the follow-on) is the
     // path the Marvin timing attack actually targets, and the deny.toml ignore
     // is workspace-wide so cargo-deny cannot fail when decryption lands — this
-    // test does.  If RSA decryption appears in the backend, this fails: you MUST
-    // first address RUSTSEC-2023-0071 (drop the ignore for a fixed `rsa` release,
-    // or security-review the decryption timing risk under the WebCrypto threat
-    // model — the deny.toml gate).  (Codex R14.)
-    let backend = include_str!("../rsa.rs");
-    for marker in [".decrypt(", "Oaep", "Pkcs1v15Encrypt"] {
-        assert!(
-            !backend.contains(marker),
-            "RSA decryption marker `{marker}` appeared in rsa.rs — address \
-             RUSTSEC-2023-0071 (deny.toml Marvin gate) before adding RSA decryption"
-        );
+    // test does.  It scans the WHOLE crate source (not just rsa.rs) so a
+    // decryption module added in any file still trips it (Codex R15).  If RSA
+    // decryption appears, this fails: you MUST first address RUSTSEC-2023-0071
+    // (drop the ignore for a fixed `rsa` release, or security-review the
+    // decryption timing risk under the WebCrypto threat model — the deny.toml
+    // gate).  Markers are code-syntactic (a method call / a type path) so they
+    // never match prose like "RSA-OAEP"; `tests/` is skipped because this
+    // test's own marker strings live there.
+    fn scan(dir: &std::path::Path, markers: &[&str]) {
+        for entry in std::fs::read_dir(dir).expect("read crate src dir") {
+            let path = entry.expect("dir entry").path();
+            if path.is_dir() {
+                if path.file_name() == Some(std::ffi::OsStr::new("tests")) {
+                    continue;
+                }
+                scan(&path, markers);
+            } else if path.extension() == Some(std::ffi::OsStr::new("rs")) {
+                let src = std::fs::read_to_string(&path).expect("read .rs source");
+                for marker in markers {
+                    assert!(
+                        !src.contains(marker),
+                        "RSA decryption marker `{marker}` found in {} — address \
+                         RUSTSEC-2023-0071 (deny.toml Marvin gate) before adding RSA decryption",
+                        path.display(),
+                    );
+                }
+            }
+        }
     }
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    scan(&src, &[".decrypt(", "Oaep::"]);
+}
+
+#[test]
+fn rsapss_signature_verifies_under_standard_unblinded_pss() {
+    // `pss_scheme` signs with `Pss::new_blinded_with_salt` (R8 side-channel
+    // blinding).  The rsa crate's doc comment frames `new_blinded` as
+    // "RSA-BSSA", but the EMSA-PSS *encoding* is identical regardless of the
+    // `blinded` flag — it only gates the modexp RNG (source-verified) — so the
+    // output is a STANDARD RSASSA-PSS signature.  Prove interoperability: a
+    // blinded-scheme signature verifies under the rsa crate's *unblinded*
+    // `Pss::new_with_salt` (Codex R15: the BSSA concern is a docs-misread).
+    use rsa::pkcs8::spki::DecodePublicKey;
+    let (public, private) = generate_pair(
+        RsaVariant::RsaPss,
+        HashAlgorithm::Sha256,
+        vec![KeyUsage::Sign, KeyUsage::Verify],
+    );
+    let salt_length = 32u32;
+    let msg = b"standard-PSS interop";
+    let sig = sign(
+        sign_alg(RsaVariant::RsaPss, Some(salt_length)),
+        &private,
+        msg,
+        seeded_fill(7),
+    )
+    .expect("RSA-PSS sign (blinded scheme)");
+    let spki_der = expect_raw(export_key(KeyFormat::Spki, &public).expect("SPKI export"));
+    let pubkey = rsa::RsaPublicKey::from_public_key_der(&spki_der).expect("decode SPKI");
+    let digest = HashAlgorithm::Sha256.digest(msg);
+    pubkey
+        .verify(
+            // `sha2_oid::Sha256` is the rsa-crate-compatible digest used by the
+            // signing path; `new_with_salt` is the *standard* (unblinded) PSS.
+            rsa::Pss::new_with_salt::<sha2_oid::Sha256>(salt_length as usize),
+            &digest,
+            &sig,
+        )
+        .expect("a blinded-scheme PSS signature MUST verify as standard (unblinded) RSASSA-PSS");
 }
 
 #[test]

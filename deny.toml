@@ -39,8 +39,8 @@ ignore = [
     # This is NOT enforced by cargo-deny (a workspace-wide `ignore` downgrades
     # the advisory globally), so an *enforceable* tripwire backs it:
     # `elidex-api-crypto` `tests::rsa::rsa_backend_has_no_decryption_while_marvin_advisory_is_ignored`
-    # fails the build if RSA decryption appears while this ignore is present.
-    # Do NOT let PR-5b inherit this ignore silently.
+    # scans the whole crate source and fails the build if RSA decryption appears
+    # while this ignore is present.  Do NOT let PR-5b inherit this ignore silently.
     "RUSTSEC-2023-0071",
 ]
 
