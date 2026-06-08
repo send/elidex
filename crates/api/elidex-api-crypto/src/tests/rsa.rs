@@ -436,6 +436,44 @@ fn rsapss_sign_verify_round_trip_salt_variants() {
 }
 
 #[test]
+fn rsapss_sign_blinds_the_private_key_exponentiation() {
+    // RSA-PSS signing MUST blind the private-key exponentiation — the
+    // deny.toml RUSTSEC-2023-0071 (Marvin) rationale rests on signing being
+    // blinded.  In rsa 0.9, `Pss` blinds the exponentiation only when its
+    // `blinded` flag is set, so an *unblinded* `Pss::new_with_salt` would draw
+    // exactly `saltLength` bytes from the seam (just the PSS salt), whereas the
+    // blinded `new_blinded_with_salt` additionally draws the modulus-sized
+    // blinding factor.  Asserting the seam is consumed *beyond* the salt is a
+    // precise regression boundary for "blinding is active" (Codex R8).
+    let (_public, private) = generate_pair(
+        RsaVariant::RsaPss,
+        HashAlgorithm::Sha256,
+        vec![KeyUsage::Sign],
+    );
+    let salt_length = 32u32;
+    let mut rng = rand_chacha::ChaCha20Rng::seed_from_u64(0x99);
+    let drawn = std::cell::Cell::new(0usize);
+    let counting = |buf: &mut [u8]| {
+        drawn.set(drawn.get() + buf.len());
+        rng.fill_bytes(buf);
+        Ok(())
+    };
+    sign(
+        sign_alg(RsaVariant::RsaPss, Some(salt_length)),
+        &private,
+        b"RSA-PSS message",
+        counting,
+    )
+    .expect("RSA-PSS sign");
+    assert!(
+        drawn.get() > salt_length as usize,
+        "RSA-PSS sign drew {} bytes (<= saltLength {salt_length}): the private-key \
+         exponentiation was NOT blinded",
+        drawn.get(),
+    );
+}
+
+#[test]
 fn sign_with_public_key_is_invalid_access() {
     let (public, _private) = generate_pair(
         RsaVariant::RsassaPkcs1V15,

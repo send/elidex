@@ -574,15 +574,23 @@ fn pkcs1v15_scheme(hash: HashAlgorithm) -> Pkcs1v15Sign {
     }
 }
 
-/// The `Pss` scheme for `hash` + `salt_len` — `Pss::new_with_salt::<D>(len)`
+/// The `Pss` scheme for `hash` + `salt_len` — `Pss::new_blinded_with_salt::<D>`
 /// sets the MGF1 hash + the enforced salt length (the EMSA-PSS encoding,
-/// RFC 3447 §9.1).
+/// RFC 3447 §9.1).  The **`_blinded_`** constructor is load-bearing for signing:
+/// in rsa 0.9 `Pss::sign` only blinds the private-key exponentiation when its
+/// `blinded` flag is set (`sign(blind.then_some(rng), …)`), and `new_with_salt`
+/// leaves it `false` — so a plain `Pss` would draw the RNG for the salt yet run
+/// the exponentiation *unblinded*, leaving RSA-PSS `sign()` timing-observable
+/// (the Marvin / RUSTSEC-2023-0071 surface the `deny.toml` rationale relies on
+/// being mitigated; RSASSA's `Pkcs1v15Sign` blinds unconditionally under
+/// `sign_with_rng`).  On the `verify` path the flag is inert (a public-key
+/// operation has no private exponent to blind).
 fn pss_scheme(hash: HashAlgorithm, salt_len: usize) -> Pss {
     match hash {
-        HashAlgorithm::Sha1 => Pss::new_with_salt::<Sha1>(salt_len),
-        HashAlgorithm::Sha256 => Pss::new_with_salt::<Sha256>(salt_len),
-        HashAlgorithm::Sha384 => Pss::new_with_salt::<Sha384>(salt_len),
-        HashAlgorithm::Sha512 => Pss::new_with_salt::<Sha512>(salt_len),
+        HashAlgorithm::Sha1 => Pss::new_blinded_with_salt::<Sha1>(salt_len),
+        HashAlgorithm::Sha256 => Pss::new_blinded_with_salt::<Sha256>(salt_len),
+        HashAlgorithm::Sha384 => Pss::new_blinded_with_salt::<Sha384>(salt_len),
+        HashAlgorithm::Sha512 => Pss::new_blinded_with_salt::<Sha512>(salt_len),
     }
 }
 

@@ -13,10 +13,14 @@ ignore = [
     # Why this is acceptable for PR-5a (#11-crypto-subtle-full, RSA signing):
     #   - The Marvin DECRYPTION oracle is absent: PR-5a adds no RSA decryption
     #     (RSA-OAEP `decrypt`/`unwrapKey` is the follow-on PR-5b).
-    #   - The RSA SIGNING path IS mitigated, not merely "avoided": `rsa::sign`
-    #     uses `sign_with_rng` (`crypto::rsa::sign`), the crate's own blinding of
-    #     the private-key exponentiation — the documented mitigation for
-    #     timing-observable signing (RustCrypto/RSA `sign_with_rng` docs).
+    #   - The RSA SIGNING path IS mitigated, not merely "avoided": `crypto::rsa::sign`
+    #     blinds the private-key exponentiation — the documented mitigation for
+    #     timing-observable signing (RustCrypto/RSA docs).  Both families are
+    #     covered: RSASSA-PKCS1-v1_5 (`Pkcs1v15Sign` + `sign_with_rng`) blinds
+    #     unconditionally once an RNG is supplied, and RSA-PSS uses the **blinded**
+    #     `Pss::new_blinded_with_salt` constructor (a plain `new_with_salt` leaves
+    #     rsa 0.9's `blinded` flag false and would run the exponentiation
+    #     unblinded — pinned by `tests::rsa::rsapss_sign_blinds_the_private_key_exponentiation`).
     #     Authoritative scope: the Marvin attack's discoverer (H. Kario) states
     #     the RSA-PSS and PKCS#1 v1.5 *signing* APIs are NOT affected, conditional
     #     only on correct blinding — which `sign_with_rng` provides
