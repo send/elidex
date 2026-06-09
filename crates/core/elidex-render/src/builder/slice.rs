@@ -69,11 +69,32 @@ impl BoxModel for SlicedBox {
 
 /// Build the [`SlicedBox`] for a fragment: zero the padding + border on each broken
 /// edge (css-break-3 §5.4). The non-broken (outer) edges keep their real values.
+///
+/// Because the source `content` rect is positioned **inside** the box's border +
+/// padding, zeroing a break edge's decoration without compensating would shrink the
+/// box to the content — leaving a decoration-sized gap and mis-clipping a
+/// continuation column. So the content is **expanded** to absorb the removed
+/// decoration: the box edge stays at the break edge (§5.4: the content abuts the
+/// cut, no border/padding there) instead of moving inward by the decoration extent.
 pub(super) fn sliced_box(frag: &dyn BoxModel, omit: [bool; 4]) -> SlicedBox {
     let z = |v: f32, o: bool| if o { 0.0 } else { v };
     let (p, b) = (frag.padding(), frag.border());
+    let c = frag.content();
+    // Decoration (border + padding) removed on each edge that is at a break.
+    let rt = if omit[0] { b.top + p.top } else { 0.0 };
+    let rr = if omit[1] { b.right + p.right } else { 0.0 };
+    let rb = if omit[2] { b.bottom + p.bottom } else { 0.0 };
+    let rl = if omit[3] { b.left + p.left } else { 0.0 };
+    // Grow the content into the removed decoration; start edges (top/left) also move
+    // the origin out, so the box's border box stays at the original break-edge line.
+    let content = Rect::new(
+        c.origin.x - rl,
+        c.origin.y - rt,
+        c.size.width + rl + rr,
+        c.size.height + rt + rb,
+    );
     SlicedBox {
-        content: frag.content(),
+        content,
         padding: EdgeSizes::new(
             z(p.top, omit[0]),
             z(p.right, omit[1]),
@@ -153,6 +174,9 @@ mod tests {
             border: EdgeSizes::new(1.0, 2.0, 3.0, 4.0),
             margin: EdgeSizes::default(),
         };
+        // The ORIGINAL break-edge lines (border-box top/bottom) before slicing.
+        let orig_top = base.border_box().origin.y; // 0 - 5 - 1 = -6
+        let orig_bottom = base.border_box().origin.y + base.border_box().size.height; // +50
         let s = sliced_box(&base, [true, false, true, false]);
         assert_eq!(
             (s.padding().top, s.padding().bottom),
@@ -170,6 +194,18 @@ mod tests {
             "broken block-axis border removed"
         );
         assert_eq!((s.border().left, s.border().right), (4.0, 2.0));
+        // R3-F1: the content is EXPANDED into the removed decoration so the box edge
+        // stays at the original break-edge line (no decoration-sized gap / mis-clip).
+        let sbb = s.border_box();
+        assert_eq!(
+            (sbb.origin.y, sbb.origin.y + sbb.size.height),
+            (orig_top, orig_bottom),
+            "the sliced border box still meets the break edges (content absorbed the \
+             removed border+padding) — not shrunk inward to the content"
+        );
+        // The inline (unbroken) edges keep their decoration ⇒ box width unchanged.
+        assert_eq!(sbb.origin.x, base.border_box().origin.x);
+        assert_eq!(sbb.size.width, base.border_box().size.width);
     }
 
     #[test]
