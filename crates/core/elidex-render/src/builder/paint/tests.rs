@@ -237,7 +237,7 @@ fn make_bordered_box(
 fn emit_borders_dashed_produces_styled_segments() {
     let (lb, style) = make_bordered_box(2.0, BorderStyle::Dashed, CssColor::RED);
     let mut dl = DisplayList::default();
-    emit_borders(&lb, &style, [false; 4], &mut dl);
+    emit_borders(&lb, &style, [false; 4], style.border_radii, &mut dl);
     // 4 sides → 4 StyledBorderSegment items
     assert_eq!(dl.len(), 4);
     for item in dl.iter() {
@@ -264,7 +264,7 @@ fn emit_borders_dashed_produces_styled_segments() {
 fn emit_borders_dotted_produces_round_cap_segments() {
     let (lb, style) = make_bordered_box(3.0, BorderStyle::Dotted, CssColor::BLUE);
     let mut dl = DisplayList::default();
-    emit_borders(&lb, &style, [false; 4], &mut dl);
+    emit_borders(&lb, &style, [false; 4], style.border_radii, &mut dl);
     assert_eq!(dl.len(), 4);
     for item in dl.iter() {
         match item {
@@ -289,7 +289,7 @@ fn emit_borders_dotted_produces_round_cap_segments() {
 fn emit_borders_solid_still_produces_solid_rect() {
     let (lb, style) = make_bordered_box(2.0, BorderStyle::Solid, CssColor::BLACK);
     let mut dl = DisplayList::default();
-    emit_borders(&lb, &style, [false; 4], &mut dl);
+    emit_borders(&lb, &style, [false; 4], style.border_radii, &mut dl);
     // All 4 sides should be SolidRect
     assert_eq!(dl.len(), 4);
     for item in dl.iter() {
@@ -304,7 +304,7 @@ fn emit_borders_solid_still_produces_solid_rect() {
 fn emit_borders_none_produces_nothing() {
     let (lb, style) = make_bordered_box(2.0, BorderStyle::None, CssColor::BLACK);
     let mut dl = DisplayList::default();
-    emit_borders(&lb, &style, [false; 4], &mut dl);
+    emit_borders(&lb, &style, [false; 4], style.border_radii, &mut dl);
     assert!(dl.is_empty());
 }
 
@@ -316,7 +316,8 @@ fn emit_borders_omit_edges_suppresses_those_sides() {
     let (lb, style) = make_bordered_box(2.0, BorderStyle::Solid, CssColor::BLACK);
     let bb = lb.border_box();
     let mut dl = DisplayList::default();
-    emit_borders(&lb, &style, [true, false, true, false], &mut dl);
+    // No border-radius (radii all zero) ⇒ per-side path; top+bottom omitted ⇒ 2 sides.
+    emit_borders(&lb, &style, [true, false, true, false], [0.0; 4], &mut dl);
     assert_eq!(
         dl.len(),
         2,
@@ -336,17 +337,48 @@ fn emit_borders_omit_edges_suppresses_those_sides() {
         }
     }
 
-    // A rounded border with an omitted edge must NOT take the whole-box ring path —
-    // a sliced box falls back to per-side emission (the ring would re-draw the break
-    // edge). Pin: it does not emit a RoundedBorderRing.
-    let (lb, mut rstyle) = make_bordered_box(2.0, BorderStyle::Solid, CssColor::BLACK);
-    rstyle.border_radii = [5.0; 4];
+    // A rounded SLICED border (R2-F4): the broken edge's border is zeroed in the box
+    // (a first fragment with its block-end broken ⇒ bottom border 0) and the broken
+    // corners are squared in the radii. The ring IS used: it is zero-width on the
+    // broken edge (no break border) and keeps the unbroken (top) corners rounded.
+    let side = elidex_plugin::BorderSide {
+        width: 2.0,
+        style: BorderStyle::Solid,
+        color: CssColor::BLACK,
+    };
+    let sliced_lb = LayoutBox {
+        content: Rect::new(10.0, 10.0, 100.0, 50.0),
+        // block-end (bottom) border zeroed = the sliced break edge.
+        border: elidex_plugin::EdgeSizes::new(2.0, 2.0, 0.0, 2.0),
+        ..LayoutBox::default()
+    };
+    let rstyle = ComputedStyle {
+        border_top: side,
+        border_right: side,
+        border_left: side,
+        border_radii: [5.0; 4],
+        ..ComputedStyle::default()
+    };
     let mut dl = DisplayList::default();
-    emit_borders(&lb, &rstyle, [false, false, true, false], &mut dl);
-    assert!(
-        !dl.iter()
-            .any(|i| matches!(i, DisplayItem::RoundedBorderRing { .. })),
-        "an omitted edge bypasses the rounded-border-ring optimization"
+    // Squared radii for a bottom break: top corners rounded, bottom corners square.
+    emit_borders(
+        &sliced_lb,
+        &rstyle,
+        [false, false, true, false],
+        [5.0, 5.0, 0.0, 0.0],
+        &mut dl,
+    );
+    let ring = dl
+        .iter()
+        .find_map(|i| match i {
+            DisplayItem::RoundedBorderRing { outer_radii, .. } => Some(*outer_radii),
+            _ => None,
+        })
+        .expect("a rounded sliced border uses the ring (unbroken corners stay rounded)");
+    assert_eq!(
+        ring,
+        [5.0, 5.0, 0.0, 0.0],
+        "the unbroken (top) corners keep their radius; the broken (bottom) corners are square"
     );
 }
 

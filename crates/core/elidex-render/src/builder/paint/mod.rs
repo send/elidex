@@ -364,12 +364,19 @@ fn compute_inner_radii_per_axis(
 /// **at the fragmentation break** (block-end of a continued fragment, block-start of
 /// a continuation) is omitted while the inline-axis edges paint on every fragment.
 /// All-`false` (the common single-box / `clone` path) is byte-identical to pre-C-1.
-/// When any edge is omitted the box is sliced, so the all-or-nothing rounded-border
-/// ring optimization is bypassed (per-side emission honors the omission).
+///
+/// `radii` is the per-corner `border-radius` already adjusted for the slice (the
+/// broken corners squared, css-break-3 §5.4: radius applies to the unbroken whole
+/// box). The rounded-border ring **is** used for a sliced box: `lb` is the sliced
+/// box model (its broken edges' border zeroed), so the ring's broken edge is
+/// zero-width — no border drawn there — while the unbroken edges keep their full
+/// border and the unbroken corners keep their radius. A box whose only remaining
+/// radii are zero (a middle fragment with all corners squared) falls to per-side.
 pub(crate) fn emit_borders(
     lb: &dyn BoxModel,
     style: &ComputedStyle,
     omit_edges: [bool; 4],
+    radii: [f32; 4],
     dl: &mut DisplayList,
 ) {
     let bb = lb.border_box();
@@ -388,13 +395,13 @@ pub(crate) fn emit_borders(
         .filter(|(s, w, omit)| !omit && s.style != BorderStyle::None && *w > 0.0)
         .collect();
 
-    // Try rounded border ring when border-radius is set — but only when NO edge is
-    // omitted (a sliced box cannot use the whole-box ring; §5.4 applies radius to the
-    // composite, out of C-1 scope → per-side fallback).
-    let no_omission = !omit_edges.iter().any(|&o| o);
-    let has_radius = style.border_radii.iter().any(|r| *r > 0.0);
-    if no_omission && has_radius && !active_sides.is_empty() {
-        // Check uniform color and all-solid styles.
+    // Rounded border ring when border-radius is set. For a sliced box this is still
+    // correct: the broken edges' border is zeroed in `lb`, so the ring is zero-width
+    // there (no break border) while the unbroken corners keep their (already-squared)
+    // radius — satisfying both §5.4's break-omission and unbroken-corner rounding.
+    let has_radius = radii.iter().any(|r| *r > 0.0);
+    if has_radius && !active_sides.is_empty() {
+        // Check uniform color and all-solid styles over the drawn (non-omitted) sides.
         let first_color = active_sides[0].0.color;
         let uniform_color = active_sides.iter().all(|(s, _, _)| s.color == first_color);
         let all_solid = active_sides
@@ -403,10 +410,10 @@ pub(crate) fn emit_borders(
 
         if uniform_color && all_solid {
             let inner_rect = lb.padding_box();
-            let inner_radii = compute_inner_radii(style.border_radii, &border);
+            let inner_radii = compute_inner_radii(radii, &border);
             dl.push(DisplayItem::RoundedBorderRing {
                 outer_rect: bb,
-                outer_radii: style.border_radii,
+                outer_radii: radii,
                 inner_rect,
                 inner_radii,
                 color: apply_opacity(first_color, opacity),
