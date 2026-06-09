@@ -260,7 +260,19 @@ pub(crate) fn walk(
         // N=1 path).
         let single_box = store_frags.is_empty();
         let n = if single_box { 1 } else { store_frags.len() };
-        let clips = style.clips_overflow();
+        // On the PAGED path (`expected_generation.is_some()`) the store fragments are
+        // not consumed per-fragment (§2.8 — paged×multicol store unification is
+        // committed-next), so a consumable clipping mid-break would fall to the single
+        // last-column `LayoutBox` clip and lose the earlier columns' converged
+        // `InlineFlow` lines (the #316 loss, on the paged path — a regression the global
+        // `do_carrier` carrier enablement introduced). Until the per-page per-column
+        // clip lands, suppress the clip for such an entity so the converged flow paints
+        // unclipped at its correct per-column positions (no loss). Cheap: only when the
+        // store is non-empty and this entity is the consumable category.
+        let paged_consumable_clip = ctx.expected_generation.is_some()
+            && !ctx.dom.fragment_tree().is_empty()
+            && ctx.dom.fragment_tree().is_consumable(entity);
+        let clips = style.clips_overflow() && !paged_consumable_clip;
         let slice = style.box_decoration_break == BoxDecorationBreak::Slice;
         // The slice break axis is the FRAGMENTATION CONTEXT's block-flow direction =
         // the multicol container's writing mode (css-break-3: one block-flow direction

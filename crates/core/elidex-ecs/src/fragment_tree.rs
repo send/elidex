@@ -174,6 +174,23 @@ impl FragmentTree {
         self.nodes.is_empty()
     }
 
+    /// Drop `entity`'s fragments before a **re-commit** within the same pass.
+    ///
+    /// [`push_box`](Self::push_box) upserts by `(entity, fragmentainer)`, so a
+    /// definitive re-layout that **shrinks** an entity's span (e.g. 3 spanned
+    /// columns → 2) would leave the now-orphaned higher-fragmentainer nodes behind —
+    /// and since [`is_consumable`](Self::is_consumable) / [`fragments_for`](Self::fragments_for)
+    /// read via the index, render would keep painting the stale `BoxFragment` (a
+    /// phantom column). The committer (`position_column_fragments`) calls this for
+    /// each spanning entity before re-pushing its current span, so the entity is
+    /// rebuilt from scratch. Clears the index entry (the sole render-visible handle);
+    /// the de-indexed arena nodes are orphaned, harmless, and dropped at the next
+    /// [`clear`](Self::clear) (a Vec-arena compaction would invalidate other
+    /// `FragmentId`s, so de-indexing is the safe removal).
+    pub fn remove_entity(&mut self, entity: Entity) {
+        self.index.remove(&entity);
+    }
+
     /// Upsert a root box fragment for `entity` in fragmentainer `fragmentainer`,
     /// returning its id. Z-1a fragments are flat roots (no parenting yet).
     ///
@@ -515,5 +532,37 @@ mod tests {
             !tree.is_consumable(e),
             "the upsert overwrites the node's consumable flag in place — no stale latch"
         );
+    }
+
+    #[test]
+    fn remove_entity_drops_orphaned_fragments_on_a_shrinking_relay() {
+        // Codex PR#321 R4 (F4): a definitive re-lay that shrinks an entity's span
+        // (3 spanned columns → 2) must not leave the col-2 node behind — upsert only
+        // overwrites matching (entity, fragmentainer) keys, and the router ORs over
+        // all of `fragments_for`, so a stale higher-fragmentainer node would keep the
+        // entity consumable AND paint a phantom column. The committer calls
+        // `remove_entity` before re-pushing the current span.
+        let mut w = hecs::World::new();
+        let e = entity(&mut w);
+        let mut tree = FragmentTree::default();
+
+        // First lay: spans 3 columns, all carriers.
+        tree.push_box(e, 0, box_at(0.0), true);
+        tree.push_box(e, 1, box_at(300.0), true);
+        tree.push_box(e, 2, box_at(600.0), true);
+        assert_eq!(tree.fragments_for(e).count(), 3);
+
+        // Definitive re-lay shrinks to 2 columns: remove, then re-push the new span.
+        tree.remove_entity(e);
+        tree.push_box(e, 0, box_at(0.0), true);
+        tree.push_box(e, 1, box_at(300.0), true);
+
+        let cols: Vec<u32> = tree.fragments_for(e).map(|n| n.fragmentainer).collect();
+        assert_eq!(
+            cols,
+            vec![0, 1],
+            "the orphaned col-2 fragment is gone — no phantom column painted"
+        );
+        assert!(tree.is_consumable(e));
     }
 }

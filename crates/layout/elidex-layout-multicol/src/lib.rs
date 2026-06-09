@@ -450,6 +450,17 @@ fn position_column_fragments(
         .iter()
         .flat_map(|f| f.box_snapshots.iter().map(|s| s.entity))
         .collect();
+    // Drop any prior-lay store fragments for the spanning entities before re-committing
+    // their current span (Codex PR#321 R4-F4): a definitive re-lay within this pass can
+    // SHRINK an entity's span (e.g. 3 columns → 2), and `push_box`'s upsert would leave
+    // the orphaned higher-column nodes behind — the render router ORs over them and
+    // would paint a phantom column. Removing first rebuilds each entity from scratch.
+    // (`!is_probe` only — a probe never commits, so it must not disturb the live store.)
+    if !is_probe {
+        for &e in &own {
+            dom.fragment_tree_mut().remove_entity(e);
+        }
+    }
     // Per-run-start accumulator for the mid-break IFC lines (Z-1b, Option D): each
     // column's drained `flow_groups` are folded here, offset to the column's inline
     // position, then written as ONE `InlineFlow::single` per run-start AFTER the

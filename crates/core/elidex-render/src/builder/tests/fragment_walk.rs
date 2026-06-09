@@ -303,3 +303,48 @@ fn box_decoration_break_clone_vs_slice_per_column_chrome() {
         "clone (full per-fragment chrome) emits more border than slice (break edges omitted)"
     );
 }
+
+#[test]
+fn paged_consumable_clipping_suppresses_the_lossy_single_clip() {
+    // Codex PR#321 R4-F3 (regression): on the PAGED path (`expected_generation` set)
+    // the store fragments are not consumed per-fragment (§2.8), so a consumable
+    // clipping mid-break would fall to the single last-column `LayoutBox` clip and
+    // clip away the earlier columns' converged `InlineFlow` lines (the #316 loss, now
+    // on the paged path — introduced by the global `do_carrier` enablement). C-1
+    // suppresses that single clip on the paged path so the converged flow paints
+    // unclipped at its correct per-column positions (no content loss).
+    use super::super::walk::{walk, PaintContext};
+    let (dom, div) = make_consumable_midbreak(true, true);
+    let font_db = elidex_text::FontDatabase::new();
+    let mut dl = crate::display_list::DisplayList::default();
+    let mut font_cache = crate::font_cache::FontCache::new();
+    let mut ctx = PaintContext {
+        dom: &dom,
+        font_db: &font_db,
+        font_cache: &mut font_cache,
+        dl: &mut dl,
+        caret_visible: false,
+        scroll_offset: elidex_plugin::Vector::<f32>::ZERO,
+        counter_state: elidex_style::counter::CounterState::new(),
+        paged: true,
+        // The paged walk: generation 0 matches the entity's default LayoutBox gen.
+        expected_generation: Some(0),
+        continuation_entities: None,
+    };
+    walk(
+        &mut ctx,
+        div,
+        0,
+        &elidex_plugin::transform_math::Perspective::default(),
+        false,
+    );
+    assert_eq!(
+        count(&dl, |i| matches!(i, DisplayItem::PushClip { .. })),
+        0,
+        "no single last-column clip on the paged path (it would lose earlier columns)"
+    );
+    assert!(
+        count(&dl, |i| matches!(i, DisplayItem::Text { .. })) >= 2,
+        "the converged InlineFlow paints unclipped — both columns' lines survive"
+    );
+}
