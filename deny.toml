@@ -6,9 +6,9 @@ ignore = [
     # crate's RSA private-key operations (classically the PKCS#1 v1.5 / OAEP
     # **decryption** unpadding oracle).  There is no patched `rsa` release (the
     # fix is pending upstream, RustCrypto/RSA#626) and no alternative mature
-    # pure-Rust RSA crate with key generation (`ring` has no RSA keygen), so the
-    # advisory is unavoidable for any RSA support — and `cargo-deny`'s `ignore`
-    # is per-advisory-ID (global), with no per-call-path scoping.
+    # pure-Rust RSA crate with key generation, so the advisory is unavoidable
+    # for any RSA support — and `cargo-deny`'s `ignore` is per-advisory-ID
+    # (global), with no per-call-path scoping.
     #
     # Why this is acceptable (#11-crypto-subtle-full, the full RSA op-set):
     #   - The Marvin DECRYPTION oracle runs on a CONSTANT-TIME non-`rsa` backend:

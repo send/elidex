@@ -341,6 +341,18 @@ mod tests {
     use super::*;
     use elidex_plugin::url_security::is_private_ip;
 
+    /// Guards that the crawler's reqwest client resolves a rustls
+    /// `CryptoProvider` (slot `#11-rustls-aws-lc-rs-provider-drop-ring`).
+    /// reqwest's `rustls` feature bundles the aws-lc-rs provider and resolves it
+    /// eagerly inside `Client::builder().build()` (the workspace installs no
+    /// process-default).  Network-free; this goes red if reqwest is ever reverted
+    /// to `rustls-no-provider`, which would re-arm a build-time "no provider
+    /// configured" panic.
+    #[test]
+    fn reqwest_client_resolves_crypto_provider() {
+        assert!(reqwest::Client::builder().build().is_ok());
+    }
+
     #[test]
     fn private_ips_blocked() {
         assert!(is_private_ip("127.0.0.1".parse().unwrap()));
