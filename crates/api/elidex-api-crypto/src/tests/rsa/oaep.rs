@@ -1,8 +1,10 @@
-//! RSA-OAEP (WebCrypto §22) front-end plumbing: the generateKey usage-split +
+//! RSA-OAEP (WebCrypto §22) crate-level tests: the generateKey usage-split +
 //! key shape, the import / export round-trips (spki / pkcs8 / jwk with the
-//! `RSA-OAEP-*` `alg`), and the `RsaOaepParams.label` normalization.  The
-//! `encrypt` / `decrypt` / `wrapKey` / `unwrapKey` op-set (the dual-backend
-//! seam) lands with the backend; this commit only wires the registry + keys.
+//! `RSA-OAEP-*` `alg` + the `use` = "enc" gate), the `RsaOaepParams.label`
+//! normalization, the encrypt / decrypt / wrapKey / unwrapKey op-set over the
+//! aws-lc-rs backend (round-trip × hash × label, the `[[type]]` gates, the
+//! OperationError paths), and the refined Marvin (RUSTSEC-2023-0071)
+//! constant-time-decryption tripwire that guards the deny.toml ignore.
 
 use super::*;
 use crate::key::{KeyAlgorithm, KeyType};

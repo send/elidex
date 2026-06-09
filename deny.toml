@@ -24,7 +24,7 @@ ignore = [
     #     unconditionally once an RNG is supplied, and RSA-PSS uses the **blinded**
     #     `Pss::new_blinded_with_salt` constructor (a plain `new_with_salt` leaves
     #     rsa 0.9's `blinded` flag false and would run the exponentiation
-    #     unblinded — pinned by `tests::rsa::rsapss_sign_blinds_the_private_key_exponentiation`).
+    #     unblinded — pinned by `tests::rsa::sign_verify::rsapss_sign_blinds_the_private_key_exponentiation`).
     #     Authoritative scope: the Marvin attack's discoverer (H. Kario,
     #     people.redhat.com/~hkario/marvin/) states the attack can target signing
     #     as well as decryption, and that an RSA operation is safe only if BOTH
