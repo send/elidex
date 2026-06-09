@@ -12,7 +12,10 @@
 //! storage.  Import re-encodes to canonical DER (so a single storage form
 //! backs every format), which also gates multi-prime keys: the rsa crate's
 //! `to_pkcs8_der` rejects >2 primes, so a multi-prime `pkcs8` / JWK `oth`
-//! import is a NotSupportedError (`#11-rsa-multiprime-jwk`).
+//! import is a DataError — no browser supports multi-prime RSA (Chrome/Firefox
+//! read only two primes; Safari rejects it explicitly), so the key shape is
+//! rejected as malformed-for-this-implementation per WebCrypto §20.8.4 jwk
+//! step 10 (not a valid two-prime key per §6.3.2 / RFC3447).
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
@@ -209,8 +212,11 @@ fn public_imported(pubkey: &RsaPublicKey) -> Result<Imported, AlgorithmError> {
 }
 
 /// Build the [`Imported`] facts for a private key: the canonical PKCS#8 +
-/// derived SPKI DER.  A multi-prime key (>2 primes) is a NotSupportedError —
-/// the rsa crate's `to_pkcs8_der` cannot encode it (`#11-rsa-multiprime-jwk`).
+/// derived SPKI DER.  A multi-prime key (>2 primes) is a DataError — the rsa
+/// crate's `to_pkcs8_der` cannot encode it.  Defensive: every caller already
+/// supplies a two-prime key (`from_pkcs8_der` rejects multi-prime, `generate`
+/// always produces two primes, and the jwk path passes exactly `[p, q]`), so
+/// this guard states the storage-form invariant at the boundary.
 fn private_imported(privkey: &RsaPrivateKey) -> Result<Imported, AlgorithmError> {
     if privkey.primes().len() > 2 {
         return Err(multiprime_unsupported());
@@ -235,7 +241,7 @@ fn private_imported(privkey: &RsaPrivateKey) -> Result<Imported, AlgorithmError>
 /// Import an RSA `jwk` (WebCrypto §20.8.4 / §21.4.4 / §22.4.4 jwk branch +
 /// RFC 7518 §6.3): validate the JWK shape (kty / use / key_ops / ext / alg),
 /// determine the key type from the `d` member, then reconstruct the typed key
-/// from n / e [/ d / p / q].  Multi-prime (`oth`) is NotSupported.
+/// from n / e [/ d / p / q].  Multi-prime (`oth`) is a DataError.
 fn import_jwk(
     variant: RsaVariant,
     hash: HashAlgorithm,
@@ -304,10 +310,11 @@ fn import_jwk(
             public_imported(&pubkey)
         }
         KeyType::Private => {
-            // Multi-prime (`oth` present) private keys are not supported — the
-            // rsa crate's DER encoder rejects >2 primes (`#11-rsa-multiprime-jwk`);
-            // RFC 7518 §6.3.2.7 says `oth` MUST be absent for a two-prime key,
-            // so even an empty `oth: []` is an unsupported multi-prime shape.
+            // Multi-prime (`oth` present) private keys are a DataError — no
+            // browser supports multi-prime RSA and the rsa crate's DER encoder
+            // rejects >2 primes; RFC 7518 §6.3.2.7 says `oth` MUST be absent for a
+            // two-prime key, so even an empty `oth: []` is an unsupported
+            // multi-prime shape (§20.8.4 jwk step 10 / §6.3.2 → DataError).
             // This is checked ONLY on the private branch: WebCrypto interprets a
             // *public* JWK per RFC 7518 §6.3.1 (n / e only — §20.8.4 / §21.4.4
             // "Otherwise" step), which never references `oth`, so a public import
@@ -810,11 +817,15 @@ fn decode_b64(s: &str) -> Result<Vec<u8>, AlgorithmError> {
         .map_err(|_| data("JWK RSA member is not valid base64url"))
 }
 
-/// A multi-prime RSA key (>2 primes — `pkcs8` otherPrimeInfos / JWK `oth`) is
-/// not supported: the rsa crate's DER encoder rejects it, and DER is the
-/// canonical storage form (`#11-rsa-multiprime-jwk`).
+/// A multi-prime RSA key (>2 primes — `pkcs8` otherPrimeInfos / JWK `oth`) is a
+/// DataError: no browser supports multi-prime RSA (Chrome/Firefox read only two
+/// primes; Safari rejects "more than two primes" explicitly), and the rsa
+/// crate's DER encoder cannot store >2 primes either.  The key shape is rejected
+/// as malformed-for-this-implementation per WebCrypto §20.8.4 jwk step 10
+/// (§6.3.2 / RFC3447) — the same DataError the `pkcs8` path already returns via
+/// `from_pkcs8_der`'s two-prime check, so multi-prime is uniformly a DataError.
 fn multiprime_unsupported() -> AlgorithmError {
-    AlgorithmError::NotSupported(
+    AlgorithmError::Data(
         "multi-prime RSA keys (more than two primes) are not supported".to_string(),
     )
 }

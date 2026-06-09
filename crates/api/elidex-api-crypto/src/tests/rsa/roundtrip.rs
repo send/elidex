@@ -123,9 +123,11 @@ fn raw_format_is_not_supported() {
 }
 
 #[test]
-fn jwk_multiprime_oth_is_not_supported() {
+fn jwk_multiprime_oth_is_data_error() {
     // A *private* RSA JWK with a non-empty `oth` (multi-prime) is rejected
-    // before the key is reconstructed (the DER storage cannot encode >2 primes).
+    // before the key is reconstructed: no browser supports multi-prime RSA and
+    // the DER storage cannot encode >2 primes, so the key shape is a DataError
+    // (§20.8.4 jwk step 10 / §6.3.2 — matching the `pkcs8` multi-prime path).
     // The reject is scoped to the private branch (see the public-import test
     // below).
     let jwk = JsonWebKey {
@@ -143,11 +145,8 @@ fn jwk_multiprime_oth_is_not_supported() {
         vec![KeyUsage::Sign],
         KeyData::Jwk(Box::new(jwk)),
     )
-    .expect_err("multi-prime RSA is NotSupported");
-    assert!(
-        matches!(err, AlgorithmError::NotSupported(_)),
-        "got {err:?}"
-    );
+    .expect_err("multi-prime RSA is a DataError");
+    assert!(matches!(err, AlgorithmError::Data(_)), "got {err:?}");
 }
 
 #[test]
@@ -385,9 +384,9 @@ fn jwk_inconsistent_crt_member_is_data_error() {
 }
 
 #[test]
-fn jwk_empty_oth_is_not_supported() {
+fn jwk_empty_oth_is_data_error() {
     // A *present* `oth` (even empty `[]`) is an unsupported multi-prime shape
-    // (RFC 7518 §6.3.2.7: `oth` MUST be absent for a two-prime key).
+    // (RFC 7518 §6.3.2.7: `oth` MUST be absent for a two-prime key) → DataError.
     let jwk = JsonWebKey {
         kty: Some("RSA".to_string()),
         d: Some("aaaa".to_string()),
@@ -403,11 +402,8 @@ fn jwk_empty_oth_is_not_supported() {
         vec![KeyUsage::Sign],
         KeyData::Jwk(Box::new(jwk)),
     )
-    .expect_err("a present empty oth is NotSupported");
-    assert!(
-        matches!(err, AlgorithmError::NotSupported(_)),
-        "got {err:?}"
-    );
+    .expect_err("a present empty oth is a DataError");
+    assert!(matches!(err, AlgorithmError::Data(_)), "got {err:?}");
 }
 
 #[test]
