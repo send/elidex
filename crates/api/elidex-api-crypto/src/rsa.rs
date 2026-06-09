@@ -415,7 +415,7 @@ fn validate_jwk_crt(jwk: &JsonWebKey, privkey: &RsaPrivateKey) -> Result<(), Alg
 /// `generateKey` for an RSA algorithm (WebCrypto §20.8.3 RSASSA-PKCS1-v1_5 /
 /// §21.4.3 RSA-PSS / §22.4.3 RSA-OAEP — `variant` selects the family, all three
 /// share this `RsaHashedKeyGenParams` keygen) — returns the `(publicKey,
-/// privateKey)` pair (the §14.3.6 `CryptoKeyPair`).  `fill_random` is the VM entropy seam,
+/// privateKey)` pair (the §17 `CryptoKeyPair`).  `fill_random` is the VM entropy seam,
 /// fed through [`ClosureRng`] into `RsaPrivateKey::new_with_exp`'s vetted prime
 /// generation.  `public_exponent` is the `RsaKeyGenParams.publicExponent`
 /// big-endian `BigInteger`; WebCrypto does not constrain its value, so an even
