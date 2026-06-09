@@ -306,13 +306,15 @@ fn box_decoration_break_clone_vs_slice_per_column_chrome() {
 
 #[test]
 fn paged_consumable_clipping_uses_the_all_column_union_clip() {
-    // Codex PR#321 R4-F3 (regression) + R6-F2: on the PAGED path (`expected_generation`
-    // set) the store fragments are not consumed per-fragment (§2.8), so a consumable
-    // clipping mid-break must NOT clip to the single last-column `LayoutBox` (it would
-    // lose the earlier columns' converged `InlineFlow` lines — the #316 loss on the
-    // paged path) NOR skip the clip (that would let overflow bleed). It clips to the
-    // UNION of the per-column padding boxes: overflow is clipped to the element's
-    // overall extent (no bleed) while every column survives (no loss).
+    // Codex PR#321 R4-F3 (regression) + R6-F2 + R8-F2: on the PAGED path (`ctx.paged`,
+    // both renderers) the store fragments are not consumed per-fragment (§2.8), so a
+    // consumable clipping mid-break must NOT clip to the single last-column `LayoutBox`
+    // (it would lose the earlier columns — the #316 loss on the paged path). It clips
+    // to the UNION of the per-column padding boxes: overflow clipped to the element's
+    // overall extent, every column survives. The discriminator is `ctx.paged`, NOT
+    // `expected_generation` — this test drives the LEGACY paged renderer
+    // (`paged: true, expected_generation: None`), the path R8-F2 was wrongly consuming
+    // the store on.
     use super::super::walk::{walk, PaintContext};
     let (dom, div) = make_consumable_midbreak(true, true);
     let font_db = elidex_text::FontDatabase::new();
@@ -327,8 +329,8 @@ fn paged_consumable_clipping_uses_the_all_column_union_clip() {
         scroll_offset: elidex_plugin::Vector::<f32>::ZERO,
         counter_state: elidex_style::counter::CounterState::new(),
         paged: true,
-        // The paged walk: generation 0 matches the entity's default LayoutBox gen.
-        expected_generation: Some(0),
+        // Legacy paged renderer: paged with NO generation filter (the R8-F2 path).
+        expected_generation: None,
         continuation_entities: None,
     };
     walk(

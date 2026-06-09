@@ -186,10 +186,13 @@ pub(crate) fn walk(
         .get::<&LayoutBox>(entity)
         .ok()
         .map(|l| (*l).clone());
-    // Store-consumable source (§2.2), non-paged only (§2.8): a paged multicol keeps
-    // the per-page LayoutBox path until paged×multicol store unification. The cheap
-    // `!is_empty()` arena check skips the per-entity consumable lookup entirely on the
-    // common no-multicol page (the store has no fragments at all).
+    // Store-consumable source (§2.2), **screen path only** (`!ctx.paged`, §2.8): both
+    // paged renderers keep the per-page LayoutBox path until paged×multicol store
+    // unification. NOTE the gate is `!ctx.paged`, NOT `expected_generation.is_none()` —
+    // the legacy `build_paged_display_lists` renderer sets `paged: true` with
+    // `expected_generation: None`, so a generation-based gate would (wrongly) consume
+    // the screen store on that paged path (Codex PR#321 R8-F2). The cheap `!is_empty()`
+    // arena check skips the per-entity consumable lookup on the common no-multicol page.
     //
     // Mixed-consumability cannot occur (so routing all `fragments_for(entity)` through
     // the per-fragment loop is sound): `is_consumable` is true iff a column drained an
@@ -201,7 +204,7 @@ pub(crate) fn walk(
     // consumable) and none is a nested-block fragment. A nested-block / deeper-IFC
     // mid-break writes no carrier on the direct child ⇒ NOT consumable ⇒ the single
     // `LayoutBox` arm. (See `fill.rs` `FragmentSnapshot` for the carrier-drain invariant.)
-    let store_frags: Vec<BoxFragment> = if ctx.expected_generation.is_none()
+    let store_frags: Vec<BoxFragment> = if !ctx.paged
         && !ctx.dom.fragment_tree().is_empty()
         && ctx.dom.fragment_tree().is_consumable(entity)
     {
@@ -261,18 +264,21 @@ pub(crate) fn walk(
         let single_box = store_frags.is_empty();
         let n = if single_box { 1 } else { store_frags.len() };
         let clips = style.clips_overflow();
-        // On the PAGED path (`expected_generation.is_some()`) the store fragments are
-        // not consumed per-fragment (§2.8 — paged×multicol store unification is
+        // On the PAGED path (`ctx.paged`, both renderers) the store fragments are not
+        // consumed per-fragment (§2.8 — paged×multicol store unification is
         // committed-next), so a consumable clipping mid-break would otherwise clip its
         // converged all-column `InlineFlow` to the single last-column `LayoutBox` and
         // lose the earlier columns (the #316 loss, on the paged path — a regression the
         // global `do_carrier` enablement introduced). Clip instead to the UNION of the
-        // entity's per-column padding boxes: overflow is still clipped to the element's
-        // overall extent (no `overflow:hidden` bleed) while every column survives (no
-        // loss). The finer per-column-gap clip is committed-next with the paged store
-        // consume. The store is queried directly (it is gated out of `store_frags`).
+        // entity's per-column padding boxes: overflow is clipped to the element's
+        // overall extent (no content loss — every column survives), the least-bad
+        // interim. LIMITATION (Codex PR#321 R8-F3, slot `#11-paged-multicol-per-fragment-clip`):
+        // the union spans the inter-column gaps, so a descendant overflowing sideways
+        // INTO a gap is not clipped — a true per-fragment paged clip needs the paged
+        // store (committed-next). Still strictly better than the single-clip loss or the
+        // no-clip full bleed. The store is queried directly (gated out of `store_frags`).
         let paged_union_clip: Option<Rect> = if clips
-            && ctx.expected_generation.is_some()
+            && ctx.paged
             && !ctx.dom.fragment_tree().is_empty()
             && ctx.dom.fragment_tree().is_consumable(entity)
         {
