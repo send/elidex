@@ -77,7 +77,13 @@ csv = "1"
 hecs = "0.11"
 html5ever = "0.39"
 markup5ever_rcdom = "0.39"
-reqwest = { version = "0.13", default-features = false, features = ["gzip", "brotli", "rustls-no-provider", "http2", "charset"] }
+# `rustls` (not `rustls-no-provider`): selects reqwest's bundled aws-lc-rs CryptoProvider so the
+# crawler's TLS rides the same single crypto C lib as elidex-net + WebCrypto (rationale + the
+# provider-resolution guard: `elidex-crawler` `crawler::tests::reqwest_client_resolves_crypto_provider`).
+# This feature weakly references `quinn?/rustls-aws-lc-rs`, so Cargo records
+# quinn/quinn-proto/quinn-udp/lru-slab in Cargo.lock — they are NEVER compiled (quinn builds only
+# under reqwest's unused `http3` feature; `cargo tree -i quinn` is empty).
+reqwest = { version = "0.13", default-features = false, features = ["gzip", "brotli", "rustls", "http2", "charset"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "net", "io-util", "fs"] }
@@ -100,9 +106,9 @@ http-body-util = "0.1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 hyper = { version = "1", features = ["client", "http1", "http2"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
-rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "ring"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "aws_lc_rs"] }
 rustls-pki-types = "1"
-tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12", "ring"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12", "aws_lc_rs"] }
 tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
 url = "2"
 uuid = { version = "1", features = ["v4"] }
@@ -145,15 +151,15 @@ sha2-oid = { package = "sha2", version = "0.10", features = ["oid"] }
 # `ClosureRng` entropy-seam adapter feeding both EC `SecretKey::random` and RSA
 # `RsaPrivateKey::new_with_exp` from the VM's single `fill_random` closure.
 rand_core = "0.6"
-# aws-lc-rs (AWS-LC, a BoringSSL fork) — the **constant-time** RSA-OAEP backend
-# for WebCrypto §22 encrypt / decrypt / wrapKey / unwrapKey (PR-5b).  The pure-Rust
-# `rsa` crate carries RUSTSEC-2023-0071 (Marvin) on its private-key ops AND models
-# the OAEP `label` as a UTF-8 `String` (so it cannot represent WebCrypto's arbitrary
-# `BufferSource` label) — aws-lc-rs gives both constant-time decryption and a
-# byte-slice label (`Option<&[u8]>`), so the whole RSA-OAEP op-set runs here while
-# the signing / key-management families stay on `rsa` 0.9.  Same C-build category as
-# the in-tree `ring` (BoringSSL crypto) — the non-FIPS backend (`aws-lc-sys`, built
-# via cmake/cc) is constant-time; no `fips` feature.  License Apache-2.0/ISC.
+# aws-lc-rs (AWS-LC, a BoringSSL fork) — the workspace's **single crypto C library**, shared by
+# the rustls TLS stack (the `CryptoProvider` for elidex-net + reqwest + tungstenite; replaces the
+# former `ring` provider) AND WebCrypto §22 RSA-OAEP encrypt / decrypt / wrapKey / unwrapKey (PR-5b).
+# RSA-OAEP runs here because the pure-Rust `rsa` crate carries RUSTSEC-2023-0071 (Marvin) on its
+# private-key ops AND models the OAEP `label` as a UTF-8 `String` (so it cannot represent WebCrypto's
+# arbitrary `BufferSource` label) — aws-lc-rs gives both constant-time decryption and a byte-slice
+# label (`Option<&[u8]>`), so the whole RSA-OAEP op-set runs here while the signing / key-management
+# families stay on `rsa` 0.9.  The non-FIPS backend (`aws-lc-sys`, built via cmake/cc) is
+# constant-time; no `fips` feature.  License Apache-2.0/ISC.
 aws-lc-rs = "1.13"
 webpki-roots = "1"
 elidex-plugin = { path = "crates/core/elidex-plugin" }

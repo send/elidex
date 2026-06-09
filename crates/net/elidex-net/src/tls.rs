@@ -17,12 +17,13 @@ pub fn build_tls_config() -> Arc<ClientConfig> {
     let root_store: rustls::RootCertStore =
         webpki_roots::TLS_SERVER_ROOTS.iter().cloned().collect();
 
-    let mut config =
-        ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
-            .with_safe_default_protocol_versions()
-            .expect("ring supports TLS 1.2 and 1.3")
-            .with_root_certificates(root_store)
-            .with_no_client_auth();
+    let mut config = ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::aws_lc_rs::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .expect("aws-lc-rs supports TLS 1.2 and 1.3")
+    .with_root_certificates(root_store)
+    .with_no_client_auth();
 
     config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
 

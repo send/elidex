@@ -6,6 +6,7 @@
 //! the cancel / timeout arms directly without exposing them
 //! outside the crate.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use crossbeam_channel::Sender;
@@ -240,11 +241,28 @@ pub(super) async fn ws_io_loop(
                                               //   worker until OS-level TCP keepalive fires
                                               //   (minutes / hours).
                                               // - the connect future itself.
+                                              // TLS connector: for `wss://`, route through the workspace-canonical
+                                              // `tls::build_tls_config()` (explicit aws-lc-rs `CryptoProvider` + webpki
+                                              // roots), unifying WS with the runtime (`connector.rs`) and SSE
+                                              // (`sse/connect.rs`) paths on one explicit provider rather than
+                                              // tokio-tungstenite's feature-resolved default
+                                              // (#11-rustls-aws-lc-rs-provider-drop-ring).  ALPN is cleared: a WebSocket
+                                              // upgrade is HTTP/1.1, matching tungstenite's no-ALPN default.  Plain
+                                              // `ws://` needs no connector.
+    let tls_connector = if url.scheme() == "wss" {
+        let mut ws_tls_config = (*crate::tls::build_tls_config()).clone();
+        ws_tls_config.alpn_protocols.clear();
+        Some(tokio_tungstenite::Connector::Rustls(Arc::new(
+            ws_tls_config,
+        )))
+    } else {
+        None
+    };
     let connect_fut = tokio_tungstenite::connect_async_tls_with_config(
         request,
         Some(ws_config),
         false, // disable_nagle
-        None,  // TLS connector (uses default rustls)
+        tls_connector,
     );
     let (ws_stream, response) = tokio::select! {
         biased;
