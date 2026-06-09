@@ -990,6 +990,15 @@ pub fn layout_inline_context_fragmented(
     // for the `persist_flow` case (lines go to `InlineFlow`) and for the no-content
     // case (carrier cleared).
     let mut carrier_groups: Vec<(Entity, Vec<elidex_ecs::InlineFlowLine>)> = Vec::new();
+    // C-2: mid-break atomic reposition payload carried alongside `carrier_groups`,
+    // one uniform `(entity, inline_abs, block_abs, unoffset_origin)` record per
+    // atomic (IFC-absolute on-line target at column-0 base + reposition delta basis).
+    // Covers BOTH static atomics (also `AtomicBox` flow members — their target rides
+    // the `AtomicBox` run, captured here so the seam needs no second run-walk) and
+    // relpos/sticky atomics (NOT flow members). Empty for the `persist_flow` case
+    // (the atomics are repositioned in-line below) and for a probe (the `do_carrier`
+    // arms are `!env.is_probe`-gated).
+    let mut carrier_atomics: Vec<(Entity, f32, f32, Point)> = Vec::new();
     if persist_flow || do_carrier {
         // IFC-local logical → absolute physical, applying the SAME is_vertical
         // projection rule as `static_positions` and `assign_inline_layout_boxes`:
@@ -1037,37 +1046,28 @@ pub fn layout_inline_context_fragmented(
                 // (baseline-naive; CSS 2 §10.8 `vertical-align` within the line box is
                 // deferred — same as text runs).
                 //
-                // NOT run for `do_carrier` (mid-break): a multicol mid-break IFC re-runs
-                // `layout_atomic_items` for the WHOLE IFC every column (continuation),
-                // resetting any earlier-column atomic's box back to `content_origin`,
-                // and a single column's run only knows its own slice — so repositioning
-                // here would fix only the LAST column and leave earlier-column atomics
-                // displaced (Codex PR#316 R1). Correct per-fragment atomic positioning
-                // needs the box-store fragment model (it must carry the un-offset basis
-                // per column + position after the final re-lay) = the committed-next
-                // all-box-type program (atomic-as-fragment, plan §C/§D). Z-1b is
-                // text-only: the `AtomicBox` runs ARE carried in the per-column
-                // `InlineFlow` (so render walks them), but the atomic `LayoutBox`
-                // stays at its pre-Z-1b position (base + `col_children` shift) — no
-                // regression, deferred whole rather than half-fixed.
-                for line in &lines {
-                    for run in &line.runs {
-                        if let InlineFlowRun::AtomicBox {
-                            entity: atomic,
-                            inline_start,
-                        } = run
-                        {
-                            reposition_atomic_box(
-                                dom,
-                                *atomic,
-                                *inline_start,
-                                line.block_start,
-                                is_vertical,
-                                unoffset_origins.get(atomic).copied(),
-                                env.is_probe,
-                            );
-                        }
-                    }
+                // The mid-break (`do_carrier`) case CANNOT reposition here: a multicol
+                // mid-break IFC re-runs `layout_atomic_items` for the WHOLE IFC every
+                // column (continuation), resetting any earlier-column atomic's box back
+                // to `content_origin`, and a single column's run only knows its own
+                // slice — so repositioning here would fix only the LAST column and leave
+                // earlier-column atomics displaced (Codex PR#316 R1). Instead the
+                // `do_carrier` arm below carries each mid-break atomic's on-line target +
+                // basis out via `ColumnFlowSlice`, and the multicol seam
+                // `position_column_fragments` repositions them after the final re-lay,
+                // offset per column (terminal-Z C-2 — atomic-as-fragment).
+                for (atomic, inline_abs, block_abs, basis) in
+                    static_atomic_reposition_records(&lines, &unoffset_origins)
+                {
+                    reposition_atomic_box(
+                        dom,
+                        atomic,
+                        inline_abs,
+                        block_abs,
+                        is_vertical,
+                        Some(basis),
+                        env.is_probe,
+                    );
                 }
                 // I-paged writes one fragment per page (length-1 Vec): each page's
                 // full re-layout replaces it (render walks the page interleaved before
@@ -1097,9 +1097,17 @@ pub fn layout_inline_context_fragmented(
             } else if do_carrier && !env.is_probe {
                 // do_carrier: this column's slice for this run-start group. multicol
                 // fill drains the carrier; `position_column_fragments` folds it into
-                // `group_key`'s `InlineFlow` offset to the column's inline position.
-                // Static-atomic / relpos-atomic reposition is intentionally NOT run for
-                // mid-break (see the `persist_flow` arm above) — committed-next.
+                // `group_key`'s `InlineFlow` offset to the column's inline position,
+                // AND repositions each mid-break atomic's `LayoutBox` to its per-column
+                // on-line position (terminal-Z C-2 — the reposition the `persist_flow`
+                // arm above runs in-line cannot run here because a column's re-lay
+                // clobbers earlier columns, so it is deferred to the post-fill seam).
+                // For a *static* atomic (an `AtomicBox` flow member) capture its on-line
+                // target — the run's IFC-absolute `inline_start` + the line `block_start`
+                // (column-0 base; the seam adds the column inline offset) — plus the
+                // reposition delta basis (the SAME records the `persist_flow` arm would
+                // reposition immediately, deferred to the seam instead).
+                carrier_atomics.extend(static_atomic_reposition_records(&lines, &unoffset_origins));
                 carrier_groups.push((group_key, lines));
                 // Else: a throwaway probe over a do_carrier run (write NO carrier — the
                 // probe's per-column geometry is discarded; `position_column_fragments`
@@ -1121,21 +1129,35 @@ pub fn layout_inline_context_fragmented(
         // The delta basis is the atomic's un-offset margin-box origin: for a relpos
         // atomic the current box already carries the baked `apply_relative_offset`, so
         // `delta = target − un-offset` lands it at `target + offset` (offset preserved,
-        // not stripped). Gated on `persist_flow` (NOT `do_carrier`) for the same reason
-        // as the static-atomic loop above — mid-break atomic positioning is
-        // committed-next, not half-fixed here.
+        // not stripped). Same two-sink split as the static-atomic loop above:
+        // `persist_flow` repositions immediately; `do_carrier` (mid-break) carries the
+        // SAME records out to the multicol seam (terminal-Z C-2), since a column's
+        // re-lay would clobber an in-line reposition.
+        let relpos_records = relpos_atomic_reposition_records(
+            &packer.relpos_atomic_placements,
+            inline_origin,
+            block_origin,
+            &unoffset_origins,
+        );
         if persist_flow {
-            for (atomic, inline_local, block_local) in packer.relpos_atomic_placements {
+            for (atomic, inline_abs, block_abs, basis) in relpos_records {
                 reposition_atomic_box(
                     dom,
                     atomic,
-                    inline_local + inline_origin,
-                    block_local + block_origin,
+                    inline_abs,
+                    block_abs,
                     is_vertical,
-                    unoffset_origins.get(&atomic).copied(),
+                    Some(basis),
                     env.is_probe,
                 );
             }
+        } else if do_carrier && !env.is_probe {
+            // Mid-break relpos/sticky atomics (terminal-Z C-2): NOT flow members, so
+            // carry the SAME records out to the seam (the placements are already
+            // sliced+rebased to THIS column by `slice_and_rebase_fragment`).
+            // `position_column_fragments` adds the column inline offset and repositions,
+            // preserving the baked relative offset.
+            carrier_atomics.extend(relpos_records);
         }
     }
     // Carrier reconcile (insert-or-remove, mirroring `clear_inline_flows`): the
@@ -1143,10 +1165,18 @@ pub fn layout_inline_context_fragmented(
     // other case (whole/paged/non-fragmented persist, or empty) clears any stale one.
     // `ColumnFlowSlice` is never read by render (drained-only by multicol fill), so a
     // leak is benign; this keeps the entity clean across passes.
-    if do_carrier && !carrier_groups.is_empty() {
-        let _ = dom
-            .world_mut()
-            .insert_one(parent_entity, ColumnFlowSlice(carrier_groups));
+    if do_carrier && !(carrier_groups.is_empty() && carrier_atomics.is_empty()) {
+        // Write the carrier when EITHER payload is present: a mid-break column whose
+        // slice is only a relpos/sticky atomic (NOT a flow member) has empty
+        // `carrier_groups` but a non-empty `carrier_atomics`, and must still reach the
+        // seam to be repositioned (else it falls to the un-excluded generic shift).
+        let _ = dom.world_mut().insert_one(
+            parent_entity,
+            ColumnFlowSlice {
+                flow_groups: carrier_groups,
+                atomic_repositions: carrier_atomics,
+            },
+        );
     } else {
         let _ = dom.world_mut().remove_one::<ColumnFlowSlice>(parent_entity);
     }
@@ -1204,7 +1234,15 @@ pub fn layout_inline_context_fragmented(
 /// a vertical-rl asymmetric box correct (its un-offset origin ≠ `content_origin`).
 /// `None` (atomic absent from the map — should not happen for a laid-out atomic)
 /// skips the reposition.
-fn reposition_atomic_box(
+///
+/// Exposed `pub` so the multicol definitive seam (`position_column_fragments`) can
+/// reuse the SAME reposition for a **mid-break** atomic — there the basis is carried
+/// out via the per-column [`ColumnFlowSlice`] carrier (terminal-Z C-2), so a static
+/// or relpos atomic logically in column *i* lands at its per-column on-line position
+/// (the folded `inline_start` already carries the column inline offset → the box is
+/// born-absolute and is pruned from the generic column shift, see the multicol
+/// `exclude_subtrees` walk).
+pub fn reposition_atomic_box(
     dom: &mut EcsDom,
     atomic: Entity,
     inline_abs: f32,
@@ -1235,6 +1273,62 @@ fn reposition_atomic_box(
     if let Ok(mut lb) = dom.world_mut().get::<&mut elidex_plugin::LayoutBox>(atomic) {
         lb.content.origin += delta;
     }
+}
+
+/// Build the atomic-reposition records for the **static** atomics (`AtomicBox` flow
+/// members) in `lines`: `(entity, inline_abs, block_abs, basis)` at the lines' own
+/// (IFC-absolute, column-0 base) coords — the on-line inline target is the run's
+/// `inline_start`, the block target the line's `block_start`, and the delta basis the
+/// atomic's un-offset margin-box origin. An atomic absent from `unoffset_origins` is
+/// skipped (its reposition would no-op on a `None` basis anyway). This is the SINGLE
+/// derivation shared by both the `persist_flow` sink (reposition immediately) and the
+/// `do_carrier` sink (carry to the multicol seam) — one record shape, one place to
+/// change how a static atomic's target is computed.
+fn static_atomic_reposition_records(
+    lines: &[elidex_ecs::InlineFlowLine],
+    unoffset_origins: &HashMap<Entity, Point>,
+) -> Vec<(Entity, f32, f32, Point)> {
+    let mut records = Vec::new();
+    for line in lines {
+        for run in &line.runs {
+            if let InlineFlowRun::AtomicBox {
+                entity: atomic,
+                inline_start,
+            } = run
+            {
+                if let Some(basis) = unoffset_origins.get(atomic).copied() {
+                    records.push((*atomic, *inline_start, line.block_start, basis));
+                }
+            }
+        }
+    }
+    records
+}
+
+/// Build the atomic-reposition records for the **relpos/sticky** atomics (NOT flow
+/// members) from the packer's IFC-root-local `placements`, folded to IFC-absolute
+/// with `(inline_origin, block_origin)`. Same `(entity, inline_abs, block_abs, basis)`
+/// shape as [`static_atomic_reposition_records`] so both atomic kinds reposition
+/// uniformly through the same sink (immediate or carried).
+fn relpos_atomic_reposition_records(
+    placements: &[(Entity, f32, f32)],
+    inline_origin: f32,
+    block_origin: f32,
+    unoffset_origins: &HashMap<Entity, Point>,
+) -> Vec<(Entity, f32, f32, Point)> {
+    placements
+        .iter()
+        .filter_map(|&(atomic, inline_local, block_local)| {
+            unoffset_origins.get(&atomic).copied().map(|basis| {
+                (
+                    atomic,
+                    inline_local + inline_origin,
+                    block_local + block_origin,
+                    basis,
+                )
+            })
+        })
+        .collect()
 }
 
 /// Remove stale [`InlineFlow`] components for an IFC: clear it from every candidate

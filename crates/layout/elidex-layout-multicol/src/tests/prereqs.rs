@@ -327,6 +327,7 @@ fn p2_excluding_own_fragments_variant_does_not_move_own_box_fragments() {
         &[container],
         Vector::new(40.0, 70.0),
         &own,
+        &std::collections::HashSet::new(),
         false,
     );
     let after = box_fragment_cols(&dom, span);

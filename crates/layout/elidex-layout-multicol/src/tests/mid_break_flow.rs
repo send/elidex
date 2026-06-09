@@ -51,6 +51,56 @@ fn flow_line_positions(dom: &EcsDom, run_start: Entity) -> Vec<(f32, f32)> {
 const LONG_TEXT: &str = "Lorem ipsum dolor sit amet consectetur adipiscing elit sed \
 do eiusmod tempor incididunt ut labore et dolore magna aliqua enim ad minim veniam";
 
+/// Build a 2-column (width 300, gap 0, height 40 → mid-break) container whose
+/// direct-child div is an IFC: leading `LONG_TEXT`, then an inline-block atomic
+/// styled by `ib_style`, then trailing `LONG_TEXT`. The atomic is logically after
+/// the leading text, so it lands in a column past column 0 (terminal-Z C-2 box
+/// reposition target). Returns `(container, ib, run_start)`.
+fn midbreak_ifc_with_atomic(dom: &mut EcsDom, ib_style: ComputedStyle) -> (Entity, Entity, Entity) {
+    let container = elem(dom, "div");
+    let _ = dom.world_mut().insert_one(
+        container,
+        ComputedStyle {
+            display: Display::Block,
+            column_count: Some(2),
+            column_fill: ColumnFill::Auto,
+            height: Dimension::Length(40.0),
+            ..ComputedStyle::default()
+        },
+    );
+    let div = elem(dom, "div");
+    dom.append_child(container, div);
+    let _ = dom.world_mut().insert_one(
+        div,
+        ComputedStyle {
+            display: Display::Block,
+            font_family: TEST_FONTS.iter().map(|&s| s.to_string()).collect(),
+            ..ComputedStyle::default()
+        },
+    );
+    let run_start = dom.create_text(LONG_TEXT);
+    dom.append_child(div, run_start);
+    let ib = elem(dom, "span");
+    let _ = dom.world_mut().insert_one(ib, ib_style);
+    dom.append_child(div, ib);
+    let trailing = dom.create_text(LONG_TEXT);
+    dom.append_child(div, trailing);
+    (container, ib, run_start)
+}
+
+/// The default inline-block atomic style for the C-2 reposition tests (30×16,
+/// no margin/border/padding → content origin == margin-box origin == reposition
+/// target).
+fn inline_block_style() -> ComputedStyle {
+    ComputedStyle {
+        display: Display::InlineBlock,
+        width: Dimension::Length(30.0),
+        height: Dimension::Length(16.0),
+        font_family: TEST_FONTS.iter().map(|&s| s.to_string()).collect(),
+        ..ComputedStyle::default()
+    }
+}
+
 #[test]
 fn multicol_midbreak_ifc_persists_flow_with_per_column_lines() {
     // The Z-1b crux: a single IFC whose wrapped lines exceed the column height
@@ -328,16 +378,17 @@ fn multicol_balanced_midbreak_ifc_one_fragment_no_probe_leftover() {
 // mid-break-IFC integration test is deferred for the same reason.)
 
 #[test]
-fn multicol_midbreak_ifc_with_atomic_text_still_persists() {
-    // Robustness (Codex PR#316 R1): a mid-break IFC containing a static atomic
-    // inline (an inline-block) must still persist its per-column TEXT correctly and
-    // carry the `AtomicBox` run (render walks it) without panicking. The atomic's
-    // per-column LayoutBox POSITION is committed-next (atomic-as-fragment, plan §C/§D)
-    // — a mid-break IFC re-runs `layout_atomic_items` for the whole IFC every column,
-    // so correct per-column atomic positioning needs the box-store fragment model;
-    // Z-1b deliberately does NOT reposition mid-break atomics (deferred whole, not
-    // half-fixed), keeping the pre-Z-1b box position. This pins the text deliverable's
-    // robustness to an atomic's presence.
+fn multicol_midbreak_ifc_with_atomic_repositions_box_to_its_column() {
+    // Terminal-Z C-2 (atomic-as-fragment): a mid-break IFC containing a static atomic
+    // inline (an inline-block) repositions the atomic's `LayoutBox` to its per-column
+    // on-line position. The atomic is monolithic ⇒ it lands in exactly ONE column;
+    // `position_column_fragments` repositions its box (and subtree) to the
+    // born-absolute target carried by its `AtomicBox` run, and PRUNES it from the
+    // generic per-column shift so the column offset is applied exactly once. Pin: the
+    // atomic's box origin EQUALS its `AtomicBox` run's folded `inline_start` /
+    // `block_start` — pre-C-2 the box stayed at column-0 base (x≈0) while the run was
+    // folded to the column, so this assertion catches both the old gap AND a
+    // double-shift (which would land the box at `target + delta_col`).
     let font_db = make_font_db();
     if !fonts_available(&font_db) {
         return;
@@ -402,16 +453,44 @@ fn multicol_midbreak_ifc_with_atomic_text_still_persists() {
         xs.iter().any(|x| x.abs() < 50.0) && xs.iter().any(|x| (x - 300.0).abs() < 50.0),
         "text lines span columns 0 and 1 with the atomic present, got {xs:?}"
     );
-    // The atomic is carried as an `AtomicBox` member somewhere in the flow (render
-    // walks it; its per-column position is committed-next).
-    let has_atomic = flow.fragments.iter().flat_map(|f| f.lines.iter()).any(|l| {
-        l.runs
-            .iter()
-            .any(|r| matches!(r, elidex_ecs::InlineFlowRun::AtomicBox { .. }))
-    });
+    // Find the atomic's `AtomicBox` run (render walks it) and the line it sits on.
+    let (run_inline, line_block) = flow
+        .fragments
+        .iter()
+        .flat_map(|f| f.lines.iter())
+        .find_map(|l| {
+            l.runs.iter().find_map(|r| match r {
+                elidex_ecs::InlineFlowRun::AtomicBox {
+                    entity,
+                    inline_start,
+                } if *entity == ib => Some((*inline_start, l.block_start)),
+                _ => None,
+            })
+        })
+        .expect("the inline-block atomic is carried as an AtomicBox run");
+    // The atomic landed in a column past column 0 (so the reposition is non-trivial:
+    // delta_col ≠ 0 — a col-0-only test would mask the double-shift / pre-C-2 gap).
     assert!(
-        has_atomic,
-        "the inline-block atomic is carried as an AtomicBox run"
+        run_inline >= 300.0,
+        "the atomic's run is folded to column ≥1 (x≈300+), got {run_inline}"
+    );
+    // C-2: the atomic's `LayoutBox` origin equals its run's folded position — the box
+    // is repositioned to its column, NOT left at column-0 base nor double-shifted.
+    // No margin/border/padding on the inline-block ⇒ content origin == margin-box
+    // origin == the folded inline/block target.
+    let lb = dom
+        .world()
+        .get::<&LayoutBox>(ib)
+        .expect("the atomic has a LayoutBox");
+    assert!(
+        (lb.content.origin.x - run_inline).abs() < 0.01,
+        "atomic box x repositioned to its column: box.x {} vs run {run_inline}",
+        lb.content.origin.x
+    );
+    assert!(
+        (lb.content.origin.y - line_block).abs() < 0.01,
+        "atomic box y at its line block-start: box.y {} vs line {line_block}",
+        lb.content.origin.y
     );
 }
 
@@ -882,5 +961,311 @@ fn multicol_nested_block_midbreak_gets_no_inline_flow() {
     assert!(
         dom.world().get::<&InlineFlow>(span).is_err(),
         "nested-block mid-break (D-Z2) gets no InlineFlow — stays legacy/G11"
+    );
+}
+
+/// The `(inline_start, block_start)` of `atomic`'s `AtomicBox` run in `run_start`'s
+/// flow, or `None` if it is not a flow member (e.g. a relpos atomic) / not found.
+fn atomic_run_position(dom: &EcsDom, run_start: Entity, atomic: Entity) -> Option<(f32, f32)> {
+    let flow = dom.world().get::<&InlineFlow>(run_start).ok()?;
+    flow.fragments
+        .iter()
+        .flat_map(|f| f.lines.iter())
+        .find_map(|l| {
+            l.runs.iter().find_map(|r| match r {
+                elidex_ecs::InlineFlowRun::AtomicBox {
+                    entity,
+                    inline_start,
+                } if *entity == atomic => Some((*inline_start, l.block_start)),
+                _ => None,
+            })
+        })
+}
+
+/// An entity's `LayoutBox` content-origin (panics if absent).
+fn box_origin(dom: &EcsDom, e: Entity) -> Point {
+    dom.world()
+        .get::<&LayoutBox>(e)
+        .expect("entity has a LayoutBox")
+        .content
+        .origin
+}
+
+#[test]
+fn multicol_midbreak_relpos_atomic_repositions_to_its_column() {
+    // C-2 §2.2: a `position:relative` mid-break atomic is NOT a flow member, so its
+    // reposition record (placement + un-offset basis) is carried out via the unified
+    // `atomic_repositions` carrier (which holds both static and relpos atomics), built
+    // from the relpos placements rather than the `AtomicBox` flow runs. The seam
+    // repositions its box to the column AND preserves the baked relative offset (the
+    // delta basis is the *un-offset* origin, so `+= target − un-offset` lands it at
+    // `target + offset`). Pin (two layouts over the same flow): the relpos box sits
+    // exactly `left` to the right of where the SAME atomic sits as a static
+    // inline-block — offset preserved, applied on top of the per-column reposition.
+    let font_db = make_font_db();
+    if !fonts_available(&font_db) {
+        return;
+    }
+    // Static reference layout: read the atomic's repositioned column x.
+    let mut dom_s = EcsDom::new();
+    let (c_s, ib_s, _) = midbreak_ifc_with_atomic(&mut dom_s, inline_block_style());
+    let input = make_input(&font_db);
+    layout_multicol(&mut dom_s, c_s, &input, layout_child_fn);
+    let static_x = box_origin(&dom_s, ib_s).x;
+    // Relpos layout: same structure + `position:relative; left:10px`.
+    let mut dom_r = EcsDom::new();
+    let mut style = inline_block_style();
+    style.position = Position::Relative;
+    style.left = Dimension::Length(10.0);
+    let (c_r, ib_r, run_start_r) = midbreak_ifc_with_atomic(&mut dom_r, style);
+    layout_multicol(&mut dom_r, c_r, &input, layout_child_fn);
+    let relpos_x = box_origin(&dom_r, ib_r).x;
+    // The relpos atomic is NOT carried as a flow member (render Layer 6 paints it).
+    assert!(
+        atomic_run_position(&dom_r, run_start_r, ib_r).is_none(),
+        "a relpos atomic is not an AtomicBox flow member (would double-paint)"
+    );
+    // The atomic landed in a column past column 0 (non-trivial reposition).
+    assert!(
+        static_x >= 300.0,
+        "static atomic repositioned to column ≥1, got {static_x}"
+    );
+    // The relpos atomic is repositioned to its column via the unified
+    // `atomic_repositions` carrier — born-absolute to the SAME target as the static one
+    // (excluded from the
+    // generic per-column shift, so no double-shift accumulation; a col-shifted relpos
+    // atomic in multiple columns' `frag.children` would land at a multiple of the
+    // offset). Here `relpos_x == static_x` because this test's `layout_child_fn`
+    // (`layout_block_inner`) does NOT bake `apply_relative_offset` (see
+    // `inline/tests/relpos_subflow.rs`), so the box carries no relative offset to
+    // preserve. Offset-PRESERVATION (basis = un-offset origin) is covered by the
+    // `reposition_atomic_box` unit tests in the block crate, which use a baking
+    // `layout_child`; here we pin the C-2-specific behavior: the relpos atomic is
+    // carried out and repositioned to its column (not stranded at column-0 base, not
+    // double-shifted).
+    assert!(
+        (relpos_x - static_x).abs() < 0.01,
+        "relpos atomic repositioned to its column (born-absolute, no double-shift): \
+         relpos {relpos_x} vs static {static_x}"
+    );
+}
+
+#[test]
+fn multicol_midbreak_atomic_subtree_follows_box_to_its_column() {
+    // C-2 §2.1: `reposition_atomic_box` moves the atomic's WHOLE subtree
+    // (`shift_descendants` of its composed children), and the generic per-column
+    // shift PRUNES that subtree (so the descendant is not double-shifted). Pin: an
+    // inline-block with a block child — after reposition the child sits at the same
+    // offset INSIDE the atomic it had at column-0 base (rigid subtree move), and both
+    // are in the atomic's column (not stranded at column-0).
+    let font_db = make_font_db();
+    if !fonts_available(&font_db) {
+        return;
+    }
+    let mut dom = EcsDom::new();
+    // Inline-block sized to hold a child; give it a child block.
+    let (container, ib, run_start) = midbreak_ifc_with_atomic(&mut dom, inline_block_style());
+    let child = elem(&mut dom, "div");
+    let _ = dom.world_mut().insert_one(
+        child,
+        ComputedStyle {
+            display: Display::Block,
+            width: Dimension::Length(10.0),
+            height: Dimension::Length(10.0),
+            ..ComputedStyle::default()
+        },
+    );
+    dom.append_child(ib, child);
+
+    let input = make_input(&font_db);
+    layout_multicol(&mut dom, container, &input, layout_child_fn);
+
+    let (run_inline, _) =
+        atomic_run_position(&dom, run_start, ib).expect("atomic carried as a flow run");
+    assert!(
+        run_inline >= 300.0,
+        "atomic folded to column ≥1, got {run_inline}"
+    );
+    let ib_origin = box_origin(&dom, ib);
+    let child_origin = box_origin(&dom, child);
+    // The atomic box is at its column.
+    assert!(
+        (ib_origin.x - run_inline).abs() < 0.01,
+        "atomic box repositioned to its column: {} vs run {run_inline}",
+        ib_origin.x
+    );
+    // The child followed: it is inside the atomic's column (not at column-0 base),
+    // at the SAME relative offset it had within the atomic (rigid subtree shift ⇒
+    // child origin == atomic origin + the within-box offset; for a top-left child
+    // with no atomic padding that offset is 0).
+    assert!(
+        (child_origin.x - ib_origin.x).abs() < 0.01,
+        "child x followed the atomic to its column: child {} vs atomic {}",
+        child_origin.x,
+        ib_origin.x
+    );
+}
+
+#[test]
+fn multicol_midbreak_atomic_reposition_is_definitive_only_and_idempotent() {
+    // C-2 §2.4: the atomic reposition runs ONLY on the definitive pass
+    // (`position_column_fragments` commit block is `!is_probe`-gated), so it never
+    // accumulates probe garbage. Unlike the `InlineFlow`/box-store (separate
+    // probe-gated components, protected from a probe so they keep the definitive
+    // value), the atomic's geometry lives in its `LayoutBox` — which EVERY pass
+    // re-lays at column-0 base (it is throwaway working geometry, not a probe-gated
+    // render component), so a probe re-lay + un-excluded column shift disturbs it on
+    // purpose; the always-last definitive pass is what render sees. Pin the realistic
+    // guarantee: a probe sandwiched between two definitive passes leaves the FINAL
+    // box exactly where the first definitive pass put it (the reposition is
+    // idempotent and recovers from a probe's disturbance — it does not, e.g.,
+    // double-apply the column offset on the second definitive pass).
+    let font_db = make_font_db();
+    if !fonts_available(&font_db) {
+        return;
+    }
+    let mut dom = EcsDom::new();
+    let (container, ib, run_start) = midbreak_ifc_with_atomic(&mut dom, inline_block_style());
+    let input = make_input(&font_db);
+    layout_multicol(&mut dom, container, &input, layout_child_fn);
+    let (run_inline, _) =
+        atomic_run_position(&dom, run_start, ib).expect("atomic carried as a flow run");
+    assert!(run_inline >= 300.0, "atomic folded to column ≥1");
+    let first = box_origin(&dom, ib);
+    // A throwaway probe (an ancestor/intrinsic pass) disturbs the LayoutBox...
+    let mut probe = make_input(&font_db);
+    probe.is_probe = true;
+    layout_multicol(&mut dom, container, &probe, layout_child_fn);
+    // ...then the next definitive pass restores it exactly (idempotent reposition).
+    layout_multicol(&mut dom, container, &input, layout_child_fn);
+    let again = box_origin(&dom, ib);
+    assert!(
+        (first.x - again.x).abs() < 0.01 && (first.y - again.y).abs() < 0.01,
+        "definitive reposition is idempotent and recovers from a probe: {first:?} vs {again:?}"
+    );
+}
+
+#[test]
+fn multicol_midbreak_atomic_in_column0_repositions_to_on_line_position() {
+    // C-2: a mid-break atomic in COLUMN 0 (delta_col = 0) is still repositioned to its
+    // on-line position from the IFC top-left placement `layout_atomic_items` gave it.
+    // A col-0-only test would mask the double-shift (delta_col = 0), so this complements
+    // the col≥1 pins — it guards that the col-0 reposition is correct (box == run), not
+    // that the bug is exercised. Atomic placed FIRST so it lands on line 0 of column 0.
+    let font_db = make_font_db();
+    if !fonts_available(&font_db) {
+        return;
+    }
+    let mut dom = EcsDom::new();
+    let container = elem(&mut dom, "div");
+    let _ = dom.world_mut().insert_one(
+        container,
+        ComputedStyle {
+            display: Display::Block,
+            column_count: Some(2),
+            column_fill: ColumnFill::Auto,
+            height: Dimension::Length(40.0),
+            ..ComputedStyle::default()
+        },
+    );
+    let div = elem(&mut dom, "div");
+    dom.append_child(container, div);
+    let _ = dom.world_mut().insert_one(
+        div,
+        ComputedStyle {
+            display: Display::Block,
+            font_family: TEST_FONTS.iter().map(|&s| s.to_string()).collect(),
+            ..ComputedStyle::default()
+        },
+    );
+    // Atomic FIRST (line 0, column 0), then long text overflowing → mid-break.
+    let ib = elem(&mut dom, "span");
+    let _ = dom.world_mut().insert_one(ib, inline_block_style());
+    dom.append_child(div, ib);
+    let run_start = dom.create_text(LONG_TEXT);
+    dom.append_child(div, run_start);
+
+    let input = make_input(&font_db);
+    layout_multicol(&mut dom, container, &input, layout_child_fn);
+
+    // The atomic's run-start key is the atomic itself if it is `run[0]`; the text node
+    // otherwise. Search both for the `AtomicBox` run.
+    let pos =
+        atomic_run_position(&dom, ib, ib).or_else(|| atomic_run_position(&dom, run_start, ib));
+    let (run_inline, line_block) = pos.expect("atomic carried as a flow run");
+    assert!(
+        run_inline < 300.0,
+        "the leading atomic is in column 0 (x < column width), got {run_inline}"
+    );
+    let origin = box_origin(&dom, ib);
+    assert!(
+        (origin.x - run_inline).abs() < 0.01 && (origin.y - line_block).abs() < 0.01,
+        "column-0 atomic box at its on-line position: box {origin:?} vs run ({run_inline}, {line_block})"
+    );
+}
+
+#[test]
+fn multicol_midbreak_atomic_vertical_rl_projects_inline_axis() {
+    // C-2 §2.5: in a vertical writing mode the seam derives `is_vertical` from the
+    // multicol element's own `wm` and `reposition_atomic_box` projects inline↔physical
+    // accordingly — the inline axis is physical Y, the block axis is physical X. Pin:
+    // the atomic's box origin matches its run with the axes SWAPPED (box.y ==
+    // run.inline_start, box.x == line.block_start) — a horizontal-projection bug would
+    // put box.x == run.inline_start instead.
+    let font_db = make_font_db();
+    if !fonts_available(&font_db) {
+        return;
+    }
+    let mut dom = EcsDom::new();
+    let container = elem(&mut dom, "div");
+    let _ = dom.world_mut().insert_one(
+        container,
+        ComputedStyle {
+            display: Display::Block,
+            column_count: Some(2),
+            column_fill: ColumnFill::Auto,
+            writing_mode: WritingMode::VerticalRl,
+            // Vertical: block axis = horizontal = `width`; a small block extent
+            // (40 / 2 cols = 20 per column ⇒ ~1 line) forces the mid-column break.
+            width: Dimension::Length(40.0),
+            ..ComputedStyle::default()
+        },
+    );
+    let div = elem(&mut dom, "div");
+    dom.append_child(container, div);
+    let _ = dom.world_mut().insert_one(
+        div,
+        ComputedStyle {
+            display: Display::Block,
+            font_family: TEST_FONTS.iter().map(|&s| s.to_string()).collect(),
+            ..ComputedStyle::default()
+        },
+    );
+    let run_start = dom.create_text(LONG_TEXT);
+    dom.append_child(div, run_start);
+    let ib = elem(&mut dom, "span");
+    let _ = dom.world_mut().insert_one(ib, inline_block_style());
+    dom.append_child(div, ib);
+    let trailing = dom.create_text(LONG_TEXT);
+    dom.append_child(div, trailing);
+
+    // Vertical: inline axis = physical Y (height 600 available for the text flow).
+    let mut input = make_input(&font_db);
+    input.containing.height = Some(600.0);
+    layout_multicol(&mut dom, container, &input, layout_child_fn);
+
+    let (run_inline, line_block) =
+        atomic_run_position(&dom, run_start, ib).expect("atomic carried as a flow run");
+    let origin = box_origin(&dom, ib);
+    // Inline axis is Y, block axis is X (vertical projection).
+    assert!(
+        (origin.y - run_inline).abs() < 0.01,
+        "vertical: atomic box Y at its inline_start: box.y {} vs run {run_inline}",
+        origin.y
+    );
+    assert!(
+        (origin.x - line_block).abs() < 0.01,
+        "vertical: atomic box X at its line block-start: box.x {} vs line {line_block}",
+        origin.x
     );
 }
