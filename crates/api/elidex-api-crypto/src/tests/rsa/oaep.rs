@@ -489,15 +489,6 @@ fn rsa_oaep_decryption_runs_on_constant_time_aws_lc_not_rsa_crate() {
     // the decryption to the CT backend, or security-review the timing risk — the
     // deny.toml gate).  `tests/` is skipped (this test's own marker strings live
     // here).
-    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-
-    // (positive) the OAEP decrypt path actually runs on aws-lc-rs.
-    let oaep = std::fs::read_to_string(src.join("rsa").join("oaep.rs")).expect("read rsa/oaep.rs");
-    assert!(
-        oaep.contains("aws_lc_rs") && oaep.contains("OaepPrivateDecryptingKey"),
-        "rsa/oaep.rs must perform RSA-OAEP decryption via the constant-time \
-         aws-lc-rs OaepPrivateDecryptingKey (the Marvin mitigation)"
-    );
 
     // (negative) no rsa-crate private-key decryption anywhere in src.
     fn scan_no_rsa_crate_decrypt(dir: &std::path::Path) {
@@ -530,5 +521,17 @@ fn rsa_oaep_decryption_runs_on_constant_time_aws_lc_not_rsa_crate() {
             }
         }
     }
+
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+
+    // (positive) the OAEP decrypt path actually runs on aws-lc-rs.
+    let oaep = std::fs::read_to_string(src.join("rsa").join("oaep.rs")).expect("read rsa/oaep.rs");
+    assert!(
+        oaep.contains("aws_lc_rs") && oaep.contains("OaepPrivateDecryptingKey"),
+        "rsa/oaep.rs must perform RSA-OAEP decryption via the constant-time \
+         aws-lc-rs OaepPrivateDecryptingKey (the Marvin mitigation)"
+    );
+
+    // (negative) no rsa-crate private-key decryption anywhere in src.
     scan_no_rsa_crate_decrypt(&src);
 }
