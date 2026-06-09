@@ -434,7 +434,7 @@ where
         key_type: KeyType::Public,
         extractable: true,
         algorithm: key_alg.clone(),
-        usages: split_usages(KeyType::Public, usages),
+        usages: split_usages(variant, KeyType::Public, usages),
         material: KeyMaterial::Rsa {
             public_spki_der: public_spki_der.clone(),
             private_pkcs8_der: None,
@@ -442,7 +442,7 @@ where
     };
     // §20.8.3 steps 14-18: the private key — [[extractable]] = the requested
     // value (step 17), usages = ∩(usages, {sign}) (step 18).
-    let private_usages = split_usages(KeyType::Private, usages);
+    let private_usages = split_usages(variant, KeyType::Private, usages);
     // §14.3.6 generateKey generic step: a CryptoKeyPair whose privateKey has
     // empty usages is a SyntaxError.
     if private_usages.is_empty() {
@@ -461,34 +461,60 @@ where
     Ok((public, private))
 }
 
-/// The §20.8.3 / §21.4.3 step-1 usage check: every requested usage must be
-/// `sign` or `verify` (valid for one half of the produced pair).
+/// Whether `usage` is permitted for an RSA key of `variant` + `key_type`: the
+/// §20.8.3/.4 + §21.4.3/.4 sign-family split (public → `verify`, private →
+/// `sign`) for RSASSA-PKCS1-v1_5 / RSA-PSS, or the §22.4.3/.4 OAEP split
+/// (public → `encrypt` / `wrapKey`, private → `decrypt` / `unwrapKey`) for
+/// RSA-OAEP.  One predicate so the generate / import / pair-split usage checks
+/// can't drift by variant.
+fn rsa_usage_permitted(variant: RsaVariant, usage: KeyUsage, key_type: KeyType) -> bool {
+    match variant {
+        RsaVariant::RsassaPkcs1V15 | RsaVariant::RsaPss => usage.is_rsa_sign_usage(key_type),
+        RsaVariant::RsaOaep => usage.is_rsa_oaep_usage(key_type),
+    }
+}
+
+/// The allowed-usages clause for an RSA `variant`'s generate-time SyntaxError
+/// message (the union of the public + private halves' usages).
+fn rsa_allowed_usages(variant: RsaVariant) -> &'static str {
+    match variant {
+        RsaVariant::RsassaPkcs1V15 | RsaVariant::RsaPss => "the 'sign' and 'verify' usages",
+        RsaVariant::RsaOaep => "the 'encrypt', 'decrypt', 'wrapKey' and 'unwrapKey' usages",
+    }
+}
+
+/// The §20.8.3 / §21.4.3 / §22.4.3 step-1 usage check: every requested usage
+/// must be valid for one half of the produced pair (the variant's usage split).
 fn validate_generate_usages(
     variant: RsaVariant,
     usages: &[KeyUsage],
 ) -> Result<(), AlgorithmError> {
-    let permitted =
-        |u: KeyUsage| u.is_rsa_sign_usage(KeyType::Public) || u.is_rsa_sign_usage(KeyType::Private);
+    let permitted = |u: KeyUsage| {
+        rsa_usage_permitted(variant, u, KeyType::Public)
+            || rsa_usage_permitted(variant, u, KeyType::Private)
+    };
     if usages.iter().copied().all(permitted) {
         Ok(())
     } else {
         Err(AlgorithmError::Syntax(format!(
-            "{} keys support only the 'sign' and 'verify' usages",
-            variant.canonical_name()
+            "{} keys support only {}",
+            variant.canonical_name(),
+            rsa_allowed_usages(variant)
         )))
     }
 }
 
 /// The usage intersection for the `key_type` half of a generated key pair
-/// (§20.8.3 steps 13 / 18): keep the requested usages permitted for that key
-/// type (public → {verify}, private → {sign}), deduplicated + canonically
-/// ordered.
-fn split_usages(key_type: KeyType, usages: &[KeyUsage]) -> Vec<KeyUsage> {
+/// (§20.8.3 steps 13 / 18, §22.4.3): keep the requested usages permitted for
+/// that key type + `variant` (sign family public → {verify} / private →
+/// {sign}; OAEP public → {encrypt, wrapKey} / private → {decrypt, unwrapKey}),
+/// deduplicated + canonically ordered.
+fn split_usages(variant: RsaVariant, key_type: KeyType, usages: &[KeyUsage]) -> Vec<KeyUsage> {
     normalize_usages(
         usages
             .iter()
             .copied()
-            .filter(|&u| u.is_rsa_sign_usage(key_type))
+            .filter(|&u| rsa_usage_permitted(variant, u, key_type))
             .collect(),
     )
 }
@@ -573,6 +599,13 @@ where
             rng.into_result()?;
             result.map_err(|_| operation("RSA-PSS signing failed"))
         }
+        // RSA-OAEP (WebCrypto §22) is an encrypt-only family: it never reaches
+        // `sign`.  The registry resolves (Sign, "RSA-OAEP") to NotSupported, and
+        // `ops::sign`'s name-match (RSASSA / RSA-PSS ≠ RSA-OAEP) rejects an OAEP
+        // key before this dispatch.  Guard with an error rather than
+        // `unreachable!` so a contract violation surfaces gracefully, not as a
+        // panic (the OAEP encrypt / decrypt op-set lives off the signing path).
+        RsaVariant::RsaOaep => Err(operation("RSA-OAEP keys do not support 'sign'")),
     }
 }
 
@@ -604,6 +637,9 @@ pub(crate) fn verify(
                 .verify(pss_scheme(hash, salt_len), &digest, signature)
                 .is_ok()
         }
+        // RSA-OAEP (§22) is encrypt-only; it never reaches `verify` (guarded as
+        // in `sign`).  Return an error rather than `unreachable!`.
+        RsaVariant::RsaOaep => return Err(operation("RSA-OAEP keys do not support 'verify'")),
     };
     Ok(ok)
 }
@@ -759,7 +795,10 @@ fn validate_import_usages(
     key_type: KeyType,
     usages: &[KeyUsage],
 ) -> Result<(), AlgorithmError> {
-    if usages.iter().all(|&u| u.is_rsa_sign_usage(key_type)) {
+    if usages
+        .iter()
+        .all(|&u| rsa_usage_permitted(variant, u, key_type))
+    {
         Ok(())
     } else {
         Err(AlgorithmError::Syntax(usage_message(variant, key_type)))
@@ -767,9 +806,15 @@ fn validate_import_usages(
 }
 
 fn usage_message(variant: RsaVariant, key_type: KeyType) -> String {
-    let kind = match key_type {
-        KeyType::Public => "public keys support only the 'verify' usage",
-        KeyType::Private | KeyType::Secret => "private keys support only the 'sign' usage",
+    let kind = match (variant, key_type) {
+        (RsaVariant::RsaOaep, KeyType::Public) => {
+            "public keys support only the 'encrypt' and 'wrapKey' usages"
+        }
+        (RsaVariant::RsaOaep, _) => {
+            "private keys support only the 'decrypt' and 'unwrapKey' usages"
+        }
+        (_, KeyType::Public) => "public keys support only the 'verify' usage",
+        (_, _) => "private keys support only the 'sign' usage",
     };
     format!("{} {}", variant.canonical_name(), kind)
 }

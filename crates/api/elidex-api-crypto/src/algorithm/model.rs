@@ -75,6 +75,11 @@ pub struct RawAlgorithm {
     /// RSA-PSS `saltLength` (WebCrypto §21.3 `RsaPssParams` —
     /// `[EnforceRange] unsigned long`), read on sign / verify.
     pub salt_length: Option<u32>,
+    /// RSA-OAEP `label` (WebCrypto §22.3 `RsaOaepParams` — an **optional**
+    /// `BufferSource`, snapshot-copied by the VM), read on encrypt / decrypt /
+    /// wrapKey / unwrapKey; moved by-value into the normalized algorithm like
+    /// the AES `iv`.
+    pub label: Option<Vec<u8>>,
 }
 
 impl RawAlgorithm {
@@ -216,6 +221,16 @@ pub enum NormalizedAlgorithm {
     RsaPssParams {
         salt_length: u32,
     },
+    /// RSA-OAEP encrypt / decrypt / wrapKey / unwrapKey params (WebCrypto
+    /// §22.3 `RsaOaepParams`): the optional `label` (the OAEP + MGF1 hash
+    /// comes from the key's `[[algorithm]]`, the §20.6 `RsaHashedKeyAlgorithm`
+    /// reused by §22).  Reached from all four
+    /// entry points — `encrypt` / `decrypt` directly, and `wrapKey` /
+    /// `unwrapKey` via the generic §14.3.11 / §14.3.12 encrypt / decrypt
+    /// fallback (RSA-OAEP registers no own wrap op).
+    RsaOaep {
+        label: Option<Vec<u8>>,
+    },
 }
 
 impl NormalizedAlgorithm {
@@ -250,6 +265,7 @@ impl NormalizedAlgorithm {
             }
             Self::RsassaParams => AlgorithmName::RsassaPkcs1V15,
             Self::RsaPssParams { .. } => AlgorithmName::RsaPss,
+            Self::RsaOaep { .. } => AlgorithmName::RsaOaep,
         }
     }
 }

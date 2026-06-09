@@ -45,6 +45,14 @@ pub enum AlgorithmName {
     /// RSA-PSS (WebCrypto §21) — the same op-set as RSASSA-PKCS1-v1_5; sign
     /// / verify add only the `RsaPssParams.saltLength` (§21.3).
     RsaPss,
+    /// RSA-OAEP (WebCrypto §22) — `generateKey` / `importKey` / `exportKey` /
+    /// `encrypt` / `decrypt` / `wrapKey` / `unwrapKey`.  The encrypt family of
+    /// the RSA keys (distinct `[[usages]]` from RSASSA / RSA-PSS); the OAEP
+    /// digest + MGF1 hash ride on the key (`RsaHashedKeyAlgorithm`, §20.6 —
+    /// reused by §22), and
+    /// `encrypt` / `decrypt` take only the optional `RsaOaepParams.label`
+    /// (§22.3).
+    RsaOaep,
 }
 
 impl AlgorithmName {
@@ -81,6 +89,8 @@ impl AlgorithmName {
             Some(Self::RsassaPkcs1V15)
         } else if name.eq_ignore_ascii_case("RSA-PSS") {
             Some(Self::RsaPss)
+        } else if name.eq_ignore_ascii_case("RSA-OAEP") {
+            Some(Self::RsaOaep)
         } else {
             None
         }
@@ -102,7 +112,8 @@ impl AlgorithmName {
             | Self::Ecdsa
             | Self::Ecdh
             | Self::RsassaPkcs1V15
-            | Self::RsaPss => None,
+            | Self::RsaPss
+            | Self::RsaOaep => None,
         }
     }
 
@@ -126,7 +137,8 @@ impl AlgorithmName {
             | Self::Ecdsa
             | Self::Ecdh
             | Self::RsassaPkcs1V15
-            | Self::RsaPss => None,
+            | Self::RsaPss
+            | Self::RsaOaep => None,
         }
     }
 }
@@ -284,6 +296,11 @@ impl EcAlgorithm {
 pub enum RsaVariant {
     RsassaPkcs1V15,
     RsaPss,
+    /// RSA-OAEP (WebCrypto §22) — the encrypt family.  Reuses the RSA key
+    /// infra (`RsaHashedKeyAlgorithm`); differs only in the `[[usages]]`
+    /// ({encrypt,decrypt,wrapKey,unwrapKey}) and the `encrypt` / `decrypt`
+    /// op-set.
+    RsaOaep,
 }
 
 impl RsaVariant {
@@ -293,6 +310,7 @@ impl RsaVariant {
         match self {
             Self::RsassaPkcs1V15 => "RSASSA-PKCS1-v1_5",
             Self::RsaPss => "RSA-PSS",
+            Self::RsaOaep => "RSA-OAEP",
         }
     }
 
@@ -300,6 +318,7 @@ impl RsaVariant {
         match self {
             Self::RsassaPkcs1V15 => AlgorithmName::RsassaPkcs1V15,
             Self::RsaPss => AlgorithmName::RsaPss,
+            Self::RsaOaep => AlgorithmName::RsaOaep,
         }
     }
 
@@ -320,11 +339,13 @@ impl RsaVariant {
     }
 
     /// The JWK `alg` value for this RSA family + `hash`, emitted on export
-    /// (WebCrypto §20.8.5 RSASSA / §21.4.5 RSA-PSS jwk) and matched on import
-    /// (§20.8.4 / §21.4.4): `RS1` / `RS256` / `RS384` / `RS512` for
-    /// RSASSA-PKCS1-v1_5, `PS1` / `PS256` / `PS384` / `PS512` for RSA-PSS.
-    /// Total over the four hashes — WebCrypto defines the SHA-1 `RS1` / `PS1`
-    /// values explicitly (unlike RFC 7518, which omits them).
+    /// (WebCrypto §20.8.5 RSASSA / §21.4.5 RSA-PSS / §22.4.5 RSA-OAEP jwk) and
+    /// matched on import (§20.8.4 / §21.4.4 / §22.4.4): `RS1` / `RS256` / `RS384`
+    /// / `RS512` for RSASSA-PKCS1-v1_5, `PS1` / `PS256` / `PS384` / `PS512` for
+    /// RSA-PSS, `RSA-OAEP` / `RSA-OAEP-256` / `RSA-OAEP-384` / `RSA-OAEP-512`
+    /// for RSA-OAEP (the SHA-1 form is the bare `RSA-OAEP`).  Total over the
+    /// four hashes — WebCrypto defines the SHA-1 `RS1` / `PS1` / `RSA-OAEP`
+    /// values explicitly (unlike RFC 7518, which omits the `RS1` / `PS1`).
     pub fn jwk_alg(self, hash: HashAlgorithm) -> &'static str {
         match (self, hash) {
             (Self::RsassaPkcs1V15, HashAlgorithm::Sha1) => "RS1",
@@ -335,6 +356,10 @@ impl RsaVariant {
             (Self::RsaPss, HashAlgorithm::Sha256) => "PS256",
             (Self::RsaPss, HashAlgorithm::Sha384) => "PS384",
             (Self::RsaPss, HashAlgorithm::Sha512) => "PS512",
+            (Self::RsaOaep, HashAlgorithm::Sha1) => "RSA-OAEP",
+            (Self::RsaOaep, HashAlgorithm::Sha256) => "RSA-OAEP-256",
+            (Self::RsaOaep, HashAlgorithm::Sha384) => "RSA-OAEP-384",
+            (Self::RsaOaep, HashAlgorithm::Sha512) => "RSA-OAEP-512",
         }
     }
 }

@@ -121,6 +121,19 @@ impl KeyUsage {
         }
     }
 
+    /// Whether RSA-OAEP (WebCrypto §22) accepts this usage for a key of
+    /// `key_type` (§22.4.3 generate / §22.4.4 import): a public key accepts
+    /// `encrypt` / `wrapKey`; a private key `decrypt` / `unwrapKey`.  The
+    /// encrypt-family analogue of [`Self::is_rsa_sign_usage`] (distinct usage
+    /// split from the RSASSA / RSA-PSS signing families).
+    pub fn is_rsa_oaep_usage(self, key_type: KeyType) -> bool {
+        match key_type {
+            KeyType::Public => matches!(self, Self::Encrypt | Self::WrapKey),
+            KeyType::Private => matches!(self, Self::Decrypt | Self::UnwrapKey),
+            KeyType::Secret => false,
+        }
+    }
+
     /// Parse a `KeyUsage` from its IDL identifier, or `None` if unrecognized.
     pub fn from_ident(s: &str) -> Option<Self> {
         Some(match s {

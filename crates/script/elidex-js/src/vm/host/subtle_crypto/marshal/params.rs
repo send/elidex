@@ -347,6 +347,19 @@ fn read_params(
                 f64::from(u32::MAX),
             )?);
         }
+        AlgorithmParams::RsaOaepParams => {
+            // `RsaOaepParams` (§22.3): label (OPTIONAL `BufferSource`, the only
+            // member).  Validate the type when present (a non-BufferSource is a
+            // `TypeError`), then snapshot the bytes — like the AES-GCM
+            // `additionalData` optional member (`undefined` → `None`).  Reuses
+            // the existing `label` interned identifier.
+            let label_val =
+                ctx.get_property_value(id, PropertyKey::String(ctx.vm.well_known.label_attr))?;
+            if !matches!(label_val, JsValue::Undefined) && !is_buffer_source(ctx, label_val) {
+                return Err(not_buffer_source_error(method, "label"));
+            }
+            raw.label = snapshot_optional_buffer_source(ctx, label_val, method, "label")?;
+        }
     }
     Ok(())
 }

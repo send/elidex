@@ -148,6 +148,14 @@ pub fn normalize(op: Operation, raw: RawAlgorithm) -> Result<NormalizedAlgorithm
                 .ok_or_else(|| required_member("saltLength", "RsaPssParams"))?;
             Ok(NormalizedAlgorithm::RsaPssParams { salt_length })
         }
+        Some(DesiredType::RsaOaepParams) => {
+            // `RsaOaepParams` — `label` is OPTIONAL (§22.3), so there is no
+            // required-member gate; it moves by-value into the normalized
+            // algorithm.  The `[[type]]` (public for encrypt/wrapKey, private
+            // for decrypt/unwrapKey) gate lives in the op layer (the `rsa`
+            // backend), so all four entry points inherit it.
+            Ok(NormalizedAlgorithm::RsaOaep { label: raw.label })
+        }
     }
 }
 
