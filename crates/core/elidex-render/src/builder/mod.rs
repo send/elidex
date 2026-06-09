@@ -13,6 +13,7 @@ mod glyph;
 mod inline;
 mod inline_flow;
 mod paint;
+mod slice;
 mod text;
 pub(crate) mod transform;
 mod walk;

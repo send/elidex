@@ -36,8 +36,9 @@ pub struct ColumnFragment {
 }
 
 /// One mid-break spanning child's per-column snapshot: its box-model geometry
-/// (committed to the standalone fragment-tree box store as Z-1a *dark data* —
-/// render does not yet consume it) **and** the drained IFC line carrier
+/// (committed to the standalone fragment-tree box store; render's fragment-walk
+/// consumes it per-column for a `consumable` direct-child IFC mid-break, terminal-Z
+/// C-1) **and** the drained IFC line carrier
 /// ([`ColumnFlowSlice`]) — this column's per-run-start [`InlineFlowLine`]s at
 /// column-0 base, which `position_column_fragments` folds (offset per column) into
 /// the run-start's `InlineFlow` (the sink render's `emit_inline_flow` consumes,
@@ -204,8 +205,9 @@ pub fn fill_columns_sequential(
         // the precise signal above) and the one that continued INTO it
         // (`carry_midbreak` = the prior column's break-out); they coincide for the
         // middle column of a 3+-column span, so the break-out slot is dropped when
-        // it equals the carry. Z-1a dark data; the column inline-offset is applied
-        // at commit in `position_column_fragments`.
+        // it equals the carry. The column inline-offset is applied at commit in
+        // `position_column_fragments` (render's C-1 fragment-walk then consumes these
+        // per column for a `consumable` direct-child IFC mid-break).
         let mut box_snapshots = Vec::new();
         let dedup_break_out = break_out_child.filter(|&b| Some(b) != carry_midbreak);
         for entity in carry_midbreak.into_iter().chain(dedup_break_out) {

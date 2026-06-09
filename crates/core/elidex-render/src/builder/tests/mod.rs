@@ -7,6 +7,7 @@ use elidex_plugin::{EdgeSizes, Rect};
 mod basic;
 mod counter;
 mod display_types;
+mod fragment_walk;
 mod inline_flow;
 mod paged;
 mod styling;

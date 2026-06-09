@@ -11,20 +11,23 @@
 //! standalone), so the fragment tree is a sibling field of [`EcsDom`], built by
 //! layout as output and read by render.
 //!
-//! **Scope (Z-1a / Z-1b):** the tree is populated with multicol mid-break **box**
-//! fragments only, as *dark data* — render does not consume it. (Z-1b folds the
-//! per-column inline **text** into the run-start's `InlineFlow` component instead —
-//! the converged `emit_inline_flow` sink — leaving this store dark; see
-//! `memory/terminal-z-z1b-consume-delta.md`, Option D.) The **committed-next**
-//! program is the first render consumer: it adds the per-column inline-line fold
-//! ([`FragmentContent::InlineLines`], when it lands) + block / flex / grid / table
-//! box fragments + the entity-less line / anonymous-block nodes, and makes render
-//! walk the tree as primary. The node types here are the Z-final shape (a tree of
-//! fragments); Z-1a populates it flat (no nesting yet).
+//! **Scope (Z-1a / Z-1b / C-1):** the tree is populated with multicol mid-break
+//! **box** fragments (Z-1b folds the per-column inline **text** into the run-start's
+//! `InlineFlow` component — the converged `emit_inline_flow` sink; see
+//! `memory/terminal-z-z1b-consume-delta.md`, Option D). **Render now consumes this
+//! store** (terminal-Z C-1, the first render consumer): for an entity flagged
+//! [`is_consumable`](FragmentTree::is_consumable) (a direct-child IFC mid-break) the
+//! paint walk reads its per-column box fragments and emits per-column chrome + clip +
+//! content. Still *dark data* (committed-next): the per-column inline-line fold
+//! ([`FragmentContent::InlineLines`], when it lands), block / flex / grid / table box
+//! fragments, the entity-less line / anonymous-block nodes, and making render walk the
+//! tree as **primary** (C-1 consumes it as a per-entity router, not yet the walk root).
+//! The node types here are the Z-final shape (a tree of fragments); Z-1a populates it
+//! flat (no nesting yet).
 
 use std::collections::HashMap;
 
-use elidex_plugin::{EdgeSizes, Rect, Vector};
+use elidex_plugin::{BoxModel, EdgeSizes, Rect, Vector};
 use hecs::Entity;
 
 /// Index of a node in a [`FragmentTree`]'s arena.
@@ -70,6 +73,19 @@ pub struct FragmentNode {
     /// the first column). Unifies with paged media's page-number generation
     /// when paged folds into the store (committed-next).
     pub fragmentainer: u32,
+    /// Whether render consumes this fragment's entity **per-fragment** (the C-1
+    /// fragment-walk router signal): set iff this box's mid-break IFC lines were
+    /// drained into a per-column `InlineFlow` carrier (`flow_groups` non-empty) at
+    /// [`push_box`](FragmentTree::push_box) time — a **direct-child IFC mid-break**,
+    /// the one category whose per-column chrome + clip + content render must emit
+    /// (css-break-3 §5.4, css-multicol-1 §8.1). A **nested-block / deeper-IFC**
+    /// mid-break writes box geometry but no carrier ⇒ `false` ⇒ render's single
+    /// `LayoutBox` arm (G11). Box-fragment *presence* alone is NOT the signal — the
+    /// carrier-drain is. Stored **per node** (not a per-entity side-set) so an upsert
+    /// re-lay that replaces this `(entity, fragmentainer)` with a non-consumable
+    /// snapshot updates the flag in place; [`is_consumable`](FragmentTree::is_consumable)
+    /// ORs over the entity's *current* nodes, so it cannot go stale.
+    pub consumable: bool,
     /// What this node carries.
     pub content: FragmentContent,
 }
@@ -112,6 +128,21 @@ pub struct BoxFragment {
     pub first_baseline: Option<f32>,
 }
 
+impl BoxModel for BoxFragment {
+    fn content(&self) -> Rect {
+        self.content
+    }
+    fn padding(&self) -> EdgeSizes {
+        self.padding
+    }
+    fn border(&self) -> EdgeSizes {
+        self.border
+    }
+    fn margin(&self) -> EdgeSizes {
+        self.margin
+    }
+}
+
 impl From<&elidex_plugin::LayoutBox> for BoxFragment {
     /// Project a [`LayoutBox`](elidex_plugin::LayoutBox) to its box-fragment
     /// geometry, dropping the component-era `layout_generation` (the node's
@@ -143,6 +174,23 @@ impl FragmentTree {
         self.nodes.is_empty()
     }
 
+    /// Drop `entity`'s fragments before a **re-commit** within the same pass.
+    ///
+    /// [`push_box`](Self::push_box) upserts by `(entity, fragmentainer)`, so a
+    /// definitive re-layout that **shrinks** an entity's span (e.g. 3 spanned
+    /// columns → 2) would leave the now-orphaned higher-fragmentainer nodes behind —
+    /// and since [`is_consumable`](Self::is_consumable) / [`fragments_for`](Self::fragments_for)
+    /// read via the index, render would keep painting the stale `BoxFragment` (a
+    /// phantom column). The committer (`position_column_fragments`) calls this for
+    /// each spanning entity before re-pushing its current span, so the entity is
+    /// rebuilt from scratch. Clears the index entry (the sole render-visible handle);
+    /// the de-indexed arena nodes are orphaned, harmless, and dropped at the next
+    /// [`clear`](Self::clear) (a Vec-arena compaction would invalidate other
+    /// `FragmentId`s, so de-indexing is the safe removal).
+    pub fn remove_entity(&mut self, entity: Entity) {
+        self.index.remove(&entity);
+    }
+
     /// Upsert a root box fragment for `entity` in fragmentainer `fragmentainer`,
     /// returning its id. Z-1a fragments are flat roots (no parenting yet).
     ///
@@ -156,18 +204,32 @@ impl FragmentTree {
     /// its final position, mirroring how the `InlineFlow`/`LayoutBox` components
     /// use `insert_one` (replace). (Throwaway *probe* re-lays are suppressed
     /// upstream by `is_probe`; this dedups the unavoidable definitive re-lays.)
+    ///
+    /// `consumable` records (per node) whether render consumes this `(entity,
+    /// fragmentainer)` fragment **per-fragment** — `true` iff this box's mid-break IFC
+    /// lines were drained into a per-column carrier (`flow_groups` non-empty = a
+    /// direct-child IFC mid-break), `false` for nested-block / deeper-IFC mid-break
+    /// (box geometry only, no per-column content). See
+    /// [`is_consumable`](Self::is_consumable). Stored on the node: an upsert re-lay
+    /// that replaces this `(entity, fragmentainer)` with a non-consumable snapshot
+    /// **updates the flag in place** (no stale per-entity latch), and `is_consumable`
+    /// ORs over the entity's current nodes.
     #[allow(clippy::cast_possible_truncation)]
     pub fn push_box(
         &mut self,
         entity: Entity,
         fragmentainer: u32,
         box_fragment: BoxFragment,
+        consumable: bool,
     ) -> FragmentId {
-        // Replace an existing (entity, fragmentainer) node if one is present.
+        // Replace an existing (entity, fragmentainer) node if one is present — the
+        // `consumable` flag is overwritten alongside the geometry, so a re-lay that
+        // drops the carrier flips the node to non-consumable (no stale latch).
         if let Some(ids) = self.index.get(&entity) {
             for &id in ids {
                 if self.nodes[id.0 as usize].fragmentainer == fragmentainer {
                     self.nodes[id.0 as usize].content = FragmentContent::Box(box_fragment);
+                    self.nodes[id.0 as usize].consumable = consumable;
                     return id;
                 }
             }
@@ -179,6 +241,7 @@ impl FragmentTree {
             children: Vec::new(),
             entity: Some(entity),
             fragmentainer,
+            consumable,
             content: FragmentContent::Box(box_fragment),
         });
         self.index.entry(entity).or_default().push(id);
@@ -200,6 +263,21 @@ impl FragmentTree {
             .into_iter()
             .flatten()
             .map(move |id| &self.nodes[id.0 as usize])
+    }
+
+    /// Whether render consumes `entity`'s box fragments **per-fragment** (the C-1
+    /// fragment-walk router signal). `true` iff a [`push_box`](Self::push_box) for
+    /// this entity passed `consumable = true` (its mid-break IFC lines were drained
+    /// into a per-column carrier — a direct-child IFC mid-break). `false` for a
+    /// non-store entity, or a nested-block / deeper-IFC mid-break whose box fragments
+    /// exist but carry no per-column content (those ride render's single `LayoutBox`
+    /// arm). `consumable ⟹ fragments_for non-empty` (the flag lives on a node, only
+    /// set alongside a push). Reads the entity's **current** nodes, so a re-lay that
+    /// replaced a carrier snapshot with a non-consumable one is reflected at once — no
+    /// stale latch; the store is also cleared each pass.
+    #[must_use]
+    pub fn is_consumable(&self, entity: Entity) -> bool {
+        self.fragments_for(entity).any(|n| n.consumable)
     }
 
     /// Shift all box fragments of `entity` by physical `delta` (P2 — keep store
@@ -261,7 +339,7 @@ mod tests {
         let mut tree = FragmentTree::default();
         assert!(tree.is_empty());
 
-        let id = tree.push_box(e, 1, box_at(300.0));
+        let id = tree.push_box(e, 1, box_at(300.0), false);
 
         assert!(!tree.is_empty());
         assert_eq!(tree.nodes().len(), 1);
@@ -285,9 +363,9 @@ mod tests {
         let other = entity(&mut w);
         let mut tree = FragmentTree::default();
         // A spanning entity with one fragment per column it crosses.
-        tree.push_box(span, 0, box_at(0.0));
-        tree.push_box(other, 0, box_at(0.0)); // interleaved unrelated node
-        tree.push_box(span, 1, box_at(300.0));
+        tree.push_box(span, 0, box_at(0.0), false);
+        tree.push_box(other, 0, box_at(0.0), false); // interleaved unrelated node
+        tree.push_box(span, 1, box_at(300.0), false);
 
         let cols: Vec<u32> = tree.fragments_for(span).map(|n| n.fragmentainer).collect();
         assert_eq!(
@@ -313,8 +391,8 @@ mod tests {
         let mut w = hecs::World::new();
         let e = entity(&mut w);
         let mut tree = FragmentTree::default();
-        tree.push_box(e, 0, box_at(0.0));
-        tree.push_box(e, 1, box_at(300.0));
+        tree.push_box(e, 0, box_at(0.0), false);
+        tree.push_box(e, 1, box_at(300.0), false);
         assert_eq!(tree.nodes().len(), 2);
 
         tree.clear();
@@ -325,7 +403,7 @@ mod tests {
         // The D-Z7 index is cleared alongside the arena (else a stale id would
         // dangle into the rebuilt arena next pass).
         let again = entity(&mut w);
-        tree.push_box(again, 0, box_at(0.0));
+        tree.push_box(again, 0, box_at(0.0), false);
         assert_eq!(tree.fragments_for(again).count(), 1);
         assert_eq!(
             tree.fragments_for(e).count(),
@@ -341,9 +419,9 @@ mod tests {
         let span = entity(&mut w);
         let other = entity(&mut w);
         let mut tree = FragmentTree::default();
-        tree.push_box(span, 0, box_at(0.0));
-        tree.push_box(other, 0, box_at(10.0));
-        tree.push_box(span, 1, box_at(300.0));
+        tree.push_box(span, 0, box_at(0.0), false);
+        tree.push_box(other, 0, box_at(10.0), false);
+        tree.push_box(span, 1, box_at(300.0), false);
 
         tree.shift_entity(span, Vector::new(5.0, 7.0));
 
@@ -380,9 +458,111 @@ mod tests {
         let e = entity(&mut w);
         let absent = entity(&mut w);
         let mut tree = FragmentTree::default();
-        tree.push_box(e, 0, box_at(0.0));
+        tree.push_box(e, 0, box_at(0.0), false);
         tree.shift_entity(absent, Vector::new(5.0, 5.0));
         let FragmentContent::Box(bf) = &tree.fragments_for(e).next().unwrap().content;
         assert_eq!((bf.content.origin.x, bf.content.origin.y), (0.0, 0.0));
+    }
+
+    #[test]
+    fn consumable_flag_is_recorded_per_entity_and_latches_or() {
+        let mut w = hecs::World::new();
+        let ifc = entity(&mut w); // direct-child IFC mid-break (consumable)
+        let nested = entity(&mut w); // nested-block mid-break (box only)
+        let mut tree = FragmentTree::default();
+
+        // The IFC span: one column without a carrier (false) then one with (true).
+        // The flag must LATCH to true (OR across the entity's per-column pushes).
+        tree.push_box(ifc, 0, box_at(0.0), false);
+        tree.push_box(ifc, 1, box_at(300.0), true);
+        // The nested-block span: box fragments but never a carrier ⇒ NOT consumable.
+        tree.push_box(nested, 0, box_at(0.0), false);
+        tree.push_box(nested, 1, box_at(300.0), false);
+
+        assert!(
+            tree.is_consumable(ifc),
+            "any column with a drained carrier ⇒ entity is consumable (OR latch)"
+        );
+        assert!(
+            !tree.is_consumable(nested),
+            "box-fragment presence without a carrier ⇒ NOT consumable (rides LayoutBox arm)"
+        );
+        let absent = entity(&mut w);
+        assert!(
+            !tree.is_consumable(absent),
+            "non-store entity ⇒ not consumable"
+        );
+    }
+
+    #[test]
+    fn clear_resets_the_consumable_set() {
+        let mut w = hecs::World::new();
+        let e = entity(&mut w);
+        let mut tree = FragmentTree::default();
+        tree.push_box(e, 0, box_at(0.0), true);
+        assert!(tree.is_consumable(e));
+
+        tree.clear();
+
+        assert!(
+            !tree.is_consumable(e),
+            "consumable set is cleared with the arena each pass (no staleness)"
+        );
+    }
+
+    #[test]
+    fn upsert_relay_flips_consumable_in_place_no_stale_latch() {
+        // Codex PR#321 R1 (F5): a definitive re-lay can replace an (entity,
+        // fragmentainer) node within one pass — a mid-break child attempted in one
+        // column then re-laid whole. The per-node flag must be OVERWRITTEN on the
+        // upsert, so an entity that drops its carrier flips to non-consumable. A
+        // per-entity OR-latch side-set could not un-latch and would leave it stale.
+        let mut w = hecs::World::new();
+        let e = entity(&mut w);
+        let mut tree = FragmentTree::default();
+
+        // First definitive lay: this column carriers ⇒ consumable.
+        tree.push_box(e, 0, box_at(0.0), true);
+        assert!(tree.is_consumable(e));
+
+        // Re-lay replaces (e, 0) with a non-carrier snapshot ⇒ must flip to false.
+        tree.push_box(e, 0, box_at(0.0), false);
+        assert_eq!(tree.fragments_for(e).count(), 1, "upsert, not append");
+        assert!(
+            !tree.is_consumable(e),
+            "the upsert overwrites the node's consumable flag in place — no stale latch"
+        );
+    }
+
+    #[test]
+    fn remove_entity_drops_orphaned_fragments_on_a_shrinking_relay() {
+        // Codex PR#321 R4 (F4): a definitive re-lay that shrinks an entity's span
+        // (3 spanned columns → 2) must not leave the col-2 node behind — upsert only
+        // overwrites matching (entity, fragmentainer) keys, and the router ORs over
+        // all of `fragments_for`, so a stale higher-fragmentainer node would keep the
+        // entity consumable AND paint a phantom column. The committer calls
+        // `remove_entity` before re-pushing the current span.
+        let mut w = hecs::World::new();
+        let e = entity(&mut w);
+        let mut tree = FragmentTree::default();
+
+        // First lay: spans 3 columns, all carriers.
+        tree.push_box(e, 0, box_at(0.0), true);
+        tree.push_box(e, 1, box_at(300.0), true);
+        tree.push_box(e, 2, box_at(600.0), true);
+        assert_eq!(tree.fragments_for(e).count(), 3);
+
+        // Definitive re-lay shrinks to 2 columns: remove, then re-push the new span.
+        tree.remove_entity(e);
+        tree.push_box(e, 0, box_at(0.0), true);
+        tree.push_box(e, 1, box_at(300.0), true);
+
+        let cols: Vec<u32> = tree.fragments_for(e).map(|n| n.fragmentainer).collect();
+        assert_eq!(
+            cols,
+            vec![0, 1],
+            "the orphaned col-2 fragment is gone — no phantom column painted"
+        );
+        assert!(tree.is_consumable(e));
     }
 }
