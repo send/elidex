@@ -305,14 +305,14 @@ fn box_decoration_break_clone_vs_slice_per_column_chrome() {
 }
 
 #[test]
-fn paged_consumable_clipping_suppresses_the_lossy_single_clip() {
-    // Codex PR#321 R4-F3 (regression): on the PAGED path (`expected_generation` set)
-    // the store fragments are not consumed per-fragment (§2.8), so a consumable
-    // clipping mid-break would fall to the single last-column `LayoutBox` clip and
-    // clip away the earlier columns' converged `InlineFlow` lines (the #316 loss, now
-    // on the paged path — introduced by the global `do_carrier` enablement). C-1
-    // suppresses that single clip on the paged path so the converged flow paints
-    // unclipped at its correct per-column positions (no content loss).
+fn paged_consumable_clipping_uses_the_all_column_union_clip() {
+    // Codex PR#321 R4-F3 (regression) + R6-F2: on the PAGED path (`expected_generation`
+    // set) the store fragments are not consumed per-fragment (§2.8), so a consumable
+    // clipping mid-break must NOT clip to the single last-column `LayoutBox` (it would
+    // lose the earlier columns' converged `InlineFlow` lines — the #316 loss on the
+    // paged path) NOR skip the clip (that would let overflow bleed). It clips to the
+    // UNION of the per-column padding boxes: overflow is clipped to the element's
+    // overall extent (no bleed) while every column survives (no loss).
     use super::super::walk::{walk, PaintContext};
     let (dom, div) = make_consumable_midbreak(true, true);
     let font_db = elidex_text::FontDatabase::new();
@@ -338,13 +338,21 @@ fn paged_consumable_clipping_suppresses_the_lossy_single_clip() {
         &elidex_plugin::transform_math::Perspective::default(),
         false,
     );
+    let clips = push_clip_rects(&dl);
     assert_eq!(
-        count(&dl, |i| matches!(i, DisplayItem::PushClip { .. })),
-        0,
-        "no single last-column clip on the paged path (it would lose earlier columns)"
+        clips.len(),
+        1,
+        "exactly one clip — the all-column union (not a per-column or single-box clip)"
+    );
+    // Union of col-0 (x=0,w=100) and col-1 (x=150,w=100) padding boxes = x∈[0,250].
+    assert_eq!(
+        (clips[0].origin.x, clips[0].right()),
+        (0.0, 250.0),
+        "the clip spans both columns (no last-column-only loss), clipping overflow to \
+         the element's overall extent (no bleed)"
     );
     assert!(
         count(&dl, |i| matches!(i, DisplayItem::Text { .. })) >= 2,
-        "the converged InlineFlow paints unclipped — both columns' lines survive"
+        "both columns' converged lines survive under the union clip"
     );
 }

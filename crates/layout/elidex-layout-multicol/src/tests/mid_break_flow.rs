@@ -748,6 +748,70 @@ fn multicol_midbreak_clipping_block_carriers_and_is_consumable() {
 }
 
 #[test]
+fn multicol_relay_collapsing_a_span_to_whole_drops_stale_store_fragments() {
+    // Codex PR#321 R4-F4 + R6-F1: a definitive re-lay within one pass (no store clear
+    // between) can COLLAPSE a child from spanning multiple columns to fitting whole in
+    // one column. It then drops out of `box_snapshots`/`own`, so an `own`-only cleanup
+    // would leave its prior per-column store fragments behind — and the render router
+    // (which ORs over `fragments_for`) would paint phantom columns. The committer now
+    // `remove_entity`s every direct child before re-committing, so the collapsed child
+    // is de-indexed: no stale fragments, not consumable.
+    let font_db = make_font_db();
+    if !fonts_available(&font_db) {
+        return;
+    }
+    let mut dom = EcsDom::new();
+    let container = elem(&mut dom, "div");
+    let set_height = |dom: &mut EcsDom, h: f32| {
+        let _ = dom.world_mut().insert_one(
+            container,
+            ComputedStyle {
+                display: Display::Block,
+                column_count: Some(2),
+                column_fill: ColumnFill::Auto,
+                height: Dimension::Length(h),
+                ..ComputedStyle::default()
+            },
+        );
+    };
+    let div = elem(&mut dom, "div");
+    dom.append_child(container, div);
+    let _ = dom.world_mut().insert_one(
+        div,
+        ComputedStyle {
+            display: Display::Block,
+            font_family: TEST_FONTS.iter().map(|&s| s.to_string()).collect(),
+            ..ComputedStyle::default()
+        },
+    );
+    let tnode = dom.create_text(LONG_TEXT);
+    dom.append_child(div, tnode);
+
+    // Lay 1: short columns ⇒ the div spans both columns (mid-break, consumable).
+    set_height(&mut dom, 40.0);
+    layout_multicol(&mut dom, container, &make_input(&font_db), layout_child_fn);
+    assert!(
+        dom.fragment_tree().fragments_for(div).count() >= 2
+            && dom.fragment_tree().is_consumable(div),
+        "lay 1: the div spans ≥2 columns and is consumable"
+    );
+
+    // Lay 2 (same pass, no clear): a tall column fits all content in column 0 ⇒ the div
+    // collapses to whole and no longer appears in any column's box snapshots.
+    set_height(&mut dom, 4000.0);
+    layout_multicol(&mut dom, container, &make_input(&font_db), layout_child_fn);
+    assert_eq!(
+        dom.fragment_tree().fragments_for(div).count(),
+        0,
+        "lay 2: the collapsed div's prior per-column store fragments are removed"
+    );
+    assert!(
+        !dom.fragment_tree().is_consumable(div),
+        "the collapsed div is no longer consumable — render uses its single LayoutBox"
+    );
+}
+
+#[test]
 fn multicol_with_direct_inline_midbreak_leaves_no_stale_carrier() {
     // Codex PR#316 R1 (P2): direct inline content in a multicol container makes the
     // IFC `parent_entity` BE the multicol itself, so `fill` (which drains carriers off

@@ -450,15 +450,23 @@ fn position_column_fragments(
         .iter()
         .flat_map(|f| f.box_snapshots.iter().map(|s| s.entity))
         .collect();
-    // Drop any prior-lay store fragments for the spanning entities before re-committing
-    // their current span (Codex PR#321 R4-F4): a definitive re-lay within this pass can
-    // SHRINK an entity's span (e.g. 3 columns → 2), and `push_box`'s upsert would leave
-    // the orphaned higher-column nodes behind — the render router ORs over them and
-    // would paint a phantom column. Removing first rebuilds each entity from scratch.
-    // (`!is_probe` only — a probe never commits, so it must not disturb the live store.)
+    // Drop any prior-lay store fragments for this multicol's direct children before
+    // re-committing (Codex PR#321 R4-F4 + R6-F1): a same-pass definitive re-lay can
+    // SHRINK an entity's span (3 columns → 2 — orphaned higher-column nodes), or
+    // COLLAPSE it from spanning to whole-in-one-column (it then drops out of
+    // `box_snapshots`/`own` entirely). `push_box`'s upsert can't clear either, and the
+    // render router ORs over `fragments_for`, so a stale node paints a phantom column.
+    // Removing every direct child (the superset of `own` + collapsed children;
+    // `remove_entity` is a cheap no-op for the non-store ones) rebuilds each spanning
+    // entity from scratch and de-indexes any that collapsed. Deeper (nested-multicol)
+    // fragments are keyed on THEIR own children, not these direct children, so they are
+    // untouched. (`!is_probe` only — a probe never commits, so it must not disturb the
+    // live store.)
     if !is_probe {
-        for &e in &own {
-            dom.fragment_tree_mut().remove_entity(e);
+        for frag in frags {
+            for &child in &frag.children {
+                dom.fragment_tree_mut().remove_entity(child);
+            }
         }
     }
     // Per-run-start accumulator for the mid-break IFC lines (Z-1b, Option D): each

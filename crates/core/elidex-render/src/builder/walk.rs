@@ -12,7 +12,7 @@ use elidex_plugin::background::{BgRepeat, BgRepeatAxis};
 use elidex_plugin::transform_math::{resolve_child_perspective, Perspective};
 use elidex_plugin::{
     BorderCollapse, BoxDecorationBreak, BoxModel, ComputedStyle, Display, EmptyCells, LayoutBox,
-    ListStyleType, MulticolInfo, Visibility,
+    ListStyleType, MulticolInfo, Rect, Visibility,
 };
 use elidex_plugin::{Point, Vector};
 use elidex_style::counter::{apply_implicit_list_counters_from_dom, CounterState};
@@ -260,19 +260,30 @@ pub(crate) fn walk(
         // N=1 path).
         let single_box = store_frags.is_empty();
         let n = if single_box { 1 } else { store_frags.len() };
+        let clips = style.clips_overflow();
         // On the PAGED path (`expected_generation.is_some()`) the store fragments are
         // not consumed per-fragment (§2.8 — paged×multicol store unification is
-        // committed-next), so a consumable clipping mid-break would fall to the single
-        // last-column `LayoutBox` clip and lose the earlier columns' converged
-        // `InlineFlow` lines (the #316 loss, on the paged path — a regression the global
-        // `do_carrier` carrier enablement introduced). Until the per-page per-column
-        // clip lands, suppress the clip for such an entity so the converged flow paints
-        // unclipped at its correct per-column positions (no loss). Cheap: only when the
-        // store is non-empty and this entity is the consumable category.
-        let paged_consumable_clip = ctx.expected_generation.is_some()
+        // committed-next), so a consumable clipping mid-break would otherwise clip its
+        // converged all-column `InlineFlow` to the single last-column `LayoutBox` and
+        // lose the earlier columns (the #316 loss, on the paged path — a regression the
+        // global `do_carrier` enablement introduced). Clip instead to the UNION of the
+        // entity's per-column padding boxes: overflow is still clipped to the element's
+        // overall extent (no `overflow:hidden` bleed) while every column survives (no
+        // loss). The finer per-column-gap clip is committed-next with the paged store
+        // consume. The store is queried directly (it is gated out of `store_frags`).
+        let paged_union_clip: Option<Rect> = if clips
+            && ctx.expected_generation.is_some()
             && !ctx.dom.fragment_tree().is_empty()
-            && ctx.dom.fragment_tree().is_consumable(entity);
-        let clips = style.clips_overflow() && !paged_consumable_clip;
+            && ctx.dom.fragment_tree().is_consumable(entity)
+        {
+            let mut boxes = ctx.dom.fragment_tree().fragments_for(entity).map(|node| {
+                let FragmentContent::Box(bf) = &node.content;
+                bf.padding_box()
+            });
+            boxes.next().map(|first| boxes.fold(first, union_rect))
+        } else {
+            None
+        };
         let slice = style.box_decoration_break == BoxDecorationBreak::Slice;
         // The slice break axis is the FRAGMENTATION CONTEXT's block-flow direction =
         // the multicol container's writing mode (css-break-3: one block-flow direction
@@ -416,10 +427,11 @@ pub(crate) fn walk(
             // overflow clipping → clip content to this fragment's (sliced) padding box
             // (CSS Overflow §3 / css-multicol-1 §8.1: per-column clip; at a slice break
             // the padding is removed, so adjacent columns' clips abut at the content
-            // edge).
+            // edge). On the paged path a consumable entity uses the all-column union
+            // clip (R6-F2) — single-box there, so this iteration runs once.
             if clips {
                 ctx.dl.push(DisplayItem::PushClip {
-                    rect: paint_box.padding_box(),
+                    rect: paged_union_clip.unwrap_or_else(|| paint_box.padding_box()),
                     radii: [0.0; 4],
                 });
             }
@@ -471,6 +483,16 @@ pub(crate) fn walk(
 
     // CSS counter scope: pop scope on element exit.
     ctx.counter_state.pop_scope();
+}
+
+/// The smallest rect covering both `a` and `b` (their bounding box). Used to clip a
+/// consumable mid-break entity to its all-column extent on the paged path (R6-F2).
+fn union_rect(a: Rect, b: Rect) -> Rect {
+    let x = a.origin.x.min(b.origin.x);
+    let y = a.origin.y.min(b.origin.y);
+    let right = a.right().max(b.right());
+    let bottom = a.bottom().max(b.bottom());
+    Rect::new(x, y, right - x, bottom - y)
 }
 
 /// Dispatch an entity's children: stacking-context elements use CSS 2.1 Appendix E
