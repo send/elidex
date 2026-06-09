@@ -110,25 +110,85 @@ pub struct LayoutBox {
 #[derive(Clone, Debug)]
 pub struct InlineClientRects(pub Vec<Rect>);
 
+/// A box-model carrier: the four nested rectangles (content / padding / border /
+/// margin) a paint pass reads to emit chrome and clips.
+///
+/// The unification linchpin for the render fragment-walk (terminal-Z C-1): both
+/// [`LayoutBox`] (the per-entity, G11 last-column box) and `BoxFragment`
+/// (`elidex-ecs`'s per-column fragment-store entry) implement it, so
+/// the single chrome+clip emission loop is geometry-source-agnostic — the common
+/// entity yields one [`LayoutBox`] item (N=1, byte-identical to the pre-C-1 path),
+/// a multicol mid-break entity yields its N standalone-store `BoxFragment`s. The
+/// box-derivation maths (`content.expand(...)`) lives here once as trait defaults;
+/// implementors supply only the four raw edge sets.
+pub trait BoxModel {
+    /// Content area (absolute/document coords).
+    fn content(&self) -> Rect;
+    /// Padding widths.
+    fn padding(&self) -> EdgeSizes;
+    /// Border widths.
+    fn border(&self) -> EdgeSizes;
+    /// Margin widths.
+    fn margin(&self) -> EdgeSizes;
+
+    /// Padding box (content + padding).
+    fn padding_box(&self) -> Rect {
+        self.content().expand(self.padding())
+    }
+
+    /// Border box (content + padding + border).
+    fn border_box(&self) -> Rect {
+        self.padding_box().expand(self.border())
+    }
+
+    /// Margin box (content + padding + border + margin).
+    ///
+    /// Note: negative margins can produce a `Rect` with negative width or height.
+    fn margin_box(&self) -> Rect {
+        self.border_box().expand(self.margin())
+    }
+}
+
+impl BoxModel for LayoutBox {
+    fn content(&self) -> Rect {
+        self.content
+    }
+    fn padding(&self) -> EdgeSizes {
+        self.padding
+    }
+    fn border(&self) -> EdgeSizes {
+        self.border
+    }
+    fn margin(&self) -> EdgeSizes {
+        self.margin
+    }
+}
+
 impl LayoutBox {
     /// Returns the padding box (content + padding).
+    ///
+    /// Inherent forwarder to [`BoxModel::padding_box`] so existing callers need not
+    /// import the trait; the maths lives once in the trait default.
     #[must_use]
     pub fn padding_box(&self) -> Rect {
-        self.content.expand(self.padding)
+        BoxModel::padding_box(self)
     }
 
     /// Returns the border box (content + padding + border).
+    ///
+    /// Inherent forwarder to [`BoxModel::border_box`].
     #[must_use]
     pub fn border_box(&self) -> Rect {
-        self.padding_box().expand(self.border)
+        BoxModel::border_box(self)
     }
 
     /// Returns the margin box (content + padding + border + margin).
     ///
-    /// Note: negative margins can produce a `Rect` with negative width or height.
+    /// Inherent forwarder to [`BoxModel::margin_box`]. Note: negative margins can
+    /// produce a `Rect` with negative width or height.
     #[must_use]
     pub fn margin_box(&self) -> Rect {
-        self.border_box().expand(self.margin)
+        BoxModel::margin_box(self)
     }
 
     /// Returns the content rect in **element-local coordinates** —

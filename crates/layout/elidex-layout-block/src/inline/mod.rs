@@ -895,20 +895,18 @@ pub fn layout_inline_context_fragmented(
     // `persist_flow`: `do_carrier` ⟹ `frag_is_column && !column_is_whole` ⟹
     // `persist_flow == false`.
     //
-    // EXCEPT a mid-break IFC whose own block clips overflow (Codex PR#316 R2, P2):
-    // render consumes the converged all-column `InlineFlow` during a SINGLE DOM walk
-    // of the spanning block, pushing the block's clip rect from its one `LayoutBox`
-    // (overwritten + shifted to the LAST column). The col-0 lines (x≈0) then fall
-    // LEFT of the last-column padding-box clip and are clipped away — content the
-    // pre-Z-1b legacy single-linear path painted VISIBLY (it began at the clip
-    // origin) now disappears under `overflow:hidden`. Correct per-column clipping
-    // needs the per-fragment render walk (committed-next); until then, a clipping
-    // mid-break block stays on the legacy path (no `InlineFlow` ⇒ render's
-    // `emit_styled_segments`), so nothing vanishes. (A pure transform without a clip
-    // is NOT a regression — both eras are equally mis-referenced, nothing
-    // disappears — so it keeps Option D.)
-    let midbreak_clips = frag_is_column && !column_is_whole && parent_style.clips_overflow();
-    let do_carrier = frag_is_column && !column_is_whole && !midbreak_clips;
+    // A mid-break IFC whose own block clips overflow ALSO carries now (terminal-Z
+    // C-1, retiring the #316 `midbreak_clips` legacy-fallback): render's
+    // fragment-walk consumes this entity's per-column box store fragments and pushes
+    // a SEPARATE clip per column, then re-emits the converged all-column `InlineFlow`
+    // under each disjoint column clip (each line survives in exactly one column). So
+    // the carrier + the per-column box store (Z-1a, always populated for clipping
+    // mid-break — `!is_probe` only, not clip-gated) coincide on the same entity, and
+    // the `consumable` store flag steers render to the per-fragment path. Carrying
+    // for the clipping case is the chain that fixes the col-0-clipped-away regression
+    // #316 deferred (§2.6 hard invariant: this term and the C-1 render consume land
+    // together).
+    let do_carrier = frag_is_column && !column_is_whole;
     let total_block: f32 = packer
         .line_boxes
         .iter()
@@ -1106,11 +1104,12 @@ pub fn layout_inline_context_fragmented(
                 // Else: a throwaway probe over a do_carrier run (write NO carrier — the
                 // probe's per-column geometry is discarded; `position_column_fragments`
                 // is `is_probe`-guarded and the live mid-break `InlineFlow` is preserved
-                // by the `is_probe`-gated `clear_inline_flows` below, Codex PR#316 R3),
-                // OR a clipping mid-break block (`midbreak_clips` ⇒ `do_carrier ==
-                // false` ⇒ no carrier, no flow ⇒ render stays on the legacy
-                // single-linear path, Codex PR#316 R2 — `clear_inline_flows` drops any
-                // stale converged flow so the switch to legacy is clean).
+                // by the `is_probe`-gated `clear_inline_flows` below, Codex PR#316 R3).
+                // A clipping (`overflow:hidden`) mid-break block now ALSO takes the
+                // carrier branch (terminal-Z C-1 retired the `midbreak_clips` exception):
+                // render's fragment-walk consumes its per-column box store + re-emits the
+                // converged `InlineFlow` under each per-column clip, so no col-0 content
+                // is clipped away by a single last-column clip.
             }
         }
         // Reposition each `position:relative`/`sticky` atomic's `LayoutBox` to its

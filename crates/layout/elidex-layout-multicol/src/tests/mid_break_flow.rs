@@ -680,21 +680,22 @@ fn multicol_balanced_midbreak_flow_survives_probe_total_height() {
 }
 
 #[test]
-fn multicol_midbreak_clipping_block_stays_legacy_no_inline_flow() {
-    // Codex PR#316 R2 (P2): a mid-break IFC whose own block clips overflow must NOT
-    // use Option D. Render consumes the converged all-column `InlineFlow` under the
-    // block's single (last-column) padding-box clip, so the col-0 lines (x≈0) fall
-    // LEFT of the clip and are clipped away — content the pre-Z-1b legacy path painted
-    // VISIBLY (beginning at the clip origin) now disappears under `overflow:hidden`.
-    // Until per-fragment clipping (committed-next), a clipping mid-break block stays
-    // on the legacy single-linear path (no `InlineFlow`), so nothing vanishes. Pin:
-    // `overflow:hidden` on the block ⇒ NO `InlineFlow`; same DOM without the clip ⇒
-    // `InlineFlow` IS persisted (Option D).
+fn multicol_midbreak_clipping_block_carriers_and_is_consumable() {
+    // terminal-Z C-1 (retiring the #316 `midbreak_clips` legacy-fallback): a mid-break
+    // IFC whose own block clips overflow now ALSO carriers (Option D) and is flagged
+    // **consumable** in the box store, so render's fragment-walk paints it per-column —
+    // a SEPARATE clip per column, the converged `InlineFlow` re-emitted under each
+    // disjoint column clip (each line surviving in exactly one column). This fixes the
+    // col-0-clipped-away regression #316 deferred (§2.6 hard invariant: the carrier +
+    // the per-column box store coincide on the same entity). Pin: BOTH the clipping and
+    // non-clipping mid-break block persist the run-start `InlineFlow`, have ≥2 box-store
+    // fragments on the IFC container, and the container is `is_consumable`.
     let font_db = make_font_db();
     if !fonts_available(&font_db) {
         return;
     }
-    let run_start_has_flow = |clip: bool| -> bool {
+    // (run-start InlineFlow present, #box-store fragments, container is_consumable).
+    let probe = |clip: bool| -> (bool, usize, bool) {
         let mut dom = EcsDom::new();
         let container = elem(&mut dom, "div");
         let _ = dom.world_mut().insert_one(
@@ -723,17 +724,27 @@ fn multicol_midbreak_clipping_block_stays_legacy_no_inline_flow() {
         let input = make_input(&font_db);
         layout_multicol(&mut dom, container, &input, layout_child_fn);
         let has_flow = dom.world().get::<&InlineFlow>(tnode).is_ok();
-        has_flow
+        let n_box = dom.fragment_tree().fragments_for(div).count();
+        let consumable = dom.fragment_tree().is_consumable(div);
+        (has_flow, n_box, consumable)
     };
-    assert!(
-        run_start_has_flow(false),
-        "a non-clipping mid-break block persists the converged per-column InlineFlow (Option D)"
-    );
-    assert!(
-        !run_start_has_flow(true),
-        "a clipping (overflow:hidden) mid-break block stays on the legacy path — NO \
-         InlineFlow — so its col-0 content is not clipped away by the last-column clip"
-    );
+    for clip in [false, true] {
+        let (has_flow, n_box, consumable) = probe(clip);
+        assert!(
+            has_flow,
+            "mid-break block (clip={clip}) persists the converged per-column InlineFlow (Option D)"
+        );
+        assert!(
+            n_box >= 2,
+            "mid-break block (clip={clip}) has a per-column box-store fragment in each \
+             spanned column (≥2) — the geometry render's fragment-walk clips per column"
+        );
+        assert!(
+            consumable,
+            "a direct-child IFC mid-break (clip={clip}) is store-flagged consumable, so \
+             render paints per-column chrome + clip + content"
+        );
+    }
 }
 
 #[test]

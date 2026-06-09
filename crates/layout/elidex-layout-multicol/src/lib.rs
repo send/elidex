@@ -485,11 +485,23 @@ fn position_column_fragments(
         // commit and leave no ancestor-probe garbage. Column 0 commits at delta 0.
         if !is_probe {
             for snap in &frag.box_snapshots {
-                // Box store (Z-1a dark data, committed-next consumes it).
+                // Box store (Z-1a box geometry; render fragment-walk consumes it,
+                // C-1). `consumable` = this column drained an IFC line carrier
+                // (`flow_groups` non-empty) ⟺ a direct-child IFC mid-break — the one
+                // category render paints per-fragment (per-column chrome + clip +
+                // content). A nested-block / deeper-IFC mid-break pushes box geometry
+                // but no carrier (`flow_groups` empty) ⇒ `consumable = false` ⇒ render's
+                // single `LayoutBox` arm (today's behavior). The store OR-latches the
+                // flag across this entity's per-column pushes.
                 let mut bf = snap.box_fragment.clone();
                 bf.content.origin += delta;
                 #[allow(clippy::cast_possible_truncation)]
-                dom.fragment_tree_mut().push_box(snap.entity, i as u32, bf);
+                dom.fragment_tree_mut().push_box(
+                    snap.entity,
+                    i as u32,
+                    bf,
+                    !snap.flow_groups.is_empty(),
+                );
                 // IFC lines (Z-1b live): fold this column's per-run-start lines into
                 // the accumulator, offset to the column's inline position. The line's
                 // `inline_start` is the inline-axis-projected physical coord, so the

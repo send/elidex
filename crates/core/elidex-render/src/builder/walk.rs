@@ -3,16 +3,16 @@
 use std::sync::Arc;
 
 use elidex_ecs::{
-    BackgroundImages, EcsDom, Entity, ImageData, ListItemMarker, TemplateContent,
-    MAX_ANCESTOR_DEPTH,
+    BackgroundImages, BoxFragment, EcsDom, Entity, FragmentContent, ImageData, ListItemMarker,
+    TemplateContent, MAX_ANCESTOR_DEPTH,
 };
 use elidex_form::FormControlState;
 use elidex_layout_block::paint_order::{collect_sc_participants, is_float_entity, is_positioned};
 use elidex_plugin::background::{BgRepeat, BgRepeatAxis};
 use elidex_plugin::transform_math::{resolve_child_perspective, Perspective};
 use elidex_plugin::{
-    BorderCollapse, ComputedStyle, Display, EmptyCells, LayoutBox, ListStyleType, MulticolInfo,
-    Visibility,
+    BorderCollapse, BoxDecorationBreak, BoxModel, ComputedStyle, Display, EmptyCells, LayoutBox,
+    ListStyleType, MulticolInfo, Rect, Visibility, WritingMode,
 };
 use elidex_plugin::{Point, Vector};
 use elidex_style::counter::{apply_implicit_list_counters_from_dom, CounterState};
@@ -164,175 +164,333 @@ pub(crate) fn walk(
         .as_ref()
         .is_none_or(|s| s.visibility == Visibility::Visible);
 
-    // Emit background + borders + images for elements with a LayoutBox.
-    let mut has_clip = false;
-    let mut has_transform_push = false;
-    // Cache border box for perspective-origin computation (avoids redundant ECS lookup).
-    let mut cached_border_box = None;
-    if let Ok(lb) = ctx.dom.world().get::<&LayoutBox>(entity) {
-        cached_border_box = Some(lb.border_box());
-        if let Some(ref style) = style_ref {
-            // CSS Transforms: compute and emit PushTransform before any painting.
-            match element_transform(style, &lb, parent_perspective) {
-                TransformResult::BackfaceHidden => {
-                    // CSS Transforms L2 §5: back-facing → skip entire subtree.
-                    ctx.counter_state.pop_scope();
-                    return;
-                }
-                TransformResult::Affine(affine) => {
-                    ctx.dl.push(DisplayItem::PushTransform { affine });
-                    has_transform_push = true;
-                }
-                TransformResult::None => {}
-            }
-
-            // CSS 2.1 §17.5.1: empty-cells: hide suppresses background/border
-            // for empty table cells when border-collapse is separate.
-            let skip_cell_paint = is_visible
-                && style.display == Display::TableCell
-                && style.empty_cells == EmptyCells::Hide
-                && style.border_collapse == BorderCollapse::Separate
-                && is_cell_empty(ctx.dom, entity);
-
-            if is_visible && !skip_cell_paint {
-                let bg_images = ctx.dom.world().get::<&BackgroundImages>(entity).ok();
-                emit_background(
-                    &lb,
-                    style.background_color,
-                    style.border_radii,
-                    style.opacity,
-                    bg_images.as_deref(),
-                    style,
-                    ctx.dl,
-                );
-                emit_borders(&lb, style, ctx.dl);
-
-                // Emit column rules for multicol containers.
-                if let Ok(info) = ctx.dom.world().get::<&MulticolInfo>(entity) {
-                    super::paint::emit_column_rules(&lb, style, &info, ctx.dl);
-                }
-
-                // Emit image for replaced elements with decoded pixel data.
-                if let Ok(image_data) = ctx.dom.world().get::<&ImageData>(entity) {
-                    if style.opacity > 0.0 && image_data.width > 0 && image_data.height > 0 {
-                        ctx.dl.push(DisplayItem::Image {
-                            painting_area: lb.content,
-                            pixels: Arc::clone(&image_data.pixels),
-                            image_width: image_data.width,
-                            image_height: image_data.height,
-                            position: Point::ZERO,
-                            size: lb.content.size,
-                            repeat: BgRepeat {
-                                x: BgRepeatAxis::NoRepeat,
-                                y: BgRepeatAxis::NoRepeat,
-                            },
-                            opacity: style.opacity,
-                        });
-                    }
-                }
-
-                // Emit iframe sub-display-list for replaced iframe elements.
-                // The iframe's display list is stored in the `IframeDisplayList`
-                // component, set by the content thread after iframe pipeline render.
-                if let Ok(iframe_dl) = ctx
-                    .dom
-                    .world()
-                    .get::<&crate::display_list::IframeDisplayList>(entity)
-                {
-                    ctx.dl.push(DisplayItem::SubDisplayList {
-                        offset: lb.content.origin,
-                        clip: lb.content,
-                        list: Arc::clone(&iframe_dl.0),
-                    });
-                    // Iframe DOM children are fallback content — skip child painting
-                    // since the iframe's own display list is used instead.
-                    if has_clip {
-                        ctx.dl.push(DisplayItem::PopClip);
-                    }
-                    if has_transform_push {
-                        ctx.dl.push(DisplayItem::PopTransform);
-                    }
-                    ctx.counter_state.pop_scope();
-                    return;
-                }
-
-                // Emit form control rendering.
-                if let Ok(fcs) = ctx.dom.world().get::<&FormControlState>(entity) {
-                    emit_form_control(
-                        &lb,
-                        &fcs,
-                        style,
-                        &mut super::form::FontEnv {
-                            db: ctx.font_db,
-                            cache: ctx.font_cache,
-                        },
-                        ctx.dl,
-                        ctx.dom
-                            .world()
-                            .get::<&elidex_ecs::ElementState>(entity)
-                            .ok()
-                            .is_some_and(|s| s.contains(elidex_ecs::ElementState::FOCUS)),
-                        ctx.caret_visible,
-                    );
-                }
-            }
-
-            // overflow clipping → clip children to padding box (CSS Overflow §3).
-            if style.clips_overflow() {
-                let pb = lb.padding_box();
-                ctx.dl.push(DisplayItem::PushClip {
-                    rect: pb,
-                    radii: [0.0; 4],
-                });
-                has_clip = true;
-            }
-        }
-    }
-
-    // Compute perspective to propagate to children.
-    let child_perspective = match (&style_ref, cached_border_box) {
-        (Some(style), Some(bb)) => resolve_child_perspective(style, &bb),
-        _ => Perspective::default(),
+    // ── Chrome + overflow clip + content, emitted over a per-entity *fragment
+    // source* (terminal-Z C-1, the unified fragment-walk). Per-entity concerns
+    // (transform / perspective / replaced content / form) run once; the chrome +
+    // clip + content emission loops the source. The source is mechanical: a
+    // consumable multicol mid-break entity (direct-child IFC, store-flagged) yields
+    // its N per-column `BoxFragment`s — so it paints per-column chrome (css-break-3
+    // §5.4 slice), per-column overflow clip (css-multicol-1 §8.1), and per-column
+    // clipped content; every other entity yields its one `LayoutBox` (N=1, a
+    // 1-iteration loop byte-identical to the pre-C-1 display list). Both geometry
+    // carriers implement `BoxModel`, so the loop body is geometry-source-agnostic.
+    //
+    // The geometry is cloned into owned locals so the source borrows neither `ctx`
+    // nor the ECS world across the child-dispatch recursion (which needs `&mut ctx`).
+    let lb_owned: Option<LayoutBox> = ctx
+        .dom
+        .world()
+        .get::<&LayoutBox>(entity)
+        .ok()
+        .map(|l| (*l).clone());
+    // Store-consumable source (§2.2), non-paged only (§2.8): a paged multicol keeps
+    // the per-page LayoutBox path until paged×multicol store unification. The cheap
+    // `!is_empty()` arena check skips the per-entity consumable lookup entirely on the
+    // common no-multicol page (the store has no fragments at all).
+    let store_frags: Vec<BoxFragment> = if ctx.expected_generation.is_none()
+        && !ctx.dom.fragment_tree().is_empty()
+        && ctx.dom.fragment_tree().is_consumable(entity)
+    {
+        ctx.dom
+            .fragment_tree()
+            .fragments_for(entity)
+            .map(|n| {
+                let FragmentContent::Box(bf) = &n.content;
+                bf.clone()
+            })
+            .collect()
+    } else {
+        Vec::new()
     };
 
-    // Process children: stacking context elements use 7-layer paint order.
+    // Child dispatch is the "content" emitter for both the box and no-box arms; the
+    // children list + stacking-context flag are identical in both (a box arm has
+    // `style` in scope, the no-box arm reads it via `style_ref` — same predicate), so
+    // compute them once here. Only `child_perspective` differs (a box anchors it to its
+    // border box; a box-less element has none), so it stays per-arm.
     let children = elidex_layout_block::composed_children_flat(ctx.dom, entity);
     let is_sc = style_ref
         .as_ref()
         .is_some_and(|s| s.creates_stacking_context())
         || ctx.dom.get_parent(entity).is_none(); // root is always a SC
 
-    let child_in_transform = in_transform || has_transform_push;
+    let mut has_transform_push = false;
+    // The box paint runs only with BOTH a LayoutBox and a ComputedStyle (a LayoutBox
+    // without style emitted no chrome/transform/clip pre-C-1 — preserved).
+    if let (Some(lb), Some(style)) = (lb_owned.as_ref(), style_ref.as_deref()) {
+        // CSS Transforms: per-entity, once (§2.7), from the entity's single LayoutBox.
+        match element_transform(style, lb, parent_perspective) {
+            TransformResult::BackfaceHidden => {
+                // CSS Transforms L2 §5: back-facing → skip entire subtree.
+                ctx.counter_state.pop_scope();
+                return;
+            }
+            TransformResult::Affine(affine) => {
+                ctx.dl.push(DisplayItem::PushTransform { affine });
+                has_transform_push = true;
+            }
+            TransformResult::None => {}
+        }
 
+        // CSS 2.1 §17.5.1: empty-cells: hide suppresses background/border for empty
+        // table cells when border-collapse is separate.
+        let skip_cell_paint = is_visible
+            && style.display == Display::TableCell
+            && style.empty_cells == EmptyCells::Hide
+            && style.border_collapse == BorderCollapse::Separate
+            && is_cell_empty(ctx.dom, entity);
+
+        // The fragment source (BoxModel items, fragmentainer order). Single-box ⇒
+        // N=1 (the entity's LayoutBox); consumable multicol ⇒ N store fragments. The
+        // loop indexes the source directly (no per-box `Vec` allocation on the common
+        // N=1 path).
+        let single_box = store_frags.is_empty();
+        let n = if single_box { 1 } else { store_frags.len() };
+        let clips = style.clips_overflow();
+        let slice = style.box_decoration_break == BoxDecorationBreak::Slice;
+        let wm = style.writing_mode;
+
+        // Per-iteration "content" inputs (loop-invariant). `child_perspective` is
+        // box-anchored, so it is computed here (not hoisted); `children` / `is_sc` were
+        // computed once above the box/no-box split.
+        let child_perspective = resolve_child_perspective(style, &lb.border_box());
+        let child_in_transform = in_transform || has_transform_push;
+        let bg_images = ctx.dom.world().get::<&BackgroundImages>(entity).ok();
+
+        // The single chrome + clip + content loop. `cum_block` accumulates the
+        // block-axis extent of prior fragments for the slice background-position
+        // offset (css-break-3 §5.4.1). On a fragment with `overflow:hidden` the
+        // content is re-emitted under each disjoint per-column clip (each line
+        // survives in exactly one column); without a clip it is emitted once.
+        let mut cum_block = 0.0_f32;
+        // `i` indexes the source but also drives `break_edges` / the single-box branch,
+        // and the single-box arm has no `store_frags` to iterate — a range loop is the
+        // natural form here.
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..n {
+            let frag: &dyn BoxModel = if single_box { lb } else { &store_frags[i] };
+            // box-decoration-break: slice break edges + bg continuity offset (§2.4).
+            // clone / single-box (n == 1) ⇒ no omission, zero offset → byte-identical.
+            let (omit, bg_offset) = if slice && n > 1 {
+                (break_edges(i, n, wm), slice_bg_offset(wm, cum_block))
+            } else {
+                ([false; 4], Vector::<f32>::ZERO)
+            };
+
+            if is_visible && !skip_cell_paint {
+                emit_background(
+                    frag,
+                    style.background_color,
+                    style.border_radii,
+                    style.opacity,
+                    bg_images.as_deref(),
+                    style,
+                    bg_offset,
+                    ctx.dl,
+                );
+                emit_borders(frag, style, omit, ctx.dl);
+
+                // Per-entity replaced content / form / column rules: single-box only
+                // (a consumable multicol IFC mid-break carries none of these
+                // components). Kept in the pre-C-1 paint order — background, border,
+                // then column-rules / image / iframe / form.
+                if single_box {
+                    if let Ok(info) = ctx.dom.world().get::<&MulticolInfo>(entity) {
+                        super::paint::emit_column_rules(lb, style, &info, ctx.dl);
+                    }
+                    if let Ok(image_data) = ctx.dom.world().get::<&ImageData>(entity) {
+                        if style.opacity > 0.0 && image_data.width > 0 && image_data.height > 0 {
+                            ctx.dl.push(DisplayItem::Image {
+                                painting_area: lb.content,
+                                pixels: Arc::clone(&image_data.pixels),
+                                image_width: image_data.width,
+                                image_height: image_data.height,
+                                position: Point::ZERO,
+                                size: lb.content.size,
+                                repeat: BgRepeat {
+                                    x: BgRepeatAxis::NoRepeat,
+                                    y: BgRepeatAxis::NoRepeat,
+                                },
+                                opacity: style.opacity,
+                            });
+                        }
+                    }
+                    // Iframe DOM children are fallback content — emit the iframe's own
+                    // display list and skip child painting (break the loop; the
+                    // after-loop cleanup pops the transform + scope). No clip is pushed
+                    // this iteration yet, so nothing is left unbalanced.
+                    if let Ok(iframe_dl) = ctx
+                        .dom
+                        .world()
+                        .get::<&crate::display_list::IframeDisplayList>(entity)
+                    {
+                        ctx.dl.push(DisplayItem::SubDisplayList {
+                            offset: lb.content.origin,
+                            clip: lb.content,
+                            list: Arc::clone(&iframe_dl.0),
+                        });
+                        break;
+                    }
+                    if let Ok(fcs) = ctx.dom.world().get::<&FormControlState>(entity) {
+                        emit_form_control(
+                            lb,
+                            &fcs,
+                            style,
+                            &mut super::form::FontEnv {
+                                db: ctx.font_db,
+                                cache: ctx.font_cache,
+                            },
+                            ctx.dl,
+                            ctx.dom
+                                .world()
+                                .get::<&elidex_ecs::ElementState>(entity)
+                                .ok()
+                                .is_some_and(|s| s.contains(elidex_ecs::ElementState::FOCUS)),
+                            ctx.caret_visible,
+                        );
+                    }
+                }
+            }
+
+            // overflow clipping → clip content to this fragment's padding box
+            // (CSS Overflow §3 / css-multicol-1 §8.1: per-column clip).
+            if clips {
+                ctx.dl.push(DisplayItem::PushClip {
+                    rect: frag.padding_box(),
+                    radii: [0.0; 4],
+                });
+            }
+            // Content: clipping ⇒ once per fragment (under each disjoint column clip);
+            // non-clipping ⇒ once (after all chrome — the last/only iteration).
+            if clips || i == n - 1 {
+                dispatch_children(
+                    ctx,
+                    entity,
+                    &children,
+                    depth,
+                    &child_perspective,
+                    child_in_transform,
+                    is_sc,
+                );
+            }
+            if clips {
+                ctx.dl.push(DisplayItem::PopClip);
+            }
+
+            // Accumulate the PADDING-box block extent — the background painting area
+            // is the padding box (`emit_background`), and slice inserts no border at a
+            // break (§5.4), so consecutive fragments' padding boxes are contiguous in
+            // the composite; the bg-position offset must be measured in that same box.
+            cum_block += block_axis_extent(frag.padding_box(), wm);
+        }
+
+        if has_transform_push {
+            ctx.dl.push(DisplayItem::PopTransform);
+        }
+        ctx.counter_state.pop_scope();
+        return;
+    }
+
+    // No LayoutBox (or no ComputedStyle): no chrome / transform / clip — recurse
+    // children once (the pre-C-1 no-LayoutBox behavior). Perspective defaults with no
+    // border box to anchor it; `children` / `is_sc` were computed above the split.
+    let child_perspective = Perspective::default();
+    dispatch_children(
+        ctx,
+        entity,
+        &children,
+        depth,
+        &child_perspective,
+        in_transform,
+        is_sc,
+    );
+
+    // CSS counter scope: pop scope on element exit.
+    ctx.counter_state.pop_scope();
+}
+
+/// Dispatch an entity's children: stacking-context elements use CSS 2.1 Appendix E
+/// 7-layer order, others paint in DOM order. The single "content" emitter shared by
+/// the N=1 and the per-column multicol arms of the fragment-walk (`walk`).
+fn dispatch_children(
+    ctx: &mut PaintContext,
+    entity: Entity,
+    children: &[Entity],
+    depth: usize,
+    child_perspective: &Perspective,
+    in_transform: bool,
+    is_sc: bool,
+) {
     if is_sc {
         paint_stacking_context_layers(
             ctx,
             entity,
-            &children,
+            children,
             depth,
-            &child_perspective,
-            child_in_transform,
+            child_perspective,
+            in_transform,
         );
     } else {
         paint_non_sc(
             ctx,
             entity,
-            &children,
+            children,
             depth,
-            &child_perspective,
-            child_in_transform,
+            child_perspective,
+            in_transform,
         );
     }
+}
 
-    if has_clip {
-        ctx.dl.push(DisplayItem::PopClip);
+/// Physical `[top, right, bottom, left]` "this edge is at a fragmentation break"
+/// flags for fragment `i` of `n` along the writing-mode block axis (css-break-3
+/// §5.4: no border/padding is inserted *at a break*). A continuation fragment
+/// (`i > 0`) breaks at its block-start; a fragment that continues (`i < n - 1`)
+/// breaks at its block-end. The block axis maps to physical edges by writing mode;
+/// the inline-axis edges are never "at a break" (they paint on every fragment).
+/// `n <= 1` ⇒ no breaks (single box).
+fn break_edges(i: usize, n: usize, wm: WritingMode) -> [bool; 4] {
+    if n <= 1 {
+        return [false; 4];
     }
-    if has_transform_push {
-        ctx.dl.push(DisplayItem::PopTransform);
-    }
+    let at_block_start = i > 0;
+    let at_block_end = i < n - 1;
+    // (block-start, block-end) physical indices into [top, right, bottom, left].
+    let (start_idx, end_idx) = match wm {
+        WritingMode::HorizontalTb => (0, 2), // top / bottom
+        WritingMode::VerticalRl | WritingMode::SidewaysRl => (1, 3), // right / left
+        WritingMode::VerticalLr | WritingMode::SidewaysLr => (3, 1), // left / right
+    };
+    let mut e = [false; 4];
+    e[start_idx] = at_block_start;
+    e[end_idx] = at_block_end;
+    e
+}
 
-    // CSS counter scope: pop scope on element exit.
-    ctx.counter_state.pop_scope();
+/// Block-axis extent of a box under writing mode `wm` (height for a horizontal
+/// mode, width for a vertical mode) — accumulated across fragments (over their
+/// padding boxes, the bg painting area) to offset the slice background-position so
+/// its tiling phase stays continuous.
+fn block_axis_extent(box_rect: Rect, wm: WritingMode) -> f32 {
+    if wm.is_horizontal() {
+        box_rect.size.height
+    } else {
+        box_rect.size.width
+    }
+}
+
+/// Background-position shift for fragment `i`'s `box-decoration-break: slice`
+/// painting (css-break-3 §5.4.1): `-cumulative_block_extent` projected onto the
+/// physical block-flow direction, so the image is painted as if on the unbroken
+/// composite box. Horizontal-tb flows down (−y); vertical-rl/sideways-rl flow left
+/// (+x toward the composite origin on the right); vertical-lr/sideways-lr flow right
+/// (−x).
+fn slice_bg_offset(wm: WritingMode, cum_block: f32) -> Vector {
+    match wm {
+        WritingMode::HorizontalTb => Vector::new(0.0, -cum_block),
+        WritingMode::VerticalRl | WritingMode::SidewaysRl => Vector::new(cum_block, 0.0),
+        WritingMode::VerticalLr | WritingMode::SidewaysLr => Vector::new(-cum_block, 0.0),
+    }
 }
 
 /// Paint children in CSS 2.1 Appendix E stacking context layer order.
@@ -587,4 +745,81 @@ fn is_cell_empty(dom: &EcsDom, entity: Entity) -> bool {
             .get::<&elidex_ecs::TextContent>(child)
             .is_ok_and(|text| text.0.trim().is_empty())
     })
+}
+
+#[cfg(test)]
+mod c1_helper_tests {
+    use super::{block_axis_extent, break_edges, slice_bg_offset};
+    use elidex_plugin::{Rect, Vector, WritingMode};
+
+    #[test]
+    fn break_edges_single_box_has_no_breaks() {
+        assert_eq!(break_edges(0, 1, WritingMode::HorizontalTb), [false; 4]);
+    }
+
+    #[test]
+    fn break_edges_horizontal_omits_block_axis_at_breaks() {
+        // [top, right, bottom, left]. horizontal-tb: block axis = top/bottom.
+        // First fragment of 3: breaks at its block-END only (bottom).
+        assert_eq!(
+            break_edges(0, 3, WritingMode::HorizontalTb),
+            [false, false, true, false]
+        );
+        // Middle: breaks at both block-START (top) and block-END (bottom).
+        assert_eq!(
+            break_edges(1, 3, WritingMode::HorizontalTb),
+            [true, false, true, false]
+        );
+        // Last: breaks at its block-START only (top). Inline edges never break.
+        assert_eq!(
+            break_edges(2, 3, WritingMode::HorizontalTb),
+            [true, false, false, false]
+        );
+    }
+
+    #[test]
+    fn break_edges_vertical_maps_block_axis_to_inline_physical_edges() {
+        // vertical-rl: block-start = right, block-end = left.
+        // First of 2 breaks at block-END (left).
+        assert_eq!(
+            break_edges(0, 2, WritingMode::VerticalRl),
+            [false, false, false, true]
+        );
+        // Last of 2 breaks at block-START (right).
+        assert_eq!(
+            break_edges(1, 2, WritingMode::VerticalRl),
+            [false, true, false, false]
+        );
+        // vertical-lr: block-start = left, block-end = right (mirror of -rl).
+        assert_eq!(
+            break_edges(0, 2, WritingMode::VerticalLr),
+            [false, true, false, false]
+        );
+    }
+
+    #[test]
+    fn slice_bg_offset_projects_negative_block_flow_per_mode() {
+        // horizontal flows down ⇒ shift up (−y).
+        assert_eq!(
+            slice_bg_offset(WritingMode::HorizontalTb, 40.0),
+            Vector::new(0.0, -40.0)
+        );
+        // vertical-rl flows left, composite origin on the right ⇒ +x.
+        assert_eq!(
+            slice_bg_offset(WritingMode::VerticalRl, 40.0),
+            Vector::new(40.0, 0.0)
+        );
+        // vertical-lr flows right ⇒ −x.
+        assert_eq!(
+            slice_bg_offset(WritingMode::VerticalLr, 40.0),
+            Vector::new(-40.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn block_axis_extent_is_height_horizontal_width_vertical() {
+        let bb = Rect::new(0.0, 0.0, 100.0, 40.0);
+        assert_eq!(block_axis_extent(bb, WritingMode::HorizontalTb), 40.0);
+        assert_eq!(block_axis_extent(bb, WritingMode::VerticalRl), 100.0);
+    }
 }

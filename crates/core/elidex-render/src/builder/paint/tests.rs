@@ -237,7 +237,7 @@ fn make_bordered_box(
 fn emit_borders_dashed_produces_styled_segments() {
     let (lb, style) = make_bordered_box(2.0, BorderStyle::Dashed, CssColor::RED);
     let mut dl = DisplayList::default();
-    emit_borders(&lb, &style, &mut dl);
+    emit_borders(&lb, &style, [false; 4], &mut dl);
     // 4 sides → 4 StyledBorderSegment items
     assert_eq!(dl.len(), 4);
     for item in dl.iter() {
@@ -264,7 +264,7 @@ fn emit_borders_dashed_produces_styled_segments() {
 fn emit_borders_dotted_produces_round_cap_segments() {
     let (lb, style) = make_bordered_box(3.0, BorderStyle::Dotted, CssColor::BLUE);
     let mut dl = DisplayList::default();
-    emit_borders(&lb, &style, &mut dl);
+    emit_borders(&lb, &style, [false; 4], &mut dl);
     assert_eq!(dl.len(), 4);
     for item in dl.iter() {
         match item {
@@ -289,7 +289,7 @@ fn emit_borders_dotted_produces_round_cap_segments() {
 fn emit_borders_solid_still_produces_solid_rect() {
     let (lb, style) = make_bordered_box(2.0, BorderStyle::Solid, CssColor::BLACK);
     let mut dl = DisplayList::default();
-    emit_borders(&lb, &style, &mut dl);
+    emit_borders(&lb, &style, [false; 4], &mut dl);
     // All 4 sides should be SolidRect
     assert_eq!(dl.len(), 4);
     for item in dl.iter() {
@@ -304,8 +304,50 @@ fn emit_borders_solid_still_produces_solid_rect() {
 fn emit_borders_none_produces_nothing() {
     let (lb, style) = make_bordered_box(2.0, BorderStyle::None, CssColor::BLACK);
     let mut dl = DisplayList::default();
-    emit_borders(&lb, &style, &mut dl);
+    emit_borders(&lb, &style, [false; 4], &mut dl);
     assert!(dl.is_empty());
+}
+
+#[test]
+fn emit_borders_omit_edges_suppresses_those_sides() {
+    // css-break-3 §5.4 box-decoration-break: slice — the block-axis edge AT a
+    // fragmentation break is omitted, the rest paint. Omitting top+bottom (a
+    // horizontal-tb middle fragment) leaves only the two inline (left/right) sides.
+    let (lb, style) = make_bordered_box(2.0, BorderStyle::Solid, CssColor::BLACK);
+    let bb = lb.border_box();
+    let mut dl = DisplayList::default();
+    emit_borders(&lb, &style, [true, false, true, false], &mut dl);
+    assert_eq!(
+        dl.len(),
+        2,
+        "top+bottom omitted ⇒ only left+right border rects remain, got {:?}",
+        dl.iter().collect::<Vec<_>>()
+    );
+    // At a break the inline (left/right) borders run FLUSH to the cut — they are NOT
+    // inset by the omitted top/bottom border widths (else a gap opens at the edge).
+    // Each remaining SolidRect must span the full border-box height.
+    for item in dl.iter() {
+        if let DisplayItem::SolidRect { rect, .. } = item {
+            assert_eq!(
+                (rect.origin.y, rect.size.height),
+                (bb.origin.y, bb.size.height),
+                "an inline border at a break runs flush to the cut (full height), got {rect:?}"
+            );
+        }
+    }
+
+    // A rounded border with an omitted edge must NOT take the whole-box ring path —
+    // a sliced box falls back to per-side emission (the ring would re-draw the break
+    // edge). Pin: it does not emit a RoundedBorderRing.
+    let (lb, mut rstyle) = make_bordered_box(2.0, BorderStyle::Solid, CssColor::BLACK);
+    rstyle.border_radii = [5.0; 4];
+    let mut dl = DisplayList::default();
+    emit_borders(&lb, &rstyle, [false, false, true, false], &mut dl);
+    assert!(
+        !dl.iter()
+            .any(|i| matches!(i, DisplayItem::RoundedBorderRing { .. })),
+        "an omitted edge bypasses the rounded-border-ring optimization"
+    );
 }
 
 // --- emit_column_rules ---

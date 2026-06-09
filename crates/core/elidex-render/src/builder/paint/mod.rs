@@ -10,7 +10,8 @@ use elidex_plugin::background::{
     BackgroundImage, BackgroundLayer, BgPosition, BgPositionAxis, BgSize, BgSizeDimension,
 };
 use elidex_plugin::{
-    BorderStyle, ComputedStyle, CssColor, LayoutBox, ListStyleType, Point, Rect, Size,
+    BorderStyle, BoxModel, ComputedStyle, CssColor, LayoutBox, ListStyleType, Point, Rect, Size,
+    Vector,
 };
 use elidex_text::{shape_text, to_fontdb_style, FontDatabase};
 
@@ -42,13 +43,23 @@ pub(crate) fn apply_opacity(color: CssColor, opacity: f32) -> CssColor {
 }
 
 /// Emit background color + image layers with opacity applied.
+///
+/// `decoration_offset` shifts each image layer's resolved background-position
+/// (css-break-3 §5.4.1 "Joining Boxes for slice"): for a `box-decoration-break:
+/// slice` fragment it carries `-cumulative_block_extent` along the block axis so
+/// the image's tiling phase stays continuous across the fragmentation break, as if
+/// painted on the unbroken composite box. The background COLOR fills each fragment's
+/// own border box (uniform, offset-independent). Zero (`Vector::ZERO`) on the
+/// common single-box / `clone` path — byte-identical to the pre-C-1 behavior.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_background(
-    lb: &LayoutBox,
+    lb: &dyn BoxModel,
     bg: CssColor,
     border_radii: [f32; 4],
     opacity: f32,
     bg_images: Option<&BackgroundImages>,
     style: &ComputedStyle,
+    decoration_offset: Vector,
     dl: &mut DisplayList,
 ) {
     // 1. Background color
@@ -74,7 +85,15 @@ pub(crate) fn emit_background(
     let painting_area = lb.padding_box();
 
     for (i, layer) in layers.iter().enumerate() {
-        emit_bg_layer(layer, i, painting_area, opacity, bg_images, dl);
+        emit_bg_layer(
+            layer,
+            i,
+            painting_area,
+            opacity,
+            bg_images,
+            decoration_offset,
+            dl,
+        );
     }
 }
 
@@ -164,12 +183,17 @@ fn resolve_position_axis(axis: &BgPositionAxis, area_dim: f32, img_dim: f32) -> 
 }
 
 /// Emit a single background image layer.
+///
+/// `decoration_offset` (css-break-3 §5.4.1) shifts the resolved position so a
+/// `box-decoration-break: slice` fragment's tiling phase stays continuous across
+/// the break; `Vector::ZERO` on the common path leaves the position unchanged.
 fn emit_bg_layer(
     layer: &BackgroundLayer,
     index: usize,
     painting_area: Rect,
     opacity: f32,
     bg_images: Option<&BackgroundImages>,
+    decoration_offset: Vector,
     dl: &mut DisplayList,
 ) {
     match &layer.image {
@@ -183,7 +207,8 @@ fn emit_bg_layer(
                             img_data.width,
                             img_data.height,
                         );
-                        let position = resolve_bg_position(&layer.position, &painting_area, size);
+                        let position = resolve_bg_position(&layer.position, &painting_area, size)
+                            + decoration_offset;
                         dl.push(DisplayItem::Image {
                             painting_area,
                             pixels: Arc::clone(&img_data.pixels),
@@ -332,35 +357,53 @@ fn compute_inner_radii_per_axis(
 /// Top and bottom borders span the full width. Left and right borders are
 /// inset by the top/bottom border widths to avoid overlapping at corners,
 /// which would cause visible darkening when `opacity < 1.0`.
-pub(crate) fn emit_borders(lb: &LayoutBox, style: &ComputedStyle, dl: &mut DisplayList) {
+///
+/// `omit_edges` (physical `[top, right, bottom, left]`) suppresses the border on
+/// each flagged side: css-break-3 §5.4 `box-decoration-break: slice` inserts "no
+/// border ... at a break", so for a multicol-fragmented box the block-axis edge
+/// **at the fragmentation break** (block-end of a continued fragment, block-start of
+/// a continuation) is omitted while the inline-axis edges paint on every fragment.
+/// All-`false` (the common single-box / `clone` path) is byte-identical to pre-C-1.
+/// When any edge is omitted the box is sliced, so the all-or-nothing rounded-border
+/// ring optimization is bypassed (per-side emission honors the omission).
+pub(crate) fn emit_borders(
+    lb: &dyn BoxModel,
+    style: &ComputedStyle,
+    omit_edges: [bool; 4],
+    dl: &mut DisplayList,
+) {
     let bb = lb.border_box();
+    let border = lb.border();
     let opacity = style.opacity;
 
-    // Collect which sides are active (style != None && width > 0).
+    // Collect which sides are active (style != None && width > 0 && not omitted).
     let sides = [
-        (&style.border_top, lb.border.top),
-        (&style.border_right, lb.border.right),
-        (&style.border_bottom, lb.border.bottom),
-        (&style.border_left, lb.border.left),
+        (&style.border_top, border.top, omit_edges[0]),
+        (&style.border_right, border.right, omit_edges[1]),
+        (&style.border_bottom, border.bottom, omit_edges[2]),
+        (&style.border_left, border.left, omit_edges[3]),
     ];
     let active_sides: Vec<_> = sides
         .iter()
-        .filter(|(s, w)| s.style != BorderStyle::None && *w > 0.0)
+        .filter(|(s, w, omit)| !omit && s.style != BorderStyle::None && *w > 0.0)
         .collect();
 
-    // Try rounded border ring when border-radius is set.
+    // Try rounded border ring when border-radius is set — but only when NO edge is
+    // omitted (a sliced box cannot use the whole-box ring; §5.4 applies radius to the
+    // composite, out of C-1 scope → per-side fallback).
+    let no_omission = !omit_edges.iter().any(|&o| o);
     let has_radius = style.border_radii.iter().any(|r| *r > 0.0);
-    if has_radius && !active_sides.is_empty() {
+    if no_omission && has_radius && !active_sides.is_empty() {
         // Check uniform color and all-solid styles.
         let first_color = active_sides[0].0.color;
-        let uniform_color = active_sides.iter().all(|(s, _)| s.color == first_color);
+        let uniform_color = active_sides.iter().all(|(s, _, _)| s.color == first_color);
         let all_solid = active_sides
             .iter()
-            .all(|(s, _)| s.style == BorderStyle::Solid);
+            .all(|(s, _, _)| s.style == BorderStyle::Solid);
 
         if uniform_color && all_solid {
             let inner_rect = lb.padding_box();
-            let inner_radii = compute_inner_radii(style.border_radii, &lb.border);
+            let inner_radii = compute_inner_radii(style.border_radii, &border);
             dl.push(DisplayItem::RoundedBorderRing {
                 outer_rect: bb,
                 outer_radii: style.border_radii,
@@ -374,56 +417,67 @@ pub(crate) fn emit_borders(lb: &LayoutBox, style: &ComputedStyle, dl: &mut Displ
 
     // Per-side border emission (SolidRect or StyledBorderSegment).
     // top (full width)
-    if style.border_top.style != BorderStyle::None && lb.border.top > 0.0 {
+    if !omit_edges[0] && style.border_top.style != BorderStyle::None && border.top > 0.0 {
         let color = apply_opacity(style.border_top.color, opacity);
         emit_h_line(
             style.border_top.style,
             bb.origin.x,
             bb.right(),
             bb.origin.y,
-            lb.border.top,
+            border.top,
             color,
             dl,
         );
     }
     // bottom (full width)
-    if style.border_bottom.style != BorderStyle::None && lb.border.bottom > 0.0 {
+    if !omit_edges[2] && style.border_bottom.style != BorderStyle::None && border.bottom > 0.0 {
         let color = apply_opacity(style.border_bottom.color, opacity);
         emit_h_line(
             style.border_bottom.style,
             bb.origin.x,
             bb.right(),
-            bb.bottom() - lb.border.bottom,
-            lb.border.bottom,
+            bb.bottom() - border.bottom,
+            border.bottom,
             color,
             dl,
         );
     }
-    // right (inset by top/bottom to avoid corner overlap)
-    let v_inset_top = lb.border.top;
-    let v_inset_bottom = lb.border.bottom;
+    // right (inset by top/bottom to avoid corner overlap). At a fragmentation break
+    // the block-axis edge is omitted (css-break-3 §5.4) — there is no corner there,
+    // so the inline (left/right) border must run FLUSH to the break edge, not be
+    // inset by the un-drawn border's width (else a gap opens at the cut).
+    let v_inset_top = if omit_edges[0] { 0.0 } else { border.top };
+    let v_inset_bottom = if omit_edges[2] { 0.0 } else { border.bottom };
     let v_height = (bb.size.height - v_inset_top - v_inset_bottom).max(0.0);
-    if style.border_right.style != BorderStyle::None && lb.border.right > 0.0 && v_height > 0.0 {
+    if !omit_edges[1]
+        && style.border_right.style != BorderStyle::None
+        && border.right > 0.0
+        && v_height > 0.0
+    {
         let color = apply_opacity(style.border_right.color, opacity);
         emit_v_line(
             style.border_right.style,
             bb.origin.y + v_inset_top,
             bb.origin.y + v_inset_top + v_height,
-            bb.right() - lb.border.right,
-            lb.border.right,
+            bb.right() - border.right,
+            border.right,
             color,
             dl,
         );
     }
     // left (inset by top/bottom to avoid corner overlap)
-    if style.border_left.style != BorderStyle::None && lb.border.left > 0.0 && v_height > 0.0 {
+    if !omit_edges[3]
+        && style.border_left.style != BorderStyle::None
+        && border.left > 0.0
+        && v_height > 0.0
+    {
         let color = apply_opacity(style.border_left.color, opacity);
         emit_v_line(
             style.border_left.style,
             bb.origin.y + v_inset_top,
             bb.origin.y + v_inset_top + v_height,
             bb.origin.x,
-            lb.border.left,
+            border.left,
             color,
             dl,
         );
