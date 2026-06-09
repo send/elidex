@@ -145,6 +145,16 @@ sha2-oid = { package = "sha2", version = "0.10", features = ["oid"] }
 # `ClosureRng` entropy-seam adapter feeding both EC `SecretKey::random` and RSA
 # `RsaPrivateKey::new_with_exp` from the VM's single `fill_random` closure.
 rand_core = "0.6"
+# aws-lc-rs (AWS-LC, a BoringSSL fork) — the **constant-time** RSA-OAEP backend
+# for WebCrypto §22 encrypt / decrypt / wrapKey / unwrapKey (PR-5b).  The pure-Rust
+# `rsa` crate carries RUSTSEC-2023-0071 (Marvin) on its private-key ops AND models
+# the OAEP `label` as a UTF-8 `String` (so it cannot represent WebCrypto's arbitrary
+# `BufferSource` label) — aws-lc-rs gives both constant-time decryption and a
+# byte-slice label (`Option<&[u8]>`), so the whole RSA-OAEP op-set runs here while
+# the signing / key-management families stay on `rsa` 0.9.  Same C-build category as
+# the in-tree `ring` (BoringSSL crypto) — the non-FIPS backend (`aws-lc-sys`, built
+# via cmake/cc) is constant-time; no `fips` feature.  License Apache-2.0/ISC.
+aws-lc-rs = "1.13"
 webpki-roots = "1"
 elidex-plugin = { path = "crates/core/elidex-plugin" }
 elidex-ecs = { path = "crates/core/elidex-ecs" }

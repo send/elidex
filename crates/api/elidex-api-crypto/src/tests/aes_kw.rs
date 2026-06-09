@@ -527,12 +527,14 @@ fn jwk_from_json_domstring_array_coercion_matches_tostring() {
     assert_eq!(jwk2.k.as_deref(), Some("[object Object]"));
 }
 
-/// Codex R-batch regression: `to_json_bytes` pads the serialization to a
-/// multiple of the AES-KW semiblock (8 bytes) with trailing JSON whitespace
-/// (§14.3.11 step-14 Note), so a `jwk` key can be AES-KW-wrapped; the padding
-/// is still valid JSON that `from_json_bytes` parses.
+/// Codex #322 R1 regression: `to_json_bytes` is the **verbatim** serde JSON —
+/// NOT AES-KW-padded.  §14.3.11 step-14's padding is per-wrapping-algorithm:
+/// AES-KW needs an 8-byte multiple, but RSA-OAEP has an *upper* length limit, so
+/// padding the serialization here would count against the OAEP limit and reject
+/// a wrappable key.  The 8-byte alignment lives in `pad_to_aes_kw_block`, applied
+/// only on the AES-KW wrap arm; trailing JSON whitespace still parses.
 #[test]
-fn jwk_to_json_bytes_is_padded_to_aes_kw_block() {
+fn jwk_to_json_bytes_unpadded_and_pad_helper_aligns() {
     let jwk = crate::JsonWebKey {
         kty: Some("oct".to_string()),
         k: Some("AAECAwQFBgcICQoLDA0ODw".to_string()),
@@ -542,14 +544,25 @@ fn jwk_to_json_bytes_is_padded_to_aes_kw_block() {
         ext: Some(true),
         ..Default::default()
     };
+    // (1) to_json_bytes is the verbatim JSON — re-introducing padding here would
+    // make it differ from the plain serde serialization (this jwk's JSON is not
+    // 8-aligned, so the old padding rounded it up; the fix must not).
     let bytes = crate::jwk::to_json_bytes(&jwk);
-    assert_eq!(
+    assert_eq!(bytes, serde_json::to_vec(&jwk).unwrap());
+    assert_ne!(
         bytes.len() % 8,
         0,
-        "JWK JSON must be padded to a multiple of 8"
+        "this jwk's JSON is deliberately unaligned"
     );
-    // Trailing whitespace is ignored on parse → round-trips.
+    // (2) pad_to_aes_kw_block aligns to the 8-byte semiblock with ASCII spaces.
+    let padded = crate::jwk::pad_to_aes_kw_block(bytes.clone());
+    assert_eq!(padded.len() % 8, 0, "pad aligns to a multiple of 8");
+    assert!(padded.len() >= bytes.len() && padded.len() < bytes.len() + 8);
+    assert!(padded[bytes.len()..].iter().all(|&b| b == b' '));
+    // Both the verbatim and padded forms parse back to the same JWK (trailing
+    // whitespace is ignored).
     assert_eq!(crate::jwk::from_json_bytes(&bytes).unwrap(), jwk);
+    assert_eq!(crate::jwk::from_json_bytes(&padded).unwrap(), jwk);
 }
 
 /// Codex R-batch regression: AES-KW can now wrap a `jwk` key (the JSON is

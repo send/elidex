@@ -18,6 +18,10 @@ const RSASSA_GEN: &str =
     "{name:'RSASSA-PKCS1-v1_5', modulusLength:2048, publicExponent:new Uint8Array([1,0,1]), hash:'SHA-256'}";
 const RSAPSS_GEN: &str =
     "{name:'RSA-PSS', modulusLength:2048, publicExponent:new Uint8Array([1,0,1]), hash:'SHA-256'}";
+/// A 2048-bit RSA-OAEP keygen algorithm literal (SHA-256) — the encrypt
+/// family, reusing the RsaHashed key params (§22.4.3 reuses §20.4).
+const RSAOAEP_GEN: &str =
+    "{name:'RSA-OAEP', modulusLength:2048, publicExponent:new Uint8Array([1,0,1]), hash:'SHA-256'}";
 
 #[test]
 fn rsassa_generate_key_returns_crypto_key_pair_with_algorithm() {
@@ -192,4 +196,169 @@ fn rsa_generate_key_reads_inherited_members_before_hash() {
            .then(() => { globalThis.r = globalThis.order.join(','); }, \
                  e => { globalThis.r = 'ERR:' + globalThis.order.join(','); });";
     assert_eq!(eval_global_string(src, "r"), "ml,pe,h");
+}
+
+// ===========================================================================
+// RSA-OAEP vertical (WebCrypto §22) — the encrypt / decrypt / wrapKey /
+// unwrapKey op-set on the aws-lc-rs backend.  The algorithm-level coverage
+// (padding, labels, the dual-backend seam) lives in the crate's
+// `tests::rsa::oaep`; these pin the VM marshalling surface (the `RsaOaepParams`
+// label read + the generic cipher / wrap natives routing RSA-OAEP).
+// ===========================================================================
+
+#[test]
+fn rsa_oaep_generate_key_pair_shape_and_usage_split() {
+    // §22.4.3: a CryptoKeyPair whose publicKey is {encrypt, wrapKey} + always
+    // extractable, privateKey is {decrypt, unwrapKey}; name = "RSA-OAEP", the
+    // hash rides on the key (RsaHashedKeyAlgorithm §20.6, reused by §22).
+    let src = format!(
+        "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey({RSAOAEP_GEN}, false, ['encrypt','decrypt','wrapKey','unwrapKey']) \
+           .then(p => {{ const a = p.publicKey.algorithm; globalThis.r = [ \
+             a.name, a.modulusLength, a.hash.name, \
+             p.publicKey.usages.join('/'), p.privateKey.usages.join('/'), \
+             p.publicKey.extractable, p.privateKey.extractable \
+           ].join('|'); }}, e => {{ globalThis.r = 'ERR:' + e.name; }});"
+    );
+    assert_eq!(
+        eval_global_string(&src, "r"),
+        "RSA-OAEP|2048|SHA-256|encrypt/wrapKey|decrypt/unwrapKey|true|false"
+    );
+}
+
+#[test]
+fn rsa_oaep_encrypt_then_decrypt_round_trips() {
+    // generateKey → encrypt(publicKey) → decrypt(privateKey).  RSA-OAEP
+    // encrypt / decrypt take the optional name-only `RsaOaepParams` (no label).
+    let src = format!(
+        "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey({RSAOAEP_GEN}, true, ['encrypt','decrypt']) \
+           .then(p => {{ globalThis.pair = p; \
+             return crypto.subtle.encrypt({{name:'RSA-OAEP'}}, p.publicKey, new Uint8Array([10,20,30,40])); }}) \
+           .then(ct => crypto.subtle.decrypt({{name:'RSA-OAEP'}}, globalThis.pair.privateKey, ct)) \
+           .then(pt => {{ globalThis.r = Array.from(new Uint8Array(pt)).join('.'); }}, \
+                 e => {{ globalThis.r = 'ERR:' + e.name; }});"
+    );
+    assert_eq!(eval_global_string(&src, "r"), "10.20.30.40");
+}
+
+#[test]
+fn rsa_oaep_label_round_trips_and_wrong_label_rejects() {
+    // §22.3 `RsaOaepParams.label` (the optional BufferSource the VM snapshots):
+    // a same-label decrypt recovers the plaintext; a mismatched label fails the
+    // OAEP decode as an OperationError.
+    let src = format!(
+        "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey({RSAOAEP_GEN}, true, ['encrypt','decrypt']) \
+           .then(p => {{ globalThis.pair = p; \
+             return crypto.subtle.encrypt({{name:'RSA-OAEP', label:new Uint8Array([9,9])}}, p.publicKey, new Uint8Array([7,7,7])); }}) \
+           .then(ct => {{ globalThis.ct = ct; \
+             return crypto.subtle.decrypt({{name:'RSA-OAEP', label:new Uint8Array([9,9])}}, globalThis.pair.privateKey, ct); }}) \
+           .then(pt => {{ globalThis.good = Array.from(new Uint8Array(pt)).join('.'); \
+             return crypto.subtle.decrypt({{name:'RSA-OAEP', label:new Uint8Array([8,8])}}, globalThis.pair.privateKey, globalThis.ct) \
+               .then(() => 'NOFAIL', e => e.name); }}) \
+           .then(bad => {{ globalThis.r = globalThis.good + '|' + bad; }}, \
+                 e => {{ globalThis.r = 'ERR:' + e.name; }});"
+    );
+    assert_eq!(eval_global_string(&src, "r"), "7.7.7|OperationError");
+}
+
+#[test]
+fn rsa_oaep_wrap_unwrap_aes_key_round_trips() {
+    // §14.3.11 / §14.3.12: RSA-OAEP wraps an AES-GCM key (export → OAEP-encrypt;
+    // OAEP-decrypt → import) — the generic wrap / unwrap natives route RSA-OAEP
+    // through the same encrypt / decrypt op as the cipher path.
+    let src = format!(
+        "globalThis.r = 'pending'; \
+         Promise.all([ \
+           crypto.subtle.generateKey({RSAOAEP_GEN}, true, ['wrapKey','unwrapKey']), \
+           crypto.subtle.generateKey({{name:'AES-GCM', length:128}}, true, ['encrypt','decrypt']) \
+         ]).then(([rsa, aes]) => {{ globalThis.rsa = rsa; \
+             return crypto.subtle.wrapKey('raw', aes, rsa.publicKey, {{name:'RSA-OAEP'}}); }}) \
+           .then(wrapped => crypto.subtle.unwrapKey('raw', wrapped, globalThis.rsa.privateKey, \
+                 {{name:'RSA-OAEP'}}, {{name:'AES-GCM'}}, true, ['encrypt','decrypt'])) \
+           .then(k => {{ globalThis.r = [k.type, k.algorithm.name, k.algorithm.length, k.usages.join('/')].join('|'); }}, \
+                 e => {{ globalThis.r = 'ERR:' + e.name; }});"
+    );
+    assert_eq!(
+        eval_global_string(&src, "r"),
+        "secret|AES-GCM|128|encrypt/decrypt"
+    );
+}
+
+#[test]
+fn rsa_oaep_wrap_key_label_getter_fires_once_and_propagates() {
+    // §22.2 + §14.3.11 step 2-3: RSA-OAEP registers no wrapKey op, so the primary
+    // "normalize for wrapKey" fails at the registry lookup *before* reading
+    // `RsaOaepParams.label`; only the step-3 encrypt fallback reads it — exactly
+    // once.  A side-effecting `label` getter (throws on the first read) therefore
+    // surfaces its exception (wrapKey rejects) instead of being swallowed by a
+    // double-normalize that re-reads and proceeds (Codex #322 R1 — the old
+    // registry registered RSA-OAEP for wrapKey, so the primary read `label` too).
+    let src = format!(
+        "globalThis.r = 'pending'; globalThis.calls = 0; \
+         Promise.all([ \
+           crypto.subtle.generateKey({RSAOAEP_GEN}, true, ['wrapKey','unwrapKey']), \
+           crypto.subtle.generateKey({{name:'AES-GCM', length:128}}, true, ['encrypt','decrypt']) \
+         ]).then(([rsa, aes]) => {{ \
+             const alg = {{ name:'RSA-OAEP', get label() {{ globalThis.calls++; \
+                 if (globalThis.calls === 1) throw new TypeError('evil'); \
+                 return new Uint8Array([1,2,3]); }} }}; \
+             return crypto.subtle.wrapKey('raw', aes, rsa.publicKey, alg); }}) \
+           .then(() => {{ globalThis.r = 'resolved|calls:' + globalThis.calls; }}, \
+                 e => {{ globalThis.r = e.name + '|calls:' + globalThis.calls; }});"
+    );
+    // Fixed: the getter fires once (fallback only) → its TypeError rejects the
+    // wrap.  The pre-fix double-read would have fired it twice (calls:2) and
+    // resolved (the first throw swallowed).
+    assert_eq!(eval_global_string(&src, "r"), "TypeError|calls:1");
+}
+
+#[test]
+fn rsa_oaep_wrap_unwrap_with_label_round_trips() {
+    // The §14.3.11 / §14.3.12 wrap→encrypt / unwrap→decrypt fallback threads the
+    // `RsaOaepParams.label` through (read once, on the fallback): wrap with a
+    // label + unwrap with the same label recovers the AES key.
+    let src = format!(
+        "globalThis.r = 'pending'; \
+         Promise.all([ \
+           crypto.subtle.generateKey({RSAOAEP_GEN}, true, ['wrapKey','unwrapKey']), \
+           crypto.subtle.generateKey({{name:'AES-GCM', length:128}}, true, ['encrypt','decrypt']) \
+         ]).then(([rsa, aes]) => {{ globalThis.rsa = rsa; \
+             return crypto.subtle.wrapKey('raw', aes, rsa.publicKey, \
+                 {{name:'RSA-OAEP', label:new Uint8Array([5,6,7])}}); }}) \
+           .then(wrapped => crypto.subtle.unwrapKey('raw', wrapped, globalThis.rsa.privateKey, \
+                 {{name:'RSA-OAEP', label:new Uint8Array([5,6,7])}}, {{name:'AES-GCM'}}, true, \
+                 ['encrypt','decrypt'])) \
+           .then(k => {{ globalThis.r = [k.type, k.algorithm.name, k.algorithm.length].join('|'); }}, \
+                 e => {{ globalThis.r = 'ERR:' + e.name; }});"
+    );
+    assert_eq!(eval_global_string(&src, "r"), "secret|AES-GCM|128");
+}
+
+#[test]
+fn rsa_oaep_export_jwk_uses_rsa_oaep_alg() {
+    // §22.4.5 jwk export: SHA-256 → alg "RSA-OAEP-256", kty "RSA".
+    let src = format!(
+        "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey({RSAOAEP_GEN}, true, ['encrypt','decrypt']) \
+           .then(p => crypto.subtle.exportKey('jwk', p.publicKey)) \
+           .then(jwk => {{ globalThis.r = jwk.kty + '|' + jwk.alg; }}, \
+                 e => {{ globalThis.r = 'ERR:' + e.name; }});"
+    );
+    assert_eq!(eval_global_string(&src, "r"), "RSA|RSA-OAEP-256");
+}
+
+#[test]
+fn rsa_oaep_sign_is_not_supported() {
+    // §22.2: RSA-OAEP registers no sign operation, so `sign` normalization
+    // returns NotSupportedError (the registry exclusion, distinct from the
+    // RSASSA / RSA-PSS signing families).
+    let src = format!(
+        "globalThis.r = 'pending'; \
+         crypto.subtle.generateKey({RSAOAEP_GEN}, true, ['encrypt','decrypt']) \
+           .then(p => crypto.subtle.sign({{name:'RSA-OAEP'}}, p.privateKey, new Uint8Array([1,2,3]))) \
+           .then(() => {{ globalThis.r = 'resolved'; }}, e => {{ globalThis.r = e.name; }});"
+    );
+    assert_eq!(eval_global_string(&src, "r"), "NotSupportedError");
 }

@@ -31,6 +31,7 @@ use crate::ops::{generate_key, import_key, ExportedKey, GeneratedKey, KeyData, K
 use crate::{normalize, CryptoKeyData, JsonWebKey, NormalizedAlgorithm, Operation, RawAlgorithm};
 
 mod keygen;
+mod oaep;
 mod roundtrip;
 mod sign_verify;
 

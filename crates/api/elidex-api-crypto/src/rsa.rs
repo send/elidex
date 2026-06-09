@@ -19,9 +19,7 @@ use base64::Engine as _;
 use rsa::pkcs8::spki::{DecodePublicKey, EncodePublicKey};
 use rsa::pkcs8::{DecodePrivateKey, EncodePrivateKey};
 use rsa::traits::{PrivateKeyParts, PublicKeyParts};
-use rsa::{BigUint, Pkcs1v15Sign, Pss, RsaPrivateKey, RsaPublicKey};
-use sha1_oid::Sha1;
-use sha2_oid::{Sha256, Sha384, Sha512};
+use rsa::{BigUint, RsaPrivateKey, RsaPublicKey};
 
 use crate::algorithm::RsaVariant;
 use crate::error::AlgorithmError;
@@ -30,6 +28,18 @@ use crate::jwk::{self, JsonWebKey};
 use crate::key::{normalize_usages, CryptoKeyData, KeyMaterial, KeyType, KeyUsage};
 use crate::ops::{format_data_mismatch, ExportedKey, KeyData, KeyFormat};
 use crate::rng::ClosureRng;
+
+/// RSA-OAEP encrypt / decrypt (WebCrypto §22) on the constant-time aws-lc-rs
+/// backend — the encrypt family of the RSA keys, split from this module's
+/// `rsa`-crate key-management backend (see [`oaep`]).
+mod oaep;
+pub(crate) use oaep::{oaep_decrypt, oaep_encrypt};
+
+/// RSA `sign` / `verify` (WebCrypto §20.8.1/.2 / §21.4.1/.2) on the `rsa` crate
+/// — the signing vertical, split from this module's key-management backend as a
+/// cohesive op-set (parallel to [`oaep`]); see [`signing`].
+mod signing;
+pub(crate) use signing::{sign, verify};
 
 /// Upper bound on an RSA modulus (bits) — the script-controlled
 /// `generateKey` `modulusLength` (an unbounded value would DoS the synchronous
@@ -46,6 +56,28 @@ use crate::rng::ClosureRng;
 /// decode (follow-on `#11-rsa-modulus-above-4096`).  Kept in lockstep by
 /// `tests::rsa::modulus_ceiling_matches_rsa_crate_max_size`.
 pub(crate) const MAX_RSA_MODULUS_BITS: u32 = 4096;
+
+/// Lower bound on an **RSA-OAEP** modulus (bits).  Unlike the signing variants
+/// (RSASSA-PKCS1-v1_5 / RSA-PSS, which run on the pure-Rust `rsa` crate at any
+/// size), RSA-OAEP `encrypt` / `decrypt` run on the constant-time aws-lc-rs
+/// backend ([`oaep`]), whose OAEP keys are restricted to `2048..=8192` bits
+/// (`OaepPublicEncryptingKey::new` / `OaepPrivateDecryptingKey::new`,
+/// aws-lc-rs 1.17 `rsa/encryption.rs`).  A smaller modulus would `generateKey`
+/// / `importKey` successfully on the `rsa` crate yet be **unusable** for every
+/// OAEP op (the aws-lc-rs key construction returns `Err` → OperationError), so
+/// an accepted RSA-OAEP key would not be usable.  Reject it at the gate instead
+/// (generate + import), so a successfully-imported RSA-OAEP key is always
+/// usable.  WebCrypto §22 sets no minimum (the floor is a backend capability),
+/// so this is NotSupported / OperationError, not a spec requirement.  The floor
+/// is OAEP-specific — the signing families keep no minimum.
+pub(crate) const MIN_RSA_OAEP_MODULUS_BITS: u32 = 2048;
+
+/// Whether an RSA modulus of `bits` is below the OAEP backend's minimum for
+/// `variant`.  Only RSA-OAEP (the aws-lc-rs encrypt/decrypt backend) has a
+/// floor; the signing variants accept any size the `rsa` crate produces.
+fn rsa_oaep_modulus_below_minimum(variant: RsaVariant, bits: u32) -> bool {
+    variant == RsaVariant::RsaOaep && bits < MIN_RSA_OAEP_MODULUS_BITS
+}
 
 /// Liveness probe drawn from the entropy seam **before** an RSA private-key
 /// *signing* exponentiation (see [`sign`]).  A CSPRNG seam is live or down for
@@ -99,6 +131,16 @@ pub(crate) fn import(
         // (spki/pkcs8 → Raw, jwk → Jwk), so this is a defensive guard.
         _ => return Err(format_data_mismatch()),
     };
+    // An RSA-OAEP key below the aws-lc-rs OAEP backend's minimum modulus parses
+    // here but is unusable for encrypt/decrypt (see [`MIN_RSA_OAEP_MODULUS_BITS`])
+    // — reject it as an unsupported capability, uniformly across spki/pkcs8/jwk
+    // (every branch produces `imported.modulus_length`), so an imported RSA-OAEP
+    // key is always usable.  The signing variants keep no floor.
+    if rsa_oaep_modulus_below_minimum(variant, imported.modulus_length) {
+        return Err(AlgorithmError::NotSupported(
+            "RSA-OAEP modulus length is below the supported minimum (2048 bits)".to_string(),
+        ));
+    }
     // §14.3.9 importKey generic step: a private key with empty usages is a
     // SyntaxError — but an RSA *public* key may have empty usages.  Checked
     // after the algorithm-specific parse, so a DataError from invalid material
@@ -190,10 +232,10 @@ fn private_imported(privkey: &RsaPrivateKey) -> Result<Imported, AlgorithmError>
     })
 }
 
-/// Import an RSA `jwk` (WebCrypto §20.8.4 / §21.4.4 jwk branch + RFC 7518
-/// §6.3): validate the JWK shape (kty / use / key_ops / ext / alg), determine
-/// the key type from the `d` member, then reconstruct the typed key from
-/// n / e [/ d / p / q].  Multi-prime (`oth`) is NotSupported.
+/// Import an RSA `jwk` (WebCrypto §20.8.4 / §21.4.4 / §22.4.4 jwk branch +
+/// RFC 7518 §6.3): validate the JWK shape (kty / use / key_ops / ext / alg),
+/// determine the key type from the `d` member, then reconstruct the typed key
+/// from n / e [/ d / p / q].  Multi-prime (`oth`) is NotSupported.
 fn import_jwk(
     variant: RsaVariant,
     hash: HashAlgorithm,
@@ -209,19 +251,20 @@ fn import_jwk(
         KeyType::Public
     };
     validate_import_usages(variant, key_type, usages)?;
-    // kty must be "RSA".
+    // kty must be "RSA" (§20.8.4 / §21.4.4 / §22.4.4).
     if jwk.kty.as_deref() != Some("RSA") {
-        return Err(data(
-            "JWK 'kty' member must be 'RSA' for RSASSA-PKCS1-v1_5 / RSA-PSS",
-        ));
+        return Err(data("JWK 'kty' member must be 'RSA' for an RSA key"));
     }
-    // use, if present (and usages non-empty): "sig" (a signing key).
+    // use, if present (and usages non-empty), must match the family (§20.8.4
+    // step 4 / §21.4.4 step 4 → "sig"; §22.4.4 step 5 RSA-OAEP → "enc").
     if !usages.is_empty() {
         if let Some(use_) = jwk.use_.as_deref() {
-            if use_ != "sig" {
-                return Err(data(
-                    "JWK 'use' member must be 'sig' for an RSA signing key",
-                ));
+            if use_ != variant.jwk_use() {
+                return Err(data_owned(format!(
+                    "JWK 'use' member must be '{}' for an {} key",
+                    variant.jwk_use(),
+                    variant.canonical_name()
+                )));
             }
         }
     }
@@ -369,9 +412,10 @@ fn validate_jwk_crt(jwk: &JsonWebKey, privkey: &RsaPrivateKey) -> Result<(), Alg
 // generateKey (WebCrypto §20.8.3 / §21.4.3)
 // ---------------------------------------------------------------------------
 
-/// `generateKey` for an RSA signing algorithm (WebCrypto §20.8.3
-/// RSASSA-PKCS1-v1_5 / §21.4.3 RSA-PSS) — returns the `(publicKey, privateKey)`
-/// pair (the §14.3.6 `CryptoKeyPair`).  `fill_random` is the VM entropy seam,
+/// `generateKey` for an RSA algorithm (WebCrypto §20.8.3 RSASSA-PKCS1-v1_5 /
+/// §21.4.3 RSA-PSS / §22.4.3 RSA-OAEP — `variant` selects the family, all three
+/// share this `RsaHashedKeyGenParams` keygen) — returns the `(publicKey,
+/// privateKey)` pair (the §17 `CryptoKeyPair`).  `fill_random` is the VM entropy seam,
 /// fed through [`ClosureRng`] into `RsaPrivateKey::new_with_exp`'s vetted prime
 /// generation.  `public_exponent` is the `RsaKeyGenParams.publicExponent`
 /// big-endian `BigInteger`; WebCrypto does not constrain its value, so an even
@@ -400,6 +444,16 @@ where
     // key approaches `MAX_RSA_MODULUS_BITS`, so this rejects only abuse.
     if modulus_length > MAX_RSA_MODULUS_BITS {
         return Err(operation("RSA modulusLength exceeds the supported maximum"));
+    }
+    // RSA-OAEP runs on aws-lc-rs, whose OAEP keys are 2048..=8192 bits
+    // ([`MIN_RSA_OAEP_MODULUS_BITS`]); a smaller modulus would generate here yet
+    // be unusable for encrypt/decrypt — reject before keygen so an accepted
+    // RSA-OAEP key is always usable.  (Checked on the requested length, which
+    // `new_with_exp` reproduces exactly; the signing variants keep no floor.)
+    if rsa_oaep_modulus_below_minimum(variant, modulus_length) {
+        return Err(operation(
+            "RSA-OAEP modulusLength is below the supported minimum (2048 bits)",
+        ));
     }
     // §20.8.3 step 2-3: generate the RSA key pair (failure → OperationError).
     let exp = BigUint::from_bytes_be(public_exponent);
@@ -434,7 +488,7 @@ where
         key_type: KeyType::Public,
         extractable: true,
         algorithm: key_alg.clone(),
-        usages: split_usages(KeyType::Public, usages),
+        usages: split_usages(variant, KeyType::Public, usages),
         material: KeyMaterial::Rsa {
             public_spki_der: public_spki_der.clone(),
             private_pkcs8_der: None,
@@ -442,7 +496,7 @@ where
     };
     // §20.8.3 steps 14-18: the private key — [[extractable]] = the requested
     // value (step 17), usages = ∩(usages, {sign}) (step 18).
-    let private_usages = split_usages(KeyType::Private, usages);
+    let private_usages = split_usages(variant, KeyType::Private, usages);
     // §14.3.6 generateKey generic step: a CryptoKeyPair whose privateKey has
     // empty usages is a SyntaxError.
     if private_usages.is_empty() {
@@ -461,191 +515,62 @@ where
     Ok((public, private))
 }
 
-/// The §20.8.3 / §21.4.3 step-1 usage check: every requested usage must be
-/// `sign` or `verify` (valid for one half of the produced pair).
+/// Whether `usage` is permitted for an RSA key of `variant` + `key_type`: the
+/// §20.8.3/.4 + §21.4.3/.4 sign-family split (public → `verify`, private →
+/// `sign`) for RSASSA-PKCS1-v1_5 / RSA-PSS, or the §22.4.3/.4 OAEP split
+/// (public → `encrypt` / `wrapKey`, private → `decrypt` / `unwrapKey`) for
+/// RSA-OAEP.  One predicate so the generate / import / pair-split usage checks
+/// can't drift by variant.
+fn rsa_usage_permitted(variant: RsaVariant, usage: KeyUsage, key_type: KeyType) -> bool {
+    match variant {
+        RsaVariant::RsassaPkcs1V15 | RsaVariant::RsaPss => usage.is_rsa_sign_usage(key_type),
+        RsaVariant::RsaOaep => usage.is_rsa_oaep_usage(key_type),
+    }
+}
+
+/// The allowed-usages clause for an RSA `variant`'s generate-time SyntaxError
+/// message (the union of the public + private halves' usages).
+fn rsa_allowed_usages(variant: RsaVariant) -> &'static str {
+    match variant {
+        RsaVariant::RsassaPkcs1V15 | RsaVariant::RsaPss => "the 'sign' and 'verify' usages",
+        RsaVariant::RsaOaep => "the 'encrypt', 'decrypt', 'wrapKey' and 'unwrapKey' usages",
+    }
+}
+
+/// The §20.8.3 / §21.4.3 / §22.4.3 step-1 usage check: every requested usage
+/// must be valid for one half of the produced pair (the variant's usage split).
 fn validate_generate_usages(
     variant: RsaVariant,
     usages: &[KeyUsage],
 ) -> Result<(), AlgorithmError> {
-    let permitted =
-        |u: KeyUsage| u.is_rsa_sign_usage(KeyType::Public) || u.is_rsa_sign_usage(KeyType::Private);
+    let permitted = |u: KeyUsage| {
+        rsa_usage_permitted(variant, u, KeyType::Public)
+            || rsa_usage_permitted(variant, u, KeyType::Private)
+    };
     if usages.iter().copied().all(permitted) {
         Ok(())
     } else {
         Err(AlgorithmError::Syntax(format!(
-            "{} keys support only the 'sign' and 'verify' usages",
-            variant.canonical_name()
+            "{} keys support only {}",
+            variant.canonical_name(),
+            rsa_allowed_usages(variant)
         )))
     }
 }
 
 /// The usage intersection for the `key_type` half of a generated key pair
-/// (§20.8.3 steps 13 / 18): keep the requested usages permitted for that key
-/// type (public → {verify}, private → {sign}), deduplicated + canonically
-/// ordered.
-fn split_usages(key_type: KeyType, usages: &[KeyUsage]) -> Vec<KeyUsage> {
+/// (§20.8.3 steps 13 / 18, §22.4.3): keep the requested usages permitted for
+/// that key type + `variant` (sign family public → {verify} / private →
+/// {sign}; OAEP public → {encrypt, wrapKey} / private → {decrypt, unwrapKey}),
+/// deduplicated + canonically ordered.
+fn split_usages(variant: RsaVariant, key_type: KeyType, usages: &[KeyUsage]) -> Vec<KeyUsage> {
     normalize_usages(
         usages
             .iter()
             .copied()
-            .filter(|&u| u.is_rsa_sign_usage(key_type))
+            .filter(|&u| rsa_usage_permitted(variant, u, key_type))
             .collect(),
     )
-}
-
-// ---------------------------------------------------------------------------
-// sign / verify (WebCrypto §20.8.1/.2 RSASSA-PKCS1-v1_5 / §21.4.1/.2 RSA-PSS)
-// ---------------------------------------------------------------------------
-
-/// RSA `sign` (WebCrypto §20.8.1 RSASSA-PKCS1-v1_5 / §21.4.1 RSA-PSS): digest
-/// `message` with the key's `hash` (carried on `[[algorithm]]`, §20.6), then
-/// apply the family padding — RSASSA-PKCS1-v1_5 (RFC 3447 §8.2) applies the
-/// EMSA-PKCS1-v1_5 encoding (§9.2, deterministic); RSA-PSS (§8.1) applies
-/// EMSA-PSS + MGF1 over a random `salt_length`-byte salt (§9.1).  The §14.3.3
-/// name / `sign`-usage gate ran in
-/// [`crate::ops::sign`]; this enforces step 1 ([[type]] must be private — via
-/// the stored PKCS#8 DER).  `fill_random` is the VM entropy seam — both
-/// families consume it: RSA-PSS for the salt, and RSASSA-PKCS1-v1_5 to
-/// **blind** the private-key exponentiation (`sign_with_rng` masks the
-/// modular exponentiation against timing sidechannels — important since
-/// WebCrypto exposes signing to untrusted script; the signature output stays
-/// deterministic).  An entropy failure surfaces as an OperationError (the
-/// private-key op is never run unblinded).
-pub(crate) fn sign<F>(
-    variant: RsaVariant,
-    hash: HashAlgorithm,
-    key: &CryptoKeyData,
-    message: &[u8],
-    salt_length: Option<u32>,
-    mut fill_random: F,
-) -> Result<Vec<u8>, AlgorithmError>
-where
-    F: FnMut(&mut [u8]) -> Result<(), AlgorithmError>,
-{
-    // §20.8.1 / §21.4.1 step 1: the key must be private (reconstruct from the
-    // stored PKCS#8 DER, InvalidAccessError if public).
-    let privkey = reconstruct_private(key)?;
-    // Fail BEFORE the private-key exponentiation if the entropy seam is down.
-    // `sign_with_rng` blinds (and, for PSS, salts) via `ClosureRng`, whose
-    // infallible `fill_bytes` falls back to a *deterministic* stream on a
-    // `fill_random` error so the rsa op can still complete — acceptable for
-    // keygen (the candidate key is discarded), but for *signing* an existing
-    // key it would run the exponentiation with predictable blinding, exactly
-    // the timing-observable private-key work the Marvin (RUSTSEC-2023-0071)
-    // mitigation must avoid.  Probe the seam first so a down CSPRNG rejects the
-    // sign before any private-key work runs.  (A CSPRNG seam is live or down
-    // for the whole call; the per-arm `into_result()` below is the backstop for
-    // the non-realistic case where the probe succeeds but a later draw fails —
-    // the op then runs on the fallback but its signature is still rejected.)
-    let mut entropy_probe = [0u8; ENTROPY_PROBE_LEN];
-    fill_random(&mut entropy_probe)?;
-    let digest = hash.digest(message);
-    match variant {
-        RsaVariant::RsassaPkcs1V15 => {
-            // `sign_with_rng` (not `sign`) so the rsa crate blinds the
-            // private-key operation with the entropy seam — `sign` uses a
-            // DummyRng (no blinding).  The EMSA-PKCS1-v1_5 signature output is
-            // still deterministic; only the exponentiation timing is masked.
-            let mut rng = ClosureRng::new(&mut fill_random);
-            let result = privkey.sign_with_rng(&mut rng, pkcs1v15_scheme(hash), &digest);
-            // Backstop for a draw that fails after the pre-op probe: reject the
-            // (fallback-blinded) signature rather than return it.
-            rng.into_result()?;
-            result.map_err(|_| operation("RSASSA-PKCS1-v1_5 signing failed"))
-        }
-        RsaVariant::RsaPss => {
-            let salt_len = pss_salt_len(salt_length)?;
-            // DoS ceiling (a cheap over-approximation, NOT the exact §9.1.1
-            // validity bound): the rsa crate allocates + random-fills a
-            // `vec![0; saltLength]` and only *then* checks the EMSA-PSS encoding
-            // bound, so an attacker-supplied `saltLength = 2^32 − 1` would OOM the
-            // thread first.  RFC 3447 §9.1.1 requires emLen ≥ hLen + saltLength +
-            // 2, so any saltLength past the modulus byte size is certainly invalid
-            // — reject those up front here; the rsa crate still rejects the narrow,
-            // alloc-bounded window just below the ceiling as an OperationError.
-            let modulus_bytes = privkey.n().bits().div_ceil(8);
-            if salt_len > modulus_bytes {
-                return Err(operation("RSA-PSS saltLength exceeds the modulus size"));
-            }
-            let mut rng = ClosureRng::new(&mut fill_random);
-            let result = privkey.sign_with_rng(&mut rng, pss_scheme(hash, salt_len), &digest);
-            // A `fill_random` error wins over the (otherwise opaque) PSS error.
-            rng.into_result()?;
-            result.map_err(|_| operation("RSA-PSS signing failed"))
-        }
-    }
-}
-
-/// RSA `verify` (WebCrypto §20.8.2 RSASSA-PKCS1-v1_5 / §21.4.2 RSA-PSS): digest
-/// `message`, then verify `signature` against the public key.  The §14.3.4 name
-/// / `verify`-usage gate ran in [`crate::ops::verify`]; this enforces step 1
-/// ([[type]] must be public) and returns **false** (not an error) on an invalid
-/// signature.  For RSA-PSS the `salt_length` is enforced (RFC 3447 §9.1.2 — a
-/// signature whose recovered salt length differs is invalid → false).
-pub(crate) fn verify(
-    variant: RsaVariant,
-    hash: HashAlgorithm,
-    key: &CryptoKeyData,
-    signature: &[u8],
-    message: &[u8],
-    salt_length: Option<u32>,
-) -> Result<bool, AlgorithmError> {
-    // §20.8.2 / §21.4.2 step 1: the key must be public.
-    require_public(key)?;
-    let pubkey = reconstruct_public(key)?;
-    let digest = hash.digest(message);
-    let ok = match variant {
-        RsaVariant::RsassaPkcs1V15 => pubkey
-            .verify(pkcs1v15_scheme(hash), &digest, signature)
-            .is_ok(),
-        RsaVariant::RsaPss => {
-            let salt_len = pss_salt_len(salt_length)?;
-            pubkey
-                .verify(pss_scheme(hash, salt_len), &digest, signature)
-                .is_ok()
-        }
-    };
-    Ok(ok)
-}
-
-/// The `Pkcs1v15Sign` scheme for `hash` — `Pkcs1v15Sign::new::<D>()` derives
-/// the RFC 3447 §9.2 DigestInfo prefix from the digest's OID (the `rsa::sha*`
-/// 0.10 marker type), while the digest itself is the prehashed bytes from
-/// hash.rs (sha2 0.11).
-fn pkcs1v15_scheme(hash: HashAlgorithm) -> Pkcs1v15Sign {
-    match hash {
-        HashAlgorithm::Sha1 => Pkcs1v15Sign::new::<Sha1>(),
-        HashAlgorithm::Sha256 => Pkcs1v15Sign::new::<Sha256>(),
-        HashAlgorithm::Sha384 => Pkcs1v15Sign::new::<Sha384>(),
-        HashAlgorithm::Sha512 => Pkcs1v15Sign::new::<Sha512>(),
-    }
-}
-
-/// The `Pss` scheme for `hash` + `salt_len` — `Pss::new_blinded_with_salt::<D>`
-/// sets the MGF1 hash + the enforced salt length (the EMSA-PSS encoding,
-/// RFC 3447 §9.1).  The **`_blinded_`** constructor is load-bearing for signing:
-/// in rsa 0.9 `Pss::sign` only blinds the private-key exponentiation when its
-/// `blinded` flag is set (`sign(blind.then_some(rng), …)`), and `new_with_salt`
-/// leaves it `false` — so a plain `Pss` would draw the RNG for the salt yet run
-/// the exponentiation *unblinded*, leaving RSA-PSS `sign()` timing-observable
-/// (the Marvin / RUSTSEC-2023-0071 surface the `deny.toml` rationale relies on
-/// being mitigated; RSASSA's `Pkcs1v15Sign` blinds unconditionally under
-/// `sign_with_rng`).  On the `verify` path the flag is inert (a public-key
-/// operation has no private exponent to blind).
-fn pss_scheme(hash: HashAlgorithm, salt_len: usize) -> Pss {
-    match hash {
-        HashAlgorithm::Sha1 => Pss::new_blinded_with_salt::<Sha1>(salt_len),
-        HashAlgorithm::Sha256 => Pss::new_blinded_with_salt::<Sha256>(salt_len),
-        HashAlgorithm::Sha384 => Pss::new_blinded_with_salt::<Sha384>(salt_len),
-        HashAlgorithm::Sha512 => Pss::new_blinded_with_salt::<Sha512>(salt_len),
-    }
-}
-
-/// The RSA-PSS `saltLength` as a `usize` — required (the registry guarantees
-/// `RsaPssParams.saltLength` is present for a PSS sign / verify, §21.3), so its
-/// absence is a defensive OperationError.
-fn pss_salt_len(salt_length: Option<u32>) -> Result<usize, AlgorithmError> {
-    Ok(salt_length.ok_or_else(|| operation("RSA-PSS requires a saltLength"))? as usize)
 }
 
 // ---------------------------------------------------------------------------
@@ -759,7 +684,10 @@ fn validate_import_usages(
     key_type: KeyType,
     usages: &[KeyUsage],
 ) -> Result<(), AlgorithmError> {
-    if usages.iter().all(|&u| u.is_rsa_sign_usage(key_type)) {
+    if usages
+        .iter()
+        .all(|&u| rsa_usage_permitted(variant, u, key_type))
+    {
         Ok(())
     } else {
         Err(AlgorithmError::Syntax(usage_message(variant, key_type)))
@@ -767,9 +695,15 @@ fn validate_import_usages(
 }
 
 fn usage_message(variant: RsaVariant, key_type: KeyType) -> String {
-    let kind = match key_type {
-        KeyType::Public => "public keys support only the 'verify' usage",
-        KeyType::Private | KeyType::Secret => "private keys support only the 'sign' usage",
+    let kind = match (variant, key_type) {
+        (RsaVariant::RsaOaep, KeyType::Public) => {
+            "public keys support only the 'encrypt' and 'wrapKey' usages"
+        }
+        (RsaVariant::RsaOaep, _) => {
+            "private keys support only the 'decrypt' and 'unwrapKey' usages"
+        }
+        (_, KeyType::Public) => "public keys support only the 'verify' usage",
+        (_, _) => "private keys support only the 'sign' usage",
     };
     format!("{} {}", variant.canonical_name(), kind)
 }

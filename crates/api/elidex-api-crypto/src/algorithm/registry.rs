@@ -83,6 +83,15 @@ pub(super) enum DesiredType {
     /// RSA-PSS `sign` / `verify` (`RsaPssParams`, §21.3): a `saltLength`
     /// (required `[EnforceRange] unsigned long`).
     RsaPssParams,
+    /// RSA-OAEP `encrypt` / `decrypt` (`RsaOaepParams`, §22.3): an optional
+    /// `label` (`BufferSource`).  §22.2 registers RSA-OAEP for `encrypt` /
+    /// `decrypt` only — NOT `wrapKey` / `unwrapKey`, which carry no own op.
+    /// A `wrapKey` / `unwrapKey` call therefore fails the §14.3.11 step-2 /
+    /// §14.3.12 step-2 "normalize for wrapKey/unwrapKey" (NotSupported, before
+    /// any `label` read) and falls back to normalizing for `encrypt` / `decrypt`
+    /// (step 3), which resolves here — so the OAEP `label` is read exactly once,
+    /// on the fallback, never twice.
+    RsaOaepParams,
 }
 
 /// Which KDF a [`DesiredType::KdfNameOnly`] resolves to.
@@ -179,6 +188,27 @@ pub(super) fn resolve_registry(op: Operation, name: &str) -> Option<DesiredType>
         (Operation::Sign | Operation::Verify, AlgorithmName::RsaPss) => {
             Some(DesiredType::RsaPssParams)
         }
+        // RSA-OAEP (WebCrypto §22).  generateKey + importKey reuse the RsaHashed
+        // key params (RsaHashedKeyGenParams §20.4 / RsaHashedImportParams §20.7,
+        // reused by §22); encrypt / decrypt take the optional RsaOaepParams.label
+        // (§22.3).  §22.2 registers ONLY these — NOT wrapKey / unwrapKey (and no
+        // get-key-length / sign / verify): a `(WrapKey | UnwrapKey, RSA-OAEP)`
+        // pair is therefore unregistered here (`None` = NotSupported), so the VM's
+        // §14.3.11 step-2 / §14.3.12 step-2 "normalize for wrapKey/unwrapKey" fails
+        // (before reading `label`) and falls back to normalizing for encrypt /
+        // decrypt (step 3) — which DOES resolve, reading `label` exactly once.
+        // These arms precede the AES catch-alls (and the `(ImportKey, _)` /
+        // `(Encrypt | Decrypt, _)` catch-alls) so an RSA-OAEP name never resolves
+        // to an AES desiredType.
+        (Operation::GenerateKey, AlgorithmName::RsaOaep) => {
+            Some(DesiredType::RsaKeyGen(RsaVariant::RsaOaep))
+        }
+        (Operation::ImportKey, AlgorithmName::RsaOaep) => {
+            Some(DesiredType::RsaImport(RsaVariant::RsaOaep))
+        }
+        (Operation::Encrypt | Operation::Decrypt, AlgorithmName::RsaOaep) => {
+            Some(DesiredType::RsaOaepParams)
+        }
         // AES generateKey / get-key-length both read a `length`-only dict
         // (`AesKeyGenParams` / `AesDerivedKeyParams`); `as_aes()` filters the
         // non-AES names (HMAC handled above, KDF handled above, SHA → None)
@@ -247,6 +277,11 @@ pub enum AlgorithmParams {
     /// RSA-PSS sign / verify (`RsaPssParams` §21.3): `saltLength` (required
     /// `[EnforceRange] unsigned long`).
     RsaPssParams,
+    /// RSA-OAEP encrypt / decrypt (`RsaOaepParams` §22.3): `label` (optional
+    /// `BufferSource`).  §22.2 registers RSA-OAEP for encrypt / decrypt only;
+    /// wrapKey / unwrapKey reach this shape via the §14.3.11 / §14.3.12 encrypt /
+    /// decrypt fallback, not a direct registration.
+    RsaOaepParams,
 }
 
 /// §18.4.4 step 5 + step-6 member plan: for a registered `(op, name)` pair
@@ -289,6 +324,7 @@ pub fn params_shape(op: Operation, name: &str) -> Option<AlgorithmParams> {
         DesiredType::RsaKeyGen(_) => AlgorithmParams::RsaHashedKeyGen,
         DesiredType::RsaImport(_) => AlgorithmParams::RsaHashedImport,
         DesiredType::RsaPssParams => AlgorithmParams::RsaPssParams,
+        DesiredType::RsaOaepParams => AlgorithmParams::RsaOaepParams,
     })
 }
 
