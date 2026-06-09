@@ -53,6 +53,28 @@ pub(crate) use oaep::{oaep_decrypt, oaep_encrypt};
 /// `tests::rsa::modulus_ceiling_matches_rsa_crate_max_size`.
 pub(crate) const MAX_RSA_MODULUS_BITS: u32 = 4096;
 
+/// Lower bound on an **RSA-OAEP** modulus (bits).  Unlike the signing variants
+/// (RSASSA-PKCS1-v1_5 / RSA-PSS, which run on the pure-Rust `rsa` crate at any
+/// size), RSA-OAEP `encrypt` / `decrypt` run on the constant-time aws-lc-rs
+/// backend ([`oaep`]), whose OAEP keys are restricted to `2048..=8192` bits
+/// (`OaepPublicEncryptingKey::new` / `OaepPrivateDecryptingKey::new`,
+/// aws-lc-rs 1.17 `rsa/encryption.rs`).  A smaller modulus would `generateKey`
+/// / `importKey` successfully on the `rsa` crate yet be **unusable** for every
+/// OAEP op (the aws-lc-rs key construction returns `Err` → OperationError), so
+/// an accepted RSA-OAEP key would not be usable.  Reject it at the gate instead
+/// (generate + import), so a successfully-imported RSA-OAEP key is always
+/// usable.  WebCrypto §22 sets no minimum (the floor is a backend capability),
+/// so this is NotSupported / OperationError, not a spec requirement.  The floor
+/// is OAEP-specific — the signing families keep no minimum.
+pub(crate) const MIN_RSA_OAEP_MODULUS_BITS: u32 = 2048;
+
+/// Whether an RSA modulus of `bits` is below the OAEP backend's minimum for
+/// `variant`.  Only RSA-OAEP (the aws-lc-rs encrypt/decrypt backend) has a
+/// floor; the signing variants accept any size the `rsa` crate produces.
+fn rsa_oaep_modulus_below_minimum(variant: RsaVariant, bits: u32) -> bool {
+    variant == RsaVariant::RsaOaep && bits < MIN_RSA_OAEP_MODULUS_BITS
+}
+
 /// Liveness probe drawn from the entropy seam **before** an RSA private-key
 /// *signing* exponentiation (see [`sign`]).  A CSPRNG seam is live or down for
 /// the whole call, so one byte suffices to detect a down seam and fail before
@@ -105,6 +127,16 @@ pub(crate) fn import(
         // (spki/pkcs8 → Raw, jwk → Jwk), so this is a defensive guard.
         _ => return Err(format_data_mismatch()),
     };
+    // An RSA-OAEP key below the aws-lc-rs OAEP backend's minimum modulus parses
+    // here but is unusable for encrypt/decrypt (see [`MIN_RSA_OAEP_MODULUS_BITS`])
+    // — reject it as an unsupported capability, uniformly across spki/pkcs8/jwk
+    // (every branch produces `imported.modulus_length`), so an imported RSA-OAEP
+    // key is always usable.  The signing variants keep no floor.
+    if rsa_oaep_modulus_below_minimum(variant, imported.modulus_length) {
+        return Err(AlgorithmError::NotSupported(
+            "RSA-OAEP modulus length is below the supported minimum (2048 bits)".to_string(),
+        ));
+    }
     // §14.3.9 importKey generic step: a private key with empty usages is a
     // SyntaxError — but an RSA *public* key may have empty usages.  Checked
     // after the algorithm-specific parse, so a DataError from invalid material
@@ -376,9 +408,10 @@ fn validate_jwk_crt(jwk: &JsonWebKey, privkey: &RsaPrivateKey) -> Result<(), Alg
 // generateKey (WebCrypto §20.8.3 / §21.4.3)
 // ---------------------------------------------------------------------------
 
-/// `generateKey` for an RSA signing algorithm (WebCrypto §20.8.3
-/// RSASSA-PKCS1-v1_5 / §21.4.3 RSA-PSS) — returns the `(publicKey, privateKey)`
-/// pair (the §14.3.6 `CryptoKeyPair`).  `fill_random` is the VM entropy seam,
+/// `generateKey` for an RSA algorithm (WebCrypto §20.8.3 RSASSA-PKCS1-v1_5 /
+/// §21.4.3 RSA-PSS / §22.4.3 RSA-OAEP — `variant` selects the family, all three
+/// share this `RsaHashedKeyGenParams` keygen) — returns the `(publicKey,
+/// privateKey)` pair (the §14.3.6 `CryptoKeyPair`).  `fill_random` is the VM entropy seam,
 /// fed through [`ClosureRng`] into `RsaPrivateKey::new_with_exp`'s vetted prime
 /// generation.  `public_exponent` is the `RsaKeyGenParams.publicExponent`
 /// big-endian `BigInteger`; WebCrypto does not constrain its value, so an even
@@ -407,6 +440,16 @@ where
     // key approaches `MAX_RSA_MODULUS_BITS`, so this rejects only abuse.
     if modulus_length > MAX_RSA_MODULUS_BITS {
         return Err(operation("RSA modulusLength exceeds the supported maximum"));
+    }
+    // RSA-OAEP runs on aws-lc-rs, whose OAEP keys are 2048..=8192 bits
+    // ([`MIN_RSA_OAEP_MODULUS_BITS`]); a smaller modulus would generate here yet
+    // be unusable for encrypt/decrypt — reject before keygen so an accepted
+    // RSA-OAEP key is always usable.  (Checked on the requested length, which
+    // `new_with_exp` reproduces exactly; the signing variants keep no floor.)
+    if rsa_oaep_modulus_below_minimum(variant, modulus_length) {
+        return Err(operation(
+            "RSA-OAEP modulusLength is below the supported minimum (2048 bits)",
+        ));
     }
     // §20.8.3 step 2-3: generate the RSA key pair (failure → OperationError).
     let exp = BigUint::from_bytes_be(public_exponent);

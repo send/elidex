@@ -10,12 +10,15 @@ use super::*;
 use crate::key::{KeyAlgorithm, KeyType};
 use crate::ops::{decrypt, encrypt, export_key, unwrap_key, wrap_key};
 
-/// The normalized RSA-OAEP encrypt / decrypt / wrapKey / unwrapKey algorithm
-/// (§22.3 `RsaOaepParams`) with the optional `label`.
+/// The normalized RSA-OAEP encrypt / decrypt algorithm (§22.3 `RsaOaepParams`)
+/// with the optional `label`.  RSA-OAEP registers only encrypt / decrypt
+/// (§22.2), so `op` must be one of those — a `wrapKey` / `unwrapKey` call
+/// resolves to this same `RsaOaep` form via the VM's §14.3.11 / §14.3.12
+/// encrypt / decrypt fallback (what `ops::wrap_key` / `unwrap_key` receive).
 fn oaep_alg(op: Operation, label: Option<&[u8]>) -> NormalizedAlgorithm {
     let mut raw = RawAlgorithm::from_name("RSA-OAEP");
     raw.label = label.map(<[u8]>::to_vec);
-    normalize(op, raw).expect("RSA-OAEP normalizes")
+    normalize(op, raw).expect("RSA-OAEP encrypt/decrypt normalizes")
 }
 
 /// An extractable AES-GCM key (the wrap / unwrap payload).
@@ -213,16 +216,26 @@ fn normalize_oaep_label_present_absent_and_wrap_paths() {
             label: Some(vec![0xAA, 0xBB, 0xCC])
         }
     );
-    // wrapKey / unwrapKey resolve to the same RsaOaep params (the generic
-    // §14.3.11 / §14.3.12 encrypt / decrypt fallback target).
-    for op in [Operation::WrapKey, Operation::UnwrapKey] {
-        let alg = normalize(op, RawAlgorithm::from_name("rsa-oaep"))
-            .expect("RSA-OAEP wrap/unwrap normalizes (case-insensitive)");
-        assert_eq!(alg, NormalizedAlgorithm::RsaOaep { label: None });
+    // §22.2: RSA-OAEP registers encrypt / decrypt ONLY — NOT wrapKey / unwrapKey
+    // (nor sign / verify / get-key-length).  Normalizing for any of those fails
+    // (NotSupported, *before* reading `label`); a wrapKey / unwrapKey call reaches
+    // the OAEP params only via the VM's §14.3.11 step-3 / §14.3.12 step-3 encrypt /
+    // decrypt fallback (the second normalize), never this primary one — which is
+    // what keeps a side-effecting `label` getter from being read twice.
+    for op in [
+        Operation::WrapKey,
+        Operation::UnwrapKey,
+        Operation::Sign,
+        Operation::GetKeyLength,
+    ] {
+        assert!(
+            matches!(
+                normalize(op, RawAlgorithm::from_name("RSA-OAEP")),
+                Err(AlgorithmError::NotSupported(_))
+            ),
+            "RSA-OAEP must not register {op:?} (§22.2)",
+        );
     }
-    // §22.2: RSA-OAEP registers no sign / verify / get-key-length.
-    assert!(normalize(Operation::Sign, RawAlgorithm::from_name("RSA-OAEP")).is_err());
-    assert!(normalize(Operation::GetKeyLength, RawAlgorithm::from_name("RSA-OAEP")).is_err());
 }
 
 #[test]
@@ -453,19 +466,136 @@ fn oaep_wrap_unwrap_aes_key_round_trip() {
     );
     let aes_raw = vec![0x24u8; 16];
     let aes_key = aes_gcm_key(&aes_raw);
+    // `ops::wrap_key` / `unwrap_key` receive the encrypt / decrypt-normalized
+    // `RsaOaep` form (the §14.3.11 / §14.3.12 fallback the VM resolves a
+    // wrapKey / unwrapKey call to — RSA-OAEP registers no own wrap op, §22.2).
     let wrapped = wrap_key(
-        oaep_alg(Operation::WrapKey, None),
+        oaep_alg(Operation::Encrypt, None),
         &public,
         &aes_key,
         KeyFormat::Raw,
     )
     .expect("RSA-OAEP wrapKey");
     assert_eq!(wrapped.len(), 256);
-    let unwrapped = unwrap_key(oaep_alg(Operation::UnwrapKey, None), &private, &wrapped)
+    let unwrapped = unwrap_key(oaep_alg(Operation::Decrypt, None), &private, &wrapped)
         .expect("RSA-OAEP unwrapKey");
     // The §14.3.12 op returns the decrypted key bytes (the raw AES material the
     // VM then imports); for the `raw` format that is the AES key verbatim.
     assert_eq!(unwrapped, aes_raw);
+}
+
+#[test]
+fn oaep_wrap_unwrap_jwk_format_round_trip() {
+    // The `jwk`-format wrap path (distinct from the `raw` round-trip above):
+    // RSA-OAEP wraps the JWK *serialization* and unwrap recovers it.  The
+    // serialization is unpadded (the AES-KW 8-byte padding does NOT apply to the
+    // RSA-OAEP encrypt fallback — Codex #322 R1), so a JWK that fits the OAEP
+    // length limit wraps cleanly.
+    let (public, private) = generate_pair(
+        RsaVariant::RsaOaep,
+        HashAlgorithm::Sha256,
+        vec![KeyUsage::WrapKey, KeyUsage::UnwrapKey],
+    );
+    let aes_raw = vec![0x71u8; 16];
+    let aes_key = aes_gcm_key(&aes_raw);
+    let wrapped = wrap_key(
+        oaep_alg(Operation::Encrypt, None),
+        &public,
+        &aes_key,
+        KeyFormat::Jwk,
+    )
+    .expect("RSA-OAEP wrapKey (jwk)");
+    let json = unwrap_key(oaep_alg(Operation::Decrypt, None), &private, &wrapped)
+        .expect("RSA-OAEP unwrapKey (jwk)");
+    // The unwrapped bytes are the JWK JSON the VM parses + imports.
+    let jwk = crate::jwk::from_json_bytes(&json).expect("unwrapped bytes are a valid JWK");
+    assert_eq!(jwk.kty.as_deref(), Some("oct"));
+}
+
+#[test]
+fn oaep_wrap_does_not_aes_kw_pad_a_jwk_over_the_oaep_limit() {
+    // §14.3.11 step-14 Note: the AES-KW 8-byte padding must NOT apply to an
+    // RSA-OAEP wrap.  Demonstrate the failure mode the old unconditional padding
+    // caused: a payload at the exact OAEP limit encrypts, but once padded to the
+    // next 8-byte block it exceeds the limit.  (2048-bit / SHA-512 → limit =
+    // 256 − 2·64 − 2 = 126 bytes; `pad_to_aes_kw_block` rounds 126 → 128.)
+    let (public, _private) = generate_pair(
+        RsaVariant::RsaOaep,
+        HashAlgorithm::Sha512,
+        vec![KeyUsage::Encrypt, KeyUsage::Decrypt],
+    );
+    let at_limit = vec![0x5Au8; 126];
+    encrypt(oaep_alg(Operation::Encrypt, None), &public, &at_limit)
+        .expect("a 126-byte payload fits the OAEP limit unpadded");
+    let padded = crate::jwk::pad_to_aes_kw_block(at_limit);
+    assert_eq!(padded.len(), 128);
+    encrypt(oaep_alg(Operation::Encrypt, None), &public, &padded)
+        .expect_err("the AES-KW-padded 128-byte payload exceeds the OAEP limit");
+}
+
+#[test]
+fn oaep_generate_below_minimum_modulus_is_operation_error() {
+    // RSA-OAEP runs on aws-lc-rs (OAEP keys 2048..=8192 bits); a sub-2048 key
+    // would generate on the `rsa` crate yet be unusable for encrypt/decrypt, so
+    // generateKey rejects it up front (OperationError) rather than minting an
+    // unusable key.  The floor is OAEP-specific (the check precedes keygen).
+    let err = generate_key(
+        keygen_alg(RsaVariant::RsaOaep, 1024, HashAlgorithm::Sha256),
+        true,
+        vec![KeyUsage::Encrypt, KeyUsage::Decrypt],
+        seeded_fill(0x17),
+    )
+    .expect_err("a sub-2048 RSA-OAEP modulus is rejected at generate");
+    assert!(matches!(err, AlgorithmError::Operation(_)), "got {err:?}");
+}
+
+#[test]
+fn oaep_import_below_minimum_modulus_is_not_supported() {
+    // A 1024-bit key generated as a *signing* key (where the pure-Rust `rsa`
+    // backend imposes no floor) imports fine as RSASSA but NOT as RSA-OAEP: the
+    // aws-lc-rs OAEP backend can't use a sub-2048 modulus, so importKey rejects
+    // it as an unsupported capability (NotSupported) instead of accepting an
+    // unusable key.  Pinned across pkcs8 (private) + spki (public).  The
+    // successful 1024-bit RSASSA keygen also pins the floor is OAEP-specific.
+    let (public_1024, private_1024) = match generate_key(
+        keygen_alg(RsaVariant::RsassaPkcs1V15, 1024, HashAlgorithm::Sha256),
+        true,
+        vec![KeyUsage::Sign, KeyUsage::Verify],
+        seeded_fill(0x29),
+    )
+    .expect("a 1024-bit RSASSA key has no floor")
+    {
+        GeneratedKey::Pair { public, private } => (public, private),
+        GeneratedKey::Single(_) => panic!("RSA generateKey yields a key pair"),
+    };
+
+    let pkcs8 = expect_raw(export_key(KeyFormat::Pkcs8, &private_1024).expect("PKCS#8 export"));
+    let err = import_key(
+        KeyFormat::Pkcs8,
+        import_alg(RsaVariant::RsaOaep, HashAlgorithm::Sha256),
+        true,
+        vec![KeyUsage::Decrypt],
+        KeyData::Raw(pkcs8),
+    )
+    .expect_err("a sub-2048 RSA-OAEP private import is rejected");
+    assert!(
+        matches!(err, AlgorithmError::NotSupported(_)),
+        "pkcs8 {err:?}"
+    );
+
+    let spki = expect_raw(export_key(KeyFormat::Spki, &public_1024).expect("SPKI export"));
+    let err = import_key(
+        KeyFormat::Spki,
+        import_alg(RsaVariant::RsaOaep, HashAlgorithm::Sha256),
+        true,
+        vec![KeyUsage::Encrypt],
+        KeyData::Raw(spki),
+    )
+    .expect_err("a sub-2048 RSA-OAEP public import is rejected");
+    assert!(
+        matches!(err, AlgorithmError::NotSupported(_)),
+        "spki {err:?}"
+    );
 }
 
 #[test]

@@ -287,6 +287,56 @@ fn rsa_oaep_wrap_unwrap_aes_key_round_trips() {
 }
 
 #[test]
+fn rsa_oaep_wrap_key_label_getter_fires_once_and_propagates() {
+    // §22.2 + §14.3.11 step 2-3: RSA-OAEP registers no wrapKey op, so the primary
+    // "normalize for wrapKey" fails at the registry lookup *before* reading
+    // `RsaOaepParams.label`; only the step-3 encrypt fallback reads it — exactly
+    // once.  A side-effecting `label` getter (throws on the first read) therefore
+    // surfaces its exception (wrapKey rejects) instead of being swallowed by a
+    // double-normalize that re-reads and proceeds (Codex #322 R1 — the old
+    // registry registered RSA-OAEP for wrapKey, so the primary read `label` too).
+    let src = format!(
+        "globalThis.r = 'pending'; globalThis.calls = 0; \
+         Promise.all([ \
+           crypto.subtle.generateKey({RSAOAEP_GEN}, true, ['wrapKey','unwrapKey']), \
+           crypto.subtle.generateKey({{name:'AES-GCM', length:128}}, true, ['encrypt','decrypt']) \
+         ]).then(([rsa, aes]) => {{ \
+             const alg = {{ name:'RSA-OAEP', get label() {{ globalThis.calls++; \
+                 if (globalThis.calls === 1) throw new TypeError('evil'); \
+                 return new Uint8Array([1,2,3]); }} }}; \
+             return crypto.subtle.wrapKey('raw', aes, rsa.publicKey, alg); }}) \
+           .then(() => {{ globalThis.r = 'resolved|calls:' + globalThis.calls; }}, \
+                 e => {{ globalThis.r = e.name + '|calls:' + globalThis.calls; }});"
+    );
+    // Fixed: the getter fires once (fallback only) → its TypeError rejects the
+    // wrap.  The pre-fix double-read would have fired it twice (calls:2) and
+    // resolved (the first throw swallowed).
+    assert_eq!(eval_global_string(&src, "r"), "TypeError|calls:1");
+}
+
+#[test]
+fn rsa_oaep_wrap_unwrap_with_label_round_trips() {
+    // The §14.3.11 / §14.3.12 wrap→encrypt / unwrap→decrypt fallback threads the
+    // `RsaOaepParams.label` through (read once, on the fallback): wrap with a
+    // label + unwrap with the same label recovers the AES key.
+    let src = format!(
+        "globalThis.r = 'pending'; \
+         Promise.all([ \
+           crypto.subtle.generateKey({RSAOAEP_GEN}, true, ['wrapKey','unwrapKey']), \
+           crypto.subtle.generateKey({{name:'AES-GCM', length:128}}, true, ['encrypt','decrypt']) \
+         ]).then(([rsa, aes]) => {{ globalThis.rsa = rsa; \
+             return crypto.subtle.wrapKey('raw', aes, rsa.publicKey, \
+                 {{name:'RSA-OAEP', label:new Uint8Array([5,6,7])}}); }}) \
+           .then(wrapped => crypto.subtle.unwrapKey('raw', wrapped, globalThis.rsa.privateKey, \
+                 {{name:'RSA-OAEP', label:new Uint8Array([5,6,7])}}, {{name:'AES-GCM'}}, true, \
+                 ['encrypt','decrypt'])) \
+           .then(k => {{ globalThis.r = [k.type, k.algorithm.name, k.algorithm.length].join('|'); }}, \
+                 e => {{ globalThis.r = 'ERR:' + e.name; }});"
+    );
+    assert_eq!(eval_global_string(&src, "r"), "secret|AES-GCM|128");
+}
+
+#[test]
 fn rsa_oaep_export_jwk_uses_rsa_oaep_alg() {
     // §22.4.5 jwk export: SHA-256 → alg "RSA-OAEP-256", kty "RSA".
     let src = format!(

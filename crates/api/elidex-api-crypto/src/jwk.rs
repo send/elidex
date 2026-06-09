@@ -124,16 +124,25 @@ pub struct RsaOtherPrimesInfo {
 /// of strings / bools / string sequences is always serializable, so this is
 /// infallible.
 ///
-/// The output is padded to a multiple of 8 bytes with trailing ASCII spaces.
-/// §14.3.11 step 14's Note explicitly allows adapting a flexible key-format
-/// serialization to the wrapping algorithm's size constraints ("JSON.stringify
-/// is not normatively required"); AES-KW requires the wrapped payload be a
-/// multiple of 64 bits (8 bytes), so the padding lets a `jwk` key be
-/// AES-KW-wrapped (as browsers / WPT expect) instead of failing §30.3.1 step 1.
-/// Trailing whitespace is valid JSON ignored by [`from_json_bytes`], so it is
-/// harmless for the AES-GCM/CBC/CTR fallback (any length).
+/// The output is the JSON verbatim — **not** padded.  §14.3.11 step 14's Note
+/// allows adapting a flexible serialization to the *wrapping algorithm's* size
+/// constraints, but that is per-algorithm: AES-KW needs a multiple-of-8 payload
+/// (applied by [`pad_to_aes_kw_block`] in the AES-KW wrap arm), while RSA-OAEP
+/// has an *upper* length limit (`k − 2·hLen − 2`), so padding a `jwk` here would
+/// count against that limit and could spuriously reject a wrappable key.  The
+/// padding therefore lives at the AES-KW call site, not in this serialization.
 pub fn to_json_bytes(jwk: &JsonWebKey) -> Vec<u8> {
-    let mut bytes = serde_json::to_vec(jwk).expect("an oct JsonWebKey is always serializable");
+    serde_json::to_vec(jwk).expect("an oct JsonWebKey is always serializable")
+}
+
+/// Pad a `jwk` wrap payload to a multiple of the AES-KW semiblock (8 bytes / 64
+/// bits) with trailing ASCII spaces — the RFC 3394 / WebCrypto §30.3.1 step-1
+/// length requirement.  Applied **only** for AES-KW wrapping (not the RSA-OAEP /
+/// AES-GCM/CBC/CTR encrypt fallbacks, which take arbitrary-length plaintext):
+/// per §14.3.11 step 14's Note an implementation may adapt the flexible `jwk`
+/// serialization to the wrapping algorithm.  Trailing whitespace is valid JSON
+/// ignored by [`from_json_bytes`], so the unwrap round-trip is unaffected.
+pub fn pad_to_aes_kw_block(mut bytes: Vec<u8>) -> Vec<u8> {
     let rem = bytes.len() % AES_KW_BLOCK;
     if rem != 0 {
         bytes.resize(bytes.len() + (AES_KW_BLOCK - rem), b' ');
@@ -142,7 +151,7 @@ pub fn to_json_bytes(jwk: &JsonWebKey) -> Vec<u8> {
 }
 
 /// The AES-KW semiblock size in bytes (64 bits) — the wrap payload granularity
-/// [`to_json_bytes`] pads to.
+/// [`pad_to_aes_kw_block`] pads to.
 const AES_KW_BLOCK: usize = 8;
 
 /// Parse JSON bytes into a [`JsonWebKey`] for `unwrapKey` (WebCrypto §9 "parse

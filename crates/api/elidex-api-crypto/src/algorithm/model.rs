@@ -221,13 +221,13 @@ pub enum NormalizedAlgorithm {
     RsaPssParams {
         salt_length: u32,
     },
-    /// RSA-OAEP encrypt / decrypt / wrapKey / unwrapKey params (WebCrypto
-    /// §22.3 `RsaOaepParams`): the optional `label` (the OAEP + MGF1 hash
-    /// comes from the key's `[[algorithm]]`, the §20.6 `RsaHashedKeyAlgorithm`
-    /// reused by §22).  Reached from all four
-    /// entry points — `encrypt` / `decrypt` directly, and `wrapKey` /
-    /// `unwrapKey` via the generic §14.3.11 / §14.3.12 encrypt / decrypt
-    /// fallback (RSA-OAEP registers no own wrap op).
+    /// RSA-OAEP encrypt / decrypt params (WebCrypto §22.3 `RsaOaepParams`): the
+    /// optional `label` (the OAEP + MGF1 hash comes from the key's
+    /// `[[algorithm]]`, the §20.6 `RsaHashedKeyAlgorithm` reused by §22).
+    /// §22.2 registers RSA-OAEP for `encrypt` / `decrypt` only, so this is
+    /// reached directly from those two — and from `wrapKey` / `unwrapKey` only
+    /// via the generic §14.3.11 / §14.3.12 encrypt / decrypt fallback (RSA-OAEP
+    /// registers no own wrap op).
     RsaOaep {
         label: Option<Vec<u8>>,
     },

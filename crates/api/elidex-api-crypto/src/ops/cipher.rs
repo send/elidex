@@ -182,10 +182,13 @@ fn aes_decrypt_op(
 /// (step 14, raw bytes verbatim, or — for `jwk` — [`crate::jwk::to_json_bytes`],
 /// which serializes the `oct` JWK to JSON over the Rust struct **isolated from
 /// the page realm** per the §14.3.11 step-14 "new global object" requirement —
-/// no page `Object.prototype.toJSON` is invoked); then the wrap-or-encrypt
-/// dispatch (step 15), where AES-KW wraps via RFC 3394 while an AES-GCM/CBC/CTR
-/// wrapping key falls back to its encrypt *operation* (with no `encrypt`-usage
-/// recheck — §14.3.11 step 15 invokes the operation, not the `encrypt` method).
+/// no page `Object.prototype.toJSON` is invoked, and NOT length-padded); then
+/// the wrap-or-encrypt dispatch (step 15), where AES-KW wraps via RFC 3394 —
+/// space-padding a `jwk` payload to its 64-bit block (the only arm that pads,
+/// per the step-14 Note's per-algorithm allowance) — while an AES-GCM/CBC/CTR or
+/// RSA-OAEP wrapping key falls back to its encrypt *operation* on the unpadded
+/// bytes (with no `encrypt`-usage recheck — §14.3.11 step 15 invokes the
+/// operation, not the `encrypt` method).
 ///
 /// The wrappingKey gate (steps 9-10) runs **before** the key export (steps
 /// 11-13), matching the spec order (so a wrappingKey name/usage `InvalidAccess`
@@ -203,14 +206,30 @@ pub fn wrap_key(
         // step 14 (non-jwk): the exported bytes are the plaintext verbatim.
         ExportedKey::Raw(raw) => raw,
         // step 14 (jwk): serialize the exported oct JWK to JSON bytes, in-crate
-        // and realm-isolated (no page `toJSON`).
+        // and realm-isolated (no page `toJSON`).  NOT padded here — §14.3.11
+        // step 14's per-algorithm padding is applied only in the AES-KW arm below.
         ExportedKey::Jwk(jwk) => jwk::to_json_bytes(&jwk),
     };
     // step 15: wrap (AES-KW) or fall back to the encrypt op (AES-GCM/CBC/CTR or
     // RSA-OAEP — the generalized [`encrypt_op`] routes by the wrapping key's
     // algorithm and inherits RSA-OAEP's `[[type]]` = public gate).
     match algorithm {
-        NormalizedAlgorithm::AesKwWrap => aes_kw::wrap(wrapping_key.material.as_bytes(), &bytes),
+        NormalizedAlgorithm::AesKwWrap => {
+            // AES-KW (RFC 3394 / §30.3.1 step 1) wraps 64-bit blocks: a flexible
+            // `jwk` payload is space-padded to a multiple of 8 (trailing
+            // whitespace is valid, ignored JSON); a misaligned `raw` payload is
+            // rejected by `aes_kw::wrap`.  The padding is confined to this arm —
+            // the encrypt fallbacks (RSA-OAEP / AES-GCM/CBC/CTR) take
+            // arbitrary-length plaintext, and padding a `jwk` for RSA-OAEP would
+            // count against its OAEP length limit and spuriously reject a key
+            // that fits unpadded (§14.3.11 step-14 Note: padding is per-algorithm).
+            let payload = if format == KeyFormat::Jwk {
+                jwk::pad_to_aes_kw_block(bytes)
+            } else {
+                bytes
+            };
+            aes_kw::wrap(wrapping_key.material.as_bytes(), &payload)
+        }
         _ => encrypt_op(algorithm, wrapping_key, &bytes),
     }
 }
