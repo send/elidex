@@ -12,7 +12,7 @@ use elidex_plugin::background::{BgRepeat, BgRepeatAxis};
 use elidex_plugin::transform_math::{resolve_child_perspective, Perspective};
 use elidex_plugin::{
     BorderCollapse, BoxDecorationBreak, BoxModel, ComputedStyle, Display, EmptyCells, LayoutBox,
-    ListStyleType, MulticolInfo, Rect, Visibility,
+    ListStyleType, MulticolInfo, Rect, Visibility, WritingMode,
 };
 use elidex_plugin::{Point, Vector};
 use elidex_style::counter::{apply_implicit_list_counters_from_dom, CounterState};
@@ -292,24 +292,18 @@ pub(crate) fn walk(
         };
         let slice = style.box_decoration_break == BoxDecorationBreak::Slice;
         // The slice break axis is the FRAGMENTATION CONTEXT's block-flow direction =
-        // the multicol container's writing mode (css-break-3: one block-flow direction
+        // the multicol CONTAINER's writing mode (css-break-3: one block-flow direction
         // from the fragmentation root, even if the fragmented child sets a different
-        // writing-mode). The consumable entity is the multicol's direct child by
-        // construction, so its parent IS the container. Single-box ⇒ no slicing, so the
+        // writing-mode). Find the container by walking up to the nearest `MulticolInfo`
+        // ancestor — NOT `get_parent`, because multicol builds its segments from
+        // `composed_children_flat`, which flattens `display: contents` wrappers, so the
+        // consumable child's DOM parent may be such a wrapper (Codex PR#321 R9), with a
+        // different writing-mode than the real container. Single-box ⇒ no slicing, so the
         // child's own writing mode is harmless there.
         let frag_wm = if single_box {
             style.writing_mode
         } else {
-            ctx.dom
-                .get_parent(entity)
-                .and_then(|p| {
-                    ctx.dom
-                        .world()
-                        .get::<&ComputedStyle>(p)
-                        .ok()
-                        .map(|s| s.writing_mode)
-                })
-                .unwrap_or(style.writing_mode)
+            multicol_container_writing_mode(ctx.dom, entity).unwrap_or(style.writing_mode)
         };
 
         // Per-iteration "content" inputs (loop-invariant). `child_perspective` is
@@ -489,6 +483,25 @@ pub(crate) fn walk(
 
     // CSS counter scope: pop scope on element exit.
     ctx.counter_state.pop_scope();
+}
+
+/// Writing mode of the nearest ancestor multicol container (the entity with
+/// `MulticolInfo`) — the fragmentation context whose block-flow direction drives the
+/// slice break axis (css-break-3). Walks the DOM ancestor chain (skipping any
+/// `display: contents` wrappers the multicol flattened away in `composed_children_flat`,
+/// Codex PR#321 R9). `None` if no multicol ancestor (cannot happen for a consumable
+/// entity, which is a multicol's mid-break child by construction).
+fn multicol_container_writing_mode(dom: &EcsDom, entity: Entity) -> Option<WritingMode> {
+    let mut current = entity;
+    for _ in 0..MAX_ANCESTOR_DEPTH {
+        let parent = dom.get_parent(current)?;
+        // `MulticolInfo` records the container's own writing mode (layout-authoritative).
+        if let Ok(info) = dom.world().get::<&MulticolInfo>(parent) {
+            return Some(info.writing_mode);
+        }
+        current = parent;
+    }
+    None
 }
 
 /// The smallest rect covering both `a` and `b` (their bounding box). Used to clip a
@@ -786,4 +799,45 @@ fn is_cell_empty(dom: &EcsDom, entity: Entity) -> bool {
             .get::<&elidex_ecs::TextContent>(child)
             .is_ok_and(|text| text.0.trim().is_empty())
     })
+}
+
+#[cfg(test)]
+mod frag_wm_tests {
+    use super::multicol_container_writing_mode;
+    use elidex_ecs::{Attributes, EcsDom};
+    use elidex_plugin::{MulticolInfo, WritingMode};
+
+    #[test]
+    fn frag_wm_skips_display_contents_to_the_multicol_container() {
+        // Codex PR#321 R9: the multicol flattens `display: contents` wrappers in
+        // `composed_children_flat`, so a consumable child's DOM parent may be such a
+        // wrapper. The fragmentation writing mode must come from the nearest
+        // `MulticolInfo` ancestor (the real container), NOT the DOM parent.
+        let mut dom = EcsDom::new();
+        let container = dom.create_element("div", Attributes::default());
+        let _ = dom.world_mut().insert_one(
+            container,
+            MulticolInfo {
+                column_width: 100.0,
+                column_gap: 0.0,
+                writing_mode: WritingMode::VerticalRl, // the fragmentation context
+                segments: vec![],
+            },
+        );
+        // A `display: contents` wrapper with a DIFFERENT writing mode, no MulticolInfo.
+        let wrapper = dom.create_element("div", Attributes::default());
+        let _ = dom.append_child(container, wrapper);
+        // The consumable mid-break child (its DOM parent is the wrapper).
+        let child = dom.create_element("div", Attributes::default());
+        let _ = dom.append_child(wrapper, child);
+
+        assert_eq!(
+            multicol_container_writing_mode(&dom, child),
+            Some(WritingMode::VerticalRl),
+            "reads the multicol container's writing mode, skipping the display:contents wrapper"
+        );
+        // No multicol ancestor ⇒ None (the caller falls back to the child's own mode).
+        let orphan = dom.create_element("div", Attributes::default());
+        assert_eq!(multicol_container_writing_mode(&dom, orphan), None);
+    }
 }
