@@ -201,6 +201,49 @@ fn import_oaep_public_with_decrypt_usage_is_syntax_error() {
 }
 
 #[test]
+fn import_oaep_modulus_outside_2048_8192_is_not_supported() {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine as _;
+    // RSA-OAEP runs on the aws-lc-rs backend (2048..=8192 bits).  A public OAEP
+    // key whose modulus is outside that range parses on the rsa crate but is
+    // unusable for every OAEP op, so import rejects it (NotSupported), keeping an
+    // accepted OAEP key always usable (`#11-rsa-modulus-above-4096`, the OAEP
+    // upper bound + the existing lower bound).  Fabricated odd moduli — public
+    // import validates structure, not primality — so the test is fast.
+    let oaep_public_import = |n_bytes: Vec<u8>| {
+        let jwk = JsonWebKey {
+            kty: Some("RSA".to_string()),
+            n: Some(URL_SAFE_NO_PAD.encode(&n_bytes)),
+            e: Some("AQAB".to_string()),
+            ..Default::default()
+        };
+        import_key(
+            KeyFormat::Jwk,
+            import_alg(RsaVariant::RsaOaep, HashAlgorithm::Sha256),
+            true,
+            vec![KeyUsage::Encrypt],
+            KeyData::Jwk(Box::new(jwk)),
+        )
+    };
+    // 8192 bits (1024 bytes) — at the upper bound → imports.
+    oaep_public_import(vec![0xFFu8; 1024]).expect("an 8192-bit RSA-OAEP key imports");
+    // 12288 bits (1536 bytes) — above the OAEP maximum → NotSupported.
+    let too_big =
+        oaep_public_import(vec![0xFFu8; 1536]).expect_err("over-8192 OAEP modulus is NotSupported");
+    assert!(
+        matches!(too_big, AlgorithmError::NotSupported(_)),
+        "got {too_big:?}"
+    );
+    // 1024 bits (128 bytes) — below the OAEP minimum → NotSupported.
+    let too_small =
+        oaep_public_import(vec![0xFFu8; 128]).expect_err("under-2048 OAEP modulus is NotSupported");
+    assert!(
+        matches!(too_small, AlgorithmError::NotSupported(_)),
+        "got {too_small:?}"
+    );
+}
+
+#[test]
 fn normalize_oaep_label_present_absent_and_wrap_paths() {
     // §22.3: `label` is optional → absent normalizes to `None`.
     let alg = normalize(Operation::Encrypt, RawAlgorithm::from_name("RSA-OAEP"))

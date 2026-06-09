@@ -225,6 +225,50 @@ fn jwk_oversized_modulus_is_rejected() {
 }
 
 #[test]
+fn modulus_above_4096_imports_and_round_trips() {
+    // A public RSA key with a 6144-bit modulus — over the rsa crate's 4096
+    // `MAX_SIZE` cap, under the 16384 import ceiling — imports via the custom
+    // `decode_rsa_spki` + `new_with_max_size` seam (`#11-rsa-modulus-above-4096`),
+    // which `from_public_key_der` would have rejected.  Uses a fabricated odd
+    // modulus: public-key import validates structure (odd n, e<n, e odd), not
+    // primality, so the test is fast (no 6144-bit keygen).
+    let n_bytes = vec![0xFFu8; 768]; // 768 * 8 = 6144 bits, odd (LSB 0xFF).
+    let n6144 = URL_SAFE_NO_PAD.encode(&n_bytes);
+    let jwk = JsonWebKey {
+        kty: Some("RSA".to_string()),
+        n: Some(n6144.clone()),
+        e: Some("AQAB".to_string()),
+        ..Default::default()
+    };
+    let imported = import_key(
+        KeyFormat::Jwk,
+        import_alg(RsaVariant::RsassaPkcs1V15, HashAlgorithm::Sha256),
+        true,
+        vec![KeyUsage::Verify],
+        KeyData::Jwk(Box::new(jwk)),
+    )
+    .expect("a 6144-bit public modulus imports (over the rsa crate's 4096 cap)");
+    assert_eq!(imported.key_type, KeyType::Public);
+
+    // JWK re-export exercises `reconstruct_public` (decode the stored SPKI past
+    // the 4096 cap) — the modulus round-trips byte-identical.
+    let jwk_out = expect_jwk(export_key(KeyFormat::Jwk, &imported).expect("6144-bit JWK export"));
+    assert_eq!(jwk_out.n.as_deref(), Some(n6144.as_str()));
+
+    // SPKI export + re-import exercises `parse_spki` on a >4096 SubjectPublicKeyInfo.
+    let spki = expect_raw(export_key(KeyFormat::Spki, &imported).expect("6144-bit SPKI export"));
+    let reimported = import_key(
+        KeyFormat::Spki,
+        import_alg(RsaVariant::RsassaPkcs1V15, HashAlgorithm::Sha256),
+        true,
+        vec![KeyUsage::Verify],
+        KeyData::Raw(spki),
+    )
+    .expect("a 6144-bit SPKI re-imports");
+    assert_eq!(reimported.material, imported.material);
+}
+
+#[test]
 fn jwk_public_exponent_over_cap_is_not_supported() {
     // A public JWK whose `e` exceeds the rsa crate's `MAX_PUB_EXPONENT`
     // (2^33 − 1) is a NotSupported capability boundary, not the rsa crate's

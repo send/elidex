@@ -92,19 +92,20 @@ fn normalize_rsa_keygen_reports_members_in_webidl_order() {
 }
 
 #[test]
-fn modulus_ceiling_matches_rsa_crate_max_size() {
-    // `MAX_RSA_MODULUS_BITS` must not exceed `rsa::RsaPublicKey::MAX_SIZE`:
-    // public keys are reconstructed via `RsaPublicKey::new` /
-    // `from_public_key_der`, which reject a modulus above MAX_SIZE.  A higher
-    // ceiling would let `generateKey` mint a key whose public half can't be
-    // reconstructed, and reject large imported keys despite the stated policy
-    // (Codex R14).
-    assert!(
-        crate::rsa::MAX_RSA_MODULUS_BITS as usize <= rsa::RsaPublicKey::MAX_SIZE,
-        "MAX_RSA_MODULUS_BITS ({}) exceeds rsa::RsaPublicKey::MAX_SIZE ({})",
-        crate::rsa::MAX_RSA_MODULUS_BITS,
-        rsa::RsaPublicKey::MAX_SIZE,
-    );
+fn generate_modulus_above_8192_is_operation_error() {
+    // The generate ceiling (`MAX_RSA_GENERATE_MODULUS_BITS` = 8192, Chrome-faithful)
+    // is tighter than the 16384 import ceiling — keygen's prime search is the
+    // expensive part.  A 16384-bit `modulusLength` is rejected BEFORE keygen
+    // (fast), so an abusive request cannot hang the VM thread (§20.8.3 step-3
+    // OperationError surface).
+    let err = generate_key(
+        keygen_alg(RsaVariant::RsassaPkcs1V15, 16384, HashAlgorithm::Sha256),
+        true,
+        vec![KeyUsage::Sign, KeyUsage::Verify],
+        seeded_fill(7),
+    )
+    .expect_err("a modulusLength over the generate cap is an OperationError");
+    assert!(matches!(err, AlgorithmError::Operation(_)), "got {err:?}");
 }
 
 #[test]
