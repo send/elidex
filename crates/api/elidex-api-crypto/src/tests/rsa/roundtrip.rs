@@ -6,7 +6,7 @@ use base64::Engine as _;
 
 use super::*;
 use crate::key::KeyType;
-use crate::ops::{export_key, sign, verify};
+use crate::ops::export_key;
 
 #[test]
 fn private_pkcs8_round_trip() {
@@ -68,7 +68,7 @@ fn jwk_private_round_trip_includes_crt_members() {
         assert!(member.is_some(), "private JWK is missing a member");
     }
 
-    // Re-import the JWK — the recovered key matches.
+    // Re-import the JWK — the re-imported key matches.
     let reimported = import_key(
         KeyFormat::Jwk,
         import_alg(RsaVariant::RsassaPkcs1V15, HashAlgorithm::Sha256),
@@ -177,14 +177,12 @@ fn jwk_public_with_oth_member_is_ignored() {
 }
 
 #[test]
-fn jwk_oversized_modulus_is_rejected_before_recovery() {
-    // A modulus wider than `MAX_RSA_MODULUS_BITS` (4096) must be rejected
-    // before the rsa crate validates / recovers — the d-only private path would
-    // otherwise run `from_components` prime recovery on attacker-controlled
-    // `n` / `e` / `d` (NIST SP 800-56B C.2), an engine DoS (Codex R5). 2200
-    // octets = a 17600-bit modulus.
+fn jwk_oversized_modulus_is_rejected() {
+    // A modulus wider than the import ceiling must be rejected before the rsa
+    // crate validates / constructs the key on the VM thread (a large-`n` DoS,
+    // Codex R5).  2200 octets = a 17600-bit modulus, over the 16384-bit cap.
     let big_n = URL_SAFE_NO_PAD.encode(vec![0xFFu8; 2200]);
-    // Public JWK (no `d`): rejected before `RsaPublicKey::new`.
+    // Public JWK (no `d`): rejected at the modulus check before construction.
     let public = JsonWebKey {
         kty: Some("RSA".to_string()),
         n: Some(big_n.clone()),
@@ -203,7 +201,8 @@ fn jwk_oversized_modulus_is_rejected_before_recovery() {
         matches!(err, AlgorithmError::NotSupported(_)),
         "got {err:?}"
     );
-    // d-only private JWK: rejected before the `from_components` recovery.
+    // Private JWK (`d` present): the oversized-`n` NotSupported fires at the
+    // modulus check, before the CRT-shape DataError (a precedence pin).
     let private = JsonWebKey {
         kty: Some("RSA".to_string()),
         n: Some(big_n),
@@ -218,7 +217,7 @@ fn jwk_oversized_modulus_is_rejected_before_recovery() {
         vec![KeyUsage::Sign],
         KeyData::Jwk(Box::new(private)),
     )
-    .expect_err("oversized d-only modulus is NotSupported");
+    .expect_err("oversized private modulus is NotSupported");
     assert!(
         matches!(err, AlgorithmError::NotSupported(_)),
         "got {err:?}"
@@ -418,11 +417,13 @@ fn jwk_non_minimal_base64urluint_is_data_error() {
 }
 
 #[test]
-fn jwk_d_only_imports_via_prime_recovery() {
-    // A CRT-less (d-only) private JWK with the standard exponent (65537) imports
-    // via from_components' prime recovery; it is functionally equivalent (a
-    // signature verifies under the original public key).
-    let (public, private) = generate_pair(
+fn jwk_d_only_is_data_error() {
+    // A CRT-less (d-only) private JWK is a DataError: every browser requires the
+    // full p / q / dp / dq / qi set and none recover the primes from (n, e, d),
+    // so elidex matches that UA behavior (§20.8.4 jwk step 10 / §6.3.2).  Built
+    // by exporting a real key and stripping its CRT members, so n / e / d are a
+    // consistent key (the reject is the missing CRT set, not bad material).
+    let (_public, private) = generate_pair(
         RsaVariant::RsassaPkcs1V15,
         HashAlgorithm::Sha256,
         vec![KeyUsage::Sign, KeyUsage::Verify],
@@ -433,27 +434,13 @@ fn jwk_d_only_imports_via_prime_recovery() {
     jwk.dp = None;
     jwk.dq = None;
     jwk.qi = None;
-    let recovered = import_key(
+    let err = import_key(
         KeyFormat::Jwk,
         import_alg(RsaVariant::RsassaPkcs1V15, HashAlgorithm::Sha256),
         true,
         vec![KeyUsage::Sign],
         KeyData::Jwk(Box::new(jwk)),
     )
-    .expect("d-only JWK imports via recovery (e=65537)");
-    assert_eq!(recovered.key_type, KeyType::Private);
-    let sig = sign(
-        sign_alg(RsaVariant::RsassaPkcs1V15, None),
-        &recovered,
-        b"d-only",
-        seeded_fill(11),
-    )
-    .expect("sign with the recovered key");
-    assert!(verify(
-        verify_alg(RsaVariant::RsassaPkcs1V15, None),
-        &public,
-        &sig,
-        b"d-only"
-    )
-    .unwrap());
+    .expect_err("a CRT-less (d-only) private JWK is a DataError");
+    assert!(matches!(err, AlgorithmError::Data(_)), "got {err:?}");
 }
