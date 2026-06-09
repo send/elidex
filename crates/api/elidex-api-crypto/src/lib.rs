@@ -21,9 +21,11 @@
 //! - [`hmac`] — HMAC sign / verify / key-length resolution (§31).
 //! - `hkdf` (crate-internal) — HKDF derive-bits (§33.4.1, RFC 5869).
 //! - `pbkdf2` (crate-internal) — PBKDF2 derive-bits (§34.4.1, RFC 8018).
-//! - `rsa` (crate-internal) — RSASSA-PKCS1-v1_5 / RSA-PSS key import /
-//!   export + sign / verify (§20 / §21, over the `rsa` crate); reached only
-//!   through [`ops`], so `pub(crate)`.
+//! - `rsa` (crate-internal) — RSA key import / export + RSASSA-PKCS1-v1_5 /
+//!   RSA-PSS sign / verify (§20 / §21, over the `rsa` crate); its `oaep`
+//!   submodule adds RSA-OAEP encrypt / decrypt (§22) over the **constant-time
+//!   aws-lc-rs** backend (the Marvin-mitigated decryption seam + arbitrary
+//!   `BufferSource` labels).  Reached only through [`ops`], so `pub(crate)`.
 //! - [`jwk`] — `oct` / EC / RSA JSON Web Key parse / serialize (§15).
 //! - [`key`] — the [`key::CryptoKeyData`] model (§13).
 //! - [`ops`] — operation-level entry points owning all spec validation.

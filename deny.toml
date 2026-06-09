@@ -10,9 +10,13 @@ ignore = [
     # advisory is unavoidable for any RSA support — and `cargo-deny`'s `ignore`
     # is per-advisory-ID (global), with no per-call-path scoping.
     #
-    # Why this is acceptable for PR-5a (#11-crypto-subtle-full, RSA signing):
-    #   - The Marvin DECRYPTION oracle is absent: PR-5a adds no RSA decryption
-    #     (RSA-OAEP `decrypt`/`unwrapKey` is the follow-on PR-5b).
+    # Why this is acceptable (#11-crypto-subtle-full, the full RSA op-set):
+    #   - The Marvin DECRYPTION oracle runs on a CONSTANT-TIME non-`rsa` backend:
+    #     RSA-OAEP `decrypt` / `unwrapKey` (PR-5b — the private-key op the advisory
+    #     actually targets) is performed by aws-lc-rs (AWS-LC, a FIPS-family
+    #     BoringSSL fork), NOT the `rsa` crate.  The `rsa` crate runs only keygen /
+    #     sign / import / export / public-key OAEP `encrypt` — none is a decryption
+    #     timing oracle (see the PR-5b path-(c) discharge below).
     #   - The RSA SIGNING path IS mitigated, not merely "avoided": `crypto::rsa::sign`
     #     blinds the private-key exponentiation — the documented mitigation for
     #     timing-observable signing (RustCrypto/RSA docs).  Both families are
@@ -39,15 +43,23 @@ ignore = [
     #     (CVSS 5.9 MEDIUM, AC:H, confidentiality-only.)
     #   - keygen / import / export are not timing-oracle surfaces.
     #
-    # MANDATORY RE-EVALUATION at PR-5b (RSA-OAEP `decrypt`/`unwrapKey`) — the
-    # path the Marvin attack actually targets: that PR MUST gate on either a
-    # fixed `rsa` release (drop this ignore) or an explicit, security-reviewed
-    # acceptance of the decryption timing risk under the WebCrypto threat model.
-    # This is NOT enforced by cargo-deny (a workspace-wide `ignore` downgrades
-    # the advisory globally), so an *enforceable* tripwire backs it:
-    # `elidex-api-crypto` `tests::rsa::rsa_backend_has_no_decryption_while_marvin_advisory_is_ignored`
-    # scans the whole crate source and fails the build if RSA decryption appears
-    # while this ignore is present.  Do NOT let PR-5b inherit this ignore silently.
+    # RE-EVALUATION DISCHARGED at PR-5b (RSA-OAEP `decrypt` / `unwrapKey`, the
+    # path the Marvin attack actually targets) — outcome = resolution path (c):
+    # the ignore is KEPT, but RSA decryption runs on a constant-time non-`rsa`
+    # backend (aws-lc-rs), so the ignore now persists ONLY for the `rsa` crate's
+    # non-decryption ops (keygen / sign[blinded] / import / export / public-key
+    # OAEP encrypt).  This is neither path (a) — a fixed `rsa` release, none
+    # exists — nor path (b) — accepting the rsa-crate decryption timing risk —
+    # because the vulnerable op never runs on the `rsa` crate at all.  cargo-deny
+    # cannot see this (a workspace-wide `ignore` downgrades the advisory
+    # globally), so an *enforceable* tripwire backs it: `elidex-api-crypto`
+    # `tests::rsa::oaep::rsa_oaep_decryption_runs_on_constant_time_aws_lc_not_rsa_crate`
+    # asserts POSITIVE (RSA-OAEP decryption uses aws-lc-rs) ∧ NEGATIVE (no
+    # rsa-crate private-key decryption — `Oaep::` / `Pkcs1v15Encrypt` /
+    # `RsaPrivateKey`-`.decrypt(` — anywhere in src), failing the build if
+    # rsa-crate decryption is ever added while this ignore is present.  When the
+    # `rsa` crate ships constant-time decryption (RustCrypto/RSA#390), revisit:
+    # swap the OAEP seam back to pure-Rust and drop aws-lc-rs (then path (a)).
     "RUSTSEC-2023-0071",
 ]
 

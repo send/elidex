@@ -1,5 +1,7 @@
 //! RSA generateKey: key shape + usage-split, WebIDL member-order, the modulus
-//! ceiling, entropy / DoS bounds, and the Marvin (RUSTSEC-2023-0071) tripwire.
+//! ceiling, and entropy / DoS bounds.  (The Marvin (RUSTSEC-2023-0071)
+//! constant-time-decryption tripwire lives in `oaep`, next to the aws-lc-rs
+//! OAEP backend it guards.)
 
 use super::*;
 use crate::key::{KeyAlgorithm, KeyType};
@@ -103,45 +105,6 @@ fn modulus_ceiling_matches_rsa_crate_max_size() {
         crate::rsa::MAX_RSA_MODULUS_BITS,
         rsa::RsaPublicKey::MAX_SIZE,
     );
-}
-
-#[test]
-fn rsa_backend_has_no_decryption_while_marvin_advisory_is_ignored() {
-    // Enforceable tripwire for the deny.toml RUSTSEC-2023-0071 (Marvin) ignore.
-    // PR-5a is signing-only; RSA *decryption* (RSA-OAEP, the follow-on) is the
-    // path the Marvin timing attack actually targets, and the deny.toml ignore
-    // is workspace-wide so cargo-deny cannot fail when decryption lands — this
-    // test does.  It scans the WHOLE crate source (not just rsa.rs) so a
-    // decryption module added in any file still trips it (Codex R15).  If RSA
-    // decryption appears, this fails: you MUST first address RUSTSEC-2023-0071
-    // (drop the ignore for a fixed `rsa` release, or security-review the
-    // decryption timing risk under the WebCrypto threat model — the deny.toml
-    // gate).  Markers are code-syntactic (a method call / a type path) so they
-    // never match prose like "RSA-OAEP"; `tests/` is skipped because this
-    // test's own marker strings live there.
-    fn scan(dir: &std::path::Path, markers: &[&str]) {
-        for entry in std::fs::read_dir(dir).expect("read crate src dir") {
-            let path = entry.expect("dir entry").path();
-            if path.is_dir() {
-                if path.file_name() == Some(std::ffi::OsStr::new("tests")) {
-                    continue;
-                }
-                scan(&path, markers);
-            } else if path.extension() == Some(std::ffi::OsStr::new("rs")) {
-                let src = std::fs::read_to_string(&path).expect("read .rs source");
-                for marker in markers {
-                    assert!(
-                        !src.contains(marker),
-                        "RSA decryption marker `{marker}` found in {} — address \
-                         RUSTSEC-2023-0071 (deny.toml Marvin gate) before adding RSA decryption",
-                        path.display(),
-                    );
-                }
-            }
-        }
-    }
-    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    scan(&src, &[".decrypt(", "Oaep::"]);
 }
 
 #[test]

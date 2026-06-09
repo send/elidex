@@ -4,7 +4,7 @@
 //! lives here; the VM host only marshals JS ↔ these plain-Rust inputs
 //! and settles the returned Promise.
 
-use crate::algorithm::{AesVariant, EcAlgorithm, NormalizedAlgorithm};
+use crate::algorithm::{AesVariant, EcAlgorithm, NormalizedAlgorithm, RsaVariant};
 use crate::error::AlgorithmError;
 use crate::jwk::{self, JsonWebKey};
 use crate::key::{normalize_usages, CryptoKeyData, KeyAlgorithm, KeyMaterial, KeyType, KeyUsage};
@@ -529,23 +529,65 @@ pub fn verify(
     }
 }
 
-/// `encrypt` (WebCrypto §14.3.1 → §27.7.1 / §28.4.1 / §29.4.1).  Consumes
-/// the normalized params, moving the `iv` / `counter` / `additionalData`
-/// out and passing them straight to the cipher (no copy beyond the
-/// marshal-time snapshot).
+/// `encrypt` (WebCrypto §14.3.1 → §27.7.1 / §28.4.1 / §29.4.1 AES /
+/// §22.4.1 RSA-OAEP).  Consumes the normalized params, moving the `iv` /
+/// `counter` / `additionalData` / `label` out and passing them straight to the
+/// cipher (no copy beyond the marshal-time snapshot).
 pub fn encrypt(
     algorithm: NormalizedAlgorithm,
     key: &CryptoKeyData,
     data: &[u8],
 ) -> Result<Vec<u8>, AlgorithmError> {
     require_key_usable(&algorithm, key, KeyUsage::Encrypt)?;
-    aes_encrypt_op(algorithm, key.material.as_bytes(), data)
+    encrypt_op(algorithm, key, data)
 }
 
-/// The AES encrypt *operation* dispatch (no §14.3.1 name/usage gate) — shared
-/// by [`encrypt`] (after its gate) and the [`wrap_key`] §14.3.11 step-15
-/// encrypt fallback (whose gate is the `wrapKey` usage, not `encrypt`).  The
-/// caller has already validated the key length to 16/24/32 bytes.
+/// The encrypt *operation* dispatch (no §14.3.1 name/usage gate) — shared by
+/// [`encrypt`] (after its gate) and the [`wrap_key`] §14.3.11 step-15 encrypt
+/// fallback (whose gate is the `wrapKey` usage, not `encrypt`).
+///
+/// Branches on the key's algorithm and takes the **key** — NOT a pre-extracted
+/// `as_bytes()`: an RSA key has no flat byte form (`as_bytes()` would panic,
+/// `key.rs`), so the byte extraction must live inside the AES arm where it is
+/// reachable.  The AES block-cipher modes read the flat material; RSA-OAEP
+/// (§22.4.1) reconstructs the typed key from the stored DER in the `rsa::oaep`
+/// backend, which also owns the §22.4.1 step-1 `[[type]]` = public
+/// InvalidAccessError gate — so every entry point reaching here (`encrypt` /
+/// `wrapKey`) inherits the correct gate without a per-entry type check.
+fn encrypt_op(
+    algorithm: NormalizedAlgorithm,
+    key: &CryptoKeyData,
+    data: &[u8],
+) -> Result<Vec<u8>, AlgorithmError> {
+    match key.algorithm {
+        KeyAlgorithm::Aes { .. } => aes_encrypt_op(algorithm, key.material.as_bytes(), data),
+        KeyAlgorithm::Rsa {
+            variant: RsaVariant::RsaOaep,
+            hash,
+            ..
+        } => {
+            // The name-match in the caller admitted this RSA-OAEP key, so
+            // `encrypt` / `wrapKey` normalized to `RsaOaep` (the only OAEP form);
+            // its optional `label` rides into the backend by reference.
+            let NormalizedAlgorithm::RsaOaep { label } = algorithm else {
+                return Err(not_supported_op("encrypt"));
+            };
+            crate::rsa::oaep_encrypt(key, hash, label.as_deref(), data)
+        }
+        // `encrypt` normalizes only the AES block-cipher modes + RSA-OAEP, so
+        // the name-match in the caller rejects any other key before reaching
+        // here (an RSA signing key / AES-KW key never registers an encrypt op).
+        KeyAlgorithm::Hmac { .. }
+        | KeyAlgorithm::Hkdf
+        | KeyAlgorithm::Pbkdf2
+        | KeyAlgorithm::Ecdsa { .. }
+        | KeyAlgorithm::Ecdh { .. }
+        | KeyAlgorithm::Rsa { .. } => Err(not_supported_op("encrypt")),
+    }
+}
+
+/// The AES encrypt *operation* dispatch — the AES-key arm of [`encrypt_op`];
+/// the caller has already validated the key length to 16/24/32 bytes.
 fn aes_encrypt_op(
     algorithm: NormalizedAlgorithm,
     material: &[u8],
@@ -573,19 +615,52 @@ fn aes_encrypt_op(
     }
 }
 
-/// `decrypt` (WebCrypto §14.3.2 → §27.7.2 / §28.4.2 / §29.4.2).
+/// `decrypt` (WebCrypto §14.3.2 → §27.7.2 / §28.4.2 / §29.4.2 AES /
+/// §22.4.2 RSA-OAEP).
 pub fn decrypt(
     algorithm: NormalizedAlgorithm,
     key: &CryptoKeyData,
     data: &[u8],
 ) -> Result<Vec<u8>, AlgorithmError> {
     require_key_usable(&algorithm, key, KeyUsage::Decrypt)?;
-    aes_decrypt_op(algorithm, key.material.as_bytes(), data)
+    decrypt_op(algorithm, key, data)
 }
 
-/// The AES decrypt *operation* dispatch (no §14.3.2 name/usage gate) — shared
-/// by [`decrypt`] (after its gate) and the [`unwrap_key`] §14.3.12 step-14
-/// decrypt fallback (whose gate is the `unwrapKey` usage, not `decrypt`).
+/// The decrypt *operation* dispatch (no §14.3.2 name/usage gate) — shared by
+/// [`decrypt`] (after its gate) and the [`unwrap_key`] §14.3.12 step-14 decrypt
+/// fallback (whose gate is the `unwrapKey` usage, not `decrypt`).  The mirror of
+/// [`encrypt_op`]: takes the key (not `as_bytes()`), branches on the key
+/// algorithm, and RSA-OAEP (§22.4.2) reconstructs the private key from the
+/// stored PKCS#8 DER in the **constant-time** `rsa::oaep` backend, which owns
+/// the §22.4.2 step-1 `[[type]]` = private InvalidAccessError gate (inherited by
+/// both `decrypt` and `unwrapKey`).
+fn decrypt_op(
+    algorithm: NormalizedAlgorithm,
+    key: &CryptoKeyData,
+    data: &[u8],
+) -> Result<Vec<u8>, AlgorithmError> {
+    match key.algorithm {
+        KeyAlgorithm::Aes { .. } => aes_decrypt_op(algorithm, key.material.as_bytes(), data),
+        KeyAlgorithm::Rsa {
+            variant: RsaVariant::RsaOaep,
+            hash,
+            ..
+        } => {
+            let NormalizedAlgorithm::RsaOaep { label } = algorithm else {
+                return Err(not_supported_op("decrypt"));
+            };
+            crate::rsa::oaep_decrypt(key, hash, label.as_deref(), data)
+        }
+        KeyAlgorithm::Hmac { .. }
+        | KeyAlgorithm::Hkdf
+        | KeyAlgorithm::Pbkdf2
+        | KeyAlgorithm::Ecdsa { .. }
+        | KeyAlgorithm::Ecdh { .. }
+        | KeyAlgorithm::Rsa { .. } => Err(not_supported_op("decrypt")),
+    }
+}
+
+/// The AES decrypt *operation* dispatch — the AES-key arm of [`decrypt_op`].
 fn aes_decrypt_op(
     algorithm: NormalizedAlgorithm,
     material: &[u8],
@@ -644,10 +719,12 @@ pub fn wrap_key(
         // and realm-isolated (no page `toJSON`).
         ExportedKey::Jwk(jwk) => jwk::to_json_bytes(&jwk),
     };
-    // step 15: wrap (AES-KW) or fall back to the encrypt op (AES-GCM/CBC/CTR).
+    // step 15: wrap (AES-KW) or fall back to the encrypt op (AES-GCM/CBC/CTR or
+    // RSA-OAEP — the generalized [`encrypt_op`] routes by the wrapping key's
+    // algorithm and inherits RSA-OAEP's `[[type]]` = public gate).
     match algorithm {
         NormalizedAlgorithm::AesKwWrap => aes_kw::wrap(wrapping_key.material.as_bytes(), &bytes),
-        _ => aes_encrypt_op(algorithm, wrapping_key.material.as_bytes(), &bytes),
+        _ => encrypt_op(algorithm, wrapping_key, &bytes),
     }
 }
 
@@ -667,12 +744,14 @@ pub fn unwrap_key(
 ) -> Result<Vec<u8>, AlgorithmError> {
     // §14.3.12 step 12 (name equality) + step 13 (unwrapKey usage).
     require_key_usable(&algorithm, unwrapping_key, KeyUsage::UnwrapKey)?;
-    // step 14: unwrap (AES-KW) or fall back to the decrypt op (AES-GCM/CBC/CTR).
+    // step 14: unwrap (AES-KW) or fall back to the decrypt op (AES-GCM/CBC/CTR or
+    // RSA-OAEP — the generalized [`decrypt_op`], constant-time for RSA-OAEP and
+    // inheriting its `[[type]]` = private gate).
     match algorithm {
         NormalizedAlgorithm::AesKwWrap => {
             aes_kw::unwrap(unwrapping_key.material.as_bytes(), wrapped_key)
         }
-        _ => aes_decrypt_op(algorithm, unwrapping_key.material.as_bytes(), wrapped_key),
+        _ => decrypt_op(algorithm, unwrapping_key, wrapped_key),
     }
 }
 

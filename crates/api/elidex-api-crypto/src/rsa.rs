@@ -31,6 +31,12 @@ use crate::key::{normalize_usages, CryptoKeyData, KeyMaterial, KeyType, KeyUsage
 use crate::ops::{format_data_mismatch, ExportedKey, KeyData, KeyFormat};
 use crate::rng::ClosureRng;
 
+/// RSA-OAEP encrypt / decrypt (WebCrypto §22) on the constant-time aws-lc-rs
+/// backend — the encrypt family of the RSA keys, split from this module's
+/// `rsa`-crate signing / key-management backend (see [`oaep`]).
+mod oaep;
+pub(crate) use oaep::{oaep_decrypt, oaep_encrypt};
+
 /// Upper bound on an RSA modulus (bits) — the script-controlled
 /// `generateKey` `modulusLength` (an unbounded value would DoS the synchronous
 /// VM-thread keygen) and every imported modulus ([`check_modulus_bits`]).
