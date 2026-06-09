@@ -338,6 +338,18 @@ impl RsaVariant {
         }
     }
 
+    /// The JWK `use` value this RSA family requires when a `jwk` import carries
+    /// the optional `use` member with non-empty usages (WebCrypto §20.8.4 step 4
+    /// RSASSA / §21.4.4 step 4 RSA-PSS → `"sig"`; §22.4.4 step 5 RSA-OAEP →
+    /// `"enc"`) — the signing families are signature keys, RSA-OAEP is an
+    /// encryption key.
+    pub(crate) fn jwk_use(self) -> &'static str {
+        match self {
+            Self::RsassaPkcs1V15 | Self::RsaPss => "sig",
+            Self::RsaOaep => "enc",
+        }
+    }
+
     /// The JWK `alg` value for this RSA family + `hash`, emitted on export
     /// (WebCrypto §20.8.5 RSASSA / §21.4.5 RSA-PSS / §22.4.5 RSA-OAEP jwk) and
     /// matched on import (§20.8.4 / §21.4.4 / §22.4.4): `RS1` / `RS256` / `RS384`

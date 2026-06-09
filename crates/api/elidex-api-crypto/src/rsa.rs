@@ -196,10 +196,10 @@ fn private_imported(privkey: &RsaPrivateKey) -> Result<Imported, AlgorithmError>
     })
 }
 
-/// Import an RSA `jwk` (WebCrypto §20.8.4 / §21.4.4 jwk branch + RFC 7518
-/// §6.3): validate the JWK shape (kty / use / key_ops / ext / alg), determine
-/// the key type from the `d` member, then reconstruct the typed key from
-/// n / e [/ d / p / q].  Multi-prime (`oth`) is NotSupported.
+/// Import an RSA `jwk` (WebCrypto §20.8.4 / §21.4.4 / §22.4.4 jwk branch +
+/// RFC 7518 §6.3): validate the JWK shape (kty / use / key_ops / ext / alg),
+/// determine the key type from the `d` member, then reconstruct the typed key
+/// from n / e [/ d / p / q].  Multi-prime (`oth`) is NotSupported.
 fn import_jwk(
     variant: RsaVariant,
     hash: HashAlgorithm,
@@ -215,19 +215,20 @@ fn import_jwk(
         KeyType::Public
     };
     validate_import_usages(variant, key_type, usages)?;
-    // kty must be "RSA".
+    // kty must be "RSA" (§20.8.4 / §21.4.4 / §22.4.4).
     if jwk.kty.as_deref() != Some("RSA") {
-        return Err(data(
-            "JWK 'kty' member must be 'RSA' for RSASSA-PKCS1-v1_5 / RSA-PSS",
-        ));
+        return Err(data("JWK 'kty' member must be 'RSA' for an RSA key"));
     }
-    // use, if present (and usages non-empty): "sig" (a signing key).
+    // use, if present (and usages non-empty), must match the family (§20.8.4
+    // step 4 / §21.4.4 step 4 → "sig"; §22.4.4 step 5 RSA-OAEP → "enc").
     if !usages.is_empty() {
         if let Some(use_) = jwk.use_.as_deref() {
-            if use_ != "sig" {
-                return Err(data(
-                    "JWK 'use' member must be 'sig' for an RSA signing key",
-                ));
+            if use_ != variant.jwk_use() {
+                return Err(data_owned(format!(
+                    "JWK 'use' member must be '{}' for an {} key",
+                    variant.jwk_use(),
+                    variant.canonical_name()
+                )));
             }
         }
     }

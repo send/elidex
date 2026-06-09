@@ -223,6 +223,66 @@ fn normalize_oaep_label_present_absent_and_wrap_paths() {
     assert!(normalize(Operation::GetKeyLength, RawAlgorithm::from_name("RSA-OAEP")).is_err());
 }
 
+#[test]
+fn oaep_jwk_use_enc_accepted_sig_rejected() {
+    // §22.4.4 step 5: an RSA-OAEP `jwk` with `use` present (+ non-empty usages)
+    // must be "enc" (an encryption key) — "sig" (the signing-family value) is a
+    // DataError.  The variant-aware `use` check distinguishes the families.
+    let (public, _private) = generate_pair(
+        RsaVariant::RsaOaep,
+        HashAlgorithm::Sha256,
+        vec![KeyUsage::Encrypt, KeyUsage::Decrypt],
+    );
+    let base = expect_jwk(export_key(KeyFormat::Jwk, &public).expect("JWK export"));
+
+    let mut enc = base.clone();
+    enc.use_ = Some("enc".to_string());
+    let imported = import_key(
+        KeyFormat::Jwk,
+        import_alg(RsaVariant::RsaOaep, HashAlgorithm::Sha256),
+        true,
+        vec![KeyUsage::Encrypt],
+        KeyData::Jwk(Box::new(enc)),
+    )
+    .expect("use=enc is accepted for RSA-OAEP");
+    assert_eq!(imported.key_type, KeyType::Public);
+
+    let mut sig = base;
+    sig.use_ = Some("sig".to_string());
+    let err = import_key(
+        KeyFormat::Jwk,
+        import_alg(RsaVariant::RsaOaep, HashAlgorithm::Sha256),
+        true,
+        vec![KeyUsage::Encrypt],
+        KeyData::Jwk(Box::new(sig)),
+    )
+    .expect_err("use=sig is rejected for RSA-OAEP");
+    assert!(matches!(err, AlgorithmError::Data(_)), "got {err:?}");
+}
+
+#[test]
+fn rsassa_jwk_use_enc_rejected() {
+    // The mirror guard: a signing-family `jwk` still requires `use` = "sig"
+    // (§20.8.4 step 4) — "enc" (the RSA-OAEP value) is a DataError, so the
+    // variant-aware `use` check did not loosen the signing families.
+    let (public, _private) = generate_pair(
+        RsaVariant::RsassaPkcs1V15,
+        HashAlgorithm::Sha256,
+        vec![KeyUsage::Sign, KeyUsage::Verify],
+    );
+    let mut jwk = expect_jwk(export_key(KeyFormat::Jwk, &public).expect("JWK export"));
+    jwk.use_ = Some("enc".to_string());
+    let err = import_key(
+        KeyFormat::Jwk,
+        import_alg(RsaVariant::RsassaPkcs1V15, HashAlgorithm::Sha256),
+        true,
+        vec![KeyUsage::Verify],
+        KeyData::Jwk(Box::new(jwk)),
+    )
+    .expect_err("use=enc is rejected for RSASSA-PKCS1-v1_5");
+    assert!(matches!(err, AlgorithmError::Data(_)), "got {err:?}");
+}
+
 // ---------------------------------------------------------------------------
 // encrypt / decrypt op-set (the aws-lc-rs backend, §22.4.1 / §22.4.2)
 // ---------------------------------------------------------------------------
