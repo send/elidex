@@ -11,8 +11,8 @@ use elidex_layout_block::paint_order::{collect_sc_participants, is_float_entity,
 use elidex_plugin::background::{BgRepeat, BgRepeatAxis};
 use elidex_plugin::transform_math::{resolve_child_perspective, Perspective};
 use elidex_plugin::{
-    BorderCollapse, BoxDecorationBreak, BoxModel, ComputedStyle, Display, EmptyCells, LayoutBox,
-    ListStyleType, MulticolInfo, Rect, Visibility, WritingMode,
+    BorderCollapse, BoxDecorationBreak, BoxModel, ComputedStyle, Display, EdgeSizes, EmptyCells,
+    LayoutBox, ListStyleType, MulticolInfo, Rect, Visibility, WritingMode,
 };
 use elidex_plugin::{Point, Vector};
 use elidex_style::counter::{apply_implicit_list_counters_from_dom, CounterState};
@@ -248,7 +248,26 @@ pub(crate) fn walk(
         let n = if single_box { 1 } else { store_frags.len() };
         let clips = style.clips_overflow();
         let slice = style.box_decoration_break == BoxDecorationBreak::Slice;
-        let wm = style.writing_mode;
+        // The slice break axis is the FRAGMENTATION CONTEXT's block-flow direction =
+        // the multicol container's writing mode (css-break-3: one block-flow direction
+        // from the fragmentation root, even if the fragmented child sets a different
+        // writing-mode). The consumable entity is the multicol's direct child by
+        // construction, so its parent IS the container. Single-box ⇒ no slicing, so the
+        // child's own writing mode is harmless there.
+        let frag_wm = if single_box {
+            style.writing_mode
+        } else {
+            ctx.dom
+                .get_parent(entity)
+                .and_then(|p| {
+                    ctx.dom
+                        .world()
+                        .get::<&ComputedStyle>(p)
+                        .ok()
+                        .map(|s| s.writing_mode)
+                })
+                .unwrap_or(style.writing_mode)
+        };
 
         // Per-iteration "content" inputs (loop-invariant). `child_perspective` is
         // box-anchored, so it is computed here (not hoisted); `children` / `is_sc` were
@@ -269,26 +288,42 @@ pub(crate) fn walk(
         #[allow(clippy::needless_range_loop)]
         for i in 0..n {
             let frag: &dyn BoxModel = if single_box { lb } else { &store_frags[i] };
-            // box-decoration-break: slice break edges + bg continuity offset (§2.4).
-            // clone / single-box (n == 1) ⇒ no omission, zero offset → byte-identical.
-            let (omit, bg_offset) = if slice && n > 1 {
-                (break_edges(i, n, wm), slice_bg_offset(wm, cum_block))
+            // box-decoration-break: slice (css-break-3 §5.4) — at each column break no
+            // border/padding is inserted and border-radius applies to the unbroken
+            // whole box. Build this fragment's paint geometry: omit the broken border
+            // edges, zero their padding (the sliced clip / bg box), square the broken
+            // corners, and offset the bg-position for tiling continuity (§5.4.1).
+            // clone / single-box (n == 1) ⇒ no slicing → byte-identical to pre-C-1.
+            let omit = if slice && n > 1 {
+                break_edges(i, n, frag_wm)
             } else {
-                ([false; 4], Vector::<f32>::ZERO)
+                [false; 4]
+            };
+            let sliced = omit.iter().any(|&o| o).then(|| sliced_box(frag, omit));
+            let paint_box: &dyn BoxModel = sliced.as_ref().map_or(frag, |s| s as &dyn BoxModel);
+            let radii = if sliced.is_some() {
+                square_broken_corners(style.border_radii, omit)
+            } else {
+                style.border_radii
+            };
+            let bg_offset = if slice && n > 1 {
+                slice_bg_offset(frag_wm, cum_block)
+            } else {
+                Vector::<f32>::ZERO
             };
 
             if is_visible && !skip_cell_paint {
                 emit_background(
-                    frag,
+                    paint_box,
                     style.background_color,
-                    style.border_radii,
+                    radii,
                     style.opacity,
                     bg_images.as_deref(),
                     style,
                     bg_offset,
                     ctx.dl,
                 );
-                emit_borders(frag, style, omit, ctx.dl);
+                emit_borders(paint_box, style, omit, ctx.dl);
 
                 // Per-entity replaced content / form / column rules: single-box only
                 // (a consumable multicol IFC mid-break carries none of these
@@ -352,11 +387,13 @@ pub(crate) fn walk(
                 }
             }
 
-            // overflow clipping → clip content to this fragment's padding box
-            // (CSS Overflow §3 / css-multicol-1 §8.1: per-column clip).
+            // overflow clipping → clip content to this fragment's (sliced) padding box
+            // (CSS Overflow §3 / css-multicol-1 §8.1: per-column clip; at a slice break
+            // the padding is removed, so adjacent columns' clips abut at the content
+            // edge).
             if clips {
                 ctx.dl.push(DisplayItem::PushClip {
-                    rect: frag.padding_box(),
+                    rect: paint_box.padding_box(),
                     radii: [0.0; 4],
                 });
             }
@@ -377,11 +414,12 @@ pub(crate) fn walk(
                 ctx.dl.push(DisplayItem::PopClip);
             }
 
-            // Accumulate the PADDING-box block extent — the background painting area
-            // is the padding box (`emit_background`), and slice inserts no border at a
-            // break (§5.4), so consecutive fragments' padding boxes are contiguous in
-            // the composite; the bg-position offset must be measured in that same box.
-            cum_block += block_axis_extent(frag.padding_box(), wm);
+            // Accumulate the (sliced) PADDING-box block extent — the background
+            // painting area is the padding box (`emit_background`), and slice inserts
+            // no border/padding at a break (§5.4), so consecutive fragments' sliced
+            // padding boxes are contiguous in the composite; the bg-position offset is
+            // measured in that same box, along the fragmentation block axis.
+            cum_block += block_axis_extent(paint_box.padding_box(), frag_wm);
         }
 
         if has_transform_push {
@@ -465,6 +503,72 @@ fn break_edges(i: usize, n: usize, wm: WritingMode) -> [bool; 4] {
     e[start_idx] = at_block_start;
     e[end_idx] = at_block_end;
     e
+}
+
+/// A box with the fragmentation-break edges' padding **and** border zeroed
+/// (css-break-3 §5.4: no border or padding is inserted at a break, so adjacent
+/// fragments' content abuts). The border is also painted-omitted via the `emit_*`
+/// `omit_edges`; this zeroing makes the geometry (border/padding boxes used for the
+/// bg fill area and the overflow clip) match. `omit` is the physical
+/// `[top, right, bottom, left]` break-edge mask.
+struct SlicedBox {
+    content: Rect,
+    padding: EdgeSizes,
+    border: EdgeSizes,
+    margin: EdgeSizes,
+}
+
+impl BoxModel for SlicedBox {
+    fn content(&self) -> Rect {
+        self.content
+    }
+    fn padding(&self) -> EdgeSizes {
+        self.padding
+    }
+    fn border(&self) -> EdgeSizes {
+        self.border
+    }
+    fn margin(&self) -> EdgeSizes {
+        self.margin
+    }
+}
+
+/// Build the [`SlicedBox`] for a fragment: zero the padding + border on each broken
+/// edge (css-break-3 §5.4). The non-broken (outer) edges keep their real values.
+fn sliced_box(frag: &dyn BoxModel, omit: [bool; 4]) -> SlicedBox {
+    let z = |v: f32, o: bool| if o { 0.0 } else { v };
+    let (p, b) = (frag.padding(), frag.border());
+    SlicedBox {
+        content: frag.content(),
+        padding: EdgeSizes::new(
+            z(p.top, omit[0]),
+            z(p.right, omit[1]),
+            z(p.bottom, omit[2]),
+            z(p.left, omit[3]),
+        ),
+        border: EdgeSizes::new(
+            z(b.top, omit[0]),
+            z(b.right, omit[1]),
+            z(b.bottom, omit[2]),
+            z(b.left, omit[3]),
+        ),
+        margin: frag.margin(),
+    }
+}
+
+/// Square the `border-radius` corners adjacent to a fragmentation break (css-break-3
+/// §5.4: `slice` applies border-radius to the unbroken whole box, so only its real
+/// outer corners are rounded — internal break corners are square). `radii` is
+/// `[top-left, top-right, bottom-right, bottom-left]`; `omit` is `[top, right,
+/// bottom, left]`. A corner is squared iff either of its two adjacent edges broke.
+fn square_broken_corners(radii: [f32; 4], omit: [bool; 4]) -> [f32; 4] {
+    let [top, right, bottom, left] = omit;
+    [
+        if top || left { 0.0 } else { radii[0] },     // top-left
+        if top || right { 0.0 } else { radii[1] },    // top-right
+        if bottom || right { 0.0 } else { radii[2] }, // bottom-right
+        if bottom || left { 0.0 } else { radii[3] },  // bottom-left
+    ]
 }
 
 /// Block-axis extent of a box under writing mode `wm` (height for a horizontal
@@ -749,12 +853,84 @@ fn is_cell_empty(dom: &EcsDom, entity: Entity) -> bool {
 
 #[cfg(test)]
 mod c1_helper_tests {
-    use super::{block_axis_extent, break_edges, slice_bg_offset};
-    use elidex_plugin::{Rect, Vector, WritingMode};
+    use super::{
+        block_axis_extent, break_edges, slice_bg_offset, sliced_box, square_broken_corners,
+    };
+    use elidex_plugin::{BoxModel, EdgeSizes, Rect, Vector, WritingMode};
 
     #[test]
     fn break_edges_single_box_has_no_breaks() {
         assert_eq!(break_edges(0, 1, WritingMode::HorizontalTb), [false; 4]);
+    }
+
+    #[test]
+    fn sliced_box_zeros_padding_and_border_on_broken_edges_only() {
+        // A middle fragment (top+bottom broken, horizontal-tb). The block-axis
+        // (top/bottom) padding + border are removed; the inline (left/right) keep theirs.
+        let base = TestBox {
+            content: Rect::new(0.0, 0.0, 100.0, 40.0),
+            padding: EdgeSizes::new(5.0, 6.0, 7.0, 8.0),
+            border: EdgeSizes::new(1.0, 2.0, 3.0, 4.0),
+            margin: EdgeSizes::default(),
+        };
+        let s = sliced_box(&base, [true, false, true, false]);
+        assert_eq!(
+            (s.padding().top, s.padding().bottom),
+            (0.0, 0.0),
+            "broken block-axis padding removed (§5.4: no padding at a break)"
+        );
+        assert_eq!(
+            (s.padding().left, s.padding().right),
+            (8.0, 6.0),
+            "inline padding preserved (not at a break)"
+        );
+        assert_eq!(
+            (s.border().top, s.border().bottom),
+            (0.0, 0.0),
+            "broken block-axis border removed"
+        );
+        assert_eq!((s.border().left, s.border().right), (4.0, 2.0));
+    }
+
+    #[test]
+    fn square_broken_corners_squares_corners_touching_a_break() {
+        // top broken ⇒ both top corners square; bottom unbroken ⇒ stay rounded.
+        assert_eq!(
+            square_broken_corners([5.0, 6.0, 7.0, 8.0], [true, false, false, false]),
+            [0.0, 0.0, 7.0, 8.0]
+        );
+        // top+bottom broken (a middle fragment) ⇒ all four corners square.
+        assert_eq!(
+            square_broken_corners([5.0, 6.0, 7.0, 8.0], [true, false, true, false]),
+            [0.0; 4]
+        );
+        // no break ⇒ radii unchanged.
+        assert_eq!(
+            square_broken_corners([5.0, 6.0, 7.0, 8.0], [false; 4]),
+            [5.0, 6.0, 7.0, 8.0]
+        );
+    }
+
+    /// A minimal [`BoxModel`] for the sliced-geometry unit tests.
+    struct TestBox {
+        content: Rect,
+        padding: EdgeSizes,
+        border: EdgeSizes,
+        margin: EdgeSizes,
+    }
+    impl BoxModel for TestBox {
+        fn content(&self) -> Rect {
+            self.content
+        }
+        fn padding(&self) -> EdgeSizes {
+            self.padding
+        }
+        fn border(&self) -> EdgeSizes {
+            self.border
+        }
+        fn margin(&self) -> EdgeSizes {
+            self.margin
+        }
     }
 
     #[test]
