@@ -35,7 +35,7 @@ pub(in crate::block) fn shift_block_children(
     };
     // Margin-collapse is an ancestor reposition of an already-built subtree, so a
     // standalone box fragment under it moves too (no own-fragment exclusion).
-    shift_descendants_inner(dom, children, v, true, None, is_probe);
+    shift_descendants_inner(dom, children, v, true, None, None, is_probe);
 }
 
 /// Shift descendants by (dx, dy), used to reposition float/positioned contents
@@ -47,7 +47,7 @@ pub(in crate::block) fn shift_block_children(
 /// `is_probe` — see the `shift_descendants_inner` docs: during a throwaway probe
 /// pass only the `LayoutBox` is shifted, the persisted render state is left put.
 pub fn shift_descendants(dom: &mut EcsDom, children: &[Entity], delta: Vector, is_probe: bool) {
-    shift_descendants_inner(dom, children, delta, false, None, is_probe);
+    shift_descendants_inner(dom, children, delta, false, None, None, is_probe);
 }
 
 /// Like [`shift_descendants`], but does **not** move the standalone box fragments
@@ -63,6 +63,18 @@ pub fn shift_descendants(dom: &mut EcsDom, children: &[Entity], delta: Vector, i
 /// exclusion is per-entity (this multicol's own snapshots), NOT the whole subtree.
 /// `LayoutBox`/`InlineFlow` are born-at-base and always shift to the column.
 ///
+/// `exclude_subtrees` — entity roots whose **entire subtree** is pruned from this
+/// walk (the `LayoutBox` shift, the persisted-state shift, AND the descent are all
+/// skipped). Used by `position_column_fragments` for a multicol's **mid-break
+/// atomics** (terminal-Z C-2): an atomic is repositioned wholesale by
+/// `reposition_atomic_box` from its raw un-offset basis to a born-absolute target
+/// (the folded `inline_start` already carries the column inline offset), and that
+/// reposition shifts the atomic's whole subtree. So the generic column shift must
+/// not touch the atomic OR its descendants — letting it through would double-apply
+/// the column offset (root) and double-shift the content (descendants). Distinct
+/// from `own`, which excludes only the box-*fragment* arm for an entity whose
+/// `LayoutBox`/descendants still shift.
+///
 /// `is_probe` — see the `shift_descendants_inner` docs. Under a probe the
 /// persisted-state shift is skipped for ALL entities (probe-skip dominates), so
 /// `own` is irrelevant then; only the `LayoutBox` measurement geometry moves.
@@ -72,9 +84,18 @@ pub fn shift_descendants_excluding_own_fragments(
     children: &[Entity],
     delta: Vector,
     own: &HashSet<Entity>,
+    exclude_subtrees: &HashSet<Entity>,
     is_probe: bool,
 ) {
-    shift_descendants_inner(dom, children, delta, false, Some(own), is_probe);
+    shift_descendants_inner(
+        dom,
+        children,
+        delta,
+        false,
+        Some(own),
+        Some(exclude_subtrees),
+        is_probe,
+    );
 }
 
 /// Iterative tree walk that shifts `LayoutBox` (and persisted `InlineFlow`)
@@ -84,7 +105,10 @@ pub fn shift_descendants_excluding_own_fragments(
 /// are shifted; non-block children are skipped (but their descendants are still
 /// walked). `exclude_fragments_for` skips the standalone fragment-tree shift for
 /// the listed entities (a multicol's own born-absolute snapshots); `None` shifts
-/// every fragment (the ancestor-reposition case).
+/// every fragment (the ancestor-reposition case). `exclude_subtrees` prunes the
+/// listed entity roots entirely — neither the root's `LayoutBox`/persisted state
+/// nor any descendant is shifted, and the descent stops at the root (a multicol's
+/// born-absolute mid-break atomics, repositioned wholesale elsewhere; C-2).
 ///
 /// `is_probe` (P1 completion, Z-1b-0.5) — the shifter runs inside a **throwaway
 /// measurement pass** (intrinsic sizing / 2-pass flex·grid·table re-measure /
@@ -122,10 +146,18 @@ fn shift_descendants_inner(
     delta: Vector,
     block_only: bool,
     exclude_fragments_for: Option<&HashSet<Entity>>,
+    exclude_subtrees: Option<&HashSet<Entity>>,
     is_probe: bool,
 ) {
     let mut stack: Vec<Entity> = children.to_vec();
     while let Some(child) = stack.pop() {
+        // A pruned subtree root (a born-absolute mid-break atomic, C-2): skip the
+        // shift AND the descent — `reposition_atomic_box` already moves the whole
+        // subtree to its born-absolute target, so any shift here would double-apply
+        // the column offset (root) / double-shift the content (descendants).
+        if exclude_subtrees.is_some_and(|s| s.contains(&child)) {
+            continue;
+        }
         let skip_shift = block_only
             && !crate::try_get_style(dom, child).is_some_and(|s| is_block_level(s.display));
         if !skip_shift {

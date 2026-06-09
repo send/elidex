@@ -59,6 +59,13 @@ pub struct FragmentSnapshot {
     pub box_fragment: BoxFragment,
     /// Drained per-run-start IFC lines for this column (Z-1b InlineFlow source).
     pub flow_groups: Vec<(Entity, Vec<InlineFlowLine>)>,
+    /// Drained mid-break atomics to reposition for this column (terminal-Z C-2):
+    /// `(entity, inline_abs, block_abs, un-offset origin)` at column-0 base, covering
+    /// both static (flow-member) and relpos/sticky (non-member) atomics uniformly.
+    /// `position_column_fragments` adds the column inline offset and moves each
+    /// atomic's `LayoutBox` to its per-column on-line position (preserving any baked
+    /// relative offset).
+    pub atomic_repositions: Vec<(Entity, f32, f32, Point)>,
 }
 
 /// Snapshot an entity's current `LayoutBox` as a [`BoxFragment`] (box-model
@@ -218,15 +225,15 @@ pub fn fill_columns_sequential(
                 // folds these per-run-start lines into the run-start's `InlineFlow`,
                 // offset to the column's inline position (Z-1b Option D). Drained-only
                 // — render never reads `ColumnFlowSlice`; empty for a non-IFC span.
-                let flow_groups = dom
+                let carrier = dom
                     .world_mut()
                     .remove_one::<ColumnFlowSlice>(entity)
-                    .map(|c| c.0)
                     .unwrap_or_default();
                 box_snapshots.push(FragmentSnapshot {
                     entity,
                     box_fragment: bf,
-                    flow_groups,
+                    flow_groups: carrier.flow_groups,
+                    atomic_repositions: carrier.atomic_repositions,
                 });
             }
         }

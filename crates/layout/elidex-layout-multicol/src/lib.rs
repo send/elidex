@@ -8,6 +8,7 @@ pub mod algo;
 mod fill;
 
 use elidex_ecs::{EcsDom, Entity, InlineFlow};
+use elidex_layout_block::inline::reposition_atomic_box;
 use elidex_layout_block::{
     adjust_min_max_for_border_box, clamp_min_max, composed_children_flat, resolve_dimension_value,
     resolve_padding, sanitize_border, ChildLayoutFn, LayoutInput, LayoutOutcome,
@@ -450,6 +451,28 @@ fn position_column_fragments(
         .iter()
         .flat_map(|f| f.box_snapshots.iter().map(|s| s.entity))
         .collect();
+    // Axis the atomic reposition projects inline↔physical onto (C-2), from the
+    // multicol element's own `wm` (`style.writing_mode`). This is the SAME axis the
+    // existing per-column `InlineFlow` line-fold below uses (`inline_offset` added on
+    // the inline axis), so the atomic path stays consistent with the text path. Both
+    // assume the mid-break IFC's writing mode equals the multicol's — a pre-existing
+    // shared assumption (the carried `inline_abs`/`block_abs` were folded with the
+    // IFC's own `is_vertical` in-line); an orthogonal IFC writing mode is a
+    // pre-existing limitation of this seam, not introduced or widened by C-2.
+    let is_vertical = !wm.is_horizontal();
+    // Every mid-break atomic (static + relpos) across ALL columns: its `LayoutBox`
+    // is repositioned wholesale to a born-absolute target below (the folded
+    // `inline_start` already carries the column inline offset), so its WHOLE subtree
+    // must be PRUNED from the per-column generic shift — otherwise the column offset
+    // is double-applied (root) and the content double-shifted (descendants). Global
+    // (not per-column) because the per-column continuation re-lay can leave one
+    // atomic in several columns' `frag.children`, so it must be pruned from every
+    // column's shift, not just its own (C-2 §2.3).
+    let atomic_exclude: std::collections::HashSet<Entity> = frags
+        .iter()
+        .flat_map(|f| f.box_snapshots.iter())
+        .flat_map(|s| s.atomic_repositions.iter().map(|(e, _, _, _)| *e))
+        .collect();
     // Drop any prior-lay store fragments for this multicol's direct children before
     // re-committing (Codex PR#321 R4-F4 + R6-F1): a same-pass definitive re-lay can
     // SHRINK an entity's span (3 columns → 2 — orphaned higher-column nodes), or
@@ -537,6 +560,12 @@ fn position_column_fragments(
                         entry.push(l);
                     }
                 }
+                // Reposition this column's mid-break atomics' `LayoutBox`es to their
+                // per-column on-line positions (C-2). `!is_probe`-gated by this commit
+                // block (definitive pass only) ⇒ probe-mutation-free; the atomics are
+                // pruned from the per-column shift (`atomic_exclude`), so each is moved
+                // exactly once, here, to its born-absolute target.
+                reposition_midbreak_atomics(dom, snap, inline_offset, is_vertical);
             }
         }
 
@@ -571,6 +600,7 @@ fn position_column_fragments(
             &frag.children,
             delta,
             &own,
+            &atomic_exclude,
             is_probe,
         );
     }
@@ -608,6 +638,38 @@ fn position_column_fragments(
         let _ = dom
             .world_mut()
             .insert_one(run_start, InlineFlow::single(layout_generation, lines));
+    }
+}
+
+/// Reposition one column's mid-break atomics' `LayoutBox`es to their per-column
+/// on-line positions (terminal-Z C-2), reusing the canonical
+/// [`reposition_atomic_box`]. `inline_offset` is this column's inline position
+/// (added to each atomic's carried column-0-base inline coord ⇒ born-absolute
+/// target); `is_vertical` is the multicol element's own writing-mode axis. Called
+/// only from the definitive-pass commit block (so it is probe-mutation-free), and
+/// each atomic is pruned from the generic per-column shift (`atomic_exclude`), so
+/// this is the SOLE mover of the atomic + its subtree.
+///
+/// One uniform loop over the carried records covers both **static** (also flow
+/// members) and **relpos/sticky** (non-member) atomics — the seam moves every atomic
+/// the same way. The block coord needs no column offset (columns share a block
+/// range); the basis preserves any baked relative offset.
+fn reposition_midbreak_atomics(
+    dom: &mut EcsDom,
+    snap: &fill::FragmentSnapshot,
+    inline_offset: f32,
+    is_vertical: bool,
+) {
+    for &(atomic, inline_abs, block_abs, basis) in &snap.atomic_repositions {
+        reposition_atomic_box(
+            dom,
+            atomic,
+            inline_abs + inline_offset,
+            block_abs,
+            is_vertical,
+            Some(basis),
+            false,
+        );
     }
 }
 

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use hecs::Entity;
 use indexmap::IndexMap;
 
-use elidex_plugin::{Size, Vector};
+use elidex_plugin::{Point, Size, Vector};
 
 /// Generate string-keyed map accessor methods for a struct wrapping an `IndexMap<String, String>`.
 macro_rules! impl_string_map {
@@ -362,8 +362,27 @@ impl InlineFlowRun {
 /// side-store→component rule), not a side-store. A stray write that is never
 /// drained is benign (render never reads it); the IFC reconciles it insert-or-
 /// remove each pass, mirroring `clear_inline_flows`.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ColumnFlowSlice(pub Vec<(Entity, Vec<InlineFlowLine>)>);
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ColumnFlowSlice {
+    /// Per-run-start folded lines for this column (Z-1b Option D). The sink
+    /// `position_column_fragments` builds each run-start's `InlineFlow` from.
+    pub flow_groups: Vec<(Entity, Vec<InlineFlowLine>)>,
+    /// Mid-break atomics to reposition at the multicol seam (terminal-Z C-2), as
+    /// `(entity, inline_abs, block_abs, unoffset_origin)` — the on-line target (IFC-
+    /// absolute physical coords at **column-0 base**) plus the reposition delta basis
+    /// (the un-offset margin-box origin `layout_atomic_items` returned, which differs
+    /// from the box origin under an asymmetric writing mode, so it cannot be
+    /// reconstructed at the seam). `position_column_fragments` adds the column's
+    /// inline offset to `inline_abs` and moves each atomic's `LayoutBox` there,
+    /// preserving any baked relative offset (basis = un-offset origin).
+    ///
+    /// Holds BOTH **static** atomics (also `AtomicBox` flow members in `flow_groups`,
+    /// but their box is repositioned via this record so the seam needs no second walk
+    /// of the runs) and **relpos/sticky** atomics (NOT flow members — render Layer 6
+    /// paints the positioned box, so a member would double-paint). One uniform record
+    /// for both: the seam moves every atomic the same way, regardless of kind.
+    pub atomic_repositions: Vec<(Entity, f32, f32, Point)>,
+}
 
 /// Inline style declarations on an element.
 ///
