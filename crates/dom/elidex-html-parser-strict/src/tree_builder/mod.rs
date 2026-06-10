@@ -167,6 +167,33 @@ impl TreeBuilder {
         context: Entity,
         opts: ParseFragmentOptions,
     ) -> (Result<Vec<Entity>, StrictParseError>, EcsDom) {
+        // §13.4: a non-HTML-namespace context element (an SVG / MathML host's
+        // innerHTML) needs the foreign-content initial conditions — step 15
+        // pushes the context element so the adjusted current node is foreign
+        // and integration points seed from it. Slice 2a does not implement
+        // that (`#11-strict-fragment-foreign-context`); the synthetic root is
+        // HTML-namespace, so the parse would silently route the fragment
+        // through HTML insertion and return an HTML-namespaced tree a
+        // strict-first caller cannot tell is wrong. Abort *before* creating any
+        // synthetic node (dom untouched) so the dispatcher falls back to the
+        // tolerant backend over a pristine dom.
+        if dom.namespace_of(context) != Namespace::Html {
+            return (
+                Err(unsupported_fragment_construct(
+                    "fragment-context-non-html-namespace-unsupported",
+                )),
+                dom,
+            );
+        }
+        // The whole §13.4 build happens on a synthetic throwaway document, never
+        // the caller's connected tree, so suppress mutation dispatch for its
+        // duration: appending the synthetic root under a `Document` would
+        // otherwise fire insert/remove events (`is_connected` treats any
+        // `Document` root as connected), letting custom-element / observer /
+        // Range consumers react to internal fragment nodes the caller has not
+        // yet placed — and observe their teardown. The caller's own placement
+        // of the returned detached nodes fires the real events; restored below.
+        let saved_dispatcher = dom.take_mutation_dispatcher();
         // §13.4 steps 2 + 11-13: a throwaway Document holding a single
         // synthetic `<html>` root, which is the sole entry on the stack of
         // open elements. The fragment's nodes are the root's children and are
@@ -228,6 +255,11 @@ impl TreeBuilder {
                 Err(err)
             }
         };
+        // Restore the suppressed dispatcher before handing the dom back, so the
+        // caller's placement of the returned detached nodes fires events.
+        if let Some(dispatcher) = saved_dispatcher {
+            tb.dom.set_mutation_dispatcher(dispatcher);
+        }
         (result, tb.dom)
     }
 
@@ -423,6 +455,19 @@ impl TreeBuilder {
 /// parse-error condition `name`. Returned (not stored) — the first error
 /// returned from a handler aborts the whole parse.
 pub(super) fn parse_error(name: &str) -> StrictParseError {
+    StrictParseError {
+        errors: vec![name.to_string()],
+    }
+}
+
+/// Build a terminal [`StrictParseError`] for a §13.4 fragment construct strict
+/// does not yet faithfully support — a non-HTML-namespace context element, or a
+/// declarative shadow root that would attach to the external context. Like a
+/// [`parse_error`] it aborts the parse, but it signals "strict declines, fall
+/// back to the tolerant backend", not a WHATWG HTML §13.2.2 non-conformance;
+/// `name` is diagnostic only. The full support for each lands behind its own
+/// slot (foreign context / `setHTMLUnsafe` DSD-on-context in slice 2b).
+pub(super) fn unsupported_fragment_construct(name: &str) -> StrictParseError {
     StrictParseError {
         errors: vec![name.to_string()],
     }

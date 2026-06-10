@@ -8,7 +8,10 @@
 //! cross-checked against the html5lib `#document` serialization (the
 //! corpus-driven cases live in `tests_html5lib_tree`).
 
-use elidex_ecs::{Attributes, EcsDom, Entity};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+
+use elidex_ecs::{Attributes, EcsDom, Entity, MutationDispatcher, MutationEvent, Namespace};
 
 use super::tests::serialize_fragment as serialize_roots;
 use crate::{parse_fragment_strict, ParseFragmentOptions};
@@ -366,5 +369,114 @@ fn rollback_despawns_shadow_root_with_no_leak() {
         dom.world().len(),
         live_before,
         "rollback despawns the whole subtree incl. the shadow root — no leak"
+    );
+}
+
+// ----- a non-HTML-namespace context element is declined (not silently
+// HTML-namespaced), so a strict-first dispatcher can fall back -----
+
+#[test]
+fn foreign_namespace_context_is_rejected_leaving_dom_pristine() {
+    // An SVG / MathML host's innerHTML needs the foreign-content initial
+    // conditions slice 2a does not implement
+    // (`#11-strict-fragment-foreign-context`). Rather than route the fragment
+    // through HTML insertion and return a silently HTML-namespaced tree the
+    // caller cannot tell is wrong, strict aborts so the caller falls back to
+    // the tolerant backend — over a dom untouched by any synthetic node.
+    let mut dom = EcsDom::new();
+    let svg_ctx = dom.create_element_ns("svg", Namespace::Svg, Attributes::default(), None);
+    let live_before = dom.world().len();
+
+    let result = parse_fragment_strict(
+        "<circle></circle>",
+        svg_ctx,
+        &mut dom,
+        ParseFragmentOptions::default(),
+    );
+
+    assert!(result.is_err(), "a foreign-namespace context is declined");
+    assert_eq!(
+        dom.world().len(),
+        live_before,
+        "decline creates no synthetic node — dom is pristine for fallback"
+    );
+}
+
+// ----- a top-level declarative-shadow template (host = external context) is
+// declined; a nested one (host = in-fragment element) still attaches -----
+
+#[test]
+fn top_level_declarative_shadow_on_context_is_rejected() {
+    // §13.2.4.2: with only the synthetic root on the stack the adjusted
+    // current node is the *external* context. Step 10.1 would attach a shadow
+    // root to it, mutating the caller's context — forbidden by 2a's
+    // read-only-context isolation (rollback could not undo it). Strict aborts
+    // so the caller falls back; faithful DSD-on-context is
+    // `#11-strict-fragment-declarative-shadow-on-context` (slice 2b
+    // `setHTMLUnsafe`, which owns context mutation).
+    let mut dom = EcsDom::new();
+    let ctx = dom.create_element("div", Attributes::default());
+    let opts = ParseFragmentOptions {
+        allow_declarative_shadow: true,
+    };
+    let live_before = dom.world().len();
+
+    let result = parse_fragment_strict(
+        "<template shadowrootmode=\"open\"><p>s</p></template>",
+        ctx,
+        &mut dom,
+        opts,
+    );
+
+    assert!(result.is_err(), "a context-hosted DSD template is declined");
+    assert!(
+        dom.get_shadow_root(ctx).is_none(),
+        "the context element is never given a shadow root"
+    );
+    assert_eq!(
+        dom.world().len(),
+        live_before,
+        "decline rolls the synthetic subtree back — dom is pristine for fallback"
+    );
+}
+
+// ----- the synthetic build fires no mutation events (isolation) -----
+
+#[test]
+fn fragment_build_suppresses_mutation_dispatch() {
+    // Building the synthetic throwaway document on a live dom with a
+    // dispatcher installed must fire no insert/remove events: `is_connected`
+    // treats any `Document` root as connected, so consumers (custom elements,
+    // observers, Range) would otherwise observe internal fragment nodes the
+    // caller has not yet placed, then observe their teardown.
+    struct Recorder {
+        count: Arc<AtomicUsize>,
+    }
+    impl MutationDispatcher for Recorder {
+        fn dispatch(&mut self, _event: &MutationEvent<'_>, _dom: &mut EcsDom) {
+            self.count.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    let mut dom = EcsDom::new();
+    let ctx = dom.create_element("div", Attributes::default());
+    let count = Arc::new(AtomicUsize::new(0));
+    dom.set_mutation_dispatcher(Box::new(Recorder {
+        count: count.clone(),
+    }));
+
+    let roots = parse_fragment_strict(
+        "<section><p>a</p></section>",
+        ctx,
+        &mut dom,
+        ParseFragmentOptions::default(),
+    )
+    .expect("valid fragment parses");
+    assert!(!roots.is_empty(), "the fragment produced nodes");
+
+    assert_eq!(
+        count.load(Ordering::SeqCst),
+        0,
+        "no mutation event fires during the isolated synthetic build"
     );
 }
