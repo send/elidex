@@ -239,8 +239,9 @@ impl ScriptEngine for ElidexJsEngine {
         // 1. Resolve the listener function ObjectId from HostData's
         //    listener_store.  A miss means the listener was removed
         //    between dispatch-plan freezing and this invocation —
-        //    silently no-op (matches WHATWG DOM §2.10 step 5.4 "if
-        //    listener's removed is true, then continue").
+        //    silently no-op (matches WHATWG DOM §2.9 "inner invoke"
+        //    step 2, which processes only listeners "whose removed is
+        //    false").
         let Some(host) = self.vm.host_data() else {
             return;
         };
@@ -314,7 +315,8 @@ impl ScriptEngine for ElidexJsEngine {
 
     fn drain_reactions(&mut self, _ctx: &mut ScriptContext<'_>) {
         // The post-dispatch checkpoint `script_dispatch_event` runs after the
-        // 3-phase listener walk (WHATWG DOM §2.10): deliver the same-window
+        // 3-phase listener walk (WHATWG DOM §2.9 "Dispatching events"): deliver
+        // the same-window
         // tasks the listeners enqueued (`postMessage`, IndexedDB completions,
         // coalesced `selectionchange`) AND drain the custom-element reactions
         // (WHATWG HTML §4.13.6) their DOM mutations enqueued. boa's
