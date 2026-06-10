@@ -72,6 +72,22 @@ impl ElidexJsEngine {
     /// because the type system cannot enforce this; `Vm::bind` is itself
     /// `unsafe` for the same reason, and a safe wrapper would silently expose
     /// that precondition to safe callers.
+    ///
+    /// **Known soundness gap — event dispatch (slot
+    /// `#11-bound-safe-dispatch-dom-aliasing`).** Driving event dispatch under
+    /// a batch bracket relies on the bound `*mut dom` and the `&mut ctx.dom`
+    /// reborrows inside the shared `script_dispatch_event`
+    /// (`elidex-script-session` — dispatch-path build, retarget, and `{once}`
+    /// removal between `call_listener` calls) referring to the same `EcsDom`.
+    /// That is a Stacked-Borrows aliasing violation — pre-existing in the VM
+    /// dispatch path since the dispatch-integration tests landed (`Vm::bind` +
+    /// `script_dispatch_event`), not introduced here. It does not miscompile
+    /// today but is unsound under strict aliasing. The principled fix is a
+    /// bound-safe dispatch API that does not reborrow the bound DOM, designed
+    /// when the shell wires dispatch bracketing (S5); until then, only `eval` /
+    /// `drain_*` bracketing — the assume-bound trait methods that never touch
+    /// `ctx` — is fully sound. Do not treat dispatch bracketing as settled by
+    /// this contract.
     #[allow(unsafe_code)]
     pub unsafe fn bind(&mut self, ctx: &mut ScriptContext<'_>) {
         debug_assert!(
