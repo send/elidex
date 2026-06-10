@@ -36,12 +36,14 @@ mod tests;
 #[cfg(test)]
 mod tests_foreign;
 #[cfg(test)]
+mod tests_fragment;
+#[cfg(test)]
 mod tests_html5lib_tree;
 
-use elidex_ecs::{EcsDom, Entity, Namespace};
+use elidex_ecs::{Attributes, EcsDom, Entity, Namespace};
 
-use crate::result::{ParseResult, ParseTier};
-use crate::tokenizer::states::Tokenizer;
+use crate::result::{ParseFragmentOptions, ParseResult, ParseTier};
+use crate::tokenizer::states::{State, Tokenizer};
 use crate::tokenizer::token::Token;
 use crate::StrictParseError;
 
@@ -83,10 +85,10 @@ pub(crate) struct TreeBuilder {
     /// or (strict) reject.
     pending_table_text: String,
     /// The Document's "allow declarative shadow roots" flag (§13.2.6.4.4
-    /// step 9). Always `true` here: document parsing allows declarative
-    /// shadow roots. (Strict *fragment* parsing — which would thread
-    /// [`crate::ParseFragmentOptions::allow_declarative_shadow`] in here —
-    /// is not implemented; fragment parsing uses the tolerant compat path.)
+    /// step 9). `true` for document parsing (always allowed); for §13.4
+    /// fragment parsing it carries
+    /// [`crate::ParseFragmentOptions::allow_declarative_shadow`]
+    /// (HTML §13.4 step 6).
     allow_declarative_shadow: bool,
 }
 
@@ -127,10 +129,188 @@ impl TreeBuilder {
         TreeBuilder::new(html, allow).run()
     }
 
+    /// Parse `html` as an HTML fragment in the given `context` element's
+    /// context (WHATWG HTML §13.4 "Parsing HTML fragments"), returning the
+    /// fragment's top-level nodes **detached** (parentless) in `dom` — the
+    /// spec's "return root's children" (step 20). The caller places them.
+    ///
+    /// `context` is read-only (its tag, namespace, and ancestor chain select
+    /// the tokenizer state, insertion mode, and form pointer); it is never
+    /// mutated. On a parse error the partial subtree is torn down and `dom` is
+    /// left pristine, so a strict-then-tolerant dispatcher can fall back over
+    /// an uncontaminated dom. Wired through [`crate::parse_fragment_strict`].
+    pub(crate) fn build_fragment(
+        html: &str,
+        dom: &mut EcsDom,
+        context: Entity,
+        opts: ParseFragmentOptions,
+    ) -> Result<Vec<Entity>, StrictParseError> {
+        // The tree builder owns its `EcsDom`, but fragment parsing must build
+        // into the caller's live dom (where `context` and its ancestors live).
+        // Move the caller's dom into the builder and back out afterwards — a
+        // behaviour-preserving ownership shuffle that keeps construction
+        // identical to document parsing (only the dom source differs) without
+        // threading a lifetime through every mode handler. The placeholder
+        // `EcsDom::new()` is dropped on the move-back.
+        let owned = std::mem::replace(dom, EcsDom::new());
+        let (result, returned) = Self::run_fragment(html, owned, context, opts);
+        *dom = returned;
+        result
+    }
+
+    /// Body of [`Self::build_fragment`]: set up the §13.4 fragment initial
+    /// conditions on a builder that owns `dom`, drive tree construction, and
+    /// return both the result and the (moved) dom.
+    fn run_fragment(
+        html: &str,
+        mut dom: EcsDom,
+        context: Entity,
+        opts: ParseFragmentOptions,
+    ) -> (Result<Vec<Entity>, StrictParseError>, EcsDom) {
+        // §13.4 steps 2 + 11-13: a throwaway Document holding a single
+        // synthetic `<html>` root, which is the sole entry on the stack of
+        // open elements. The fragment's nodes are the root's children and are
+        // returned detached (step 20); the document + root are torn down. The
+        // Document (not the bare element) is the root's owner so that foreign
+        // (SVG / MathML) elements created during the parse get a valid owner
+        // document (§13.2.6.1) — `create_element_ns` requires a Document owner.
+        // A throwaway Document — created cache-free (`create_document_node`,
+        // NOT `create_document_root`) so it never clobbers the caller's
+        // persistent `document_root` cache, which it would then leave dangling
+        // when despawned.
+        let document = dom.create_document_node();
+        let root = dom.create_element("html", Attributes::default());
+        debug_assert!(
+            dom.append_child(document, root),
+            "appending a fresh root to a fresh document cannot fail"
+        );
+        let mut state = ParseState::new();
+        state.open_elements.push(root);
+        // §13.4 step 16 substitution source (consumed by
+        // `reset_insertion_mode_appropriately`).
+        state.fragment_context = Some(context);
+        // §13.4 step 14: a `template` context seeds the template insertion
+        // mode stack so a `</template>` / table reset resolves correctly.
+        if dom.has_tag(context, "template") {
+            state.template_modes.push(InsertionMode::InTemplate);
+        }
+        let mut tb = TreeBuilder {
+            tokenizer: Tokenizer::new(html),
+            dom,
+            document,
+            state,
+            pending_text: String::new(),
+            pending_table_text: String::new(),
+            allow_declarative_shadow: opts.allow_declarative_shadow,
+        };
+        tb.set_fragment_tokenizer_state(context); // §13.4 step 10
+        tb.reset_insertion_mode_appropriately(); // §13.4 step 16
+        tb.set_fragment_form_pointer(context); // §13.4 step 17
+        let result = match tb.drive() {
+            Ok(()) => Ok(tb.take_fragment_children(root)),
+            Err(err) => {
+                // Rollback. Any consumed declarative-shadow template still on
+                // the stack (its `</template>` never arrived) is stack-only —
+                // not reachable from `document` — so despawn those first, then
+                // tear the whole throwaway document subtree out. The caller's
+                // dom is left with no orphaned live entities.
+                let stack_only_templates: Vec<Entity> = tb
+                    .state
+                    .open_elements
+                    .iter()
+                    .copied()
+                    .filter(|e| tb.state.template_content_targets.contains_key(e))
+                    .collect();
+                for template in stack_only_templates {
+                    let _ = tb.dom.destroy_entity(template);
+                }
+                let _ = tb.dom.despawn_subtree(document);
+                Err(err)
+            }
+        };
+        (result, tb.dom)
+    }
+
+    /// §13.4 step 20: return the synthetic root's children — detached
+    /// (parentless) live nodes — in tree order, then tear down the throwaway
+    /// document + root.
+    ///
+    /// `destroy_entity` orphans a node's children (clears their parent/sibling
+    /// links, leaving them live) before despawning the node itself, so
+    /// destroying the root *is* the detach: the children survive parentless and
+    /// the root is gone. The now-childless document is despawned after.
+    fn take_fragment_children(&mut self, root: Entity) -> Vec<Entity> {
+        let children = self.dom.children(root);
+        let _ = self.dom.destroy_entity(root);
+        let _ = self.dom.destroy_entity(self.document);
+        children
+    }
+
+    /// §13.4 step 10: switch the tokenizer's initial state from the context
+    /// element's tag — `title`/`textarea` → RCDATA, `style`/`xmp`/`iframe`/
+    /// `noembed`/`noframes`/`noscript` → RAWTEXT (`noscript` because v1
+    /// scripting is enabled, i.e. scriptingMode ≠ Disabled), `script` →
+    /// script data, `plaintext` → PLAINTEXT, anything else → Data (left as-is).
+    ///
+    /// No "last start tag" is recorded, so per the §13.4 note there is no
+    /// appropriate end tag in the fragment case: raw-text content runs to EOF
+    /// (e.g. a `title`-context `</title>` is literal text, not a close).
+    fn set_fragment_tokenizer_state(&mut self, context: Entity) {
+        let state = self.dom.with_tag_name(context, |tag| match tag {
+            Some("title" | "textarea") => State::Rcdata,
+            Some("style" | "xmp" | "iframe" | "noembed" | "noframes" | "noscript") => {
+                State::Rawtext
+            }
+            Some("script") => State::ScriptData,
+            Some("plaintext") => State::Plaintext,
+            _ => State::Data,
+        });
+        if !matches!(state, State::Data) {
+            self.tokenizer.set_state(state);
+        }
+    }
+
+    /// §13.4 step 17: set the form element pointer to the nearest `form`
+    /// element on the context element's inclusive ancestor chain, if any.
+    fn set_fragment_form_pointer(&mut self, context: Entity) {
+        let mut node = Some(context);
+        while let Some(entity) = node {
+            if self.dom.has_tag(entity, "form") {
+                self.state.form_pointer = Some(entity);
+                return;
+            }
+            node = self.dom.get_parent(entity);
+        }
+    }
+
+    /// Whether this parse was created for the §13.4 HTML fragment parsing
+    /// algorithm (the spec's "fragment case"). The canonical predicate for a
+    /// mode handler whose fragment-case branch is not already distinguishable
+    /// by stack shape — currently the "after body" `</html>` rule
+    /// ([`modes::after_body`]), which rejects in the fragment case where
+    /// document parsing transitions to "after after body". (Some fragment-case
+    /// rules the spec phrases as stack-shape tests, e.g. "in frameset"'s
+    /// "current node is the root html element", stay expressed that way.)
+    pub(super) fn is_fragment(&self) -> bool {
+        self.state.fragment_context.is_some()
+    }
+
+    /// Parse a full document: drive tree construction to "stop parsing", then
+    /// move the finished tree into a [`ParseResult`].
+    fn run(mut self) -> Result<ParseResult, StrictParseError> {
+        self.drive()?;
+        Ok(self.into_result())
+    }
+
     /// The §13.2.6 tree-construction driver loop: pull tokens and dispatch
     /// each to the current insertion mode, reprocessing across mode switches,
-    /// until a mode reaches "stop parsing".
-    fn run(mut self) -> Result<ParseResult, StrictParseError> {
+    /// until a mode reaches "stop parsing" (returns `Ok(())`).
+    ///
+    /// Shared by document parsing ([`Self::run`]) and §13.4 fragment parsing
+    /// ([`Self::build_fragment`]); only what each does with the finished tree
+    /// differs (a [`ParseResult`] vs. the fragment root's detached children),
+    /// not how tokens are driven.
+    fn drive(&mut self) -> Result<(), StrictParseError> {
         loop {
             // §13.2.5.42 tokenizer feedback: mirror the adjusted current
             // node's namespace to the tokenizer so it recognizes `<![CDATA[`
@@ -166,7 +346,7 @@ impl TreeBuilder {
                     Flow::Stop => {
                         // Any trailing character run was flushed above (EOF is
                         // not a character token); nothing left to coalesce.
-                        return Ok(self.into_result());
+                        return Ok(());
                     }
                 }
             }

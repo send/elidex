@@ -121,6 +121,55 @@ fn destroy_shadow_root_does_not_crash() {
     assert_eq!(dom.get_shadow_root(host), None);
 }
 
+// --- despawn_subtree ---
+
+#[test]
+fn despawn_subtree_destroys_whole_light_tree() {
+    let mut dom = EcsDom::new();
+    let root = elem(&mut dom, "div");
+    let a = elem(&mut dom, "section");
+    let b = elem(&mut dom, "span");
+    let c = elem(&mut dom, "em");
+    dom.append_child(root, a);
+    dom.append_child(a, b);
+    dom.append_child(root, c);
+
+    assert!(dom.despawn_subtree(root));
+
+    for e in [root, a, b, c] {
+        assert!(!dom.contains(e), "every node in the subtree is destroyed");
+    }
+    assert!(
+        !dom.despawn_subtree(root),
+        "returns false for a missing root"
+    );
+}
+
+#[test]
+fn despawn_subtree_destroys_shadow_root_unlike_destroy_entity() {
+    // Contrast with `destroy_shadow_host_orphans_shadow_root`: a single
+    // `destroy_entity(host)` leaves the shadow root alive (orphaned), but
+    // `despawn_subtree` must tear the shadow root (and its shadow-tree
+    // contents) out too, leaving no live remnant.
+    let mut dom = EcsDom::new();
+    let root = elem(&mut dom, "div");
+    let host = elem(&mut dom, "div");
+    dom.append_child(root, host);
+    let sr = dom.attach_shadow(host, ShadowRootMode::Open).unwrap();
+    let shadow_child = elem(&mut dom, "span");
+    dom.append_child(sr, shadow_child);
+
+    assert!(dom.despawn_subtree(root));
+
+    assert!(!dom.contains(root));
+    assert!(!dom.contains(host));
+    assert!(
+        !dom.contains(sr),
+        "the shadow root entity must be despawned, not leaked"
+    );
+    assert!(!dom.contains(shadow_child));
+}
+
 #[test]
 fn destroy_slot_clears_assignment() {
     let mut dom = EcsDom::new();

@@ -212,6 +212,12 @@ impl TreeBuilder {
     /// Pop the current node off the stack of open elements, returning it.
     /// Drops any declarative-shadow content-target override the element
     /// carried, keeping the override map bounded by the live stack.
+    ///
+    /// Returns the popped entity for the caller to inspect (e.g. `pop_until_tag`
+    /// checks its tag), so it does NOT despawn it. A consumed declarative-shadow
+    /// template (stack-only, never in the tree) is despawned at its consumption
+    /// sites (`</template>` / fragment rollback), which capture its
+    /// content-target presence before this clears the map entry.
     pub(super) fn pop(&mut self) -> Option<Entity> {
         let popped = self.state.open_elements.pop();
         if let Some(entity) = popped {

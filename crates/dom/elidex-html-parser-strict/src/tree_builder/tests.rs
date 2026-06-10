@@ -38,7 +38,19 @@ pub(super) fn serialize_document(result: &ParseResult) -> String {
     out
 }
 
-fn serialize_node(dom: &EcsDom, entity: Entity, depth: usize, out: &mut String) {
+/// Serialize a §13.4 fragment parse — the detached root nodes — into the same
+/// html5lib `#document` text format (roots at depth 0). The html5lib fragment
+/// corpus lists the fragment's nodes directly, with no enclosing context
+/// element, so the roots map one-to-one onto the expected lines.
+pub(super) fn serialize_fragment(dom: &EcsDom, roots: &[Entity]) -> String {
+    let mut out = String::new();
+    for &root in roots {
+        serialize_node(dom, root, 0, &mut out);
+    }
+    out
+}
+
+pub(super) fn serialize_node(dom: &EcsDom, entity: Entity, depth: usize, out: &mut String) {
     let indent = "  ".repeat(depth);
     match dom.node_kind(entity) {
         Some(NodeKind::Element) => {

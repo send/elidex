@@ -153,8 +153,18 @@ impl TreeBuilder {
         if !self.current_node_has_tag("template") {
             return Err(parse_error("unexpected-end-tag-template-misnested"));
         }
-        // Step 3.
+        // Step 3. The current node is the template being closed. If it is a
+        // consumed declarative-shadow template (stack-only, never in the tree —
+        // identified by its content-target entry), despawn it after the pop so
+        // it does not dangle; capture it before pop clears the entry.
+        let consumed_shadow_template = self
+            .state
+            .current_node()
+            .filter(|t| self.state.template_content_targets.contains_key(t));
         self.pop_until_tag("template");
+        if let Some(template) = consumed_shadow_template {
+            let _ = self.dom.destroy_entity(template);
+        }
         // Step 4, "clear the list of active formatting elements up to the last
         // marker", is a no-op (no active formatting list in strict mode).
         // Step 5.

@@ -67,6 +67,34 @@ pub fn parse_strict(html: &str) -> Result<ParseResult, StrictParseError> {
     tree_builder::TreeBuilder::build(html)
 }
 
+/// Parse `html` as an HTML fragment in strict mode (WHATWG HTML §13.4
+/// "Parsing HTML fragments").
+///
+/// `context` is the context element (e.g. the `innerHTML` target) in `dom`;
+/// its tag, namespace, and ancestor chain select the tokenizer's initial
+/// state (step 10), the insertion mode (step 16), and the form element
+/// pointer (step 17). `opts.allow_declarative_shadow` carries step 6.
+///
+/// Returns the fragment's top-level nodes **detached** (parentless) in `dom`,
+/// in tree order — the spec's "return root's children" (step 20). The caller
+/// places them (e.g. replaces the context element's children for `innerHTML`).
+/// The synthetic `<html>` root the algorithm builds under is internal and is
+/// despawned before returning.
+///
+/// `context` is never mutated. On the first WHATWG HTML §13.2.2 parse error
+/// the parse aborts with `Err(StrictParseError)` (strict mode performs no
+/// error recovery) and the partial subtree is torn down, leaving `dom`
+/// pristine — so a strict-first dispatcher can fall back to the tolerant
+/// backend over an uncontaminated dom.
+pub fn parse_fragment_strict(
+    html: &str,
+    context: elidex_ecs::Entity,
+    dom: &mut elidex_ecs::EcsDom,
+    opts: ParseFragmentOptions,
+) -> Result<Vec<elidex_ecs::Entity>, StrictParseError> {
+    tree_builder::TreeBuilder::build_fragment(html, dom, context, opts)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

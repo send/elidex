@@ -536,13 +536,27 @@ impl EcsDom {
     /// `elidex_dom_api::BaseUrlMaintainer` mutates it as `<base>`
     /// elements enter / leave the doc tree.
     pub fn create_document_root(&mut self) -> Entity {
-        let entity = self.world.spawn((
+        let entity = self.create_document_node();
+        self.document_root = Some(entity);
+        entity
+    }
+
+    /// Spawn a bare `Document` node ([`NodeKind::Document`]) **without**
+    /// registering it as the dom's cached document root.
+    ///
+    /// For transient / throwaway documents that must not clobber the
+    /// persistent [`document_root()`](Self::document_root) cache — e.g. the
+    /// WHATWG HTML §13.4 fragment parsing algorithm's throwaway document
+    /// (step 2), which exists only to own the fragment's nodes during the
+    /// parse and is despawned afterwards. Sharing the spawn with
+    /// [`create_document_root`](Self::create_document_root) keeps the
+    /// `Document` node shape (`TreeRelation` + base URL) defined in one place.
+    pub fn create_document_node(&mut self) -> Entity {
+        self.world.spawn((
             TreeRelation::default(),
             NodeKind::Document,
             DocumentBaseUrl(crate::about_blank_url()),
-        ));
-        self.document_root = Some(entity);
-        entity
+        ))
     }
 
     /// Returns the document root entity created by [`create_document_root()`](Self::create_document_root).

@@ -230,6 +230,19 @@ pub(crate) struct ParseState {
     /// whose leading newline is dropped as an authoring convenience
     /// (§13.2.6.4.7).
     pub(crate) skip_next_lf: bool,
+    /// WHATWG HTML §13.4 fragment-case context element. `Some(context)` only
+    /// while running the HTML fragment parsing algorithm (`build_fragment`);
+    /// `None` for whole-document parsing.
+    ///
+    /// Its sole consumer is §13.2.4.1 "reset the insertion mode
+    /// appropriately" step 3: when the stack walk reaches the bottom
+    /// (`last == true`) the algorithm substitutes the context element for the
+    /// stack node, so a fragment parsed in (e.g.) a `<td>` / `<tr>` / `<select>`
+    /// context selects the matching insertion mode even though the synthetic
+    /// root on the stack is an `<html>` element. For document parsing the
+    /// substitution never fires (`None`), preserving the existing 21-mode
+    /// behaviour.
+    pub(crate) fragment_context: Option<Entity>,
 }
 
 impl ParseState {
@@ -248,6 +261,7 @@ impl ParseState {
             scripting: true,
             template_content_targets: HashMap::new(),
             skip_next_lf: false,
+            fragment_context: None,
         }
     }
 

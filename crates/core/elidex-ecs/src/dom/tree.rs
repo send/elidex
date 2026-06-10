@@ -289,6 +289,55 @@ impl EcsDom {
         true
     }
 
+    /// Despawn `root` and its entire subtree (shadow-including), returning
+    /// `false` if `root` does not exist.
+    ///
+    /// Where [`Self::destroy_entity`] removes a single node and *orphans*
+    /// its descendants (clearing their parent/sibling links but leaving them
+    /// live in the world), this tears the whole subtree out of existence.
+    /// It is the teardown counterpart used when a detached subtree must leave
+    /// no live remnant — e.g. the strict HTML fragment parser's synthetic
+    /// `<html>` root on the parse-error rollback path, where leaving the
+    /// partially-built subtree as orphaned live entities would pollute the
+    /// caller's `EcsDom` and break the parser's "dom is pristine on failure"
+    /// isolation contract.
+    ///
+    /// Iterative explicit-stack walk (via
+    /// [`Self::for_each_shadow_inclusive_descendant`]) — matches the
+    /// deep-DOM stack-overflow-safe family (`nodes_equal` /
+    /// `clone_children_recursive`) so a pathologically deep subtree cannot
+    /// blow Rust's call stack. The full descendant set is snapshotted from
+    /// the intact tree first, then each node is destroyed deepest-first; the
+    /// snapshot makes the destroy order independent of the link mutations
+    /// [`Self::destroy_entity`] performs as it goes.
+    pub fn despawn_subtree(&mut self, root: Entity) -> bool {
+        if !self.contains(root) {
+            return false;
+        }
+        let mut nodes: Vec<Entity> = Vec::new();
+        self.for_each_shadow_inclusive_descendant(root, &mut |e| nodes.push(e));
+        // `for_each_shadow_inclusive_descendant` walks INTO each shadow root's
+        // light tree but does not visit the shadow-root entity itself (only its
+        // children). Collect those so a host's shadow root is despawned too,
+        // not left as an orphaned live remnant. Appending them means they are
+        // destroyed first under the reverse walk below — a shadow root ahead of
+        // its host, which `destroy_entity` handles (it clears the host's
+        // `ShadowHost` back-reference).
+        let shadow_roots: Vec<Entity> = nodes
+            .iter()
+            .filter_map(|&node| self.get_shadow_root(node))
+            .collect();
+        nodes.extend(shadow_roots);
+        // Deepest-first: children precede their parents, so each
+        // `destroy_entity` runs before its parent orphans it (cheaper, and
+        // keeps hook fires ordered child→parent for any connected subtree;
+        // a detached fragment root is unconnected so the fires are benign).
+        for &entity in nodes.iter().rev() {
+            let _ = self.destroy_entity(entity);
+        }
+        true
+    }
+
     /// Place `node` into `parent`'s child list between `prev` and `next`.
     ///
     /// Updates all affected sibling pointers and parent's first/last child.

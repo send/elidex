@@ -9,24 +9,33 @@
 //! - a test with **no** errors is conforming HTML5, so the built tree, dumped
 //!   in the html5lib `#document` format, must match exactly.
 //!
-//! Cases the document-parse path does not cover are skipped (and
-//! counted, not silently dropped): `#document-fragment` (strict fragment
-//! parsing is not implemented — fragment parsing uses the compat path),
-//! `#script-off` (the strict baseline models scripting enabled), and
-//! foreign content (`<svg>` / `<math>`, deferred —
-//! `#11-html-parser-strict-foreign-content`).
+//! `#document-fragment` cases are driven through
+//! [`crate::parse_fragment_strict`] (WHATWG HTML §13.4): the context element
+//! is the tag on the line after `#document-fragment`, and the returned
+//! detached roots are serialized and compared, with the same has-errors /
+//! no-errors split as the document path.
+//!
+//! Cases the strict path does not cover are skipped (and counted, not silently
+//! dropped): `#script-off` (the strict baseline models scripting enabled), and
+//! foreign content — `<svg>` / `<math>` in the data, or a namespaced fragment
+//! context (`svg path`, `math ms`), deferred to
+//! `#11-strict-fragment-foreign-context` (the fragment-context counterpart of
+//! the closed inline-foreign-content slot `#11-html-parser-strict-foreign-content`).
 
-use super::tests::serialize_document;
+use elidex_ecs::{Attributes, EcsDom};
+
+use super::tests::{serialize_document, serialize_fragment};
 use super::TreeBuilder;
+use crate::{parse_fragment_strict, ParseFragmentOptions};
 
-/// One parsed `.dat` test vector. The four booleans are independent test
-/// classifications (has-errors / fragment / script-off / foreign content), not
-/// a state machine.
+/// One parsed `.dat` test vector. The booleans are independent test
+/// classifications (has-errors / script-off / foreign content), not a state
+/// machine; `context` is `Some(tag)` for a `#document-fragment` case.
 #[allow(clippy::struct_excessive_bools)]
 struct Case {
     input: String,
     has_errors: bool,
-    fragment: bool,
+    context: Option<String>,
     script_off: bool,
     foreign: bool,
     document: String,
@@ -44,7 +53,7 @@ fn parse_dat(text: &str) -> Vec<Case> {
     let mut data: Vec<&str> = Vec::new();
     let mut errors: Vec<&str> = Vec::new();
     let mut document: Vec<&str> = Vec::new();
-    let mut fragment = false;
+    let mut context: Option<String> = None;
     let mut script_off = false;
     let mut section = Section::None;
     let mut started = false;
@@ -52,7 +61,7 @@ fn parse_dat(text: &str) -> Vec<Case> {
     let finish = |data: &mut Vec<&str>,
                   errors: &mut Vec<&str>,
                   document: &mut Vec<&str>,
-                  fragment: &mut bool,
+                  context: &mut Option<String>,
                   script_off: &mut bool,
                   cases: &mut Vec<Case>| {
         // Trailing blank lines in the document section are the inter-case
@@ -62,14 +71,17 @@ fn parse_dat(text: &str) -> Vec<Case> {
         }
         let input = data.join("\n");
         let doc = document.join("\n");
+        // A namespaced fragment context (`svg path`, `math ms`) is foreign —
+        // deferred with the rest of the foreign content.
         let foreign = input.contains("<svg")
             || input.contains("<math")
             || doc.contains("<svg ")
-            || doc.contains("<math ");
+            || doc.contains("<math ")
+            || context.as_deref().is_some_and(|c| c.contains(' '));
         cases.push(Case {
             input,
             has_errors: !errors.is_empty(),
-            fragment: *fragment,
+            context: context.take(),
             script_off: *script_off,
             foreign,
             document: doc,
@@ -77,7 +89,6 @@ fn parse_dat(text: &str) -> Vec<Case> {
         data.clear();
         errors.clear();
         document.clear();
-        *fragment = false;
         *script_off = false;
     };
 
@@ -89,7 +100,7 @@ fn parse_dat(text: &str) -> Vec<Case> {
                         &mut data,
                         &mut errors,
                         &mut document,
-                        &mut fragment,
+                        &mut context,
                         &mut script_off,
                         &mut cases,
                     );
@@ -99,10 +110,9 @@ fn parse_dat(text: &str) -> Vec<Case> {
             }
             "#errors" => section = Section::Errors,
             "#new-errors" | "#script-on" => section = Section::Ignore,
-            "#document-fragment" => {
-                fragment = true;
-                section = Section::Ignore;
-            }
+            // The context element is the single line that follows
+            // `#document-fragment` (e.g. `td`, or `svg path` for foreign).
+            "#document-fragment" => section = Section::FragmentContext,
             "#script-off" => {
                 script_off = true;
                 section = Section::Ignore;
@@ -116,6 +126,14 @@ fn parse_dat(text: &str) -> Vec<Case> {
                     }
                 }
                 Section::Document => document.push(line),
+                Section::FragmentContext => {
+                    if !line.is_empty() {
+                        context = Some(line.to_string());
+                        // Only the first line is the context; ignore the rest
+                        // until the next section header.
+                        section = Section::Ignore;
+                    }
+                }
                 Section::Ignore | Section::None => {}
             },
         }
@@ -125,7 +143,7 @@ fn parse_dat(text: &str) -> Vec<Case> {
             &mut data,
             &mut errors,
             &mut document,
-            &mut fragment,
+            &mut context,
             &mut script_off,
             &mut cases,
         );
@@ -138,7 +156,28 @@ enum Section {
     Data,
     Errors,
     Document,
+    FragmentContext,
     Ignore,
+}
+
+/// Cases whose vendored html5lib `#errors` / `#document` predate a spec change
+/// elidex implements, so the strict result legitimately differs from the
+/// snapshot. Returns the divergence reason; such cases are skipped (and the
+/// reason surfaced) rather than asserted — patching vendored upstream data
+/// would break its provenance and offline reproducibility.
+fn known_spec_divergence(case: &Case) -> Option<&'static str> {
+    match (case.context.as_deref(), case.input.as_str()) {
+        // The customizable-`<select>` change removed the "in select" /
+        // "in select in table" insertion modes; `<select>` content now parses
+        // through "in body" (see `super::parse_state::InsertionMode`). The
+        // snapshot still drops `<input>` in a select context and flags a
+        // parse error, whereas current-spec strict keeps the `<input>` with no
+        // error.
+        (Some("select"), "<input><option>") => Some(
+            "in-select insertion mode removed (customizable-select); <input> retained, no error",
+        ),
+        _ => None,
+    }
 }
 
 /// Run one suite, collecting failures rather than aborting on the first, and
@@ -149,28 +188,53 @@ fn run_suite(name: &str, raw: &str) -> (usize, usize, usize, Vec<String>) {
     let mut skipped = 0;
     let mut failures = Vec::new();
     for case in parse_dat(raw) {
-        if case.fragment || case.script_off || case.foreign {
+        if case.script_off || case.foreign {
             skipped += 1;
             continue;
         }
-        let result = TreeBuilder::build(&case.input);
+        if let Some(reason) = known_spec_divergence(&case) {
+            // Surfaced, not silently dropped: the snapshot's expectation is
+            // stale w.r.t. the spec elidex implements, so strict legitimately
+            // differs and the case is excluded with its reason.
+            println!(
+                "  spec-divergence skip [{name}]: {reason}\n    input: {:?}",
+                case.input
+            );
+            skipped += 1;
+            continue;
+        }
+        // Document vs fragment differ only in how the tree is built and
+        // serialized; normalize both to `Ok(serialized tree)` / `Err(reject)`
+        // so the has-errors split below is shared.
+        let parsed: Result<String, crate::StrictParseError> = match &case.context {
+            None => TreeBuilder::build(&case.input).map(|tree| serialize_document(&tree)),
+            Some(ctx_tag) => {
+                let mut dom = EcsDom::new();
+                let ctx = dom.create_element(ctx_tag.as_str(), Attributes::default());
+                parse_fragment_strict(&case.input, ctx, &mut dom, ParseFragmentOptions::default())
+                    .map(|roots| serialize_fragment(&dom, &roots))
+            }
+        };
+        let label = match &case.context {
+            Some(ctx) => format!("{name} fragment[{ctx}]"),
+            None => name.to_string(),
+        };
         if case.has_errors {
-            match result {
+            match parsed {
                 Err(_) => reject_ok += 1,
                 Ok(_) => failures.push(format!(
-                    "{name}: expected strict reject but parsed OK\n  input: {:?}",
+                    "{label}: expected strict reject but parsed OK\n  input: {:?}",
                     case.input
                 )),
             }
         } else {
-            match result {
-                Ok(parsed) => {
-                    let got = serialize_document(&parsed);
+            match parsed {
+                Ok(got) => {
                     if got.trim_end_matches('\n') == case.document.trim_end_matches('\n') {
                         tree_ok += 1;
                     } else {
                         failures.push(format!(
-                            "{name}: tree mismatch\n  input: {:?}\n  expected:\n{}\n  got:\n{}",
+                            "{label}: tree mismatch\n  input: {:?}\n  expected:\n{}\n  got:\n{}",
                             case.input,
                             case.document,
                             got.trim_end_matches('\n')
@@ -178,7 +242,7 @@ fn run_suite(name: &str, raw: &str) -> (usize, usize, usize, Vec<String>) {
                     }
                 }
                 Err(err) => failures.push(format!(
-                    "{name}: expected OK but strict rejected ({err})\n  input: {:?}",
+                    "{label}: expected OK but strict rejected ({err})\n  input: {:?}",
                     case.input
                 )),
             }
@@ -202,6 +266,10 @@ fn html5lib_tree_construction_corpus() {
             "doctype01",
             include_str!("../../tests/data/html5lib/tree-construction/doctype01.dat"),
         ),
+        (
+            "tests_innerHTML_1",
+            include_str!("../../tests/data/html5lib/tree-construction/tests_innerHTML_1.dat"),
+        ),
     ];
 
     let mut total_reject = 0;
@@ -218,7 +286,7 @@ fn html5lib_tree_construction_corpus() {
 
     // Surface coverage so skipped cases are visible, not silently dropped.
     println!(
-        "html5lib tree-construction: {total_reject} reject-asserts, {total_tree} tree-matches, {total_skip} skipped (fragment / script-off / foreign content)"
+        "html5lib tree-construction: {total_reject} reject-asserts, {total_tree} tree-matches, {total_skip} skipped (script-off / foreign content)"
     );
 
     assert!(
