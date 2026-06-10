@@ -243,14 +243,19 @@ pub(super) fn native_clear_interval(
 impl VmInner {
     /// Fire every timer whose deadline is `<= now`.  Cancelled entries
     /// are skipped; interval entries are re-queued with `deadline + repeat`.
-    /// Callback exceptions are reported via `eprintln!` so a single bad
-    /// timer doesn't abort the whole drain — a PR6 follow-up will route
-    /// these to `host.session().report_error(...)`.
+    ///
+    /// Returns one `Result<(), VmError>` **per fired setTimeout/setInterval
+    /// callback** (in fire order) so the `ScriptEngine::drain_timers` caller
+    /// can surface a per-callback `EvalResult`; a single throwing callback is
+    /// recorded as an `Err` and does NOT abort the drain.  `AbortSignal.timeout`
+    /// internal fires are not user callbacks and are excluded from the vector
+    /// (they have no `EvalResult`).  `Vec::len()` is the callback count for
+    /// callers that only need a tally.
     ///
     /// After firing expired timers, drains the microtask queue (HTML
     /// §8.1.7.3 — perform a microtask checkpoint).
-    pub(crate) fn drain_timers(&mut self, now: Instant) -> usize {
-        let mut fired = 0usize;
+    pub(crate) fn drain_timers(&mut self, now: Instant) -> Vec<Result<(), VmError>> {
+        let mut results: Vec<Result<(), VmError>> = Vec::new();
         loop {
             // Peek before popping so that a future-dated head stays
             // scheduled; only entries whose deadline is `<= now` are
@@ -303,7 +308,8 @@ impl VmInner {
                 if let Err(e) = fire_result {
                     eprintln!("timeout signal abort {} threw: {e}", signal_id.0);
                 }
-                fired += 1;
+                // `AbortSignal.timeout` is an internal fire, not a user
+                // setTimeout callback — excluded from the returned results.
                 // One-shot — no re-arm; jump to the top of the loop.
                 continue;
             }
@@ -316,10 +322,10 @@ impl VmInner {
             self.current_timer = Some(entry);
             let fire_result = self.fire_current_timer();
             let entry = self.current_timer.take().expect("current_timer set above");
-            if let Err(e) = fire_result {
+            if let Err(e) = &fire_result {
                 eprintln!("timer callback {} threw: {e}", entry.id);
             }
-            fired += 1;
+            results.push(fire_result);
             // Interval re-arm.  Re-check cancellation here so that a
             // callback that cancels its own interval (the classic
             // `setInterval(() => { if (...) clearInterval(id); })`
@@ -348,7 +354,7 @@ impl VmInner {
             }
         }
         self.drain_microtasks();
-        fired
+        results
     }
 
     /// Invoke the callback of `self.current_timer` with the caller-stored

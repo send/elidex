@@ -14,17 +14,118 @@ use crate::vm::Vm;
 /// elidex-js VM backed `ScriptEngine` implementation.
 pub struct ElidexJsEngine {
     vm: Vm,
+    /// Whether a batch bracket currently has the VM bound (BATCH-BIND model).
+    ///
+    /// `Vm::bind`/`unbind` are heavy browsing-context-cycle operations, so
+    /// the shell brackets each engine-driving *batch* with one
+    /// [`bind`](Self::bind)/[`unbind`](Self::unbind); the trait methods
+    /// (`eval` / `drain_*`) run **assuming bound**. Tracked only to
+    /// `debug_assert` the non-re-entrancy invariant (brackets must not nest).
+    bound: bool,
 }
 
 impl ElidexJsEngine {
     /// Create a new engine with a fresh VM.
     pub fn new() -> Self {
-        Self { vm: Vm::new() }
+        Self {
+            vm: Vm::new(),
+            bound: false,
+        }
     }
 
     /// Access the underlying VM (e.g., for setting globals from host).
     pub fn vm(&mut self) -> &mut Vm {
         &mut self.vm
+    }
+
+    /// Whether scripting is enabled for the bound browsing context
+    /// (WHATWG HTML §8.1.3.4 "scripting is disabled"; the gate consulted by
+    /// [`run a classic script`](https://html.spec.whatwg.org/#run-a-classic-script)
+    /// §8.1.4.4). `true` when no `HostData` is installed or the context is
+    /// unsandboxed / grants `allow-scripts`. Reads `HostData::sandbox_flags`,
+    /// which requires `HostData` installed but **not** bound — so the gate is
+    /// valid before/outside a batch bracket.
+    fn scripts_allowed(&mut self) -> bool {
+        self.vm.host_data().is_none_or(|hd| hd.scripts_allowed())
+    }
+
+    /// Open a batch bracket: bind the VM to `ctx` for a run of engine calls
+    /// (BATCH-BIND model). The shell calls this **once** at the start of a
+    /// batch (script-exec / event dispatch / frame drain) and the paired
+    /// [`unbind`](Self::unbind) at the end; `eval` / `drain_*` in between
+    /// assume the VM is bound. Binding is **per-batch, never per-call** — the
+    /// VM `unbind` is heavy teardown (non-Node wrapper / live-collection / IDB
+    /// cleanup) that would corrupt cross-script identity if run between the
+    /// evals of one document.
+    ///
+    /// **Non-re-entrant**: batch brackets must not nest (`Vm::bind` installs a
+    /// single `ConsumerDispatcher`). The `bound` flag debug-asserts this with a
+    /// clear message ahead of the lower-level dispatcher assert.
+    ///
+    /// # Safety contract
+    ///
+    /// `ctx.session` / `ctx.dom` must stay valid and **unaliased** until the
+    /// paired [`unbind`](Self::unbind): while bound, the VM holds raw pointers
+    /// to them, so neither the caller nor any trait method may access
+    /// `ctx.session` / `ctx.dom` through a `&mut` (the trait methods do not
+    /// touch `ctx` — they use the bound pointers).
+    #[allow(unsafe_code)]
+    pub fn bind(&mut self, ctx: &mut ScriptContext<'_>) {
+        debug_assert!(
+            !self.bound,
+            "ElidexJsEngine::bind: already bound — batch brackets must not nest"
+        );
+        // SAFETY: the caller's contract (above) keeps `ctx.session`/`ctx.dom`
+        // valid + unaliased until `unbind`. `Vm::bind` no-ops without an
+        // installed `HostData`.
+        unsafe {
+            self.vm.bind(
+                std::ptr::from_mut(ctx.session),
+                std::ptr::from_mut(ctx.dom),
+                ctx.document,
+            );
+        }
+        self.bound = true;
+    }
+
+    /// Close the batch bracket opened by [`bind`](Self::bind), running the VM's
+    /// browsing-context-cycle teardown. Safe to call when not bound (the VM
+    /// no-ops), so it doubles as the `Drop`-guard hook in
+    /// [`with_bound`](Self::with_bound).
+    pub fn unbind(&mut self) {
+        self.vm.unbind();
+        self.bound = false;
+    }
+
+    /// RAII sugar over [`bind`](Self::bind)/[`unbind`](Self::unbind): binds,
+    /// runs `f`, then unbinds **even if `f` panics** (a `Drop` guard runs
+    /// `unbind` on unwind — the VM equivalent of boa's `UnbindGuard`).
+    ///
+    /// `f` receives the bound engine plus `ctx` (so it can satisfy the
+    /// `eval`/`drain_*` signatures — those ignore `ctx` under the assume-bound
+    /// model, so re-passing it does not disturb the bound raw pointers). **`f`
+    /// must NOT access `ctx.session`/`ctx.dom` directly** (only via the bound
+    /// engine) — the same contract as [`bind`](Self::bind): reborrowing those
+    /// fields while bound would invalidate the VM's raw pointers. The
+    /// shell's interleaved eval+dispatch+drain batch uses the explicit
+    /// `bind`/`unbind` pair instead (`script_dispatch_event` takes `engine` and
+    /// `ctx` separately, outside any closure); `with_bound` serves tests and
+    /// single-closure batches.
+    pub fn with_bound<R>(
+        &mut self,
+        ctx: &mut ScriptContext<'_>,
+        f: impl FnOnce(&mut Self, &mut ScriptContext<'_>) -> R,
+    ) -> R {
+        // Declared before any statement to satisfy clippy::items_after_statements.
+        struct UnbindGuard<'a>(&'a mut ElidexJsEngine);
+        impl Drop for UnbindGuard<'_> {
+            fn drop(&mut self) {
+                self.0.unbind();
+            }
+        }
+        self.bind(ctx);
+        let guard = UnbindGuard(self);
+        f(&mut *guard.0, ctx)
     }
 }
 
@@ -36,6 +137,20 @@ impl Default for ElidexJsEngine {
 
 impl ScriptEngine for ElidexJsEngine {
     fn eval(&mut self, source: &str, _ctx: &mut ScriptContext<'_>) -> EvalResult {
+        // HTML §8.1.4.4 "run a classic script": if scripting is disabled for
+        // this browsing context (a sandboxed iframe without `allow-scripts`,
+        // §8.1.3.4), the script does not run — a silent success, not an error.
+        if !self.scripts_allowed() {
+            return EvalResult {
+                success: true,
+                error: None,
+            };
+        }
+        // Assume-bound (BATCH-BIND model): the caller's batch bracket
+        // (`bind`/`unbind` or `with_bound`) has bound the VM; `_ctx` is ignored
+        // here so the bound raw pointers stay valid. `vm.eval` runs the full
+        // post-script microtask + task + CE checkpoint internally (HTML §8.1.4.4
+        // "clean up after running script").
         match self.vm.eval(source) {
             Ok(_) => EvalResult {
                 success: true,
@@ -142,18 +257,40 @@ impl ScriptEngine for ElidexJsEngine {
     }
 
     fn drain_reactions(&mut self, _ctx: &mut ScriptContext<'_>) {
-        // Stub — custom element lifecycle reactions land with PR5b.
+        // WHATWG HTML §4.13.6 — drain custom element reactions enqueued by DOM
+        // mutations the shell applied between evals (upgrade / connected /
+        // disconnected / attributeChanged callbacks). Assume-bound: runs within
+        // the shell's batch bracket. `vm.eval` already flushes reactions
+        // enqueued *during* a script at script end (interpreter.rs); this is the
+        // post-shell-mutation drain point. Re-flushing an empty queue is a
+        // no-op. (Boa's `drain_reactions` also ran `drain_queued_events`; the VM
+        // `eval` already does `drain_tasks` inline, so this is CE-only.) A
+        // throwing reaction callback is handled inside `flush_ce_reactions` and
+        // does not propagate — matching this method's `()` return (boa parity).
+        self.vm.inner.flush_ce_reactions();
     }
 
     fn drain_timers(&mut self, _ctx: &mut ScriptContext<'_>) -> Vec<EvalResult> {
-        // WHATWG §8.7 timer firing.  PR2 commit 6's drain_timers fires
-        // every expired entry and drains microtasks afterwards; failures
-        // are reported via eprintln at the moment and do not surface
-        // through the EvalResult vector.  Return an empty vec for the
-        // current caller shape — the per-callback EvalResult split is
-        // tracked as a PR6 follow-up once host.session().log() is
-        // wired up.
-        let _fired = self.vm.inner.drain_timers(Instant::now());
-        Vec::new()
+        // WHATWG HTML §8.7 — fire every expired setTimeout/setInterval callback
+        // through the bound VM, one `EvalResult` per callback. Assume-bound:
+        // runs within the shell's batch bracket. `inner.drain_timers` returns
+        // the per-callback fire results and runs a microtask checkpoint after;
+        // the `scripts_allowed` gate is transitive (a script-disabled context
+        // never ran the `setTimeout` that registers a callback).
+        self.vm
+            .inner
+            .drain_timers(Instant::now())
+            .into_iter()
+            .map(|r| match r {
+                Ok(()) => EvalResult {
+                    success: true,
+                    error: None,
+                },
+                Err(e) => EvalResult {
+                    success: false,
+                    error: Some(e.to_string()),
+                },
+            })
+            .collect()
     }
 }
