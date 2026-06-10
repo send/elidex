@@ -49,6 +49,27 @@ impl ElidexJsEngine {
         self.vm.host_data().is_none_or(|hd| hd.scripts_allowed())
     }
 
+    /// Settle the same-window task queue, then custom-element reactions — the
+    /// post-turn checkpoint that [`Vm::eval`] runs internally (`interpreter.rs`:
+    /// `drain_tasks` → `flush_ce_reactions`) but that the **non-`eval` JS turns**
+    /// reach only through the trait `drain_*` methods.
+    ///
+    /// boa gets this for free by routing event dispatch and timer callbacks
+    /// through `eval` (whose drain covers both); the VM fires listeners /
+    /// timers via the call path, not `eval`, so without this the tasks an event
+    /// handler or timer callback enqueues (`postMessage`, IndexedDB
+    /// completions, coalesced `selectionchange`) and the custom-element
+    /// reactions its DOM mutations enqueue would sit pending until some later
+    /// `eval` instead of settling on this turn. Order mirrors `eval`:
+    /// `drain_tasks` (which runs a microtask checkpoint between tasks) before
+    /// the CE flush (a task body may enqueue reactions). Both are
+    /// reentrancy-guarded, so re-running them after an `eval`-only batch (whose
+    /// queues are already empty) is an idempotent no-op.
+    fn settle_tasks_and_reactions(&mut self) {
+        self.vm.inner.drain_tasks();
+        self.vm.inner.flush_ce_reactions();
+    }
+
     /// Open a batch bracket: bind the VM to `ctx` for a run of engine calls
     /// (BATCH-BIND model). The shell calls this **once** at the start of a
     /// batch (script-exec / event dispatch / frame drain) and the paired
@@ -286,17 +307,20 @@ impl ScriptEngine for ElidexJsEngine {
     }
 
     fn drain_reactions(&mut self, _ctx: &mut ScriptContext<'_>) {
-        // WHATWG HTML §4.13.6 — drain custom element reactions enqueued by DOM
-        // mutations the shell applied between evals (upgrade / connected /
-        // disconnected / attributeChanged callbacks). Assume-bound: runs within
-        // the shell's batch bracket. `vm.eval` already flushes reactions
-        // enqueued *during* a script at script end (interpreter.rs); this is the
-        // post-shell-mutation drain point. Re-flushing an empty queue is a
-        // no-op. (Boa's `drain_reactions` also ran `drain_queued_events`; the VM
-        // `eval` already does `drain_tasks` inline, so this is CE-only.) A
-        // throwing reaction callback is handled inside `flush_ce_reactions` and
-        // does not propagate — matching this method's `()` return (boa parity).
-        self.vm.inner.flush_ce_reactions();
+        // The post-dispatch checkpoint `script_dispatch_event` runs after the
+        // 3-phase listener walk (WHATWG DOM §2.10): deliver the same-window
+        // tasks the listeners enqueued (`postMessage`, IndexedDB completions,
+        // coalesced `selectionchange`) AND drain the custom-element reactions
+        // (WHATWG HTML §4.13.6) their DOM mutations enqueued. boa's
+        // `drain_reactions` does exactly this (`drain_queued_events` then CE
+        // reactions); the VM reaches both via `settle_tasks_and_reactions`.
+        // This is NOT CE-only: listeners run via `call_listener` (the call
+        // path, not `eval`), so unlike a script the dispatch turn has no
+        // internal `drain_tasks` — it happens here. Assume-bound (runs within
+        // the batch bracket); re-draining empty queues after an `eval`-only
+        // batch is a no-op. A throwing reaction is contained inside the CE
+        // flush and does not propagate (matching the `()` return).
+        self.settle_tasks_and_reactions();
     }
 
     fn drain_timers(&mut self, _ctx: &mut ScriptContext<'_>) -> Vec<EvalResult> {
@@ -306,7 +330,8 @@ impl ScriptEngine for ElidexJsEngine {
         // the per-callback fire results and runs a microtask checkpoint after;
         // the `scripts_allowed` gate is transitive (a script-disabled context
         // never ran the `setTimeout` that registers a callback).
-        self.vm
+        let results: Vec<EvalResult> = self
+            .vm
             .inner
             .drain_timers(Instant::now())
             .into_iter()
@@ -320,6 +345,17 @@ impl ScriptEngine for ElidexJsEngine {
                     error: Some(e.to_string()),
                 },
             })
-            .collect()
+            .collect();
+        // boa runs each ready timer through `eval()`, which drains same-window
+        // tasks + CE reactions per callback; `inner.drain_timers` only fires the
+        // callbacks + flushes microtasks, so settle the task / CE queues here
+        // (once, after the turn — mirroring the VM's once-at-end microtask
+        // checkpoint) so a timer that calls `postMessage` / `checkValidity` /
+        // mutates the DOM doesn't strand that work until a later turn. (Worker /
+        // service-worker timer loops drive `inner.drain_timers` directly and
+        // keep their own drain orchestration — this completion is the
+        // main-thread `ScriptEngine` boa-parity surface only.)
+        self.settle_tasks_and_reactions();
+        results
     }
 }

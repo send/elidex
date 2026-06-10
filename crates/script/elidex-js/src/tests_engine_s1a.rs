@@ -143,6 +143,40 @@ fn drain_timers_returns_one_result_per_callback() {
 
 #[test]
 #[allow(unsafe_code)]
+fn drain_timers_settles_tasks_enqueued_by_timer_callbacks() {
+    // Codex PR327 R4 (boa parity): boa runs each ready timer through `eval()`,
+    // which drains same-window tasks + CE reactions per callback; the VM fires
+    // via the call path, so `drain_timers` must settle those queues itself. A
+    // timer callback that calls `window.postMessage` enqueues a task; the
+    // `message` listener must observe it within the timer turn — read via
+    // `get_global` (NOT `eval`, which would self-drain and mask the gap).
+    let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    bind_engine(&mut engine, &mut ctx);
+    let _ = ScriptEngine::eval(
+        &mut engine,
+        "globalThis.msg = 0;
+         window.addEventListener('message', function (e) { globalThis.msg = e.data; });
+         setTimeout(function () { window.postMessage(7, '*'); }, 0);",
+        &mut ctx,
+    );
+    // The timer has not fired yet → nothing posted.
+    assert!(
+        matches!(engine.vm().get_global("msg"), Some(JsValue::Number(n)) if n == 0.0),
+        "no message before the timer fires"
+    );
+
+    let _ = ScriptEngine::drain_timers(&mut engine, &mut ctx);
+    engine.unbind();
+
+    assert!(
+        matches!(engine.vm().get_global("msg"), Some(JsValue::Number(n)) if n == 7.0),
+        "drain_timers must settle same-window tasks the timer callback enqueued (boa parity)"
+    );
+}
+
+#[test]
+#[allow(unsafe_code)]
 fn with_bound_runs_then_unbinds() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
