@@ -207,6 +207,38 @@ fn drain_timers_delivers_prior_timer_tasks_before_next_callback() {
 
 #[test]
 #[allow(unsafe_code)]
+fn drain_timers_settles_abort_listener_work_before_next_timer() {
+    // Codex PR327 R8 (IiWhS): an `AbortSignal.timeout` abort dispatch runs JS
+    // (its `abort` listeners), so its queued work must settle before a same-tick
+    // user timer — the abort fire gets the same per-fire checkpoint a user
+    // callback gets, not just the once-at-end drain. The signal is created first
+    // (earlier deadline → fires first); its abort listener `postMessage`s; the
+    // later `setTimeout` must observe the delivered message.
+    let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    bind_engine(&mut engine, &mut ctx);
+    let _ = ScriptEngine::eval(
+        &mut engine,
+        "globalThis.gotMsg = false; globalThis.timerSawMsg = false;
+         window.addEventListener('message', function () { globalThis.gotMsg = true; });
+         var sig = AbortSignal.timeout(0);
+         sig.addEventListener('abort', function () { window.postMessage(1, '*'); });
+         setTimeout(function () { globalThis.timerSawMsg = globalThis.gotMsg; }, 0);",
+        &mut ctx,
+    );
+    let _ = ScriptEngine::drain_timers(&mut engine, &mut ctx);
+    engine.unbind();
+    assert!(
+        matches!(
+            engine.vm().get_global("timerSawMsg"),
+            Some(JsValue::Boolean(true))
+        ),
+        "the user timer must observe the abort listener's postMessage (per-fire checkpoint on the abort path)"
+    );
+}
+
+#[test]
+#[allow(unsafe_code)]
 fn with_bound_runs_then_unbinds() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
