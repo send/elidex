@@ -310,6 +310,20 @@ impl EcsDom {
     /// the intact tree first, then each node is destroyed deepest-first; the
     /// snapshot makes the destroy order independent of the link mutations
     /// [`Self::destroy_entity`] performs as it goes.
+    ///
+    /// **Raw structural teardown — fires no mutation events.** Dispatch is
+    /// suppressed for the whole walk, so this is *not* a connected-subtree
+    /// removal: it does not run the WHATWG DOM "remove" steps and emits no
+    /// `MutationEvent`s. That keeps it a layering-clean primitive — the
+    /// remove algorithm (which owns shadow-host `disconnectedCallback`
+    /// ordering: a host's shadow tree must be visited before the host's
+    /// `ShadowHost` back-reference is cleared) lives in the DOM layer, not
+    /// here. Were this primitive to fire events, the deepest-first walk would
+    /// tear a host's shadow root out ahead of the host and the consumer would
+    /// miss the shadow tree's `disconnectedCallback`s. Suppressing dispatch
+    /// makes that unreachable *by construction*, so callers needing removal
+    /// semantics on a connected subtree must go through the DOM remove path,
+    /// not this reclaim-the-entities primitive.
     pub fn despawn_subtree(&mut self, root: Entity) -> bool {
         if !self.contains(root) {
             return false;
@@ -319,21 +333,27 @@ impl EcsDom {
         // `for_each_shadow_inclusive_descendant` walks INTO each shadow root's
         // light tree but does not visit the shadow-root entity itself (only its
         // children). Collect those so a host's shadow root is despawned too,
-        // not left as an orphaned live remnant. Appending them means they are
-        // destroyed first under the reverse walk below — a shadow root ahead of
-        // its host, which `destroy_entity` handles (it clears the host's
-        // `ShadowHost` back-reference).
+        // not left as an orphaned live remnant. They are appended (destroyed
+        // first under the reverse walk below); with dispatch suppressed the
+        // shadow-before-host order is purely structural and emits no events, so
+        // it cannot miss a `disconnectedCallback` (see the method doc).
         let shadow_roots: Vec<Entity> = nodes
             .iter()
             .filter_map(|&node| self.get_shadow_root(node))
             .collect();
         nodes.extend(shadow_roots);
+        // Event-free structural teardown: take the dispatcher out for the whole
+        // walk so no node's `destroy_entity` fires a (mis-ordered, partial)
+        // `MutationEvent::Remove`. Restored before returning.
+        let saved_dispatcher = self.take_mutation_dispatcher();
         // Deepest-first: children precede their parents, so each
-        // `destroy_entity` runs before its parent orphans it (cheaper, and
-        // keeps hook fires ordered child→parent for any connected subtree;
-        // a detached fragment root is unconnected so the fires are benign).
+        // `destroy_entity` runs before its parent orphans it (cheaper, and the
+        // snapshot already froze the set against the link mutations).
         for &entity in nodes.iter().rev() {
             let _ = self.destroy_entity(entity);
+        }
+        if let Some(dispatcher) = saved_dispatcher {
+            self.set_mutation_dispatcher(dispatcher);
         }
         true
     }

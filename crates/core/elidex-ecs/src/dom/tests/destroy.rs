@@ -171,6 +171,56 @@ fn despawn_subtree_destroys_shadow_root_unlike_destroy_entity() {
 }
 
 #[test]
+fn despawn_subtree_is_event_free_even_on_a_connected_shadow_host() {
+    // `despawn_subtree` is a raw structural teardown, not a DOM removal: it
+    // suppresses dispatch for the whole walk. So tearing a *connected* subtree
+    // — even one with a shadow host whose shadow root is destroyed ahead of the
+    // host — fires no `MutationEvent`, hence no mis-ordered Remove that could
+    // miss the shadow tree's `disconnectedCallback`s. Removal-with-events is
+    // the DOM remove algorithm's responsibility, not this primitive's.
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    struct Recorder {
+        count: Arc<AtomicUsize>,
+    }
+    impl crate::dom::MutationDispatcher for Recorder {
+        fn dispatch(&mut self, _event: &crate::dom::MutationEvent<'_>, _dom: &mut EcsDom) {
+            self.count.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    let mut dom = EcsDom::new();
+    // A `Document` ancestor makes the subtree connected (`is_connected` true),
+    // so without suppression each `destroy_entity` would fire a Remove.
+    let doc = dom.create_document_node();
+    let root = elem(&mut dom, "div");
+    dom.append_child(doc, root);
+    let host = elem(&mut dom, "div");
+    dom.append_child(root, host);
+    let sr = dom.attach_shadow(host, ShadowRootMode::Open).unwrap();
+    let shadow_child = elem(&mut dom, "span");
+    dom.append_child(sr, shadow_child);
+
+    let count = Arc::new(AtomicUsize::new(0));
+    dom.set_mutation_dispatcher(Box::new(Recorder {
+        count: count.clone(),
+    }));
+
+    assert!(dom.despawn_subtree(root));
+
+    assert_eq!(
+        count.load(Ordering::SeqCst),
+        0,
+        "raw structural teardown fires no mutation events"
+    );
+    assert!(
+        dom.take_mutation_dispatcher().is_some(),
+        "the dispatcher is restored after the teardown, not dropped"
+    );
+}
+
+#[test]
 fn destroy_slot_clears_assignment() {
     let mut dom = EcsDom::new();
     let host = elem(&mut dom, "div");
