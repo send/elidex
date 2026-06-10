@@ -776,13 +776,15 @@ pub(crate) fn walk_subtree_for_upgrade(
     }
     if let Ok(ce_state) = dom.world().get::<&CustomElementState>(entity) {
         if ce_state.state == CEState::Undefined {
+            // Upgrade only when the element's local name matches the
+            // definition (customized built-in → `extends` base; autonomous →
+            // the definition name). Shared rule:
+            // `CustomElementDefinition::upgrade_matches_local_name`.
             let should_upgrade = bridge.with_ce_definition(&ce_state.definition_name, |def| {
-                def.extends.as_ref().is_none_or(|ext| {
-                    dom.world()
-                        .get::<&elidex_ecs::TagType>(entity)
-                        .ok()
-                        .is_some_and(|tag| tag.0.eq_ignore_ascii_case(ext))
-                })
+                dom.world()
+                    .get::<&elidex_ecs::TagType>(entity)
+                    .ok()
+                    .is_some_and(|tag| def.upgrade_matches_local_name(&tag.0))
             });
             if should_upgrade {
                 bridge.enqueue_ce_reaction(CustomElementReaction::Upgrade(entity));

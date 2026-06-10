@@ -67,25 +67,19 @@ pub fn prepare_upgrade(
     let Some(def) = registry.get(&definition_name) else {
         return UpgradeResolution::Skip;
     };
-    // HTML §4.13.5 upgrade matching: a customized built-in (definition with
-    // `extends`) upgrades only an element whose local name equals the
-    // extended base tag; an autonomous definition (no `extends`) upgrades
-    // only an element whose local name is the definition name itself. This
-    // rejects a mismatched `is=` candidate the parser legitimately marked —
-    // e.g. `<div is="plastic-button">` must NOT upgrade under
-    // `define("plastic-button", { extends: "button" })`. Per HTML §4.13.3
-    // "Core concepts" (the *look up a custom element definition* algorithm),
-    // a customized built-in matches only when the element's local name
-    // equals the definition's `extends`. The parser cannot pre-filter this:
-    // the definition's `extends` is unknown until `define()` runs, so the
-    // gate lives here, at upgrade time.
+    // Reject a mismatched `is=` candidate the parser legitimately marked
+    // (e.g. `<div is="plastic-button">` under `{ extends: "button" }`, or a
+    // `<div is="my-el">` under an autonomous `define("my-el", …)`). The
+    // local-name match rule lives on the definition
+    // (`CustomElementDefinition::upgrade_matches_local_name`) so this VM gate
+    // and the boa shell's upgrade walks share one implementation. The parser
+    // cannot pre-filter it: `extends` is unknown until `define()` runs.
     let local_name = dom
         .world()
         .get::<&TagType>(entity)
         .map(|t| t.0.clone())
         .unwrap_or_default();
-    let required_local_name = def.extends.as_deref().unwrap_or(definition_name.as_str());
-    if !required_local_name.eq_ignore_ascii_case(&local_name) {
+    if !def.upgrade_matches_local_name(&local_name) {
         return UpgradeResolution::Skip;
     }
     UpgradeResolution::Proceed {
