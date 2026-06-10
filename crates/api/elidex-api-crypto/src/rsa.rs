@@ -12,12 +12,18 @@
 //! storage.  Import re-encodes to canonical DER (so a single storage form
 //! backs every format), which also gates multi-prime keys: the rsa crate's
 //! `to_pkcs8_der` rejects >2 primes, so a multi-prime `pkcs8` / JWK `oth`
-//! import is a NotSupportedError (`#11-rsa-multiprime-jwk`).
+//! import is a DataError — no browser supports multi-prime RSA (Chrome/Firefox
+//! read only two primes; Safari rejects it explicitly), so the key shape is
+//! rejected as malformed-for-this-implementation per WebCrypto §20.8.4 jwk
+//! step 10 (not a valid two-prime key per §6.3.2 / RFC3447).
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
-use rsa::pkcs8::spki::{DecodePublicKey, EncodePublicKey};
-use rsa::pkcs8::{DecodePrivateKey, EncodePrivateKey};
+use rsa::pkcs1;
+use rsa::pkcs8::der::asn1::Null;
+use rsa::pkcs8::der::Decode;
+use rsa::pkcs8::spki::EncodePublicKey;
+use rsa::pkcs8::{DecodePrivateKey, EncodePrivateKey, SubjectPublicKeyInfoRef};
 use rsa::traits::{PrivateKeyParts, PublicKeyParts};
 use rsa::{BigUint, RsaPrivateKey, RsaPublicKey};
 
@@ -41,21 +47,31 @@ pub(crate) use oaep::{oaep_decrypt, oaep_encrypt};
 mod signing;
 pub(crate) use signing::{sign, verify};
 
-/// Upper bound on an RSA modulus (bits) — the script-controlled
-/// `generateKey` `modulusLength` (an unbounded value would DoS the synchronous
-/// VM-thread keygen) and every imported modulus ([`check_modulus_bits`]).
+/// Upper bound on an **imported** RSA modulus (bits) — the ceiling
+/// [`check_modulus_bits`] applies to every imported key (jwk / spki / pkcs8).
 ///
-/// Pinned to the rsa crate's `RsaPublicKey::MAX_SIZE` (4096): public keys are
-/// reconstructed with `RsaPublicKey::new` / `from_public_key_der`, which reject
-/// a modulus above `MAX_SIZE` with `ModulusTooLarge`.  Advertising a higher
-/// ceiling would be inconsistent — `generateKey` (whose `new_with_exp` enforces
-/// no size) could mint a key whose public half then fails to reconstruct, and
-/// large imported verification keys would fail despite the stated policy.  4096
-/// covers every standard RSA key; supporting larger moduli needs the
-/// `new_with_max_size` constructor on every public-key path plus a custom SPKI
-/// decode (follow-on `#11-rsa-modulus-above-4096`).  Kept in lockstep by
-/// `tests::rsa::modulus_ceiling_matches_rsa_crate_max_size`.
-pub(crate) const MAX_RSA_MODULUS_BITS: u32 = 4096;
+/// 16384 is the value every major browser caps import at: BoringSSL's
+/// `OPENSSL_RSA_MAX_MODULUS_BITS` (Chrome's WebCrypto backend) and NSS's
+/// `RSA_MAX_MODULUS_BITS` (Firefox).  WebCrypto §20.8.4 sets **no** import
+/// maximum, so a modulus above this ceiling is an **elidex capability bound
+/// (no spec §-anchor — the value is the UA convention)**, not malformed
+/// material → NotSupported.  Public keys are reconstructed with
+/// [`RsaPublicKey::new_with_max_size`] (the rsa crate's `from_public_key_der`
+/// would otherwise cap at its own `MAX_SIZE` = 4096) via the custom
+/// [`decode_rsa_spki`] seam, so any size up to this ceiling imports.
+pub(crate) const MAX_RSA_IMPORT_MODULUS_BITS: u32 = 16384;
+
+/// Upper bound on a **generated** RSA modulus (bits) — the ceiling [`generate`]
+/// applies to the script-controlled `modulusLength`.
+///
+/// 8192 is Chrome's generate cap (BoringSSL bounds keygen there: a >8192-bit
+/// key takes minutes on the synchronous VM thread for no real security gain —
+/// Chrome's own rationale).  Tighter than the 16384 *import* ceiling because
+/// keygen, unlike import, runs the expensive prime search; an unbounded
+/// `modulusLength` would hang / OOM the engine via untrusted script.  WebCrypto
+/// §20.8.3 sets no maximum → an over-cap `modulusLength` is an OperationError
+/// (the §20.8.3 step-3 generation-failure surface).
+pub(crate) const MAX_RSA_GENERATE_MODULUS_BITS: u32 = 8192;
 
 /// Lower bound on an **RSA-OAEP** modulus (bits).  Unlike the signing variants
 /// (RSASSA-PKCS1-v1_5 / RSA-PSS, which run on the pure-Rust `rsa` crate at any
@@ -72,11 +88,35 @@ pub(crate) const MAX_RSA_MODULUS_BITS: u32 = 4096;
 /// is OAEP-specific — the signing families keep no minimum.
 pub(crate) const MIN_RSA_OAEP_MODULUS_BITS: u32 = 2048;
 
-/// Whether an RSA modulus of `bits` is below the OAEP backend's minimum for
-/// `variant`.  Only RSA-OAEP (the aws-lc-rs encrypt/decrypt backend) has a
-/// floor; the signing variants accept any size the `rsa` crate produces.
-fn rsa_oaep_modulus_below_minimum(variant: RsaVariant, bits: u32) -> bool {
-    variant == RsaVariant::RsaOaep && bits < MIN_RSA_OAEP_MODULUS_BITS
+/// Upper bound on an **RSA-OAEP** modulus (bits) — the mirror of
+/// [`MIN_RSA_OAEP_MODULUS_BITS`].  The aws-lc-rs OAEP backend ([`oaep`]) accepts
+/// only `2048..=8192` bits, so an RSA-OAEP key above 8192 would `generateKey` /
+/// `importKey` on the `rsa` crate yet be **unusable** for every OAEP op
+/// (aws-lc-rs key construction returns `Err` → OperationError).  Reject it at the
+/// gate (generate + import), so a successfully-imported RSA-OAEP key is always
+/// usable.  OAEP-specific — the signing families import up to
+/// [`MAX_RSA_IMPORT_MODULUS_BITS`].
+pub(crate) const MAX_RSA_OAEP_MODULUS_BITS: u32 = 8192;
+
+// Compile-time invariants on the modulus ceilings: the import ceiling must
+// EXCEED the rsa crate's own `MAX_SIZE` (4096) for the `new_with_max_size` lift to
+// matter; generate is no looser than import (you can import a key larger than you
+// can generate); and the RSA-OAEP range is non-empty.  (The OAEP upper bound and
+// the generate ceiling happen to coincide at 8192 today but are INDEPENDENT — the
+// OAEP bound tracks the aws-lc-rs backend, the generate bound tracks the keygen
+// DoS budget — so they are deliberately not asserted equal; raising one must not
+// silently constrain the other.)
+const _: () = assert!(MAX_RSA_IMPORT_MODULUS_BITS as usize > RsaPublicKey::MAX_SIZE);
+const _: () = assert!(MAX_RSA_GENERATE_MODULUS_BITS <= MAX_RSA_IMPORT_MODULUS_BITS);
+const _: () = assert!(MIN_RSA_OAEP_MODULUS_BITS < MAX_RSA_OAEP_MODULUS_BITS);
+
+/// Whether an RSA modulus of `bits` is outside the OAEP backend's usable range
+/// for `variant`.  Only RSA-OAEP (the aws-lc-rs encrypt/decrypt backend) has a
+/// range (`2048..=8192`); the signing variants import any size up to
+/// [`MAX_RSA_IMPORT_MODULUS_BITS`].
+fn rsa_oaep_modulus_out_of_range(variant: RsaVariant, bits: u32) -> bool {
+    variant == RsaVariant::RsaOaep
+        && !(MIN_RSA_OAEP_MODULUS_BITS..=MAX_RSA_OAEP_MODULUS_BITS).contains(&bits)
 }
 
 /// Liveness probe drawn from the entropy seam **before** an RSA private-key
@@ -131,14 +171,15 @@ pub(crate) fn import(
         // (spki/pkcs8 → Raw, jwk → Jwk), so this is a defensive guard.
         _ => return Err(format_data_mismatch()),
     };
-    // An RSA-OAEP key below the aws-lc-rs OAEP backend's minimum modulus parses
-    // here but is unusable for encrypt/decrypt (see [`MIN_RSA_OAEP_MODULUS_BITS`])
-    // — reject it as an unsupported capability, uniformly across spki/pkcs8/jwk
-    // (every branch produces `imported.modulus_length`), so an imported RSA-OAEP
-    // key is always usable.  The signing variants keep no floor.
-    if rsa_oaep_modulus_below_minimum(variant, imported.modulus_length) {
+    // An RSA-OAEP key outside the aws-lc-rs OAEP backend's modulus range
+    // (2048..=8192, see [`MAX_RSA_OAEP_MODULUS_BITS`]) parses here but is unusable
+    // for encrypt/decrypt — reject it as an unsupported capability, uniformly
+    // across spki/pkcs8/jwk (every branch produces `imported.modulus_length`), so
+    // an imported RSA-OAEP key is always usable.  The signing families import up
+    // to [`MAX_RSA_IMPORT_MODULUS_BITS`].
+    if rsa_oaep_modulus_out_of_range(variant, imported.modulus_length) {
         return Err(AlgorithmError::NotSupported(
-            "RSA-OAEP modulus length is below the supported minimum (2048 bits)".to_string(),
+            "RSA-OAEP modulus length is outside the supported range (2048-8192 bits)".to_string(),
         ));
     }
     // §14.3.9 importKey generic step: a private key with empty usages is a
@@ -167,26 +208,65 @@ struct Imported {
     public_exponent: Vec<u8>,
 }
 
-/// Parse a SubjectPublicKeyInfo (WebCrypto §20.8.4 spki): `from_public_key_der`
-/// validates the rsaEncryption OID + the RSA structure (a non-RSA / malformed
-/// SPKI → decode error → DataError).  It also enforces the modulus
-/// (`RsaPublicKey::MAX_SIZE`) and exponent (`MAX_PUB_EXPONENT`) caps *during*
-/// construction, so an oversized / large-exponent SPKI key is a DataError here
-/// rather than the JWK path's NotSupported capability error — surfacing that as
-/// NotSupported would need a custom SPKI decode of `n` / `e` before the rsa
-/// crate's capped `try_from`, deferred to `#11-rsa-modulus-above-4096`
-/// (the constructor caps make a separate `check_modulus_bits` here dead code).
+/// Decode an RSA SubjectPublicKeyInfo DER into its `(n, e)` components **without**
+/// the rsa crate's 4096-bit `MAX_SIZE` cap (which `from_public_key_der` applies
+/// inside its `try_from`): the rsa crate offers no max-size SPKI decode, so this
+/// reconstructs the crate's own SPKI validation — WebCrypto §20.8.4 spki **step
+/// 4** (the rsaEncryption OID + NULL parameters → reject on mismatch) and **step
+/// 5-6** (the RFC 3447 §A.1.1 `RSAPublicKey` structure) — and returns `(n, e)`
+/// for [`RsaPublicKey::new_with_max_size`] at the elidex import ceiling.
+/// `Err(())` for any parse / OID / structure failure; the caller maps it to a
+/// DataError on import or an OperationError on reconstruction.
+fn decode_rsa_spki(der: &[u8]) -> Result<(BigUint, BigUint), ()> {
+    let spki = SubjectPublicKeyInfoRef::from_der(der).map_err(|_| ())?;
+    // §20.8.4 spki step 4: the algorithm must be rsaEncryption with NULL params
+    // (mirrors the rsa crate's `verify_algorithm_id`).
+    spki.algorithm
+        .assert_algorithm_oid(pkcs1::ALGORITHM_OID)
+        .map_err(|_| ())?;
+    if spki.algorithm.parameters_any().map_err(|_| ())? != Null.into() {
+        return Err(());
+    }
+    // §20.8.4 spki step 5-6: parse the RFC 3447 §A.1.1 RSAPublicKey.
+    let pk_bytes = spki.subject_public_key.as_bytes().ok_or(())?;
+    let pkcs1_key = pkcs1::RsaPublicKey::try_from(pk_bytes).map_err(|_| ())?;
+    let n = BigUint::from_bytes_be(pkcs1_key.modulus.as_bytes());
+    let e = BigUint::from_bytes_be(pkcs1_key.public_exponent.as_bytes());
+    Ok((n, e))
+}
+
+/// `RsaPublicKey::new_with_max_size` at the elidex import ceiling
+/// ([`MAX_RSA_IMPORT_MODULUS_BITS`]; the rsa crate's `new` caps at 4096) — the
+/// single home of the ceiling for the public-key construction sites (spki + jwk
+/// import, and [`reconstruct_public`]).  Returns the bare error so each caller
+/// maps it to its own variant (import → DataError, reconstruct → OperationError);
+/// the only failure is structural (even modulus, `e >= n`, …), as the modulus /
+/// exponent capability bounds are applied by the caller.
+fn bounded_public_key(n: BigUint, e: BigUint) -> Result<RsaPublicKey, ()> {
+    RsaPublicKey::new_with_max_size(n, e, MAX_RSA_IMPORT_MODULUS_BITS as usize).map_err(|_| ())
+}
+
+/// Parse a SubjectPublicKeyInfo (WebCrypto §20.8.4 spki step 4-6) into a public
+/// key, bounded by [`MAX_RSA_IMPORT_MODULUS_BITS`] (16384) rather than the rsa
+/// crate's `from_public_key_der` 4096 cap.  Decodes `n` / `e` via the custom
+/// [`decode_rsa_spki`] seam, then applies the same bounds as the jwk path — a
+/// modulus over the ceiling → NotSupported (capability), an exponent over the
+/// rsa cap → NotSupported, and the structural validity (even modulus, `e >= n`,
+/// …) via [`bounded_public_key`] → DataError.  A non-RSA / malformed SPKI is a
+/// DataError.
 fn parse_spki(der: &[u8]) -> Result<RsaPublicKey, AlgorithmError> {
-    RsaPublicKey::from_public_key_der(der)
-        .map_err(|_| data("invalid SubjectPublicKeyInfo RSA public key"))
+    let (n, e) =
+        decode_rsa_spki(der).map_err(|()| data("invalid SubjectPublicKeyInfo RSA public key"))?;
+    check_modulus_bits(n.bits())?;
+    check_public_exponent(&e)?;
+    bounded_public_key(n, e).map_err(|()| data("invalid SubjectPublicKeyInfo RSA public key"))
 }
 
 /// Parse a PKCS#8 PrivateKeyInfo (WebCrypto §20.8.4 pkcs8): `from_pkcs8_der`
-/// validates the rsaEncryption OID + the RSA structure.  Unlike
-/// `from_public_key_der`, `from_pkcs8_der` does NOT apply `RsaPublicKey::MAX_SIZE`,
-/// so the explicit `check_modulus_bits` is *reached* and required — without it a
-/// private key whose modulus exceeds `MAX_RSA_MODULUS_BITS` would import yet be
-/// unusable (its public half can't be reconstructed via `RsaPublicKey::new`).
+/// validates the rsaEncryption OID + the RSA structure.  `from_pkcs8_der` applies
+/// no modulus cap, so the explicit `check_modulus_bits` is *reached* and required
+/// — it enforces the [`MAX_RSA_IMPORT_MODULUS_BITS`] (16384) import ceiling on the
+/// private key's modulus, keeping pkcs8 in lockstep with the jwk / spki paths.
 fn parse_pkcs8(der: &[u8]) -> Result<RsaPrivateKey, AlgorithmError> {
     let key =
         RsaPrivateKey::from_pkcs8_der(der).map_err(|_| data("invalid PKCS#8 RSA private key"))?;
@@ -209,12 +289,11 @@ fn public_imported(pubkey: &RsaPublicKey) -> Result<Imported, AlgorithmError> {
 }
 
 /// Build the [`Imported`] facts for a private key: the canonical PKCS#8 +
-/// derived SPKI DER.  A multi-prime key (>2 primes) is a NotSupportedError —
-/// the rsa crate's `to_pkcs8_der` cannot encode it (`#11-rsa-multiprime-jwk`).
+/// derived SPKI DER.  Every caller supplies a two-prime key — `from_pkcs8_der`
+/// rejects multi-prime, `generate` produces two primes, and the jwk path passes
+/// exactly `[p, q]` (the `oth` multi-prime shape is rejected upstream) — so the
+/// `to_pkcs8_der` encode (which cannot represent >2 primes) never fails on count.
 fn private_imported(privkey: &RsaPrivateKey) -> Result<Imported, AlgorithmError> {
-    if privkey.primes().len() > 2 {
-        return Err(multiprime_unsupported());
-    }
     let private_pkcs8_der = privkey
         .to_pkcs8_der()
         .map_err(|_| data("RSA private key cannot be encoded"))?
@@ -235,7 +314,8 @@ fn private_imported(privkey: &RsaPrivateKey) -> Result<Imported, AlgorithmError>
 /// Import an RSA `jwk` (WebCrypto §20.8.4 / §21.4.4 / §22.4.4 jwk branch +
 /// RFC 7518 §6.3): validate the JWK shape (kty / use / key_ops / ext / alg),
 /// determine the key type from the `d` member, then reconstruct the typed key
-/// from n / e [/ d / p / q].  Multi-prime (`oth`) is NotSupported.
+/// from n / e (public) or n / e / d / p / q / dp / dq / qi (private — the full
+/// CRT set is required, like every browser).  Multi-prime (`oth`) is a DataError.
 fn import_jwk(
     variant: RsaVariant,
     hash: HashAlgorithm,
@@ -290,59 +370,45 @@ fn import_jwk(
     let n = decode_biguint(jwk.n.as_deref(), "n")?;
     let e = decode_biguint(jwk.e.as_deref(), "e")?;
     // Bound the modulus + exponent BEFORE constructing the key, as NotSupported
-    // capability boundaries (not the rsa crate's generic DataError): the private
-    // branch's `from_components` runs prime recovery on a d-only JWK, which must
-    // not be reached on an oversized attacker-controlled `n` (DoS), and a public
-    // exponent over the rsa crate's cap is an unsupported capability, not
-    // malformed material.
+    // capability boundaries (not the rsa crate's generic DataError): an oversized
+    // attacker-controlled `n` must be rejected before the rsa crate validates /
+    // constructs the key on the VM thread (a DoS), and a public exponent over the
+    // rsa crate's cap is an unsupported capability, not malformed material.
     check_modulus_bits(n.bits())?;
     check_public_exponent(&e)?;
     match key_type {
         KeyType::Public => {
-            let pubkey = RsaPublicKey::new(n, e)
-                .map_err(|_| data("JWK RSA public key (n, e) is invalid"))?;
+            let pubkey = bounded_public_key(n, e)
+                .map_err(|()| data("JWK RSA public key (n, e) is invalid"))?;
             public_imported(&pubkey)
         }
         KeyType::Private => {
-            // Multi-prime (`oth` present) private keys are not supported — the
-            // rsa crate's DER encoder rejects >2 primes (`#11-rsa-multiprime-jwk`);
-            // RFC 7518 §6.3.2.7 says `oth` MUST be absent for a two-prime key,
-            // so even an empty `oth: []` is an unsupported multi-prime shape.
+            // Multi-prime (`oth` present) private keys are a DataError — no
+            // browser supports multi-prime RSA and the rsa crate's DER encoder
+            // rejects >2 primes; RFC 7518 §6.3.2.7 says `oth` MUST be absent for a
+            // two-prime key, so even an empty `oth: []` is an unsupported
+            // multi-prime shape (§20.8.4 jwk step 10 / §6.3.2 → DataError).
             // This is checked ONLY on the private branch: WebCrypto interprets a
             // *public* JWK per RFC 7518 §6.3.1 (n / e only — §20.8.4 / §21.4.4
             // "Otherwise" step), which never references `oth`, so a public import
             // ignores it exactly as it already ignores p / q / d.
             if jwk.oth.is_some() {
-                return Err(multiprime_unsupported());
+                return Err(data(
+                    "multi-prime RSA keys (more than two primes) are not supported",
+                ));
             }
-            // d is required (the §-determined private branch); p / q / dp / dq /
-            // qi are all-or-nothing (RFC 7518 §6.3.2 — see [`jwk_primes`]).
+            // d + the full CRT parameter set (p / q / dp / dq / qi) are required
+            // for a private key.  RFC 7518 §6.3.2 makes the CRT members optional
+            // in the JWK *format*, but every browser requires them (Chrome/Firefox
+            // demand p / q / dp / dq / qi; Safari rejects "private keys without
+            // additional data") and none recover the primes from (n, e, d).
+            // elidex matches that UA behavior: a CRT-less (d-only) or partial-CRT
+            // private JWK is a DataError (§20.8.4 jwk step 10 / §6.3.2 — the gate
+            // lives in [`jwk_primes`]).  Accepting a key no browser does would be
+            // an interop footgun (and would need a hand-rolled small-exponent
+            // factorization the rsa crate's recovery cannot do anyway).
             let d = decode_biguint(jwk.d.as_deref(), "d")?;
             let primes = jwk_primes(jwk)?;
-            // A CRT-less (d-only) JWK relies on `from_components`' prime
-            // recovery (NIST SP 800-56B C.2), which the rsa crate supports only
-            // for a public exponent in (2^16, 2^256).  A *valid* d-only key with
-            // an out-of-range exponent (e.g. e=3) is a crate-capability
-            // boundary, not malformed input → NotSupportedError
-            // (`#11-rsa-jwk-d-only-small-exponent`); checked explicitly so it
-            // stays distinct from the DataError below for an in-range-but-
-            // inconsistent key (where `from_components` recovery genuinely fails
-            // on bad n/e/d).
-            if primes.is_empty() {
-                // recover_primes requires 2^16 < e < 2^256.  2^16 = 65536;
-                // 2^256 is a 1 byte followed by 32 zero bytes.
-                let e_min = BigUint::from(65536u32);
-                let mut e_max_bytes = [0u8; 33];
-                e_max_bytes[0] = 1;
-                let e_max = BigUint::from_bytes_be(&e_max_bytes);
-                if e <= e_min || e >= e_max {
-                    return Err(AlgorithmError::NotSupported(
-                        "RSA private JWK without prime factors (p / q) is supported only for a \
-                         public exponent in (2^16, 2^256)"
-                            .to_string(),
-                    ));
-                }
-            }
             let privkey = RsaPrivateKey::from_components(n, e, d, primes)
                 .map_err(|_| data("JWK RSA private key is invalid or inconsistent"))?;
             // `from_components` recomputes the CRT values from p / q / d, so a
@@ -357,23 +423,20 @@ fn import_jwk(
     }
 }
 
-/// The JWK private-key primes for `RsaPrivateKey::from_components` (RFC 7518
-/// §6.3.2): the optional CRT members `p` / `q` / `dp` / `dq` / `qi` are
-/// **all-or-nothing** ("if the producer includes any of the other private key
-/// parameters, then all of the others MUST also be present").  When present,
-/// `[p, q]` is returned (`from_components` recomputes dp / dq / qi); when
-/// absent, an empty `Vec` lets `from_components` recover p / q from d.
+/// The JWK private-key primes `[p, q]` for `RsaPrivateKey::from_components`
+/// (RFC 7518 §6.3.2).  All five CRT members `p` / `q` / `dp` / `dq` / `qi` are
+/// **required** for a private key: RFC 7518 §6.3.2 makes them optional in the
+/// JWK *format*, but every browser requires the full set and none recover the
+/// primes from (n, e, d), so elidex matches that UA behavior — a missing or
+/// partial set is a DataError (§20.8.4 jwk step 10 / §6.3.2).  `from_components`
+/// recomputes dp / dq / qi from p / q / d; the supplied dp / dq / qi are then
+/// checked for consistency by [`validate_jwk_crt`].
 fn jwk_primes(jwk: &JsonWebKey) -> Result<Vec<BigUint>, AlgorithmError> {
     let members = [&jwk.p, &jwk.q, &jwk.dp, &jwk.dq, &jwk.qi];
-    let any = members.iter().any(|m| m.is_some());
-    let all = members.iter().all(|m| m.is_some());
-    if any && !all {
+    if !members.iter().all(|m| m.is_some()) {
         return Err(data(
-            "JWK RSA private key must include all of p / q / dp / dq / qi, or none",
+            "JWK RSA private key must include all of p / q / dp / dq / qi",
         ));
-    }
-    if !any {
-        return Ok(Vec::new());
     }
     let p = decode_biguint(jwk.p.as_deref(), "p")?;
     let q = decode_biguint(jwk.q.as_deref(), "q")?;
@@ -381,18 +444,15 @@ fn jwk_primes(jwk: &JsonWebKey) -> Result<Vec<BigUint>, AlgorithmError> {
 }
 
 /// Validate the JWK's supplied CRT members (`dp` / `dq` / `qi`) against the
-/// values recomputed from p / q / d (RFC 7518 §6.3.2.4-.6).  Absent → ok (the
-/// CRT members are all-or-nothing, [`jwk_primes`]); present but inconsistent →
-/// DataError (the key material is malformed — do not silently repair it).
+/// values recomputed from p / q / d (RFC 7518 §6.3.2.4-.6): present but
+/// inconsistent → DataError (the key material is malformed — do not silently
+/// repair it).  The CRT members are **required** (`jwk_primes`), so dp / dq / qi
+/// are always present here.
 // `dp` / `dq` (and `expected_dp` / `expected_dq`) are the canonical RFC 7518
 // CRT-exponent member names — renaming them to satisfy `similar_names` would
 // obscure the spec mapping.
 #[allow(clippy::similar_names)]
 fn validate_jwk_crt(jwk: &JsonWebKey, privkey: &RsaPrivateKey) -> Result<(), AlgorithmError> {
-    // All-or-nothing: if `dp` is absent so are `dq` / `qi` (jwk_primes gate).
-    if jwk.dp.is_none() {
-        return Ok(());
-    }
     let expected_dp = privkey.dp().ok_or_else(key_inaccessible)?;
     let expected_dq = privkey.dq().ok_or_else(key_inaccessible)?;
     let expected_qi = privkey.crt_coefficient().ok_or_else(key_inaccessible)?;
@@ -440,19 +500,22 @@ where
     // allocates + prime-searches at that bit size.  WebCrypto §20.8.3 sets no
     // maximum, but `modulusLength` is `[EnforceRange] unsigned long`, so an
     // untrusted `generateKey({modulusLength: 2**32 - 1})` would otherwise
-    // OOM / hang the engine (the keygen runs on the VM thread).  No real RSA
-    // key approaches `MAX_RSA_MODULUS_BITS`, so this rejects only abuse.
-    if modulus_length > MAX_RSA_MODULUS_BITS {
+    // OOM / hang the engine (the keygen runs on the VM thread).  The generate
+    // ceiling ([`MAX_RSA_GENERATE_MODULUS_BITS`] = 8192, Chrome-faithful) is
+    // tighter than the 16384 import ceiling — keygen's prime search is the
+    // expensive part — so this rejects only abuse.
+    if modulus_length > MAX_RSA_GENERATE_MODULUS_BITS {
         return Err(operation("RSA modulusLength exceeds the supported maximum"));
     }
     // RSA-OAEP runs on aws-lc-rs, whose OAEP keys are 2048..=8192 bits
-    // ([`MIN_RSA_OAEP_MODULUS_BITS`]); a smaller modulus would generate here yet
-    // be unusable for encrypt/decrypt — reject before keygen so an accepted
-    // RSA-OAEP key is always usable.  (Checked on the requested length, which
-    // `new_with_exp` reproduces exactly; the signing variants keep no floor.)
-    if rsa_oaep_modulus_below_minimum(variant, modulus_length) {
+    // ([`MAX_RSA_OAEP_MODULUS_BITS`]); a modulus outside that range would generate
+    // here yet be unusable for encrypt/decrypt — reject before keygen so an
+    // accepted RSA-OAEP key is always usable.  (Checked on the requested length,
+    // which `new_with_exp` reproduces exactly; the upper bound coincides with the
+    // generate ceiling, the lower bound is OAEP-specific.)
+    if rsa_oaep_modulus_out_of_range(variant, modulus_length) {
         return Err(operation(
-            "RSA-OAEP modulusLength is below the supported minimum (2048 bits)",
+            "RSA-OAEP modulusLength is outside the supported range (2048-8192 bits)",
         ));
     }
     // §20.8.3 step 2-3: generate the RSA key pair (failure → OperationError).
@@ -666,7 +729,8 @@ fn export_jwk(
 /// is the §20.8.5 step-2 "key material cannot be accessed" OperationError, not
 /// a DataError.
 fn reconstruct_public(key: &CryptoKeyData) -> Result<RsaPublicKey, AlgorithmError> {
-    RsaPublicKey::from_public_key_der(rsa_public_der(key)).map_err(|_| key_inaccessible())
+    let (n, e) = decode_rsa_spki(rsa_public_der(key)).map_err(|()| key_inaccessible())?;
+    bounded_public_key(n, e).map_err(|()| key_inaccessible())
 }
 
 /// Reconstruct the typed `RsaPrivateKey` from a key's stored canonical PKCS#8
@@ -748,17 +812,17 @@ fn modulus_bits<K: PublicKeyParts>(key: &K) -> Result<u32, AlgorithmError> {
     u32::try_from(key.n().bits()).map_err(|_| data("RSA modulus length is too large"))
 }
 
-/// Reject an imported RSA modulus wider than [`MAX_RSA_MODULUS_BITS`] — the same
-/// bound [`generate`] applies to a script-controlled `modulusLength`.  WebCrypto
-/// §20.8.4 sets no import maximum, but every import path validates / operates on
-/// the modulus on the VM thread, and the d-only JWK path runs NIST SP 800-56B
-/// C.2 prime *recovery* on attacker-controlled `n` / `e` / `d`, so an unbounded
-/// modulus is an engine-hang / OOM DoS via untrusted script.  Checked *before*
-/// the rsa crate does that work (the JWK path checks the decoded `n`; the
-/// spki / pkcs8 paths re-check the parsed key, keeping import↔generate
-/// symmetric).  A capability boundary, not malformed material → NotSupported.
+/// Reject an imported RSA modulus wider than [`MAX_RSA_IMPORT_MODULUS_BITS`]
+/// (16384, the BoringSSL / NSS import cap).  WebCrypto §20.8.4 sets no import
+/// maximum, but every import path validates / constructs the key from a
+/// script-controlled `n` on the VM thread, so an unbounded modulus is an
+/// engine-hang / OOM DoS via untrusted script.  Reached by all three import
+/// formats — the jwk path checks the decoded `n`, the spki / pkcs8 paths the
+/// parsed key — so the ceiling is uniform.  A capability boundary, not malformed
+/// material → NotSupported.  (The *generate* ceiling is the tighter
+/// [`MAX_RSA_GENERATE_MODULUS_BITS`] = 8192, applied in [`generate`].)
 fn check_modulus_bits(bits: usize) -> Result<(), AlgorithmError> {
-    if bits > MAX_RSA_MODULUS_BITS as usize {
+    if bits > MAX_RSA_IMPORT_MODULUS_BITS as usize {
         return Err(AlgorithmError::NotSupported(
             "RSA modulus length exceeds the supported maximum".to_string(),
         ));
@@ -771,9 +835,11 @@ fn check_modulus_bits(bits: usize) -> Result<(), AlgorithmError> {
 /// `RsaPublicKey::new` surface it as a generic `DataError`.  WebCrypto / JWA
 /// accept any valid `Base64urlUInt` `e`, but the rsa crate caps it (every real
 /// key uses e=65537 ≪ 2^33), so an over-cap `e` is an unsupported capability,
-/// not malformed material.  Checked on the JWK path (where `e` is decoded
-/// before construction); the spki / pkcs8 DER paths hit the rsa crate's cap
-/// first (DataError) — see [`parse_spki`].  (Codex R16.)
+/// not malformed material.  Checked on the JWK + spki paths (where `e` is decoded
+/// before construction → NotSupported); the pkcs8 DER path decodes `e` only inside
+/// `from_pkcs8_der`, so an over-cap exponent there surfaces as the rsa crate's
+/// `DataError` instead — a rare divergence (every real key uses e=65537).
+/// (Codex R16.)
 fn check_public_exponent(e: &BigUint) -> Result<(), AlgorithmError> {
     if *e > BigUint::from(RsaPublicKey::MAX_PUB_EXPONENT) {
         return Err(AlgorithmError::NotSupported(
@@ -808,15 +874,6 @@ fn decode_b64(s: &str) -> Result<Vec<u8>, AlgorithmError> {
     URL_SAFE_NO_PAD
         .decode(s)
         .map_err(|_| data("JWK RSA member is not valid base64url"))
-}
-
-/// A multi-prime RSA key (>2 primes — `pkcs8` otherPrimeInfos / JWK `oth`) is
-/// not supported: the rsa crate's DER encoder rejects it, and DER is the
-/// canonical storage form (`#11-rsa-multiprime-jwk`).
-fn multiprime_unsupported() -> AlgorithmError {
-    AlgorithmError::NotSupported(
-        "multi-prime RSA keys (more than two primes) are not supported".to_string(),
-    )
 }
 
 fn data(msg: &str) -> AlgorithmError {

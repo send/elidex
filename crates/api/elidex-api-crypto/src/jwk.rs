@@ -78,7 +78,7 @@ pub struct JsonWebKey {
     // base64url modulus / public exponent; `p` / `q` are the first / second
     // prime; `dp` / `dq` are the CRT exponents; `qi` is the CRT coefficient;
     // `oth` is the multi-prime `otherPrimeInfos` (>2 primes — rejected at
-    // import as NotSupported, see `rsa::import`, but retained for the
+    // import as a DataError, see `rsa::import`, but retained for the
     // live↔bytes mirror).  Read / written in both mirror halves for the
     // RSASSA-PKCS1-v1_5 / RSA-PSS `jwk` round-trip (PR-5a).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -103,8 +103,8 @@ pub struct JsonWebKey {
 /// CRT exponent `d`, and its CRT coefficient `t`, for a multi-prime (>2)
 /// RSA key.  Retained in both mirror halves (`marshal_jwk` live +
 /// [`from_json_bytes`]) so the live↔bytes equivalence holds; multi-prime
-/// import itself is a NotSupportedError (`rsa::import` — the rsa crate's DER
-/// encoder rejects >2 primes, `#11-rsa-multiprime-jwk`).
+/// import itself is a DataError (`rsa::import` — no browser supports multi-prime
+/// RSA and the rsa crate's DER encoder rejects >2 primes).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct RsaOtherPrimesInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -242,7 +242,7 @@ pub fn from_json_bytes(bytes: &[u8]) -> Result<JsonWebKey, AlgorithmError> {
 /// entry is not a dictionary → `TypeError`.  The `r`/`d`/`t` members are
 /// optional `DOMString`s that always convert (read in WebIDL lexicographic
 /// order d < r < t, matching the live half), and are retained so the
-/// live↔bytes mirror holds (multi-prime import itself is NotSupported).
+/// live↔bytes mirror holds (multi-prime import itself is a DataError).
 fn read_oth(map: &Map<String, Value>) -> Result<Option<Vec<RsaOtherPrimesInfo>>, AlgorithmError> {
     let Some(oth) = map.get("oth") else {
         return Ok(None);
@@ -255,7 +255,7 @@ fn read_oth(map: &Map<String, Value>) -> Result<Option<Vec<RsaOtherPrimesInfo>>,
     // Mirror the live marshaller's `MAX_CRYPTO_SEQUENCE_LEN` cap before
     // allocating / iterating: a huge `oth` array on the `unwrapKey` bytes path
     // is otherwise a memory / CPU DoS the live half already rejects (multi-prime
-    // `oth` is `NotSupported` regardless, but the cap fires first, as in the
+    // `oth` is a DataError regardless, but the cap fires first, as in the
     // live half, so the live↔bytes precedence agrees).
     if entries.len() > MAX_CRYPTO_SEQUENCE_LEN {
         return Err(AlgorithmError::Type(

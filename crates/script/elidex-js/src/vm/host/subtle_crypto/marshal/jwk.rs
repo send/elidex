@@ -164,7 +164,7 @@ fn read_jwk_key_ops(
 /// an object → its (optional) `d` / `r` / `t` `DOMString` members read in
 /// lexicographic order (firing each getter), any other value → `TypeError`
 /// (e.g. `oth: [123]`).  The converted entries are retained (PR-5a) so the
-/// live↔bytes mirror holds; multi-prime import itself is NotSupported.
+/// live↔bytes mirror holds; multi-prime import itself is a DataError.
 fn read_jwk_oth(
     ctx: &mut NativeContext<'_>,
     obj: ObjectId,
