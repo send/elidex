@@ -167,24 +167,6 @@ impl TreeBuilder {
         context: Entity,
         opts: ParseFragmentOptions,
     ) -> (Result<Vec<Entity>, StrictParseError>, EcsDom) {
-        // §13.4: a non-HTML-namespace context element (an SVG / MathML host's
-        // innerHTML) needs the foreign-content initial conditions — step 15
-        // pushes the context element so the adjusted current node is foreign
-        // and integration points seed from it. Slice 2a does not implement
-        // that (`#11-strict-fragment-foreign-context`); the synthetic root is
-        // HTML-namespace, so the parse would silently route the fragment
-        // through HTML insertion and return an HTML-namespaced tree a
-        // strict-first caller cannot tell is wrong. Abort *before* creating any
-        // synthetic node (dom untouched) so the dispatcher falls back to the
-        // tolerant backend over a pristine dom.
-        if dom.namespace_of(context) != Namespace::Html {
-            return (
-                Err(unsupported_fragment_construct(
-                    "fragment-context-non-html-namespace-unsupported",
-                )),
-                dom,
-            );
-        }
         // The whole §13.4 build happens on a synthetic throwaway document, never
         // the caller's connected tree, so suppress mutation dispatch for its
         // duration: appending the synthetic root under a `Document` would
@@ -478,7 +460,7 @@ impl TreeBuilder {
     fn sync_foreign_content_flag(&mut self) {
         let foreign = self
             .state
-            .current_node()
+            .adjusted_current_node()
             .is_some_and(|node| self.dom.namespace_of(node) != Namespace::Html);
         self.tokenizer.set_foreign_content_flag(foreign);
     }

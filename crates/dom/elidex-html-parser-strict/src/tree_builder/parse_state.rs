@@ -271,6 +271,22 @@ impl ParseState {
     pub(crate) fn current_node(&self) -> Option<Entity> {
         self.open_elements.last().copied()
     }
+
+    /// §13.2.4.2 The adjusted current node — the `context` element when this is
+    /// the §13.4 fragment case and the stack of open elements holds only the
+    /// synthetic root (so the fragment's content is dispatched as if directly
+    /// inside `context`), otherwise the [current node](Self::current_node). The
+    /// two coincide for document parsing and once the fragment has pushed any
+    /// element of its own. Foreign-content dispatch keys off this so an
+    /// SVG/MathML-context fragment routes its top-level children through the
+    /// foreign-content rules.
+    pub(crate) fn adjusted_current_node(&self) -> Option<Entity> {
+        if self.fragment_context.is_some() && self.open_elements.len() == 1 {
+            self.fragment_context
+        } else {
+            self.current_node()
+        }
+    }
 }
 
 /// Whether `ch` is one of the five WHATWG HTML "ASCII whitespace" characters

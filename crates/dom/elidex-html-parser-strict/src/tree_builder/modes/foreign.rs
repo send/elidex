@@ -40,8 +40,11 @@ use crate::StrictParseError;
 /// Otherwise returns `true`. The adjusted current node is the current node for
 /// document parsing (fragment-context is deferred, D-fc-d).
 pub(crate) fn in_foreign_content(tb: &TreeBuilder, token: &Token) -> bool {
-    // Condition 1: the stack of open elements is empty.
-    let Some(node) = tb.state.current_node() else {
+    // Condition 1: the stack of open elements is empty. The §13.2.6 dispatcher
+    // keys on the *adjusted* current node — in a §13.4 fragment whose context
+    // is an SVG/MathML element it is that context, so the fragment's top-level
+    // children take the foreign-content rules.
+    let Some(node) = tb.state.adjusted_current_node() else {
         return false;
     };
     let namespace = tb.dom.namespace_of(node);
@@ -223,13 +226,16 @@ fn start_tag(tb: &mut TreeBuilder, tag: &TagToken) -> Result<Flow, StrictParseEr
     }
 
     // "Any other start tag": insert a foreign element in the adjusted current
-    // node's namespace (the current node for document parsing). `dispatch`
-    // only routes here via `in_foreign_content`, which already established a
-    // non-empty stack whose current node is foreign, so the lookup is total.
+    // node's namespace. In a §13.4 fragment with an SVG/MathML context, the
+    // top-level element's adjusted current node is that context (the stack
+    // holds only the synthetic root); once a foreign element of the fragment's
+    // own is on the stack the two coincide. `dispatch` only routes here via
+    // `in_foreign_content`, which already established a foreign adjusted current
+    // node, so the lookup is total.
     let node = tb
         .state
-        .current_node()
-        .expect("foreign-content rules run only with a foreign current node");
+        .adjusted_current_node()
+        .expect("foreign-content rules run only with a foreign adjusted current node");
     let namespace = tb.dom.namespace_of(node);
     insert_foreign_start_tag(tb, tag, namespace);
     Ok(Flow::Next)

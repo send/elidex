@@ -475,33 +475,51 @@ fn rollback_despawns_shadow_root_with_no_leak() {
     );
 }
 
-// ----- a non-HTML-namespace context element is declined (not silently
-// HTML-namespaced), so a strict-first dispatcher can fall back -----
+// ----- a non-HTML-namespace context element parses its content as foreign
+// (§13.2.4.2 adjusted current node = the SVG/MathML context) -----
 
 #[test]
-fn foreign_namespace_context_is_rejected_leaving_dom_pristine() {
-    // An SVG / MathML host's innerHTML needs the foreign-content initial
-    // conditions slice 2a does not implement
-    // (`#11-strict-fragment-foreign-context`). Rather than route the fragment
-    // through HTML insertion and return a silently HTML-namespaced tree the
-    // caller cannot tell is wrong, strict aborts so the caller falls back to
-    // the tolerant backend — over a dom untouched by any synthetic node.
+fn svg_context_parses_children_as_svg() {
+    // For an SVG context, the §13.2.4.2 adjusted current node (single-element
+    // stack) is the context, so the fragment's top-level children take the
+    // foreign-content rules and land in the SVG namespace — not an HTML tree,
+    // and not a parse error.
     let mut dom = EcsDom::new();
     let svg_ctx = dom.create_element_ns("svg", Namespace::Svg, Attributes::default(), None);
-    let live_before = dom.world().len();
-
-    let result = parse_fragment_strict(
-        "<circle></circle>",
+    let roots = parse_fragment_strict(
+        "<circle></circle><rect></rect>",
         svg_ctx,
         &mut dom,
         ParseFragmentOptions::default(),
-    );
-
-    assert!(result.is_err(), "a foreign-namespace context is declined");
+    )
+    .expect("a conforming SVG-context fragment parses");
+    assert_eq!(roots.len(), 2);
+    assert!(dom.has_tag(roots[0], "circle"));
     assert_eq!(
-        dom.world().len(),
-        live_before,
-        "decline creates no synthetic node — dom is pristine for fallback"
+        dom.namespace_of(roots[0]),
+        Namespace::Svg,
+        "a top-level child of an SVG context is an SVG-namespace element"
+    );
+    assert_eq!(dom.namespace_of(roots[1]), Namespace::Svg);
+    assert_eq!(dom.get_parent(roots[0]), None, "returned detached");
+}
+
+#[test]
+fn mathml_context_parses_children_as_mathml() {
+    let mut dom = EcsDom::new();
+    let math_ctx = dom.create_element_ns("math", Namespace::MathMl, Attributes::default(), None);
+    let roots = parse_fragment_strict(
+        "<mi></mi>",
+        math_ctx,
+        &mut dom,
+        ParseFragmentOptions::default(),
+    )
+    .expect("a conforming MathML-context fragment parses");
+    assert_eq!(roots.len(), 1);
+    assert_eq!(
+        dom.namespace_of(roots[0]),
+        Namespace::MathMl,
+        "a top-level child of a MathML context is a MathML-namespace element"
     );
 }
 
