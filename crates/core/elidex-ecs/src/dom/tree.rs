@@ -1,5 +1,7 @@
 //! Tree mutation and navigation methods for [`EcsDom`].
 
+use std::collections::HashSet;
+
 use crate::components::{Attributes, NodeKind, ShadowRoot, TagType, TreeRelation};
 use hecs::Entity;
 
@@ -239,12 +241,19 @@ impl EcsDom {
             let _ = self.world.remove_one::<ShadowRoot>(sr);
         }
 
-        // Capture parent + pre-removal index for hook fire before detach.
+        // Capture parent + pre-removal index + pre-detach connectedness for the
+        // Remove hook before detach (same `was_connected` gating rationale as
+        // `remove_child`). These feed ONLY `fire_after_remove`, so when no
+        // dispatcher is installed skip them — `is_connected` is O(ancestor
+        // depth), and recomputing it per node would make a deep
+        // `despawn_subtree` O(n²) (a maliciously deep fragment's rollback).
         let parent = self.get_parent(entity);
-        let removed_index = parent.and_then(|_| self.index_in_parent(entity));
-        // Pre-detach connectedness for `was_connected` — same gating
-        // rationale as `remove_child`.
-        let was_connected = self.is_connected(entity);
+        let fire = if self.dispatcher.is_some() {
+            self.index_in_parent(entity)
+                .map(|idx| (idx, self.is_connected(entity)))
+        } else {
+            None
+        };
 
         self.detach(entity);
 
@@ -263,7 +272,7 @@ impl EcsDom {
         // descendant of `entity` would silently miss the
         // `(parent, removed_index)` collapse required by WHATWG §5.5
         // remove step 4 (Copilot PR186 R2 #3).
-        if let (Some(p), Some(idx)) = (parent, removed_index) {
+        if let (Some(p), Some((idx, was_connected))) = (parent, fire) {
             self.fire_after_remove(entity, p, idx, was_connected);
         }
 
@@ -328,27 +337,46 @@ impl EcsDom {
         if !self.contains(root) {
             return false;
         }
+        // Collect the shadow-inclusive descendant set (each host's shadow-root
+        // entity included — the light-tree walk does not reach it). Unlike the
+        // depth-capped [`Self::for_each_shadow_inclusive_descendant`] — whose
+        // `MAX_ANCESTOR_DEPTH` cap guards *ancestor-chain* corruption and would
+        // silently drop everything below it — this walk is **uncapped**:
+        // teardown must leave no live remnant, so a maliciously deep subtree
+        // must still be torn down completely or the strict parser's "dom is
+        // pristine on failure" isolation contract breaks. A `visited` set
+        // replaces the depth cap as the termination guard (each entity is
+        // enumerated once, so a malformed/cyclic tree cannot loop forever), and
+        // the explicit work-list keeps the walk stack-safe at any depth.
         let mut nodes: Vec<Entity> = Vec::new();
-        self.for_each_shadow_inclusive_descendant(root, &mut |e| nodes.push(e));
-        // `for_each_shadow_inclusive_descendant` walks INTO each shadow root's
-        // light tree but does not visit the shadow-root entity itself (only its
-        // children). Collect those so a host's shadow root is despawned too,
-        // not left as an orphaned live remnant. They are appended (destroyed
-        // first under the reverse walk below); with dispatch suppressed the
-        // shadow-before-host order is purely structural and emits no events, so
-        // it cannot miss a `disconnectedCallback` (see the method doc).
-        let shadow_roots: Vec<Entity> = nodes
-            .iter()
-            .filter_map(|&node| self.get_shadow_root(node))
-            .collect();
-        nodes.extend(shadow_roots);
+        let mut visited: HashSet<Entity> = HashSet::new();
+        let mut stack: Vec<Entity> = vec![root];
+        while let Some(node) = stack.pop() {
+            if !visited.insert(node) {
+                continue;
+            }
+            nodes.push(node);
+            // Descend into the host's shadow tree and despawn the shadow-root
+            // entity too (it is not in the light-child list).
+            if let Some(sr) = self.get_shadow_root(node) {
+                if visited.insert(sr) {
+                    nodes.push(sr);
+                    for child in self.children_iter(sr).collect::<Vec<_>>() {
+                        stack.push(child);
+                    }
+                }
+            }
+            for child in self.children_iter(node).collect::<Vec<_>>() {
+                stack.push(child);
+            }
+        }
         // Event-free structural teardown: take the dispatcher out for the whole
         // walk so no node's `destroy_entity` fires a (mis-ordered, partial)
         // `MutationEvent::Remove`. Restored before returning.
         let saved_dispatcher = self.take_mutation_dispatcher();
         // Deepest-first: children precede their parents, so each
         // `destroy_entity` runs before its parent orphans it (cheaper, and the
-        // snapshot already froze the set against the link mutations).
+        // collected set is already frozen against the link mutations).
         for &entity in nodes.iter().rev() {
             let _ = self.destroy_entity(entity);
         }

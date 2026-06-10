@@ -87,6 +87,30 @@ fn td_context_resets_to_in_body() {
     );
 }
 
+#[test]
+fn select_context_retains_input_per_customizable_select() {
+    // Current WHATWG HTML removed the "in select" / "in select in table"
+    // insertion modes (customizable-`<select>`): the §13.2.6.4 insertion-mode
+    // list (§13.2.6.4.1–.21, verified via webref — §13.2.6.4.7 is "in body",
+    // there is no "in select") no longer special-cases `select`, so a
+    // `select`-context fragment parses through "in body" and an `<input>` is
+    // *retained* with no parse error. The html5lib snapshot that drops the
+    // `<input>` and flags a parse error predates the change (see the
+    // `known_spec_divergence` skip in `tests_html5lib_tree`); this pins that
+    // strict matches current spec, so that corpus skip masks no real failure.
+    // `frag` panics on rejection, so reaching the asserts also proves strict
+    // returns Ok (does not treat `<input>` as a fatal parse error).
+    let (dom, roots) = frag("select", "<input><option>");
+    assert!(
+        roots.iter().any(|&r| dom.has_tag(r, "input")),
+        "current-spec strict retains <input> in a select context"
+    );
+    assert!(
+        roots.iter().any(|&r| dom.has_tag(r, "option")),
+        "the <option> is retained too"
+    );
+}
+
 // ----- tokenizer initial state from context (§13.4 step 10) -----
 
 #[test]

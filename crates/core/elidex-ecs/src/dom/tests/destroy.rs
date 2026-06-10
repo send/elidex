@@ -221,6 +221,44 @@ fn despawn_subtree_is_event_free_even_on_a_connected_shadow_host() {
 }
 
 #[test]
+fn despawn_subtree_tears_down_past_the_traversal_depth_cap() {
+    // The shadow-inclusive descendant walker caps at `MAX_ANCESTOR_DEPTH`; a
+    // teardown that inherited that cap would leak everything below it, breaking
+    // the strict parser's "dom is pristine on failure" contract for a
+    // maliciously deep fragment. `despawn_subtree` must reach every node.
+    use crate::dom::MAX_ANCESTOR_DEPTH;
+
+    let mut dom = EcsDom::new();
+    let baseline = dom.world().len();
+    // Build bottom-up — wrap the current top in a fresh parent each step — so
+    // every `append_child` walks up from a parentless node (O(1)); a top-down
+    // chain would re-walk the whole ancestor list per append (O(n²)).
+    let deepest = elem(&mut dom, "div");
+    let mut root = deepest;
+    for _ in 0..(MAX_ANCESTOR_DEPTH + 5) {
+        let parent = elem(&mut dom, "div");
+        dom.append_child(parent, root);
+        root = parent;
+    }
+    assert!(
+        dom.contains(deepest),
+        "the over-cap leaf exists pre-teardown"
+    );
+
+    assert!(dom.despawn_subtree(root));
+
+    assert!(
+        !dom.contains(deepest),
+        "the node below the traversal depth cap is torn down, not leaked"
+    );
+    assert_eq!(
+        dom.world().len(),
+        baseline,
+        "no entity in the over-deep subtree survives"
+    );
+}
+
+#[test]
 fn destroy_slot_clears_assignment() {
     let mut dom = EcsDom::new();
     let host = elem(&mut dom, "div");
