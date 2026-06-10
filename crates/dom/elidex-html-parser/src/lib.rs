@@ -473,4 +473,102 @@ mod tests {
             .expect("middle node is the preserved whitespace text node");
         assert_eq!(ws.0, "\n  ", "the whitespace run is preserved verbatim");
     }
+
+    #[test]
+    fn fragment_custom_element_has_ce_state_when_insert_fires() {
+        // Codex #329 R1 (P1) regression: the tolerant fragment path
+        // (`innerHTML`) builds into a live, dispatcher-bound dom, so
+        // `append_child` fires `MutationEvent::Insert` synchronously. The
+        // CustomElementReactionConsumer reads `CustomElementState` at that
+        // moment to enqueue upgrades; deriving components in a post-build
+        // walk raced the insert and the marker was absent. `attach_derived`
+        // now runs at element-creation time (before append), so the marker
+        // is present when the insert fires.
+        use elidex_ecs::{Attributes, EcsDom, MutationDispatcher, MutationEvent, TagType};
+        use std::sync::{Arc, Mutex};
+
+        struct InsertProbe(Arc<Mutex<Vec<(String, bool)>>>);
+        impl MutationDispatcher for InsertProbe {
+            fn dispatch(&mut self, event: &MutationEvent<'_>, dom: &mut EcsDom) {
+                if let MutationEvent::Insert { node, .. } = *event {
+                    let tag = dom
+                        .world()
+                        .get::<&TagType>(node)
+                        .map(|t| t.0.clone())
+                        .unwrap_or_default();
+                    let has_ce = dom
+                        .world()
+                        .get::<&elidex_custom_elements::CustomElementState>(node)
+                        .is_ok();
+                    self.0.lock().unwrap().push((tag, has_ce));
+                }
+            }
+        }
+
+        let mut dom = EcsDom::new();
+        let _ = dom.create_document_root();
+        let host = dom.create_element("div", Attributes::default());
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let _ = dom.set_mutation_dispatcher(Box::new(InsertProbe(Arc::clone(&log))));
+        let _ = parse_html_fragment(
+            "<my-widget></my-widget>",
+            "div",
+            host,
+            &mut dom,
+            ParseFragmentOptions::default(),
+        );
+        let entries = log.lock().unwrap();
+        let widget = entries
+            .iter()
+            .find(|(t, _)| t == "my-widget")
+            .expect("an Insert event fired for <my-widget>");
+        assert!(
+            widget.1,
+            "CustomElementState must be attached when the fragment insert fires (else upgrade is never enqueued)"
+        );
+    }
+
+    #[test]
+    fn fragment_declarative_shadow_content_gets_derived_components() {
+        // Codex #329 R1 (P2) regression: declarative-shadow content consumed
+        // by `try_attach_declarative_shadow` is not tracked in any root list,
+        // so a post-build walk over fragment roots never visited it and the
+        // shadow-tree elements lost CustomElementState / InlineStyle /
+        // IframeData. Per-node `attach_derived` in `convert_node` covers them
+        // (shadow content flows through `convert_node` like any other node).
+        use elidex_ecs::{Attributes, EcsDom, InlineStyle, TagType};
+
+        let mut dom = EcsDom::new();
+        let _ = dom.create_document_root();
+        let host = dom.create_element("div", Attributes::default());
+        let _ = parse_html_fragment(
+            r#"<template shadowrootmode="open"><my-el style="color: red"></my-el></template>"#,
+            "div",
+            host,
+            &mut dom,
+            ParseFragmentOptions {
+                allow_declarative_shadow: true,
+            },
+        );
+        let sr = dom.get_shadow_root(host).expect("shadow root attached");
+        let my_el = dom
+            .children(sr)
+            .into_iter()
+            .find(|c| {
+                dom.world()
+                    .get::<&TagType>(*c)
+                    .is_ok_and(|t| t.0 == "my-el")
+            })
+            .expect("<my-el> present in shadow tree");
+        assert!(
+            dom.world()
+                .get::<&elidex_custom_elements::CustomElementState>(my_el)
+                .is_ok(),
+            "declarative-shadow custom element must carry CustomElementState"
+        );
+        assert!(
+            dom.world().get::<&InlineStyle>(my_el).is_ok(),
+            "declarative-shadow element must carry InlineStyle"
+        );
+    }
 }

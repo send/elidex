@@ -8,7 +8,7 @@ use markup5ever_rcdom::{Handle, NodeData, RcDom};
 
 use elidex_html_parser_strict::{ParseFragmentOptions, ParseResult, ParseTier};
 
-use crate::element_init::derive_element_components;
+use crate::element_init::attach_derived;
 
 pub(crate) fn convert_document(rc_dom: RcDom) -> ParseResult {
     let mut dom = EcsDom::new();
@@ -19,10 +19,6 @@ pub(crate) fn convert_document(rc_dom: RcDom) -> ParseResult {
         &mut dom,
         ParseFragmentOptions::default(),
     );
-    // Tier-2 tolerant: attach parser-derived components over the built
-    // tree. Same canonical derivation the strict Tier-1 path runs in
-    // `parse_progressive` (One-issue-one-way) — see `element_init`.
-    derive_element_components(&mut dom, document);
     let errors = rc_dom
         .errors
         .into_inner()
@@ -86,13 +82,6 @@ pub(crate) fn convert_fragment_children(
                 created.push(entity);
             }
         }
-    }
-    // Attach parser-derived components over each created fragment root's
-    // subtree (tolerant fragment parity with `convert_document`). The
-    // walk is subtree-scoped, so unrelated elements already in the
-    // caller's `dom` are untouched.
-    for &root in &created {
-        derive_element_components(dom, root);
     }
     created
 }
@@ -210,6 +199,19 @@ fn convert_node(handle: &Handle, dom: &mut EcsDom, opts: ParseFragmentOptions) -
         NodeData::Element { .. } => {
             let (tag, attributes) = build_element_data(handle)?;
             let entity = dom.create_element(&tag, attributes);
+            // Attach derived components at creation time — BEFORE the element
+            // is appended anywhere. The tolerant fragment path
+            // (`convert_fragment_children`, e.g. `innerHTML`) builds into a
+            // live, dispatcher-bound `dom`, so `append_child` fires
+            // `MutationEvent::Insert` synchronously; the `CustomElementState`
+            // / `IframeData` / `InlineStyle` must already be present when the
+            // CustomElementReactionConsumer reads them. Deriving in a
+            // post-build walk would race the insert (and miss declarative-
+            // shadow content not tracked in any root list). The strict Tier-1
+            // backend instead derives post-build in `parse_progressive` (it
+            // is pre-bind / dispatch-suppressed and cannot reach this crate's
+            // deps). Both share the one `attach_derived` implementation.
+            attach_derived(dom, entity);
             convert_children(handle, entity, dom, opts);
             Some(entity)
         }

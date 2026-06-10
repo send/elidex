@@ -48,7 +48,12 @@ pub(crate) fn derive_element_components(dom: &mut EcsDom, root: Entity) {
 /// Derive and attach components for a single element entity. A no-op for
 /// non-element entities (those without a [`TagType`], e.g. the Document
 /// node, text, comments).
-fn attach_derived(dom: &mut EcsDom, entity: Entity) {
+///
+/// Called per-node at element-creation time by the tolerant backend
+/// (`convert.rs::convert_node`, before any `append_child` so the
+/// components exist when a dispatcher-bound `innerHTML` insert fires) and
+/// per-subtree by [`derive_element_components`] for the strict backend.
+pub(crate) fn attach_derived(dom: &mut EcsDom, entity: Entity) {
     // Phase 1: read (tag, style, is) under shared borrows, cloning out so
     // no borrow is held across the mutating inserts below.
     let (tag, style_attr, is_attr) = {
