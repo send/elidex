@@ -145,6 +145,50 @@ fn event_bubbles_through_parent() {
     engine.vm().unbind();
 }
 
+/// Codex PR327 R4 (boa parity): the post-dispatch checkpoint
+/// `script_dispatch_event` runs (`drain_reactions`) must deliver same-window
+/// tasks a listener enqueued — not just custom-element reactions. A `click`
+/// listener that calls `window.postMessage` enqueues a task; the `message`
+/// listener must observe it within the dispatch turn. Read via `get_global`
+/// (NOT `eval`, which would self-drain and mask a missing post-dispatch drain).
+#[test]
+fn dispatch_drains_same_window_tasks_enqueued_by_listeners() {
+    let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    let target = dom.create_element("button", Attributes::default());
+    assert!(dom.append_child(doc, target));
+
+    bind_after_dom(&mut engine, &mut session, &mut dom, doc);
+    let wrapper = engine.vm().inner.create_element_wrapper(target);
+    engine.vm().set_global("el", JsValue::Object(wrapper));
+    engine
+        .vm()
+        .eval(
+            "globalThis.msg = 0;
+             window.addEventListener('message', function (e) { globalThis.msg = e.data; });
+             el.addEventListener('click', function () { window.postMessage(42, '*'); });",
+        )
+        .unwrap();
+    // The setup eval registered listeners but posted nothing.
+    assert!(
+        matches!(engine.vm().get_global("msg"), Some(JsValue::Number(n)) if n == 0.0),
+        "no message before dispatch"
+    );
+
+    let mut event = DispatchEvent::new_composed("click", target);
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    script_dispatch_event(&mut engine, &mut event, &mut ctx);
+
+    // The click listener enqueued a `postMessage` task (a same-window task, not
+    // a microtask — the per-listener `run_microtasks` does not drain it); the
+    // post-dispatch `drain_reactions` must deliver it. Read directly — `eval`
+    // would self-drain and hide the gap.
+    assert!(
+        matches!(engine.vm().get_global("msg"), Some(JsValue::Number(n)) if n == 42.0),
+        "post-dispatch drain_reactions must deliver listener-enqueued same-window tasks"
+    );
+    engine.vm().unbind();
+}
+
 #[test]
 fn stop_propagation_blocks_bubble_phase() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();

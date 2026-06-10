@@ -241,16 +241,39 @@ pub(super) fn native_clear_interval(
 // rustc flags it dead — allow explicitly for the no-feature lib build.
 #[allow(dead_code)]
 impl VmInner {
+    /// The post-fire checkpoint a single timer turn gets: a microtask
+    /// checkpoint (HTML §8.1.7.3) plus the same-window task + CE-reaction drains
+    /// an `eval` runs internally. Called after **every** JS-executing fire in
+    /// [`Self::drain_timers`] — a user `setTimeout`/`setInterval` callback AND
+    /// an `AbortSignal.timeout` internal abort dispatch — so a later same-tick
+    /// timer observes the work an earlier fire enqueued (boa parity: boa runs
+    /// each ready timer through `eval`, which drains before the next). One
+    /// definition for both fire paths so neither can silently skip it. Tasks +
+    /// CE reactions are `engine`-only.
+    fn drain_timer_fire_checkpoint(&mut self) {
+        self.drain_microtasks();
+        #[cfg(feature = "engine")]
+        {
+            self.drain_tasks();
+            self.flush_ce_reactions();
+        }
+    }
+
     /// Fire every timer whose deadline is `<= now`.  Cancelled entries
     /// are skipped; interval entries are re-queued with `deadline + repeat`.
-    /// Callback exceptions are reported via `eprintln!` so a single bad
-    /// timer doesn't abort the whole drain — a PR6 follow-up will route
-    /// these to `host.session().report_error(...)`.
+    ///
+    /// Returns one `Result<(), VmError>` **per fired setTimeout/setInterval
+    /// callback** (in fire order) so the `ScriptEngine::drain_timers` caller
+    /// can surface a per-callback `EvalResult`; a single throwing callback is
+    /// recorded as an `Err` and does NOT abort the drain.  `AbortSignal.timeout`
+    /// internal fires are not user callbacks and are excluded from the vector
+    /// (they have no `EvalResult`).  `Vec::len()` is the callback count for
+    /// callers that only need a tally.
     ///
     /// After firing expired timers, drains the microtask queue (HTML
     /// §8.1.7.3 — perform a microtask checkpoint).
-    pub(crate) fn drain_timers(&mut self, now: Instant) -> usize {
-        let mut fired = 0usize;
+    pub(crate) fn drain_timers(&mut self, now: Instant) -> Vec<Result<(), VmError>> {
+        let mut results: Vec<Result<(), VmError>> = Vec::new();
         loop {
             // Peek before popping so that a future-dated head stays
             // scheduled; only entries whose deadline is `<= now` are
@@ -303,7 +326,14 @@ impl VmInner {
                 if let Err(e) = fire_result {
                     eprintln!("timeout signal abort {} threw: {e}", signal_id.0);
                 }
-                fired += 1;
+                // Same per-fire checkpoint as a user callback: the abort
+                // dispatch ran JS (the signal's `abort` listeners), so settle
+                // their queued tasks / reactions before the next ready timer —
+                // otherwise a same-tick `setTimeout` would run before an abort
+                // listener's `postMessage` is delivered.
+                self.drain_timer_fire_checkpoint();
+                // `AbortSignal.timeout` is an internal fire, not a user
+                // setTimeout callback — excluded from the returned results.
                 // One-shot — no re-arm; jump to the top of the loop.
                 continue;
             }
@@ -316,10 +346,13 @@ impl VmInner {
             self.current_timer = Some(entry);
             let fire_result = self.fire_current_timer();
             let entry = self.current_timer.take().expect("current_timer set above");
-            if let Err(e) = fire_result {
+            if let Err(e) = &fire_result {
                 eprintln!("timer callback {} threw: {e}", entry.id);
             }
-            fired += 1;
+            results.push(fire_result);
+            // Per-timer checkpoint: settle this callback's queued work before
+            // the next ready timer runs (see [`Self::drain_timer_fire_checkpoint`]).
+            self.drain_timer_fire_checkpoint();
             // Interval re-arm.  Re-check cancellation here so that a
             // callback that cancels its own interval (the classic
             // `setInterval(() => { if (...) clearInterval(id); })`
@@ -347,8 +380,10 @@ impl VmInner {
                 self.active_timer_ids.remove(&entry.id);
             }
         }
-        self.drain_microtasks();
-        fired
+        // Every JS-executing fire path (user callback + `AbortSignal.timeout`
+        // abort) ran the per-fire checkpoint above, so the queues are already
+        // settled — no separate once-at-end drain is needed.
+        results
     }
 
     /// Invoke the callback of `self.current_timer` with the caller-stored

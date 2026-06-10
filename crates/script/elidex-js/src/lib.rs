@@ -48,6 +48,9 @@ mod tests_call_listener;
 #[cfg(test)]
 #[cfg(feature = "engine")]
 mod tests_dispatch_integration;
+#[cfg(test)]
+#[cfg(feature = "engine")]
+mod tests_engine_s1a;
 
 mod lexer;
 mod parser;

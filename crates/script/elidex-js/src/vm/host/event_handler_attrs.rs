@@ -474,6 +474,41 @@ impl VmInner {
         entity: elidex_ecs::Entity,
         id: ListenerId,
     ) {
+        // WHATWG HTML §8.1.8.1 "getting the current value of the event handler"
+        // step 3.2: when the document's active sandboxing flag set has the
+        // sandboxed scripts flag set (scripting is disabled, §8.1.3.4), the
+        // algorithm returns null for a handler whose value is an *internal raw
+        // uncompiled handler* — *without* compiling it. So a `<button
+        // onclick=...>` in a sandboxed iframe lacking `allow-scripts` never
+        // compiles, `get_listener` returns None, and every dispatch path /
+        // the IDL getter resolves null. This is the listener-dispatch half of
+        // the same `scripts_allowed` gate `eval` applies to classic scripts.
+        //
+        // Crucially we early-return WITHOUT deleting any stored callable:
+        // step 3 only nulls a *raw uncompiled* handler; an already-compiled
+        // callback object's value persists (the getter returns it — step 3 is
+        // skipped for a non-raw value), and the "event handler processing
+        // algorithm" step 1 suppresses *invocation*, never the value. Deleting
+        // would lose the author's function from the IDL getter (Codex #327 R9).
+        // Invocation of the realizable inline handler is suppressed by
+        // construction (never compiled → nothing to invoke); a *compiled*
+        // event-handler callable cannot coexist with scripting-disabled here
+        // (every callable-store path — lazy-compile, the IDL setter,
+        // addEventListener — needs `eval`, which the gate blocks; sandbox flags
+        // are fixed at document load; cross-document handler dispatch is
+        // unwired). Step-1 invocation suppression for that non-realizable case
+        // is deferred (slot #11-scripting-disabled-eventhandler-processing-step1)
+        // until cross-document handler dispatch makes it reachable.
+        // addEventListener (`Normal`) listeners hold no uncompiled source and
+        // are not event handlers (WHATWG DOM "inner invoke" has no scripting
+        // gate), so they are untouched.
+        if self
+            .host_data
+            .as_deref()
+            .is_some_and(|hd| !hd.scripts_allowed())
+        {
+            return;
+        }
         let (uncompiled, cleared) = {
             let Some(host) = self.host_data.as_deref_mut() else {
                 return;

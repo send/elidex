@@ -168,6 +168,17 @@ mod engine_feature {
         /// the setter is a no-op in that case (the
         /// "cookie-averse" path of WHATWG §6.5.2).
         cookie_jar: Option<std::sync::Arc<elidex_net::CookieJar>>,
+        /// Iframe sandbox flags for this document's browsing context
+        /// (WHATWG HTML §7.1.5 Sandboxing).  `None` for top-level /
+        /// unsandboxed documents — the cutover's shell installs parsed
+        /// `IframeSandboxFlags` (from the iframe `sandbox=""` attribute)
+        /// via [`Self::set_sandbox_flags`] when a document loads inside a
+        /// sandboxed iframe.  A per-browsing-context security fact (not a
+        /// per-entity DOM fact) → the CLAUDE.md side-store rule (b)
+        /// shared-cross-cutting exception, like `cookie_jar` above.  Read
+        /// by [`Self::scripts_allowed`] (the eval gate; S1b adds the
+        /// `forms`/`popups`/`modals` accessors + their consumer wiring).
+        sandbox_flags: Option<elidex_plugin::IframeSandboxFlags>,
         /// `MutationObserver` registry (WHATWG DOM §4.3.1) — owns the
         /// per-observer pending-record queues. The observation targets +
         /// options live as `MutationObservedBy` components on the
@@ -719,6 +730,7 @@ mod engine_feature {
                 wrapper_store: HashMap::new(),
                 focused_entity: None,
                 cookie_jar: None,
+                sandbox_flags: None,
                 mutation_observers: elidex_api_observers::mutation::MutationObserverRegistry::new(),
                 mutation_observer_bindings: HashMap::new(),
                 resize_observers: elidex_api_observers::resize::ResizeObserverRegistry::new(),
@@ -933,6 +945,25 @@ mod engine_feature {
         /// fallback, WHATWG §6.5.2).
         pub(crate) fn cookie_jar(&self) -> Option<&std::sync::Arc<elidex_net::CookieJar>> {
             self.cookie_jar.as_ref()
+        }
+
+        /// Install this document's iframe sandbox flags (WHATWG HTML
+        /// §7.1.5).  Pass `None` for a top-level / unsandboxed document
+        /// (the default).  The shell parses the iframe `sandbox=""`
+        /// attribute into `IframeSandboxFlags` and installs them here when
+        /// a document loads inside a sandboxed iframe.
+        pub fn set_sandbox_flags(&mut self, flags: Option<elidex_plugin::IframeSandboxFlags>) {
+            self.sandbox_flags = flags;
+        }
+
+        /// Whether scripting is enabled for this browsing context
+        /// (WHATWG HTML §8.1.3.4 "scripting is disabled" — gated by the
+        /// §7.1.5 sandboxed scripts flag).  `true` when not sandboxed or
+        /// when the sandbox grants `allow-scripts`; the eval gate
+        /// short-circuits to a silent success when this is `false`.
+        pub(crate) fn scripts_allowed(&self) -> bool {
+            self.sandbox_flags
+                .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_SCRIPTS))
         }
 
         /// Set the focused Element (called from `HTMLElement.focus()`).

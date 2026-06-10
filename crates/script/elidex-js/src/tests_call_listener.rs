@@ -172,6 +172,71 @@ fn call_listener_lazy_compiles_inline_handler() {
     engine.vm().unbind();
 }
 
+/// Codex PR327 R2 (security/spec): the scripting-disabled counterpart of
+/// `call_listener_lazy_compiles_inline_handler`. In a sandboxed iframe without
+/// `allow-scripts`, scripting is disabled (HTML §8.1.3.4), so a raw uncompiled
+/// inline `<button onclick=...>` handler must NOT be compiled or run on UA
+/// dispatch — HTML "getting the current value of the event handler" step 3.2
+/// returns null when the sandboxed scripts flag is set. The S1a `scripts_allowed`
+/// gate must cover the listener-dispatch path, not only classic-script `eval`.
+#[test]
+#[allow(unsafe_code)]
+fn call_listener_skips_inline_handler_when_scripting_disabled() {
+    let mut engine = ElidexJsEngine::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let target = dom.create_element("button", Attributes::default());
+
+    // Pre-seed an inline handler exactly as `call_listener_lazy_compiles_inline_handler`
+    // does — the only difference is the sandbox flag set below.
+    let listener_id = {
+        let mut listeners = EventListeners::new();
+        let id = listeners.add_event_handler("click");
+        listeners.set_uncompiled(id, "globalThis.ran = true");
+        dom.world_mut()
+            .insert_one(target, listeners)
+            .expect("insert EventListeners");
+        id
+    };
+
+    engine.vm().install_host_data(HostData::new());
+    // Sandboxed WITHOUT `allow-scripts` → scripting is disabled for this context.
+    engine
+        .vm()
+        .host_data()
+        .expect("HostData")
+        .set_sandbox_flags(Some(elidex_plugin::IframeSandboxFlags::empty()));
+    unsafe {
+        engine.vm().bind(
+            std::ptr::from_mut(&mut session),
+            std::ptr::from_mut(&mut dom),
+            doc,
+        );
+    }
+
+    let mut event = DispatchEvent::new("click", target);
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    engine.call_listener(listener_id, &mut event, target, false, &mut ctx);
+
+    // The inline handler was never compiled (no callable stored) and never ran.
+    assert!(
+        engine
+            .vm()
+            .host_data()
+            .expect("HostData")
+            .get_listener(listener_id)
+            .is_none(),
+        "scripting-disabled context must not compile the inline handler"
+    );
+    assert!(
+        !matches!(engine.vm().get_global("ran"), Some(JsValue::Boolean(true))),
+        "the inline handler must not run when scripting is disabled (sandbox bypass)"
+    );
+
+    engine.vm().unbind();
+}
+
 #[test]
 fn passive_listener_prevent_default_is_silently_ignored() {
     let mut engine = ElidexJsEngine::new();
