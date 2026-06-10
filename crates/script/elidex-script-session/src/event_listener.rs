@@ -265,21 +265,6 @@ impl EventListeners {
         }
     }
 
-    /// Whether `id` is an **event-handler IDL attribute** listener
-    /// (`onclick`-style), as opposed to a [`ListenerKind::Normal`]
-    /// `addEventListener` listener. The two are gated differently when
-    /// scripting is disabled: HTML's "event handler processing algorithm"
-    /// step 1 returns for an event handler whose target has scripting disabled,
-    /// whereas WHATWG DOM "inner invoke" applies no such gate to addEventListener
-    /// listeners. `false` if `id` is absent.
-    #[must_use]
-    pub fn is_event_handler(&self, id: ListenerId) -> bool {
-        self.entries
-            .iter()
-            .find(|e| e.id == id)
-            .is_some_and(|e| matches!(e.kind, ListenerKind::EventHandler { .. }))
-    }
-
     /// Whether an event-handler listener was cleared by content-attribute
     /// removal (and so reads as null until reactivated).
     #[must_use]

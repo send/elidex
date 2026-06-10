@@ -225,12 +225,13 @@ impl ScriptEngine for ElidexJsEngine {
         // date (lazy-compile a pending inline source / drop a cleared one)
         // before resolving its callable, so UA-initiated dispatch honours
         // inline `<body onload="...">`-style handlers identically to the
-        // script dispatch walk. No-op for `addEventListener` listeners. This is
-        // also the single chokepoint for the scripting-disabled gate (HTML
-        // "event handler processing algorithm" step 1): when scripting is
-        // disabled it resolves an event-handler attribute to null (drops the
-        // stored callable), so the `get_listener` read below returns `None` and
-        // the handler does not run — no separate per-path gate here.
+        // script dispatch walk. No-op for `addEventListener` listeners. It is
+        // also the scripting-disabled chokepoint (HTML §8.1.8.1 "getting the
+        // current value of the event handler" step 3.2): when scripting is
+        // disabled it does NOT compile a raw inline handler, so the
+        // `get_listener` read below returns `None` and the handler does not run
+        // — invocation suppressed by construction, no per-path gate, and no
+        // destructive delete (a compiled callable's value is preserved).
         self.vm
             .inner
             .ensure_event_handler_current(current_target, listener_id);

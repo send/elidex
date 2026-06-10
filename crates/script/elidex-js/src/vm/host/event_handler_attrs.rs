@@ -474,35 +474,39 @@ impl VmInner {
         entity: elidex_ecs::Entity,
         id: ListenerId,
     ) {
-        // HTML "the event handler processing algorithm" step 1: when scripting
-        // is disabled for the event target (the document's active sandboxing
-        // flag set has the sandboxed scripts flag set, §8.1.3.4), an
-        // event-handler IDL attribute (`onclick`-style) resolves to null — the
-        // handler does not run, even one whose callable is already compiled.
-        // This reconcile step is the SINGLE chokepoint every dispatch path
-        // passes through before reading `listener_store`: `call_listener`,
-        // `dispatchEvent` via `DispatchTarget::resolve_callable`,
-        // `onunhandledrejection` via `natives_promise`, and the IDL getter via
-        // `reconcile_handler`. Gating here makes them all observe null by
-        // construction (no per-path gate). A raw uncompiled handler is simply
-        // not compiled (the realizable sandboxed-iframe case — no callable to
-        // resolve); a precompiled / cross-document callable is dropped so
-        // `get_listener` returns null. addEventListener (`Normal`) listeners are
-        // NOT event handlers (WHATWG DOM "inner invoke" has no scripting gate),
-        // so they are left untouched.
+        // WHATWG HTML §8.1.8.1 "getting the current value of the event handler"
+        // step 3.2: when the document's active sandboxing flag set has the
+        // sandboxed scripts flag set (scripting is disabled, §8.1.3.4), the
+        // algorithm returns null for a handler whose value is an *internal raw
+        // uncompiled handler* — *without* compiling it. So a `<button
+        // onclick=...>` in a sandboxed iframe lacking `allow-scripts` never
+        // compiles, `get_listener` returns None, and every dispatch path /
+        // the IDL getter resolves null. This is the listener-dispatch half of
+        // the same `scripts_allowed` gate `eval` applies to classic scripts.
+        //
+        // Crucially we early-return WITHOUT deleting any stored callable:
+        // step 3 only nulls a *raw uncompiled* handler; an already-compiled
+        // callback object's value persists (the getter returns it — step 3 is
+        // skipped for a non-raw value), and the "event handler processing
+        // algorithm" step 1 suppresses *invocation*, never the value. Deleting
+        // would lose the author's function from the IDL getter (Codex #327 R9).
+        // Invocation of the realizable inline handler is suppressed by
+        // construction (never compiled → nothing to invoke); a *compiled*
+        // event-handler callable cannot coexist with scripting-disabled here
+        // (every callable-store path — lazy-compile, the IDL setter,
+        // addEventListener — needs `eval`, which the gate blocks; sandbox flags
+        // are fixed at document load; cross-document handler dispatch is
+        // unwired). Step-1 invocation suppression for that non-realizable case
+        // is deferred (slot #11-scripting-disabled-eventhandler-processing-step1)
+        // until cross-document handler dispatch makes it reachable.
+        // addEventListener (`Normal`) listeners hold no uncompiled source and
+        // are not event handlers (WHATWG DOM "inner invoke" has no scripting
+        // gate), so they are untouched.
         if self
             .host_data
             .as_deref()
             .is_some_and(|hd| !hd.scripts_allowed())
         {
-            if self.listener_is_event_handler(entity, id)
-                && self
-                    .host_data
-                    .as_deref()
-                    .is_some_and(|hd| hd.get_listener(id).is_some())
-            {
-                self.remove_listener_and_prune_back_ref(id);
-            }
             return;
         }
         let (uncompiled, cleared) = {
@@ -529,24 +533,6 @@ impl VmInner {
         } else if cleared {
             self.remove_listener_and_prune_back_ref(id);
         }
-    }
-
-    /// Whether listener `id` on `entity` is an event-handler IDL attribute
-    /// (`onclick`-style), as opposed to an `addEventListener` listener. Used by
-    /// the scripting-disabled invocation gate (`ScriptEngine::call_listener`):
-    /// HTML's "event handler processing algorithm" step 1 returns when scripting
-    /// is disabled for the target — covering an already-compiled handler — while
-    /// WHATWG DOM "inner invoke" applies no scripting gate to addEventListener
-    /// listeners. `false` if no `HostData`/`EventListeners` exists for `entity`.
-    pub(crate) fn listener_is_event_handler(
-        &mut self,
-        entity: elidex_ecs::Entity,
-        id: ListenerId,
-    ) -> bool {
-        self.host_data
-            .as_deref_mut()
-            .and_then(|host| host.dom().world().get::<&EventListeners>(entity).ok())
-            .is_some_and(|listeners| listeners.is_event_handler(id))
     }
 }
 
