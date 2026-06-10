@@ -37,6 +37,16 @@ impl TreeBuilder {
                 self.state.open_elements[idx]
             };
 
+            // A foreign-namespace fragment context matches none of the HTML
+            // element-type cases below (the spec's element references in §13.4
+            // are HTML-namespace), so it resets to "in body" — the §13.2.4.1
+            // step-15 fallback; the foreign-content dispatcher then routes its
+            // children. (Document parsing has no foreign context here.)
+            if last && self.dom.namespace_of(node) != elidex_ecs::Namespace::Html {
+                self.state.mode = InsertionMode::InBody;
+                return;
+            }
+
             // Steps 4-9: table-context elements.
             if !last && self.entity_has_any_tag(node, &["td", "th"]) {
                 self.state.mode = InsertionMode::InCell;

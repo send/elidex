@@ -548,6 +548,49 @@ fn foreign_context_with_raw_text_local_name_does_not_switch_to_raw_text() {
     assert_eq!(dom.namespace_of(roots[0]), Namespace::Svg);
 }
 
+#[test]
+fn foreign_template_context_does_not_seed_template_mode() {
+    // §13.4 step 14's `template` is HTML-namespace; an SVG element named
+    // `template` is a foreign context, so its child parses as SVG foreign
+    // content rather than seeding the in-template insertion mode.
+    let mut dom = EcsDom::new();
+    let svg_template =
+        dom.create_element_ns("template", Namespace::Svg, Attributes::default(), None);
+    let roots = parse_fragment_strict(
+        "<circle></circle>",
+        svg_template,
+        &mut dom,
+        ParseFragmentOptions::default(),
+    )
+    .expect("an SVG-template-context fragment parses");
+    assert_eq!(roots.len(), 1);
+    assert!(dom.has_tag(roots[0], "circle"));
+    assert_eq!(dom.namespace_of(roots[0]), Namespace::Svg);
+}
+
+#[test]
+fn foreign_form_ancestor_does_not_seed_form_pointer() {
+    // §13.4 step 17's `form` is HTML-namespace; a foreign element named `form`
+    // in the context's ancestry must not seed the form pointer, so a valid
+    // `<form>` in the fragment is accepted (contrast
+    // `form_pointer_from_ancestor_rejects_nested_form`, where an *HTML* form
+    // ancestor rejects it).
+    let mut dom = EcsDom::new();
+    let svg_form = dom.create_element_ns("form", Namespace::Svg, Attributes::default(), None);
+    let ctx = dom.create_element("div", Attributes::default());
+    assert!(dom.append_child(svg_form, ctx));
+    let result = parse_fragment_strict(
+        "<form></form>",
+        ctx,
+        &mut dom,
+        ParseFragmentOptions::default(),
+    );
+    assert!(
+        result.is_ok(),
+        "a foreign <form> ancestor does not seed the form pointer"
+    );
+}
+
 // ----- a top-level declarative-shadow template (host = external context) is
 // declined; a nested one (host = in-fragment element) still attaches -----
 

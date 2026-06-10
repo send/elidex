@@ -199,8 +199,10 @@ impl TreeBuilder {
         // `reset_insertion_mode_appropriately`).
         state.fragment_context = Some(context);
         // §13.4 step 14: a `template` context seeds the template insertion
-        // mode stack so a `</template>` / table reset resolves correctly.
-        if dom.has_tag(context, "template") {
+        // mode stack so a `</template>` / table reset resolves correctly. The
+        // spec's `template` reference is HTML-namespace-only, so an SVG/MathML
+        // element whose local name is `template` does not seed it.
+        if dom.namespace_of(context) == Namespace::Html && dom.has_tag(context, "template") {
             state.template_modes.push(InsertionMode::InTemplate);
         }
         let mut tb = TreeBuilder {
@@ -332,7 +334,10 @@ impl TreeBuilder {
             if self.dom.is_shadow_root(entity) {
                 return;
             }
-            if self.dom.has_tag(entity, "form") {
+            // §13.4 step 17's `form` reference is HTML-namespace-only, so a
+            // foreign element whose local name is `form` is not a form ancestor.
+            if self.dom.namespace_of(entity) == Namespace::Html && self.dom.has_tag(entity, "form")
+            {
                 self.state.form_pointer = Some(entity);
                 return;
             }
