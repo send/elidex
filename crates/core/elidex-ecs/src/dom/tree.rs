@@ -340,38 +340,10 @@ impl EcsDom {
         if !self.contains(root) {
             return false;
         }
-        // Collect the shadow-inclusive descendant set (each host's shadow-root
-        // entity included — the light-tree walk does not reach it). The
-        // `MAX_ANCESTOR_DEPTH`-capped `children` / `children_iter` /
-        // `for_each_shadow_inclusive_descendant` (caps guard ancestor-chain and
-        // sibling-chain corruption) would silently drop nodes past the cap in
-        // either dimension; teardown must leave no live remnant, so this uses
-        // the uncapped [`Self::child_list_uncapped`] and an explicit work-list.
-        // A `visited` set replaces the caps as the corruption/cycle termination
-        // guard (each entity enumerated once) and the work-list keeps the walk
-        // stack-safe at any depth.
+        // Snapshot the full shadow-inclusive descendant set (uncapped in depth
+        // and breadth — teardown must reach every node or it leaks).
         let mut nodes: Vec<Entity> = Vec::new();
-        let mut visited: HashSet<Entity> = HashSet::new();
-        let mut stack: Vec<Entity> = vec![root];
-        while let Some(node) = stack.pop() {
-            if !visited.insert(node) {
-                continue;
-            }
-            nodes.push(node);
-            // Descend into the host's shadow tree and despawn the shadow-root
-            // entity too (it is not in the light-child list).
-            if let Some(sr) = self.get_shadow_root(node) {
-                if visited.insert(sr) {
-                    nodes.push(sr);
-                    for child in self.child_list_uncapped(sr) {
-                        stack.push(child);
-                    }
-                }
-            }
-            for child in self.child_list_uncapped(node) {
-                stack.push(child);
-            }
-        }
+        self.for_each_uncapped_shadow_inclusive(root, &mut |e| nodes.push(e));
         // Event-free structural teardown: take the dispatcher out for the whole
         // walk so no node's `destroy_entity` fires a (mis-ordered, partial)
         // `MutationEvent::Remove`. Restored before returning.
@@ -386,6 +358,48 @@ impl EcsDom {
             self.set_mutation_dispatcher(dispatcher);
         }
         true
+    }
+
+    /// Visit `root` and every shadow-inclusive descendant exactly once, with no
+    /// `MAX_ANCESTOR_DEPTH` cap in either dimension — the complete-subtree walk
+    /// shared by [`Self::despawn_subtree`] (teardown) and [`Self::adopt_subtree`]
+    /// (re-home). Uses the uncapped [`Self::child_list_uncapped`] for breadth
+    /// and an explicit work-list for depth; a `visited` set replaces the caps as
+    /// the corruption/cycle termination guard (each entity enumerated once,
+    /// including a host's shadow-root entity, which the light-child walk does not
+    /// otherwise reach).
+    fn for_each_uncapped_shadow_inclusive<F: FnMut(Entity)>(&self, root: Entity, visit: &mut F) {
+        let mut visited = HashSet::new();
+        let mut stack = vec![root];
+        while let Some(node) = stack.pop() {
+            if !visited.insert(node) {
+                continue;
+            }
+            visit(node);
+            // The shadow-root entity is attached out-of-band (not a light
+            // sibling); push it so it is visited and its own light children are
+            // walked when popped (nested shadow hosts recurse the same way).
+            if let Some(sr) = self.get_shadow_root(node) {
+                stack.push(sr);
+            }
+            for child in self.child_list_uncapped(node) {
+                stack.push(child);
+            }
+        }
+    }
+
+    /// WHATWG DOM §4.5 "adopt" node-document update: set the `AssociatedDocument`
+    /// of `root` and every shadow-inclusive descendant to `document`. Uncapped in
+    /// depth and breadth, so it re-homes a whole subtree however deep/wide. Used
+    /// by the HTML §13.4 fragment parser to give returned nodes the context's
+    /// node document before the throwaway parse document is despawned — otherwise
+    /// their `ownerDocument` would dangle / resolve to `None`.
+    pub fn adopt_subtree(&mut self, root: Entity, document: Entity) {
+        let mut nodes: Vec<Entity> = Vec::new();
+        self.for_each_uncapped_shadow_inclusive(root, &mut |e| nodes.push(e));
+        for node in nodes {
+            let _ = self.set_associated_document(node, document);
+        }
     }
 
     /// Place `node` into `parent`'s child list between `prev` and `next`.

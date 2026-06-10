@@ -347,6 +347,44 @@ fn foreign_element_owner_survives_fragment_teardown() {
     );
 }
 
+#[test]
+fn all_fragment_node_types_adopt_the_context_document() {
+    // DOM §4.5 adopt: every returned node — HTML elements, nested text,
+    // comments — owns the context's node document, not the despawned throwaway.
+    // (foreign elements are covered by the test above; this pins that the fix
+    // is general, not foreign-only.)
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let ctx = dom.create_element("div", Attributes::default());
+    assert!(dom.append_child(doc, ctx));
+    let roots = parse_fragment_strict(
+        "<p>x</p><!--c-->",
+        ctx,
+        &mut dom,
+        ParseFragmentOptions::default(),
+    )
+    .unwrap();
+    for &r in &roots {
+        assert_eq!(
+            dom.owner_document(r),
+            Some(doc),
+            "every top-level fragment node owns the context document"
+        );
+    }
+    let p = roots
+        .iter()
+        .copied()
+        .find(|&r| dom.has_tag(r, "p"))
+        .expect("a <p> root");
+    for child in dom.children(p) {
+        assert_eq!(
+            dom.owner_document(child),
+            Some(doc),
+            "a nested text node owns the context document too"
+        );
+    }
+}
+
 // ----- form-pointer walk is tree-scoped (does not cross a shadow boundary) ---
 
 #[test]

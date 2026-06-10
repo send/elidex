@@ -272,6 +272,15 @@ impl TreeBuilder {
     /// destroying the root *is* the detach: the children survive parentless and
     /// the root is gone. The now-childless document is despawned after.
     fn take_fragment_children(&mut self, root: Entity) -> Vec<Entity> {
+        // DOM §4.5 "adopt": every returned node's node document is the context's
+        // (not just foreign elements — HTML elements / text / comments resolve
+        // `ownerDocument` via the tree root, which is the throwaway document
+        // about to be despawned, so without this re-home they would dangle /
+        // resolve to `None`). Re-home the whole subtree before tearing the
+        // throwaway document down.
+        if let Some(doc) = self.fragment_document() {
+            self.dom.adopt_subtree(root, doc);
+        }
         // Uncapped: `EcsDom::children` caps the sibling walk at
         // `MAX_ANCESTOR_DEPTH`, which would drop the tail of a fragment with
         // very many top-level nodes — and `destroy_entity(root)` then orphans
@@ -282,6 +291,16 @@ impl TreeBuilder {
         let _ = self.dom.destroy_entity(root);
         let _ = self.dom.destroy_entity(self.document);
         children
+    }
+
+    /// The context element's node document (WHATWG DOM `ownerDocument`) — the
+    /// document the §13.4 fragment's returned nodes are adopted into. `None`
+    /// only when the context is itself documentless (no live owner to re-home
+    /// to). Document parsing has no fragment context, so this is `None` there.
+    fn fragment_document(&self) -> Option<Entity> {
+        self.state
+            .fragment_context
+            .and_then(|ctx| self.dom.owner_document(ctx))
     }
 
     /// §13.4 step 10: switch the tokenizer's initial state from the context
