@@ -96,6 +96,30 @@ impl CustomElementDefinition {
         }
     }
 
+    /// Whether an element with local name `local_name` matches this
+    /// definition for upgrade (WHATWG HTML §4.13.5 "upgrade an element",
+    /// via the §4.13.3 "look up a custom element definition" matching):
+    ///
+    /// - **Customized built-in** (`extends: Some(base)`) — the element's
+    ///   local name must equal `base` (HTML's customized built-in syntax
+    ///   ties the definition to the retained base tag).
+    /// - **Autonomous** (`extends: None`) — the element's local name must
+    ///   equal the definition `name` itself.
+    ///
+    /// This is the single match rule shared by every upgrade gate (the VM's
+    /// `prepare_upgrade` and the boa shell's subtree-upgrade walks), so a
+    /// mismatched `is=`-marked candidate — e.g. `<div is="my-el">` under an
+    /// autonomous `define("my-el", …)`, or under `{ extends: "button" }` —
+    /// is never upgraded. (A parse-time marker cannot pre-filter this: the
+    /// definition's `extends` is unknown until `define()` runs.)
+    #[must_use]
+    pub fn upgrade_matches_local_name(&self, local_name: &str) -> bool {
+        match &self.extends {
+            Some(base) => base.eq_ignore_ascii_case(local_name),
+            None => self.name.eq_ignore_ascii_case(local_name),
+        }
+    }
+
     /// O(1) `observedAttributes` membership test — the mutation-consumer
     /// hot path. Delegates to the private parallel `HashSet` so callers
     /// cannot read the set directly and accidentally drift it.
@@ -342,4 +366,33 @@ pub fn collect_undefined_entities(
         }
     }
     out
+}
+
+#[cfg(test)]
+mod upgrade_match_tests {
+    use super::CustomElementDefinition;
+
+    fn def(name: &str, extends: Option<&str>) -> CustomElementDefinition {
+        CustomElementDefinition::new(name.to_string(), 1, vec![], extends.map(str::to_string))
+    }
+
+    #[test]
+    fn autonomous_matches_only_its_own_tag() {
+        // Codex #329 R8 (P2): an autonomous definition upgrades only an
+        // element whose local name IS the definition name — NOT a
+        // `<div is="my-el">` candidate (the boa shell's `is_none_or` walk
+        // wrongly upgraded any such entity).
+        let d = def("my-el", None);
+        assert!(d.upgrade_matches_local_name("my-el"));
+        assert!(!d.upgrade_matches_local_name("div"));
+    }
+
+    #[test]
+    fn customized_builtin_matches_only_extends_base() {
+        let d = def("plastic-button", Some("button"));
+        assert!(d.upgrade_matches_local_name("button"));
+        assert!(d.upgrade_matches_local_name("BUTTON")); // ASCII case-insensitive
+        assert!(!d.upgrade_matches_local_name("div"));
+        assert!(!d.upgrade_matches_local_name("plastic-button"));
+    }
 }

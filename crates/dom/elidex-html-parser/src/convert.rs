@@ -4,11 +4,14 @@
 //! walks the tree and builds an ECS DOM.
 
 use elidex_ecs::{
-    Attributes, EcsDom, Entity, InlineStyle, ShadowInit, ShadowRootMode, SlotAssignmentMode,
+    Attributes, EcsDom, Entity, Namespace, ShadowInit, ShadowRootMode, SlotAssignmentMode,
 };
+use html5ever::ns;
 use markup5ever_rcdom::{Handle, NodeData, RcDom};
 
 use elidex_html_parser_strict::{ParseFragmentOptions, ParseResult, ParseTier};
+
+use crate::element_init::attach_derived;
 
 pub(crate) fn convert_document(rc_dom: RcDom) -> ParseResult {
     let mut dom = EcsDom::new();
@@ -176,59 +179,60 @@ fn try_attach_declarative_shadow(
     true
 }
 
-/// Build element attributes and extract inline style from an element handle.
-fn build_element_data(handle: &Handle) -> Option<(String, Attributes, Option<InlineStyle>)> {
+/// Build the tag name and attribute set from an element handle.
+///
+/// Returns `(tag, namespace, attributes)`. The namespace is read from the
+/// html5ever [`QualName`](html5ever::QualName) so foreign (SVG / MathML)
+/// content is created with the correct [`Namespace`] component — without it
+/// `EcsDom::namespace_of` would default every node to HTML, defeating the
+/// HTML-namespace guard in `element_init::attach_derived` (a `<svg><my-foo>`
+/// would wrongly receive `CustomElementState`).
+///
+/// Derived components (InlineStyle / CustomElementState / IframeData) are
+/// attached by `element_init::attach_derived`, invoked per-node from
+/// [`convert_node`] at creation time (shared with the strict Tier-1 backend's
+/// derivation logic).
+fn build_element_data(handle: &Handle) -> Option<(String, Namespace, Attributes)> {
     let NodeData::Element { name, attrs, .. } = &handle.data else {
         return None;
     };
     let tag = name.local.as_ref().to_string();
+    let namespace = if name.ns == ns!(svg) {
+        Namespace::Svg
+    } else if name.ns == ns!(mathml) {
+        Namespace::MathMl
+    } else {
+        // ns!(html) and any unexpected namespace map to HTML.
+        Namespace::Html
+    };
     let mut attributes = Attributes::default();
-    let mut inline_style = None;
     for attr in attrs.borrow().iter() {
-        let name = attr.name.local.as_ref();
-        let value: &str = &attr.value;
-        if name == "style" {
-            inline_style = Some(parse_inline_style(value));
-        }
-        attributes.set(name, value);
+        attributes.set(attr.name.local.as_ref(), &*attr.value);
     }
-    Some((tag, attributes, inline_style))
+    Some((tag, namespace, attributes))
 }
 
 fn convert_node(handle: &Handle, dom: &mut EcsDom, opts: ParseFragmentOptions) -> Option<Entity> {
     match &handle.data {
         NodeData::Element { .. } => {
-            let (tag, attributes, inline_style) = build_element_data(handle)?;
-            let entity = dom.create_element(&tag, attributes);
-            if let Some(style) = inline_style {
-                let ok = dom.world_mut().insert_one(entity, style).is_ok();
-                debug_assert!(ok, "insert_one failed for InlineStyle");
-            }
-            // Mark custom elements for later upgrade (WHATWG HTML §4.13.3 `valid custom element name`).
-            if elidex_custom_elements::is_valid_custom_element_name(&tag) {
-                let ce_state = elidex_custom_elements::CustomElementState::undefined(&tag);
-                let _ = dom.world_mut().insert_one(entity, ce_state);
-            } else if let Some(is_value) = dom
-                .world()
-                .get::<&Attributes>(entity)
-                .ok()
-                .and_then(|a| a.get("is").map(String::from))
-            {
-                // Customized built-in element via `is` attribute (WHATWG HTML §4.13.5 upgrade).
-                if elidex_custom_elements::is_valid_custom_element_name(&is_value) {
-                    let ce_state = elidex_custom_elements::CustomElementState::undefined(&is_value);
-                    let _ = dom.world_mut().insert_one(entity, ce_state);
-                }
-            }
-            // Attach IframeData component for <iframe> elements (WHATWG HTML §4.8.5).
-            if tag == "iframe" {
-                let iframe_data = if let Ok(attrs_ref) = dom.world().get::<&Attributes>(entity) {
-                    elidex_ecs::IframeData::from_attributes(&attrs_ref)
-                } else {
-                    elidex_ecs::IframeData::default()
-                };
-                let _ = dom.world_mut().insert_one(entity, iframe_data);
-            }
+            let (tag, namespace, attributes) = build_element_data(handle)?;
+            // `create_element_ns` attaches a `Namespace` component only for
+            // non-HTML namespaces (HTML stays component-free), so the foreign
+            // guard in `attach_derived` sees the real namespace.
+            let entity = dom.create_element_ns(&tag, namespace, attributes, None);
+            // Attach derived components at creation time — BEFORE the element
+            // is appended anywhere. The tolerant fragment path
+            // (`convert_fragment_children`, e.g. `innerHTML`) builds into a
+            // live, dispatcher-bound `dom`, so `append_child` fires
+            // `MutationEvent::Insert` synchronously; the `CustomElementState`
+            // / `IframeData` / `InlineStyle` must already be present when the
+            // CustomElementReactionConsumer reads them. Deriving in a
+            // post-build walk would race the insert (and miss declarative-
+            // shadow content not tracked in any root list). The strict Tier-1
+            // backend instead derives post-build in `parse_progressive` (it
+            // is pre-bind / dispatch-suppressed and cannot reach this crate's
+            // deps). Both share the one `attach_derived` implementation.
+            attach_derived(dom, entity);
             convert_children(handle, entity, dom, opts);
             Some(entity)
         }
@@ -265,25 +269,6 @@ fn convert_node(handle: &Handle, dom: &mut EcsDom, opts: ParseFragmentOptions) -
         // ProcessingInstruction, Document — skip
         _ => None,
     }
-}
-
-/// Parse a `style` attribute value into an [`InlineStyle`].
-///
-/// Uses simple `;` and `:` splitting. Full CSS value parsing is handled by
-/// elidex-css and elidex-style.
-fn parse_inline_style(style: &str) -> InlineStyle {
-    let mut inline = InlineStyle::default();
-    for decl in style.split(';') {
-        let decl = decl.trim();
-        if let Some((prop, val)) = decl.split_once(':') {
-            let prop = prop.trim();
-            let val = val.trim();
-            if !prop.is_empty() && !val.is_empty() {
-                inline.set(prop, val);
-            }
-        }
-    }
-    inline
 }
 
 #[cfg(test)]

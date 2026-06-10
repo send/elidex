@@ -12,17 +12,24 @@
 
 pub mod charset;
 mod convert;
+mod element_init;
 
 pub use charset::{detect_and_decode, DecodeResult, EncodingConfidence};
 // `ParseResult`, `ParseTier`, `ParseFragmentOptions`, `StrictParseError`,
-// `parse_strict`, and `parse_fragment_strict` are owned by the
-// engine-independent `elidex-html-parser-strict` crate (the strict-mode SoT).
-// They are re-exported here so existing `elidex_html_parser::…` import paths
-// keep working; the tolerant html5ever entry points below produce the same
+// and `parse_fragment_strict` are owned by the engine-independent
+// `elidex-html-parser-strict` crate (the strict-mode SoT). They are
+// re-exported here so existing `elidex_html_parser::…` import paths keep
+// working; the tolerant html5ever entry points below produce the same
 // `ParseResult` type (tagged `ParseTier::Recovered`).
+//
+// `parse_strict` is intentionally NOT re-exported: this crate defines its
+// own [`parse_strict`] wrapper (below) that runs the derived-component pass,
+// so every public document entry point (`parse_html` / `parse_progressive` /
+// `parse_strict`) yields a complete `ParseResult`. (`parse_fragment_strict`
+// stays the raw re-export pending the slice-2b fragment-caller unification —
+// slot `#11-strict-parser-created-element-ecs-state` fragment wiring.)
 pub use elidex_html_parser_strict::{
-    parse_fragment_strict, parse_strict, ParseFragmentOptions, ParseResult, ParseTier,
-    StrictParseError,
+    parse_fragment_strict, ParseFragmentOptions, ParseResult, ParseTier, StrictParseError,
 };
 
 use convert::convert_document;
@@ -39,6 +46,25 @@ use markup5ever_rcdom::RcDom;
 pub fn parse_html(html: &str) -> ParseResult {
     let rc_dom = parse_document(RcDom::default(), ParseOpts::default()).one(html);
     convert_document(rc_dom)
+}
+
+/// Parse a conforming HTML5 document with the strict (Tier-1) backend.
+///
+/// Wrapper over [`elidex_html_parser_strict::parse_strict`] that runs the
+/// canonical derived-component pass (`element_init`) on success, so the
+/// public strict entry point produces the same complete [`ParseResult`] —
+/// `CustomElementState` (HTML §4.13.3) / `InlineStyle` / `IframeData`
+/// (§4.8.5) attached — as [`parse_html`] and [`parse_progressive`]. The
+/// strict tree-builder crate itself stays DOM-semantics-free (no
+/// `elidex-custom-elements` dep); the derivation lives one layer up here.
+///
+/// # Errors
+/// Propagates the [`StrictParseError`] from the strict backend when the
+/// input is not conforming HTML5 (callers fall back to [`parse_html`]).
+pub fn parse_strict(html: &str) -> Result<ParseResult, StrictParseError> {
+    let mut result = elidex_html_parser_strict::parse_strict(html)?;
+    element_init::derive_element_components(&mut result.dom, result.document);
+    Ok(result)
 }
 
 /// Parse an HTML fragment string into child nodes.
@@ -109,6 +135,10 @@ pub fn parse_progressive(bytes: &[u8], charset_hint: Option<&str>) -> ParseResul
     // decoded text (no re-decode), which `convert_document` tags
     // `ParseTier::Recovered`. Either way, stamp the detected encoding (both
     // `&str` entry points leave it `None`).
+    // Tier-1 strict: the local `parse_strict` wrapper runs the derived-
+    // component pass on success; the tolerant fallback derives inside
+    // `convert_document`. Either way the returned tree carries the
+    // CustomElementState / InlineStyle / IframeData components.
     let mut result = parse_strict(&decoded.text).unwrap_or_else(|_| parse_html(&decoded.text));
     result.encoding = Some(decoded.encoding);
     result
@@ -459,5 +489,147 @@ mod tests {
             .get::<&TextContent>(added[1])
             .expect("middle node is the preserved whitespace text node");
         assert_eq!(ws.0, "\n  ", "the whitespace run is preserved verbatim");
+    }
+
+    #[test]
+    fn fragment_custom_element_has_ce_state_when_insert_fires() {
+        // Codex #329 R1 (P1) regression: the tolerant fragment path
+        // (`innerHTML`) builds into a live, dispatcher-bound dom, so
+        // `append_child` fires `MutationEvent::Insert` synchronously. The
+        // CustomElementReactionConsumer reads `CustomElementState` at that
+        // moment to enqueue upgrades; deriving components in a post-build
+        // walk raced the insert and the marker was absent. `attach_derived`
+        // now runs at element-creation time (before append), so the marker
+        // is present when the insert fires.
+        use elidex_ecs::{Attributes, EcsDom, MutationDispatcher, MutationEvent, TagType};
+        use std::sync::{Arc, Mutex};
+
+        struct InsertProbe(Arc<Mutex<Vec<(String, bool)>>>);
+        impl MutationDispatcher for InsertProbe {
+            fn dispatch(&mut self, event: &MutationEvent<'_>, dom: &mut EcsDom) {
+                if let MutationEvent::Insert { node, .. } = *event {
+                    let tag = dom
+                        .world()
+                        .get::<&TagType>(node)
+                        .map(|t| t.0.clone())
+                        .unwrap_or_default();
+                    let has_ce = dom
+                        .world()
+                        .get::<&elidex_custom_elements::CustomElementState>(node)
+                        .is_ok();
+                    self.0.lock().unwrap().push((tag, has_ce));
+                }
+            }
+        }
+
+        let mut dom = EcsDom::new();
+        let _ = dom.create_document_root();
+        let host = dom.create_element("div", Attributes::default());
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let _ = dom.set_mutation_dispatcher(Box::new(InsertProbe(Arc::clone(&log))));
+        let _ = parse_html_fragment(
+            "<my-widget></my-widget>",
+            "div",
+            host,
+            &mut dom,
+            ParseFragmentOptions::default(),
+        );
+        let entries = log.lock().unwrap();
+        let widget = entries
+            .iter()
+            .find(|(t, _)| t == "my-widget")
+            .expect("an Insert event fired for <my-widget>");
+        assert!(
+            widget.1,
+            "CustomElementState must be attached when the fragment insert fires (else upgrade is never enqueued)"
+        );
+    }
+
+    #[test]
+    fn fragment_declarative_shadow_content_gets_derived_components() {
+        // Codex #329 R1 (P2) regression: declarative-shadow content consumed
+        // by `try_attach_declarative_shadow` is not tracked in any root list,
+        // so a post-build walk over fragment roots never visited it and the
+        // shadow-tree elements lost CustomElementState / InlineStyle /
+        // IframeData. Per-node `attach_derived` in `convert_node` covers them
+        // (shadow content flows through `convert_node` like any other node).
+        use elidex_ecs::{Attributes, EcsDom, InlineStyle, TagType};
+
+        let mut dom = EcsDom::new();
+        let _ = dom.create_document_root();
+        let host = dom.create_element("div", Attributes::default());
+        let _ = parse_html_fragment(
+            r#"<template shadowrootmode="open"><my-el style="color: red"></my-el></template>"#,
+            "div",
+            host,
+            &mut dom,
+            ParseFragmentOptions {
+                allow_declarative_shadow: true,
+            },
+        );
+        let sr = dom.get_shadow_root(host).expect("shadow root attached");
+        let my_el = dom
+            .children(sr)
+            .into_iter()
+            .find(|c| {
+                dom.world()
+                    .get::<&TagType>(*c)
+                    .is_ok_and(|t| t.0 == "my-el")
+            })
+            .expect("<my-el> present in shadow tree");
+        assert!(
+            dom.world()
+                .get::<&elidex_custom_elements::CustomElementState>(my_el)
+                .is_ok(),
+            "declarative-shadow custom element must carry CustomElementState"
+        );
+        assert!(
+            dom.world().get::<&InlineStyle>(my_el).is_ok(),
+            "declarative-shadow element must carry InlineStyle"
+        );
+    }
+
+    #[test]
+    fn parse_strict_public_entry_derives_components() {
+        // Codex #329 R3 (P2): the public `parse_strict` entry point must
+        // derive components on its own (no caller-side derive), so a direct
+        // strict parse of a custom element carries CustomElementState.
+        let result = parse_strict(
+            "<!DOCTYPE html><html><head></head><body><my-widget></my-widget></body></html>",
+        )
+        .expect("conforming HTML5");
+        let widget = find_tag(&result.dom, result.document, "my-widget").expect("my-widget");
+        assert!(
+            result
+                .dom
+                .world()
+                .get::<&elidex_custom_elements::CustomElementState>(widget)
+                .is_ok(),
+            "public parse_strict must attach CustomElementState without a caller-side derive"
+        );
+    }
+
+    #[test]
+    fn tolerant_foreign_content_not_marked_custom() {
+        // Codex #329 R3 (P2): the tolerant backend must preserve foreign
+        // namespaces so the HTML-namespace guard holds. An SVG-namespaced
+        // <my-foo> parsed via `parse_html` must NOT receive CustomElementState
+        // (custom element names are HTML-namespace-scoped, HTML §4.13.3).
+        use elidex_ecs::Namespace;
+        let result = parse_html("<svg><my-foo></my-foo></svg>");
+        let my_foo = find_tag(&result.dom, result.document, "my-foo").expect("my-foo in svg");
+        assert_eq!(
+            result.dom.namespace_of(my_foo),
+            Namespace::Svg,
+            "tolerant path must preserve the SVG namespace"
+        );
+        assert!(
+            result
+                .dom
+                .world()
+                .get::<&elidex_custom_elements::CustomElementState>(my_foo)
+                .is_err(),
+            "foreign-namespace element must not be marked custom on the tolerant path"
+        );
     }
 }

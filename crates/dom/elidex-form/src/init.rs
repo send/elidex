@@ -1,8 +1,25 @@
 //! Form control initialization: bulk DOM walk and dynamic single-entity attach.
 
-use elidex_ecs::{Attributes, EcsDom, ElementState, Entity, TagType};
+use elidex_ecs::{Attributes, EcsDom, ElementState, Entity, Namespace, TagType};
 
 use crate::{fieldset, select, FormControlKind, FormControlState};
+
+/// Whether `entity` is in the HTML namespace.
+///
+/// Form controls are HTML-namespace elements — the form-associated element
+/// definitions live in HTML §4.10 "Forms" (the `<input>`/`<select>`/
+/// `<textarea>`/`<button>`/… elements). A foreign (SVG / MathML)
+/// element that merely shares a form-control *local* name — e.g.
+/// `<svg><input>`, where `input` is not in the SVG breakout list and so
+/// stays SVG-namespaced — must NOT receive [`FormControlState`], or form
+/// traversal / submission / reset would treat it as an HTML control. This is
+/// the single namespace gate shared by the bulk parse-time walk
+/// ([`init_form_controls`]) and the dynamic single-entity attach
+/// ([`create_form_control_state`], used by the reconciler and
+/// `Document::createElement`).
+fn is_html_namespaced(dom: &EcsDom, entity: Entity) -> bool {
+    dom.namespace_of(entity) == Namespace::Html
+}
 
 /// Find the first element with `autofocus` attribute in the DOM tree.
 #[must_use]
@@ -26,6 +43,9 @@ pub fn init_form_controls(dom: &mut EcsDom) {
         .collect();
 
     for (entity, tag, attrs) in &entities {
+        if !is_html_namespaced(dom, *entity) {
+            continue;
+        }
         if let Some(mut state) = FormControlState::from_element(tag, attrs) {
             finalize_control(dom, *entity, &mut state);
             let _ = dom.world_mut().insert_one(*entity, state);
@@ -41,6 +61,11 @@ pub fn init_form_controls(dom: &mut EcsDom) {
 /// Returns `true` if a form control state was created and attached.
 /// This is the single-entity equivalent of `init_form_controls()`.
 pub fn create_form_control_state(dom: &mut EcsDom, entity: Entity) -> bool {
+    // Foreign-namespace elements never become form controls (see
+    // `is_html_namespaced`).
+    if !is_html_namespaced(dom, entity) {
+        return false;
+    }
     let Some(tag) = dom
         .world()
         .get::<&TagType>(entity)
@@ -194,5 +219,42 @@ mod tests {
     fn create_form_control_state_returns_false_for_div() {
         let (mut dom, entity) = make_dom_with_input("div", &[]);
         assert!(!create_form_control_state(&mut dom, entity));
+    }
+
+    #[test]
+    fn create_form_control_state_returns_false_for_foreign_namespace() {
+        // Codex #329 R4 (P2): an SVG-namespaced <input> (e.g. from
+        // `innerHTML = "<svg><input></svg>"`) must NOT become a form control.
+        let mut dom = EcsDom::new();
+        let svg_input = dom.create_element_ns(
+            "input",
+            elidex_ecs::Namespace::Svg,
+            Attributes::default(),
+            None,
+        );
+        assert!(!create_form_control_state(&mut dom, svg_input));
+        assert!(dom.world().get::<&FormControlState>(svg_input).is_err());
+    }
+
+    #[test]
+    fn init_form_controls_skips_foreign_namespace_control() {
+        // Bulk parse-time walk must also skip foreign-namespace controls.
+        let mut dom = EcsDom::new();
+        let svg_input = dom.create_element_ns(
+            "input",
+            elidex_ecs::Namespace::Svg,
+            Attributes::default(),
+            None,
+        );
+        let html_input = dom.create_element("input", Attributes::default());
+        init_form_controls(&mut dom);
+        assert!(
+            dom.world().get::<&FormControlState>(svg_input).is_err(),
+            "SVG-namespaced input must not receive FormControlState"
+        );
+        assert!(
+            dom.world().get::<&FormControlState>(html_input).is_ok(),
+            "HTML input must still receive FormControlState"
+        );
     }
 }

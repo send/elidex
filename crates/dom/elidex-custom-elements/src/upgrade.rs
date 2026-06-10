@@ -19,7 +19,7 @@
 
 use std::collections::VecDeque;
 
-use elidex_ecs::{Attributes, EcsDom, Entity};
+use elidex_ecs::{Attributes, EcsDom, Entity, TagType};
 
 use crate::reaction::{scrub_entity_reactions, CustomElementReaction};
 use crate::registry::CustomElementRegistry;
@@ -67,6 +67,21 @@ pub fn prepare_upgrade(
     let Some(def) = registry.get(&definition_name) else {
         return UpgradeResolution::Skip;
     };
+    // Reject a mismatched `is=` candidate the parser legitimately marked
+    // (e.g. `<div is="plastic-button">` under `{ extends: "button" }`, or a
+    // `<div is="my-el">` under an autonomous `define("my-el", …)`). The
+    // local-name match rule lives on the definition
+    // (`CustomElementDefinition::upgrade_matches_local_name`) so this VM gate
+    // and the boa shell's upgrade walks share one implementation. The parser
+    // cannot pre-filter it: `extends` is unknown until `define()` runs.
+    let local_name = dom
+        .world()
+        .get::<&TagType>(entity)
+        .map(|t| t.0.clone())
+        .unwrap_or_default();
+    if !def.upgrade_matches_local_name(&local_name) {
+        return UpgradeResolution::Skip;
+    }
     UpgradeResolution::Proceed {
         constructor_id: def.constructor_id,
         observed_attributes: def.observed_attributes().to_vec(),
@@ -135,5 +150,81 @@ pub fn finalize_failure(
 fn set_state(dom: &mut EcsDom, entity: Entity, new_state: CEState) {
     if let Ok(mut state) = dom.world_mut().get::<&mut CustomElementState>(entity) {
         state.state = new_state;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::registry::CustomElementDefinition;
+    use elidex_ecs::Attributes;
+
+    fn proceeds(r: &UpgradeResolution) -> bool {
+        matches!(r, UpgradeResolution::Proceed { .. })
+    }
+
+    fn mark(dom: &mut EcsDom, entity: Entity, definition_name: &str) {
+        let _ = dom
+            .world_mut()
+            .insert_one(entity, CustomElementState::undefined(definition_name));
+    }
+
+    #[test]
+    fn customized_builtin_upgrades_only_matching_base_local_name() {
+        // Codex #329 R5 (P2): the parser marks any `is=`-bearing element as a
+        // candidate, but a customized built-in upgrades only when its local
+        // name matches the definition's `extends` base (HTML §4.13.1.4).
+        let mut dom = EcsDom::new();
+        let div = dom.create_element("div", Attributes::default());
+        let button = dom.create_element("button", Attributes::default());
+        mark(&mut dom, div, "plastic-button");
+        mark(&mut dom, button, "plastic-button");
+
+        let mut registry = CustomElementRegistry::new();
+        registry
+            .define(CustomElementDefinition::new(
+                "plastic-button".to_string(),
+                1,
+                vec![],
+                Some("button".to_string()),
+            ))
+            .expect("define plastic-button");
+
+        assert!(
+            !proceeds(&prepare_upgrade(&dom, &registry, div)),
+            "<div is=plastic-button> must NOT upgrade (base is <button>)"
+        );
+        assert!(
+            proceeds(&prepare_upgrade(&dom, &registry, button)),
+            "<button is=plastic-button> must upgrade"
+        );
+    }
+
+    #[test]
+    fn autonomous_upgrades_only_matching_tag() {
+        let mut dom = EcsDom::new();
+        let widget = dom.create_element("my-widget", Attributes::default());
+        let div = dom.create_element("div", Attributes::default());
+        mark(&mut dom, widget, "my-widget");
+        mark(&mut dom, div, "my-widget");
+
+        let mut registry = CustomElementRegistry::new();
+        registry
+            .define(CustomElementDefinition::new(
+                "my-widget".to_string(),
+                2,
+                vec![],
+                None,
+            ))
+            .expect("define my-widget");
+
+        assert!(
+            proceeds(&prepare_upgrade(&dom, &registry, widget)),
+            "<my-widget> must upgrade"
+        );
+        assert!(
+            !proceeds(&prepare_upgrade(&dom, &registry, div)),
+            "<div is=my-widget> must NOT upgrade an autonomous definition"
+        );
     }
 }
