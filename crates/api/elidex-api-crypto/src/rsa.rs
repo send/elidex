@@ -98,15 +98,16 @@ pub(crate) const MIN_RSA_OAEP_MODULUS_BITS: u32 = 2048;
 /// [`MAX_RSA_IMPORT_MODULUS_BITS`].
 pub(crate) const MAX_RSA_OAEP_MODULUS_BITS: u32 = 8192;
 
-// Compile-time invariants on the modulus ceilings (the UA-cap relationships):
-// the import ceiling must EXCEED the rsa crate's own `MAX_SIZE` (4096) for the
-// `new_with_max_size` lift to matter; generate is no looser than import (you can
-// import a key larger than you can generate); and the RSA-OAEP upper bound
-// coincides with the generate ceiling, so an OAEP key that generates is always
-// usable on the aws-lc-rs backend.
+// Compile-time invariants on the modulus ceilings: the import ceiling must
+// EXCEED the rsa crate's own `MAX_SIZE` (4096) for the `new_with_max_size` lift to
+// matter; generate is no looser than import (you can import a key larger than you
+// can generate); and the RSA-OAEP range is non-empty.  (The OAEP upper bound and
+// the generate ceiling happen to coincide at 8192 today but are INDEPENDENT — the
+// OAEP bound tracks the aws-lc-rs backend, the generate bound tracks the keygen
+// DoS budget — so they are deliberately not asserted equal; raising one must not
+// silently constrain the other.)
 const _: () = assert!(MAX_RSA_IMPORT_MODULUS_BITS as usize > RsaPublicKey::MAX_SIZE);
 const _: () = assert!(MAX_RSA_GENERATE_MODULUS_BITS <= MAX_RSA_IMPORT_MODULUS_BITS);
-const _: () = assert!(MAX_RSA_OAEP_MODULUS_BITS == MAX_RSA_GENERATE_MODULUS_BITS);
 const _: () = assert!(MIN_RSA_OAEP_MODULUS_BITS < MAX_RSA_OAEP_MODULUS_BITS);
 
 /// Whether an RSA modulus of `bits` is outside the OAEP backend's usable range
@@ -234,21 +235,31 @@ fn decode_rsa_spki(der: &[u8]) -> Result<(BigUint, BigUint), ()> {
     Ok((n, e))
 }
 
+/// `RsaPublicKey::new_with_max_size` at the elidex import ceiling
+/// ([`MAX_RSA_IMPORT_MODULUS_BITS`]; the rsa crate's `new` caps at 4096) — the
+/// single home of the ceiling for the public-key construction sites (spki + jwk
+/// import, and [`reconstruct_public`]).  Returns the bare error so each caller
+/// maps it to its own variant (import → DataError, reconstruct → OperationError);
+/// the only failure is structural (even modulus, `e >= n`, …), as the modulus /
+/// exponent capability bounds are applied by the caller.
+fn bounded_public_key(n: BigUint, e: BigUint) -> Result<RsaPublicKey, ()> {
+    RsaPublicKey::new_with_max_size(n, e, MAX_RSA_IMPORT_MODULUS_BITS as usize).map_err(|_| ())
+}
+
 /// Parse a SubjectPublicKeyInfo (WebCrypto §20.8.4 spki step 4-6) into a public
 /// key, bounded by [`MAX_RSA_IMPORT_MODULUS_BITS`] (16384) rather than the rsa
 /// crate's `from_public_key_der` 4096 cap.  Decodes `n` / `e` via the custom
 /// [`decode_rsa_spki`] seam, then applies the same bounds as the jwk path — a
 /// modulus over the ceiling → NotSupported (capability), an exponent over the
 /// rsa cap → NotSupported, and the structural validity (even modulus, `e >= n`,
-/// …) via [`RsaPublicKey::new_with_max_size`] → DataError.  A non-RSA / malformed
-/// SPKI is a DataError.
+/// …) via [`bounded_public_key`] → DataError.  A non-RSA / malformed SPKI is a
+/// DataError.
 fn parse_spki(der: &[u8]) -> Result<RsaPublicKey, AlgorithmError> {
     let (n, e) =
         decode_rsa_spki(der).map_err(|()| data("invalid SubjectPublicKeyInfo RSA public key"))?;
     check_modulus_bits(n.bits())?;
     check_public_exponent(&e)?;
-    RsaPublicKey::new_with_max_size(n, e, MAX_RSA_IMPORT_MODULUS_BITS as usize)
-        .map_err(|_| data("invalid SubjectPublicKeyInfo RSA public key"))
+    bounded_public_key(n, e).map_err(|()| data("invalid SubjectPublicKeyInfo RSA public key"))
 }
 
 /// Parse a PKCS#8 PrivateKeyInfo (WebCrypto §20.8.4 pkcs8): `from_pkcs8_der`
@@ -278,15 +289,11 @@ fn public_imported(pubkey: &RsaPublicKey) -> Result<Imported, AlgorithmError> {
 }
 
 /// Build the [`Imported`] facts for a private key: the canonical PKCS#8 +
-/// derived SPKI DER.  A multi-prime key (>2 primes) is a DataError — the rsa
-/// crate's `to_pkcs8_der` cannot encode it.  Defensive: every caller already
-/// supplies a two-prime key (`from_pkcs8_der` rejects multi-prime, `generate`
-/// always produces two primes, and the jwk path passes exactly `[p, q]`), so
-/// this guard states the storage-form invariant at the boundary.
+/// derived SPKI DER.  Every caller supplies a two-prime key — `from_pkcs8_der`
+/// rejects multi-prime, `generate` produces two primes, and the jwk path passes
+/// exactly `[p, q]` (the `oth` multi-prime shape is rejected upstream) — so the
+/// `to_pkcs8_der` encode (which cannot represent >2 primes) never fails on count.
 fn private_imported(privkey: &RsaPrivateKey) -> Result<Imported, AlgorithmError> {
-    if privkey.primes().len() > 2 {
-        return Err(multiprime_unsupported());
-    }
     let private_pkcs8_der = privkey
         .to_pkcs8_der()
         .map_err(|_| data("RSA private key cannot be encoded"))?
@@ -371,9 +378,8 @@ fn import_jwk(
     check_public_exponent(&e)?;
     match key_type {
         KeyType::Public => {
-            let pubkey =
-                RsaPublicKey::new_with_max_size(n, e, MAX_RSA_IMPORT_MODULUS_BITS as usize)
-                    .map_err(|_| data("JWK RSA public key (n, e) is invalid"))?;
+            let pubkey = bounded_public_key(n, e)
+                .map_err(|()| data("JWK RSA public key (n, e) is invalid"))?;
             public_imported(&pubkey)
         }
         KeyType::Private => {
@@ -387,7 +393,9 @@ fn import_jwk(
             // "Otherwise" step), which never references `oth`, so a public import
             // ignores it exactly as it already ignores p / q / d.
             if jwk.oth.is_some() {
-                return Err(multiprime_unsupported());
+                return Err(data(
+                    "multi-prime RSA keys (more than two primes) are not supported",
+                ));
             }
             // d + the full CRT parameter set (p / q / dp / dq / qi) are required
             // for a private key.  RFC 7518 §6.3.2 makes the CRT members optional
@@ -722,8 +730,7 @@ fn export_jwk(
 /// a DataError.
 fn reconstruct_public(key: &CryptoKeyData) -> Result<RsaPublicKey, AlgorithmError> {
     let (n, e) = decode_rsa_spki(rsa_public_der(key)).map_err(|()| key_inaccessible())?;
-    RsaPublicKey::new_with_max_size(n, e, MAX_RSA_IMPORT_MODULUS_BITS as usize)
-        .map_err(|_| key_inaccessible())
+    bounded_public_key(n, e).map_err(|()| key_inaccessible())
 }
 
 /// Reconstruct the typed `RsaPrivateKey` from a key's stored canonical PKCS#8
@@ -828,9 +835,11 @@ fn check_modulus_bits(bits: usize) -> Result<(), AlgorithmError> {
 /// `RsaPublicKey::new` surface it as a generic `DataError`.  WebCrypto / JWA
 /// accept any valid `Base64urlUInt` `e`, but the rsa crate caps it (every real
 /// key uses e=65537 ≪ 2^33), so an over-cap `e` is an unsupported capability,
-/// not malformed material.  Checked on the JWK path (where `e` is decoded
-/// before construction); the spki / pkcs8 DER paths hit the rsa crate's cap
-/// first (DataError) — see [`parse_spki`].  (Codex R16.)
+/// not malformed material.  Checked on the JWK + spki paths (where `e` is decoded
+/// before construction → NotSupported); the pkcs8 DER path decodes `e` only inside
+/// `from_pkcs8_der`, so an over-cap exponent there surfaces as the rsa crate's
+/// `DataError` instead — a rare divergence (every real key uses e=65537).
+/// (Codex R16.)
 fn check_public_exponent(e: &BigUint) -> Result<(), AlgorithmError> {
     if *e > BigUint::from(RsaPublicKey::MAX_PUB_EXPONENT) {
         return Err(AlgorithmError::NotSupported(
@@ -865,19 +874,6 @@ fn decode_b64(s: &str) -> Result<Vec<u8>, AlgorithmError> {
     URL_SAFE_NO_PAD
         .decode(s)
         .map_err(|_| data("JWK RSA member is not valid base64url"))
-}
-
-/// A multi-prime RSA key (>2 primes — `pkcs8` otherPrimeInfos / JWK `oth`) is a
-/// DataError: no browser supports multi-prime RSA (Chrome/Firefox read only two
-/// primes; Safari rejects "more than two primes" explicitly), and the rsa
-/// crate's DER encoder cannot store >2 primes either.  The key shape is rejected
-/// as malformed-for-this-implementation per WebCrypto §20.8.4 jwk step 10
-/// (§6.3.2 / RFC3447) — the same DataError the `pkcs8` path already returns via
-/// `from_pkcs8_der`'s two-prime check, so multi-prime is uniformly a DataError.
-fn multiprime_unsupported() -> AlgorithmError {
-    AlgorithmError::Data(
-        "multi-prime RSA keys (more than two primes) are not supported".to_string(),
-    )
 }
 
 fn data(msg: &str) -> AlgorithmError {

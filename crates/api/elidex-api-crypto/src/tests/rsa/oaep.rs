@@ -207,8 +207,9 @@ fn import_oaep_modulus_outside_2048_8192_is_not_supported() {
     // RSA-OAEP runs on the aws-lc-rs backend (2048..=8192 bits).  A public OAEP
     // key whose modulus is outside that range parses on the rsa crate but is
     // unusable for every OAEP op, so import rejects it (NotSupported), keeping an
-    // accepted OAEP key always usable (`#11-rsa-modulus-above-4096`, the OAEP
-    // upper bound + the existing lower bound).  Fabricated odd moduli — public
+    // accepted OAEP key always usable.  The 2048..=8192 bound is the aws-lc-rs
+    // OAEP backend's range, distinct from the signing variants' import ceiling.
+    // Fabricated odd moduli — public
     // import validates structure, not primality — so the test is fast.
     let oaep_public_import = |n_bytes: Vec<u8>| {
         let jwk = JsonWebKey {

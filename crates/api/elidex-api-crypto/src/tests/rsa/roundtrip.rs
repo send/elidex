@@ -228,8 +228,9 @@ fn jwk_oversized_modulus_is_rejected() {
 fn modulus_above_4096_imports_and_round_trips() {
     // A public RSA key with a 6144-bit modulus — over the rsa crate's 4096
     // `MAX_SIZE` cap, under the 16384 import ceiling — imports via the custom
-    // `decode_rsa_spki` + `new_with_max_size` seam (`#11-rsa-modulus-above-4096`),
-    // which `from_public_key_der` would have rejected.  Uses a fabricated odd
+    // `decode_rsa_spki` + `new_with_max_size` seam, which `from_public_key_der`
+    // (capped at the rsa crate's 4096 `MAX_SIZE`) would have rejected.  Uses a
+    // fabricated odd
     // modulus: public-key import validates structure (odd n, e<n, e odd), not
     // primality, so the test is fast (no 6144-bit keygen).
     let n_bytes = vec![0xFFu8; 768]; // 768 * 8 = 6144 bits, odd (LSB 0xFF).
