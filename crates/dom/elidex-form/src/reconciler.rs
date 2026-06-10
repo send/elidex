@@ -49,22 +49,44 @@ impl FormControlReconciler {
     }
 }
 
-/// HTML §4.10.18.3 form-associated element insertion steps.  Defers
-/// to [`create_form_control_state`], which is itself a no-op for
-/// non-form-control tags (returns `false` after the
-/// `FormControlState::from_element` tag dispatch returns `None`).
+/// WHATWG DOM §4.2.3 "insert" runs the insertion steps for `node` **and
+/// its shadow-inclusive descendants**, and HTML §4.10.18.3 associates
+/// each form-associated element on insertion.  `MutationEvent::Insert`
+/// fires once per mutation root (a single subtree append is one event),
+/// so this walks the inserted subtree and attaches `FormControlState` to
+/// every form-control descendant — not just the root.  Without the walk,
+/// nested `<input>`/`<select>`/`<textarea>` in a dynamically-inserted
+/// subtree (`innerHTML`, `appendChild` of a built fragment) never receive
+/// FCS.  Mirrors the shadow-inclusive descendant walk
+/// `CustomElementReactionConsumer` uses for the same reason.
 ///
-/// FCS-absence-guarded: `create_form_control_state` is NOT idempotent
-/// — it `insert_one`s unconditionally, overwriting any existing FCS
-/// and destroying `dirty_value` / user-edit state.  The guard
-/// preserves existing FCS on DocumentFragment-move scenarios where
-/// the form-control entity already has FCS from its prior tree
-/// position.
+/// Defers to [`create_form_control_state`], a no-op for non-form-control
+/// tags (returns `false` after the `FormControlState::from_element` tag
+/// dispatch returns `None`).
+///
+/// Per-entity FCS-absence-guarded: `create_form_control_state` is NOT
+/// idempotent — it `insert_one`s unconditionally, overwriting any
+/// existing FCS and destroying `dirty_value` / user-edit state.  The
+/// guard is applied per descendant so a DocumentFragment-move (re-parent
+/// of a subtree whose controls already carry FCS) preserves their
+/// user-edit state.
+///
+/// Namespace-agnostic (matching `init_form_controls` and the prior
+/// root-only behaviour): classification is delegated to
+/// `FormControlState::from_element`'s HTML tag-name dispatch — a foreign
+/// (SVG / MathML) element with a form-control *local* name does not occur
+/// in a conforming parse, so no explicit namespace guard is added.
 fn handle_insert(node: Entity, dom: &mut EcsDom) {
-    if dom.world().get::<&FormControlState>(node).is_ok() {
-        return;
+    // Two-phase: collect the subtree under the read-only walker, then
+    // mutate (the walker borrows `&self`; FCS attach needs `&mut`).
+    let mut subtree = Vec::new();
+    dom.for_each_shadow_inclusive_descendant(node, &mut |e| subtree.push(e));
+    for entity in subtree {
+        if dom.world().get::<&FormControlState>(entity).is_ok() {
+            continue;
+        }
+        let _ = create_form_control_state(dom, entity);
     }
-    let _ = create_form_control_state(dom, node);
 }
 
 /// WHATWG DOM §4.9 attribute change steps — partial re-derivation of
@@ -452,6 +474,77 @@ mod tests {
         let parent = dom.create_element("div", Attributes::default());
         assert!(dom.append_child(parent, input));
         // FCS + dirty_value preserved across move.
+        with_fcs(&dom, input, |s| {
+            assert_eq!(s.value, "user-typed");
+            assert!(s.dirty_value);
+        });
+    }
+
+    #[test]
+    fn e9_insert_subtree_attaches_fcs_to_nested_control() {
+        // One `Insert` fires per mutation root, so a subtree append (e.g.
+        // `innerHTML = "<div><span><input></span></div>"`) emits a single
+        // event on the root. The reconciler must walk the subtree and
+        // attach FCS to the nested control, not just the root.
+        let mut dom = EcsDom::new();
+        // Build the subtree detached, BEFORE installing the dispatcher, so
+        // the only dispatched event is the final root append below.
+        let outer = dom.create_element("div", Attributes::default());
+        let span = dom.create_element("span", Attributes::default());
+        let mut attrs = Attributes::default();
+        attrs.set("name".to_string(), "q".to_string());
+        let input = dom.create_element("input", attrs);
+        assert!(dom.append_child(span, input));
+        assert!(dom.append_child(outer, span));
+        let root = dom.create_element("body", Attributes::default());
+
+        let _ = dom.set_mutation_dispatcher(Box::new(FormControlOnlyTestDispatcher(
+            FormControlReconciler,
+        )));
+        // Nested input has no FCS yet.
+        assert!(dom.world().get::<&FormControlState>(input).is_err());
+        // Single Insert on `outer` — reconciler walks to the nested input.
+        assert!(dom.append_child(root, outer));
+        with_fcs(&dom, input, |s| {
+            assert_eq!(s.kind, FormControlKind::TextInput);
+            assert_eq!(s.name, "q");
+        });
+    }
+
+    #[test]
+    fn e9b_subtree_move_preserves_nested_dirty_value() {
+        // Subtree-walk analogue of e8b: a re-parented subtree whose nested
+        // control already carries FCS + dirty_value must keep it (the
+        // per-entity FCS-absence guard skips re-attach).
+        let mut dom = EcsDom::new();
+        let outer = dom.create_element("div", Attributes::default());
+        let input = dom.create_element("input", {
+            let mut a = Attributes::default();
+            a.set("value".to_string(), "initial".to_string());
+            a
+        });
+        assert!(dom.append_child(outer, input));
+        let root = dom.create_element("body", Attributes::default());
+
+        let _ = dom.set_mutation_dispatcher(Box::new(FormControlOnlyTestDispatcher(
+            FormControlReconciler,
+        )));
+        // First insertion attaches FCS to the nested input.
+        assert!(dom.append_child(root, outer));
+        with_fcs(&dom, input, |s| {
+            assert_eq!(s.kind, FormControlKind::TextInput);
+        });
+        // Simulate user input → dirty_value.
+        {
+            let mut state = dom.world_mut().get::<&mut FormControlState>(input).unwrap();
+            state.set_value("user-typed".to_string());
+            assert!(state.dirty_value);
+        }
+        // Re-parent the whole subtree — Insert fires again on `outer`; the
+        // per-entity guard must skip the nested input's re-attach.
+        let section = dom.create_element("section", Attributes::default());
+        assert!(dom.append_child(root, section));
+        assert!(dom.append_child(section, outer));
         with_fcs(&dom, input, |s| {
             assert_eq!(s.value, "user-typed");
             assert!(s.dirty_value);

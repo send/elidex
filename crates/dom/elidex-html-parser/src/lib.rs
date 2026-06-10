@@ -12,6 +12,7 @@
 
 pub mod charset;
 mod convert;
+mod element_init;
 
 pub use charset::{detect_and_decode, DecodeResult, EncodingConfidence};
 // `ParseResult`, `ParseTier`, `ParseFragmentOptions`, `StrictParseError`,
@@ -109,7 +110,19 @@ pub fn parse_progressive(bytes: &[u8], charset_hint: Option<&str>) -> ParseResul
     // decoded text (no re-decode), which `convert_document` tags
     // `ParseTier::Recovered`. Either way, stamp the detected encoding (both
     // `&str` entry points leave it `None`).
-    let mut result = parse_strict(&decoded.text).unwrap_or_else(|_| parse_html(&decoded.text));
+    let mut result = match parse_strict(&decoded.text) {
+        Ok(mut r) => {
+            // Tier-1 strict: the strict tree-builder attaches no
+            // DOM-semantic components, so derive them here (the tolerant
+            // fallback derives inside `convert_document`). This is the
+            // single seam that fixes the parser-wide
+            // CustomElementState / InlineStyle / IframeData gap for
+            // strict-parsed documents.
+            element_init::derive_element_components(&mut r.dom, r.document);
+            r
+        }
+        Err(_) => parse_html(&decoded.text),
+    };
     result.encoding = Some(decoded.encoding);
     result
 }

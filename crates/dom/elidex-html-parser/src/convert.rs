@@ -3,12 +3,12 @@
 //! Two-pass approach: html5ever parses into `RcDom`, then this module
 //! walks the tree and builds an ECS DOM.
 
-use elidex_ecs::{
-    Attributes, EcsDom, Entity, InlineStyle, ShadowInit, ShadowRootMode, SlotAssignmentMode,
-};
+use elidex_ecs::{Attributes, EcsDom, Entity, ShadowInit, ShadowRootMode, SlotAssignmentMode};
 use markup5ever_rcdom::{Handle, NodeData, RcDom};
 
 use elidex_html_parser_strict::{ParseFragmentOptions, ParseResult, ParseTier};
+
+use crate::element_init::derive_element_components;
 
 pub(crate) fn convert_document(rc_dom: RcDom) -> ParseResult {
     let mut dom = EcsDom::new();
@@ -19,6 +19,10 @@ pub(crate) fn convert_document(rc_dom: RcDom) -> ParseResult {
         &mut dom,
         ParseFragmentOptions::default(),
     );
+    // Tier-2 tolerant: attach parser-derived components over the built
+    // tree. Same canonical derivation the strict Tier-1 path runs in
+    // `parse_progressive` (One-issue-one-way) — see `element_init`.
+    derive_element_components(&mut dom, document);
     let errors = rc_dom
         .errors
         .into_inner()
@@ -82,6 +86,13 @@ pub(crate) fn convert_fragment_children(
                 created.push(entity);
             }
         }
+    }
+    // Attach parser-derived components over each created fragment root's
+    // subtree (tolerant fragment parity with `convert_document`). The
+    // walk is subtree-scoped, so unrelated elements already in the
+    // caller's `dom` are untouched.
+    for &root in &created {
+        derive_element_components(dom, root);
     }
     created
 }
@@ -176,59 +187,29 @@ fn try_attach_declarative_shadow(
     true
 }
 
-/// Build element attributes and extract inline style from an element handle.
-fn build_element_data(handle: &Handle) -> Option<(String, Attributes, Option<InlineStyle>)> {
+/// Build the tag name and attribute set from an element handle.
+///
+/// Derived components (InlineStyle / CustomElementState / IframeData) are
+/// NOT attached here — they are derived in one canonical post-build pass
+/// (`element_init::derive_element_components`, run by `convert_document` /
+/// `convert_fragment_children`) shared with the strict Tier-1 backend.
+fn build_element_data(handle: &Handle) -> Option<(String, Attributes)> {
     let NodeData::Element { name, attrs, .. } = &handle.data else {
         return None;
     };
     let tag = name.local.as_ref().to_string();
     let mut attributes = Attributes::default();
-    let mut inline_style = None;
     for attr in attrs.borrow().iter() {
-        let name = attr.name.local.as_ref();
-        let value: &str = &attr.value;
-        if name == "style" {
-            inline_style = Some(parse_inline_style(value));
-        }
-        attributes.set(name, value);
+        attributes.set(attr.name.local.as_ref(), &*attr.value);
     }
-    Some((tag, attributes, inline_style))
+    Some((tag, attributes))
 }
 
 fn convert_node(handle: &Handle, dom: &mut EcsDom, opts: ParseFragmentOptions) -> Option<Entity> {
     match &handle.data {
         NodeData::Element { .. } => {
-            let (tag, attributes, inline_style) = build_element_data(handle)?;
+            let (tag, attributes) = build_element_data(handle)?;
             let entity = dom.create_element(&tag, attributes);
-            if let Some(style) = inline_style {
-                let ok = dom.world_mut().insert_one(entity, style).is_ok();
-                debug_assert!(ok, "insert_one failed for InlineStyle");
-            }
-            // Mark custom elements for later upgrade (WHATWG HTML §4.13.3 `valid custom element name`).
-            if elidex_custom_elements::is_valid_custom_element_name(&tag) {
-                let ce_state = elidex_custom_elements::CustomElementState::undefined(&tag);
-                let _ = dom.world_mut().insert_one(entity, ce_state);
-            } else if let Some(is_value) = dom
-                .world()
-                .get::<&Attributes>(entity)
-                .ok()
-                .and_then(|a| a.get("is").map(String::from))
-            {
-                // Customized built-in element via `is` attribute (WHATWG HTML §4.13.5 upgrade).
-                if elidex_custom_elements::is_valid_custom_element_name(&is_value) {
-                    let ce_state = elidex_custom_elements::CustomElementState::undefined(&is_value);
-                    let _ = dom.world_mut().insert_one(entity, ce_state);
-                }
-            }
-            // Attach IframeData component for <iframe> elements (WHATWG HTML §4.8.5).
-            if tag == "iframe" {
-                let iframe_data = if let Ok(attrs_ref) = dom.world().get::<&Attributes>(entity) {
-                    elidex_ecs::IframeData::from_attributes(&attrs_ref)
-                } else {
-                    elidex_ecs::IframeData::default()
-                };
-                let _ = dom.world_mut().insert_one(entity, iframe_data);
-            }
             convert_children(handle, entity, dom, opts);
             Some(entity)
         }
@@ -265,25 +246,6 @@ fn convert_node(handle: &Handle, dom: &mut EcsDom, opts: ParseFragmentOptions) -
         // ProcessingInstruction, Document — skip
         _ => None,
     }
-}
-
-/// Parse a `style` attribute value into an [`InlineStyle`].
-///
-/// Uses simple `;` and `:` splitting. Full CSS value parsing is handled by
-/// elidex-css and elidex-style.
-fn parse_inline_style(style: &str) -> InlineStyle {
-    let mut inline = InlineStyle::default();
-    for decl in style.split(';') {
-        let decl = decl.trim();
-        if let Some((prop, val)) = decl.split_once(':') {
-            let prop = prop.trim();
-            let val = val.trim();
-            if !prop.is_empty() && !val.is_empty() {
-                inline.set(prop, val);
-            }
-        }
-    }
-    inline
 }
 
 #[cfg(test)]
