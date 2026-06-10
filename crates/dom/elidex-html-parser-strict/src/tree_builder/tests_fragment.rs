@@ -11,7 +11,9 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use elidex_ecs::{Attributes, EcsDom, Entity, MutationDispatcher, MutationEvent, Namespace};
+use elidex_ecs::{
+    Attributes, EcsDom, Entity, MutationDispatcher, MutationEvent, Namespace, ShadowRootMode,
+};
 
 use super::tests::serialize_fragment as serialize_roots;
 use crate::{parse_fragment_strict, ParseFragmentOptions};
@@ -88,26 +90,24 @@ fn td_context_resets_to_in_body() {
 }
 
 #[test]
-fn select_context_retains_input_per_customizable_select() {
-    // Current WHATWG HTML removed the "in select" / "in select in table"
-    // insertion modes (customizable-`<select>`): the §13.2.6.4 insertion-mode
-    // list (§13.2.6.4.1–.21, verified via webref — §13.2.6.4.7 is "in body",
-    // there is no "in select") no longer special-cases `select`, so a
-    // `select`-context fragment parses through "in body" and an `<input>` is
-    // *retained* with no parse error. The html5lib snapshot that drops the
-    // `<input>` and flags a parse error predates the change (see the
-    // `known_spec_divergence` skip in `tests_html5lib_tree`); this pins that
-    // strict matches current spec, so that corpus skip masks no real failure.
-    // `frag` panics on rejection, so reaching the asserts also proves strict
-    // returns Ok (does not treat `<input>` as a fatal parse error).
-    let (dom, roots) = frag("select", "<input><option>");
-    assert!(
-        roots.iter().any(|&r| dom.has_tag(r, "input")),
-        "current-spec strict retains <input> in a select context"
+fn select_context_rejects_input() {
+    // §13.2.6.4.7 ("in body") fragment case: customizable-`<select>` removed the
+    // "in select" insertion mode but folded its handling into "in body" — an
+    // `<input>` start tag whose fragment context is a `select` element is a
+    // parse error. Strict aborts (so a strict-first `select.innerHTML` path
+    // falls back to the tolerant backend) rather than returning a tree with the
+    // `<input>` retained.
+    let mut dom = EcsDom::new();
+    let ctx = dom.create_element("select", Attributes::default());
+    let result = parse_fragment_strict(
+        "<input><option>",
+        ctx,
+        &mut dom,
+        ParseFragmentOptions::default(),
     );
     assert!(
-        roots.iter().any(|&r| dom.has_tag(r, "option")),
-        "the <option> is retained too"
+        result.is_err(),
+        "an <input> in a select-context fragment is a parse error"
     );
 }
 
@@ -310,17 +310,19 @@ fn declarative_shadow_opt_on_attaches_shadow_root() {
     );
 }
 
-// ----- foreign content gets a valid owner document (§13.2.6.1) -----
+// ----- foreign content gets a LIVE owner document (§13.2.6.1) -----
 
 #[test]
-fn foreign_element_in_html_context_has_document_owner() {
-    // An SVG element inside an HTML-namespace context fragment is created via
-    // `create_element_ns` with the throwaway Document as owner. If the fragment
-    // root were a bare element rather than a Document, `create_element_ns`
-    // would assert (debug) / mis-stamp the owner document (release). This must
-    // parse without panicking and yield the foreign element.
+fn foreign_element_owner_survives_fragment_teardown() {
+    // A foreign element is stamped with an `AssociatedDocument`. The §13.4
+    // throwaway document is despawned before the nodes are returned, so the
+    // owner must NOT be that throwaway (it would dangle, pointing at a dead
+    // entity); the fragment uses the context's node document — a live owner
+    // that survives teardown.
     let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
     let ctx = dom.create_element("div", Attributes::default());
+    assert!(dom.append_child(doc, ctx));
     let roots = parse_fragment_strict(
         "<svg></svg>",
         ctx,
@@ -333,6 +335,45 @@ fn foreign_element_in_html_context_has_document_owner() {
         dom.namespace_of(roots[0]),
         elidex_ecs::Namespace::Svg,
         "the <svg> is a foreign (SVG-namespace) element"
+    );
+    assert_eq!(
+        dom.get_associated_document(roots[0]),
+        Some(doc),
+        "the foreign owner is the caller's live document, not the throwaway"
+    );
+    assert!(
+        dom.contains(doc),
+        "the owner document is live — not the despawned throwaway"
+    );
+}
+
+// ----- form-pointer walk is tree-scoped (does not cross a shadow boundary) ---
+
+#[test]
+fn form_pointer_walk_stops_at_shadow_boundary() {
+    // §13.4 step 17's form-pointer walk is tree-scoped: when the context is
+    // inside a shadow tree, an outer light-DOM `<form>` must not seed the
+    // pointer. `EcsDom::get_parent` is shadow-inclusive (`ShadowRoot → host`),
+    // so the walk stops at the shadow root — otherwise the outer form would
+    // make an otherwise-valid `<form>` in the shadow fragment strict-reject
+    // (cf. `form_pointer_from_ancestor_rejects_nested_form` for the light case).
+    let mut dom = EcsDom::new();
+    let form = dom.create_element("form", Attributes::default());
+    let host = dom.create_element("div", Attributes::default());
+    assert!(dom.append_child(form, host));
+    let sr = dom.attach_shadow(host, ShadowRootMode::Open).unwrap();
+    let ctx = dom.create_element("div", Attributes::default());
+    assert!(dom.append_child(sr, ctx));
+
+    let result = parse_fragment_strict(
+        "<form></form>",
+        ctx,
+        &mut dom,
+        ParseFragmentOptions::default(),
+    );
+    assert!(
+        result.is_ok(),
+        "an outer light-DOM form across a shadow boundary must not seed the form pointer"
     );
 }
 

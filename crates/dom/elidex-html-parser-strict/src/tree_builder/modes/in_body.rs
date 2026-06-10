@@ -169,6 +169,14 @@ fn start_tag(
             Ok(Flow::Next)
         }
         "input" => {
+            // §13.2.6.4.7: an `<input>` in a `select` context — the §13.4
+            // fragment case (context is select) or a select element in scope —
+            // is a parse error (strict aborts → tolerant fallback). The "in
+            // select" insertion mode was removed by customizable-`select` and
+            // its handling folded into these "in body" branches.
+            if tb.fragment_context_is_select() || tb.has_tag_in_scope("select", Scope::Default) {
+                return Err(parse_error("unexpected-input-in-select"));
+            }
             tb.insert_void_element(tag);
             // frameset-ok stays "ok" only for a hidden input.
             let hidden = tag
@@ -233,7 +241,10 @@ fn start_tag(
             Ok(Flow::Next)
         }
         "select" => {
-            if tb.has_tag_in_scope("select", Scope::Default) {
+            // §13.2.6.4.7: a `<select>` in a `select` context — the §13.4
+            // fragment case (context is select) or a select already in scope —
+            // is a parse error (strict aborts → tolerant fallback).
+            if tb.fragment_context_is_select() || tb.has_tag_in_scope("select", Scope::Default) {
                 return Err(parse_error("nested-select"));
             }
             tb.insert_html_element(tag)?;

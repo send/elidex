@@ -272,7 +272,13 @@ impl TreeBuilder {
     /// destroying the root *is* the detach: the children survive parentless and
     /// the root is gone. The now-childless document is despawned after.
     fn take_fragment_children(&mut self, root: Entity) -> Vec<Entity> {
-        let children = self.dom.children(root);
+        // Uncapped: `EcsDom::children` caps the sibling walk at
+        // `MAX_ANCESTOR_DEPTH`, which would drop the tail of a fragment with
+        // very many top-level nodes — and `destroy_entity(root)` then orphans
+        // those dropped children as live, unreachable entities in the caller's
+        // dom, violating both §13.4 step 20 ("return root's children") and the
+        // no-leak isolation contract.
+        let children = self.dom.child_list_uncapped(root);
         let _ = self.dom.destroy_entity(root);
         let _ = self.dom.destroy_entity(self.document);
         children
@@ -307,6 +313,15 @@ impl TreeBuilder {
     fn set_fragment_form_pointer(&mut self, context: Entity) {
         let mut node = Some(context);
         while let Some(entity) = node {
+            // Form association is tree-scoped: do not cross a shadow boundary.
+            // `get_parent` returns a `ShadowRoot`'s host (shadow-inclusive
+            // ancestry, §13.4 step 17's walk is the DOM ancestor chain), so
+            // stop at the shadow root — otherwise an outer light-DOM `<form>`
+            // would seed the pointer for a shadow-tree context and make an
+            // otherwise-valid `<form>` in the shadow fragment strict-reject.
+            if self.dom.is_shadow_root(entity) {
+                return;
+            }
             if self.dom.has_tag(entity, "form") {
                 self.state.form_pointer = Some(entity);
                 return;
@@ -325,6 +340,19 @@ impl TreeBuilder {
     /// "current node is the root html element", stay expressed that way.)
     pub(super) fn is_fragment(&self) -> bool {
         self.state.fragment_context.is_some()
+    }
+
+    /// Whether this is the §13.4 fragment case AND the context element is a
+    /// `select` — the condition the "in body" insertion mode tests on
+    /// `<input>` / `<select>` start tags (§13.2.6.4.7, post customizable-`select`:
+    /// the old "in select" mode was folded into "in body" fragment-case
+    /// branches). In a select-context fragment the select is the context, not on
+    /// the stack, so the stack-shape `has_tag_in_scope("select")` test alone
+    /// misses it.
+    pub(super) fn fragment_context_is_select(&self) -> bool {
+        self.state
+            .fragment_context
+            .is_some_and(|ctx| self.dom.has_tag(ctx, "select"))
     }
 
     /// Parse a full document: drive tree construction to "stop parsing", then

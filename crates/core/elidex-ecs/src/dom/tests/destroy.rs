@@ -259,6 +259,46 @@ fn despawn_subtree_tears_down_past_the_traversal_depth_cap() {
 }
 
 #[test]
+fn despawn_subtree_tears_down_past_the_breadth_cap() {
+    // `children` / `children_iter` cap the *sibling* walk at
+    // `MAX_ANCESTOR_DEPTH`; a teardown inheriting that cap would leak children
+    // past it. `despawn_subtree` (via `child_list_uncapped`) must reach every
+    // sibling, however wide.
+    use crate::dom::MAX_ANCESTOR_DEPTH;
+
+    let mut dom = EcsDom::new();
+    let baseline = dom.world().len();
+    let root = elem(&mut dom, "div");
+    let mut last = root;
+    for _ in 0..(MAX_ANCESTOR_DEPTH + 5) {
+        last = elem(&mut dom, "span");
+        dom.append_child(root, last); // O(1): links at the `last_child` pointer
+    }
+    assert_eq!(
+        dom.child_list_uncapped(root).len(),
+        MAX_ANCESTOR_DEPTH + 5,
+        "the uncapped enumerator returns every child"
+    );
+    assert_eq!(
+        dom.children(root).len(),
+        MAX_ANCESTOR_DEPTH,
+        "the capped enumerator truncates (contrast)"
+    );
+
+    assert!(dom.despawn_subtree(root));
+
+    assert!(
+        !dom.contains(last),
+        "the child past the breadth cap is torn down, not leaked"
+    );
+    assert_eq!(
+        dom.world().len(),
+        baseline,
+        "no wide sibling survives teardown"
+    );
+}
+
+#[test]
 fn destroy_slot_clears_assignment() {
     let mut dom = EcsDom::new();
     let host = elem(&mut dom, "div");

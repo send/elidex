@@ -311,14 +311,17 @@ impl EcsDom {
     /// caller's `EcsDom` and break the parser's "dom is pristine on failure"
     /// isolation contract.
     ///
-    /// Iterative explicit-stack walk (via
-    /// [`Self::for_each_shadow_inclusive_descendant`]) — matches the
-    /// deep-DOM stack-overflow-safe family (`nodes_equal` /
-    /// `clone_children_recursive`) so a pathologically deep subtree cannot
-    /// blow Rust's call stack. The full descendant set is snapshotted from
-    /// the intact tree first, then each node is destroyed deepest-first; the
-    /// snapshot makes the destroy order independent of the link mutations
-    /// [`Self::destroy_entity`] performs as it goes.
+    /// Iterative explicit-stack walk — matches the deep-DOM
+    /// stack-overflow-safe family (`nodes_equal` / `clone_children_recursive`)
+    /// so a pathologically deep subtree cannot blow Rust's call stack. The full
+    /// descendant set is snapshotted from the intact tree first, then each node
+    /// is destroyed deepest-first; the snapshot makes the destroy order
+    /// independent of the link mutations [`Self::destroy_entity`] performs as it
+    /// goes. The enumeration is **uncapped in both depth and breadth**
+    /// ([`Self::child_list_uncapped`], not the `MAX_ANCESTOR_DEPTH`-capped
+    /// `children` / `for_each_shadow_inclusive_descendant`) — a complete
+    /// teardown must reach every node or it leaks; a `visited` set replaces the
+    /// caps as the corruption/cycle termination guard.
     ///
     /// **Raw structural teardown — fires no mutation events.** Dispatch is
     /// suppressed for the whole walk, so this is *not* a connected-subtree
@@ -338,16 +341,15 @@ impl EcsDom {
             return false;
         }
         // Collect the shadow-inclusive descendant set (each host's shadow-root
-        // entity included — the light-tree walk does not reach it). Unlike the
-        // depth-capped [`Self::for_each_shadow_inclusive_descendant`] — whose
-        // `MAX_ANCESTOR_DEPTH` cap guards *ancestor-chain* corruption and would
-        // silently drop everything below it — this walk is **uncapped**:
-        // teardown must leave no live remnant, so a maliciously deep subtree
-        // must still be torn down completely or the strict parser's "dom is
-        // pristine on failure" isolation contract breaks. A `visited` set
-        // replaces the depth cap as the termination guard (each entity is
-        // enumerated once, so a malformed/cyclic tree cannot loop forever), and
-        // the explicit work-list keeps the walk stack-safe at any depth.
+        // entity included — the light-tree walk does not reach it). The
+        // `MAX_ANCESTOR_DEPTH`-capped `children` / `children_iter` /
+        // `for_each_shadow_inclusive_descendant` (caps guard ancestor-chain and
+        // sibling-chain corruption) would silently drop nodes past the cap in
+        // either dimension; teardown must leave no live remnant, so this uses
+        // the uncapped [`Self::child_list_uncapped`] and an explicit work-list.
+        // A `visited` set replaces the caps as the corruption/cycle termination
+        // guard (each entity enumerated once) and the work-list keeps the walk
+        // stack-safe at any depth.
         let mut nodes: Vec<Entity> = Vec::new();
         let mut visited: HashSet<Entity> = HashSet::new();
         let mut stack: Vec<Entity> = vec![root];
@@ -361,12 +363,12 @@ impl EcsDom {
             if let Some(sr) = self.get_shadow_root(node) {
                 if visited.insert(sr) {
                     nodes.push(sr);
-                    for child in self.children_iter(sr).collect::<Vec<_>>() {
+                    for child in self.child_list_uncapped(sr) {
                         stack.push(child);
                     }
                 }
             }
-            for child in self.children_iter(node).collect::<Vec<_>>() {
+            for child in self.child_list_uncapped(node) {
                 stack.push(child);
             }
         }
@@ -520,7 +522,10 @@ impl EcsDom {
     /// Shadow roots are internal to the engine and not exposed as
     /// light-tree children; [`MutationEvent`](super::MutationEvent)
     /// fire sites suppress events whose subject is a shadow root.
-    pub(super) fn is_shadow_root(&self, entity: Entity) -> bool {
+    /// Public so tree-scoped algorithms (e.g. the HTML fragment parser's
+    /// form-pointer ancestor walk) can stop at a shadow boundary rather than
+    /// follow [`Self::get_parent`]'s shadow-inclusive `ShadowRoot → host` hop.
+    pub fn is_shadow_root(&self, entity: Entity) -> bool {
         self.world.get::<&ShadowRoot>(entity).is_ok()
     }
 
@@ -1110,6 +1115,33 @@ impl EcsDom {
                 break;
             }
             // M1: ShadowRoot entities are internal -- not exposed as children.
+            if self.world.get::<&ShadowRoot>(entity).is_err() {
+                result.push(entity);
+            }
+            current = self.read_rel(entity, |rel| rel.next_sibling);
+        }
+        result
+    }
+
+    /// All light-tree children of `parent`, in order, with **no**
+    /// `MAX_ANCESTOR_DEPTH` cap on the sibling count — unlike [`Self::children`]
+    /// / [`Self::children_iter`], which truncate a very wide child list (their
+    /// cap guards a corrupted/cyclic sibling chain). Use this only where
+    /// dropping children is a correctness bug, not a safe approximation: e.g.
+    /// complete-subtree teardown ([`Self::despawn_subtree`]) and the WHATWG HTML
+    /// §13.4 step 20 fragment-root return, where a dropped child would be
+    /// orphaned as a live, unreachable remnant. A `visited` set still bounds a
+    /// malformed/cyclic sibling chain (the walk stops at the first repeat),
+    /// preserving the caps' termination guarantee without their silent
+    /// truncation. Internal `ShadowRoot` entities are skipped, as in `children`.
+    pub fn child_list_uncapped(&self, parent: Entity) -> Vec<Entity> {
+        let mut result = Vec::new();
+        let mut seen = HashSet::new();
+        let mut current = self.read_rel(parent, |rel| rel.first_child);
+        while let Some(entity) = current {
+            if !seen.insert(entity) {
+                break;
+            }
             if self.world.get::<&ShadowRoot>(entity).is_err() {
                 result.push(entity);
             }

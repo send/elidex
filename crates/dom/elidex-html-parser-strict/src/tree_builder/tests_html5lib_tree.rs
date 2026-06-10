@@ -160,26 +160,6 @@ enum Section {
     Ignore,
 }
 
-/// Cases whose vendored html5lib `#errors` / `#document` predate a spec change
-/// elidex implements, so the strict result legitimately differs from the
-/// snapshot. Returns the divergence reason; such cases are skipped (and the
-/// reason surfaced) rather than asserted — patching vendored upstream data
-/// would break its provenance and offline reproducibility.
-fn known_spec_divergence(case: &Case) -> Option<&'static str> {
-    match (case.context.as_deref(), case.input.as_str()) {
-        // The customizable-`<select>` change removed the "in select" /
-        // "in select in table" insertion modes; `<select>` content now parses
-        // through "in body" (see `super::parse_state::InsertionMode`). The
-        // snapshot still drops `<input>` in a select context and flags a
-        // parse error, whereas current-spec strict keeps the `<input>` with no
-        // error.
-        (Some("select"), "<input><option>") => Some(
-            "in-select insertion mode removed (customizable-select); <input> retained, no error",
-        ),
-        _ => None,
-    }
-}
-
 /// Run one suite, collecting failures rather than aborting on the first, and
 /// returning `(reject_ok, tree_ok, skipped, failures)`.
 fn run_suite(name: &str, raw: &str) -> (usize, usize, usize, Vec<String>) {
@@ -189,17 +169,6 @@ fn run_suite(name: &str, raw: &str) -> (usize, usize, usize, Vec<String>) {
     let mut failures = Vec::new();
     for case in parse_dat(raw) {
         if case.script_off || case.foreign {
-            skipped += 1;
-            continue;
-        }
-        if let Some(reason) = known_spec_divergence(&case) {
-            // Surfaced, not silently dropped: the snapshot's expectation is
-            // stale w.r.t. the spec elidex implements, so strict legitimately
-            // differs and the case is excluded with its reason.
-            println!(
-                "  spec-divergence skip [{name}]: {reason}\n    input: {:?}",
-                case.input
-            );
             skipped += 1;
             continue;
         }
