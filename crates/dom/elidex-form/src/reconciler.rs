@@ -71,11 +71,12 @@ impl FormControlReconciler {
 /// of a subtree whose controls already carry FCS) preserves their
 /// user-edit state.
 ///
-/// Namespace-agnostic (matching `init_form_controls` and the prior
-/// root-only behaviour): classification is delegated to
-/// `FormControlState::from_element`'s HTML tag-name dispatch — a foreign
-/// (SVG / MathML) element with a form-control *local* name does not occur
-/// in a conforming parse, so no explicit namespace guard is added.
+/// Foreign-namespace elements are excluded centrally by
+/// [`create_form_control_state`]'s HTML-namespace gate (form controls are
+/// HTML elements). This matters precisely because the subtree walk now
+/// reaches nested foreign content: `innerHTML = "<svg><input></svg>"` keeps
+/// `input` SVG-namespaced (it is not in the SVG breakout list), so without
+/// the gate the SVG node would wrongly receive `FormControlState`.
 fn handle_insert(node: Entity, dom: &mut EcsDom) {
     // Two-phase: collect the subtree under the read-only walker, then
     // mutate (the walker borrows `&self`; FCS attach needs `&mut`).
@@ -549,5 +550,31 @@ mod tests {
             assert_eq!(s.value, "user-typed");
             assert!(s.dirty_value);
         });
+    }
+
+    #[test]
+    fn e9c_subtree_walk_skips_foreign_namespace_control() {
+        // Codex #329 R4 (P2): the subtree walk now reaches nested foreign
+        // content. An SVG-namespaced <input> (e.g. innerHTML
+        // "<svg><input></svg>") must NOT receive FormControlState — the
+        // central HTML-namespace gate in `create_form_control_state` excludes
+        // it.
+        use elidex_ecs::Namespace;
+        let mut dom = EcsDom::new();
+        let outer = dom.create_element("div", Attributes::default());
+        let svg = dom.create_element_ns("svg", Namespace::Svg, Attributes::default(), None);
+        let svg_input = dom.create_element_ns("input", Namespace::Svg, Attributes::default(), None);
+        assert!(dom.append_child(svg, svg_input));
+        assert!(dom.append_child(outer, svg));
+        let root = dom.create_element("body", Attributes::default());
+
+        let _ = dom.set_mutation_dispatcher(Box::new(FormControlOnlyTestDispatcher(
+            FormControlReconciler,
+        )));
+        assert!(dom.append_child(root, outer));
+        assert!(
+            dom.world().get::<&FormControlState>(svg_input).is_err(),
+            "SVG-namespaced <input> reached by the subtree walk must not get FCS"
+        );
     }
 }
