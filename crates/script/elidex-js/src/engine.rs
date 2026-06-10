@@ -62,15 +62,18 @@ impl ElidexJsEngine {
     /// single `ConsumerDispatcher`). The `bound` flag debug-asserts this with a
     /// clear message ahead of the lower-level dispatcher assert.
     ///
-    /// # Safety contract
+    /// # Safety
     ///
     /// `ctx.session` / `ctx.dom` must stay valid and **unaliased** until the
     /// paired [`unbind`](Self::unbind): while bound, the VM holds raw pointers
     /// to them, so neither the caller nor any trait method may access
     /// `ctx.session` / `ctx.dom` through a `&mut` (the trait methods do not
-    /// touch `ctx` — they use the bound pointers).
+    /// touch `ctx` — they use the bound pointers). The method is `unsafe`
+    /// because the type system cannot enforce this; `Vm::bind` is itself
+    /// `unsafe` for the same reason, and a safe wrapper would silently expose
+    /// that precondition to safe callers.
     #[allow(unsafe_code)]
-    pub fn bind(&mut self, ctx: &mut ScriptContext<'_>) {
+    pub unsafe fn bind(&mut self, ctx: &mut ScriptContext<'_>) {
         debug_assert!(
             !self.bound,
             "ElidexJsEngine::bind: already bound — batch brackets must not nest"
@@ -103,15 +106,22 @@ impl ElidexJsEngine {
     ///
     /// `f` receives the bound engine plus `ctx` (so it can satisfy the
     /// `eval`/`drain_*` signatures — those ignore `ctx` under the assume-bound
-    /// model, so re-passing it does not disturb the bound raw pointers). **`f`
-    /// must NOT access `ctx.session`/`ctx.dom` directly** (only via the bound
-    /// engine) — the same contract as [`bind`](Self::bind): reborrowing those
-    /// fields while bound would invalidate the VM's raw pointers. The
-    /// shell's interleaved eval+dispatch+drain batch uses the explicit
-    /// `bind`/`unbind` pair instead (`script_dispatch_event` takes `engine` and
-    /// `ctx` separately, outside any closure); `with_bound` serves tests and
+    /// model, so re-passing it does not disturb the bound raw pointers).
+    ///
+    /// # Safety
+    ///
+    /// Same contract as [`bind`](Self::bind), and `unsafe` for the same reason:
+    /// while bound, the VM holds raw pointers into `ctx.session`/`ctx.dom`, so
+    /// **`f` must NOT access `ctx.session`/`ctx.dom` directly** (only via the
+    /// bound engine) — reborrowing those fields while bound would invalidate
+    /// those pointers. The method hands the same `ctx` back to arbitrary
+    /// closure code, so the caller must uphold this for `f`. The shell's
+    /// interleaved eval+dispatch+drain batch uses the explicit `bind`/`unbind`
+    /// pair instead (`script_dispatch_event` takes `engine` and `ctx`
+    /// separately, outside any closure); `with_bound` serves tests and
     /// single-closure batches.
-    pub fn with_bound<R>(
+    #[allow(unsafe_code)]
+    pub unsafe fn with_bound<R>(
         &mut self,
         ctx: &mut ScriptContext<'_>,
         f: impl FnOnce(&mut Self, &mut ScriptContext<'_>) -> R,
@@ -123,7 +133,10 @@ impl ElidexJsEngine {
                 self.0.unbind();
             }
         }
-        self.bind(ctx);
+        // SAFETY: forwarded to the caller via this method's own `# Safety`
+        // contract — `ctx` stays valid + unaliased for the bracket and `f`
+        // does not touch `ctx.session`/`ctx.dom` directly.
+        unsafe { self.bind(ctx) };
         let guard = UnbindGuard(self);
         f(&mut *guard.0, ctx)
     }

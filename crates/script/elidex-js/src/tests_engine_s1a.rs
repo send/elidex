@@ -31,6 +31,19 @@ fn global_true(engine: &mut ElidexJsEngine, name: &str) -> bool {
     matches!(engine.vm().get_global(name), Some(JsValue::Boolean(true)))
 }
 
+/// Open the engine's batch bracket for a test.
+///
+/// [`ElidexJsEngine::bind`] is `unsafe` (it stores raw pointers into `ctx`
+/// until `unbind`); every test here upholds the contract — it keeps `ctx` alive
+/// for the bracket and never touches `ctx.session`/`ctx.dom` directly while
+/// bound, driving the VM only through the bound engine.
+#[allow(unsafe_code)]
+fn bind_engine(engine: &mut ElidexJsEngine, ctx: &mut ScriptContext<'_>) {
+    // SAFETY: see fn doc — the bracket stays open until the paired `unbind`,
+    // and no test body aliases `ctx.session`/`ctx.dom` while bound.
+    unsafe { engine.bind(ctx) }
+}
+
 #[test]
 fn eval_runs_when_unsandboxed() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
@@ -85,7 +98,7 @@ fn bracket_allows_dom_touching_eval() {
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
     // The batch bracket binds the VM; a DOM-reading script then resolves
     // `document` against the bound `EcsDom`.
-    engine.bind(&mut ctx);
+    bind_engine(&mut engine, &mut ctx);
     let r = ScriptEngine::eval(
         &mut engine,
         "globalThis.hasDoc = (typeof document === 'object' && document !== null);",
@@ -100,7 +113,7 @@ fn bracket_allows_dom_touching_eval() {
 fn drain_timers_returns_one_result_per_callback() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
-    engine.bind(&mut ctx);
+    bind_engine(&mut engine, &mut ctx);
     // One callback succeeds, one throws — drain_timers must surface BOTH as
     // distinct `EvalResult`s (the per-callback split, plan §7c).
     let _ = ScriptEngine::eval(
@@ -129,16 +142,22 @@ fn drain_timers_returns_one_result_per_callback() {
 }
 
 #[test]
+#[allow(unsafe_code)]
 fn with_bound_runs_then_unbinds() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
-    let ok = engine.with_bound(&mut ctx, |e, c| {
-        ScriptEngine::eval(e, "globalThis.inside = true;", c).success
-    });
+    // SAFETY: the closure drives the VM only through the bound engine `e`; it
+    // never touches `c.session`/`c.dom` directly, so the bracket's raw pointers
+    // stay valid (the `with_bound` contract).
+    let ok = unsafe {
+        engine.with_bound(&mut ctx, |e, c| {
+            ScriptEngine::eval(e, "globalThis.inside = true;", c).success
+        })
+    };
     assert!(ok, "with_bound returns the closure's value");
     // unbind ran (even though we didn't call it) → a fresh bracket does not
     // trip the non-nesting assert.
-    engine.bind(&mut ctx);
+    bind_engine(&mut engine, &mut ctx);
     engine.unbind();
     assert!(global_true(&mut engine, "inside"));
 }
@@ -147,7 +166,7 @@ fn with_bound_runs_then_unbinds() {
 fn drain_timers_excludes_abort_signal_timeout_fires() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
-    engine.bind(&mut ctx);
+    bind_engine(&mut engine, &mut ctx);
     // One user setTimeout callback + one AbortSignal.timeout (an *internal*
     // abort fire, NOT a user callback). drain_timers must surface only the
     // former — the abort fire is excluded from the per-callback results
@@ -178,7 +197,7 @@ fn drain_reactions_composes_and_is_noop_on_empty_queue() {
     // integration; here we verify composition + the empty-queue no-op.
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
-    engine.bind(&mut ctx);
+    bind_engine(&mut engine, &mut ctx);
     let _ = ScriptEngine::eval(
         &mut engine,
         "customElements.define('s1a-el', class extends HTMLElement {});",
@@ -199,7 +218,7 @@ fn drain_reactions_composes_and_is_noop_on_empty_queue() {
 fn nested_bind_trips_non_reentrancy_assert() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
-    engine.bind(&mut ctx);
+    bind_engine(&mut engine, &mut ctx);
     // Second bind without an intervening unbind → non-re-entrancy violation.
-    engine.bind(&mut ctx);
+    bind_engine(&mut engine, &mut ctx);
 }
