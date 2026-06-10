@@ -295,6 +295,15 @@ impl TreeBuilder {
     /// appropriate end tag in the fragment case: raw-text content runs to EOF
     /// (e.g. a `title`-context `</title>` is literal text, not a close).
     fn set_fragment_tokenizer_state(&mut self, context: Entity) {
+        // §13.4 step 10's element-name cases are HTML elements — unqualified
+        // element-type references in the spec are in the HTML namespace. A
+        // foreign context whose local name happens to be `title` / `style` /
+        // `script` / … (e.g. an SVG `<title>`) therefore does NOT switch to a
+        // raw-text state; its children are parsed by the foreign-content rules,
+        // so the tokenizer stays in the Data state.
+        if self.dom.namespace_of(context) != Namespace::Html {
+            return;
+        }
         let state = self.dom.with_tag_name(context, |tag| match tag {
             Some("title" | "textarea") => State::Rcdata,
             Some("style" | "xmp" | "iframe" | "noembed" | "noframes" | "noscript") => {

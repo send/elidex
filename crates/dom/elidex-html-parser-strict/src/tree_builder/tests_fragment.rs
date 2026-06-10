@@ -523,6 +523,31 @@ fn mathml_context_parses_children_as_mathml() {
     );
 }
 
+#[test]
+fn foreign_context_with_raw_text_local_name_does_not_switch_to_raw_text() {
+    // §13.4 step 10's raw-text element-name cases (title / style / script / …)
+    // are HTML-namespace only. An SVG `<style>` context (local name "style",
+    // and NOT an HTML integration point) must NOT switch the tokenizer to
+    // RAWTEXT — its child parses as SVG foreign content, not a single text
+    // node. (SVG `<title>` would not show this: it is an HTML integration
+    // point, so its content is HTML regardless.)
+    let mut dom = EcsDom::new();
+    let svg_style = dom.create_element_ns("style", Namespace::Svg, Attributes::default(), None);
+    let roots = parse_fragment_strict(
+        "<circle></circle>",
+        svg_style,
+        &mut dom,
+        ParseFragmentOptions::default(),
+    )
+    .expect("an SVG-style-context fragment parses");
+    assert_eq!(roots.len(), 1);
+    assert!(
+        dom.has_tag(roots[0], "circle"),
+        "the child is an SVG element, not RAWTEXT text"
+    );
+    assert_eq!(dom.namespace_of(roots[0]), Namespace::Svg);
+}
+
 // ----- a top-level declarative-shadow template (host = external context) is
 // declined; a nested one (host = in-fragment element) still attaches -----
 
