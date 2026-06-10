@@ -474,6 +474,26 @@ impl VmInner {
         entity: elidex_ecs::Entity,
         id: ListenerId,
     ) {
+        // WHATWG HTML "getting the current value of the event handler" step 3.2:
+        // when the document's active sandboxing flag set has the sandboxed
+        // scripts flag set (scripting is disabled, §8.1.3.4), the algorithm
+        // returns null for a raw uncompiled inline handler *without* compiling
+        // it — so a `<button onclick=...>` in a sandboxed iframe lacking
+        // `allow-scripts` never runs on UA dispatch. This is the
+        // listener-dispatch / lazy-compile half of the same `scripts_allowed`
+        // gate the engine applies to classic-script `eval`. Left raw (not
+        // removed): the spec's "return null" does not deactivate the handler,
+        // and a fixed-for-lifetime sandbox never re-enables it. addEventListener
+        // (`Normal`) listeners hold no uncompiled source, so they are untouched
+        // (and none can exist here — the script that would register one was
+        // itself blocked by the `eval` gate).
+        if self
+            .host_data
+            .as_deref()
+            .is_some_and(|hd| !hd.scripts_allowed())
+        {
+            return;
+        }
         let (uncompiled, cleared) = {
             let Some(host) = self.host_data.as_deref_mut() else {
                 return;
