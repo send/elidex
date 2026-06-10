@@ -16,14 +16,20 @@ mod element_init;
 
 pub use charset::{detect_and_decode, DecodeResult, EncodingConfidence};
 // `ParseResult`, `ParseTier`, `ParseFragmentOptions`, `StrictParseError`,
-// `parse_strict`, and `parse_fragment_strict` are owned by the
-// engine-independent `elidex-html-parser-strict` crate (the strict-mode SoT).
-// They are re-exported here so existing `elidex_html_parser::…` import paths
-// keep working; the tolerant html5ever entry points below produce the same
+// and `parse_fragment_strict` are owned by the engine-independent
+// `elidex-html-parser-strict` crate (the strict-mode SoT). They are
+// re-exported here so existing `elidex_html_parser::…` import paths keep
+// working; the tolerant html5ever entry points below produce the same
 // `ParseResult` type (tagged `ParseTier::Recovered`).
+//
+// `parse_strict` is intentionally NOT re-exported: this crate defines its
+// own [`parse_strict`] wrapper (below) that runs the derived-component pass,
+// so every public document entry point (`parse_html` / `parse_progressive` /
+// `parse_strict`) yields a complete `ParseResult`. (`parse_fragment_strict`
+// stays the raw re-export pending the slice-2b fragment-caller unification —
+// slot `#11-strict-parser-created-element-ecs-state` fragment wiring.)
 pub use elidex_html_parser_strict::{
-    parse_fragment_strict, parse_strict, ParseFragmentOptions, ParseResult, ParseTier,
-    StrictParseError,
+    parse_fragment_strict, ParseFragmentOptions, ParseResult, ParseTier, StrictParseError,
 };
 
 use convert::convert_document;
@@ -40,6 +46,25 @@ use markup5ever_rcdom::RcDom;
 pub fn parse_html(html: &str) -> ParseResult {
     let rc_dom = parse_document(RcDom::default(), ParseOpts::default()).one(html);
     convert_document(rc_dom)
+}
+
+/// Parse a conforming HTML5 document with the strict (Tier-1) backend.
+///
+/// Wrapper over [`elidex_html_parser_strict::parse_strict`] that runs the
+/// canonical derived-component pass (`element_init`) on success, so the
+/// public strict entry point produces the same complete [`ParseResult`] —
+/// `CustomElementState` (HTML §4.13.3) / `InlineStyle` / `IframeData`
+/// (§4.8.5) attached — as [`parse_html`] and [`parse_progressive`]. The
+/// strict tree-builder crate itself stays DOM-semantics-free (no
+/// `elidex-custom-elements` dep); the derivation lives one layer up here.
+///
+/// # Errors
+/// Propagates the [`StrictParseError`] from the strict backend when the
+/// input is not conforming HTML5 (callers fall back to [`parse_html`]).
+pub fn parse_strict(html: &str) -> Result<ParseResult, StrictParseError> {
+    let mut result = elidex_html_parser_strict::parse_strict(html)?;
+    element_init::derive_element_components(&mut result.dom, result.document);
+    Ok(result)
 }
 
 /// Parse an HTML fragment string into child nodes.
@@ -110,19 +135,11 @@ pub fn parse_progressive(bytes: &[u8], charset_hint: Option<&str>) -> ParseResul
     // decoded text (no re-decode), which `convert_document` tags
     // `ParseTier::Recovered`. Either way, stamp the detected encoding (both
     // `&str` entry points leave it `None`).
-    let mut result = match parse_strict(&decoded.text) {
-        Ok(mut r) => {
-            // Tier-1 strict: the strict tree-builder attaches no
-            // DOM-semantic components, so derive them here (the tolerant
-            // fallback derives inside `convert_document`). This is the
-            // single seam that fixes the parser-wide
-            // CustomElementState / InlineStyle / IframeData gap for
-            // strict-parsed documents.
-            element_init::derive_element_components(&mut r.dom, r.document);
-            r
-        }
-        Err(_) => parse_html(&decoded.text),
-    };
+    // Tier-1 strict: the local `parse_strict` wrapper runs the derived-
+    // component pass on success; the tolerant fallback derives inside
+    // `convert_document`. Either way the returned tree carries the
+    // CustomElementState / InlineStyle / IframeData components.
+    let mut result = parse_strict(&decoded.text).unwrap_or_else(|_| parse_html(&decoded.text));
     result.encoding = Some(decoded.encoding);
     result
 }
@@ -569,6 +586,50 @@ mod tests {
         assert!(
             dom.world().get::<&InlineStyle>(my_el).is_ok(),
             "declarative-shadow element must carry InlineStyle"
+        );
+    }
+
+    #[test]
+    fn parse_strict_public_entry_derives_components() {
+        // Codex #329 R3 (P2): the public `parse_strict` entry point must
+        // derive components on its own (no caller-side derive), so a direct
+        // strict parse of a custom element carries CustomElementState.
+        let result = parse_strict(
+            "<!DOCTYPE html><html><head></head><body><my-widget></my-widget></body></html>",
+        )
+        .expect("conforming HTML5");
+        let widget = find_tag(&result.dom, result.document, "my-widget").expect("my-widget");
+        assert!(
+            result
+                .dom
+                .world()
+                .get::<&elidex_custom_elements::CustomElementState>(widget)
+                .is_ok(),
+            "public parse_strict must attach CustomElementState without a caller-side derive"
+        );
+    }
+
+    #[test]
+    fn tolerant_foreign_content_not_marked_custom() {
+        // Codex #329 R3 (P2): the tolerant backend must preserve foreign
+        // namespaces so the HTML-namespace guard holds. An SVG-namespaced
+        // <my-foo> parsed via `parse_html` must NOT receive CustomElementState
+        // (custom element names are HTML-namespace-scoped, HTML §4.13.3).
+        use elidex_ecs::Namespace;
+        let result = parse_html("<svg><my-foo></my-foo></svg>");
+        let my_foo = find_tag(&result.dom, result.document, "my-foo").expect("my-foo in svg");
+        assert_eq!(
+            result.dom.namespace_of(my_foo),
+            Namespace::Svg,
+            "tolerant path must preserve the SVG namespace"
+        );
+        assert!(
+            result
+                .dom
+                .world()
+                .get::<&elidex_custom_elements::CustomElementState>(my_foo)
+                .is_err(),
+            "foreign-namespace element must not be marked custom on the tolerant path"
         );
     }
 }

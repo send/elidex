@@ -139,11 +139,13 @@ mod tests {
     use super::*;
     use elidex_custom_elements::{CEState, CustomElementState};
 
-    /// Parse a conforming document through the strict (Tier-1) backend and
-    /// run the derivation pass, mirroring `parse_progressive`'s strict
-    /// branch. Returns the dom + document root.
+    /// Parse a conforming document through the RAW strict (Tier-1) backend
+    /// (no derivation) and run [`derive_element_components`] explicitly, so
+    /// these tests exercise the derivation logic in isolation. (The public
+    /// `crate::parse_strict` wrapper derives on its own — covered separately
+    /// in `lib.rs`.) Returns the dom + document root.
     fn parse_and_derive(html: &str) -> (EcsDom, Entity) {
-        let mut result = crate::parse_strict(html).expect("conforming HTML5");
+        let mut result = elidex_html_parser_strict::parse_strict(html).expect("conforming HTML5");
         derive_element_components(&mut result.dom, result.document);
         (result.dom, result.document)
     }

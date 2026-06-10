@@ -3,7 +3,10 @@
 //! Two-pass approach: html5ever parses into `RcDom`, then this module
 //! walks the tree and builds an ECS DOM.
 
-use elidex_ecs::{Attributes, EcsDom, Entity, ShadowInit, ShadowRootMode, SlotAssignmentMode};
+use elidex_ecs::{
+    Attributes, EcsDom, Entity, Namespace, ShadowInit, ShadowRootMode, SlotAssignmentMode,
+};
+use html5ever::ns;
 use markup5ever_rcdom::{Handle, NodeData, RcDom};
 
 use elidex_html_parser_strict::{ParseFragmentOptions, ParseResult, ParseTier};
@@ -178,27 +181,45 @@ fn try_attach_declarative_shadow(
 
 /// Build the tag name and attribute set from an element handle.
 ///
+/// Returns `(tag, namespace, attributes)`. The namespace is read from the
+/// html5ever [`QualName`](html5ever::QualName) so foreign (SVG / MathML)
+/// content is created with the correct [`Namespace`] component — without it
+/// `EcsDom::namespace_of` would default every node to HTML, defeating the
+/// HTML-namespace guard in `element_init::attach_derived` (a `<svg><my-foo>`
+/// would wrongly receive `CustomElementState`).
+///
 /// Derived components (InlineStyle / CustomElementState / IframeData) are
-/// NOT attached here — they are derived in one canonical post-build pass
-/// (`element_init::derive_element_components`, run by `convert_document` /
-/// `convert_fragment_children`) shared with the strict Tier-1 backend.
-fn build_element_data(handle: &Handle) -> Option<(String, Attributes)> {
+/// attached by `element_init::attach_derived`, invoked per-node from
+/// [`convert_node`] at creation time (shared with the strict Tier-1 backend's
+/// derivation logic).
+fn build_element_data(handle: &Handle) -> Option<(String, Namespace, Attributes)> {
     let NodeData::Element { name, attrs, .. } = &handle.data else {
         return None;
     };
     let tag = name.local.as_ref().to_string();
+    let namespace = if name.ns == ns!(svg) {
+        Namespace::Svg
+    } else if name.ns == ns!(mathml) {
+        Namespace::MathMl
+    } else {
+        // ns!(html) and any unexpected namespace map to HTML.
+        Namespace::Html
+    };
     let mut attributes = Attributes::default();
     for attr in attrs.borrow().iter() {
         attributes.set(attr.name.local.as_ref(), &*attr.value);
     }
-    Some((tag, attributes))
+    Some((tag, namespace, attributes))
 }
 
 fn convert_node(handle: &Handle, dom: &mut EcsDom, opts: ParseFragmentOptions) -> Option<Entity> {
     match &handle.data {
         NodeData::Element { .. } => {
-            let (tag, attributes) = build_element_data(handle)?;
-            let entity = dom.create_element(&tag, attributes);
+            let (tag, namespace, attributes) = build_element_data(handle)?;
+            // `create_element_ns` attaches a `Namespace` component only for
+            // non-HTML namespaces (HTML stays component-free), so the foreign
+            // guard in `attach_derived` sees the real namespace.
+            let entity = dom.create_element_ns(&tag, namespace, attributes, None);
             // Attach derived components at creation time — BEFORE the element
             // is appended anywhere. The tolerant fragment path
             // (`convert_fragment_children`, e.g. `innerHTML`) builds into a
