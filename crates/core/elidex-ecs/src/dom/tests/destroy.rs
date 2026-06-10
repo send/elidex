@@ -299,6 +299,36 @@ fn despawn_subtree_tears_down_past_the_breadth_cap() {
 }
 
 #[test]
+fn despawn_subtree_bumps_only_the_external_parent_version() {
+    // Per-node version propagation (`rev_version` walks all ancestors) is
+    // suppressed during teardown so a deep subtree is not O(n²); the one
+    // surviving live-tree effect is a single version bump on the root's
+    // *external* parent, so live collections rooted at/above it invalidate.
+    let mut dom = EcsDom::new();
+    let outer = elem(&mut dom, "div");
+    let root = elem(&mut dom, "section");
+    dom.append_child(outer, root);
+    let child = elem(&mut dom, "span");
+    dom.append_child(root, child);
+
+    let before = dom.inclusive_descendants_version(outer);
+    assert!(dom.despawn_subtree(root));
+
+    assert!(
+        !dom.contains(root) && !dom.contains(child),
+        "the subtree is torn down"
+    );
+    assert!(
+        dom.inclusive_descendants_version(outer) > before,
+        "the external parent's version is bumped so live collections invalidate"
+    );
+    assert!(
+        dom.children(outer).is_empty(),
+        "root is removed from the external parent's child list"
+    );
+}
+
+#[test]
 fn destroy_slot_clears_assignment() {
     let mut dom = EcsDom::new();
     let host = elem(&mut dom, "div");

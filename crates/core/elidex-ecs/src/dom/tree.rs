@@ -344,15 +344,31 @@ impl EcsDom {
         // and breadth — teardown must reach every node or it leaks).
         let mut nodes: Vec<Entity> = Vec::new();
         self.for_each_uncapped_shadow_inclusive(root, &mut |e| nodes.push(e));
+        // The only live-tree effect of tearing the subtree out is on the root's
+        // *external* parent (if any) — its child list loses `root`, so live
+        // collections rooted at/above it must invalidate. Capture it now (its
+        // version is bumped once, after the walk); every other version bump is
+        // internal to the doomed subtree and is suppressed below.
+        let root_parent = self.get_parent(root);
         // Event-free structural teardown: take the dispatcher out for the whole
         // walk so no node's `destroy_entity` fires a (mis-ordered, partial)
         // `MutationEvent::Remove`. Restored before returning.
         let saved_dispatcher = self.take_mutation_dispatcher();
+        // Suppress per-node version propagation: `destroy_entity` ends with
+        // `rev_version(parent)`, which walks all ancestors (O(depth)); per node
+        // that is O(n²) for a maliciously deep subtree — the rollback path this
+        // primitive is built for. Every such bump targets a doomed node anyway.
+        self.version_propagation_suppressed = true;
         // Deepest-first: children precede their parents, so each
         // `destroy_entity` runs before its parent orphans it (cheaper, and the
         // collected set is already frozen against the link mutations).
         for &entity in nodes.iter().rev() {
             let _ = self.destroy_entity(entity);
+        }
+        self.version_propagation_suppressed = false;
+        // The single surviving version effect: the root's external parent.
+        if let Some(parent) = root_parent {
+            self.rev_version(parent);
         }
         if let Some(dispatcher) = saved_dispatcher {
             self.set_mutation_dispatcher(dispatcher);
