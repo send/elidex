@@ -17,7 +17,7 @@
 use elidex_ecs::{Attributes, ShadowInit, ShadowRootMode, SlotAssignmentMode};
 
 use super::parse_state::InsertionMode;
-use super::{parse_error, TreeBuilder};
+use super::{parse_error, unsupported_fragment_construct, TreeBuilder};
 use crate::tokenizer::token::TagToken;
 use crate::StrictParseError;
 
@@ -81,14 +81,31 @@ impl TreeBuilder {
 
         // Steps 6-9: declarative only if shadowrootmode is present and valid,
         // the document allows declarative shadow roots, and the adjusted
-        // current node is not the topmost element (i.e. not the fragment
-        // root). In document parsing the adjusted current node is the current
-        // node, so "not topmost" reduces to a stack depth greater than one.
-        let adjusted_current_not_topmost = self.state.open_elements.len() > 1;
-        if adjusted_current_not_topmost && self.allow_declarative_shadow {
+        // current node is not the topmost element (step 10.1: the host *is*
+        // the adjusted current node).
+        if self.allow_declarative_shadow {
             if let Some(init) = shadow_init_from_attrs(&token.attrs) {
-                self.attach_declarative_shadow(token, init);
-                return Ok(());
+                // §13.4 fragment case, single-element stack: the adjusted
+                // current node (§13.2.4.2) is the *external* context element,
+                // not the synthetic root. Step 10.1 would attach a shadow root
+                // to it — mutating the caller's context, which slice 2a's
+                // read-only-context isolation contract forbids (and rollback
+                // could not cleanly undo). Abort so a strict-first dispatcher
+                // falls back to the tolerant backend; faithful DSD-on-context
+                // lands with the 2b `setHTMLUnsafe` wiring that owns context
+                // mutation (`#11-strict-fragment-declarative-shadow-on-context`).
+                if self.is_fragment() && self.state.open_elements.len() == 1 {
+                    return Err(unsupported_fragment_construct(
+                        "fragment-context-declarative-shadow-unsupported",
+                    ));
+                }
+                // Otherwise the adjusted current node is the current node
+                // (document parsing, or a nested in-fragment host), so "not
+                // topmost" reduces to a stack depth greater than one.
+                if self.state.open_elements.len() > 1 {
+                    self.attach_declarative_shadow(token, init);
+                    return Ok(());
+                }
             }
         }
 
@@ -153,8 +170,18 @@ impl TreeBuilder {
         if !self.current_node_has_tag("template") {
             return Err(parse_error("unexpected-end-tag-template-misnested"));
         }
-        // Step 3.
+        // Step 3. The current node is the template being closed. If it is a
+        // consumed declarative-shadow template (stack-only, never in the tree —
+        // identified by its content-target entry), despawn it after the pop so
+        // it does not dangle; capture it before pop clears the entry.
+        let consumed_shadow_template = self
+            .state
+            .current_node()
+            .filter(|t| self.state.template_content_targets.contains_key(t));
         self.pop_until_tag("template");
+        if let Some(template) = consumed_shadow_template {
+            let _ = self.dom.destroy_entity(template);
+        }
         // Step 4, "clear the list of active formatting elements up to the last
         // marker", is a no-op (no active formatting list in strict mode).
         // Step 5.

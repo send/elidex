@@ -15,13 +15,14 @@ mod convert;
 
 pub use charset::{detect_and_decode, DecodeResult, EncodingConfidence};
 // `ParseResult`, `ParseTier`, `ParseFragmentOptions`, `StrictParseError`,
-// and `parse_strict` are owned by the engine-independent
-// `elidex-html-parser-strict` crate (the strict-mode SoT). They are
-// re-exported here so existing `elidex_html_parser::…` import paths keep
-// working; the tolerant html5ever entry points below produce the same
+// `parse_strict`, and `parse_fragment_strict` are owned by the
+// engine-independent `elidex-html-parser-strict` crate (the strict-mode SoT).
+// They are re-exported here so existing `elidex_html_parser::…` import paths
+// keep working; the tolerant html5ever entry points below produce the same
 // `ParseResult` type (tagged `ParseTier::Recovered`).
 pub use elidex_html_parser_strict::{
-    parse_strict, ParseFragmentOptions, ParseResult, ParseTier, StrictParseError,
+    parse_fragment_strict, parse_strict, ParseFragmentOptions, ParseResult, ParseTier,
+    StrictParseError,
 };
 
 use convert::convert_document;

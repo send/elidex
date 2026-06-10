@@ -230,6 +230,19 @@ pub(crate) struct ParseState {
     /// whose leading newline is dropped as an authoring convenience
     /// (§13.2.6.4.7).
     pub(crate) skip_next_lf: bool,
+    /// WHATWG HTML §13.4 fragment-case context element. `Some(context)` only
+    /// while running the HTML fragment parsing algorithm (`build_fragment`);
+    /// `None` for whole-document parsing.
+    ///
+    /// Its sole consumer is §13.2.4.1 "reset the insertion mode
+    /// appropriately" step 3: when the stack walk reaches the bottom
+    /// (`last == true`) the algorithm substitutes the context element for the
+    /// stack node, so a fragment parsed in (e.g.) a `<td>` / `<tr>` / `<select>`
+    /// context selects the matching insertion mode even though the synthetic
+    /// root on the stack is an `<html>` element. For document parsing the
+    /// substitution never fires (`None`), preserving the existing 21-mode
+    /// behaviour.
+    pub(crate) fragment_context: Option<Entity>,
 }
 
 impl ParseState {
@@ -248,6 +261,7 @@ impl ParseState {
             scripting: true,
             template_content_targets: HashMap::new(),
             skip_next_lf: false,
+            fragment_context: None,
         }
     }
 
@@ -256,6 +270,22 @@ impl ParseState {
     /// document case before the `html` element is pushed.
     pub(crate) fn current_node(&self) -> Option<Entity> {
         self.open_elements.last().copied()
+    }
+
+    /// §13.2.4.2 The adjusted current node — the `context` element when this is
+    /// the §13.4 fragment case and the stack of open elements holds only the
+    /// synthetic root (so the fragment's content is dispatched as if directly
+    /// inside `context`), otherwise the [current node](Self::current_node). The
+    /// two coincide for document parsing and once the fragment has pushed any
+    /// element of its own. Foreign-content dispatch keys off this so an
+    /// SVG/MathML-context fragment routes its top-level children through the
+    /// foreign-content rules.
+    pub(crate) fn adjusted_current_node(&self) -> Option<Entity> {
+        if self.fragment_context.is_some() && self.open_elements.len() == 1 {
+            self.fragment_context
+        } else {
+            self.current_node()
+        }
     }
 }
 

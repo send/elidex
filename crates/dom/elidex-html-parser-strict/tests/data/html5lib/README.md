@@ -7,9 +7,12 @@ suite — language-agnostic test **vectors** (not a parser library):
 
 - `tokenizer/*.test` describe the expected WHATWG HTML §13.2.5 token output
   for given inputs (used by `src/tokenizer/tests_html5lib.rs`).
-- `tree-construction/*.dat` (`tests1`, `tests2`, `doctype01`) describe the
-  expected §13.2.6 DOM tree (`#document`) and parse errors (`#errors`) for
-  given inputs (used by `src/tree_builder/tests_html5lib_tree.rs`).
+- `tree-construction/*.dat` (`tests1`, `tests2`, `doctype01`,
+  `tests_innerHTML_1`) describe the expected §13.2.6 DOM tree (`#document`) and
+  parse errors (`#errors`) for given inputs (used by
+  `src/tree_builder/tests_html5lib_tree.rs`). `tests_innerHTML_1` is the
+  §13.4 fragment (`innerHTML`) suite: each case carries a `#document-fragment`
+  context element and is driven through `parse_fragment_strict`.
 
 Details:
 
@@ -27,9 +30,13 @@ Details:
   excluded as out of scope for the strict (no-recovery) builder. Strict mode
   rejects on the first parse error, so a `.dat` case with a non-empty
   `#errors` list is asserted to abort, and a case with no errors must
-  reproduce `#document` exactly. The harness skips (and counts) cases the A3
-  document-parse path does not cover: `#document-fragment`, `#script-off`,
-  and foreign content.
+  reproduce `#document` exactly. `#document-fragment` cases run through the
+  strict §13.4 fragment parser. The harness skips (and counts) cases the
+  strict path does not cover: `#script-off`, foreign content (`<svg>` /
+  `<math>` or a namespaced fragment context), and the rare case whose vendored
+  `#errors` / `#document` predates a spec change elidex implements (e.g. the
+  customizable-`<select>` removal of the "in select" mode) — surfaced with its
+  divergence reason rather than silently dropped.
 
 These are test inputs only; no html5lib code is linked into the crate. The
 runtime parser is fully self-implemented (`src/tokenizer/` + `src/tree_builder/`),

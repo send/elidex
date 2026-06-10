@@ -24,6 +24,13 @@ pub(crate) fn after_body(tb: &mut TreeBuilder, token: &Token) -> Result<Flow, St
         Token::Doctype(_) => Err(parse_error("unexpected-doctype-after-body")),
         Token::StartTag(tag) if tag.name == "html" => super::in_body::in_body(tb, token),
         Token::EndTag(tag) if tag.name == "html" => {
+            // §13.2.6.4.17: in the HTML fragment parsing algorithm (§13.4) a
+            // `</html>` end tag here is a parse error — there is no document to
+            // move "after after body" toward. Only the document parse switches
+            // mode; the fragment parse rejects.
+            if tb.is_fragment() {
+                return Err(parse_error("unexpected-end-tag-after-body-innerhtml"));
+            }
             tb.state.mode = InsertionMode::AfterAfterBody;
             Ok(Flow::Next)
         }

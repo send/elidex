@@ -66,6 +66,14 @@ pub struct EcsDom {
     /// render. Cleared + rebuilt each layout pass. See
     /// [`crate::FragmentTree`].
     fragment_tree: crate::FragmentTree,
+    /// When set, [`rev_version`](Self::rev_version) is a no-op. Scoped on by
+    /// [`despawn_subtree`](Self::despawn_subtree) so the per-node version bump
+    /// (which walks all ancestors, O(depth)) does not turn a complete teardown
+    /// into O(n²): every bump during the walk targets a node inside the doomed
+    /// subtree, so the propagation is wasted. The single live-tree effect — a
+    /// version bump on the root's *external* parent — is applied once after the
+    /// walk.
+    version_propagation_suppressed: bool,
 }
 
 /// Panic-safe Drop guard for [`EcsDom::dispatch_event`]: restores the
@@ -111,6 +119,7 @@ impl EcsDom {
             dispatcher: None,
             dispatch_depth: 0,
             fragment_tree: crate::FragmentTree::default(),
+            version_propagation_suppressed: false,
         }
     }
 
@@ -536,13 +545,27 @@ impl EcsDom {
     /// `elidex_dom_api::BaseUrlMaintainer` mutates it as `<base>`
     /// elements enter / leave the doc tree.
     pub fn create_document_root(&mut self) -> Entity {
-        let entity = self.world.spawn((
+        let entity = self.create_document_node();
+        self.document_root = Some(entity);
+        entity
+    }
+
+    /// Spawn a bare `Document` node ([`NodeKind::Document`]) **without**
+    /// registering it as the dom's cached document root.
+    ///
+    /// For transient / throwaway documents that must not clobber the
+    /// persistent [`document_root()`](Self::document_root) cache — e.g. the
+    /// WHATWG HTML §13.4 fragment parsing algorithm's throwaway document
+    /// (step 2), which exists only to own the fragment's nodes during the
+    /// parse and is despawned afterwards. Sharing the spawn with
+    /// [`create_document_root`](Self::create_document_root) keeps the
+    /// `Document` node shape (`TreeRelation` + base URL) defined in one place.
+    pub fn create_document_node(&mut self) -> Entity {
+        self.world.spawn((
             TreeRelation::default(),
             NodeKind::Document,
             DocumentBaseUrl(crate::about_blank_url()),
-        ));
-        self.document_root = Some(entity);
-        entity
+        ))
     }
 
     /// Returns the document root entity created by [`create_document_root()`](Self::create_document_root).
@@ -731,6 +754,11 @@ impl EcsDom {
     /// The new version is computed as `max(entity_version, doc_root_version) + 1`,
     /// ensuring a globally monotonic value across the entire tree.
     pub fn rev_version(&mut self, entity: Entity) {
+        // Suppressed during a complete-subtree teardown (`despawn_subtree`),
+        // where every bump would target a doomed node and walk its ancestors.
+        if self.version_propagation_suppressed {
+            return;
+        }
         // Compute a single new version: max of entity and doc_root versions + 1.
         let entity_ver = self.read_rel(entity, |rel| rel.inclusive_descendants_version);
         let doc_root_ver = self.document_root.map_or(0, |dr| {
