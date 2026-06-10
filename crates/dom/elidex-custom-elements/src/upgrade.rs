@@ -73,10 +73,12 @@ pub fn prepare_upgrade(
     // only an element whose local name is the definition name itself. This
     // rejects a mismatched `is=` candidate the parser legitimately marked —
     // e.g. `<div is="plastic-button">` must NOT upgrade under
-    // `define("plastic-button", { extends: "button" })` (HTML §4.13.1.4:
-    // customized built-ins are tied to the retained base local name). The
-    // parser cannot pre-filter this: the definition's `extends` is unknown
-    // until `define()` runs, so the gate lives here, at upgrade time.
+    // `define("plastic-button", { extends: "button" })`. Per HTML §4.13.3
+    // "Core concepts" (the *look up a custom element definition* algorithm),
+    // a customized built-in matches only when the element's local name
+    // equals the definition's `extends`. The parser cannot pre-filter this:
+    // the definition's `extends` is unknown until `define()` runs, so the
+    // gate lives here, at upgrade time.
     let local_name = dom
         .world()
         .get::<&TagType>(entity)

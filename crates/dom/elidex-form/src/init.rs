@@ -6,7 +6,9 @@ use crate::{fieldset, select, FormControlKind, FormControlState};
 
 /// Whether `entity` is in the HTML namespace.
 ///
-/// Form controls are HTML elements (HTML §4.10): a foreign (SVG / MathML)
+/// Form controls are HTML-namespace elements — the form-associated element
+/// definitions live in HTML §4.10 "Forms" (the `<input>`/`<select>`/
+/// `<textarea>`/`<button>`/… elements). A foreign (SVG / MathML)
 /// element that merely shares a form-control *local* name — e.g.
 /// `<svg><input>`, where `input` is not in the SVG breakout list and so
 /// stays SVG-namespaced — must NOT receive [`FormControlState`], or form

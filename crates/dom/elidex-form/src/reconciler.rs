@@ -577,4 +577,47 @@ mod tests {
             "SVG-namespaced <input> reached by the subtree walk must not get FCS"
         );
     }
+
+    #[test]
+    fn e9d_nested_control_subtree_move_preserves_dirty_value() {
+        // Combines e9 (nested control reached by the subtree walk) with e8b
+        // (dirty-value preserved across re-parent): a NESTED control whose FCS
+        // carries user input must keep it when the whole subtree is moved
+        // (the per-entity absence guard skips re-attach during the walk).
+        let mut dom = EcsDom::new();
+        let outer = dom.create_element("div", Attributes::default());
+        let span = dom.create_element("span", Attributes::default());
+        let input = dom.create_element("input", {
+            let mut a = Attributes::default();
+            a.set("value".to_string(), "initial".to_string());
+            a
+        });
+        assert!(dom.append_child(span, input));
+        assert!(dom.append_child(outer, span));
+        let root = dom.create_element("body", Attributes::default());
+
+        let _ = dom.set_mutation_dispatcher(Box::new(FormControlOnlyTestDispatcher(
+            FormControlReconciler,
+        )));
+        // First insertion attaches FCS to the nested input.
+        assert!(dom.append_child(root, outer));
+        with_fcs(&dom, input, |s| {
+            assert_eq!(s.kind, FormControlKind::TextInput);
+        });
+        // User input on the nested control.
+        {
+            let mut state = dom.world_mut().get::<&mut FormControlState>(input).unwrap();
+            state.set_value("user-typed".to_string());
+            assert!(state.dirty_value);
+        }
+        // Move the whole subtree — Insert fires on `outer`; the walk reaches
+        // the nested input but the per-entity guard skips re-attach.
+        let section = dom.create_element("section", Attributes::default());
+        assert!(dom.append_child(root, section));
+        assert!(dom.append_child(section, outer));
+        with_fcs(&dom, input, |s| {
+            assert_eq!(s.value, "user-typed");
+            assert!(s.dirty_value);
+        });
+    }
 }
