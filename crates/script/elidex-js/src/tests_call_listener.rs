@@ -324,6 +324,83 @@ fn scripting_disabled_gates_stored_event_handler_not_addeventlistener() {
     engine.vm().unbind();
 }
 
+/// Codex PR327 R7 (Ihvwo): the scripting-disabled gate lives at the single
+/// reconcile chokepoint `ensure_event_handler_current`, so EVERY dispatch path
+/// observes a null event-handler callable — `dispatchEvent` via
+/// `DispatchTarget::resolve_callable`, `onunhandledrejection` via
+/// `natives_promise`, and the IDL getter via `reconcile_handler`, not only
+/// `ScriptEngine::call_listener`. Exercise the chokepoint directly: after it
+/// runs on a scripting-disabled stored event handler, `get_listener` is `None`,
+/// so every path that reconciles-then-reads `listener_store` resolves null.
+#[test]
+#[allow(unsafe_code)]
+fn scripting_disabled_drops_event_handler_at_reconcile_chokepoint() {
+    let mut engine = ElidexJsEngine::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let target = dom.create_element("button", Attributes::default());
+
+    let handler_id = {
+        let mut listeners = EventListeners::new();
+        let h = listeners.add_event_handler("click");
+        dom.world_mut()
+            .insert_one(target, listeners)
+            .expect("insert EventListeners");
+        h
+    };
+
+    engine.vm().install_host_data(HostData::new());
+    unsafe {
+        engine.vm().bind(
+            std::ptr::from_mut(&mut session),
+            std::ptr::from_mut(&mut dom),
+            doc,
+        );
+    }
+    engine.vm().eval("globalThis.h = function () {};").unwrap();
+    let JsValue::Object(h_func) = engine.vm().get_global("h").expect("h") else {
+        panic!("h must be a function");
+    };
+    engine
+        .vm()
+        .host_data()
+        .expect("HostData")
+        .store_listener(handler_id, h_func);
+    assert!(
+        engine
+            .vm()
+            .host_data()
+            .expect("HostData")
+            .get_listener(handler_id)
+            .is_some(),
+        "callable resolvable while scripting is enabled"
+    );
+
+    // Disable scripting, then run the shared reconcile chokepoint directly — the
+    // step every dispatch path calls before reading listener_store.
+    engine
+        .vm()
+        .host_data()
+        .expect("HostData")
+        .set_sandbox_flags(Some(elidex_plugin::IframeSandboxFlags::empty()));
+    engine
+        .vm()
+        .inner
+        .ensure_event_handler_current(target, handler_id);
+
+    assert!(
+        engine
+            .vm()
+            .host_data()
+            .expect("HostData")
+            .get_listener(handler_id)
+            .is_none(),
+        "the chokepoint drops the stored event-handler callable so every dispatch path resolves null"
+    );
+    engine.vm().unbind();
+}
+
 #[test]
 fn passive_listener_prevent_default_is_silently_ignored() {
     let mut engine = ElidexJsEngine::new();

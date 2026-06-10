@@ -177,6 +177,36 @@ fn drain_timers_settles_tasks_enqueued_by_timer_callbacks() {
 
 #[test]
 #[allow(unsafe_code)]
+fn drain_timers_delivers_prior_timer_tasks_before_next_callback() {
+    // Codex PR327 R7 (Ihvwj): boa runs each ready timer through `eval`, which
+    // drains that callback's queued tasks BEFORE the next callback; the VM must
+    // match (per-timer, not once-after-the-whole-batch). Timer 1 `postMessage`s;
+    // timer 2 must observe the delivered message. Read via globals (no `eval`
+    // self-drain). With a once-at-end drain, timer 2 would see `gotMsg == false`.
+    let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    bind_engine(&mut engine, &mut ctx);
+    let _ = ScriptEngine::eval(
+        &mut engine,
+        "globalThis.gotMsg = false; globalThis.timer2SawMsg = false;
+         window.addEventListener('message', function () { globalThis.gotMsg = true; });
+         setTimeout(function () { window.postMessage(1, '*'); }, 0);
+         setTimeout(function () { globalThis.timer2SawMsg = globalThis.gotMsg; }, 0);",
+        &mut ctx,
+    );
+    let _ = ScriptEngine::drain_timers(&mut engine, &mut ctx);
+    engine.unbind();
+    assert!(
+        matches!(
+            engine.vm().get_global("timer2SawMsg"),
+            Some(JsValue::Boolean(true))
+        ),
+        "the 2nd timer must observe the 1st timer's postMessage (per-timer drain, boa parity)"
+    );
+}
+
+#[test]
+#[allow(unsafe_code)]
 fn with_bound_runs_then_unbinds() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);

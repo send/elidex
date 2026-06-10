@@ -326,6 +326,19 @@ impl VmInner {
                 eprintln!("timer callback {} threw: {e}", entry.id);
             }
             results.push(fire_result);
+            // Per-timer checkpoint (HTML §8.1.7.3: each task → a microtask
+            // checkpoint; boa parity: each ready timer is run through `eval`,
+            // which drains microtasks + same-window tasks + CE reactions before
+            // the next callback). Settling here — not once after the whole batch
+            // — lets a later expired timer observe a `postMessage` /
+            // `checkValidity` / DOM mutation an earlier callback enqueued, the
+            // same ordering the boa path produces. Tasks + CE are `engine`-only.
+            self.drain_microtasks();
+            #[cfg(feature = "engine")]
+            {
+                self.drain_tasks();
+                self.flush_ce_reactions();
+            }
             // Interval re-arm.  Re-check cancellation here so that a
             // callback that cancels its own interval (the classic
             // `setInterval(() => { if (...) clearInterval(id); })`
@@ -353,7 +366,16 @@ impl VmInner {
                 self.active_timer_ids.remove(&entry.id);
             }
         }
+        // Final checkpoint: the `AbortSignal.timeout` internal-fire path
+        // `continue`s before the per-timer checkpoint above, so flush anything
+        // its abort listeners enqueued (and any straggler). Idempotent — the
+        // per-timer drains already emptied the queues for user callbacks.
         self.drain_microtasks();
+        #[cfg(feature = "engine")]
+        {
+            self.drain_tasks();
+            self.flush_ce_reactions();
+        }
         results
     }
 

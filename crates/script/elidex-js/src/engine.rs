@@ -225,30 +225,15 @@ impl ScriptEngine for ElidexJsEngine {
         // date (lazy-compile a pending inline source / drop a cleared one)
         // before resolving its callable, so UA-initiated dispatch honours
         // inline `<body onload="...">`-style handlers identically to the
-        // script dispatch walk. No-op for `addEventListener` listeners.
+        // script dispatch walk. No-op for `addEventListener` listeners. This is
+        // also the single chokepoint for the scripting-disabled gate (HTML
+        // "event handler processing algorithm" step 1): when scripting is
+        // disabled it resolves an event-handler attribute to null (drops the
+        // stored callable), so the `get_listener` read below returns `None` and
+        // the handler does not run — no separate per-path gate here.
         self.vm
             .inner
             .ensure_event_handler_current(current_target, listener_id);
-
-        // HTML "the event handler processing algorithm" step 1: if scripting is
-        // disabled for the event target (a sandboxed iframe without
-        // `allow-scripts`, §8.1.3.4), an event-handler IDL attribute
-        // (`onclick`-style) must NOT run — even one whose callable is already
-        // compiled (e.g. assigned cross-document). The sandbox gate in
-        // `ensure_event_handler_current` blocks *compiling* a raw inline handler;
-        // this blocks *invoking* a stored event-handler callable. addEventListener
-        // listeners are NOT gated — WHATWG DOM "inner invoke" has no scripting
-        // check — so the gate is scoped to event-handler attributes.
-        // `scripts_allowed()` short-circuits, so the common (enabled) path pays
-        // no listener-classification cost.
-        if !self.scripts_allowed()
-            && self
-                .vm
-                .inner
-                .listener_is_event_handler(current_target, listener_id)
-        {
-            return;
-        }
 
         // 1. Resolve the listener function ObjectId from HostData's
         //    listener_store.  A miss means the listener was removed
@@ -346,12 +331,14 @@ impl ScriptEngine for ElidexJsEngine {
     fn drain_timers(&mut self, _ctx: &mut ScriptContext<'_>) -> Vec<EvalResult> {
         // WHATWG HTML §8.7 — fire every expired setTimeout/setInterval callback
         // through the bound VM, one `EvalResult` per callback. Assume-bound:
-        // runs within the shell's batch bracket. `inner.drain_timers` returns
-        // the per-callback fire results and runs a microtask checkpoint after;
-        // the `scripts_allowed` gate is transitive (a script-disabled context
-        // never ran the `setTimeout` that registers a callback).
-        let results: Vec<EvalResult> = self
-            .vm
+        // runs within the shell's batch bracket. `inner.drain_timers` runs the
+        // full post-callback checkpoint (microtask + same-window task + CE
+        // reaction drain) **per fired timer** — matching boa, which runs each
+        // ready timer through `eval` — so a `postMessage` / `checkValidity` /
+        // DOM mutation an earlier callback made is settled before a later
+        // expired timer observes it. The `scripts_allowed` gate is transitive
+        // (a script-disabled context never ran the `setTimeout`).
+        self.vm
             .inner
             .drain_timers(Instant::now())
             .into_iter()
@@ -365,17 +352,6 @@ impl ScriptEngine for ElidexJsEngine {
                     error: Some(e.to_string()),
                 },
             })
-            .collect();
-        // boa runs each ready timer through `eval()`, which drains same-window
-        // tasks + CE reactions per callback; `inner.drain_timers` only fires the
-        // callbacks + flushes microtasks, so settle the task / CE queues here
-        // (once, after the turn — mirroring the VM's once-at-end microtask
-        // checkpoint) so a timer that calls `postMessage` / `checkValidity` /
-        // mutates the DOM doesn't strand that work until a later turn. (Worker /
-        // service-worker timer loops drive `inner.drain_timers` directly and
-        // keep their own drain orchestration — this completion is the
-        // main-thread `ScriptEngine` boa-parity surface only.)
-        self.settle_tasks_and_reactions();
-        results
+            .collect()
     }
 }

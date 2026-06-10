@@ -474,24 +474,35 @@ impl VmInner {
         entity: elidex_ecs::Entity,
         id: ListenerId,
     ) {
-        // WHATWG HTML "getting the current value of the event handler" step 3.2:
-        // when the document's active sandboxing flag set has the sandboxed
-        // scripts flag set (scripting is disabled, §8.1.3.4), the algorithm
-        // returns null for a raw uncompiled inline handler *without* compiling
-        // it — so a `<button onclick=...>` in a sandboxed iframe lacking
-        // `allow-scripts` never runs on UA dispatch. This is the
-        // listener-dispatch / lazy-compile half of the same `scripts_allowed`
-        // gate the engine applies to classic-script `eval`. Left raw (not
-        // removed): the spec's "return null" does not deactivate the handler,
-        // and a fixed-for-lifetime sandbox never re-enables it. addEventListener
-        // (`Normal`) listeners hold no uncompiled source, so they are untouched
-        // (and none can exist here — the script that would register one was
-        // itself blocked by the `eval` gate).
+        // HTML "the event handler processing algorithm" step 1: when scripting
+        // is disabled for the event target (the document's active sandboxing
+        // flag set has the sandboxed scripts flag set, §8.1.3.4), an
+        // event-handler IDL attribute (`onclick`-style) resolves to null — the
+        // handler does not run, even one whose callable is already compiled.
+        // This reconcile step is the SINGLE chokepoint every dispatch path
+        // passes through before reading `listener_store`: `call_listener`,
+        // `dispatchEvent` via `DispatchTarget::resolve_callable`,
+        // `onunhandledrejection` via `natives_promise`, and the IDL getter via
+        // `reconcile_handler`. Gating here makes them all observe null by
+        // construction (no per-path gate). A raw uncompiled handler is simply
+        // not compiled (the realizable sandboxed-iframe case — no callable to
+        // resolve); a precompiled / cross-document callable is dropped so
+        // `get_listener` returns null. addEventListener (`Normal`) listeners are
+        // NOT event handlers (WHATWG DOM "inner invoke" has no scripting gate),
+        // so they are left untouched.
         if self
             .host_data
             .as_deref()
             .is_some_and(|hd| !hd.scripts_allowed())
         {
+            if self.listener_is_event_handler(entity, id)
+                && self
+                    .host_data
+                    .as_deref()
+                    .is_some_and(|hd| hd.get_listener(id).is_some())
+            {
+                self.remove_listener_and_prune_back_ref(id);
+            }
             return;
         }
         let (uncompiled, cleared) = {
