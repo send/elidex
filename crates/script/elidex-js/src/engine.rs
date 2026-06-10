@@ -230,6 +230,26 @@ impl ScriptEngine for ElidexJsEngine {
             .inner
             .ensure_event_handler_current(current_target, listener_id);
 
+        // HTML "the event handler processing algorithm" step 1: if scripting is
+        // disabled for the event target (a sandboxed iframe without
+        // `allow-scripts`, §8.1.3.4), an event-handler IDL attribute
+        // (`onclick`-style) must NOT run — even one whose callable is already
+        // compiled (e.g. assigned cross-document). The sandbox gate in
+        // `ensure_event_handler_current` blocks *compiling* a raw inline handler;
+        // this blocks *invoking* a stored event-handler callable. addEventListener
+        // listeners are NOT gated — WHATWG DOM "inner invoke" has no scripting
+        // check — so the gate is scoped to event-handler attributes.
+        // `scripts_allowed()` short-circuits, so the common (enabled) path pays
+        // no listener-classification cost.
+        if !self.scripts_allowed()
+            && self
+                .vm
+                .inner
+                .listener_is_event_handler(current_target, listener_id)
+        {
+            return;
+        }
+
         // 1. Resolve the listener function ObjectId from HostData's
         //    listener_store.  A miss means the listener was removed
         //    between dispatch-plan freezing and this invocation —

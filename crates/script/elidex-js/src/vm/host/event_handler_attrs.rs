@@ -519,6 +519,24 @@ impl VmInner {
             self.remove_listener_and_prune_back_ref(id);
         }
     }
+
+    /// Whether listener `id` on `entity` is an event-handler IDL attribute
+    /// (`onclick`-style), as opposed to an `addEventListener` listener. Used by
+    /// the scripting-disabled invocation gate (`ScriptEngine::call_listener`):
+    /// HTML's "event handler processing algorithm" step 1 returns when scripting
+    /// is disabled for the target — covering an already-compiled handler — while
+    /// WHATWG DOM "inner invoke" applies no scripting gate to addEventListener
+    /// listeners. `false` if no `HostData`/`EventListeners` exists for `entity`.
+    pub(crate) fn listener_is_event_handler(
+        &mut self,
+        entity: elidex_ecs::Entity,
+        id: ListenerId,
+    ) -> bool {
+        self.host_data
+            .as_deref_mut()
+            .and_then(|host| host.dom().world().get::<&EventListeners>(entity).ok())
+            .is_some_and(|listeners| listeners.is_event_handler(id))
+    }
 }
 
 /// `args[0]` if it is a callable object, else `None` (the WebIDL

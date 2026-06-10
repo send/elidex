@@ -237,6 +237,93 @@ fn call_listener_skips_inline_handler_when_scripting_disabled() {
     engine.vm().unbind();
 }
 
+/// Codex PR327 R5 (security/spec): HTML "the event handler processing algorithm"
+/// step 1 — when scripting is disabled for the target, an event-handler IDL
+/// attribute (`onclick`-style) must not run **even if its callable is already
+/// compiled** (e.g. assigned cross-document by an embedding context). The R2
+/// sandbox gate only blocked *compiling* a raw inline handler; this covers
+/// *invoking* a stored one. addEventListener listeners are NOT gated — WHATWG
+/// DOM "inner invoke" has no scripting check — so the gate must stay scoped to
+/// event-handler attributes (the positive control below).
+#[test]
+#[allow(unsafe_code)]
+fn scripting_disabled_gates_stored_event_handler_not_addeventlistener() {
+    let mut engine = ElidexJsEngine::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let target = dom.create_element("button", Attributes::default());
+
+    let (handler_id, normal_id) = {
+        let mut listeners = EventListeners::new();
+        let h = listeners.add_event_handler("click"); // onclick-style → gated
+        let n = listeners.add("click", false); // addEventListener → NOT gated
+        dom.world_mut()
+            .insert_one(target, listeners)
+            .expect("insert EventListeners");
+        (h, n)
+    };
+
+    engine.vm().install_host_data(HostData::new());
+    unsafe {
+        engine.vm().bind(
+            std::ptr::from_mut(&mut session),
+            std::ptr::from_mut(&mut dom),
+            doc,
+        );
+    }
+    // Compile both callables WHILE scripting is enabled, then store them — the
+    // cross-document setup the step-1 gate must defend against (a context that
+    // later reads as scripting-disabled but already holds compiled handlers).
+    engine
+        .vm()
+        .eval(
+            "globalThis.handlerRan = false; globalThis.normalRan = false;
+             globalThis.h = function () { globalThis.handlerRan = true; };
+             globalThis.n = function () { globalThis.normalRan = true; };",
+        )
+        .unwrap();
+    let JsValue::Object(h_func) = engine.vm().get_global("h").expect("h") else {
+        panic!("h must be a function");
+    };
+    let JsValue::Object(n_func) = engine.vm().get_global("n").expect("n") else {
+        panic!("n must be a function");
+    };
+    engine
+        .vm()
+        .host_data()
+        .expect("HostData")
+        .store_listener(handler_id, h_func);
+    engine
+        .vm()
+        .host_data()
+        .expect("HostData")
+        .store_listener(normal_id, n_func);
+
+    // Now scripting is disabled for the context (sandboxed, no `allow-scripts`).
+    engine
+        .vm()
+        .host_data()
+        .expect("HostData")
+        .set_sandbox_flags(Some(elidex_plugin::IframeSandboxFlags::empty()));
+
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    let mut e1 = DispatchEvent::new("click", target);
+    engine.call_listener(handler_id, &mut e1, target, false, &mut ctx);
+    let mut e2 = DispatchEvent::new("click", target);
+    engine.call_listener(normal_id, &mut e2, target, false, &mut ctx);
+
+    assert!(
+        !matches!(engine.vm().get_global("handlerRan"), Some(JsValue::Boolean(true))),
+        "a stored event-handler callable must NOT run when scripting is disabled (processing step 1)"
+    );
+    assert!(
+        matches!(engine.vm().get_global("normalRan"), Some(JsValue::Boolean(true))),
+        "an addEventListener listener is NOT gated by scripting-disabled (gate is event-handler-scoped)"
+    );
+    engine.vm().unbind();
+}
+
 #[test]
 fn passive_listener_prevent_default_is_silently_ignored() {
     let mut engine = ElidexJsEngine::new();
