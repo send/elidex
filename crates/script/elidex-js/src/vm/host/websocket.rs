@@ -389,9 +389,11 @@ fn native_websocket_constructor(
     //   pre-interned here so per-message `MessageEvent.origin`
     //   dispatch reads a `StringId` without re-parsing per WHATWG
     //   §9.3.7.
-    // `page_origin_str` is the entry settings object's origin (WebSockets
-    // Standard §2.2 "Opening handshake") — opaque (`"null"`) for a sandboxed
-    // doc.  Read the canonical `document_origin` resolver, not `current_url`
+    // `page_origin_str` is the WebSocket's **relevant** settings object's
+    // origin (WebSockets Standard §2.2 "Opening handshake": establish a
+    // WebSocket connection is given the relevant settings object as its
+    // client) — opaque (`"null"`) for a sandboxed doc.  Read the canonical
+    // `document_origin` resolver, not `current_url`
     // (S1b §5).  `ws_origin_string`/`ws_origin_sid` below is the *server*
     // origin (from `url`) for per-message `MessageEvent.origin` — unchanged.
     let page_origin_str = ctx.vm.document_origin().serialize();

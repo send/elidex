@@ -300,8 +300,10 @@ fn native_event_source_constructor(
     };
     ctx.vm.get_object_mut(inst_id).kind = ObjectKind::EventSource;
 
-    // The EventSource request's `Origin` is the entry settings object's
-    // origin (WHATWG HTML §9.2.2) — opaque (`"null"`) for a sandboxed doc.
+    // The EventSource request's `Origin` is the EventSource's **relevant**
+    // settings object's origin (WHATWG HTML §9.2.2: the constructor sets the
+    // request's client to `ev`'s relevant settings object) — opaque (`"null"`)
+    // for a sandboxed doc.
     // Read the canonical `document_origin` resolver, not `current_url`
     // (S1b §5).  (`es_origin_string` below is the SSE *server* origin — a
     // distinct fact, unchanged.)

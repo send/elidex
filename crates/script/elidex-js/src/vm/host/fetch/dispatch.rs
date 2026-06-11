@@ -166,6 +166,11 @@ pub(super) fn build_net_request(
 /// not `SameOrigin`.  The synchronous `TypeError` is funnelled
 /// through the caller's `reject_promise_sync` so observable
 /// shape is a rejected Promise.
+///
+/// S1b §5 carve-out (see [`origin_for_request`]): `source` is
+/// `current_url`, NOT the canonical `document_origin` resolver —
+/// fetch's `url::Origin` request-origin migration is deferred to slot
+/// `#11-sandbox-fetch-opaque-origin-isolation`.
 fn reject_same_origin_cross_origin(
     source: &Url,
     target: &Url,
@@ -315,6 +320,11 @@ fn apply_default_content_type(headers: &mut Vec<(String, String)>, ct: Option<&s
 /// guard remains as a defensive belt-and-braces in case a future
 /// internal caller pre-populates `request.headers` before reaching
 /// `build_net_request`.
+///
+/// S1b §5 carve-out (see [`origin_for_request`]): `source` is `current_url`,
+/// NOT the canonical `document_origin` resolver — fetch's `url::Origin`
+/// request-origin migration is deferred to slot
+/// `#11-sandbox-fetch-opaque-origin-isolation`.
 fn attach_default_origin(source: &Url, request: &mut elidex_net::Request) {
     const ORIGIN: &str = "Origin";
     if request
