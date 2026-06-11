@@ -205,7 +205,7 @@ pub(super) enum RegistryMember {
 /// Dictionary members convert in lexicographic order, so this fires
 /// before any algorithm step at both call sites — `createElement`'s
 /// "flatten element creation options" (DOM §4.5) and `attachShadow`
-/// (DOM §4.2.14, "Interface `Element`").
+/// (DOM §4.9 "Interface `Element`").
 pub(super) fn convert_custom_element_registry_member(
     ctx: &mut NativeContext<'_>,
     raw: JsValue,

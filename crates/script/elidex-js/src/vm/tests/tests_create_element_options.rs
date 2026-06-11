@@ -190,3 +190,34 @@ fn create_element_options_registry_conversion_precedes_is_conflict() {
          caught.indexOf('TypeError') !== -1 ? 'ok' : ('fail:' + caught);");
     assert_eq!(out, "ok");
 }
+
+#[test]
+fn create_element_options_registry_converts_before_is_getter_runs() {
+    // Codex PR331 R10: WebIDL dictionary conversion gets AND converts
+    // each member immediately in lexicographic order, so an invalid
+    // `customElementRegistry` TypeErrors before the `is` getter is
+    // even invoked — the getter's own throw must NOT win.
+    let out = run("var caught = ''; \
+         try { document.createElement('button', \
+                 {customElementRegistry: 42, get is() { throw new Error('is-getter'); }}); } \
+         catch (e) { caught = '' + e; } \
+         (caught.indexOf('TypeError') !== -1 \
+          && caught.indexOf('CustomElementRegistry') !== -1 \
+          && caught.indexOf('is-getter') === -1) ? 'ok' : ('fail:' + caught);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn create_element_options_is_tostring_precedes_registry_conflict() {
+    // The `is` ToString is part of dictionary CONVERSION, which
+    // completes before the flatten algorithm runs — a throwing
+    // toString wins over the step 3.2.1 conflict NotSupportedError.
+    let out = run("var caught = ''; \
+         try { document.createElement('button', \
+                 {is: {toString: function() { throw new Error('tostr'); }}, \
+                  customElementRegistry: customElements}); } \
+         catch (e) { caught = '' + e; } \
+         (caught.indexOf('tostr') !== -1 \
+          && caught.indexOf('NotSupportedError') === -1) ? 'ok' : ('fail:' + caught);");
+    assert_eq!(out, "ok");
+}

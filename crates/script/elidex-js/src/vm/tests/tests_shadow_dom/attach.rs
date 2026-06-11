@@ -93,6 +93,24 @@ fn attach_shadow_non_registry_value_throws_type_error() {
 }
 
 #[test]
+fn attach_shadow_registry_converts_before_mode_getter_runs() {
+    // Codex PR331 R10: WebIDL converts ShadowRootInit members in
+    // lexicographic order (`clonable`, `customElementRegistry`,
+    // `delegatesFocus`, `mode`, …), so an invalid registry TypeErrors
+    // before the `mode` getter is even invoked.
+    let out = run(
+        "var host = document.createElement('div'); var caught = ''; \
+         try { host.attachShadow({customElementRegistry: 1, \
+                 get mode() { throw new Error('mode-getter'); }}); } \
+         catch (e) { caught = '' + e; } \
+         (caught.indexOf('TypeError') !== -1 \
+          && caught.indexOf('CustomElementRegistry') !== -1 \
+          && caught.indexOf('mode-getter') === -1) ? 'ok' : ('fail:' + caught);",
+    );
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn attach_shadow_null_registry_throws_not_supported() {
     // A null-registry shadow tree (spec-legal, never upgraded) needs
     // per-element registry association — rejected loudly until slot

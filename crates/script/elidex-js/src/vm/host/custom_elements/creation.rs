@@ -26,27 +26,44 @@ pub(in crate::vm) fn flatten_is_option(
     let Some(JsValue::Object(options_id)) = options else {
         return Ok(None);
     };
-    // WebIDL dictionary conversion reads members in lexicographic
-    // order — `customElementRegistry` before `is` — and a conversion
-    // TypeError on the registry member precedes every flatten step.
+    // CONVERSION PHASE — WebIDL dictionary conversion gets AND
+    // converts each member immediately, in lexicographic order
+    // (`customElementRegistry` before `is`), before any flatten step
+    // runs. So a registry conversion TypeError fires before the `is`
+    // getter is even invoked, and the `is` ToString (which can run
+    // user code / throw) completes before the flatten conflict check.
     let registry_key = PropertyKey::String(ctx.vm.strings.intern("customElementRegistry"));
     let registry_raw = ctx.vm.get_property_value(*options_id, registry_key)?;
+    // WebIDL dictionary semantics: a member is absent only when the
+    // property is undefined. `customElementRegistry` is NULLABLE
+    // (`CustomElementRegistry?`), so an explicit null is a present
+    // member carrying a null registry.
+    let registry_member = if matches!(registry_raw, JsValue::Undefined) {
+        None
+    } else {
+        Some(super::convert_custom_element_registry_member(
+            ctx,
+            registry_raw,
+            PREFIX,
+        )?)
+    };
     let is_key = PropertyKey::String(ctx.vm.strings.intern("is"));
     let is_raw = ctx.vm.get_property_value(*options_id, is_key)?;
-    // WebIDL dictionary semantics: a member is absent only when the
-    // property is undefined. `ElementCreationOptions.is` is a plain
-    // (non-nullable) DOMString, so an explicit `{is: null}` converts
-    // via ToString(null) = "null" — a NON-null is value downstream.
-    // `customElementRegistry` IS nullable (`CustomElementRegistry?`),
-    // so an explicit null there is a present member carrying a null
-    // registry.
-    if !matches!(registry_raw, JsValue::Undefined) {
-        let member = super::convert_custom_element_registry_member(ctx, registry_raw, PREFIX)?;
-        // Flatten step 3.2.1: a present `customElementRegistry`
-        // member alongside a non-null `is` is a hard conflict —
+    // `ElementCreationOptions.is` is a plain (non-nullable) DOMString,
+    // so an explicit `{is: null}` converts via ToString(null) = "null"
+    // — a NON-null is value downstream.
+    let is_sid = if matches!(is_raw, JsValue::Undefined) {
+        None
+    } else {
+        Some(crate::vm::coerce::to_string(ctx.vm, is_raw)?)
+    };
+    // FLATTEN PHASE (DOM §4.5) — runs on the fully converted dictionary.
+    if let Some(member) = registry_member {
+        // Step 3.2.1: a present `customElementRegistry` member
+        // alongside a non-null `is` is a hard conflict —
         // NotSupportedError. "Exists" is dictionary presence, so this
         // fires even when the registry member is null.
-        if !matches!(is_raw, JsValue::Undefined) {
+        if is_sid.is_some() {
             return Err(VmError::dom_exception(
                 ctx.vm.well_known.dom_exc_not_supported_error,
                 format!("{PREFIX}: 'is' and 'customElementRegistry' cannot both be provided"),
@@ -58,10 +75,7 @@ pub(in crate::vm) fn flatten_is_option(
         super::require_document_registry_member(ctx, &member, PREFIX)?;
         return Ok(None);
     }
-    if matches!(is_raw, JsValue::Undefined) {
-        return Ok(None);
-    }
-    Ok(Some(crate::vm::coerce::to_string(ctx.vm, is_raw)?))
+    Ok(is_sid)
 }
 
 /// Per-VM upgrade-reaction routing for a freshly created element —

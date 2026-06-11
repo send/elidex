@@ -639,6 +639,36 @@ fn create_element_is_with_registry_member_throws() {
 }
 
 #[test]
+fn create_element_registry_converts_before_is_getter_runs() {
+    // Codex PR331 R10: WebIDL dictionary conversion gets AND converts
+    // members in lexicographic order (`customElementRegistry` before
+    // `is`), so an invalid registry TypeErrors before the `is` getter
+    // is even invoked -- the getter's own throw must NOT win.
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let result = runtime.eval(
+        r"
+        var caught = '';
+        try { document.createElement('div',
+                {customElementRegistry: 42, get is() { throw new Error('is-getter'); }}); }
+        catch (e) { caught = '' + e; }
+        console.log('caught=' + caught);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m
+            .1
+            .contains("Failed to convert value to 'CustomElementRegistry'")
+            && !m.1.contains("is-getter")),
+        "expected registry conversion TypeError to precede the is getter, got: {output:?}"
+    );
+}
+
+#[test]
 fn create_element_registry_member_without_is_validated() {
     // Codex PR331 R8: the `customElementRegistry` member is inspected
     // even when `is` is absent — the document's registry passes

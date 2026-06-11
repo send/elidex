@@ -1,5 +1,5 @@
 //! `Element.attachShadow(init)` + `Element.shadowRoot` getter
-//! (WHATWG DOM §4.2.14 + §4.8).
+//! (WHATWG DOM §4.9 "Interface Element").
 //!
 //! These two natives are the JS-facing entry points for the Shadow
 //! DOM surface; the wrapper / state-cache / prototype install lives
@@ -22,7 +22,7 @@ use super::super::value::{JsValue, NativeContext, PropertyKey, VmError};
 
 /// `element.attachShadow({mode, delegatesFocus?, slotAssignment?,
 /// clonable?, serializable?, customElementRegistry?})` (WHATWG DOM
-/// §4.2.14).
+/// §4.9).
 ///
 /// Returns the freshly-allocated `ShadowRoot` wrapper on success;
 /// throws `TypeError` on missing/invalid `mode`, or
@@ -73,7 +73,7 @@ pub(super) fn native_element_attach_shadow(
     Ok(JsValue::Object(wrapper))
 }
 
-/// `element.shadowRoot` getter (WHATWG DOM §4.8).
+/// `element.shadowRoot` getter (WHATWG DOM §4.9).
 ///
 /// Returns the cached `ShadowRoot` wrapper for the host when its
 /// mode is `Open`; returns `null` when the host has no shadow root
@@ -135,16 +135,25 @@ pub(super) fn native_element_get_shadow_root(
 /// Throws TypeError when:
 /// - the argument isn't an Object (or `undefined` — which has no `mode`)
 /// - `mode` is missing / not a string / not "open" or "closed"
+/// - `customElementRegistry` is neither null nor a registry object
+///
+/// Members are got AND converted in WebIDL lexicographic dictionary
+/// order — `clonable`, `customElementRegistry`, `delegatesFocus`,
+/// `mode`, `serializable`, `slotAssignment` — so getter side effects
+/// and conversion exceptions fire in spec order (e.g. an invalid
+/// registry TypeErrors before the `mode` getter runs).
 ///
 /// `slotAssignment` defaults to "named" when missing; non-"named"/"manual"
 /// throws TypeError per WebIDL enum semantics.
 /// Other boolean fields default to `false`.
-/// `customElementRegistry` is validated (doc comment on
-/// `native_element_attach_shadow`).
+/// The converted `customElementRegistry` is then gated by attachShadow
+/// steps 2-3 (doc comment on `native_element_attach_shadow`) — an
+/// algorithm step, so it runs after the whole dictionary converted.
 fn parse_shadow_init(
     ctx: &mut NativeContext<'_>,
     init_arg: JsValue,
 ) -> Result<ShadowInit, VmError> {
+    const PREFIX: &str = "Failed to execute 'attachShadow' on 'Element'";
     let JsValue::Object(init_id) = init_arg else {
         return Err(VmError::type_error(
             "Failed to execute 'attachShadow' on 'Element': \
@@ -152,24 +161,30 @@ fn parse_shadow_init(
                 .to_string(),
         ));
     };
-    let mode = read_required_mode(ctx, init_id)?;
-    let delegates_focus = read_optional_bool(ctx, init_id, "delegatesFocus")?;
-    let slot_assignment = read_optional_slot_assignment(ctx, init_id)?;
+    // CONVERSION PHASE — lexicographic member order.
     let clonable = read_optional_bool(ctx, init_id, "clonable")?;
-    let serializable = read_optional_bool(ctx, init_id, "serializable")?;
-    // attachShadow steps 2-3: a present `customElementRegistry` member
-    // must be the document's global registry — foreign / null /
-    // non-registry values are rejected (helper doc has the spec-step +
-    // deferral rationale).
     let registry_key = PropertyKey::String(ctx.vm.strings.intern("customElementRegistry"));
     let registry_raw = ctx.vm.get_property_value(init_id, registry_key)?;
-    if !matches!(registry_raw, JsValue::Undefined) {
-        const PREFIX: &str = "Failed to execute 'attachShadow' on 'Element'";
-        let member = super::custom_elements::convert_custom_element_registry_member(
-            ctx,
-            registry_raw,
-            PREFIX,
-        )?;
+    let registry_member = if matches!(registry_raw, JsValue::Undefined) {
+        None
+    } else {
+        Some(
+            super::custom_elements::convert_custom_element_registry_member(
+                ctx,
+                registry_raw,
+                PREFIX,
+            )?,
+        )
+    };
+    let delegates_focus = read_optional_bool(ctx, init_id, "delegatesFocus")?;
+    let mode = read_required_mode(ctx, init_id)?;
+    let serializable = read_optional_bool(ctx, init_id, "serializable")?;
+    let slot_assignment = read_optional_slot_assignment(ctx, init_id)?;
+    // ALGORITHM PHASE — attachShadow steps 2-3: a present
+    // `customElementRegistry` member must be the document's global
+    // registry; foreign / null registries are rejected (helper doc has
+    // the spec-step + deferral rationale).
+    if let Some(member) = registry_member {
         super::custom_elements::require_document_registry_member(ctx, &member, PREFIX)?;
     }
     Ok(ShadowInit {

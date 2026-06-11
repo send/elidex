@@ -439,6 +439,41 @@ fn clone_node_copies_iframe_data() {
     assert_eq!(data.src.as_deref(), Some("x"));
 }
 
+#[test]
+fn clone_node_rederives_iframe_data_from_cloned_attributes() {
+    // Codex PR331 R10: generic `setAttribute("src", ...)` has no
+    // `IframeData` re-derivation pass (slot
+    // `#11-derived-component-attr-maintenance`), so a clone taken
+    // inside that stale window must NOT copy the stale component --
+    // the cloner re-derives from the cloned attributes ("derived
+    // re-derive" policy), keeping the clone's attrs<->component pair
+    // consistent by construction.
+    let (mut dom, mut session) = setup();
+    let mut attrs = Attributes::default();
+    attrs.set("src", "old.html");
+    let iframe = dom.create_element("iframe", attrs.clone());
+    dom.world_mut()
+        .insert_one(iframe, elidex_ecs::IframeData::from_attributes(&attrs))
+        .unwrap();
+    // Stale window: the attribute moves, the derived component does not.
+    dom.set_attribute(iframe, "src", "new.html");
+    wrap(iframe, &mut session);
+
+    let r = CloneNode
+        .invoke(iframe, &[JsValue::Bool(false)], &mut session, &mut dom)
+        .unwrap();
+    let cloned = cloned_entity(&r, &session);
+    let data = dom
+        .world()
+        .get::<&elidex_ecs::IframeData>(cloned)
+        .expect("IframeData present on clone");
+    assert_eq!(
+        data.src.as_deref(),
+        Some("new.html"),
+        "clone must derive IframeData from its cloned attributes, not copy the stale component"
+    );
+}
+
 // -----------------------------------------------------------------------
 // Shadow honor — DOM §4.4 clone-a-node step 6, applied per node via
 // step 5's re-entry (descendant hosts) and regardless of the subtree

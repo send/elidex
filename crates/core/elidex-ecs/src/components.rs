@@ -936,9 +936,11 @@ pub struct IframeData {
 impl IframeData {
     /// Create `IframeData` from HTML attributes.
     ///
-    /// Sole production caller is the parser's `element_init` derivation
-    /// pass; clones receive the component by copy (clone-policy
-    /// "derived copy", see `dom::tree_clone`).  Per-property eager
+    /// Production callers: the parser's `element_init` derivation pass
+    /// and the ecs cloner, which re-derives from the *cloned*
+    /// attributes (clone-policy "derived re-derive", see
+    /// `dom::tree_clone` — a verbatim copy would propagate a component
+    /// gone stale against its attributes).  Per-property eager
     /// maintenance exists boa- and shell-side (iframe IDL setters /
     /// iframe lifecycle), but a *generic* `setAttribute` →
     /// `IframeData` re-derivation path does not — tracked as
