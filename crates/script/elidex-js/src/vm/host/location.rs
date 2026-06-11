@@ -46,7 +46,7 @@ use super::super::value::{JsValue, NativeContext, PropertyKey, PropertyValue, Vm
 use super::super::VmInner;
 
 /// Resolve `input` against the current document URL.  `Url::join`
-/// accepts both absolute and relative inputs per WHATWG URL §4.5 —
+/// accepts both absolute and relative inputs per WHATWG URL §4.4 —
 /// an absolute input replaces the base, a relative input composes.
 /// Returns `None` on parse failure; the caller translates that to a
 /// `DOMException("SyntaxError")`.

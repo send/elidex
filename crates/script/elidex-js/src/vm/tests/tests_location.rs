@@ -190,7 +190,7 @@ fn location_href_setter_strips_default_port() {
 #[test]
 fn location_href_setter_resolves_relative_against_base() {
     // `location.href = 'bar'` against `https://site/foo/` resolves to
-    // `https://site/foo/bar` via `Url::join` (WHATWG URL §4.5) before enqueue.
+    // `https://site/foo/bar` via `Url::join` (WHATWG URL §4.4) before enqueue.
     let mut vm = Vm::new();
     set_base(&mut vm, "https://site/foo/");
     vm.eval("location.href = 'bar';").unwrap();

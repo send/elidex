@@ -45,8 +45,9 @@ use super::super::value::JsValue;
 pub(crate) struct NavigationState {
     /// The current browsing-context URL.  Backs `location.*`, `document.URL`,
     /// and `document.documentURI`.  Initialised to `about:blank` per WHATWG HTML
-    /// §7.3.3 "Creating documents" (a browsing context always has an active
-    /// document with a URL).  Held as [`Url`] so location getters call the
+    /// §3.1.1 "The Document object" (the "is initial about:blank" concept; a
+    /// browsing context always has an active document with a URL).  Held as
+    /// [`Url`] so location getters call the
     /// WHATWG parser directly and relative setters use [`Url::join`].
     ///
     /// Committed by the shell's `set_current_url` after a navigation load, or
