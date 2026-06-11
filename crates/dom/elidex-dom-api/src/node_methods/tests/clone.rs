@@ -341,9 +341,9 @@ fn clone_node_propagates_customized_builtin_identity() {
 
 #[test]
 fn clone_node_resets_failed_state_to_undefined() {
-    // HTML "clone a node": the clone re-enters the upgrade pipeline
-    // fresh — a Failed source still yields an Undefined clone with
-    // the same definition name.
+    // DOM §4.4 "clone a node": the clone re-enters the upgrade
+    // pipeline fresh — a Failed source still yields an Undefined
+    // clone with the same definition name.
     let (mut dom, mut session) = setup();
     let el = dom.create_element("my-x", Attributes::default());
     dom.world_mut()

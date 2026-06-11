@@ -114,9 +114,12 @@ impl DomApiHandler for CloneNode {
 ///    element*): for every `(src, dst)` pair whose source carries a
 ///    `CustomElementState`, the clone receives a fresh
 ///    `Undefined(definition_name)` — identity (which custom-element
-///    name) propagates, lifecycle state does not (the clone goes
-///    through the upgrade pipeline from scratch; `Custom` / `Failed`
-///    never carry over).  No tag inspection, `is=` attribute parsing,
+///    name) propagates, lifecycle state does not (`Custom` / `Failed`
+///    never carry over; NB no upgrade reaction is enqueued at clone
+///    time yet — the clone upgrades via the insert-time consumer or
+///    the next `define()` walk; the spec's clone-time enqueue is part
+///    of the per-pair clone-reaction seam, slot
+///    `#11-clone-cloning-steps-event`).  No tag inspection, `is=` attribute parsing,
 ///    or namespace guard happens here — those are creation-path
 ///    concerns (`CustomElementState::for_created_element`), and the
 ///    component's existence on the source already proves them.  An

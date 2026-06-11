@@ -582,3 +582,30 @@ fn nested_ce_connected_disconnected_callbacks() {
         "inner disconnectedCallback should fire, got: {output:?}"
     );
 }
+
+#[test]
+fn create_element_is_round_trips_through_outer_html() {
+    // boa outerHTML now routes through the canonical HTML §13.3
+    // serializer (no hand-rolled opening tag): a customized built-in
+    // created via createElement(tag, {is}) carries NO is content
+    // attribute (DOM §4.5 sets none) yet its outerHTML emits the
+    // is-value compensation, so serialize→parse keeps the identity.
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let result = runtime.eval(
+        r"
+        var el = document.createElement('button', { is: 'my-btn' });
+        console.log('attr=' + el.getAttribute('is') + ' html=' + el.outerHTML);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m
+            .1
+            .contains(r#"attr=null html=<button is="my-btn"></button>"#)),
+        "expected is-emit without an is attribute, got: {output:?}"
+    );
+}
