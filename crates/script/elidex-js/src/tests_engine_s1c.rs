@@ -138,16 +138,20 @@ fn eval_history_push_state_then_take_pending_history() {
     assert!(r.success);
     engine.unbind();
 
-    match engine
-        .take_pending_history()
-        .expect("pushState enqueued history")
-    {
+    let actions = engine.take_pending_history();
+    assert_eq!(
+        actions.len(),
+        1,
+        "pushState enqueued one history action, got {actions:?}"
+    );
+    match &actions[0] {
         HistoryAction::PushState { url, .. } => {
             assert_eq!(url.as_deref(), Some("https://localhost/x"));
         }
         other => panic!("expected PushState, got {other:?}"),
     }
-    assert!(engine.take_pending_history().is_none());
+    // Drain-once: a second take is empty.
+    assert!(engine.take_pending_history().is_empty());
 }
 
 #[test]
@@ -159,7 +163,58 @@ fn eval_history_back_then_take_pending_history() {
     assert!(r.success);
     engine.unbind();
     assert!(matches!(
-        engine.take_pending_history(),
-        Some(HistoryAction::Back)
+        engine.take_pending_history().as_slice(),
+        [HistoryAction::Back]
     ));
+}
+
+#[test]
+fn eval_multiple_push_states_drain_in_fifo_order() {
+    // Two synchronous pushStates in one turn each commit an independent
+    // session-history entry; the back-channel must hand the shell both, in order.
+    let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    engine.set_current_url(Some(url("https://localhost/")));
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    bind_engine(&mut engine, &mut ctx);
+    let r = ScriptEngine::eval(
+        &mut engine,
+        "history.pushState(null, '', '/a'); history.pushState(null, '', '/b');",
+        &mut ctx,
+    );
+    assert!(r.success);
+    engine.unbind();
+
+    let actions = engine.take_pending_history();
+    assert_eq!(
+        actions.len(),
+        2,
+        "both pushStates preserved, got {actions:?}"
+    );
+    match (&actions[0], &actions[1]) {
+        (HistoryAction::PushState { url: a, .. }, HistoryAction::PushState { url: b, .. }) => {
+            assert_eq!(a.as_deref(), Some("https://localhost/a"));
+            assert_eq!(b.as_deref(), Some("https://localhost/b"));
+        }
+        other => panic!("expected two PushState actions in order, got {other:?}"),
+    }
+}
+
+#[test]
+fn eval_push_state_grows_history_length_synchronously() {
+    // `pushState` bumps `history.length` in the same turn (§7.4.4); the shell's
+    // later `set_history_length` reconciles (and overwrites, so no double-count).
+    let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    engine.set_current_url(Some(url("https://localhost/")));
+    engine.set_history_length(2); // shell-pushed starting count
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    bind_engine(&mut engine, &mut ctx);
+    let r = ScriptEngine::eval(
+        &mut engine,
+        "history.pushState(null, '', '/x'); history.replaceState(null, '', '/y');",
+        &mut ctx,
+    );
+    assert!(r.success);
+    engine.unbind();
+    // 2 (start) + 1 (push); replaceState does not grow the count.
+    assert_eq!(engine.history_length(), 3);
 }

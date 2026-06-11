@@ -8,16 +8,22 @@
 //!
 //! - `back()` / `forward()` / `go(delta)` are session-history *traversals*
 //!   (WHATWG HTML §7.4.6 "Applying the history step" — async document loads the
-//!   shell performs): they **enqueue** a [`HistoryAction`] and reset
-//!   `history.state` to `null` (the target entry's state is restored by the
-//!   shell — slot `#11-history-state-traversal-popstate-fidelity`).  They do not
-//!   mutate `current_url`.
+//!   shell performs): they **enqueue** a [`HistoryAction`] and leave the
+//!   current-document view (`current_url` / `history.state` / `history.length`)
+//!   **untouched** — the traversal has not committed, so a same-turn read still
+//!   sees the current entry (matching `location.href` reading the old URL after an
+//!   enqueue-only navigation), and a no-op traversal (`back` at the first entry,
+//!   `go(0)`) changes nothing.  The target entry's state restoration + `popstate`
+//!   on commit are the shell's job (slot
+//!   `#11-history-state-traversal-popstate-fidelity`).
 //! - `pushState()` / `replaceState()` (§7.2.5 "shared history push/replace state
 //!   steps" → §7.4.4 "URL and history update steps") run **synchronously**: a
 //!   same-origin gate (§7.2.5 step 6.3), then an in-place `current_url` +
-//!   `history.state` update, then an **enqueue** for the shell to persist.
-//! - `history.length` reads the shell-pushed `history_length`; `history.state`
-//!   reads the synchronously-maintained `current_state`.
+//!   `history.state` update (and, for `pushState`, a `history.length` bump for the
+//!   appended entry), then an **enqueue** for the shell to persist.
+//! - `history.length` reads `history_length` (shell-pushed, plus the synchronous
+//!   `pushState` bump the shell reconciles); `history.state` reads the
+//!   synchronously-maintained `current_state`.
 //!
 //! `history.state` holds the value as a bare [`JsValue`] (identity round-trip);
 //! `StructuredSerializeForStorage` (§7.2.5 step 4) is part of the deferred
@@ -40,9 +46,10 @@ pub(super) fn native_history_get_length(
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // `history.length` (§7.2.5) is the shell-pushed session-history entry count
-    // (the shell's `NavigationController` owns the stack; `set_history_length`
-    // syncs it).  Clamp via `u32` to satisfy clippy::cast_lossless.
+    // `history.length` (§7.2.5) is the session-history entry count: shell-pushed
+    // (the `NavigationController` owns the stack; `set_history_length` syncs it),
+    // plus the synchronous `pushState` bump the shell reconciles after the drain.
+    // Clamp via `u32` to satisfy clippy::cast_lossless.
     let len = u32::try_from(ctx.vm.navigation.history_length).unwrap_or(u32::MAX);
     Ok(JsValue::Number(f64::from(len)))
 }
@@ -53,7 +60,9 @@ pub(super) fn native_history_get_state(
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     // `history.state` (§7.2.5) — the current entry's state, set synchronously by
-    // pushState/replaceState (§7.4.4) and reset to null on a traversal.
+    // pushState/replaceState (§7.4.4).  A traversal leaves it untouched (async;
+    // the shell restores the target entry's state on commit), so a same-turn read
+    // still sees the current entry.
     Ok(ctx.vm.navigation.current_state)
 }
 
@@ -71,13 +80,16 @@ pub(super) fn native_history_get_scroll_restoration(
 // Navigation methods (back / forward / go) — enqueue-only traversals
 // ---------------------------------------------------------------------------
 
-/// Enqueue a session-history traversal for the shell and reset `history.state`
-/// to null (the traversal moves to a different entry whose state the VM cannot
-/// know until the shell restores it — WHATWG HTML §7.4.6; restoration + popstate
-/// = slot `#11-history-state-traversal-popstate-fidelity`).  Does NOT mutate
-/// `current_url` — it commits when the shell loads the target entry.
+/// Enqueue a session-history traversal for the shell.  The traversal is async
+/// (an `apply the history step` document load the shell performs — WHATWG HTML
+/// §7.4.6), so this mutates **none** of the current-document view: `current_url`,
+/// `history.state`, and `history.length` all commit only when the shell loads the
+/// target entry.  Leaving `history.state` untouched (rather than null-clearing it)
+/// keeps a same-turn read seeing the current entry's state and makes a no-op
+/// traversal (`back` at the first entry, `go(0)`) a true no-op; the target entry's
+/// state restoration + `popstate` on commit are the shell's job (slot
+/// `#11-history-state-traversal-popstate-fidelity`).
 fn enqueue_traversal(ctx: &mut NativeContext<'_>, action: HistoryAction) {
-    ctx.vm.navigation.current_state = JsValue::Null;
     ctx.vm.navigation.enqueue_history(action);
 }
 
@@ -193,6 +205,16 @@ fn state_mutate(
     // enqueue-only and reads stale).
     ctx.vm.navigation.current_url = new_url;
     ctx.vm.navigation.current_state = state;
+
+    // `pushState` appends a new session-history entry (§7.4.4 with history
+    // handling "push"), so `history.length` grows by one synchronously; a
+    // same-turn read must observe it.  `replaceState` ("replace") overwrites the
+    // current entry, leaving the count unchanged.  The shell reconciles the
+    // authoritative count via `set_history_length` after draining the enqueued
+    // action (which overwrites, so there is no double-count).
+    if !replace_index {
+        ctx.vm.navigation.history_length = ctx.vm.navigation.history_length.saturating_add(1);
+    }
 
     // Enqueue for the shell to persist into its NavigationController.
     let action = if replace_index {

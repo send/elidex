@@ -192,11 +192,15 @@ impl ElidexJsEngine {
         self.vm.inner.navigation.pending_navigation.take()
     }
 
-    /// Drain the pending history action enqueued by `history.back`/`forward`/`go`
-    /// /`pushState`/`replaceState` (WHATWG HTML §7.2.5).  The shell applies it to
-    /// its `NavigationController`.
-    pub fn take_pending_history(&mut self) -> Option<HistoryAction> {
-        self.vm.inner.navigation.pending_history.take()
+    /// Drain the pending history actions enqueued by `history.back`/`forward`/`go`
+    /// /`pushState`/`replaceState` (WHATWG HTML §7.2.5), in FIFO order.  The shell
+    /// applies each to its `NavigationController`.  Returns a `Vec` rather than a
+    /// single action because synchronous `pushState`/`replaceState` calls each
+    /// commit an independent session-history mutation, so a turn may enqueue
+    /// several that must all be applied in order (`pending_navigation`, async and
+    /// last-wins, stays a single slot).
+    pub fn take_pending_history(&mut self) -> Vec<HistoryAction> {
+        std::mem::take(&mut self.vm.inner.navigation.pending_history)
     }
 
     /// Push the session-history length into the engine so `history.length` reads

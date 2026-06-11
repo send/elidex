@@ -18,10 +18,15 @@
 //!   matching browsers).
 //! - `history.pushState`/`replaceState` (HTML §7.2.5 "shared history push/replace
 //!   state steps" → §7.4.4 "URL and history update steps") are *synchronous*: the
-//!   VM updates `current_url` + `current_state` in place AND enqueues a
-//!   `HistoryAction::PushState/ReplaceState` for the shell to persist.
-//! - `history.length` / `history.state` read the shell-pushed `history_length` /
-//!   the synchronously-maintained `current_state`.
+//!   VM updates `current_url` + `current_state` in place (and `pushState` also
+//!   bumps `history_length`) AND enqueues a `HistoryAction::PushState/ReplaceState`
+//!   for the shell to persist.  Each one independently mutates the joint session
+//!   history, so the enqueue buffer is a **FIFO queue** (two same-turn pushStates
+//!   must both reach the shell), unlike the last-wins async `pending_navigation`.
+//! - `history.length` / `history.state` read `history_length` (shell-pushed, plus
+//!   the synchronous `pushState` bump the shell reconciles) / `current_state` (set
+//!   by `pushState`/`replaceState`; a traversal leaves it untouched — async, the
+//!   shell restores the target entry's state on commit).
 
 #![cfg(feature = "engine")]
 
@@ -39,8 +44,8 @@ use super::super::value::JsValue;
 /// ideal home is a per-entity component on the document entity (deferred slice
 /// `#11-browsing-context-state-ecs-components`); `pending_navigation` /
 /// `pending_history` are transient drain-once intent buffers that are per-VM by
-/// nature (a VM↔shell message channel, not per-entity state — boa stores them
-/// identically on its `HostBridge`).
+/// nature (a VM↔shell message channel, not per-entity state — boa stores the
+/// same intents on its `HostBridge`).
 #[derive(Debug)]
 pub(crate) struct NavigationState {
     /// The current browsing-context URL.  Backs `location.*`, `document.URL`,
@@ -56,13 +61,19 @@ pub(crate) struct NavigationState {
     pub(crate) current_url: Url,
     /// `history.length` — the count of session-history entries.  The shell's
     /// `NavigationController` owns the real count and pushes it via
-    /// `set_history_length`; defaults to `1` (the spec-minimum: the current
-    /// entry always exists).
+    /// `set_history_length`; `pushState` also bumps it synchronously (§7.4.4 —
+    /// a new entry is appended in the same script turn, so a same-turn
+    /// `history.length` read observes it; the shell's `set_history_length`
+    /// reconciles after the drain).  Defaults to `1` (the spec-minimum: the
+    /// current entry always exists).
     pub(crate) history_length: usize,
     /// `history.state` — the serialized state of the current session-history
-    /// entry.  Set synchronously by `pushState`/`replaceState` (HTML §7.4.4) and
-    /// reset to `Null` on a traversal (`back`/`forward`/`go`), whose target
-    /// entry's state restoration needs the shell back-channel (slot
+    /// entry.  Set synchronously by `pushState`/`replaceState` (HTML §7.4.4).  A
+    /// traversal (`back`/`forward`/`go`) leaves it **untouched**: the traversal
+    /// is async (the shell loads the target entry), so a same-turn read still
+    /// sees the current entry's state, and a no-op traversal (`back` at the first
+    /// entry, `go(0)`) keeps it unchanged.  The target entry's state restoration
+    /// on commit needs the shell back-channel (slot
     /// `#11-history-state-traversal-popstate-fidelity`).
     ///
     /// Held as a bare [`JsValue`] — `StructuredSerializeForStorage` (§7.2.5
@@ -74,10 +85,16 @@ pub(crate) struct NavigationState {
     /// (WHATWG HTML §7.4.2.2), drained once per script turn by the shell's
     /// `take_pending_navigation`.  Single-slot last-wins (matches boa).
     pub(crate) pending_navigation: Option<NavigationRequest>,
-    /// A pending history action from `history.back`/`forward`/`go`/`pushState`/
+    /// Pending history actions from `history.back`/`forward`/`go`/`pushState`/
     /// `replaceState` (WHATWG HTML §7.2.5), drained once per script turn by the
-    /// shell's `take_pending_history`.  Single-slot last-wins (matches boa).
-    pub(crate) pending_history: Option<HistoryAction>,
+    /// shell's `take_pending_history`.  A **FIFO queue**, not a single slot:
+    /// `pushState`/`replaceState` are *synchronous* and each independently
+    /// mutates the joint session history (§7.4.4), so two in one turn
+    /// (`pushState('/a'); pushState('/b')`) must both reach the shell in order —
+    /// a last-wins slot would silently drop `/a`'s entry.  (Contrast
+    /// `pending_navigation`, single-slot last-wins: navigations are async and
+    /// supersede one another.)
+    pub(crate) pending_history: Vec<HistoryAction>,
     /// URL of the previous Document, used to back `document.referrer` (WHATWG
     /// HTML §3.1.4 "Resource metadata management").  `None` when no previous
     /// Document is recorded — the spec maps this to the empty string at the JS
@@ -102,7 +119,7 @@ impl NavigationState {
             history_length: 1,
             current_state: JsValue::Null,
             pending_navigation: None,
-            pending_history: None,
+            pending_history: Vec::new(),
             referrer: None,
         }
     }
@@ -123,11 +140,13 @@ impl NavigationState {
         self.pending_navigation = Some(request);
     }
 
-    /// Enqueue a history action for the shell (last-wins single slot, matching
-    /// boa).  Used by `back`/`forward`/`go` (pure intent) and by
-    /// `pushState`/`replaceState` (after their synchronous URL+state update).
+    /// Enqueue a history action for the shell, appending to the FIFO queue (so a
+    /// turn's synchronous `pushState`/`replaceState` mutations all reach the shell
+    /// in order — see [`Self::pending_history`]).  Used by `back`/`forward`/`go`
+    /// (pure intent) and by `pushState`/`replaceState` (after their synchronous
+    /// URL+state update).
     pub(crate) fn enqueue_history(&mut self, action: HistoryAction) {
-        self.pending_history = Some(action);
+        self.pending_history.push(action);
     }
 }
 

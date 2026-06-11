@@ -39,6 +39,23 @@ fn new_vm_with_base() -> Vm {
     vm
 }
 
+/// Drain the FIFO history queue (S1c — `pending_history` is a `Vec`, so a turn's
+/// synchronous `pushState`/`replaceState` mutations are all preserved in order).
+fn drain_history(vm: &mut Vm) -> Vec<HistoryAction> {
+    std::mem::take(&mut vm.inner.navigation.pending_history)
+}
+
+/// Drain and assert exactly one enqueued history action.
+fn take_one_history(vm: &mut Vm) -> HistoryAction {
+    let mut actions = drain_history(vm);
+    assert_eq!(
+        actions.len(),
+        1,
+        "expected exactly one enqueued history action, got {actions:?}"
+    );
+    actions.remove(0)
+}
+
 #[test]
 fn history_is_object() {
     let mut vm = Vm::new();
@@ -69,14 +86,21 @@ fn history_scroll_restoration_is_auto() {
 }
 
 #[test]
-fn history_length_is_shell_pushed_not_vm_grown() {
-    // `pushState` does NOT grow the VM's `history.length` — the shell's
-    // `NavigationController` owns the count.
+fn push_state_grows_length_replace_state_does_not_then_shell_reconciles() {
+    // `pushState` appends a session-history entry, so `history.length` grows by
+    // one synchronously (§7.4.4 with history handling "push"); `replaceState`
+    // overwrites the current entry, leaving the count unchanged.
     let mut vm = new_vm_with_base();
+    assert_eq!(eval_number(&mut vm, "history.length;"), 1.0); // default current entry
     vm.eval("history.pushState(null, '', '/a'); history.pushState(null, '', '/b');")
         .unwrap();
-    assert_eq!(eval_number(&mut vm, "history.length;"), 1.0);
-    // The shell-facing setter is what moves it.
+    assert_eq!(eval_number(&mut vm, "history.length;"), 3.0); // 1 + two pushes
+    vm.eval("history.replaceState(null, '', '/c');").unwrap();
+    // `replaceState` overwrites the current entry, so the count is unchanged.
+    assert_eq!(eval_number(&mut vm, "history.length;"), 3.0);
+    // The shell reconciles the authoritative count after draining its enqueued
+    // actions; `set_history_length` overwrites, so the synchronous bump never
+    // double-counts.
     vm.inner.navigation.history_length = 7;
     assert_eq!(eval_number(&mut vm, "history.length;"), 7.0);
 }
@@ -89,8 +113,8 @@ fn push_state_syncs_url_and_state_and_enqueues() {
     assert_eq!(eval_string(&mut vm, "location.pathname;"), "/a");
     assert_eq!(eval_number(&mut vm, "history.state.step;"), 1.0);
     // Enqueued for the shell to persist.
-    match vm.inner.navigation.pending_history.take() {
-        Some(HistoryAction::PushState { url, .. }) => {
+    match take_one_history(&mut vm) {
+        HistoryAction::PushState { url, .. } => {
             assert_eq!(url.as_deref(), Some("http://localhost/a"));
         }
         other => panic!("expected PushState, got {other:?}"),
@@ -105,8 +129,8 @@ fn replace_state_syncs_url_and_enqueues_replace() {
     assert_eq!(eval_string(&mut vm, "location.pathname;"), "/b");
     assert_eq!(eval_number(&mut vm, "history.state.step;"), 2.0);
     assert!(matches!(
-        vm.inner.navigation.pending_history.take(),
-        Some(HistoryAction::ReplaceState { .. })
+        take_one_history(&mut vm),
+        HistoryAction::ReplaceState { .. }
     ));
 }
 
@@ -117,10 +141,52 @@ fn push_state_without_url_keeps_current_url() {
     // No URL arg → current_url unchanged, state updated, PushState{url: None}.
     assert_eq!(eval_string(&mut vm, "location.pathname;"), "/");
     assert_eq!(eval_number(&mut vm, "history.state.step;"), 5.0);
-    match vm.inner.navigation.pending_history.take() {
-        Some(HistoryAction::PushState { url, .. }) => assert!(url.is_none()),
+    match take_one_history(&mut vm) {
+        HistoryAction::PushState { url, .. } => assert!(url.is_none()),
         other => panic!("expected PushState, got {other:?}"),
     }
+}
+
+#[test]
+fn multiple_push_states_enqueue_in_fifo_order() {
+    // Two synchronous `pushState`s in one turn each commit an independent
+    // session-history entry, so both must reach the shell in order — the queue is
+    // FIFO, not a last-wins single slot (a single slot would drop `/a`).
+    let mut vm = new_vm_with_base();
+    vm.eval("history.pushState(null, '', '/a'); history.pushState(null, '', '/b');")
+        .unwrap();
+    let actions = drain_history(&mut vm);
+    assert_eq!(
+        actions.len(),
+        2,
+        "both pushStates preserved, got {actions:?}"
+    );
+    match (&actions[0], &actions[1]) {
+        (HistoryAction::PushState { url: a, .. }, HistoryAction::PushState { url: b, .. }) => {
+            assert_eq!(a.as_deref(), Some("http://localhost/a"));
+            assert_eq!(b.as_deref(), Some("http://localhost/b"));
+        }
+        other => panic!("expected two PushState actions in order, got {other:?}"),
+    }
+}
+
+#[test]
+fn push_state_then_traversal_enqueue_in_order() {
+    // A synchronous `pushState` followed by an async `back()` must reach the shell
+    // as [PushState, Back] — the FIFO queue mixes both intent kinds in order so
+    // the shell applies the push before the traversal (a single slot would drop
+    // the push).
+    let mut vm = new_vm_with_base();
+    vm.eval("history.pushState(null, '', '/a'); history.back();")
+        .unwrap();
+    let actions = drain_history(&mut vm);
+    assert!(
+        matches!(
+            actions.as_slice(),
+            [HistoryAction::PushState { .. }, HistoryAction::Back]
+        ),
+        "expected [PushState, Back], got {actions:?}"
+    );
 }
 
 #[test]
@@ -140,7 +206,7 @@ fn push_state_cross_origin_throws_security_error() {
     assert!(matches!(check, JsValue::Boolean(true)));
     // Neither updated nor enqueued.
     assert_eq!(eval_string(&mut vm, "location.pathname;"), "/");
-    assert!(vm.inner.navigation.pending_history.is_none());
+    assert!(vm.inner.navigation.pending_history.is_empty());
 }
 
 #[test]
@@ -158,7 +224,7 @@ fn replace_state_cross_origin_throws_security_error() {
         )
         .unwrap();
     assert!(matches!(check, JsValue::Boolean(true)));
-    assert!(vm.inner.navigation.pending_history.is_none());
+    assert!(vm.inner.navigation.pending_history.is_empty());
 }
 
 #[test]
@@ -174,48 +240,37 @@ fn history_go_zero_enqueues_go_zero() {
     // shell's NavigationController.go(0) re-fetches), NOT a no-op.
     let mut vm = new_vm_with_base();
     vm.eval("history.go(0);").unwrap();
-    assert!(matches!(
-        vm.inner.navigation.pending_history.take(),
-        Some(HistoryAction::Go(0))
-    ));
+    assert!(matches!(take_one_history(&mut vm), HistoryAction::Go(0)));
 }
 
 #[test]
 fn back_forward_go_enqueue_actions() {
     let mut vm = new_vm_with_base();
     vm.eval("history.back();").unwrap();
-    assert!(matches!(
-        vm.inner.navigation.pending_history.take(),
-        Some(HistoryAction::Back)
-    ));
+    assert!(matches!(take_one_history(&mut vm), HistoryAction::Back));
     vm.eval("history.forward();").unwrap();
-    assert!(matches!(
-        vm.inner.navigation.pending_history.take(),
-        Some(HistoryAction::Forward)
-    ));
+    assert!(matches!(take_one_history(&mut vm), HistoryAction::Forward));
     vm.eval("history.go(-2);").unwrap();
-    assert!(matches!(
-        vm.inner.navigation.pending_history.take(),
-        Some(HistoryAction::Go(-2))
-    ));
+    assert!(matches!(take_one_history(&mut vm), HistoryAction::Go(-2)));
     // Traversals do NOT mutate `current_url` — the shell commits it after the
     // target entry loads.
     assert_eq!(eval_string(&mut vm, "location.pathname;"), "/");
 }
 
 #[test]
-fn traversal_resets_history_state() {
-    // A traversal moves to a different entry whose state the VM cannot know
-    // until the shell restores it (slot `#11-history-state-traversal-popstate-fidelity`);
-    // the VM conservatively resets `history.state` to null.
+fn traversal_preserves_current_state_until_commit() {
+    // A traversal is async (the shell loads the target entry), so it leaves
+    // `history.state` untouched — a same-turn read still sees the current entry's
+    // state, and a no-op traversal (`go(0)`) changes nothing.  Restoring the
+    // *target* entry's state on commit is the shell's job (slot
+    // `#11-history-state-traversal-popstate-fidelity`).
     let mut vm = new_vm_with_base();
     vm.eval("history.pushState({step: 9}, '', '/a');").unwrap();
     assert_eq!(eval_number(&mut vm, "history.state.step;"), 9.0);
     vm.eval("history.back();").unwrap();
-    match vm.eval("history.state;").unwrap() {
-        JsValue::Null => {}
-        other => panic!("expected null after traversal, got {other:?}"),
-    }
+    assert_eq!(eval_number(&mut vm, "history.state.step;"), 9.0);
+    vm.eval("history.go(0);").unwrap();
+    assert_eq!(eval_number(&mut vm, "history.state.step;"), 9.0);
 }
 
 #[test]
