@@ -685,3 +685,30 @@ fn create_element_is_null_tostrings_to_null_string() {
         "explicit null is must ToString to \"null\", got: {output:?}"
     );
 }
+
+#[test]
+fn name_sharing_builtin_definition_does_not_clear_is_value() {
+    // Codex PR331 R6: define('plastic-button', C, {extends:'button'})
+    // does not match createElement('plastic-button', {is}) for that
+    // local name — the no-definition branch keeps the is value.
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let result = runtime.eval(
+        r"
+        class PB {}
+        customElements.define('plastic-button', PB, { extends: 'button' });
+        var el = document.createElement('plastic-button', { is: 'other-el' });
+        console.log('html=' + el.outerHTML);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m
+            .1
+            .contains(r#"html=<plastic-button is="other-el"></plastic-button>"#)),
+        "name-sharing built-in definition must not clear the is value, got: {output:?}"
+    );
+}

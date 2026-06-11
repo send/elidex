@@ -287,3 +287,72 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod sync_is_clear_tests {
+    use super::*;
+    use crate::registry::CustomElementDefinition;
+
+    fn dom_with_marked_element(tag: &str, is: &str) -> (EcsDom, Entity) {
+        let mut dom = EcsDom::new();
+        let el = dom.create_element(tag, Attributes::default());
+        dom.world_mut()
+            .insert_one(
+                el,
+                CustomElementState::for_created_element(tag, Some(is), elidex_ecs::Namespace::Html)
+                    .unwrap(),
+            )
+            .unwrap();
+        (dom, el)
+    }
+
+    #[test]
+    fn clears_for_matching_autonomous_definition() {
+        let mut registry = CustomElementRegistry::new();
+        registry
+            .define(CustomElementDefinition::new(
+                "my-el".to_string(),
+                1,
+                vec![],
+                None,
+            ))
+            .unwrap();
+        let (mut dom, el) = dom_with_marked_element("my-el", "other-el");
+        clear_is_value_for_sync_autonomous(&registry, &mut dom, el);
+        let state = dom.world().get::<&CustomElementState>(el).unwrap();
+        assert_eq!(state.is_value(), None, "DOM §4.9 step 5.1.3.10 clears");
+    }
+
+    #[test]
+    fn name_sharing_builtin_definition_does_not_clear() {
+        // Codex PR331 R6: a customized-built-in definition merely
+        // sharing the name does NOT match the §4.13.3 lookup for this
+        // local name — the element keeps its creation-time is value.
+        let mut registry = CustomElementRegistry::new();
+        registry
+            .define(CustomElementDefinition::new(
+                "plastic-button".to_string(),
+                1,
+                vec![],
+                Some("button".to_string()),
+            ))
+            .unwrap();
+        let (mut dom, el) = dom_with_marked_element("plastic-button", "other-el");
+        clear_is_value_for_sync_autonomous(&registry, &mut dom, el);
+        let state = dom.world().get::<&CustomElementState>(el).unwrap();
+        assert_eq!(
+            state.is_value(),
+            Some("other-el"),
+            "no matching definition for this local name — is value retained"
+        );
+    }
+
+    #[test]
+    fn unregistered_name_does_not_clear() {
+        let registry = CustomElementRegistry::new();
+        let (mut dom, el) = dom_with_marked_element("my-el", "other-el");
+        clear_is_value_for_sync_autonomous(&registry, &mut dom, el);
+        let state = dom.world().get::<&CustomElementState>(el).unwrap();
+        assert_eq!(state.is_value(), Some("other-el"));
+    }
+}
