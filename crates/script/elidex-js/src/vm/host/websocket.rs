@@ -388,11 +388,9 @@ fn native_websocket_constructor(
     //   origin (WebSockets Standard §2.2 "Opening handshake"); sent to the
     //   broker as `WebSocketOpen.origin`. Reads `document_origin`, not
     //   `current_url` (S1b §5) — opaque → `"null"` for a sandboxed doc.
-    // - `ws_origin_sid` — the SERVER's origin (from `url`), pre-interned so
-    //   per-message `MessageEvent.origin` dispatch reads a `StringId` without
-    //   re-parsing (WebSockets Standard §4 "Feedback from the protocol" step 3
-    //   — MessageEvent.origin = the serialization of the WebSocket url's
-    //   origin). Distinct fact, unchanged by S1b.
+    // - `ws_origin_sid` — SERVER origin (from `url`), pre-interned so per-message
+    //   `MessageEvent.origin` reads a `StringId` without re-parsing (WebSockets
+    //   §4 "Feedback from the protocol"). Distinct fact, unchanged by S1b.
     let page_origin_str = ctx.vm.document_origin().serialize();
     let ws_origin_string = url.origin().ascii_serialization();
     let ws_origin_sid = ctx.vm.strings.intern(&ws_origin_string);
