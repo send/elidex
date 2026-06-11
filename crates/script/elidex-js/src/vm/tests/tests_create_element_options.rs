@@ -163,17 +163,78 @@ fn create_element_options_non_registry_value_throws_type_error() {
 }
 
 #[test]
-fn create_element_options_null_registry_throws_not_supported() {
-    // `{customElementRegistry: null}` is spec-legal (a null-registry
-    // element is never upgraded) but needs per-element registry
-    // association — until slot
-    // `#11-shadow-scoped-custom-element-registry` lands it is rejected
-    // loudly instead of silently binding the default registry.
+fn create_element_options_null_registry_creates_element() {
+    // Codex PR331 R12: `{customElementRegistry: null}` is spec-legal —
+    // flatten step 3.3 only rejects a NON-null foreign registry. The
+    // element is created with a null registry association.
+    let out = run(
+        "var el = document.createElement('div', {customElementRegistry: null}); \
+         el.tagName === 'DIV' ? 'ok' : ('fail:' + el.tagName);",
+    );
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn create_element_null_registry_element_never_upgrades() {
+    // DOM §4.9: definition lookup in a null registry is always null —
+    // a null-registry custom element is never upgraded, neither at
+    // define() time (queue/walk) nor by customElements.upgrade(),
+    // while an identically named document-registry element upgrades
+    // normally.
+    let out = run_then_read(
+        "globalThis.XNull = class extends HTMLElement { \
+             constructor() { super(); this.upgraded = true; } }; \
+         globalThis.__nullreg = document.createElement('x-nullreg', \
+             {customElementRegistry: null}); \
+         globalThis.__normal = document.createElement('x-nullreg'); \
+         document.body.appendChild(globalThis.__nullreg); \
+         customElements.define('x-nullreg', globalThis.XNull); \
+         customElements.upgrade(document.body);",
+        "(globalThis.__nullreg.upgraded ? 'null-upgraded' : 'null-kept') \
+         + ':' + (globalThis.__normal.upgraded ? 'normal-upgraded' : 'normal-kept')",
+    );
+    assert_eq!(out, "null-kept:normal-upgraded");
+}
+
+#[test]
+fn create_element_options_symbol_throws_type_error() {
+    // Codex PR331 R12: a non-object `options` converts through the
+    // DOMString arm of `(DOMString or ElementCreationOptions)` —
+    // observably throwing for Symbol — before DOM §4.5 ignores the
+    // string arm for web compatibility.
     let out = run("var caught = ''; \
-         try { document.createElement('div', {customElementRegistry: null}); } \
+         try { document.createElement('div', Symbol()); } \
          catch (e) { caught = '' + e; } \
-         (caught.indexOf('NotSupportedError') !== -1 \
-          && caught.indexOf('null') !== -1) ? 'ok' : ('fail:' + caught);");
+         caught.indexOf('TypeError') !== -1 ? 'ok' : ('fail:' + caught);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn create_element_invalid_tag_beats_flatten_conflict() {
+    // DOM §4.5 method step 1 (localName validity →
+    // InvalidCharacterError) runs BEFORE step 3's flatten conflict
+    // NotSupportedError. (WebIDL argument-conversion TypeErrors still
+    // precede both — see the companion test below.)
+    let out = run("var caught = ''; \
+         try { document.createElement('bad tag', \
+                 {is: 'x-a', customElementRegistry: customElements}); } \
+         catch (e) { caught = '' + e; } \
+         (caught.indexOf('InvalidCharacterError') !== -1 \
+          && caught.indexOf('NotSupportedError') === -1) ? 'ok' : ('fail:' + caught);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn create_element_registry_conversion_beats_invalid_tag() {
+    // WebIDL converts arguments BEFORE any method step: the
+    // dictionary conversion of a non-registry `customElementRegistry`
+    // TypeErrors before step 1's InvalidCharacterError is reached.
+    let out = run("var caught = ''; \
+         try { document.createElement('bad tag', {customElementRegistry: 42}); } \
+         catch (e) { caught = '' + e; } \
+         (caught.indexOf('TypeError') !== -1 \
+          && caught.indexOf('CustomElementRegistry') !== -1 \
+          && caught.indexOf('InvalidCharacterError') === -1) ? 'ok' : ('fail:' + caught);");
     assert_eq!(out, "ok");
 }
 

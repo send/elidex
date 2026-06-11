@@ -669,6 +669,58 @@ fn create_element_registry_converts_before_is_getter_runs() {
 }
 
 #[test]
+fn create_element_null_registry_element_never_upgrades() {
+    // Codex PR331 R12: DOM 4.9 -- definition lookup in a null
+    // registry is always null, so a null-registry element is skipped
+    // by creation-time routing, the define()-time DOM walk, and
+    // customElements.upgrade(), while an identically named
+    // document-registry element upgrades normally.
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    // html > body structure for the document.body accessor.
+    let html = dom.create_element("html", Attributes::default());
+    let body = dom.create_element("body", Attributes::default());
+    let _ = dom.append_child(doc, html);
+    let _ = dom.append_child(html, body);
+    let result = runtime.eval(
+        r"
+        globalThis.__ctorCount = 0;
+        class XNullReg { constructor() { globalThis.__ctorCount++; } }
+        var nullreg = document.createElement('x-nullreg',
+            {customElementRegistry: null});
+        var normal = document.createElement('x-nullreg');
+        document.body.appendChild(nullreg);
+        document.body.appendChild(normal);
+        customElements.define('x-nullreg', XNullReg);
+        customElements.upgrade(document.body);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    // Upgrade reactions flush at eval end — observe in a second eval.
+    // Exactly ONE constructor run: the document-registry element. A
+    // second run would mean the null-registry sibling was upgraded by
+    // the define()-walk / upgrade() despite its null association.
+    let result = runtime.eval(
+        r"console.log('count=' + globalThis.__ctorCount);",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(
+        result.success,
+        "second eval should succeed: {:?}",
+        result.error
+    );
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("count=1")),
+        "expected exactly one upgrade (document-registry element only), got: {output:?}"
+    );
+}
+
+#[test]
 fn create_element_registry_brand_survives_global_reassignment() {
     // Codex PR331 R11: `globalThis.customElements` is a writable
     // property, so the brand check must compare against the stable
@@ -705,12 +757,11 @@ fn create_element_registry_brand_survives_global_reassignment() {
 
 #[test]
 fn create_element_registry_member_without_is_validated() {
-    // Codex PR331 R8: the `customElementRegistry` member is inspected
-    // even when `is` is absent — the document's registry passes
-    // (flatten step 3.3), a non-registry value is the WebIDL
-    // conversion TypeError, and a null registry is rejected loudly
-    // (per-element registry association deferred, slot
-    // `#11-shadow-scoped-custom-element-registry`).
+    // Codex PR331 R8+R12: the `customElementRegistry` member is
+    // inspected even when `is` is absent — the document's registry
+    // passes (flatten step 3.3), a non-registry value is the WebIDL
+    // conversion TypeError, and an explicit null creates a
+    // null-registry element (spec-legal, never upgraded).
     let (mut runtime, mut session, mut dom, doc) = setup();
     let result = runtime.eval(
         r"
@@ -719,9 +770,8 @@ fn create_element_registry_member_without_is_validated() {
         var bogus = '';
         try { document.createElement('div', {customElementRegistry: {}}); }
         catch (e) { bogus = '' + e; }
-        var nul = '';
-        try { document.createElement('div', {customElementRegistry: null}); }
-        catch (e) { nul = '' + e; }
+        var nul = document.createElement('div',
+            {customElementRegistry: null}).tagName;
         console.log('ok=' + ok + ' bogus=' + bogus + ' nul=' + nul);
         ",
         &mut session,
@@ -734,8 +784,8 @@ fn create_element_registry_member_without_is_validated() {
         output.iter().any(|m| m.1.contains("ok=DIV")
             && m.1
                 .contains("Failed to convert value to 'CustomElementRegistry'")
-            && m.1.contains("null customElementRegistry is not supported")),
-        "expected accept/TypeError/NotSupportedError triple, got: {output:?}"
+            && m.1.contains("nul=DIV")),
+        "expected accept/TypeError/null-accept triple, got: {output:?}"
     );
 }
 

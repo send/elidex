@@ -9,10 +9,84 @@
 use boa_engine::object::ObjectInitializer;
 use boa_engine::{js_string, JsNativeError, JsResult, JsValue, NativeFunction};
 use elidex_plugin::JsValue as ElidexJsValue;
+use elidex_script_session::{DomApiError, DomApiErrorKind};
 
 use super::invoke_doc_handler_returning_ref;
 use crate::bridge::HostBridge;
+use crate::error_conv::dom_error_to_js_error;
 use crate::globals::require_js_string_arg;
+
+/// WebIDL ARGUMENT CONVERSION of the createElement
+/// `(DOMString or ElementCreationOptions)` union — runs before any
+/// method step (so conversion TypeErrors precede the step 1
+/// `InvalidCharacterError` in the closure below). Returns
+/// `(registry_member, is_value)` where `registry_member` is
+/// `Some(is_null)` when the member was present.
+fn convert_create_element_options(
+    options: Option<&JsValue>,
+    bridge: &HostBridge,
+    ctx: &mut boa_engine::Context,
+) -> JsResult<(Option<bool>, Option<String>)> {
+    let mut registry_member: Option<bool /* is null */> = None;
+    let mut is_value: Option<String> = None;
+    match options {
+        // Absent / undefined → no options; `null` → the dictionary
+        // arm of the union (an empty `ElementCreationOptions`).
+        None => {}
+        Some(opts_val) if opts_val.is_undefined() || opts_val.is_null() => {}
+        Some(opts_val) if opts_val.as_object().is_some() => {
+            let opts = opts_val.as_object().expect("guarded by arm");
+            // Dictionary conversion gets AND converts each member
+            // immediately, in lexicographic order
+            // (`customElementRegistry` before `is`), so a registry
+            // conversion TypeError fires before the `is` getter is
+            // even invoked, and the `is` ToString (user code)
+            // completes before any flatten step.
+            let reg = opts.get(js_string!("customElementRegistry"), ctx)?;
+            if !reg.is_undefined() {
+                // The member is a NULLABLE `CustomElementRegistry?`:
+                // null passes, the document's registry singleton
+                // passes, anything else is a TypeError. Identity is
+                // checked against the handle the bridge captured at
+                // global registration — NOT the writable
+                // `globalThis.customElements` property, which page
+                // script can reassign to smuggle a non-registry past
+                // the brand check or to orphan the real registry
+                // (Codex PR331 R11).
+                let is_document_registry = !reg.is_null() && {
+                    bridge
+                        .custom_elements_object()
+                        .zip(reg.as_object())
+                        .is_some_and(|(canonical, given)| canonical == given)
+                };
+                if !reg.is_null() && !is_document_registry {
+                    return Err(JsNativeError::typ()
+                        .with_message(
+                            "Failed to execute 'createElement' on 'Document': \
+                             Failed to convert value to 'CustomElementRegistry'.",
+                        )
+                        .into());
+                }
+                registry_member = Some(reg.is_null());
+            }
+            // `is` is a non-nullable DOMString — member absent only
+            // when undefined, `{is: null}` ToString-converts to
+            // "null".
+            let v = opts.get(js_string!("is"), ctx)?;
+            if !v.is_undefined() {
+                is_value = Some(v.to_string(ctx)?.to_std_string_escaped());
+            }
+        }
+        Some(opts_val) => {
+            // DOMString arm — convert for the observable side effects
+            // (Symbol → TypeError), discard the result (flatten step
+            // 3 is gated on "If options is a dictionary"; web-compat
+            // note under `#dom-document-createelement`).
+            opts_val.to_string(ctx)?;
+        }
+    }
+    Ok((registry_member, is_value))
+}
 
 /// Install `document.createElement` on the document object.
 pub(super) fn install_create_element(init: &mut ObjectInitializer<'_>, b: &HostBridge) {
@@ -21,92 +95,51 @@ pub(super) fn install_create_element(init: &mut ObjectInitializer<'_>, b: &HostB
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| -> JsResult<JsValue> {
                 let tag = require_js_string_arg(args, 0, "createElement", ctx)?;
+                let (registry_member, is_value) =
+                    convert_create_element_options(args.get(1), bridge, ctx)?;
 
-                // DOM §4.5 step 3 option-flattening — marshalling
-                // only, no validity check; full rationale on
-                // `CustomElementState::for_created_element`.
+                // DOM §4.5 createElement method step 1 — localName
+                // validity (InvalidCharacterError) BEFORE the flatten
+                // NotSupportedError gates below. The engine-indep
+                // handler re-validates (it stays self-contained); this
+                // pre-check exists purely for the spec-mandated error
+                // ORDER, sharing the handler's predicate.
+                if !elidex_dom_api::document::is_valid_element_tag_name(&tag) {
+                    return Err(dom_error_to_js_error(DomApiError {
+                        kind: DomApiErrorKind::InvalidCharacterError,
+                        message: format!("Invalid tag name: {tag}"),
+                    })
+                    .into());
+                }
+
+                // FLATTEN PHASE (DOM §4.5 step 3) — runs on the fully
+                // converted dictionary, after the localName check.
                 let mut handler_args = vec![ElidexJsValue::String(tag)];
-                if let Some(opts) = args.get(1).and_then(JsValue::as_object) {
-                    // CONVERSION PHASE — WebIDL dictionary conversion
-                    // gets AND converts each member immediately, in
-                    // lexicographic order (`customElementRegistry`
-                    // before `is`), before any flatten step runs. So a
-                    // registry conversion TypeError fires before the
-                    // `is` getter is even invoked, and the `is`
-                    // ToString (user code) completes before the
-                    // flatten conflict check.
-                    let reg = opts.get(js_string!("customElementRegistry"), ctx)?;
-                    let registry_member = if reg.is_undefined() {
-                        None
-                    } else {
-                        // The member is a NULLABLE
-                        // `CustomElementRegistry?`: null passes, the
-                        // document's registry singleton passes,
-                        // anything else is a TypeError. Identity is
-                        // checked against the handle the bridge
-                        // captured at global registration — NOT the
-                        // writable `globalThis.customElements`
-                        // property, which page script can reassign to
-                        // smuggle a non-registry past the brand check
-                        // or to orphan the real registry (Codex PR331
-                        // R11).
-                        let is_document_registry = !reg.is_null() && {
-                            bridge
-                                .custom_elements_object()
-                                .zip(reg.as_object())
-                                .is_some_and(|(canonical, given)| canonical == given)
-                        };
-                        if !reg.is_null() && !is_document_registry {
-                            return Err(JsNativeError::typ()
-                                .with_message(
-                                    "Failed to execute 'createElement' on 'Document': \
-                                     Failed to convert value to 'CustomElementRegistry'.",
-                                )
-                                .into());
-                        }
-                        Some(reg.is_null())
-                    };
-                    // `is` is a non-nullable DOMString — member absent
-                    // only when undefined, `{is: null}` ToString-
-                    // converts to "null".
-                    let v = opts.get(js_string!("is"), ctx)?;
-                    let is_value = if v.is_undefined() {
-                        None
-                    } else {
-                        Some(v.to_string(ctx)?.to_std_string_escaped())
-                    };
-                    // FLATTEN PHASE (DOM §4.5) — runs on the fully
-                    // converted dictionary.
-                    if let Some(registry_is_null) = registry_member {
-                        // Step 3.2.1: a present `customElementRegistry`
-                        // member alongside a non-null `is` is a hard
-                        // conflict ("exists" = dictionary presence,
-                        // fires for null too).
-                        if is_value.is_some() {
-                            return Err(JsNativeError::typ()
-                                .with_message(
-                                    "NotSupportedError: 'is' and 'customElementRegistry' \
-                                     cannot both be provided",
-                                )
-                                .into());
-                        }
-                        // Step 3.2.2 + 3.3: a null registry creates
-                        // elements outside the global registry (never
-                        // upgraded) — needs per-element registry
-                        // association, deferred to slot
-                        // `#11-shadow-scoped-custom-element-registry`;
-                        // rejected loudly until then.
-                        if registry_is_null {
-                            return Err(JsNativeError::typ()
-                                .with_message(
-                                    "NotSupportedError: a null customElementRegistry \
-                                     is not supported",
-                                )
-                                .into());
-                        }
-                    } else if let Some(is_value) = is_value {
-                        handler_args.push(ElidexJsValue::String(is_value));
+                if let Some(registry_is_null) = registry_member {
+                    // Step 3.2.1: a present `customElementRegistry`
+                    // member alongside a non-null `is` is a hard
+                    // conflict ("exists" = dictionary presence, fires
+                    // for null too).
+                    if is_value.is_some() {
+                        return Err(JsNativeError::typ()
+                            .with_message(
+                                "NotSupportedError: 'is' and 'customElementRegistry' \
+                                 cannot both be provided",
+                            )
+                            .into());
                     }
+                    // Step 3.2.2 + 3.3: an explicit null creates a
+                    // null-registry element (never upgraded) — the
+                    // handler marks `RegistryAssociation::Null` off
+                    // the `Null` positional slot (mutually exclusive
+                    // with `is` per the conflict above). A foreign
+                    // registry already TypeError'd at conversion
+                    // (identity-as-brand, boa exposes one registry).
+                    if registry_is_null {
+                        handler_args.push(ElidexJsValue::Null);
+                    }
+                } else if let Some(is_value) = is_value {
+                    handler_args.push(ElidexJsValue::String(is_value));
                 }
 
                 let result =
@@ -136,6 +169,16 @@ pub(super) fn install_create_element(init: &mut ObjectInitializer<'_>, b: &HostB
                             else {
                                 return;
                             };
+                            // A null-registry element is outside every
+                            // registry — no sync upgrade, no queue
+                            // admission (DOM §4.9: definition lookup
+                            // in a null registry is always null).
+                            if matches!(
+                                state.registry,
+                                elidex_custom_elements::RegistryAssociation::Null
+                            ) {
+                                return;
+                            }
                             let local_name = world
                                 .get::<&elidex_ecs::TagType>(entity)
                                 .map(|t| t.0.clone())

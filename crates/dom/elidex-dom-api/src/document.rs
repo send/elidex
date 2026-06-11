@@ -124,6 +124,19 @@ impl DomApiHandler for GetElementById {
 pub struct CreateElement;
 
 /// Validates that a tag name contains only ASCII alphanumeric, `-`, `_`, and `.`.
+///
+/// `pub` because the engine bindings run the same check BEFORE the
+/// flatten-algorithm NotSupportedError gates: DOM §4.5 `createElement`
+/// step 1 throws `InvalidCharacterError` before step 3 "flatten
+/// element creation options" raises its conflict / foreign-registry
+/// errors (WebIDL *conversion* TypeErrors still precede both — they
+/// happen at argument-conversion time). The handler below re-checks
+/// (it stays self-contained for direct callers); this fn is the
+/// single shared predicate.
+pub fn is_valid_element_tag_name(name: &str) -> bool {
+    is_valid_tag_name(name)
+}
+
 fn is_valid_tag_name(name: &str) -> bool {
     !name.is_empty()
         && name
@@ -158,18 +171,22 @@ impl DomApiHandler for CreateElement {
                 message: format!("Invalid tag name: {tag}"),
             });
         }
-        // Optional second arg = the *flattened* `is` value (WHATWG DOM
-        // §4.5 createElement step 3 "flatten element creation
+        // Optional second arg = the flattened creation options (WHATWG
+        // DOM §4.5 createElement step 3 "flatten element creation
         // options") — the engine host MUST discriminate the WebIDL
         // `(DOMString or ElementCreationOptions)` union and pass only
-        // the extracted string here; forwarding raw JS args verbatim
+        // the flattened result here; forwarding raw JS args verbatim
         // would let a DOMString `options` masquerade as an is value.
-        // No validity check (DOM §4.9 step 6.3 marks on non-null `is`
-        // regardless of name validity).
+        // Encoding: `String` = the is value (no validity check — DOM
+        // §4.9 step 6.3 marks on non-null `is` regardless of name
+        // validity); `Null` = an explicit `customElementRegistry:
+        // null` (mutually exclusive with `is` by the flatten step
+        // 3.2.1 conflict, so one positional slot carries both).
         let is_value: Option<&str> = match args.get(1) {
             Some(JsValue::String(s)) => Some(s.as_str()),
             _ => None,
         };
+        let null_registry = matches!(args.get(1), Some(JsValue::Null));
         // Single canonical local name: both the TagType and the
         // custom-element derivation read the same folded binding —
         // feeding the pre-fold `tag` into the derivation would skip
@@ -192,11 +209,21 @@ impl DomApiHandler for CreateElement {
         // set (DOM §4.5 createElement has no such step); serialization
         // compensates via the HTML §13.3 is-value step in
         // `serialize_node`.
-        let ce_state = elidex_custom_elements::CustomElementState::for_created_element(
+        let mut ce_state = elidex_custom_elements::CustomElementState::for_created_element(
             &local_name,
             is_value,
             elidex_ecs::Namespace::Html,
         );
+        // DOM §4.9 "create an element internal" step 1: the created
+        // element's custom element registry is the caller-supplied
+        // one — an explicit null puts the element outside every
+        // registry (never upgraded; the bindings' routing and the
+        // define()/upgrade() walks all gate on this field).
+        if null_registry {
+            if let Some(state) = ce_state.as_mut() {
+                state.registry = elidex_custom_elements::RegistryAssociation::Null;
+            }
+        }
         let entity = dom.create_element_with_owner(local_name, Attributes::default(), Some(this));
         if let Some(ce_state) = ce_state {
             let _ = dom.world_mut().insert_one(entity, ce_state);

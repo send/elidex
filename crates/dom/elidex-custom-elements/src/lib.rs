@@ -20,7 +20,7 @@ pub use reaction::{scrub_entity_reactions, CustomElementReaction};
 pub use registry::{
     collect_undefined_entities, CustomElementDefinition, CustomElementRegistry, DefineError,
 };
-pub use state::{CEState, CustomElementState};
+pub use state::{CEState, CustomElementState, RegistryAssociation};
 pub use upgrade::{
     clear_is_value_for_sync_autonomous, enter_constructor, finalize_failure, finalize_success,
     prepare_upgrade, sync_autonomous_definition_matches, UpgradeResolution,

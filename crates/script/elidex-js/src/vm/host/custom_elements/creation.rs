@@ -7,38 +7,72 @@
 
 use crate::vm::value::{JsValue, NativeContext, PropertyKey, StringId, VmError};
 
-/// DOM §4.5 createElement step 3 "flatten element creation options" —
-/// pure marshalling: extract `options.is` from the dictionary arm and
-/// ToString it, validating the `customElementRegistry` member. NO
-/// validity check on the is value itself (rationale on
-/// `CustomElementState::for_created_element`).
+const PREFIX: &str = "Failed to execute 'createElement' on 'Document'";
+
+/// The WebIDL-converted (but not yet flattened)
+/// `(DOMString or ElementCreationOptions)` argument — output of
+/// [`convert_create_element_options`], input to
+/// [`flatten_converted_options`]. Split in two because WebIDL
+/// argument conversion happens BEFORE the createElement method steps
+/// (so conversion TypeErrors precede the step 1 `InvalidCharacterError`
+/// localName check), while the flatten algorithm's NotSupportedError
+/// gates are step 3 (AFTER step 1).
+pub(in crate::vm) struct ConvertedCreateOptions {
+    registry: Option<super::RegistryMember>,
+    is: Option<StringId>,
+}
+
+/// The flattened creation options the binding forwards to the
+/// engine-indep `createElement` handler. `is` and `null_registry` are
+/// mutually exclusive (flatten step 3.2.1 conflict), so the handler
+/// receives them in one positional slot (`String` = is, `Null` =
+/// null registry).
+pub(in crate::vm) struct FlattenedCreateOptions {
+    pub is: Option<StringId>,
+    pub null_registry: bool,
+}
+
+/// WebIDL ARGUMENT CONVERSION of the createElement `options` union —
+/// runs before any method step:
 ///
-/// The DOMString arm of the `(DOMString or ElementCreationOptions)`
-/// union is deliberately NOT treated as an is value: flatten step 3 is
-/// gated on "If options is a dictionary", so a string `options` is
-/// accepted for web compatibility and ignored (is stays null — spec
-/// note under `#dom-document-createelement`).
-pub(in crate::vm) fn flatten_is_option(
+/// - absent / `undefined` → no members.
+/// - `null` → the dictionary arm of the union (an empty
+///   `ElementCreationOptions`) → no members.
+/// - object → dictionary conversion: members get AND convert
+///   immediately, in lexicographic order (`customElementRegistry`
+///   before `is`), so a registry conversion TypeError fires before
+///   the `is` getter is invoked, and the `is` ToString (user code)
+///   completes here, before any flatten step.
+/// - anything else → the DOMString arm: the conversion itself is
+///   observable (`Symbol` throws the standard ToString TypeError) but
+///   the resulting string is ignored — flatten step 3 is gated on "If
+///   options is a dictionary" (web-compat note under
+///   `#dom-document-createelement`).
+pub(in crate::vm) fn convert_create_element_options(
     ctx: &mut NativeContext<'_>,
     options: Option<&JsValue>,
-) -> Result<Option<StringId>, VmError> {
-    const PREFIX: &str = "Failed to execute 'createElement' on 'Document'";
-    let Some(JsValue::Object(options_id)) = options else {
-        return Ok(None);
+) -> Result<ConvertedCreateOptions, VmError> {
+    const EMPTY: ConvertedCreateOptions = ConvertedCreateOptions {
+        registry: None,
+        is: None,
     };
-    // CONVERSION PHASE — WebIDL dictionary conversion gets AND
-    // converts each member immediately, in lexicographic order
-    // (`customElementRegistry` before `is`), before any flatten step
-    // runs. So a registry conversion TypeError fires before the `is`
-    // getter is even invoked, and the `is` ToString (which can run
-    // user code / throw) completes before the flatten conflict check.
+    let options_id = match options {
+        None | Some(JsValue::Undefined | JsValue::Null) => return Ok(EMPTY),
+        Some(JsValue::Object(id)) => *id,
+        Some(other) => {
+            // DOMString arm — convert for the observable side effects
+            // (Symbol → TypeError), discard the result.
+            crate::vm::coerce::to_string(ctx.vm, *other)?;
+            return Ok(EMPTY);
+        }
+    };
     let registry_key = PropertyKey::String(ctx.vm.strings.intern("customElementRegistry"));
-    let registry_raw = ctx.vm.get_property_value(*options_id, registry_key)?;
+    let registry_raw = ctx.vm.get_property_value(options_id, registry_key)?;
     // WebIDL dictionary semantics: a member is absent only when the
     // property is undefined. `customElementRegistry` is NULLABLE
     // (`CustomElementRegistry?`), so an explicit null is a present
     // member carrying a null registry.
-    let registry_member = if matches!(registry_raw, JsValue::Undefined) {
+    let registry = if matches!(registry_raw, JsValue::Undefined) {
         None
     } else {
         Some(super::convert_custom_element_registry_member(
@@ -48,34 +82,53 @@ pub(in crate::vm) fn flatten_is_option(
         )?)
     };
     let is_key = PropertyKey::String(ctx.vm.strings.intern("is"));
-    let is_raw = ctx.vm.get_property_value(*options_id, is_key)?;
+    let is_raw = ctx.vm.get_property_value(options_id, is_key)?;
     // `ElementCreationOptions.is` is a plain (non-nullable) DOMString,
     // so an explicit `{is: null}` converts via ToString(null) = "null"
     // — a NON-null is value downstream.
-    let is_sid = if matches!(is_raw, JsValue::Undefined) {
+    let is = if matches!(is_raw, JsValue::Undefined) {
         None
     } else {
         Some(crate::vm::coerce::to_string(ctx.vm, is_raw)?)
     };
-    // FLATTEN PHASE (DOM §4.5) — runs on the fully converted dictionary.
-    if let Some(member) = registry_member {
+    Ok(ConvertedCreateOptions { registry, is })
+}
+
+/// DOM §4.5 "flatten element creation options" ALGORITHM steps on the
+/// fully converted dictionary — method step 3, so the binding must run
+/// this AFTER step 1's localName validation (`InvalidCharacterError`
+/// beats these NotSupportedErrors; conversion TypeErrors beat both).
+/// No validity check on the is value itself (rationale on
+/// `CustomElementState::for_created_element`).
+pub(in crate::vm) fn flatten_converted_options(
+    ctx: &mut NativeContext<'_>,
+    converted: ConvertedCreateOptions,
+) -> Result<FlattenedCreateOptions, VmError> {
+    if let Some(member) = converted.registry {
         // Step 3.2.1: a present `customElementRegistry` member
         // alongside a non-null `is` is a hard conflict —
         // NotSupportedError. "Exists" is dictionary presence, so this
         // fires even when the registry member is null.
-        if is_sid.is_some() {
+        if converted.is.is_some() {
             return Err(VmError::dom_exception(
                 ctx.vm.well_known.dom_exc_not_supported_error,
                 format!("{PREFIX}: 'is' and 'customElementRegistry' cannot both be provided"),
             ));
         }
-        // Step 3.2.2 + 3.3: bind the supplied registry — only the
-        // document's global registry is representable today (null /
-        // foreign → NotSupportedError, rationale on the helper).
-        super::require_document_registry_member(ctx, &member, PREFIX)?;
-        return Ok(None);
+        // Step 3.2.2 + 3.3: bind the supplied registry — the
+        // document's registry is a no-op, foreign throws, null
+        // threads through as a null-registry element (never
+        // upgraded).
+        super::reject_foreign_registry_member(ctx, &member, PREFIX)?;
+        return Ok(FlattenedCreateOptions {
+            is: None,
+            null_registry: matches!(member, super::RegistryMember::Null),
+        });
     }
-    Ok(is_sid)
+    Ok(FlattenedCreateOptions {
+        is: converted.is,
+        null_registry: false,
+    })
 }
 
 /// Per-VM upgrade-reaction routing for a freshly created element —
@@ -113,6 +166,19 @@ pub(in crate::vm) fn route_custom_element_upgrade(
             .world()
             .get::<&elidex_custom_elements::CustomElementState>(entity)
         {
+            // A null-registry element (created with
+            // `{customElementRegistry: null}`) is outside every
+            // registry — no sync upgrade, no pending-queue admission
+            // (DOM §4.9: definition lookup in a null registry is
+            // always null).
+            Ok(state)
+                if matches!(
+                    state.registry,
+                    elidex_custom_elements::RegistryAssociation::Null
+                ) =>
+            {
+                return;
+            }
             Ok(state) => state.definition_name.clone(),
             Err(_) => return,
         }

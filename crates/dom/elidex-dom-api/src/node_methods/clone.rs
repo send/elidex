@@ -240,8 +240,12 @@ fn clone_recording(
 /// elements whose `is` attribute appeared only after creation (null is
 /// value per spec).
 fn propagate_ce_identity(src: Entity, dst: Entity, dom: &mut EcsDom) {
-    let (name, is_value) = match dom.world().get::<&CustomElementState>(src) {
-        Ok(state) => (state.definition_name.clone(), state.is_value.clone()),
+    let (name, is_value, registry) = match dom.world().get::<&CustomElementState>(src) {
+        Ok(state) => (
+            state.definition_name.clone(),
+            state.is_value.clone(),
+            state.registry,
+        ),
         Err(_) => return,
     };
     let _ = dom.world_mut().insert_one(
@@ -250,6 +254,11 @@ fn propagate_ce_identity(src: Entity, dst: Entity, dom: &mut EcsDom) {
             state: elidex_custom_elements::CEState::Undefined,
             definition_name: name,
             is_value,
+            // DOM §4.4 "clone a single node" passes the source's
+            // custom element registry through *create an element* —
+            // a null-registry source yields a null-registry clone
+            // (still never upgraded).
+            registry,
         },
     );
 }
@@ -271,6 +280,11 @@ fn read_clonable_shadow_init(entity: Entity, dom: &EcsDom) -> Option<(ShadowInit
             slot_assignment: sr.slot_assignment,
             clonable: sr.clonable,
             serializable: sr.serializable,
+            // DOM §4.4 clone-a-node step 6.5 attaches the clone's
+            // shadow with the source root's registry — a
+            // null-registry shadow tree clones to a null-registry
+            // shadow tree.
+            null_registry: sr.null_registry,
         },
         shadow_root,
     ))

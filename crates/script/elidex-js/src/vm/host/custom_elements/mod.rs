@@ -233,29 +233,26 @@ pub(super) fn convert_custom_element_registry_member(
 
 /// Shared registry-member acceptance gate: "flatten element creation
 /// options" step 3.3 and `attachShadow` step 3 both throw
-/// "NotSupportedError" for a non-null, non-scoped registry that is not
-/// the document's custom element registry. A `null` member is
-/// spec-legal (an element/shadow tree with a null registry is never
-/// upgraded) but needs per-element registry association — scoped-
-/// registry infrastructure deferred to slot
-/// `#11-shadow-scoped-custom-element-registry` — so until that lands
-/// it is rejected loudly here (NotSupportedError) rather than silently
-/// mis-bound to the default registry, where later `define()` walks
-/// would upgrade elements the spec says must stay untouched.
-pub(super) fn require_document_registry_member(
+/// "NotSupportedError" for a **non-null**, non-scoped registry that is
+/// not the document's custom element registry. A `null` member passes
+/// — it is the spec's way to create a null-registry element / shadow
+/// root (never upgraded); the caller threads
+/// `RegistryMember::Null` through to the created node's
+/// `RegistryAssociation`. This is an ALGORITHM step (after dictionary
+/// conversion), so callers must run it after DOM §4.5 createElement
+/// step 1's localName validation.
+pub(super) fn reject_foreign_registry_member(
     ctx: &NativeContext<'_>,
     member: &RegistryMember,
     prefix: &str,
 ) -> Result<(), VmError> {
-    let detail = match member {
-        RegistryMember::Document => return Ok(()),
-        RegistryMember::Null => "a null customElementRegistry is not supported",
-        RegistryMember::Foreign => {
-            "the provided registry is not the document's custom element registry"
-        }
-    };
-    Err(VmError::dom_exception(
-        ctx.vm.well_known.dom_exc_not_supported_error,
-        format!("{prefix}: {detail}"),
-    ))
+    if matches!(member, RegistryMember::Foreign) {
+        return Err(VmError::dom_exception(
+            ctx.vm.well_known.dom_exc_not_supported_error,
+            format!(
+                "{prefix}: the provided registry is not the document's custom element registry"
+            ),
+        ));
+    }
+    Ok(())
 }

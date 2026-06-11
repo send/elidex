@@ -527,6 +527,7 @@ pub enum SlotAssignmentMode {
 /// A shadow root is a document fragment attached to a host element.
 /// It provides style encapsulation and DOM isolation (WHATWG DOM §4.8).
 #[derive(Clone, Copy, Debug)]
+#[allow(clippy::struct_excessive_bools)] // mirrors ShadowRootInit's boolean members
 pub struct ShadowRoot {
     /// Open or closed mode.
     pub mode: ShadowRootMode,
@@ -547,6 +548,15 @@ pub struct ShadowRoot {
     /// `#11-shadow-clone-serialize-propagation`; the field stores the
     /// init-time flag for feature-detection round-trip.
     pub serializable: bool,
+    /// The shadow root's custom element registry is null (created
+    /// with `attachShadow({customElementRegistry: null})`, DOM
+    /// `attachShadow` step 2). Per-context registry lookup for
+    /// fragment parsing inside the shadow tree is deferred with
+    /// scoped registries (slot
+    /// `#11-shadow-scoped-custom-element-registry`); the field stores
+    /// the association so the spec slot is modeled and clones / init
+    /// round-trips preserve it.
+    pub null_registry: bool,
 }
 
 /// Marker: this element hosts a shadow root.

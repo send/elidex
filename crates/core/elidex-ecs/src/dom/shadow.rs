@@ -9,14 +9,23 @@ use hecs::Entity;
 use super::EcsDom;
 
 /// Initializer for [`EcsDom::attach_shadow_with_init`], mirroring the
-/// WebIDL `ShadowRootInit` dictionary (WHATWG DOM §4.2.14).
+/// WebIDL `ShadowRootInit` dictionary (WHATWG DOM §4.9 "Interface
+/// Element").
 #[derive(Clone, Copy, Debug)]
+#[allow(clippy::struct_excessive_bools)] // mirrors the WebIDL dictionary's boolean members
 pub struct ShadowInit {
     pub mode: ShadowRootMode,
     pub delegates_focus: bool,
     pub slot_assignment: SlotAssignmentMode,
     pub clonable: bool,
     pub serializable: bool,
+    /// `ShadowRootInit.customElementRegistry` was an explicit `null`
+    /// — the shadow root's custom element registry is null (DOM
+    /// `attachShadow` step 2). Stored on [`super::super::components::ShadowRoot`];
+    /// per-context registry lookup for fragment parsing inside the
+    /// shadow tree is deferred with scoped registries, slot
+    /// `#11-shadow-scoped-custom-element-registry`.
+    pub null_registry: bool,
 }
 
 impl Default for ShadowInit {
@@ -27,6 +36,7 @@ impl Default for ShadowInit {
             slot_assignment: SlotAssignmentMode::Named,
             clonable: false,
             serializable: false,
+            null_registry: false,
         }
     }
 }
@@ -184,6 +194,7 @@ impl EcsDom {
                 slot_assignment: init.slot_assignment,
                 clonable: init.clonable,
                 serializable: init.serializable,
+                null_registry: init.null_registry,
             },
             TreeRelation::default(),
             NodeKind::DocumentFragment,

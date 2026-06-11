@@ -353,6 +353,7 @@ fn clone_node_resets_failed_state_to_undefined() {
                 state: CEState::Failed,
                 definition_name: "my-x".to_string(),
                 is_value: None,
+                registry: elidex_custom_elements::RegistryAssociation::Document,
             },
         )
         .unwrap();
@@ -437,6 +438,76 @@ fn clone_node_copies_iframe_data() {
         .get::<&elidex_ecs::IframeData>(cloned)
         .expect("IframeData copied to clone");
     assert_eq!(data.src.as_deref(), Some("x"));
+}
+
+#[test]
+fn clone_propagates_null_registry_association() {
+    // Codex PR331 R12: DOM 4.4 "clone a single node" passes the
+    // source's custom element registry through *create an element* --
+    // a null-registry custom element clones to a null-registry clone
+    // (still excluded from every upgrade path).
+    let (mut dom, mut session) = setup();
+    let el = dom.create_element("x-nullclone", Attributes::default());
+    dom.world_mut()
+        .insert_one(
+            el,
+            CustomElementState {
+                state: CEState::Undefined,
+                definition_name: "x-nullclone".to_string(),
+                is_value: None,
+                registry: elidex_custom_elements::RegistryAssociation::Null,
+            },
+        )
+        .unwrap();
+    wrap(el, &mut session);
+
+    let r = CloneNode
+        .invoke(el, &[JsValue::Bool(false)], &mut session, &mut dom)
+        .unwrap();
+    let cloned = cloned_entity(&r, &session);
+    let state = dom
+        .world()
+        .get::<&CustomElementState>(cloned)
+        .expect("CE identity propagated");
+    assert_eq!(
+        state.registry,
+        elidex_custom_elements::RegistryAssociation::Null,
+        "null-registry association must propagate to the clone"
+    );
+}
+
+#[test]
+fn clonable_shadow_clone_preserves_null_registry() {
+    // DOM 4.4 clone-a-node step 6.5: the clone's shadow is attached
+    // with the source root's registry -- a null-registry clonable
+    // shadow tree stays null-registry on the clone.
+    let (mut dom, mut session) = setup();
+    let host = dom.create_element("div", Attributes::default());
+    let init = elidex_ecs::ShadowInit {
+        clonable: true,
+        null_registry: true,
+        ..elidex_ecs::ShadowInit::default()
+    };
+    let _sr = dom.attach_shadow_with_init(host, init).unwrap();
+    wrap(host, &mut session);
+
+    let r = CloneNode
+        .invoke(host, &[JsValue::Bool(false)], &mut session, &mut dom)
+        .unwrap();
+    let cloned = cloned_entity(&r, &session);
+    let cloned_sr = dom
+        .world()
+        .get::<&elidex_ecs::ShadowHost>(cloned)
+        .expect("clonable shadow replicated")
+        .shadow_root;
+    let sr = dom
+        .world()
+        .get::<&elidex_ecs::ShadowRoot>(cloned_sr)
+        .expect("ShadowRoot component");
+    assert!(
+        sr.null_registry,
+        "null-registry shadow association must survive cloning"
+    );
 }
 
 #[test]

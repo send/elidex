@@ -367,7 +367,11 @@ pub fn collect_undefined_entities(
     let mut out = Vec::new();
     let mut query = world.query::<(Entity, &CustomElementState)>();
     for (entity, state) in &mut query {
+        // Null-registry elements are outside every registry — the
+        // define()-time drain must not upgrade them (DOM §4.9:
+        // definition lookup in a null registry is always null).
         if matches!(state.state, CEState::Undefined)
+            && matches!(state.registry, crate::RegistryAssociation::Document)
             && state.definition_name == name
             && !skip.contains(&entity)
         {

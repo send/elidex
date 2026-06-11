@@ -30,12 +30,13 @@ use super::super::value::{JsValue, NativeContext, PropertyKey, VmError};
 /// shadow host or already has a shadow root.
 ///
 /// `customElementRegistry` (nullable member) is validated per
-/// attachShadow steps 2-3: only the document's global registry is
-/// accepted — a foreign registry throws `NotSupportedError` (step 3),
-/// a non-registry value throws the WebIDL conversion `TypeError`, and
-/// a null registry (spec-legal scoped-registry-less shadow tree)
-/// throws `NotSupportedError` until per-element registry association
-/// lands (slot `#11-shadow-scoped-custom-element-registry`).
+/// attachShadow steps 2-3: the document's global registry passes, a
+/// foreign registry throws `NotSupportedError` (step 3), a
+/// non-registry value throws the WebIDL conversion `TypeError`, and an
+/// explicit `null` creates a null-registry shadow root (step 2 —
+/// stored on the `ShadowRoot` component; per-context registry lookup
+/// for fragment parsing inside the shadow tree is deferred with
+/// scoped registries, slot `#11-shadow-scoped-custom-element-registry`).
 pub(super) fn native_element_attach_shadow(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -180,12 +181,15 @@ fn parse_shadow_init(
     let mode = read_required_mode(ctx, init_id)?;
     let serializable = read_optional_bool(ctx, init_id, "serializable")?;
     let slot_assignment = read_optional_slot_assignment(ctx, init_id)?;
-    // ALGORITHM PHASE — attachShadow steps 2-3: a present
-    // `customElementRegistry` member must be the document's global
-    // registry; foreign / null registries are rejected (helper doc has
-    // the spec-step + deferral rationale).
+    // ALGORITHM PHASE — attachShadow steps 2-3: a foreign registry
+    // throws NotSupportedError (step 3, only fires for NON-null
+    // registries); an explicit null threads through as a
+    // null-registry shadow root (step 2 — stored on the `ShadowRoot`
+    // component).
+    let mut null_registry = false;
     if let Some(member) = registry_member {
-        super::custom_elements::require_document_registry_member(ctx, &member, PREFIX)?;
+        super::custom_elements::reject_foreign_registry_member(ctx, &member, PREFIX)?;
+        null_registry = matches!(member, super::custom_elements::RegistryMember::Null);
     }
     Ok(ShadowInit {
         mode,
@@ -193,6 +197,7 @@ fn parse_shadow_init(
         slot_assignment,
         clonable,
         serializable,
+        null_registry,
     })
 }
 

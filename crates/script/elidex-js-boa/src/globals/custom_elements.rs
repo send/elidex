@@ -275,7 +275,14 @@ fn walk_and_enqueue_upgrades_inner(
     }
 
     if let Ok(ce_state) = dom.world().get::<&CustomElementState>(root) {
-        if ce_state.state == CEState::Undefined {
+        // Null-registry elements are outside every registry — neither
+        // the define()-time walk nor customElements.upgrade() (both
+        // route through here) may upgrade them.
+        let in_document_registry = matches!(
+            ce_state.registry,
+            elidex_custom_elements::RegistryAssociation::Document
+        );
+        if in_document_registry && ce_state.state == CEState::Undefined {
             // Upgrade only when the element's local name matches the
             // definition (customized built-in → `extends` base; autonomous →
             // the definition name). Shared rule:

@@ -111,18 +111,15 @@ fn attach_shadow_registry_converts_before_mode_getter_runs() {
 }
 
 #[test]
-fn attach_shadow_null_registry_throws_not_supported() {
-    // A null-registry shadow tree (spec-legal, never upgraded) needs
-    // per-element registry association — rejected loudly until slot
-    // `#11-shadow-scoped-custom-element-registry` lands. The throw
-    // happens at init parsing, before any mutation.
-    let out = run(
-        "var host = document.createElement('div'); var caught = ''; \
-         try { host.attachShadow({mode: 'open', customElementRegistry: null}); } \
-         catch (e) { caught = '' + e; } \
-         (caught.indexOf('NotSupportedError') !== -1 \
-          && host.shadowRoot === null) ? 'ok' : ('fail:' + caught);",
-    );
+fn attach_shadow_null_registry_accepted() {
+    // Codex PR331 R12: an explicit `customElementRegistry: null` is
+    // spec-legal (attachShadow step 2 sets the shadow root's registry
+    // to null; step 3 only rejects NON-null foreign registries) — the
+    // shadow attaches normally and the association is stored on the
+    // `ShadowRoot` component.
+    let out = run("var host = document.createElement('div'); \
+         var sr = host.attachShadow({mode: 'open', customElementRegistry: null}); \
+         (sr.mode === 'open' && host.shadowRoot === sr) ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
 }
 

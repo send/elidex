@@ -43,6 +43,38 @@ pub struct CustomElementState {
     /// emit the is value), and an is value equal to the local name is
     /// still non-null and must serialize.
     pub is_value: Option<String>,
+    /// The element's custom element registry association. `Null`
+    /// excludes the element from every upgrade path; clones propagate
+    /// it (DOM §4.4 "clone a single node" passes the source's
+    /// registry through *create an element*).
+    pub registry: RegistryAssociation,
+}
+
+/// The element's *custom element registry* association (DOM §4.9
+/// "create an element internal" step 1 sets it on every element; DOM
+/// §4.5 "flatten element creation options" / `attachShadow` thread the
+/// caller-supplied value through).
+///
+/// elidex has a single per-document global registry, so the
+/// association reduces to "the document's registry" vs "null" — a
+/// null-registry element is spec-legal (`{customElementRegistry:
+/// null}`) and is **never upgraded**: `define()` walks,
+/// `customElements.upgrade()`, and creation-time routing all skip it.
+/// Sparseness narrowing: elements that never receive a
+/// `CustomElementState` (non-CE-relevant tags) do not record the
+/// association — unobservable until per-context registry lookup
+/// (fragment-parsing inside null-registry trees) lands with scoped
+/// registries, slot `#11-shadow-scoped-custom-element-registry`
+/// (which adds the third, identity-carrying variant).
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum RegistryAssociation {
+    /// Associated with the document's global registry (the default
+    /// for every parser- and `createElement`-created element).
+    #[default]
+    Document,
+    /// Created with an explicit `customElementRegistry: null` —
+    /// outside every registry, never upgraded.
+    Null,
 }
 
 impl CustomElementState {
@@ -53,6 +85,7 @@ impl CustomElementState {
             state: CEState::Undefined,
             definition_name: name.into(),
             is_value: None,
+            registry: RegistryAssociation::Document,
         }
     }
 
@@ -63,6 +96,7 @@ impl CustomElementState {
             state: CEState::Custom,
             definition_name: name.into(),
             is_value: None,
+            registry: RegistryAssociation::Document,
         }
     }
 
@@ -122,12 +156,14 @@ impl CustomElementState {
                 state: CEState::Undefined,
                 definition_name: local_name.to_string(),
                 is_value: is_value.map(str::to_string),
+                registry: RegistryAssociation::Document,
             });
         }
         is_value.map(|is| Self {
             state: CEState::Undefined,
             definition_name: is.to_string(),
             is_value: Some(is.to_string()),
+            registry: RegistryAssociation::Document,
         })
     }
 }
