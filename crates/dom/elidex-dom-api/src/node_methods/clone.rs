@@ -145,15 +145,16 @@ impl DomApiHandler for CloneNode {
 #[must_use = "returns None when src does not exist"]
 pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -> Option<Entity> {
     let mut pairs: Vec<(Entity, Entity)> = Vec::new();
-    let cloned = clone_recording(dom, src, deep, &mut pairs)?;
+    let cloned = clone_recording(dom, src, deep, None, &mut pairs)?;
     // The *node document* threaded through the spec recursion: a
     // Document clone becomes its own node document; everything else
-    // keeps the source's.  The ECS cloner already applies this to
-    // light-tree descendants — the shadow-replication pass below must
-    // thread the SAME document into shadow subtrees (a fresh
-    // `clone_subtree` call would re-derive from the *source* child
-    // and stamp the original document onto a cloned Document's shadow
-    // contents; the shallow cloner stamps nothing).
+    // keeps the source's.  The ECS cloner applies this to light-tree
+    // descendants — the shadow-replication pass below threads the
+    // SAME document into shadow subtrees via the cloner's
+    // `doc_override` (deriving from the *source* child would stamp
+    // the original document onto a cloned Document's shadow contents;
+    // the shallow cloner stamps nothing, so the shallow branch stamps
+    // the single replicated child explicitly).
     let shadow_doc: Option<Entity> = if matches!(dom.node_kind(src), Some(NodeKind::Document)) {
         Some(cloned)
     } else {
@@ -178,18 +179,17 @@ pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -
         let source_shadow_children: Vec<Entity> = dom.children(src_shadow_root);
         for child in source_shadow_children {
             // Step 6.7: shadow children clone with the operation's
-            // own `subtree` flag.
-            let start = pairs.len();
-            let Some(child_clone) = clone_recording(dom, child, deep, &mut pairs) else {
+            // own `subtree` flag, threading the operation's document.
+            let Some(child_clone) = clone_recording(dom, child, deep, shadow_doc, &mut pairs)
+            else {
                 continue;
             };
-            if let Some(doc) = shadow_doc {
-                // Overwrite the cloner's source-derived stamping with
-                // the operation's document (no-op for non-Document
-                // sources, where the two coincide).
-                let stamped: Vec<Entity> = pairs[start..].iter().map(|&(_, d)| d).collect();
-                for shadow_dst in stamped {
-                    dom.set_associated_document(shadow_dst, doc);
+            if !deep {
+                // The shallow cloner never stamps AssociatedDocument;
+                // mirror what the deep path's doc threading does for
+                // the one node it produced.
+                if let Some(doc) = shadow_doc {
+                    dom.set_associated_document(child_clone, doc);
                 }
             }
             let _ = dom.append_child(cloned_shadow, child_clone);
@@ -207,10 +207,11 @@ fn clone_recording(
     dom: &mut EcsDom,
     node: Entity,
     deep: bool,
+    doc_override: Option<Entity>,
     pairs: &mut Vec<(Entity, Entity)>,
 ) -> Option<Entity> {
     if deep {
-        dom.clone_subtree(node, pairs)
+        dom.clone_subtree(node, pairs, doc_override)
     } else {
         let cloned = dom.clone_node_shallow(node)?;
         pairs.push((node, cloned));

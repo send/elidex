@@ -210,6 +210,15 @@ impl CustomElementRegistry {
     /// Called when an element with a custom element name is created before
     /// `customElements.define()` has been called for that name.
     pub fn queue_for_upgrade(&mut self, name: &str, entity: Entity) {
+        // Queue admission is gated on name validity (the element's
+        // Undefined MARKING is not — DOM §4.9 step 6.3 is
+        // validity-free): `define()` rejects invalid names, so a
+        // bucket keyed by one is undrainable forever and would grow
+        // unboundedly.  Owning the gate here (not at the engine call
+        // sites) protects every present and future caller.
+        if !is_valid_custom_element_name(name) {
+            return;
+        }
         self.pending_upgrade
             .entry(name.to_string())
             .or_default()

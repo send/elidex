@@ -174,11 +174,16 @@ impl EcsDom {
     /// produce a clone with no [`crate::AssociatedDocument`] component —
     /// callers relying on the tree-root fallback behaviour remain
     /// unchanged.
+    ///
+    /// `doc_override` substitutes the threaded document for non-Document
+    /// sources (spec: *clone a node* takes `document` as an argument);
+    /// `None` derives it from `src`'s own node document.
     #[must_use = "returns None when src does not exist"]
     pub fn clone_subtree(
         &mut self,
         src: Entity,
         pairs: &mut Vec<(Entity, Entity)>,
+        doc_override: Option<Entity>,
     ) -> Option<Entity> {
         if !self.contains(src) {
             return None;
@@ -187,12 +192,16 @@ impl EcsDom {
         // Pick the "document" that gets threaded through the spec's
         // recursion.  For Document clones we defer until after the
         // root has been allocated (it becomes self-referential); for
-        // everything else we read the src node document up front.
+        // everything else `doc_override` wins when supplied — the
+        // shadow-replication pass threads the *operation's* document
+        // into shadow subtrees this way (a source-derived document
+        // would stamp the original onto a cloned Document's shadow
+        // contents) — else we read the src node document up front.
         let document_for_children: Option<Entity> = if matches!(src_kind, Some(NodeKind::Document))
         {
             None
         } else {
-            self.owner_document(src)
+            doc_override.or_else(|| self.owner_document(src))
         };
         // Shallow-clone the root.  The root's own AssociatedDocument is
         // set below so we can handle the Document self-ref and the
@@ -275,35 +284,28 @@ impl EcsDom {
             .get::<&Attributes>(src)
             .ok()
             .map(|a| (*a).clone());
-        // Intrinsic copy: "clone a single node" step 2.4 passes the
-        // source namespace to *create an element*.  Sparse-by-absence
-        // (absent == HTML), so only foreign elements carry it.  All
-        // three reads are element-only components, so gate them on the
-        // TagType probe above — Text/Comment/DocType nodes (the bulk
-        // of a typical subtree) skip the archetype lookups entirely.
-        let is_element = tag.is_some();
-        let namespace = if is_element {
-            self.world.get::<&Namespace>(src).ok().map(|n| *n)
+        // Intrinsic copy (`Namespace` — "clone a single node" step 2.4
+        // passes the source namespace; sparse-by-absence, so only
+        // foreign elements carry it) and derived copy (`InlineStyle` /
+        // `IframeData` — creation-derived pure data copied together
+        // with `Attributes` so the pair stays consistent).  All three
+        // are element-only components, so one gate on the TagType
+        // probe above lets Text/Comment/DocType nodes (the bulk of a
+        // typical subtree) skip the archetype lookups entirely.
+        let (namespace, inline_style, iframe_data) = if tag.is_some() {
+            (
+                self.world.get::<&Namespace>(src).ok().map(|n| *n),
+                self.world
+                    .get::<&InlineStyle>(src)
+                    .ok()
+                    .map(|s| (*s).clone()),
+                self.world
+                    .get::<&IframeData>(src)
+                    .ok()
+                    .map(|i| (*i).clone()),
+            )
         } else {
-            None
-        };
-        // Derived copy (src-parity): creation-derived pure data copied
-        // together with `Attributes` so the pair stays consistent.
-        let inline_style = if is_element {
-            self.world
-                .get::<&InlineStyle>(src)
-                .ok()
-                .map(|s| (*s).clone())
-        } else {
-            None
-        };
-        let iframe_data = if is_element {
-            self.world
-                .get::<&IframeData>(src)
-                .ok()
-                .map(|i| (*i).clone())
-        } else {
-            None
+            (None, None, None)
         };
         // Determine the destination `NodeKind`: prefer the source
         // component if present, otherwise infer from the payload

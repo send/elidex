@@ -65,7 +65,7 @@ fn clone_subtree_non_document_propagates_src_owner() {
     assert!(dom.append_child(span, text));
 
     let clone = dom
-        .clone_subtree(div, &mut Vec::new())
+        .clone_subtree(div, &mut Vec::new(), None)
         .expect("clone_subtree");
     assert_eq!(dom.owner_document(clone), Some(doc));
     let cloned_span = dom.children(clone)[0];
@@ -92,7 +92,7 @@ fn clone_subtree_document_self_reference_and_descendants() {
     assert!(dom.append_child(html, body));
 
     let clone_doc = dom
-        .clone_subtree(src_doc, &mut Vec::new())
+        .clone_subtree(src_doc, &mut Vec::new(), None)
         .expect("clone_subtree");
     // Document.ownerDocument is always null per spec, so the accessor
     // returns None; but the internal AssociatedDocument points at the

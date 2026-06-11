@@ -12,6 +12,9 @@
 //! [`DomApiHandler`]: elidex_script_session::DomApiHandler
 //! [`CssomApiHandler`]: elidex_script_session::CssomApiHandler
 
+#[cfg(test)]
+pub(crate) mod test_util;
+
 pub mod char_data;
 pub mod child_node;
 pub mod class_list;

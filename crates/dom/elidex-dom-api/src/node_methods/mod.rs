@@ -82,4 +82,4 @@ pub(crate) fn find_root_non_composed(entity: Entity, dom: &EcsDom) -> Entity {
 
 #[cfg(test)]
 #[allow(unused_must_use)]
-pub(crate) mod tests;
+mod tests;

@@ -294,11 +294,8 @@ pub(super) fn native_document_create_element(
     // ToString at call site; handler does the lowercase normalisation
     // and the "node document" anchoring (WHATWG DOM §4.5 / §4.4).
     let tag_sid = coerce_first_arg_to_string_id(ctx, args)?;
-    // WHATWG DOM §4.5 createElement step 3 "flatten element creation
-    // options" — pure marshalling: extract `options.is` and ToString
-    // it.  NO validity check here (per DOM §4.9 "create an element"
-    // step 6.3 a non-null `is` marks the element regardless of name
-    // validity); the engine-indep handler owns the derivation via
+    // DOM §4.5 step 3 option-flattening — marshalling only, no
+    // validity check; full rationale on
     // `CustomElementState::for_created_element`.
     let mut handler_args = vec![JsValue::String(tag_sid)];
     if let Some(JsValue::Object(options_id)) = args.get(1) {
@@ -389,13 +386,9 @@ fn route_custom_element_upgrade(ctx: &mut NativeContext<'_>, entity: elidex_ecs:
         if let Err(err) = crate::vm::host::custom_elements::upgrade::invoke_upgrade(ctx, entity) {
             eprintln!("[CE Upgrade Error] {}", err.message);
         }
-    } else if elidex_custom_elements::is_valid_custom_element_name(&name) {
-        // Queue admission is gated on name validity even though the
-        // Undefined MARKING is not (DOM §4.9 step 6.3 is validity-
-        // free): `customElements.define()` rejects invalid names, so a
-        // pending bucket keyed by one is undrainable forever — without
-        // this gate, `createElement(tag, {is: junk})` grows the queue
-        // unboundedly for the session lifetime.
+    } else {
+        // Queue admission (incl. the invalid-name gate) is owned by
+        // `CustomElementRegistry::queue_for_upgrade` itself.
         ctx.host()
             .ce_registry
             .lock()

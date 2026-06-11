@@ -185,18 +185,20 @@ impl DomApiHandler for CreateElement {
         // explicit `create_element_with_owner` call; the handler now
         // owns the spec-precise behaviour so both boa and VM paths
         // observe the same ownerDocument semantics.
-        let entity =
-            dom.create_element_with_owner(local_name.clone(), Attributes::default(), Some(this));
         // WHATWG DOM §4.9 "create an element" step 6.3 — the canonical
-        // creation-time custom-element-state derivation. No `is`
-        // content attribute is set (DOM §4.5 createElement has no such
-        // step); serialization compensates via the HTML §13.3 is-value
-        // step in `serialize_node`.
-        if let Some(ce_state) = elidex_custom_elements::CustomElementState::for_created_element(
+        // creation-time custom-element-state derivation (computed
+        // before the entity spawn so `local_name` can move into
+        // `create_element_with_owner`). No `is` content attribute is
+        // set (DOM §4.5 createElement has no such step); serialization
+        // compensates via the HTML §13.3 is-value step in
+        // `serialize_node`.
+        let ce_state = elidex_custom_elements::CustomElementState::for_created_element(
             &local_name,
             is_value,
             elidex_ecs::Namespace::Html,
-        ) {
+        );
+        let entity = dom.create_element_with_owner(local_name, Attributes::default(), Some(this));
+        if let Some(ce_state) = ce_state {
             let _ = dom.world_mut().insert_one(entity, ce_state);
         }
         let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::Element);
@@ -482,7 +484,7 @@ mod tests {
     // createElement — CustomElementState derivation (DOM §4.9 step 6.3)
     // -------------------------------------------------------------------
 
-    use crate::node_methods::tests::clone::cloned_entity as created_entity;
+    use crate::test_util::entity_of as created_entity;
 
     #[test]
     fn create_element_autonomous_gets_undefined_ce_state() {

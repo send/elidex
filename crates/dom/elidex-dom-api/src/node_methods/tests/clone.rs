@@ -290,21 +290,8 @@ fn clone_node_window_kind_yields_type_error() {
 // component's `definition_name` — propagates; lifecycle state resets).
 // -----------------------------------------------------------------------
 
+use crate::test_util::entity_of as cloned_entity;
 use elidex_custom_elements::{CEState, CustomElementState};
-
-/// Unwrap an ObjectRef result back to its Entity — shared with the
-/// `document.rs` createElement tests (`crate::node_methods::tests`
-/// is the crate's test-fixture home).
-pub(crate) fn cloned_entity(r: &JsValue, session: &SessionCore) -> Entity {
-    let JsValue::ObjectRef(ref_id) = r else {
-        panic!("expected ObjectRef");
-    };
-    session
-        .identity_map()
-        .get(JsObjectRef::from_raw(*ref_id))
-        .unwrap()
-        .0
-}
 
 #[test]
 fn clone_node_propagates_customized_builtin_identity() {
@@ -458,15 +445,12 @@ fn clone_node_copies_iframe_data() {
 // shadow children's own clone depth follows the flag, step 6.7).
 // -----------------------------------------------------------------------
 
-use elidex_ecs::{ShadowInit, ShadowRootMode, SlotAssignmentMode};
+use elidex_ecs::{ShadowInit, ShadowRootMode};
 
 fn clonable_init() -> ShadowInit {
     ShadowInit {
-        mode: ShadowRootMode::Open,
-        delegates_focus: false,
-        slot_assignment: SlotAssignmentMode::Named,
         clonable: true,
-        serializable: false,
+        ..ShadowInit::default()
     }
 }
 

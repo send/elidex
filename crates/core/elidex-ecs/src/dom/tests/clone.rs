@@ -67,7 +67,7 @@ fn clone_subtree_shallow_root_has_no_parent() {
     let src = elem(&mut dom, "div");
     assert!(dom.append_child(parent, src));
     let clone = dom
-        .clone_subtree(src, &mut Vec::new())
+        .clone_subtree(src, &mut Vec::new(), None)
         .expect("clone_subtree");
     assert!(dom.get_parent(clone).is_none());
     assert!(dom.get_next_sibling(clone).is_none());
@@ -89,7 +89,7 @@ fn clone_subtree_deep_copies_children_order() {
     assert!(dom.append_child(root, c));
 
     let clone = dom
-        .clone_subtree(root, &mut Vec::new())
+        .clone_subtree(root, &mut Vec::new(), None)
         .expect("clone_subtree");
     let kids = dom.children(clone);
     assert_eq!(kids.len(), 3);
@@ -122,7 +122,7 @@ fn clone_subtree_infers_node_kind_from_payload_when_missing() {
     assert!(dom.node_kind(legacy_text).is_none());
 
     let clone = dom
-        .clone_subtree(legacy_text, &mut Vec::new())
+        .clone_subtree(legacy_text, &mut Vec::new(), None)
         .expect("clone_subtree");
     // The clone must have inferred `NodeKind::Text` from the payload,
     // and must carry a `TextContent` component.
@@ -147,7 +147,7 @@ fn clone_subtree_on_destroyed_src_returns_none() {
     let mut dom = EcsDom::new();
     let src = elem(&mut dom, "div");
     dom.destroy_entity(src);
-    assert_eq!(dom.clone_subtree(src, &mut Vec::new()), None);
+    assert_eq!(dom.clone_subtree(src, &mut Vec::new(), None), None);
 }
 
 #[test]
@@ -162,7 +162,7 @@ fn clone_subtree_skips_shadow_root() {
     assert!(dom.append_child(host, light));
 
     let clone = dom
-        .clone_subtree(host, &mut Vec::new())
+        .clone_subtree(host, &mut Vec::new(), None)
         .expect("clone_subtree");
     // The clone has no shadow root component itself.
     assert!(dom.get_shadow_root(clone).is_none());
@@ -228,7 +228,9 @@ fn clone_subtree_pairs_cover_every_node_root_first() {
     assert!(dom.append_child(child_b, grandchild));
 
     let mut pairs = Vec::new();
-    let clone = dom.clone_subtree(root, &mut pairs).expect("clone_subtree");
+    let clone = dom
+        .clone_subtree(root, &mut pairs, None)
+        .expect("clone_subtree");
     // Completeness: one pair per cloned node, root first.
     assert_eq!(pairs.len(), 4);
     assert_eq!(pairs[0], (root, clone));

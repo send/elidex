@@ -130,16 +130,9 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
             |_this, args, bridge, ctx| -> JsResult<JsValue> {
                 let tag = require_js_string_arg(args, 0, "createElement", ctx)?;
 
-                // WHATWG DOM §4.5 createElement step 3 "flatten element
-                // creation options" — pure marshalling: extract
-                // `options.is` and ToString it. NO validity check (per
-                // DOM §4.9 "create an element" step 6.3 a non-null `is`
-                // marks the element regardless of name validity); the
-                // engine-indep handler owns the derivation via
-                // `CustomElementState::for_created_element`. No `is`
-                // content attribute is set either (DOM §4.5 has no such
-                // step) — serialization compensates via the HTML §13.3
-                // is-value step in `serialize_node`.
+                // DOM §4.5 step 3 option-flattening — marshalling
+                // only, no validity check; full rationale on
+                // `CustomElementState::for_created_element`.
                 let mut handler_args = vec![ElidexJsValue::String(tag)];
                 if let Some(opts) = args.get(1).and_then(JsValue::as_object) {
                     let v = opts.get(js_string!("is"), ctx)?;
@@ -163,7 +156,10 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                 // lookup.
                 if let Ok(entity) = crate::globals::element::extract_entity(&result, ctx) {
                     bridge.with(|_session, dom| {
-                        let (name, local_name) = {
+                        // Customized-built-in discrimination via the
+                        // canonical `CustomElementState::is_value`
+                        // accessor (single home of the comparison).
+                        let (name, local_name, is_val) = {
                             let world = dom.world();
                             let Ok(state) =
                                 world.get::<&elidex_custom_elements::CustomElementState>(entity)
@@ -174,26 +170,22 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                                 .get::<&elidex_ecs::TagType>(entity)
                                 .map(|t| t.0.clone())
                                 .unwrap_or_default();
-                            (state.definition_name.clone(), local_name)
+                            let is_val = state.is_value(&local_name).map(str::to_owned);
+                            (state.definition_name.clone(), local_name, is_val)
                         };
-                        // Customized-built-in discrimination via the
-                        // canonical `CustomElementState::is_value` shape:
-                        // definition name == local name ⇔ autonomous.
-                        let defined = if name == local_name {
-                            bridge.is_custom_element_defined(&name)
-                        } else {
-                            bridge.ce_lookup_by_is(&name, &local_name)
+                        let defined = match &is_val {
+                            Some(is) => bridge.ce_lookup_by_is(is, &local_name),
+                            None => bridge.is_custom_element_defined(&name),
                         };
                         if defined {
                             // Definition exists — enqueue Upgrade.
                             bridge.enqueue_ce_reaction(
                                 elidex_custom_elements::CustomElementReaction::Upgrade(entity),
                             );
-                        } else if elidex_custom_elements::is_valid_custom_element_name(&name) {
-                            // Queue admission gated on validity (the
-                            // Undefined marking is not — DOM §4.9 step
-                            // 6.3): define() rejects invalid names, so
-                            // an invalid-keyed bucket can never drain.
+                        } else {
+                            // Queue admission (incl. the invalid-name
+                            // gate) is owned by the registry's
+                            // `queue_for_upgrade`.
                             bridge.queue_for_ce_upgrade(&name, entity);
                         }
                     });

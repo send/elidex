@@ -701,23 +701,19 @@ fn serialize_node(
         // BEFORE the attribute loop) — this is what lets a customized
         // built-in created via `createElement(tag, {is})` (which sets
         // NO `is` attribute per DOM §4.5) survive a serialize→parse
-        // round-trip.  The attribute-list membership check uses
-        // `Attributes::get` directly (not a flag accumulated in the
-        // emission loop) so it stays the spec condition independent of
-        // emission filtering/ordering.  `escape_attr` is load-bearing:
-        // the is value is an arbitrary author string (DOM §4.9 step
-        // 6.3 imposes no validity), so raw emission would inject
-        // markup.
-        let has_is_attr = dom
+        // round-trip.  The sparse `CustomElementState` probe runs
+        // first so the overwhelmingly common no-CE element pays one
+        // failed lookup; the membership check is the spec condition
+        // (`has_attribute`), independent of emission filtering.
+        // `escape_attr` is load-bearing: the is value is an arbitrary
+        // author string (DOM §4.9 step 6.3 imposes no validity), so
+        // raw emission would inject markup.
+        if let Ok(ce) = dom
             .world()
-            .get::<&Attributes>(entity)
-            .is_ok_and(|attrs| attrs.get("is").is_some());
-        if !has_is_attr {
-            if let Ok(ce) = dom
-                .world()
-                .get::<&elidex_custom_elements::CustomElementState>(entity)
-            {
-                if let Some(is_value) = ce.is_value(&tag.0) {
+            .get::<&elidex_custom_elements::CustomElementState>(entity)
+        {
+            if let Some(is_value) = ce.is_value(&tag.0) {
+                if !dom.has_attribute(entity, "is") {
                     html.push_str(" is=\"");
                     html.push_str(&escape_attr(is_value));
                     html.push('"');

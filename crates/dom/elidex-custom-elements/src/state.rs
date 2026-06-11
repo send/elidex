@@ -68,7 +68,7 @@ impl CustomElementState {
     /// {is:'my-other'})` loses the is value to the autonomous branch
     /// (slot `#11-custom-element-is-value-slot-separation`).
     #[must_use]
-    pub fn is_value<'a>(&'a self, local_name: &str) -> Option<&'a str> {
+    pub fn is_value(&self, local_name: &str) -> Option<&str> {
         (self.definition_name != local_name).then_some(self.definition_name.as_str())
     }
 
