@@ -137,6 +137,22 @@ impl super::super::VmInner {
     /// NB `location.origin` does **not** read this — HTML §7.2.4 returns the
     /// Location *URL's* origin, which differs from the document origin for a
     /// sandboxed doc (it stays `current_url`-derived).
+    ///
+    /// **Idempotency contract.** The *serialization* is always stable (opaque →
+    /// `"null"`), so the S1b settings-origin readers (which only serialize) are
+    /// well-defined in every state. The returned *value* is identity-stable
+    /// when an override is installed (returns the stored `SecurityOrigin`) or
+    /// when `current_url` is a tuple origin (`from_url` is deterministic for
+    /// http/https). It is **not** identity-stable in the unset + opaque-URL
+    /// case: `SecurityOrigin::from_url` mints a fresh `Opaque(n)` per call (the
+    /// global opaque counter), so two calls compare unequal. No current caller
+    /// compares the value by identity; the shell installs the override on every
+    /// document load (`pipeline.rs` / `iframe/load.rs`), so the unset path is
+    /// test/bootstrap-only. A future identity-comparing consumer — e.g. the S5
+    /// `iframe/lifecycle.rs` frame-ancestors `'self'` / X-Frame-Options
+    /// `SAMEORIGIN` checks (`elidex_plugin::is_framing_allowed`) — must rely on
+    /// that installed override, or this resolver must first gain a per-VM
+    /// stable opaque for the fallback.
     pub(crate) fn document_origin(&self) -> elidex_plugin::SecurityOrigin {
         self.host_data
             .as_deref()

@@ -8,6 +8,7 @@ use std::time::Instant;
 use elidex_ecs::Entity;
 use elidex_script_session::{DispatchEvent, EvalResult, ListenerId, ScriptContext, ScriptEngine};
 
+use crate::vm::host_data::HostData;
 use crate::vm::value::{JsValue, ObjectKind};
 use crate::vm::Vm;
 
@@ -90,26 +91,52 @@ impl ElidexJsEngine {
         }
     }
 
+    // The read accessors take `&self` (boa's `bridge()` getters are `&self`,
+    // so the S5 shell read-sites — `event_handlers.rs` popups / `form_input.rs`
+    // forms / `iframe/lifecycle.rs` depth — need only a shared borrow). They
+    // read `self.vm.inner.host_data` directly, like `origin()` above, rather
+    // than the `&mut`-returning `Vm::host_data()`.
+
     /// The sandbox flags for this document's browsing context, if sandboxed.
-    pub fn sandbox_flags(&mut self) -> Option<elidex_plugin::IframeSandboxFlags> {
-        self.vm.host_data().and_then(|hd| hd.sandbox_flags())
+    #[must_use]
+    pub fn sandbox_flags(&self) -> Option<elidex_plugin::IframeSandboxFlags> {
+        self.vm
+            .inner
+            .host_data
+            .as_deref()
+            .and_then(HostData::sandbox_flags)
     }
 
     /// Whether form submission is allowed (sandbox `allow-forms`; §7.1.5).
     /// `true` on an un-`HostData`-installed / unsandboxed VM.
-    pub fn forms_allowed(&mut self) -> bool {
-        self.vm.host_data().is_none_or(|hd| hd.forms_allowed())
+    #[must_use]
+    pub fn forms_allowed(&self) -> bool {
+        self.vm
+            .inner
+            .host_data
+            .as_deref()
+            .is_none_or(HostData::forms_allowed)
     }
 
     /// Whether popups are allowed (sandbox `allow-popups`; §7.1.5).
     /// `true` on an un-`HostData`-installed / unsandboxed VM.
-    pub fn popups_allowed(&mut self) -> bool {
-        self.vm.host_data().is_none_or(|hd| hd.popups_allowed())
+    #[must_use]
+    pub fn popups_allowed(&self) -> bool {
+        self.vm
+            .inner
+            .host_data
+            .as_deref()
+            .is_none_or(HostData::popups_allowed)
     }
 
     /// The iframe nesting depth of this document (`0` = top-level).
-    pub fn iframe_depth(&mut self) -> usize {
-        self.vm.host_data().map_or(0, |hd| hd.iframe_depth())
+    #[must_use]
+    pub fn iframe_depth(&self) -> usize {
+        self.vm
+            .inner
+            .host_data
+            .as_deref()
+            .map_or(0, HostData::iframe_depth)
     }
 
     /// Set the iframe nesting depth (the shell's iframe load path drives it).

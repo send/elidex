@@ -151,7 +151,8 @@ fn sandbox_capability_accessors_track_flags() {
 fn sandbox_accessors_default_open_without_host_data() {
     // Mirror S1a `scripts_allowed`: an un-`HostData`-installed VM defaults to
     // permissive (so the absence of a security context never silently denies).
-    let mut engine = ElidexJsEngine::new();
+    // (The read accessors are `&self`, so no `mut` binding is needed here.)
+    let engine = ElidexJsEngine::new();
     assert!(engine.forms_allowed());
     assert!(engine.popups_allowed());
     assert_eq!(engine.sandbox_flags(), None);
