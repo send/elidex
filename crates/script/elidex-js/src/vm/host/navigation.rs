@@ -119,3 +119,31 @@ impl NavigationState {
         self.history_index
     }
 }
+
+impl super::super::VmInner {
+    /// The document's security origin (WHATWG HTML §7.1.1) — the canonical
+    /// value every *settings-object-origin* surface serializes.
+    ///
+    /// Returns the embedder-installed override
+    /// ([`super::super::host_data::HostData::set_origin`]) when present —
+    /// opaque for a sandboxed iframe, so the document reports `"null"` — and
+    /// otherwise derives it from [`NavigationState::current_url`] (the spec
+    /// default: a document's origin is its URL's origin unless overridden).
+    /// This is the single resolution point the **window.postMessage**
+    /// (§9.3.3) / **WebSocket** (WebSockets §2.2) / **EventSource** (§9.2.2)
+    /// `Origin` / **localStorage** (§12.2.3) readers consume, so none of them
+    /// re-derives `current_url.origin()` ad hoc (the S1b §5 unification).
+    ///
+    /// NB `location.origin` does **not** read this — HTML §7.2.4 returns the
+    /// Location *URL's* origin, which differs from the document origin for a
+    /// sandboxed doc (it stays `current_url`-derived).
+    pub(crate) fn document_origin(&self) -> elidex_plugin::SecurityOrigin {
+        self.host_data
+            .as_deref()
+            .and_then(super::super::host_data::HostData::document_origin_override)
+            .cloned()
+            .unwrap_or_else(|| {
+                elidex_plugin::SecurityOrigin::from_url(&self.navigation.current_url)
+            })
+    }
+}

@@ -300,7 +300,12 @@ fn native_event_source_constructor(
     };
     ctx.vm.get_object_mut(inst_id).kind = ObjectKind::EventSource;
 
-    let page_origin_str = ctx.vm.navigation.current_url.origin().ascii_serialization();
+    // The EventSource request's `Origin` is the entry settings object's
+    // origin (WHATWG HTML §9.2.2) — opaque (`"null"`) for a sandboxed doc.
+    // Read the canonical `document_origin` resolver, not `current_url`
+    // (S1b §5).  (`es_origin_string` below is the SSE *server* origin — a
+    // distinct fact, unchanged.)
+    let page_origin_str = ctx.vm.document_origin().serialize();
     let es_origin_string = url.origin().ascii_serialization();
     let origin_sid = ctx.vm.strings.intern(&es_origin_string);
     let url_serialized = url.as_str().to_owned();

@@ -212,6 +212,15 @@ fn reject_same_origin_cross_origin(
 /// classifier, which is a CORS bypass.  Fixed by threading
 /// every script-side fetch's source origin through verbatim.
 fn origin_for_request(source: &Url, _target: &Url) -> Option<url::Origin> {
+    // S1b §5 carve-out: this (and `reject_same_origin_cross_origin` /
+    // `attach_default_origin` below) derives the fetch request origin from
+    // `source` (= `current_url`), NOT the canonical `document_origin`
+    // resolver the other settings-object-origin readers use.  Routing fetch's
+    // `url::Origin` request-origin through `document_origin`'s opaque-ness
+    // (so a sandboxed iframe sends `Origin: null` + all-cross-origin CORS) is
+    // a distinct `url::Origin` broker-contract subsystem (security-critical,
+    // boa-parity-exempt — boa's fetch is origin-naive), deferred to slot
+    // `#11-sandbox-fetch-opaque-origin-isolation`.
     Some(source.origin())
 }
 

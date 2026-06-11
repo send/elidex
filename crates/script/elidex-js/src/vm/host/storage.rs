@@ -67,15 +67,27 @@ use super::named_property_exotic::{coerce_key_or_none, is_bound, key_on_prototyp
 // Origin derivation
 // ---------------------------------------------------------------------------
 
-/// Derive the origin string used for `localStorage` keying.  Tuple
-/// origins serialise via `url::Origin::ascii_serialization`; opaque
-/// origins fall back to the per-VM `HostData::opaque_origin_sentinel`
-/// so `about:blank` / `data:` / `javascript:` documents do not alias
-/// across VMs in the same process.
+/// Derive the origin string used for `localStorage` keying (WHATWG HTML
+/// §12.2.3 — localStorage is partitioned by the document origin).
+///
+/// Decides tuple-vs-opaque from the canonical [`VmInner::document_origin`]
+/// resolver, **not** `current_url.origin()` (S1b §5): a sandboxed iframe has
+/// a real `current_url` but an *opaque* document origin, and it must NOT
+/// share the real origin's storage.  Tuple origins serialise via
+/// `SecurityOrigin::serialize` (= the §7.1.1 ascii serialisation); opaque
+/// origins (sandboxed / `about:blank` / `data:` / `javascript:`) fall back to
+/// the per-VM `HostData::opaque_origin_sentinel` so they do not alias across
+/// VMs in the same process.
+///
+/// Invariant: isolation keys off the document origin **override**, not
+/// `sandbox_flags` — the embedder must install the opaque origin
+/// (`set_origin`) alongside `set_sandbox_flags` (the shell does, in
+/// `iframe/load.rs`); a sandbox flag without the paired opaque origin would
+/// fall through to the `current_url` tuple origin and leak storage.
 fn current_origin(vm: &VmInner) -> String {
-    let parsed = vm.navigation.current_url.origin();
-    if parsed.is_tuple() {
-        return parsed.ascii_serialization();
+    let origin = vm.document_origin();
+    if let elidex_plugin::SecurityOrigin::Tuple { .. } = &origin {
+        return origin.serialize();
     }
     vm.host_data.as_deref().map_or_else(
         || "null".to_string(),

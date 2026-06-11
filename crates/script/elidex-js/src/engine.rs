@@ -49,6 +49,76 @@ impl ElidexJsEngine {
         self.vm.host_data().is_none_or(|hd| hd.scripts_allowed())
     }
 
+    // ---- Shell-facing security context (S1b boa→VM cutover) ----
+    //
+    // These mirror boa's `HostBridge` accessors (`set_origin`/`origin`,
+    // `forms_allowed`/`popups_allowed`, `sandbox_flags`,
+    // `iframe_depth`/`set_iframe_depth`).  The shell consumes them today on
+    // boa's `bridge()`; the S5 flip rewrites `runtime.bridge().X()` to
+    // `runtime.X()` against this engine.  Until then they are exercised by
+    // S1b's own tests (boa stays live).  Each None-defaults on an
+    // un-`HostData`-installed VM, exactly like `scripts_allowed` above.
+
+    /// Install the document's security origin (WHATWG HTML §7.1.1).  The
+    /// embedder's load path computes it (`SecurityOrigin::from_url`, or the
+    /// opaque sandbox origin via the shell's `apply_sandbox_origin_from_flags`)
+    /// and installs it before scripts run.  No-op without an installed
+    /// `HostData`.
+    pub fn set_origin(&mut self, origin: elidex_plugin::SecurityOrigin) {
+        if let Some(hd) = self.vm.host_data() {
+            hd.set_origin(origin);
+        }
+    }
+
+    /// The document's security origin — the resolved value (the installed
+    /// override, else derived from `current_url`).  Parity with boa's
+    /// `bridge().origin()`; the shell reads it to compute a child iframe's
+    /// origin from its parent (`iframe/lifecycle.rs`).
+    #[must_use]
+    pub fn origin(&self) -> elidex_plugin::SecurityOrigin {
+        self.vm.inner.document_origin()
+    }
+
+    /// Install the sandbox flags for this document's browsing context (the
+    /// shell's iframe load path parses `sandbox=""` → `IframeSandboxFlags` and
+    /// drives this).  No-op without an installed `HostData`.  (The underlying
+    /// `HostData::set_sandbox_flags` shipped with S1a's `scripts_allowed` gate;
+    /// this is the shell-facing forwarder.)
+    pub fn set_sandbox_flags(&mut self, flags: Option<elidex_plugin::IframeSandboxFlags>) {
+        if let Some(hd) = self.vm.host_data() {
+            hd.set_sandbox_flags(flags);
+        }
+    }
+
+    /// The sandbox flags for this document's browsing context, if sandboxed.
+    pub fn sandbox_flags(&mut self) -> Option<elidex_plugin::IframeSandboxFlags> {
+        self.vm.host_data().and_then(|hd| hd.sandbox_flags())
+    }
+
+    /// Whether form submission is allowed (sandbox `allow-forms`; §7.1.5).
+    /// `true` on an un-`HostData`-installed / unsandboxed VM.
+    pub fn forms_allowed(&mut self) -> bool {
+        self.vm.host_data().is_none_or(|hd| hd.forms_allowed())
+    }
+
+    /// Whether popups are allowed (sandbox `allow-popups`; §7.1.5).
+    /// `true` on an un-`HostData`-installed / unsandboxed VM.
+    pub fn popups_allowed(&mut self) -> bool {
+        self.vm.host_data().is_none_or(|hd| hd.popups_allowed())
+    }
+
+    /// The iframe nesting depth of this document (`0` = top-level).
+    pub fn iframe_depth(&mut self) -> usize {
+        self.vm.host_data().map_or(0, |hd| hd.iframe_depth())
+    }
+
+    /// Set the iframe nesting depth (the shell's iframe load path drives it).
+    pub fn set_iframe_depth(&mut self, depth: usize) {
+        if let Some(hd) = self.vm.host_data() {
+            hd.set_iframe_depth(depth);
+        }
+    }
+
     /// Settle the same-window task queue, then custom-element reactions — the
     /// post-turn checkpoint that [`Vm::eval`] runs internally (`interpreter.rs`:
     /// `drain_tasks` → `flush_ce_reactions`) but that the **non-`eval` JS turns**
