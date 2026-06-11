@@ -697,8 +697,9 @@ impl Vm {
                 // alias the outgoing world on rebind:
                 // - `ce_registry`: `CustomElementDefinition::
                 //   constructor_id` indexes into `ce_constructors`
-                //   (per-VM); pending-upgrade `Entity` lists reference
-                //   the outgoing DOM.
+                //   (per-VM). ("Awaiting upgrade" needs no scrub —
+                //   it is the per-entity `CustomElementState`
+                //   component and dies with the world.)
                 // - `ce_reaction_queue`: every variant holds an
                 //   `Entity`.
                 // - `ce_constructors` / `ce_when_defined_promises`:
@@ -766,9 +767,8 @@ impl Vm {
             // D-17 `#11-custom-elements-vm` — drop the cached
             // `customElements` singleton wrapper so it can be re-
             // allocated lazily on the next bind. The registry state
-            // itself (registered constructors, pending upgrades,
-            // reaction queue) is scrubbed alongside the observer
-            // registries above.
+            // itself (registered constructors, reaction queue) is
+            // scrubbed alongside the observer registries above.
             self.inner.custom_element_registry_instance = None;
             // sessionStorage is per-VM and per-browsing-context.  An
             // unbind boundary expresses the browsing-context

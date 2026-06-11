@@ -145,8 +145,8 @@ pub(crate) fn native_ce_define(
     let observed_attributes = read_observed_attributes(ctx, ctor_id)?;
 
     // 5. Register the definition (delegates name-validity check +
-    //    duplicate-name check + pending-upgrade drain).  Allocate a
-    //    fresh per-VM constructor ID, store the JS callable, and on
+    //    duplicate-name check).  Allocate a fresh per-VM constructor
+    //    ID, store the JS callable, and on
     //    `define` Err remove the orphaned constructor from the map.
     //    `ce_next_constructor_id` is NOT decremented — IDs may be
     //    skipped on failed defines; the counter is a unique-tag source,
@@ -171,51 +171,32 @@ pub(crate) fn native_ce_define(
         .insert(ctor_id, constructor_id_u64);
     let definition =
         CustomElementDefinition::new(name.clone(), constructor_id_u64, observed_attributes, None);
-    let pending = {
+    let define_result = {
         let mut registry = host
             .ce_registry
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         registry.define(definition)
     };
-    let pending_entities = match pending {
-        Ok(entities) => entities,
-        Err(err) => {
-            host.ce_constructors.remove(&constructor_id_u64);
-            host.ce_constructor_to_id.remove(&ctor_id);
-            return Err(define_error_to_vm_error(&ctx.vm.well_known, err));
-        }
-    };
-
-    // 6. Enqueue Upgrade reactions for elements that were waiting in
-    //    the pending-upgrade queue under this name. Retain the list so
-    //    Step 7's world-walk can skip them — same entities re-found by
-    //    the query would double-enqueue Upgrade (the dup would no-op
-    //    via invoke_upgrade's Custom|Failed early-return, but it still
-    //    inflates MAX_CE_DRAIN_ITERATIONS pressure).
-    {
-        let mut queue = host
-            .ce_reaction_queue
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        for entity in &pending_entities {
-            queue.push_back(CustomElementReaction::Upgrade(*entity));
-        }
+    if let Err(err) = define_result {
+        host.ce_constructors.remove(&constructor_id_u64);
+        host.ce_constructor_to_id.remove(&ctor_id);
+        return Err(define_error_to_vm_error(&ctx.vm.well_known, err));
     }
 
-    // 7. Walk every entity in the world carrying
+    // 6. Walk every entity in the world carrying
     //    `CustomElementState::undefined(name)` and enqueue Upgrade —
-    //    covers parser-baked elements (state attached but never queued
-    //    because the parser cannot reach the per-VM registry) AND
-    //    detached `createElement`-baked elements not in the
-    //    pending_upgrade queue. Skips the entities already enqueued in
-    //    Step 6 to avoid double-enqueue.
-    enqueue_upgrade_walk(ctx, &name, &pending_entities);
+    //    the per-entity component is the single source of truth for
+    //    "awaiting upgrade", so parser-baked elements (the parser
+    //    cannot reach the per-VM registry) and `createElement`-baked
+    //    elements (attached or detached) are all discovered by the
+    //    same query.
+    enqueue_upgrade_walk(ctx, &name);
 
-    // 8. Resolve any pending whenDefined() Promises for this name.
+    // 7. Resolve any pending whenDefined() Promises for this name.
     resolve_when_defined(ctx, &name, ctor_id);
 
-    // 9. Flush queued reactions (Upgrades for the just-defined name
+    // 8. Flush queued reactions (Upgrades for the just-defined name
     //    fire synchronously per HTML §4.13.4 step 16 + §4.13.6 — the
     //    spec gates the entire define() body inside a CE reactions
     //    stack frame).
@@ -323,29 +304,24 @@ fn define_error_to_vm_error(
 }
 
 /// Enqueue Upgrade reactions for every entity in the world carrying
-/// `CustomElementState::Undefined` for `name`. Covers the parser /
-/// innerHTML path (where the parser attached the state component but
-/// could not reach the per-VM registry to call `queue_for_upgrade`)
-/// AND the detached-pre-define path (entities created via
-/// `createElement` before define then orphaned — `pending_upgrade`
-/// drain in step 6 covers those, this walk dedups but skips entities
-/// already covered by `skip_already_pending`).
+/// `CustomElementState::Undefined` for `name` — the single
+/// define()-time candidate-discovery mechanism. Covers the parser /
+/// innerHTML path (the parser attached the state component but cannot
+/// reach the per-VM registry) AND every `createElement`-baked element
+/// (attached or detached): "awaiting upgrade" is the per-entity
+/// component, not a registry-side queue.
 ///
 /// Uses a world-wide hecs query rather than a tree walk so detached
 /// elements (orphans + DocumentFragment subtrees + future
 /// multi-document) are not silently missed (the document-rooted walk
 /// would have skipped them).
-fn enqueue_upgrade_walk(
-    ctx: &mut NativeContext<'_>,
-    name: &str,
-    skip_already_pending: &[elidex_ecs::Entity],
-) {
+fn enqueue_upgrade_walk(ctx: &mut NativeContext<'_>, name: &str) {
     let Some(host) = ctx.host_if_bound() else {
         return;
     };
     let to_upgrade = {
         let dom = host.dom_shared();
-        elidex_custom_elements::collect_undefined_entities(dom.world(), name, skip_already_pending)
+        elidex_custom_elements::collect_undefined_entities(dom.world(), name)
     };
     if to_upgrade.is_empty() {
         return;
