@@ -29,9 +29,13 @@ use super::super::value::{JsValue, NativeContext, PropertyKey, VmError};
 /// `NotSupportedError` (DOMException) when the host is not a valid
 /// shadow host or already has a shadow root.
 ///
-/// `customElementRegistry` is accepted but ignored — scoped registry
-/// support deferred to slot
-/// `#11-shadow-scoped-custom-element-registry`.
+/// `customElementRegistry` (nullable member) is validated per
+/// attachShadow steps 2-3: only the document's global registry is
+/// accepted — a foreign registry throws `NotSupportedError` (step 3),
+/// a non-registry value throws the WebIDL conversion `TypeError`, and
+/// a null registry (spec-legal scoped-registry-less shadow tree)
+/// throws `NotSupportedError` until per-element registry association
+/// lands (slot `#11-shadow-scoped-custom-element-registry`).
 pub(super) fn native_element_attach_shadow(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -135,7 +139,8 @@ pub(super) fn native_element_get_shadow_root(
 /// `slotAssignment` defaults to "named" when missing; non-"named"/"manual"
 /// throws TypeError per WebIDL enum semantics.
 /// Other boolean fields default to `false`.
-/// `customElementRegistry` is accepted but ignored.
+/// `customElementRegistry` is validated (doc comment on
+/// `native_element_attach_shadow`).
 fn parse_shadow_init(
     ctx: &mut NativeContext<'_>,
     init_arg: JsValue,
@@ -152,8 +157,21 @@ fn parse_shadow_init(
     let slot_assignment = read_optional_slot_assignment(ctx, init_id)?;
     let clonable = read_optional_bool(ctx, init_id, "clonable")?;
     let serializable = read_optional_bool(ctx, init_id, "serializable")?;
-    // `customElementRegistry` parsed-and-ignored — scoped registry
-    // support deferred to slot `#11-shadow-scoped-custom-element-registry`.
+    // attachShadow steps 2-3: a present `customElementRegistry` member
+    // must be the document's global registry — foreign / null /
+    // non-registry values are rejected (helper doc has the spec-step +
+    // deferral rationale).
+    let registry_key = PropertyKey::String(ctx.vm.strings.intern("customElementRegistry"));
+    let registry_raw = ctx.vm.get_property_value(init_id, registry_key)?;
+    if !matches!(registry_raw, JsValue::Undefined) {
+        const PREFIX: &str = "Failed to execute 'attachShadow' on 'Element'";
+        let member = super::custom_elements::convert_custom_element_registry_member(
+            ctx,
+            registry_raw,
+            PREFIX,
+        )?;
+        super::custom_elements::require_document_registry_member(ctx, &member, PREFIX)?;
+    }
     Ok(ShadowInit {
         mode,
         delegates_focus,

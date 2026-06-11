@@ -9,7 +9,8 @@ use crate::vm::value::{JsValue, NativeContext, PropertyKey, StringId, VmError};
 
 /// DOM §4.5 createElement step 3 "flatten element creation options" —
 /// pure marshalling: extract `options.is` from the dictionary arm and
-/// ToString it. NO validity check (rationale on
+/// ToString it, validating the `customElementRegistry` member. NO
+/// validity check on the is value itself (rationale on
 /// `CustomElementState::for_created_element`).
 ///
 /// The DOMString arm of the `(DOMString or ElementCreationOptions)`
@@ -21,35 +22,46 @@ pub(in crate::vm) fn flatten_is_option(
     ctx: &mut NativeContext<'_>,
     options: Option<&JsValue>,
 ) -> Result<Option<StringId>, VmError> {
+    const PREFIX: &str = "Failed to execute 'createElement' on 'Document'";
     let Some(JsValue::Object(options_id)) = options else {
         return Ok(None);
     };
+    // WebIDL dictionary conversion reads members in lexicographic
+    // order — `customElementRegistry` before `is` — and a conversion
+    // TypeError on the registry member precedes every flatten step.
+    let registry_key = PropertyKey::String(ctx.vm.strings.intern("customElementRegistry"));
+    let registry_raw = ctx.vm.get_property_value(*options_id, registry_key)?;
     let is_key = PropertyKey::String(ctx.vm.strings.intern("is"));
-    let raw = ctx.vm.get_property_value(*options_id, is_key)?;
-    // WebIDL dictionary semantics: the member is absent only when the
+    let is_raw = ctx.vm.get_property_value(*options_id, is_key)?;
+    // WebIDL dictionary semantics: a member is absent only when the
     // property is undefined. `ElementCreationOptions.is` is a plain
     // (non-nullable) DOMString, so an explicit `{is: null}` converts
     // via ToString(null) = "null" — a NON-null is value downstream.
-    if matches!(raw, JsValue::Undefined) {
+    // `customElementRegistry` IS nullable (`CustomElementRegistry?`),
+    // so an explicit null there is a present member carrying a null
+    // registry.
+    if !matches!(registry_raw, JsValue::Undefined) {
+        let member = super::convert_custom_element_registry_member(ctx, registry_raw, PREFIX)?;
+        // Flatten step 3.2.1: a present `customElementRegistry`
+        // member alongside a non-null `is` is a hard conflict —
+        // NotSupportedError. "Exists" is dictionary presence, so this
+        // fires even when the registry member is null.
+        if !matches!(is_raw, JsValue::Undefined) {
+            return Err(VmError::dom_exception(
+                ctx.vm.well_known.dom_exc_not_supported_error,
+                format!("{PREFIX}: 'is' and 'customElementRegistry' cannot both be provided"),
+            ));
+        }
+        // Step 3.2.2 + 3.3: bind the supplied registry — only the
+        // document's global registry is representable today (null /
+        // foreign → NotSupportedError, rationale on the helper).
+        super::require_document_registry_member(ctx, &member, PREFIX)?;
         return Ok(None);
     }
-    // Flatten step 3.2.1: a dictionary carrying BOTH a non-null `is`
-    // and a `customElementRegistry` member is a hard conflict —
-    // NotSupportedError. (Scoped-registry support itself is deferred,
-    // slot `#11-shadow-scoped-custom-element-registry`; the conflict
-    // check is part of the flatten algorithm regardless.)
-    let registry_key = PropertyKey::String(ctx.vm.strings.intern("customElementRegistry"));
-    let registry_member = ctx.vm.get_property_value(*options_id, registry_key)?;
-    if !matches!(registry_member, JsValue::Undefined) {
-        let not_supported = ctx.vm.well_known.dom_exc_not_supported_error;
-        return Err(VmError::dom_exception(
-            not_supported,
-            "Failed to execute 'createElement' on 'Document': \
-             'is' and 'customElementRegistry' cannot both be provided"
-                .to_string(),
-        ));
+    if matches!(is_raw, JsValue::Undefined) {
+        return Ok(None);
     }
-    Ok(Some(crate::vm::coerce::to_string(ctx.vm, raw)?))
+    Ok(Some(crate::vm::coerce::to_string(ctx.vm, is_raw)?))
 }
 
 /// Per-VM upgrade-reaction routing for a freshly created element —

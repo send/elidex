@@ -135,15 +135,40 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                 // `CustomElementState::for_created_element`.
                 let mut handler_args = vec![ElidexJsValue::String(tag)];
                 if let Some(opts) = args.get(1).and_then(JsValue::as_object) {
+                    // WebIDL dictionary conversion reads members in
+                    // lexicographic order — `customElementRegistry`
+                    // before `is` — and a conversion TypeError on the
+                    // registry member precedes every flatten step.
+                    let reg = opts.get(js_string!("customElementRegistry"), ctx)?;
                     let v = opts.get(js_string!("is"), ctx)?;
-                    // WebIDL: member absent only when undefined —
-                    // `{is: null}` ToString-converts to "null" (the
-                    // dictionary member is a non-nullable DOMString).
-                    if !v.is_undefined() {
-                        // Flatten step 3.2.1: non-null `is` +
-                        // `customElementRegistry` is a hard conflict.
-                        let reg = opts.get(js_string!("customElementRegistry"), ctx)?;
-                        if !reg.is_undefined() {
+                    if !reg.is_undefined() {
+                        // Conversion (the member is a NULLABLE
+                        // `CustomElementRegistry?`): null passes, the
+                        // document's registry singleton passes,
+                        // anything else is a TypeError — boa exposes
+                        // exactly one registry object
+                        // (`globalThis.customElements`), so identity
+                        // doubles as the brand check.
+                        let is_document_registry = !reg.is_null() && {
+                            let global_ce =
+                                ctx.global_object().get(js_string!("customElements"), ctx)?;
+                            reg.as_object()
+                                .zip(global_ce.as_object())
+                                .is_some_and(|(a, b)| a == b)
+                        };
+                        if !reg.is_null() && !is_document_registry {
+                            return Err(JsNativeError::typ()
+                                .with_message(
+                                    "Failed to execute 'createElement' on 'Document': \
+                                     Failed to convert value to 'CustomElementRegistry'.",
+                                )
+                                .into());
+                        }
+                        // Flatten step 3.2.1: a present
+                        // `customElementRegistry` member alongside a
+                        // non-null `is` is a hard conflict ("exists" =
+                        // dictionary presence, fires for null too).
+                        if !v.is_undefined() {
                             return Err(JsNativeError::typ()
                                 .with_message(
                                     "NotSupportedError: 'is' and 'customElementRegistry' \
@@ -151,6 +176,25 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                                 )
                                 .into());
                         }
+                        // Step 3.2.2 + 3.3: a null registry creates
+                        // elements outside the global registry (never
+                        // upgraded) — needs per-element registry
+                        // association, deferred to slot
+                        // `#11-shadow-scoped-custom-element-registry`;
+                        // rejected loudly until then.
+                        if reg.is_null() {
+                            return Err(JsNativeError::typ()
+                                .with_message(
+                                    "NotSupportedError: a null customElementRegistry \
+                                     is not supported",
+                                )
+                                .into());
+                        }
+                    }
+                    // WebIDL: member absent only when undefined —
+                    // `{is: null}` ToString-converts to "null" (the
+                    // dictionary member is a non-nullable DOMString).
+                    if !v.is_undefined() {
                         handler_args.push(ElidexJsValue::String(
                             v.to_string(ctx)?.to_std_string_escaped(),
                         ));

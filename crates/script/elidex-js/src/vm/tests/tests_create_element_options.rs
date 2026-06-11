@@ -86,9 +86,11 @@ fn create_element_options_is_tostring_coerces() {
 fn create_element_is_with_custom_element_registry_throws_not_supported() {
     // DOM "flatten element creation options" step 3.2.1: a dictionary
     // carrying BOTH a non-null `is` and a `customElementRegistry`
-    // member throws NotSupportedError.
+    // member throws NotSupportedError — even when the registry is the
+    // document's own (the conflict is about member presence).
     let out = run("var caught = ''; \
-         try { document.createElement('button', {is: 'my-btn', customElementRegistry: {}}); } \
+         try { document.createElement('button', \
+                 {is: 'my-btn', customElementRegistry: customElements}); } \
          catch (e) { caught = '' + e; } \
          caught.indexOf('NotSupportedError') !== -1 ? 'ok' : ('fail:' + caught);");
     assert_eq!(out, "ok");
@@ -126,8 +128,65 @@ fn create_element_options_is_null_with_registry_still_conflicts() {
     // The ToString'd "null" is a non-null is value, so the flatten
     // step 3.2.1 conflict with customElementRegistry still throws.
     let out = run("var caught = ''; \
-         try { document.createElement('button', {is: null, customElementRegistry: {}}); } \
+         try { document.createElement('button', \
+                 {is: null, customElementRegistry: customElements}); } \
          catch (e) { caught = '' + e; } \
          caught.indexOf('NotSupportedError') !== -1 ? 'ok' : ('fail:' + caught);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn create_element_options_document_registry_accepted_without_is() {
+    // Codex PR331 R8: a `customElementRegistry` member must be
+    // inspected even when `is` is absent. The document's global
+    // registry passes flatten step 3.3 (it IS the document's
+    // registry), so creation proceeds normally.
+    let out = run(
+        "var el = document.createElement('div', {customElementRegistry: customElements}); \
+         el.tagName === 'DIV' ? 'ok' : ('fail:' + el.tagName);",
+    );
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn create_element_options_non_registry_value_throws_type_error() {
+    // WebIDL conversion: the member is `CustomElementRegistry?` — a
+    // plain object is neither null nor a registry platform object, so
+    // dictionary conversion throws TypeError (Codex PR331 R8: this
+    // previously fell through to the default registry silently).
+    let out = run("var caught = ''; \
+         try { document.createElement('div', {customElementRegistry: {}}); } \
+         catch (e) { caught = '' + e; } \
+         (caught.indexOf('TypeError') !== -1 \
+          && caught.indexOf('CustomElementRegistry') !== -1) ? 'ok' : ('fail:' + caught);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn create_element_options_null_registry_throws_not_supported() {
+    // `{customElementRegistry: null}` is spec-legal (a null-registry
+    // element is never upgraded) but needs per-element registry
+    // association — until slot
+    // `#11-shadow-scoped-custom-element-registry` lands it is rejected
+    // loudly instead of silently binding the default registry.
+    let out = run("var caught = ''; \
+         try { document.createElement('div', {customElementRegistry: null}); } \
+         catch (e) { caught = '' + e; } \
+         (caught.indexOf('NotSupportedError') !== -1 \
+          && caught.indexOf('null') !== -1) ? 'ok' : ('fail:' + caught);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn create_element_options_registry_conversion_precedes_is_conflict() {
+    // WebIDL dictionary members convert in lexicographic order
+    // (`customElementRegistry` < `is`), so a non-registry value
+    // TypeErrors BEFORE the flatten step 3.2.1 NotSupportedError
+    // conflict is reached.
+    let out = run("var caught = ''; \
+         try { document.createElement('button', \
+                 {is: 'my-btn', customElementRegistry: 42}); } \
+         catch (e) { caught = '' + e; } \
+         caught.indexOf('TypeError') !== -1 ? 'ok' : ('fail:' + caught);");
     assert_eq!(out, "ok");
 }

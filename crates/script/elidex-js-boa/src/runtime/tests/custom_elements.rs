@@ -613,12 +613,14 @@ fn create_element_is_round_trips_through_outer_html() {
 #[test]
 fn create_element_is_with_registry_member_throws() {
     // DOM "flatten element creation options" step 3.2.1: non-null `is`
-    // + `customElementRegistry` member → NotSupportedError.
+    // + `customElementRegistry` member → NotSupportedError, even when
+    // the registry is the document's own (presence is the conflict).
     let (mut runtime, mut session, mut dom, doc) = setup();
     let result = runtime.eval(
         r"
         var caught = '';
-        try { document.createElement('button', {is: 'my-btn', customElementRegistry: {}}); }
+        try { document.createElement('button',
+                {is: 'my-btn', customElementRegistry: customElements}); }
         catch (e) { caught = '' + e; }
         console.log('caught=' + caught);
         ",
@@ -633,6 +635,42 @@ fn create_element_is_with_registry_member_throws() {
             .iter()
             .any(|m| m.1.contains("caught=") && m.1.contains("NotSupportedError")),
         "expected NotSupportedError, got: {output:?}"
+    );
+}
+
+#[test]
+fn create_element_registry_member_without_is_validated() {
+    // Codex PR331 R8: the `customElementRegistry` member is inspected
+    // even when `is` is absent — the document's registry passes
+    // (flatten step 3.3), a non-registry value is the WebIDL
+    // conversion TypeError, and a null registry is rejected loudly
+    // (per-element registry association deferred, slot
+    // `#11-shadow-scoped-custom-element-registry`).
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let result = runtime.eval(
+        r"
+        var ok = document.createElement('div',
+            {customElementRegistry: customElements}).tagName;
+        var bogus = '';
+        try { document.createElement('div', {customElementRegistry: {}}); }
+        catch (e) { bogus = '' + e; }
+        var nul = '';
+        try { document.createElement('div', {customElementRegistry: null}); }
+        catch (e) { nul = '' + e; }
+        console.log('ok=' + ok + ' bogus=' + bogus + ' nul=' + nul);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("ok=DIV")
+            && m.1
+                .contains("Failed to convert value to 'CustomElementRegistry'")
+            && m.1.contains("null customElementRegistry is not supported")),
+        "expected accept/TypeError/NotSupportedError triple, got: {output:?}"
     );
 }
 
