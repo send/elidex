@@ -144,10 +144,40 @@ fn push_state_cross_origin_throws_security_error() {
 }
 
 #[test]
+fn replace_state_cross_origin_throws_security_error() {
+    // §7.2.5 step 6.3 applies to replaceState too (the gate lives in the shared
+    // state_mutate body) — guards both arms of the same-origin check.
+    let mut vm = new_vm_with_base(); // http://localhost/
+    let check = vm
+        .eval(
+            "var thrown = null;\
+             try { history.replaceState(null, '', 'https://evil.example/x'); } \
+             catch (e) { thrown = e; }\
+             thrown && thrown.name === 'SecurityError' \
+             && thrown instanceof DOMException;",
+        )
+        .unwrap();
+    assert!(matches!(check, JsValue::Boolean(true)));
+    assert!(vm.inner.navigation.pending_history.is_none());
+}
+
+#[test]
 fn history_state_round_trips_through_push_state() {
     let mut vm = new_vm_with_base();
     vm.eval("history.pushState({step: 42}, '', '/x');").unwrap();
     assert_eq!(eval_number(&mut vm, "history.state.step;"), 42.0);
+}
+
+#[test]
+fn history_go_zero_enqueues_go_zero() {
+    // §7.2.5: `go(0)` reloads the current entry — the VM enqueues `Go(0)` (the
+    // shell's NavigationController.go(0) re-fetches), NOT a no-op.
+    let mut vm = new_vm_with_base();
+    vm.eval("history.go(0);").unwrap();
+    assert!(matches!(
+        vm.inner.navigation.pending_history.take(),
+        Some(HistoryAction::Go(0))
+    ));
 }
 
 #[test]

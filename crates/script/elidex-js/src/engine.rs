@@ -165,6 +165,13 @@ impl ElidexJsEngine {
     /// Commit the current document URL after a navigation load (WHATWG HTML
     /// §7.4.2.2).  `None` resets to `about:blank` (the "no active document"
     /// state).  Parity with boa's `bridge().set_current_url`.
+    ///
+    /// NB this commits **only** the URL — it does **not** resync the document
+    /// origin (boa's `set_current_url` also recomputes a cached origin for
+    /// storage keying).  An S5 integrator must call [`set_origin`](Self::set_origin)
+    /// alongside this after a content-thread navigation, so a cross-origin
+    /// navigation does not leave the S1b `document_origin` override stale →
+    /// slot `#11-vm-navigation-origin-resync`.
     pub fn set_current_url(&mut self, url: Option<url::Url>) {
         self.vm.inner.navigation.set_current_url(url);
     }

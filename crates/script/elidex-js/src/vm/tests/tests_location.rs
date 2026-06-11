@@ -215,3 +215,22 @@ fn location_href_setter_throws_dom_exception_on_invalid_url() {
     // Nothing enqueued on the throw path.
     assert!(vm.inner.navigation.pending_navigation.is_none());
 }
+
+#[test]
+fn location_assign_throws_dom_exception_on_invalid_url() {
+    // `assign` shares the synchronous parse + SyntaxError path with `href=`, but
+    // is a distinct native fn with its own error message — assert it throws and
+    // enqueues nothing (the throw aborts before the enqueue).
+    let mut vm = Vm::new();
+    let check = vm
+        .eval(
+            "var thrown = null;\
+             try { location.assign('\\u0000'); } \
+             catch (e) { thrown = e; }\
+             thrown && thrown.name === 'SyntaxError' \
+             && thrown instanceof DOMException;",
+        )
+        .unwrap();
+    assert!(matches!(check, JsValue::Boolean(true)));
+    assert!(vm.inner.navigation.pending_navigation.is_none());
+}
