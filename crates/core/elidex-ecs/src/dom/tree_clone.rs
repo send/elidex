@@ -265,6 +265,10 @@ impl EcsDom {
     /// [`clone_node_shallow`]: Self::clone_node_shallow
     /// [`clone_children_recursive`]: Self::clone_children_recursive
     fn clone_node_shallow_unchecked(&mut self, src: Entity, builder: &mut EntityBuilder) -> Entity {
+        debug_assert!(
+            builder.component_types().next().is_none(),
+            "scratch EntityBuilder must be empty on entry"
+        );
         // Snapshot the payload under read borrows, then spawn under a
         // mutable borrow.  The optional components accumulate in an
         // `EntityBuilder` so a single `spawn` lands the clone in its
