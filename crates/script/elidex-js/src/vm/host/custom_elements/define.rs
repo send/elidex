@@ -303,25 +303,31 @@ fn define_error_to_vm_error(
     }
 }
 
-/// Enqueue Upgrade reactions for every entity in the world carrying
-/// `CustomElementState::Undefined` for `name` — the single
-/// define()-time candidate-discovery mechanism. Covers the parser /
-/// innerHTML path (the parser attached the state component but cannot
-/// reach the per-VM registry) AND every `createElement`-baked element
-/// (attached or detached): "awaiting upgrade" is the per-entity
-/// component, not a registry-side queue.
+/// Enqueue Upgrade reactions for `name`'s upgrade candidates — the
+/// single define()-time candidate-discovery mechanism, shared with
+/// the boa engine via the engine-indep
+/// `elidex_custom_elements::collect_upgrade_candidates` (Undefined
+/// component + document-registry association + the §4.13.4
+/// local-name/is-value match). Covers the parser / innerHTML path
+/// (the parser attached the state component but cannot reach the
+/// per-VM registry) AND every `createElement`-baked element (attached
+/// or detached): "awaiting upgrade" is the per-entity component, not
+/// a registry-side queue.
 ///
-/// Uses a world-wide hecs query rather than a tree walk so detached
-/// elements (orphans + DocumentFragment subtrees + future
-/// multi-document) are not silently missed (the document-rooted walk
-/// would have skipped them).
+/// Holding the registry lock across the shared `dom` borrow follows
+/// the `invoke_upgrade` → `prepare_upgrade` precedent (only a MUTABLE
+/// DOM borrow must not overlap the registry guard).
 fn enqueue_upgrade_walk(ctx: &mut NativeContext<'_>, name: &str) {
     let Some(host) = ctx.host_if_bound() else {
         return;
     };
     let to_upgrade = {
+        let registry = host
+            .ce_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         let dom = host.dom_shared();
-        elidex_custom_elements::collect_undefined_entities(dom.world(), name)
+        elidex_custom_elements::collect_upgrade_candidates(dom.world(), &registry, name)
     };
     if to_upgrade.is_empty() {
         return;

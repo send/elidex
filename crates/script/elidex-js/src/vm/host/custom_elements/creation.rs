@@ -241,5 +241,5 @@ pub(in crate::vm) fn route_custom_element_upgrade(
     }
     // Not yet defined: nothing to do — the `Undefined` component is
     // the "awaiting upgrade" record, discovered at define() time by
-    // the world query (`collect_undefined_entities`).
+    // the world query (`collect_upgrade_candidates`).
 }

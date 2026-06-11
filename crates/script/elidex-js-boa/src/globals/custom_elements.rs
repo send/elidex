@@ -76,35 +76,22 @@ pub fn register_custom_elements_global(ctx: &mut Context, bridge: &HostBridge) {
                         }
                     })?;
 
-                // Enqueue Upgrade reactions for every entity in the
-                // world left `Undefined` under this name — the
-                // per-entity `CustomElementState` component is the
-                // single "awaiting upgrade" record, so parser-baked,
+                // Enqueue Upgrade reactions for this name's upgrade
+                // candidates — the engine-indep world query
+                // (`collect_upgrade_candidates`, shared with the VM
+                // engine) owns the candidate rule: `Undefined`
+                // component + document-registry association +
+                // §4.13.4 local-name/is-value match. Parser-baked,
                 // detached `createElement`-baked, and fragment
-                // elements are all discovered by the same world query
-                // (a document-rooted walk would miss detached ones).
+                // elements are all discovered by the same query (a
+                // document-rooted walk would miss detached ones).
                 //
                 // Performance note: O(world size) query per define().
                 // Acceptable for typical pages (<100 define calls,
                 // <10K elements).
                 bridge.with(|_session, dom| {
-                    for entity in
-                        elidex_custom_elements::collect_undefined_entities(dom.world(), &name)
-                    {
-                        // Upgrade only when the element's local name
-                        // matches the definition (customized built-in
-                        // → `extends` base; autonomous → the
-                        // definition name). Shared rule:
-                        // `CustomElementDefinition::upgrade_matches_local_name`.
-                        let should_upgrade = bridge.with_ce_definition(&name, |def| {
-                            dom.world()
-                                .get::<&elidex_ecs::TagType>(entity)
-                                .ok()
-                                .is_some_and(|tag| def.upgrade_matches_local_name(&tag.0))
-                        });
-                        if should_upgrade {
-                            bridge.enqueue_ce_reaction(CustomElementReaction::Upgrade(entity));
-                        }
+                    for entity in bridge.ce_collect_upgrade_candidates(dom, &name) {
+                        bridge.enqueue_ce_reaction(CustomElementReaction::Upgrade(entity));
                     }
                 });
 

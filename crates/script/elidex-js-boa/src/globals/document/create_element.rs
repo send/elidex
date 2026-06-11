@@ -176,9 +176,10 @@ pub(super) fn install_create_element(init: &mut ObjectInitializer<'_>, b: &HostB
                                 return false;
                             };
                             // A null-registry element is outside every
-                            // registry — no sync upgrade, no queue
-                            // admission (DOM §4.9: definition lookup
-                            // in a null registry is always null).
+                            // registry — no sync upgrade, and the
+                            // define()-time candidate query skips it
+                            // too (DOM §4.9: definition lookup in a
+                            // null registry is always null).
                             if matches!(
                                 state.registry,
                                 elidex_custom_elements::RegistryAssociation::Null

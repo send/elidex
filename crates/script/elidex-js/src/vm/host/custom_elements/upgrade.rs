@@ -172,7 +172,11 @@ pub(crate) fn invoke_upgrade(ctx: &mut NativeContext<'_>, entity: Entity) -> Res
     };
 
     // Phase 1: resolve via engine-indep prepare_upgrade (early-returns
-    // on Custom/Failed/no-def). Drops the registry lock before any VM
+    // on Custom/Failed/no-def). The re-check is intentional
+    // defense-in-depth over the define()-time
+    // `collect_upgrade_candidates` filter: state can legitimately
+    // change between enqueue and flush via other reaction sources.
+    // Drops the registry lock before any VM
     // re-borrow. `Phase1Outcome` (above) escapes the registry-lock
     // scope BEFORE we call `finalize_failure_shim` (R12 G12-1) — the
     // shim acquires its own host borrow via `ctx`, which conflicts

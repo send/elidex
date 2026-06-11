@@ -4,11 +4,11 @@
 //! not tracked here — "awaiting upgrade under name N" is already
 //! materialized as the per-entity `CustomElementState` component
 //! (`state: Undefined`), so `define()`-time candidate discovery is a
-//! world query ([`collect_undefined_entities`]), not a side-store.
+//! world query ([`collect_upgrade_candidates`]), not a side-store.
 
 use std::collections::{HashMap, HashSet};
 
-use elidex_ecs::Entity;
+use elidex_ecs::{Entity, TagType};
 
 use crate::construction_stack::ConstructionStackEntry;
 use crate::state::{CEState, CustomElementState};
@@ -151,7 +151,7 @@ impl CustomElementRegistry {
     ///
     /// Returns `Err` if the name is invalid or already defined.
     /// Upgrade-candidate discovery is the caller's job via
-    /// [`collect_undefined_entities`] (the per-entity
+    /// [`collect_upgrade_candidates`] (the per-entity
     /// `CustomElementState` component is the single source of truth
     /// for "awaiting upgrade").
     pub fn define(&mut self, definition: CustomElementDefinition) -> Result<(), DefineError> {
@@ -319,34 +319,54 @@ impl std::fmt::Display for DefineError {
 
 impl std::error::Error for DefineError {}
 
-/// World-wide query for every entity carrying `CustomElementState`
-/// with `state == CEState::Undefined` for `name` — the single
-/// `customElements.define()`-time upgrade-candidate discovery
-/// mechanism. The per-entity component is the source of truth for
-/// "awaiting upgrade": parser-baked, `createElement`-baked (attached
-/// or detached), and fragment elements are all found here, and a
-/// despawned entity simply stops matching (no dangling side-store
-/// entries to scrub).
+/// World-wide query for the `customElements.define()`-time *upgrade
+/// candidates* of `name` (WHATWG HTML §4.13.4): every entity whose
+/// `CustomElementState` is `Undefined` for `name` — the per-entity
+/// component is the single "awaiting upgrade" record — AND whose
+/// local name matches the registered definition
+/// ([`CustomElementDefinition::upgrade_matches_local_name`]; the spec
+/// builds the local-name/is-value match into candidate collection).
+/// Returns an empty Vec when `name` has no definition. A despawned
+/// entity simply stops matching (no dangling side-store entries to
+/// scrub).
+///
+/// Both engines consume this one function, so the candidate rule
+/// cannot drift between them; the executor-side [`prepare_upgrade`]
+/// gate re-checks at flush time (state may legitimately change
+/// between enqueue and flush via other reaction sources).
 ///
 /// Walks the hecs world directly so detached + DocumentFragment
-/// subtrees + future multi-document worlds are covered (a
-/// document-rooted DOM walk would silently miss them).
+/// subtrees + future multi-document worlds are covered. (The spec
+/// scopes candidates to shadow-including *document* descendants and
+/// upgrades detached trees on later insertion; elidex deliberately
+/// upgrades them at define() time instead — one mechanism, same
+/// final states.)
 ///
-/// `define()` rejects invalid names, so this is never queried with an
-/// undrainable name — `Undefined` components carrying an invalid
-/// `is`-derived name (DOM §4.9 step 6.3 marking is validity-free) are
-/// simply never matched.
+/// `define()` rejects invalid names, so this is never queried with a
+/// name that cannot acquire a definition — `Undefined` components
+/// carrying an invalid `is`-derived name (DOM §4.9 step 6.3 marking
+/// is validity-free) are simply never matched.
+///
+/// [`prepare_upgrade`]: crate::prepare_upgrade
 #[must_use]
-pub fn collect_undefined_entities(world: &hecs::World, name: &str) -> Vec<Entity> {
+pub fn collect_upgrade_candidates(
+    world: &hecs::World,
+    registry: &CustomElementRegistry,
+    name: &str,
+) -> Vec<Entity> {
+    let Some(def) = registry.get(name) else {
+        return Vec::new();
+    };
     let mut out = Vec::new();
-    let mut query = world.query::<(Entity, &CustomElementState)>();
-    for (entity, state) in &mut query {
+    let mut query = world.query::<(Entity, &CustomElementState, &TagType)>();
+    for (entity, state, tag) in &mut query {
         // Null-registry elements are outside every registry — the
         // define()-time walk must not upgrade them (DOM §4.9:
         // definition lookup in a null registry is always null).
         if matches!(state.state, CEState::Undefined)
             && matches!(state.registry, crate::RegistryAssociation::Document)
             && state.definition_name == name
+            && def.upgrade_matches_local_name(&tag.0)
         {
             out.push(entity);
         }

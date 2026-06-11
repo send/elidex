@@ -13,9 +13,8 @@ impl HostBridge {
     /// Register a custom element definition.
     ///
     /// Stores the constructor and calls `registry.define()`.
-    /// Upgrade-candidate discovery is the caller's job via the
-    /// world query over `CustomElementState`
-    /// (`elidex_custom_elements::collect_undefined_entities`).
+    /// Upgrade-candidate discovery is the caller's job via
+    /// [`Self::ce_collect_upgrade_candidates`].
     pub fn register_custom_element(
         &self,
         name: &str,
@@ -78,6 +77,26 @@ impl HostBridge {
     #[must_use]
     pub fn is_custom_element_defined(&self, name: &str) -> bool {
         self.inner.borrow().custom_element_registry.is_defined(name)
+    }
+
+    /// WHATWG HTML §4.13.4 define()-time upgrade-candidate discovery —
+    /// thin accessor over the engine-indep
+    /// `elidex_custom_elements::collect_upgrade_candidates`, so the
+    /// candidate rule (Undefined component + document-registry
+    /// association + local-name/is-value match) is one function
+    /// shared with the VM engine.
+    #[must_use]
+    pub fn ce_collect_upgrade_candidates(
+        &self,
+        dom: &elidex_ecs::EcsDom,
+        name: &str,
+    ) -> Vec<Entity> {
+        let inner = self.inner.borrow();
+        elidex_custom_elements::collect_upgrade_candidates(
+            dom.world(),
+            &inner.custom_element_registry,
+            name,
+        )
     }
 
     /// DOM §4.4 clone-time creation pass over a fresh clone subtree:

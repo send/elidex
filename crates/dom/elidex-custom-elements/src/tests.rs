@@ -34,48 +34,86 @@ fn define_rejects_duplicate() {
 }
 
 #[test]
-fn collect_undefined_entities_is_the_define_time_candidate_source() {
+fn collect_upgrade_candidates_is_the_define_time_candidate_source() {
     // "Awaiting upgrade under name N" is the per-entity
     // `CustomElementState` component, not a registry side-store —
-    // define()-time discovery is this world query. Detached entities
-    // (never inserted into any tree) are found; name mismatches,
-    // null-registry, and already-upgraded entities are not.
+    // define()-time discovery is this world query, with the HTML
+    // §4.13.4 local-name/is-value candidate rule built in. Detached
+    // entities (never inserted into any tree) are found; name
+    // mismatches, local-name mismatches, null-registry, and
+    // already-upgraded entities are not.
+    let mut registry = CustomElementRegistry::new();
+    registry
+        .define(CustomElementDefinition::new(
+            "my-el".to_string(),
+            1,
+            Vec::new(),
+            None,
+        ))
+        .unwrap();
+    registry
+        .define(CustomElementDefinition::new(
+            "my-div".to_string(),
+            2,
+            Vec::new(),
+            Some("div".to_string()),
+        ))
+        .unwrap();
+
     let mut dom = EcsDom::new();
     let e1 = dom.create_element("my-el", elidex_ecs::Attributes::default());
     let e2 = dom.create_element("my-el", elidex_ecs::Attributes::default());
     let other = dom.create_element("other-el", elidex_ecs::Attributes::default());
     let upgraded = dom.create_element("my-el", elidex_ecs::Attributes::default());
     let null_registry = dom.create_element("my-el", elidex_ecs::Attributes::default());
+    // <span is="my-el"> — autonomous definition never matches a
+    // foreign local name (§4.13.4 candidate rule).
+    let is_mismatch = dom.create_element("span", elidex_ecs::Attributes::default());
+    // <div is="my-div"> matches the customized built-in's extends
+    // base; <span is="my-div"> does not.
+    let builtin_ok = dom.create_element("div", elidex_ecs::Attributes::default());
+    let builtin_mismatch = dom.create_element("span", elidex_ecs::Attributes::default());
 
     {
         let world = dom.world_mut();
-        world
-            .insert_one(e1, CustomElementState::undefined("my-el"))
-            .unwrap();
-        world
-            .insert_one(e2, CustomElementState::undefined("my-el"))
-            .unwrap();
-        world
-            .insert_one(other, CustomElementState::undefined("other-el"))
-            .unwrap();
-        world
-            .insert_one(upgraded, CustomElementState::custom("my-el"))
-            .unwrap();
+        let mut insert =
+            |entity, state: CustomElementState| world.insert_one(entity, state).unwrap();
+        insert(e1, CustomElementState::undefined("my-el"));
+        insert(e2, CustomElementState::undefined("my-el"));
+        insert(other, CustomElementState::undefined("other-el"));
+        insert(upgraded, CustomElementState::custom("my-el"));
         let mut null_state = CustomElementState::undefined("my-el");
         null_state.registry = RegistryAssociation::Null;
-        world.insert_one(null_registry, null_state).unwrap();
+        insert(null_registry, null_state);
+        insert(is_mismatch, CustomElementState::undefined("my-el"));
+        insert(builtin_ok, CustomElementState::undefined("my-div"));
+        insert(builtin_mismatch, CustomElementState::undefined("my-div"));
     }
 
-    let mut found = collect_undefined_entities(dom.world(), "my-el");
+    let mut found = collect_upgrade_candidates(dom.world(), &registry, "my-el");
     found.sort();
     let mut expected = vec![e1, e2];
     expected.sort();
     assert_eq!(found, expected);
 
+    assert_eq!(
+        collect_upgrade_candidates(dom.world(), &registry, "my-div"),
+        vec![builtin_ok],
+    );
+
+    // A name without a definition (define() rejects invalid names,
+    // so e.g. an invalid is-derived name can never acquire one) has
+    // no candidates — Undefined components carrying it just never
+    // match.
+    assert!(collect_upgrade_candidates(dom.world(), &registry, "notvalid").is_empty());
+
     // A despawned entity simply stops matching — there is no
     // side-store holding a dangling reference to scrub.
     dom.world_mut().despawn(e2).unwrap();
-    assert_eq!(collect_undefined_entities(dom.world(), "my-el"), vec![e1]);
+    assert_eq!(
+        collect_upgrade_candidates(dom.world(), &registry, "my-el"),
+        vec![e1],
+    );
 }
 
 #[test]
