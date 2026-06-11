@@ -188,11 +188,27 @@ mod engine_feature {
         /// `Some(opaque)` for a sandboxed iframe (HTML §7.1.5), so the
         /// document reports `"null"` on the settings-object-origin surfaces
         /// (window.postMessage / WebSocket + EventSource `Origin` /
-        /// localStorage partition).  A per-browsing-context security fact →
-        /// the CLAUDE.md side-store rule (b) shared-cross-cutting exception,
-        /// like `sandbox_flags` above.  (NB `location.origin` does NOT read
-        /// this — HTML §7.2.4 returns the *URL's* origin, which can differ
-        /// from the document origin for a sandboxed doc.)
+        /// localStorage partition).
+        ///
+        /// **ECS-native placement (interim, not the ideal).** A document's
+        /// origin is strictly a per-Document fact (HTML §7.1.1), so the
+        /// CLAUDE.md side-store rule points at an ECS component on the document
+        /// entity, not this per-VM store — it is *not* genuinely the (b)
+        /// shared-cross-cutting exception that `cookie_jar` is. S1b keeps it
+        /// here as the **consistent interim**: the whole current-document-state
+        /// cluster (`current_url`/`NavigationState`, `sandbox_flags`, and this)
+        /// is per-VM today, so moving only the origin to a component would be a
+        /// strangler (One-issue-one-way). The ideal — migrating the cluster to
+        /// per-entity components, with navigation creating a fresh document
+        /// entity (so cleanup/rebind come from ECS despawn rather than the
+        /// shell remembering to overwrite) — is a model-wide redesign coupled
+        /// to the navigation back-channel (S1c) and spanning the merged S1a
+        /// `sandbox_flags`. Tracked as the ECS-native side-store→component
+        /// program → slot `#11-browsing-context-state-ecs-components` (sibling
+        /// of `#11-wrapper-identity-component-migration`, same world_id gate).
+        /// (NB `location.origin` does NOT read this — HTML §7.2.4 returns the
+        /// *URL's* origin, which can differ from the document origin for a
+        /// sandboxed doc.)
         document_origin_override: Option<elidex_plugin::SecurityOrigin>,
         /// Per-VM **stable** opaque origin returned by
         /// [`super::VmInner::document_origin`] when no override is installed and
