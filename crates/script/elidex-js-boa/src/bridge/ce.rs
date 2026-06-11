@@ -193,4 +193,20 @@ impl HostBridge {
             .lookup_by_is(is_value, tag)
             .is_some()
     }
+
+    /// DOM §4.9 step 5.1.3.10 — delegate to the engine-indep
+    /// registry-gated is-value clear (see
+    /// `elidex_custom_elements::clear_is_value_for_sync_autonomous`).
+    pub fn ce_clear_is_value_for_sync_autonomous(
+        &self,
+        dom: &mut elidex_ecs::EcsDom,
+        entity: elidex_ecs::Entity,
+    ) {
+        let inner = self.inner.borrow();
+        elidex_custom_elements::clear_is_value_for_sync_autonomous(
+            &inner.custom_element_registry,
+            dom,
+            entity,
+        );
+    }
 }

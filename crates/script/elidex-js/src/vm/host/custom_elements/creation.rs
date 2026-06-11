@@ -101,7 +101,46 @@ pub(in crate::vm) fn route_custom_element_upgrade(
         // DOM §4.9 step 5.1.3.10: the sync autonomous branch nulls the
         // is value (async-created elements keep theirs through the
         // later define()-walk upgrade).
-        elidex_custom_elements::clear_is_value_for_sync_autonomous(ctx.host().dom(), entity);
+        {
+            // Phased (read → decide → clear) because the registry
+            // mutex guard and the mutable DOM borrow cannot overlap;
+            // the decision itself is the engine-indep
+            // `sync_autonomous_definition_matches`.
+            let host = ctx.host();
+            let names = {
+                let dom = host.dom();
+                let local = dom
+                    .world()
+                    .get::<&elidex_ecs::TagType>(entity)
+                    .ok()
+                    .map(|t| t.0.clone());
+                let def = dom
+                    .world()
+                    .get::<&elidex_custom_elements::CustomElementState>(entity)
+                    .ok()
+                    .map(|s| s.definition_name.clone());
+                local.zip(def)
+            };
+            if let Some((local_name, def_name)) = names {
+                let matches = {
+                    let registry = host.ce_registry.lock().expect("CE registry mutex poisoned");
+                    elidex_custom_elements::sync_autonomous_definition_matches(
+                        &registry,
+                        &def_name,
+                        &local_name,
+                    )
+                };
+                if matches {
+                    if let Ok(mut state) =
+                        host.dom()
+                            .world_mut()
+                            .get::<&mut elidex_custom_elements::CustomElementState>(entity)
+                    {
+                        state.is_value = None;
+                    }
+                }
+            }
+        }
         if let Err(err) = super::upgrade::invoke_upgrade(ctx, entity) {
             eprintln!("[CE Upgrade Error] {}", err.message);
         }

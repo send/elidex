@@ -131,3 +131,20 @@ fn create_element_options_is_null_with_registry_still_conflicts() {
          caught.indexOf('NotSupportedError') !== -1 ? 'ok' : ('fail:' + caught);");
     assert_eq!(out, "ok");
 }
+
+#[test]
+fn name_sharing_builtin_definition_does_not_clear_is_value() {
+    // Codex PR331 R6: a customized-built-in definition that merely
+    // shares the name with an autonomous-looking tag does NOT match
+    // the lookup for that local name (HTML §4.13.3 requires the
+    // definition's local name to equal the element's) — so the
+    // element takes the no-definition branch and KEEPS its
+    // creation-time is value.
+    let out = run_then_read(
+        "class PB extends HTMLElement {} \
+         customElements.define('plastic-button', PB, {extends: 'button'}); \
+         globalThis.__el = document.createElement('plastic-button', {is: 'other-el'});",
+        "globalThis.__el.outerHTML",
+    );
+    assert_eq!(out, r#"<plastic-button is="other-el"></plastic-button>"#);
+}

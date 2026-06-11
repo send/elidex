@@ -164,10 +164,21 @@ fn set_state(dom: &mut EcsDom, entity: Entity, new_state: CEState) {
 /// (that would also strip async-created elements, diverging from
 /// spec).
 ///
-/// No-op for customized built-ins (their definition name differs from
-/// the local name; step 4 passes the is value through untouched) and
-/// for entities without a `CustomElementState`.
-pub fn clear_is_value_for_sync_autonomous(dom: &mut elidex_ecs::EcsDom, entity: hecs::Entity) {
+/// The clear is gated on the registered definition actually MATCHING
+/// as autonomous for this element (HTML §4.13.3 "look up a custom
+/// element definition" requires the definition's local name to equal
+/// the element's): a customized-built-in definition that merely
+/// shares the name (e.g. `define('plastic-button', C, {extends:
+/// 'button'})` vs `createElement('plastic-button', {is})`) does NOT
+/// match, so create-an-element takes the no-definition branch and the
+/// is value is retained. No-op for customized built-ins (step 4
+/// passes the is value through untouched) and for entities without a
+/// `CustomElementState`.
+pub fn clear_is_value_for_sync_autonomous(
+    registry: &crate::CustomElementRegistry,
+    dom: &mut elidex_ecs::EcsDom,
+    entity: hecs::Entity,
+) {
     let local_name = match dom.world().get::<&elidex_ecs::TagType>(entity) {
         Ok(tag) => tag.0.clone(),
         Err(_) => return,
@@ -176,10 +187,29 @@ pub fn clear_is_value_for_sync_autonomous(dom: &mut elidex_ecs::EcsDom, entity: 
         .world_mut()
         .get::<&mut crate::CustomElementState>(entity)
     {
-        if state.definition_name == local_name {
+        if sync_autonomous_definition_matches(registry, &state.definition_name, &local_name) {
             state.is_value = None;
         }
     }
+}
+
+/// The decision half of [`clear_is_value_for_sync_autonomous`] (single
+/// home — hosts that cannot hold the registry guard and a mutable DOM
+/// borrow simultaneously phase the read/decide/clear steps but must
+/// route the decision through here): true iff the element is an
+/// autonomous candidate (definition keyed on the tag) AND the
+/// registered definition matches this local name as autonomous per
+/// HTML §4.13.3 lookup semantics.
+#[must_use]
+pub fn sync_autonomous_definition_matches(
+    registry: &crate::CustomElementRegistry,
+    definition_name: &str,
+    local_name: &str,
+) -> bool {
+    definition_name == local_name
+        && registry
+            .get(definition_name)
+            .is_some_and(|def| def.upgrade_matches_local_name(local_name))
 }
 
 #[cfg(test)]

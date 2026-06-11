@@ -199,7 +199,7 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                             // DOM §4.9 step 5.1.3.10: defined-at-
                             // creation autonomous elements null the
                             // is value (async-created keep theirs).
-                            elidex_custom_elements::clear_is_value_for_sync_autonomous(dom, entity);
+                            bridge.ce_clear_is_value_for_sync_autonomous(dom, entity);
                             // Definition exists — enqueue Upgrade.
                             bridge.enqueue_ce_reaction(
                                 elidex_custom_elements::CustomElementReaction::Upgrade(entity),
