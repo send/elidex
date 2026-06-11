@@ -39,6 +39,7 @@
 
 #![cfg(feature = "engine")]
 
+pub(super) mod creation;
 pub(super) mod define;
 pub(super) mod flush;
 pub(super) mod html_element;

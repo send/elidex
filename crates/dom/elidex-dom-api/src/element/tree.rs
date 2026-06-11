@@ -712,7 +712,7 @@ fn serialize_node(
             .world()
             .get::<&elidex_custom_elements::CustomElementState>(entity)
         {
-            if let Some(is_value) = ce.is_value(&tag.0) {
+            if let Some(is_value) = ce.is_value() {
                 if !dom.has_attribute(entity, "is") {
                     html.push_str(" is=\"");
                     html.push_str(&escape_attr(is_value));

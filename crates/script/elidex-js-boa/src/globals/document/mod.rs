@@ -156,10 +156,14 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                 // lookup.
                 if let Ok(entity) = crate::globals::element::extract_entity(&result, ctx) {
                     bridge.with(|_session, dom| {
-                        // Customized-built-in discrimination via the
-                        // canonical `CustomElementState::is_value`
-                        // accessor (single home of the comparison).
-                        let (name, local_name, is_val) = {
+                        // Upgrade-routing discrimination: the
+                        // definition is keyed by the is value exactly
+                        // when it differs from the local name (the
+                        // autonomous branch keys on the tag). NB this
+                        // is the ROUTING question — the serialization
+                        // is-value slot is `CustomElementState::
+                        // is_value()` and is independent of it.
+                        let (name, local_name) = {
                             let world = dom.world();
                             let Ok(state) =
                                 world.get::<&elidex_custom_elements::CustomElementState>(entity)
@@ -170,12 +174,12 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                                 .get::<&elidex_ecs::TagType>(entity)
                                 .map(|t| t.0.clone())
                                 .unwrap_or_default();
-                            let is_val = state.is_value(&local_name).map(str::to_owned);
-                            (state.definition_name.clone(), local_name, is_val)
+                            (state.definition_name.clone(), local_name)
                         };
-                        let defined = match &is_val {
-                            Some(is) => bridge.ce_lookup_by_is(is, &local_name),
-                            None => bridge.is_custom_element_defined(&name),
+                        let defined = if name == local_name {
+                            bridge.is_custom_element_defined(&name)
+                        } else {
+                            bridge.ce_lookup_by_is(&name, &local_name)
                         };
                         if defined {
                             // Definition exists — enqueue Upgrade.

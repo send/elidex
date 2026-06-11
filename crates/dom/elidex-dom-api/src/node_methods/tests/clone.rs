@@ -352,6 +352,7 @@ fn clone_node_resets_failed_state_to_undefined() {
             CustomElementState {
                 state: CEState::Failed,
                 definition_name: "my-x".to_string(),
+                is_value: None,
             },
         )
         .unwrap();
@@ -644,5 +645,68 @@ fn clone_node_shallow_shadow_children_carry_owner_document() {
         dom.owner_document(shadow_kids[0]),
         Some(doc),
         "shallow-replicated shadow children keep the source's node document"
+    );
+}
+
+#[test]
+fn clone_node_propagates_is_value_slot() {
+    // Codex PR331: the is-value slot (now separate from
+    // definition_name) must survive cloning alongside the identity.
+    let (mut dom, mut session) = setup();
+    let el = dom.create_element("my-el", Attributes::default());
+    dom.world_mut()
+        .insert_one(
+            el,
+            CustomElementState::for_created_element(
+                "my-el",
+                Some("my-other"),
+                elidex_ecs::Namespace::Html,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    wrap(el, &mut session);
+
+    let r = CloneNode
+        .invoke(el, &[JsValue::Bool(false)], &mut session, &mut dom)
+        .unwrap();
+    let cloned = cloned_entity(&r, &session);
+    let ce = dom.world().get::<&CustomElementState>(cloned).unwrap();
+    assert_eq!(ce.definition_name, "my-el");
+    assert_eq!(ce.is_value(), Some("my-other"));
+}
+
+#[test]
+fn clone_node_shallow_shadow_root_carries_owner_document() {
+    // Codex PR331 R3: the replicated shadow root entity (and the
+    // shallow-cloned host) must carry the operation's document — the
+    // children were stamped but the root/host were not, leaving
+    // `clonedHost.shadowRoot.ownerDocument` null.
+    let (mut dom, mut session) = setup();
+    let doc = dom.create_document_root();
+    let host = dom.create_element("section", Attributes::default());
+    dom.set_associated_document(host, doc);
+    let sr = dom
+        .attach_shadow_with_init(host, clonable_init())
+        .expect("attach clonable shadow");
+    let span = dom.create_element("span", Attributes::default());
+    dom.set_associated_document(span, doc);
+    dom.append_child(sr, span);
+    wrap(host, &mut session);
+
+    let r = CloneNode
+        .invoke(host, &[JsValue::Bool(false)], &mut session, &mut dom)
+        .unwrap();
+    let cloned_host = cloned_entity(&r, &session);
+    assert_eq!(
+        dom.owner_document(cloned_host),
+        Some(doc),
+        "shallow-cloned shadow host stamped with the operation's document"
+    );
+    let cloned_sr = dom.get_shadow_root(cloned_host).expect("shadow replicated");
+    assert_eq!(
+        dom.owner_document(cloned_sr),
+        Some(doc),
+        "replicated shadow root stamped with the operation's document"
     );
 }

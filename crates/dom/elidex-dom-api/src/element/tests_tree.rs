@@ -800,7 +800,12 @@ fn serialize_emits_is_for_customized_builtin_without_attr() {
     dom.world_mut()
         .insert_one(
             button,
-            elidex_custom_elements::CustomElementState::undefined("my-btn"),
+            elidex_custom_elements::CustomElementState::for_created_element(
+                "button",
+                Some("my-btn"),
+                elidex_ecs::Namespace::Html,
+            )
+            .unwrap(),
         )
         .unwrap();
     let html = serialize_outer_html(button, &dom);
@@ -850,7 +855,12 @@ fn serialize_escapes_synthetic_is_value() {
     dom.world_mut()
         .insert_one(
             button,
-            elidex_custom_elements::CustomElementState::undefined(r#"x" onclick="evil"#),
+            elidex_custom_elements::CustomElementState::for_created_element(
+                "button",
+                Some(r#"x" onclick="evil"#),
+                elidex_ecs::Namespace::Html,
+            )
+            .unwrap(),
         )
         .unwrap();
     let html = serialize_outer_html(button, &dom);
@@ -858,4 +868,48 @@ fn serialize_escapes_synthetic_is_value() {
         html.contains("is=\"x&quot; onclick=&quot;evil\""),
         "synthetic is value must route through escape_attr: {html}"
     );
+}
+
+#[test]
+fn serialize_emits_is_for_autonomous_element_with_is_value() {
+    // Codex PR331 R1: `createElement('my-el', {is: 'my-other'})` — the
+    // autonomous branch keys the definition on the tag but the
+    // non-null is value lives in its own slot and must serialize
+    // (DOM §4.9 sets the is value independently of step 6.3).
+    let mut dom = EcsDom::new();
+    let el = dom.create_element("my-el", Attributes::default());
+    dom.world_mut()
+        .insert_one(
+            el,
+            elidex_custom_elements::CustomElementState::for_created_element(
+                "my-el",
+                Some("my-other"),
+                elidex_ecs::Namespace::Html,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let html = serialize_outer_html(el, &dom);
+    assert_eq!(html, r#"<my-el is="my-other"></my-el>"#);
+}
+
+#[test]
+fn serialize_emits_is_equal_to_local_name() {
+    // Codex PR331 R2: an is value equal to the local name is still
+    // non-null — HTML §13.3's condition is nullness, not inequality.
+    let mut dom = EcsDom::new();
+    let el = dom.create_element("button", Attributes::default());
+    dom.world_mut()
+        .insert_one(
+            el,
+            elidex_custom_elements::CustomElementState::for_created_element(
+                "button",
+                Some("button"),
+                elidex_ecs::Namespace::Html,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let html = serialize_outer_html(el, &dom);
+    assert_eq!(html, r#"<button is="button"></button>"#);
 }

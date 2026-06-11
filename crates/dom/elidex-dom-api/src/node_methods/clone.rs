@@ -179,6 +179,16 @@ pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -
         let Ok(cloned_shadow) = dom.attach_shadow_with_init(d, init) else {
             continue;
         };
+        // The spec threads ONE document through the whole clone
+        // recursion, shadow trees included — `attach_shadow_with_init`
+        // spawns the replicated shadow root without a node document,
+        // and the shallow cloner stamps neither it nor the cloned
+        // host, so `clonedHost.shadowRoot.ownerDocument` would
+        // otherwise diverge from its own children.
+        if let Some(doc) = shadow_doc {
+            dom.set_associated_document(cloned_shadow, doc);
+            dom.set_associated_document(d, doc);
+        }
         let source_shadow_children: Vec<Entity> = dom.children(src_shadow_root);
         for child in source_shadow_children {
             // Step 6.7: shadow children clone with the operation's
@@ -230,13 +240,18 @@ fn clone_recording(
 /// elements whose `is` attribute appeared only after creation (null is
 /// value per spec).
 fn propagate_ce_identity(src: Entity, dst: Entity, dom: &mut EcsDom) {
-    let name = match dom.world().get::<&CustomElementState>(src) {
-        Ok(state) => state.definition_name.clone(),
+    let (name, is_value) = match dom.world().get::<&CustomElementState>(src) {
+        Ok(state) => (state.definition_name.clone(), state.is_value.clone()),
         Err(_) => return,
     };
-    let _ = dom
-        .world_mut()
-        .insert_one(dst, CustomElementState::undefined(name));
+    let _ = dom.world_mut().insert_one(
+        dst,
+        CustomElementState {
+            state: elidex_custom_elements::CEState::Undefined,
+            definition_name: name,
+            is_value,
+        },
+    );
 }
 
 /// Extract the `ShadowInit` for `entity`'s shadow root if it is a

@@ -30,8 +30,19 @@ pub enum CEState {
 pub struct CustomElementState {
     /// Current lifecycle state.
     pub state: CEState,
-    /// The custom element definition name (e.g., "my-element").
+    /// The custom element definition name the upgrade machinery keys
+    /// on: the local name for autonomous custom elements, the *is*
+    /// value for customized built-ins.
     pub definition_name: String,
+    /// The element's *is value* slot (DOM §4.9 "create an element" —
+    /// set from `ElementCreationOptions.is` / the parse-time `is`
+    /// content attribute, immutable thereafter). Kept SEPARATE from
+    /// `definition_name`: an autonomous custom element created with a
+    /// non-null `is` retains it here (the autonomous branch keys the
+    /// definition on the tag, but HTML §13.3 serialization must still
+    /// emit the is value), and an is value equal to the local name is
+    /// still non-null and must serialize.
+    pub is_value: Option<String>,
 }
 
 impl CustomElementState {
@@ -41,6 +52,7 @@ impl CustomElementState {
         Self {
             state: CEState::Undefined,
             definition_name: name.into(),
+            is_value: None,
         }
     }
 
@@ -50,26 +62,18 @@ impl CustomElementState {
         Self {
             state: CEState::Custom,
             definition_name: name.into(),
+            is_value: None,
         }
     }
 
-    /// The element's *is value* slot view (DOM §4.9 "create an
-    /// element" / HTML §13.3): `Some(definition_name)` when this state
-    /// marks a **customized built-in** (the definition name differs
-    /// from the element's local name — autonomous custom elements key
-    /// on the tag itself and have a null is value in this data model),
-    /// else `None`.
-    ///
-    /// This is the single home of the "customized built-in ⇔
-    /// definition_name ≠ local name" discriminator — consumers
-    /// (serializer is-value compensation, engine upgrade routing)
-    /// must not inline the comparison.  KNOWN CONFLATION: the
-    /// component stores one name, so `createElement('my-el',
-    /// {is:'my-other'})` loses the is value to the autonomous branch
-    /// (slot `#11-custom-element-is-value-slot-separation`).
+    /// The element's *is value* slot (DOM §4.9): the raw `is` the
+    /// element was created with, or `None`. This is what HTML §13.3
+    /// serialization emits — including when it equals the local name
+    /// or coexists with a valid autonomous tag (the slot is
+    /// independent of which name keys the upgrade).
     #[must_use]
-    pub fn is_value(&self, local_name: &str) -> Option<&str> {
-        (self.definition_name != local_name).then_some(self.definition_name.as_str())
+    pub fn is_value(&self) -> Option<&str> {
+        self.is_value.as_deref()
     }
 
     /// The canonical creation-time custom-element-state derivation,
@@ -98,8 +102,8 @@ impl CustomElementState {
     /// custom elements, the *is* value for customized built-ins.
     ///
     /// Cloning never calls this: per DOM §4.4 "clone a single node"
-    /// step 2.4 a clone *propagates* the source's is value (the
-    /// existing component's `definition_name`) rather than
+    /// step 2.4 a clone *propagates* the source's slots (the existing
+    /// component's `definition_name` + `is_value`) rather than
     /// re-deriving from attributes.
     #[must_use]
     pub fn for_created_element(
@@ -111,9 +115,20 @@ impl CustomElementState {
             return None;
         }
         if is_valid_custom_element_name(local_name) {
-            return Some(Self::undefined(local_name));
+            // Autonomous: the tag keys the definition; a non-null is
+            // value is still retained in its own slot (DOM §4.9 sets
+            // it independently; HTML §13.3 serializes it).
+            return Some(Self {
+                state: CEState::Undefined,
+                definition_name: local_name.to_string(),
+                is_value: is_value.map(str::to_string),
+            });
         }
-        is_value.map(Self::undefined)
+        is_value.map(|is| Self {
+            state: CEState::Undefined,
+            definition_name: is.to_string(),
+            is_value: Some(is.to_string()),
+        })
     }
 }
 
@@ -166,12 +181,24 @@ mod tests {
     }
 
     #[test]
-    fn for_created_element_valid_name_wins_over_is() {
-        // Autonomous branch takes precedence: a hyphenated local name
-        // keys the definition on the tag itself.
+    fn for_created_element_valid_name_keys_definition_but_keeps_is() {
+        // Autonomous branch keys the definition on the tag itself,
+        // while the non-null is value is retained in its own slot
+        // (DOM §4.9 sets the is value independently of step 6.3).
         let ce =
             CustomElementState::for_created_element("my-el", Some("my-other"), Namespace::Html)
                 .expect("valid local name marks autonomous");
         assert_eq!(ce.definition_name, "my-el");
+        assert_eq!(ce.is_value(), Some("my-other"));
+    }
+
+    #[test]
+    fn for_created_element_is_equal_to_local_name_is_still_non_null() {
+        // `createElement("button", {is: "button"})`: the is value is
+        // non-null regardless of equality with the local name — HTML
+        // §13.3 must serialize it, so the slot must record it.
+        let ce = CustomElementState::for_created_element("button", Some("button"), Namespace::Html)
+            .expect("non-null is marks Undefined");
+        assert_eq!(ce.is_value(), Some("button"));
     }
 }
