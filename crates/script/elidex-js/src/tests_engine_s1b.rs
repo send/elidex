@@ -97,6 +97,22 @@ fn set_origin_tuple_override_wins_over_current_url() {
 }
 
 #[test]
+fn document_origin_blob_url_reports_inner_origin_not_null() {
+    // An unsandboxed `blob:` document (no override installed) must resolve to
+    // its inner URL's origin, not opaque — otherwise the migrated
+    // settings-origin readers (postMessage / WS+SSE `Origin` / storage) would
+    // report "null" where the prior `current_url.origin()` reported the real
+    // origin. Guards the §5 resolver's dependency on `SecurityOrigin::from_url`
+    // handling blob URLs (URL Standard "origin of a URL", blob steps).
+    let mut engine = fresh_unbound().0;
+    set_current_url(
+        &mut engine,
+        "blob:https://example.com/550e8400-e29b-41d4-a716-446655440000",
+    );
+    assert_eq!(engine.origin().serialize(), "https://example.com");
+}
+
+#[test]
 fn document_origin_resolves_without_host_data() {
     // A bare engine (no HostData installed) still resolves — falls back to
     // `current_url` (default about:blank → opaque "null"), never panics.

@@ -79,6 +79,18 @@ use super::named_property_exotic::{coerce_key_or_none, is_bound, key_on_prototyp
 /// the per-VM `HostData::opaque_origin_sentinel` so they do not alias across
 /// VMs in the same process.
 ///
+/// Known spec deviation (→ slot `#11-storage-opaque-origin-securityerror`):
+/// the Storage standard's "obtain a storage key" step 2 returns failure for an
+/// opaque origin, so the localStorage / sessionStorage getters must throw a
+/// `SecurityError` (HTML §12.2.3 / §12.2.2 step 3) rather than partition into a
+/// bucket. The per-VM sentinel bucket is a pre-existing pragmatic fallback (it
+/// lets bootstrap / `about:blank` / `data:` documents function); enforcing the
+/// throw is deferred because it spans both getters, removes this sentinel, and
+/// couples to `about:blank` origin inheritance (which the VM does not yet model
+/// — naive opaque would over-throw on documents that should inherit an origin).
+/// S1b only narrows *which* documents are opaque (sandboxed iframes no longer
+/// leak the real origin's bucket); it does not regress the throw behaviour.
+///
 /// Invariant: isolation keys off the document origin **override**, not
 /// `sandbox_flags` — the embedder must install the opaque origin
 /// (`set_origin`) alongside `set_sandbox_flags` (the shell does, in
