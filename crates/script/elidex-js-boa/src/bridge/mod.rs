@@ -76,6 +76,12 @@ pub(crate) struct HostBridgeInner {
     in_with: bool,
     /// Cache: `JsObjectRef` → boa `JsObject` for element identity preservation.
     js_object_cache: HashMap<JsObjectRef, JsObject>,
+    /// The `customElements` registry object captured at global
+    /// registration — the stable identity bindings brand-check
+    /// `CustomElementRegistry` dictionary members against (the
+    /// writable `globalThis.customElements` property can be
+    /// reassigned by page script, so it is NOT a brand).
+    custom_elements_object: Option<JsObject>,
     /// Event listener JS function storage: `ListenerId` → boa `JsObject`.
     listener_store: HashMap<ListenerId, JsObject>,
     /// The URL of the currently loaded page.
@@ -392,6 +398,7 @@ impl HostBridge {
                 bridge_id: BRIDGE_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
                 in_with: false,
                 js_object_cache: HashMap::new(),
+                custom_elements_object: None,
                 listener_store: HashMap::new(),
                 current_url: None,
                 cached_origin: "null".to_string(),
@@ -625,6 +632,22 @@ impl HostBridge {
 
     // Web Animations API methods are in animation.rs
     // Form data collection is in form.rs
+
+    /// Store the per-context `customElements` registry object so
+    /// bindings can brand-check `CustomElementRegistry` dictionary
+    /// members by stable identity (Codex PR331 R11: the writable
+    /// `globalThis.customElements` property is reassignable by page
+    /// script, so reading it back would let a plain object pass — or
+    /// reject the real registry — after reassignment).
+    pub(crate) fn set_custom_elements_object(&self, obj: JsObject) {
+        self.inner.borrow_mut().custom_elements_object = Some(obj);
+    }
+
+    /// The per-context `customElements` registry object (`None`
+    /// before global registration).
+    pub(crate) fn custom_elements_object(&self) -> Option<JsObject> {
+        self.inner.borrow().custom_elements_object.clone()
+    }
 
     /// Set the `NetworkHandle` for this bridge (called during `JsRuntime` init).
     pub fn set_network_handle(&self, handle: Rc<elidex_net::broker::NetworkHandle>) {

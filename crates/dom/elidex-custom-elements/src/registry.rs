@@ -210,6 +210,15 @@ impl CustomElementRegistry {
     /// Called when an element with a custom element name is created before
     /// `customElements.define()` has been called for that name.
     pub fn queue_for_upgrade(&mut self, name: &str, entity: Entity) {
+        // Queue admission is gated on name validity (the element's
+        // Undefined MARKING is not — DOM §4.9 step 6.3 is
+        // validity-free): `define()` rejects invalid names, so a
+        // bucket keyed by one is undrainable forever and would grow
+        // unboundedly.  Owning the gate here (not at the engine call
+        // sites) protects every present and future caller.
+        if !is_valid_custom_element_name(name) {
+            return;
+        }
         self.pending_upgrade
             .entry(name.to_string())
             .or_default()
@@ -358,7 +367,11 @@ pub fn collect_undefined_entities(
     let mut out = Vec::new();
     let mut query = world.query::<(Entity, &CustomElementState)>();
     for (entity, state) in &mut query {
+        // Null-registry elements are outside every registry — the
+        // define()-time drain must not upgrade them (DOM §4.9:
+        // definition lookup in a null registry is always null).
         if matches!(state.state, CEState::Undefined)
+            && matches!(state.registry, crate::RegistryAssociation::Document)
             && state.definition_name == name
             && !skip.contains(&entity)
         {
@@ -394,5 +407,34 @@ mod upgrade_match_tests {
         assert!(d.upgrade_matches_local_name("BUTTON")); // ASCII case-insensitive
         assert!(!d.upgrade_matches_local_name("div"));
         assert!(!d.upgrade_matches_local_name("plastic-button"));
+    }
+}
+
+#[cfg(test)]
+mod queue_admission_tests {
+    use super::CustomElementRegistry;
+
+    #[test]
+    fn queue_for_upgrade_rejects_invalid_names() {
+        // The DoS guard this gate exists for: `define()` rejects
+        // invalid names, so a pending bucket keyed by one could never
+        // drain — admission must refuse it outright while valid
+        // (merely not-yet-defined) names queue normally.
+        let mut reg = CustomElementRegistry::new();
+        let world = hecs::World::new();
+        let entity = world.reserve_entity();
+        // Genuinely invalid names: no hyphen ("input", "notvalid"),
+        // uppercase ("My-El"). NB "x-invalid" would be VALID (lowercase
+        // start + hyphen) — naming a thing "-invalid" doesn't make it so.
+        reg.queue_for_upgrade("input", entity);
+        reg.queue_for_upgrade("notvalid", entity);
+        reg.queue_for_upgrade("My-El", entity);
+        assert!(
+            reg.pending_upgrade.is_empty(),
+            "invalid names must not be admitted to the pending-upgrade queue"
+        );
+        reg.queue_for_upgrade("my-el", entity);
+        assert_eq!(reg.pending_upgrade.len(), 1);
+        assert_eq!(reg.pending_upgrade["my-el"], vec![entity]);
     }
 }

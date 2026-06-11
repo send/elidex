@@ -158,7 +158,15 @@ pub(crate) fn native_ce_upgrade(
         let dom = host.dom_shared();
         dom.for_each_shadow_inclusive_descendant(root_entity, &mut |e| {
             if let Ok(state) = dom.world().get::<&CustomElementState>(e) {
+                // Null-registry elements are outside every registry —
+                // `customElements.upgrade()` never upgrades them (the
+                // definition lookup against their (null) registry is
+                // always null).
                 if matches!(state.state, CEState::Undefined)
+                    && matches!(
+                        state.registry,
+                        elidex_custom_elements::RegistryAssociation::Document
+                    )
                     && defined.contains(&state.definition_name)
                 {
                     candidates.push(e);

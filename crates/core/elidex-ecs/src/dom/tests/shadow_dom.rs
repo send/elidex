@@ -321,12 +321,14 @@ fn attach_shadow_with_init_plumbs_all_fields() {
                 slot_assignment: SlotAssignmentMode::Manual,
                 clonable: true,
                 serializable: true,
+                null_registry: true,
             },
         )
         .unwrap();
     let stored = dom.world().get::<&ShadowRoot>(sr).unwrap();
     assert_eq!(stored.mode, ShadowRootMode::Closed);
     assert!(stored.delegates_focus);
+    assert!(stored.null_registry);
     assert_eq!(stored.slot_assignment, SlotAssignmentMode::Manual);
     assert!(stored.clonable);
     assert!(stored.serializable);

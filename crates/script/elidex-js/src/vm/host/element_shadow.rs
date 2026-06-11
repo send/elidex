@@ -1,5 +1,5 @@
 //! `Element.attachShadow(init)` + `Element.shadowRoot` getter
-//! (WHATWG DOM §4.2.14 + §4.8).
+//! (WHATWG DOM §4.9 "Interface Element").
 //!
 //! These two natives are the JS-facing entry points for the Shadow
 //! DOM surface; the wrapper / state-cache / prototype install lives
@@ -22,16 +22,21 @@ use super::super::value::{JsValue, NativeContext, PropertyKey, VmError};
 
 /// `element.attachShadow({mode, delegatesFocus?, slotAssignment?,
 /// clonable?, serializable?, customElementRegistry?})` (WHATWG DOM
-/// §4.2.14).
+/// §4.9).
 ///
 /// Returns the freshly-allocated `ShadowRoot` wrapper on success;
 /// throws `TypeError` on missing/invalid `mode`, or
 /// `NotSupportedError` (DOMException) when the host is not a valid
 /// shadow host or already has a shadow root.
 ///
-/// `customElementRegistry` is accepted but ignored — scoped registry
-/// support deferred to slot
-/// `#11-shadow-scoped-custom-element-registry`.
+/// `customElementRegistry` (nullable member) is validated per
+/// attachShadow steps 2-3: the document's global registry passes, a
+/// foreign registry throws `NotSupportedError` (step 3), a
+/// non-registry value throws the WebIDL conversion `TypeError`, and an
+/// explicit `null` creates a null-registry shadow root (step 2 —
+/// stored on the `ShadowRoot` component; per-context registry lookup
+/// for fragment parsing inside the shadow tree is deferred with
+/// scoped registries, slot `#11-shadow-scoped-custom-element-registry`).
 pub(super) fn native_element_attach_shadow(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -69,7 +74,7 @@ pub(super) fn native_element_attach_shadow(
     Ok(JsValue::Object(wrapper))
 }
 
-/// `element.shadowRoot` getter (WHATWG DOM §4.8).
+/// `element.shadowRoot` getter (WHATWG DOM §4.9).
 ///
 /// Returns the cached `ShadowRoot` wrapper for the host when its
 /// mode is `Open`; returns `null` when the host has no shadow root
@@ -131,15 +136,25 @@ pub(super) fn native_element_get_shadow_root(
 /// Throws TypeError when:
 /// - the argument isn't an Object (or `undefined` — which has no `mode`)
 /// - `mode` is missing / not a string / not "open" or "closed"
+/// - `customElementRegistry` is neither null nor a registry object
+///
+/// Members are got AND converted in WebIDL lexicographic dictionary
+/// order — `clonable`, `customElementRegistry`, `delegatesFocus`,
+/// `mode`, `serializable`, `slotAssignment` — so getter side effects
+/// and conversion exceptions fire in spec order (e.g. an invalid
+/// registry TypeErrors before the `mode` getter runs).
 ///
 /// `slotAssignment` defaults to "named" when missing; non-"named"/"manual"
 /// throws TypeError per WebIDL enum semantics.
 /// Other boolean fields default to `false`.
-/// `customElementRegistry` is accepted but ignored.
+/// The converted `customElementRegistry` is then gated by attachShadow
+/// steps 2-3 (doc comment on `native_element_attach_shadow`) — an
+/// algorithm step, so it runs after the whole dictionary converted.
 fn parse_shadow_init(
     ctx: &mut NativeContext<'_>,
     init_arg: JsValue,
 ) -> Result<ShadowInit, VmError> {
+    const PREFIX: &str = "Failed to execute 'attachShadow' on 'Element'";
     let JsValue::Object(init_id) = init_arg else {
         return Err(VmError::type_error(
             "Failed to execute 'attachShadow' on 'Element': \
@@ -147,19 +162,42 @@ fn parse_shadow_init(
                 .to_string(),
         ));
     };
-    let mode = read_required_mode(ctx, init_id)?;
-    let delegates_focus = read_optional_bool(ctx, init_id, "delegatesFocus")?;
-    let slot_assignment = read_optional_slot_assignment(ctx, init_id)?;
+    // CONVERSION PHASE — lexicographic member order.
     let clonable = read_optional_bool(ctx, init_id, "clonable")?;
+    let registry_key = PropertyKey::String(ctx.vm.strings.intern("customElementRegistry"));
+    let registry_raw = ctx.vm.get_property_value(init_id, registry_key)?;
+    let registry_member = if matches!(registry_raw, JsValue::Undefined) {
+        None
+    } else {
+        Some(
+            super::custom_elements::convert_custom_element_registry_member(
+                ctx,
+                registry_raw,
+                PREFIX,
+            )?,
+        )
+    };
+    let delegates_focus = read_optional_bool(ctx, init_id, "delegatesFocus")?;
+    let mode = read_required_mode(ctx, init_id)?;
     let serializable = read_optional_bool(ctx, init_id, "serializable")?;
-    // `customElementRegistry` parsed-and-ignored — scoped registry
-    // support deferred to slot `#11-shadow-scoped-custom-element-registry`.
+    let slot_assignment = read_optional_slot_assignment(ctx, init_id)?;
+    // ALGORITHM PHASE — attachShadow steps 2-3: a foreign registry
+    // throws NotSupportedError (step 3, only fires for NON-null
+    // registries); an explicit null threads through as a
+    // null-registry shadow root (step 2 — stored on the `ShadowRoot`
+    // component).
+    let mut null_registry = false;
+    if let Some(member) = registry_member {
+        super::custom_elements::reject_foreign_registry_member(ctx, &member, PREFIX)?;
+        null_registry = matches!(member, super::custom_elements::RegistryMember::Null);
+    }
     Ok(ShadowInit {
         mode,
         delegates_focus,
         slot_assignment,
         clonable,
         serializable,
+        null_registry,
     })
 }
 

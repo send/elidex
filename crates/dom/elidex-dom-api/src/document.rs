@@ -124,6 +124,19 @@ impl DomApiHandler for GetElementById {
 pub struct CreateElement;
 
 /// Validates that a tag name contains only ASCII alphanumeric, `-`, `_`, and `.`.
+///
+/// `pub` because the engine bindings run the same check BEFORE the
+/// flatten-algorithm NotSupportedError gates: DOM §4.5 `createElement`
+/// step 1 throws `InvalidCharacterError` before step 3 "flatten
+/// element creation options" raises its conflict / foreign-registry
+/// errors (WebIDL *conversion* TypeErrors still precede both — they
+/// happen at argument-conversion time). The handler below re-checks
+/// (it stays self-contained for direct callers); this fn is the
+/// single shared predicate.
+pub fn is_valid_element_tag_name(name: &str) -> bool {
+    is_valid_tag_name(name)
+}
+
 fn is_valid_tag_name(name: &str) -> bool {
     !name.is_empty()
         && name
@@ -145,17 +158,41 @@ impl DomApiHandler for CreateElement {
     ) -> Result<JsValue, DomApiError> {
         let tag = require_string_arg(args, 0)?;
         if !is_valid_tag_name(&tag) {
-            // WHATWG DOM §4.5.2 (`Document.createElement`): an invalid
-            // local name throws `InvalidCharacterError`, NOT
-            // `SyntaxError`.  `SyntaxError` is reserved for selector /
-            // URL / CSS-OM parse failures (DOM §4.7 legacy code 12)
-            // and would surface the wrong `DOMException.name` to JS
+            // WHATWG DOM §4.5 "Interface Document" (`createElement`
+            // method steps, step 1): an invalid local name throws
+            // `InvalidCharacterError`, NOT `SyntaxError`.
+            // `SyntaxError` is reserved for selector / URL / CSS-OM
+            // parse failures (legacy code 12 per the WebIDL error
+            // names table) and would surface the wrong
+            // `DOMException.name` to JS
             // (`e.name === "InvalidCharacterError"` vs `"SyntaxError"`).
             return Err(DomApiError {
                 kind: DomApiErrorKind::InvalidCharacterError,
                 message: format!("Invalid tag name: {tag}"),
             });
         }
+        // Optional second arg = the flattened creation options (WHATWG
+        // DOM §4.5 createElement step 3 "flatten element creation
+        // options") — the engine host MUST discriminate the WebIDL
+        // `(DOMString or ElementCreationOptions)` union and pass only
+        // the flattened result here; forwarding raw JS args verbatim
+        // would let a DOMString `options` masquerade as an is value.
+        // Encoding: `String` = the is value (no validity check — DOM
+        // §4.9 step 6.3 marks on non-null `is` regardless of name
+        // validity); `Null` = an explicit `customElementRegistry:
+        // null` (mutually exclusive with `is` by the flatten step
+        // 3.2.1 conflict, so one positional slot carries both).
+        let is_value: Option<&str> = match args.get(1) {
+            Some(JsValue::String(s)) => Some(s.as_str()),
+            _ => None,
+        };
+        let null_registry = matches!(args.get(1), Some(JsValue::Null));
+        // Single canonical local name: both the TagType and the
+        // custom-element derivation read the same folded binding —
+        // feeding the pre-fold `tag` into the derivation would skip
+        // CE marking for `createElement('MY-EL')` (valid custom
+        // element names are lowercase-first).
+        let local_name = tag.to_ascii_lowercase();
         // Anchor the new node's "node document" (WHATWG DOM §4.4) to
         // the receiver Document so `newEl.ownerDocument` reports the
         // creating document even before insertion — critical for
@@ -165,11 +202,32 @@ impl DomApiHandler for CreateElement {
         // explicit `create_element_with_owner` call; the handler now
         // owns the spec-precise behaviour so both boa and VM paths
         // observe the same ownerDocument semantics.
-        let entity = dom.create_element_with_owner(
-            tag.to_ascii_lowercase(),
-            Attributes::default(),
-            Some(this),
+        // WHATWG DOM §4.9 "create an element" step 6.3 — the canonical
+        // creation-time custom-element-state derivation (computed
+        // before the entity spawn so `local_name` can move into
+        // `create_element_with_owner`). No `is` content attribute is
+        // set (DOM §4.5 createElement has no such step); serialization
+        // compensates via the HTML §13.3 is-value step in
+        // `serialize_node`.
+        let mut ce_state = elidex_custom_elements::CustomElementState::for_created_element(
+            &local_name,
+            is_value,
+            elidex_ecs::Namespace::Html,
         );
+        // DOM §4.9 "create an element internal" step 1: the created
+        // element's custom element registry is the caller-supplied
+        // one — an explicit null puts the element outside every
+        // registry (never upgraded; the bindings' routing and the
+        // define()/upgrade() walks all gate on this field).
+        if null_registry {
+            if let Some(state) = ce_state.as_mut() {
+                state.registry = elidex_custom_elements::RegistryAssociation::Null;
+            }
+        }
+        let entity = dom.create_element_with_owner(local_name, Attributes::default(), Some(this));
+        if let Some(ce_state) = ce_state {
+            let _ = dom.world_mut().insert_one(entity, ce_state);
+        }
         let obj_ref = session.get_or_create_wrapper(entity, ComponentKind::Element);
         Ok(JsValue::ObjectRef(obj_ref.to_raw()))
     }
@@ -426,10 +484,11 @@ mod tests {
 
     #[test]
     fn create_element_invalid_tag_name_throws_invalid_character_error() {
-        // WHATWG DOM §4.5.2 (`Document.createElement`): an invalid
-        // local name throws `InvalidCharacterError` — *not*
-        // `SyntaxError`, which is reserved for selector / URL /
-        // CSS-OM parse failures (DOM §4.7 legacy code 12).  A space
+        // WHATWG DOM §4.5 "Interface Document" (`createElement`
+        // method steps, step 1): an invalid local name throws
+        // `InvalidCharacterError` — *not* `SyntaxError`, which is
+        // reserved for selector / URL / CSS-OM parse failures
+        // (legacy code 12 per the WebIDL error names table).  A space
         // in the tag name is the simplest invalid-name input that
         // trips `is_valid_tag_name`.
         let (mut dom, doc) = setup_dom();
@@ -446,5 +505,126 @@ mod tests {
             result.unwrap_err().kind,
             DomApiErrorKind::InvalidCharacterError
         );
+    }
+
+    // -------------------------------------------------------------------
+    // createElement — CustomElementState derivation (DOM §4.9 step 6.3)
+    // -------------------------------------------------------------------
+
+    use crate::test_util::entity_of as created_entity;
+
+    #[test]
+    fn create_element_autonomous_gets_undefined_ce_state() {
+        let (mut dom, doc) = setup_dom();
+        let mut session = SessionCore::new();
+        let r = CreateElement
+            .invoke(
+                doc,
+                &[JsValue::String("my-x".into())],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        let entity = created_entity(&r, &session);
+        let ce = dom
+            .world()
+            .get::<&elidex_custom_elements::CustomElementState>(entity)
+            .expect("autonomous custom element marked at creation");
+        assert_eq!(ce.state, elidex_custom_elements::CEState::Undefined);
+        assert_eq!(ce.definition_name, "my-x");
+    }
+
+    #[test]
+    fn create_element_plain_builtin_unmarked() {
+        let (mut dom, doc) = setup_dom();
+        let mut session = SessionCore::new();
+        let r = CreateElement
+            .invoke(
+                doc,
+                &[JsValue::String("div".into())],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        let entity = created_entity(&r, &session);
+        assert!(dom
+            .world()
+            .get::<&elidex_custom_elements::CustomElementState>(entity)
+            .is_err());
+    }
+
+    #[test]
+    fn create_element_with_is_marks_customized_builtin_no_attr() {
+        // The is value lands in the component only — DOM §4.5
+        // createElement has no step that sets an `is` content
+        // attribute (serialization compensates per HTML §13.3).
+        let (mut dom, doc) = setup_dom();
+        let mut session = SessionCore::new();
+        let r = CreateElement
+            .invoke(
+                doc,
+                &[
+                    JsValue::String("button".into()),
+                    JsValue::String("my-btn".into()),
+                ],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        let entity = created_entity(&r, &session);
+        let ce = dom
+            .world()
+            .get::<&elidex_custom_elements::CustomElementState>(entity)
+            .expect("customized built-in marked at creation");
+        assert_eq!(ce.definition_name, "my-btn");
+        assert_eq!(dom.get_attribute(entity, "is"), None);
+    }
+
+    #[test]
+    fn create_element_invalid_is_still_marks_undefined() {
+        // Validity-free per step 6.3 — a host-side validity gate
+        // filtering before the handler would turn this red.
+        let (mut dom, doc) = setup_dom();
+        let mut session = SessionCore::new();
+        let r = CreateElement
+            .invoke(
+                doc,
+                &[
+                    JsValue::String("button".into()),
+                    JsValue::String("notvalid".into()),
+                ],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        let entity = created_entity(&r, &session);
+        let ce = dom
+            .world()
+            .get::<&elidex_custom_elements::CustomElementState>(entity)
+            .expect("non-null invalid is still marks Undefined");
+        assert_eq!(ce.definition_name, "notvalid");
+        assert_eq!(dom.get_attribute(entity, "is"), None);
+    }
+
+    #[test]
+    fn create_element_case_folds_before_derivation() {
+        // The folded local name feeds BOTH the TagType and the CE
+        // derivation — `createElement('MY-EL')` must mark.
+        let (mut dom, doc) = setup_dom();
+        let mut session = SessionCore::new();
+        let r = CreateElement
+            .invoke(
+                doc,
+                &[JsValue::String("MY-EL".into())],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        let entity = created_entity(&r, &session);
+        let ce = dom
+            .world()
+            .get::<&elidex_custom_elements::CustomElementState>(entity)
+            .expect("case-folded tag marks CE state");
+        assert_eq!(ce.definition_name, "my-el");
     }
 }

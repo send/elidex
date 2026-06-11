@@ -208,6 +208,11 @@ pub fn register_custom_elements_global(ctx: &mut Context, bridge: &HostBridge) {
     );
 
     let ce_obj = init.build();
+    // Capture the stable registry identity on the bridge BEFORE
+    // exposing it as a (writable) global — bindings brand-check
+    // `CustomElementRegistry` members against this handle, not the
+    // reassignable `globalThis.customElements` property.
+    bridge.set_custom_elements_object(ce_obj.clone());
     ctx.register_global_property(
         js_string!("customElements"),
         ce_obj,
@@ -249,7 +254,11 @@ fn extract_observed_attributes(
     Ok(attrs)
 }
 
-/// Walk a subtree and enqueue Upgrade reactions for undefined custom elements.
+/// Walk a subtree and enqueue Upgrade reactions for undefined custom
+/// elements. (The clone-time seam routes through the bridge's
+/// `apply_clone_ce_creation_pass` instead — it additionally applies
+/// the §4.9 async-autonomous null-is rule, which a define()-time walk
+/// over pre-existing elements must NOT do.)
 fn walk_and_enqueue_upgrades(
     root: elidex_ecs::Entity,
     bridge: &HostBridge,
@@ -270,7 +279,14 @@ fn walk_and_enqueue_upgrades_inner(
     }
 
     if let Ok(ce_state) = dom.world().get::<&CustomElementState>(root) {
-        if ce_state.state == CEState::Undefined {
+        // Null-registry elements are outside every registry — neither
+        // the define()-time walk nor customElements.upgrade() (both
+        // route through here) may upgrade them.
+        let in_document_registry = matches!(
+            ce_state.registry,
+            elidex_custom_elements::RegistryAssociation::Document
+        );
+        if in_document_registry && ce_state.state == CEState::Undefined {
             // Upgrade only when the element's local name matches the
             // definition (customized built-in → `extends` base; autonomous →
             // the definition name). Shared rule:

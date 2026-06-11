@@ -1,6 +1,7 @@
 //! `document` global object registration.
 
 mod collections;
+mod create_element;
 mod traversal;
 
 use boa_engine::object::ObjectInitializer;
@@ -20,9 +21,9 @@ pub(crate) use traversal::build_range_object;
 
 /// Common pattern for document methods that take a single string argument,
 /// invoke a DOM API handler by name on the document entity, and return an element ref.
-fn invoke_doc_handler_returning_ref(
+pub(super) fn invoke_doc_handler_returning_ref(
     handler_name: &str,
-    arg: String,
+    args: &[ElidexJsValue],
     bridge: &HostBridge,
     ctx: &mut Context,
 ) -> JsResult<JsValue> {
@@ -32,7 +33,7 @@ fn invoke_doc_handler_returning_ref(
     })?;
     let result = bridge.with(|session, dom| {
         handler
-            .invoke(doc, &[ElidexJsValue::String(arg)], session, dom)
+            .invoke(doc, args, session, dom)
             .map_err(dom_error_to_js_error)
     })?;
     Ok(resolve_object_ref(&result, bridge, ctx))
@@ -53,7 +54,12 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| -> JsResult<JsValue> {
                 let selector = require_js_string_arg(args, 0, "querySelector", ctx)?;
-                invoke_doc_handler_returning_ref("querySelector", selector, bridge, ctx)
+                invoke_doc_handler_returning_ref(
+                    "querySelector",
+                    &[ElidexJsValue::String(selector)],
+                    bridge,
+                    ctx,
+                )
             },
             b_qs,
         ),
@@ -105,7 +111,12 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| -> JsResult<JsValue> {
                 let id = require_js_string_arg(args, 0, "getElementById", ctx)?;
-                invoke_doc_handler_returning_ref("getElementById", id, bridge, ctx)
+                invoke_doc_handler_returning_ref(
+                    "getElementById",
+                    &[ElidexJsValue::String(id)],
+                    bridge,
+                    ctx,
+                )
             },
             b_id,
         ),
@@ -113,89 +124,10 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         1,
     );
 
-    // document.createElement(tagName, options?)
-    let b_ce = b.clone();
-    init.function(
-        NativeFunction::from_copy_closure_with_captures(
-            |_this, args, bridge, ctx| -> JsResult<JsValue> {
-                let tag = require_js_string_arg(args, 0, "createElement", ctx)?;
-
-                // Extract options.is if present (customized built-in elements).
-                // Per spec, invalid `is` values are silently ignored.
-                let is_value = if let Some(opts) = args.get(1).and_then(JsValue::as_object) {
-                    let v = opts.get(js_string!("is"), ctx)?;
-                    if v.is_undefined() || v.is_null() {
-                        None
-                    } else {
-                        let is_name = v.to_string(ctx)?.to_std_string_escaped();
-                        if elidex_custom_elements::is_valid_custom_element_name(&is_name) {
-                            Some(is_name)
-                        } else {
-                            None
-                        }
-                    }
-                } else {
-                    None
-                };
-
-                let result =
-                    invoke_doc_handler_returning_ref("createElement", tag.clone(), bridge, ctx)?;
-
-                // Mark custom elements for upgrade tracking.
-                if let Ok(entity) = crate::globals::element::extract_entity(&result, ctx) {
-                    let ce_name = if elidex_custom_elements::is_valid_custom_element_name(&tag) {
-                        Some(tag.clone())
-                    } else {
-                        is_value.clone()
-                    };
-
-                    if let Some(name) = ce_name {
-                        bridge.with(|_session, dom| {
-                            // For customized built-ins, verify the definition matches the tag.
-                            let defined = if is_value.is_some() {
-                                bridge.ce_lookup_by_is(&name, &tag)
-                            } else {
-                                bridge.is_custom_element_defined(&name)
-                            };
-                            if defined {
-                                // Definition exists — enqueue Upgrade.
-                                let ce_state =
-                                    elidex_custom_elements::CustomElementState::undefined(&name);
-                                let _ = dom.world_mut().insert_one(entity, ce_state);
-                                bridge.enqueue_ce_reaction(
-                                    elidex_custom_elements::CustomElementReaction::Upgrade(entity),
-                                );
-                            } else {
-                                // Not yet defined — mark as undefined and queue.
-                                let ce_state =
-                                    elidex_custom_elements::CustomElementState::undefined(&name);
-                                let _ = dom.world_mut().insert_one(entity, ce_state);
-                                bridge.queue_for_ce_upgrade(&name, entity);
-                            }
-                        });
-                    }
-
-                    // Set the `is` attribute on the element per WHATWG HTML §4.13.5 upgrade.
-                    if let Some(ref is_name) = is_value {
-                        bridge.with(|_session, dom| {
-                            if let Ok(mut attrs) =
-                                dom.world_mut().get::<&mut elidex_ecs::Attributes>(entity)
-                            {
-                                attrs.set("is", is_name);
-                            }
-                            // Bump version so LiveCollections / caches invalidate.
-                            dom.rev_version(entity);
-                        });
-                    }
-                }
-
-                Ok(result)
-            },
-            b_ce,
-        ),
-        js_string!("createElement"),
-        1,
-    );
+    // document.createElement(tagName, options?) — option
+    // flattening + upgrade routing live in [`create_element`]
+    // (1000-line file rule).
+    create_element::install_create_element(&mut init, &b);
 
     // document.createTextNode(data)
     let b_ctn = b.clone();
@@ -203,7 +135,12 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| -> JsResult<JsValue> {
                 let text = require_js_string_arg(args, 0, "createTextNode", ctx)?;
-                invoke_doc_handler_returning_ref("createTextNode", text, bridge, ctx)
+                invoke_doc_handler_returning_ref(
+                    "createTextNode",
+                    &[ElidexJsValue::String(text)],
+                    bridge,
+                    ctx,
+                )
             },
             b_ctn,
         ),
@@ -295,12 +232,7 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             |_this, _args, bridge, ctx| -> JsResult<JsValue> {
-                invoke_doc_handler_returning_ref(
-                    "createDocumentFragment",
-                    String::new(),
-                    bridge,
-                    ctx,
-                )
+                invoke_doc_handler_returning_ref("createDocumentFragment", &[], bridge, ctx)
             },
             b_cdf,
         ),
@@ -314,7 +246,12 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| -> JsResult<JsValue> {
                 let data = require_js_string_arg(args, 0, "createComment", ctx)?;
-                invoke_doc_handler_returning_ref("createComment", data, bridge, ctx)
+                invoke_doc_handler_returning_ref(
+                    "createComment",
+                    &[ElidexJsValue::String(data)],
+                    bridge,
+                    ctx,
+                )
             },
             b_cc,
         ),
@@ -328,7 +265,12 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| -> JsResult<JsValue> {
                 let name = require_js_string_arg(args, 0, "createAttribute", ctx)?;
-                invoke_doc_handler_returning_ref("createAttribute", name, bridge, ctx)
+                invoke_doc_handler_returning_ref(
+                    "createAttribute",
+                    &[ElidexJsValue::String(name)],
+                    bridge,
+                    ctx,
+                )
             },
             b_ca,
         ),
@@ -622,7 +564,21 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                 }
                 let deep = args.get(1).is_some_and(JsValue::to_boolean);
                 // Use cloneNode — single-document assumption.
-                invoke_dom_handler_ref("cloneNode", node, &[ElidexJsValue::Bool(deep)], bridge, ctx)
+                let result = invoke_dom_handler_ref(
+                    "cloneNode",
+                    node,
+                    &[ElidexJsValue::Bool(deep)],
+                    bridge,
+                    ctx,
+                )?;
+                // Clone-time upgrade reaction seam — see the
+                // cloneNode binding (DOM §4.4 clone-a-single-node).
+                if let Ok(clone_root) = crate::globals::element::extract_entity(&result, ctx) {
+                    bridge.with(|_session, dom| {
+                        bridge.apply_clone_ce_creation_pass(dom, clone_root);
+                    });
+                }
+                Ok(result)
             },
             b_import,
         ),

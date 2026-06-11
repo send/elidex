@@ -527,6 +527,7 @@ pub enum SlotAssignmentMode {
 /// A shadow root is a document fragment attached to a host element.
 /// It provides style encapsulation and DOM isolation (WHATWG DOM §4.8).
 #[derive(Clone, Copy, Debug)]
+#[allow(clippy::struct_excessive_bools)] // mirrors ShadowRootInit's boolean members
 pub struct ShadowRoot {
     /// Open or closed mode.
     pub mode: ShadowRootMode,
@@ -547,6 +548,15 @@ pub struct ShadowRoot {
     /// `#11-shadow-clone-serialize-propagation`; the field stores the
     /// init-time flag for feature-detection round-trip.
     pub serializable: bool,
+    /// The shadow root's custom element registry is null (created
+    /// with `attachShadow({customElementRegistry: null})`, DOM
+    /// `attachShadow` step 2). Per-context registry lookup for
+    /// fragment parsing inside the shadow tree is deferred with
+    /// scoped registries (slot
+    /// `#11-shadow-scoped-custom-element-registry`); the field stores
+    /// the association so the spec slot is modeled and clones / init
+    /// round-trips preserve it.
+    pub null_registry: bool,
 }
 
 /// Marker: this element hosts a shadow root.
@@ -936,8 +946,15 @@ pub struct IframeData {
 impl IframeData {
     /// Create `IframeData` from HTML attributes.
     ///
-    /// Centralizes the attribute-to-field mapping used by both the HTML parser
-    /// and JS `setAttribute` handling.
+    /// Production callers: the parser's `element_init` derivation pass
+    /// and the ecs cloner, which re-derives from the *cloned*
+    /// attributes (clone-policy "derived re-derive", see
+    /// `dom::tree_clone` — a verbatim copy would propagate a component
+    /// gone stale against its attributes).  Per-property eager
+    /// maintenance exists boa- and shell-side (iframe IDL setters /
+    /// iframe lifecycle), but a *generic* `setAttribute` →
+    /// `IframeData` re-derivation path does not — tracked as
+    /// `#11-derived-component-attr-maintenance`.
     #[must_use]
     pub fn from_attributes(attrs: &Attributes) -> Self {
         Self {

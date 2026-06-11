@@ -15,6 +15,7 @@ fn setup() -> (JsRuntime, SessionCore, EcsDom, Entity) {
 }
 
 mod custom_elements;
+mod custom_elements_queue;
 mod dom_api;
 mod events;
 mod observers;

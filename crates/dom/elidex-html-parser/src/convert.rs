@@ -162,6 +162,9 @@ fn try_attach_declarative_shadow(
         slot_assignment,
         clonable,
         serializable,
+        // Declarative shadow roots have no customElementRegistry
+        // channel — always the document registry.
+        null_registry: false,
     };
     // Spec §4.12.3 silently leaves the template as a normal element when
     // attach fails (e.g. parent tag not allowlisted, or parent already has

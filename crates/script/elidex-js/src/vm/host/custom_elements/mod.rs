@@ -39,6 +39,7 @@
 
 #![cfg(feature = "engine")]
 
+pub(super) mod creation;
 pub(super) mod define;
 pub(super) mod flush;
 pub(super) mod html_element;
@@ -175,6 +176,83 @@ pub(super) fn require_ce_registry_receiver(
         return Err(VmError::type_error(format!(
             "Failed to execute '{method}' on 'CustomElementRegistry': Illegal invocation"
         )));
+    }
+    Ok(())
+}
+
+/// Classification of a present `customElementRegistry` dictionary
+/// member after WebIDL conversion — the member is NULLABLE
+/// (`CustomElementRegistry?`) in both `ElementCreationOptions` and
+/// `ShadowRootInit`, so explicit `null` is a present member carrying a
+/// null registry, distinct from absence (`undefined`).
+pub(super) enum RegistryMember {
+    /// Explicit `null` — a null custom element registry.
+    Null,
+    /// The document's global registry singleton
+    /// (`globalThis.customElements`).
+    Document,
+    /// A genuine `CustomElementRegistry` object that is NOT the
+    /// document's singleton. Only reachable via a wrapper retained
+    /// across a `Vm::unbind`/rebind cycle today — the interface has no
+    /// exposed constructor, so a second live registry cannot be minted.
+    Foreign,
+}
+
+/// WebIDL conversion for a present (non-undefined)
+/// `customElementRegistry` member: `null` and `CustomElementRegistry`
+/// platform objects pass (classified for the caller's spec-step
+/// sequencing), anything else is the standard conversion TypeError.
+/// Dictionary members convert in lexicographic order, so this fires
+/// before any algorithm step at both call sites — `createElement`'s
+/// "flatten element creation options" (DOM §4.5) and `attachShadow`
+/// (DOM §4.9 "Interface `Element`").
+pub(super) fn convert_custom_element_registry_member(
+    ctx: &mut NativeContext<'_>,
+    raw: JsValue,
+    prefix: &str,
+) -> Result<RegistryMember, VmError> {
+    match raw {
+        JsValue::Null => Ok(RegistryMember::Null),
+        JsValue::Object(id)
+            if matches!(
+                ctx.vm.get_object(id).kind,
+                ObjectKind::CustomElementRegistry
+            ) =>
+        {
+            if id == ctx.vm.alloc_or_cached_custom_element_registry() {
+                Ok(RegistryMember::Document)
+            } else {
+                Ok(RegistryMember::Foreign)
+            }
+        }
+        _ => Err(VmError::type_error(format!(
+            "{prefix}: Failed to convert value to 'CustomElementRegistry'."
+        ))),
+    }
+}
+
+/// Shared registry-member acceptance gate: "flatten element creation
+/// options" step 3.3 and `attachShadow` step 3 both throw
+/// "NotSupportedError" for a **non-null**, non-scoped registry that is
+/// not the document's custom element registry. A `null` member passes
+/// — it is the spec's way to create a null-registry element / shadow
+/// root (never upgraded); the caller threads
+/// `RegistryMember::Null` through to the created node's
+/// `RegistryAssociation`. This is an ALGORITHM step (after dictionary
+/// conversion), so callers must run it after DOM §4.5 createElement
+/// step 1's localName validation.
+pub(super) fn reject_foreign_registry_member(
+    ctx: &NativeContext<'_>,
+    member: &RegistryMember,
+    prefix: &str,
+) -> Result<(), VmError> {
+    if matches!(member, RegistryMember::Foreign) {
+        return Err(VmError::dom_exception(
+            ctx.vm.well_known.dom_exc_not_supported_error,
+            format!(
+                "{prefix}: the provided registry is not the document's custom element registry"
+            ),
+        ));
     }
     Ok(())
 }

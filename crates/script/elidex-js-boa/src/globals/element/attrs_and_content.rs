@@ -103,43 +103,13 @@ pub(crate) fn register_content_accessors(
     let outer_html_getter = NativeFunction::from_copy_closure_with_captures(
         |this, _args, bridge, ctx| {
             let entity = extract_entity(this, ctx)?;
-            // outerHTML = opening tag + innerHTML + closing tag.
-            let (tag, attrs_str, inner) = bridge.with(|session, dom| {
-                let tag_name = dom
-                    .world()
-                    .get::<&elidex_ecs::TagType>(entity)
-                    .map_or("div".to_string(), |t| t.0.clone());
-                let attrs = dom
-                    .world()
-                    .get::<&elidex_ecs::Attributes>(entity)
-                    .ok()
-                    .map(|a| {
-                        use std::fmt::Write;
-                        a.iter().fold(String::new(), |mut acc, (k, v)| {
-                            let escaped = v
-                                .replace('&', "&amp;")
-                                .replace('"', "&quot;")
-                                .replace('<', "&lt;")
-                                .replace('>', "&gt;");
-                            let _ = write!(acc, " {k}=\"{escaped}\"");
-                            acc
-                        })
-                    })
-                    .unwrap_or_default();
-                let handler = bridge.dom_registry().resolve("innerHTML.get");
-                let inner_html = handler
-                    .and_then(|h| h.invoke(entity, &[], session, dom).ok())
-                    .and_then(|v| {
-                        if let elidex_plugin::JsValue::String(s) = v {
-                            Some(s)
-                        } else {
-                            None
-                        }
-                    })
-                    .unwrap_or_default();
-                (tag_name, attrs, inner_html)
-            });
-            let html = format!("<{tag}{attrs_str}>{inner}</{tag}>");
+            // Route through the engine-indep HTML §13.3 serializer
+            // (One-issue-one-way) — the previously hand-rolled opening
+            // tag here bypassed the canonical attr escaping /
+            // `is_safe_attr_name` filtering and the §13.3 is-value
+            // compensation step for customized built-ins.
+            let html =
+                bridge.with(|_session, dom| elidex_dom_api::serialize_outer_html(entity, dom));
             Ok(boa_engine::JsValue::from(js_string!(html.as_str())))
         },
         b,

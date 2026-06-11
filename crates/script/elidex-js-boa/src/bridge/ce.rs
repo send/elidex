@@ -86,6 +86,26 @@ impl HostBridge {
     /// `walk_and_enqueue_upgrades` (enqueue-side filter) and
     /// `drain_custom_element_reactions` (execution-side guard). Elements that
     /// fail the extends check are set to `CEState::Failed`.
+    /// DOM §4.4 clone-time creation pass over a fresh clone subtree:
+    /// delegates to the engine-indep
+    /// `elidex_custom_elements::apply_clone_creation_ce_semantics`
+    /// (async-autonomous null-is rule + upgrade candidacy via
+    /// `prepare_upgrade`) and enqueues an `Upgrade` reaction per
+    /// candidate (Codex PR331 R14 — shared rule with the VM path).
+    pub fn apply_clone_ce_creation_pass(&self, dom: &mut elidex_ecs::EcsDom, clone_root: Entity) {
+        let candidates = {
+            let inner = self.inner.borrow();
+            elidex_custom_elements::apply_clone_creation_ce_semantics(
+                dom,
+                &inner.custom_element_registry,
+                clone_root,
+            )
+        };
+        for entity in candidates {
+            self.enqueue_ce_reaction(CustomElementReaction::Upgrade(entity));
+        }
+    }
+
     pub fn queue_for_ce_upgrade(&self, name: &str, entity: Entity) {
         self.inner
             .borrow_mut()
@@ -192,5 +212,21 @@ impl HostBridge {
             .custom_element_registry
             .lookup_by_is(is_value, tag)
             .is_some()
+    }
+
+    /// DOM §4.9 step 5.1.3.10 — delegate to the engine-indep
+    /// registry-gated is-value clear (see
+    /// `elidex_custom_elements::clear_is_value_for_sync_autonomous`).
+    pub fn ce_clear_is_value_for_sync_autonomous(
+        &self,
+        dom: &mut elidex_ecs::EcsDom,
+        entity: elidex_ecs::Entity,
+    ) {
+        let inner = self.inner.borrow();
+        elidex_custom_elements::clear_is_value_for_sync_autonomous(
+            &inner.custom_element_registry,
+            dom,
+            entity,
+        );
     }
 }

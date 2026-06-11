@@ -582,3 +582,428 @@ fn nested_ce_connected_disconnected_callbacks() {
         "inner disconnectedCallback should fire, got: {output:?}"
     );
 }
+
+#[test]
+fn create_element_is_round_trips_through_outer_html() {
+    // boa outerHTML now routes through the canonical HTML §13.3
+    // serializer (no hand-rolled opening tag): a customized built-in
+    // created via createElement(tag, {is}) carries NO is content
+    // attribute (DOM §4.5 sets none) yet its outerHTML emits the
+    // is-value compensation, so serialize→parse keeps the identity.
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let result = runtime.eval(
+        r"
+        var el = document.createElement('button', { is: 'my-btn' });
+        console.log('attr=' + el.getAttribute('is') + ' html=' + el.outerHTML);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m
+            .1
+            .contains(r#"attr=null html=<button is="my-btn"></button>"#)),
+        "expected is-emit without an is attribute, got: {output:?}"
+    );
+}
+
+#[test]
+fn create_element_is_with_registry_member_throws() {
+    // DOM "flatten element creation options" step 3.2.1: non-null `is`
+    // + `customElementRegistry` member → NotSupportedError, even when
+    // the registry is the document's own (presence is the conflict).
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let result = runtime.eval(
+        r"
+        var caught = '';
+        try { document.createElement('button',
+                {is: 'my-btn', customElementRegistry: customElements}); }
+        catch (e) { caught = '' + e; }
+        console.log('caught=' + caught);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    let output = runtime.console_output().messages();
+    assert!(
+        output
+            .iter()
+            .any(|m| m.1.contains("caught=") && m.1.contains("NotSupportedError")),
+        "expected NotSupportedError, got: {output:?}"
+    );
+}
+
+#[test]
+fn create_element_registry_converts_before_is_getter_runs() {
+    // Codex PR331 R10: WebIDL dictionary conversion gets AND converts
+    // members in lexicographic order (`customElementRegistry` before
+    // `is`), so an invalid registry TypeErrors before the `is` getter
+    // is even invoked -- the getter's own throw must NOT win.
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let result = runtime.eval(
+        r"
+        var caught = '';
+        try { document.createElement('div',
+                {customElementRegistry: 42, get is() { throw new Error('is-getter'); }}); }
+        catch (e) { caught = '' + e; }
+        console.log('caught=' + caught);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m
+            .1
+            .contains("Failed to convert value to 'CustomElementRegistry'")
+            && !m.1.contains("is-getter")),
+        "expected registry conversion TypeError to precede the is getter, got: {output:?}"
+    );
+}
+
+#[test]
+fn create_element_null_registry_element_never_upgrades() {
+    // Codex PR331 R12: DOM 4.9 -- definition lookup in a null
+    // registry is always null, so a null-registry element is skipped
+    // by creation-time routing, the define()-time DOM walk, and
+    // customElements.upgrade(), while an identically named
+    // document-registry element upgrades normally.
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    // html > body structure for the document.body accessor.
+    let html = dom.create_element("html", Attributes::default());
+    let body = dom.create_element("body", Attributes::default());
+    let _ = dom.append_child(doc, html);
+    let _ = dom.append_child(html, body);
+    let result = runtime.eval(
+        r"
+        globalThis.__ctorCount = 0;
+        class XNullReg { constructor() { globalThis.__ctorCount++; } }
+        var nullreg = document.createElement('x-nullreg',
+            {customElementRegistry: null});
+        var normal = document.createElement('x-nullreg');
+        document.body.appendChild(nullreg);
+        document.body.appendChild(normal);
+        customElements.define('x-nullreg', XNullReg);
+        customElements.upgrade(document.body);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    // Upgrade reactions flush at eval end — observe in a second eval.
+    // Exactly ONE constructor run: the document-registry element. A
+    // second run would mean the null-registry sibling was upgraded by
+    // the define()-walk / upgrade() despite its null association.
+    let result = runtime.eval(
+        r"console.log('count=' + globalThis.__ctorCount);",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(
+        result.success,
+        "second eval should succeed: {:?}",
+        result.error
+    );
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("count=1")),
+        "expected exactly one upgrade (document-registry element only), got: {output:?}"
+    );
+}
+
+#[test]
+fn create_element_upgrades_synchronously_when_defined() {
+    // Codex PR331 R13: DOM 4.5 invokes create-an-element with the
+    // synchronous custom elements flag set -- a defined-at-creation
+    // element is constructed BEFORE createElement returns, observable
+    // within the same eval (VM parity).
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let result = runtime.eval(
+        r"
+        var ran = false;
+        customElements.define('x-sync', class { constructor() { ran = true; } });
+        var el = document.createElement('x-sync');
+        console.log('sync=' + ran);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("sync=true")),
+        "expected synchronous upgrade at createElement, got: {output:?}"
+    );
+}
+
+#[test]
+fn pending_drain_skips_autonomous_is_mismatch() {
+    // Codex PR331 R13: `<div is='my-el'>` queued under an autonomous
+    // definition name must NOT be upgraded when define('my-el')
+    // drains the pending bucket -- the shared
+    // `upgrade_matches_local_name` rule rejects it (VM parity with
+    // prepare_upgrade; the div simply stays Undefined).
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let result = runtime.eval(
+        r"
+        globalThis.__count = 0;
+        var div = document.createElement('div', {is: 'x-mismatch'});
+        customElements.define('x-mismatch', class { constructor() { globalThis.__count++; } });
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    let result = runtime.eval(
+        r"console.log('count=' + globalThis.__count);",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(
+        result.success,
+        "second eval should succeed: {:?}",
+        result.error
+    );
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("count=0")),
+        "expected autonomous is-mismatch to stay unupgraded, got: {output:?}"
+    );
+}
+
+#[test]
+fn clone_of_defined_custom_element_upgrades_via_clone_reaction() {
+    // Codex PR331 R13 / DOM 4.4 clone-a-single-node: the clone of an
+    // element whose definition is registered gets an Upgrade reaction
+    // at clone time (drains at the next checkpoint), without
+    // insertion or customElements.upgrade().
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let result = runtime.eval(
+        r"
+        globalThis.__count = 0;
+        customElements.define('x-clup', class { constructor() { globalThis.__count++; } });
+        var orig = document.createElement('x-clup');
+        globalThis.__clone = orig.cloneNode(false);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    let result = runtime.eval(
+        r"console.log('count=' + globalThis.__count);",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(
+        result.success,
+        "second eval should succeed: {:?}",
+        result.error
+    );
+    let output = runtime.console_output().messages();
+    // One sync construction at createElement + one clone-time
+    // reaction construction.
+    assert!(
+        output.iter().any(|m| m.1.contains("count=2")),
+        "expected clone-time upgrade reaction, got: {output:?}"
+    );
+}
+
+#[test]
+fn null_registry_element_not_upgraded_on_insertion_after_define() {
+    // Codex PR331 R13: insertion-time upgrade walk gates on the
+    // registry association -- define() first, then append a
+    // null-registry element: it stays unconstructed.
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let html = dom.create_element("html", Attributes::default());
+    let body = dom.create_element("body", Attributes::default());
+    let _ = dom.append_child(doc, html);
+    let _ = dom.append_child(html, body);
+    let result = runtime.eval(
+        r"
+        globalThis.__count = 0;
+        customElements.define('x-insnull', class { constructor() { globalThis.__count++; } });
+        var n = document.createElement('x-insnull', {customElementRegistry: null});
+        document.body.appendChild(n);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    let result = runtime.eval(
+        r"console.log('count=' + globalThis.__count);",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(
+        result.success,
+        "second eval should succeed: {:?}",
+        result.error
+    );
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("count=0")),
+        "expected null-registry element to stay unupgraded after insertion, got: {output:?}"
+    );
+}
+
+#[test]
+fn create_element_registry_brand_survives_global_reassignment() {
+    // Codex PR331 R11: `globalThis.customElements` is a writable
+    // property, so the brand check must compare against the stable
+    // handle the bridge captured at registration -- not the current
+    // global value. After page script reassigns the global: the REAL
+    // registry (saved beforehand) still passes, and the impostor
+    // object now sitting on the global still TypeErrors.
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let result = runtime.eval(
+        r"
+        var real = customElements;
+        globalThis.customElements = {};
+        var ok = document.createElement('div',
+            {customElementRegistry: real}).tagName;
+        var impostor = '';
+        try { document.createElement('div',
+                {customElementRegistry: globalThis.customElements}); }
+        catch (e) { impostor = '' + e; }
+        console.log('ok=' + ok + ' impostor=' + impostor);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("ok=DIV")
+            && m.1
+                .contains("Failed to convert value to 'CustomElementRegistry'")),
+        "expected stable-handle brand check, got: {output:?}"
+    );
+}
+
+#[test]
+fn create_element_registry_member_without_is_validated() {
+    // Codex PR331 R8+R12: the `customElementRegistry` member is
+    // inspected even when `is` is absent — the document's registry
+    // passes (flatten step 3.3), a non-registry value is the WebIDL
+    // conversion TypeError, and an explicit null creates a
+    // null-registry element (spec-legal, never upgraded).
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let result = runtime.eval(
+        r"
+        var ok = document.createElement('div',
+            {customElementRegistry: customElements}).tagName;
+        var bogus = '';
+        try { document.createElement('div', {customElementRegistry: {}}); }
+        catch (e) { bogus = '' + e; }
+        var nul = document.createElement('div',
+            {customElementRegistry: null}).tagName;
+        console.log('ok=' + ok + ' bogus=' + bogus + ' nul=' + nul);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("ok=DIV")
+            && m.1
+                .contains("Failed to convert value to 'CustomElementRegistry'")
+            && m.1.contains("nul=DIV")),
+        "expected accept/TypeError/null-accept triple, got: {output:?}"
+    );
+}
+
+#[test]
+fn sync_autonomous_create_element_nulls_is_value() {
+    // DOM §4.9 step 5.1.3.10: an autonomous element created while its
+    // definition is already registered has a null is value — no
+    // synthetic is= in outerHTML. (Async-created elements keep theirs.)
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let result = runtime.eval(
+        r"
+        class MyEl {}
+        customElements.define('my-el', MyEl);
+        var el = document.createElement('my-el', {is: 'other-el'});
+        console.log('html=' + el.outerHTML);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("html=<my-el></my-el>")),
+        "sync autonomous must not emit synthetic is, got: {output:?}"
+    );
+}
+
+#[test]
+fn create_element_is_null_tostrings_to_null_string() {
+    // WebIDL: `ElementCreationOptions.is` is a non-nullable DOMString —
+    // an explicit `{is: null}` converts via ToString(null) = "null"
+    // (member absent only when undefined).
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let result = runtime.eval(
+        r"
+        var el = document.createElement('button', { is: null });
+        console.log('html=' + el.outerHTML);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    let output = runtime.console_output().messages();
+    assert!(
+        output
+            .iter()
+            .any(|m| m.1.contains(r#"html=<button is="null"></button>"#)),
+        "explicit null is must ToString to \"null\", got: {output:?}"
+    );
+}
+
+#[test]
+fn name_sharing_builtin_definition_does_not_clear_is_value() {
+    // Codex PR331 R6: define('plastic-button', C, {extends:'button'})
+    // does not match createElement('plastic-button', {is}) for that
+    // local name — the no-definition branch keeps the is value.
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let result = runtime.eval(
+        r"
+        class PB {}
+        customElements.define('plastic-button', PB, { extends: 'button' });
+        var el = document.createElement('plastic-button', { is: 'other-el' });
+        console.log('html=' + el.outerHTML);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m
+            .1
+            .contains(r#"html=<plastic-button is="other-el"></plastic-button>"#)),
+        "name-sharing built-in definition must not clear the is value, got: {output:?}"
+    );
+}

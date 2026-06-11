@@ -113,7 +113,7 @@ impl VmInner {
     }
 
     /// Install `attachShadow` method + `shadowRoot` accessor on
-    /// `Element.prototype` (WHATWG DOM §4.2.14 / §4.8).  ShadowRoot
+    /// `Element.prototype` (WHATWG DOM §4.9 "Interface Element").  ShadowRoot
     /// wrapper / state-cache plumbing lives in
     /// [`super::shadow_root_proto`].
     fn install_element_shadow_dom(&mut self, proto_id: ObjectId) {

@@ -65,6 +65,65 @@ fn attach_shadow_defaults_when_init_omits_fields() {
 }
 
 #[test]
+fn attach_shadow_document_registry_accepted() {
+    // attachShadow steps 2-3: the document's global registry passes
+    // (it IS this's node document's custom element registry).
+    let out = run("var host = document.createElement('div'); \
+         var sr = host.attachShadow({mode: 'open', \
+             customElementRegistry: customElements}); \
+         sr.mode === 'open' ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn attach_shadow_non_registry_value_throws_type_error() {
+    // WebIDL conversion: `ShadowRootInit.customElementRegistry` is
+    // `CustomElementRegistry?` — a plain object is neither null nor a
+    // registry platform object (Codex PR331 R8 audit: previously
+    // accepted-and-ignored).
+    let out = run(
+        "var host = document.createElement('div'); var caught = ''; \
+         try { host.attachShadow({mode: 'open', customElementRegistry: {}}); } \
+         catch (e) { caught = '' + e; } \
+         (caught.indexOf('TypeError') !== -1 \
+          && caught.indexOf('CustomElementRegistry') !== -1 \
+          && host.shadowRoot === null) ? 'ok' : ('fail:' + caught);",
+    );
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn attach_shadow_registry_converts_before_mode_getter_runs() {
+    // Codex PR331 R10: WebIDL converts ShadowRootInit members in
+    // lexicographic order (`clonable`, `customElementRegistry`,
+    // `delegatesFocus`, `mode`, …), so an invalid registry TypeErrors
+    // before the `mode` getter is even invoked.
+    let out = run(
+        "var host = document.createElement('div'); var caught = ''; \
+         try { host.attachShadow({customElementRegistry: 1, \
+                 get mode() { throw new Error('mode-getter'); }}); } \
+         catch (e) { caught = '' + e; } \
+         (caught.indexOf('TypeError') !== -1 \
+          && caught.indexOf('CustomElementRegistry') !== -1 \
+          && caught.indexOf('mode-getter') === -1) ? 'ok' : ('fail:' + caught);",
+    );
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn attach_shadow_null_registry_accepted() {
+    // Codex PR331 R12: an explicit `customElementRegistry: null` is
+    // spec-legal (attachShadow step 2 sets the shadow root's registry
+    // to null; step 3 only rejects NON-null foreign registries) — the
+    // shadow attaches normally and the association is stored on the
+    // `ShadowRoot` component.
+    let out = run("var host = document.createElement('div'); \
+         var sr = host.attachShadow({mode: 'open', customElementRegistry: null}); \
+         (sr.mode === 'open' && host.shadowRoot === sr) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn attach_shadow_invalid_tag_throws_not_supported_error() {
     let out = run(
         "var host = document.createElement('input'); \

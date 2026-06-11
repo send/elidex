@@ -1,14 +1,19 @@
 //! `node.cloneNode(deep?)` — marshalling-only thin wrapper over
-//! [`elidex_ecs::EcsDom::clone_subtree`] (deep) and
-//! [`elidex_ecs::EcsDom::clone_node_shallow`] (shallow).
+//! [`clone_node_with_shadow_honor`], the engine-indep WHATWG DOM §4.4
+//! "clone a node" algorithm built on [`elidex_ecs::EcsDom::clone_subtree`]
+//! (deep) and [`elidex_ecs::EcsDom::clone_node_shallow`] (shallow).
 //!
 //! Algorithmic concerns (per-NodeKind payload copy, descendant
 //! traversal, AssociatedDocument propagation, ShadowRoot exclusion)
 //! live in `elidex-ecs` so layout / parser / WPT runner consumers
-//! see the same WHATWG §4.5 semantics through one entry point.
+//! see the same WHATWG §4.4 semantics through one entry point.  This
+//! module owns the two per-pair post-passes the ECS cloner cannot
+//! perform itself (see the clone-policy table in
+//! `elidex_ecs`'s `tree_clone` module): `CustomElementState` identity
+//! propagation and clonable-shadow-root replication.
 
-use elidex_custom_elements::{is_valid_custom_element_name, CustomElementState};
-use elidex_ecs::{EcsDom, Entity, NodeKind, ShadowHost, ShadowInit, ShadowRoot, TagType};
+use elidex_custom_elements::CustomElementState;
+use elidex_ecs::{EcsDom, Entity, NodeKind, ShadowHost, ShadowInit, ShadowRoot};
 use elidex_plugin::JsValue;
 use elidex_script_session::{
     ComponentKind, DomApiError, DomApiErrorKind, DomApiHandler, SessionCore,
@@ -31,16 +36,17 @@ impl DomApiHandler for CloneNode {
     ) -> Result<JsValue, DomApiError> {
         // Reject up front any node whose payload the ECS cloners do
         // not handle.  `clone_node_shallow_unchecked` snapshots only
-        // TagType / TextContent / CommentData / DocTypeData /
-        // Attributes — so dispatching an Attribute (`AttrData`),
-        // ProcessingInstruction (no payload component yet), or
-        // Window (not a Node) entity through it would yield a
-        // structurally invalid clone (NodeKind set, payload
-        // missing).  ShadowRoot is rejected by spec (WHATWG §4.5
-        // explicitly excludes shadow trees) and would otherwise
-        // produce a fragment-shaped clone because the cloner does
-        // NOT copy the `ShadowRoot` component — neither the
-        // structural-invalid path nor the spec-error path is
+        // the components in the clone-policy copy-set (TagType /
+        // TextContent / CommentData / DocTypeData / Attributes /
+        // Namespace / InlineStyle / IframeData) — so dispatching an
+        // Attribute (`AttrData`), ProcessingInstruction (no payload
+        // component yet), or Window (not a Node) entity through it
+        // would yield a structurally invalid clone (NodeKind set,
+        // payload missing).  ShadowRoot is rejected by spec (WHATWG
+        // DOM §4.4 explicitly excludes shadow trees) and would
+        // otherwise produce a fragment-shaped clone because the
+        // cloner does NOT copy the `ShadowRoot` component — neither
+        // the structural-invalid path nor the spec-error path is
         // acceptable, so refuse early with the spec-named
         // DOMException.
         if dom.world().get::<&ShadowRoot>(this).is_ok() {
@@ -83,11 +89,7 @@ impl DomApiHandler for CloneNode {
         let deep = matches!(args.first(), Some(JsValue::Bool(true)));
         // ECS cloners return `None` only when `this` no longer exists
         // in the world (per their `#[must_use]` contract), so map that
-        // to NotFoundError rather than NotSupportedError. Shadow root
-        // honouring (HTML §4.7.10 step 5 "if node is a shadow host
-        // with a clonable shadow root, clone declarative shadow root")
-        // lives in [`clone_node_with_shadow_honor`] so the algorithm
-        // is reusable from outside the DomApiHandler dispatcher.
+        // to NotFoundError rather than NotSupportedError.
         let Some(cloned) = clone_node_with_shadow_honor(this, dom, deep) else {
             return Err(DomApiError {
                 kind: DomApiErrorKind::NotFoundError,
@@ -103,95 +105,170 @@ impl DomApiHandler for CloneNode {
     }
 }
 
-/// Engine-indep `Node.cloneNode(deep?)` algorithm with HTML §4.7.10
-/// step 5 declarative-shadow-root honouring.
+/// Engine-indep `Node.cloneNode(deep?)` algorithm — WHATWG DOM §4.4
+/// "clone a node" with the two per-pair post-passes layered over the
+/// ECS cloners:
 ///
-/// Wraps `EcsDom::clone_subtree` / `clone_node_shallow` (which by
-/// invariant never copy `ShadowRoot` / `ShadowHost` components) with a
-/// shadow-root replication pass: when `deep == true` and `src` itself
-/// is a shadow host whose shadow root has `clonable = true`, attach a
-/// fresh shadow root on the clone with the same `ShadowInit` and
-/// deep-clone each shadow-tree child into it.
+/// 1. **`CustomElementState` identity propagation** ("clone a single
+///    node" step 2.4 passes the source's *is value* to *create an
+///    element*): for every `(src, dst)` pair whose source carries a
+///    `CustomElementState`, the clone receives a fresh
+///    `Undefined(definition_name)` — identity (which custom-element
+///    name) propagates, lifecycle state does not (`Custom` / `Failed`
+///    never carry over; NB no upgrade reaction is enqueued at clone
+///    time yet — the clone upgrades via the insert-time consumer or
+///    the next `define()` walk; the spec's clone-time enqueue is part
+///    of the per-pair clone-reaction seam, slot
+///    `#11-clone-cloning-steps-event`).  No tag inspection, `is=` attribute parsing,
+///    or namespace guard happens here — those are creation-path
+///    concerns (`CustomElementState::for_created_element`), and the
+///    component's existence on the source already proves them.  An
+///    element whose `is` attribute was set *after* creation has a
+///    null is value per spec — and, matching that, no source
+///    component — so its clone is correctly left unmarked.
+///
+/// 2. **Clonable-shadow-root replication** (step 6, which step 5's
+///    per-child re-entry applies to *every* cloned node, not just the
+///    root): for each pair whose source is a shadow host with
+///    `clonable = true`, attach a fresh shadow root on the clone with
+///    the same `ShadowInit` and clone the shadow children into it.
+///    Per step 6.7 the shadow children are cloned with the *same*
+///    `subtree` flag as the overall operation — so a shallow clone of
+///    a shadow host still replicates its (shallowly-cloned) shadow
+///    tree, while light-tree children are skipped entirely.
+///
+/// Both passes run off one worklist of `(src, dst)` pairs seeded by
+/// the ECS cloner; shadow children cloned by pass 2 push their own
+/// pairs onto the same worklist, so arbitrarily nested shadow trees
+/// converge without recursion.
 ///
 /// Returns `None` only when `src` does not exist in the ECS — matching
 /// the `clone_subtree` / `clone_node_shallow` contract so the caller
 /// can map that to `NotFoundError` once at the boundary.
-///
-/// Shadow honouring applies to `src` only; per-descendant shadow
-/// hosts retain ECS clone semantics (no shadow copied). Lifting that
-/// limitation requires a parallel src↔dst entity mapping (deferred to
-/// `#11-clone-shadow-descendant-hosts` if/when surfaced by tests).
 #[must_use = "returns None when src does not exist"]
 pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -> Option<Entity> {
-    let cloned = if deep {
-        dom.clone_subtree(src)?
+    let mut pairs: Vec<(Entity, Entity)> = Vec::new();
+    let cloned = clone_recording(dom, src, deep, None, &mut pairs)?;
+    // The *node document* threaded through the spec recursion: a
+    // Document clone becomes its own node document; everything else
+    // keeps the source's.  The ECS cloner applies this to light-tree
+    // descendants — the shadow-replication pass below threads the
+    // SAME document into shadow subtrees via the cloner's
+    // `doc_override` (deriving from the *source* child would stamp
+    // the original document onto a cloned Document's shadow contents;
+    // the shallow cloner stamps nothing, so the shallow branch stamps
+    // the single replicated child explicitly).
+    let shadow_doc: Option<Entity> = if matches!(dom.node_kind(src), Some(NodeKind::Document)) {
+        Some(cloned)
     } else {
-        dom.clone_node_shallow(src)?
+        dom.owner_document(src)
     };
-    // Shallow clone: only the root needs CE state re-attach.
-    if !deep {
-        attach_ce_state_on_clone(cloned, dom);
-        return Some(cloned);
-    }
-    // Deep clone: handle the shadow tree first so the subsequent
-    // shadow-including descendant walk covers BOTH the light tree AND
-    // the cloned shadow children in one pass — fixes the gap where the
-    // shadow-cloned subtree previously bypassed CE state attach.
-    if let Some((init, src_shadow_root)) = read_clonable_shadow_init(src, dom) {
+    // Index-based worklist: pass 2 appends pairs while we iterate.
+    let mut idx = 0;
+    while idx < pairs.len() {
+        let (s, d) = pairs[idx];
+        idx += 1;
+        propagate_ce_identity(s, d, dom);
+        let Some((init, src_shadow_root)) = read_clonable_shadow_init(s, dom) else {
+            continue;
+        };
         // `attach_shadow_with_init` can refuse (e.g. clone is a tag
         // outside the shadow-host allowlist) — fall through with the
         // base clone in that case, matching the silent-fallback shape
         // used by the declarative-shadow parser hook.
-        if let Ok(cloned_shadow) = dom.attach_shadow_with_init(cloned, init) {
-            let source_shadow_children: Vec<Entity> = dom.children(src_shadow_root);
-            for child in source_shadow_children {
-                if let Some(child_clone) = dom.clone_subtree(child) {
-                    let _ = dom.append_child(cloned_shadow, child_clone);
+        let Ok(cloned_shadow) = dom.attach_shadow_with_init(d, init) else {
+            continue;
+        };
+        // The spec threads ONE document through the whole clone
+        // recursion, shadow trees included — `attach_shadow_with_init`
+        // spawns the replicated shadow root without a node document,
+        // and the shallow cloner stamps neither it nor the cloned
+        // host, so `clonedHost.shadowRoot.ownerDocument` would
+        // otherwise diverge from its own children.
+        if let Some(doc) = shadow_doc {
+            dom.set_associated_document(cloned_shadow, doc);
+            dom.set_associated_document(d, doc);
+        }
+        let source_shadow_children: Vec<Entity> = dom.children(src_shadow_root);
+        for child in source_shadow_children {
+            // Step 6.7: shadow children clone with the operation's
+            // own `subtree` flag, threading the operation's document.
+            let Some(child_clone) = clone_recording(dom, child, deep, shadow_doc, &mut pairs)
+            else {
+                continue;
+            };
+            if !deep {
+                // The shallow cloner never stamps AssociatedDocument;
+                // mirror what the deep path's doc threading does for
+                // the one node it produced.
+                if let Some(doc) = shadow_doc {
+                    dom.set_associated_document(child_clone, doc);
                 }
             }
+            let _ = dom.append_child(cloned_shadow, child_clone);
         }
-    }
-    // HTML §4.5 "clone a node" step 6: if the source element is a
-    // custom element (any state other than Uncustomized), the clone
-    // must also be queued for upgrade. The engine-indep `clone_subtree`
-    // / `clone_node_shallow` cloners (in elidex-ecs) cannot reach
-    // `elidex-custom-elements` types due to the inverse cargo edge, so
-    // the CE state component is re-attached here at the engine-indep
-    // DOM-api boundary. Always in `Undefined` — the clone goes through
-    // the upgrade pipeline fresh; the source's Custom/Failed state does
-    // NOT carry over.
-    //
-    // Walks shadow-including descendants so the cloned shadow subtree
-    // (attached above) is covered in the same pass — without that, CE
-    // elements nested inside a cloned shadow root would remain CE-
-    // state-less and silently skip upgrade.
-    let mut to_attach: Vec<Entity> = Vec::new();
-    dom.for_each_shadow_inclusive_descendant(cloned, &mut |entity| to_attach.push(entity));
-    for entity in to_attach {
-        attach_ce_state_on_clone(entity, dom);
     }
     Some(cloned)
 }
 
-/// Re-attach `CustomElementState::undefined(tag)` to a cloned element
-/// whose tag is a valid custom element name (HTML §4.13.3 "valid
-/// custom element name" + WHATWG DOM §4.5 "clone a node" step 6).
-/// No-op for non-Element nodes, non-hyphenated tags, and entities
-/// that already carry the component.
-fn attach_ce_state_on_clone(entity: Entity, dom: &mut EcsDom) {
-    let tag = match dom.world().get::<&TagType>(entity) {
-        Ok(t) => t.0.clone(),
+/// Clone `node` (deep or shallow per `deep`) recording every `(src,
+/// dst)` pair into `pairs` — the one place the "clone + record" shape
+/// is spelled, so the worklist can never silently lose a subtree's
+/// pairs (which would drop CE propagation and nested shadow honor for
+/// it with no error).
+fn clone_recording(
+    dom: &mut EcsDom,
+    node: Entity,
+    deep: bool,
+    doc_override: Option<Entity>,
+    pairs: &mut Vec<(Entity, Entity)>,
+) -> Option<Entity> {
+    if deep {
+        dom.clone_subtree(node, pairs, doc_override)
+    } else {
+        let cloned = dom.clone_node_shallow(node)?;
+        pairs.push((node, cloned));
+        Some(cloned)
+    }
+}
+
+/// Pass 1 of [`clone_node_with_shadow_honor`]: propagate the custom
+/// element *identity* (the is-value slot materialized as
+/// `CustomElementState.definition_name`) from `src` to `dst`, resetting
+/// the lifecycle state to `Undefined`.
+///
+/// This is the registry-INDEPENDENT half. The engine bindings run the
+/// registry-dependent half over the finished clone subtree —
+/// `elidex_custom_elements::apply_clone_creation_ce_semantics` — which
+/// applies DOM §4.9 step 5.2's async-autonomous null-is rule (a clone
+/// made while the autonomous definition is registered drops the
+/// retained is value) and enqueues the §4.4 clone-time upgrade
+/// reactions (Codex PR331 R13+R14).  No-op when the source carries
+/// no `CustomElementState` — non-elements, ordinary built-ins, and
+/// elements whose `is` attribute appeared only after creation (null is
+/// value per spec).
+fn propagate_ce_identity(src: Entity, dst: Entity, dom: &mut EcsDom) {
+    let (name, is_value, registry) = match dom.world().get::<&CustomElementState>(src) {
+        Ok(state) => (
+            state.definition_name.clone(),
+            state.is_value.clone(),
+            state.registry,
+        ),
         Err(_) => return,
     };
-    if !is_valid_custom_element_name(&tag) {
-        return;
-    }
-    if dom.world().get::<&CustomElementState>(entity).is_ok() {
-        return;
-    }
-    let _ = dom
-        .world_mut()
-        .insert_one(entity, CustomElementState::undefined(&tag));
+    let _ = dom.world_mut().insert_one(
+        dst,
+        CustomElementState {
+            state: elidex_custom_elements::CEState::Undefined,
+            definition_name: name,
+            is_value,
+            // DOM §4.4 "clone a single node" passes the source's
+            // custom element registry through *create an element* —
+            // a null-registry source yields a null-registry clone
+            // (still never upgraded).
+            registry,
+        },
+    );
 }
 
 /// Extract the `ShadowInit` for `entity`'s shadow root if it is a
@@ -211,6 +288,11 @@ fn read_clonable_shadow_init(entity: Entity, dom: &EcsDom) -> Option<(ShadowInit
             slot_assignment: sr.slot_assignment,
             clonable: sr.clonable,
             serializable: sr.serializable,
+            // DOM §4.4 clone-a-node step 6.5 attaches the clone's
+            // shadow with the source root's registry — a
+            // null-registry shadow tree clones to a null-registry
+            // shadow tree.
+            null_registry: sr.null_registry,
         },
         shadow_root,
     ))

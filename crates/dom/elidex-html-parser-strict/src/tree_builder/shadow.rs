@@ -58,6 +58,10 @@ fn shadow_init_from_attrs(attrs: &[(String, String)]) -> Option<ShadowInit> {
         slot_assignment,
         clonable: has("shadowrootclonable"),
         serializable: has("shadowrootserializable"),
+        // Declarative shadow roots have no customElementRegistry
+        // channel (HTML declarative-shadow attributes carry no such
+        // member) — always the document registry.
+        null_registry: false,
     })
 }
 
