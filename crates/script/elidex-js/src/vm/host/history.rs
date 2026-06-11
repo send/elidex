@@ -1,16 +1,31 @@
 //! `history` global — a subset of the `History` interface
-//! (WHATWG HTML §7.4).
+//! (WHATWG HTML §7.2.5 "The History interface").
 //!
-//! # Phase 2 scope
+//! # Navigation model (S1c — enqueue + synchronous pushState)
 //!
-//! All state lives on [`VmInner::navigation`] (see C3).  Methods
-//! update the in-memory history stack synchronously; no `popstate`
-//! firing, no structured-clone serialisation, and no shell-side
-//! navigation — those land when the shell integration bridge ships
-//! (PR6).  `scrollRestoration` is stubbed to `"auto"` for feature
-//! detection parity.
+//! The shell's `NavigationController` is the single session-history source of
+//! truth (the VM holds only a current-document view, see [`super::navigation`]):
+//!
+//! - `back()` / `forward()` / `go(delta)` are session-history *traversals*
+//!   (WHATWG HTML §7.4.6 "Applying the history step" — async document loads the
+//!   shell performs): they **enqueue** a [`HistoryAction`] and reset
+//!   `history.state` to `null` (the target entry's state is restored by the
+//!   shell — slot `#11-history-state-traversal-popstate-fidelity`).  They do not
+//!   mutate `current_url`.
+//! - `pushState()` / `replaceState()` (§7.2.5 "shared history push/replace state
+//!   steps" → §7.4.4 "URL and history update steps") run **synchronously**: a
+//!   same-origin gate (§7.2.5 step 6.3), then an in-place `current_url` +
+//!   `history.state` update, then an **enqueue** for the shell to persist.
+//! - `history.length` reads the shell-pushed `history_length`; `history.state`
+//!   reads the synchronously-maintained `current_state`.
+//!
+//! `history.state` holds the value as a bare [`JsValue`] (identity round-trip);
+//! `StructuredSerializeForStorage` (§7.2.5 step 4) is part of the deferred
+//! `#11-history-state-traversal-popstate-fidelity` slot.
 
 #![cfg(feature = "engine")]
+
+use elidex_script_session::HistoryAction;
 
 use super::super::coerce;
 use super::super::value::{JsValue, NativeContext, VmError};
@@ -25,9 +40,10 @@ pub(super) fn native_history_get_length(
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // `history.length` is a non-negative integer.  Clamp via `u32` to
-    // satisfy clippy::cast_lossless and convert via `From<f64>`.
-    let len = u32::try_from(ctx.vm.navigation.history_entries.len()).unwrap_or(u32::MAX);
+    // `history.length` (§7.2.5) is the shell-pushed session-history entry count
+    // (the shell's `NavigationController` owns the stack; `set_history_length`
+    // syncs it).  Clamp via `u32` to satisfy clippy::cast_lossless.
+    let len = u32::try_from(ctx.vm.navigation.history_length).unwrap_or(u32::MAX);
     Ok(JsValue::Number(f64::from(len)))
 }
 
@@ -36,11 +52,9 @@ pub(super) fn native_history_get_state(
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let nav = &ctx.vm.navigation;
-    Ok(nav
-        .history_entries
-        .get(nav.history_index)
-        .map_or(JsValue::Null, |e| e.state))
+    // `history.state` (§7.2.5) — the current entry's state, set synchronously by
+    // pushState/replaceState (§7.4.4) and reset to null on a traversal.
+    Ok(ctx.vm.navigation.current_state)
 }
 
 pub(super) fn native_history_get_scroll_restoration(
@@ -54,31 +68,17 @@ pub(super) fn native_history_get_scroll_restoration(
 }
 
 // ---------------------------------------------------------------------------
-// Navigation methods (back / forward / go)
+// Navigation methods (back / forward / go) — enqueue-only traversals
 // ---------------------------------------------------------------------------
 
-/// Shared body for `back` / `forward` / `go` — advance the
-/// `history_index` by `delta`, clamping to `[0, len)`.  Updates
-/// `current_url` to match the resulting entry.  WHATWG HTML §7.4.2
-/// says out-of-range deltas silently no-op (no throw, no scroll).
-fn traverse(ctx: &mut NativeContext<'_>, delta: i64) {
-    let nav = &mut ctx.vm.navigation;
-    let Ok(len) = i64::try_from(nav.history_entries.len()) else {
-        return;
-    };
-    let Ok(cur) = i64::try_from(nav.history_index) else {
-        return;
-    };
-    let target = cur + delta;
-    if target < 0 || target >= len {
-        return;
-    }
-    // `target` is in `[0, len)` so `try_from` cannot fail; `debug_assert`
-    // pins the invariant without silencing clippy's cast-sign-loss lint.
-    let new_index = usize::try_from(target).expect("bounded above");
-    nav.history_index = new_index;
-    nav.current_url
-        .clone_from(&nav.history_entries[new_index].url);
+/// Enqueue a session-history traversal for the shell and reset `history.state`
+/// to null (the traversal moves to a different entry whose state the VM cannot
+/// know until the shell restores it — WHATWG HTML §7.4.6; restoration + popstate
+/// = slot `#11-history-state-traversal-popstate-fidelity`).  Does NOT mutate
+/// `current_url` — it commits when the shell loads the target entry.
+fn enqueue_traversal(ctx: &mut NativeContext<'_>, action: HistoryAction) {
+    ctx.vm.navigation.current_state = JsValue::Null;
+    ctx.vm.navigation.enqueue_history(action);
 }
 
 pub(super) fn native_history_back(
@@ -86,7 +86,7 @@ pub(super) fn native_history_back(
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    traverse(ctx, -1);
+    enqueue_traversal(ctx, HistoryAction::Back);
     Ok(JsValue::Undefined)
 }
 
@@ -95,7 +95,7 @@ pub(super) fn native_history_forward(
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    traverse(ctx, 1);
+    enqueue_traversal(ctx, HistoryAction::Forward);
     Ok(JsValue::Undefined)
 }
 
@@ -104,59 +104,63 @@ pub(super) fn native_history_go(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // §7.4.2: `go(delta=0)` reloads.  With no shell-side reload, that
-    // collapses to a no-op too (matches the `reload()` stub).
+    // §7.2.5 `go(optional long delta = 0)` — the WebIDL `long` is ToInt32.
+    // `go(0)` reloads the current entry (the shell's `NavigationController.go(0)`
+    // re-fetches), so it enqueues `Go(0)` rather than no-op'ing.
     let delta_f = match args.first().copied().unwrap_or(JsValue::Undefined) {
         JsValue::Undefined => 0.0,
         other => coerce::to_number(ctx.vm, other)?,
     };
     #[allow(clippy::cast_possible_truncation)]
     let delta = if delta_f.is_finite() {
-        delta_f.trunc() as i64
+        // For history.go an out-of-range delta no-ops in the shell controller, so
+        // a saturating cast is observable-equivalent to the modular ToInt32.
+        delta_f
+            .trunc()
+            .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32
     } else {
         0
     };
-    traverse(ctx, delta);
+    enqueue_traversal(ctx, HistoryAction::Go(delta));
     Ok(JsValue::Undefined)
 }
 
 // ---------------------------------------------------------------------------
-// State-mutation methods (pushState / replaceState)
+// State-mutation methods (pushState / replaceState) — synchronous + enqueue
 // ---------------------------------------------------------------------------
 
-/// Shared body for `pushState` / `replaceState`.
-///
-/// WHATWG HTML §7.4.3 requires the URL argument to parse against the
-/// current document's URL (same-origin enforcement).  Phase 2 skips
-/// the same-origin check — the shell will perform the check when it
-/// owns the navigation.  We still accept `undefined` ⇒ keep current
-/// URL unchanged (matches browsers).
+/// Shared body for `pushState` / `replaceState` (WHATWG HTML §7.2.5 "shared
+/// history push/replace state steps").  Runs the same-origin gate (step 6.3),
+/// then the synchronous URL-and-history-update half (§7.4.4) — updating
+/// `current_url` + `history.state` in place so a same-script read observes them
+/// — then enqueues a [`HistoryAction`] for the shell to persist into its
+/// `NavigationController`.
 fn state_mutate(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],
     replace_index: bool,
 ) -> Result<(), VmError> {
     let state = args.first().copied().unwrap_or(JsValue::Undefined);
-    // `title` (args[1]) is ignored per §7.4.3 "title is intentionally
-    // unused" — browsers collectively agreed to deprecate it.
 
+    // `unused` (the title, §7.2.5) — coerced for the WebIDL ToString side-effect,
+    // then ignored.  Empty when omitted (matches boa); carried on the action only
+    // for API compat.
+    let title = if let Some(&title_arg) = args.get(1) {
+        let sid = coerce::to_string(ctx.vm, title_arg)?;
+        ctx.vm.strings.get_utf8(sid)
+    } else {
+        String::new()
+    };
+
+    // §7.2.5 step 5/6: newURL is the document URL unless `url` is given.
     let url_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
-    let new_url = if matches!(url_arg, JsValue::Undefined | JsValue::Null) {
-        ctx.vm.navigation.current_url.clone()
+    let (new_url, pushed_url) = if matches!(url_arg, JsValue::Undefined | JsValue::Null) {
+        (ctx.vm.navigation.current_url.clone(), None)
     } else {
         let sid = coerce::to_string(ctx.vm, url_arg)?;
         let input = ctx.vm.strings.get_utf8(sid);
-        // WHATWG HTML §7.4.3 step 4: parse `url` relative to the
-        // current document's URL.  `url::Url::join` handles both
-        // absolute and relative inputs against the base.  On parse
-        // failure we throw `DOMException("SyntaxError")` — spec
-        // wording is "If parsing fails, throw a
-        // SecurityError/SyntaxError" depending on same-origin state;
-        // Phase 2 uses SyntaxError uniformly (SecurityError lands
-        // with the shell navigation bridge in PR6).
-        if let Ok(u) = ctx.vm.navigation.current_url.join(&input) {
-            u
-        } else {
+        // §7.2.5 step 6.1: parse `url` relative to the current document URL.
+        let Ok(parsed) = ctx.vm.navigation.current_url.join(&input) else {
             let syntax = ctx.vm.well_known.dom_exc_syntax_error;
             return Err(VmError::dom_exception(
                 syntax,
@@ -164,20 +168,45 @@ fn state_mutate(
                     "Failed to execute 'pushState'/'replaceState' on 'History': invalid URL '{input}'."
                 ),
             ));
+        };
+        // §7.2.5 step 6.3: "If document cannot have its URL rewritten to newURL,
+        // throw a SecurityError" — newURL's origin must equal the document origin
+        // (S1b `document_origin()`).  A sandboxed/opaque document can only rewrite
+        // to its own opaque origin, which a fresh parse never reproduces, so its
+        // pushState always throws — matching browsers.  For an unsandboxed
+        // document this is the cross-origin check (`document_origin` ==
+        // `current_url`'s tuple origin).
+        if ctx.vm.document_origin() != elidex_plugin::SecurityOrigin::from_url(&parsed) {
+            let security = ctx.vm.well_known.dom_exc_security_error;
+            return Err(VmError::dom_exception(
+                security,
+                "Failed to execute 'pushState'/'replaceState' on 'History': the new URL must be same-origin with the document.".to_string(),
+            ));
         }
+        let serialized = parsed.to_string();
+        (parsed, Some(serialized))
     };
 
-    let nav = &mut ctx.vm.navigation;
-    // `history_entries` is non-empty by `NavigationState::new` invariant.
-    debug_assert!(!nav.history_entries.is_empty());
-    if replace_index {
-        let entry = &mut nav.history_entries[nav.history_index];
-        entry.url = new_url.clone();
-        entry.state = state;
+    // §7.2.5 step 10 → §7.4.4 "URL and history update steps": synchronously set
+    // the document URL + the current entry's state, so a same-script
+    // `location.href` / `history.state` read observes them (unlike boa, which is
+    // enqueue-only and reads stale).
+    ctx.vm.navigation.current_url = new_url;
+    ctx.vm.navigation.current_state = state;
+
+    // Enqueue for the shell to persist into its NavigationController.
+    let action = if replace_index {
+        HistoryAction::ReplaceState {
+            url: pushed_url,
+            title,
+        }
     } else {
-        nav.push_entry(new_url.clone(), state);
-    }
-    nav.current_url = new_url;
+        HistoryAction::PushState {
+            url: pushed_url,
+            title,
+        }
+    };
+    ctx.vm.navigation.enqueue_history(action);
     Ok(())
 }
 
@@ -204,7 +233,7 @@ pub(super) fn native_history_replace_state(
 // ---------------------------------------------------------------------------
 
 impl VmInner {
-    /// Install `globalThis.history` (WHATWG HTML §7.4).
+    /// Install `globalThis.history` (WHATWG HTML §7.2.5).
     pub(in crate::vm) fn register_history_global(&mut self) {
         let obj_id = self.create_object_with_methods(HISTORY_METHODS);
         self.install_ro_accessors(obj_id, HISTORY_RO_ACCESSORS);

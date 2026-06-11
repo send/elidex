@@ -577,8 +577,12 @@ fn document_url_reflects_navigation_state() {
         JsValue::String(id) => assert_eq!(vm.get_string(id), "about:blank"),
         _ => panic!(),
     }
-    // After navigation.
-    vm.eval("location.href = 'https://example.com/a';").unwrap();
+    // After navigation — the shell commits the new URL via `set_current_url`
+    // (the `location.href=` setter is now enqueue-only and does not mutate
+    // `current_url` synchronously, S1c).
+    vm.inner
+        .navigation
+        .set_current_url(Some(url::Url::parse("https://example.com/a").unwrap()));
     let v = vm.eval("document.URL;").unwrap();
     match v {
         JsValue::String(id) => assert_eq!(vm.get_string(id), "https://example.com/a"),

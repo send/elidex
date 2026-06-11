@@ -6,7 +6,10 @@
 use std::time::Instant;
 
 use elidex_ecs::Entity;
-use elidex_script_session::{DispatchEvent, EvalResult, ListenerId, ScriptContext, ScriptEngine};
+use elidex_script_session::{
+    DispatchEvent, EvalResult, HistoryAction, ListenerId, NavigationRequest, ScriptContext,
+    ScriptEngine,
+};
 
 use crate::vm::host_data::HostData;
 use crate::vm::value::{JsValue, ObjectKind};
@@ -144,6 +147,62 @@ impl ElidexJsEngine {
         if let Some(hd) = self.vm.host_data() {
             hd.set_iframe_depth(depth);
         }
+    }
+
+    // ---- Shell-facing navigation back-channel (S1c boa→VM cutover) ----
+    //
+    // boa exposes these on its `HostBridge`/`JsRuntime`: the shell drains the
+    // engine's pending navigation/history intents after each script turn (the
+    // engine's `location`/`history` globals only *enqueue*) and pushes the
+    // committed URL + history length back.  Excluded from the `ScriptEngine`
+    // trait by design (engine-specific — `elidex-script-session/src/engine.rs`)
+    // → inherent here.  The S5 flip rewrites the shell's `runtime.X()` /
+    // `runtime.bridge().X()` against this engine; until then boa stays live and
+    // these are exercised by S1c's own tests.  The session history of record is
+    // the shell's `NavigationController` — the VM holds only a current-document
+    // view.
+
+    /// Commit the current document URL after a navigation load (WHATWG HTML
+    /// §7.4.2.2).  `None` resets to `about:blank` (the "no active document"
+    /// state).  Parity with boa's `bridge().set_current_url`.
+    pub fn set_current_url(&mut self, url: Option<url::Url>) {
+        self.vm.inner.navigation.set_current_url(url);
+    }
+
+    /// The current document URL — always `Some` (the VM's browsing context
+    /// always has an active document, `about:blank` by default; unlike boa's
+    /// `None`-when-unset, the VM is spec-faithful here).  Parity with boa's
+    /// `bridge().current_url`.
+    #[must_use]
+    pub fn current_url(&self) -> Option<url::Url> {
+        Some(self.vm.inner.navigation.current_url.clone())
+    }
+
+    /// Drain the pending navigation request enqueued by `location.assign`/`href=`
+    /// /`replace`/`reload` (WHATWG HTML §7.4.2.2).  The shell runs the navigate
+    /// algorithm with it, then commits the result via `set_current_url`.
+    pub fn take_pending_navigation(&mut self) -> Option<NavigationRequest> {
+        self.vm.inner.navigation.pending_navigation.take()
+    }
+
+    /// Drain the pending history action enqueued by `history.back`/`forward`/`go`
+    /// /`pushState`/`replaceState` (WHATWG HTML §7.2.5).  The shell applies it to
+    /// its `NavigationController`.
+    pub fn take_pending_history(&mut self) -> Option<HistoryAction> {
+        self.vm.inner.navigation.pending_history.take()
+    }
+
+    /// Push the session-history length into the engine so `history.length` reads
+    /// correctly (the shell's `NavigationController` owns the count).  Parity
+    /// with boa's `bridge().set_history_length`.
+    pub fn set_history_length(&mut self, len: usize) {
+        self.vm.inner.navigation.history_length = len;
+    }
+
+    /// `history.length` — the shell-pushed session-history entry count.
+    #[must_use]
+    pub fn history_length(&self) -> usize {
+        self.vm.inner.navigation.history_length
     }
 
     /// Settle the same-window task queue, then custom-element reactions — the

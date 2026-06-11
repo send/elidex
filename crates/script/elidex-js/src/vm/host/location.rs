@@ -1,15 +1,18 @@
 //! `location` global — a subset of the `Location` interface
-//! (WHATWG HTML §7.1).
+//! (WHATWG HTML §7.2.4 "The Location interface").
 //!
-//! # Phase 2 scope
+//! # Navigation model (S1c — enqueue-only)
 //!
 //! - All getters (`href`, `protocol`, `host`, `hostname`, `port`,
-//!   `pathname`, `search`, `hash`, `origin`) read from
+//!   `pathname`, `search`, `hash`, `origin`) read `current_url` from
 //!   [`VmInner::navigation`].
-//! - Setters (`href`, `assign`, `replace`) update `current_url` and
-//!   the history stack **in memory only** — no shell-side navigation
-//!   fires yet.  PR6 wires up the real load.
-//! - `reload()` is a silent no-op for the same reason.
+//! - Setters (`href`, `assign`, `replace`) and `reload()` are
+//!   **enqueue-only** (WHATWG HTML §7.4.2.2 "Beginning navigation"): they
+//!   synchronously parse and validate the URL (throwing `SyntaxError` on a bad
+//!   URL) then record a [`NavigationRequest`] for the shell to load.  They do
+//!   **not** mutate `current_url` — the navigation commits asynchronously when
+//!   the shell calls `set_current_url` after the load, so `location.href =
+//!   "/x"; location.href` reads the OLD URL (matching browsers).
 //!
 //! # URL parsing
 //!
@@ -34,6 +37,7 @@
 
 #![cfg(feature = "engine")]
 
+use elidex_script_session::NavigationRequest;
 use url::Url;
 
 use super::super::coerce;
@@ -84,26 +88,21 @@ pub(super) fn native_location_get_href(
     url_component(ctx, |u| u.as_str().to_string())
 }
 
-/// Shared setter body — used by `href = …`, `assign(url)`, and
-/// `replace(url)`.  `replace_history` controls whether the mutation
-/// pushes a new history entry (`assign` / `href=`) or overwrites the
-/// current one (`replace`).  `new_url` has already been parsed.
-fn set_location(ctx: &mut NativeContext<'_>, new_url: Url, replace_history: bool) {
-    let nav = &mut ctx.vm.navigation;
-    nav.current_url = new_url.clone();
-    if replace_history {
-        // `history_entries` is non-empty by `NavigationState::new`
-        // invariant and every code path preserves it — index directly
-        // rather than `get_mut`.
-        debug_assert!(!nav.history_entries.is_empty());
-        nav.history_entries[nav.history_index].url = new_url;
-        // `replace` is a navigation, not a state mutation — clear any
-        // prior `pushState` data so `history.state` reflects a fresh
-        // navigation entry rather than preserving stale state.
-        nav.history_entries[nav.history_index].state = JsValue::Null;
-    } else {
-        nav.push_entry(new_url, JsValue::Null);
-    }
+/// Shared setter body — used by `href = …`, `assign(url)`, and `replace(url)`.
+/// `replace_history` is `true` for `replace` (overwrite the current
+/// session-history entry), `false` for `href=`/`assign` (push a new one).
+/// `new_url` is the already-parsed + validated absolute target.
+///
+/// Enqueue-only (WHATWG HTML §7.4.2.2 "Beginning navigation"): records a
+/// [`NavigationRequest`] for the shell to load, leaving `current_url` unchanged
+/// until the shell commits it via `set_current_url`.  The shell's
+/// `NavigationController` owns the session-history stack, so the VM does not
+/// push/replace an entry here.
+fn set_location(ctx: &mut NativeContext<'_>, new_url: &Url, replace_history: bool) {
+    ctx.vm.navigation.enqueue_navigation(NavigationRequest {
+        url: new_url.to_string(),
+        replace: replace_history,
+    });
 }
 
 pub(super) fn native_location_set_href(
@@ -121,7 +120,7 @@ pub(super) fn native_location_set_href(
             format!("Failed to set 'href' on 'Location': invalid URL '{input}'."),
         ));
     };
-    set_location(ctx, parsed, false);
+    set_location(ctx, &parsed, false);
     Ok(JsValue::Undefined)
 }
 
@@ -234,7 +233,7 @@ pub(super) fn native_location_assign(
             format!("Failed to execute 'assign' on 'Location': invalid URL '{input}'."),
         ));
     };
-    set_location(ctx, parsed, false);
+    set_location(ctx, &parsed, false);
     Ok(JsValue::Undefined)
 }
 
@@ -253,19 +252,22 @@ pub(super) fn native_location_replace(
             format!("Failed to execute 'replace' on 'Location': invalid URL '{input}'."),
         ));
     };
-    set_location(ctx, parsed, true);
+    set_location(ctx, &parsed, true);
     Ok(JsValue::Undefined)
 }
 
 pub(super) fn native_location_reload(
-    _ctx: &mut NativeContext<'_>,
+    ctx: &mut NativeContext<'_>,
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // Phase 2: no shell-side reload.  PR6 wires this up to the
-    // network / rendering stack.  The web-visible behaviour is that
-    // the JS observable state (scripts, variables) is unchanged,
-    // which is what "no-op reload stub" means.
+    // `location.reload()` (WHATWG HTML §7.4.2.2) is a *replace* navigation to the
+    // current URL.  Enqueue-only: the shell performs the actual reload (matches
+    // boa `globals/location.rs` reload → `set_pending_navigation{replace:true}`).
+    let url = ctx.vm.navigation.current_url.to_string();
+    ctx.vm
+        .navigation
+        .enqueue_navigation(NavigationRequest { url, replace: true });
     Ok(JsValue::Undefined)
 }
 

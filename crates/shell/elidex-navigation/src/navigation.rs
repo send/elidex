@@ -33,39 +33,11 @@ pub struct HistoryEntry {
     pub navigation_api_state: Option<String>,
 }
 
-/// A pending navigation request from `location.assign()`, `location.href = ...`, etc.
-#[derive(Clone, Debug)]
-pub struct NavigationRequest {
-    /// The target URL string.
-    pub url: String,
-    /// `true` for `location.replace()` / `history.replaceState()`.
-    pub replace: bool,
-}
-
-/// A pending history action from `history.back()`, `history.forward()`, etc.
-#[derive(Clone, Debug)]
-pub enum HistoryAction {
-    /// `history.back()`
-    Back,
-    /// `history.forward()`
-    Forward,
-    /// `history.go(delta)`
-    Go(i32),
-    /// `history.pushState(state, title, url?)`
-    PushState {
-        /// Optional URL to push.
-        url: Option<String>,
-        /// Title (ignored in Phase 2 but accepted for API compat).
-        title: String,
-    },
-    /// `history.replaceState(state, title, url?)`
-    ReplaceState {
-        /// Optional URL to replace.
-        url: Option<String>,
-        /// Title (ignored in Phase 2 but accepted for API compat).
-        title: String,
-    },
-}
+// `NavigationRequest` + `HistoryAction` — the engine↔shell navigation intent
+// types — moved to the engine-agnostic seam `elidex_script_session` (so a
+// `crates/script/` engine produces the contract without depending on this
+// `crates/shell/` crate). This crate owns the session-history *implementation*
+// (`NavigationController` / `HistoryEntry`), not the wire intents.
 
 /// Maximum number of history entries before oldest entries are evicted.
 const MAX_HISTORY_ENTRIES: usize = 50;

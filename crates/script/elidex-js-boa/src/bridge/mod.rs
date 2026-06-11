@@ -44,8 +44,9 @@ use elidex_api_observers::resize::ResizeObserverRegistry;
 use elidex_custom_elements::CustomElementRegistry;
 use elidex_dom_api::registry::{CssomHandlerRegistry, DomHandlerRegistry};
 use elidex_ecs::{EcsDom, Entity};
-use elidex_navigation::{HistoryAction, NavigationRequest};
-use elidex_script_session::{JsObjectRef, ListenerId, SessionCore};
+use elidex_script_session::{
+    HistoryAction, JsObjectRef, ListenerId, NavigationRequest, SessionCore,
+};
 use elidex_web_canvas::Canvas2dContext;
 
 /// Bridge providing boa native functions access to `SessionCore` and `EcsDom`.

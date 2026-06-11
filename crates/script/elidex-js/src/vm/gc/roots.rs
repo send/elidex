@@ -79,12 +79,11 @@ pub(super) struct GcRoots<'a> {
     /// invariant as `current_microtask`: the callback/args must survive
     /// any GC triggered by the running callback.
     pub(super) current_timer: Option<&'a super::super::natives_timer::TimerEntry>,
-    /// Navigation state — `HistoryEntry.state: JsValue` holds arbitrary
-    /// values passed to `history.pushState` / `replaceState`.  Without
-    /// tracing them here, objects stored in `history.state` could be
-    /// collected while still reachable via `history.state` read.
-    /// Engine-only — `VmInner::navigation` is gated behind
-    /// `feature = "engine"`.
+    /// Navigation state — `NavigationState.current_state: JsValue` holds the
+    /// value last passed to `history.pushState` / `replaceState` (`history.state`).
+    /// Without tracing it here, that object could be collected while still
+    /// reachable via a `history.state` read.  Engine-only — `VmInner::navigation`
+    /// is gated behind `feature = "engine"`.
     #[cfg(feature = "engine")]
     pub(super) navigation: &'a super::super::host::navigation::NavigationState,
     /// `AbortSignal` per-instance state, traced when the owning
@@ -471,16 +470,15 @@ pub(super) fn mark_roots(
         mark_timer_entry(entry, obj_marks, work);
     }
 
-    // (i) Navigation state — `history.pushState(state, ...)` and
-    // `replaceState` values.  Each entry's `state` is a `JsValue` that
-    // is not reachable from any other root (not the stack, not a
-    // function upvalue, and the entry itself lives on `VmInner`
-    // directly).  Without marking, objects handed to `pushState` can
-    // be collected between the call and a later `history.state` read.
+    // (i) Navigation state — `history.state`, the `JsValue` last handed to
+    // `history.pushState(state, ...)` / `replaceState`.  It is not reachable
+    // from any other root (not the stack, not a function upvalue; `current_state`
+    // lives on `VmInner` directly).  Without marking, the object can be collected
+    // between the `pushState` call and a later `history.state` read.  (The shell
+    // owns the session-history stack — the VM holds only the current entry's
+    // state, S1c.)
     #[cfg(feature = "engine")]
-    for entry in &roots.navigation.history_entries {
-        mark_value(entry.state, obj_marks, work);
-    }
+    mark_value(roots.navigation.current_state, obj_marks, work);
 
     // (j) Pending AbortSignal.timeout registrations.  The signal
     // ObjectId is only reachable via this map until the timer

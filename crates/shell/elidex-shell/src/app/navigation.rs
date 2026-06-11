@@ -113,14 +113,15 @@ impl App {
     }
 
     /// Handle a pending history action from JS.
-    pub(super) fn handle_history_action(&mut self, action: &elidex_navigation::HistoryAction) {
+    pub(super) fn handle_history_action(&mut self, action: &elidex_script_session::HistoryAction) {
         let Some(interactive) = &mut self.interactive else {
             return;
         };
 
         match action {
-            elidex_navigation::HistoryAction::Back | elidex_navigation::HistoryAction::Forward => {
-                let url = if matches!(action, elidex_navigation::HistoryAction::Back) {
+            elidex_script_session::HistoryAction::Back
+            | elidex_script_session::HistoryAction::Forward => {
+                let url = if matches!(action, elidex_script_session::HistoryAction::Back) {
                     interactive.nav_controller.go_back().cloned()
                 } else {
                     interactive.nav_controller.go_forward().cloned()
@@ -129,16 +130,16 @@ impl App {
                     self.navigate_to_history_url(&url);
                 }
             }
-            elidex_navigation::HistoryAction::Go(delta) => {
+            elidex_script_session::HistoryAction::Go(delta) => {
                 if let Some(url) = interactive.nav_controller.go(*delta).cloned() {
                     self.navigate_to_history_url(&url);
                 }
             }
-            elidex_navigation::HistoryAction::PushState { url, .. }
-            | elidex_navigation::HistoryAction::ReplaceState { url, .. } => {
+            elidex_script_session::HistoryAction::PushState { url, .. }
+            | elidex_script_session::HistoryAction::ReplaceState { url, .. } => {
                 let replace = matches!(
                     action,
-                    elidex_navigation::HistoryAction::ReplaceState { .. }
+                    elidex_script_session::HistoryAction::ReplaceState { .. }
                 );
                 if let Some(resolved_url) =
                     resolve_state_url(interactive.pipeline.url.as_ref(), url.as_deref())
