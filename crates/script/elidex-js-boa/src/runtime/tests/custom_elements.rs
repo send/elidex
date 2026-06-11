@@ -721,6 +721,148 @@ fn create_element_null_registry_element_never_upgrades() {
 }
 
 #[test]
+fn create_element_upgrades_synchronously_when_defined() {
+    // Codex PR331 R13: DOM 4.5 invokes create-an-element with the
+    // synchronous custom elements flag set -- a defined-at-creation
+    // element is constructed BEFORE createElement returns, observable
+    // within the same eval (VM parity).
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let result = runtime.eval(
+        r"
+        var ran = false;
+        customElements.define('x-sync', class { constructor() { ran = true; } });
+        var el = document.createElement('x-sync');
+        console.log('sync=' + ran);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("sync=true")),
+        "expected synchronous upgrade at createElement, got: {output:?}"
+    );
+}
+
+#[test]
+fn pending_drain_skips_autonomous_is_mismatch() {
+    // Codex PR331 R13: `<div is='my-el'>` queued under an autonomous
+    // definition name must NOT be upgraded when define('my-el')
+    // drains the pending bucket -- the shared
+    // `upgrade_matches_local_name` rule rejects it (VM parity with
+    // prepare_upgrade; the div simply stays Undefined).
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let result = runtime.eval(
+        r"
+        globalThis.__count = 0;
+        var div = document.createElement('div', {is: 'x-mismatch'});
+        customElements.define('x-mismatch', class { constructor() { globalThis.__count++; } });
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    let result = runtime.eval(
+        r"console.log('count=' + globalThis.__count);",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(
+        result.success,
+        "second eval should succeed: {:?}",
+        result.error
+    );
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("count=0")),
+        "expected autonomous is-mismatch to stay unupgraded, got: {output:?}"
+    );
+}
+
+#[test]
+fn clone_of_defined_custom_element_upgrades_via_clone_reaction() {
+    // Codex PR331 R13 / DOM 4.4 clone-a-single-node: the clone of an
+    // element whose definition is registered gets an Upgrade reaction
+    // at clone time (drains at the next checkpoint), without
+    // insertion or customElements.upgrade().
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let result = runtime.eval(
+        r"
+        globalThis.__count = 0;
+        customElements.define('x-clup', class { constructor() { globalThis.__count++; } });
+        var orig = document.createElement('x-clup');
+        globalThis.__clone = orig.cloneNode(false);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    let result = runtime.eval(
+        r"console.log('count=' + globalThis.__count);",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(
+        result.success,
+        "second eval should succeed: {:?}",
+        result.error
+    );
+    let output = runtime.console_output().messages();
+    // One sync construction at createElement + one clone-time
+    // reaction construction.
+    assert!(
+        output.iter().any(|m| m.1.contains("count=2")),
+        "expected clone-time upgrade reaction, got: {output:?}"
+    );
+}
+
+#[test]
+fn null_registry_element_not_upgraded_on_insertion_after_define() {
+    // Codex PR331 R13: insertion-time upgrade walk gates on the
+    // registry association -- define() first, then append a
+    // null-registry element: it stays unconstructed.
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let html = dom.create_element("html", Attributes::default());
+    let body = dom.create_element("body", Attributes::default());
+    let _ = dom.append_child(doc, html);
+    let _ = dom.append_child(html, body);
+    let result = runtime.eval(
+        r"
+        globalThis.__count = 0;
+        customElements.define('x-insnull', class { constructor() { globalThis.__count++; } });
+        var n = document.createElement('x-insnull', {customElementRegistry: null});
+        document.body.appendChild(n);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    let result = runtime.eval(
+        r"console.log('count=' + globalThis.__count);",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(
+        result.success,
+        "second eval should succeed: {:?}",
+        result.error
+    );
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("count=0")),
+        "expected null-registry element to stay unupgraded after insertion, got: {output:?}"
+    );
+}
+
+#[test]
 fn create_element_registry_brand_survives_global_reassignment() {
     // Codex PR331 R11: `globalThis.customElements` is a writable
     // property, so the brand check must compare against the stable

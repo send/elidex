@@ -49,26 +49,7 @@ pub(in crate::globals::element) fn register_node_methods(
         1,
     );
 
-    // cloneNode(deep?)
-    let b = bridge.clone();
-    init.function(
-        NativeFunction::from_copy_closure_with_captures(
-            |this, args, bridge, ctx| {
-                let entity = extract_entity(this, ctx)?;
-                let deep = args.first().is_some_and(JsValue::to_boolean);
-                invoke_dom_handler_ref(
-                    "cloneNode",
-                    entity,
-                    &[ElidexJsValue::Bool(deep)],
-                    bridge,
-                    ctx,
-                )
-            },
-            b,
-        ),
-        js_string!("cloneNode"),
-        1,
-    );
+    install_clone_node(init, bridge);
 
     // normalize()
     let b = bridge.clone();
@@ -210,6 +191,43 @@ pub(in crate::globals::element) fn register_child_parent_mixin_methods(
             ))
         }),
         js_string!("isDefaultNamespace"),
+        1,
+    );
+}
+
+/// `cloneNode(deep?)` — split out of `register_node_methods` (clippy
+/// fn-length) and carrying the clone-time upgrade-reaction seam.
+fn install_clone_node(init: &mut ObjectInitializer<'_>, bridge: &HostBridge) {
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let deep = args.first().is_some_and(JsValue::to_boolean);
+                let result = invoke_dom_handler_ref(
+                    "cloneNode",
+                    entity,
+                    &[ElidexJsValue::Bool(deep)],
+                    bridge,
+                    ctx,
+                )?;
+                // DOM §4.4 "clone a single node": a clone whose
+                // definition lookup is non-null gets an upgrade
+                // reaction enqueued at clone time (it must not stay
+                // `Undefined` until a later insertion / upgrade()
+                // call). The walk is registry- and local-name-gated.
+                if let Ok(clone_root) = extract_entity(&result, ctx) {
+                    bridge.with(|_session, dom| {
+                        crate::globals::custom_elements::walk_and_enqueue_upgrades(
+                            clone_root, bridge, dom,
+                        );
+                    });
+                }
+                Ok(result)
+            },
+            b,
+        ),
+        js_string!("cloneNode"),
         1,
     );
 }

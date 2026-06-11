@@ -564,7 +564,23 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                 }
                 let deep = args.get(1).is_some_and(JsValue::to_boolean);
                 // Use cloneNode — single-document assumption.
-                invoke_dom_handler_ref("cloneNode", node, &[ElidexJsValue::Bool(deep)], bridge, ctx)
+                let result = invoke_dom_handler_ref(
+                    "cloneNode",
+                    node,
+                    &[ElidexJsValue::Bool(deep)],
+                    bridge,
+                    ctx,
+                )?;
+                // Clone-time upgrade reaction seam — see the
+                // cloneNode binding (DOM §4.4 clone-a-single-node).
+                if let Ok(clone_root) = crate::globals::element::extract_entity(&result, ctx) {
+                    bridge.with(|_session, dom| {
+                        crate::globals::custom_elements::walk_and_enqueue_upgrades(
+                            clone_root, bridge, dom,
+                        );
+                    });
+                }
+                Ok(result)
             },
             b_import,
         ),

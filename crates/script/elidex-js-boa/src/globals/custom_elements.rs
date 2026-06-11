@@ -255,7 +255,13 @@ fn extract_observed_attributes(
 }
 
 /// Walk a subtree and enqueue Upgrade reactions for undefined custom elements.
-fn walk_and_enqueue_upgrades(
+///
+/// `pub(crate)`: also the clone-time reaction seam — DOM §4.4 "clone a
+/// single node" enqueues a custom element upgrade reaction for every
+/// cloned element whose definition lookup is non-null (Codex PR331
+/// R13), so the cloneNode/importNode bindings walk the fresh clone
+/// subtree through here after the handler returns.
+pub(crate) fn walk_and_enqueue_upgrades(
     root: elidex_ecs::Entity,
     bridge: &HostBridge,
     dom: &elidex_ecs::EcsDom,

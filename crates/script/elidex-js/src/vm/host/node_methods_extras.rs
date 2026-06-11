@@ -207,6 +207,17 @@ pub(super) fn native_node_clone_node(
     let result =
         super::dom_bridge::invoke_dom_api(ctx, "cloneNode", src, &[JsValue::Boolean(deep)])?;
     install_document_methods_if_cloned_doc(ctx, result);
+    // DOM §4.4 "clone a single node": a clone whose definition lookup
+    // is non-null gets an Upgrade reaction enqueued at clone time
+    // (registry- and local-name-gated via `prepare_upgrade`); it
+    // drains at the standard checkpoints.
+    if let JsValue::Object(wrapper) = result {
+        if let ObjectKind::HostObject { entity_bits } = ctx.vm.get_object(wrapper).kind {
+            if let Some(clone_root) = elidex_ecs::Entity::from_bits(entity_bits) {
+                super::custom_elements::upgrade::enqueue_subtree_upgrade_reactions(ctx, clone_root);
+            }
+        }
+    }
     Ok(result)
 }
 

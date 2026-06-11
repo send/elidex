@@ -14,7 +14,7 @@ use crate::bridge::HostBridge;
 use crate::globals::console::ConsoleOutput;
 use crate::globals::timers::TimerQueueHandle;
 
-mod ce;
+pub(crate) mod ce;
 mod observers;
 mod realtime;
 pub(crate) mod sw;
@@ -775,7 +775,14 @@ pub(crate) fn walk_subtree_for_upgrade(
         return;
     }
     if let Ok(ce_state) = dom.world().get::<&CustomElementState>(entity) {
-        if ce_state.state == CEState::Undefined {
+        // Null-registry elements are outside every registry — the
+        // insertion-time upgrade walk must not enqueue them (Codex
+        // PR331 R13; the executor's gate would skip anyway).
+        let in_document_registry = matches!(
+            ce_state.registry,
+            elidex_custom_elements::RegistryAssociation::Document
+        );
+        if in_document_registry && ce_state.state == CEState::Undefined {
             // Upgrade only when the element's local name matches the
             // definition (customized built-in → `extends` base; autonomous →
             // the definition name). Shared rule:

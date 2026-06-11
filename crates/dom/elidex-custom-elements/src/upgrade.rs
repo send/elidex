@@ -57,11 +57,21 @@ pub fn prepare_upgrade(
     registry: &CustomElementRegistry,
     entity: Entity,
 ) -> UpgradeResolution {
-    let (definition_name, current_state) = match dom.world().get::<&CustomElementState>(entity) {
-        Ok(state) => (state.definition_name.clone(), state.state),
-        Err(_) => return UpgradeResolution::Skip,
-    };
+    let (definition_name, current_state, registry_assoc) =
+        match dom.world().get::<&CustomElementState>(entity) {
+            Ok(state) => (state.definition_name.clone(), state.state, state.registry),
+            Err(_) => return UpgradeResolution::Skip,
+        };
     if matches!(current_state, CEState::Custom | CEState::Failed) {
+        return UpgradeResolution::Skip;
+    }
+    // A null-registry element is outside every registry — DOM §4.9:
+    // the definition lookup against its (null) registry is always
+    // null, so NO upgrade path (creation, define()-drain, insertion,
+    // customElements.upgrade(), clone) may resolve a definition for
+    // it. Gated here defensively so every caller of the upgrade
+    // machinery inherits the rule.
+    if matches!(registry_assoc, crate::RegistryAssociation::Null) {
         return UpgradeResolution::Skip;
     }
     let Some(def) = registry.get(&definition_name) else {

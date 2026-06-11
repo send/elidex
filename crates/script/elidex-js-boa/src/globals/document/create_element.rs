@@ -154,7 +154,13 @@ pub(super) fn install_create_element(init: &mut ObjectInitializer<'_>, b: &HostB
                 // discriminates the two and feeds the extends/local-name
                 // lookup.
                 if let Ok(entity) = crate::globals::element::extract_entity(&result, ctx) {
-                    bridge.with(|_session, dom| {
+                    // Phase 1 (inside `with`): read the routing
+                    // decision + run the DOM-side mutations. Phase 2
+                    // (outside `with`): the synchronous upgrade —
+                    // `run_upgrade_reaction` re-enters `bridge.with`
+                    // internally, so it must not run under this
+                    // closure's borrow.
+                    let defined = bridge.with(|_session, dom| {
                         // Upgrade-routing discrimination: the
                         // definition is keyed by the is value exactly
                         // when it differs from the local name (the
@@ -167,7 +173,7 @@ pub(super) fn install_create_element(init: &mut ObjectInitializer<'_>, b: &HostB
                             let Ok(state) =
                                 world.get::<&elidex_custom_elements::CustomElementState>(entity)
                             else {
-                                return;
+                                return false;
                             };
                             // A null-registry element is outside every
                             // registry — no sync upgrade, no queue
@@ -177,7 +183,7 @@ pub(super) fn install_create_element(init: &mut ObjectInitializer<'_>, b: &HostB
                                 state.registry,
                                 elidex_custom_elements::RegistryAssociation::Null
                             ) {
-                                return;
+                                return false;
                             }
                             let local_name = world
                                 .get::<&elidex_ecs::TagType>(entity)
@@ -195,17 +201,22 @@ pub(super) fn install_create_element(init: &mut ObjectInitializer<'_>, b: &HostB
                             // creation autonomous elements null the
                             // is value (async-created keep theirs).
                             bridge.ce_clear_is_value_for_sync_autonomous(dom, entity);
-                            // Definition exists — enqueue Upgrade.
-                            bridge.enqueue_ce_reaction(
-                                elidex_custom_elements::CustomElementReaction::Upgrade(entity),
-                            );
                         } else {
                             // Queue admission (incl. the invalid-name
                             // gate) is owned by the registry's
                             // `queue_for_upgrade`.
                             bridge.queue_for_ce_upgrade(&name, entity);
                         }
+                        defined
                     });
+                    if defined {
+                        // DOM §4.5 invokes *create an element* with
+                        // the synchronous custom elements flag set —
+                        // the element is constructed before
+                        // createElement returns (Codex PR331 R13; VM
+                        // parity with `invoke_upgrade`).
+                        crate::runtime::ce::run_upgrade_reaction(entity, bridge, ctx);
+                    }
                 }
 
                 Ok(result)

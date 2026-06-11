@@ -197,6 +197,59 @@ fn create_element_null_registry_element_never_upgrades() {
 }
 
 #[test]
+fn null_registry_element_not_upgraded_on_insertion_after_define() {
+    // Codex PR331 R13: the insertion upgrade path must gate on the
+    // registry association too — define() first, then create a
+    // null-registry element and append it: the insertion-time
+    // reaction must NOT upgrade it.
+    let out = run_then_read(
+        "globalThis.__count = 0; \
+         customElements.define('x-ins', class extends HTMLElement { \
+             constructor() { super(); globalThis.__count++; } }); \
+         var n = document.createElement('x-ins', {customElementRegistry: null}); \
+         document.body.appendChild(n);",
+        "'count=' + globalThis.__count",
+    );
+    assert_eq!(out, "count=0");
+}
+
+#[test]
+fn clone_of_defined_custom_element_upgrades_via_clone_reaction() {
+    // Codex PR331 R13 / DOM §4.4 "clone a single node": a clone whose
+    // definition lookup is non-null gets an upgrade reaction enqueued
+    // at clone time — it must not stay Undefined until insertion or
+    // customElements.upgrade(). The clone here is never inserted; the
+    // reaction drains at the eval checkpoint.
+    let out = run_then_read(
+        "globalThis.__count = 0; \
+         customElements.define('x-clup', class extends HTMLElement { \
+             constructor() { super(); globalThis.__count++; } }); \
+         var orig = document.createElement('x-clup'); \
+         globalThis.__clone = orig.cloneNode(false);",
+        "'count=' + globalThis.__count",
+    );
+    // One construction for the original (sync at createElement), one
+    // for the disconnected clone (clone-time reaction).
+    assert_eq!(out, "count=2");
+}
+
+#[test]
+fn clone_of_null_registry_element_not_upgraded() {
+    // The clone-time reaction seam resolves candidacy through
+    // prepare_upgrade, so a null-registry clone (association
+    // propagates per DOM §4.4) is skipped.
+    let out = run_then_read(
+        "globalThis.__count = 0; \
+         customElements.define('x-clnull', class extends HTMLElement { \
+             constructor() { super(); globalThis.__count++; } }); \
+         var orig = document.createElement('x-clnull', {customElementRegistry: null}); \
+         globalThis.__clone = orig.cloneNode(false);",
+        "'count=' + globalThis.__count",
+    );
+    assert_eq!(out, "count=0");
+}
+
+#[test]
 fn create_element_options_symbol_throws_type_error() {
     // Codex PR331 R12: a non-object `options` converts through the
     // DOMString arm of `(DOMString or ElementCreationOptions)` —

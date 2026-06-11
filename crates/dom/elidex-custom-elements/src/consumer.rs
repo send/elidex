@@ -233,7 +233,13 @@ fn try_to_upgrade_target(
     match state.state {
         CEState::Custom => UpgradeTarget::Connected,
         CEState::Undefined => {
-            if defined.contains(&state.definition_name) {
+            // Null-registry elements are outside every registry — the
+            // insertion path must not upgrade them either (the
+            // executor's `prepare_upgrade` would skip anyway; gating
+            // here avoids enqueueing dead reactions).
+            if matches!(state.registry, crate::RegistryAssociation::Document)
+                && defined.contains(&state.definition_name)
+            {
                 UpgradeTarget::Upgrade
             } else {
                 UpgradeTarget::None

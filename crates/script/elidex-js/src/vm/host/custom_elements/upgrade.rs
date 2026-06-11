@@ -114,6 +114,51 @@ impl Drop for ConstructionStackGuard {
 /// [`elidex_custom_elements::prepare_upgrade`] /
 /// [`enter_constructor`] / [`finalize_success`] /
 /// [`finalize_failure`].
+/// Clone-time upgrade-reaction seam (DOM §4.4 "clone a single node",
+/// Codex PR331 R13): every cloned element whose definition lookup is
+/// non-null gets an `Upgrade` reaction enqueued at clone time — it
+/// must not stay `Undefined` until a later insertion or
+/// `customElements.upgrade()` call. Candidacy is resolved through the
+/// engine-indep [`elidex_custom_elements::prepare_upgrade`] chokepoint
+/// (registry-association gate + `upgrade_matches_local_name`
+/// included), so null-registry clones and `is` mismatches are skipped
+/// by the same rule every other upgrade path uses. Reactions drain at
+/// the standard script-execution checkpoints (the spec enqueues, it
+/// does not upgrade synchronously here).
+pub(in crate::vm) fn enqueue_subtree_upgrade_reactions(ctx: &mut NativeContext<'_>, root: Entity) {
+    let Some(host) = ctx.host_if_bound() else {
+        return;
+    };
+    let mut candidates: Vec<Entity> = Vec::new();
+    {
+        let registry = host
+            .ce_registry
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let dom = host.dom_shared();
+        dom.for_each_shadow_inclusive_descendant(root, &mut |e| {
+            if matches!(
+                elidex_custom_elements::prepare_upgrade(dom, &registry, e),
+                elidex_custom_elements::UpgradeResolution::Proceed { .. }
+            ) {
+                candidates.push(e);
+            }
+        });
+    }
+    if candidates.is_empty() {
+        return;
+    }
+    let mut queue = host
+        .ce_reaction_queue
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    for entity in candidates {
+        queue.push_back(elidex_custom_elements::CustomElementReaction::Upgrade(
+            entity,
+        ));
+    }
+}
+
 /// Phase 1 resolution outcome — bridges the registry-lock scope
 /// (where `prepare_upgrade` + `lookup_by_constructor` run) and the
 /// post-lock scope (where `ctx`-borrowing helpers like
