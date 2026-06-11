@@ -660,3 +660,28 @@ fn sync_autonomous_create_element_nulls_is_value() {
         "sync autonomous must not emit synthetic is, got: {output:?}"
     );
 }
+
+#[test]
+fn create_element_is_null_tostrings_to_null_string() {
+    // WebIDL: `ElementCreationOptions.is` is a non-nullable DOMString —
+    // an explicit `{is: null}` converts via ToString(null) = "null"
+    // (member absent only when undefined).
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let result = runtime.eval(
+        r"
+        var el = document.createElement('button', { is: null });
+        console.log('html=' + el.outerHTML);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    let output = runtime.console_output().messages();
+    assert!(
+        output
+            .iter()
+            .any(|m| m.1.contains(r#"html=<button is="null"></button>"#)),
+        "explicit null is must ToString to \"null\", got: {output:?}"
+    );
+}

@@ -136,7 +136,10 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                 let mut handler_args = vec![ElidexJsValue::String(tag)];
                 if let Some(opts) = args.get(1).and_then(JsValue::as_object) {
                     let v = opts.get(js_string!("is"), ctx)?;
-                    if !v.is_undefined() && !v.is_null() {
+                    // WebIDL: member absent only when undefined —
+                    // `{is: null}` ToString-converts to "null" (the
+                    // dictionary member is a non-nullable DOMString).
+                    if !v.is_undefined() {
                         // Flatten step 3.2.1: non-null `is` +
                         // `customElementRegistry` is a hard conflict.
                         let reg = opts.get(js_string!("customElementRegistry"), ctx)?;

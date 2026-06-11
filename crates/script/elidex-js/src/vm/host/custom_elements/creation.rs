@@ -26,7 +26,11 @@ pub(in crate::vm) fn flatten_is_option(
     };
     let is_key = PropertyKey::String(ctx.vm.strings.intern("is"));
     let raw = ctx.vm.get_property_value(*options_id, is_key)?;
-    if matches!(raw, JsValue::Undefined | JsValue::Null) {
+    // WebIDL dictionary semantics: the member is absent only when the
+    // property is undefined. `ElementCreationOptions.is` is a plain
+    // (non-nullable) DOMString, so an explicit `{is: null}` converts
+    // via ToString(null) = "null" — a NON-null is value downstream.
+    if matches!(raw, JsValue::Undefined) {
         return Ok(None);
     }
     // Flatten step 3.2.1: a dictionary carrying BOTH a non-null `is`
