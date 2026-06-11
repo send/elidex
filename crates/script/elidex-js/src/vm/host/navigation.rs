@@ -119,3 +119,78 @@ impl NavigationState {
         self.history_index
     }
 }
+
+impl super::super::VmInner {
+    /// The document's security origin (WHATWG HTML §7.1.1) — the canonical
+    /// value every *settings-object-origin* surface serializes.
+    ///
+    /// Returns the embedder-installed override
+    /// ([`super::super::host_data::HostData::set_origin`]) when present —
+    /// opaque for a sandboxed iframe, so the document reports `"null"` — and
+    /// otherwise derives it from [`NavigationState::current_url`] (the spec
+    /// default: a document's origin is its URL's origin unless overridden).
+    /// This is the single resolution point the **window.postMessage**
+    /// (§9.3.3) / **WebSocket** (WebSockets §2.2) / **EventSource** (§9.2.2)
+    /// `Origin` / **localStorage** (§12.2.3) readers consume, so none of them
+    /// re-derives `current_url.origin()` ad hoc (the S1b §5 unification).
+    ///
+    /// NB `location.origin` does **not** read this — HTML §7.2.4 returns the
+    /// Location *URL's* origin, which differs from the document origin for a
+    /// sandboxed doc (it stays `current_url`-derived).
+    ///
+    /// **Idempotency contract.** The returned value is identity-stable in every
+    /// state (a document's origin is stable document state, HTML §7.1.1): an
+    /// installed override returns the stored `SecurityOrigin`; a tuple
+    /// `current_url` derives deterministically (`from_url` is stable for
+    /// http/https); and the no-override **opaque** fallback returns the per-VM
+    /// [`HostData::fallback_opaque_origin`](super::super::host_data::HostData::fallback_opaque_origin)
+    /// (minted once) rather than a fresh `Opaque(n)` per call. This matters for
+    /// the standalone / `about:blank` pipeline path (`current_url: None` → the
+    /// shell never calls `set_origin`): `iframe/lifecycle.rs` reads
+    /// `bridge().origin()` and propagates it parent→child, so a re-minting
+    /// fallback would hand the child a different origin on each read. A bare
+    /// engine with no `HostData` cannot store the fallback, so it keeps a fresh
+    /// opaque — but it has no propagating consumer and serializes to `"null"`
+    /// either way.
+    ///
+    /// At the S5 flip the iframe pipeline must install the override **before**
+    /// running a frame's initial scripts: `iframe/load.rs` currently builds the
+    /// pipeline (which runs scripts) before `make_in_process_entry` calls
+    /// `set_origin`, so a sandboxed iframe's first script would read the
+    /// fallback / parent origin instead of its opaque `"null"`. This is a
+    /// pre-existing shell-ordering gap shared with the live boa path (no S1b
+    /// regression) → slot `#11-iframe-origin-before-initial-scripts`.
+    ///
+    /// Relatedly, a *tuple* override installed at load is pinned for the
+    /// document's lifetime, so an in-VM `location` navigation (`set_location`
+    /// mutates `current_url` in place, with no new document) would leave the
+    /// migrated readers reporting the load-time origin. Inert today (the
+    /// pre-S1c stub mutates `current_url` without re-navigating; no S1b test
+    /// reads the origin after navigating) and resolved by S1c: `assign`/`href`/
+    /// `replace` route through the navigation back-channel → a real navigation
+    /// creates a new document with a freshly-derived origin (a sandboxed iframe
+    /// stays opaque). It is *not* a simple "ignore/clear the tuple override on
+    /// `current_url` change" fix: the tuple override is load-bearing for
+    /// `about:blank`/srcdoc origin inheritance (the inherited parent tuple,
+    /// while `current_url` is opaque), and fragment navigation must not change
+    /// the origin — both need real navigation semantics. → slot
+    /// `#11-vm-navigation-origin-resync`.
+    pub(crate) fn document_origin(&self) -> elidex_plugin::SecurityOrigin {
+        let host_data = self.host_data.as_deref();
+        if let Some(over) =
+            host_data.and_then(super::super::host_data::HostData::document_origin_override)
+        {
+            return over.clone();
+        }
+        match elidex_plugin::SecurityOrigin::from_url(&self.navigation.current_url) {
+            // Pin the no-override opaque fallback to the per-VM stable opaque
+            // (HTML §7.1.1 — origin is stable document state; matches boa's
+            // single stored default). Tuple origins from `current_url` are
+            // already deterministic and pass through unchanged.
+            opaque @ elidex_plugin::SecurityOrigin::Opaque(_) => {
+                host_data.map_or(opaque, |hd| hd.fallback_opaque_origin().clone())
+            }
+            tuple => tuple,
+        }
+    }
+}

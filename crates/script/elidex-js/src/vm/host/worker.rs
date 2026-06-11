@@ -499,6 +499,16 @@ fn native_worker_post_message(
     let (_entity, worker_id) = require_worker(ctx, this, "postMessage")?;
     let data = args.first().copied().unwrap_or(JsValue::Undefined);
     let serialized = super::worker_scope::serialize_message(ctx, data)?;
+    // S1b §5 carve-out (NOT a settings-object-origin reader → deliberately
+    // NOT routed through `document_origin()`): WHATWG HTML §9.4.4
+    // message-port-post-message-steps fire the worker's `message` event with
+    // NO `origin` attribute (unlike window.postMessage §9.3.3). This
+    // `current_url`-derived page tag is a pre-existing VM-specific extension,
+    // not the document origin — migrating it (e.g. → "null" for a sandboxed
+    // page) would diverge from the spec's "no origin", the same overreach the
+    // CRIT-F1 carve-out avoided for `location.origin`. Spec-faithful
+    // MessageEvent.origin (no origin set) for port messages is a separate
+    // future change, not S1b → slot `#11-worker-port-message-no-origin`.
     let origin = ctx.vm.navigation.current_url.origin().ascii_serialization();
     if let Some(handle) = ctx.vm.worker_registry.get(worker_id) {
         handle.post_message(serialized, origin);

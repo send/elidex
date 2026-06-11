@@ -179,6 +179,55 @@ mod engine_feature {
         /// by [`Self::scripts_allowed`] (the eval gate; S1b adds the
         /// `forms`/`popups`/`modals` accessors + their consumer wiring).
         sandbox_flags: Option<elidex_plugin::IframeSandboxFlags>,
+        /// The document's security origin override (WHATWG HTML §7.1.1).
+        /// `None` until the embedder's load path installs it via
+        /// [`Self::set_origin`]; while `None`,
+        /// [`super::VmInner::document_origin`] derives the origin from
+        /// `navigation.current_url` (the spec default: a document's origin is
+        /// its URL's origin unless overridden).  The shell installs
+        /// `Some(opaque)` for a sandboxed iframe (HTML §7.1.5), so the
+        /// document reports `"null"` on the settings-object-origin surfaces
+        /// (window.postMessage / WebSocket + EventSource `Origin` /
+        /// localStorage partition).
+        ///
+        /// **ECS-native placement (interim, not the ideal).** A document's
+        /// origin is strictly a per-Document fact (HTML §7.1.1), so the
+        /// CLAUDE.md side-store rule points at an ECS component on the document
+        /// entity, not this per-VM store — it is *not* genuinely the (b)
+        /// shared-cross-cutting exception that `cookie_jar` is. S1b keeps it
+        /// here as the **consistent interim**: the whole current-document-state
+        /// cluster (`current_url`/`NavigationState`, `sandbox_flags`, and this)
+        /// is per-VM today, so moving only the origin to a component would be a
+        /// strangler (One-issue-one-way). The ideal — migrating the cluster to
+        /// per-entity components, with navigation creating a fresh document
+        /// entity (so cleanup/rebind come from ECS despawn rather than the
+        /// shell remembering to overwrite) — is a model-wide redesign coupled
+        /// to the navigation back-channel (S1c) and spanning the merged S1a
+        /// `sandbox_flags`. Tracked as the ECS-native side-store→component
+        /// program → slot `#11-browsing-context-state-ecs-components` (sibling
+        /// of `#11-wrapper-identity-component-migration`, same world_id gate).
+        /// (NB `location.origin` does NOT read this — HTML §7.2.4 returns the
+        /// *URL's* origin, which can differ from the document origin for a
+        /// sandboxed doc.)
+        document_origin_override: Option<elidex_plugin::SecurityOrigin>,
+        /// Per-VM **stable** opaque origin returned by
+        /// [`super::VmInner::document_origin`] when no override is installed and
+        /// `navigation.current_url` is itself opaque (e.g. the standalone /
+        /// `about:blank` pipeline path, where the shell never calls
+        /// [`Self::set_origin`] because `current_url` is `None`).  A document's
+        /// origin is stable document state (HTML §7.1.1), so the resolver must
+        /// not re-mint a fresh `Opaque(n)` per read — that would make
+        /// `iframe/lifecycle.rs`'s parent→child origin propagation
+        /// (`bridge().origin()` feeds the child's load context) non-deterministic
+        /// and diverge from boa's single stored default.  Minted once at
+        /// `HostData::new`.  (Distinct from `opaque_origin_sentinel`, which is
+        /// the storage-partition *string* key for the same opaque situation.)
+        fallback_opaque_origin: elidex_plugin::SecurityOrigin,
+        /// The iframe nesting depth of this document's browsing context
+        /// (`0` for top-level).  Installed by the shell's iframe load path
+        /// ([`Self::set_iframe_depth`]); read to cap runaway `<iframe>`
+        /// nesting.  Per-browsing-context fact, (b) exception like above.
+        iframe_depth: usize,
         /// `MutationObserver` registry (WHATWG DOM §4.3.1) — owns the
         /// per-observer pending-record queues. The observation targets +
         /// options live as `MutationObservedBy` components on the
@@ -731,6 +780,9 @@ mod engine_feature {
                 focused_entity: None,
                 cookie_jar: None,
                 sandbox_flags: None,
+                document_origin_override: None,
+                fallback_opaque_origin: elidex_plugin::SecurityOrigin::opaque(),
+                iframe_depth: 0,
                 mutation_observers: elidex_api_observers::mutation::MutationObserverRegistry::new(),
                 mutation_observer_bindings: HashMap::new(),
                 resize_observers: elidex_api_observers::resize::ResizeObserverRegistry::new(),
@@ -964,6 +1016,63 @@ mod engine_feature {
         pub(crate) fn scripts_allowed(&self) -> bool {
             self.sandbox_flags
                 .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_SCRIPTS))
+        }
+
+        /// The sandbox flags for this document's browsing context, if it is
+        /// sandboxed (`None` for top-level / unsandboxed).  Read by the shell
+        /// (via the `ElidexJsEngine` forwarder) to gate `target="_blank"`
+        /// navigation; the per-capability `allow-*` predicates below are the
+        /// preferred entry points.
+        pub(crate) fn sandbox_flags(&self) -> Option<elidex_plugin::IframeSandboxFlags> {
+            self.sandbox_flags
+        }
+
+        /// Whether form submission is allowed (sandbox `allow-forms`; WHATWG
+        /// HTML §7.1.5).  `true` when not sandboxed or when the flag is
+        /// granted — the same `is_none_or` shape as [`Self::scripts_allowed`].
+        pub(crate) fn forms_allowed(&self) -> bool {
+            self.sandbox_flags
+                .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_FORMS))
+        }
+
+        /// Whether popups are allowed (sandbox `allow-popups`; WHATWG HTML
+        /// §7.1.5).  `true` when not sandboxed or when the flag is granted.
+        pub(crate) fn popups_allowed(&self) -> bool {
+            self.sandbox_flags
+                .is_none_or(|f| f.contains(elidex_plugin::IframeSandboxFlags::ALLOW_POPUPS))
+        }
+
+        /// Install the document's security origin (WHATWG HTML §7.1.1).  The
+        /// embedder's load path computes it (`SecurityOrigin::from_url`, or the
+        /// opaque sandbox origin via the shell's `apply_sandbox_origin_from_flags`)
+        /// and installs it before scripts run; [`super::VmInner::document_origin`]
+        /// reads it (falling back to the `current_url`-derived origin when unset).
+        pub(crate) fn set_origin(&mut self, origin: elidex_plugin::SecurityOrigin) {
+            self.document_origin_override = Some(origin);
+        }
+
+        /// The installed document-origin override, if any.  `None` ⇒ the
+        /// resolver derives the origin from `current_url`
+        /// (see [`super::VmInner::document_origin`]).
+        pub(crate) fn document_origin_override(&self) -> Option<&elidex_plugin::SecurityOrigin> {
+            self.document_origin_override.as_ref()
+        }
+
+        /// The per-VM stable opaque fallback origin (see the field docs) — used
+        /// by [`super::VmInner::document_origin`] for the no-override +
+        /// opaque-`current_url` case so the origin stays identity-stable.
+        pub(crate) fn fallback_opaque_origin(&self) -> &elidex_plugin::SecurityOrigin {
+            &self.fallback_opaque_origin
+        }
+
+        /// Set the iframe nesting depth (`0` = top-level).
+        pub(crate) fn set_iframe_depth(&mut self, depth: usize) {
+            self.iframe_depth = depth;
+        }
+
+        /// The iframe nesting depth of this document's browsing context.
+        pub(crate) fn iframe_depth(&self) -> usize {
+            self.iframe_depth
         }
 
         /// Set the focused Element (called from `HTMLElement.focus()`).

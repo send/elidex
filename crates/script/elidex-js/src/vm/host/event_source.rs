@@ -256,9 +256,10 @@ pub(super) fn require_event_source_this(
 ///    shared `vm_event_listeners` home, not the state struct.)
 /// 5. Send `RendererToNetwork::EventSourceOpen { conn_id, url,
 ///    last_event_id: None, origin: Some(page_origin), with_credentials }`
-///    to the broker via `network_handle.send()`.  `origin` is
-///    `vm.navigation.current_url.origin().ascii_serialization()`
-///    (opaque origins serialise as `"null"` per WHATWG URL §3.5).
+///    to the broker via `network_handle.send()`.  `origin` is the
+///    document's origin via `VmInner::document_origin()` (the relevant
+///    settings object's origin, HTML §9.2.2; opaque origins serialise as
+///    `"null"`, so a sandboxed document does not leak its real origin).
 ///    A disconnected handle is a non-fatal config — the side-
 ///    table entry persists in CONNECTING and the broker's natural
 ///    reply path will eventually surface a `SseEvent::FatalError`
@@ -300,7 +301,14 @@ fn native_event_source_constructor(
     };
     ctx.vm.get_object_mut(inst_id).kind = ObjectKind::EventSource;
 
-    let page_origin_str = ctx.vm.navigation.current_url.origin().ascii_serialization();
+    // The EventSource request's `Origin` is the EventSource's **relevant**
+    // settings object's origin (WHATWG HTML §9.2.2: the constructor sets the
+    // request's client to `ev`'s relevant settings object) — opaque (`"null"`)
+    // for a sandboxed doc.
+    // Read the canonical `document_origin` resolver, not `current_url`
+    // (S1b §5).  (`es_origin_string` below is the SSE *server* origin — a
+    // distinct fact, unchanged.)
+    let page_origin_str = ctx.vm.document_origin().serialize();
     let es_origin_string = url.origin().ascii_serialization();
     let origin_sid = ctx.vm.strings.intern(&es_origin_string);
     let url_serialized = url.as_str().to_owned();

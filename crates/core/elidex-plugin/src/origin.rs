@@ -35,9 +35,11 @@ impl SecurityOrigin {
     /// Derive a security origin from a URL.
     ///
     /// - `http`/`https` → `Tuple { scheme, host, port }` (default ports: 80/443)
+    /// - `blob` → the origin of its path-serialized inner URL when that is
+    ///   http/https/file, else `Opaque` (URL Standard "origin of a URL", blob
+    ///   steps; no blob URL store, so the blob-URL-entry origin branch is N/A)
     /// - `file` → `Opaque` (WHATWG §7.5.2: file URLs have opaque origin)
     /// - `data` → `Opaque` (WHATWG §7.5.3)
-    /// - `blob` → `Opaque` (TODO: blob URL registry for creator origin)
     /// - Other schemes → `Opaque`
     #[must_use]
     pub fn from_url(url: &url::Url) -> Self {
@@ -51,10 +53,25 @@ impl SecurityOrigin {
                     port,
                 }
             }
+            // blob: URLs adopt their *inner* URL's origin (URL Standard "origin
+            // of a URL" <https://url.spec.whatwg.org/#concept-url-origin>, blob
+            // steps): parse the path-serialized URL and return its origin when
+            // the inner scheme is http/https/file, otherwise a new opaque
+            // origin. We have no blob URL store, so the blob-URL-entry
+            // environment-origin branch (step 1) is not applicable. Example:
+            // `blob:https://example.com/uuid` → `("https", "example.com")`.
+            // Without this, the migrated settings-origin readers (postMessage
+            // origin, WebSocket/EventSource `Origin`, storage partition) would
+            // report `"null"` for an unsandboxed blob: document.
+            "blob" => match url::Url::parse(url.path()) {
+                Ok(inner) if matches!(inner.scheme(), "http" | "https" | "file") => {
+                    Self::from_url(&inner)
+                }
+                _ => Self::opaque(),
+            },
             // file:// URLs get opaque origin per WHATWG §7.5.2.
             // data: URLs get opaque origin per WHATWG §7.5.3.
-            // blob: URLs should inherit creator origin, but we don't have
-            // a blob URL registry yet — use opaque as safe default.
+            // Any other scheme is opaque as the safe default.
             _ => Self::opaque(),
         }
     }
@@ -505,6 +522,55 @@ mod tests {
         let origin =
             SecurityOrigin::from_url(&url::Url::parse("data:text/html,<h1>Hi</h1>").unwrap());
         assert!(matches!(origin, SecurityOrigin::Opaque(_)));
+    }
+
+    #[test]
+    fn blob_url_adopts_inner_https_origin() {
+        // URL Standard "origin of a URL", blob steps: the path-serialized
+        // inner URL's origin is adopted for http/https/file. Mirrors the
+        // spec's own example (blob:https://whatwg.org/<uuid>).
+        let origin = SecurityOrigin::from_url(
+            &url::Url::parse("blob:https://example.com/550e8400-e29b-41d4-a716-446655440000")
+                .unwrap(),
+        );
+        assert_eq!(
+            origin,
+            SecurityOrigin::Tuple {
+                scheme: "https".into(),
+                host: "example.com".into(),
+                port: 443,
+            }
+        );
+        assert_eq!(origin.serialize(), "https://example.com");
+    }
+
+    #[test]
+    fn blob_url_preserves_inner_explicit_port() {
+        let origin = SecurityOrigin::from_url(
+            &url::Url::parse("blob:http://example.com:8080/uuid").unwrap(),
+        );
+        assert_eq!(origin.serialize(), "http://example.com:8080");
+    }
+
+    #[test]
+    fn blob_url_with_non_tuple_inner_is_opaque() {
+        // Inner scheme not http/https/file → opaque (blob step 5).
+        let origin = SecurityOrigin::from_url(&url::Url::parse("blob:data:text/plain,hi").unwrap());
+        assert!(matches!(origin, SecurityOrigin::Opaque(_)));
+    }
+
+    #[test]
+    fn ipv6_host_origin_preserves_brackets() {
+        // `url::Url::host_str()` keeps the IPv6 brackets, so the tuple origin
+        // serializes with them — byte-identical to `Origin::ascii_serialization()`.
+        // The migrated settings-origin readers (postMessage / WS+SSE `Origin` /
+        // storage) must agree for `targetOrigin` matching, so guard against a
+        // host_str-without-brackets regression that would emit `http://::1`.
+        let origin = SecurityOrigin::from_url(&url::Url::parse("http://[::1]/").unwrap());
+        assert_eq!(origin.serialize(), "http://[::1]");
+        let with_port =
+            SecurityOrigin::from_url(&url::Url::parse("https://[2001:db8::1]:8443/x").unwrap());
+        assert_eq!(with_port.serialize(), "https://[2001:db8::1]:8443");
     }
 
     #[test]

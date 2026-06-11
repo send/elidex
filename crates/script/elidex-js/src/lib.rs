@@ -51,6 +51,9 @@ mod tests_dispatch_integration;
 #[cfg(test)]
 #[cfg(feature = "engine")]
 mod tests_engine_s1a;
+#[cfg(test)]
+#[cfg(feature = "engine")]
+mod tests_engine_s1b;
 
 mod lexer;
 mod parser;

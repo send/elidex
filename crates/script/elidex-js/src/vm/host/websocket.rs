@@ -320,8 +320,10 @@ pub(super) fn require_websocket_this(
 ///    `ws_conn_to_object[conn_id] = id`.
 /// 8. Send `RendererToNetwork::WebSocketOpen { conn_id, url,
 ///    protocols, origin }` to the broker via `network_handle.send()`.
-///    Origin is `vm.navigation.current_url.origin().ascii_serialization()`
-///    (opaque origins serialise as `"null"` per WHATWG URL §3.5).  A
+///    Origin is the document's origin via `VmInner::document_origin()`
+///    (the relevant settings object's origin, WebSockets §2.2; opaque
+///    origins serialise as `"null"`, so a sandboxed page does not leak its
+///    real origin).  A
 ///    disconnected handle (no `network_handle` installed OR `send`
 ///    returns false) is a non-fatal config — the side-table entry
 ///    persists in CONNECTING and the broker's natural reply path will
@@ -380,16 +382,16 @@ fn native_websocket_constructor(
     ctx.vm.get_object_mut(inst_id).kind = ObjectKind::WebSocket;
 
     // Steps 7-8: allocate conn_id, install state, emit WebSocketOpen.
-    // Two distinct origins are involved:
-    // - `page_origin_str` — the active browsing-context's WHATWG
-    //   origin; sent to the broker as `WebSocketOpen.origin` per
-    //   §9.3.1 step 13 ("origin of the entry settings object").
-    //   Opaque origins serialise as `"null"`.
-    // - `ws_origin_sid` — the SERVER's origin (derived from `url`);
-    //   pre-interned here so per-message `MessageEvent.origin`
-    //   dispatch reads a `StringId` without re-parsing per WHATWG
-    //   §9.3.7.
-    let page_origin_str = ctx.vm.navigation.current_url.origin().ascii_serialization();
+    // Two distinct origins are involved (the canonical settings-origin policy
+    // lives on `VmInner::document_origin`):
+    // - `page_origin_str` — the WebSocket's **relevant** settings object's
+    //   origin (WebSockets Standard §2.2 "Opening handshake"); sent to the
+    //   broker as `WebSocketOpen.origin`. Reads `document_origin`, not
+    //   `current_url` (S1b §5) — opaque → `"null"` for a sandboxed doc.
+    // - `ws_origin_sid` — SERVER origin (from `url`), pre-interned so per-message
+    //   `MessageEvent.origin` reads a `StringId` without re-parsing (WebSockets
+    //   §4 "Feedback from the protocol"). Distinct fact, unchanged by S1b.
+    let page_origin_str = ctx.vm.document_origin().serialize();
     let ws_origin_string = url.origin().ascii_serialization();
     let ws_origin_sid = ctx.vm.strings.intern(&ws_origin_string);
     let url_serialized = url.as_str().to_owned();

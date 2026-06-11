@@ -574,11 +574,14 @@ fn validate_transfer(ctx: &mut NativeContext<'_>, transfer: JsValue) -> Result<(
     )
 }
 
-/// Current window's origin as a StringId.  WHATWG "Origin" serialisation
-/// of [`super::navigation::NavigationState::current_url`].
+/// Current window's origin as a StringId — `window.postMessage`'s origin is
+/// **incumbentSettings's origin** (WHATWG HTML §9.3.3 "window post message
+/// steps"), i.e. the document's settings-object origin: opaque (`"null"`) for
+/// a sandboxed doc.  Reads the canonical [`VmInner::document_origin`] resolver
+/// rather than `current_url.origin()` directly, so the sandbox override is
+/// honoured (S1b §5 unification).
 fn compute_own_origin_sid(vm: &mut VmInner) -> StringId {
-    let origin = vm.navigation.current_url.origin();
-    let origin_str = origin.ascii_serialization();
+    let origin_str = vm.document_origin().serialize();
     vm.strings.intern(&origin_str)
 }
 
