@@ -695,7 +695,35 @@ fn serialize_node(
     if let Ok(tag) = dom.world().get::<&TagType>(entity) {
         html.push('<');
         html.push_str(&tag.0);
-        let mut has_is_attr = false;
+        // HTML §13.3 "Serializing HTML fragments": if the node's *is
+        // value* is non-null and the element has no `is` attribute in
+        // its attribute list, append ` is="..."` (the spec places this
+        // BEFORE the attribute loop) — this is what lets a customized
+        // built-in created via `createElement(tag, {is})` (which sets
+        // NO `is` attribute per DOM §4.5) survive a serialize→parse
+        // round-trip.  The attribute-list membership check uses
+        // `Attributes::get` directly (not a flag accumulated in the
+        // emission loop) so it stays the spec condition independent of
+        // emission filtering/ordering.  `escape_attr` is load-bearing:
+        // the is value is an arbitrary author string (DOM §4.9 step
+        // 6.3 imposes no validity), so raw emission would inject
+        // markup.
+        let has_is_attr = dom
+            .world()
+            .get::<&Attributes>(entity)
+            .is_ok_and(|attrs| attrs.get("is").is_some());
+        if !has_is_attr {
+            if let Ok(ce) = dom
+                .world()
+                .get::<&elidex_custom_elements::CustomElementState>(entity)
+            {
+                if let Some(is_value) = ce.is_value(&tag.0) {
+                    html.push_str(" is=\"");
+                    html.push_str(&escape_attr(is_value));
+                    html.push('"');
+                }
+            }
+        }
         if let Ok(attrs) = dom.world().get::<&Attributes>(entity) {
             let mut sorted: Vec<(&str, &str)> = attrs.iter().collect();
             sorted.sort_by_key(|(name, _)| *name);
@@ -703,37 +731,11 @@ fn serialize_node(
                 if !is_safe_attr_name(name) {
                     continue;
                 }
-                has_is_attr |= name == "is";
                 html.push(' ');
                 html.push_str(name);
                 html.push_str("=\"");
                 html.push_str(&escape_attr(value));
                 html.push('"');
-            }
-        }
-        // HTML §13.3 "Serializing HTML fragments": if the node's *is
-        // value* is non-null and there is no `is` content attribute,
-        // append ` is="..."` — this is what lets a customized built-in
-        // created via `createElement(tag, {is})` (which sets NO `is`
-        // attribute per DOM §4.5) survive a serialize→parse
-        // round-trip.  The is value is materialized as the
-        // `CustomElementState` component; `definition_name !=
-        // local name` discriminates customized built-ins from
-        // autonomous custom elements (whose name is the tag itself
-        // and needs no compensation).  `escape_attr` is load-bearing:
-        // the is value is an arbitrary author string (DOM §4.9 step
-        // 6.3 imposes no validity), so raw emission would inject
-        // markup.
-        if !has_is_attr {
-            if let Ok(ce) = dom
-                .world()
-                .get::<&elidex_custom_elements::CustomElementState>(entity)
-            {
-                if ce.definition_name != tag.0 {
-                    html.push_str(" is=\"");
-                    html.push_str(&escape_attr(&ce.definition_name));
-                    html.push('"');
-                }
             }
         }
         html.push('>');

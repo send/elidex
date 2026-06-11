@@ -277,20 +277,34 @@ impl EcsDom {
             .map(|a| (*a).clone());
         // Intrinsic copy: "clone a single node" step 2.4 passes the
         // source namespace to *create an element*.  Sparse-by-absence
-        // (absent == HTML), so only foreign elements carry it.
-        let namespace = self.world.get::<&Namespace>(src).ok().map(|n| *n);
+        // (absent == HTML), so only foreign elements carry it.  All
+        // three reads are element-only components, so gate them on the
+        // TagType probe above — Text/Comment/DocType nodes (the bulk
+        // of a typical subtree) skip the archetype lookups entirely.
+        let is_element = tag.is_some();
+        let namespace = if is_element {
+            self.world.get::<&Namespace>(src).ok().map(|n| *n)
+        } else {
+            None
+        };
         // Derived copy (src-parity): creation-derived pure data copied
         // together with `Attributes` so the pair stays consistent.
-        let inline_style = self
-            .world
-            .get::<&InlineStyle>(src)
-            .ok()
-            .map(|s| (*s).clone());
-        let iframe_data = self
-            .world
-            .get::<&IframeData>(src)
-            .ok()
-            .map(|i| (*i).clone());
+        let inline_style = if is_element {
+            self.world
+                .get::<&InlineStyle>(src)
+                .ok()
+                .map(|s| (*s).clone())
+        } else {
+            None
+        };
+        let iframe_data = if is_element {
+            self.world
+                .get::<&IframeData>(src)
+                .ok()
+                .map(|i| (*i).clone())
+        } else {
+            None
+        };
         // Determine the destination `NodeKind`: prefer the source
         // component if present, otherwise infer from the payload
         // (defensive for entities that predate the `NodeKind`
@@ -362,11 +376,12 @@ impl EcsDom {
             // `children_iter`'s `next_sibling` reads.
             let kids: Vec<Entity> = self.children(src_parent);
             // Clone each child into the destination, recording the
-            // `(src, dst)` pair for the descendant walk.  Push in
-            // reverse so the explicit-stack traversal preserves the
-            // same left-to-right depth-first ordering the recursive
-            // version produced.
-            let mut pending: Vec<(Entity, Entity)> = Vec::with_capacity(kids.len());
+            // `(src, dst)` pair once in `pairs` — the slice appended
+            // this iteration doubles as the stack feed (reversed so
+            // the explicit-stack traversal preserves the same
+            // left-to-right depth-first ordering the recursive
+            // version produced).
+            let start = pairs.len();
             for child_src in kids {
                 // `kids` was snapshotted from the live tree, so each
                 // entry is guaranteed to exist; the unchecked variant
@@ -377,9 +392,8 @@ impl EcsDom {
                 }
                 let _ = self.append_child(dst_parent, child_dst);
                 pairs.push((child_src, child_dst));
-                pending.push((child_src, child_dst));
             }
-            stack.extend(pending.into_iter().rev());
+            stack.extend(pairs[start..].iter().rev().copied());
         }
     }
 }

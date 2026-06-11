@@ -158,14 +158,16 @@ impl DomApiHandler for CreateElement {
                 message: format!("Invalid tag name: {tag}"),
             });
         }
-        // Optional second arg = the `is` value flattened from
-        // `ElementCreationOptions` by the engine host (WHATWG DOM §4.5
-        // createElement step 3 "flatten element creation options" —
-        // pure extraction, NO validity check: per DOM §4.9 "create an
-        // element" step 6.3 a non-null `is` marks the element
+        // Optional second arg = the *flattened* `is` value (WHATWG DOM
+        // §4.5 createElement step 3 "flatten element creation
+        // options") — the engine host MUST discriminate the WebIDL
+        // `(DOMString or ElementCreationOptions)` union and pass only
+        // the extracted string here; forwarding raw JS args verbatim
+        // would let a DOMString `options` masquerade as an is value.
+        // No validity check (DOM §4.9 step 6.3 marks on non-null `is`
         // regardless of name validity).
-        let is_value: Option<String> = match args.get(1) {
-            Some(JsValue::String(s)) => Some(s.clone()),
+        let is_value: Option<&str> = match args.get(1) {
+            Some(JsValue::String(s)) => Some(s.as_str()),
             _ => None,
         };
         // Single canonical local name: both the TagType and the
@@ -192,7 +194,7 @@ impl DomApiHandler for CreateElement {
         // step in `serialize_node`.
         if let Some(ce_state) = elidex_custom_elements::CustomElementState::for_created_element(
             &local_name,
-            is_value.as_deref(),
+            is_value,
             elidex_ecs::Namespace::Html,
         ) {
             let _ = dom.world_mut().insert_one(entity, ce_state);
@@ -480,16 +482,7 @@ mod tests {
     // createElement — CustomElementState derivation (DOM §4.9 step 6.3)
     // -------------------------------------------------------------------
 
-    fn created_entity(r: &JsValue, session: &SessionCore) -> Entity {
-        let JsValue::ObjectRef(ref_id) = r else {
-            panic!("expected ObjectRef");
-        };
-        session
-            .identity_map()
-            .get(elidex_script_session::JsObjectRef::from_raw(*ref_id))
-            .unwrap()
-            .0
-    }
+    use crate::node_methods::tests::clone::cloned_entity as created_entity;
 
     #[test]
     fn create_element_autonomous_gets_undefined_ce_state() {

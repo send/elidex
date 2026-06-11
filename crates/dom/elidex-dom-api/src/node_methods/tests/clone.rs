@@ -292,7 +292,10 @@ fn clone_node_window_kind_yields_type_error() {
 
 use elidex_custom_elements::{CEState, CustomElementState};
 
-fn cloned_entity(r: &JsValue, session: &SessionCore) -> Entity {
+/// Unwrap an ObjectRef result back to its Entity — shared with the
+/// `document.rs` createElement tests (`crate::node_methods::tests`
+/// is the crate's test-fixture home).
+pub(crate) fn cloned_entity(r: &JsValue, session: &SessionCore) -> Entity {
     let JsValue::ObjectRef(ref_id) = r else {
         panic!("expected ObjectRef");
     };
@@ -586,4 +589,76 @@ fn clone_node_propagates_ce_identity_inside_cloned_shadow_tree() {
         .expect("CE identity propagated inside cloned shadow tree");
     assert_eq!(ce.state, CEState::Undefined, "Custom resets to Undefined");
     assert_eq!(ce.definition_name, "my-widget");
+}
+
+#[test]
+fn clone_node_document_deep_threads_clone_doc_into_replicated_shadow() {
+    // The shadow-replication pass issues its own clone calls; without
+    // explicit document threading those re-derive the owner document
+    // from the SOURCE child — stamping the original document onto a
+    // cloned Document's shadow contents while the light tree carries
+    // the clone (the spec threads one `document` through the whole
+    // recursion, shadow children included, step 6.7).
+    let (mut dom, mut session) = setup();
+    let doc = dom.create_document_root();
+    let html = dom.create_element("html", Attributes::default());
+    dom.append_child(doc, html);
+    let host = dom.create_element("section", Attributes::default());
+    dom.append_child(html, host);
+    dom.set_associated_document(html, doc);
+    dom.set_associated_document(host, doc);
+    let sr = dom
+        .attach_shadow_with_init(host, clonable_init())
+        .expect("attach clonable shadow");
+    let span = dom.create_element("span", Attributes::default());
+    dom.set_associated_document(span, doc);
+    dom.append_child(sr, span);
+    wrap(doc, &mut session);
+
+    let r = CloneNode
+        .invoke(doc, &[JsValue::Bool(true)], &mut session, &mut dom)
+        .unwrap();
+    let cloned_doc = cloned_entity(&r, &session);
+    let cloned_html = dom.children(cloned_doc)[0];
+    let cloned_host = dom.children(cloned_html)[0];
+    // Light-tree invariant (pre-existing): descendants adopt the clone.
+    assert_eq!(dom.owner_document(cloned_host), Some(cloned_doc));
+    let cloned_sr = dom.get_shadow_root(cloned_host).expect("shadow replicated");
+    let shadow_kids = dom.children(cloned_sr);
+    assert_eq!(shadow_kids.len(), 1);
+    assert_eq!(
+        dom.owner_document(shadow_kids[0]),
+        Some(cloned_doc),
+        "replicated shadow contents must adopt the CLONED document, not the source"
+    );
+}
+
+#[test]
+fn clone_node_shallow_shadow_children_carry_owner_document() {
+    // The shallow cloner stamps no AssociatedDocument; the shadow pass
+    // must thread the host's owner document onto replicated shadow
+    // children explicitly.
+    let (mut dom, mut session) = setup();
+    let doc = dom.create_document_root();
+    let host = dom.create_element("section", Attributes::default());
+    dom.set_associated_document(host, doc);
+    let sr = dom
+        .attach_shadow_with_init(host, clonable_init())
+        .expect("attach clonable shadow");
+    let span = dom.create_element("span", Attributes::default());
+    dom.set_associated_document(span, doc);
+    dom.append_child(sr, span);
+    wrap(host, &mut session);
+
+    let r = CloneNode
+        .invoke(host, &[JsValue::Bool(false)], &mut session, &mut dom)
+        .unwrap();
+    let cloned_host = cloned_entity(&r, &session);
+    let cloned_sr = dom.get_shadow_root(cloned_host).expect("shadow replicated");
+    let shadow_kids = dom.children(cloned_sr);
+    assert_eq!(
+        dom.owner_document(shadow_kids[0]),
+        Some(doc),
+        "shallow-replicated shadow children keep the source's node document"
+    );
 }

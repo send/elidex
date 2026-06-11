@@ -140,7 +140,7 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                 // content attribute is set either (DOM §4.5 has no such
                 // step) — serialization compensates via the HTML §13.3
                 // is-value step in `serialize_node`.
-                let mut handler_args = vec![ElidexJsValue::String(tag.clone())];
+                let mut handler_args = vec![ElidexJsValue::String(tag)];
                 if let Some(opts) = args.get(1).and_then(JsValue::as_object) {
                     let v = opts.get(js_string!("is"), ctx)?;
                     if !v.is_undefined() && !v.is_null() {
@@ -163,7 +163,7 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                 // lookup.
                 if let Ok(entity) = crate::globals::element::extract_entity(&result, ctx) {
                     bridge.with(|_session, dom| {
-                        let ce = {
+                        let (name, local_name) = {
                             let world = dom.world();
                             let Ok(state) =
                                 world.get::<&elidex_custom_elements::CustomElementState>(entity)
@@ -176,9 +176,9 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                                 .unwrap_or_default();
                             (state.definition_name.clone(), local_name)
                         };
-                        let (name, local_name) = ce;
-                        // Customized built-in ⇔ the definition name
-                        // differs from the local name.
+                        // Customized-built-in discrimination via the
+                        // canonical `CustomElementState::is_value` shape:
+                        // definition name == local name ⇔ autonomous.
                         let defined = if name == local_name {
                             bridge.is_custom_element_defined(&name)
                         } else {
@@ -189,9 +189,11 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                             bridge.enqueue_ce_reaction(
                                 elidex_custom_elements::CustomElementReaction::Upgrade(entity),
                             );
-                        } else {
-                            // Not yet defined — queue pending the next
-                            // `customElements.define()`.
+                        } else if elidex_custom_elements::is_valid_custom_element_name(&name) {
+                            // Queue admission gated on validity (the
+                            // Undefined marking is not — DOM §4.9 step
+                            // 6.3): define() rejects invalid names, so
+                            // an invalid-keyed bucket can never drain.
                             bridge.queue_for_ce_upgrade(&name, entity);
                         }
                     });
@@ -308,12 +310,7 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
     init.function(
         NativeFunction::from_copy_closure_with_captures(
             |_this, _args, bridge, ctx| -> JsResult<JsValue> {
-                invoke_doc_handler_returning_ref(
-                    "createDocumentFragment",
-                    &[ElidexJsValue::String(String::new())],
-                    bridge,
-                    ctx,
-                )
+                invoke_doc_handler_returning_ref("createDocumentFragment", &[], bridge, ctx)
             },
             b_cdf,
         ),

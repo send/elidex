@@ -1,4 +1,4 @@
-mod clone;
+pub(crate) mod clone;
 mod contains_compare;
 mod equality_owner;
 mod normalize_text;

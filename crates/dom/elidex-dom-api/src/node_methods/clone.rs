@@ -145,12 +145,19 @@ impl DomApiHandler for CloneNode {
 #[must_use = "returns None when src does not exist"]
 pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -> Option<Entity> {
     let mut pairs: Vec<(Entity, Entity)> = Vec::new();
-    let cloned = if deep {
-        dom.clone_subtree(src, &mut pairs)?
+    let cloned = clone_recording(dom, src, deep, &mut pairs)?;
+    // The *node document* threaded through the spec recursion: a
+    // Document clone becomes its own node document; everything else
+    // keeps the source's.  The ECS cloner already applies this to
+    // light-tree descendants — the shadow-replication pass below must
+    // thread the SAME document into shadow subtrees (a fresh
+    // `clone_subtree` call would re-derive from the *source* child
+    // and stamp the original document onto a cloned Document's shadow
+    // contents; the shallow cloner stamps nothing).
+    let shadow_doc: Option<Entity> = if matches!(dom.node_kind(src), Some(NodeKind::Document)) {
+        Some(cloned)
     } else {
-        let cloned = dom.clone_node_shallow(src)?;
-        pairs.push((src, cloned));
-        cloned
+        dom.owner_document(src)
     };
     // Index-based worklist: pass 2 appends pairs while we iterate.
     let mut idx = 0;
@@ -172,19 +179,43 @@ pub fn clone_node_with_shadow_honor(src: Entity, dom: &mut EcsDom, deep: bool) -
         for child in source_shadow_children {
             // Step 6.7: shadow children clone with the operation's
             // own `subtree` flag.
-            let child_clone = if deep {
-                dom.clone_subtree(child, &mut pairs)
-            } else {
-                dom.clone_node_shallow(child).inspect(|&clone| {
-                    pairs.push((child, clone));
-                })
+            let start = pairs.len();
+            let Some(child_clone) = clone_recording(dom, child, deep, &mut pairs) else {
+                continue;
             };
-            if let Some(child_clone) = child_clone {
-                let _ = dom.append_child(cloned_shadow, child_clone);
+            if let Some(doc) = shadow_doc {
+                // Overwrite the cloner's source-derived stamping with
+                // the operation's document (no-op for non-Document
+                // sources, where the two coincide).
+                let stamped: Vec<Entity> = pairs[start..].iter().map(|&(_, d)| d).collect();
+                for shadow_dst in stamped {
+                    dom.set_associated_document(shadow_dst, doc);
+                }
             }
+            let _ = dom.append_child(cloned_shadow, child_clone);
         }
     }
     Some(cloned)
+}
+
+/// Clone `node` (deep or shallow per `deep`) recording every `(src,
+/// dst)` pair into `pairs` — the one place the "clone + record" shape
+/// is spelled, so the worklist can never silently lose a subtree's
+/// pairs (which would drop CE propagation and nested shadow honor for
+/// it with no error).
+fn clone_recording(
+    dom: &mut EcsDom,
+    node: Entity,
+    deep: bool,
+    pairs: &mut Vec<(Entity, Entity)>,
+) -> Option<Entity> {
+    if deep {
+        dom.clone_subtree(node, pairs)
+    } else {
+        let cloned = dom.clone_node_shallow(node)?;
+        pairs.push((node, cloned));
+        Some(cloned)
+    }
 }
 
 /// Pass 1 of [`clone_node_with_shadow_honor`]: propagate the custom

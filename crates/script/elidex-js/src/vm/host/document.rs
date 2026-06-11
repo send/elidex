@@ -389,7 +389,13 @@ fn route_custom_element_upgrade(ctx: &mut NativeContext<'_>, entity: elidex_ecs:
         if let Err(err) = crate::vm::host::custom_elements::upgrade::invoke_upgrade(ctx, entity) {
             eprintln!("[CE Upgrade Error] {}", err.message);
         }
-    } else {
+    } else if elidex_custom_elements::is_valid_custom_element_name(&name) {
+        // Queue admission is gated on name validity even though the
+        // Undefined MARKING is not (DOM §4.9 step 6.3 is validity-
+        // free): `customElements.define()` rejects invalid names, so a
+        // pending bucket keyed by one is undrainable forever — without
+        // this gate, `createElement(tag, {is: junk})` grows the queue
+        // unboundedly for the session lifetime.
         ctx.host()
             .ce_registry
             .lock()

@@ -53,6 +53,25 @@ impl CustomElementState {
         }
     }
 
+    /// The element's *is value* slot view (DOM §4.9 "create an
+    /// element" / HTML §13.3): `Some(definition_name)` when this state
+    /// marks a **customized built-in** (the definition name differs
+    /// from the element's local name — autonomous custom elements key
+    /// on the tag itself and have a null is value in this data model),
+    /// else `None`.
+    ///
+    /// This is the single home of the "customized built-in ⇔
+    /// definition_name ≠ local name" discriminator — consumers
+    /// (serializer is-value compensation, engine upgrade routing)
+    /// must not inline the comparison.  KNOWN CONFLATION: the
+    /// component stores one name, so `createElement('my-el',
+    /// {is:'my-other'})` loses the is value to the autonomous branch
+    /// (slot `#11-custom-element-is-value-slot-separation`).
+    #[must_use]
+    pub fn is_value<'a>(&'a self, local_name: &str) -> Option<&'a str> {
+        (self.definition_name != local_name).then_some(self.definition_name.as_str())
+    }
+
     /// The canonical creation-time custom-element-state derivation,
     /// shared by every element-creation path (parser `element_init`,
     /// `document.createElement` handler).
