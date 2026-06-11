@@ -165,26 +165,31 @@ pub(super) fn native_node_is_equal_node(
 }
 
 // ---------------------------------------------------------------------------
-// cloneNode (WHATWG DOM §4.5)
+// cloneNode (WHATWG DOM §4.4 "clone a node")
 // ---------------------------------------------------------------------------
 
-/// `Node.prototype.cloneNode(deep?)` — allocate a new entity carrying
-/// the same `NodeKind` and payload as `this`.
+/// `Node.prototype.cloneNode(deep?)` — marshalling shim over the
+/// engine-indep dom-api `CloneNode` handler (dispatched by name via
+/// [`super::dom_bridge::invoke_dom_api`]), which runs the full WHATWG
+/// DOM §4.4 "clone a node" algorithm
+/// (`elidex_dom_api::clone_node_with_shadow_honor`).
 ///
-/// Behaviour:
-/// - `deep` is coerced via `ToBoolean`; default is `false` (shallow).
-/// - Shallow clone (`deep == false`) dispatches to
-///   [`elidex_ecs::EcsDom::clone_node_shallow`] — copies attributes
-///   (Element) or character data (Text / Comment) only, in
-///   O(attrs + character-data) work.  The descendant walk never
-///   runs.
-/// - Deep clone (`deep == true`) dispatches to
-///   [`elidex_ecs::EcsDom::clone_subtree`], which additionally
-///   recurses through all light-tree descendants.
-/// - The returned wrapper's entity has no parent or siblings
-///   (WHATWG §4.5 "cloning steps" — the clone is an orphan).
-/// - Event listeners and shadow roots are **not** cloned.  WHATWG
-///   §4.5 explicitly excludes both; both ECS helpers enforce it.
+/// Behaviour (owned by the handler, summarized here):
+/// - `deep` is coerced via `ToBoolean` at this call site; default is
+///   `false` (shallow).
+/// - The clone carries the ECS clone-policy copy-set (payload +
+///   `Namespace` / `InlineStyle` / `IframeData`), a fresh
+///   `Undefined` `CustomElementState` when the source had one
+///   (identity propagates, lifecycle state resets), and — when the
+///   source (or, for deep clones, any descendant) is a shadow host
+///   with a `clonable` shadow root — a replicated shadow tree
+///   (DOM §4.4 clone-a-node step 6).
+/// - The returned wrapper's entity has no parent or siblings (the
+///   clone-a-node `parent` argument defaults to null — the clone is
+///   an orphan).
+/// - Event listeners are not cloned: no clone-a-node step copies the
+///   listener list (the algorithm gates only shadow replication
+///   explicitly).
 /// - Cloned Document entities receive the full document-specific
 ///   own-property suite via
 ///   [`super::super::VmInner::install_document_methods_for_entity`]

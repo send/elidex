@@ -13,10 +13,13 @@
 //! - [`InlineStyle`] — the `style` content attribute (parsed by
 //!   [`parse_inline_style`]); namespace-agnostic (SVG / MathML may carry
 //!   a CSS `style` attribute too).
-//! - `CustomElementState` — WHATWG HTML §4.13.3 *valid custom element
-//!   name* (autonomous) or an `is=` customized built-in. HTML-namespace
-//!   only: custom element names are HTML-namespace-scoped, so a
-//!   hyphenated foreign (SVG / MathML) local name must not be marked.
+//! - `CustomElementState` — WHATWG DOM §4.9 "create an element" step
+//!   6.3 (HTML namespace ∧ (valid custom element name ∨ `is` non-null)
+//!   → state "undefined"), derived by the canonical
+//!   `CustomElementState::for_created_element`; name dfns per WHATWG
+//!   HTML §4.13.3 "Core concepts". HTML-namespace only: custom element
+//!   names are HTML-namespace-scoped, so a hyphenated foreign
+//!   (SVG / MathML) local name must not be marked.
 //! - [`IframeData`] — WHATWG HTML §4.8.5 `<iframe>`. HTML-namespace only.
 //!
 //! `FormControlState` is intentionally NOT derived here: it lives in
@@ -87,21 +90,17 @@ pub(crate) fn attach_derived(dom: &mut EcsDom, entity: Entity) {
         return;
     }
 
-    // WHATWG HTML §4.13.3 "valid custom element name": autonomous custom
-    // element (hyphenated tag) → Undefined marker; otherwise an `is=`
-    // customized built-in whose value is a valid custom element name.
-    if elidex_custom_elements::is_valid_custom_element_name(&tag) {
-        let _ = dom.world_mut().insert_one(
-            entity,
-            elidex_custom_elements::CustomElementState::undefined(&tag),
-        );
-    } else if let Some(is_value) = is_attr {
-        if elidex_custom_elements::is_valid_custom_element_name(&is_value) {
-            let _ = dom.world_mut().insert_one(
-                entity,
-                elidex_custom_elements::CustomElementState::undefined(&is_value),
-            );
-        }
+    // WHATWG DOM §4.9 "create an element" step 6.3 via the canonical
+    // derivation. The parse-time `is` content attribute IS the is value
+    // at creation; per step 6.3 a non-null `is` marks the element even
+    // when the value is not a valid custom element name (it then simply
+    // never matches a definition — `:defined` non-matching).
+    if let Some(ce_state) = elidex_custom_elements::CustomElementState::for_created_element(
+        &tag,
+        is_attr.as_deref(),
+        Namespace::Html,
+    ) {
+        let _ = dom.world_mut().insert_one(entity, ce_state);
     }
 
     // WHATWG HTML §4.8.5 "the iframe element".
@@ -236,5 +235,23 @@ mod tests {
             dom.world().get::<&CustomElementState>(el).is_err(),
             "foreign-namespace hyphenated element must not be marked custom",
         );
+    }
+
+    #[test]
+    fn strict_invalid_is_attr_still_marked_undefined() {
+        // DOM §4.9 "create an element" step 6.3: non-null `is` marks
+        // the element regardless of name validity — `<button
+        // is="x-invalid">` is state "undefined" (observably `:defined`
+        // non-matching) even though no definition can ever match.
+        let (dom, doc) = parse_and_derive(
+            r#"<!DOCTYPE html><html><head></head><body><button is="x-invalid"></button></body></html>"#,
+        );
+        let el = find_by_tag(&dom, doc, "button").expect("button element");
+        let ce = dom
+            .world()
+            .get::<&CustomElementState>(el)
+            .expect("non-null is must mark Undefined (validity-free per step 6.3)");
+        assert_eq!(ce.state, CEState::Undefined);
+        assert_eq!(ce.definition_name, "x-invalid");
     }
 }

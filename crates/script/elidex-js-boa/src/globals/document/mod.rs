@@ -22,7 +22,7 @@ pub(crate) use traversal::build_range_object;
 /// invoke a DOM API handler by name on the document entity, and return an element ref.
 fn invoke_doc_handler_returning_ref(
     handler_name: &str,
-    arg: String,
+    args: &[ElidexJsValue],
     bridge: &HostBridge,
     ctx: &mut Context,
 ) -> JsResult<JsValue> {
@@ -32,7 +32,7 @@ fn invoke_doc_handler_returning_ref(
     })?;
     let result = bridge.with(|session, dom| {
         handler
-            .invoke(doc, &[ElidexJsValue::String(arg)], session, dom)
+            .invoke(doc, args, session, dom)
             .map_err(dom_error_to_js_error)
     })?;
     Ok(resolve_object_ref(&result, bridge, ctx))
@@ -53,7 +53,12 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| -> JsResult<JsValue> {
                 let selector = require_js_string_arg(args, 0, "querySelector", ctx)?;
-                invoke_doc_handler_returning_ref("querySelector", selector, bridge, ctx)
+                invoke_doc_handler_returning_ref(
+                    "querySelector",
+                    &[ElidexJsValue::String(selector)],
+                    bridge,
+                    ctx,
+                )
             },
             b_qs,
         ),
@@ -105,7 +110,12 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| -> JsResult<JsValue> {
                 let id = require_js_string_arg(args, 0, "getElementById", ctx)?;
-                invoke_doc_handler_returning_ref("getElementById", id, bridge, ctx)
+                invoke_doc_handler_returning_ref(
+                    "getElementById",
+                    &[ElidexJsValue::String(id)],
+                    bridge,
+                    ctx,
+                )
             },
             b_id,
         ),
@@ -120,73 +130,71 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
             |_this, args, bridge, ctx| -> JsResult<JsValue> {
                 let tag = require_js_string_arg(args, 0, "createElement", ctx)?;
 
-                // Extract options.is if present (customized built-in elements).
-                // Per spec, invalid `is` values are silently ignored.
-                let is_value = if let Some(opts) = args.get(1).and_then(JsValue::as_object) {
+                // WHATWG DOM §4.5 createElement step 3 "flatten element
+                // creation options" — pure marshalling: extract
+                // `options.is` and ToString it. NO validity check (per
+                // DOM §4.9 "create an element" step 6.3 a non-null `is`
+                // marks the element regardless of name validity); the
+                // engine-indep handler owns the derivation via
+                // `CustomElementState::for_created_element`. No `is`
+                // content attribute is set either (DOM §4.5 has no such
+                // step) — serialization compensates via the HTML §13.3
+                // is-value step in `serialize_node`.
+                let mut handler_args = vec![ElidexJsValue::String(tag.clone())];
+                if let Some(opts) = args.get(1).and_then(JsValue::as_object) {
                     let v = opts.get(js_string!("is"), ctx)?;
-                    if v.is_undefined() || v.is_null() {
-                        None
-                    } else {
-                        let is_name = v.to_string(ctx)?.to_std_string_escaped();
-                        if elidex_custom_elements::is_valid_custom_element_name(&is_name) {
-                            Some(is_name)
-                        } else {
-                            None
-                        }
+                    if !v.is_undefined() && !v.is_null() {
+                        handler_args.push(ElidexJsValue::String(
+                            v.to_string(ctx)?.to_std_string_escaped(),
+                        ));
                     }
-                } else {
-                    None
-                };
+                }
 
                 let result =
-                    invoke_doc_handler_returning_ref("createElement", tag.clone(), bridge, ctx)?;
+                    invoke_doc_handler_returning_ref("createElement", &handler_args, bridge, ctx)?;
 
-                // Mark custom elements for upgrade tracking.
+                // Per-engine upgrade routing off the `CustomElementState`
+                // the engine-indep handler derived (presence read — no
+                // name derivation here). The component's
+                // `definition_name` is the local name for autonomous
+                // custom elements and the *is* value for customized
+                // built-ins; the entity's canonical (folded) `TagType`
+                // discriminates the two and feeds the extends/local-name
+                // lookup.
                 if let Ok(entity) = crate::globals::element::extract_entity(&result, ctx) {
-                    let ce_name = if elidex_custom_elements::is_valid_custom_element_name(&tag) {
-                        Some(tag.clone())
-                    } else {
-                        is_value.clone()
-                    };
-
-                    if let Some(name) = ce_name {
-                        bridge.with(|_session, dom| {
-                            // For customized built-ins, verify the definition matches the tag.
-                            let defined = if is_value.is_some() {
-                                bridge.ce_lookup_by_is(&name, &tag)
-                            } else {
-                                bridge.is_custom_element_defined(&name)
+                    bridge.with(|_session, dom| {
+                        let ce = {
+                            let world = dom.world();
+                            let Ok(state) =
+                                world.get::<&elidex_custom_elements::CustomElementState>(entity)
+                            else {
+                                return;
                             };
-                            if defined {
-                                // Definition exists — enqueue Upgrade.
-                                let ce_state =
-                                    elidex_custom_elements::CustomElementState::undefined(&name);
-                                let _ = dom.world_mut().insert_one(entity, ce_state);
-                                bridge.enqueue_ce_reaction(
-                                    elidex_custom_elements::CustomElementReaction::Upgrade(entity),
-                                );
-                            } else {
-                                // Not yet defined — mark as undefined and queue.
-                                let ce_state =
-                                    elidex_custom_elements::CustomElementState::undefined(&name);
-                                let _ = dom.world_mut().insert_one(entity, ce_state);
-                                bridge.queue_for_ce_upgrade(&name, entity);
-                            }
-                        });
-                    }
-
-                    // Set the `is` attribute on the element per WHATWG HTML §4.13.5 upgrade.
-                    if let Some(ref is_name) = is_value {
-                        bridge.with(|_session, dom| {
-                            if let Ok(mut attrs) =
-                                dom.world_mut().get::<&mut elidex_ecs::Attributes>(entity)
-                            {
-                                attrs.set("is", is_name);
-                            }
-                            // Bump version so LiveCollections / caches invalidate.
-                            dom.rev_version(entity);
-                        });
-                    }
+                            let local_name = world
+                                .get::<&elidex_ecs::TagType>(entity)
+                                .map(|t| t.0.clone())
+                                .unwrap_or_default();
+                            (state.definition_name.clone(), local_name)
+                        };
+                        let (name, local_name) = ce;
+                        // Customized built-in ⇔ the definition name
+                        // differs from the local name.
+                        let defined = if name == local_name {
+                            bridge.is_custom_element_defined(&name)
+                        } else {
+                            bridge.ce_lookup_by_is(&name, &local_name)
+                        };
+                        if defined {
+                            // Definition exists — enqueue Upgrade.
+                            bridge.enqueue_ce_reaction(
+                                elidex_custom_elements::CustomElementReaction::Upgrade(entity),
+                            );
+                        } else {
+                            // Not yet defined — queue pending the next
+                            // `customElements.define()`.
+                            bridge.queue_for_ce_upgrade(&name, entity);
+                        }
+                    });
                 }
 
                 Ok(result)
@@ -203,7 +211,12 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| -> JsResult<JsValue> {
                 let text = require_js_string_arg(args, 0, "createTextNode", ctx)?;
-                invoke_doc_handler_returning_ref("createTextNode", text, bridge, ctx)
+                invoke_doc_handler_returning_ref(
+                    "createTextNode",
+                    &[ElidexJsValue::String(text)],
+                    bridge,
+                    ctx,
+                )
             },
             b_ctn,
         ),
@@ -297,7 +310,7 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
             |_this, _args, bridge, ctx| -> JsResult<JsValue> {
                 invoke_doc_handler_returning_ref(
                     "createDocumentFragment",
-                    String::new(),
+                    &[ElidexJsValue::String(String::new())],
                     bridge,
                     ctx,
                 )
@@ -314,7 +327,12 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| -> JsResult<JsValue> {
                 let data = require_js_string_arg(args, 0, "createComment", ctx)?;
-                invoke_doc_handler_returning_ref("createComment", data, bridge, ctx)
+                invoke_doc_handler_returning_ref(
+                    "createComment",
+                    &[ElidexJsValue::String(data)],
+                    bridge,
+                    ctx,
+                )
             },
             b_cc,
         ),
@@ -328,7 +346,12 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
         NativeFunction::from_copy_closure_with_captures(
             |_this, args, bridge, ctx| -> JsResult<JsValue> {
                 let name = require_js_string_arg(args, 0, "createAttribute", ctx)?;
-                invoke_doc_handler_returning_ref("createAttribute", name, bridge, ctx)
+                invoke_doc_handler_returning_ref(
+                    "createAttribute",
+                    &[ElidexJsValue::String(name)],
+                    bridge,
+                    ctx,
+                )
             },
             b_ca,
         ),

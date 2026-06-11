@@ -294,12 +294,22 @@ pub(super) fn native_document_create_element(
     // ToString at call site; handler does the lowercase normalisation
     // and the "node document" anchoring (WHATWG DOM §4.5 / §4.4).
     let tag_sid = coerce_first_arg_to_string_id(ctx, args)?;
-    let result = invoke_dom_api(
-        ctx,
-        "createElement",
-        doc_entity,
-        &[JsValue::String(tag_sid)],
-    )?;
+    // WHATWG DOM §4.5 createElement step 3 "flatten element creation
+    // options" — pure marshalling: extract `options.is` and ToString
+    // it.  NO validity check here (per DOM §4.9 "create an element"
+    // step 6.3 a non-null `is` marks the element regardless of name
+    // validity); the engine-indep handler owns the derivation via
+    // `CustomElementState::for_created_element`.
+    let mut handler_args = vec![JsValue::String(tag_sid)];
+    if let Some(JsValue::Object(options_id)) = args.get(1) {
+        let is_key = crate::vm::value::PropertyKey::String(ctx.vm.strings.intern("is"));
+        let raw = ctx.vm.get_property_value(*options_id, is_key)?;
+        if !matches!(raw, JsValue::Undefined | JsValue::Null) {
+            let is_sid = super::super::coerce::to_string(ctx.vm, raw)?;
+            handler_args.push(JsValue::String(is_sid));
+        }
+    }
+    let result = invoke_dom_api(ctx, "createElement", doc_entity, &handler_args)?;
     // Post-handler hook: ask `elidex_form::create_form_control_state`
     // to attach a `FormControlState` component if the just-created
     // element is a form-control tag (`<input>`, `<button>`,
@@ -318,72 +328,63 @@ pub(super) fn native_document_create_element(
         {
             if let Some(entity) = elidex_ecs::Entity::from_bits(entity_bits) {
                 let _ = elidex_form::create_form_control_state(ctx.host().dom(), entity);
-                // D-17 `#11-custom-elements-vm` — autonomous custom
-                // element detect (HTML §4.13.3 `valid custom element name`):
-                // hyphenated tags
-                // receive a `CustomElementState::undefined(tag)`
-                // component, and an Upgrade reaction fires if the
-                // matching definition is already registered (else the
-                // entity is queued for upgrade pending the next
-                // `customElements.define()`).
-                attach_custom_element_state_if_needed(ctx, entity, tag_sid);
+                // D-17 `#11-custom-elements-vm` — per-VM upgrade
+                // routing for the `CustomElementState` the engine-
+                // indep createElement handler just derived (DOM §4.9
+                // "create an element" step 6.3 via
+                // `CustomElementState::for_created_element`): an
+                // Upgrade reaction fires if the matching definition
+                // is already registered, else the entity is queued
+                // pending the next `customElements.define()`.
+                route_custom_element_upgrade(ctx, entity);
             }
         }
     }
     Ok(result)
 }
 
-/// Attach `CustomElementState` to `entity` when its tag is a valid
-/// autonomous custom element name (HTML §4.13.3). Either enqueue an
-/// Upgrade reaction (definition already registered) or push onto the
-/// pending-upgrade queue (definition lands later).
+/// Per-VM upgrade-reaction routing for a freshly created element —
+/// pure marshalling off the `CustomElementState` component the
+/// engine-indep `createElement` handler attached (presence read; no
+/// name derivation happens here, that is
+/// `CustomElementState::for_created_element`'s job in
+/// elidex-custom-elements).  No-op when the handler attached nothing
+/// (ordinary built-in without `is`).
 ///
-/// Parser-baked elements receive the same component via
-/// `elidex_html_parser::convert` — this is the createElement() sibling
-/// path (HTML §4.13.4 step 5 — "If is a valid custom element name,
-/// then ...").
-fn attach_custom_element_state_if_needed(
-    ctx: &mut NativeContext<'_>,
-    entity: elidex_ecs::Entity,
-    tag_sid: crate::vm::value::StringId,
-) {
-    // ASCII case-fold to match the engine-indep `create_element`
-    // handler's TagType storage (HTML §4.4 "create an element" step 3
-    // — local name is ASCII lowercased for HTML documents). Without
-    // this fold, `document.createElement('MY-EL')` would silently
-    // skip CE state attachment because is_valid_custom_element_name
-    // checks the first byte is ASCII lowercase.
-    let tag = ctx.vm.strings.get_utf8(tag_sid).to_ascii_lowercase();
-    if !elidex_custom_elements::is_valid_custom_element_name(&tag) {
-        return;
-    }
-    let host = ctx.host();
-    // Attach the state component (Undefined) on the entity. ECS
-    // component on the entity per the ECS-native side-store rule:
-    // `CustomElementState` is per-entity, Send+Sync, NOT a per-VM
-    // identity handle.
-    {
+/// Routing per DOM §4.9 "create an element" (synchronous custom
+/// elements flag set for `createElement`):
+/// - definition already registered → SYNCHRONOUS upgrade (the
+///   createElement call returns the element in `Custom` state so
+///   subsequent appendChild / setAttribute observe the post-upgrade
+///   reactions). Errors during the synchronous upgrade are eprinted
+///   (matching the reaction-flush path) — createElement still returns
+///   the wrapper in `Failed` state.
+/// - otherwise → pending-upgrade queue, drained by the next
+///   `customElements.define('<name>', ...)`.
+///
+/// The queue / lookup key is the component's `definition_name` — the
+/// local name for autonomous custom elements, the *is* value for
+/// customized built-ins (extends/local-name matching happens inside
+/// the engine-indep upgrade machinery, `prepare_upgrade` +
+/// `upgrade_matches_local_name`).
+fn route_custom_element_upgrade(ctx: &mut NativeContext<'_>, entity: elidex_ecs::Entity) {
+    let name = {
+        let host = ctx.host();
         let dom = host.dom();
-        let _ = dom.world_mut().insert_one(
-            entity,
-            elidex_custom_elements::CustomElementState::undefined(&tag),
-        );
-    }
-    // Route per HTML §4.4 "create an element" step 6:
-    // - If the matching definition is already registered: SYNCHRONOUS
-    //   upgrade per spec (the createElement call returns the element
-    //   in `Custom` state directly so subsequent appendChild /
-    //   setAttribute observe the post-upgrade reactions). Errors
-    //   during the synchronous upgrade are eprinted (matching the
-    //   reaction-flush path) — createElement still returns the
-    //   wrapper in `Failed` state.
-    // - Otherwise: push onto the pending-upgrade queue so the next
-    //   `customElements.define('<tag>', ...)` drains and upgrades it.
-    let is_defined = host
+        match dom
+            .world()
+            .get::<&elidex_custom_elements::CustomElementState>(entity)
+        {
+            Ok(state) => state.definition_name.clone(),
+            Err(_) => return,
+        }
+    };
+    let is_defined = ctx
+        .host()
         .ce_registry
         .lock()
         .expect("CE registry mutex poisoned")
-        .is_defined(&tag);
+        .is_defined(&name);
     if is_defined {
         if let Err(err) = crate::vm::host::custom_elements::upgrade::invoke_upgrade(ctx, entity) {
             eprintln!("[CE Upgrade Error] {}", err.message);
@@ -393,7 +394,7 @@ fn attach_custom_element_state_if_needed(
             .ce_registry
             .lock()
             .expect("CE registry mutex poisoned")
-            .queue_for_upgrade(&tag, entity);
+            .queue_for_upgrade(&name, entity);
     }
 }
 
@@ -508,7 +509,7 @@ pub(super) fn native_document_get_url(
 ) -> Result<JsValue, VmError> {
     // `current_url` is now a `Url`; `as_str()` produces the
     // canonical WHATWG serialisation (what `document.URL` /
-    // `documentURI` returns per WHATWG DOM §4.5.1).
+    // `documentURI` returns per WHATWG DOM §4.5).
     let url = ctx.vm.navigation.current_url.as_str().to_string();
     let sid = ctx.vm.strings.intern(&url);
     Ok(JsValue::String(sid))

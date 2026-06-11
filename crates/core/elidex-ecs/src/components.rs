@@ -936,8 +936,13 @@ pub struct IframeData {
 impl IframeData {
     /// Create `IframeData` from HTML attributes.
     ///
-    /// Centralizes the attribute-to-field mapping used by both the HTML parser
-    /// and JS `setAttribute` handling.
+    /// Sole production caller is the parser's `element_init` derivation
+    /// pass; clones receive the component by copy (clone-policy
+    /// "derived copy", see `dom::tree_clone`).  Per-property eager
+    /// maintenance exists boa- and shell-side (iframe IDL setters /
+    /// iframe lifecycle), but a *generic* `setAttribute` →
+    /// `IframeData` re-derivation path does not — tracked as
+    /// `#11-derived-component-attr-maintenance`.
     #[must_use]
     pub fn from_attributes(attrs: &Attributes) -> Self {
         Self {

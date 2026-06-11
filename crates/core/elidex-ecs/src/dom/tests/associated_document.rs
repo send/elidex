@@ -1,6 +1,6 @@
 //! Tests for [`AssociatedDocument`] — WHATWG DOM §4.4 "node document" —
 //! and the corresponding [`EcsDom::owner_document`] / clone propagation
-//! policy (§4.5 "clone a node").
+//! policy (§4.4 "clone a node").
 
 use super::*;
 
@@ -54,7 +54,7 @@ fn owner_document_document_itself_is_none() {
 
 #[test]
 fn clone_subtree_non_document_propagates_src_owner() {
-    // WHATWG §4.5 step: for non-Document clones, every copied node
+    // WHATWG DOM §4.4 "clone a node" step: for non-Document clones, every copied node
     // inherits the *source's* node document.
     let mut dom = EcsDom::new();
     let doc = dom.create_document_root();
@@ -64,7 +64,9 @@ fn clone_subtree_non_document_propagates_src_owner() {
     assert!(dom.append_child(div, span));
     assert!(dom.append_child(span, text));
 
-    let clone = dom.clone_subtree(div).expect("clone_subtree");
+    let clone = dom
+        .clone_subtree(div, &mut Vec::new())
+        .expect("clone_subtree");
     assert_eq!(dom.owner_document(clone), Some(doc));
     let cloned_span = dom.children(clone)[0];
     assert_eq!(dom.owner_document(cloned_span), Some(doc));
@@ -78,7 +80,7 @@ fn clone_subtree_non_document_propagates_src_owner() {
 
 #[test]
 fn clone_subtree_document_self_reference_and_descendants() {
-    // WHATWG §4.5 Document branch: the cloned Document becomes its
+    // WHATWG DOM §4.4 "clone a node" Document branch: the cloned Document becomes its
     // own node document, and descendants adopt the *clone* as their
     // owner document — not the source document.
     let mut dom = EcsDom::new();
@@ -89,7 +91,9 @@ fn clone_subtree_document_self_reference_and_descendants() {
     assert!(dom.append_child(src_doc, html));
     assert!(dom.append_child(html, body));
 
-    let clone_doc = dom.clone_subtree(src_doc).expect("clone_subtree");
+    let clone_doc = dom
+        .clone_subtree(src_doc, &mut Vec::new())
+        .expect("clone_subtree");
     // Document.ownerDocument is always null per spec, so the accessor
     // returns None; but the internal AssociatedDocument points at the
     // clone itself (self-ref), which matters when descendants look up

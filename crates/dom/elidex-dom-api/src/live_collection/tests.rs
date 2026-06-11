@@ -594,7 +594,9 @@ fn clone_subtree_does_not_invalidate_external_collection() {
     assert_eq!(coll.length(&dom), 1);
     let pre_version = coll.cached_version;
 
-    let _clone = dom.clone_subtree(source).expect("source exists");
+    let _clone = dom
+        .clone_subtree(source, &mut Vec::new())
+        .expect("source exists");
 
     // The orphan clone has not been attached anywhere — `target`'s
     // subtree is untouched, so the cache stays valid.
@@ -625,7 +627,9 @@ fn live_collection_sees_appended_clone_descendants() {
     );
     assert_eq!(coll.length(&dom), 0);
 
-    let clone = dom.clone_subtree(source).expect("source exists");
+    let clone = dom
+        .clone_subtree(source, &mut Vec::new())
+        .expect("source exists");
     dom.append_child(target, clone);
 
     // The clone's <span> descendant is now under target.
