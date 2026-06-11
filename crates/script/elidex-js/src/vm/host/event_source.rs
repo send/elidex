@@ -256,9 +256,10 @@ pub(super) fn require_event_source_this(
 ///    shared `vm_event_listeners` home, not the state struct.)
 /// 5. Send `RendererToNetwork::EventSourceOpen { conn_id, url,
 ///    last_event_id: None, origin: Some(page_origin), with_credentials }`
-///    to the broker via `network_handle.send()`.  `origin` is
-///    `vm.navigation.current_url.origin().ascii_serialization()`
-///    (opaque origins serialise as `"null"` per WHATWG URL §3.5).
+///    to the broker via `network_handle.send()`.  `origin` is the
+///    document's origin via `VmInner::document_origin()` (the relevant
+///    settings object's origin, HTML §9.2.2; opaque origins serialise as
+///    `"null"`, so a sandboxed document does not leak its real origin).
 ///    A disconnected handle is a non-fatal config — the side-
 ///    table entry persists in CONNECTING and the broker's natural
 ///    reply path will eventually surface a `SseEvent::FatalError`

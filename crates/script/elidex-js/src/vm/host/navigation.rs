@@ -160,6 +160,21 @@ impl super::super::VmInner {
     /// fallback / parent origin instead of its opaque `"null"`. This is a
     /// pre-existing shell-ordering gap shared with the live boa path (no S1b
     /// regression) → slot `#11-iframe-origin-before-initial-scripts`.
+    ///
+    /// Relatedly, a *tuple* override installed at load is pinned for the
+    /// document's lifetime, so an in-VM `location` navigation (`set_location`
+    /// mutates `current_url` in place, with no new document) would leave the
+    /// migrated readers reporting the load-time origin. Inert today (the
+    /// pre-S1c stub mutates `current_url` without re-navigating; no S1b test
+    /// reads the origin after navigating) and resolved by S1c: `assign`/`href`/
+    /// `replace` route through the navigation back-channel → a real navigation
+    /// creates a new document with a freshly-derived origin (a sandboxed iframe
+    /// stays opaque). It is *not* a simple "ignore/clear the tuple override on
+    /// `current_url` change" fix: the tuple override is load-bearing for
+    /// `about:blank`/srcdoc origin inheritance (the inherited parent tuple,
+    /// while `current_url` is opaque), and fragment navigation must not change
+    /// the origin — both need real navigation semantics. → slot
+    /// `#11-vm-navigation-origin-resync`.
     pub(crate) fn document_origin(&self) -> elidex_plugin::SecurityOrigin {
         let host_data = self.host_data.as_deref();
         if let Some(over) =
