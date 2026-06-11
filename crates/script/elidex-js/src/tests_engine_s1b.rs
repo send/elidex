@@ -113,6 +113,27 @@ fn document_origin_blob_url_reports_inner_origin_not_null() {
 }
 
 #[test]
+fn document_origin_opaque_fallback_is_identity_stable() {
+    // No override + an opaque `current_url` (the standalone / about:blank
+    // pipeline path, where the shell never calls `set_origin` because
+    // `current_url` is `None`) must resolve to ONE stable opaque per VM, not a
+    // fresh `Opaque(n)` per read. iframe/lifecycle.rs reads `bridge().origin()`
+    // and propagates it parent→child, so a re-minting fallback would hand the
+    // child a different parent origin each call (Codex R2). A document's origin
+    // is stable document state (HTML §7.1.1).
+    let mut engine = fresh_unbound().0;
+    set_current_url(&mut engine, "about:blank");
+    let first = engine.origin();
+    let second = engine.origin();
+    assert!(matches!(first, SecurityOrigin::Opaque(_)));
+    assert_eq!(
+        first, second,
+        "opaque fallback must be identity-stable across reads"
+    );
+    assert_eq!(first.serialize(), "null");
+}
+
+#[test]
 fn document_origin_resolves_without_host_data() {
     // A bare engine (no HostData installed) still resolves — falls back to
     // `current_url` (default about:blank → opaque "null"), never panics.

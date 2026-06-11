@@ -138,28 +138,44 @@ impl super::super::VmInner {
     /// Location *URL's* origin, which differs from the document origin for a
     /// sandboxed doc (it stays `current_url`-derived).
     ///
-    /// **Idempotency contract.** The *serialization* is always stable (opaque →
-    /// `"null"`), so the S1b settings-origin readers (which only serialize) are
-    /// well-defined in every state. The returned *value* is identity-stable
-    /// when an override is installed (returns the stored `SecurityOrigin`) or
-    /// when `current_url` is a tuple origin (`from_url` is deterministic for
-    /// http/https). It is **not** identity-stable in the unset + opaque-URL
-    /// case: `SecurityOrigin::from_url` mints a fresh `Opaque(n)` per call (the
-    /// global opaque counter), so two calls compare unequal. No current caller
-    /// compares the value by identity; the shell installs the override on every
-    /// document load (`pipeline.rs` / `iframe/load.rs`), so the unset path is
-    /// test/bootstrap-only. A future identity-comparing consumer — e.g. the S5
-    /// `iframe/lifecycle.rs` frame-ancestors `'self'` / X-Frame-Options
-    /// `SAMEORIGIN` checks (`elidex_plugin::is_framing_allowed`) — must rely on
-    /// that installed override, or this resolver must first gain a per-VM
-    /// stable opaque for the fallback.
+    /// **Idempotency contract.** The returned value is identity-stable in every
+    /// state (a document's origin is stable document state, HTML §7.1.1): an
+    /// installed override returns the stored `SecurityOrigin`; a tuple
+    /// `current_url` derives deterministically (`from_url` is stable for
+    /// http/https); and the no-override **opaque** fallback returns the per-VM
+    /// [`HostData::fallback_opaque_origin`](super::super::host_data::HostData::fallback_opaque_origin)
+    /// (minted once) rather than a fresh `Opaque(n)` per call. This matters for
+    /// the standalone / `about:blank` pipeline path (`current_url: None` → the
+    /// shell never calls `set_origin`): `iframe/lifecycle.rs` reads
+    /// `bridge().origin()` and propagates it parent→child, so a re-minting
+    /// fallback would hand the child a different origin on each read. A bare
+    /// engine with no `HostData` cannot store the fallback, so it keeps a fresh
+    /// opaque — but it has no propagating consumer and serializes to `"null"`
+    /// either way.
+    ///
+    /// At the S5 flip the iframe pipeline must install the override **before**
+    /// running a frame's initial scripts: `iframe/load.rs` currently builds the
+    /// pipeline (which runs scripts) before `make_in_process_entry` calls
+    /// `set_origin`, so a sandboxed iframe's first script would read the
+    /// fallback / parent origin instead of its opaque `"null"`. This is a
+    /// pre-existing shell-ordering gap shared with the live boa path (no S1b
+    /// regression) → slot `#11-iframe-origin-before-initial-scripts`.
     pub(crate) fn document_origin(&self) -> elidex_plugin::SecurityOrigin {
-        self.host_data
-            .as_deref()
-            .and_then(super::super::host_data::HostData::document_origin_override)
-            .cloned()
-            .unwrap_or_else(|| {
-                elidex_plugin::SecurityOrigin::from_url(&self.navigation.current_url)
-            })
+        let host_data = self.host_data.as_deref();
+        if let Some(over) =
+            host_data.and_then(super::super::host_data::HostData::document_origin_override)
+        {
+            return over.clone();
+        }
+        match elidex_plugin::SecurityOrigin::from_url(&self.navigation.current_url) {
+            // Pin the no-override opaque fallback to the per-VM stable opaque
+            // (HTML §7.1.1 — origin is stable document state; matches boa's
+            // single stored default). Tuple origins from `current_url` are
+            // already deterministic and pass through unchanged.
+            opaque @ elidex_plugin::SecurityOrigin::Opaque(_) => {
+                host_data.map_or(opaque, |hd| hd.fallback_opaque_origin().clone())
+            }
+            tuple => tuple,
+        }
     }
 }

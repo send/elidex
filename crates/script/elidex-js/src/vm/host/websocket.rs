@@ -380,22 +380,15 @@ fn native_websocket_constructor(
     ctx.vm.get_object_mut(inst_id).kind = ObjectKind::WebSocket;
 
     // Steps 7-8: allocate conn_id, install state, emit WebSocketOpen.
-    // Two distinct origins are involved:
-    // - `page_origin_str` — the active browsing-context's WHATWG
-    //   origin; sent to the broker as `WebSocketOpen.origin` per
-    //   §9.3.1 step 13 ("origin of the entry settings object").
-    //   Opaque origins serialise as `"null"`.
-    // - `ws_origin_sid` — the SERVER's origin (derived from `url`);
-    //   pre-interned here so per-message `MessageEvent.origin`
-    //   dispatch reads a `StringId` without re-parsing per WHATWG
-    //   §9.3.7.
-    // `page_origin_str` is the WebSocket's **relevant** settings object's
-    // origin (WebSockets Standard §2.2 "Opening handshake": establish a
-    // WebSocket connection is given the relevant settings object as its
-    // client) — opaque (`"null"`) for a sandboxed doc.  Read the canonical
-    // `document_origin` resolver, not `current_url`
-    // (S1b §5).  `ws_origin_string`/`ws_origin_sid` below is the *server*
-    // origin (from `url`) for per-message `MessageEvent.origin` — unchanged.
+    // Two distinct origins are involved (the canonical settings-origin policy
+    // lives on `VmInner::document_origin`):
+    // - `page_origin_str` — the WebSocket's **relevant** settings object's
+    //   origin (WebSockets Standard §2.2 "Opening handshake"); sent to the
+    //   broker as `WebSocketOpen.origin`. Reads `document_origin`, not
+    //   `current_url` (S1b §5) — opaque → `"null"` for a sandboxed doc.
+    // - `ws_origin_sid` — the SERVER's origin (from `url`), pre-interned so
+    //   per-message `MessageEvent.origin` dispatch reads a `StringId` without
+    //   re-parsing (WHATWG §9.3.7). Distinct fact, unchanged by S1b.
     let page_origin_str = ctx.vm.document_origin().serialize();
     let ws_origin_string = url.origin().ascii_serialization();
     let ws_origin_sid = ctx.vm.strings.intern(&ws_origin_string);

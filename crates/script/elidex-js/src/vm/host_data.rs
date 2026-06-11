@@ -194,6 +194,19 @@ mod engine_feature {
         /// this — HTML §7.2.4 returns the *URL's* origin, which can differ
         /// from the document origin for a sandboxed doc.)
         document_origin_override: Option<elidex_plugin::SecurityOrigin>,
+        /// Per-VM **stable** opaque origin returned by
+        /// [`super::VmInner::document_origin`] when no override is installed and
+        /// `navigation.current_url` is itself opaque (e.g. the standalone /
+        /// `about:blank` pipeline path, where the shell never calls
+        /// [`Self::set_origin`] because `current_url` is `None`).  A document's
+        /// origin is stable document state (HTML §7.1.1), so the resolver must
+        /// not re-mint a fresh `Opaque(n)` per read — that would make
+        /// `iframe/lifecycle.rs`'s parent→child origin propagation
+        /// (`bridge().origin()` feeds the child's load context) non-deterministic
+        /// and diverge from boa's single stored default.  Minted once at
+        /// `HostData::new`.  (Distinct from `opaque_origin_sentinel`, which is
+        /// the storage-partition *string* key for the same opaque situation.)
+        fallback_opaque_origin: elidex_plugin::SecurityOrigin,
         /// The iframe nesting depth of this document's browsing context
         /// (`0` for top-level).  Installed by the shell's iframe load path
         /// ([`Self::set_iframe_depth`]); read to cap runaway `<iframe>`
@@ -752,6 +765,7 @@ mod engine_feature {
                 cookie_jar: None,
                 sandbox_flags: None,
                 document_origin_override: None,
+                fallback_opaque_origin: elidex_plugin::SecurityOrigin::opaque(),
                 iframe_depth: 0,
                 mutation_observers: elidex_api_observers::mutation::MutationObserverRegistry::new(),
                 mutation_observer_bindings: HashMap::new(),
@@ -1026,6 +1040,13 @@ mod engine_feature {
         /// (see [`super::VmInner::document_origin`]).
         pub(crate) fn document_origin_override(&self) -> Option<&elidex_plugin::SecurityOrigin> {
             self.document_origin_override.as_ref()
+        }
+
+        /// The per-VM stable opaque fallback origin (see the field docs) — used
+        /// by [`super::VmInner::document_origin`] for the no-override +
+        /// opaque-`current_url` case so the origin stays identity-stable.
+        pub(crate) fn fallback_opaque_origin(&self) -> &elidex_plugin::SecurityOrigin {
+            &self.fallback_opaque_origin
         }
 
         /// Set the iframe nesting depth (`0` = top-level).
