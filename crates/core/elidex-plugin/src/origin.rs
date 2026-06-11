@@ -560,6 +560,20 @@ mod tests {
     }
 
     #[test]
+    fn ipv6_host_origin_preserves_brackets() {
+        // `url::Url::host_str()` keeps the IPv6 brackets, so the tuple origin
+        // serializes with them — byte-identical to `Origin::ascii_serialization()`.
+        // The migrated settings-origin readers (postMessage / WS+SSE `Origin` /
+        // storage) must agree for `targetOrigin` matching, so guard against a
+        // host_str-without-brackets regression that would emit `http://::1`.
+        let origin = SecurityOrigin::from_url(&url::Url::parse("http://[::1]/").unwrap());
+        assert_eq!(origin.serialize(), "http://[::1]");
+        let with_port =
+            SecurityOrigin::from_url(&url::Url::parse("https://[2001:db8::1]:8443/x").unwrap());
+        assert_eq!(with_port.serialize(), "https://[2001:db8::1]:8443");
+    }
+
+    #[test]
     fn serialize_tuple_origin() {
         let origin =
             SecurityOrigin::from_url(&url::Url::parse("https://example.com/page").unwrap());

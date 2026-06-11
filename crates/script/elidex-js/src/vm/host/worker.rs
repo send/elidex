@@ -507,8 +507,8 @@ fn native_worker_post_message(
     // not the document origin — migrating it (e.g. → "null" for a sandboxed
     // page) would diverge from the spec's "no origin", the same overreach the
     // CRIT-F1 carve-out avoided for `location.origin`. Spec-faithful
-    // MessageEvent.origin (empty string) for port messages is a separate
-    // future change, not S1b.
+    // MessageEvent.origin (no origin set) for port messages is a separate
+    // future change, not S1b → slot `#11-worker-port-message-no-origin`.
     let origin = ctx.vm.navigation.current_url.origin().ascii_serialization();
     if let Some(handle) = ctx.vm.worker_registry.get(worker_id) {
         handle.post_message(serialized, origin);

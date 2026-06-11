@@ -320,8 +320,10 @@ pub(super) fn require_websocket_this(
 ///    `ws_conn_to_object[conn_id] = id`.
 /// 8. Send `RendererToNetwork::WebSocketOpen { conn_id, url,
 ///    protocols, origin }` to the broker via `network_handle.send()`.
-///    Origin is `vm.navigation.current_url.origin().ascii_serialization()`
-///    (opaque origins serialise as `"null"` per WHATWG URL §3.5).  A
+///    Origin is the document's origin via `VmInner::document_origin()`
+///    (the relevant settings object's origin, WebSockets §2.2; opaque
+///    origins serialise as `"null"`, so a sandboxed page does not leak its
+///    real origin).  A
 ///    disconnected handle (no `network_handle` installed OR `send`
 ///    returns false) is a non-fatal config — the side-table entry
 ///    persists in CONNECTING and the broker's natural reply path will
