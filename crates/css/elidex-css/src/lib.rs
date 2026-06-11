@@ -13,7 +13,9 @@ mod serialize;
 mod values;
 
 pub use color::parse_color;
-pub use declaration::{parse_declaration_block, parse_var_function, Declaration, Origin};
+pub use declaration::{
+    parse_declaration_block, parse_inline_style, parse_var_function, Declaration, Origin,
+};
 pub use escape::escape_ident;
 pub use page::{parse_page_rule, parse_page_rules, parse_page_selectors, parse_page_size};
 pub use parser::{

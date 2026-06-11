@@ -328,8 +328,12 @@ mod tests {
 
         let div = find_tag(dom, doc, "div").expect("div");
         let style = dom.world().get::<&InlineStyle>(div).unwrap();
-        assert_eq!(style.get("color"), Some("red"));
-        assert_eq!(style.get("margin"), Some("10px"));
+        // Canonical `elidex_css::parse_inline_style` form: color keywords
+        // round-trip to hex, shorthands expand to longhands.
+        assert_eq!(style.get("color"), Some("#ff0000"));
+        assert_eq!(style.get("margin"), None);
+        assert_eq!(style.get("margin-top"), Some("10px"));
+        assert_eq!(style.get("margin-left"), Some("10px"));
     }
 
     #[test]
@@ -479,9 +483,9 @@ mod tests {
         // style attribute preserved in Attributes
         let attrs = dom.world().get::<&Attributes>(div).unwrap();
         assert_eq!(attrs.get("style"), Some("color: red"));
-        // Also parsed into InlineStyle
+        // Also parsed into InlineStyle (canonical post-parse form).
         let style = dom.world().get::<&InlineStyle>(div).unwrap();
-        assert_eq!(style.get("color"), Some("red"));
+        assert_eq!(style.get("color"), Some("#ff0000"));
     }
 
     #[test]

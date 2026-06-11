@@ -2183,6 +2183,7 @@ dependencies = [
 name = "elidex-html-parser"
 version = "0.1.0"
 dependencies = [
+ "elidex-css",
  "elidex-custom-elements",
  "elidex-ecs",
  "elidex-html-parser-strict",

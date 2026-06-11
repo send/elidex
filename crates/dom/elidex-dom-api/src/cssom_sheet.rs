@@ -48,7 +48,6 @@ use elidex_script_session::{
     CssomSheetState, DomApiError, DomApiErrorKind, DomApiHandler, SessionCore,
 };
 
-use crate::computed_style::css_value_to_string;
 use crate::element::collect_text_content;
 use crate::node_methods::SetTextContentNodeKind;
 use crate::util::require_string_arg;
@@ -394,7 +393,7 @@ fn rule_id_arg(args: &[JsValue]) -> Option<u64> {
 fn push_declaration(out: &mut String, decl: &elidex_css::Declaration) {
     out.push_str(&decl.property);
     out.push_str(": ");
-    out.push_str(&css_value_to_string(&decl.value));
+    out.push_str(&decl.value.to_css_string());
     if decl.important {
         out.push_str(" !important");
     }
@@ -500,7 +499,7 @@ impl DomApiHandler for RuleStyleGetPropertyValue {
                 .iter()
                 .rev()
                 .find(|d| d.property == normalized)
-                .map_or_else(String::new, |d| css_value_to_string(&d.value))
+                .map_or_else(String::new, |d| d.value.to_css_string())
         });
         Ok(JsValue::String(value))
     }

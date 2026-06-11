@@ -47,15 +47,9 @@ fn ensure_inline_style(entity: Entity, dom: &mut EcsDom) {
         .get::<&Attributes>(entity)
         .ok()
         .and_then(|a| a.get("style").map(str::to_owned));
-    let mut hydrated = InlineStyle::default();
-    if let Some(css) = attr_value {
-        for decl in elidex_css::parse_declaration_block(&css) {
-            hydrated.set(
-                decl.property,
-                crate::computed_style::css_value_to_string(&decl.value),
-            );
-        }
-    }
+    let hydrated = attr_value
+        .map(|css| elidex_css::parse_inline_style(&css))
+        .unwrap_or_default();
     let _ = dom.world_mut().insert_one(entity, hydrated);
 }
 
@@ -311,13 +305,14 @@ impl DomApiHandler for StyleCssTextGet {
 }
 
 /// `element.style.cssText` setter — replaces the declaration block by
-/// re-parsing `value` through [`elidex_css::parse_declaration_block`]
-/// (which performs shorthand expansion).  All-or-nothing replacement:
-/// `parse_declaration_block` returns an empty `Vec` for empty / unparseable
-/// input, which clears the inline-style block.  This matches the spec
-/// "parse a CSS declaration block" algorithm and Chrome's behaviour for
-/// whole-block-invalid input (accepted divergence: Firefox preserves
-/// existing declarations on whole-block parse failure).
+/// re-parsing `value` through the canonical
+/// [`elidex_css::parse_inline_style`] (which performs shorthand
+/// expansion).  All-or-nothing replacement: it returns an empty
+/// `InlineStyle` for empty / unparseable input, which clears the
+/// inline-style block.  This matches the spec "parse a CSS declaration
+/// block" algorithm and Chrome's behaviour for whole-block-invalid input
+/// (accepted divergence: Firefox preserves existing declarations on
+/// whole-block parse failure).
 pub struct StyleCssTextSet;
 
 impl DomApiHandler for StyleCssTextSet {
@@ -333,7 +328,6 @@ impl DomApiHandler for StyleCssTextSet {
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let css = require_string_arg(args, 0)?;
-        let declarations = elidex_css::parse_declaration_block(&css);
 
         // Stale-wrapper guard: same shape as the read handlers + the
         // mutator handlers (`setProperty` / `removeProperty`).  Without
@@ -347,13 +341,7 @@ impl DomApiHandler for StyleCssTextSet {
         // All-or-nothing replace: drop any existing component and insert
         // a freshly-built one so insertion order matches the parsed
         // declarations exactly (no leftover keys from prior content).
-        let mut new_style = InlineStyle::default();
-        for decl in declarations {
-            new_style.set(
-                decl.property,
-                crate::computed_style::css_value_to_string(&decl.value),
-            );
-        }
+        let new_style = elidex_css::parse_inline_style(&css);
         dom.world_mut()
             .insert_one(this, new_style)
             .map_err(|_| not_found_error("element not found"))?;
@@ -692,8 +680,8 @@ mod tests {
             )
             .unwrap();
 
-        // `parse_declaration_block` parses `color: red` into
-        // `CssValue::Color(...)` which `css_value_to_string` then
+        // `parse_inline_style` parses `color: red` into
+        // `CssValue::Color(...)` which `CssValue::to_css_string` then
         // serializes via the color's `Display` impl (hex form).  The
         // round-trip therefore produces `#ff0000` rather than the input
         // `red` keyword — accepted divergence for PR-A; lossless

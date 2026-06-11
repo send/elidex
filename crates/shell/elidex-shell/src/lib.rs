@@ -74,12 +74,7 @@ fn stylesheets_to_cssom(sheets: &[Stylesheet]) -> Vec<elidex_js_boa::bridge::Css
                     let declarations = rule
                         .declarations
                         .iter()
-                        .map(|d| {
-                            (
-                                d.property.clone(),
-                                elidex_dom_api::css_value_to_string(&d.value),
-                            )
-                        })
+                        .map(|d| (d.property.clone(), d.value.to_css_string()))
                         .collect();
                     elidex_js_boa::bridge::CssomRule {
                         selector_text,

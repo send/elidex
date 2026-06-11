@@ -630,39 +630,16 @@ pub fn create_style_object(entity: Entity, bridge: &HostBridge, ctx: &mut Contex
                 .transpose()?
                 .map_or(String::new(), |s| s.to_std_string_escaped());
 
-            let existing_props: Vec<String> = bridge.with(|_session, dom| {
-                dom.world()
-                    .get::<&elidex_ecs::InlineStyle>(entity)
-                    .ok()
-                    .map_or_else(Vec::new, |style| {
-                        style.iter().map(|(k, _)| k.to_string()).collect()
-                    })
-            });
-
-            for prop in &existing_props {
-                let _ = invoke_dom_handler_void(
-                    "style.removeProperty",
-                    entity,
-                    &[ElidexJsValue::String(prop.clone())],
-                    bridge,
-                );
-            }
-
-            for decl in text.split(';') {
-                let decl = decl.trim();
-                if let Some((prop, val)) = decl.split_once(':') {
-                    let prop = prop.trim().to_string();
-                    let val = val.trim().to_string();
-                    if !prop.is_empty() && !val.is_empty() {
-                        let _ = invoke_dom_handler_void(
-                            "style.setProperty",
-                            entity,
-                            &[ElidexJsValue::String(prop), ElidexJsValue::String(val)],
-                            bridge,
-                        );
-                    }
-                }
-            }
+            // Route through the canonical `style.cssText.set` handler
+            // (all-or-nothing replace via `elidex_css::parse_inline_style`)
+            // instead of naive `;`/`:` splitting — One-issue-one-way with
+            // the VM and CSSOM hydration paths.
+            let _ = invoke_dom_handler_void(
+                "style.cssText.set",
+                entity,
+                &[ElidexJsValue::String(text)],
+                bridge,
+            );
 
             Ok(JsValue::undefined())
         },

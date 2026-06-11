@@ -10,9 +10,10 @@
 //! `elidex-custom-elements` dep already exists — owns the derivation.
 //!
 //! Components derived purely from (tag, namespace, attributes):
-//! - [`InlineStyle`] — the `style` content attribute (parsed by
-//!   [`parse_inline_style`]); namespace-agnostic (SVG / MathML may carry
-//!   a CSS `style` attribute too).
+//! - [`InlineStyle`] — the `style` content attribute (parsed by the
+//!   canonical [`elidex_css::parse_inline_style`], shared with the CSSOM
+//!   hydration / `cssText` paths in `elidex-dom-api`); namespace-agnostic
+//!   (SVG / MathML may carry a CSS `style` attribute too).
 //! - `CustomElementState` — WHATWG DOM §4.9 "create an element" step
 //!   6.3 (HTML namespace ∧ (valid custom element name ∨ `is` non-null)
 //!   → state "undefined"), derived by the canonical
@@ -29,7 +30,7 @@
 //! invoked from the shell's `build_pipeline_from_loaded`); dynamic
 //! insertion is handled by `elidex_form::FormControlReconciler`.
 
-use elidex_ecs::{Attributes, EcsDom, Entity, IframeData, InlineStyle, Namespace, TagType};
+use elidex_ecs::{Attributes, EcsDom, Entity, IframeData, Namespace, TagType};
 
 /// Attach parser-derived components to every element in `root`'s
 /// shadow-inclusive subtree.
@@ -80,7 +81,7 @@ pub(crate) fn attach_derived(dom: &mut EcsDom, entity: Entity) {
     if let Some(style) = style_attr {
         let _ = dom
             .world_mut()
-            .insert_one(entity, parse_inline_style(&style));
+            .insert_one(entity, elidex_css::parse_inline_style(&style));
     }
 
     // CustomElementState (§4.13.3) and IframeData (§4.8.5) are
@@ -113,30 +114,11 @@ pub(crate) fn attach_derived(dom: &mut EcsDom, entity: Entity) {
     }
 }
 
-/// Parse a `style` attribute value into an [`InlineStyle`].
-///
-/// Uses simple `;` and `:` splitting. Full CSS value parsing is handled
-/// by elidex-css and elidex-style. Relocated from `convert.rs` so both
-/// §11.3 tiers share one implementation.
-pub(crate) fn parse_inline_style(style: &str) -> InlineStyle {
-    let mut inline = InlineStyle::default();
-    for decl in style.split(';') {
-        let decl = decl.trim();
-        if let Some((prop, val)) = decl.split_once(':') {
-            let prop = prop.trim();
-            let val = val.trim();
-            if !prop.is_empty() && !val.is_empty() {
-                inline.set(prop, val);
-            }
-        }
-    }
-    inline
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use elidex_custom_elements::{CEState, CustomElementState};
+    use elidex_ecs::InlineStyle;
 
     /// Parse a conforming document through the RAW strict (Tier-1) backend
     /// (no derivation) and run [`derive_element_components`] explicitly, so
@@ -206,7 +188,9 @@ mod tests {
             .world()
             .get::<&InlineStyle>(el)
             .expect("InlineStyle attached to strict-parsed element");
-        assert_eq!(style.get("color"), Some("red"));
+        // Canonical form: `parse_inline_style` stores the post-parse
+        // serialization, so the `red` keyword round-trips to hex.
+        assert_eq!(style.get("color"), Some("#ff0000"));
     }
 
     #[test]

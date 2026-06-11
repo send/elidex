@@ -187,7 +187,7 @@ fn rule_parent_style_sheet_returns_owner() {
 
 #[test]
 fn rule_style_get_property_value() {
-    // Returned value passes through `elidex_dom_api::css_value_to_string`
+    // Returned value passes through `CssValue::to_css_string`
     // which canonicalises colours to hex form (matches the
     // `getComputedStyle` round-trip in PR-A).
     let out = run_with_css(

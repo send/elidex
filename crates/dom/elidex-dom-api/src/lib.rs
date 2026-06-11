@@ -59,7 +59,7 @@ pub use class_list::{
     REL_LIST_CONTAINS, REL_LIST_ITEM, REL_LIST_LENGTH, REL_LIST_REMOVE, REL_LIST_REPLACE,
     REL_LIST_SUPPORTS, REL_LIST_TOGGLE, REL_LIST_VALUE_GET, REL_LIST_VALUE_SET,
 };
-pub use computed_style::{css_value_to_string, GetComputedStyle};
+pub use computed_style::GetComputedStyle;
 pub use css_namespace::{CssEscape, CssSupports};
 pub use cssom_sheet::{
     collect_stylesheet_owners, count_stylesheet_owners, link_has_loaded_sheet, link_sheet_href,

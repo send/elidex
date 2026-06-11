@@ -5,6 +5,7 @@
 //! longhand equivalents.
 
 use cssparser::{Parser, ParserInput, Token};
+use elidex_ecs::InlineStyle;
 use elidex_plugin::{CssPropertyRegistry, CssValue};
 
 use crate::color::parse_color;
@@ -55,6 +56,31 @@ impl Declaration {
             important: false,
         }
     }
+}
+
+/// Parse a `style` content attribute string into an [`InlineStyle`]
+/// component — the canonical attribute→component derivation
+/// (One-issue-one-way). Every site that materializes `InlineStyle` from
+/// CSS text funnels through here: parser element creation
+/// (`elidex-html-parser` `element_init`), CSSOM first-mutation hydration
+/// (`ensure_inline_style`), and the `style.cssText` setter.
+///
+/// Built on [`parse_declaration_block`], so the component holds the
+/// post-parse canonical form: shorthands expand to longhands, unknown or
+/// unparseable declarations drop (only supported properties are
+/// reflected, matching `CSSStyleDeclaration` behaviour), and values
+/// serialize via [`CssValue::to_css_string`] (e.g. color keywords
+/// round-trip to hex). `!important` flags are not stored — `InlineStyle`
+/// holds value-only entries (CSSOM `getPropertyValue` excludes
+/// priority); the cascade reads importance from its own re-parse of the
+/// `style` attribute, not from this component.
+#[must_use]
+pub fn parse_inline_style(css: &str) -> InlineStyle {
+    let mut style = InlineStyle::default();
+    for decl in parse_declaration_block(css) {
+        style.set(decl.property, decl.value.to_css_string());
+    }
+    style
 }
 
 /// Parse an inline style attribute string into declarations.
