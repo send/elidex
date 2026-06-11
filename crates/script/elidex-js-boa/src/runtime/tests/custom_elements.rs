@@ -609,3 +609,54 @@ fn create_element_is_round_trips_through_outer_html() {
         "expected is-emit without an is attribute, got: {output:?}"
     );
 }
+
+#[test]
+fn create_element_is_with_registry_member_throws() {
+    // DOM "flatten element creation options" step 3.2.1: non-null `is`
+    // + `customElementRegistry` member → NotSupportedError.
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let result = runtime.eval(
+        r"
+        var caught = '';
+        try { document.createElement('button', {is: 'my-btn', customElementRegistry: {}}); }
+        catch (e) { caught = '' + e; }
+        console.log('caught=' + caught);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    let output = runtime.console_output().messages();
+    assert!(
+        output
+            .iter()
+            .any(|m| m.1.contains("caught=") && m.1.contains("NotSupportedError")),
+        "expected NotSupportedError, got: {output:?}"
+    );
+}
+
+#[test]
+fn sync_autonomous_create_element_nulls_is_value() {
+    // DOM §4.9 step 5.1.3.10: an autonomous element created while its
+    // definition is already registered has a null is value — no
+    // synthetic is= in outerHTML. (Async-created elements keep theirs.)
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let result = runtime.eval(
+        r"
+        class MyEl {}
+        customElements.define('my-el', MyEl);
+        var el = document.createElement('my-el', {is: 'other-el'});
+        console.log('html=' + el.outerHTML);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("html=<my-el></my-el>")),
+        "sync autonomous must not emit synthetic is, got: {output:?}"
+    );
+}

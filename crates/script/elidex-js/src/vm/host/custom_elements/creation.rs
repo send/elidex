@@ -29,6 +29,22 @@ pub(in crate::vm) fn flatten_is_option(
     if matches!(raw, JsValue::Undefined | JsValue::Null) {
         return Ok(None);
     }
+    // Flatten step 3.2.1: a dictionary carrying BOTH a non-null `is`
+    // and a `customElementRegistry` member is a hard conflict —
+    // NotSupportedError. (Scoped-registry support itself is deferred,
+    // slot `#11-shadow-scoped-custom-element-registry`; the conflict
+    // check is part of the flatten algorithm regardless.)
+    let registry_key = PropertyKey::String(ctx.vm.strings.intern("customElementRegistry"));
+    let registry_member = ctx.vm.get_property_value(*options_id, registry_key)?;
+    if !matches!(registry_member, JsValue::Undefined) {
+        let not_supported = ctx.vm.well_known.dom_exc_not_supported_error;
+        return Err(VmError::dom_exception(
+            not_supported,
+            "Failed to execute 'createElement' on 'Document': \
+             'is' and 'customElementRegistry' cannot both be provided"
+                .to_string(),
+        ));
+    }
     Ok(Some(crate::vm::coerce::to_string(ctx.vm, raw)?))
 }
 
@@ -78,6 +94,10 @@ pub(in crate::vm) fn route_custom_element_upgrade(
         .expect("CE registry mutex poisoned")
         .is_defined(&name);
     if is_defined {
+        // DOM §4.9 step 5.1.3.10: the sync autonomous branch nulls the
+        // is value (async-created elements keep theirs through the
+        // later define()-walk upgrade).
+        elidex_custom_elements::clear_is_value_for_sync_autonomous(ctx.host().dom(), entity);
         if let Err(err) = super::upgrade::invoke_upgrade(ctx, entity) {
             eprintln!("[CE Upgrade Error] {}", err.message);
         }

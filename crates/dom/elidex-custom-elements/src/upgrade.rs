@@ -153,6 +153,35 @@ fn set_state(dom: &mut EcsDom, entity: Entity, new_state: CEState) {
     }
 }
 
+/// DOM §4.9 "create an element" step 5.1.3.10: the **synchronous**
+/// autonomous-definition branch (a matching autonomous definition
+/// already registered when `createElement` runs) sets the result's
+/// *is value* to **null** — unlike the async branch (definition
+/// registered later), where the creation-time is value is retained
+/// through the upgrade. Engine hosts call this on the
+/// defined-at-creation route, immediately before invoking/enqueuing
+/// the upgrade; the upgrade machinery itself must NOT clear the slot
+/// (that would also strip async-created elements, diverging from
+/// spec).
+///
+/// No-op for customized built-ins (their definition name differs from
+/// the local name; step 4 passes the is value through untouched) and
+/// for entities without a `CustomElementState`.
+pub fn clear_is_value_for_sync_autonomous(dom: &mut elidex_ecs::EcsDom, entity: hecs::Entity) {
+    let local_name = match dom.world().get::<&elidex_ecs::TagType>(entity) {
+        Ok(tag) => tag.0.clone(),
+        Err(_) => return,
+    };
+    if let Ok(mut state) = dom
+        .world_mut()
+        .get::<&mut crate::CustomElementState>(entity)
+    {
+        if state.definition_name == local_name {
+            state.is_value = None;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

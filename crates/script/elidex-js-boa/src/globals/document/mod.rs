@@ -137,6 +137,17 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                 if let Some(opts) = args.get(1).and_then(JsValue::as_object) {
                     let v = opts.get(js_string!("is"), ctx)?;
                     if !v.is_undefined() && !v.is_null() {
+                        // Flatten step 3.2.1: non-null `is` +
+                        // `customElementRegistry` is a hard conflict.
+                        let reg = opts.get(js_string!("customElementRegistry"), ctx)?;
+                        if !reg.is_undefined() {
+                            return Err(JsNativeError::typ()
+                                .with_message(
+                                    "NotSupportedError: 'is' and 'customElementRegistry' \
+                                     cannot both be provided",
+                                )
+                                .into());
+                        }
                         handler_args.push(ElidexJsValue::String(
                             v.to_string(ctx)?.to_std_string_escaped(),
                         ));
@@ -182,6 +193,10 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                             bridge.ce_lookup_by_is(&name, &local_name)
                         };
                         if defined {
+                            // DOM §4.9 step 5.1.3.10: defined-at-
+                            // creation autonomous elements null the
+                            // is value (async-created keep theirs).
+                            elidex_custom_elements::clear_is_value_for_sync_autonomous(dom, entity);
                             // Definition exists — enqueue Upgrade.
                             bridge.enqueue_ce_reaction(
                                 elidex_custom_elements::CustomElementReaction::Upgrade(entity),

@@ -1037,3 +1037,31 @@ fn create_element_options_is_tostring_coerces() {
          el.outerHTML === '<button is=\"123\"></button>' ? 'ok' : ('fail:' + el.outerHTML);");
     assert_eq!(out, "ok");
 }
+
+#[test]
+fn create_element_is_with_custom_element_registry_throws_not_supported() {
+    // DOM "flatten element creation options" step 3.2.1: a dictionary
+    // carrying BOTH a non-null `is` and a `customElementRegistry`
+    // member throws NotSupportedError.
+    let out = run("var caught = ''; \
+         try { document.createElement('button', {is: 'my-btn', customElementRegistry: {}}); } \
+         catch (e) { caught = '' + e; } \
+         caught.indexOf('NotSupportedError') !== -1 ? 'ok' : ('fail:' + caught);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn sync_autonomous_create_element_nulls_is_value() {
+    // DOM §4.9 create-an-element step 5.1.3.10: when an autonomous
+    // definition is already registered, the synchronously created
+    // element's is value is null — outerHTML must NOT emit a
+    // synthetic is for it. (The async path — definition registered
+    // later — retains the creation-time is value per spec.)
+    let out = run_then_read(
+        "class MyEl extends HTMLElement {} \
+         customElements.define('my-el', MyEl); \
+         globalThis.__el = document.createElement('my-el', {is: 'other-el'});",
+        "globalThis.__el.outerHTML",
+    );
+    assert_eq!(out, "<my-el></my-el>");
+}
