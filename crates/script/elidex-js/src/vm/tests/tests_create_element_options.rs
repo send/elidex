@@ -250,6 +250,42 @@ fn clone_of_null_registry_element_not_upgraded() {
 }
 
 #[test]
+fn clone_after_define_drops_retained_autonomous_is_value() {
+    // Codex PR331 R14 / DOM §4.9 step 5.2: an autonomous element
+    // created BEFORE define() legitimately retains its creation-time
+    // is value — but a clone made AFTER the definition registered
+    // routes through the async autonomous branch, which creates the
+    // copy with a NULL is value. The original keeps serializing is=,
+    // the clone must not.
+    let out = run_then_read(
+        "globalThis.__orig = document.createElement('x-isclone', {is: 'other-el'}); \
+         customElements.define('x-isclone', class extends HTMLElement {}); \
+         globalThis.__clone = globalThis.__orig.cloneNode(false);",
+        "globalThis.__orig.outerHTML + '|' + globalThis.__clone.outerHTML",
+    );
+    assert_eq!(
+        out,
+        "<x-isclone is=\"other-el\"></x-isclone>|<x-isclone></x-isclone>"
+    );
+}
+
+#[test]
+fn clone_before_define_keeps_retained_autonomous_is_value() {
+    // Control: with NO definition registered at clone time, the clone
+    // goes through §4.9 step 6 with the source's is value — both
+    // serialize is=.
+    let out = run_then_read(
+        "globalThis.__orig = document.createElement('x-iskeep', {is: 'other-el'}); \
+         globalThis.__clone = globalThis.__orig.cloneNode(false);",
+        "globalThis.__orig.outerHTML + '|' + globalThis.__clone.outerHTML",
+    );
+    assert_eq!(
+        out,
+        "<x-iskeep is=\"other-el\"></x-iskeep>|<x-iskeep is=\"other-el\"></x-iskeep>"
+    );
+}
+
+#[test]
 fn create_element_options_symbol_throws_type_error() {
     // Codex PR331 R12: a non-object `options` converts through the
     // DOMString arm of `(DOMString or ElementCreationOptions)` —

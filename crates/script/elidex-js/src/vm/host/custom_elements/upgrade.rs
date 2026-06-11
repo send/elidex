@@ -129,22 +129,18 @@ pub(in crate::vm) fn enqueue_subtree_upgrade_reactions(ctx: &mut NativeContext<'
     let Some(host) = ctx.host_if_bound() else {
         return;
     };
-    let mut candidates: Vec<Entity> = Vec::new();
-    {
-        let registry = host
-            .ce_registry
+    let candidates = {
+        // Arc-clone detaches the registry borrow from `host` so the
+        // `&mut` dom reborrow below can coexist with the lock guard.
+        let registry_arc = host.ce_registry.clone();
+        let registry = registry_arc
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let dom = host.dom_shared();
-        dom.for_each_shadow_inclusive_descendant(root, &mut |e| {
-            if matches!(
-                elidex_custom_elements::prepare_upgrade(dom, &registry, e),
-                elidex_custom_elements::UpgradeResolution::Proceed { .. }
-            ) {
-                candidates.push(e);
-            }
-        });
-    }
+        // Engine-indep clone-creation pass: collects the upgrade
+        // candidates AND applies DOM §4.9 step 5.2's async-autonomous
+        // null-is rule to the fresh copies (Codex PR331 R14).
+        elidex_custom_elements::apply_clone_creation_ce_semantics(host.dom(), &registry, root)
+    };
     if candidates.is_empty() {
         return;
     }

@@ -575,9 +575,7 @@ pub fn register_document(ctx: &mut Context, bridge: &HostBridge) {
                 // cloneNode binding (DOM §4.4 clone-a-single-node).
                 if let Ok(clone_root) = crate::globals::element::extract_entity(&result, ctx) {
                     bridge.with(|_session, dom| {
-                        crate::globals::custom_elements::walk_and_enqueue_upgrades(
-                            clone_root, bridge, dom,
-                        );
+                        bridge.apply_clone_ce_creation_pass(dom, clone_root);
                     });
                 }
                 Ok(result)

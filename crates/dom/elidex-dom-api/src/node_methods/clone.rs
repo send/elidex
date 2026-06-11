@@ -235,7 +235,15 @@ fn clone_recording(
 /// Pass 1 of [`clone_node_with_shadow_honor`]: propagate the custom
 /// element *identity* (the is-value slot materialized as
 /// `CustomElementState.definition_name`) from `src` to `dst`, resetting
-/// the lifecycle state to `Undefined`.  No-op when the source carries
+/// the lifecycle state to `Undefined`.
+///
+/// This is the registry-INDEPENDENT half. The engine bindings run the
+/// registry-dependent half over the finished clone subtree —
+/// `elidex_custom_elements::apply_clone_creation_ce_semantics` — which
+/// applies DOM §4.9 step 5.2's async-autonomous null-is rule (a clone
+/// made while the autonomous definition is registered drops the
+/// retained is value) and enqueues the §4.4 clone-time upgrade
+/// reactions (Codex PR331 R13+R14).  No-op when the source carries
 /// no `CustomElementState` — non-elements, ordinary built-ins, and
 /// elements whose `is` attribute appeared only after creation (null is
 /// value per spec).

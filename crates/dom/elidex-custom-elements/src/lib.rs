@@ -22,8 +22,9 @@ pub use registry::{
 };
 pub use state::{CEState, CustomElementState, RegistryAssociation};
 pub use upgrade::{
-    clear_is_value_for_sync_autonomous, enter_constructor, finalize_failure, finalize_success,
-    prepare_upgrade, sync_autonomous_definition_matches, UpgradeResolution,
+    apply_clone_creation_ce_semantics, clear_is_value_for_sync_autonomous, enter_constructor,
+    finalize_failure, finalize_success, prepare_upgrade, sync_autonomous_definition_matches,
+    UpgradeResolution,
 };
 pub use validation::is_valid_custom_element_name;
 

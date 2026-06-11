@@ -218,9 +218,7 @@ fn install_clone_node(init: &mut ObjectInitializer<'_>, bridge: &HostBridge) {
                 // call). The walk is registry- and local-name-gated.
                 if let Ok(clone_root) = extract_entity(&result, ctx) {
                     bridge.with(|_session, dom| {
-                        crate::globals::custom_elements::walk_and_enqueue_upgrades(
-                            clone_root, bridge, dom,
-                        );
+                        bridge.apply_clone_ce_creation_pass(dom, clone_root);
                     });
                 }
                 Ok(result)

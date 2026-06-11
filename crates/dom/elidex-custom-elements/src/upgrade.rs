@@ -98,6 +98,63 @@ pub fn prepare_upgrade(
     }
 }
 
+/// DOM §4.4 "clone a single node" routes every copy through *create
+/// an element* with `synchronousCustomElements = false` — apply the
+/// creation-time custom-element semantics that depend on the registry
+/// to a FRESH clone subtree (Codex PR331 R14):
+///
+/// - §4.9 step 5.2 (async **autonomous** definition-found branch):
+///   the copy is created with a **null is value** — so a source that
+///   legitimately retained a creation-time `is` (created before
+///   `define()`) must NOT leak it onto a clone made after the
+///   definition registered. The customized-built-in branch (step 4.2)
+///   passes `is` through and keeps it.
+/// - step 5.2.2 / 4.4: enqueue a custom element upgrade reaction for
+///   every copy whose definition lookup is non-null — returned to the
+///   caller, which owns the engine-side reaction queue.
+///
+/// Candidacy is resolved via [`prepare_upgrade`] (registry-association
+/// gate + `upgrade_matches_local_name` included), so null-registry
+/// clones and `is` mismatches are skipped by the same rule every other
+/// upgrade path uses.
+///
+/// MUST only be called on a freshly cloned subtree: every visited
+/// element is a just-created copy, which is what makes the is-value
+/// clear safe (a define()-time walk over pre-existing elements must
+/// NOT clear — those legitimately retain their creation-time `is`).
+pub fn apply_clone_creation_ce_semantics(
+    dom: &mut EcsDom,
+    registry: &CustomElementRegistry,
+    clone_root: Entity,
+) -> Vec<Entity> {
+    let mut candidates: Vec<Entity> = Vec::new();
+    dom.for_each_shadow_inclusive_descendant(clone_root, &mut |e| {
+        if matches!(
+            prepare_upgrade(dom, registry, e),
+            UpgradeResolution::Proceed { .. }
+        ) {
+            candidates.push(e);
+        }
+    });
+    for &entity in &candidates {
+        let autonomous = {
+            let Ok(state) = dom.world().get::<&CustomElementState>(entity) else {
+                continue;
+            };
+            let Ok(tag) = dom.world().get::<&TagType>(entity) else {
+                continue;
+            };
+            crate::sync_autonomous_definition_matches(registry, &state.definition_name, &tag.0)
+        };
+        if autonomous {
+            if let Ok(mut state) = dom.world_mut().get::<&mut CustomElementState>(entity) {
+                state.is_value = None;
+            }
+        }
+    }
+    candidates
+}
+
 /// Transition `entity` to [`CEState::Precustomized`] before the
 /// engine-bound constructor invocation. Spec §4.13.5 step 4.
 pub fn enter_constructor(dom: &mut EcsDom, entity: Entity) {
@@ -295,6 +352,107 @@ mod tests {
             !proceeds(&prepare_upgrade(&dom, &registry, div)),
             "<div is=my-widget> must NOT upgrade an autonomous definition"
         );
+    }
+}
+
+#[cfg(test)]
+mod clone_creation_pass_tests {
+    use super::*;
+    use crate::registry::CustomElementDefinition;
+
+    fn marked(dom: &mut EcsDom, tag: &str, is: Option<&str>) -> Entity {
+        let el = dom.create_element(tag, Attributes::default());
+        dom.world_mut()
+            .insert_one(
+                el,
+                CustomElementState::for_created_element(tag, is, elidex_ecs::Namespace::Html)
+                    .unwrap(),
+            )
+            .unwrap();
+        el
+    }
+
+    #[test]
+    fn autonomous_defined_clone_clears_is_and_is_candidate() {
+        // Codex PR331 R14 / DOM §4.9 step 5.2: the async autonomous
+        // branch creates the copy with a NULL is value, and the copy
+        // gets an upgrade reaction.
+        let mut registry = CustomElementRegistry::new();
+        registry
+            .define(CustomElementDefinition::new(
+                "my-el".to_string(),
+                1,
+                vec![],
+                None,
+            ))
+            .unwrap();
+        let mut dom = EcsDom::new();
+        let el = marked(&mut dom, "my-el", Some("other-el"));
+        let candidates = apply_clone_creation_ce_semantics(&mut dom, &registry, el);
+        assert_eq!(candidates, vec![el], "defined copy is an upgrade candidate");
+        let state = dom.world().get::<&CustomElementState>(el).unwrap();
+        assert_eq!(
+            state.is_value(),
+            None,
+            "async autonomous creation passes a null is value (§4.9 step 5.2)"
+        );
+    }
+
+    #[test]
+    fn customized_builtin_clone_keeps_is() {
+        // The customized-built-in branch (§4.9 step 4.2) passes `is`
+        // through — the clone keeps it.
+        let mut registry = CustomElementRegistry::new();
+        registry
+            .define(CustomElementDefinition::new(
+                "my-btn".to_string(),
+                1,
+                vec![],
+                Some("button".to_string()),
+            ))
+            .unwrap();
+        let mut dom = EcsDom::new();
+        let el = marked(&mut dom, "button", Some("my-btn"));
+        let candidates = apply_clone_creation_ce_semantics(&mut dom, &registry, el);
+        assert_eq!(candidates, vec![el]);
+        let state = dom.world().get::<&CustomElementState>(el).unwrap();
+        assert_eq!(state.is_value(), Some("my-btn"), "built-in branch keeps is");
+    }
+
+    #[test]
+    fn undefined_name_keeps_is_and_no_candidate() {
+        let registry = CustomElementRegistry::new();
+        let mut dom = EcsDom::new();
+        let el = marked(&mut dom, "my-el", Some("other-el"));
+        let candidates = apply_clone_creation_ce_semantics(&mut dom, &registry, el);
+        assert!(candidates.is_empty(), "no definition → no reaction");
+        let state = dom.world().get::<&CustomElementState>(el).unwrap();
+        assert_eq!(state.is_value(), Some("other-el"));
+    }
+
+    #[test]
+    fn null_registry_clone_untouched() {
+        // prepare_upgrade's registry gate excludes null-registry
+        // copies — neither candidate nor is-clear.
+        let mut registry = CustomElementRegistry::new();
+        registry
+            .define(CustomElementDefinition::new(
+                "my-el".to_string(),
+                1,
+                vec![],
+                None,
+            ))
+            .unwrap();
+        let mut dom = EcsDom::new();
+        let el = marked(&mut dom, "my-el", Some("other-el"));
+        dom.world_mut()
+            .get::<&mut CustomElementState>(el)
+            .unwrap()
+            .registry = crate::RegistryAssociation::Null;
+        let candidates = apply_clone_creation_ce_semantics(&mut dom, &registry, el);
+        assert!(candidates.is_empty());
+        let state = dom.world().get::<&CustomElementState>(el).unwrap();
+        assert_eq!(state.is_value(), Some("other-el"));
     }
 }
 
