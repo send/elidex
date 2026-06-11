@@ -1014,3 +1014,26 @@ fn html_element_call_mode_throws() {
         "expected call-without-new TypeError, got: {err}"
     );
 }
+
+#[test]
+fn create_element_options_is_flattens_to_component_not_attribute() {
+    // VM-side option flattening (DOM §4.5 createElement step 3): the
+    // `is` value lands in the CustomElementState component — no `is`
+    // content attribute is set — and the HTML §13.3 serializer
+    // compensation emits it, so outerHTML round-trips the identity.
+    let out = run(
+        "var el = document.createElement('button', {is: 'my-btn'}); \
+         (el.getAttribute('is') === null && el.outerHTML === '<button is=\"my-btn\"></button>') \
+             ? 'ok' : ('fail:' + el.outerHTML);",
+    );
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn create_element_options_is_tostring_coerces() {
+    // WebIDL DOMString conversion at the marshalling layer: a numeric
+    // `is` member ToString-coerces rather than being dropped.
+    let out = run("var el = document.createElement('button', {is: 123}); \
+         el.outerHTML === '<button is=\"123\"></button>' ? 'ok' : ('fail:' + el.outerHTML);");
+    assert_eq!(out, "ok");
+}

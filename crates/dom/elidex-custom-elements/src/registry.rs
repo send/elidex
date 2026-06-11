@@ -405,3 +405,32 @@ mod upgrade_match_tests {
         assert!(!d.upgrade_matches_local_name("plastic-button"));
     }
 }
+
+#[cfg(test)]
+mod queue_admission_tests {
+    use super::CustomElementRegistry;
+
+    #[test]
+    fn queue_for_upgrade_rejects_invalid_names() {
+        // The DoS guard this gate exists for: `define()` rejects
+        // invalid names, so a pending bucket keyed by one could never
+        // drain — admission must refuse it outright while valid
+        // (merely not-yet-defined) names queue normally.
+        let mut reg = CustomElementRegistry::new();
+        let world = hecs::World::new();
+        let entity = world.reserve_entity();
+        // Genuinely invalid names: no hyphen ("input", "notvalid"),
+        // uppercase ("My-El"). NB "x-invalid" would be VALID (lowercase
+        // start + hyphen) — naming a thing "-invalid" doesn't make it so.
+        reg.queue_for_upgrade("input", entity);
+        reg.queue_for_upgrade("notvalid", entity);
+        reg.queue_for_upgrade("My-El", entity);
+        assert!(
+            reg.pending_upgrade.is_empty(),
+            "invalid names must not be admitted to the pending-upgrade queue"
+        );
+        reg.queue_for_upgrade("my-el", entity);
+        assert_eq!(reg.pending_upgrade.len(), 1);
+        assert_eq!(reg.pending_upgrade["my-el"], vec![entity]);
+    }
+}

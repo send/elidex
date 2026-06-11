@@ -241,10 +241,10 @@ mod tests {
     fn strict_invalid_is_attr_still_marked_undefined() {
         // DOM §4.9 "create an element" step 6.3: non-null `is` marks
         // the element regardless of name validity — `<button
-        // is="x-invalid">` is state "undefined" (observably `:defined`
+        // is="notvalid">` is state "undefined" (observably `:defined`
         // non-matching) even though no definition can ever match.
         let (dom, doc) = parse_and_derive(
-            r#"<!DOCTYPE html><html><head></head><body><button is="x-invalid"></button></body></html>"#,
+            r#"<!DOCTYPE html><html><head></head><body><button is="notvalid"></button></body></html>"#,
         );
         let el = find_by_tag(&dom, doc, "button").expect("button element");
         let ce = dom
@@ -252,6 +252,6 @@ mod tests {
             .get::<&CustomElementState>(el)
             .expect("non-null is must mark Undefined (validity-free per step 6.3)");
         assert_eq!(ce.state, CEState::Undefined);
-        assert_eq!(ce.definition_name, "x-invalid");
+        assert_eq!(ce.definition_name, "notvalid");
     }
 }

@@ -142,10 +142,10 @@ mod tests {
         // `is` be non-null — validity is NOT a condition. The element
         // simply never upgrades (define() rejects invalid names).
         let ce =
-            CustomElementState::for_created_element("button", Some("x-invalid"), Namespace::Html)
+            CustomElementState::for_created_element("button", Some("notvalid"), Namespace::Html)
                 .expect("invalid but non-null is still marks Undefined");
         assert_eq!(ce.state, CEState::Undefined);
-        assert_eq!(ce.definition_name, "x-invalid");
+        assert_eq!(ce.definition_name, "notvalid");
     }
 
     #[test]

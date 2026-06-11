@@ -564,7 +564,7 @@ mod tests {
                 doc,
                 &[
                     JsValue::String("button".into()),
-                    JsValue::String("x-invalid".into()),
+                    JsValue::String("notvalid".into()),
                 ],
                 &mut session,
                 &mut dom,
@@ -575,7 +575,7 @@ mod tests {
             .world()
             .get::<&elidex_custom_elements::CustomElementState>(entity)
             .expect("non-null invalid is still marks Undefined");
-        assert_eq!(ce.definition_name, "x-invalid");
+        assert_eq!(ce.definition_name, "notvalid");
         assert_eq!(dom.get_attribute(entity, "is"), None);
     }
 
