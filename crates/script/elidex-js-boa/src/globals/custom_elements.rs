@@ -208,6 +208,11 @@ pub fn register_custom_elements_global(ctx: &mut Context, bridge: &HostBridge) {
     );
 
     let ce_obj = init.build();
+    // Capture the stable registry identity on the bridge BEFORE
+    // exposing it as a (writable) global — bindings brand-check
+    // `CustomElementRegistry` members against this handle, not the
+    // reassignable `globalThis.customElements` property.
+    bridge.set_custom_elements_object(ce_obj.clone());
     ctx.register_global_property(
         js_string!("customElements"),
         ce_obj,

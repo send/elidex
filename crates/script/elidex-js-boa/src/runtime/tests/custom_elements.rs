@@ -669,6 +669,41 @@ fn create_element_registry_converts_before_is_getter_runs() {
 }
 
 #[test]
+fn create_element_registry_brand_survives_global_reassignment() {
+    // Codex PR331 R11: `globalThis.customElements` is a writable
+    // property, so the brand check must compare against the stable
+    // handle the bridge captured at registration -- not the current
+    // global value. After page script reassigns the global: the REAL
+    // registry (saved beforehand) still passes, and the impostor
+    // object now sitting on the global still TypeErrors.
+    let (mut runtime, mut session, mut dom, doc) = setup();
+    let result = runtime.eval(
+        r"
+        var real = customElements;
+        globalThis.customElements = {};
+        var ok = document.createElement('div',
+            {customElementRegistry: real}).tagName;
+        var impostor = '';
+        try { document.createElement('div',
+                {customElementRegistry: globalThis.customElements}); }
+        catch (e) { impostor = '' + e; }
+        console.log('ok=' + ok + ' impostor=' + impostor);
+        ",
+        &mut session,
+        &mut dom,
+        doc,
+    );
+    assert!(result.success, "eval should succeed: {:?}", result.error);
+    let output = runtime.console_output().messages();
+    assert!(
+        output.iter().any(|m| m.1.contains("ok=DIV")
+            && m.1
+                .contains("Failed to convert value to 'CustomElementRegistry'")),
+        "expected stable-handle brand check, got: {output:?}"
+    );
+}
+
+#[test]
 fn create_element_registry_member_without_is_validated() {
     // Codex PR331 R8: the `customElementRegistry` member is inspected
     // even when `is` is absent — the document's registry passes
