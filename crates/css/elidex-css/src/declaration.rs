@@ -70,15 +70,16 @@ impl Declaration {
 /// unparseable declarations drop (only supported properties are
 /// reflected, matching `CSSStyleDeclaration` behaviour), and values
 /// serialize via [`CssValue::to_css_string`] (e.g. color keywords
-/// round-trip to hex). `!important` flags are not stored — `InlineStyle`
-/// holds value-only entries (CSSOM `getPropertyValue` excludes
-/// priority); the cascade reads importance from its own re-parse of the
-/// `style` attribute, not from this component.
+/// round-trip to hex). `!important` flags are preserved per declaration
+/// (`InlineStyle::is_important`) and re-emitted by
+/// `InlineStyle::css_text()` — load-bearing for the cascade, which
+/// re-parses the `style` attribute that `sync_to_attribute` rewrites
+/// from `css_text()` after every `el.style.*` mutation.
 #[must_use]
 pub fn parse_inline_style(css: &str) -> InlineStyle {
     let mut style = InlineStyle::default();
     for decl in parse_declaration_block(css) {
-        style.set(decl.property, decl.value.to_css_string());
+        style.set_with_priority(decl.property, decl.value.to_css_string(), decl.important);
     }
     style
 }

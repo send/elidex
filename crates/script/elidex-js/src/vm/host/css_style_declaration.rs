@@ -395,15 +395,33 @@ fn native_style_get_property_value(
 fn native_style_get_property_priority(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
-    _args: &[JsValue],
+    args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // `getPropertyPriority` requires per-property `!important` tracking
-    // on `InlineStyle`.  Deferred to slot `#11-style-important-priority`
-    // (see plan §A-1).  PR-A returns the empty string for every property
-    // (CSSOM §6.6.1 — empty string ⇒ "not !important"), which keeps the
-    // method shape callable for framework feature-detect.
-    let _ = require_style_receiver(ctx, this, "getPropertyPriority")?;
-    Ok(JsValue::String(ctx.vm.well_known.empty))
+    let recv = require_style_receiver(ctx, this, "getPropertyPriority")?;
+    let sid = coerce_first_arg_to_string_id(ctx, args)?;
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    }
+    match recv {
+        StyleReceiver::Inline(entity) => invoke_dom_api(
+            ctx,
+            "style.getPropertyPriority",
+            entity,
+            &[JsValue::String(sid)],
+        ),
+        // Computed source: resolved values never carry a priority
+        // (CSSOM §6.6.1 — empty string ⇒ "not !important").
+        StyleReceiver::Computed(_) => Ok(JsValue::String(ctx.vm.well_known.empty)),
+        StyleReceiver::Rule { sheet, rule_id } => invoke_dom_api(
+            ctx,
+            "rule.style.getPropertyPriority",
+            sheet,
+            &[
+                super::cssom_sheet::rule_id_to_js(rule_id),
+                JsValue::String(sid),
+            ],
+        ),
+    }
 }
 
 fn native_style_set_property(
@@ -415,16 +433,26 @@ fn native_style_set_property(
     let prop_sid = coerce_first_arg_to_string_id(ctx, args)?;
     let val_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let val_sid = super::super::coerce::to_string(ctx.vm, val_arg)?;
+    // Optional `priority` (WebIDL `optional [LegacyNullToEmptyString]
+    // CSSOMString priority = ""`): absent / undefined ⇒ default empty,
+    // null ⇒ empty (LegacyNullToEmptyString) — both omit the argument;
+    // otherwise coerce and forward — the handler applies the CSSOM
+    // §6.6.1 step-4 validity check.
+    let priority_sid = match args.get(2) {
+        None | Some(JsValue::Undefined | JsValue::Null) => None,
+        Some(v) => Some(super::super::coerce::to_string(ctx.vm, *v)?),
+    };
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }
     match recv {
-        StyleReceiver::Inline(entity) => invoke_dom_api(
-            ctx,
-            "style.setProperty",
-            entity,
-            &[JsValue::String(prop_sid), JsValue::String(val_sid)],
-        ),
+        StyleReceiver::Inline(entity) => {
+            let mut call_args = vec![JsValue::String(prop_sid), JsValue::String(val_sid)];
+            if let Some(p) = priority_sid {
+                call_args.push(JsValue::String(p));
+            }
+            invoke_dom_api(ctx, "style.setProperty", entity, &call_args)
+        }
         // Computed / Rule sources: silent no-op (read-only).
         StyleReceiver::Computed(_) | StyleReceiver::Rule { .. } => Ok(JsValue::Undefined),
     }

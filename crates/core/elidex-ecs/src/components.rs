@@ -384,19 +384,96 @@ pub struct ColumnFlowSlice {
     pub atomic_repositions: Vec<(Entity, f32, f32, Point)>,
 }
 
+/// A single inline-style declaration: value text plus its `!important`
+/// priority flag (CSSOM §6.6.1 — `getPropertyValue` returns the value
+/// only; `getPropertyPriority` returns the flag).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct InlineDeclaration {
+    value: String,
+    important: bool,
+}
+
 /// Inline style declarations on an element.
 ///
 /// Properties are stored in an `IndexMap` to preserve insertion order
 /// (matching CSSOM `style.cssText` serialization order) while enforcing
 /// uniqueness (last declaration wins, matching CSS cascade behavior).
+///
+/// Each declaration carries its `!important` priority flag, and
+/// [`css_text`](Self::css_text) re-emits it. This is load-bearing for the
+/// cascade: `sync_to_attribute` (elidex-dom-api) rewrites `attrs("style")`
+/// from `css_text()` after every `el.style.*` mutation, and the cascade
+/// re-parses that attribute — a priority-stripping serialization would
+/// silently demote `!important` inline declarations on the first
+/// unrelated style write. (Not `impl_string_map!`: the value carries the
+/// priority flag, so this is no longer a plain string map.)
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct InlineStyle {
-    properties: IndexMap<String, String>,
+    properties: IndexMap<String, InlineDeclaration>,
 }
 
-impl_string_map!(InlineStyle, properties, "style property");
-
 impl InlineStyle {
+    /// Get a style property value by name (value only, without priority —
+    /// CSSOM `getPropertyValue`).
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<&str> {
+        self.properties.get(name).map(|d| d.value.as_str())
+    }
+
+    /// Set a style property value with normal (non-important) priority.
+    /// Returns the previous value if present.
+    ///
+    /// Clears any existing `!important` flag on the property — CSSOM
+    /// §6.6.1 `setProperty` with an empty priority resets importance.
+    pub fn set(&mut self, name: impl Into<String>, value: impl Into<String>) -> Option<String> {
+        self.set_with_priority(name, value, false)
+    }
+
+    /// Set a style property value with an explicit `!important` flag.
+    /// Returns the previous value if present.
+    pub fn set_with_priority(
+        &mut self,
+        name: impl Into<String>,
+        value: impl Into<String>,
+        important: bool,
+    ) -> Option<String> {
+        self.properties
+            .insert(
+                name.into(),
+                InlineDeclaration {
+                    value: value.into(),
+                    important,
+                },
+            )
+            .map(|d| d.value)
+    }
+
+    /// Remove a style property by name. Returns the removed value if
+    /// present (the priority flag is removed with it).
+    pub fn remove(&mut self, name: &str) -> Option<String> {
+        self.properties.shift_remove(name).map(|d| d.value)
+    }
+
+    /// Returns `true` if the style property exists.
+    #[must_use]
+    pub fn contains(&self, name: &str) -> bool {
+        self.properties.contains_key(name)
+    }
+
+    /// Returns `true` if the property exists and is flagged `!important`
+    /// (CSSOM `getPropertyPriority` ⇒ `"important"`).
+    #[must_use]
+    pub fn is_important(&self, name: &str) -> bool {
+        self.properties.get(name).is_some_and(|d| d.important)
+    }
+
+    /// Iterate over all property name-value pairs (values only).
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.properties
+            .iter()
+            .map(|(k, d)| (k.as_str(), d.value.as_str()))
+    }
+
     /// Returns the number of properties.
     #[must_use]
     pub fn len(&self) -> usize {
@@ -409,12 +486,19 @@ impl InlineStyle {
         self.properties.is_empty()
     }
 
-    /// Serialize all properties to a CSS text string.
+    /// Serialize all properties to a CSS text string, including
+    /// `!important` flags (CSSOM "serialize a CSS declaration block").
     #[must_use]
     pub fn css_text(&self) -> String {
         self.properties
             .iter()
-            .map(|(k, v)| format!("{k}: {v}"))
+            .map(|(k, d)| {
+                if d.important {
+                    format!("{k}: {} !important", d.value)
+                } else {
+                    format!("{k}: {}", d.value)
+                }
+            })
             .collect::<Vec<_>>()
             .join("; ")
     }

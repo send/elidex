@@ -141,6 +141,10 @@ pub fn create_dom_registry() -> DomHandlerRegistry {
         Box::new(super::StyleGetPropertyValue),
     );
     r.register_static("style.removeProperty", Box::new(super::StyleRemoveProperty));
+    r.register_static(
+        "style.getPropertyPriority",
+        Box::new(super::style::StyleGetPropertyPriority),
+    );
     r.register_static("style.length", Box::new(super::style::StyleLength));
     r.register_static("style.item", Box::new(super::style::StyleItem));
     r.register_static("style.cssText.get", Box::new(super::style::StyleCssTextGet));
@@ -437,6 +441,10 @@ pub fn create_dom_registry() -> DomHandlerRegistry {
     r.register_static(
         "rule.style.getPropertyValue",
         Box::new(super::RuleStyleGetPropertyValue),
+    );
+    r.register_static(
+        "rule.style.getPropertyPriority",
+        Box::new(super::RuleStyleGetPropertyPriority),
     );
     r.register_static("rule.style.length", Box::new(super::RuleStyleLength));
     r.register_static("rule.style.item", Box::new(super::RuleStyleItem));

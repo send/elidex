@@ -84,3 +84,30 @@ fn inline_style_empty_and_garbage_input() {
     assert!(parse_inline_style("garbage").is_empty());
     assert!(parse_inline_style(";;;").is_empty());
 }
+
+#[test]
+fn inline_style_important_preserved_and_reemitted() {
+    // The cascade reads importance from the style attribute, which
+    // `sync_to_attribute` rewrites from `css_text()` — a
+    // priority-stripping derivation would silently demote `!important`
+    // on the first unrelated style write.
+    let style = parse_inline_style("color: red !important; width: 10px");
+    assert!(style.is_important("color"));
+    assert!(!style.is_important("width"));
+    assert_eq!(style.get("color"), Some("#ff0000"));
+
+    let text = style.css_text();
+    assert_eq!(text, "color: #ff0000 !important; width: 10px");
+
+    // Full round-trip: the re-parse sees the same priority.
+    let reparsed = parse_inline_style(&text);
+    assert!(reparsed.is_important("color"));
+    assert!(!reparsed.is_important("width"));
+}
+
+#[test]
+fn inline_style_important_on_shorthand_expands_to_longhands() {
+    let style = parse_inline_style("margin: 10px !important");
+    assert!(style.is_important("margin-top"));
+    assert!(style.is_important("margin-left"));
+}

@@ -199,6 +199,19 @@ fn rule_style_get_property_value() {
 }
 
 #[test]
+fn rule_style_get_property_priority() {
+    // CSSOM §6.6.1 getPropertyPriority on a rule's declaration block:
+    // "important" for flagged declarations, empty string otherwise.
+    let out = run_with_css(
+        "div { color: red !important; width: 10px; }",
+        "var s = document.getElementsByTagName('style')[0]; \
+         s.sheet.cssRules[0].style.getPropertyPriority('color') + '/' + \
+         s.sheet.cssRules[0].style.getPropertyPriority('width');",
+    );
+    assert_eq!(out, "important/");
+}
+
+#[test]
 fn rule_style_named_get() {
     let out = run_with_css(
         "div { color: red; }",

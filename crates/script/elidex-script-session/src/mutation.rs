@@ -1,6 +1,6 @@
 //! Buffered DOM mutations and their application to the ECS DOM.
 
-use elidex_ecs::{Attributes, EcsDom, Entity, InlineStyle, TextContent};
+use elidex_ecs::{Attributes, EcsDom, Entity, TextContent};
 
 /// Options controlling [`apply_set_inner_html`] fragment-parse semantics.
 ///
@@ -106,22 +106,6 @@ pub enum Mutation {
         /// HTML string to parse and insert.
         html: String,
     },
-    /// Set an inline style property.
-    SetInlineStyle {
-        /// Target entity.
-        entity: Entity,
-        /// CSS property name.
-        property: String,
-        /// CSS property value.
-        value: String,
-    },
-    /// Remove an inline style property.
-    RemoveInlineStyle {
-        /// Target entity.
-        entity: Entity,
-        /// CSS property name to remove.
-        property: String,
-    },
     /// Insert a CSS rule into a stylesheet (legacy variant, CSSOM uses bridge).
     InsertCssRule {
         /// Stylesheet entity.
@@ -207,14 +191,6 @@ pub fn apply_mutation(mutation: &Mutation, dom: &mut EcsDom) -> Option<MutationR
         } => apply_set_attribute(dom, *entity, name, value),
         Mutation::RemoveAttribute { entity, name } => apply_remove_attribute(dom, *entity, name),
         Mutation::SetTextContent { entity, text } => apply_set_text(dom, *entity, text),
-        Mutation::SetInlineStyle {
-            entity,
-            property,
-            value,
-        } => apply_set_inline_style(dom, *entity, property, value),
-        Mutation::RemoveInlineStyle { entity, property } => {
-            apply_remove_inline_style(dom, *entity, property)
-        }
         Mutation::SetInnerHtml { entity, html } => {
             apply_set_inner_html(dom, *entity, html, SetInnerHtmlOptions::default())
         }
@@ -365,36 +341,6 @@ fn apply_set_text(dom: &mut EcsDom, entity: Entity, text: &str) -> Option<Mutati
         old_value,
         ..empty_record(MutationKind::CharacterData, entity)
     })
-}
-
-fn apply_set_inline_style(
-    dom: &mut EcsDom,
-    entity: Entity,
-    property: &str,
-    value: &str,
-) -> Option<MutationRecord> {
-    // Insert InlineStyle component if missing.
-    if dom.world_mut().get::<&mut InlineStyle>(entity).is_err()
-        && dom
-            .world_mut()
-            .insert_one(entity, InlineStyle::default())
-            .is_err()
-    {
-        return None;
-    }
-    let mut style = dom.world_mut().get::<&mut InlineStyle>(entity).ok()?;
-    style.set(property.to_owned(), value.to_owned());
-    Some(empty_record(MutationKind::InlineStyle, entity))
-}
-
-fn apply_remove_inline_style(
-    dom: &mut EcsDom,
-    entity: Entity,
-    property: &str,
-) -> Option<MutationRecord> {
-    let mut style = dom.world_mut().get::<&mut InlineStyle>(entity).ok()?;
-    style.remove(property);
-    Some(empty_record(MutationKind::InlineStyle, entity))
 }
 
 /// Apply the `innerHTML` / `setHTMLUnsafe` setter algorithm: remove all
@@ -755,23 +701,6 @@ mod tests {
     }
 
     #[test]
-    fn apply_set_inline_style() {
-        let mut dom = EcsDom::new();
-        let e = elem(&mut dom, "div");
-
-        let m = Mutation::SetInlineStyle {
-            entity: e,
-            property: "color".into(),
-            value: "red".into(),
-        };
-        let record = apply_mutation(&m, &mut dom).expect("should succeed");
-        assert_eq!(record.kind, MutationKind::InlineStyle);
-
-        let style = dom.world().get::<&InlineStyle>(e).unwrap();
-        assert_eq!(style.get("color"), Some("red"));
-    }
-
-    #[test]
     fn apply_remove_child() {
         let mut dom = EcsDom::new();
         let parent = elem(&mut dom, "div");
@@ -809,31 +738,6 @@ mod tests {
         assert_eq!(record.removed_nodes, vec![old]);
         assert_eq!(dom.children(parent), vec![new]);
         assert_eq!(dom.get_parent(old), None);
-    }
-
-    #[test]
-    fn apply_remove_inline_style() {
-        let mut dom = EcsDom::new();
-        let e = elem(&mut dom, "div");
-
-        // First set a style property.
-        let set = Mutation::SetInlineStyle {
-            entity: e,
-            property: "color".into(),
-            value: "red".into(),
-        };
-        apply_mutation(&set, &mut dom);
-
-        // Now remove it.
-        let m = Mutation::RemoveInlineStyle {
-            entity: e,
-            property: "color".into(),
-        };
-        let record = apply_mutation(&m, &mut dom).expect("should succeed");
-        assert_eq!(record.kind, MutationKind::InlineStyle);
-
-        let style = dom.world().get::<&InlineStyle>(e).unwrap();
-        assert_eq!(style.get("color"), None);
     }
 
     #[test]

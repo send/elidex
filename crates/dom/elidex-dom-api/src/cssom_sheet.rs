@@ -505,6 +505,39 @@ impl DomApiHandler for RuleStyleGetPropertyValue {
     }
 }
 
+/// `CSSStyleRule.style.getPropertyPriority(name)` — returns `"important"`
+/// when the rule's declaration for the named property carries the
+/// `!important` flag, the empty string otherwise (CSSOM §6.6.1). The
+/// last matching declaration wins, mirroring `getPropertyValue`.
+pub struct RuleStyleGetPropertyPriority;
+
+impl DomApiHandler for RuleStyleGetPropertyPriority {
+    fn method_name(&self) -> &str {
+        "rule.style.getPropertyPriority"
+    }
+
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let property = require_string_arg(args, 1)?;
+        let normalized = crate::util::normalize_property_name(&property);
+        let important = with_rule(this, args, session, dom, false, |r| {
+            r.declarations
+                .iter()
+                .rev()
+                .find(|d| d.property == normalized)
+                .is_some_and(|d| d.important)
+        });
+        Ok(JsValue::String(
+            if important { "important" } else { "" }.to_string(),
+        ))
+    }
+}
+
 /// `CSSStyleRule.style.length` — number of declared properties (after
 /// shorthand expansion) for the rule.
 pub struct RuleStyleLength;

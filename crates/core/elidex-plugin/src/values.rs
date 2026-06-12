@@ -2,6 +2,30 @@
 
 use std::fmt;
 
+/// Escape a string's contents per CSSOM "serialize a string" (the
+/// caller supplies the surrounding quotes): `"` and `\` get a backslash
+/// escape, U+0000 becomes U+FFFD, and other control characters become a
+/// hex escape. Without this, a string value containing CSS-significant
+/// characters would corrupt the declaration block on re-parse.
+fn escape_css_string(s: &str) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '\0' => out.push('\u{FFFD}'),
+            '\u{1}'..='\u{1f}' | '\u{7f}' => {
+                let _ = write!(out, "\\{:x} ", ch as u32);
+            }
+            '"' | '\\' => {
+                out.push('\\');
+                out.push(ch);
+            }
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 /// A parsed CSS value before resolution.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
@@ -112,6 +136,13 @@ impl GradientValue {
     /// Serialize this gradient back to its CSS function form
     /// (`linear-gradient(...)` etc.), re-parseable by the gradient
     /// parser. Backs [`CssValue::to_css_string`].
+    ///
+    /// This is the *specified-value* serializer (round-trips the parsed
+    /// AST). The *resolved-value* gradient serializers for
+    /// `getComputedStyle` live in `elidex-css-background` and consume the
+    /// resolved `background::*Gradient` types (normalized stop positions,
+    /// `rgb()` colors) — a genuinely separate spec concern, not a
+    /// duplicate of this method.
     #[must_use]
     pub fn to_css_string(&self) -> String {
         fn stops_text(stops: &[CssColorStop]) -> String {
@@ -153,7 +184,7 @@ impl GradientValue {
                     AngleOrDirection::Angle(a) => format!("{a}deg"),
                     AngleOrDirection::To(parts) => format!("to {}", parts.join(" ")),
                 };
-                format!("{name}({dir}, {})", stops_text(stops))
+                with_prelude(name, &[dir], &stops_text(stops))
             }
             Self::Radial {
                 shape,
@@ -290,7 +321,11 @@ impl TransformFunction {
                     let n = sf(*n);
                     format!("{n}")
                 }
-                _ => "0px".to_string(),
+                // Non-numeric argument (e.g. `translate(calc(100% - 10px))`
+                // stores a `CssValue::Calc`): delegate to the canonical
+                // serializer — collapsing to a literal would corrupt the
+                // value on the attribute round-trip.
+                _ => v.to_css_string(),
             }
         }
 
@@ -538,7 +573,12 @@ impl CssValue {
     #[must_use]
     pub fn to_css_string(&self) -> String {
         match self {
-            Self::Keyword(s) | Self::String(s) | Self::RawTokens(s) => s.clone(),
+            Self::Keyword(s) | Self::RawTokens(s) => s.clone(),
+            // CSSOM "serialize a string": quoted + escaped. Unquoted
+            // output would let CSS-significant characters inside the
+            // string (`;`, `:`) shred the declaration block when the
+            // serialized text is re-parsed (style-attribute write-back).
+            Self::String(s) => format!("\"{}\"", escape_css_string(s)),
             Self::Length(n, unit) => format!("{n}{}", unit.as_str()),
             Self::Color(c) => c.to_string(),
             Self::Number(n) => format!("{n}"),
@@ -568,10 +608,7 @@ impl CssValue {
                     format!("{secs}s")
                 }
             }
-            Self::Url(url) => format!(
-                "url(\"{}\")",
-                url.replace('\\', "\\\\").replace('"', "\\\"")
-            ),
+            Self::Url(url) => format!("url(\"{}\")", escape_css_string(url)),
             Self::Angle(deg) => format!("{deg}deg"),
             Self::Gradient(g) => g.to_css_string(),
             Self::TransformList(funcs) => funcs
@@ -664,6 +701,14 @@ impl CssColor {
     pub const BLUE: Self = Self::rgb(0, 0, 255);
 }
 
+/// Serializes to the canonical hex form (`#rrggbb`, or legacy `rgba()`
+/// when translucent).
+///
+/// Load-bearing for the re-parseable declaration round-trip: this is the
+/// `CssValue::Color` arm of [`CssValue::to_css_string`], which backs
+/// `InlineStyle` storage and the `style`-attribute write-back. Changing
+/// the format here changes the canonical inline-style form across
+/// parser, CSSOM, and cascade paths at once.
 impl fmt::Display for CssColor {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.a == 255 {
@@ -996,9 +1041,45 @@ mod tests {
     }
 
     #[test]
-    fn length_unit_as_str_exhaustive() {
+    fn length_unit_as_str_spot_checks() {
+        // Exhaustiveness is compile-enforced by the no-fallback match in
+        // `as_str`; these are representative output spot-checks only.
         assert_eq!(LengthUnit::Px.as_str(), "px");
         assert_eq!(LengthUnit::Vmin.as_str(), "vmin");
         assert_eq!(LengthUnit::Fr.as_str(), "fr");
+    }
+
+    #[test]
+    fn to_css_string_string_quoted_and_escaped() {
+        // CSSOM "serialize a string": quoted, so CSS-significant chars
+        // inside the value can't shred the declaration block on re-parse.
+        let val = CssValue::String("a; b".into());
+        assert_eq!(val.to_css_string(), "\"a; b\"");
+
+        let quoted = CssValue::String("say \"hi\"".into());
+        assert_eq!(quoted.to_css_string(), "\"say \\\"hi\\\"\"");
+
+        let control = CssValue::String("a\nb".into());
+        assert_eq!(control.to_css_string(), "\"a\\a b\"");
+    }
+
+    #[test]
+    fn to_css_string_url_control_chars_escaped() {
+        let val = CssValue::Url("a\nb".into());
+        assert_eq!(val.to_css_string(), "url(\"a\\a b\")");
+    }
+
+    #[test]
+    fn to_css_string_translate_calc_argument() {
+        // A calc() transform argument must round-trip, not collapse to a
+        // literal.
+        let expr = CalcExpr::Sub(
+            Box::new(CalcExpr::Percentage(100.0)),
+            Box::new(CalcExpr::Length(10.0, LengthUnit::Px)),
+        );
+        let val = CssValue::TransformList(vec![TransformFunction::TranslateX(CssValue::Calc(
+            Box::new(expr),
+        ))]);
+        assert_eq!(val.to_css_string(), "translateX(calc(100% - 10px))");
     }
 }

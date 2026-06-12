@@ -162,21 +162,9 @@ fn css_value_to_string_inner(value: &elidex_plugin::CssValue, depth: usize) -> S
                 format!("rgba({}, {}, {}, {alpha})", c.r, c.g, c.b)
             }
         }
-        // CSSOM §6.7.2: <length> serialized as `<number><unit>`.
-        CssValue::Length(v, unit) => {
-            let unit_str = match unit {
-                elidex_plugin::LengthUnit::Px => "px",
-                elidex_plugin::LengthUnit::Em => "em",
-                elidex_plugin::LengthUnit::Rem => "rem",
-                elidex_plugin::LengthUnit::Vw => "vw",
-                elidex_plugin::LengthUnit::Vh => "vh",
-                elidex_plugin::LengthUnit::Vmin => "vmin",
-                elidex_plugin::LengthUnit::Vmax => "vmax",
-                elidex_plugin::LengthUnit::Fr => "fr",
-                _ => "?",
-            };
-            format!("{v}{unit_str}")
-        }
+        // CSSOM §6.7.2: <length> serialized as `<number><unit>` — unit
+        // suffix via the canonical `LengthUnit::as_str`.
+        CssValue::Length(v, unit) => format!("{v}{}", unit.as_str()),
         CssValue::Percentage(p) => format!("{p}%"),
         CssValue::Number(n) => format!("{n}"),
         CssValue::String(s) => format!("\"{s}\""),
@@ -190,7 +178,11 @@ fn css_value_to_string_inner(value: &elidex_plugin::CssValue, depth: usize) -> S
             .map(|v| css_value_to_string_inner(v, depth + 1))
             .collect::<Vec<_>>()
             .join(" "),
-        _ => format!("{value:?}"),
+        // Everything else (transform lists, calc(), var(), gradients, …):
+        // delegate to the canonical declaration-form serializer rather
+        // than Rust `Debug` output. Only the arms above intentionally
+        // diverge (CSSOM resolved-value forms for WPT comparison).
+        _ => value.to_css_string(),
     }
 }
 

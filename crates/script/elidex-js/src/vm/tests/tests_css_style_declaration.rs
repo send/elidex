@@ -100,6 +100,39 @@ fn set_method_and_get_method() {
     assert_eq!(out, "block");
 }
 
+/// CSSOM §6.6.1 `setProperty` third argument + `getPropertyPriority`:
+/// the priority is stored, readable, excluded from `getPropertyValue`,
+/// and re-emitted into the style attribute (cascade-visible).
+#[test]
+fn set_property_important_priority_round_trip() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('color', 'red', 'important'); \
+         d.style.getPropertyPriority('color') + '/' + \
+         d.style.getPropertyValue('color') + '/' + \
+         d.getAttribute('style');");
+    assert_eq!(out, "important/red/color: red !important");
+}
+
+/// CSSOM §6.6.1 `setProperty` step 4: a priority that is neither empty
+/// nor an ASCII-case-insensitive "important" returns without effect.
+#[test]
+fn set_property_invalid_priority_no_op() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('color', 'red', 'very-important'); \
+         d.style.getPropertyValue('color');");
+    assert_eq!(out, "");
+}
+
+/// Re-setting without a priority clears a prior `!important` flag.
+#[test]
+fn set_property_clears_priority_on_normal_set() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('color', 'red', 'IMPORTANT'); \
+         d.style.setProperty('color', 'blue'); \
+         d.style.getPropertyPriority('color');");
+    assert_eq!(out, "");
+}
+
 #[test]
 fn delete_via_named_exotic() {
     let out = run("var d = document.createElement('div'); \

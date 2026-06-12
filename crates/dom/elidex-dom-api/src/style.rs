@@ -99,6 +99,15 @@ impl DomApiHandler for StyleSetProperty {
         let property_raw = require_string_arg(args, 0)?;
         let property = normalize_property_name_owned(property_raw);
         let value = require_string_arg(args, 1)?;
+        // Optional third argument (CSSOM §6.6.1 `setProperty` step 4):
+        // empty / absent ⇒ normal priority, ASCII-case-insensitive
+        // "important" ⇒ important, anything else ⇒ return without effect.
+        let important = match args.get(2) {
+            None | Some(JsValue::Undefined) => false,
+            Some(JsValue::String(p)) if p.is_empty() => false,
+            Some(JsValue::String(p)) if p.eq_ignore_ascii_case("important") => true,
+            Some(_) => return Ok(JsValue::Undefined),
+        };
 
         ensure_inline_style(this, dom);
 
@@ -107,7 +116,7 @@ impl DomApiHandler for StyleSetProperty {
                 .world_mut()
                 .get::<&mut InlineStyle>(this)
                 .map_err(|_| not_found_error("element not found"))?;
-            style.set(property, value);
+            style.set_with_priority(property, value, important);
         }
         sync_to_attribute(this, dom);
         Ok(JsValue::Undefined)
@@ -150,6 +159,43 @@ impl DomApiHandler for StyleGetPropertyValue {
             },
             Err(_) => Ok(JsValue::String(String::new())),
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// style.getPropertyPriority
+// ---------------------------------------------------------------------------
+
+/// `element.style.getPropertyPriority(property)` — returns `"important"`
+/// when the named inline declaration carries the `!important` flag, the
+/// empty string otherwise (CSSOM §6.6.1).
+pub struct StyleGetPropertyPriority;
+
+impl DomApiHandler for StyleGetPropertyPriority {
+    fn method_name(&self) -> &str {
+        "style.getPropertyPriority"
+    }
+
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let property_raw = require_string_arg(args, 0)?;
+        let property = normalize_property_name(&property_raw);
+        // Stale-wrapper guard mirrors `StyleGetPropertyValue`.
+        if !dom.world().contains(this) {
+            return Err(not_found_error("element not found"));
+        }
+        let important = dom
+            .world()
+            .get::<&InlineStyle>(this)
+            .is_ok_and(|style| style.is_important(property.as_ref()));
+        Ok(JsValue::String(
+            if important { "important" } else { "" }.to_string(),
+        ))
     }
 }
 
@@ -387,6 +433,141 @@ mod tests {
             )
             .unwrap();
         assert_eq!(result, JsValue::String("red".into()));
+    }
+
+    #[test]
+    fn set_property_with_important_priority_round_trips_to_attribute() {
+        // CSSOM §6.6.1 setProperty third argument + the cascade-visible
+        // write-back: `sync_to_attribute` must re-emit `!important` so
+        // the cascade's attribute re-parse keeps the priority.
+        let (mut dom, elem, mut session) = setup();
+        StyleSetProperty
+            .invoke(
+                elem,
+                &[
+                    JsValue::String("color".into()),
+                    JsValue::String("red".into()),
+                    JsValue::String("important".into()),
+                ],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+
+        let priority = StyleGetPropertyPriority
+            .invoke(
+                elem,
+                &[JsValue::String("color".into())],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        assert_eq!(priority, JsValue::String("important".into()));
+
+        // getPropertyValue returns the value only (no priority text).
+        let value = StyleGetPropertyValue
+            .invoke(
+                elem,
+                &[JsValue::String("color".into())],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        assert_eq!(value, JsValue::String("red".into()));
+
+        let attrs = dom.world().get::<&Attributes>(elem).unwrap();
+        assert_eq!(attrs.get("style"), Some("color: red !important"));
+    }
+
+    #[test]
+    fn set_property_invalid_priority_is_no_op() {
+        // CSSOM §6.6.1 setProperty step 4: a priority that is neither
+        // empty nor "important" returns without effect.
+        let (mut dom, elem, mut session) = setup();
+        StyleSetProperty
+            .invoke(
+                elem,
+                &[
+                    JsValue::String("color".into()),
+                    JsValue::String("red".into()),
+                    JsValue::String("very-important".into()),
+                ],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        let value = StyleGetPropertyValue
+            .invoke(
+                elem,
+                &[JsValue::String("color".into())],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        assert_eq!(value, JsValue::String(String::new()));
+    }
+
+    #[test]
+    fn set_property_clears_prior_importance() {
+        // setProperty with empty priority resets the flag (§6.6.1).
+        let (mut dom, elem, mut session) = setup();
+        StyleSetProperty
+            .invoke(
+                elem,
+                &[
+                    JsValue::String("color".into()),
+                    JsValue::String("red".into()),
+                    JsValue::String("IMPORTANT".into()), // ASCII-case-insensitive
+                ],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        StyleSetProperty
+            .invoke(
+                elem,
+                &[
+                    JsValue::String("color".into()),
+                    JsValue::String("blue".into()),
+                ],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        let priority = StyleGetPropertyPriority
+            .invoke(
+                elem,
+                &[JsValue::String("color".into())],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        assert_eq!(priority, JsValue::String(String::new()));
+    }
+
+    #[test]
+    fn parser_important_survives_unrelated_mutation() {
+        // The regression this PR closes: a parser-derived (hydrated)
+        // `!important` declaration must survive the attribute rewrite
+        // triggered by an unrelated `el.style.*` write.
+        let (mut dom, elem, mut session) = setup();
+        let _ = dom.set_attribute(elem, "style", "color: red !important");
+        StyleSetProperty
+            .invoke(
+                elem,
+                &[
+                    JsValue::String("width".into()),
+                    JsValue::String("10px".into()),
+                ],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        let attrs = dom.world().get::<&Attributes>(elem).unwrap();
+        assert_eq!(
+            attrs.get("style"),
+            Some("color: #ff0000 !important; width: 10px")
+        );
     }
 
     #[test]
