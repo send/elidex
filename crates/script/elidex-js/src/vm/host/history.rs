@@ -17,7 +17,7 @@
 //!   on commit are the shell's job (slot
 //!   `#11-history-state-traversal-popstate-fidelity`).
 //! - `pushState()` / `replaceState()` (§7.2.5 "shared history push/replace state
-//!   steps" → §7.4.4 "URL and history update steps") run **synchronously**: the
+//!   steps" → the "URL and history update steps" (§7.4.4)) run **synchronously**: the
 //!   URL-rewrite gate (§7.2.5 step 6.3 — "can have its URL rewritten", a
 //!   document-URL check), then an in-place `current_url` + `history.state` update
 //!   (and, for `pushState`, the current index + length: `length = index + 1`),
@@ -35,43 +35,12 @@
 
 #![cfg(feature = "engine")]
 
+use elidex_plugin::can_have_url_rewritten;
 use elidex_script_session::HistoryAction;
-use url::Url;
 
 use super::super::coerce;
 use super::super::value::{JsValue, NativeContext, VmError};
 use super::super::VmInner;
-
-/// WHATWG HTML "a Document `document` can have its URL rewritten to a URL
-/// `target`" (nav-history-apis §, the pushState/replaceState §7.2.5 step 6.3
-/// gate).  This is a **document-URL** comparison, NOT an origin comparison: the
-/// two diverge for an inherited-origin `about:blank`/`srcdoc` document, whose
-/// URL is `about:blank` — so a rewrite to the inherited tuple origin's URL fails
-/// the scheme/host check even though `document_origin()` would match (the spec
-/// notes the document URL can mismatch the origin for inherited-origin and
-/// sandbox cases).  For an ordinary http(s) document this still rejects
-/// cross-origin rewrites (scheme/host/port differ).
-fn can_have_url_rewritten(document_url: &Url, target: &Url) -> bool {
-    // Step 2: differ in scheme / username / password / host / port → false.
-    if document_url.scheme() != target.scheme()
-        || document_url.username() != target.username()
-        || document_url.password() != target.password()
-        || document_url.host_str() != target.host_str()
-        || document_url.port() != target.port()
-    {
-        return false;
-    }
-    // Step 3: HTTP(S) scheme → true (path/query/fragment differences allowed).
-    if matches!(target.scheme(), "http" | "https") {
-        return true;
-    }
-    // Step 4: file: → only the path must match (query/fragment allowed).
-    if target.scheme() == "file" {
-        return document_url.path() == target.path();
-    }
-    // Step 5: other schemes → path and query must match (only fragment differs).
-    document_url.path() == target.path() && document_url.query() == target.query()
-}
 
 // ---------------------------------------------------------------------------
 // Accessors
@@ -244,7 +213,7 @@ fn state_mutate(
     // the VM resolves it to the current document URL up front.)
     let pushed_url = new_url.to_string();
 
-    // §7.2.5 step 10 → §7.4.4 "URL and history update steps": synchronously set
+    // §7.2.5 step 10 → the "URL and history update steps" (§7.4.4): synchronously set
     // the document URL + the current entry's state, so a same-script
     // `location.href` / `history.state` read observes them (unlike boa, which is
     // enqueue-only and reads stale).

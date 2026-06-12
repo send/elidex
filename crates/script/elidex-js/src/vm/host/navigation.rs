@@ -17,7 +17,7 @@
 //!   after the load — so `location.href = "/x"; location.href` reads the OLD URL,
 //!   matching browsers).
 //! - `history.pushState`/`replaceState` (HTML §7.2.5 "shared history push/replace
-//!   state steps" → §7.4.4 "URL and history update steps") are *synchronous*: the
+//!   state steps" → the "URL and history update steps" (§7.4.4)) are *synchronous*: the
 //!   VM updates `current_url` + `current_state` in place (and `pushState` also
 //!   bumps `history_length`) AND enqueues a `HistoryAction::PushState/ReplaceState`
 //!   for the shell to persist.  Each one independently mutates the joint session
@@ -53,9 +53,9 @@ const MAX_PENDING_HISTORY_ACTIONS: usize = 1024;
 /// shell's `NavigationController` is the single source of truth.
 ///
 /// These fields are a per-VM browsing-context interim. `current_url` /
-/// `history_length` / `current_state` are per-Document facts whose ECS-native
-/// ideal home is a per-entity component on the document entity (deferred slice
-/// `#11-browsing-context-state-ecs-components`); `pending_navigation` /
+/// `history_length` / `current_index` / `current_state` are per-Document facts
+/// whose ECS-native ideal home is a per-entity component on the document entity
+/// (deferred slice `#11-browsing-context-state-ecs-components`); `pending_navigation` /
 /// `pending_history` are transient drain-once intent buffers that are per-VM by
 /// nature (a VM↔shell message channel, not per-entity state — boa stores the
 /// same intents on its `HostBridge`).

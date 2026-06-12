@@ -219,7 +219,9 @@ impl ElidexJsEngine {
         self.vm.inner.navigation.history_length = length;
     }
 
-    /// `history.length` — the shell-pushed session-history entry count.
+    /// `history.length` — the session-history entry count: shell-pushed (via
+    /// `set_session_history`) and advanced synchronously by `pushState`
+    /// (`current_index + 1`).
     #[must_use]
     pub fn history_length(&self) -> usize {
         self.vm.inner.navigation.history_length

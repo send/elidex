@@ -442,6 +442,40 @@ pub fn hex_encode_for_path(value: &str) -> String {
         })
 }
 
+/// WHATWG HTML "a Document `document` can have its URL rewritten to a URL
+/// `target`" — the `history.pushState`/`replaceState` same-document gate
+/// (HTML §7.2.5 step 6.3, dfn `#can-have-its-url-rewritten`).
+///
+/// This is a **document-URL** comparison, NOT an origin comparison: the two
+/// diverge for an inherited-origin `about:blank`/`srcdoc` document, whose URL is
+/// `about:blank` — so a rewrite to the inherited tuple origin's URL fails the
+/// scheme/host check even though the origins match (the spec notes the document
+/// URL can mismatch the origin for inherited-origin and sandbox cases).  For an
+/// ordinary http(s) document it still rejects cross-origin rewrites
+/// (scheme/host/port differ).
+#[must_use]
+pub fn can_have_url_rewritten(document_url: &url::Url, target: &url::Url) -> bool {
+    // Step 2: differ in scheme / username / password / host / port → false.
+    if document_url.scheme() != target.scheme()
+        || document_url.username() != target.username()
+        || document_url.password() != target.password()
+        || document_url.host_str() != target.host_str()
+        || document_url.port() != target.port()
+    {
+        return false;
+    }
+    // Step 3: HTTP(S) scheme → true (path/query/fragment differences allowed).
+    if matches!(target.scheme(), "http" | "https") {
+        return true;
+    }
+    // Step 4: file: → only the path must match (query/fragment allowed).
+    if target.scheme() == "file" {
+        return document_url.path() == target.path();
+    }
+    // Step 5: other schemes → path and query must match (only fragment differs).
+    document_url.path() == target.path() && document_url.query() == target.query()
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -449,6 +483,31 @@ pub fn hex_encode_for_path(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn can_rewrite_same_document_http() {
+        let doc = url::Url::parse("http://site.example/p#frag").unwrap();
+        // Same scheme/host/port, http → path/query/fragment may differ.
+        let same = url::Url::parse("http://site.example/other?x=1").unwrap();
+        assert!(can_have_url_rewritten(&doc, &same));
+        // Cross-origin (host differs) → false.
+        let cross = url::Url::parse("http://evil.example/p").unwrap();
+        assert!(!can_have_url_rewritten(&doc, &cross));
+        // Scheme differs (https vs http) → false.
+        let scheme = url::Url::parse("https://site.example/p").unwrap();
+        assert!(!can_have_url_rewritten(&doc, &scheme));
+    }
+
+    #[test]
+    fn can_rewrite_about_blank_only_to_itself() {
+        // An `about:blank` document (the inherited-origin case): it cannot be
+        // rewritten to an http(s) URL (scheme differs) even if the origins match,
+        // but can be rewritten to `about:blank` itself.
+        let doc = url::Url::parse("about:blank").unwrap();
+        let inherited = url::Url::parse("https://parent.example/x").unwrap();
+        assert!(!can_have_url_rewritten(&doc, &inherited));
+        assert!(can_have_url_rewritten(&doc, &doc.clone()));
+    }
 
     #[test]
     fn same_origin_http() {
