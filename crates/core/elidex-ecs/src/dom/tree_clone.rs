@@ -41,7 +41,7 @@ use crate::components::{
     Attributes, CommentData, DocTypeData, IframeData, InlineStyle, Namespace, NodeKind, TagType,
     TextContent, TreeRelation,
 };
-use hecs::Entity;
+use hecs::{Entity, EntityBuilder};
 
 use super::EcsDom;
 
@@ -206,8 +206,11 @@ impl EcsDom {
         };
         // Shallow-clone the root.  The root's own AssociatedDocument is
         // set below so we can handle the Document self-ref and the
-        // non-Document propagation uniformly.
-        let root = self.clone_node_shallow_unchecked(src);
+        // non-Document propagation uniformly.  One scratch builder is
+        // shared with the descendant walk so its component buffer is
+        // allocated once per deep clone, not once per node.
+        let mut builder = EntityBuilder::new();
+        let root = self.clone_node_shallow_unchecked(src, &mut builder);
         pairs.push((src, root));
         let root_document = if matches!(src_kind, Some(NodeKind::Document)) {
             root
@@ -217,13 +220,13 @@ impl EcsDom {
         } else {
             // Orphan clone — no AssociatedDocument anywhere in the
             // new subtree.  Skip the descendant propagation.
-            self.clone_children_recursive(src, root, None, pairs);
+            self.clone_children_recursive(src, root, None, pairs, &mut builder);
             return Some(root);
         };
         if matches!(src_kind, Some(NodeKind::Document)) {
             self.set_associated_document(root, root_document);
         }
-        self.clone_children_recursive(src, root, Some(root_document), pairs);
+        self.clone_children_recursive(src, root, Some(root_document), pairs, &mut builder);
         Some(root)
     }
 
@@ -246,7 +249,7 @@ impl EcsDom {
         if !self.contains(src) {
             return None;
         }
-        Some(self.clone_node_shallow_unchecked(src))
+        Some(self.clone_node_shallow_unchecked(src, &mut EntityBuilder::new()))
     }
 
     /// Unchecked shallow-clone helper: spawns `dst` carrying `src`'s
@@ -254,12 +257,25 @@ impl EcsDom {
     /// verify existence first (the public [`clone_node_shallow`]
     /// does exactly that).
     ///
+    /// `builder` is caller-supplied scratch space and must be empty on
+    /// entry; spawning the built bundle clears it (capacity retained),
+    /// so loop callers like [`clone_children_recursive`] amortize the
+    /// component-buffer allocation across every node of a deep clone.
+    ///
     /// [`clone_node_shallow`]: Self::clone_node_shallow
-    fn clone_node_shallow_unchecked(&mut self, src: Entity) -> Entity {
-        // Snapshot the payload under a read borrow, then spawn under
-        // a mutable borrow.  Spawning a bare tuple first and then
-        // inserting components one at a time keeps the hecs API
-        // happy (each component needs its own `insert_one` call).
+    /// [`clone_children_recursive`]: Self::clone_children_recursive
+    fn clone_node_shallow_unchecked(&mut self, src: Entity, builder: &mut EntityBuilder) -> Entity {
+        debug_assert!(
+            builder.component_types().next().is_none(),
+            "scratch EntityBuilder must be empty on entry"
+        );
+        // Snapshot the payload under read borrows, then spawn under a
+        // mutable borrow.  The optional components accumulate in an
+        // `EntityBuilder` so a single `spawn` lands the clone in its
+        // final archetype directly — chained `insert_one` calls would
+        // migrate the entity through one intermediate archetype per
+        // component, re-copying everything inserted so far (quadratic
+        // in component count, per node).
         // `.map(|t| (*t).clone())` — `*` dereferences the hecs `Ref`
         // so `clone()` clones the *data* rather than the reference
         // handle (which would keep `self.world` borrowed and block
@@ -332,32 +348,32 @@ impl EcsDom {
             }
         });
 
-        let dst = self.world.spawn((TreeRelation::default(), kind));
+        builder.add(TreeRelation::default()).add(kind);
         if let Some(tag) = tag {
-            let _ = self.world.insert_one(dst, tag);
+            builder.add(tag);
         }
         if let Some(text) = text {
-            let _ = self.world.insert_one(dst, text);
+            builder.add(text);
         }
         if let Some(comment) = comment {
-            let _ = self.world.insert_one(dst, comment);
+            builder.add(comment);
         }
         if let Some(doc_type) = doc_type {
-            let _ = self.world.insert_one(dst, doc_type);
+            builder.add(doc_type);
         }
         if let Some(attrs) = attrs {
-            let _ = self.world.insert_one(dst, attrs);
+            builder.add(attrs);
         }
         if let Some(namespace) = namespace {
-            let _ = self.world.insert_one(dst, namespace);
+            builder.add(namespace);
         }
         if let Some(inline_style) = inline_style {
-            let _ = self.world.insert_one(dst, inline_style);
+            builder.add(inline_style);
         }
         if let Some(iframe_data) = iframe_data {
-            let _ = self.world.insert_one(dst, iframe_data);
+            builder.add(iframe_data);
         }
-        dst
+        self.world.spawn(builder.build())
     }
 
     /// Clone each child of `src` under `dst`, then every descendant
@@ -374,6 +390,7 @@ impl EcsDom {
         dst: Entity,
         propagate_doc: Option<Entity>,
         pairs: &mut Vec<(Entity, Entity)>,
+        builder: &mut EntityBuilder,
     ) {
         let mut stack: Vec<(Entity, Entity)> = vec![(src, dst)];
         while let Some((src_parent, dst_parent)) = stack.pop() {
@@ -392,7 +409,7 @@ impl EcsDom {
                 // `kids` was snapshotted from the live tree, so each
                 // entry is guaranteed to exist; the unchecked variant
                 // skips the redundant `contains` lookup.
-                let child_dst = self.clone_node_shallow_unchecked(child_src);
+                let child_dst = self.clone_node_shallow_unchecked(child_src, builder);
                 if let Some(doc) = propagate_doc {
                     self.set_associated_document(child_dst, doc);
                 }
