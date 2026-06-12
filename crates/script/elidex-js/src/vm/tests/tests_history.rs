@@ -157,6 +157,31 @@ fn pending_history_queue_is_bounded_drop_oldest() {
 }
 
 #[test]
+fn bounded_queue_retains_self_contained_no_url_actions() {
+    // R4-#2: a URL-bearing push followed by enough no-URL pushes to overflow the
+    // cap.  When drop-oldest evicts the URL-bearing `/a` action, the retained
+    // no-URL actions must each still carry the effective URL (`/a`) — otherwise
+    // the shell would apply them against its stale current URL and diverge.
+    let mut vm = new_vm_with_base();
+    vm.eval(
+        "history.pushState(null, '', '/a');\
+         for (let i = 0; i < 1100; i++) { history.pushState(null, ''); }",
+    )
+    .unwrap();
+    assert_eq!(eval_string(&mut vm, "location.pathname;"), "/a"); // no-URL pushes kept /a
+    let actions = drain_history(&mut vm);
+    assert_eq!(actions.len(), 1024); // capped; the `/a`-bearing first action evicted
+    for a in &actions {
+        match a {
+            HistoryAction::PushState { url, .. } => {
+                assert_eq!(url.as_deref(), Some("http://localhost/a")); // self-contained
+            }
+            other => panic!("expected self-contained PushState, got {other:?}"),
+        }
+    }
+}
+
+#[test]
 fn push_state_syncs_url_and_state_and_enqueues() {
     let mut vm = new_vm_with_base();
     vm.eval("history.pushState({step: 1}, '', '/a');").unwrap();
@@ -186,14 +211,40 @@ fn replace_state_syncs_url_and_enqueues_replace() {
 }
 
 #[test]
-fn push_state_without_url_keeps_current_url() {
+fn push_state_without_url_keeps_current_url_self_contained() {
     let mut vm = new_vm_with_base();
     vm.eval("history.pushState({step: 5}, '');").unwrap();
-    // No URL arg → current_url unchanged, state updated, PushState{url: None}.
+    // No URL arg → current_url unchanged, state updated.  The enqueued action
+    // carries the effective (current) URL — not None — so it stays correct even
+    // if the per-turn cap later drops an earlier URL-bearing action.
     assert_eq!(eval_string(&mut vm, "location.pathname;"), "/");
     assert_eq!(eval_number(&mut vm, "history.state.step;"), 5.0);
     match take_one_history(&mut vm) {
-        HistoryAction::PushState { url, .. } => assert!(url.is_none()),
+        HistoryAction::PushState { url, .. } => {
+            assert_eq!(url.as_deref(), Some("http://localhost/"));
+        }
+        other => panic!("expected PushState, got {other:?}"),
+    }
+}
+
+#[test]
+fn push_state_empty_url_keeps_document_url_with_fragment() {
+    // §7.2.5 step 6: the empty string is the historical special case — it is NOT
+    // parsed (unlike `location.href = ""`), so the document URL, including a
+    // trailing `#fragment`, is preserved (parsing "" would resolve it away).
+    let mut vm = Vm::new();
+    vm.inner
+        .navigation
+        .set_current_url(Some(url::Url::parse("http://localhost/p#frag").unwrap()));
+    vm.eval("history.pushState(null, '', '');").unwrap();
+    assert_eq!(
+        eval_string(&mut vm, "location.href;"),
+        "http://localhost/p#frag"
+    );
+    match take_one_history(&mut vm) {
+        HistoryAction::PushState { url, .. } => {
+            assert_eq!(url.as_deref(), Some("http://localhost/p#frag"));
+        }
         other => panic!("expected PushState, got {other:?}"),
     }
 }

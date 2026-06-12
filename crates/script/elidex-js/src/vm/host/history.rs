@@ -192,41 +192,57 @@ fn state_mutate(
         String::new()
     };
 
-    // §7.2.5 step 5/6: newURL is the document URL unless `url` is given.
+    // §7.2.5 step 5/6: newURL is the document URL when `url` is null/undefined OR
+    // the **empty string** — the historical empty-string special case, which (per
+    // step 6's note) is NOT parsed, unlike `location.href = ""`.  Otherwise parse
+    // it relative to the document URL and run the can-have-url-rewritten gate.
     let url_arg = args.get(2).copied().unwrap_or(JsValue::Undefined);
-    let (new_url, pushed_url) = if matches!(url_arg, JsValue::Undefined | JsValue::Null) {
-        (ctx.vm.navigation.current_url.clone(), None)
+    let new_url = if matches!(url_arg, JsValue::Undefined | JsValue::Null) {
+        ctx.vm.navigation.current_url.clone()
     } else {
         let sid = coerce::to_string(ctx.vm, url_arg)?;
         let input = ctx.vm.strings.get_utf8(sid);
-        // §7.2.5 step 6.1: parse `url` relative to the current document URL.
-        let Ok(parsed) = ctx.vm.navigation.current_url.join(&input) else {
-            let syntax = ctx.vm.well_known.dom_exc_syntax_error;
-            return Err(VmError::dom_exception(
-                syntax,
-                format!(
-                    "Failed to execute 'pushState'/'replaceState' on 'History': invalid URL '{input}'."
-                ),
-            ));
-        };
-        // §7.2.5 step 6.3: "If document cannot have its URL rewritten to newURL,
-        // throw a SecurityError".  This is the document-URL-rewrite check
-        // ([`can_have_url_rewritten`]), NOT an origin comparison: they diverge for
-        // an inherited-origin `about:blank`/`srcdoc` document, whose URL is
-        // `about:blank`, so a rewrite to the inherited tuple origin's URL fails the
-        // scheme/host check even though `document_origin()` would match.  For an
-        // ordinary http(s) document this still rejects cross-origin rewrites
-        // (scheme/host/port differ).
-        if !can_have_url_rewritten(&ctx.vm.navigation.current_url, &parsed) {
-            let security = ctx.vm.well_known.dom_exc_security_error;
-            return Err(VmError::dom_exception(
-                security,
-                "Failed to execute 'pushState'/'replaceState' on 'History': the new URL must be same-origin with the document and rewritable from its URL.".to_string(),
-            ));
+        if input.is_empty() {
+            // Empty-string special case: keep the document URL unchanged, so a
+            // trailing `#fragment` survives (parsing "" would resolve it away).
+            ctx.vm.navigation.current_url.clone()
+        } else {
+            // §7.2.5 step 6.1: parse `url` relative to the current document URL.
+            let Ok(parsed) = ctx.vm.navigation.current_url.join(&input) else {
+                let syntax = ctx.vm.well_known.dom_exc_syntax_error;
+                return Err(VmError::dom_exception(
+                    syntax,
+                    format!(
+                        "Failed to execute 'pushState'/'replaceState' on 'History': invalid URL '{input}'."
+                    ),
+                ));
+            };
+            // §7.2.5 step 6.3: "If document cannot have its URL rewritten to
+            // newURL, throw a SecurityError".  This is the document-URL-rewrite
+            // check ([`can_have_url_rewritten`]), NOT an origin comparison: they
+            // diverge for an inherited-origin `about:blank`/`srcdoc` document,
+            // whose URL is `about:blank`, so a rewrite to the inherited tuple
+            // origin's URL fails the scheme/host check even though
+            // `document_origin()` would match.  For an ordinary http(s) document
+            // this still rejects cross-origin rewrites (scheme/host/port differ).
+            if !can_have_url_rewritten(&ctx.vm.navigation.current_url, &parsed) {
+                let security = ctx.vm.well_known.dom_exc_security_error;
+                return Err(VmError::dom_exception(
+                    security,
+                    "Failed to execute 'pushState'/'replaceState' on 'History': the new URL must be same-origin with the document and rewritable from its URL.".to_string(),
+                ));
+            }
+            parsed
         }
-        let serialized = parsed.to_string();
-        (parsed, Some(serialized))
     };
+
+    // The enqueued action carries the **effective** URL (newURL), never `None`, so
+    // it is self-contained: the per-turn queue's drop-oldest cap
+    // ([`NavigationState::pending_history`]) can evict an earlier action without
+    // stranding a later no-URL action that would otherwise be applied against the
+    // shell's (now stale) current URL.  (boa enqueues `None` for a no-URL call;
+    // the VM resolves it to the current document URL up front.)
+    let pushed_url = new_url.to_string();
 
     // §7.2.5 step 10 → §7.4.4 "URL and history update steps": synchronously set
     // the document URL + the current entry's state, so a same-script
@@ -250,15 +266,16 @@ fn state_mutate(
         ctx.vm.navigation.history_length = ctx.vm.navigation.current_index.saturating_add(1);
     }
 
-    // Enqueue for the shell to persist into its NavigationController.
+    // Enqueue for the shell to persist into its NavigationController (self-
+    // contained — `url` is always the effective newURL, see above).
     let action = if replace_index {
         HistoryAction::ReplaceState {
-            url: pushed_url,
+            url: Some(pushed_url),
             title,
         }
     } else {
         HistoryAction::PushState {
-            url: pushed_url,
+            url: Some(pushed_url),
             title,
         }
     };
