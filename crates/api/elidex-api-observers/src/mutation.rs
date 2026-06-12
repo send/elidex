@@ -239,8 +239,11 @@ impl MutationObserverRegistry {
                             }
                         }
                         MutationKind::CharacterData => init.character_data,
-                        // InlineStyle, CssRule, and future variants are not observed by MutationObserver.
-                        MutationKind::CssRule | _ => false,
+                        // CssRule (and future variants) are not observed by
+                        // MutationObserver. `el.style.*` mutations surface as
+                        // Attribute records via the `sync_to_attribute` →
+                        // `set_attribute` write-back, the spec-correct shape.
+                        _ => false,
                     };
                     if !kind_matches {
                         continue;

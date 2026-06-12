@@ -48,10 +48,16 @@
 //!
 //! `style.color = "red"` ↔ `style.setProperty("color", "red")` and
 //! `style.color` ↔ `style.getPropertyValue("color")` (CSSOM §6.6.1 named
-//! getter / setter).  Per design review IMP-1/2: named-exotic [[Set]]
-//! routes to the raw `setProperty` handler bypassing
-//! `parse_declaration_block`, so unknown property names like
-//! `style.foo = "bar"` write verbatim (matches Chrome).
+//! getter / setter).  Named-exotic [[Set]] routes to the `setProperty`
+//! handler, which implements the full §6.6.1 algorithm — the value is
+//! parsed for the property and stored in canonical longhand-expanded
+//! form; an unsupported property name or unparseable value is a no-op
+//! (step 2.2 / 6), so `style.foo = "bar"` adds no declaration.
+//! (Supersedes the earlier IMP-1/2 verbatim-write reading: Chrome's
+//! `setProperty` also rejects unknown properties at step 2.2 — the
+//! `el.style.foo` readback Chrome exhibits is a JS expando on the
+//! wrapper object, not a CSS declaration, and our wrapper is
+//! non-extensible.)
 
 #![cfg(feature = "engine")]
 
@@ -652,10 +658,10 @@ pub(crate) fn try_get(
 }
 
 /// `[[Set]]` trap (CSSOM §6.6.1 named setter).  Symbol keys fall through;
-/// string / numeric keys route to `setProperty`.  Per design review IMP-1/2:
-/// uses the **raw** `setProperty` handler — does NOT route through
-/// `parse_declaration_block`, so `style.foo = "bar"` writes verbatim
-/// (matches Chrome).  Computed source is a silent no-op (read-only block).
+/// string / numeric keys route to `setProperty`, which applies the full
+/// §6.6.1 algorithm (canonical value parse; unknown property /
+/// unparseable value ⇒ no-op).  Computed source is a silent no-op
+/// (read-only block).
 pub(crate) fn try_set(
     vm: &mut VmInner,
     id: ObjectId,

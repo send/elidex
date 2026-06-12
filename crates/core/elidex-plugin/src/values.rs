@@ -1071,6 +1071,17 @@ mod tests {
     }
 
     #[test]
+    fn escape_css_string_spec_edges() {
+        // CSSOM "serialize a string": U+0000 → U+FFFD (the only
+        // non-escape substitution), U+007F (DEL) → hex escape, and the
+        // hex escape always emits its trailing space so a following
+        // hex digit can't be absorbed into the escape on re-parse.
+        assert_eq!(escape_css_string("a\u{0}b"), "a\u{FFFD}b");
+        assert_eq!(escape_css_string("a\u{7f}b"), "a\\7f b");
+        assert_eq!(escape_css_string("\u{1}2"), "\\1 2");
+    }
+
+    #[test]
     fn to_css_string_translate_calc_argument() {
         // A calc() transform argument must round-trip, not collapse to a
         // literal.

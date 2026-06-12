@@ -81,7 +81,10 @@ fn sync_to_attribute(entity: Entity, dom: &mut EcsDom) {
 // style.setProperty
 // ---------------------------------------------------------------------------
 
-/// `element.style.setProperty(property, value)` — sets an inline style.
+/// `element.style.setProperty(property, value, priority?)` — sets an
+/// inline style declaration per the CSSOM §6.6.1 algorithm (empty value
+/// ⇒ remove; unsupported property / unparseable value / invalid
+/// priority ⇒ no-op; value stored in canonical longhand-expanded form).
 pub struct StyleSetProperty;
 
 impl DomApiHandler for StyleSetProperty {
@@ -109,6 +112,27 @@ impl DomApiHandler for StyleSetProperty {
             Some(_) => return Ok(JsValue::Undefined),
         };
 
+        // §6.6.1 step 3: an empty value means removeProperty.
+        if value.is_empty() {
+            ensure_inline_style(this, dom);
+            if let Ok(mut style) = dom.world_mut().get::<&mut InlineStyle>(this) {
+                style.remove(property.as_str());
+            }
+            sync_to_attribute(this, dom);
+            return Ok(JsValue::Undefined);
+        }
+
+        // §6.6.1 steps 2.2 / 5–6: parse the value for the property and
+        // store the canonical parsed form (longhand-expanded). An
+        // unsupported property, an unparseable value, or trailing input
+        // (including a smuggled `!important` or `; other: decl`) returns
+        // without effect — storing the raw string verbatim would let the
+        // cascade's re-parse of the written-back `style` attribute
+        // fabricate declarations / priority out of the value text.
+        let Some(decls) = elidex_css::parse_value_for_property(&property, &value) else {
+            return Ok(JsValue::Undefined);
+        };
+
         ensure_inline_style(this, dom);
 
         {
@@ -116,7 +140,9 @@ impl DomApiHandler for StyleSetProperty {
                 .world_mut()
                 .get::<&mut InlineStyle>(this)
                 .map_err(|_| not_found_error("element not found"))?;
-            style.set_with_priority(property, value, important);
+            for decl in decls {
+                style.set_with_priority(decl.property, decl.value.to_css_string(), important);
+            }
         }
         sync_to_attribute(this, dom);
         Ok(JsValue::Undefined)
@@ -432,7 +458,8 @@ mod tests {
                 &mut dom,
             )
             .unwrap();
-        assert_eq!(result, JsValue::String("red".into()));
+        // Canonical §6.6.1 parse: the `red` keyword stores in hex form.
+        assert_eq!(result, JsValue::String("#ff0000".into()));
     }
 
     #[test]
@@ -473,10 +500,10 @@ mod tests {
                 &mut dom,
             )
             .unwrap();
-        assert_eq!(value, JsValue::String("red".into()));
+        assert_eq!(value, JsValue::String("#ff0000".into()));
 
         let attrs = dom.world().get::<&Attributes>(elem).unwrap();
-        assert_eq!(attrs.get("style"), Some("color: red !important"));
+        assert_eq!(attrs.get("style"), Some("color: #ff0000 !important"));
     }
 
     #[test]
@@ -607,7 +634,7 @@ mod tests {
                 &mut dom,
             )
             .unwrap();
-        assert_eq!(result, JsValue::String("blue".into()));
+        assert_eq!(result, JsValue::String("#0000ff".into()));
 
         // Verify it's gone.
         let result = StyleGetPropertyValue
@@ -688,7 +715,7 @@ mod tests {
             .unwrap();
 
         let attrs = dom.world().get::<&Attributes>(elem).unwrap();
-        assert_eq!(attrs.get("style").unwrap(), "color: red");
+        assert_eq!(attrs.get("style").unwrap(), "color: #ff0000");
     }
 
     /// CRIT-1 regression: removeProperty must update `attrs("style")`.
@@ -746,7 +773,7 @@ mod tests {
             )
             .unwrap();
 
-        // Stored under "color" (lowercase).
+        // Stored under "color" (lowercase), canonical hex form.
         let result = StyleGetPropertyValue
             .invoke(
                 elem,
@@ -755,7 +782,7 @@ mod tests {
                 &mut dom,
             )
             .unwrap();
-        assert_eq!(result, JsValue::String("red".into()));
+        assert_eq!(result, JsValue::String("#ff0000".into()));
 
         // Mixed-case lookup also lowercases.
         let result = StyleGetPropertyValue
@@ -766,7 +793,7 @@ mod tests {
                 &mut dom,
             )
             .unwrap();
-        assert_eq!(result, JsValue::String("red".into()));
+        assert_eq!(result, JsValue::String("#ff0000".into()));
     }
 
     /// IMP-3: custom properties (`--*`) preserve case (CSS Variables L1 §2).

@@ -79,7 +79,7 @@ fn named_set_and_get() {
     let out = run("var d = document.createElement('div'); \
          d.style.color = 'red'; \
          d.style.color;");
-    assert_eq!(out, "red");
+    assert_eq!(out, "#ff0000");
 }
 
 /// CRIT-1 regression in JS: setting through `el.style.color` must
@@ -89,7 +89,7 @@ fn set_property_syncs_to_attrs_style() {
     let out = run("var d = document.createElement('div'); \
          d.style.color = 'red'; \
          d.getAttribute('style');");
-    assert_eq!(out, "color: red");
+    assert_eq!(out, "color: #ff0000");
 }
 
 #[test]
@@ -110,7 +110,7 @@ fn set_property_important_priority_round_trip() {
          d.style.getPropertyPriority('color') + '/' + \
          d.style.getPropertyValue('color') + '/' + \
          d.getAttribute('style');");
-    assert_eq!(out, "important/red/color: red !important");
+    assert_eq!(out, "important/#ff0000/color: #ff0000 !important");
 }
 
 /// CSSOM §6.6.1 `setProperty` step 4: a priority that is neither empty
@@ -133,6 +133,41 @@ fn set_property_clears_priority_on_normal_set() {
     assert_eq!(out, "");
 }
 
+/// The named-exotic set path (`style.color = ...`) reaches the same
+/// `style.setProperty` handler with an empty priority, so it too must
+/// clear a prior `!important` flag (CSSOM §6.6.1).
+#[test]
+fn named_set_clears_priority() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('color', 'red', 'important'); \
+         d.style.color = 'blue'; \
+         d.style.getPropertyPriority('color');");
+    assert_eq!(out, "");
+}
+
+/// §6.6.1 steps 5–6: a value with trailing input — a smuggled
+/// `!important` or an injected `; other: decl` — is rejected whole, so
+/// the style attribute the cascade re-parses can't grow fabricated
+/// declarations or priority out of a value string.
+#[test]
+fn set_property_rejects_value_injection() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('color', 'red; background: url(//evil)'); \
+         d.style.setProperty('width', '10px !important'); \
+         '|' + d.style.cssText + '|' + (d.getAttribute('style') || '') + '|';");
+    assert_eq!(out, "|||");
+}
+
+/// §6.6.1 step 3: the empty string as value removes the declaration.
+#[test]
+fn set_property_empty_value_removes() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('display', 'block'); \
+         d.style.setProperty('display', ''); \
+         '|' + d.style.getPropertyValue('display') + '|' + d.style.length;");
+    assert_eq!(out, "||0");
+}
+
 #[test]
 fn delete_via_named_exotic() {
     let out = run("var d = document.createElement('div'); \
@@ -152,7 +187,7 @@ fn remove_property_returns_old_value() {
     let out = run("var d = document.createElement('div'); \
          d.style.color = 'blue'; \
          d.style.removeProperty('color');");
-    assert_eq!(out, "blue");
+    assert_eq!(out, "#0000ff");
 }
 
 // --- length / item / indexed exotic --------------------------------
@@ -195,7 +230,8 @@ fn css_text_set_and_get() {
 fn css_text_get_serializes() {
     let out = run("var d = document.createElement('div'); \
          d.style.color = 'red'; \
-         d.style.cssText.indexOf('color: red') >= 0 ? 'yes' : 'no';");
+         d.style.cssText.indexOf('color: #ff0000') >= 0 ? 'yes' : 'no';");
+    // Canonical §6.6.1 value parse: `red` stores in hex form.
     assert_eq!(out, "yes");
 }
 
@@ -216,7 +252,7 @@ fn property_name_lowercased() {
     let out = run("var d = document.createElement('div'); \
          d.style.setProperty('Color', 'red'); \
          d.style.getPropertyValue('color');");
-    assert_eq!(out, "red");
+    assert_eq!(out, "#ff0000");
 }
 
 #[test]
@@ -365,7 +401,7 @@ fn indexed_delete_does_not_remove_property() {
          d.style.color = 'red'; \
          try { delete d.style[0] } catch (e) {} \
          d.style.length + ':' + d.style.color;");
-    assert_eq!(out, "1:red");
+    assert_eq!(out, "1:#ff0000");
 }
 
 // --- prototype chain -----------------------------------------------

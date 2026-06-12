@@ -84,6 +84,54 @@ pub fn parse_inline_style(css: &str) -> InlineStyle {
     style
 }
 
+/// Parse `value` as the value of CSS property `property` (CSSOM §6.6.1
+/// `setProperty` steps 5–6, "parse a CSS value"). `property` must
+/// already be in canonical case (ASCII-lowercased unless a custom
+/// property). Returns the longhand-expanded declarations, or `None`
+/// when the property is unsupported, the value fails to parse, or
+/// trailing input remains after the value grammar.
+///
+/// The exhaustion check is load-bearing for both spec fidelity and
+/// safety: a value like `red; background: url(//evil)` or
+/// `red !important` parses a prefix and leaves trailing tokens — per
+/// the spec it must be rejected whole (the §6.6.1 note: value cannot
+/// include `!important`; priority travels as a separate argument), and
+/// accepting it verbatim would fabricate declarations / priority when
+/// the serialized block is re-parsed by the cascade.
+///
+/// Custom properties accept any `<declaration-value>` — which excludes
+/// a *top-level* `;` (CSS Syntax) — stored as raw tokens; `;` inside
+/// nested blocks/functions is fine.
+#[must_use]
+pub fn parse_value_for_property(property: &str, value: &str) -> Option<Vec<Declaration>> {
+    let mut pi = ParserInput::new(value);
+    let mut input = Parser::new(&mut pi);
+    if property.starts_with("--") {
+        // Walk top-level tokens only (cssparser skips unentered nested
+        // blocks), rejecting a declaration-boundary `;`.
+        loop {
+            match input.next() {
+                Ok(&Token::Semicolon) => return None,
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        let raw = value.trim();
+        if raw.is_empty() {
+            return None;
+        }
+        return Some(vec![Declaration::new(
+            property,
+            CssValue::RawTokens(raw.to_string()),
+        )]);
+    }
+    let decls = parse_property_value(property, &mut input, None);
+    if decls.is_empty() || !input.is_exhausted() {
+        return None;
+    }
+    Some(decls)
+}
+
 /// Parse an inline style attribute string into declarations.
 ///
 /// Shorthand properties are expanded into their longhand equivalents.

@@ -644,8 +644,10 @@ fn style_css_text_getter() {
     assert!(result.success, "eval should succeed: {:?}", result.error);
 
     let output = runtime.console_output().messages();
+    // Canonical §6.6.1 setProperty: the `margin` shorthand expands to
+    // its four longhands, so the block holds color + 4 margin-* = 5.
     assert!(
-        output.iter().any(|m| m.1.contains("len=2")),
+        output.iter().any(|m| m.1.contains("len=5")),
         "got: {output:?}"
     );
     assert!(

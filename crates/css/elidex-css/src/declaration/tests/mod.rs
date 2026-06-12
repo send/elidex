@@ -111,3 +111,43 @@ fn inline_style_important_on_shorthand_expands_to_longhands() {
     assert!(style.is_important("margin-top"));
     assert!(style.is_important("margin-left"));
 }
+
+// --- parse_value_for_property (CSSOM §6.6.1 setProperty value parse) ---
+
+#[test]
+fn value_for_property_basic_and_shorthand() {
+    let decls = parse_value_for_property("color", "red").expect("valid value");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "color");
+
+    let decls = parse_value_for_property("margin", "10px").expect("shorthand value");
+    assert_eq!(decls.len(), 4);
+    assert!(decls.iter().any(|d| d.property == "margin-top"));
+}
+
+#[test]
+fn value_for_property_rejects_unsupported_and_unparseable() {
+    assert!(parse_value_for_property("not-a-property", "12px").is_none());
+    assert!(parse_value_for_property("color", "12px").is_none());
+}
+
+#[test]
+fn value_for_property_rejects_trailing_input() {
+    // Declaration injection: a `;` would fabricate a second declaration
+    // when the serialized block is re-parsed by the cascade.
+    assert!(parse_value_for_property("color", "red; background: url(//evil)").is_none());
+    // §6.6.1 note: value cannot include `!important` — priority is a
+    // separate argument.
+    assert!(parse_value_for_property("color", "red !important").is_none());
+}
+
+#[test]
+fn value_for_property_custom_property() {
+    let decls = parse_value_for_property("--x", "calc(1px + 2px)").expect("raw tokens");
+    assert_eq!(decls[0].property, "--x");
+    // Top-level `;` is not a <declaration-value> (CSS Syntax) — reject;
+    // `;` inside a nested block is fine.
+    assert!(parse_value_for_property("--x", "a; b").is_none());
+    assert!(parse_value_for_property("--x", "var(--y, a)").is_some());
+    assert!(parse_value_for_property("--x", "").is_none());
+}
