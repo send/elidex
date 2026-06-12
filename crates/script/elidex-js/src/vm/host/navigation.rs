@@ -30,10 +30,23 @@
 
 #![cfg(feature = "engine")]
 
+use std::collections::VecDeque;
+
 use elidex_script_session::{HistoryAction, NavigationRequest};
 use url::Url;
 
 use super::super::value::JsValue;
+
+/// Upper bound on the per-turn pending-history queue (memory safety).  A tight
+/// `while (true) history.pushState(...)` loop appends one `HistoryAction` per
+/// call, and the shell only drains + applies its `NavigationController` cap
+/// *after* the script turn — so without a VM-side bound a runaway loop could grow
+/// memory without limit before the controller ever evicts.  Beyond this many
+/// buffered actions the oldest is dropped (the session history keeps only its
+/// most-recent entries on drain regardless), keeping the queue — and the last
+/// entry, which matches the synchronously-updated `current_url` — bounded.  Set
+/// well above any legitimate per-turn history-mutation count.
+const MAX_PENDING_HISTORY_ACTIONS: usize = 1024;
 
 /// Per-`Vm` navigation state — the **current-document view** of the shell-owned
 /// session history (see the module docs). Not a session-history stack: the
@@ -93,8 +106,10 @@ pub(crate) struct NavigationState {
     /// (`pushState('/a'); pushState('/b')`) must both reach the shell in order —
     /// a last-wins slot would silently drop `/a`'s entry.  (Contrast
     /// `pending_navigation`, single-slot last-wins: navigations are async and
-    /// supersede one another.)
-    pub(crate) pending_history: Vec<HistoryAction>,
+    /// supersede one another.)  Bounded at [`MAX_PENDING_HISTORY_ACTIONS`] —
+    /// drop-oldest — so a runaway `pushState` loop cannot grow memory unbounded
+    /// before the shell drains (see [`Self::enqueue_history`]).
+    pub(crate) pending_history: VecDeque<HistoryAction>,
     /// URL of the previous Document, used to back `document.referrer` (WHATWG
     /// HTML §3.1.4 "Resource metadata management").  `None` when no previous
     /// Document is recorded — the spec maps this to the empty string at the JS
@@ -119,7 +134,7 @@ impl NavigationState {
             history_length: 1,
             current_state: JsValue::Null,
             pending_navigation: None,
-            pending_history: Vec::new(),
+            pending_history: VecDeque::new(),
             referrer: None,
         }
     }
@@ -144,9 +159,15 @@ impl NavigationState {
     /// turn's synchronous `pushState`/`replaceState` mutations all reach the shell
     /// in order — see [`Self::pending_history`]).  Used by `back`/`forward`/`go`
     /// (pure intent) and by `pushState`/`replaceState` (after their synchronous
-    /// URL+state update).
+    /// URL+state update).  Bounded drop-oldest at [`MAX_PENDING_HISTORY_ACTIONS`]:
+    /// a runaway loop stays at the cap (the dropped oldest entries would be
+    /// evicted by the shell's session-history cap anyway), and the newest action —
+    /// matching the synchronously-updated `current_url` — is always retained.
     pub(crate) fn enqueue_history(&mut self, action: HistoryAction) {
-        self.pending_history.push(action);
+        if self.pending_history.len() >= MAX_PENDING_HISTORY_ACTIONS {
+            self.pending_history.pop_front();
+        }
+        self.pending_history.push_back(action);
     }
 }
 

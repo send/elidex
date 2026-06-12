@@ -39,10 +39,11 @@ fn new_vm_with_base() -> Vm {
     vm
 }
 
-/// Drain the FIFO history queue (S1c — `pending_history` is a `Vec`, so a turn's
-/// synchronous `pushState`/`replaceState` mutations are all preserved in order).
+/// Drain the FIFO history queue (S1c — `pending_history` is a bounded `VecDeque`,
+/// so a turn's synchronous `pushState`/`replaceState` mutations are preserved in
+/// order up to the cap).
 fn drain_history(vm: &mut Vm) -> Vec<HistoryAction> {
-    std::mem::take(&mut vm.inner.navigation.pending_history)
+    std::mem::take(&mut vm.inner.navigation.pending_history).into()
 }
 
 /// Drain and assert exactly one enqueued history action.
@@ -86,23 +87,63 @@ fn history_scroll_restoration_is_auto() {
 }
 
 #[test]
-fn push_state_grows_length_replace_state_does_not_then_shell_reconciles() {
-    // `pushState` appends a session-history entry, so `history.length` grows by
-    // one synchronously (§7.4.4 with history handling "push"); `replaceState`
-    // overwrites the current entry, leaving the count unchanged.
+fn history_length_is_shell_pushed_not_vm_grown() {
+    // `history.length` is shell-authoritative: pushState does NOT bump it
+    // synchronously.  A faithful count needs the current session-history index
+    // (pushState discards forward entries before appending, so the new length is
+    // index+2, not length+1) — which the VM's current-document view lacks (slot
+    // `#11-history-length-index-sync-fidelity`).  The shell's `set_history_length`
+    // is the only writer.
     let mut vm = new_vm_with_base();
-    assert_eq!(eval_number(&mut vm, "history.length;"), 1.0); // default current entry
     vm.eval("history.pushState(null, '', '/a'); history.pushState(null, '', '/b');")
         .unwrap();
-    assert_eq!(eval_number(&mut vm, "history.length;"), 3.0); // 1 + two pushes
-    vm.eval("history.replaceState(null, '', '/c');").unwrap();
-    // `replaceState` overwrites the current entry, so the count is unchanged.
-    assert_eq!(eval_number(&mut vm, "history.length;"), 3.0);
-    // The shell reconciles the authoritative count after draining its enqueued
-    // actions; `set_history_length` overwrites, so the synchronous bump never
-    // double-counts.
+    assert_eq!(eval_number(&mut vm, "history.length;"), 1.0); // unchanged by pushState
     vm.inner.navigation.history_length = 7;
     assert_eq!(eval_number(&mut vm, "history.length;"), 7.0);
+}
+
+#[test]
+fn history_go_uses_webidl_modular_long_conversion() {
+    // WebIDL `long` is ConvertToInt(V, 32, "signed") = ECMA-262 ToInt32, which
+    // wraps modulo 2^32 — NOT a saturating clamp.  `go(4294967295)` → -1 (a
+    // one-step back), `go(4294967296)` → 0, `go(-1)` → -1; a large in-range value
+    // passes through.
+    let mut vm = new_vm_with_base();
+    vm.eval("history.go(4294967295);").unwrap();
+    assert!(matches!(take_one_history(&mut vm), HistoryAction::Go(-1)));
+    vm.eval("history.go(4294967296);").unwrap();
+    assert!(matches!(take_one_history(&mut vm), HistoryAction::Go(0)));
+    vm.eval("history.go(-1);").unwrap();
+    assert!(matches!(take_one_history(&mut vm), HistoryAction::Go(-1)));
+    vm.eval("history.go(2000000000);").unwrap();
+    assert!(matches!(
+        take_one_history(&mut vm),
+        HistoryAction::Go(2_000_000_000)
+    ));
+}
+
+#[test]
+fn pending_history_queue_is_bounded_drop_oldest() {
+    // A runaway `pushState` loop must not grow the queue without limit: it is
+    // capped (drop-oldest), and the newest entry — matching the synchronously
+    // updated `current_url` — is always retained.
+    let mut vm = new_vm_with_base();
+    vm.eval("for (let i = 0; i < 5000; i++) { history.pushState(null, '', '/p' + i); }")
+        .unwrap();
+    // current_url tracked every push synchronously (independent of the queue cap).
+    assert_eq!(eval_string(&mut vm, "location.pathname;"), "/p4999");
+    let actions = drain_history(&mut vm);
+    assert_eq!(
+        actions.len(),
+        1024,
+        "queue capped at MAX_PENDING_HISTORY_ACTIONS"
+    );
+    match actions.last() {
+        Some(HistoryAction::PushState { url, .. }) => {
+            assert_eq!(url.as_deref(), Some("http://localhost/p4999")); // newest kept
+        }
+        other => panic!("expected newest PushState /p4999 retained, got {other:?}"),
+    }
 }
 
 #[test]

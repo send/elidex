@@ -200,7 +200,7 @@ impl ElidexJsEngine {
     /// several that must all be applied in order (`pending_navigation`, async and
     /// last-wins, stays a single slot).
     pub fn take_pending_history(&mut self) -> Vec<HistoryAction> {
-        std::mem::take(&mut self.vm.inner.navigation.pending_history)
+        std::mem::take(&mut self.vm.inner.navigation.pending_history).into()
     }
 
     /// Push the session-history length into the engine so `history.length` reads

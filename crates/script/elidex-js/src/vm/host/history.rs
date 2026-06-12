@@ -17,13 +17,16 @@
 //!   on commit are the shell's job (slot
 //!   `#11-history-state-traversal-popstate-fidelity`).
 //! - `pushState()` / `replaceState()` (§7.2.5 "shared history push/replace state
-//!   steps" → §7.4.4 "URL and history update steps") run **synchronously**: a
-//!   same-origin gate (§7.2.5 step 6.3), then an in-place `current_url` +
-//!   `history.state` update (and, for `pushState`, a `history.length` bump for the
-//!   appended entry), then an **enqueue** for the shell to persist.
-//! - `history.length` reads `history_length` (shell-pushed, plus the synchronous
-//!   `pushState` bump the shell reconciles); `history.state` reads the
-//!   synchronously-maintained `current_state`.
+//!   steps" → §7.4.4 "URL and history update steps") run **synchronously**: the
+//!   URL-rewrite gate (§7.2.5 step 6.3 — "can have its URL rewritten", a
+//!   document-URL check), then an in-place `current_url` + `history.state` update,
+//!   then an **enqueue** for the shell to persist.
+//! - `history.length` reads the shell-pushed `history_length`; `history.state`
+//!   reads the synchronously-maintained `current_state`.  `history.length` is
+//!   **not** bumped synchronously by `pushState`: a faithful count needs the
+//!   current session-history index (pushState discards forward entries before
+//!   appending), which the VM's current-document view lacks — deferred to the
+//!   shell back-channel (slot `#11-history-length-index-sync-fidelity`).
 //!
 //! `history.state` holds the value as a bare [`JsValue`] (identity round-trip);
 //! `StructuredSerializeForStorage` (§7.2.5 step 4) is part of the deferred
@@ -32,10 +35,42 @@
 #![cfg(feature = "engine")]
 
 use elidex_script_session::HistoryAction;
+use url::Url;
 
 use super::super::coerce;
 use super::super::value::{JsValue, NativeContext, VmError};
 use super::super::VmInner;
+
+/// WHATWG HTML "a Document `document` can have its URL rewritten to a URL
+/// `target`" (nav-history-apis §, the pushState/replaceState §7.2.5 step 6.3
+/// gate).  This is a **document-URL** comparison, NOT an origin comparison: the
+/// two diverge for an inherited-origin `about:blank`/`srcdoc` document, whose
+/// URL is `about:blank` — so a rewrite to the inherited tuple origin's URL fails
+/// the scheme/host check even though `document_origin()` would match (the spec
+/// notes the document URL can mismatch the origin for inherited-origin and
+/// sandbox cases).  For an ordinary http(s) document this still rejects
+/// cross-origin rewrites (scheme/host/port differ).
+fn can_have_url_rewritten(document_url: &Url, target: &Url) -> bool {
+    // Step 2: differ in scheme / username / password / host / port → false.
+    if document_url.scheme() != target.scheme()
+        || document_url.username() != target.username()
+        || document_url.password() != target.password()
+        || document_url.host_str() != target.host_str()
+        || document_url.port() != target.port()
+    {
+        return false;
+    }
+    // Step 3: HTTP(S) scheme → true (path/query/fragment differences allowed).
+    if matches!(target.scheme(), "http" | "https") {
+        return true;
+    }
+    // Step 4: file: → only the path must match (query/fragment allowed).
+    if target.scheme() == "file" {
+        return document_url.path() == target.path();
+    }
+    // Step 5: other schemes → path and query must match (only fragment differs).
+    document_url.path() == target.path() && document_url.query() == target.query()
+}
 
 // ---------------------------------------------------------------------------
 // Accessors
@@ -46,9 +81,10 @@ pub(super) fn native_history_get_length(
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // `history.length` (§7.2.5) is the session-history entry count: shell-pushed
-    // (the `NavigationController` owns the stack; `set_history_length` syncs it),
-    // plus the synchronous `pushState` bump the shell reconciles after the drain.
+    // `history.length` (§7.2.5) is the shell-pushed session-history entry count
+    // (the `NavigationController` owns the stack; `set_history_length` syncs it).
+    // NOT bumped synchronously by pushState — that needs the current index the VM
+    // view lacks (slot `#11-history-length-index-sync-fidelity`).
     // Clamp via `u32` to satisfy clippy::cast_lossless.
     let len = u32::try_from(ctx.vm.navigation.history_length).unwrap_or(u32::MAX);
     Ok(JsValue::Number(f64::from(len)))
@@ -116,23 +152,14 @@ pub(super) fn native_history_go(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // §7.2.5 `go(optional long delta = 0)` — the WebIDL `long` is ToInt32.
-    // `go(0)` reloads the current entry (the shell's `NavigationController.go(0)`
-    // re-fetches), so it enqueues `Go(0)` rather than no-op'ing.
-    let delta_f = match args.first().copied().unwrap_or(JsValue::Undefined) {
-        JsValue::Undefined => 0.0,
-        other => coerce::to_number(ctx.vm, other)?,
-    };
-    #[allow(clippy::cast_possible_truncation)]
-    let delta = if delta_f.is_finite() {
-        // For history.go an out-of-range delta no-ops in the shell controller, so
-        // a saturating cast is observable-equivalent to the modular ToInt32.
-        delta_f
-            .trunc()
-            .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32
-    } else {
-        0
-    };
+    // §7.2.5 `go(optional long delta = 0)`.  The WebIDL `long` conversion is
+    // ConvertToInt(V, 32, "signed") (Web IDL §3.2.4.9) = ECMAScript ToInt32
+    // (ECMA-262 §7.1.7): it wraps **modulo 2^32**, not a saturating clamp.  So
+    // `go(4294967295)` becomes `-1` (a one-step back) and must NOT clamp to
+    // `i32::MAX` (which the shell controller would treat as an out-of-range
+    // no-op).  A missing/`undefined` argument is ToInt32(undefined) = 0, so
+    // `go()` / `go(0)` reload the current entry (the shell's `go(0)` re-fetches).
+    let delta = coerce::to_int32(ctx.vm, args.first().copied().unwrap_or(JsValue::Undefined))?;
     enqueue_traversal(ctx, HistoryAction::Go(delta));
     Ok(JsValue::Undefined)
 }
@@ -142,11 +169,11 @@ pub(super) fn native_history_go(
 // ---------------------------------------------------------------------------
 
 /// Shared body for `pushState` / `replaceState` (WHATWG HTML §7.2.5 "shared
-/// history push/replace state steps").  Runs the same-origin gate (step 6.3),
-/// then the synchronous URL-and-history-update half (§7.4.4) — updating
-/// `current_url` + `history.state` in place so a same-script read observes them
-/// — then enqueues a [`HistoryAction`] for the shell to persist into its
-/// `NavigationController`.
+/// history push/replace state steps").  Runs the URL-rewrite gate (step 6.3 —
+/// [`can_have_url_rewritten`]), then the synchronous URL-and-history-update half
+/// (§7.4.4) — updating `current_url` + `history.state` in place so a same-script
+/// read observes them — then enqueues a [`HistoryAction`] for the shell to
+/// persist into its `NavigationController`.
 fn state_mutate(
     ctx: &mut NativeContext<'_>,
     args: &[JsValue],
@@ -182,17 +209,18 @@ fn state_mutate(
             ));
         };
         // §7.2.5 step 6.3: "If document cannot have its URL rewritten to newURL,
-        // throw a SecurityError" — newURL's origin must equal the document origin
-        // (S1b `document_origin()`).  A sandboxed/opaque document can only rewrite
-        // to its own opaque origin, which a fresh parse never reproduces, so its
-        // pushState always throws — matching browsers.  For an unsandboxed
-        // document this is the cross-origin check (`document_origin` ==
-        // `current_url`'s tuple origin).
-        if ctx.vm.document_origin() != elidex_plugin::SecurityOrigin::from_url(&parsed) {
+        // throw a SecurityError".  This is the document-URL-rewrite check
+        // ([`can_have_url_rewritten`]), NOT an origin comparison: they diverge for
+        // an inherited-origin `about:blank`/`srcdoc` document, whose URL is
+        // `about:blank`, so a rewrite to the inherited tuple origin's URL fails the
+        // scheme/host check even though `document_origin()` would match.  For an
+        // ordinary http(s) document this still rejects cross-origin rewrites
+        // (scheme/host/port differ).
+        if !can_have_url_rewritten(&ctx.vm.navigation.current_url, &parsed) {
             let security = ctx.vm.well_known.dom_exc_security_error;
             return Err(VmError::dom_exception(
                 security,
-                "Failed to execute 'pushState'/'replaceState' on 'History': the new URL must be same-origin with the document.".to_string(),
+                "Failed to execute 'pushState'/'replaceState' on 'History': the new URL must be same-origin with the document and rewritable from its URL.".to_string(),
             ));
         }
         let serialized = parsed.to_string();
@@ -206,15 +234,14 @@ fn state_mutate(
     ctx.vm.navigation.current_url = new_url;
     ctx.vm.navigation.current_state = state;
 
-    // `pushState` appends a new session-history entry (§7.4.4 with history
-    // handling "push"), so `history.length` grows by one synchronously; a
-    // same-turn read must observe it.  `replaceState` ("replace") overwrites the
-    // current entry, leaving the count unchanged.  The shell reconciles the
-    // authoritative count via `set_history_length` after draining the enqueued
-    // action (which overwrites, so there is no double-count).
-    if !replace_index {
-        ctx.vm.navigation.history_length = ctx.vm.navigation.history_length.saturating_add(1);
-    }
+    // NB `history.length` is deliberately NOT bumped here.  `pushState` discards
+    // the forward entries before appending, so the faithful new length is the
+    // current index + 2 — and the VM's current-document view does not track the
+    // index (the shell's `NavigationController` owns it).  An unconditional `+1`
+    // would over-count after a traversal left forward entries.  `history.length`
+    // therefore stays shell-authoritative (reconciled on drain); synchronous
+    // length+index fidelity is deferred to a shell back-channel that pushes the
+    // index (slot `#11-history-length-index-sync-fidelity`).
 
     // Enqueue for the shell to persist into its NavigationController.
     let action = if replace_index {

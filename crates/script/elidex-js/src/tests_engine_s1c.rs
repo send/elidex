@@ -200,12 +200,14 @@ fn eval_multiple_push_states_drain_in_fifo_order() {
 }
 
 #[test]
-fn eval_push_state_grows_history_length_synchronously() {
-    // `pushState` bumps `history.length` in the same turn (§7.4.4); the shell's
-    // later `set_history_length` reconciles (and overwrites, so no double-count).
+fn eval_push_state_does_not_grow_history_length() {
+    // `history.length` is shell-authoritative — pushState does NOT bump it
+    // synchronously (a faithful count needs the session-history index the VM view
+    // lacks; slot `#11-history-length-index-sync-fidelity`).  The shell's
+    // `set_history_length` is the only writer.
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
     engine.set_current_url(Some(url("https://localhost/")));
-    engine.set_history_length(2); // shell-pushed starting count
+    engine.set_history_length(2); // shell-pushed count
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
     bind_engine(&mut engine, &mut ctx);
     let r = ScriptEngine::eval(
@@ -215,6 +217,34 @@ fn eval_push_state_grows_history_length_synchronously() {
     );
     assert!(r.success);
     engine.unbind();
-    // 2 (start) + 1 (push); replaceState does not grow the count.
-    assert_eq!(engine.history_length(), 3);
+    assert_eq!(engine.history_length(), 2); // unchanged — shell reconciles on drain
+}
+
+#[test]
+fn eval_push_state_gate_uses_document_url_not_inherited_origin() {
+    // §7.2.5 step 6.3 is the document-URL-rewrite check, not an origin compare:
+    // an `about:blank` document carrying an inherited tuple origin (an S1b
+    // `set_origin` override) must STILL reject a pushState to that origin's URL,
+    // because `about:blank` cannot be rewritten to an `https:` URL (scheme
+    // differs) — even though the inherited origin would match.
+    let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    // current_url stays the about:blank default; install the inherited origin.
+    engine.set_origin(elidex_plugin::SecurityOrigin::from_url(&url(
+        "https://parent.example/",
+    )));
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    bind_engine(&mut engine, &mut ctx);
+    let r = ScriptEngine::eval(
+        &mut engine,
+        "var ok = false;\
+         try { history.pushState(null, '', 'https://parent.example/x'); }\
+         catch (e) { ok = e instanceof DOMException && e.name === 'SecurityError'; }\
+         ok;",
+        &mut ctx,
+    );
+    assert!(r.success); // the script runs; the SecurityError is caught inside it
+    engine.unbind();
+    // The rejected pushState neither rewrote the URL nor enqueued an action.
+    assert_eq!(engine.current_url(), Some(url("about:blank")));
+    assert!(engine.take_pending_history().is_empty());
 }
