@@ -73,7 +73,8 @@ pub enum CssValue {
     Angle(f32),
     /// A gradient value (linear, radial, or conic).
     Gradient(Box<GradientValue>),
-    /// A list of CSS transform functions (CSS Transforms L1 §5 / L2 §6).
+    /// A list of CSS transform functions (CSS Transforms L1 §7 / L2 §12,
+    /// "The Transform Functions").
     TransformList(Vec<TransformFunction>),
 }
 
@@ -135,8 +136,9 @@ pub enum AngleOrDirection {
 
 impl GradientValue {
     /// Serialize this gradient back to its CSS function form
-    /// (`linear-gradient(...)` etc.), re-parseable by the gradient
-    /// parser. Backs [`CssValue::to_css_string`].
+    /// (`linear-gradient(...)` etc., CSS Images 3 §3 "Gradients"),
+    /// re-parseable by the gradient parser. Backs
+    /// [`CssValue::to_css_string`].
     ///
     /// This is the *specified-value* serializer (round-trips the parsed
     /// AST). The *resolved-value* gradient serializers for
@@ -235,7 +237,8 @@ impl GradientValue {
     }
 }
 
-/// A single CSS transform function (CSS Transforms L1 §5, L2 §6).
+/// A single CSS transform function (CSS Transforms L1 §7 / L2 §12,
+/// "The Transform Functions").
 #[derive(Clone, Debug, PartialEq)]
 pub enum TransformFunction {
     // --- Level 1 ---
@@ -285,7 +288,8 @@ pub enum TransformFunction {
 }
 
 impl TransformFunction {
-    /// Serialize this transform function to its CSS string representation.
+    /// Serialize this transform function to its CSS string
+    /// representation (CSS Transforms L1 §7 / L2 §12 function forms).
     ///
     /// Non-finite values (NaN, Infinity) are replaced with 0 to ensure
     /// valid CSS output.
@@ -478,6 +482,12 @@ impl CalcExpr {
     /// Serialize this expression as the body of a `calc()` function (no
     /// outer `calc(...)` wrapper — [`CssValue::to_css_string`] adds it).
     ///
+    /// This is a grouping-preserving round-trip serializer, not the
+    /// canonicalizing css-values-4 "serialize a math function" (which
+    /// would simplify the tree) — accepted divergence: the output
+    /// re-parses to the same tree, which is all the declaration
+    /// round-trip needs.
+    ///
     /// Compound operands are parenthesized so the re-parsed tree
     /// preserves grouping (`a - (b + c)` must not flatten to
     /// `a - b + c`); the `calc()` parser accepts nested parentheses.
@@ -588,6 +598,11 @@ impl CssValue {
             Self::Initial => "initial".into(),
             Self::Inherit => "inherit".into(),
             Self::Unset => "unset".into(),
+            // KNOWN GAP: `List` does not record its separator, so this
+            // comma-join is wrong for space-separated lists (grid track
+            // lists, `text-decoration-line`, `counter-reset`) — those
+            // values don't re-parse. Needs separator semantics on the
+            // type: slot `#11-cssvalue-list-separator-fidelity`.
             Self::List(items) => items
                 .iter()
                 .map(Self::to_css_string)

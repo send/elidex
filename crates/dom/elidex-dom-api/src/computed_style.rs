@@ -13,7 +13,8 @@ use crate::util::require_string_arg;
 /// and `args[0]` = property name. The boa bridge decomposes the full
 /// `getComputedStyle(el).propertyName` pattern into this single call.
 ///
-/// Per CSS Color Level 4 section 5.3 (:visited privacy restrictions),
+/// Per Selectors Level 4 §8.2 "The Link History Pseudo-classes" (:visited
+/// privacy restrictions),
 /// color-related properties must return the unvisited (:link) computed
 /// value for elements with the VISITED state flag, preventing history
 /// sniffing via `getComputedStyle()` probes. Resolution currently never
@@ -43,7 +44,7 @@ impl DomApiHandler for GetComputedStyle {
                 message: "element has no computed style".into(),
             })?;
 
-        // CSS Color Level 4 §5.3 (:visited privacy): the restricted
+        // Selectors 4 §8.2 (:link/:visited privacy): the restricted
         // color properties (color / background-color / border-*-color /
         // outline-color / text-decoration-color / fill / stroke …) must
         // return the unvisited (:link) value. Our style resolution does
@@ -145,7 +146,7 @@ mod tests {
 
     #[test]
     fn visited_privacy_returns_unvisited_color() {
-        // CSS Color Level 4 §5.3: :visited elements should return
+        // Selectors 4 §8.2: :visited elements should return
         // unvisited values for color-related properties.
         let mut dom = EcsDom::new();
         let elem = dom.create_element("a", Attributes::default());

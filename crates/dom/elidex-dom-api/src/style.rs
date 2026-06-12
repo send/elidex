@@ -53,6 +53,25 @@ fn ensure_inline_style(entity: Entity, dom: &mut EcsDom) {
     let _ = dom.world_mut().insert_one(entity, hydrated);
 }
 
+/// Remove `property`'s declaration(s) from the block — shorthand-aware
+/// per CSSOM §6.6.1 `removeProperty`: a shorthand removes each longhand
+/// it maps to (the component's canonical key-space is longhand-expanded,
+/// so the shorthand key itself never exists). Returns the removed value
+/// for a longhand; for a shorthand returns `None` — §6.6.1 returns
+/// `getPropertyValue(property)`, and shorthand *read-side* serialization
+/// from longhands is deferred (slot `#11-style-shorthand-expand`), so
+/// the getter and this return value agree on the empty string.
+fn remove_declarations(style: &mut InlineStyle, property: &str) -> Option<String> {
+    let longhands = elidex_css::shorthand_longhands(property);
+    if longhands.is_empty() {
+        return style.remove(property);
+    }
+    for longhand in &longhands {
+        style.remove(longhand);
+    }
+    None
+}
+
 /// Round-trip the current `InlineStyle` declarations into `attrs("style")`
 /// so the cascade picks them up on the next walk.  CRIT-1 mitigation:
 /// `elidex_style::cascade::get_inline_declarations` reads from
@@ -102,25 +121,35 @@ impl DomApiHandler for StyleSetProperty {
         let property_raw = require_string_arg(args, 0)?;
         let property = normalize_property_name_owned(property_raw);
         let value = require_string_arg(args, 1)?;
-        // Optional third argument (CSSOM §6.6.1 `setProperty` step 4):
-        // empty / absent ⇒ normal priority, ASCII-case-insensitive
-        // "important" ⇒ important, anything else ⇒ return without effect.
+
+        // Stale-wrapper guard: same contract as the sibling mutators
+        // (`removeProperty` / `cssText.set`), before any early return.
+        if !dom.world().contains(this) {
+            return Err(not_found_error("element not found"));
+        }
+
+        // §6.6.1 step 3: an empty value means removeProperty
+        // (shorthand-aware, like the real handler). Runs BEFORE the
+        // step-4 priority check per the spec's step order — an invalid
+        // priority does not rescue the declaration from removal.
+        if value.is_empty() {
+            ensure_inline_style(this, dom);
+            if let Ok(mut style) = dom.world_mut().get::<&mut InlineStyle>(this) {
+                remove_declarations(&mut style, property.as_str());
+            }
+            sync_to_attribute(this, dom);
+            return Ok(JsValue::Undefined);
+        }
+
+        // §6.6.1 step 4: empty / absent priority ⇒ normal,
+        // ASCII-case-insensitive "important" ⇒ important, anything else
+        // ⇒ return without effect.
         let important = match args.get(2) {
             None | Some(JsValue::Undefined) => false,
             Some(JsValue::String(p)) if p.is_empty() => false,
             Some(JsValue::String(p)) if p.eq_ignore_ascii_case("important") => true,
             Some(_) => return Ok(JsValue::Undefined),
         };
-
-        // §6.6.1 step 3: an empty value means removeProperty.
-        if value.is_empty() {
-            ensure_inline_style(this, dom);
-            if let Ok(mut style) = dom.world_mut().get::<&mut InlineStyle>(this) {
-                style.remove(property.as_str());
-            }
-            sync_to_attribute(this, dom);
-            return Ok(JsValue::Undefined);
-        }
 
         // §6.6.1 steps 2.2 / 5–6: parse the value for the property and
         // store the canonical parsed form (longhand-expanded). An
@@ -195,6 +224,11 @@ impl DomApiHandler for StyleGetPropertyValue {
 /// `element.style.getPropertyPriority(property)` — returns `"important"`
 /// when the named inline declaration carries the `!important` flag, the
 /// empty string otherwise (CSSOM §6.6.1).
+///
+/// Like the sibling read handlers, this does not hydrate `InlineStyle`
+/// from `attrs("style")` on read (slot `#11-style-eager-read-hydration`):
+/// after a bare `setAttribute("style", "color: red !important")` with no
+/// intervening CSSOM mutation, this returns `""`.
 pub struct StyleGetPropertyPriority;
 
 impl DomApiHandler for StyleGetPropertyPriority {
@@ -259,7 +293,7 @@ impl DomApiHandler for StyleRemoveProperty {
         // `ensure_inline_style`.
         ensure_inline_style(this, dom);
         let old_value = match dom.world_mut().get::<&mut InlineStyle>(this) {
-            Ok(mut style) => style.remove(property.as_ref()).unwrap_or_default(),
+            Ok(mut style) => remove_declarations(&mut style, property.as_ref()).unwrap_or_default(),
             Err(_) => return Ok(JsValue::String(String::new())),
         };
         sync_to_attribute(this, dom);

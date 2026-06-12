@@ -133,8 +133,8 @@ const MAX_VALUE_DEPTH: usize = 32;
 
 /// Serialize a `CssValue` to its CSSOM resolved-value string.
 ///
-/// Follows CSSOM §6.7.2 (Serializing CSS Values) and CSS Color Level 4
-/// §15 (Serializing `<color>` Values):
+/// Follows CSSOM §6.7.2 (Serializing CSS Values) and CSS Color 4
+/// §16 (Serializing `<color>` Values):
 ///   - Opaque colors → `rgb(r, g, b)` (legacy comma syntax)
 ///   - Translucent colors → `rgba(r, g, b, a)` with alpha as `<number>` 0–1
 ///   - Lengths → `<number><unit>` (computed values are resolved to `px` by
@@ -147,7 +147,8 @@ fn css_value_to_string(value: &elidex_plugin::CssValue) -> String {
 fn css_value_to_string_inner(value: &elidex_plugin::CssValue, depth: usize) -> String {
     use elidex_plugin::CssValue;
     match value {
-        // CSS Color Level 4 §15 + CSSOM §6.7.2 *resolved-value* form:
+        // CSS Color 4 §16.2 (Serializing sRGB values) + CSSOM §6.7.2
+        //   *resolved-value* form:
         //   sRGB colors serialize as `rgb(r, g, b)` or `rgba(r, g, b, a)`
         //   (the canonical declaration-form serializer uses hex).
         //   Component values are integers 0–255; alpha is `<number>` 0–1.

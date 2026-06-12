@@ -60,8 +60,9 @@ impl Declaration {
 
 /// Parse a `style` content attribute string into an [`InlineStyle`]
 /// component — the canonical attribute→component derivation
-/// (One-issue-one-way). Every site that materializes `InlineStyle` from
-/// CSS text funnels through here: parser element creation
+/// (One-issue-one-way; CSSOM §6.6 "parse a CSS declaration block" over
+/// the style content attribute, CSS Style Attributes §3). Every site
+/// that materializes `InlineStyle` from CSS text funnels through here: parser element creation
 /// (`elidex-html-parser` `element_init`), CSSOM first-mutation hydration
 /// (`ensure_inline_style`), and the `style.cssText` setter.
 ///
@@ -99,22 +100,20 @@ pub fn parse_inline_style(css: &str) -> InlineStyle {
 /// accepting it verbatim would fabricate declarations / priority when
 /// the serialized block is re-parsed by the cascade.
 ///
-/// Custom properties accept any `<declaration-value>` — which excludes
-/// a *top-level* `;` (CSS Syntax) — stored as raw tokens; `;` inside
-/// nested blocks/functions is fine.
+/// Custom properties accept any `<declaration-value>` (CSS Syntax 3) —
+/// which excludes *top-level* `;` and `!` delimiters, plus bad-string /
+/// bad-url tokens and unmatched `)` / `]` / `}` at **any** nesting
+/// level — stored as raw tokens. A raw top-level `;` or `!` would
+/// fabricate a declaration boundary / priority on the serialized
+/// block's re-parse; nested `;` / `!` (inside blocks/functions) are
+/// legitimate and accepted.
 #[must_use]
 pub fn parse_value_for_property(property: &str, value: &str) -> Option<Vec<Declaration>> {
     let mut pi = ParserInput::new(value);
     let mut input = Parser::new(&mut pi);
     if property.starts_with("--") {
-        // Walk top-level tokens only (cssparser skips unentered nested
-        // blocks), rejecting a declaration-boundary `;`.
-        loop {
-            match input.next() {
-                Ok(&Token::Semicolon) => return None,
-                Ok(_) => {}
-                Err(_) => break,
-            }
+        if !is_declaration_value(&mut input, true) {
+            return None;
         }
         let raw = value.trim();
         if raw.is_empty() {
@@ -130,6 +129,45 @@ pub fn parse_value_for_property(property: &str, value: &str) -> Option<Vec<Decla
         return None;
     }
     Some(decls)
+}
+
+/// Walk `input` checking the CSS Syntax 3 `<declaration-value>`
+/// production: `;` and `!` are excluded at the top level only;
+/// bad-string / bad-url tokens and unmatched close brackets are
+/// excluded at any nesting level (a yielded close token IS unmatched —
+/// cssparser consumes a block's matching closer itself). Descends into
+/// nested blocks/functions recursively.
+fn is_declaration_value(input: &mut Parser, top_level: bool) -> bool {
+    loop {
+        let token = match input.next() {
+            Ok(t) => t.clone(),
+            Err(_) => return true,
+        };
+        match token {
+            Token::Semicolon | Token::Delim('!') if top_level => return false,
+            Token::BadString(_)
+            | Token::BadUrl(_)
+            | Token::CloseParenthesis
+            | Token::CloseSquareBracket
+            | Token::CloseCurlyBracket => return false,
+            Token::Function(_)
+            | Token::ParenthesisBlock
+            | Token::SquareBracketBlock
+            | Token::CurlyBracketBlock => {
+                let ok = input
+                    .parse_nested_block(|nested| {
+                        Ok::<bool, cssparser::ParseError<'_, ()>>(is_declaration_value(
+                            nested, false,
+                        ))
+                    })
+                    .unwrap_or(false);
+                if !ok {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Parse an inline style attribute string into declarations.
@@ -712,10 +750,14 @@ fn collect_remaining_tokens(input: &mut Parser) -> String {
 
 // --- Shorthand expansion helpers ---
 
-/// Expand a global keyword (inherit/initial/unset) for shorthand properties into
-/// their longhand equivalents. Longhand properties produce a single declaration.
-fn expand_global_keyword(name: &str, val: CssValue) -> Vec<Declaration> {
-    let longhands: Vec<String> = match name {
+/// The longhand properties a shorthand expands to, in canonical order
+/// (empty when `name` is not a shorthand). Single source for both the
+/// global-keyword expansion below and CSSOM §6.6.1 `removeProperty`
+/// step 2 ("If property is a shorthand property, for each longhand
+/// property longhand that property maps to…") in `elidex-dom-api`.
+#[must_use]
+pub fn shorthand_longhands(name: &str) -> Vec<String> {
+    match name {
         "margin" => box_model::SIDES
             .iter()
             .map(|s| format!("margin-{s}"))
@@ -803,9 +845,25 @@ fn expand_global_keyword(name: &str, val: CssValue) -> Vec<Declaration> {
             "column-rule-color".to_string(),
         ],
         "columns" => vec!["column-width".to_string(), "column-count".to_string()],
-        // Longhand properties: single declaration.
-        _ => return single_decl(name, val),
-    };
+        "overflow" => vec!["overflow-x".to_string(), "overflow-y".to_string()],
+        "border-radius" => vec![
+            "border-top-left-radius".to_string(),
+            "border-top-right-radius".to_string(),
+            "border-bottom-right-radius".to_string(),
+            "border-bottom-left-radius".to_string(),
+        ],
+        // Longhand properties: not a shorthand.
+        _ => Vec::new(),
+    }
+}
+
+/// Expand a global keyword (inherit/initial/unset) for shorthand properties into
+/// their longhand equivalents. Longhand properties produce a single declaration.
+fn expand_global_keyword(name: &str, val: CssValue) -> Vec<Declaration> {
+    let longhands = shorthand_longhands(name);
+    if longhands.is_empty() {
+        return single_decl(name, val);
+    }
     longhands
         .iter()
         .map(|p| Declaration::new(p.clone(), val.clone()))

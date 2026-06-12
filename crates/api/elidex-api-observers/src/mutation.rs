@@ -240,9 +240,13 @@ impl MutationObserverRegistry {
                         }
                         MutationKind::CharacterData => init.character_data,
                         // CssRule (and future variants) are not observed by
-                        // MutationObserver. `el.style.*` mutations surface as
-                        // Attribute records via the `sync_to_attribute` →
-                        // `set_attribute` write-back, the spec-correct shape.
+                        // MutationObserver. `el.style.*` mutations write back
+                        // through `sync_to_attribute` → `EcsDom::set_attribute`
+                        // (CSSOM §6.6 "update style attribute for"), and will
+                        // surface as Attribute records once ECS
+                        // attribute-change events are translated into session
+                        // MutationRecords — today only session-level mutation
+                        // producers reach this registry.
                         _ => false,
                     };
                     if !kind_matches {

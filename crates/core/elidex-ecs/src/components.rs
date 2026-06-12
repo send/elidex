@@ -471,6 +471,14 @@ impl InlineStyle {
 
     /// Serialize all properties to a CSS text string, including
     /// `!important` flags (CSSOM "serialize a CSS declaration block").
+    ///
+    /// Accepted divergences from the cited algorithm: declarations join
+    /// with `"; "` and the block carries no trailing `;` (the spec
+    /// emits one per declaration), and no shorthand reconstitution is
+    /// performed — the block serializes its longhand-expanded canonical
+    /// form (read-side shorthand serialization is deferred, slot
+    /// `#11-style-shorthand-expand`). Both round-trip losslessly
+    /// through `parse_declaration_block`.
     #[must_use]
     pub fn css_text(&self) -> String {
         self.properties

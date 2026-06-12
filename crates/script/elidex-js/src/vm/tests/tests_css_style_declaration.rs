@@ -168,6 +168,29 @@ fn set_property_empty_value_removes() {
     assert_eq!(out, "||0");
 }
 
+/// §6.6.1 removeProperty on a shorthand removes each mapped longhand —
+/// the component's canonical key-space is longhand-expanded, so the
+/// shorthand key itself never exists.
+#[test]
+fn remove_property_shorthand_removes_longhands() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('margin', '10px'); \
+         var before = d.style.length; \
+         d.style.removeProperty('margin'); \
+         before + '/' + d.style.length;");
+    assert_eq!(out, "4/0");
+}
+
+/// Same via the §6.6.1 step-3 empty-value path.
+#[test]
+fn set_property_empty_value_removes_shorthand() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('margin', '10px'); \
+         d.style.setProperty('margin', ''); \
+         '' + d.style.length;");
+    assert_eq!(out, "0");
+}
+
 #[test]
 fn delete_via_named_exotic() {
     let out = run("var d = document.createElement('div'); \

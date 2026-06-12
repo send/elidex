@@ -151,3 +151,76 @@ fn value_for_property_custom_property() {
     assert!(parse_value_for_property("--x", "var(--y, a)").is_some());
     assert!(parse_value_for_property("--x", "").is_none());
 }
+
+#[test]
+fn value_for_property_custom_property_declaration_value_exclusions() {
+    // <declaration-value> also excludes top-level `!` (priority
+    // fabrication), unmatched close brackets, and bad-string/bad-url.
+    assert!(parse_value_for_property("--x", "red !important").is_none());
+    assert!(parse_value_for_property("--x", "a ) b").is_none());
+    assert!(parse_value_for_property("--x", "a ] b").is_none());
+    assert!(parse_value_for_property("--x", "a } b").is_none());
+    // The same characters nested inside a function are legal.
+    assert!(parse_value_for_property("--x", "url(\"a;b\")").is_some());
+}
+
+#[test]
+fn shorthand_longhands_mapping() {
+    assert_eq!(
+        shorthand_longhands("margin"),
+        vec!["margin-top", "margin-right", "margin-bottom", "margin-left"]
+    );
+    assert!(shorthand_longhands("color").is_empty());
+    assert!(shorthand_longhands("--x").is_empty());
+}
+
+#[test]
+fn value_for_property_custom_property_nested_bad_tokens_rejected() {
+    // <declaration-value> excludes bad-string / bad-url / unmatched
+    // closers at ANY nesting level (only `;` / `!` are top-level-only).
+    assert!(parse_value_for_property("--x", "f(\"a\nb\")").is_none());
+    assert!(parse_value_for_property("--x", "f( ] )").is_none());
+    // Nested `;` / `!` remain legitimate.
+    assert!(parse_value_for_property("--x", "f(a;b)").is_some());
+    assert!(parse_value_for_property("--x", "f(a!b)").is_some());
+}
+
+#[test]
+fn shorthand_longhands_covers_every_multi_longhand_value_parse() {
+    // Invariant: every shorthand the value parser expands must have a
+    // `shorthand_longhands` entry covering its expansion — otherwise
+    // CSSOM removeProperty leaves longhand residue (re-check finding:
+    // `overflow` / `border-radius` were missing).
+    let samples = [
+        ("margin", "10px"),
+        ("padding", "10px"),
+        ("border", "1px solid red"),
+        ("border-top", "1px solid red"),
+        ("background", "red"),
+        ("font", "16px serif"),
+        ("flex", "1"),
+        ("flex-flow", "row wrap"),
+        ("gap", "4px"),
+        ("text-decoration", "underline"),
+        ("overflow", "hidden"),
+        ("border-radius", "4px"),
+        ("columns", "2"),
+        ("column-rule", "1px solid red"),
+        ("grid-column", "1 / 2"),
+        ("grid-row", "1 / 2"),
+    ];
+    for (shorthand, value) in samples {
+        let decls = parse_value_for_property(shorthand, value)
+            .unwrap_or_else(|| panic!("{shorthand}: {value} should parse"));
+        if decls.len() > 1 || decls.iter().any(|d| d.property != shorthand) {
+            let map = shorthand_longhands(shorthand);
+            for d in &decls {
+                assert!(
+                    map.contains(&d.property),
+                    "{shorthand} expands to {} but shorthand_longhands lacks it",
+                    d.property
+                );
+            }
+        }
+    }
+}
