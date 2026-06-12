@@ -100,6 +100,28 @@ fn set_method_and_get_method() {
     assert_eq!(out, "block");
 }
 
+/// Codex R2: registry-backed properties (`transform`, parsed via the
+/// CSS property registry, not the built-in match) must round-trip
+/// through the CSSOM surface — the registry-aware lazy `InlineStyle`
+/// hydration keeps them instead of dropping registry-less. Covers both
+/// the setProperty path and the parse-from-attribute path.
+#[test]
+fn registry_backed_property_round_trips() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('transform', 'rotate(45deg)'); \
+         d.style.getPropertyValue('transform') + '|' + \
+         (d.getAttribute('style') || '');");
+    assert_eq!(out, "rotate(45deg)|transform: rotate(45deg)");
+}
+
+#[test]
+fn registry_backed_property_from_attribute_round_trips() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('style', 'transform: rotate(45deg)'); \
+         d.style.getPropertyValue('transform') + '/' + d.style.length;");
+    assert_eq!(out, "rotate(45deg)/1");
+}
+
 /// CSSOM §6.6.1 `setProperty` third argument + `getPropertyPriority`:
 /// the priority is stored, readable, excluded from `getPropertyValue`,
 /// and re-emitted into the style attribute (cascade-visible).
@@ -472,19 +494,18 @@ fn style_prototype_chains_to_object_prototype() {
 
 // --- liveness / round-trip ----------------------------------------
 
-/// Read-side `attrs("style")` → `InlineStyle` hydration is deferred:
-/// `setAttribute("style", ...)` does not auto-populate `InlineStyle`,
-/// so a *pure read* like `el.style.getPropertyValue("color")` returns
-/// the empty string until the first mutation triggers
-/// `ensure_inline_style`'s seed-from-attrs hydration (Copilot R5 IMP-1
-/// fix).  Pinning the read-side divergence here keeps the eager-read-
-/// hydration follow-up traceable.
+/// Read-side `attrs("style")` → `InlineStyle` hydration: a *pure read*
+/// like `el.style.getPropertyValue("color")` hydrates `InlineStyle`
+/// lazily from the `style` attribute (registry-aware), so it reflects a
+/// prior `setAttribute("style", ...)` even with no intervening CSSOM
+/// mutation. `InlineStyle` is no longer eagerly attached at element
+/// creation — this lazy hydration is the single materialization point.
 #[test]
-fn set_attribute_does_not_populate_inline_style_on_read() {
+fn get_property_value_hydrates_from_style_attribute() {
     let out = run("var d = document.createElement('div'); \
          d.setAttribute('style', 'color: red'); \
          '|' + d.style.getPropertyValue('color') + '|';");
-    assert_eq!(out, "||");
+    assert_eq!(out, "|#ff0000|");
 }
 
 /// Copilot R5 IMP-1 regression: `setAttribute("style", ...)` followed

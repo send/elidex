@@ -10,10 +10,6 @@
 //! `elidex-custom-elements` dep already exists — owns the derivation.
 //!
 //! Components derived purely from (tag, namespace, attributes):
-//! - [`InlineStyle`] — the `style` content attribute (parsed by the
-//!   canonical [`elidex_css::parse_inline_style`], shared with the CSSOM
-//!   hydration / `cssText` paths in `elidex-dom-api`); namespace-agnostic
-//!   (SVG / MathML may carry a CSS `style` attribute too).
 //! - `CustomElementState` — WHATWG DOM §4.9 "create an element" step
 //!   6.3 (HTML namespace ∧ (valid custom element name ∨ `is` non-null)
 //!   → state "undefined"), derived by the canonical
@@ -29,6 +25,14 @@
 //! parse-path FCS attach is `elidex_form::init_form_controls` (bulk walk
 //! invoked from the shell's `build_pipeline_from_loaded`); dynamic
 //! insertion is handled by `elidex_form::FormControlReconciler`.
+//!
+//! `InlineStyle` is likewise NOT derived here: the cascade reads inline
+//! declarations from `attrs("style")` directly, and registry-backed
+//! properties (`transform` …) need the property registry which lives in
+//! `elidex-style` (above this crate). The CSSOM `InlineStyle` component
+//! is materialized lazily, registry-aware, on first `el.style.*` access
+//! by `elidex_dom_api`'s `ensure_inline_style` — the single
+//! materialization point (One-issue-one-way).
 
 use elidex_ecs::{Attributes, EcsDom, Entity, IframeData, Namespace, TagType};
 
@@ -58,31 +62,20 @@ pub(crate) fn derive_element_components(dom: &mut EcsDom, root: Entity) {
 /// components exist when a dispatcher-bound `innerHTML` insert fires) and
 /// per-subtree by [`derive_element_components`] for the strict backend.
 pub(crate) fn attach_derived(dom: &mut EcsDom, entity: Entity) {
-    // Phase 1: read (tag, style, is) under shared borrows, cloning out so
-    // no borrow is held across the mutating inserts below.
-    let (tag, style_attr, is_attr) = {
+    // Phase 1: read (tag, is) under shared borrows, cloning out so no
+    // borrow is held across the mutating inserts below.
+    let (tag, is_attr) = {
         let world = dom.world();
         let Ok(tag_ref) = world.get::<&TagType>(entity) else {
             return; // not an element
         };
         let tag = tag_ref.0.clone();
-        let (style_attr, is_attr) = match world.get::<&Attributes>(entity) {
-            Ok(attrs) => (
-                attrs.get("style").map(str::to_string),
-                attrs.get("is").map(str::to_string),
-            ),
-            Err(_) => (None, None),
-        };
-        (tag, style_attr, is_attr)
+        let is_attr = world
+            .get::<&Attributes>(entity)
+            .ok()
+            .and_then(|attrs| attrs.get("is").map(str::to_string));
+        (tag, is_attr)
     };
-
-    // InlineStyle — namespace-agnostic: a CSS `style` attribute is valid
-    // on foreign (SVG / MathML) elements as well as HTML.
-    if let Some(style) = style_attr {
-        let _ = dom
-            .world_mut()
-            .insert_one(entity, elidex_css::parse_inline_style(&style));
-    }
 
     // CustomElementState (§4.13.3) and IframeData (§4.8.5) are
     // HTML-namespace-scoped. `namespace_of` returns `Html` by absence, so
@@ -179,18 +172,21 @@ mod tests {
     }
 
     #[test]
-    fn strict_inline_style_attached() {
+    fn strict_inline_style_not_attached_at_parse() {
+        // The parser preserves the `style` attribute but does NOT attach
+        // an `InlineStyle` component — the CSSOM component materializes
+        // lazily (registry-aware) in elidex-dom-api on first access, and
+        // the cascade reads `attrs("style")` directly.
         let (dom, doc) = parse_and_derive(
             r#"<!DOCTYPE html><html><head></head><body><div style="color: red"></div></body></html>"#,
         );
         let el = find_by_tag(&dom, doc, "div").expect("div element");
-        let style = dom
-            .world()
-            .get::<&InlineStyle>(el)
-            .expect("InlineStyle attached to strict-parsed element");
-        // Canonical form: `parse_inline_style` stores the post-parse
-        // serialization, so the `red` keyword round-trips to hex.
-        assert_eq!(style.get("color"), Some("#ff0000"));
+        assert!(
+            dom.world().get::<&InlineStyle>(el).is_err(),
+            "InlineStyle must not be attached at parse time"
+        );
+        let attrs = dom.world().get::<&Attributes>(el).unwrap();
+        assert_eq!(attrs.get("style"), Some("color: red"));
     }
 
     #[test]

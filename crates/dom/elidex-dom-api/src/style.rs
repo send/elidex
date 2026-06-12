@@ -23,20 +23,25 @@ use crate::util::{
     normalize_property_name, normalize_property_name_owned, not_found_error, require_string_arg,
 };
 
-/// Ensure an `InlineStyle` component exists on the entity.  When the
-/// component is absent but `attrs("style")` already has content (from a
-/// prior `setAttribute("style", "...")`), parse the attribute string
-/// into declarations and seed the new `InlineStyle` so the next mutation
-/// via `style.setProperty` / `removeProperty` / `cssText` doesn't
-/// silently drop those declarations during the post-mutation
-/// `sync_to_attribute` round-trip.
-///
-/// This is the inverse of `sync_to_attribute`: the cascade reads
-/// declarations from `attrs("style")` so writes go style → attrs; this
-/// helper handles the symmetric attrs → style hydration on first
-/// mutation, closing the data-loss gap that arose when
-/// `setAttribute("style", "color: red"); el.style.setProperty("foo",
-/// "bar");` would land `attrs("style") = "foo: bar"` (color: red lost).
+/// The default CSS property registry, so the inline-style parse resolves
+/// registry-backed properties (`transform`, `transition`, …) — without
+/// it, `el.style.transform = 'rotate(45deg)'` would silently no-op.
+/// Same registry the cascade's `get_inline_declarations` uses, so the
+/// CSSOM `InlineStyle` and the cascade agree on registry-backed inline
+/// declarations.
+fn inline_style_registry() -> &'static elidex_plugin::CssPropertyRegistry {
+    elidex_style::default_css_property_registry()
+}
+
+/// Ensure an `InlineStyle` component exists on the entity, hydrating it
+/// from `attrs("style")` when absent (the canonical, registry-aware
+/// derivation). This is the single InlineStyle materialization point:
+/// the parser does NOT attach `InlineStyle` at element creation —
+/// the cascade reads `attrs("style")` directly, so the component is
+/// needed only for the CSSOM surface and is built lazily here on first
+/// access (read or write). Idempotent: a present component is left
+/// untouched (its declarations may already diverge from the attribute
+/// via prior CSSOM mutation — the write path keeps them synced).
 fn ensure_inline_style(entity: Entity, dom: &mut EcsDom) {
     if dom.world_mut().get::<&InlineStyle>(entity).is_ok() {
         return;
@@ -48,7 +53,7 @@ fn ensure_inline_style(entity: Entity, dom: &mut EcsDom) {
         .ok()
         .and_then(|a| a.get("style").map(str::to_owned));
     let hydrated = attr_value
-        .map(|css| elidex_css::parse_inline_style(&css))
+        .map(|css| elidex_css::parse_inline_style(&css, Some(inline_style_registry())))
         .unwrap_or_default();
     let _ = dom.world_mut().insert_one(entity, hydrated);
 }
@@ -172,7 +177,9 @@ impl DomApiHandler for StyleSetProperty {
         // without effect — storing the raw string verbatim would let the
         // cascade's re-parse of the written-back `style` attribute
         // fabricate declarations / priority out of the value text.
-        let Some(decls) = elidex_css::parse_value_for_property(&property, &value) else {
+        let Some(decls) =
+            elidex_css::parse_value_for_property(&property, &value, Some(inline_style_registry()))
+        else {
             return Ok(JsValue::Undefined);
         };
 
@@ -221,6 +228,7 @@ impl DomApiHandler for StyleGetPropertyValue {
         if !dom.world().contains(this) {
             return Err(not_found_error("element not found"));
         }
+        ensure_inline_style(this, dom);
         match dom.world().get::<&InlineStyle>(this) {
             Ok(style) => match style.get(property.as_ref()) {
                 Some(val) => Ok(JsValue::String(val.to_string())),
@@ -237,12 +245,8 @@ impl DomApiHandler for StyleGetPropertyValue {
 
 /// `element.style.getPropertyPriority(property)` — returns `"important"`
 /// when the named inline declaration carries the `!important` flag, the
-/// empty string otherwise (CSSOM §6.6.1).
-///
-/// Like the sibling read handlers, this does not hydrate `InlineStyle`
-/// from `attrs("style")` on read (slot `#11-style-eager-read-hydration`):
-/// after a bare `setAttribute("style", "color: red !important")` with no
-/// intervening CSSOM mutation, this returns `""`.
+/// empty string otherwise (CSSOM §6.6.1). Hydrates `InlineStyle` from
+/// `attrs("style")` on read like its sibling handlers.
 pub struct StyleGetPropertyPriority;
 
 impl DomApiHandler for StyleGetPropertyPriority {
@@ -263,6 +267,7 @@ impl DomApiHandler for StyleGetPropertyPriority {
         if !dom.world().contains(this) {
             return Err(not_found_error("element not found"));
         }
+        ensure_inline_style(this, dom);
         // CSSOM §6.6.1 getPropertyPriority step 1.2: for a shorthand,
         // return "important" iff every mapped longhand's priority is
         // "important" (an absent longhand reads as "", failing the all).
@@ -352,6 +357,7 @@ impl DomApiHandler for StyleLength {
         if !dom.world().contains(this) {
             return Err(not_found_error("element not found"));
         }
+        ensure_inline_style(this, dom);
         let len = dom.world().get::<&InlineStyle>(this).map_or(0, |s| s.len());
         #[allow(clippy::cast_precision_loss)]
         Ok(JsValue::Number(len as f64))
@@ -392,6 +398,7 @@ impl DomApiHandler for StyleItem {
         if !dom.world().contains(this) {
             return Err(not_found_error("element not found"));
         }
+        ensure_inline_style(this, dom);
         match dom.world().get::<&InlineStyle>(this) {
             Ok(style) => Ok(JsValue::String(
                 style.property_at(idx).unwrap_or("").to_string(),
@@ -427,6 +434,7 @@ impl DomApiHandler for StyleCssTextGet {
         if !dom.world().contains(this) {
             return Err(not_found_error("element not found"));
         }
+        ensure_inline_style(this, dom);
         let text = match dom.world().get::<&InlineStyle>(this) {
             Ok(style) => style.css_text(),
             Err(_) => String::new(),
@@ -472,7 +480,7 @@ impl DomApiHandler for StyleCssTextSet {
         // All-or-nothing replace: drop any existing component and insert
         // a freshly-built one so insertion order matches the parsed
         // declarations exactly (no leftover keys from prior content).
-        let new_style = elidex_css::parse_inline_style(&css);
+        let new_style = elidex_css::parse_inline_style(&css, Some(inline_style_registry()));
         dom.world_mut()
             .insert_one(this, new_style)
             .map_err(|_| not_found_error("element not found"))?;

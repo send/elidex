@@ -14,8 +14,8 @@ mod values;
 
 pub use color::parse_color;
 pub use declaration::{
-    parse_declaration_block, parse_inline_style, parse_value_for_property, parse_var_function,
-    shorthand_longhands, Declaration, Origin,
+    parse_declaration_block, parse_declaration_block_with_registry, parse_inline_style,
+    parse_value_for_property, parse_var_function, shorthand_longhands, Declaration, Origin,
 };
 pub use escape::escape_ident;
 pub use page::{parse_page_rule, parse_page_rules, parse_page_selectors, parse_page_size};

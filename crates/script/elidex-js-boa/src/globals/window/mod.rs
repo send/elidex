@@ -586,6 +586,28 @@ pub fn create_style_object(entity: Entity, bridge: &HostBridge, ctx: &mut Contex
         1,
     );
 
+    // getPropertyPriority(name) — routes to the canonical DOM handler
+    // (CSSOM §6.6.1), matching the VM host path; without this binding the
+    // method would be undefined under the boa runtime.
+    let b = bridge.clone();
+    init.function(
+        NativeFunction::from_copy_closure_with_captures(
+            |this, args, bridge, ctx| {
+                let entity = extract_entity(this, ctx)?;
+                let name = require_js_string_arg(args, 0, "style.getPropertyPriority", ctx)?;
+                invoke_dom_handler(
+                    "style.getPropertyPriority",
+                    entity,
+                    &[ElidexJsValue::String(name)],
+                    bridge,
+                )
+            },
+            b,
+        ),
+        js_string!("getPropertyPriority"),
+        1,
+    );
+
     // removeProperty(name)
     let b = bridge.clone();
     init.function(
@@ -612,13 +634,10 @@ pub fn create_style_object(entity: Entity, bridge: &HostBridge, ctx: &mut Contex
     let css_text_getter = NativeFunction::from_copy_closure_with_captures(
         |this, _args, bridge, ctx| {
             let entity = extract_entity(this, ctx)?;
-            let text = bridge.with(|_session, dom| {
-                dom.world()
-                    .get::<&elidex_ecs::InlineStyle>(entity)
-                    .ok()
-                    .map_or(String::new(), |style| style.css_text())
-            });
-            Ok(JsValue::from(js_string!(text.as_str())))
+            // Route through `style.cssText.get` so `InlineStyle` is
+            // hydrated lazily (registry-aware) — element creation no
+            // longer eagerly attaches the component.
+            invoke_dom_handler("style.cssText.get", entity, &[], bridge)
         },
         b_css_get,
     )
@@ -661,13 +680,7 @@ pub fn create_style_object(entity: Entity, bridge: &HostBridge, ctx: &mut Contex
     let length_getter = NativeFunction::from_copy_closure_with_captures(
         |this, _args, bridge, ctx| {
             let entity = extract_entity(this, ctx)?;
-            let len = bridge.with(|_session, dom| {
-                dom.world()
-                    .get::<&elidex_ecs::InlineStyle>(entity)
-                    .ok()
-                    .map_or(0, |style| style.len())
-            });
-            Ok(JsValue::from(len as f64))
+            invoke_dom_handler("style.length", entity, &[], bridge)
         },
         b_len,
     )
@@ -685,20 +698,15 @@ pub fn create_style_object(entity: Entity, bridge: &HostBridge, ctx: &mut Contex
         NativeFunction::from_copy_closure_with_captures(
             |this, args, bridge, ctx| {
                 let entity = extract_entity(this, ctx)?;
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                let index = args
-                    .first()
-                    .and_then(JsValue::as_number)
-                    .map_or(0, |n| n as usize);
-                let name = bridge.with(|_session, dom| {
-                    dom.world()
-                        .get::<&elidex_ecs::InlineStyle>(entity)
-                        .ok()
-                        .and_then(|style| style.property_at(index).map(str::to_owned))
-                });
-                Ok(name.map_or(JsValue::from(js_string!("")), |n| {
-                    JsValue::from(js_string!(n.as_str()))
-                }))
+                // The `style.item` handler does its own index coercion /
+                // bounds check — forward the raw number (0 if absent).
+                let index = args.first().and_then(JsValue::as_number).unwrap_or(0.0);
+                invoke_dom_handler(
+                    "style.item",
+                    entity,
+                    &[ElidexJsValue::Number(index)],
+                    bridge,
+                )
             },
             b_item,
         ),

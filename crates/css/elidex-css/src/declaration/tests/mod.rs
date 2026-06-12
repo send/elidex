@@ -17,7 +17,7 @@ fn parse_single(property: &str, value: &str) -> Vec<Declaration> {
 
 #[test]
 fn inline_style_basic_properties() {
-    let style = parse_inline_style("display: block; width: 200px");
+    let style = parse_inline_style("display: block; width: 200px", None);
     assert_eq!(style.get("display"), Some("block"));
     assert_eq!(style.get("width"), Some("200px"));
 }
@@ -26,13 +26,13 @@ fn inline_style_basic_properties() {
 fn inline_style_color_keyword_canonicalizes_to_hex() {
     // Values store in post-parse canonical form: `red` → `#ff0000`
     // (same accepted divergence as the CSSOM cssText round-trip).
-    let style = parse_inline_style("color: red");
+    let style = parse_inline_style("color: red", None);
     assert_eq!(style.get("color"), Some("#ff0000"));
 }
 
 #[test]
 fn inline_style_shorthand_expands_to_longhands() {
-    let style = parse_inline_style("margin: 10px");
+    let style = parse_inline_style("margin: 10px", None);
     assert_eq!(style.get("margin"), None);
     assert_eq!(style.get("margin-top"), Some("10px"));
     assert_eq!(style.get("margin-bottom"), Some("10px"));
@@ -43,7 +43,10 @@ fn inline_style_value_with_semicolon_inside_function_not_split() {
     // The motivating divergence for the canonical fn: a naive `;`/`:`
     // splitter shreds function values containing `;` or `:` (data URLs).
     // The real parser must not fabricate properties out of the URL body.
-    let style = parse_inline_style("background: url(data:image/png;base64,iVBO); color: blue");
+    let style = parse_inline_style(
+        "background: url(data:image/png;base64,iVBO); color: blue",
+        None,
+    );
     assert_eq!(style.get("color"), Some("#0000ff"));
     // No garbage keys leaked from inside the url() token.
     assert!(style.get("base64,iVBO)").is_none());
@@ -58,31 +61,31 @@ fn inline_style_value_with_semicolon_inside_function_not_split() {
 
 #[test]
 fn inline_style_unknown_property_dropped() {
-    let style = parse_inline_style("not-a-real-property: 12px; display: flex");
+    let style = parse_inline_style("not-a-real-property: 12px; display: flex", None);
     assert_eq!(style.get("not-a-real-property"), None);
     assert_eq!(style.get("display"), Some("flex"));
 }
 
 #[test]
 fn inline_style_calc_round_trips() {
-    let style = parse_inline_style("width: calc(100% - 10px)");
+    let style = parse_inline_style("width: calc(100% - 10px)", None);
     assert_eq!(style.get("width"), Some("calc(100% - 10px)"));
     // The serialized form must re-parse to the same value.
-    let reparsed = parse_inline_style(&style.css_text());
+    let reparsed = parse_inline_style(&style.css_text(), None);
     assert_eq!(reparsed.get("width"), Some("calc(100% - 10px)"));
 }
 
 #[test]
 fn inline_style_custom_property_case_preserved() {
-    let style = parse_inline_style("--MyVar: 10px");
+    let style = parse_inline_style("--MyVar: 10px", None);
     assert_eq!(style.get("--MyVar"), Some("10px"));
 }
 
 #[test]
 fn inline_style_empty_and_garbage_input() {
-    assert!(parse_inline_style("").is_empty());
-    assert!(parse_inline_style("garbage").is_empty());
-    assert!(parse_inline_style(";;;").is_empty());
+    assert!(parse_inline_style("", None).is_empty());
+    assert!(parse_inline_style("garbage", None).is_empty());
+    assert!(parse_inline_style(";;;", None).is_empty());
 }
 
 #[test]
@@ -91,7 +94,7 @@ fn inline_style_important_preserved_and_reemitted() {
     // `sync_to_attribute` rewrites from `css_text()` — a
     // priority-stripping derivation would silently demote `!important`
     // on the first unrelated style write.
-    let style = parse_inline_style("color: red !important; width: 10px");
+    let style = parse_inline_style("color: red !important; width: 10px", None);
     assert!(style.is_important("color"));
     assert!(!style.is_important("width"));
     assert_eq!(style.get("color"), Some("#ff0000"));
@@ -100,14 +103,14 @@ fn inline_style_important_preserved_and_reemitted() {
     assert_eq!(text, "color: #ff0000 !important; width: 10px");
 
     // Full round-trip: the re-parse sees the same priority.
-    let reparsed = parse_inline_style(&text);
+    let reparsed = parse_inline_style(&text, None);
     assert!(reparsed.is_important("color"));
     assert!(!reparsed.is_important("width"));
 }
 
 #[test]
 fn inline_style_important_on_shorthand_expands_to_longhands() {
-    let style = parse_inline_style("margin: 10px !important");
+    let style = parse_inline_style("margin: 10px !important", None);
     assert!(style.is_important("margin-top"));
     assert!(style.is_important("margin-left"));
 }
@@ -116,52 +119,52 @@ fn inline_style_important_on_shorthand_expands_to_longhands() {
 
 #[test]
 fn value_for_property_basic_and_shorthand() {
-    let decls = parse_value_for_property("color", "red").expect("valid value");
+    let decls = parse_value_for_property("color", "red", None).expect("valid value");
     assert_eq!(decls.len(), 1);
     assert_eq!(decls[0].property, "color");
 
-    let decls = parse_value_for_property("margin", "10px").expect("shorthand value");
+    let decls = parse_value_for_property("margin", "10px", None).expect("shorthand value");
     assert_eq!(decls.len(), 4);
     assert!(decls.iter().any(|d| d.property == "margin-top"));
 }
 
 #[test]
 fn value_for_property_rejects_unsupported_and_unparseable() {
-    assert!(parse_value_for_property("not-a-property", "12px").is_none());
-    assert!(parse_value_for_property("color", "12px").is_none());
+    assert!(parse_value_for_property("not-a-property", "12px", None).is_none());
+    assert!(parse_value_for_property("color", "12px", None).is_none());
 }
 
 #[test]
 fn value_for_property_rejects_trailing_input() {
     // Declaration injection: a `;` would fabricate a second declaration
     // when the serialized block is re-parsed by the cascade.
-    assert!(parse_value_for_property("color", "red; background: url(//evil)").is_none());
+    assert!(parse_value_for_property("color", "red; background: url(//evil)", None).is_none());
     // §6.6.1 note: value cannot include `!important` — priority is a
     // separate argument.
-    assert!(parse_value_for_property("color", "red !important").is_none());
+    assert!(parse_value_for_property("color", "red !important", None).is_none());
 }
 
 #[test]
 fn value_for_property_custom_property() {
-    let decls = parse_value_for_property("--x", "calc(1px + 2px)").expect("raw tokens");
+    let decls = parse_value_for_property("--x", "calc(1px + 2px)", None).expect("raw tokens");
     assert_eq!(decls[0].property, "--x");
     // Top-level `;` is not a <declaration-value> (CSS Syntax) — reject;
     // `;` inside a nested block is fine.
-    assert!(parse_value_for_property("--x", "a; b").is_none());
-    assert!(parse_value_for_property("--x", "var(--y, a)").is_some());
-    assert!(parse_value_for_property("--x", "").is_none());
+    assert!(parse_value_for_property("--x", "a; b", None).is_none());
+    assert!(parse_value_for_property("--x", "var(--y, a)", None).is_some());
+    assert!(parse_value_for_property("--x", "", None).is_none());
 }
 
 #[test]
 fn value_for_property_custom_property_declaration_value_exclusions() {
     // <declaration-value> also excludes top-level `!` (priority
     // fabrication), unmatched close brackets, and bad-string/bad-url.
-    assert!(parse_value_for_property("--x", "red !important").is_none());
-    assert!(parse_value_for_property("--x", "a ) b").is_none());
-    assert!(parse_value_for_property("--x", "a ] b").is_none());
-    assert!(parse_value_for_property("--x", "a } b").is_none());
+    assert!(parse_value_for_property("--x", "red !important", None).is_none());
+    assert!(parse_value_for_property("--x", "a ) b", None).is_none());
+    assert!(parse_value_for_property("--x", "a ] b", None).is_none());
+    assert!(parse_value_for_property("--x", "a } b", None).is_none());
     // The same characters nested inside a function are legal.
-    assert!(parse_value_for_property("--x", "url(\"a;b\")").is_some());
+    assert!(parse_value_for_property("--x", "url(\"a;b\")", None).is_some());
 }
 
 #[test]
@@ -178,11 +181,11 @@ fn shorthand_longhands_mapping() {
 fn value_for_property_custom_property_nested_bad_tokens_rejected() {
     // <declaration-value> excludes bad-string / bad-url / unmatched
     // closers at ANY nesting level (only `;` / `!` are top-level-only).
-    assert!(parse_value_for_property("--x", "f(\"a\nb\")").is_none());
-    assert!(parse_value_for_property("--x", "f( ] )").is_none());
+    assert!(parse_value_for_property("--x", "f(\"a\nb\")", None).is_none());
+    assert!(parse_value_for_property("--x", "f( ] )", None).is_none());
     // Nested `;` / `!` remain legitimate.
-    assert!(parse_value_for_property("--x", "f(a;b)").is_some());
-    assert!(parse_value_for_property("--x", "f(a!b)").is_some());
+    assert!(parse_value_for_property("--x", "f(a;b)", None).is_some());
+    assert!(parse_value_for_property("--x", "f(a!b)", None).is_some());
 }
 
 #[test]
@@ -210,7 +213,7 @@ fn shorthand_longhands_covers_every_multi_longhand_value_parse() {
         ("grid-row", "1 / 2"),
     ];
     for (shorthand, value) in samples {
-        let decls = parse_value_for_property(shorthand, value)
+        let decls = parse_value_for_property(shorthand, value, None)
             .unwrap_or_else(|| panic!("{shorthand}: {value} should parse"));
         if decls.len() > 1 || decls.iter().any(|d| d.property != shorthand) {
             let map = shorthand_longhands(shorthand);
@@ -238,7 +241,7 @@ fn custom_property_does_not_swallow_following_declarations() {
     assert_eq!(decls[0].value, CssValue::RawTokens("1".into()));
     assert_eq!(decls[1].property, "color");
 
-    let style = parse_inline_style("--x: 1; color: red");
+    let style = parse_inline_style("--x: 1; color: red", None);
     assert_eq!(style.len(), 2);
     assert_eq!(style.get("color"), Some("#ff0000"));
 }
@@ -274,9 +277,28 @@ fn var_value_does_not_swallow_following_declarations() {
 fn value_for_property_rejects_var_smuggled_injection() {
     // Codex R1-F4 (setProperty half): the raw fallback used to consume
     // the whole input, defeating the trailing-input injection guard.
-    assert!(parse_value_for_property("width", "var(--x); color: red").is_none());
-    assert!(parse_value_for_property("width", "calc(var(--x) + 1px) !important").is_none());
+    assert!(parse_value_for_property("width", "var(--x); color: red", None).is_none());
+    assert!(parse_value_for_property("width", "calc(var(--x) + 1px) !important", None).is_none());
     // Plain var() values stay accepted.
-    assert!(parse_value_for_property("width", "var(--x)").is_some());
-    assert!(parse_value_for_property("width", "calc(var(--x) + 1px)").is_some());
+    assert!(parse_value_for_property("width", "var(--x)", None).is_some());
+    assert!(parse_value_for_property("width", "calc(var(--x) + 1px)", None).is_some());
+}
+
+#[test]
+fn custom_property_bare_bang_invalidates_declaration() {
+    // Codex R2: a top-level `!` that is not `!important` is excluded from
+    // `<declaration-value>` — `--x: foo ! bar` is invalid whole and must
+    // not leak `--x: foo` into the block; `color: red` still parses.
+    let decls = parse_decls("--x: foo ! bar; color: red");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "color");
+}
+
+#[test]
+fn known_property_trailing_junk_dropped() {
+    // CSS Syntax §5.4.4: a declaration with trailing junk after its
+    // value (no top-level `;`) is malformed and dropped whole.
+    let decls = parse_decls("color: red blue; display: block");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].property, "display");
 }

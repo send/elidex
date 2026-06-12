@@ -62,9 +62,11 @@ impl Declaration {
 /// component — the canonical attribute→component derivation
 /// (One-issue-one-way; CSSOM §6.6 "parse a CSS declaration block" over
 /// the style content attribute, CSS Style Attributes §3). Every site
-/// that materializes `InlineStyle` from CSS text funnels through here: parser element creation
-/// (`elidex-html-parser` `element_init`), CSSOM first-mutation hydration
-/// (`ensure_inline_style`), and the `style.cssText` setter.
+/// that materializes `InlineStyle` from CSS text funnels through here:
+/// CSSOM lazy hydration on first `el.style.*` access (`ensure_inline_style`
+/// in `elidex-dom-api`) and the `style.cssText` setter. The HTML parser
+/// does NOT materialize `InlineStyle` — the cascade reads `attrs("style")`
+/// directly.
 ///
 /// Built on [`parse_declaration_block`], so the component holds the
 /// post-parse canonical form: shorthands expand to longhands, unknown or
@@ -76,10 +78,17 @@ impl Declaration {
 /// `InlineStyle::css_text()` — load-bearing for the cascade, which
 /// re-parses the `style` attribute that `sync_to_attribute` rewrites
 /// from `css_text()` after every `el.style.*` mutation.
+///
+/// `registry` resolves properties not handled by the built-in parser
+/// (e.g. `transform`, `transition`, and other plugin-registered
+/// properties via `elidex_style::default_css_property_registry`). Pass
+/// `None` only where registry-backed properties are intentionally out of
+/// scope; the CSSOM materialization path passes the default registry so
+/// those properties round-trip through `InlineStyle`.
 #[must_use]
-pub fn parse_inline_style(css: &str) -> InlineStyle {
+pub fn parse_inline_style(css: &str, registry: Option<&CssPropertyRegistry>) -> InlineStyle {
     let mut style = InlineStyle::default();
-    for decl in parse_declaration_block(css) {
+    for decl in parse_declaration_block_with_registry(css, registry) {
         style.set_with_priority(decl.property, decl.value.to_css_string(), decl.important);
     }
     style
@@ -108,7 +117,11 @@ pub fn parse_inline_style(css: &str) -> InlineStyle {
 /// block's re-parse; nested `;` / `!` (inside blocks/functions) are
 /// legitimate and accepted.
 #[must_use]
-pub fn parse_value_for_property(property: &str, value: &str) -> Option<Vec<Declaration>> {
+pub fn parse_value_for_property(
+    property: &str,
+    value: &str,
+    registry: Option<&CssPropertyRegistry>,
+) -> Option<Vec<Declaration>> {
     let mut pi = ParserInput::new(value);
     let mut input = Parser::new(&mut pi);
     if property.starts_with("--") {
@@ -124,7 +137,7 @@ pub fn parse_value_for_property(property: &str, value: &str) -> Option<Vec<Decla
             CssValue::RawTokens(raw.to_string()),
         )]);
     }
-    let decls = parse_property_value(property, &mut input, None);
+    let decls = parse_property_value(property, &mut input, registry);
     if decls.is_empty() || !input.is_exhausted() {
         return None;
     }
@@ -170,11 +183,25 @@ fn is_declaration_value(input: &mut Parser, top_level: bool) -> bool {
     }
 }
 
-/// Parse an inline style attribute string into declarations.
+/// Parse an inline style attribute string into declarations
+/// (registry-less; registry-backed properties such as `transform` drop).
+/// Most callers want [`parse_declaration_block_with_registry`].
 ///
 /// Shorthand properties are expanded into their longhand equivalents.
 #[must_use]
 pub fn parse_declaration_block(css: &str) -> Vec<Declaration> {
+    parse_declaration_block_with_registry(css, None)
+}
+
+/// Parse an inline style attribute string into declarations, resolving
+/// registry-backed properties (e.g. `transform`) through `registry`.
+///
+/// Shorthand properties are expanded into their longhand equivalents.
+#[must_use]
+pub fn parse_declaration_block_with_registry(
+    css: &str,
+    registry: Option<&CssPropertyRegistry>,
+) -> Vec<Declaration> {
     let mut pi = ParserInput::new(css);
     let mut input = Parser::new(&mut pi);
     let mut declarations = Vec::new();
@@ -196,12 +223,25 @@ pub fn parse_declaration_block(css: &str) -> Vec<Declaration> {
                 ident.as_ref().to_ascii_lowercase()
             };
             i.expect_colon().map_err(|_| ())?;
-            let mut decls = parse_property_value(&name, i, None);
+            let mut decls = parse_property_value(&name, i, registry);
             // Check for !important (browsers support this in inline styles).
             if i.try_parse(cssparser::parse_important).is_ok() {
                 for d in &mut decls {
                     d.important = true;
                 }
+            }
+            // CSS Syntax 3 §5.4.4: a declaration's value is everything up
+            // to the `;`. If tokens remain after the value (and the
+            // optional `!important`) before the next top-level `;`/EOF,
+            // the declaration is malformed and dropped whole — notably a
+            // bare top-level `!` that is not `!important` (excluded from
+            // `<declaration-value>`), so `--x: foo ! bar` does not leak
+            // `--x: foo` into the block.
+            if !i.is_exhausted()
+                && i.try_parse(|p| p.expect_semicolon().map_err(|_| ()))
+                    .is_err()
+            {
+                return Err(());
             }
             Ok(decls)
         });
