@@ -320,11 +320,12 @@ impl std::fmt::Display for DefineError {
 impl std::error::Error for DefineError {}
 
 /// World-wide query for the `customElements.define()`-time *upgrade
-/// candidates* of `name` (WHATWG HTML §4.13.4): every entity whose
-/// `CustomElementState` is `Undefined` for `name` — the per-entity
-/// component is the single "awaiting upgrade" record — AND whose
-/// local name matches the registered definition
-/// ([`CustomElementDefinition::upgrade_matches_local_name`]; the spec
+/// candidates* of `name` (WHATWG HTML §4.13.4 define() step 18 →
+/// "upgrade particular elements within a document" steps 1–2): every
+/// entity whose `CustomElementState` is `Undefined` for `name` — the
+/// per-entity component is the single "awaiting upgrade" record —
+/// AND whose local name matches the registered definition
+/// ([`CustomElementDefinition::upgrade_matches_local_name`]; that AO
 /// builds the local-name/is-value match into candidate collection).
 /// Returns an empty Vec when `name` has no definition. A despawned
 /// entity simply stops matching (no dangling side-store entries to
@@ -336,11 +337,11 @@ impl std::error::Error for DefineError {}
 /// between enqueue and flush via other reaction sources).
 ///
 /// Walks the hecs world directly so detached + DocumentFragment
-/// subtrees + future multi-document worlds are covered. (The spec
-/// scopes candidates to shadow-including *document* descendants and
-/// upgrades detached trees on later insertion; elidex deliberately
-/// upgrades them at define() time instead — one mechanism, same
-/// final states.)
+/// subtrees + future multi-document worlds are covered. (The §4.13.4
+/// AO scopes candidates to shadow-including *document* descendants
+/// and upgrades detached trees on later insertion; elidex
+/// deliberately upgrades them at define() time instead — one
+/// mechanism, same final states.)
 ///
 /// `define()` rejects invalid names, so this is never queried with a
 /// name that cannot acquire a definition — `Undefined` components
