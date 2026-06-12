@@ -178,9 +178,13 @@ fn state_mutate(
         } else {
             // §7.2.5 step 6.1: parse `url` relative to the current document URL.
             let Ok(parsed) = ctx.vm.navigation.current_url.join(&input) else {
-                let syntax = ctx.vm.well_known.dom_exc_syntax_error;
+                // §7.2.5 step 6.2: "If newURL is failure, throw a SecurityError" —
+                // pushState/replaceState report **SecurityError** (not SyntaxError)
+                // on a URL that fails to parse, unlike the `location.href =` setter
+                // (§7.2.4 href-setter step 3, which throws SyntaxError).
+                let security = ctx.vm.well_known.dom_exc_security_error;
                 return Err(VmError::dom_exception(
-                    syntax,
+                    security,
                     format!(
                         "Failed to execute 'pushState'/'replaceState' on 'History': invalid URL '{input}'."
                     ),
@@ -222,8 +226,9 @@ fn state_mutate(
 
     // `pushState` appends a new entry after the current one, discarding any
     // forward entries, and moves to it — so synchronously (§7.4.4) the current
-    // index advances by one and the length becomes `index + 1` (the new entry is
-    // now the last).  Computing the length from the index — rather than
+    // index advances and the length becomes `index + 1` (the new entry is now the
+    // last), saturating at the session-history cap (the shell evicts the oldest
+    // over the cap).  Computing the length from the index — rather than
     // `length += 1` — is what keeps it correct when the current entry is **not**
     // the last (e.g. after a `back` left forward entries the push discards):
     // `length += 1` would over-count by the forward count.  `replaceState`
@@ -231,8 +236,7 @@ fn state_mutate(
     // re-pushes the authoritative `(index, length)` via `set_session_history`
     // after it drains/commits.
     if !replace_index {
-        ctx.vm.navigation.current_index = ctx.vm.navigation.current_index.saturating_add(1);
-        ctx.vm.navigation.history_length = ctx.vm.navigation.current_index.saturating_add(1);
+        ctx.vm.navigation.record_push_state();
     }
 
     // Enqueue for the shell to persist into its NavigationController (self-

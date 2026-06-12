@@ -48,6 +48,19 @@ use super::super::value::JsValue;
 /// well above any legitimate per-turn history-mutation count.
 const MAX_PENDING_HISTORY_ACTIONS: usize = 1024;
 
+/// Upper bound on the session-history entry count the synchronous `pushState`
+/// view reports — a **best-effort estimate** that must track the shell's
+/// `NavigationController` cap (`elidex-navigation`'s `MAX_HISTORY_ENTRIES`, 50).
+/// The session history is bounded: over the cap the shell evicts the oldest
+/// entry (HTML §7.2.5 note — a FIFO eviction buffer), so a tight `pushState`
+/// loop must report the *capped* `history.length`, not an unbounded `5001` that
+/// collapses to `50` the moment the shell drains.  The VM cannot depend on
+/// `elidex-navigation` (a shell crate) — this duplicate is the deliberate
+/// cross-layer estimate; the shell stays authoritative and reconciles the exact
+/// `(index, length)` via [`super::super::ElidexJsEngine::set_session_history`],
+/// so a drift between the two constants only perturbs the within-turn estimate.
+const SESSION_HISTORY_CAP: usize = 50;
+
 /// Per-`Vm` navigation state — the **current-document view** of the shell-owned
 /// session history (see the module docs). Not a session-history stack: the
 /// shell's `NavigationController` is the single source of truth.
@@ -180,6 +193,22 @@ impl NavigationState {
             self.pending_history.pop_front();
         }
         self.pending_history.push_back(action);
+    }
+
+    /// Advance the current-document view for a synchronous `pushState` append
+    /// (the "URL and history update steps", §7.4.4): move to the newly-appended
+    /// entry (`current_index += 1`) and recompute `history_length = index + 1`
+    /// (the new entry is now the last).  Saturates at [`SESSION_HISTORY_CAP`] — a
+    /// tight loop reports the capped count, matching what the shell commits after
+    /// eviction (HTML §7.2.5 note), not an unbounded value that collapses on
+    /// drain.  `replaceState` does NOT call this (it overwrites the current entry
+    /// in place, changing neither index nor length).
+    pub(crate) fn record_push_state(&mut self) {
+        self.current_index = self
+            .current_index
+            .saturating_add(1)
+            .min(SESSION_HISTORY_CAP - 1);
+        self.history_length = self.current_index + 1;
     }
 }
 

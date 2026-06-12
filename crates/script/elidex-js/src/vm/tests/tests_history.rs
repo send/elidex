@@ -113,6 +113,37 @@ fn push_state_length_uses_index_not_plus_one_after_back() {
 }
 
 #[test]
+fn push_state_length_saturates_at_session_history_cap() {
+    // R7-#3: a tight pushState loop reports the *capped* history.length (matching
+    // the shell's eviction at MAX_HISTORY_ENTRIES = 50), not an unbounded count
+    // that collapses to the cap the moment the shell drains.
+    let mut vm = new_vm_with_base();
+    vm.eval("for (let i = 0; i < 200; i++) { history.pushState(null, '', '/p' + i); }")
+        .unwrap();
+    assert_eq!(eval_number(&mut vm, "history.length;"), 50.0); // SESSION_HISTORY_CAP
+}
+
+#[test]
+fn push_state_invalid_url_throws_security_error_not_syntax_error() {
+    // §7.2.5 step 6.2: a non-empty `url` that fails to parse → SecurityError —
+    // NOT SyntaxError (which is what the `location.href =` setter throws).
+    let mut vm = new_vm_with_base(); // http://localhost/
+    assert_eq!(
+        eval_string(
+            &mut vm,
+            "var name = '';\
+             try { history.pushState(null, '', 'http://'); }\
+             catch (e) { name = e instanceof DOMException ? e.name : 'not-dom'; }\
+             name;"
+        ),
+        "SecurityError"
+    );
+    // Nothing updated or enqueued (the throw is before the synchronous update).
+    assert_eq!(eval_string(&mut vm, "location.pathname;"), "/");
+    assert!(vm.inner.navigation.pending_history.is_empty());
+}
+
+#[test]
 fn history_go_uses_webidl_modular_long_conversion() {
     // WebIDL `long` is ConvertToInt(V, 32, "signed") = ECMA-262 ToInt32, which
     // wraps modulo 2^32 — NOT a saturating clamp.  `go(4294967295)` → -1 (a
