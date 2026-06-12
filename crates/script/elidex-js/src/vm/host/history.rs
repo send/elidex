@@ -19,14 +19,15 @@
 //! - `pushState()` / `replaceState()` (§7.2.5 "shared history push/replace state
 //!   steps" → §7.4.4 "URL and history update steps") run **synchronously**: the
 //!   URL-rewrite gate (§7.2.5 step 6.3 — "can have its URL rewritten", a
-//!   document-URL check), then an in-place `current_url` + `history.state` update,
+//!   document-URL check), then an in-place `current_url` + `history.state` update
+//!   (and, for `pushState`, the current index + length: `length = index + 1`),
 //!   then an **enqueue** for the shell to persist.
-//! - `history.length` reads the shell-pushed `history_length`; `history.state`
-//!   reads the synchronously-maintained `current_state`.  `history.length` is
-//!   **not** bumped synchronously by `pushState`: a faithful count needs the
-//!   current session-history index (pushState discards forward entries before
-//!   appending), which the VM's current-document view lacks — deferred to the
-//!   shell back-channel (slot `#11-history-length-index-sync-fidelity`).
+//! - `history.length` reads `history_length`; `history.state` reads
+//!   `current_state` — both synchronously maintained.  The VM tracks the current
+//!   session-history *index* so `pushState` can set the length correctly even
+//!   when the current entry is not the last (computing `index + 1`, not
+//!   `length + 1`); the shell re-pushes the authoritative `(index, length)` via
+//!   `set_session_history` after a navigation/traversal commits.
 //!
 //! `history.state` holds the value as a bare [`JsValue`] (identity round-trip);
 //! `StructuredSerializeForStorage` (§7.2.5 step 4) is part of the deferred
@@ -81,11 +82,11 @@ pub(super) fn native_history_get_length(
     _this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // `history.length` (§7.2.5) is the shell-pushed session-history entry count
-    // (the `NavigationController` owns the stack; `set_history_length` syncs it).
-    // NOT bumped synchronously by pushState — that needs the current index the VM
-    // view lacks (slot `#11-history-length-index-sync-fidelity`).
-    // Clamp via `u32` to satisfy clippy::cast_lossless.
+    // `history.length` (§7.2.5) is the session-history entry count: shell-pushed
+    // (the `NavigationController` owns the stack; `set_session_history` syncs the
+    // index + length atomically) and advanced synchronously by `pushState`
+    // (`length = current_index + 1`).  Clamp via `u32` to satisfy
+    // clippy::cast_lossless.
     let len = u32::try_from(ctx.vm.navigation.history_length).unwrap_or(u32::MAX);
     Ok(JsValue::Number(f64::from(len)))
 }
@@ -234,14 +235,20 @@ fn state_mutate(
     ctx.vm.navigation.current_url = new_url;
     ctx.vm.navigation.current_state = state;
 
-    // NB `history.length` is deliberately NOT bumped here.  `pushState` discards
-    // the forward entries before appending, so the faithful new length is the
-    // current index + 2 — and the VM's current-document view does not track the
-    // index (the shell's `NavigationController` owns it).  An unconditional `+1`
-    // would over-count after a traversal left forward entries.  `history.length`
-    // therefore stays shell-authoritative (reconciled on drain); synchronous
-    // length+index fidelity is deferred to a shell back-channel that pushes the
-    // index (slot `#11-history-length-index-sync-fidelity`).
+    // `pushState` appends a new entry after the current one, discarding any
+    // forward entries, and moves to it — so synchronously (§7.4.4) the current
+    // index advances by one and the length becomes `index + 1` (the new entry is
+    // now the last).  Computing the length from the index — rather than
+    // `length += 1` — is what keeps it correct when the current entry is **not**
+    // the last (e.g. after a `back` left forward entries the push discards):
+    // `length += 1` would over-count by the forward count.  `replaceState`
+    // overwrites the current entry in place, changing neither.  The shell
+    // re-pushes the authoritative `(index, length)` via `set_session_history`
+    // after it drains/commits.
+    if !replace_index {
+        ctx.vm.navigation.current_index = ctx.vm.navigation.current_index.saturating_add(1);
+        ctx.vm.navigation.history_length = ctx.vm.navigation.current_index.saturating_add(1);
+    }
 
     // Enqueue for the shell to persist into its NavigationController.
     let action = if replace_index {

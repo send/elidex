@@ -73,13 +73,24 @@ pub(crate) struct NavigationState {
     /// enqueue-only `assign`/`href=`/`replace`/`traverse` paths.
     pub(crate) current_url: Url,
     /// `history.length` — the count of session-history entries.  The shell's
-    /// `NavigationController` owns the real count and pushes it via
-    /// `set_history_length`; `pushState` also bumps it synchronously (§7.4.4 —
-    /// a new entry is appended in the same script turn, so a same-turn
-    /// `history.length` read observes it; the shell's `set_history_length`
-    /// reconciles after the drain).  Defaults to `1` (the spec-minimum: the
-    /// current entry always exists).
+    /// `NavigationController` owns the real count and pushes it (with the index,
+    /// atomically) via `set_session_history` after a navigation/traversal commit;
+    /// `pushState` also updates it synchronously to [`Self::current_index`] `+ 1`
+    /// (§7.4.4 — a new entry is appended at the end in the same script turn, so a
+    /// same-turn `history.length` read observes it).  Defaults to `1` (the
+    /// spec-minimum: the current entry always exists).
     pub(crate) history_length: usize,
+    /// The 0-based index of the current entry within the session history.  Pushed
+    /// by the shell (with `history_length`, atomically) via `set_session_history`,
+    /// and incremented synchronously by `pushState` (which appends after the
+    /// current entry, discarding forward entries — so the new length is
+    /// `current_index + 1`, **not** `history_length + 1`; the latter would
+    /// over-count when the current entry is not the last, e.g. after a `back`).
+    /// `replaceState` and traversals leave it unchanged (traversals commit
+    /// async; the shell re-pushes both on commit).  Defaults to `0` (the single
+    /// current entry).  Not exposed to script — internal to the synchronous
+    /// length update.
+    pub(crate) current_index: usize,
     /// `history.state` — the serialized state of the current session-history
     /// entry.  Set synchronously by `pushState`/`replaceState` (HTML §7.4.4).  A
     /// traversal (`back`/`forward`/`go`) leaves it **untouched**: the traversal
@@ -132,6 +143,7 @@ impl NavigationState {
         Self {
             current_url: parse_about_blank(),
             history_length: 1,
+            current_index: 0,
             current_state: JsValue::Null,
             pending_navigation: None,
             pending_history: VecDeque::new(),

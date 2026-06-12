@@ -67,7 +67,7 @@ fn history_is_object() {
 fn history_initial_length_is_one() {
     let mut vm = Vm::new();
     // Default `history_length` = 1 (the current entry; the shell pushes the real
-    // count via `set_history_length`).
+    // count via `set_session_history`).
     assert_eq!(eval_number(&mut vm, "history.length;"), 1.0);
 }
 
@@ -87,19 +87,29 @@ fn history_scroll_restoration_is_auto() {
 }
 
 #[test]
-fn history_length_is_shell_pushed_not_vm_grown() {
-    // `history.length` is shell-authoritative: pushState does NOT bump it
-    // synchronously.  A faithful count needs the current session-history index
-    // (pushState discards forward entries before appending, so the new length is
-    // index+2, not length+1) — which the VM's current-document view lacks (slot
-    // `#11-history-length-index-sync-fidelity`).  The shell's `set_history_length`
-    // is the only writer.
+fn push_state_grows_length_via_index_replace_does_not() {
+    // pushState advances the current index and sets `history.length = index + 1`
+    // synchronously (§7.4.4); replaceState changes neither.
     let mut vm = new_vm_with_base();
+    assert_eq!(eval_number(&mut vm, "history.length;"), 1.0); // default: index 0, length 1
     vm.eval("history.pushState(null, '', '/a'); history.pushState(null, '', '/b');")
         .unwrap();
-    assert_eq!(eval_number(&mut vm, "history.length;"), 1.0); // unchanged by pushState
-    vm.inner.navigation.history_length = 7;
-    assert_eq!(eval_number(&mut vm, "history.length;"), 7.0);
+    assert_eq!(eval_number(&mut vm, "history.length;"), 3.0); // index 2 → length 3
+    vm.eval("history.replaceState(null, '', '/c');").unwrap();
+    assert_eq!(eval_number(&mut vm, "history.length;"), 3.0); // replace: no growth
+}
+
+#[test]
+fn push_state_length_uses_index_not_plus_one_after_back() {
+    // The reason the length is computed from the index, not `length + 1`: when the
+    // current entry is not the last (the shell pushed `(index 1, length 3)` after
+    // a `back` left a forward entry), pushState discards the forward entry and the
+    // new length is `index + 1 = 3` — a naive `length + 1` would over-count to 4.
+    let mut vm = new_vm_with_base();
+    vm.inner.navigation.current_index = 1; // mid-history (shell-pushed)
+    vm.inner.navigation.history_length = 3;
+    vm.eval("history.pushState(null, '', '/d');").unwrap();
+    assert_eq!(eval_number(&mut vm, "history.length;"), 3.0); // index 2 → length 3, not 4
 }
 
 #[test]

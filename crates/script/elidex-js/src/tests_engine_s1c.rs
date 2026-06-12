@@ -1,6 +1,6 @@
 //! S1c (boa→VM cutover): the navigation back-channel — the shell-facing
 //! inherent methods on [`ElidexJsEngine`] (`set_current_url` / `current_url` /
-//! `take_pending_navigation` / `take_pending_history` / `set_history_length` /
+//! `take_pending_navigation` / `take_pending_history` / `set_session_history` /
 //! `history_length`), driven through the engine's PUBLIC API (not the internal
 //! `vm.inner.navigation` the `vm/host` unit tests poke).
 //!
@@ -69,8 +69,11 @@ fn set_current_url_round_trips_and_none_resets_to_about_blank() {
 #[test]
 fn history_length_round_trips_with_default_one() {
     let mut engine = ElidexJsEngine::new();
-    assert_eq!(engine.history_length(), 1); // spec-minimum current entry
-    engine.set_history_length(7);
+    // Default is the spec-minimum single current entry (index 0, length 1).
+    assert_eq!(engine.history_length(), 1);
+    // The shell pushes the authoritative (index, length) together; at the end of
+    // a 7-entry history the index is 6.
+    engine.set_session_history(6, 7);
     assert_eq!(engine.history_length(), 7);
 }
 
@@ -200,14 +203,17 @@ fn eval_multiple_push_states_drain_in_fifo_order() {
 }
 
 #[test]
-fn eval_push_state_does_not_grow_history_length() {
-    // `history.length` is shell-authoritative — pushState does NOT bump it
-    // synchronously (a faithful count needs the session-history index the VM view
-    // lacks; slot `#11-history-length-index-sync-fidelity`).  The shell's
-    // `set_history_length` is the only writer.
+fn eval_push_state_grows_history_length_via_index() {
+    // pushState advances the index and sets `history.length = index + 1`
+    // synchronously (§7.4.4); replaceState changes neither.  Computing from the
+    // index (not `length += 1`) is what stays correct when the current entry is
+    // not the last: starting mid-history (index 1 of a length-3 stack, as the
+    // shell would push after a `back`), pushState discards the forward entry and
+    // yields length 3 — NOT 4.
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
     engine.set_current_url(Some(url("https://localhost/")));
-    engine.set_history_length(2); // shell-pushed count
+    // At-end shell state: 2 entries, current index 1.
+    engine.set_session_history(1, 2);
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
     bind_engine(&mut engine, &mut ctx);
     let r = ScriptEngine::eval(
@@ -216,8 +222,15 @@ fn eval_push_state_does_not_grow_history_length() {
         &mut ctx,
     );
     assert!(r.success);
+    // index 1 → 2 (push); length = 3; replaceState leaves both.
+    assert_eq!(engine.history_length(), 3);
+    // Mid-history: the shell pushes (index 1, length 3) after a back(); a push
+    // then discards the forward entry → length 3 (the index prevents over-count).
+    engine.set_session_history(1, 3);
+    let r2 = ScriptEngine::eval(&mut engine, "history.pushState(null, '', '/z');", &mut ctx);
+    assert!(r2.success);
     engine.unbind();
-    assert_eq!(engine.history_length(), 2); // unchanged — shell reconciles on drain
+    assert_eq!(engine.history_length(), 3); // index 2 → length 3, not 4
 }
 
 #[test]

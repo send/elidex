@@ -203,11 +203,20 @@ impl ElidexJsEngine {
         std::mem::take(&mut self.vm.inner.navigation.pending_history).into()
     }
 
-    /// Push the session-history length into the engine so `history.length` reads
-    /// correctly (the shell's `NavigationController` owns the count).  Parity
-    /// with boa's `bridge().set_history_length`.
-    pub fn set_history_length(&mut self, len: usize) {
-        self.vm.inner.navigation.history_length = len;
+    /// Push the authoritative session-history position — the current entry's
+    /// 0-based `index` and the total `length` — into the engine after a
+    /// navigation/traversal commit, so `history.length` reads correctly and the
+    /// synchronous `pushState` length update (`length = index + 1`) starts from
+    /// the right index.  The shell's `NavigationController` owns both; they are
+    /// pushed **together** so the index and length never desync (a `back` moves
+    /// the index without changing the length, so pushing only the length would
+    /// leave `pushState` over-counting).  The S5 flip wires this to
+    /// `NavigationController`'s index + len after each commit; boa pushed only the
+    /// length (`bridge().set_history_length`) and had no synchronous-length path
+    /// to keep consistent.
+    pub fn set_session_history(&mut self, index: usize, length: usize) {
+        self.vm.inner.navigation.current_index = index;
+        self.vm.inner.navigation.history_length = length;
     }
 
     /// `history.length` — the shell-pushed session-history entry count.
