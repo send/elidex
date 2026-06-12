@@ -251,9 +251,11 @@ pub(crate) fn parse_property_value(
     input: &mut Parser,
     registry: Option<&CssPropertyRegistry>,
 ) -> Vec<Declaration> {
-    // Custom properties (--*): store the entire value as raw tokens.
+    // Custom properties (--*): store the value as raw tokens —
+    // scoped to the <declaration-value> run so a following declaration
+    // or `!important` is not swallowed into the value.
     if name.starts_with("--") {
-        let raw = collect_remaining_tokens(input);
+        let raw = collect_declaration_value_tokens(input);
         if raw.is_empty() {
             return Vec::new();
         }
@@ -282,12 +284,13 @@ pub(crate) fn parse_property_value(
     }
 
     // CSS Variables Level 1 §3: If the value contains var() references mixed
-    // with other tokens, store the entire value as raw tokens for deferred
-    // substitution at computed-value time.
+    // with other tokens, store the value as raw tokens for deferred
+    // substitution at computed-value time — scoped to the
+    // <declaration-value> run (stop before a top-level `;`/`!`) so the
+    // block parser still sees a following declaration / `!important`,
+    // and the setProperty trailing-input injection guard still fires.
     if let Ok(raw) = input.try_parse(|i| -> Result<String, ()> {
-        let start = i.position();
-        while i.next().is_ok() {}
-        let raw = i.slice_from(start).trim().to_string();
+        let raw = collect_declaration_value_tokens(i);
         if raw.contains("var(") {
             Ok(raw)
         } else {
@@ -746,6 +749,45 @@ fn collect_remaining_tokens(input: &mut Parser) -> String {
     while input.next().is_ok() {}
     let slice = input.slice_from(start);
     slice.trim().to_string()
+}
+
+/// Collect a `<declaration-value>` token run into a trimmed string:
+/// consumes tokens up to — but NOT including — a *top-level* `;` or `!`
+/// (nested blocks/functions are skipped whole, so `;`/`!` inside them
+/// are collected). Backs the custom-property and var()-carrying raw
+/// values inside a declaration block: an unscoped collector would
+/// swallow the following declaration (`--x: 1; color: red` losing
+/// `color`) or the `!important` suffix, and on the `setProperty` path
+/// would defeat the trailing-input injection guard.
+fn collect_declaration_value_tokens(input: &mut Parser) -> String {
+    let start = input.position();
+    loop {
+        let state = input.state();
+        let token = match input.next() {
+            Ok(t) => t.clone(),
+            Err(_) => break,
+        };
+        match token {
+            Token::Semicolon | Token::Delim('!') => {
+                input.reset(&state);
+                break;
+            }
+            // Eagerly consume a nested block: cssparser skips an
+            // unentered block only on the NEXT `next()` call, so a
+            // saved state taken after the opening token would point
+            // inside the block and a later `reset` would truncate the
+            // slice mid-block. `parse_nested_block` always positions
+            // the parser after the matching closer on return.
+            Token::Function(_)
+            | Token::ParenthesisBlock
+            | Token::SquareBracketBlock
+            | Token::CurlyBracketBlock => {
+                let _ = input.parse_nested_block(|_| Ok::<(), cssparser::ParseError<'_, ()>>(()));
+            }
+            _ => {}
+        }
+    }
+    input.slice_from(start).trim().to_string()
 }
 
 // --- Shorthand expansion helpers ---

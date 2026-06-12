@@ -211,6 +211,20 @@ fn rule_style_get_property_priority() {
     assert_eq!(out, "important/");
 }
 
+/// §6.6.1 getPropertyPriority step 1.2 on rule declarations — the
+/// parser stores rules longhand-expanded, so a shorthand query must
+/// check every mapped longhand (Codex R1).
+#[test]
+fn rule_style_get_property_priority_shorthand() {
+    let out = run_with_css(
+        "div { margin: 10px !important; padding: 4px; }",
+        "var s = document.getElementsByTagName('style')[0]; \
+         s.sheet.cssRules[0].style.getPropertyPriority('margin') + '/' + \
+         s.sheet.cssRules[0].style.getPropertyPriority('padding');",
+    );
+    assert_eq!(out, "important/");
+}
+
 #[test]
 fn rule_style_named_get() {
     let out = run_with_css(

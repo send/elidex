@@ -224,3 +224,59 @@ fn shorthand_longhands_covers_every_multi_longhand_value_parse() {
         }
     }
 }
+
+// --- Codex R1: <declaration-value> scoping in declaration blocks ---
+
+#[test]
+fn custom_property_does_not_swallow_following_declarations() {
+    // Codex R1-F1: the custom-property raw collection must stop at the
+    // top-level `;` — an unscoped collector consumed the rest of the
+    // block into `--x` and lost `color`.
+    let decls = parse_decls("--x: 1; color: red");
+    assert_eq!(decls.len(), 2);
+    assert_eq!(decls[0].property, "--x");
+    assert_eq!(decls[0].value, CssValue::RawTokens("1".into()));
+    assert_eq!(decls[1].property, "color");
+
+    let style = parse_inline_style("--x: 1; color: red");
+    assert_eq!(style.len(), 2);
+    assert_eq!(style.get("color"), Some("#ff0000"));
+}
+
+#[test]
+fn custom_property_important_flag_parsed() {
+    // Stopping before the top-level `!` lets the block parser's
+    // `!important` pass see the suffix instead of swallowing it.
+    let decls = parse_decls("--x: foo !important");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0].value, CssValue::RawTokens("foo".into()));
+    assert!(decls[0].important);
+}
+
+#[test]
+fn var_value_does_not_swallow_following_declarations() {
+    // Codex R1-F4 (block half): the var()-carrying raw fallback must
+    // also stop at the top-level `;` / `!`.
+    let decls = parse_decls("width: var(--x); color: red");
+    assert_eq!(decls.len(), 2);
+    assert_eq!(decls[1].property, "color");
+
+    let decls = parse_decls("width: calc(var(--x) + 1px) !important");
+    assert_eq!(decls.len(), 1);
+    assert!(decls[0].important);
+    assert_eq!(
+        decls[0].value,
+        CssValue::RawTokens("calc(var(--x) + 1px)".into())
+    );
+}
+
+#[test]
+fn value_for_property_rejects_var_smuggled_injection() {
+    // Codex R1-F4 (setProperty half): the raw fallback used to consume
+    // the whole input, defeating the trailing-input injection guard.
+    assert!(parse_value_for_property("width", "var(--x); color: red").is_none());
+    assert!(parse_value_for_property("width", "calc(var(--x) + 1px) !important").is_none());
+    // Plain var() values stay accepted.
+    assert!(parse_value_for_property("width", "var(--x)").is_some());
+    assert!(parse_value_for_property("width", "calc(var(--x) + 1px)").is_some());
+}

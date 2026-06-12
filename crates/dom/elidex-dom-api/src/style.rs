@@ -56,20 +56,28 @@ fn ensure_inline_style(entity: Entity, dom: &mut EcsDom) {
 /// Remove `property`'s declaration(s) from the block — shorthand-aware
 /// per CSSOM §6.6.1 `removeProperty`: a shorthand removes each longhand
 /// it maps to (the component's canonical key-space is longhand-expanded,
-/// so the shorthand key itself never exists). Returns the removed value
-/// for a longhand; for a shorthand returns `None` — §6.6.1 returns
+/// so the shorthand key itself never exists).
+///
+/// Returns `(old_value, removed)`. `old_value` is the removed value for
+/// a longhand; for a shorthand it is `None` — §6.6.1 returns
 /// `getPropertyValue(property)`, and shorthand *read-side* serialization
 /// from longhands is deferred (slot `#11-style-shorthand-expand`), so
 /// the getter and this return value agree on the empty string.
-fn remove_declarations(style: &mut InlineStyle, property: &str) -> Option<String> {
+/// `removed` mirrors the spec's removed flag: callers run the
+/// style-attribute write-back ONLY when it is true, so removing an
+/// absent (or unsupported) property is observably a no-op.
+fn remove_declarations(style: &mut InlineStyle, property: &str) -> (Option<String>, bool) {
     let longhands = elidex_css::shorthand_longhands(property);
     if longhands.is_empty() {
-        return style.remove(property);
+        let old = style.remove(property);
+        let removed = old.is_some();
+        return (old, removed);
     }
+    let mut removed = false;
     for longhand in &longhands {
-        style.remove(longhand);
+        removed |= style.remove(longhand).is_some();
     }
-    None
+    (None, removed)
 }
 
 /// Round-trip the current `InlineStyle` declarations into `attrs("style")`
@@ -134,10 +142,16 @@ impl DomApiHandler for StyleSetProperty {
         // priority does not rescue the declaration from removal.
         if value.is_empty() {
             ensure_inline_style(this, dom);
-            if let Ok(mut style) = dom.world_mut().get::<&mut InlineStyle>(this) {
-                remove_declarations(&mut style, property.as_str());
+            let removed = match dom.world_mut().get::<&mut InlineStyle>(this) {
+                Ok(mut style) => remove_declarations(&mut style, property.as_str()).1,
+                Err(_) => false,
+            };
+            // §6.6.1 removeProperty step 6: update the style attribute
+            // only "if removed is true" — an unsupported or absent
+            // property must not dirty `attrs("style")`.
+            if removed {
+                sync_to_attribute(this, dom);
             }
-            sync_to_attribute(this, dom);
             return Ok(JsValue::Undefined);
         }
 
@@ -249,10 +263,17 @@ impl DomApiHandler for StyleGetPropertyPriority {
         if !dom.world().contains(this) {
             return Err(not_found_error("element not found"));
         }
-        let important = dom
-            .world()
-            .get::<&InlineStyle>(this)
-            .is_ok_and(|style| style.is_important(property.as_ref()));
+        // CSSOM §6.6.1 getPropertyPriority step 1.2: for a shorthand,
+        // return "important" iff every mapped longhand's priority is
+        // "important" (an absent longhand reads as "", failing the all).
+        let important = dom.world().get::<&InlineStyle>(this).is_ok_and(|style| {
+            let longhands = elidex_css::shorthand_longhands(property.as_ref());
+            if longhands.is_empty() {
+                style.is_important(property.as_ref())
+            } else {
+                longhands.iter().all(|lh| style.is_important(lh))
+            }
+        });
         Ok(JsValue::String(
             if important { "important" } else { "" }.to_string(),
         ))
@@ -292,12 +313,16 @@ impl DomApiHandler for StyleRemoveProperty {
         // `StyleSetProperty`'s seed-on-first-mutation policy in
         // `ensure_inline_style`.
         ensure_inline_style(this, dom);
-        let old_value = match dom.world_mut().get::<&mut InlineStyle>(this) {
-            Ok(mut style) => remove_declarations(&mut style, property.as_ref()).unwrap_or_default(),
+        let (old_value, removed) = match dom.world_mut().get::<&mut InlineStyle>(this) {
+            Ok(mut style) => remove_declarations(&mut style, property.as_ref()),
             Err(_) => return Ok(JsValue::String(String::new())),
         };
-        sync_to_attribute(this, dom);
-        Ok(JsValue::String(old_value))
+        // §6.6.1 removeProperty step 6: write back only "if removed is
+        // true" — removing an absent property is observably a no-op.
+        if removed {
+            sync_to_attribute(this, dom);
+        }
+        Ok(JsValue::String(old_value.unwrap_or_default()))
     }
 }
 

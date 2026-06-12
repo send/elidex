@@ -181,6 +181,34 @@ fn remove_property_shorthand_removes_longhands() {
     assert_eq!(out, "4/0");
 }
 
+/// CSSOM §6.6.1 getPropertyPriority step 1.2 — a shorthand reads
+/// "important" iff every mapped longhand does (Codex R1).
+#[test]
+fn get_property_priority_shorthand_all_longhands() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('margin', '10px', 'important'); \
+         var all = d.style.getPropertyPriority('margin'); \
+         d.style.setProperty('margin-top', '5px'); \
+         all + '/' + d.style.getPropertyPriority('margin');");
+    // After demoting one longhand, the shorthand no longer reads
+    // important.
+    assert_eq!(out, "important/");
+}
+
+/// §6.6.1 removeProperty step 6 — update the style attribute only when
+/// something was actually removed: an unsupported property with an
+/// empty value must not dirty `attrs("style")` (Codex R1).
+#[test]
+fn set_property_empty_unsupported_is_noop_on_attribute() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('style', 'color:red'); \
+         d.style.setProperty('not-a-property', ''); \
+         d.style.removeProperty('also-not-real'); \
+         d.getAttribute('style');");
+    // The attribute keeps its raw authored text — no canonical rewrite.
+    assert_eq!(out, "color:red");
+}
+
 /// Same via the §6.6.1 step-3 empty-value path.
 #[test]
 fn set_property_empty_value_removes_shorthand() {

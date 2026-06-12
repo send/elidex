@@ -526,11 +526,23 @@ impl DomApiHandler for RuleStyleGetPropertyPriority {
         let property = require_string_arg(args, 1)?;
         let normalized = crate::util::normalize_property_name(&property);
         let important = with_rule(this, args, session, dom, false, |r| {
-            r.declarations
-                .iter()
-                .rev()
-                .find(|d| d.property == normalized)
-                .is_some_and(|d| d.important)
+            // §6.6.1 getPropertyPriority step 1.2: a shorthand reads
+            // "important" iff every mapped longhand does (the parser
+            // stores rules longhand-expanded, so the shorthand key
+            // itself never appears in `declarations`).
+            let last_is_important = |name: &str| {
+                r.declarations
+                    .iter()
+                    .rev()
+                    .find(|d| d.property == name)
+                    .is_some_and(|d| d.important)
+            };
+            let longhands = elidex_css::shorthand_longhands(&normalized);
+            if longhands.is_empty() {
+                last_is_important(&normalized)
+            } else {
+                longhands.iter().all(|lh| last_is_important(lh))
+            }
         });
         Ok(JsValue::String(
             if important { "important" } else { "" }.to_string(),
