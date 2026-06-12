@@ -58,31 +58,42 @@ fn ensure_inline_style(entity: Entity, dom: &mut EcsDom) {
     let _ = dom.world_mut().insert_one(entity, hydrated);
 }
 
+/// CSSOM §6.6.1 `getPropertyValue(property)`: the serialized value of
+/// the named declaration. For a shorthand, reconstruct it from the
+/// component's longhands via the canonical
+/// [`elidex_css::serialize_shorthand_value`] (the same reconstruction the
+/// rule path uses); for a longhand, read it directly. Empty string when
+/// absent or not serializable. Assumes `InlineStyle` is already present
+/// (caller hydrates).
+fn inline_property_value(dom: &EcsDom, entity: Entity, property: &str) -> String {
+    let Ok(style) = dom.world().get::<&InlineStyle>(entity) else {
+        return String::new();
+    };
+    elidex_css::serialize_shorthand_value(property, |lh| style.get(lh).map(str::to_owned))
+        .or_else(|| style.get(property).map(str::to_owned))
+        .unwrap_or_default()
+}
+
 /// Remove `property`'s declaration(s) from the block — shorthand-aware
 /// per CSSOM §6.6.1 `removeProperty`: a shorthand removes each longhand
 /// it maps to (the component's canonical key-space is longhand-expanded,
 /// so the shorthand key itself never exists).
 ///
-/// Returns `(old_value, removed)`. `old_value` is the removed value for
-/// a longhand; for a shorthand it is `None` — §6.6.1 returns
-/// `getPropertyValue(property)`, and shorthand *read-side* serialization
-/// from longhands is deferred (slot `#11-style-shorthand-expand`), so
-/// the getter and this return value agree on the empty string.
-/// `removed` mirrors the spec's removed flag: callers run the
-/// style-attribute write-back ONLY when it is true, so removing an
-/// absent (or unsupported) property is observably a no-op.
-fn remove_declarations(style: &mut InlineStyle, property: &str) -> (Option<String>, bool) {
+/// Returns the spec's `removed` flag: callers run the style-attribute
+/// write-back ONLY when it is true, so removing an absent (or
+/// unsupported) property is observably a no-op. The returned *value*
+/// (`getPropertyValue` before removal) is computed separately by the
+/// caller via [`inline_property_value`] so shorthands reconstruct.
+fn remove_declarations(style: &mut InlineStyle, property: &str) -> bool {
     let longhands = elidex_css::shorthand_longhands(property);
     if longhands.is_empty() {
-        let old = style.remove(property);
-        let removed = old.is_some();
-        return (old, removed);
+        return style.remove(property).is_some();
     }
     let mut removed = false;
     for longhand in &longhands {
         removed |= style.remove(longhand).is_some();
     }
-    (None, removed)
+    removed
 }
 
 /// Round-trip the current `InlineStyle` declarations into `attrs("style")`
@@ -158,7 +169,7 @@ impl DomApiHandler for StyleSetProperty {
         if value.is_empty() {
             ensure_inline_style(this, dom);
             let removed = match dom.world_mut().get::<&mut InlineStyle>(this) {
-                Ok(mut style) => remove_declarations(&mut style, property.as_str()).1,
+                Ok(mut style) => remove_declarations(&mut style, property.as_str()),
                 Err(_) => false,
             };
             // §6.6.1 removeProperty step 6: update the style attribute
@@ -239,13 +250,11 @@ impl DomApiHandler for StyleGetPropertyValue {
             return Err(not_found_error("element not found"));
         }
         ensure_inline_style(this, dom);
-        match dom.world().get::<&InlineStyle>(this) {
-            Ok(style) => match style.get(property.as_ref()) {
-                Some(val) => Ok(JsValue::String(val.to_string())),
-                None => Ok(JsValue::String(String::new())),
-            },
-            Err(_) => Ok(JsValue::String(String::new())),
-        }
+        Ok(JsValue::String(inline_property_value(
+            dom,
+            this,
+            property.as_ref(),
+        )))
     }
 }
 
@@ -328,7 +337,11 @@ impl DomApiHandler for StyleRemoveProperty {
         // `StyleSetProperty`'s seed-on-first-mutation policy in
         // `ensure_inline_style`.
         ensure_inline_style(this, dom);
-        let (old_value, removed) = match dom.world_mut().get::<&mut InlineStyle>(this) {
+        // §6.6.1 removeProperty step 2: the return value is the
+        // pre-removal `getPropertyValue(property)` (reconstructed for a
+        // shorthand), captured before the longhands are dropped.
+        let returned = inline_property_value(dom, this, property.as_ref());
+        let removed = match dom.world_mut().get::<&mut InlineStyle>(this) {
             Ok(mut style) => remove_declarations(&mut style, property.as_ref()),
             Err(_) => return Ok(JsValue::String(String::new())),
         };
@@ -337,7 +350,7 @@ impl DomApiHandler for StyleRemoveProperty {
         if removed {
             sync_to_attribute(this, dom);
         }
-        Ok(JsValue::String(old_value.unwrap_or_default()))
+        Ok(JsValue::String(returned))
     }
 }
 

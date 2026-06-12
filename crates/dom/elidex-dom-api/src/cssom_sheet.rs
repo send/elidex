@@ -495,11 +495,21 @@ impl DomApiHandler for RuleStyleGetPropertyValue {
         let property = require_string_arg(args, 1)?;
         let normalized = crate::util::normalize_property_name(&property);
         let value = with_rule(this, args, session, dom, String::new(), |r| {
-            r.declarations
-                .iter()
-                .rev()
-                .find(|d| d.property == normalized)
-                .map_or_else(String::new, |d| d.value.to_css_string())
+            // Last declaration wins (mirrors the cascade). A shorthand
+            // reconstructs from its longhands via the same canonical
+            // `elidex_css::serialize_shorthand_value` the inline path
+            // uses — rules are always parser-expanded, so a shorthand key
+            // never appears in `declarations` directly.
+            let last = |name: &str| {
+                r.declarations
+                    .iter()
+                    .rev()
+                    .find(|d| d.property == name)
+                    .map(|d| d.value.to_css_string())
+            };
+            elidex_css::serialize_shorthand_value(&normalized, |lh| last(lh))
+                .or_else(|| last(&normalized))
+                .unwrap_or_default()
         });
         Ok(JsValue::String(value))
     }

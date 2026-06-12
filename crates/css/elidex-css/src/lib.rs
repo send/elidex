@@ -10,6 +10,7 @@ pub mod page;
 mod parser;
 mod selector;
 mod serialize;
+mod shorthand;
 mod values;
 
 pub use color::parse_color;
@@ -27,6 +28,7 @@ pub use selector::{
     SelectorComponent, Specificity,
 };
 pub use serialize::serialize_stylesheet;
+pub use shorthand::serialize_shorthand_value;
 
 use cssparser::{Parser, ParserInput};
 use elidex_plugin::{CssValue, ParseError};

@@ -13,7 +13,6 @@ categories = ["web-programming"]
 
 [dependencies]
 elidex-ecs.workspace = true
-elidex-css.workspace = true
 elidex-custom-elements.workspace = true
 elidex-html-parser-strict.workspace = true
 encoding_rs.workspace = true

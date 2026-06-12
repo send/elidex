@@ -190,6 +190,37 @@ fn set_property_empty_value_removes() {
     assert_eq!(out, "||0");
 }
 
+/// Codex R4: CSSOM §6.6.1 getPropertyValue step 1.2 — a shorthand
+/// reconstructs from its longhands (the block stores expanded
+/// longhands). `el.style.margin='10px'; el.style.margin` → '10px'.
+#[test]
+fn get_property_value_reconstructs_shorthand() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('margin', '10px'); \
+         d.style.getPropertyValue('margin') + '|' + \
+         d.style.getPropertyValue('margin-top');");
+    // shorthand readback + longhand readback both work (block model).
+    assert_eq!(out, "10px|10px");
+}
+
+/// Non-uniform longhands serialize to the collapsed 1-4 value form.
+#[test]
+fn get_property_value_shorthand_collapse_form() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('margin', '1px 2px'); \
+         d.style.getPropertyValue('margin');");
+    assert_eq!(out, "1px 2px");
+}
+
+/// removeProperty returns the pre-removal shorthand value (§6.6.1).
+#[test]
+fn remove_property_returns_reconstructed_shorthand() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('margin', '10px'); \
+         d.style.removeProperty('margin') + '|' + d.style.length;");
+    assert_eq!(out, "10px|0");
+}
+
 /// §6.6.1 removeProperty on a shorthand removes each mapped longhand —
 /// the component's canonical key-space is longhand-expanded, so the
 /// shorthand key itself never exists.

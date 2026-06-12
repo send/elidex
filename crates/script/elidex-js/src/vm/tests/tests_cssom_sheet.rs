@@ -214,6 +214,20 @@ fn rule_style_get_property_priority() {
 /// §6.6.1 getPropertyPriority step 1.2 on rule declarations — the
 /// parser stores rules longhand-expanded, so a shorthand query must
 /// check every mapped longhand (Codex R1).
+/// Codex R4: rule shorthand readback reconstructs from the
+/// parser-expanded longhands (the same canonical
+/// `serialize_shorthand_value` seam the inline path uses).
+#[test]
+fn rule_style_get_property_value_reconstructs_shorthand() {
+    let out = run_with_css(
+        "div { margin: 10px; }",
+        "var s = document.getElementsByTagName('style')[0]; \
+         s.sheet.cssRules[0].style.getPropertyValue('margin') + '|' + \
+         s.sheet.cssRules[0].style.getPropertyValue('margin-top');",
+    );
+    assert_eq!(out, "10px|10px");
+}
+
 #[test]
 fn rule_style_get_property_priority_shorthand() {
     let out = run_with_css(
