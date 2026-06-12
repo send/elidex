@@ -500,6 +500,24 @@ fn style_prototype_chains_to_object_prototype() {
 /// prior `setAttribute("style", ...)` even with no intervening CSSOM
 /// mutation. `InlineStyle` is no longer eagerly attached at element
 /// creation — this lazy hydration is the single materialization point.
+/// Codex R2/R3: the lazy `InlineStyle` cache must be invalidated when
+/// the `style` attribute is changed directly. After a read materializes
+/// the component, a `setAttribute("style", ...)` (or removeAttribute)
+/// must not leave a stale cached value (slot
+/// `#11-derived-component-attr-maintenance` InlineStyle half).
+#[test]
+fn set_attribute_invalidates_cached_inline_style() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('style', 'color: red'); \
+         var first = d.style.getPropertyValue('color'); \
+         d.setAttribute('style', 'color: blue'); \
+         var second = d.style.getPropertyValue('color'); \
+         d.removeAttribute('style'); \
+         var third = d.style.getPropertyValue('color'); \
+         first + '/' + second + '/|' + third + '|';");
+    assert_eq!(out, "#ff0000/#0000ff/||");
+}
+
 #[test]
 fn get_property_value_hydrates_from_style_attribute() {
     let out = run("var d = document.createElement('div'); \

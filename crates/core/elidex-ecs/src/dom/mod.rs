@@ -24,8 +24,8 @@ mod tree_clone;
 pub use mutation_event::{MutationDispatcher, MutationEvent};
 
 use crate::components::{
-    AssociatedDocument, AttrData, Attributes, CommentData, DocTypeData, DocumentBaseUrl, Namespace,
-    NodeKind, ShadowRoot, TagType, TextContent, TreeRelation,
+    AssociatedDocument, AttrData, Attributes, CommentData, DocTypeData, DocumentBaseUrl,
+    InlineStyle, Namespace, NodeKind, ShadowRoot, TagType, TextContent, TreeRelation,
 };
 use hecs::{Entity, World};
 
@@ -1085,6 +1085,7 @@ impl EcsDom {
             self.world.insert_one(entity, attrs).is_ok()
         };
         if did_set {
+            self.invalidate_inline_style_cache(entity, name);
             self.rev_version(entity);
             // Fire `MutationEvent::AttributeChange` per DOM §4.3.2 +
             // §4.3.3; same-value writes still fire because spec
@@ -1145,6 +1146,7 @@ impl EcsDom {
             .get::<&mut Attributes>(entity)
             .ok()
             .and_then(|mut attrs| attrs.remove(name));
+        self.invalidate_inline_style_cache(entity, name);
         self.rev_version(entity);
         // Fire `MutationEvent::AttributeChange` per DOM §4.3.2 "Queue
         // a mutation record" — runs unconditionally, mirroring
@@ -1161,6 +1163,25 @@ impl EcsDom {
             new_value: None,
         };
         self.dispatch_event(&event);
+    }
+
+    /// Invalidate the cached [`InlineStyle`] component when the `style`
+    /// content attribute is written or removed.
+    ///
+    /// `InlineStyle` is a memoized parse of `attrs("style")` materialized
+    /// lazily on first CSSOM access (`elidex_dom_api::ensure_inline_style`).
+    /// A direct `setAttribute("style", …)` / `removeAttribute("style")`
+    /// changes the source of truth, so the cache must be dropped — the
+    /// next `el.style.*` read re-hydrates from the new attribute. The
+    /// CSSOM mutators re-warm the cache after their own `set_attribute`
+    /// (see `sync_to_attribute`), so this is perf-neutral for
+    /// `el.style.*` mutation sequences. Closes the InlineStyle half of
+    /// slot `#11-derived-component-attr-maintenance` (attribute→component
+    /// staleness).
+    fn invalidate_inline_style_cache(&mut self, entity: Entity, name: &str) {
+        if name == "style" {
+            let _ = self.world.remove_one::<InlineStyle>(entity);
+        }
     }
 }
 
