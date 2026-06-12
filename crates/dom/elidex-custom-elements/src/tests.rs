@@ -8,8 +8,7 @@ fn define_and_get() {
     let mut registry = CustomElementRegistry::new();
     let def =
         CustomElementDefinition::new("my-element".to_string(), 1, vec!["title".to_string()], None);
-    let pending = registry.define(def).unwrap();
-    assert!(pending.is_empty());
+    registry.define(def).unwrap();
     assert!(registry.is_defined("my-element"));
     assert!(registry.get("my-element").is_some());
     assert_eq!(registry.get("my-element").unwrap().constructor_id, 1);
@@ -35,25 +34,106 @@ fn define_rejects_duplicate() {
 }
 
 #[test]
-fn pending_upgrade_queue() {
+fn collect_upgrade_candidates_is_document_scoped_and_tree_ordered() {
+    // define()-time discovery = WHATWG HTML §4.13.4 "upgrade
+    // particular elements within a document": shadow-including
+    // descendants of the document, IN TREE ORDER, whose per-entity
+    // `CustomElementState` is Undefined for `name` and whose local
+    // name matches the definition. A *detached* element (not a
+    // document descendant) is NOT a candidate — it upgrades on later
+    // insertion, not here. Name/local-name mismatch, null-registry,
+    // and already-upgraded elements are excluded.
     let mut registry = CustomElementRegistry::new();
+    registry
+        .define(CustomElementDefinition::new(
+            "my-el".to_string(),
+            1,
+            Vec::new(),
+            None,
+        ))
+        .unwrap();
+    registry
+        .define(CustomElementDefinition::new(
+            "my-div".to_string(),
+            2,
+            Vec::new(),
+            Some("div".to_string()),
+        ))
+        .unwrap();
+
     let mut dom = EcsDom::new();
-    let e1 = dom.create_element("my-el", elidex_ecs::Attributes::default());
-    let e2 = dom.create_element("my-el", elidex_ecs::Attributes::default());
+    let document = dom.create_document_root();
+    // Build a connected tree in a deliberate order so the returned
+    // candidate order can be asserted against tree order (NOT entity
+    // id / ECS iteration order). Tree:
+    //   document
+    //     wrapper
+    //       e_first  (my-el, Undefined)        ← candidate #1
+    //       other    (other-el, Undefined)     ← name mismatch
+    //       e_second (my-el, Undefined)        ← candidate #2
+    //       upgraded (my-el, Custom)           ← already upgraded
+    //       null_reg (my-el, Undefined, Null)  ← null registry
+    //       is_span  (span, Undefined "my-el") ← local-name mismatch
+    //       builtin  (div,  Undefined "my-div")← customized built-in ✓ #3
+    let wrapper = dom.create_element("section", elidex_ecs::Attributes::default());
+    let e_first = dom.create_element("my-el", elidex_ecs::Attributes::default());
+    let other = dom.create_element("other-el", elidex_ecs::Attributes::default());
+    let e_second = dom.create_element("my-el", elidex_ecs::Attributes::default());
+    let upgraded = dom.create_element("my-el", elidex_ecs::Attributes::default());
+    let null_reg = dom.create_element("my-el", elidex_ecs::Attributes::default());
+    let is_span = dom.create_element("span", elidex_ecs::Attributes::default());
+    let builtin = dom.create_element("div", elidex_ecs::Attributes::default());
+    // A detached my-el (never inserted) — spec defers it to insertion.
+    let detached = dom.create_element("my-el", elidex_ecs::Attributes::default());
 
-    registry.queue_for_upgrade("my-el", e1);
-    registry.queue_for_upgrade("my-el", e2);
+    assert!(dom.append_child(document, wrapper));
+    assert!(dom.append_child(wrapper, e_first));
+    assert!(dom.append_child(wrapper, other));
+    assert!(dom.append_child(wrapper, e_second));
+    assert!(dom.append_child(wrapper, upgraded));
+    assert!(dom.append_child(wrapper, null_reg));
+    assert!(dom.append_child(wrapper, is_span));
+    assert!(dom.append_child(wrapper, builtin));
 
-    let def = CustomElementDefinition::new("my-el".to_string(), 1, Vec::new(), None);
-    let pending = registry.define(def).unwrap();
-    assert_eq!(pending.len(), 2);
-    assert_eq!(pending[0], e1);
-    assert_eq!(pending[1], e2);
+    {
+        let world = dom.world_mut();
+        let mut insert =
+            |entity, state: CustomElementState| world.insert_one(entity, state).unwrap();
+        insert(e_first, CustomElementState::undefined("my-el"));
+        insert(other, CustomElementState::undefined("other-el"));
+        insert(e_second, CustomElementState::undefined("my-el"));
+        insert(upgraded, CustomElementState::custom("my-el"));
+        let mut null_state = CustomElementState::undefined("my-el");
+        null_state.registry = RegistryAssociation::Null;
+        insert(null_reg, null_state);
+        insert(is_span, CustomElementState::undefined("my-el"));
+        insert(builtin, CustomElementState::undefined("my-div"));
+        insert(detached, CustomElementState::undefined("my-el"));
+    }
 
-    // Queue should be drained after define.
-    let def2 = CustomElementDefinition::new("other-el".to_string(), 2, Vec::new(), None);
-    let pending2 = registry.define(def2).unwrap();
-    assert!(pending2.is_empty());
+    // Tree order preserved, detached excluded, mismatches excluded.
+    assert_eq!(
+        collect_upgrade_candidates(&dom, document, &registry, "my-el"),
+        vec![e_first, e_second],
+    );
+    // Customized built-in: <div> matches extends base, <span is="my-div">
+    // (had there been one) would not.
+    assert_eq!(
+        collect_upgrade_candidates(&dom, document, &registry, "my-div"),
+        vec![builtin],
+    );
+    // A name without a definition (define() rejects invalid names, so an
+    // invalid is-derived name can never acquire one) yields no candidates.
+    assert!(collect_upgrade_candidates(&dom, document, &registry, "notvalid").is_empty());
+
+    // The detached element is genuinely Undefined+my-el but is NOT a
+    // document descendant, so define() does not upgrade it (it would
+    // upgrade on insertion). Once appended it becomes a candidate.
+    assert!(dom.append_child(wrapper, detached));
+    assert_eq!(
+        collect_upgrade_candidates(&dom, document, &registry, "my-el"),
+        vec![e_first, e_second, detached],
+    );
 }
 
 #[test]

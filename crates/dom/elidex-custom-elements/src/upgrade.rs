@@ -67,7 +67,7 @@ pub fn prepare_upgrade(
     }
     // A null-registry element is outside every registry — DOM §4.9:
     // the definition lookup against its (null) registry is always
-    // null, so NO upgrade path (creation, define()-drain, insertion,
+    // null, so NO upgrade path (creation, define()-walk, insertion,
     // customElements.upgrade(), clone) may resolve a definition for
     // it. Gated here defensively so every caller of the upgrade
     // machinery inherits the rule.

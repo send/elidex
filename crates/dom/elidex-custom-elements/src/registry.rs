@@ -1,10 +1,14 @@
 //! Custom element registry (WHATWG HTML §4.13.4).
 //!
-//! Stores custom element definitions and manages the pending upgrade queue.
+//! Stores custom element definitions. Elements awaiting upgrade are
+//! not tracked here — "awaiting upgrade under name N" is already
+//! materialized as the per-entity `CustomElementState` component
+//! (`state: Undefined`), so `define()`-time candidate discovery is a
+//! world query ([`collect_upgrade_candidates`]), not a side-store.
 
 use std::collections::{HashMap, HashSet};
 
-use elidex_ecs::Entity;
+use elidex_ecs::{EcsDom, Entity, TagType};
 
 use crate::construction_stack::ConstructionStackEntry;
 use crate::state::{CEState, CustomElementState};
@@ -67,9 +71,6 @@ pub struct CustomElementRegistry {
     /// `define`/`clear`, so the parallel-invariant is enforced by
     /// construction (R11 #1 / D-17 R9 #2 sealing precedent).
     constructor_id_to_name: HashMap<u64, String>,
-    /// Elements awaiting upgrade (created before `define()` was called).
-    /// Key: custom element name, Value: entities waiting for that definition.
-    pending_upgrade: HashMap<String, Vec<Entity>>,
 }
 
 impl CustomElementDefinition {
@@ -149,11 +150,11 @@ impl CustomElementRegistry {
     /// Register a custom element definition.
     ///
     /// Returns `Err` if the name is invalid or already defined.
-    /// On success, returns the list of entities pending upgrade for this name.
-    pub fn define(
-        &mut self,
-        definition: CustomElementDefinition,
-    ) -> Result<Vec<Entity>, DefineError> {
+    /// Upgrade-candidate discovery is the caller's job via
+    /// [`collect_upgrade_candidates`] (the per-entity
+    /// `CustomElementState` component is the single source of truth
+    /// for "awaiting upgrade").
+    pub fn define(&mut self, definition: CustomElementDefinition) -> Result<(), DefineError> {
         if !is_valid_custom_element_name(&definition.name) {
             return Err(DefineError::InvalidName(definition.name.clone()));
         }
@@ -180,8 +181,7 @@ impl CustomElementRegistry {
             prev.is_none(),
             "duplicate constructor_id {constructor_id} (previous name {prev:?})"
         );
-        // Return pending upgrades for this name (drain the queue).
-        Ok(self.pending_upgrade.remove(&name).unwrap_or_default())
+        Ok(())
     }
 
     /// Look up a custom element definition by name.
@@ -205,35 +205,13 @@ impl CustomElementRegistry {
         self.definitions.keys().map(String::as_str)
     }
 
-    /// Queue an entity for upgrade when the definition becomes available.
-    ///
-    /// Called when an element with a custom element name is created before
-    /// `customElements.define()` has been called for that name.
-    pub fn queue_for_upgrade(&mut self, name: &str, entity: Entity) {
-        // Queue admission is gated on name validity (the element's
-        // Undefined MARKING is not — DOM §4.9 step 6.3 is
-        // validity-free): `define()` rejects invalid names, so a
-        // bucket keyed by one is undrainable forever and would grow
-        // unboundedly.  Owning the gate here (not at the engine call
-        // sites) protects every present and future caller.
-        if !is_valid_custom_element_name(name) {
-            return;
-        }
-        self.pending_upgrade
-            .entry(name.to_string())
-            .or_default()
-            .push(entity);
-    }
-
-    /// Drop every definition + pending-upgrade entity. Used by
-    /// `Vm::unbind` to scrub cross-DOM references on the way out of a
-    /// bind cycle (`CustomElementDefinition::constructor_id` indexes
-    /// into per-VM `HostData::ce_constructors`; pending-upgrade
-    /// entities reference the outgoing DOM world).
+    /// Drop every definition. Used by `Vm::unbind` to scrub cross-DOM
+    /// references on the way out of a bind cycle
+    /// (`CustomElementDefinition::constructor_id` indexes into per-VM
+    /// `HostData::ce_constructors`).
     pub fn clear(&mut self) {
         self.definitions.clear();
         self.constructor_id_to_name.clear();
-        self.pending_upgrade.clear();
     }
 
     /// Look up a definition by the `is` attribute value and the tag name.
@@ -341,43 +319,67 @@ impl std::fmt::Display for DefineError {
 
 impl std::error::Error for DefineError {}
 
-/// World-wide query for every entity carrying
-/// `CustomElementState` with `state == CEState::Undefined` for `name`, minus the entities
-/// in `skip_already_pending`. Used by `customElements.define()` to
-/// drain elements that the parser / cross-document `createElement`
-/// path attached state to but could not enqueue via
-/// [`CustomElementRegistry::queue_for_upgrade`] (the parser cannot
-/// reach the per-VM registry).
+/// The `customElements.define()`-time *upgrade candidates* of `name`
+/// (WHATWG HTML §4.13.4 define() step 18 → "upgrade particular
+/// elements within a document" steps 1–2): the shadow-including
+/// descendants of `document`, **in shadow-including tree order**,
+/// whose `CustomElementState` is `Undefined` for `name` (the
+/// per-entity component is the single "awaiting upgrade" record) and
+/// whose local name matches the registered definition
+/// ([`CustomElementDefinition::upgrade_matches_local_name`] — that AO
+/// builds the local-name/is-value match into candidate collection,
+/// and the is value is carried by `definition_name` for customized
+/// built-ins). Returns an empty Vec when `name` has no definition.
 ///
-/// Walks the hecs world directly so detached + DocumentFragment
-/// subtrees + future multi-document worlds are covered (a
-/// document-rooted DOM walk would silently miss them).
+/// Document-scoped + tree-ordered to match the spec AO exactly: a
+/// whole-world query would (a) upgrade *detached* fragment/template
+/// elements at `define()` time — which the spec defers to their later
+/// insertion — and (b) enqueue connected candidates in ECS iteration
+/// order rather than the JS-observable tree order. Detached elements
+/// awaiting upgrade are caught by the insertion-time "try to upgrade"
+/// path (`CustomElementReactionConsumer::handle_insert` reactions),
+/// not here.
+///
+/// Both engines consume this one function, so the candidate rule
+/// cannot drift between them; the executor-side [`prepare_upgrade`]
+/// gate re-checks at flush time (state may legitimately change
+/// between enqueue and flush via other reaction sources).
+///
+/// `define()` rejects invalid names, so this is never queried with a
+/// name that cannot acquire a definition — `Undefined` components
+/// carrying an invalid `is`-derived name (DOM §4.9 step 6.3 marking
+/// is validity-free) are simply never matched.
+///
+/// [`prepare_upgrade`]: crate::prepare_upgrade
 #[must_use]
-pub fn collect_undefined_entities(
-    world: &hecs::World,
+pub fn collect_upgrade_candidates(
+    dom: &EcsDom,
+    document: Entity,
+    registry: &CustomElementRegistry,
     name: &str,
-    skip_already_pending: &[Entity],
 ) -> Vec<Entity> {
-    // O(pending) HashSet build → O(world) walk with O(1) membership
-    // tests, replacing the O(world × pending) `[Entity]::contains`
-    // scan. Pending size can grow with parser-baked + createElement-
-    // queued elements waiting for define() so the structural fix
-    // matters for large CE component pages.
-    let skip: std::collections::HashSet<Entity> = skip_already_pending.iter().copied().collect();
+    let Some(def) = registry.get(name) else {
+        return Vec::new();
+    };
+    let world = dom.world();
     let mut out = Vec::new();
-    let mut query = world.query::<(Entity, &CustomElementState)>();
-    for (entity, state) in &mut query {
+    dom.for_each_shadow_inclusive_descendant(document, &mut |entity| {
+        let Ok(state) = world.get::<&CustomElementState>(entity) else {
+            return;
+        };
         // Null-registry elements are outside every registry — the
-        // define()-time drain must not upgrade them (DOM §4.9:
+        // define()-time walk must not upgrade them (DOM §4.9:
         // definition lookup in a null registry is always null).
         if matches!(state.state, CEState::Undefined)
             && matches!(state.registry, crate::RegistryAssociation::Document)
             && state.definition_name == name
-            && !skip.contains(&entity)
+            && world
+                .get::<&TagType>(entity)
+                .is_ok_and(|tag| def.upgrade_matches_local_name(&tag.0))
         {
             out.push(entity);
         }
-    }
+    });
     out
 }
 
@@ -407,34 +409,5 @@ mod upgrade_match_tests {
         assert!(d.upgrade_matches_local_name("BUTTON")); // ASCII case-insensitive
         assert!(!d.upgrade_matches_local_name("div"));
         assert!(!d.upgrade_matches_local_name("plastic-button"));
-    }
-}
-
-#[cfg(test)]
-mod queue_admission_tests {
-    use super::CustomElementRegistry;
-
-    #[test]
-    fn queue_for_upgrade_rejects_invalid_names() {
-        // The DoS guard this gate exists for: `define()` rejects
-        // invalid names, so a pending bucket keyed by one could never
-        // drain — admission must refuse it outright while valid
-        // (merely not-yet-defined) names queue normally.
-        let mut reg = CustomElementRegistry::new();
-        let world = hecs::World::new();
-        let entity = world.reserve_entity();
-        // Genuinely invalid names: no hyphen ("input", "notvalid"),
-        // uppercase ("My-El"). NB "x-invalid" would be VALID (lowercase
-        // start + hyphen) — naming a thing "-invalid" doesn't make it so.
-        reg.queue_for_upgrade("input", entity);
-        reg.queue_for_upgrade("notvalid", entity);
-        reg.queue_for_upgrade("My-El", entity);
-        assert!(
-            reg.pending_upgrade.is_empty(),
-            "invalid names must not be admitted to the pending-upgrade queue"
-        );
-        reg.queue_for_upgrade("my-el", entity);
-        assert_eq!(reg.pending_upgrade.len(), 1);
-        assert_eq!(reg.pending_upgrade["my-el"], vec![entity]);
     }
 }

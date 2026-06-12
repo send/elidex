@@ -9,8 +9,8 @@
 //! engine-bound responsibilities: prototype install, brand check,
 //! WebIDL coercion (`observedAttributes` static getter → `Sequence<
 //! DOMString>` → `Vec<String>`), DOMException mapping, and one-line
-//! dispatch into the registry helpers. The validation / pending-
-//! upgrade queue / state transitions live in
+//! dispatch into the registry helpers. The validation /
+//! state transitions live in
 //! [`elidex_custom_elements`]; the shadow-including descendant walker
 //! used by `customElements.upgrade(root)` lives in
 //! [`elidex_dom_api::tree_nav::descendants_shadow_inclusive`].

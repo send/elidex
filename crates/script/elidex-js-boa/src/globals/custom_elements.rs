@@ -62,7 +62,7 @@ pub fn register_custom_elements_global(ctx: &mut Context, bridge: &HostBridge) {
                 let observed_attrs = extract_observed_attributes(&constructor, ctx)?;
 
                 // Register in bridge.
-                let pending = bridge
+                bridge
                     .register_custom_element(&name, constructor, observed_attrs, extends)
                     .map_err(|e| match e {
                         elidex_custom_elements::DefineError::InvalidName(n) => {
@@ -76,23 +76,23 @@ pub fn register_custom_elements_global(ctx: &mut Context, bridge: &HostBridge) {
                         }
                     })?;
 
-                // Enqueue Upgrade reactions for pending elements (queued via
-                // bridge.queue_for_ce_upgrade before define() was called).
-                for entity in pending {
-                    bridge.enqueue_ce_reaction(CustomElementReaction::Upgrade(entity));
-                }
-
-                // Walk the DOM to find parser-created elements with
-                // CustomElementState::Undefined that weren't queued via the
-                // pending queue (the HTML parser marks them Undefined but
-                // cannot queue them because the registry lives in HostBridge).
+                // Enqueue Upgrade reactions for this name's upgrade
+                // candidates — the engine-indep world query
+                // (`collect_upgrade_candidates`, shared with the VM
+                // engine) owns the candidate rule: `Undefined`
+                // component + document-registry association +
+                // §4.13.4 local-name/is-value match. Parser-baked,
+                // detached `createElement`-baked, and fragment
+                // elements are all discovered by the same query (a
+                // document-rooted walk would miss detached ones).
                 //
-                // Performance note: O(document size) walk per define(). Acceptable
-                // for typical pages (<100 define calls, <10K elements). For extreme
-                // cases, consider maintaining a pending-by-name index on the DOM.
-                let doc = bridge.document_entity();
+                // Performance note: O(world size) query per define().
+                // Acceptable for typical pages (<100 define calls,
+                // <10K elements).
                 bridge.with(|_session, dom| {
-                    walk_and_enqueue_upgrades(doc, bridge, dom);
+                    for entity in bridge.ce_collect_upgrade_candidates(dom, &name) {
+                        bridge.enqueue_ce_reaction(CustomElementReaction::Upgrade(entity));
+                    }
                 });
 
                 // Resolve any pending whenDefined() promises for this name.
@@ -255,10 +255,12 @@ fn extract_observed_attributes(
 }
 
 /// Walk a subtree and enqueue Upgrade reactions for undefined custom
-/// elements. (The clone-time seam routes through the bridge's
-/// `apply_clone_ce_creation_pass` instead — it additionally applies
-/// the §4.9 async-autonomous null-is rule, which a define()-time walk
-/// over pre-existing elements must NOT do.)
+/// elements — the `customElements.upgrade(root)` subtree semantics
+/// (define()-time discovery is the world query in the `define`
+/// closure instead). (The clone-time seam routes through the bridge's
+/// `apply_clone_ce_creation_pass` — it additionally applies the §4.9
+/// async-autonomous null-is rule, which a walk over pre-existing
+/// elements must NOT do.)
 fn walk_and_enqueue_upgrades(
     root: elidex_ecs::Entity,
     bridge: &HostBridge,
@@ -279,9 +281,8 @@ fn walk_and_enqueue_upgrades_inner(
     }
 
     if let Ok(ce_state) = dom.world().get::<&CustomElementState>(root) {
-        // Null-registry elements are outside every registry — neither
-        // the define()-time walk nor customElements.upgrade() (both
-        // route through here) may upgrade them.
+        // Null-registry elements are outside every registry —
+        // customElements.upgrade() may not upgrade them.
         let in_document_registry = matches!(
             ce_state.registry,
             elidex_custom_elements::RegistryAssociation::Document

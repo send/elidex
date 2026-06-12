@@ -18,7 +18,7 @@ pub use consumer::CustomElementReactionConsumer;
 pub use entity_spawn::spawn_custom_element_entity;
 pub use reaction::{scrub_entity_reactions, CustomElementReaction};
 pub use registry::{
-    collect_undefined_entities, CustomElementDefinition, CustomElementRegistry, DefineError,
+    collect_upgrade_candidates, CustomElementDefinition, CustomElementRegistry, DefineError,
 };
 pub use state::{CEState, CustomElementState, RegistryAssociation};
 pub use upgrade::{

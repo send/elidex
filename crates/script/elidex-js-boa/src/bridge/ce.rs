@@ -12,15 +12,16 @@ use super::HostBridge;
 impl HostBridge {
     /// Register a custom element definition.
     ///
-    /// Stores the constructor, calls `registry.define()`, and returns the list
-    /// of entities pending upgrade for this name.
+    /// Stores the constructor and calls `registry.define()`.
+    /// Upgrade-candidate discovery is the caller's job via
+    /// [`Self::ce_collect_upgrade_candidates`].
     pub fn register_custom_element(
         &self,
         name: &str,
         constructor: JsObject,
         observed_attrs: Vec<String>,
         extends: Option<String>,
-    ) -> Result<Vec<Entity>, elidex_custom_elements::DefineError> {
+    ) -> Result<(), elidex_custom_elements::DefineError> {
         let mut inner = self.inner.borrow_mut();
 
         // Validate before allocating constructor ID to avoid leaking an ID
@@ -78,14 +79,31 @@ impl HostBridge {
         self.inner.borrow().custom_element_registry.is_defined(name)
     }
 
-    /// Queue an entity for upgrade when its custom element definition becomes available.
-    ///
-    /// Note: The pending queue is keyed by custom element name only and does not
-    /// track the element's base tag. For customized built-in elements, the
-    /// `extends` tag match is verified at upgrade time in both
-    /// `walk_and_enqueue_upgrades` (enqueue-side filter) and
-    /// `drain_custom_element_reactions` (execution-side guard). Elements that
-    /// fail the extends check are set to `CEState::Failed`.
+    /// WHATWG HTML §4.13.4 define()-time upgrade-candidate discovery —
+    /// thin accessor over the engine-indep
+    /// `elidex_custom_elements::collect_upgrade_candidates` (shadow-
+    /// including descendants of the document in tree order, with the
+    /// Undefined + document-registry + local-name/is-value match), so
+    /// the candidate rule is one function shared with the VM engine.
+    /// Detached elements upgrade on insertion, not here.
+    #[must_use]
+    pub fn ce_collect_upgrade_candidates(
+        &self,
+        dom: &elidex_ecs::EcsDom,
+        name: &str,
+    ) -> Vec<Entity> {
+        let inner = self.inner.borrow();
+        let Some(document) = inner.document_entity else {
+            return Vec::new();
+        };
+        elidex_custom_elements::collect_upgrade_candidates(
+            dom,
+            document,
+            &inner.custom_element_registry,
+            name,
+        )
+    }
+
     /// DOM §4.4 clone-time creation pass over a fresh clone subtree:
     /// delegates to the engine-indep
     /// `elidex_custom_elements::apply_clone_creation_ce_semantics`
@@ -104,13 +122,6 @@ impl HostBridge {
         for entity in candidates {
             self.enqueue_ce_reaction(CustomElementReaction::Upgrade(entity));
         }
-    }
-
-    pub fn queue_for_ce_upgrade(&self, name: &str, entity: Entity) {
-        self.inner
-            .borrow_mut()
-            .custom_element_registry
-            .queue_for_upgrade(name, entity);
     }
 
     /// Access a custom element definition by name via a closure.

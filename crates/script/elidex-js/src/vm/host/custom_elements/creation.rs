@@ -147,10 +147,12 @@ pub(in crate::vm) fn flatten_converted_options(
 ///   reactions). Errors during the synchronous upgrade are eprinted
 ///   (matching the reaction-flush path) — createElement still returns
 ///   the wrapper in `Failed` state.
-/// - otherwise → pending-upgrade queue, drained by the next
-///   `customElements.define('<name>', ...)`.
+/// - otherwise → nothing: the element stays `Undefined` and the next
+///   `customElements.define('<name>', ...)` discovers it via the
+///   world query over `CustomElementState` (the component IS the
+///   "awaiting upgrade" record — no side-store).
 ///
-/// The queue / lookup key is the component's `definition_name` — the
+/// The lookup key is the component's `definition_name` — the
 /// local name for autonomous custom elements, the *is* value for
 /// customized built-ins (extends/local-name matching happens inside
 /// the engine-indep upgrade machinery, `prepare_upgrade` +
@@ -168,9 +170,9 @@ pub(in crate::vm) fn route_custom_element_upgrade(
         {
             // A null-registry element (created with
             // `{customElementRegistry: null}`) is outside every
-            // registry — no sync upgrade, no pending-queue admission
-            // (DOM §4.9: definition lookup in a null registry is
-            // always null).
+            // registry — no sync upgrade, and the define()-time world
+            // walk skips it too (DOM §4.9: definition lookup in a
+            // null registry is always null).
             Ok(state)
                 if matches!(
                     state.registry,
@@ -236,13 +238,8 @@ pub(in crate::vm) fn route_custom_element_upgrade(
         if let Err(err) = super::upgrade::invoke_upgrade(ctx, entity) {
             eprintln!("[CE Upgrade Error] {}", err.message);
         }
-    } else {
-        // Queue admission (incl. the invalid-name gate) is owned by
-        // `CustomElementRegistry::queue_for_upgrade` itself.
-        ctx.host()
-            .ce_registry
-            .lock()
-            .expect("CE registry mutex poisoned")
-            .queue_for_upgrade(&name, entity);
     }
+    // Not yet defined: nothing to do — the `Undefined` component is
+    // the "awaiting upgrade" record, discovered at define() time by
+    // the world query (`collect_upgrade_candidates`).
 }

@@ -176,9 +176,10 @@ pub(super) fn install_create_element(init: &mut ObjectInitializer<'_>, b: &HostB
                                 return false;
                             };
                             // A null-registry element is outside every
-                            // registry — no sync upgrade, no queue
-                            // admission (DOM §4.9: definition lookup
-                            // in a null registry is always null).
+                            // registry — no sync upgrade, and the
+                            // define()-time candidate query skips it
+                            // too (DOM §4.9: definition lookup in a
+                            // null registry is always null).
                             if matches!(
                                 state.registry,
                                 elidex_custom_elements::RegistryAssociation::Null
@@ -201,17 +202,11 @@ pub(super) fn install_create_element(init: &mut ObjectInitializer<'_>, b: &HostB
                             // creation autonomous elements null the
                             // is value (async-created keep theirs).
                             bridge.ce_clear_is_value_for_sync_autonomous(dom, entity);
-                        } else if !bridge.is_custom_element_defined(&name) {
-                            // Queue admission (incl. the invalid-name
-                            // gate) is owned by the registry's
-                            // `queue_for_upgrade`. An already-defined
-                            // name that merely failed the local-name
-                            // match (e.g. `is: 'x-foo'` on the wrong
-                            // base tag) is NOT queued — define() can
-                            // never run again for it, so the bucket
-                            // would be undrainable (Codex PR331 R15).
-                            bridge.queue_for_ce_upgrade(&name, entity);
                         }
+                        // Not (yet) defined: nothing to do — the
+                        // `Undefined` component is the "awaiting
+                        // upgrade" record; define()-time discovery is
+                        // the world query over `CustomElementState`.
                         defined
                     });
                     if defined {

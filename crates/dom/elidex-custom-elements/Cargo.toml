@@ -12,9 +12,9 @@ categories = ["web-programming"]
 
 [dependencies]
 elidex-ecs.workspace = true
-# `collect_undefined_entities` queries the hecs world directly so the
-# define()-time pending-upgrade walk can cover detached entities the
-# parser path attached state to without a registry queue entry.
+# `collect_upgrade_candidates` queries the hecs world directly so the
+# define()-time candidate walk covers detached entities — the per-entity
+# `CustomElementState` component is the only "awaiting upgrade" record.
 hecs.workspace = true
 
 [lints]

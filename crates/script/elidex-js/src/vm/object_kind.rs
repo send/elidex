@@ -1351,7 +1351,7 @@ pub enum ObjectKind {
     EventSource,
     /// `CustomElementRegistry` instance (WHATWG HTML §4.13.4) — the
     /// singleton exposed as `window.customElements`. Payload-free brand;
-    /// the actual registry (definitions / pending-upgrade queue) plus
+    /// the actual registry (definitions) plus
     /// the reaction queue plus `whenDefined` pending resolvers live on
     /// `HostData` (`ce_registry` / `ce_reaction_queue` /
     /// `ce_when_defined`). Identity preserved via
