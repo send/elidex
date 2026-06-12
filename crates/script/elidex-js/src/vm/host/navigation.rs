@@ -130,9 +130,13 @@ pub(crate) struct NavigationState {
     /// (`pushState('/a'); pushState('/b')`) must both reach the shell in order —
     /// a last-wins slot would silently drop `/a`'s entry.  (Contrast
     /// `pending_navigation`, single-slot last-wins: navigations are async and
-    /// supersede one another.)  Bounded at [`MAX_PENDING_HISTORY_ACTIONS`] —
-    /// drop-oldest — so a runaway `pushState` loop cannot grow memory unbounded
-    /// before the shell drains (see [`Self::enqueue_history`]).
+    /// supersede one another.)  Bounded at [`MAX_PENDING_HISTORY_ACTIONS`] so a
+    /// runaway `pushState` loop cannot grow memory unbounded before the shell
+    /// drains — but at the bound it evicts the oldest **`PushState`/`ReplaceState`**
+    /// (which the shell's session-history cap would drop anyway), **never a
+    /// traversal**, so a `back()` followed by a flood of pushes does not silently
+    /// lose the traversal and reorder the operation sequence the shell replays
+    /// (see [`Self::enqueue_history`]).
     pub(crate) pending_history: VecDeque<HistoryAction>,
     /// URL of the previous Document, used to back `document.referrer` (WHATWG
     /// HTML §3.1.4 "Resource metadata management").  `None` when no previous
@@ -184,13 +188,33 @@ impl NavigationState {
     /// turn's synchronous `pushState`/`replaceState` mutations all reach the shell
     /// in order — see [`Self::pending_history`]).  Used by `back`/`forward`/`go`
     /// (pure intent) and by `pushState`/`replaceState` (after their synchronous
-    /// URL+state update).  Bounded drop-oldest at [`MAX_PENDING_HISTORY_ACTIONS`]:
-    /// a runaway loop stays at the cap (the dropped oldest entries would be
-    /// evicted by the shell's session-history cap anyway), and the newest action —
-    /// matching the synchronously-updated `current_url` — is always retained.
+    /// URL+state update).  Bounded at [`MAX_PENDING_HISTORY_ACTIONS`]: a runaway
+    /// loop stays at the cap, and the newest action — matching the synchronously
+    /// updated `current_url` — is always retained.
+    ///
+    /// At the bound it evicts the oldest **evictable** action — a
+    /// `PushState`/`ReplaceState`, which the shell's session-history cap would
+    /// drop anyway, so the survivors are the same last-N the shell commits.  A
+    /// traversal (`Back`/`Forward`/`Go`) is **not** evictable: dropping it would
+    /// change the ordered operation sequence the shell replays (`back(); pushState
+    /// ×N` must still go back first), so it is preserved.  Only if every queued
+    /// action is a traversal — pathological — does eviction fall back to the front.
     pub(crate) fn enqueue_history(&mut self, action: HistoryAction) {
         if self.pending_history.len() >= MAX_PENDING_HISTORY_ACTIONS {
-            self.pending_history.pop_front();
+            let evictable = self.pending_history.iter().position(|a| {
+                matches!(
+                    a,
+                    HistoryAction::PushState { .. } | HistoryAction::ReplaceState { .. }
+                )
+            });
+            match evictable {
+                Some(pos) => {
+                    self.pending_history.remove(pos);
+                }
+                None => {
+                    self.pending_history.pop_front();
+                }
+            }
         }
         self.pending_history.push_back(action);
     }

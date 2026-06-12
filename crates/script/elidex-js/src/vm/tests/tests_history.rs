@@ -213,6 +213,25 @@ fn bounded_queue_retains_self_contained_no_url_actions() {
 }
 
 #[test]
+fn bounded_queue_preserves_traversal_intents() {
+    // R9-#2: a traversal (`back`) followed by enough pushes to overflow the cap
+    // must NOT lose the traversal — the cap evicts the oldest *evictable*
+    // pushState (which the shell's session cap drops anyway), never a traversal,
+    // so the shell still replays `back` before the pushes.
+    let mut vm = new_vm_with_base();
+    vm.eval("history.back();").unwrap();
+    vm.eval("for (let i = 0; i < 1100; i++) { history.pushState(null, '', '/p' + i); }")
+        .unwrap();
+    let actions = drain_history(&mut vm);
+    assert_eq!(actions.len(), 1024); // capped
+    assert!(
+        matches!(actions.first(), Some(HistoryAction::Back)),
+        "the Back traversal is preserved at the front, got {:?}",
+        actions.first()
+    );
+}
+
+#[test]
 fn push_state_syncs_url_and_state_and_enqueues() {
     let mut vm = new_vm_with_base();
     vm.eval("history.pushState({step: 1}, '', '/a');").unwrap();
