@@ -387,7 +387,7 @@ pub struct ColumnFlowSlice {
 /// A single inline-style declaration: value text plus its `!important`
 /// priority flag (CSSOM §6.6.1 — `getPropertyValue` returns the value
 /// only; `getPropertyPriority` returns the flag).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct InlineDeclaration {
     value: String,
     important: bool,
@@ -421,31 +421,27 @@ impl InlineStyle {
     }
 
     /// Set a style property value with normal (non-important) priority.
-    /// Returns the previous value if present.
     ///
     /// Clears any existing `!important` flag on the property — CSSOM
     /// §6.6.1 `setProperty` with an empty priority resets importance.
-    pub fn set(&mut self, name: impl Into<String>, value: impl Into<String>) -> Option<String> {
-        self.set_with_priority(name, value, false)
+    pub fn set(&mut self, name: impl Into<String>, value: impl Into<String>) {
+        self.set_with_priority(name, value, false);
     }
 
     /// Set a style property value with an explicit `!important` flag.
-    /// Returns the previous value if present.
     pub fn set_with_priority(
         &mut self,
         name: impl Into<String>,
         value: impl Into<String>,
         important: bool,
-    ) -> Option<String> {
-        self.properties
-            .insert(
-                name.into(),
-                InlineDeclaration {
-                    value: value.into(),
-                    important,
-                },
-            )
-            .map(|d| d.value)
+    ) {
+        self.properties.insert(
+            name.into(),
+            InlineDeclaration {
+                value: value.into(),
+                important,
+            },
+        );
     }
 
     /// Remove a style property by name. Returns the removed value if
@@ -454,24 +450,11 @@ impl InlineStyle {
         self.properties.shift_remove(name).map(|d| d.value)
     }
 
-    /// Returns `true` if the style property exists.
-    #[must_use]
-    pub fn contains(&self, name: &str) -> bool {
-        self.properties.contains_key(name)
-    }
-
     /// Returns `true` if the property exists and is flagged `!important`
     /// (CSSOM `getPropertyPriority` ⇒ `"important"`).
     #[must_use]
     pub fn is_important(&self, name: &str) -> bool {
         self.properties.get(name).is_some_and(|d| d.important)
-    }
-
-    /// Iterate over all property name-value pairs (values only).
-    pub fn iter(&self) -> impl Iterator<Item = (&str, &str)> {
-        self.properties
-            .iter()
-            .map(|(k, d)| (k.as_str(), d.value.as_str()))
     }
 
     /// Returns the number of properties.

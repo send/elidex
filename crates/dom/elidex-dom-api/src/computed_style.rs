@@ -1,36 +1,11 @@
 //! `window.getComputedStyle()` CSSOM API handler.
 
-use elidex_ecs::{EcsDom, ElementState, Entity};
+use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::{ComputedStyle, JsValue};
 use elidex_script_session::{DomApiError, DomApiErrorKind, DomApiHandler, SessionCore};
 use elidex_style::get_computed;
 
 use crate::util::require_string_arg;
-
-/// Properties affected by :visited privacy restrictions (CSS Color Level 4 section 5.3).
-///
-/// For these properties, `getComputedStyle()` must return the unvisited (:link)
-/// value even if the element has the VISITED state, to prevent history sniffing.
-const VISITED_RESTRICTED_PROPERTIES: &[&str] = &[
-    "color",
-    "background-color",
-    "border-top-color",
-    "border-right-color",
-    "border-bottom-color",
-    "border-left-color",
-    "border-color",
-    "column-rule-color",
-    "outline-color",
-    "text-decoration-color",
-    "fill",
-    "stroke",
-];
-
-/// Returns `true` if the given property is restricted under :visited privacy rules.
-#[must_use]
-fn is_visited_restricted(property: &str) -> bool {
-    VISITED_RESTRICTED_PROPERTIES.contains(&property)
-}
 
 /// `window.getComputedStyle(element)` + property access — returns CSS string.
 ///
@@ -39,12 +14,12 @@ fn is_visited_restricted(property: &str) -> bool {
 /// `getComputedStyle(el).propertyName` pattern into this single call.
 ///
 /// Per CSS Color Level 4 section 5.3 (:visited privacy restrictions),
-/// color-related properties return the unvisited (:link) computed value
-/// for elements with the VISITED state flag. This prevents history sniffing
-/// attacks where scripts probe `getComputedStyle()` to determine which
-/// links the user has visited. The restricted properties are: color,
-/// background-color, border-*-color, column-rule-color, outline-color,
-/// text-decoration-color, fill, and stroke.
+/// color-related properties must return the unvisited (:link) computed
+/// value for elements with the VISITED state flag, preventing history
+/// sniffing via `getComputedStyle()` probes. Resolution currently never
+/// produces separate :visited computed values, so the stored
+/// `ComputedStyle` is already the unvisited form — see the inline note
+/// in `invoke`.
 pub struct GetComputedStyle;
 
 impl DomApiHandler for GetComputedStyle {
@@ -68,23 +43,13 @@ impl DomApiHandler for GetComputedStyle {
                 message: "element has no computed style".into(),
             })?;
 
-        // CSS Color Level 4 §5.3: for :visited elements, return the unvisited
-        // value for color-related properties to prevent history sniffing.
-        let is_visited = dom
-            .world()
-            .get::<&ElementState>(this)
-            .is_ok_and(|state| state.contains(ElementState::VISITED));
-
-        if is_visited && is_visited_restricted(&property) {
-            // Return the :link (unvisited) value. Since our style resolution
-            // does not produce separate :visited computed values, the stored
-            // ComputedStyle already reflects the unvisited style for most
-            // properties. For the restricted color properties we return the
-            // default/inherited color to ensure no :visited-specific color leaks.
-            let css_value = get_computed(&property, &style);
-            return Ok(JsValue::String(css_value.to_css_string()));
-        }
-
+        // CSS Color Level 4 §5.3 (:visited privacy): the restricted
+        // color properties (color / background-color / border-*-color /
+        // outline-color / text-decoration-color / fill / stroke …) must
+        // return the unvisited (:link) value. Our style resolution does
+        // not produce separate :visited computed values — the stored
+        // ComputedStyle already reflects the unvisited style — so no
+        // divergence is needed until :visited styling exists.
         let css_value = get_computed(&property, &style);
         Ok(JsValue::String(css_value.to_css_string()))
     }
@@ -94,6 +59,7 @@ impl DomApiHandler for GetComputedStyle {
 mod tests {
     use super::*;
     use elidex_ecs::Attributes;
+    use elidex_ecs::ElementState;
     use elidex_plugin::{CssColor, Display};
 
     #[test]
@@ -231,17 +197,5 @@ mod tests {
             )
             .unwrap();
         assert_eq!(result, JsValue::String("block".into()));
-    }
-
-    #[test]
-    fn is_visited_restricted_properties() {
-        assert!(is_visited_restricted("color"));
-        assert!(is_visited_restricted("background-color"));
-        assert!(is_visited_restricted("border-top-color"));
-        assert!(is_visited_restricted("outline-color"));
-        assert!(is_visited_restricted("text-decoration-color"));
-        assert!(!is_visited_restricted("display"));
-        assert!(!is_visited_restricted("width"));
-        assert!(!is_visited_restricted("font-size"));
     }
 }

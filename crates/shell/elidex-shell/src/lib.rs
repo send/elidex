@@ -149,13 +149,6 @@ fn selector_component_to_string(comp: &elidex_css::SelectorComponent) -> String 
     }
 }
 
-/// Escape a string for use inside a CSS quoted string (`"…"`).
-fn escape_css_string(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-}
-
 /// Serialize an attribute selector to CSS text.
 fn format_attribute_selector(name: &str, matcher: Option<&elidex_css::AttributeMatcher>) -> String {
     use elidex_css::AttributeMatcher;
@@ -170,7 +163,7 @@ fn format_attribute_selector(name: &str, matcher: Option<&elidex_css::AttributeM
                 AttributeMatcher::Suffix(v) => ("$=", v.as_str()),
                 AttributeMatcher::Substring(v) => ("*=", v.as_str()),
             };
-            let escaped = escape_css_string(val);
+            let escaped = elidex_plugin::escape_css_string(val);
             format!("[{name}{op}\"{escaped}\"]")
         }
     }

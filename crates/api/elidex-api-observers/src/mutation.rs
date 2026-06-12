@@ -240,7 +240,7 @@ impl MutationObserverRegistry {
                         }
                         MutationKind::CharacterData => init.character_data,
                         // InlineStyle, CssRule, and future variants are not observed by MutationObserver.
-                        MutationKind::InlineStyle | MutationKind::CssRule | _ => false,
+                        MutationKind::CssRule | _ => false,
                     };
                     if !kind_matches {
                         continue;

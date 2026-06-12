@@ -542,7 +542,7 @@ pub fn create_style_object(entity: Entity, bridge: &HostBridge, ctx: &mut Contex
         Attribute::empty(),
     );
 
-    // setProperty(name, value)
+    // setProperty(name, value, priority?)
     let b = bridge.clone();
     init.function(
         NativeFunction::from_copy_closure_with_captures(
@@ -550,12 +550,15 @@ pub fn create_style_object(entity: Entity, bridge: &HostBridge, ctx: &mut Contex
                 let entity = extract_entity(this, ctx)?;
                 let name = require_js_string_arg(args, 0, "style.setProperty", ctx)?;
                 let value = require_js_string_arg(args, 1, "style.setProperty", ctx)?;
-                invoke_dom_handler_void(
-                    "style.setProperty",
-                    entity,
-                    &[ElidexJsValue::String(name), ElidexJsValue::String(value)],
-                    bridge,
-                )
+                // Optional priority forwarded to the canonical handler,
+                // which applies the CSSOM §6.6.1 step-4 validity check.
+                let mut call_args = vec![ElidexJsValue::String(name), ElidexJsValue::String(value)];
+                if let Some(p) = args.get(2).filter(|v| !v.is_null_or_undefined()) {
+                    call_args.push(ElidexJsValue::String(
+                        p.to_string(ctx)?.to_std_string_escaped(),
+                    ));
+                }
+                invoke_dom_handler_void("style.setProperty", entity, &call_args, bridge)
             },
             b,
         ),

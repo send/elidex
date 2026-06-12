@@ -7,7 +7,8 @@ use std::fmt;
 /// escape, U+0000 becomes U+FFFD, and other control characters become a
 /// hex escape. Without this, a string value containing CSS-significant
 /// characters would corrupt the declaration block on re-parse.
-fn escape_css_string(s: &str) -> String {
+#[must_use]
+pub fn escape_css_string(s: &str) -> String {
     use std::fmt::Write as _;
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {

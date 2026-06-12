@@ -134,8 +134,6 @@ pub enum MutationKind {
     Attribute,
     /// Text content was changed.
     CharacterData,
-    /// An inline style property was changed.
-    InlineStyle,
     /// A CSS rule was inserted or deleted.
     CssRule,
 }

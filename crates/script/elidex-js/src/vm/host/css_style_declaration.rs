@@ -447,11 +447,19 @@ fn native_style_set_property(
     }
     match recv {
         StyleReceiver::Inline(entity) => {
-            let mut call_args = vec![JsValue::String(prop_sid), JsValue::String(val_sid)];
+            // `JsValue` is `Copy` — a fixed array sliced to the live
+            // argument count avoids a per-call heap allocation.
+            let mut call_args = [
+                JsValue::String(prop_sid),
+                JsValue::String(val_sid),
+                JsValue::Undefined,
+            ];
+            let mut len = 2;
             if let Some(p) = priority_sid {
-                call_args.push(JsValue::String(p));
+                call_args[2] = JsValue::String(p);
+                len = 3;
             }
-            invoke_dom_api(ctx, "style.setProperty", entity, &call_args)
+            invoke_dom_api(ctx, "style.setProperty", entity, &call_args[..len])
         }
         // Computed / Rule sources: silent no-op (read-only).
         StyleReceiver::Computed(_) | StyleReceiver::Rule { .. } => Ok(JsValue::Undefined),

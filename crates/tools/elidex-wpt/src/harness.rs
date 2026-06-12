@@ -147,9 +147,9 @@ fn css_value_to_string(value: &elidex_plugin::CssValue) -> String {
 fn css_value_to_string_inner(value: &elidex_plugin::CssValue, depth: usize) -> String {
     use elidex_plugin::CssValue;
     match value {
-        CssValue::Keyword(k) => k.clone(),
-        // CSS Color Level 4 §15 + CSSOM §6.7.2:
-        //   sRGB colors serialize as `rgb(r, g, b)` or `rgba(r, g, b, a)`.
+        // CSS Color Level 4 §15 + CSSOM §6.7.2 *resolved-value* form:
+        //   sRGB colors serialize as `rgb(r, g, b)` or `rgba(r, g, b, a)`
+        //   (the canonical declaration-form serializer uses hex).
         //   Component values are integers 0–255; alpha is `<number>` 0–1.
         CssValue::Color(c) => {
             if c.a == 255 {
@@ -162,26 +162,16 @@ fn css_value_to_string_inner(value: &elidex_plugin::CssValue, depth: usize) -> S
                 format!("rgba({}, {}, {}, {alpha})", c.r, c.g, c.b)
             }
         }
-        // CSSOM §6.7.2: <length> serialized as `<number><unit>` — unit
-        // suffix via the canonical `LengthUnit::as_str`.
-        CssValue::Length(v, unit) => format!("{v}{}", unit.as_str()),
-        CssValue::Percentage(p) => format!("{p}%"),
-        CssValue::Number(n) => format!("{n}"),
-        CssValue::String(s) => format!("\"{s}\""),
-        CssValue::Auto => "auto".to_string(),
-        CssValue::Inherit => "inherit".to_string(),
-        CssValue::Initial => "initial".to_string(),
-        CssValue::Unset => "unset".to_string(),
-        CssValue::RawTokens(t) => t.clone(),
+        // Resolved-value lists are space-joined (the declaration form is
+        // comma-joined), with a recursion cap for test robustness.
         CssValue::List(items) if depth < MAX_VALUE_DEPTH => items
             .iter()
             .map(|v| css_value_to_string_inner(v, depth + 1))
             .collect::<Vec<_>>()
             .join(" "),
-        // Everything else (transform lists, calc(), var(), gradients, …):
-        // delegate to the canonical declaration-form serializer rather
-        // than Rust `Debug` output. Only the arms above intentionally
-        // diverge (CSSOM resolved-value forms for WPT comparison).
+        // Everything else is byte-identical to the canonical
+        // declaration-form serializer — delegate so there is exactly one
+        // copy of those arms in the workspace.
         _ => value.to_css_string(),
     }
 }
