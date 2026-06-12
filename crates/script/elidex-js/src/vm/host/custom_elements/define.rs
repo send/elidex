@@ -307,13 +307,14 @@ fn define_error_to_vm_error(
 /// Enqueue Upgrade reactions for `name`'s upgrade candidates — the
 /// single define()-time candidate-discovery mechanism, shared with
 /// the boa engine via the engine-indep
-/// `elidex_custom_elements::collect_upgrade_candidates` (Undefined
-/// component + document-registry association + the §4.13.4
-/// local-name/is-value match). Covers the parser / innerHTML path
-/// (the parser attached the state component but cannot reach the
-/// per-VM registry) AND every `createElement`-baked element (attached
-/// or detached): "awaiting upgrade" is the per-entity component, not
-/// a registry-side queue.
+/// `elidex_custom_elements::collect_upgrade_candidates` (HTML §4.13.4
+/// "upgrade particular elements within a document": shadow-including
+/// descendants of the document, in tree order, with the Undefined +
+/// document-registry + local-name/is-value match). Parser- and
+/// `createElement`-baked elements connected to the document are all
+/// discovered here off the per-entity component; *detached* elements
+/// awaiting upgrade are caught later by the insertion-time "try to
+/// upgrade" path, not at define() time (per spec).
 ///
 /// Holding the registry lock across the shared `dom` borrow follows
 /// the `invoke_upgrade` → `prepare_upgrade` precedent (only a MUTABLE
@@ -322,13 +323,19 @@ fn enqueue_upgrade_walk(ctx: &mut NativeContext<'_>, name: &str) {
     let Some(host) = ctx.host_if_bound() else {
         return;
     };
+    // No document bound → no document descendants to upgrade (the
+    // §4.13.4 AO is per-document); detached elements upgrade on
+    // insertion regardless.
+    let Some(document) = host.document_entity_opt() else {
+        return;
+    };
     let to_upgrade = {
         let registry = host
             .ce_registry
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         let dom = host.dom_shared();
-        elidex_custom_elements::collect_upgrade_candidates(dom.world(), &registry, name)
+        elidex_custom_elements::collect_upgrade_candidates(dom, document, &registry, name)
     };
     if to_upgrade.is_empty() {
         return;

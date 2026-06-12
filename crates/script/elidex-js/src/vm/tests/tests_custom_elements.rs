@@ -297,11 +297,15 @@ fn whendefined_same_promise_for_repeat_calls() {
 
 #[test]
 fn createelement_hyphenated_tag_gets_pending_state() {
-    // Pre-define: element should be created in Undefined state and
-    // queued for upgrade. After define(), the queued upgrade fires
-    // and the element transitions to Custom.
+    // Pre-define: element created in Undefined state, then connected to
+    // the document. define() upgrades it as a shadow-including
+    // document descendant (HTML §4.13.4 "upgrade particular elements
+    // within a document") and it transitions to Custom. (A *detached*
+    // element would instead upgrade on its later insertion, not at
+    // define() time — see `re_insert_after_define_triggers_upgrade`.)
     let out = run_then_read(
         "var el = document.createElement('my-el'); \
+         document.body.appendChild(el); \
          globalThis.__upgraded = 'no'; \
          class MyEl extends HTMLElement { constructor() { globalThis.__upgraded = 'yes'; } } \
          customElements.define('my-el', MyEl);",
@@ -444,6 +448,7 @@ fn customelements_upgrade_handles_constructor_throw_as_failed() {
              attributeChangedCallback() { globalThis.__ctor_attempts = 99; } \
          } \
          var el = document.createElement('my-el'); \
+         document.body.appendChild(el); \
          try { customElements.define('my-el', MyEl); } catch (e) {} \
          el.setAttribute('x', 'after');",
         "'' + globalThis.__ctor_attempts;",
@@ -481,6 +486,7 @@ fn customelements_ctor_returning_different_object_marks_failed() {
              attributeChangedCallback() { globalThis.__cb_attempts++; } \
          } \
          var el = document.createElement('my-el'); \
+         document.body.appendChild(el); \
          customElements.define('my-el', MyEl); \
          el.setAttribute('x', 'after');",
         "globalThis.__ctor_attempts + ':' + globalThis.__cb_attempts;",

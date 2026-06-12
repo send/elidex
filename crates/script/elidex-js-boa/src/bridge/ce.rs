@@ -81,10 +81,11 @@ impl HostBridge {
 
     /// WHATWG HTML §4.13.4 define()-time upgrade-candidate discovery —
     /// thin accessor over the engine-indep
-    /// `elidex_custom_elements::collect_upgrade_candidates`, so the
-    /// candidate rule (Undefined component + document-registry
-    /// association + local-name/is-value match) is one function
-    /// shared with the VM engine.
+    /// `elidex_custom_elements::collect_upgrade_candidates` (shadow-
+    /// including descendants of the document in tree order, with the
+    /// Undefined + document-registry + local-name/is-value match), so
+    /// the candidate rule is one function shared with the VM engine.
+    /// Detached elements upgrade on insertion, not here.
     #[must_use]
     pub fn ce_collect_upgrade_candidates(
         &self,
@@ -92,8 +93,12 @@ impl HostBridge {
         name: &str,
     ) -> Vec<Entity> {
         let inner = self.inner.borrow();
+        let Some(document) = inner.document_entity else {
+            return Vec::new();
+        };
         elidex_custom_elements::collect_upgrade_candidates(
-            dom.world(),
+            dom,
+            document,
             &inner.custom_element_registry,
             name,
         )

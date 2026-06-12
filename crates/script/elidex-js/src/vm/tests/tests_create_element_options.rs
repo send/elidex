@@ -178,9 +178,11 @@ fn create_element_options_null_registry_creates_element() {
 fn create_element_null_registry_element_never_upgrades() {
     // DOM §4.9: definition lookup in a null registry is always null —
     // a null-registry custom element is never upgraded, neither at
-    // define() time (queue/walk) nor by customElements.upgrade(),
+    // define() time (document walk) nor by customElements.upgrade(),
     // while an identically named document-registry element upgrades
-    // normally.
+    // normally. Both are connected to the document so the comparison
+    // isolates the registry-association axis (a detached element would
+    // upgrade on insertion, not at define() — a different axis).
     let out = run_then_read(
         "globalThis.XNull = class extends HTMLElement { \
              constructor() { super(); this.upgraded = true; } }; \
@@ -188,6 +190,7 @@ fn create_element_null_registry_element_never_upgrades() {
              {customElementRegistry: null}); \
          globalThis.__normal = document.createElement('x-nullreg'); \
          document.body.appendChild(globalThis.__nullreg); \
+         document.body.appendChild(globalThis.__normal); \
          customElements.define('x-nullreg', globalThis.XNull); \
          customElements.upgrade(document.body);",
         "(globalThis.__nullreg.upgraded ? 'null-upgraded' : 'null-kept') \

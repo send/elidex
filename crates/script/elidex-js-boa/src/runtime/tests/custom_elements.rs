@@ -138,9 +138,20 @@ fn create_custom_element_invokes_constructor() {
 #[test]
 fn create_undefined_element_upgrades_on_define() {
     let (mut runtime, mut session, mut dom, doc) = setup();
+
+    // Connect html > body so the pre-define element is a document
+    // descendant: define() upgrades shadow-including document
+    // descendants (HTML §4.13.4), NOT detached elements (those upgrade
+    // on their later insertion).
+    let html = dom.create_element("html", Attributes::default());
+    let body = dom.create_element("body", Attributes::default());
+    let _ = dom.append_child(doc, html);
+    let _ = dom.append_child(html, body);
+
     let result = runtime.eval(
         r"
         var el = document.createElement('my-later');
+        document.body.appendChild(el);
         var upgraded = false;
         class MyLater {
             constructor() { upgraded = true; }
@@ -336,12 +347,22 @@ fn html_parser_marks_custom_elements() {
 fn custom_elements_upgrade_walk() {
     let (mut runtime, mut session, mut dom, doc) = setup();
 
-    // First eval: create elements and define — enqueues upgrades.
+    // Connect html > body so the pre-define elements are document
+    // descendants that define()'s document walk upgrades (HTML
+    // §4.13.4 "upgrade particular elements within a document").
+    let html = dom.create_element("html", Attributes::default());
+    let body = dom.create_element("body", Attributes::default());
+    let _ = dom.append_child(doc, html);
+    let _ = dom.append_child(html, body);
+
+    // First eval: create elements, connect them, and define — enqueues upgrades.
     let result = runtime.eval(
         r"
         var count = 0;
         var el1 = document.createElement('my-walk');
         var el2 = document.createElement('my-walk');
+        document.body.appendChild(el1);
+        document.body.appendChild(el2);
 
         function MyWalk() { count++; }
         customElements.define('my-walk', MyWalk);

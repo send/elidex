@@ -8,7 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use elidex_ecs::{Entity, TagType};
+use elidex_ecs::{EcsDom, Entity, TagType};
 
 use crate::construction_stack::ConstructionStackEntry;
 use crate::state::{CEState, CustomElementState};
@@ -319,29 +319,31 @@ impl std::fmt::Display for DefineError {
 
 impl std::error::Error for DefineError {}
 
-/// World-wide query for the `customElements.define()`-time *upgrade
-/// candidates* of `name` (WHATWG HTML §4.13.4 define() step 18 →
-/// "upgrade particular elements within a document" steps 1–2): every
-/// entity whose `CustomElementState` is `Undefined` for `name` — the
-/// per-entity component is the single "awaiting upgrade" record —
-/// AND whose local name matches the registered definition
-/// ([`CustomElementDefinition::upgrade_matches_local_name`]; that AO
-/// builds the local-name/is-value match into candidate collection).
-/// Returns an empty Vec when `name` has no definition. A despawned
-/// entity simply stops matching (no dangling side-store entries to
-/// scrub).
+/// The `customElements.define()`-time *upgrade candidates* of `name`
+/// (WHATWG HTML §4.13.4 define() step 18 → "upgrade particular
+/// elements within a document" steps 1–2): the shadow-including
+/// descendants of `document`, **in shadow-including tree order**,
+/// whose `CustomElementState` is `Undefined` for `name` (the
+/// per-entity component is the single "awaiting upgrade" record) and
+/// whose local name matches the registered definition
+/// ([`CustomElementDefinition::upgrade_matches_local_name`] — that AO
+/// builds the local-name/is-value match into candidate collection,
+/// and the is value is carried by `definition_name` for customized
+/// built-ins). Returns an empty Vec when `name` has no definition.
+///
+/// Document-scoped + tree-ordered to match the spec AO exactly: a
+/// whole-world query would (a) upgrade *detached* fragment/template
+/// elements at `define()` time — which the spec defers to their later
+/// insertion — and (b) enqueue connected candidates in ECS iteration
+/// order rather than the JS-observable tree order. Detached elements
+/// awaiting upgrade are caught by the insertion-time "try to upgrade"
+/// path (`CustomElementReactionConsumer::handle_insert` reactions),
+/// not here.
 ///
 /// Both engines consume this one function, so the candidate rule
 /// cannot drift between them; the executor-side [`prepare_upgrade`]
 /// gate re-checks at flush time (state may legitimately change
 /// between enqueue and flush via other reaction sources).
-///
-/// Walks the hecs world directly so detached + DocumentFragment
-/// subtrees + future multi-document worlds are covered. (The §4.13.4
-/// AO scopes candidates to shadow-including *document* descendants
-/// and upgrades detached trees on later insertion; elidex
-/// deliberately upgrades them at define() time instead — one
-/// mechanism, same final states.)
 ///
 /// `define()` rejects invalid names, so this is never queried with a
 /// name that cannot acquire a definition — `Undefined` components
@@ -351,27 +353,33 @@ impl std::error::Error for DefineError {}
 /// [`prepare_upgrade`]: crate::prepare_upgrade
 #[must_use]
 pub fn collect_upgrade_candidates(
-    world: &hecs::World,
+    dom: &EcsDom,
+    document: Entity,
     registry: &CustomElementRegistry,
     name: &str,
 ) -> Vec<Entity> {
     let Some(def) = registry.get(name) else {
         return Vec::new();
     };
+    let world = dom.world();
     let mut out = Vec::new();
-    let mut query = world.query::<(Entity, &CustomElementState, &TagType)>();
-    for (entity, state, tag) in &mut query {
+    dom.for_each_shadow_inclusive_descendant(document, &mut |entity| {
+        let Ok(state) = world.get::<&CustomElementState>(entity) else {
+            return;
+        };
         // Null-registry elements are outside every registry — the
         // define()-time walk must not upgrade them (DOM §4.9:
         // definition lookup in a null registry is always null).
         if matches!(state.state, CEState::Undefined)
             && matches!(state.registry, crate::RegistryAssociation::Document)
             && state.definition_name == name
-            && def.upgrade_matches_local_name(&tag.0)
+            && world
+                .get::<&TagType>(entity)
+                .is_ok_and(|tag| def.upgrade_matches_local_name(&tag.0))
         {
             out.push(entity);
         }
-    }
+    });
     out
 }
 
