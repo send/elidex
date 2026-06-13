@@ -42,7 +42,17 @@ pub(crate) fn convert_document(rc_dom: RcDom) -> ParseResult {
     }
 }
 
-fn convert_children(
+/// Convert an `RcDom` handle's children into the ECS DOM under `parent`.
+///
+/// Shared by whole-document conversion ([`convert_document`]) and the
+/// tolerant fragment path ([`crate::parse_html_fragment`], which calls this
+/// with a synthetic `<html>` root as `parent` and then detaches root's
+/// children). A `<template shadowrootmode>` child attaches a declarative
+/// shadow to `parent` when `opts.allow_declarative_shadow` is set and `parent`
+/// is a valid shadow host (§13.2.6.4.4 step 9–10) — for a top-level fragment
+/// child `parent` is the `<html>` root, which is not a valid host, so the
+/// template stays plain (matching the spec's topmost-stack-element condition).
+pub(crate) fn convert_children(
     rc_handle: &Handle,
     parent: Entity,
     dom: &mut EcsDom,
@@ -62,31 +72,38 @@ fn convert_children(
     }
 }
 
-/// Convert fragment children and return the list of newly created entities.
+/// Convert the **top-level** fragment children under the synthetic `<html>`
+/// `root`, with the §13.4 fragment-case declarative-shadow host routing.
 ///
-/// Like [`convert_children`] but returns the created entities for tracking.
-/// Used by [`crate::parse_html_fragment`] to report which nodes were added.
-pub(crate) fn convert_fragment_children(
+/// Per the WHATWG "adjusted current node" definition, while the stack of open
+/// elements holds only the synthetic root (the fragment case, true for every
+/// *top-level* node), the adjusted current node is the **context element**, not
+/// the root. So a top-level `<template shadowrootmode>` attaches its
+/// declarative shadow to `context` (DSD-on-context, §13.2.6.4.4 step 9–10) —
+/// e.g. `el.setHTMLUnsafe('<template shadowrootmode=open>…')` shadows `el`. The
+/// light (non-shadow) top-level nodes are still built under `root` and returned
+/// detached. Nested templates recurse through [`convert_node`] →
+/// [`convert_children`], where the host is the real (non-topmost) parent
+/// element, so they attach there as usual.
+pub(crate) fn convert_fragment_top_level(
     rc_handle: &Handle,
-    parent: Entity,
+    root: Entity,
+    context: Entity,
     dom: &mut EcsDom,
     opts: ParseFragmentOptions,
-) -> Vec<Entity> {
-    let mut created = Vec::new();
+) {
     for child in &*rc_handle.children.borrow() {
-        if opts.allow_declarative_shadow && try_attach_declarative_shadow(child, parent, dom, opts)
+        // Top-level declarative shadow attaches to the CONTEXT (the fragment
+        // adjusted current node), not the synthetic root.
+        if opts.allow_declarative_shadow && try_attach_declarative_shadow(child, context, dom, opts)
         {
-            // Template was consumed as a declarative shadow root; no
-            // child entity is created in the light tree.
             continue;
         }
         if let Some(entity) = convert_node(child, dom, opts) {
-            if dom.append_child(parent, entity) {
-                created.push(entity);
-            }
+            let ok = dom.append_child(root, entity);
+            debug_assert!(ok, "append_child failed during RcDom conversion");
         }
     }
-    created
 }
 
 /// HTML §4.12.3 `<template shadowrootmode>` declarative shadow DOM hook.
@@ -224,17 +241,20 @@ fn convert_node(handle: &Handle, dom: &mut EcsDom, opts: ParseFragmentOptions) -
             // guard in `attach_derived` sees the real namespace.
             let entity = dom.create_element_ns(&tag, namespace, attributes, None);
             // Attach derived components at creation time — BEFORE the element
-            // is appended anywhere. The tolerant fragment path
-            // (`convert_fragment_children`, e.g. `innerHTML`) builds into a
-            // live, dispatcher-bound `dom`, so `append_child` fires
-            // `MutationEvent::Insert` synchronously; the `CustomElementState`
-            // / `IframeData` / `InlineStyle` must already be present when the
-            // CustomElementReactionConsumer reads them. Deriving in a
-            // post-build walk would race the insert (and miss declarative-
-            // shadow content not tracked in any root list). The strict Tier-1
-            // backend instead derives post-build in `parse_progressive` (it
-            // is pre-bind / dispatch-suppressed and cannot reach this crate's
-            // deps). Both share the one `attach_derived` implementation.
+            // is appended anywhere — so the tolerant backend's output always
+            // carries `CustomElementState` / `IframeData` whether it feeds
+            // whole-document conversion (`convert_document`) or the fragment
+            // path (`convert_children` under a synthetic root, e.g.
+            // `innerHTML`). The fragment build is dispatch-suppressed and
+            // returns DETACHED nodes, so deriving here guarantees the
+            // components are present when the *caller* later places those nodes
+            // and the placement `MutationEvent::Insert` fires (the
+            // CustomElementReactionConsumer reads them then). Per-node creation
+            // also covers declarative-shadow content, which no root-list walk
+            // would reach. The strict Tier-1 backend instead derives per
+            // returned root in `parse_fragment_progressive` / per document in
+            // `parse_strict` (it is DOM-semantics-free and cannot reach this
+            // crate's deps). All paths share the one `attach_derived` impl.
             attach_derived(dom, entity);
             convert_children(handle, entity, dom, opts);
             Some(entity)

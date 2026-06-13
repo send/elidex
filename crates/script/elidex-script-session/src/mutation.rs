@@ -352,9 +352,15 @@ fn apply_set_text(dom: &mut EcsDom, entity: Entity, text: &str) -> Option<Mutati
     })
 }
 
-/// Apply the `innerHTML` / `setHTMLUnsafe` setter algorithm: remove all
-/// existing children, parse `html` as a fragment in the element's tag
-/// context, and append the parsed nodes as new children.
+/// Apply the `innerHTML` / `setHTMLUnsafe` setter algorithm (§8.5.4): parse
+/// `html` as a fragment in the context element, then replace all of the
+/// target's children with the parsed nodes.
+///
+/// Per §8.5.4 the fragment-parse **context** is `entity` for an Element, but
+/// the shadow root's **host** for `ShadowRoot.innerHTML` (step 2 "Let context
+/// be this's host") — the parsing rules follow the host's tag/namespace while
+/// the parsed nodes still replace the shadow root's own children. The
+/// placement **target** is always `entity`.
 ///
 /// The single `opts` parameter selects between the two JS-visible APIs:
 /// `opts.allow_declarative_shadow = false` (the default) implements
@@ -372,24 +378,29 @@ pub fn apply_set_inner_html(
     html: &str,
     opts: SetInnerHtmlOptions,
 ) -> Option<MutationRecord> {
-    let context_tag = dom
-        .world()
-        .get::<&elidex_ecs::TagType>(entity)
-        .ok()
-        .map_or_else(|| "div".to_string(), |t| t.0.clone());
+    // §8.5.4: ShadowRoot.innerHTML parses in the host's context; Element
+    // parses in its own. Placement target stays `entity` either way.
+    let context = if dom.is_shadow_root(entity) {
+        dom.shadow_host(entity).unwrap_or(entity)
+    } else {
+        entity
+    };
 
-    // Remove all existing children.
+    // §11.3 strict-first fragment parse → detached nodes. Parse first (reads
+    // only the context's tag/namespace/ancestry, never the target's
+    // children), then replace all of the target's children with the result.
+    let parse_opts = elidex_html_parser::ParseFragmentOptions {
+        allow_declarative_shadow: opts.allow_declarative_shadow,
+    };
+    let added = elidex_html_parser::parse_fragment_progressive(html, context, dom, parse_opts);
+
     let removed: Vec<Entity> = dom.children(entity);
     for &child in &removed {
         let _ = dom.remove_child(entity, child);
     }
-
-    // Parse the HTML fragment and append new children.
-    let parse_opts = elidex_html_parser::ParseFragmentOptions {
-        allow_declarative_shadow: opts.allow_declarative_shadow,
-    };
-    let added =
-        elidex_html_parser::parse_html_fragment(html, &context_tag, entity, dom, parse_opts);
+    for &node in &added {
+        let _ = dom.append_child(entity, node);
+    }
 
     Some(MutationRecord {
         added_nodes: added,
@@ -398,7 +409,7 @@ pub fn apply_set_inner_html(
     })
 }
 
-/// Error variants for [`apply_set_outer_html`] per WHATWG HTML §4.4.5
+/// Error variants for [`apply_set_outer_html`] per WHATWG HTML §8.5.5
 /// `outerHTML` setter algorithm.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
@@ -409,7 +420,7 @@ pub enum OuterHtmlError {
     NoModificationAllowed,
 }
 
-/// Apply the `outerHTML` setter algorithm (HTML §4.4.5): parse `html`
+/// Apply the `outerHTML` setter algorithm (HTML §8.5.5): parse `html`
 /// in the parent's context, then replace `entity` with the parsed
 /// fragment in the parent's child list.
 ///
@@ -417,11 +428,11 @@ pub enum OuterHtmlError {
 /// targeting the parent, with `removed_nodes = [entity]` and
 /// `added_nodes` = the freshly parsed fragment roots).
 ///
-/// When the parent is a `DocumentFragment` we use a synthetic
-/// `<body>` fragment context: per HTML §4.4.5 the spec's fragment
-/// algorithm reads the parent's `localName`, and `DocumentFragment`
-/// has no tag — `<body>` is the spec's documented fallback context
-/// for this case and matches Blink / Gecko behaviour.
+/// When the parent is a `DocumentFragment` the §8.5.5 algorithm reads the
+/// parent's `localName` (the spec documents `<body>` as the fallback context);
+/// `DocumentFragment` has no tag, so `parse_fragment_progressive`'s "div"
+/// fallback applies — observationally equivalent (both parse in the "in body"
+/// insertion mode), so the resulting tree matches.
 pub fn apply_set_outer_html(
     dom: &mut EcsDom,
     entity: Entity,
@@ -436,35 +447,23 @@ pub fn apply_set_outer_html(
     if matches!(dom.node_kind(parent), Some(elidex_ecs::NodeKind::Document)) {
         return Err(OuterHtmlError::NoModificationAllowed);
     }
-    let context_tag = if matches!(
-        dom.node_kind(parent),
-        Some(elidex_ecs::NodeKind::DocumentFragment)
-    ) {
-        "body".to_string()
-    } else {
-        dom.world()
-            .get::<&elidex_ecs::TagType>(parent)
-            .ok()
-            .map_or_else(|| "div".to_string(), |t| t.0.clone())
-    };
-    // Capture exposed siblings BEFORE parse_html_fragment runs — the
-    // parser appends the new roots to the end of `parent` first
-    // (they are moved into place below), so a post-parse
-    // `next_exposed_sibling(entity)` would observe the freshly
-    // appended parse output instead of the pre-mutation sibling when
-    // `entity` was already the last child. The exposed-sibling
-    // helpers also skip internal `ShadowRoot` entities so
-    // `MutationRecord.previousSibling/.nextSibling` never leak a
-    // closed shadow across the §4.8 encapsulation boundary.
+    // §8.5.5: the fragment-parse context is the parent. A `DocumentFragment`
+    // parent has no tag; `parse_fragment_progressive` derives the context tag
+    // from `parent` and falls back to "div" — which parses in the same
+    // "in body" insertion mode + Data tokenizer state as the spec's documented
+    // "body" fallback context, so the tree is identical (the old explicit
+    // "body" string and a "div" fallback are observationally equivalent here).
+    // Capture exposed siblings before placement (the inserts below change
+    // `entity`'s previous sibling). The exposed-sibling helpers skip internal
+    // `ShadowRoot` entities so `MutationRecord.previousSibling/.nextSibling`
+    // never leak a closed shadow across the §4.8 encapsulation boundary.
     let prev_sibling = dom.prev_exposed_sibling(entity);
     let next_sibling = dom.next_exposed_sibling(entity);
     let parse_opts = elidex_html_parser::ParseFragmentOptions::default();
-    let added =
-        elidex_html_parser::parse_html_fragment(html, &context_tag, parent, dom, parse_opts);
-    // parse_html_fragment appended the parsed roots at the end of
-    // `parent`; relocate them to `entity`'s slot, then unhook entity.
+    let added = elidex_html_parser::parse_fragment_progressive(html, parent, dom, parse_opts);
+    // The parsed roots come back detached; insert them in order before
+    // `entity`, then unhook `entity`.
     for &node in &added {
-        let _ = dom.remove_child(parent, node);
         let _ = dom.insert_before(parent, node, entity);
     }
     let _ = dom.remove_child(parent, entity);
@@ -485,73 +484,66 @@ fn apply_insert_adjacent_html(
     position: &str,
     html: &str,
 ) -> Option<MutationRecord> {
-    let tag_of = |e: Entity, dom: &EcsDom| -> String {
-        dom.world()
-            .get::<&elidex_ecs::TagType>(e)
-            .ok()
-            .map_or_else(|| "div".to_string(), |t| t.0.clone())
-    };
-
     // insertAdjacentHTML does not honour declarative shadow root markup
-    // per HTML §4.4.7 — only setHTMLUnsafe / innerHTML w/ that opt-in do.
+    // per HTML §8.5.6 — only setHTMLUnsafe / innerHTML w/ that opt-in do.
+    // §11.3 strict-first parse returns detached nodes; the context element
+    // (parent for before/afterend, the element itself for after/beforeend)
+    // is read by `parse_fragment_progressive` to derive the parsing rules.
     let parse_opts = elidex_html_parser::ParseFragmentOptions::default();
     let added = match position {
         "beforebegin" => {
             let parent = dom.get_parent(entity)?;
-            let context_tag = tag_of(parent, dom);
-            let nodes = elidex_html_parser::parse_html_fragment(
-                html,
-                &context_tag,
-                parent,
-                dom,
-                parse_opts,
-            );
+            let nodes =
+                elidex_html_parser::parse_fragment_progressive(html, parent, dom, parse_opts);
             for &node in &nodes {
-                let _ = dom.remove_child(parent, node);
                 let _ = dom.insert_before(parent, node, entity);
             }
             nodes
         }
         "afterbegin" => {
-            let context_tag = tag_of(entity, dom);
             let first_child = dom.get_first_child(entity);
-            let nodes = elidex_html_parser::parse_html_fragment(
-                html,
-                &context_tag,
-                entity,
-                dom,
-                parse_opts,
-            );
-            if let Some(ref_child) = first_child {
-                for &node in &nodes {
-                    let _ = dom.remove_child(entity, node);
-                    let _ = dom.insert_before(entity, node, ref_child);
+            let nodes =
+                elidex_html_parser::parse_fragment_progressive(html, entity, dom, parse_opts);
+            match first_child {
+                Some(ref_child) => {
+                    for &node in &nodes {
+                        let _ = dom.insert_before(entity, node, ref_child);
+                    }
+                }
+                None => {
+                    for &node in &nodes {
+                        let _ = dom.append_child(entity, node);
+                    }
                 }
             }
             nodes
         }
         "beforeend" => {
-            let context_tag = tag_of(entity, dom);
-            elidex_html_parser::parse_html_fragment(html, &context_tag, entity, dom, parse_opts)
+            let nodes =
+                elidex_html_parser::parse_fragment_progressive(html, entity, dom, parse_opts);
+            for &node in &nodes {
+                let _ = dom.append_child(entity, node);
+            }
+            nodes
         }
         "afterend" => {
             let parent = dom.get_parent(entity)?;
-            let context_tag = tag_of(parent, dom);
             let next = dom.get_next_sibling(entity);
-            let nodes = elidex_html_parser::parse_html_fragment(
-                html,
-                &context_tag,
-                parent,
-                dom,
-                parse_opts,
-            );
-            if let Some(ref_child) = next {
-                // Natural order with constant ref_child preserves document order:
-                // insert A before ref → [... A ref], insert B before ref → [... A B ref].
-                // Each node goes immediately before ref_child, accumulating in order.
-                for &node in &nodes {
-                    let _ = dom.remove_child(parent, node);
-                    let _ = dom.insert_before(parent, node, ref_child);
+            let nodes =
+                elidex_html_parser::parse_fragment_progressive(html, parent, dom, parse_opts);
+            match next {
+                // Constant ref_child preserves document order: insert A before
+                // ref → [... A ref], insert B before ref → [... A B ref].
+                Some(ref_child) => {
+                    for &node in &nodes {
+                        let _ = dom.insert_before(parent, node, ref_child);
+                    }
+                }
+                // `entity` is the last child, so afterend == append to parent.
+                None => {
+                    for &node in &nodes {
+                        let _ = dom.append_child(parent, node);
+                    }
                 }
             }
             nodes
@@ -801,6 +793,11 @@ mod tests {
 
     #[test]
     fn set_inner_html_allow_declarative_shadow_attaches_open_shadow_root() {
+        // §13.4 fragment case + §13.2.6.4.4 step 9–10: a *top-level*
+        // `<template shadowrootmode>` via setHTMLUnsafe attaches its declarative
+        // shadow to the context (here the host element) — the fragment adjusted
+        // current node is the context while the stack holds only the synthetic
+        // root (DSD-on-context).
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
         let host = elem(&mut dom, "div");
@@ -815,17 +812,13 @@ mod tests {
         );
         let sr = dom
             .get_shadow_root(host)
-            .expect("declarative shadow should attach");
+            .expect("declarative shadow should attach to the context host");
         let sr_component = dom.world().get::<&elidex_ecs::ShadowRoot>(sr).unwrap();
         assert_eq!(sr_component.mode, elidex_ecs::ShadowRootMode::Open);
-        // The <template> element itself is consumed; the host's light
-        // tree has no template child. `EcsDom::children` filters
-        // ShadowRoot entities out of the view (they are internal-only
-        // siblings), so `host_kids` here is the light-tree-visible
-        // set — we just check that no <template> survived.
-        let host_kids = dom.children(host);
-        for kid in &host_kids {
-            if let Ok(tag) = dom.world().get::<&elidex_ecs::TagType>(*kid) {
+        // The <template> element itself is consumed; the host's light tree has
+        // no surviving template child.
+        for kid in dom.children(host) {
+            if let Ok(tag) = dom.world().get::<&elidex_ecs::TagType>(kid) {
                 assert_ne!(tag.0, "template", "template should be consumed");
             }
         }
@@ -842,6 +835,7 @@ mod tests {
 
     #[test]
     fn set_inner_html_allow_declarative_shadow_attaches_closed_shadow_root() {
+        // Top-level DSD-on-context — mode "closed".
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
         let host = elem(&mut dom, "div");
@@ -854,7 +848,9 @@ mod tests {
                 allow_declarative_shadow: true,
             },
         );
-        let sr = dom.get_shadow_root(host).expect("should attach");
+        let sr = dom
+            .get_shadow_root(host)
+            .expect("should attach to context host");
         let mode = dom.world().get::<&elidex_ecs::ShadowRoot>(sr).unwrap().mode;
         assert_eq!(mode, elidex_ecs::ShadowRootMode::Closed);
     }
@@ -910,6 +906,8 @@ mod tests {
 
     #[test]
     fn set_inner_html_case_insensitive_shadowrootmode() {
+        // Top-level DSD-on-context — `shadowrootmode` is an
+        // ASCII-case-insensitive enumerated attribute (HTML §2.3.9).
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
         let host = elem(&mut dom, "div");
@@ -924,9 +922,84 @@ mod tests {
         );
         let sr = dom
             .get_shadow_root(host)
-            .expect("case-insensitive 'OPEN' should attach");
+            .expect("case-insensitive 'OPEN' should attach to context host");
         let mode = dom.world().get::<&elidex_ecs::ShadowRoot>(sr).unwrap().mode;
         assert_eq!(mode, elidex_ecs::ShadowRootMode::Open);
+    }
+
+    #[test]
+    fn set_inner_html_on_shadow_root_parses_in_host_context_and_fills_shadow() {
+        // §8.5.4 ShadowRoot.innerHTML step 2: the fragment-parse context is the
+        // shadow root's *host*, and the parsed nodes replace the SHADOW ROOT's
+        // children (not the host's light tree). Passing the shadow-root entity
+        // resolves the context to its host via `EcsDom::shadow_host`.
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let host = elem(&mut dom, "div");
+        let _ = dom.append_child(root, host);
+        let sr = dom
+            .attach_shadow(host, elidex_ecs::ShadowRootMode::Open)
+            .expect("attach shadow");
+        let _ = apply_set_inner_html(
+            &mut dom,
+            sr,
+            "<p>in shadow</p>",
+            SetInnerHtmlOptions::default(),
+        );
+        assert!(
+            dom.children(sr).iter().any(|c| dom
+                .world()
+                .get::<&elidex_ecs::TagType>(*c)
+                .is_ok_and(|t| t.0 == "p")),
+            "the parsed <p> lands in the shadow root"
+        );
+        assert!(
+            dom.children(host).is_empty(),
+            "the host's light tree is unchanged (content went into the shadow root)"
+        );
+    }
+
+    #[test]
+    fn set_inner_html_fires_insert_at_caller_placement() {
+        // §11.3 slice 2b: the fragment parser builds in isolation (events
+        // suppressed) and returns detached nodes — so the real
+        // `MutationEvent::Insert` fires when `apply_set_inner_html` places them
+        // (caller-driven), not during the parse. Confirms the suppress-then-
+        // re-fire contract end-to-end at the caller layer.
+        use elidex_ecs::{MutationDispatcher, MutationEvent, TagType};
+        use std::sync::{Arc, Mutex};
+
+        struct InsertProbe(Arc<Mutex<Vec<String>>>);
+        impl MutationDispatcher for InsertProbe {
+            fn dispatch(&mut self, event: &MutationEvent<'_>, dom: &mut EcsDom) {
+                if let MutationEvent::Insert { node, .. } = *event {
+                    let tag = dom
+                        .world()
+                        .get::<&TagType>(node)
+                        .map(|t| t.0.clone())
+                        .unwrap_or_default();
+                    self.0.lock().unwrap().push(tag);
+                }
+            }
+        }
+
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let host = elem(&mut dom, "div");
+        let _ = dom.append_child(root, host);
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let _ = dom.set_mutation_dispatcher(Box::new(InsertProbe(Arc::clone(&log))));
+        let _ = apply_set_inner_html(
+            &mut dom,
+            host,
+            "<span>a</span><b>c</b>",
+            SetInnerHtmlOptions::default(),
+        );
+        let tags = log.lock().unwrap();
+        assert!(
+            tags.iter().any(|t| t == "span") && tags.iter().any(|t| t == "b"),
+            "placement of the detached fragment roots fires Insert events, got {tags:?}"
+        );
     }
 
     #[test]
@@ -1006,17 +1079,15 @@ mod tests {
 
     #[test]
     fn apply_set_outer_html_captures_next_sibling_before_parsing() {
-        // PR201 Copilot R10 regression: `apply_set_outer_html` used
-        // to capture `prev_sibling` / `next_sibling` AFTER calling
-        // `parse_html_fragment`, but the parser appends the new roots
-        // at the end of `parent` first (they are moved into place
-        // immediately after). If `entity` is already the last child,
-        // a post-parse `next_exposed_sibling(entity)` would observe
-        // the freshly appended parse output instead of the
-        // pre-mutation next sibling (None). Lock the corrected order:
-        // capture sibling fields BEFORE parsing so `MutationRecord`
-        // reflects the pre-mutation tree state per the §4.4.5
-        // `outerHTML` replacement algorithm.
+        // PR201 Copilot R10 regression lock: `apply_set_outer_html`
+        // captures `prev_sibling` / `next_sibling` BEFORE placing the
+        // parsed roots. Since §11.3 slice 2b the fragment parser returns
+        // detached nodes (it no longer appends to `parent`), so the old
+        // "post-parse next-sibling sees the appended output" hazard is
+        // gone — but the inserts still change `entity`'s previous sibling,
+        // so the capture order still matters. Lock that `MutationRecord`
+        // reflects the pre-mutation tree state per the §8.5.5 `outerHTML`
+        // replacement algorithm.
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
         let parent = elem(&mut dom, "div");

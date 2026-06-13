@@ -245,4 +245,37 @@ impl EcsDom {
             let _ = self.set_associated_document(node, document);
         }
     }
+
+    /// Finish a WHATWG HTML §13.4 fragment build on a throwaway document:
+    /// return `root`'s children **detached** (parentless) in tree order
+    /// (§13.4 step 20), then tear down the throwaway `root` + `document`.
+    ///
+    /// Before teardown, the whole subtree is re-homed into `context`'s owner
+    /// document ([`Self::adopt_subtree`], DOM §4.5 "adopt") so the returned
+    /// nodes' `ownerDocument` resolves to the context's document rather than
+    /// dangling on the about-to-be-despawned throwaway document. When `context`
+    /// is itself documentless (`owner_document(context) == None`) the adopt is
+    /// skipped and the returned nodes are orphan-detached (no
+    /// `AssociatedDocument`), identical to a `createElement` orphan.
+    ///
+    /// [`Self::child_list_uncapped`] snapshots the children **before**
+    /// `destroy_entity(root)` orphans them (uncapped, so a fragment with very
+    /// many top-level nodes does not lose its tail). This is the single
+    /// canonical teardown shared by both fragment backends (strict
+    /// `elidex-html-parser-strict` + tolerant `elidex-html-parser`) so the two
+    /// never hand-mirror the adopt/detach/despawn sequence.
+    pub fn finish_detached_fragment(
+        &mut self,
+        root: Entity,
+        document: Entity,
+        context: Entity,
+    ) -> Vec<Entity> {
+        if let Some(doc) = self.owner_document(context) {
+            self.adopt_subtree(root, doc);
+        }
+        let children = self.child_list_uncapped(root);
+        let _ = self.destroy_entity(root);
+        let _ = self.destroy_entity(document);
+        children
+    }
 }
