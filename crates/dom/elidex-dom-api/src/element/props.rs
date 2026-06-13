@@ -5,7 +5,7 @@ use elidex_plugin::JsValue;
 use elidex_script_session::{DomApiError, DomApiHandler, SessionCore};
 
 use super::tree::validate_attribute_name;
-use crate::util::{require_attrs, require_string_arg};
+use crate::util::{require_attrs, require_live_element, require_string_arg};
 
 // ---------------------------------------------------------------------------
 // getAttribute
@@ -106,6 +106,14 @@ impl DomApiHandler for RemoveAttribute {
         let raw_name = require_string_arg(args, 0)?;
         validate_attribute_name(&raw_name)?;
         let name = raw_name.to_ascii_lowercase();
+        // Uniform with the rest of the Element attribute surface
+        // (setAttribute / toggleAttribute / *AttributeNode): a stale /
+        // non-Element receiver errors rather than silently no-op'ing —
+        // `EcsDom::remove_attribute` short-circuits on such a receiver, so
+        // guard before the chokepoint. A live Element with the attribute
+        // merely absent stays a correct no-op (removeAttribute never throws
+        // for a missing attribute per DOM).
+        require_live_element(dom, this)?;
         // Route through the canonical `EcsDom::remove_attribute` chokepoint
         // (mirrors `SetAttribute` → `set_attribute`, lesson #181): it
         // invalidates the lazily-hydrated `InlineStyle` cache — otherwise a

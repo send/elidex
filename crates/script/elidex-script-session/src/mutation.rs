@@ -304,6 +304,13 @@ fn apply_set_attribute(
     let old_value = attrs.get(&name).map(str::to_owned);
     attrs.set(name.clone(), value.to_owned());
     drop(attrs);
+    // This deferred-flush path mutates `Attributes` directly instead of
+    // entering `EcsDom::set_attribute`, so it must preserve that
+    // chokepoint's `InlineStyle` invalidation invariant: a buffered `style`
+    // write would otherwise leave a lazily-hydrated `InlineStyle` stale and
+    // a later CSSOM write could resurrect the old declarations (Codex
+    // #335 R10 F31).
+    dom.invalidate_inline_style_cache(entity, &name);
     dom.rev_version(entity);
     Some(MutationRecord {
         attribute_name: Some(name),
@@ -318,6 +325,10 @@ fn apply_remove_attribute(dom: &mut EcsDom, entity: Entity, name: &str) -> Optio
     let old_value = attrs.get(&name).map(str::to_owned);
     attrs.remove(&name);
     drop(attrs);
+    // Same `InlineStyle` invalidation invariant as `apply_set_attribute`
+    // (Codex #335 R10 F31) — a buffered `removeAttribute("style")` must
+    // drop the hydrated component too.
+    dom.invalidate_inline_style_cache(entity, &name);
     dom.rev_version(entity);
     Some(MutationRecord {
         attribute_name: Some(name),
@@ -1128,5 +1139,50 @@ mod tests {
         let record = apply_mutation(&m, &mut dom).expect("remove should succeed");
         assert_ne!(record.previous_sibling, Some(shadow_root));
         assert_eq!(record.previous_sibling, None);
+    }
+
+    /// Codex #335 R10 F31: a buffered `style` attribute mutation applied via
+    /// the deferred flush (which bypasses `EcsDom::set_attribute`) must
+    /// still invalidate a lazily-hydrated `InlineStyle` cache, else a later
+    /// CSSOM read resurrects stale declarations.
+    #[test]
+    fn apply_style_attribute_invalidates_inline_style_cache() {
+        let mut dom = EcsDom::new();
+        let e = elem(&mut dom, "div");
+        {
+            let mut attrs = dom.world_mut().get::<&mut Attributes>(e).unwrap();
+            attrs.set("style", "color: red");
+        }
+        // Simulate a prior `el.style.*` read that hydrated the cache.
+        let mut style = elidex_ecs::InlineStyle::default();
+        style.set("color", "red");
+        dom.world_mut().insert_one(e, style).unwrap();
+        assert!(dom.world().get::<&elidex_ecs::InlineStyle>(e).is_ok());
+
+        // A buffered SetAttribute("style", …) must drop the stale cache.
+        let m = Mutation::SetAttribute {
+            entity: e,
+            name: "style".into(),
+            value: "color: blue".into(),
+        };
+        apply_mutation(&m, &mut dom).expect("should succeed");
+        assert!(
+            dom.world().get::<&elidex_ecs::InlineStyle>(e).is_err(),
+            "buffered SetAttribute('style') left a stale InlineStyle cache"
+        );
+
+        // Re-hydrate, then a buffered RemoveAttribute must also drop it.
+        let mut style = elidex_ecs::InlineStyle::default();
+        style.set("color", "blue");
+        dom.world_mut().insert_one(e, style).unwrap();
+        let m = Mutation::RemoveAttribute {
+            entity: e,
+            name: "style".into(),
+        };
+        apply_mutation(&m, &mut dom).expect("should succeed");
+        assert!(
+            dom.world().get::<&elidex_ecs::InlineStyle>(e).is_err(),
+            "buffered RemoveAttribute('style') left a stale InlineStyle cache"
+        );
     }
 }

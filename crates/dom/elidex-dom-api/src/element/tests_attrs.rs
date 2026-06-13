@@ -501,6 +501,21 @@ fn toggle_attribute_on_non_element_errors() {
     assert!(dom.world().get::<&Attributes>(doc).is_err());
 }
 
+/// Codex #335 R10 F32: `removeAttribute` on a stale/non-Element receiver
+/// must error, uniform with the rest of the Element attribute surface —
+/// `EcsDom::remove_attribute` silently short-circuits on such a receiver,
+/// so the up-front liveness guard surfaces the error. (A live Element with
+/// the attribute merely absent stays a correct no-op — not covered here.)
+#[test]
+fn remove_attribute_on_non_element_errors() {
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let mut session = SessionCore::new();
+    let result =
+        RemoveAttribute.invoke(doc, &[JsValue::String("id".into())], &mut session, &mut dom);
+    assert!(result.is_err());
+}
+
 /// Codex #335 R9 F29: `toggleAttribute(name, false)` (forced removal) on a
 /// stale/non-Element receiver must also error — the `has` probe collapses
 /// to false and the forced-removal branch reaches no chokepoint, so the

@@ -1183,7 +1183,13 @@ impl EcsDom {
     /// `el.style.*` mutation sequences. Closes the InlineStyle half of
     /// slot `#11-derived-component-attr-maintenance` (attribute→component
     /// staleness).
-    fn invalidate_inline_style_cache(&mut self, entity: Entity, name: &str) {
+    ///
+    /// `pub` so the one attribute-write path that does NOT enter
+    /// [`set_attribute`](Self::set_attribute) / [`remove_attribute`](Self::remove_attribute)
+    /// — the deferred session-mutation flush in
+    /// `elidex_script_session::mutation::apply_mutation` — can preserve the
+    /// invalidation invariant for buffered `style` writes.
+    pub fn invalidate_inline_style_cache(&mut self, entity: Entity, name: &str) {
         if name == "style" {
             let _ = self.world.remove_one::<InlineStyle>(entity);
         }
