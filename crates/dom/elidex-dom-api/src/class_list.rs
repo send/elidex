@@ -88,6 +88,39 @@ fn set_token_string(
     Ok(())
 }
 
+/// Whether the backing content attribute is currently *present* (vs absent).
+/// Distinguishes the update-steps "get an attribute … returns null" case from a
+/// present-but-empty attribute (`class=""`): the latter must still be written.
+fn attribute_present(entity: Entity, dom: &EcsDom, attr_name: &str) -> bool {
+    dom.world()
+        .get::<&Attributes>(entity)
+        .is_ok_and(|a| a.get(attr_name).is_some())
+}
+
+/// Run the DOMTokenList **update steps** (DOM §7.1 `#concept-dtl-update`) for a
+/// method (`add`/`remove`/`toggle`/`replace`) that has just recomputed the
+/// token set into `serialized`:
+/// - **step 1** — if the backing attribute is absent AND `serialized` is empty,
+///   return: a method that nets no change on an attribute-less element is a
+///   no-op and must NOT create an empty attribute or dispatch `AttributeChange`
+///   (e.g. `div.classList.remove("x")` on a `class`-less `<div>`).
+/// - **step 2** — otherwise set the attribute value to `serialized`.
+///
+/// The `value=` setter is NOT an update-steps caller (DOM: its setter does an
+/// unconditional "set an attribute value"), so it bypasses this gate and calls
+/// [`set_token_string`] directly.
+fn run_update_steps(
+    entity: Entity,
+    dom: &mut EcsDom,
+    attr_name: &str,
+    serialized: &str,
+) -> Result<(), DomApiError> {
+    if serialized.is_empty() && !attribute_present(entity, dom, attr_name) {
+        return Ok(());
+    }
+    set_token_string(entity, dom, attr_name, serialized)
+}
+
 /// Add a token to the attribute's whitespace-separated list if not already present.
 fn add_token(
     entity: Entity,
@@ -103,7 +136,7 @@ fn add_token(
         } else {
             format!("{normalized} {token}")
         };
-        set_token_string(entity, dom, attr_name, &new_value)?;
+        run_update_steps(entity, dom, attr_name, &new_value)?;
     }
     Ok(())
 }
@@ -120,7 +153,7 @@ fn remove_token(
         .split_ascii_whitespace()
         .filter(|c| *c != token)
         .collect();
-    set_token_string(entity, dom, attr_name, &new_tokens.join(" "))?;
+    run_update_steps(entity, dom, attr_name, &new_tokens.join(" "))?;
     Ok(())
 }
 
@@ -256,7 +289,7 @@ impl DomApiHandler for TokenListHandler {
                         result.push(t);
                     }
                 }
-                set_token_string(this, dom, self.attr_name, &result.join(" "))?;
+                run_update_steps(this, dom, self.attr_name, &result.join(" "))?;
                 Ok(JsValue::Bool(true))
             }
             TokenListOp::ValueGet => {
@@ -1093,6 +1126,58 @@ mod tests {
             *count.lock().unwrap(),
             2,
             "classList.add + classList.value= must each route through the chokepoint and dispatch one AttributeChange"
+        );
+    }
+
+    /// DOMTokenList update steps (DOM §7.1 `#concept-dtl-update`) step 1
+    /// (Codex PR341 R1): a method (`remove` is the reachable case) that nets no
+    /// change on an attribute-less element is a no-op — it must NOT create an
+    /// empty backing attribute or dispatch `AttributeChange`. Routing through
+    /// the chokepoint made the spurious record observable, which this guards.
+    #[test]
+    fn remove_on_absent_attribute_is_noop() {
+        use crate::test_util::AttrChangeCounter;
+
+        let mut dom = EcsDom::new();
+        let el = dom.create_element("div", Attributes::default());
+        let mut session = SessionCore::new();
+        let hook = AttrChangeCounter::default();
+        let count = hook.count.clone();
+        dom.set_mutation_dispatcher(Box::new(hook));
+
+        CLASS_LIST_REMOVE
+            .invoke(el, &[JsValue::String("x".into())], &mut session, &mut dom)
+            .unwrap();
+        assert!(
+            dom.world()
+                .get::<&Attributes>(el)
+                .unwrap()
+                .get("class")
+                .is_none(),
+            "remove on a class-less element must not create an empty class attribute"
+        );
+        assert_eq!(
+            *count.lock().unwrap(),
+            0,
+            "remove on an absent attribute must be a no-op (no AttributeChange)"
+        );
+
+        // Contrast: removing the last token from a *present* attribute still
+        // writes `class=\"\"` (step 1 only returns when the attribute is absent).
+        dom.set_attribute(el, "class", "x");
+        let baseline = *count.lock().unwrap();
+        CLASS_LIST_REMOVE
+            .invoke(el, &[JsValue::String("x".into())], &mut session, &mut dom)
+            .unwrap();
+        assert_eq!(
+            dom.world().get::<&Attributes>(el).unwrap().get("class"),
+            Some(""),
+            "removing the last token from a present attribute leaves class=\"\""
+        );
+        assert_eq!(
+            *count.lock().unwrap(),
+            baseline + 1,
+            "removing the last token from a present attribute still dispatches one AttributeChange"
         );
     }
 }
