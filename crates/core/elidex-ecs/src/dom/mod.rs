@@ -1170,16 +1170,28 @@ impl EcsDom {
         }
     }
 
-    /// Reconcile every attribute-derived component after the `name`
-    /// content attribute is written or removed — the single canonical seam
-    /// for attribute→component staleness. Called by both
+    /// Re-make every **inline-reconciled** attribute-derived component
+    /// consistent with the post-write `Attributes`, after the `name` content
+    /// attribute is written or removed. The invariant is a single one —
+    /// *component = f(`Attributes`)* — and the two arms below are just its two
+    /// realizations (lazy-drop vs eager-rederive) given each component's
+    /// materialization policy. Called by both
     /// [`set_attribute`](Self::set_attribute) /
     /// [`remove_attribute`](Self::remove_attribute) (after the `Attributes`
     /// mutation) and the deferred session-mutation flush in
     /// `elidex_script_session::mutation::apply_mutation` (which is `pub`'s
     /// reason — it writes `Attributes` without entering the chokepoints).
     ///
-    /// Two derived components reconcile here, each in its own way:
+    /// **Why an inline seam in `elidex-ecs` core, not a `MutationEvent`
+    /// consumer** — the mechanism higher layers use (e.g. `DocumentBaseUrl` via
+    /// `elidex-dom-api`'s `BaseUrlMaintainer`, which subscribes to the
+    /// `MutationEvent::AttributeChange` the chokepoint *dispatches* right after
+    /// this call): these two components' consistency is a **core** invariant
+    /// that must hold even when no consumer layer is composed, and two callers
+    /// (`navigate_iframe`, the deferred flush) reconcile deliberately *without*
+    /// dispatching an event (double-load avoidance) — neither is reducible to a
+    /// consumer. So the split is a layering boundary, not a duplicate path.
+    /// The two components:
     /// - **`InlineStyle`** (memoized parse of `attrs("style")`, materialized
     ///   lazily on first CSSOM access via `elidex_dom_api::ensure_inline_style`):
     ///   a `style` write changes the source of truth, so **drop the cache** —

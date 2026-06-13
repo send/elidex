@@ -564,21 +564,10 @@ fn toggle_attribute_style_off_invalidates_inline_style_cache() {
 // saw className/id/dataset writes.
 // -----------------------------------------------------------------------
 
-#[derive(Default, Clone)]
-struct AttrChangeCounter {
-    count: std::sync::Arc<std::sync::Mutex<usize>>,
-}
-
-impl elidex_ecs::MutationDispatcher for AttrChangeCounter {
-    fn dispatch(&mut self, event: &elidex_ecs::MutationEvent<'_>, _dom: &mut EcsDom) {
-        if matches!(*event, elidex_ecs::MutationEvent::AttributeChange { .. }) {
-            *self.count.lock().unwrap() += 1;
-        }
-    }
-}
-
 #[test]
 fn classname_id_dataset_setters_dispatch_mutation_event() {
+    use crate::test_util::AttrChangeCounter;
+
     let (mut dom, el, _, mut session) = setup();
     let hook = AttrChangeCounter::default();
     let count = hook.count.clone();

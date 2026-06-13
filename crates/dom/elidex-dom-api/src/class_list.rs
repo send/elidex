@@ -1063,21 +1063,9 @@ mod tests {
     /// `MutationEvent::AttributeChange` (slot
     /// `#11-attr-handler-chokepoint-mutationevent`). The prior `set_token_string`
     /// wrote `Attributes` directly + bumped `rev_version`, dropping the event.
-    #[derive(Default, Clone)]
-    struct AttrChangeCounter {
-        count: std::sync::Arc<std::sync::Mutex<usize>>,
-    }
-
-    impl elidex_ecs::MutationDispatcher for AttrChangeCounter {
-        fn dispatch(&mut self, event: &elidex_ecs::MutationEvent<'_>, _dom: &mut EcsDom) {
-            if matches!(*event, elidex_ecs::MutationEvent::AttributeChange { .. }) {
-                *self.count.lock().unwrap() += 1;
-            }
-        }
-    }
-
     #[test]
     fn classlist_add_and_value_set_dispatch_mutation_event() {
+        use crate::test_util::AttrChangeCounter;
         let (mut dom, elem, mut session) = setup();
         let hook = AttrChangeCounter::default();
         let count = hook.count.clone();
