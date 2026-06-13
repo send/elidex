@@ -6,11 +6,14 @@
 //! 1. HTML-namespace element wrappers chain through
 //!    `HTMLElement.prototype` (spliced in between `HTMLIFrameElement`
 //!    and `Element.prototype` — confirms the PR5b chain rewrite).
-//! 2. `focus()` / `blur()` mutate `HostData::focused_entity` and are
-//!    observable via `document.activeElement`.
+//! 2. `focus()` / `blur()` reconcile the canonical `ElementState::FOCUS`
+//!    component (only a focusable area is focused) and are observable
+//!    via `document.activeElement` (single-focus: focusing a second
+//!    element clears the first).
 //! 3. `document.activeElement` falls back to `<body>` when no element
-//!    is focused (WHATWG §6.6.3 step 2).
-//! 4. `document.hasFocus()` tracks `HostData::focused_entity`.
+//!    is focused (WHATWG §6.6.6).
+//! 4. `document.hasFocus()` reads the `FOCUS` bit via the connectedness
+//!    filter (a detached focused element counts as not focused).
 
 #![cfg(feature = "engine")]
 
@@ -106,10 +109,25 @@ fn iframe_proto_chain_splices_html_element() {
 
 #[test]
 fn focus_marks_element_as_active_element() {
+    // `tabindex` makes the `<div>` a focusable area (WHATWG §6.6.2);
+    // `.focus()` on a non-focusable element is a no-op.
     let out = run("var d = document.createElement('div'); \
+         d.setAttribute('tabindex', '0'); \
          document.body.appendChild(d); \
          d.focus(); \
          (document.activeElement === d) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn focus_is_noop_on_non_focusable_element() {
+    // A plain `<div>` (no tabindex / contenteditable) is not a
+    // focusable area, so `.focus()` does not change `activeElement`
+    // (WHATWG §6.6.4 focusing steps gate on §6.6.2 focusable area).
+    let out = run("var d = document.createElement('div'); \
+         document.body.appendChild(d); \
+         d.focus(); \
+         (document.activeElement === document.body) ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
 }
 
@@ -118,6 +136,7 @@ fn blur_clears_focused_only_when_receiver_matches() {
     // `blur()` on a non-focused element is a no-op.
     let out = run("var a = document.createElement('div'); \
          var b = document.createElement('div'); \
+         a.setAttribute('tabindex', '0'); \
          document.body.appendChild(a); \
          document.body.appendChild(b); \
          a.focus(); \
@@ -125,6 +144,28 @@ fn blur_clears_focused_only_when_receiver_matches() {
          if (document.activeElement !== a) 'fail-wrong-blur'; \
          else { a.blur(); \
                 (document.activeElement === document.body) ? 'ok' : 'fail-no-fallback'; }");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn focus_is_single_focus_clearing_prior_holder() {
+    // Single-focus invariant (WHATWG §6.6 — `set_focus_bit`'s
+    // clear-all-then-set sweep): focusing `b` must clear `a`'s FOCUS
+    // bit, so after `b.blur()` `activeElement` is `<body>` — NOT `a`
+    // (which would prove `a` kept a stale bit, i.e. no sweep).
+    let out = run("var a = document.createElement('div'); \
+         var b = document.createElement('div'); \
+         a.setAttribute('tabindex', '0'); \
+         b.setAttribute('tabindex', '0'); \
+         document.body.appendChild(a); \
+         document.body.appendChild(b); \
+         a.focus(); \
+         b.focus(); \
+         var bIsActive = document.activeElement === b; \
+         b.blur(); \
+         var bodyAfterBlur = document.activeElement === document.body; \
+         (bIsActive && bodyAfterBlur) ? 'ok' \
+           : ('fail:' + bIsActive + ',' + bodyAfterBlur);");
     assert_eq!(out, "ok");
 }
 
@@ -139,18 +180,19 @@ fn active_element_falls_back_to_body_when_unfocused() {
 
 #[test]
 fn active_element_falls_back_to_body_when_focused_entity_detached() {
-    // Focus an element, then remove it from the tree.  The
-    // `focused_entity` cache still points at the detached entity,
-    // but `activeElement` must report `<body>` because the cached
-    // entity is no longer connected.
+    // Focus an element, then remove it from the tree.  Its
+    // `ElementState::FOCUS` bit may persist (detach does not clear
+    // it), but `activeElement` must report `<body>` because
+    // `current_focus`'s connectedness filter excludes the
+    // now-disconnected entity.
     //
-    // `native_document_get_active_element` walks `get_parent` back
-    // up to the document; if the chain does not terminate at the
-    // bound document (i.e. the entity was detached), the cached
-    // focus is ignored and the fallback path kicks in.  No ECS
-    // detach hook is required — the getter enforces the invariant
-    // on read.
+    // `current_focus` walks `get_parent` back up to the document; if
+    // the chain does not terminate at the bound document (i.e. the
+    // entity was detached), the focused entity is ignored and the
+    // fallback path kicks in.  No ECS detach hook is required — the
+    // read helper enforces the invariant on read.
     let out = run("var d = document.createElement('div'); \
+         d.setAttribute('tabindex', '0'); \
          document.body.appendChild(d); \
          d.focus(); \
          d.remove(); \
@@ -165,6 +207,7 @@ fn active_element_falls_back_to_body_when_focused_entity_detached() {
 fn has_focus_reflects_focused_entity_presence() {
     let out = run("var before = document.hasFocus(); \
          var d = document.createElement('div'); \
+         d.setAttribute('tabindex', '0'); \
          document.body.appendChild(d); \
          d.focus(); \
          var after = d.blur() || document.hasFocus(); \
@@ -180,12 +223,14 @@ fn has_focus_reflects_focused_entity_presence() {
 // Regression guard for Copilot R1 #1: `hasFocus()` must treat a
 // detached focused entity as "not focused", mirroring
 // `activeElement`'s connectedness filter.  Without the filter, the
-// stale `HostData::focused_entity` remained `Some(...)` after
-// `removeChild` and `hasFocus()` returned `true` while
-// `activeElement` correctly fell back to `<body>`.
+// stale `ElementState::FOCUS` bit persists after `removeChild` (detach
+// does not clear it) and `hasFocus()` would return `true` while
+// `activeElement` correctly fell back to `<body>` — `current_focus`'s
+// connectedness walk closes the gap for both.
 #[test]
 fn has_focus_returns_false_after_focused_element_detached() {
     let out = run("var d = document.createElement('div'); \
+         d.setAttribute('tabindex', '0'); \
          document.body.appendChild(d); \
          d.focus(); \
          var before = document.hasFocus(); \

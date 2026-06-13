@@ -23,12 +23,13 @@ fn is_editable_text(state: &ContentState, target: elidex_ecs::Entity) -> bool {
 /// Handle an IME event from the browser thread.
 #[allow(clippy::too_many_lines)]
 pub(super) fn handle_ime(state: &mut ContentState, kind: ImeKind) {
-    let Some(target) = state.focus_target else {
+    // The focused element (canonical FOCUS bit); `current_focus` filters
+    // connectedness, subsuming the prior "still exists" check.
+    let Some(target) =
+        elidex_dom_api::focus::current_focus(&state.pipeline.dom, state.pipeline.document)
+    else {
         return;
     };
-    if !state.pipeline.dom.contains(target) {
-        return;
-    }
 
     match kind {
         ImeKind::Preedit(text) => {

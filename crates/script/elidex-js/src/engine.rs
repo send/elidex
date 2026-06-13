@@ -478,6 +478,25 @@ impl HostDriver for ElidexJsEngine {
         }
     }
 
+    // ── page visibility / scroll transport (per-window; S2) ───────────────
+
+    fn set_visibility(&mut self, visible: bool) {
+        // Visibility is browsing-context UA state on `HostData`; a no-op when
+        // no host context is installed (like the other `HostData`-backed
+        // setters).
+        if let Some(hd) = self.vm.host_data() {
+            hd.set_visibility(visible);
+        }
+    }
+
+    fn take_pending_scroll(&mut self) -> Option<(f64, f64)> {
+        self.vm.take_pending_scroll()
+    }
+
+    fn set_scroll_offset(&mut self, x: f64, y: f64) {
+        self.vm.set_scroll_offset(x, y);
+    }
+
     // ── host-resource install (construction-adjacent) ─────────────────────
 
     fn install_network_handle(&mut self, handle: std::rc::Rc<elidex_net::broker::NetworkHandle>) {

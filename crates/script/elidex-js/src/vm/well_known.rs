@@ -348,6 +348,9 @@ define_well_known_strings! {
         get_elements_by_class_name => "getElementsByClassName",
         // Document RO / RW accessors (PR4f C6 / C7).
         css1_compat => "CSS1Compat",
+        // Page visibility (WHATWG HTML §6.2): `document.visibilityState`
+        // (`hidden` is already interned above).
+        visible => "visible",
         // DocumentType.prototype attrs (PR4f C7).
         public_id => "publicId",
         system_id => "systemId",

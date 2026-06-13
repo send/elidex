@@ -166,7 +166,8 @@ impl App {
         if let (Some(state), Some(interactive)) = (&mut self.render_state, &self.interactive) {
             let dom = &interactive.pipeline.dom;
             let document = interactive.pipeline.document;
-            let focus = interactive.focus_target.filter(|e| dom.contains(*e));
+            // Focused element from the canonical FOCUS bit (connectedness-filtered).
+            let focus = elidex_dom_api::focus::current_focus(dom, document);
             state
                 .a11y_adapter
                 .update_if_active(|| elidex_a11y::build_tree_update(dom, document, focus));

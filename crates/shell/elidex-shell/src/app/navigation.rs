@@ -99,7 +99,8 @@ impl App {
                     .runtime
                     .set_current_url(Some(url.clone()));
                 interactive.window_title = format!("elidex \u{2014} {url}");
-                interactive.focus_target = None;
+                // Focus lives in the new pipeline's `EcsDom` (fresh document,
+                // empty by construction) — no field to reset.
                 interactive.hover_chain.clear();
                 interactive.active_chain.clear();
                 interactive.chrome.set_url(url);

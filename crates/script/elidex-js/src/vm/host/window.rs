@@ -57,6 +57,13 @@ pub(crate) struct ViewportState {
     pub(crate) scroll_x: f64,
     pub(crate) scroll_y: f64,
     pub(crate) device_pixel_ratio: f64,
+    /// Scroll offset a script requested via `scrollTo` / `scrollBy`
+    /// (CSSOM View §4) that the shell has not yet applied + echoed back.
+    /// Drained by [`Vm::take_pending_scroll`](crate::vm::Vm::take_pending_scroll);
+    /// `scroll_x`/`scroll_y` are updated eagerly alongside it so JS reads
+    /// stay self-consistent, while the shell clamps + echoes the applied
+    /// value back via [`Vm::set_scroll_offset`](crate::vm::Vm::set_scroll_offset).
+    pub(crate) pending_scroll: Option<(f64, f64)>,
 }
 
 impl ViewportState {
@@ -67,6 +74,7 @@ impl ViewportState {
             scroll_x: 0.0,
             scroll_y: 0.0,
             device_pixel_ratio: 1.0,
+            pending_scroll: None,
         }
     }
 }
@@ -102,6 +110,11 @@ pub(super) fn native_window_scroll_to(
     // NaN → 0 per CSSOM-View "normalizing scroll amounts".
     ctx.vm.viewport.scroll_x = if x.is_finite() { x } else { 0.0 };
     ctx.vm.viewport.scroll_y = if y.is_finite() { y } else { 0.0 };
+    // Record the request so the shell can apply it to the real viewport
+    // (drained via `Vm::take_pending_scroll`); the eager `scroll_x/y`
+    // update above keeps `scrollX`/`scrollY` self-consistent for JS reads
+    // until the shell clamps + echoes the applied value back.
+    ctx.vm.viewport.pending_scroll = Some((ctx.vm.viewport.scroll_x, ctx.vm.viewport.scroll_y));
     Ok(JsValue::Undefined)
 }
 
@@ -118,6 +131,7 @@ pub(super) fn native_window_scroll_by(
     if dy.is_finite() {
         ctx.vm.viewport.scroll_y += dy;
     }
+    ctx.vm.viewport.pending_scroll = Some((ctx.vm.viewport.scroll_x, ctx.vm.viewport.scroll_y));
     Ok(JsValue::Undefined)
 }
 

@@ -10,6 +10,8 @@ use crate::app::hover::{apply_hover_diff, collect_hover_chain, update_element_st
 use crate::app::navigation::resolve_nav_url;
 use crate::ipc::ModifierState;
 
+use elidex_dom_api::focus::current_focus;
+
 use super::focus::set_focus;
 use super::form_input::{
     dispatch_input_event, dispatch_input_event_typed, dispatch_state_change_events,
@@ -49,7 +51,7 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
     }
 
     // Update focus.
-    set_focus(state, hit_entity);
+    set_focus(&mut state.pipeline, hit_entity);
 
     // Set ACTIVE state on press. Per UI Events spec, :active applies from
     // mousedown to mouseup — cleared in handle_mouse_release().
@@ -301,13 +303,12 @@ pub(super) fn handle_key(
         return;
     }
 
-    let Some(target) = state.focus_target else {
+    // The focused element (from the canonical FOCUS bit); `current_focus`
+    // filters connectedness, so a despawned/detached prior target is
+    // naturally absent — no stale-target field to clear.
+    let Some(target) = current_focus(&state.pipeline.dom, state.pipeline.document) else {
         return;
     };
-    if !state.pipeline.dom.contains(target) {
-        state.focus_target = None;
-        return;
-    }
 
     let init = KeyboardEventInit {
         key: key.to_string(),
@@ -328,7 +329,7 @@ pub(super) fn handle_key(
     if event_type == "keydown" && !default_prevented && key == "Tab" {
         let forward = !mods.shift;
         if let Some(next) = find_next_focusable(state, forward) {
-            set_focus(state, next);
+            set_focus(&mut state.pipeline, next);
         }
         state.re_render();
         state.send_display_list();
@@ -436,8 +437,7 @@ fn find_next_focusable(state: &mut ContentState, forward: bool) -> Option<elidex
         return None;
     }
 
-    let current_idx = state
-        .focus_target
+    let current_idx = current_focus(&state.pipeline.dom, state.pipeline.document)
         .and_then(|target| focusables.iter().position(|&e| e == target));
 
     match current_idx {
@@ -636,7 +636,7 @@ fn toggle_radio_with_events(state: &mut ContentState, current: elidex_ecs::Entit
         forward,
         &mut state.pipeline.ancestor_cache,
     ) {
-        set_focus(state, next);
+        set_focus(&mut state.pipeline, next);
         if elidex_form::toggle_radio(
             &mut state.pipeline.dom,
             next,
@@ -779,6 +779,11 @@ pub(super) fn try_route_click_to_iframe(
             if let Some(iframe_hit) =
                 elidex_layout::hit_test_with_scroll(&iframe.pipeline.dom, &iframe_query)
             {
+                // Move focus within the iframe through the same reconciler the
+                // top-level document uses (operating on the iframe's own
+                // `PipelineResult`) — one focusing-steps path for every
+                // document, and the FOCUS bit `try_route_key_to_iframe` reads.
+                super::focus::set_focus(&mut iframe.pipeline, iframe_hit.entity);
                 // Shared helpers for MouseEventInit + event type selection (B3/B4 fix).
                 let mouse_init = mouse_event_init_from_click(&local_click);
                 for &event_type in click_event_types(local_click.button) {
@@ -825,23 +830,23 @@ pub(super) fn try_route_key_to_iframe(
 
     match &mut entry.handle {
         IframeHandle::InProcess(iframe) => {
-            if let Some(target) = iframe.focus_target {
-                if iframe.pipeline.dom.contains(target) {
-                    let init = elidex_plugin::KeyboardEventInit {
-                        key: key.to_string(),
-                        code: code.to_string(),
-                        repeat,
-                        alt_key: mods.alt,
-                        ctrl_key: mods.ctrl,
-                        meta_key: mods.meta,
-                        shift_key: mods.shift,
-                    };
-                    let mut event =
-                        elidex_script_session::DispatchEvent::new_composed(event_type, target);
-                    event.payload = elidex_plugin::EventPayload::Keyboard(init);
-                    iframe.pipeline.dispatch_event(&mut event);
-                    iframe.needs_render = true;
-                }
+            // The iframe's focused element, read from the canonical FOCUS bit
+            // in its own `EcsDom` (connectedness-filtered by `current_focus`).
+            if let Some(target) = current_focus(&iframe.pipeline.dom, iframe.pipeline.document) {
+                let init = elidex_plugin::KeyboardEventInit {
+                    key: key.to_string(),
+                    code: code.to_string(),
+                    repeat,
+                    alt_key: mods.alt,
+                    ctrl_key: mods.ctrl,
+                    meta_key: mods.meta,
+                    shift_key: mods.shift,
+                };
+                let mut event =
+                    elidex_script_session::DispatchEvent::new_composed(event_type, target);
+                event.payload = elidex_plugin::EventPayload::Keyboard(init);
+                iframe.pipeline.dispatch_event(&mut event);
+                iframe.needs_render = true;
             }
         }
         IframeHandle::OutOfProcess(oop) => {

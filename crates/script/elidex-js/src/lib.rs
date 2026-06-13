@@ -61,6 +61,10 @@ mod tests_engine_s1c;
 #[cfg(feature = "engine")]
 mod tests_engine_s1d;
 
+#[cfg(test)]
+#[cfg(feature = "engine")]
+mod tests_engine_s2;
+
 mod lexer;
 mod parser;
 mod scope;

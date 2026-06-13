@@ -1,89 +1,104 @@
 //! Focus management: focusability checks, focus/blur event dispatch,
 //! and change-on-blur for text controls.
+//!
+//! Focus *state* is the canonical `ElementState::FOCUS` ECS component — read
+//! via [`elidex_dom_api::focus::current_focus`] (with its connectedness
+//! filter), written via [`elidex_dom_api::focus::set_focus_bit`] (clear-all
+//! then set, so single-focus holds by construction). This module runs the
+//! UA-input focusing / unfocusing steps (WHATWG HTML §6.6.4) — the event
+//! dispatch the engine-independent helpers leave to the caller. The same
+//! reconciler serves every UA input path (content thread, the legacy
+//! single-thread `App`, and in-process iframes) by operating on a
+//! `&mut PipelineResult` (each owns its own document `EcsDom`).
 
-use elidex_ecs::ElementState as DomElementState;
+use elidex_dom_api::focus::{current_focus, set_focus_bit};
 use elidex_ecs::Entity;
 use elidex_form::{FormControlKind, FormControlState};
 use elidex_plugin::{EventPayload, FocusEventInit};
 use elidex_script_session::DispatchEvent;
 
-use crate::app::hover::update_element_state;
+use crate::PipelineResult;
 
-use super::ContentState;
+/// The text value a control had when it gained focus, stored **on the focused
+/// element** so the change-on-blur detection (HTML §4.10.5.5 Common event
+/// behaviors) is a per-entity ECS fact, not a side-store: set during the
+/// focusing steps, read + removed during the unfocusing steps, and auto-cleaned
+/// on despawn. Only text controls carry it (absence ⇒ no change event).
+struct FocusValueSnapshot(String);
 
 /// Move focus to the given entity, clearing focus from the previous target.
 ///
-/// Per UI Events §5.2, dispatches focusout/focusin (bubbling) then blur/focus (non-bubbling).
-/// Only focusable elements receive focus (form controls, links with href, elements with tabindex).
-pub(super) fn set_focus(state: &mut ContentState, entity: Entity) {
-    if state.focus_target == Some(entity) {
+/// Per UI Events §5.2, dispatches focusout/focusin (bubbling) then blur/focus
+/// (non-bubbling). Only focusable elements receive focus (form controls, links
+/// with href, elements with tabindex / contenteditable).
+pub(crate) fn set_focus(pipeline: &mut PipelineResult, entity: Entity) {
+    let old = current_focus(&pipeline.dom, pipeline.document);
+    if old == Some(entity) {
         return;
     }
 
-    // N5: Only focusable elements receive focus.
-    if !is_focusable(&state.pipeline.dom, entity) {
-        // Clicking a non-focusable element blurs the current focus.
-        blur_current(state);
+    // N5: Only focusable elements receive focus. Clicking a non-focusable
+    // element blurs the current focus.
+    if !is_focusable(&pipeline.dom, entity) {
+        blur_current(pipeline);
         return;
     }
-
-    let old_focus = state.focus_target;
 
     // UI Events §5.2.1 order: focusout → focusin → blur → focus.
     // Per UI Events §5.2: relatedTarget is the element gaining/losing focus.
-    if let Some(old) = old_focus {
-        if state.pipeline.dom.contains(old) {
-            dispatch_focus_event_with_related(state, "focusout", old, true, Some(entity));
-        }
+    // `current_focus` already filtered connectedness, so `old` is connected.
+    if let Some(old) = old {
+        dispatch_focus_event_with_related(pipeline, "focusout", old, true, Some(entity));
     }
-    dispatch_focus_event_with_related(state, "focusin", entity, true, old_focus);
-    if let Some(old) = old_focus {
-        if state.pipeline.dom.contains(old) {
-            update_element_state(&mut state.pipeline.dom, old, |s| {
-                s.remove(DomElementState::FOCUS);
-            });
-            dispatch_focus_event_with_related(state, "blur", old, false, Some(entity));
-            // HTML §4.10.5.4: "change" fires during unfocusing steps (after blur).
-            dispatch_change_on_blur(state, old);
-        }
+    dispatch_focus_event_with_related(pipeline, "focusin", entity, true, old);
+    if let Some(old) = old {
+        // Clear the prior focus before the blur event so `activeElement`
+        // reports `<body>` during blur (matching the prior field model).
+        set_focus_bit(&mut pipeline.dom, None);
+        dispatch_focus_event_with_related(pipeline, "blur", old, false, Some(entity));
+        // HTML §4.10.5.5: "change" fires during the unfocusing steps (after blur).
+        dispatch_change_on_blur(pipeline, old);
     }
-    update_element_state(&mut state.pipeline.dom, entity, |s| {
-        s.insert(DomElementState::FOCUS);
-    });
-    dispatch_focus_event_with_related(state, "focus", entity, false, old_focus);
-    state.focus_target = Some(entity);
+    set_focus_bit(&mut pipeline.dom, Some(entity));
+    dispatch_focus_event_with_related(pipeline, "focus", entity, false, old);
 
-    // Record initial value for change event detection on blur.
-    state.focus_initial_value = state
-        .pipeline
+    // Record the initial value for change-event detection on blur.
+    record_focus_snapshot(pipeline, entity);
+}
+
+/// Remove focus from the current target without setting a new one.
+pub(crate) fn blur_current(pipeline: &mut PipelineResult) {
+    let Some(old) = current_focus(&pipeline.dom, pipeline.document) else {
+        return;
+    };
+    dispatch_focus_event_with_related(pipeline, "focusout", old, true, None);
+    set_focus_bit(&mut pipeline.dom, None);
+    dispatch_focus_event_with_related(pipeline, "blur", old, false, None);
+    // HTML §4.10.5.5: "change" fires during the unfocusing steps (after blur).
+    dispatch_change_on_blur(pipeline, old);
+}
+
+/// Snapshot a focused text control's value onto it (the `FocusValueSnapshot`
+/// component) so blur can detect a change. Non-text-controls get no snapshot.
+fn record_focus_snapshot(pipeline: &mut PipelineResult, entity: Entity) {
+    let value = pipeline
         .dom
         .world()
         .get::<&FormControlState>(entity)
         .ok()
         .filter(|fcs| fcs.kind.is_text_control())
         .map(|fcs| fcs.value().to_string());
-}
-
-/// Remove focus from the current target without setting a new one.
-pub(super) fn blur_current(state: &mut ContentState) {
-    let Some(old) = state.focus_target.take() else {
-        return;
-    };
-    if state.pipeline.dom.contains(old) {
-        dispatch_focus_event_with_related(state, "focusout", old, true, None);
-        update_element_state(&mut state.pipeline.dom, old, |s| {
-            s.remove(DomElementState::FOCUS);
-        });
-        dispatch_focus_event_with_related(state, "blur", old, false, None);
-        // HTML §4.10.5.4: "change" fires during unfocusing steps (after blur).
-        dispatch_change_on_blur(state, old);
+    if let Some(value) = value {
+        let _ = pipeline
+            .dom
+            .world_mut()
+            .insert_one(entity, FocusValueSnapshot(value));
     }
-    state.focus_initial_value = None;
 }
 
 /// Dispatch a focus event with optional related target.
 fn dispatch_focus_event_with_related(
-    state: &mut ContentState,
+    pipeline: &mut PipelineResult,
     event_type: &str,
     target: Entity,
     bubbles: bool,
@@ -95,54 +110,46 @@ fn dispatch_focus_event_with_related(
     event.payload = EventPayload::Focus(FocusEventInit {
         related_target: related_target.map(|e| e.to_bits().get()),
     });
-    state.pipeline.dispatch_event(&mut event);
+    pipeline.dispatch_event(&mut event);
 }
 
-/// Dispatch "change" event on text control blur when value differs from initial.
-fn dispatch_change_on_blur(state: &mut ContentState, entity: Entity) {
-    let Some(initial) = &state.focus_initial_value else {
+/// Dispatch "change" on text-control blur when the value differs from the
+/// snapshot taken at focus (HTML §4.10.5.5). Consumes (reads + removes) the
+/// `FocusValueSnapshot`; absence ⇒ not a tracked text control ⇒ no change event.
+fn dispatch_change_on_blur(pipeline: &mut PipelineResult, entity: Entity) {
+    let Ok(initial) = pipeline
+        .dom
+        .world_mut()
+        .remove_one::<FocusValueSnapshot>(entity)
+    else {
         return;
     };
-    if !state.pipeline.dom.contains(entity) {
-        return;
-    }
-    let changed = state
-        .pipeline
+    let changed = pipeline
         .dom
         .world()
         .get::<&FormControlState>(entity)
         .ok()
-        .is_some_and(|fcs| fcs.value() != *initial);
+        .is_some_and(|fcs| fcs.value() != initial.0);
     if changed {
-        // "change" event does NOT compose (does not cross shadow boundaries).
+        // "change" does NOT compose (does not cross shadow boundaries).
         let mut event = DispatchEvent::new("change", entity);
         event.cancelable = false;
-        state.pipeline.dispatch_event(&mut event);
+        pipeline.dispatch_event(&mut event);
     }
 }
 
-/// Check if an element is focusable per HTML spec §6.6.
+/// Check if an element is focusable per HTML §6.6.2.
 ///
-/// Focusable elements: form controls (not disabled), `<a>` with `href`,
-/// elements with `tabindex` attribute.
-pub(super) fn is_focusable(dom: &elidex_ecs::EcsDom, entity: Entity) -> bool {
-    // Form controls (not disabled, not hidden) are focusable per HTML §6.6.3.
+/// Form controls use the authoritative `FormControlState` (which captures
+/// fieldset-inherited disabled — slot `#11-focusable-area-fieldset-inherited-disabled`
+/// tracks bringing that to the engine-indep predicate for the VM path);
+/// everything else delegates to the engine-independent focusable-area predicate.
+pub(crate) fn is_focusable(dom: &elidex_ecs::EcsDom, entity: Entity) -> bool {
+    // Form controls (not disabled, not hidden) are focusable per HTML §6.6.2.
     if let Ok(fcs) = dom.world().get::<&FormControlState>(entity) {
         return !fcs.disabled && fcs.kind != FormControlKind::Hidden;
     }
-    // Check for tabindex attribute, contenteditable, or <a> with href.
-    let Ok(attrs) = dom.world().get::<&elidex_ecs::Attributes>(entity) else {
-        return false;
-    };
-    if attrs.contains("tabindex") {
-        return true;
-    }
-    // HTML §6.6.3: contenteditable elements are focusable.
-    if dom.is_contenteditable(entity) {
-        return true;
-    }
-    let Ok(tag) = dom.world().get::<&elidex_ecs::TagType>(entity) else {
-        return false;
-    };
-    tag.0 == "a" && attrs.contains("href")
+    // Non-form-control: the engine-independent focusable-area predicate
+    // (tabindex / contenteditable / `<a href>`), one home shared with the VM.
+    elidex_dom_api::focus::is_focusable(dom, entity)
 }

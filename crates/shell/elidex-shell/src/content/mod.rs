@@ -47,9 +47,6 @@ struct ContentState {
     nav_controller: NavigationController,
     hover_chain: Vec<Entity>,
     active_chain: Vec<Entity>,
-    focus_target: Option<Entity>,
-    /// Value of the focused text control when it gained focus (for change event on blur).
-    focus_initial_value: Option<String>,
     /// Whether the caret is currently visible (toggles every 500ms).
     caret_visible: bool,
     /// Last time the caret toggled visibility.
@@ -116,8 +113,6 @@ impl ContentState {
             nav_controller,
             hover_chain: Vec::new(),
             active_chain: Vec::new(),
-            focus_target: None,
-            focus_initial_value: None,
             caret_visible: true,
             caret_last_toggle: Instant::now(),
             focusable_cache: None,
@@ -240,14 +235,16 @@ impl ContentState {
     /// Only blinks for editable text controls (not buttons/checkboxes/links)
     /// to avoid unnecessary 500ms re-render loops for non-text focus.
     fn update_caret_blink(&mut self) -> bool {
-        let is_text_focused = self.focus_target.is_some_and(|target| {
-            self.pipeline
-                .dom
-                .world()
-                .get::<&elidex_form::FormControlState>(target)
-                .ok()
-                .is_some_and(|fcs| fcs.kind.is_text_control() && !fcs.disabled)
-        });
+        let is_text_focused =
+            elidex_dom_api::focus::current_focus(&self.pipeline.dom, self.pipeline.document)
+                .is_some_and(|target| {
+                    self.pipeline
+                        .dom
+                        .world()
+                        .get::<&elidex_form::FormControlState>(target)
+                        .ok()
+                        .is_some_and(|fcs| fcs.kind.is_text_control() && !fcs.disabled)
+                });
         if !is_text_focused {
             return false;
         }

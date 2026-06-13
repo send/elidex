@@ -78,8 +78,6 @@ pub struct InProcessIframe {
     pub pipeline: PipelineResult,
     /// Independent navigation history for this iframe.
     pub nav_controller: NavigationController,
-    /// Currently focused entity within this iframe's document.
-    pub focus_target: Option<Entity>,
     /// Independent scroll state for this iframe's viewport.
     pub scroll_state: ScrollState,
     /// Whether this iframe needs a re-render on the next frame.
