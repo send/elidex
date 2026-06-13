@@ -363,6 +363,29 @@ mod tests {
     }
 
     #[test]
+    fn set_focus_bit_none_sweeps_detached_holder() {
+        // Regression (Codex R2 F3): the shell `blur_current` relies on
+        // `set_focus_bit(None)` clearing a detached-but-alive holder's stale bit
+        // (focus → remove() → click-non-focusable) so reattach does not
+        // resurrect focus — the sweep must reach disconnected holders too.
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let el = dom.create_element("div", Attributes::default());
+        let _ = dom.append_child(doc, el);
+        set_focus_bit(&mut dom, Some(el));
+        let _ = dom.remove_child(doc, el);
+        assert!(
+            is_focused(&dom, el),
+            "detached holder still carries the bit"
+        );
+        set_focus_bit(&mut dom, None);
+        assert!(
+            !is_focused(&dom, el),
+            "the sweep clears the detached holder's stale bit"
+        );
+    }
+
+    #[test]
     fn tab_index_default_values() {
         let mut dom = EcsDom::new();
         let button = dom.create_element("button", Attributes::default());

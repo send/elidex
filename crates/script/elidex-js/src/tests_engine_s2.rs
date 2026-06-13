@@ -111,6 +111,39 @@ fn set_visibility_false_drives_hidden() {
 }
 
 #[test]
+fn visibility_getters_scope_to_bound_document() {
+    // Codex R2 F2: page visibility is a fact of the *bound* document — a
+    // cloned/non-bound `Document` receiver must NOT leak the bound tab's hidden
+    // state.
+    let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    engine.set_visibility(false);
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    bind_engine(&mut engine, &mut ctx);
+    eval_ok(
+        &mut engine,
+        &mut ctx,
+        "globalThis.boundHidden = document.hidden; \
+         var clone = document.cloneNode(false); \
+         globalThis.cloneHidden = clone.hidden; \
+         globalThis.cloneVis = clone.visibilityState;",
+    );
+    engine.unbind();
+    assert!(
+        global_bool(&mut engine, "boundHidden"),
+        "the bound document reflects the hidden tab"
+    );
+    assert!(
+        !global_bool(&mut engine, "cloneHidden"),
+        "a cloned (non-bound) document does not leak the bound hidden state"
+    );
+    assert_eq!(
+        global_string(&mut engine, "cloneVis"),
+        "visible",
+        "cloned document visibilityState defaults to visible"
+    );
+}
+
+#[test]
 fn set_visibility_toggles_back_to_visible() {
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
     engine.set_visibility(false);

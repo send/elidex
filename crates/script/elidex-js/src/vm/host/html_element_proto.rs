@@ -273,6 +273,12 @@ fn native_html_element_focus(
     let dom = ctx.host().dom();
     if elidex_dom_api::focus::is_focusable(dom, entity) {
         elidex_dom_api::focus::set_focus_bit(dom, Some(entity));
+        // Seed the change-on-blur snapshot for text controls, just like the
+        // shell `set_focus` reconciler — so a script `input.focus()` followed
+        // by user editing + a user blur still fires the HTML §4.10.5.5 `change`
+        // event (the snapshot follows the canonical FOCUS bit, not only the UA
+        // path).
+        elidex_form::record_focus_snapshot(dom, entity);
     }
     Ok(JsValue::Undefined)
 }

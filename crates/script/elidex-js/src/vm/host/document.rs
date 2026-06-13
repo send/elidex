@@ -827,11 +827,20 @@ pub(super) fn native_document_get_hidden(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // Brand-check the receiver (like `compatMode` / `cookie` / `referrer`):
-    // page visibility is a browsing-context fact of the *bound* document, so a
-    // non-bound / detached receiver (`get.call({})`) must not leak the bound
-    // tab's state — fall through to the default (visible).
-    if document_receiver(ctx, this, "hidden")?.is_none() {
+    // Two-stage guard (matching `cookie` / `referrer` / `defaultView`): page
+    // visibility is a browsing-context fact of the *bound* document, so both a
+    // brand-bypass (`get.call({})`) AND a detached/cloned `Document` receiver
+    // must fall back to the default (visible) rather than leak the bound tab's
+    // state.
+    let Some(doc) = document_receiver(ctx, this, "hidden")? else {
+        return Ok(JsValue::Boolean(false));
+    };
+    let bound_doc = ctx
+        .vm
+        .host_data
+        .as_deref()
+        .map(super::super::host_data::HostData::document);
+    if bound_doc != Some(doc) {
         return Ok(JsValue::Boolean(false));
     }
     let hidden = ctx
@@ -852,9 +861,17 @@ pub(super) fn native_document_get_visibility_state(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // Brand-check the receiver (see `native_document_get_hidden`): a non-bound
-    // receiver defaults to "visible" rather than leaking the bound tab's state.
-    if document_receiver(ctx, this, "visibilityState")?.is_none() {
+    // Two-stage guard (see `native_document_get_hidden`): a non-bound or
+    // detached/cloned `Document` receiver defaults to "visible".
+    let Some(doc) = document_receiver(ctx, this, "visibilityState")? else {
+        return Ok(JsValue::String(ctx.vm.well_known.visible));
+    };
+    let bound_doc = ctx
+        .vm
+        .host_data
+        .as_deref()
+        .map(super::super::host_data::HostData::document);
+    if bound_doc != Some(doc) {
         return Ok(JsValue::String(ctx.vm.well_known.visible));
     }
     let hidden = ctx

@@ -13,18 +13,11 @@
 
 use elidex_dom_api::focus::{current_focus, set_focus_bit};
 use elidex_ecs::Entity;
-use elidex_form::{FormControlKind, FormControlState};
+use elidex_form::{record_focus_snapshot, take_focus_snapshot, FormControlKind, FormControlState};
 use elidex_plugin::{EventPayload, FocusEventInit};
 use elidex_script_session::DispatchEvent;
 
 use crate::PipelineResult;
-
-/// The text value a control had when it gained focus, stored **on the focused
-/// element** so the change-on-blur detection (HTML §4.10.5.5 Common event
-/// behaviors) is a per-entity ECS fact, not a side-store: set during the
-/// focusing steps, read + removed during the unfocusing steps, and auto-cleaned
-/// on despawn. Only text controls carry it (absence ⇒ no change event).
-struct FocusValueSnapshot(String);
 
 /// Move focus to the given entity, clearing focus from the previous target.
 ///
@@ -62,13 +55,20 @@ pub(crate) fn set_focus(pipeline: &mut PipelineResult, entity: Entity) {
     set_focus_bit(&mut pipeline.dom, Some(entity));
     dispatch_focus_event_with_related(pipeline, "focus", entity, false, old);
 
-    // Record the initial value for change-event detection on blur.
-    record_focus_snapshot(pipeline, entity);
+    // Record the focus-time value for change-on-blur (the engine-indep
+    // `elidex_form` helper, shared with the VM `focus()` path so a script
+    // `input.focus()` also seeds the snapshot).
+    record_focus_snapshot(&mut pipeline.dom, entity);
 }
 
 /// Remove focus from the current target without setting a new one.
 pub(crate) fn blur_current(pipeline: &mut PipelineResult) {
     let Some(old) = current_focus(&pipeline.dom, pipeline.document) else {
+        // No *connected* focus — but a detached-but-alive holder may carry a
+        // stale `FOCUS` bit (focus then `remove()`); sweep it so reattaching
+        // the removed element does not resurrect it as focused (the connectedness
+        // -filtered read above would otherwise skip a disconnected holder).
+        set_focus_bit(&mut pipeline.dom, None);
         return;
     };
     dispatch_focus_event_with_related(pipeline, "focusout", old, true, None);
@@ -76,24 +76,6 @@ pub(crate) fn blur_current(pipeline: &mut PipelineResult) {
     dispatch_focus_event_with_related(pipeline, "blur", old, false, None);
     // HTML §4.10.5.5: "change" fires during the unfocusing steps (after blur).
     dispatch_change_on_blur(pipeline, old);
-}
-
-/// Snapshot a focused text control's value onto it (the `FocusValueSnapshot`
-/// component) so blur can detect a change. Non-text-controls get no snapshot.
-fn record_focus_snapshot(pipeline: &mut PipelineResult, entity: Entity) {
-    let value = pipeline
-        .dom
-        .world()
-        .get::<&FormControlState>(entity)
-        .ok()
-        .filter(|fcs| fcs.kind.is_text_control())
-        .map(|fcs| fcs.value().to_string());
-    if let Some(value) = value {
-        let _ = pipeline
-            .dom
-            .world_mut()
-            .insert_one(entity, FocusValueSnapshot(value));
-    }
 }
 
 /// Dispatch a focus event with optional related target.
@@ -117,11 +99,7 @@ fn dispatch_focus_event_with_related(
 /// snapshot taken at focus (HTML §4.10.5.5). Consumes (reads + removes) the
 /// `FocusValueSnapshot`; absence ⇒ not a tracked text control ⇒ no change event.
 fn dispatch_change_on_blur(pipeline: &mut PipelineResult, entity: Entity) {
-    let Ok(initial) = pipeline
-        .dom
-        .world_mut()
-        .remove_one::<FocusValueSnapshot>(entity)
-    else {
+    let Some(initial) = take_focus_snapshot(&mut pipeline.dom, entity) else {
         return;
     };
     let changed = pipeline
@@ -129,7 +107,7 @@ fn dispatch_change_on_blur(pipeline: &mut PipelineResult, entity: Entity) {
         .world()
         .get::<&FormControlState>(entity)
         .ok()
-        .is_some_and(|fcs| fcs.value() != initial.0);
+        .is_some_and(|fcs| fcs.value() != initial);
     if changed {
         // "change" does NOT compose (does not cross shadow boundaries).
         let mut event = DispatchEvent::new("change", entity);
