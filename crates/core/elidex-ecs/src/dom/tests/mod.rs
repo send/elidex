@@ -11,6 +11,7 @@ fn elem(dom: &mut EcsDom, tag: &'static str) -> Entity {
 }
 
 mod associated_document;
+mod attribute_reconcile;
 mod clone;
 mod creation;
 mod destroy;

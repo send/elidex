@@ -25,7 +25,7 @@ pub use mutation_event::{MutationDispatcher, MutationEvent};
 
 use crate::components::{
     AssociatedDocument, AttrData, Attributes, CommentData, DocTypeData, DocumentBaseUrl,
-    InlineStyle, Namespace, NodeKind, ShadowRoot, TagType, TextContent, TreeRelation,
+    IframeData, InlineStyle, Namespace, NodeKind, ShadowRoot, TagType, TextContent, TreeRelation,
 };
 use hecs::{Entity, World};
 
@@ -1085,7 +1085,7 @@ impl EcsDom {
             self.world.insert_one(entity, attrs).is_ok()
         };
         if did_set {
-            self.invalidate_inline_style_cache(entity, name);
+            self.reconcile_attribute_derived_components(entity, name);
             self.rev_version(entity);
             // Fire `MutationEvent::AttributeChange` per DOM §4.3.2 +
             // §4.3.3; same-value writes still fire because spec
@@ -1146,7 +1146,7 @@ impl EcsDom {
             .get::<&mut Attributes>(entity)
             .ok()
             .and_then(|mut attrs| attrs.remove(name));
-        self.invalidate_inline_style_cache(entity, name);
+        self.reconcile_attribute_derived_components(entity, name);
         self.rev_version(entity);
         // Fire `MutationEvent::AttributeChange` ONLY when an attribute was
         // actually removed. DOM "remove an attribute by name" (§"remove an
@@ -1170,28 +1170,45 @@ impl EcsDom {
         }
     }
 
-    /// Invalidate the cached [`InlineStyle`] component when the `style`
-    /// content attribute is written or removed.
+    /// Reconcile every attribute-derived component after the `name`
+    /// content attribute is written or removed — the single canonical seam
+    /// for attribute→component staleness. Called by both
+    /// [`set_attribute`](Self::set_attribute) /
+    /// [`remove_attribute`](Self::remove_attribute) (after the `Attributes`
+    /// mutation) and the deferred session-mutation flush in
+    /// `elidex_script_session::mutation::apply_mutation` (which is `pub`'s
+    /// reason — it writes `Attributes` without entering the chokepoints).
     ///
-    /// `InlineStyle` is a memoized parse of `attrs("style")` materialized
-    /// lazily on first CSSOM access (`elidex_dom_api::ensure_inline_style`).
-    /// A direct `setAttribute("style", …)` / `removeAttribute("style")`
-    /// changes the source of truth, so the cache must be dropped — the
-    /// next `el.style.*` read re-hydrates from the new attribute. The
-    /// CSSOM mutators re-warm the cache after their own `set_attribute`
-    /// (see `sync_to_attribute`), so this is perf-neutral for
-    /// `el.style.*` mutation sequences. Closes the InlineStyle half of
-    /// slot `#11-derived-component-attr-maintenance` (attribute→component
-    /// staleness).
-    ///
-    /// `pub` so the one attribute-write path that does NOT enter
-    /// [`set_attribute`](Self::set_attribute) / [`remove_attribute`](Self::remove_attribute)
-    /// — the deferred session-mutation flush in
-    /// `elidex_script_session::mutation::apply_mutation` — can preserve the
-    /// invalidation invariant for buffered `style` writes.
-    pub fn invalidate_inline_style_cache(&mut self, entity: Entity, name: &str) {
+    /// Two derived components reconcile here, each in its own way:
+    /// - **`InlineStyle`** (memoized parse of `attrs("style")`, materialized
+    ///   lazily on first CSSOM access via `elidex_dom_api::ensure_inline_style`):
+    ///   a `style` write changes the source of truth, so **drop the cache** —
+    ///   the next `el.style.*` read re-hydrates. CSSOM mutators re-warm after
+    ///   their own `set_attribute` (`sync_to_attribute`), so this is
+    ///   perf-neutral for `el.style.*` sequences. (Closes the InlineStyle half
+    ///   of slot `#11-derived-component-attr-maintenance`.)
+    /// - **[`IframeData`]** (a pure projection of the iframe content attributes,
+    ///   [`IframeData::from_attributes`], HTML §4.8.5): **re-derive eagerly**,
+    ///   but only for entities that *already* carry it (i.e. `<iframe>`) — never
+    ///   attach to a non-iframe that happens to get a `src`/`name`/… attribute.
+    ///   Mirrors the clone-policy re-derive (`dom::tree_clone`). This closes the
+    ///   IframeData half of the same slot: a generic `setAttribute("src", …)`
+    ///   now keeps `IframeData` consistent with its attributes (the prior path
+    ///   left the component stale, so the next load used the old URL).
+    pub fn reconcile_attribute_derived_components(&mut self, entity: Entity, name: &str) {
         if name == "style" {
             let _ = self.world.remove_one::<InlineStyle>(entity);
+        }
+        // Presence-gated: `IframeData` exists ⇔ the entity is an `<iframe>`
+        // (attached at parse / clone). Re-derive from the post-write attributes;
+        // an iframe always has an `Attributes` component, but fall back to the
+        // default projection if it somehow does not.
+        if self.world.get::<&IframeData>(entity).is_ok() {
+            let derived = self.world.get::<&Attributes>(entity).map_or_else(
+                |_| IframeData::default(),
+                |a| IframeData::from_attributes(&a),
+            );
+            let _ = self.world.insert_one(entity, derived);
         }
     }
 }

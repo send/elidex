@@ -63,8 +63,10 @@ pub(in crate::content) fn detect_iframe_mutations(
                 if let Some(removed_entry) = state.iframes.remove(target) {
                     unload_iframe_entry(state, target, removed_entry);
                 }
-                // Sync IframeData.src from Attributes.
-                sync_iframe_src_from_attrs(state, target);
+                // `IframeData` is already re-derived from the new `src` by the
+                // `EcsDom::set_attribute` / mutation-flush reconcile seam, so no
+                // manual sync is needed here — `try_load` reads the fresh
+                // `IframeData.src`.
                 state.iframes.remove_lazy_pending(target);
                 // force=true: src change is explicit navigation.
                 try_load_iframe_entity(state, target, true);
@@ -74,28 +76,6 @@ pub(in crate::content) fn detect_iframe_mutations(
         }
     }
     changed
-}
-
-/// Sync `IframeData.src` from `Attributes` — `setAttribute('src', ...)`
-/// updates `Attributes` via mutation flush but not `IframeData` directly.
-fn sync_iframe_src_from_attrs(state: &mut crate::content::ContentState, entity: Entity) {
-    if let Some(new_src) = state
-        .pipeline
-        .dom
-        .world()
-        .get::<&elidex_ecs::Attributes>(entity)
-        .ok()
-        .and_then(|a| a.get("src").map(String::from))
-    {
-        if let Ok(mut ifd) = state
-            .pipeline
-            .dom
-            .world_mut()
-            .get::<&mut elidex_ecs::IframeData>(entity)
-        {
-            ifd.src = Some(new_src);
-        }
-    }
 }
 
 /// Unload a single iframe entry: dispatch lifecycle events, clean up ECS state,
@@ -299,9 +279,13 @@ pub(in crate::content) fn navigate_iframe(
             );
         }
     }
-    // Update IframeData.src and Attributes directly (no mutation record).
-    // Recording a mutation would cause detect_iframe_mutations to re-trigger
-    // loading, resulting in a double load.
+    // Update `Attributes` directly (no mutation record). Recording a mutation
+    // would cause `detect_iframe_mutations` to re-trigger loading → double
+    // load. `IframeData` is then re-derived from the just-written attributes
+    // via the canonical reconcile seam — which does NOT dispatch a
+    // `MutationEvent` (only `set_attribute` does), so the double-load
+    // avoidance holds while the whole component (not just `.src`) stays
+    // consistent with its attributes.
     let url_str = url.to_string();
     if let Ok(mut attrs) = state
         .pipeline
@@ -311,14 +295,10 @@ pub(in crate::content) fn navigate_iframe(
     {
         attrs.set("src", &url_str);
     }
-    if let Ok(mut iframe_data) = state
+    state
         .pipeline
         .dom
-        .world_mut()
-        .get::<&mut elidex_ecs::IframeData>(iframe_entity)
-    {
-        iframe_data.src = Some(url_str);
-    }
+        .reconcile_attribute_derived_components(iframe_entity, "src");
     try_load_iframe_entity(state, iframe_entity, /* force */ true);
 }
 

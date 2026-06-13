@@ -11,7 +11,7 @@ use elidex_ecs::{Attributes, EcsDom, Entity};
 use elidex_plugin::JsValue;
 use elidex_script_session::{DomApiError, DomApiErrorKind, DomApiHandler, SessionCore};
 
-use crate::util::{not_found_error, require_string_arg};
+use crate::util::{not_found_error, require_live_element, require_string_arg};
 
 /// Validate a token per the `DOMTokenList` spec.
 ///
@@ -72,13 +72,19 @@ fn set_token_string(
     entity: Entity,
     dom: &mut EcsDom,
     attr_name: &str,
-    value: String,
+    value: &str,
 ) -> Result<(), DomApiError> {
-    let mut attrs = dom
-        .world_mut()
-        .get::<&mut Attributes>(entity)
-        .map_err(|_| not_found_error("element not found"))?;
-    attrs.set(attr_name, value);
+    // Route through the canonical `EcsDom::set_attribute` chokepoint (not a
+    // direct `Attributes` write) so a DOMTokenList write
+    // (`classList`/`relList`/`linkSizes` add/remove/toggle/replace/`value=`)
+    // bumps `rev_version` AND dispatches `MutationEvent::AttributeChange`
+    // (DOM §4.9 → §4.3.2) — the prior direct path skipped the mutation event.
+    // `require_live_element` preserves the "stale / non-Element receiver →
+    // NotFoundError" contract for the `value=` op, which (unlike
+    // add/remove/toggle/replace) does not pre-read via `get_token_string`.
+    // The chokepoint owns `rev_version`, so callers drop their manual bump.
+    require_live_element(dom, entity)?;
+    dom.set_attribute(entity, attr_name, value);
     Ok(())
 }
 
@@ -97,7 +103,7 @@ fn add_token(
         } else {
             format!("{normalized} {token}")
         };
-        set_token_string(entity, dom, attr_name, new_value)?;
+        set_token_string(entity, dom, attr_name, &new_value)?;
     }
     Ok(())
 }
@@ -114,7 +120,7 @@ fn remove_token(
         .split_ascii_whitespace()
         .filter(|c| *c != token)
         .collect();
-    set_token_string(entity, dom, attr_name, new_tokens.join(" "))?;
+    set_token_string(entity, dom, attr_name, &new_tokens.join(" "))?;
     Ok(())
 }
 
@@ -179,14 +185,12 @@ impl DomApiHandler for TokenListHandler {
                 let token = require_string_arg(args, 0)?;
                 validate_token(&token)?;
                 add_token(this, self.attr_name, &token, dom)?;
-                dom.rev_version(this);
                 Ok(JsValue::Undefined)
             }
             TokenListOp::Remove => {
                 let token = require_string_arg(args, 0)?;
                 validate_token(&token)?;
                 remove_token(this, self.attr_name, &token, dom)?;
-                dom.rev_version(this);
                 Ok(JsValue::Undefined)
             }
             TokenListOp::Toggle => {
@@ -221,7 +225,6 @@ impl DomApiHandler for TokenListHandler {
                         }
                     }
                 };
-                dom.rev_version(this);
                 Ok(JsValue::Bool(result))
             }
             TokenListOp::Contains => {
@@ -253,8 +256,7 @@ impl DomApiHandler for TokenListHandler {
                         result.push(t);
                     }
                 }
-                set_token_string(this, dom, self.attr_name, result.join(" "))?;
-                dom.rev_version(this);
+                set_token_string(this, dom, self.attr_name, &result.join(" "))?;
                 Ok(JsValue::Bool(true))
             }
             TokenListOp::ValueGet => {
@@ -263,8 +265,7 @@ impl DomApiHandler for TokenListHandler {
             }
             TokenListOp::ValueSet => {
                 let value = require_string_arg(args, 0)?;
-                set_token_string(this, dom, self.attr_name, value)?;
-                dom.rev_version(this);
+                set_token_string(this, dom, self.attr_name, &value)?;
                 Ok(JsValue::Undefined)
             }
             TokenListOp::Length => {
@@ -1055,5 +1056,55 @@ mod tests {
             )
             .unwrap_err();
         assert_eq!(err.kind, DomApiErrorKind::TypeError);
+    }
+
+    /// DOMTokenList writes route through the `EcsDom::set_attribute`
+    /// chokepoint, so `classList.add` / `value=` dispatch
+    /// `MutationEvent::AttributeChange` (slot
+    /// `#11-attr-handler-chokepoint-mutationevent`). The prior `set_token_string`
+    /// wrote `Attributes` directly + bumped `rev_version`, dropping the event.
+    #[derive(Default, Clone)]
+    struct AttrChangeCounter {
+        count: std::sync::Arc<std::sync::Mutex<usize>>,
+    }
+
+    impl elidex_ecs::MutationDispatcher for AttrChangeCounter {
+        fn dispatch(&mut self, event: &elidex_ecs::MutationEvent<'_>, _dom: &mut EcsDom) {
+            if matches!(*event, elidex_ecs::MutationEvent::AttributeChange { .. }) {
+                *self.count.lock().unwrap() += 1;
+            }
+        }
+    }
+
+    #[test]
+    fn classlist_add_and_value_set_dispatch_mutation_event() {
+        let (mut dom, elem, mut session) = setup();
+        let hook = AttrChangeCounter::default();
+        let count = hook.count.clone();
+        dom.set_mutation_dispatcher(Box::new(hook));
+
+        // Adding a new token writes the `class` attribute → one record.
+        CLASS_LIST_ADD
+            .invoke(
+                elem,
+                &[JsValue::String("baz".into())],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        // `classList.value = …` writes the attribute → one record.
+        CLASS_LIST_VALUE_SET
+            .invoke(
+                elem,
+                &[JsValue::String("a b".into())],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        assert_eq!(
+            *count.lock().unwrap(),
+            2,
+            "classList.add + classList.value= must each route through the chokepoint and dispatch one AttributeChange"
+        );
     }
 }

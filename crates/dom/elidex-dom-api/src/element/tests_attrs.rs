@@ -554,3 +554,72 @@ fn toggle_attribute_style_off_invalidates_inline_style_cache() {
         "stale InlineStyle cache survived toggleAttribute('style', false)"
     );
 }
+
+// -----------------------------------------------------------------------
+// chokepoint routing: className / id / dataset setters dispatch
+// MutationEvent::AttributeChange (slot
+// #11-attr-handler-chokepoint-mutationevent) — these handlers previously
+// wrote `Attributes` directly + bumped `rev_version`, bypassing the
+// `EcsDom::set_attribute` chokepoint, so MutationObserver consumers never
+// saw className/id/dataset writes.
+// -----------------------------------------------------------------------
+
+#[derive(Default, Clone)]
+struct AttrChangeCounter {
+    count: std::sync::Arc<std::sync::Mutex<usize>>,
+}
+
+impl elidex_ecs::MutationDispatcher for AttrChangeCounter {
+    fn dispatch(&mut self, event: &elidex_ecs::MutationEvent<'_>, _dom: &mut EcsDom) {
+        if matches!(*event, elidex_ecs::MutationEvent::AttributeChange { .. }) {
+            *self.count.lock().unwrap() += 1;
+        }
+    }
+}
+
+#[test]
+fn classname_id_dataset_setters_dispatch_mutation_event() {
+    let (mut dom, el, _, mut session) = setup();
+    let hook = AttrChangeCounter::default();
+    let count = hook.count.clone();
+    dom.set_mutation_dispatcher(Box::new(hook));
+
+    SetClassName
+        .invoke(el, &[JsValue::String("a".into())], &mut session, &mut dom)
+        .unwrap();
+    SetId
+        .invoke(el, &[JsValue::String("x".into())], &mut session, &mut dom)
+        .unwrap();
+    DatasetSet
+        .invoke(
+            el,
+            &[JsValue::String("foo".into()), JsValue::String("v".into())],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap();
+    assert_eq!(
+        *count.lock().unwrap(),
+        3,
+        "className/id/dataset.set must each route through the chokepoint and dispatch one AttributeChange"
+    );
+
+    // dataset.delete of a present key fires one record; an absent key fires
+    // none (the chokepoint's removal gating, inherited by routing).
+    DatasetDelete
+        .invoke(el, &[JsValue::String("foo".into())], &mut session, &mut dom)
+        .unwrap();
+    DatasetDelete
+        .invoke(
+            el,
+            &[JsValue::String("missing".into())],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap();
+    assert_eq!(
+        *count.lock().unwrap(),
+        4,
+        "present dataset.delete fires one record; absent dataset.delete fires none"
+    );
+}
