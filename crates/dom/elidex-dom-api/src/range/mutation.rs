@@ -435,12 +435,12 @@ impl Range {
     /// 2. Apply the `<html>` → `<body>` rewrite per HTML §8.5.7 step 6 GATED
     ///    on `dom.is_html_namespace(context)` (see
     ///    [`elidex_ecs::EcsDom::is_html_namespace`] forward-stub).
-    /// 3. Call `elidex_html_parser::parse_html_fragment(markup,
-    ///    context_tag, fragment, dom)` — requires `elidex-dom-api` to
-    ///    take an `elidex-html-parser` dependency, which is currently
-    ///    avoided to keep the handler crate parser-independent. The
-    ///    sibling `insertAdjacentHTML` routes parsing through
-    ///    `elidex-script-session::mutation` (the canonical parser
+    /// 3. Call `elidex_html_parser::parse_fragment_progressive(markup,
+    ///    context, dom, opts)` (the §11.3 strict-first dispatcher, detached
+    ///    return) — requires `elidex-dom-api` to take an `elidex-html-parser`
+    ///    dependency, which is currently avoided to keep the handler crate
+    ///    parser-independent. The sibling `insertAdjacentHTML` routes parsing
+    ///    through `elidex-script-session::mutation` (the canonical parser
     ///    boundary); replicating that path here is a clean follow-up.
     ///
     /// Tracked at `#11-range-create-contextual-fragment` defer slot —

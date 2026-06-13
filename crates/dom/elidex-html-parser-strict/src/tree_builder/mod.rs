@@ -40,7 +40,7 @@ mod tests_fragment;
 #[cfg(test)]
 mod tests_html5lib_tree;
 
-use elidex_ecs::{Attributes, EcsDom, Entity, Namespace};
+use elidex_ecs::{EcsDom, Entity, Namespace};
 
 use crate::result::{ParseFragmentOptions, ParseResult, ParseTier};
 use crate::tokenizer::states::{State, Tokenizer};
@@ -167,32 +167,15 @@ impl TreeBuilder {
         context: Entity,
         opts: ParseFragmentOptions,
     ) -> (Result<Vec<Entity>, StrictParseError>, EcsDom) {
-        // The whole §13.4 build happens on a synthetic throwaway document, never
-        // the caller's connected tree, so suppress mutation dispatch for its
-        // duration: appending the synthetic root under a `Document` would
-        // otherwise fire insert/remove events (`is_connected` treats any
-        // `Document` root as connected), letting custom-element / observer /
-        // Range consumers react to internal fragment nodes the caller has not
-        // yet placed — and observe their teardown. The caller's own placement
-        // of the returned detached nodes fires the real events; restored below.
-        let saved_dispatcher = dom.take_mutation_dispatcher();
-        // §13.4 steps 2 + 11-13: a throwaway Document holding a single
-        // synthetic `<html>` root, which is the sole entry on the stack of
-        // open elements. The fragment's nodes are the root's children and are
-        // returned detached (step 20); the document + root are torn down. The
-        // Document (not the bare element) is the root's owner so that foreign
-        // (SVG / MathML) elements created during the parse get a valid owner
-        // document (§13.2.6.1) — `create_element_ns` requires a Document owner.
-        // A throwaway Document — created cache-free (`create_document_node`,
-        // NOT `create_document_root`) so it never clobbers the caller's
-        // persistent `document_root` cache, which it would then leave dangling
-        // when despawned.
-        let document = dom.create_document_node();
-        let root = dom.create_element("html", Attributes::default());
-        debug_assert!(
-            dom.append_child(document, root),
-            "appending a fresh root to a fresh document cannot fail"
-        );
+        // §13.4 steps 2 + 11-13: suppress mutation dispatch and set up a
+        // throwaway Document holding the single synthetic `<html>` root (the
+        // sole initial entry on the stack of open elements). The shared
+        // `begin_detached_fragment` prologue owns the rationale (dispatch
+        // suppression + cache-free Document owner for foreign elements); the
+        // tolerant backend uses the same one. Teardown is run below (Ok =
+        // `take_fragment_children` → `finish_detached_fragment`; Err = the
+        // partial-subtree despawn), then the dispatcher is restored.
+        let (document, root, saved_dispatcher) = dom.begin_detached_fragment();
         let mut state = ParseState::new();
         state.open_elements.push(root);
         // §13.4 step 16 substitution source (consumed by
@@ -251,40 +234,21 @@ impl TreeBuilder {
     /// (parentless) live nodes — in tree order, then tear down the throwaway
     /// document + root.
     ///
-    /// `destroy_entity` orphans a node's children (clears their parent/sibling
-    /// links, leaving them live) before despawning the node itself, so
-    /// destroying the root *is* the detach: the children survive parentless and
-    /// the root is gone. The now-childless document is despawned after.
+    /// Delegates to [`EcsDom::finish_detached_fragment`], the single canonical
+    /// adopt/detach/despawn teardown shared with the tolerant backend
+    /// (`elidex-html-parser`) so the two never hand-mirror the sequence
+    /// (One-issue-one-way). It re-homes the subtree into the context's owner
+    /// document (DOM §4.5 "adopt") before despawning the throwaway document,
+    /// snapshots root's children uncapped, then orphans them by destroying the
+    /// root (`destroy_entity` clears parent/sibling links, leaving the children
+    /// live) and despawns the now-childless document.
     fn take_fragment_children(&mut self, root: Entity) -> Vec<Entity> {
-        // DOM §4.5 "adopt": every returned node's node document is the context's
-        // (not just foreign elements — HTML elements / text / comments resolve
-        // `ownerDocument` via the tree root, which is the throwaway document
-        // about to be despawned, so without this re-home they would dangle /
-        // resolve to `None`). Re-home the whole subtree before tearing the
-        // throwaway document down.
-        if let Some(doc) = self.fragment_document() {
-            self.dom.adopt_subtree(root, doc);
-        }
-        // Uncapped: `EcsDom::children` caps the sibling walk at
-        // `MAX_ANCESTOR_DEPTH`, which would drop the tail of a fragment with
-        // very many top-level nodes — and `destroy_entity(root)` then orphans
-        // those dropped children as live, unreachable entities in the caller's
-        // dom, violating both §13.4 step 20 ("return root's children") and the
-        // no-leak isolation contract.
-        let children = self.dom.child_list_uncapped(root);
-        let _ = self.dom.destroy_entity(root);
-        let _ = self.dom.destroy_entity(self.document);
-        children
-    }
-
-    /// The context element's node document (WHATWG DOM `ownerDocument`) — the
-    /// document the §13.4 fragment's returned nodes are adopted into. `None`
-    /// only when the context is itself documentless (no live owner to re-home
-    /// to). Document parsing has no fragment context, so this is `None` there.
-    fn fragment_document(&self) -> Option<Entity> {
-        self.state
+        let context = self
+            .state
             .fragment_context
-            .and_then(|ctx| self.dom.owner_document(ctx))
+            .expect("fragment build always has a context element (§13.4)");
+        self.dom
+            .finish_detached_fragment(root, self.document, context)
     }
 
     /// §13.4 step 10: switch the tokenizer's initial state from the context

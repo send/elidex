@@ -273,9 +273,10 @@ fn parse_html_fragment_basic() {
     let div = dom.create_element("div", Attributes::default());
     let _ = dom.append_child(root, div);
 
+    // §11.3 slice 2b: detached-return signature (context entity, no parent /
+    // context_tag args); the returned roots are parentless.
     let nodes = elidex_html_parser::parse_html_fragment(
         "<p>hello</p><p>world</p>",
-        "div",
         div,
         &mut dom,
         elidex_html_parser::ParseFragmentOptions::default(),

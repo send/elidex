@@ -502,6 +502,24 @@ impl EcsDom {
             .filter(|&sr| self.world.contains(sr))
     }
 
+    /// Returns the host element of a `ShadowRoot` entity (WHATWG DOM
+    /// `ShadowRoot.host`), or `None` if `entity` is not a shadow root.
+    ///
+    /// The inverse of [`Self::get_shadow_root`]. Used by the
+    /// `ShadowRoot.innerHTML` fragment-parse path (§8.5.4 ShadowRoot-innerHTML
+    /// step 2: "Let context be this's host") so the fragment is parsed in the
+    /// host element's context, not the shadow root's. A single-component query
+    /// (`ShadowRoot.host`) so callers in engine-independent crates need not
+    /// reach into the component directly.
+    #[must_use]
+    pub fn shadow_host(&self, entity: Entity) -> Option<Entity> {
+        self.world
+            .get::<&ShadowRoot>(entity)
+            .ok()
+            .map(|sr| sr.host)
+            .filter(|&host| self.world.contains(host))
+    }
+
     /// Returns the composed children for layout/render traversal.
     ///
     /// - Shadow host -> shadow root's children (skip shadow root entity itself)
