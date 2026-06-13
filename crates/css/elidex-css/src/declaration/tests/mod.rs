@@ -115,6 +115,32 @@ fn inline_style_important_on_shorthand_expands_to_longhands() {
     assert!(style.is_important("margin-left"));
 }
 
+#[test]
+fn inline_style_important_wins_over_later_normal_duplicate() {
+    // Codex #335 R8 F24 / CSS Cascade 4 §6.3: collapsing duplicate
+    // declarations to a single InlineStyle entry must keep the
+    // cascade-winning important value — a later *normal* duplicate must
+    // not overwrite an earlier *important* one.
+    let style = parse_inline_style("color: red !important; color: blue", None);
+    assert_eq!(style.get("color"), Some("#ff0000"));
+    assert!(style.is_important("color"));
+
+    // A later *important* duplicate does win (last-important-wins).
+    let style2 = parse_inline_style("color: red !important; color: blue !important", None);
+    assert_eq!(style2.get("color"), Some("#0000ff"));
+    assert!(style2.is_important("color"));
+
+    // normal-then-important: important wins and is flagged.
+    let style3 = parse_inline_style("color: red; color: blue !important", None);
+    assert_eq!(style3.get("color"), Some("#0000ff"));
+    assert!(style3.is_important("color"));
+
+    // normal-then-normal: ordinary last-wins.
+    let style4 = parse_inline_style("color: red; color: blue", None);
+    assert_eq!(style4.get("color"), Some("#0000ff"));
+    assert!(!style4.is_important("color"));
+}
+
 // --- parse_value_for_property (CSSOM §6.6.1 setProperty value parse) ---
 
 #[test]

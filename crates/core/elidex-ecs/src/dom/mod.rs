@@ -1148,21 +1148,26 @@ impl EcsDom {
             .and_then(|mut attrs| attrs.remove(name));
         self.invalidate_inline_style_cache(entity, name);
         self.rev_version(entity);
-        // Fire `MutationEvent::AttributeChange` per DOM §4.3.2 "Queue
-        // a mutation record" — runs unconditionally, mirroring
-        // `set_attribute` (DOM §4.3.2 requires records be queued for
-        // MutationObserver consumers regardless of value-diff).
-        // Absent-attribute removes therefore still fire (old_value =
-        // new_value = None signals a no-op record).  Per-consumer
-        // suppression (e.g. `BaseUrlMaintainer` skip when not a
-        // `<base>`) lives in the dispatcher's handle, not here.
-        let event = MutationEvent::AttributeChange {
-            node: entity,
-            name,
-            old_value: old_value.as_deref(),
-            new_value: None,
-        };
-        self.dispatch_event(&event);
+        // Fire `MutationEvent::AttributeChange` ONLY when an attribute was
+        // actually removed. DOM "remove an attribute by name" (§"remove an
+        // attribute by name", step 2) removes — and thus queues a mutation
+        // record via "handle attribute changes" — only when the attribute
+        // is non-null; `removeAttribute("missing")` performs no mutation,
+        // so MutationObserver consumers must not see a phantom removal.
+        // (Unlike `set_attribute`, which always performs the mutation and
+        // so queues even same-value writes.) The unconditional
+        // `rev_version` above is a deliberate over-invalidation for
+        // attribute-filtered live collections — distinct from the
+        // observable mutation record gated here.
+        if old_value.is_some() {
+            let event = MutationEvent::AttributeChange {
+                node: entity,
+                name,
+                old_value: old_value.as_deref(),
+                new_value: None,
+            };
+            self.dispatch_event(&event);
+        }
     }
 
     /// Invalidate the cached [`InlineStyle`] component when the `style`

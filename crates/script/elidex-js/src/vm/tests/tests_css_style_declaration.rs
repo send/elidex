@@ -194,6 +194,40 @@ fn set_property_rejects_invalid_custom_property_name_injection() {
     assert_eq!(out, "||||");
 }
 
+/// Codex R8 F24 / CSS Cascade 4 §6.3: an important inline declaration must
+/// survive a later unrelated `el.style.*` mutation. The hydration collapse
+/// must keep `color: red !important` over the normal `color: blue`
+/// duplicate, so the `css_text()` write-back preserves it.
+#[test]
+fn important_duplicate_survives_inline_style_mutation() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('style', 'color: red !important; color: blue'); \
+         d.style.setProperty('width', '5px'); \
+         d.getAttribute('style');");
+    assert_eq!(out, "color: #ff0000 !important; width: 5px");
+}
+
+/// Codex R8 F26: a registry-backed identifier-list transport value
+/// (`transition-property`, carried as `CssValue::RawTokens`) must
+/// round-trip through the inline path *unquoted* — `to_css_string` quotes
+/// `CssValue::String`, which would write `transition-property: "opacity"`
+/// and fail the cascade re-parse.
+#[test]
+fn transition_property_round_trips_unquoted() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('style', 'transition-property: opacity'); \
+         d.style.getPropertyValue('transition-property') + '|' + d.getAttribute('style');");
+    assert_eq!(out, "opacity|transition-property: opacity");
+}
+
+#[test]
+fn transition_property_set_property_round_trips_unquoted() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('transition-property', 'opacity, width'); \
+         d.style.getPropertyValue('transition-property') + '|' + d.getAttribute('style');");
+    assert_eq!(out, "opacity, width|transition-property: opacity, width");
+}
+
 /// §6.6.1 step 3: the empty string as value removes the declaration.
 #[test]
 fn set_property_empty_value_removes() {

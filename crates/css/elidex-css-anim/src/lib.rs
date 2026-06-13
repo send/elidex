@@ -119,13 +119,13 @@ impl CssPropertyHandler for AnimHandler {
 
     fn initial_value(&self, name: &str) -> CssValue {
         match name {
-            "transition-property" => CssValue::String("all".into()),
+            "transition-property" => CssValue::RawTokens("all".into()),
             "transition-duration"
             | "transition-delay"
             | "animation-duration"
             | "animation-delay" => CssValue::Time(0.0),
             "transition-timing-function" | "animation-timing-function" => {
-                CssValue::String("ease".into())
+                CssValue::RawTokens("ease".into())
             }
             "animation-name" | "animation-fill-mode" => CssValue::Keyword("none".into()),
             "animation-iteration-count" => CssValue::Number(1.0),
@@ -215,9 +215,11 @@ pub(crate) fn time_list_value(times: &[f32]) -> CssValue {
     list_value(times, |t| CssValue::Time(*t))
 }
 
-/// Serialize a list of `Display` values as a comma-separated string `CssValue`.
+/// Serialize a list of `Display` values as a comma-separated verbatim
+/// `CssValue::RawTokens` (NOT `CssValue::String`, which `to_css_string`
+/// quotes — these are identifier/keyword lists, not CSS strings).
 pub(crate) fn display_list_value<T: std::fmt::Display>(items: &[T]) -> CssValue {
-    CssValue::String(
+    CssValue::RawTokens(
         items
             .iter()
             .map(ToString::to_string)
@@ -230,7 +232,7 @@ pub(crate) fn display_list_value<T: std::fmt::Display>(items: &[T]) -> CssValue 
 fn extract_animation_lists(specs: &[SingleAnimationSpec]) -> [CssValue; 8] {
     let names: Vec<String> = specs.iter().map(|s| s.name.clone()).collect();
     [
-        CssValue::String(names.join(", ")),
+        CssValue::RawTokens(names.join(", ")),
         time_list_value(&specs.iter().map(|s| s.duration).collect::<Vec<_>>()),
         display_list_value(
             &specs
@@ -337,7 +339,7 @@ mod tests {
         let mut pi = cssparser::ParserInput::new("fadeIn");
         let mut parser = cssparser::Parser::new(&mut pi);
         let decls = handler.parse("animation-name", &mut parser).unwrap();
-        assert_eq!(decls[0].value, CssValue::String("fadeIn".into()));
+        assert_eq!(decls[0].value, CssValue::RawTokens("fadeIn".into()));
     }
 
     #[test]
@@ -406,7 +408,7 @@ mod tests {
         assert_eq!(decls.len(), 8); // 8 longhands
                                     // animation-name is case-sensitive (CSS Animations Level 1 §3.1)
         assert_eq!(decls[0].property, "animation-name");
-        assert_eq!(decls[0].value, CssValue::String("fadeIn".into()));
+        assert_eq!(decls[0].value, CssValue::RawTokens("fadeIn".into()));
         // animation-duration
         assert_eq!(decls[1].property, "animation-duration");
         assert_eq!(decls[1].value, CssValue::Time(1.0));
@@ -419,6 +421,9 @@ mod tests {
         let mut parser = cssparser::Parser::new(&mut pi);
         let decls = handler.parse("animation", &mut parser).unwrap();
         // animation-name is case-sensitive; original casing must be preserved
-        assert_eq!(decls[0].value, CssValue::String("fadeIn, slideUp".into()));
+        assert_eq!(
+            decls[0].value,
+            CssValue::RawTokens("fadeIn, slideUp".into())
+        );
     }
 }
