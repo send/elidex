@@ -435,10 +435,13 @@ fn native_class_list_add(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }
+    // §7.1 `add(tokens…)` is variadic: forward ALL tokens in a single
+    // `invoke_dom_api` call so the engine-independent handler validates them
+    // together and runs the update steps once (one `AttributeChange`), rather
+    // than one chokepoint write — and one event — per token.
     let method = dispatch_method(source, TokenListOp::Add);
-    for sid in sids {
-        invoke_dom_api(ctx, method, entity, &[JsValue::String(sid)])?;
-    }
+    let token_args: Vec<JsValue> = sids.into_iter().map(JsValue::String).collect();
+    invoke_dom_api(ctx, method, entity, &token_args)?;
     Ok(JsValue::Undefined)
 }
 
@@ -455,10 +458,11 @@ fn native_class_list_remove(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }
+    // §7.1 `remove(tokens…)` is variadic — forward all tokens in one call so
+    // the update steps (and `AttributeChange`) run once. See `native_class_list_add`.
     let method = dispatch_method(source, TokenListOp::Remove);
-    for sid in sids {
-        invoke_dom_api(ctx, method, entity, &[JsValue::String(sid)])?;
-    }
+    let token_args: Vec<JsValue> = sids.into_iter().map(JsValue::String).collect();
+    invoke_dom_api(ctx, method, entity, &token_args)?;
     Ok(JsValue::Undefined)
 }
 

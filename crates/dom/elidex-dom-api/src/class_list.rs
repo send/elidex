@@ -121,40 +121,59 @@ fn run_update_steps(
     set_token_string(entity, dom, attr_name, serialized)
 }
 
-/// Add a token to the attribute's whitespace-separated list if not already present.
-fn add_token(
-    entity: Entity,
-    attr_name: &str,
-    token: &str,
-    dom: &mut EcsDom,
-) -> Result<(), DomApiError> {
-    let current = get_token_string(entity, dom, attr_name)?;
-    if !current.split_ascii_whitespace().any(|c| c == token) {
-        let normalized = normalize_class_string(&current);
-        let new_value = if normalized.is_empty() {
-            token.to_string()
-        } else {
-            format!("{normalized} {token}")
-        };
-        run_update_steps(entity, dom, attr_name, &new_value)?;
-    }
-    Ok(())
+/// Collect every positional argument of a variadic DOMTokenList method
+/// (`add`/`remove`) as a string, in order — coerced via the same
+/// [`require_string_arg`] path each single-token op already uses.
+fn collect_string_args(args: &[JsValue]) -> Result<Vec<String>, DomApiError> {
+    (0..args.len())
+        .map(|i| require_string_arg(args, i))
+        .collect()
 }
 
-/// Remove a token from the attribute's whitespace-separated list.
-fn remove_token(
+/// Append each of `tokens` to the attribute's whitespace-separated list if not
+/// already present, then run the update steps **once** for the whole call.
+///
+/// DOM §7.1 `add(tokens…)` is variadic: it appends every token to the ordered
+/// set and runs the update steps a single time, so a call dispatches exactly
+/// one `AttributeChange` (and enqueues one `attributeChangedCallback`).
+/// Per-token routing through `EcsDom::set_attribute` would instead dispatch one
+/// event *per token*. `toggle` reuses this with a single-element slice.
+fn add_tokens(
     entity: Entity,
     attr_name: &str,
-    token: &str,
+    tokens: &[String],
+    dom: &mut EcsDom,
+) -> Result<(), DomApiError> {
+    let mut working = get_token_string(entity, dom, attr_name)?;
+    for token in tokens {
+        if !working.split_ascii_whitespace().any(|c| c == token) {
+            let normalized = normalize_class_string(&working);
+            working = if normalized.is_empty() {
+                token.clone()
+            } else {
+                format!("{normalized} {token}")
+            };
+        }
+    }
+    run_update_steps(entity, dom, attr_name, &working)
+}
+
+/// Remove every token in `tokens` from the attribute's whitespace-separated
+/// list, then run the update steps **once** (DOM §7.1 `remove(tokens…)` — see
+/// [`add_tokens`] for why a single update). `toggle` reuses this with a
+/// single-element slice.
+fn remove_tokens(
+    entity: Entity,
+    attr_name: &str,
+    tokens: &[String],
     dom: &mut EcsDom,
 ) -> Result<(), DomApiError> {
     let current = get_token_string(entity, dom, attr_name)?;
     let new_tokens: Vec<&str> = current
         .split_ascii_whitespace()
-        .filter(|c| *c != token)
+        .filter(|c| !tokens.iter().any(|t| t == c))
         .collect();
-    run_update_steps(entity, dom, attr_name, &new_tokens.join(" "))?;
-    Ok(())
+    run_update_steps(entity, dom, attr_name, &new_tokens.join(" "))
 }
 
 // ===========================================================================
@@ -215,15 +234,22 @@ impl DomApiHandler for TokenListHandler {
     ) -> Result<JsValue, DomApiError> {
         match self.op {
             TokenListOp::Add => {
-                let token = require_string_arg(args, 0)?;
-                validate_token(&token)?;
-                add_token(this, self.attr_name, &token, dom)?;
+                // §7.1 `add(tokens…)` is variadic: validate ALL tokens first,
+                // then append all + run the update steps once (one
+                // `AttributeChange` for the whole call, not one per token).
+                let tokens = collect_string_args(args)?;
+                for token in &tokens {
+                    validate_token(token)?;
+                }
+                add_tokens(this, self.attr_name, &tokens, dom)?;
                 Ok(JsValue::Undefined)
             }
             TokenListOp::Remove => {
-                let token = require_string_arg(args, 0)?;
-                validate_token(&token)?;
-                remove_token(this, self.attr_name, &token, dom)?;
+                let tokens = collect_string_args(args)?;
+                for token in &tokens {
+                    validate_token(token)?;
+                }
+                remove_tokens(this, self.attr_name, &tokens, dom)?;
                 Ok(JsValue::Undefined)
             }
             TokenListOp::Toggle => {
@@ -235,25 +261,28 @@ impl DomApiHandler for TokenListHandler {
                 };
                 let current = get_token_string(this, dom, self.attr_name)?;
                 let has = current.split_ascii_whitespace().any(|c| c == token);
+                // `toggle` is single-token; reuse the variadic helpers with a
+                // one-element slice so the update steps still run once.
+                let one = std::slice::from_ref(&token);
                 let result = match force {
                     Some(true) => {
                         if !has {
-                            add_token(this, self.attr_name, &token, dom)?;
+                            add_tokens(this, self.attr_name, one, dom)?;
                         }
                         true
                     }
                     Some(false) => {
                         if has {
-                            remove_token(this, self.attr_name, &token, dom)?;
+                            remove_tokens(this, self.attr_name, one, dom)?;
                         }
                         false
                     }
                     None => {
                         if has {
-                            remove_token(this, self.attr_name, &token, dom)?;
+                            remove_tokens(this, self.attr_name, one, dom)?;
                             false
                         } else {
-                            add_token(this, self.attr_name, &token, dom)?;
+                            add_tokens(this, self.attr_name, one, dom)?;
                             true
                         }
                     }
@@ -1178,6 +1207,77 @@ mod tests {
             *count.lock().unwrap(),
             baseline + 1,
             "removing the last token from a present attribute still dispatches one AttributeChange"
+        );
+    }
+
+    /// DOM §7.1 `add(tokens…)` / `remove(tokens…)` are variadic and run the
+    /// update steps ONCE for the whole call (Codex PR341 R2): a multi-token
+    /// `classList.add("a", "b")` dispatches exactly one `AttributeChange`, not
+    /// one per token. The VM native forwards all tokens to this handler in a
+    /// single call; validation of all tokens precedes any mutation (atomic).
+    #[test]
+    fn variadic_add_remove_run_update_steps_once() {
+        use crate::test_util::AttrChangeCounter;
+
+        let mut dom = EcsDom::new();
+        let el = dom.create_element("div", Attributes::default());
+        let mut session = SessionCore::new();
+        let hook = AttrChangeCounter::default();
+        let count = hook.count.clone();
+        dom.set_mutation_dispatcher(Box::new(hook));
+
+        CLASS_LIST_ADD
+            .invoke(
+                el,
+                &[JsValue::String("a".into()), JsValue::String("b".into())],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        assert_eq!(
+            dom.world().get::<&Attributes>(el).unwrap().get("class"),
+            Some("a b"),
+            "both tokens appended in a single update"
+        );
+        assert_eq!(
+            *count.lock().unwrap(),
+            1,
+            "variadic add must dispatch exactly one AttributeChange"
+        );
+
+        CLASS_LIST_REMOVE
+            .invoke(
+                el,
+                &[JsValue::String("a".into()), JsValue::String("b".into())],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap();
+        assert_eq!(
+            *count.lock().unwrap(),
+            2,
+            "variadic remove must dispatch exactly one more AttributeChange"
+        );
+
+        // Validate-all-before-mutate: an invalid token aborts the whole call
+        // (DOM §7.1 step 1 runs over every token first), leaving the attribute
+        // untouched — no partial write of the valid prefix.
+        let fresh = dom.create_element("div", Attributes::default());
+        CLASS_LIST_ADD
+            .invoke(
+                fresh,
+                &[JsValue::String("ok".into()), JsValue::String(String::new())],
+                &mut session,
+                &mut dom,
+            )
+            .unwrap_err();
+        assert!(
+            dom.world()
+                .get::<&Attributes>(fresh)
+                .unwrap()
+                .get("class")
+                .is_none(),
+            "an invalid token must abort the whole variadic add (no partial write)"
         );
     }
 }
