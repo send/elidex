@@ -447,3 +447,67 @@ fn assigned_nodes_empty_when_no_assignment_component() {
     let slot = elem(&mut dom, "slot");
     assert_eq!(dom.assigned_nodes(slot, false), Vec::<Entity>::new());
 }
+
+/// WHATWG HTML §2.1.4 removing steps step 2 — the focus reset on removal is
+/// SHADOW-INCLUSIVE (via `is_connected`), so focus held inside a removed host's
+/// shadow tree is cleared even though the light-tree event snapshot never
+/// enters the shadow tree. (Regression guard: code-review found the original
+/// light-tree-snapshot clear missed this.)
+#[test]
+fn removing_shadow_host_clears_focus_in_shadow_tree() {
+    use crate::ElementState;
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let host = elem(&mut dom, "div");
+    let _ = dom.append_child(doc, host);
+    let sr = dom.attach_shadow(host, ShadowRootMode::Open).unwrap();
+    let inner = elem(&mut dom, "span");
+    let _ = dom.append_child(sr, inner);
+    assert!(
+        dom.is_connected(inner),
+        "shadow descendant is connected via host"
+    );
+    let _ = dom
+        .world_mut()
+        .insert_one(inner, ElementState(ElementState::FOCUS));
+
+    assert!(dom.remove_child(doc, host));
+    let still_focused = dom
+        .world()
+        .get::<&ElementState>(inner)
+        .is_ok_and(|s| s.contains(ElementState::FOCUS));
+    assert!(
+        !still_focused,
+        "focus inside a removed shadow host's tree is reset"
+    );
+}
+
+/// The light-tree `MutationEvent::Remove` is suppressed when `parent` is a
+/// shadow root, but the focus reset must still run (it precedes the
+/// suppression). Removing a focused light child of a shadow root clears focus.
+#[test]
+fn removing_light_child_of_shadow_root_clears_focus() {
+    use crate::ElementState;
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let host = elem(&mut dom, "div");
+    let _ = dom.append_child(doc, host);
+    let sr = dom.attach_shadow(host, ShadowRootMode::Open).unwrap();
+    let child = elem(&mut dom, "span");
+    let _ = dom.append_child(sr, child);
+    assert!(dom.is_connected(child));
+    let _ = dom
+        .world_mut()
+        .insert_one(child, ElementState(ElementState::FOCUS));
+
+    // parent = shadow root ⇒ Remove event suppressed, but focus still resets.
+    assert!(dom.remove_child(sr, child));
+    let still_focused = dom
+        .world()
+        .get::<&ElementState>(child)
+        .is_ok_and(|s| s.contains(ElementState::FOCUS));
+    assert!(
+        !still_focused,
+        "focus reset runs even when the Remove event is shadow-suppressed"
+    );
+}

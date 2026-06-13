@@ -257,10 +257,11 @@ fn focus_brand_check_rejects_plain_object() {
 }
 
 #[test]
-fn blur_clears_detached_focused_element_no_resurrect() {
-    // Codex R1 F1: focus → remove → blur → reattach must NOT resurrect the
-    // element as activeElement. `blur()` clears the FOCUS bit by identity
-    // (`is_focused`), so the connectedness-filtered detach does not skip it.
+fn removed_focused_element_does_not_resurrect_on_reattach() {
+    // focus → remove → blur → reattach must NOT resurrect the element as
+    // activeElement. The `FOCUS` bit is cleared at `d.remove()` itself
+    // (`EcsDom::fire_after_remove`, WHATWG HTML §2.1.4 removing steps — silent),
+    // so `d.blur()` is already a no-op and the reattach finds no stale bit.
     let out = run("var d = document.createElement('div'); \
          d.setAttribute('tabindex', '0'); \
          document.body.appendChild(d); \
@@ -270,6 +271,22 @@ fn blur_clears_detached_focused_element_no_resurrect() {
          document.body.appendChild(d); \
          (document.activeElement === document.body) ? 'ok' \
            : (document.activeElement === d ? 'fail-resurrected' : 'fail-other');");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn focus_on_disconnected_element_is_noop() {
+    // §6.6.2: a focusable area must be "being rendered" (⊇ connected), so
+    // `createElement().focus()` on an unattached element is a no-op — the
+    // `is_focusable` connectedness gate prevents the orphan from ever holding
+    // the FOCUS bit (the single read model needs no by-identity fallback).
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('tabindex', '0'); \
+         d.focus(); \
+         var orphanActive = (document.activeElement === d); \
+         document.body.appendChild(d); \
+         (orphanActive === false && document.activeElement === document.body) \
+           ? 'ok' : ('fail:' + orphanActive);");
     assert_eq!(out, "ok");
 }
 

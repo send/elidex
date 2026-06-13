@@ -64,11 +64,12 @@ pub(crate) fn set_focus(pipeline: &mut PipelineResult, entity: Entity) {
 /// Remove focus from the current target without setting a new one.
 pub(crate) fn blur_current(pipeline: &mut PipelineResult) {
     let Some(old) = current_focus(&pipeline.dom, pipeline.document) else {
-        // No *connected* focus — but a detached-but-alive holder may carry a
-        // stale `FOCUS` bit (focus then `remove()`); sweep it so reattaching
-        // the removed element does not resurrect it as focused (the connectedness
-        // -filtered read above would otherwise skip a disconnected holder).
-        set_focus_bit(&mut pipeline.dom, None);
+        // No focused element. A removed holder's `FOCUS` bit is already cleared
+        // at removal (`EcsDom::fire_after_remove`, WHATWG HTML §2.1.4 removing
+        // steps), and `focus()` cannot set it on a disconnected element (the
+        // `is_focusable` connectedness gate), so the bit is connected by
+        // construction — `current_focus` never misses a stale-detached holder,
+        // and there is nothing to sweep here.
         return;
     };
     dispatch_focus_event_with_related(pipeline, "focusout", old, true, None);
@@ -125,9 +126,16 @@ fn dispatch_change_on_blur(pipeline: &mut PipelineResult, entity: Entity) {
 pub(crate) fn is_focusable(dom: &elidex_ecs::EcsDom, entity: Entity) -> bool {
     // Form controls (not disabled, not hidden) are focusable per HTML §6.6.2.
     if let Ok(fcs) = dom.world().get::<&FormControlState>(entity) {
-        return !fcs.disabled && fcs.kind != FormControlKind::Hidden;
+        // §6.6.2: a focusable area must be connected ("being rendered"). Gate
+        // it HERE for the form-control branch; the non-form branch inherits the
+        // same gate from the dom-api `is_focusable` below — so both branches
+        // require connectedness without double-walking the connectedness chain
+        // on the non-form path (one-issue-one-way: the predicate must not
+        // diverge on connectedness across its branches).
+        return dom.is_connected(entity) && !fcs.disabled && fcs.kind != FormControlKind::Hidden;
     }
     // Non-form-control: the engine-independent focusable-area predicate
-    // (tabindex / contenteditable / `<a href>`), one home shared with the VM.
+    // (connectedness + tabindex / contenteditable / `<a href>`), one home
+    // shared with the VM.
     elidex_dom_api::focus::is_focusable(dom, entity)
 }

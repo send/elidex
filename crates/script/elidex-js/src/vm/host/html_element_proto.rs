@@ -301,25 +301,24 @@ fn native_html_element_get_dataset(
 /// `HTMLElement.prototype.blur()` (WHATWG HTML §6.6.6 Focus management
 /// APIs; the unfocusing steps are §6.6.4 Processing model).
 ///
-/// Clears the `ElementState::FOCUS` bit **only if** the receiver holds it
-/// (`is_focused`, by identity — so a detached-but-focused receiver is still
-/// cleared) — blurring an unfocused element is a no-op, matching browser
-/// behaviour. No `blur` / `focusout` event dispatch yet (deferred with
-/// `focus`; slot `#11-vm-host-synthetic-dom-event-dispatch`).
+/// Clears the `ElementState::FOCUS` bit **only if** the receiver is the
+/// document's currently focused element — read via the single
+/// [`elidex_dom_api::focus::current_focus`] model; blurring an unfocused
+/// element is a no-op (browser behaviour). A detached holder no longer needs a
+/// by-identity check: `EcsDom::fire_after_remove` clears the bit at removal
+/// (WHATWG HTML §2.1.4 removing steps), and `focus()` cannot set it on a
+/// disconnected element (`is_focusable` connectedness gate), so the `FOCUS`
+/// holder is connected by construction. No `blur` / `focusout` event dispatch
+/// yet (deferred with `focus`; slot `#11-vm-host-synthetic-dom-event-dispatch`).
 fn native_html_element_blur(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let entity = require_html_element_receiver(ctx, this, "blur")?;
+    let doc = ctx.host().document();
     let dom = ctx.host().dom();
-    // Clear focus iff THIS element holds the FOCUS bit (by identity, via
-    // `is_focused` — NOT the connectedness-filtered `current_focus`): a
-    // detached-but-focused receiver (`d.focus(); d.remove(); d.blur()`) must
-    // still be cleared, else the stale bit resurrects `d` in `activeElement`
-    // on reattach.  Single-focus means at most one holder, so the sweep clears
-    // exactly `entity`.
-    if elidex_dom_api::focus::is_focused(dom, entity) {
+    if elidex_dom_api::focus::current_focus(dom, doc) == Some(entity) {
         elidex_dom_api::focus::set_focus_bit(dom, None);
     }
     Ok(JsValue::Undefined)
@@ -859,7 +858,7 @@ fn native_tab_index_get(
     let entity = require_html_element_receiver(ctx, this, "tabIndex")?;
     let dom = ctx.host().dom();
     let parsed = dom.with_attribute(entity, "tabindex", |raw| {
-        raw.and_then(parse_tab_index_value)
+        raw.and_then(elidex_dom_api::focus::parse_tab_index_value)
     });
     let value = parsed.unwrap_or_else(|| elidex_dom_api::focus::tab_index_default_for(dom, entity));
     Ok(JsValue::Number(f64::from(value)))
@@ -878,16 +877,9 @@ fn native_tab_index_set(
     Ok(JsValue::Undefined)
 }
 
-/// Parse a `tabindex` attribute value per HTML §2.4.4.1
-/// (signed integers).  Returns `None` for values that fail the
-/// spec's "valid integer" grammar so the getter falls back to the
-/// per-element default, matching browser behaviour.
-fn parse_tab_index_value(raw: &str) -> Option<i32> {
-    let trimmed = raw.trim();
-    trimmed.parse::<i32>().ok()
-}
-
-// The per-element `tabIndex` default (WHATWG §6.6.3) now lives in the
-// engine-independent `elidex_dom_api::focus::tab_index_default_for`,
-// shared by the VM `tabIndex` getter and the shell's focus reconciler
-// (one focusable-area algorithm, one home — the Layering mandate).
+// The `tabindex` attribute parse (WHATWG §6.6.3) and the per-element
+// `tabIndex` default now both live in the engine-independent
+// `elidex_dom_api::focus` (`parse_tab_index_value` / `tab_index_default_for`),
+// shared by the VM `tabIndex` getter, the dom-api `is_focusable` predicate, and
+// the shell's focus reconciler (one focusable-area algorithm, one home — the
+// Layering mandate; one tabindex parse, one home — one-issue-one-way).
