@@ -170,15 +170,43 @@ fn dialog_show_sets_open_attribute() {
 
 #[test]
 fn dialog_show_modal_sets_open() {
+    // showModal() requires the dialog to be connected (HTML §4.11.4
+    // "show a modal dialog" step 4).
     let out = run("var d = document.createElement('dialog'); \
+         document.body.appendChild(d); \
          d.showModal(); \
          (d.open === true) ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
 }
 
 #[test]
+fn dialog_show_modal_disconnected_throws_invalid_state() {
+    // A disconnected dialog throws InvalidStateError on showModal()
+    // (step 4 "not connected").
+    let out = run("var d = document.createElement('dialog'); \
+         var caught = false; \
+         try { d.showModal(); } catch (e) { caught = (e.name === 'InvalidStateError'); } \
+         (caught && d.open === false) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn dialog_show_modal_twice_is_noop() {
+    // Step 1: a second showModal() on an already-open modal dialog is a
+    // no-op (no throw, stays open).
+    let out = run("var d = document.createElement('dialog'); \
+         document.body.appendChild(d); \
+         d.showModal(); \
+         var threw = false; \
+         try { d.showModal(); } catch (e) { threw = true; } \
+         (!threw && d.open === true) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
 fn dialog_show_modal_then_show_throws_invalid_state() {
     let out = run("var d = document.createElement('dialog'); \
+         document.body.appendChild(d); \
          d.showModal(); \
          var caught = false; \
          try { d.show(); } catch (e) { caught = (e.name === 'InvalidStateError'); } \
@@ -188,11 +216,45 @@ fn dialog_show_modal_then_show_throws_invalid_state() {
 
 #[test]
 fn dialog_show_modal_when_already_open_throws() {
+    // show() opens a non-modal dialog while disconnected (show() has no
+    // connectedness requirement); showModal() then throws at step 2
+    // (already open), which precedes the step-4 connectedness check.
     let out = run("var d = document.createElement('dialog'); \
          d.show(); \
          var caught = false; \
          try { d.showModal(); } catch (e) { caught = (e.name === 'InvalidStateError'); } \
          caught ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn dialog_remove_open_attr_clears_modal_marker() {
+    // Removing the `open` content attribute directly (not via close())
+    // clears the modal flag (HTML §4.11.4 dialog attribute-change →
+    // cleanup steps, via the attribute-write reconcile seam), so the
+    // dialog can later be shown non-modally.  Detector: after re-show()
+    // a non-modal dialog, a second show() is a step-1 no-op (a stale
+    // modal marker would instead make it throw at step 2).
+    let out = run("var d = document.createElement('dialog'); \
+         document.body.appendChild(d); \
+         d.showModal(); \
+         d.removeAttribute('open'); \
+         d.show(); \
+         var threw = false; \
+         try { d.show(); } catch (e) { threw = true; } \
+         (!threw && d.open === true) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn dialog_show_on_already_open_is_noop() {
+    // show() step 1: a second show() on an already-open non-modal dialog
+    // is a no-op (no throw, stays open).  No connectedness requirement.
+    let out = run("var d = document.createElement('dialog'); \
+         d.show(); \
+         var threw = false; \
+         try { d.show(); } catch (e) { threw = true; } \
+         (!threw && d.open === true) ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
 }
 

@@ -7,15 +7,25 @@
 //! - `returnValue` — DOMString state, stored in
 //!   [`elidex_ecs::DialogReturnValue`].  Defaulted to the empty string
 //!   until first set/closed-with-arg.
-//! - `show()` — open as non-modal.  M4-12 stub: throw
-//!   `InvalidStateError` if already open as modal (per
-//!   [`elidex_ecs::IsModalDialog`] marker).
-//! - `showModal()` — open as modal: set `open` content attribute and
-//!   insert `IsModalDialog` ECS marker.  Throws `InvalidStateError`
-//!   if already open as modal.  Render-side top-layer / focus
-//!   management is deferred to slot `#11-dialog-top-layer` (Phase 4).
-//!   The "in document tree" check is deferred to
-//!   `#11-dialog-tree-check`.
+//! - `show()` — open as non-modal (HTML §4.11.4 `show()`): step 1
+//!   already-open-non-modal → no-op return; step 2 already-open
+//!   (⇒ modal) → throw `InvalidStateError` (per
+//!   [`elidex_ecs::IsModalDialog`] marker); step 6 add `open`.  No
+//!   connectedness requirement (a non-modal dialog may be shown while
+//!   disconnected).  `beforetoggle` / toggle-task / focus steps are
+//!   deferred.
+//! - `showModal()` — open as modal (HTML §4.11.4 "show a modal dialog"):
+//!   step 1 already-open-modal → no-op return; step 2 already-open
+//!   (⇒ non-modal) → throw `InvalidStateError`; step 4 **not connected
+//!   → throw `InvalidStateError`** (delegated to the engine-independent
+//!   `isConnected.get` DOM API, DOM §4.2.2 "connected"); then insert the
+//!   `IsModalDialog` ECS marker + add `open`.  Step 3 ("not fully
+//!   active") is unconditionally satisfied in the single-document VM
+//!   (the script's document is always fully active while running) and
+//!   is folded into `#11-browsing-context-state-ecs-components`.  The
+//!   popover-showing check (step 5), `beforetoggle` (step 6), and
+//!   render-side top-layer / focus management (steps 12+) are deferred
+//!   to `#11-dialog-top-layer` (Phase 4).
 //! - `close(optional DOMString returnValue)` — clear `open`, clear
 //!   `IsModalDialog` marker, set `returnValue` if arg provided,
 //!   dispatch a `close` event (bubbles=false, cancelable=false) via
@@ -141,15 +151,11 @@ fn dialog_set_open(
             &[JsValue::String(attr_sid), JsValue::String(empty_sid)],
         )
     } else {
-        // Clearing `open` content attribute via the IDL setter does
-        // NOT itself fire the `close` event (per HTML §4.11.4 — only
-        // the `close()` method dispatches the event).  It does clear
-        // the modal marker, since the dialog is no longer open.
-        let _ = ctx
-            .host()
-            .dom()
-            .world_mut()
-            .remove_one::<IsModalDialog>(entity);
+        // Clearing `open` content attribute via the IDL setter does NOT
+        // itself fire the `close` event (per HTML §4.11.4 — only the
+        // `close()` method dispatches the event).  Removing `open` clears
+        // the `IsModalDialog` marker via the attribute-write chokepoint's
+        // reconcile seam (a dialog cannot be modal while closed).
         invoke_dom_api(ctx, "removeAttribute", entity, &[JsValue::String(attr_sid)])
     }
 }
@@ -218,13 +224,20 @@ fn dialog_show(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }
-    if has_modal_marker(ctx, entity) {
+    // HTML §4.11.4 `show()` step 1: already open as non-modal → no-op.
+    let already_open = has_open_attribute(ctx, entity)?;
+    if already_open && !has_modal_marker(ctx, entity) {
+        return Ok(JsValue::Undefined);
+    }
+    // Step 2: already open (⇒ modal, after step 1) → throw.
+    if already_open {
         return Err(VmError::dom_exception(
             ctx.vm.well_known.dom_exc_invalid_state_error,
             "Failed to execute 'show' on 'HTMLDialogElement': \
              The element already has an 'open' attribute, and is in a modal state.",
         ));
     }
+    // Step 6: add the `open` content attribute.
     set_open_attribute(ctx, entity)
 }
 
@@ -239,12 +252,33 @@ fn dialog_show_modal(
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }
+    // HTML §4.11.4 "show a modal dialog" step 1: already open as modal
+    // → no-op (a second showModal() on an open modal dialog is idempotent,
+    // not an error).
     let already_open = has_open_attribute(ctx, entity)?;
+    if already_open && has_modal_marker(ctx, entity) {
+        return Ok(JsValue::Undefined);
+    }
+    // Step 2: already open (⇒ non-modal, after step 1) → throw.  This
+    // precedes the connectedness check, so an open-but-disconnected
+    // dialog reports the already-open error.
     if already_open {
         return Err(VmError::dom_exception(
             ctx.vm.well_known.dom_exc_invalid_state_error,
             "Failed to execute 'showModal' on 'HTMLDialogElement': \
              The element already has an 'open' attribute.",
+        ));
+    }
+    // Step 3 ("not fully active") is unconditionally satisfied in the
+    // single-document VM (folded into
+    // `#11-browsing-context-state-ecs-components`).
+    // Step 4: not connected → throw.  Delegated to the engine-independent
+    // `isConnected.get` DOM API (DOM §4.2.2 "connected").
+    if !is_connected(ctx, entity)? {
+        return Err(VmError::dom_exception(
+            ctx.vm.well_known.dom_exc_invalid_state_error,
+            "Failed to execute 'showModal' on 'HTMLDialogElement': \
+             The element is not connected to a document.",
         ));
     }
     let _ = ctx
@@ -279,11 +313,8 @@ fn dialog_close(
             write_return_value(ctx, entity, owned);
         }
     }
-    let _ = ctx
-        .host()
-        .dom()
-        .world_mut()
-        .remove_one::<IsModalDialog>(entity);
+    // Removing `open` clears the `IsModalDialog` marker via the
+    // attribute-write chokepoint's reconcile seam.
     let attr_sid = ctx.vm.strings.intern("open");
     invoke_dom_api(ctx, "removeAttribute", entity, &[JsValue::String(attr_sid)])?;
     let close_sid = ctx.vm.well_known.close;
@@ -308,6 +339,13 @@ fn has_modal_marker(ctx: &mut NativeContext<'_>, entity: Entity) -> bool {
 fn has_open_attribute(ctx: &mut NativeContext<'_>, entity: Entity) -> Result<bool, VmError> {
     let attr_sid = ctx.vm.strings.intern("open");
     let result = invoke_dom_api(ctx, "hasAttribute", entity, &[JsValue::String(attr_sid)])?;
+    Ok(matches!(result, JsValue::Boolean(true)))
+}
+
+/// DOM §4.2.2 "connected" via the engine-independent `isConnected.get`
+/// handler (its shadow-including root is a document).
+fn is_connected(ctx: &mut NativeContext<'_>, entity: Entity) -> Result<bool, VmError> {
+    let result = invoke_dom_api(ctx, "isConnected.get", entity, &[])?;
     Ok(matches!(result, JsValue::Boolean(true)))
 }
 
