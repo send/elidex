@@ -830,7 +830,7 @@ pub(super) fn native_document_get_hidden(
         .vm
         .host_data
         .as_deref()
-        .is_some_and(|hd| hd.is_tab_hidden());
+        .is_some_and(super::super::host_data::HostData::is_tab_hidden);
     Ok(JsValue::Boolean(hidden))
 }
 
@@ -848,7 +848,7 @@ pub(super) fn native_document_get_visibility_state(
         .vm
         .host_data
         .as_deref()
-        .is_some_and(|hd| hd.is_tab_hidden());
+        .is_some_and(super::super::host_data::HostData::is_tab_hidden);
     let sid = if hidden {
         ctx.vm.well_known.hidden
     } else {
