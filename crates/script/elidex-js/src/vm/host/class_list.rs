@@ -417,11 +417,11 @@ fn native_class_list_contains(
     )
 }
 
-/// `classList.add(...tokens)` — variadic.  Each token is added in
-/// sequence; spec §7.1 step "Run the validation algorithm" runs once
-/// per token, so a single mid-list InvalidCharacterError aborts the
-/// remaining adds.  Implemented by looping per arg through the
-/// single-token handler.
+/// `classList.add(...tokens)` — variadic.  Coerces every arg to a string
+/// (marshalling) and forwards all of them in a SINGLE `invoke_dom_api` call;
+/// the engine-independent handler validates all tokens first, then appends and
+/// runs the §7.1 update steps once (one `AttributeChange`).  A single invalid
+/// token aborts the whole call atomically (no partial adds).
 fn native_class_list_add(
     ctx: &mut NativeContext<'_>,
     this: JsValue,

@@ -40,9 +40,9 @@ fn validate_token_accepts_non_ascii_whitespace() {
 
 #[test]
 fn add_then_contains_token_with_nbsp() {
-    // PR178 R5 IMP regression — every tokenisation site (parse_ordered_set,
-    // normalize_class_string, add_token, remove_token, Toggle / Contains /
-    // Replace / Length / Item) was using `split_whitespace` (Unicode-aware),
+    // PR178 R5 IMP regression — every tokenisation site (`parse_ordered_set`,
+    // `token_set`, the `add`/`remove`/`toggle`/`contains`/`replace`/`length`/
+    // `item` ops) was using `split_whitespace` (Unicode-aware),
     // which would break `contains`/`add` for tokens containing NBSP
     // (U+00A0) and other non-ASCII whitespace.  Switched to
     // `split_ascii_whitespace` so the membership check matches the
@@ -619,6 +619,30 @@ fn replace_infra_ordered_set_position() {
         .split_ascii_whitespace()
         .collect();
     assert_eq!(classes, vec!["x", "bar", "y", "z"]);
+}
+
+#[test]
+fn replace_infra_position_when_new_precedes_old() {
+    // Infra "replace within an ordered set": `new` lands at the first instance
+    // of *either* `old` or `new`. When `new` precedes `old`, that position is
+    // `new`'s — `replace("foo","bar")` on `« bar x foo »` gives `« bar x »`,
+    // NOT `« x bar »` (the latter would be replacing only at `old`'s slot).
+    let mut dom = EcsDom::new();
+    let mut attrs = Attributes::default();
+    attrs.set("class", "bar x foo");
+    let elem = dom.create_element("div", attrs);
+    let mut session = SessionCore::new();
+    let result = CLASS_LIST_REPLACE
+        .invoke(
+            elem,
+            &[JsValue::String("foo".into()), JsValue::String("bar".into())],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap();
+    assert_eq!(result, JsValue::Bool(true));
+    let attrs = dom.world().get::<&Attributes>(elem).unwrap();
+    assert_eq!(attrs.get("class"), Some("bar x"));
 }
 
 #[test]

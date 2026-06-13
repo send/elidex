@@ -309,17 +309,21 @@ impl DomApiHandler for TokenListHandler {
                 if !set.iter().any(|t| t == &old_token) {
                     return Ok(JsValue::Bool(false));
                 }
-                // DOM §7.1 ordered-set "replace": replace the (single) `old`
-                // with `new`, dropping any pre-existing `new` so the set stays
-                // deduped. The set is already an ordered set (`token_set`), so
-                // at most one `old` exists.
+                // Infra "replace within an ordered set" (Infra §5.1.3, DOM §7.1
+                // replace step 4): put `new` at the **first instance of *either*
+                // `old` or `new`** and drop all other instances of both — so
+                // `replace("a","c")` on both « a b c » and « c b a » yields
+                // « c b ». (Replacing only at `old`'s position diverges when
+                // `new` precedes `old`.)
                 let mut replaced = false;
                 let mut result: Vec<String> = Vec::with_capacity(set.len());
                 for t in set {
-                    if !replaced && t == old_token {
-                        result.push(new_token.clone());
-                        replaced = true;
-                    } else if t != new_token {
+                    if t == old_token || t == new_token {
+                        if !replaced {
+                            result.push(new_token.clone());
+                            replaced = true;
+                        }
+                    } else {
                         result.push(t);
                     }
                 }
