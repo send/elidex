@@ -35,7 +35,7 @@ use elidex_dom_compat::{
 };
 use elidex_ecs::EcsDom;
 use elidex_ecs::Entity;
-use elidex_html_parser::parse_html;
+use elidex_html_parser::parse_progressive_str;
 use elidex_js_boa::{extract_scripts, JsRuntime};
 use elidex_layout::layout_tree;
 use elidex_plugin::{Size, Vector, ViewportOverflow};
@@ -391,7 +391,7 @@ impl PipelineResult {
 /// dispatch DOM events, and re-render.
 #[must_use]
 pub fn build_pipeline_interactive(html: &str, css: &str) -> PipelineResult {
-    let parse_result = parse_html(html);
+    let parse_result = parse_progressive_str(html);
     for err in &parse_result.errors {
         eprintln!("HTML parse warning: {err}");
     }
@@ -464,7 +464,7 @@ pub(crate) fn build_pipeline_interactive_with_network(
     network_handle: Rc<elidex_net::broker::NetworkHandle>,
     cookie_jar: Arc<elidex_net::CookieJar>,
 ) -> PipelineResult {
-    let parse_result = parse_html(html);
+    let parse_result = parse_progressive_str(html);
     for err in &parse_result.errors {
         eprintln!("HTML parse warning: {err}");
     }
@@ -536,7 +536,7 @@ pub(crate) fn build_pipeline_interactive_shared(
     registry: Arc<elidex_plugin::CssPropertyRegistry>,
     cookie_jar: Option<Arc<elidex_net::CookieJar>>,
 ) -> PipelineResult {
-    let parse_result = parse_html(html);
+    let parse_result = parse_progressive_str(html);
     for err in &parse_result.errors {
         eprintln!("HTML parse warning: {err}");
     }

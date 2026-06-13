@@ -154,36 +154,47 @@ pub fn parse_html_fragment(
     detached
 }
 
+/// Parse an already-decoded HTML5 string with `§11.3` progressive
+/// degradation — the `&str` twin of [`parse_progressive`].
+///
+/// Tries the strict (Tier-1) parser first: conforming HTML5 takes the fast
+/// strict path ([`ParseTier::Clean`]). On the first strict parse error (a
+/// WHATWG HTML `§13.2.2` parse error) it falls back to the tolerant
+/// html5ever backend (Tier-2 rule-based recovery, [`ParseTier::Recovered`])
+/// over the *same* text. This is the single try-strict-or-tolerant decision
+/// site; [`parse_progressive`] (byte input) wraps it with charset detection.
+///
+/// Use this for whole-document input that is **already a `&str`** (no charset
+/// step to run): the in-process shell pipeline (blank-tab markup, iframe
+/// `srcdoc`, `about:blank`, tests). `encoding` stays `None` — the bare-`&str`
+/// contract, matching [`parse_strict`] / [`parse_html`] (see
+/// [`ParseResult::encoding`]).
+///
+/// The fallback is correctness-safe: the strict parser rejects
+/// conservatively (no error recovery), so the worst case is the same tree the
+/// tolerant backend would have produced on its own. Both arms attach the
+/// parser-owned derived components (the local [`parse_strict`] wrapper runs
+/// `derive_element_components` on success; the tolerant fallback derives inline
+/// via `convert_node`), so the returned tree carries the CustomElementState /
+/// IframeData components either way.
+#[must_use]
+pub fn parse_progressive_str(html: &str) -> ParseResult {
+    parse_strict(html).unwrap_or_else(|_| parse_html(html))
+}
+
 /// Parse an HTML5 document from raw bytes with `§11.3` progressive
 /// degradation (browser mode).
 ///
-/// Detects the character encoding once, up front, then tries the strict
-/// (Tier-1) parser: conforming HTML5 takes the fast strict path
-/// ([`ParseTier::Clean`]). On the first strict parse error (a WHATWG HTML
-/// `§13.2.2` parse error) it falls back to the tolerant html5ever backend
-/// (Tier-2 rule-based recovery, [`ParseTier::Recovered`]) over the *same*
-/// decoded text — no re-decode. `charset_hint` is the HTTP `Content-Type`
-/// header's `charset` parameter, if available.
-///
-/// The fallback is correctness-safe: the strict parser rejects
-/// conservatively (no error recovery), so the worst case is the same tree
-/// the tolerant backend would have produced on its own. The resulting
-/// [`ParseResult::tier`] records which tier ran, making the strict-vs-
-/// fallback gradient observable (`§11.3`).
+/// Detects the character encoding once, up front, then runs the str-input
+/// strict-first dispatch [`parse_progressive_str`] over the decoded text (no
+/// re-decode) and stamps the detected encoding. `charset_hint` is the HTTP
+/// `Content-Type` header's `charset` parameter, if available. The resulting
+/// [`ParseResult::tier`] records which tier ran, making the strict-vs-fallback
+/// gradient observable (`§11.3`).
 #[must_use]
 pub fn parse_progressive(bytes: &[u8], charset_hint: Option<&str>) -> ParseResult {
     let decoded = detect_and_decode(bytes, charset_hint);
-    // Tier-1: the strict parser accepts conforming HTML5 — `into_result`
-    // already tagged the result `ParseTier::Clean`. On the first strict parse
-    // error, fall back to the tolerant html5ever backend over the *same*
-    // decoded text (no re-decode), which `convert_document` tags
-    // `ParseTier::Recovered`. Either way, stamp the detected encoding (both
-    // `&str` entry points leave it `None`).
-    // Tier-1 strict: the local `parse_strict` wrapper runs the derived-
-    // component pass on success; the tolerant fallback derives inside
-    // `convert_document`. Either way the returned tree carries the
-    // CustomElementState / IframeData components.
-    let mut result = parse_strict(&decoded.text).unwrap_or_else(|_| parse_html(&decoded.text));
+    let mut result = parse_progressive_str(&decoded.text);
     result.encoding = Some(decoded.encoding);
     result
 }
@@ -399,6 +410,49 @@ mod tests {
             direct.document,
             "root",
         );
+    }
+
+    // --- str-input progressive dispatch (parse_progressive_str) ---
+
+    #[test]
+    fn progressive_str_clean_tier_for_conforming_html5() {
+        // Conforming HTML5 takes the strict Tier-1 path; encoding stays None
+        // on the bare-&str entry (no charset step runs).
+        let html = "<!DOCTYPE html><html><head></head><body><p>Hi</p></body></html>";
+        let result = parse_progressive_str(html);
+        assert_eq!(result.tier, ParseTier::Clean);
+        assert_eq!(result.encoding, None);
+        assert!(result.errors.is_empty());
+        let p = find_tag(&result.dom, result.document, "p").expect("p");
+        assert_eq!(child_text(&result.dom, p), "Hi");
+    }
+
+    #[test]
+    fn progressive_str_broken_html_falls_back_to_recovered() {
+        let result = parse_progressive_str("<div><span></div>");
+        assert_eq!(result.tier, ParseTier::Recovered);
+        assert!(!result.errors.is_empty());
+        assert!(find_tag(&result.dom, result.document, "html").is_some());
+    }
+
+    #[test]
+    fn parse_progressive_wraps_str_core_and_stamps_encoding() {
+        // The byte entry routes through the str core: it must agree on
+        // tier/tree/errors with `parse_progressive_str(&decoded.text)` (so a
+        // regression that bypassed the strict-first dispatch — e.g. calling
+        // `parse_html` directly — would diverge on tier for this conforming
+        // input) and add ONLY the encoding stamp on top. The deep
+        // strict-vs-tolerant tree equivalence itself is pinned by the separate
+        // `strict_and_tolerant_agree_*` differential tests, not here.
+        let bytes = b"<!DOCTYPE html><html><head></head><body><p>x</p></body></html>";
+        let prog = parse_progressive(bytes, None);
+        let decoded = detect_and_decode(bytes, None);
+        let core = parse_progressive_str(&decoded.text);
+        assert_eq!(prog.tier, core.tier);
+        assert_eq!(prog.errors, core.errors);
+        assert_eq!(prog.encoding, Some("UTF-8"));
+        assert_eq!(core.encoding, None);
+        assert_subtree_eq(&prog.dom, prog.document, &core.dom, core.document, "root");
     }
 
     // --- tier is intrinsic to the producing backend ---
