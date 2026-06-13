@@ -12,7 +12,7 @@ use crate::MAX_LIST_ITEMS;
 #[must_use]
 pub fn resolve_transition_property(value: &CssValue) -> Vec<TransitionProperty> {
     let s = match value {
-        CssValue::String(s) => s.as_str(),
+        CssValue::String(s) | CssValue::RawTokens(s) => s.as_str(),
         CssValue::Keyword(k) => k.as_str(),
         _ => return vec![TransitionProperty::All],
     };
@@ -46,7 +46,7 @@ pub fn resolve_time_list(value: &CssValue) -> Vec<f32> {
 #[must_use]
 pub fn resolve_timing_function_list(value: &CssValue) -> Vec<TimingFunction> {
     let s = match value {
-        CssValue::String(s) => s.as_str(),
+        CssValue::String(s) | CssValue::RawTokens(s) => s.as_str(),
         _ => return vec![TimingFunction::default()],
     };
     // Each entry could be a keyword or a function — re-parse
@@ -61,7 +61,7 @@ pub fn resolve_timing_function_list(value: &CssValue) -> Vec<TimingFunction> {
 #[must_use]
 pub fn resolve_animation_names(value: &CssValue) -> Vec<String> {
     let s = match value {
-        CssValue::String(s) => s.as_str(),
+        CssValue::String(s) | CssValue::RawTokens(s) => s.as_str(),
         CssValue::Keyword(k) => k.as_str(),
         _ => return Vec::new(),
     };
@@ -72,7 +72,7 @@ pub fn resolve_animation_names(value: &CssValue) -> Vec<String> {
 #[must_use]
 pub fn resolve_iteration_counts(value: &CssValue) -> Vec<IterationCount> {
     let s = match value {
-        CssValue::String(s) => s.as_str(),
+        CssValue::String(s) | CssValue::RawTokens(s) => s.as_str(),
         _ => return vec![IterationCount::default()],
     };
     split_comma_list(s, |part| {
@@ -135,7 +135,7 @@ fn split_comma_list<T>(input: &str, mapper: impl Fn(&str) -> T) -> Vec<T> {
 
 fn resolve_keyword_list<T: Default>(value: &CssValue, f: impl Fn(&str) -> T) -> Vec<T> {
     let s = match value {
-        CssValue::String(s) => s.as_str(),
+        CssValue::String(s) | CssValue::RawTokens(s) => s.as_str(),
         CssValue::Keyword(k) => k.as_str(),
         _ => return vec![T::default()],
     };

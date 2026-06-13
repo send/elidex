@@ -187,7 +187,7 @@ fn rule_parent_style_sheet_returns_owner() {
 
 #[test]
 fn rule_style_get_property_value() {
-    // Returned value passes through `elidex_dom_api::css_value_to_string`
+    // Returned value passes through `CssValue::to_css_string`
     // which canonicalises colours to hex form (matches the
     // `getComputedStyle` round-trip in PR-A).
     let out = run_with_css(
@@ -196,6 +196,63 @@ fn rule_style_get_property_value() {
          s.sheet.cssRules[0].style.getPropertyValue('color');",
     );
     assert_eq!(out, "#ff0000");
+}
+
+#[test]
+fn rule_style_get_property_priority() {
+    // CSSOM §6.6.1 getPropertyPriority on a rule's declaration block:
+    // "important" for flagged declarations, empty string otherwise.
+    let out = run_with_css(
+        "div { color: red !important; width: 10px; }",
+        "var s = document.getElementsByTagName('style')[0]; \
+         s.sheet.cssRules[0].style.getPropertyPriority('color') + '/' + \
+         s.sheet.cssRules[0].style.getPropertyPriority('width');",
+    );
+    assert_eq!(out, "important/");
+}
+
+/// §6.6.1 getPropertyPriority step 1.2 on rule declarations — the
+/// parser stores rules longhand-expanded, so a shorthand query must
+/// check every mapped longhand (Codex R1).
+/// Codex R4: rule shorthand readback reconstructs from the
+/// parser-expanded longhands (the same canonical
+/// `serialize_shorthand_value` seam the inline path uses).
+#[test]
+fn rule_style_get_property_value_reconstructs_shorthand() {
+    let out = run_with_css(
+        "div { margin: 10px; }",
+        "var s = document.getElementsByTagName('style')[0]; \
+         s.sheet.cssRules[0].style.getPropertyValue('margin') + '|' + \
+         s.sheet.cssRules[0].style.getPropertyValue('margin-top');",
+    );
+    assert_eq!(out, "10px|10px");
+}
+
+#[test]
+fn rule_style_get_property_priority_shorthand() {
+    let out = run_with_css(
+        "div { margin: 10px !important; padding: 4px; }",
+        "var s = document.getElementsByTagName('style')[0]; \
+         s.sheet.cssRules[0].style.getPropertyPriority('margin') + '/' + \
+         s.sheet.cssRules[0].style.getPropertyPriority('padding');",
+    );
+    assert_eq!(out, "important/");
+}
+
+/// CSSOM §6.6.1 getPropertyValue step 1.2.3/1.2.4 on rule declarations
+/// (Codex R5 F17): a shorthand whose longhands carry mixed important
+/// flags serializes to "" even though `getPropertyPriority` already
+/// reports the (absent) shared priority. `margin: 10px !important` then a
+/// normal `margin-top: 5px` longhand makes the block non-uniform.
+#[test]
+fn rule_style_get_property_value_shorthand_mixed_importance_is_empty() {
+    let out = run_with_css(
+        "div { margin: 10px !important; margin-top: 5px; }",
+        "var s = document.getElementsByTagName('style')[0]; \
+         '|' + s.sheet.cssRules[0].style.getPropertyValue('margin') + '|' + \
+         s.sheet.cssRules[0].style.getPropertyPriority('margin') + '|';",
+    );
+    assert_eq!(out, "|||");
 }
 
 #[test]

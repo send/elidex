@@ -95,7 +95,7 @@ fn parse_transition_property_single() {
     let mut parser = cssparser::Parser::new(&mut pi);
     let decls = parse_transition_property(&mut parser).unwrap();
     assert_eq!(decls.len(), 1);
-    assert_eq!(decls[0].value, CssValue::String("opacity".into()));
+    assert_eq!(decls[0].value, CssValue::RawTokens("opacity".into()));
 }
 
 #[test]
@@ -103,7 +103,7 @@ fn parse_transition_property_all() {
     let mut pi = cssparser::ParserInput::new("all");
     let mut parser = cssparser::Parser::new(&mut pi);
     let decls = parse_transition_property(&mut parser).unwrap();
-    assert_eq!(decls[0].value, CssValue::String("all".into()));
+    assert_eq!(decls[0].value, CssValue::RawTokens("all".into()));
 }
 
 #[test]
@@ -113,7 +113,7 @@ fn parse_transition_property_multiple() {
     let decls = parse_transition_property(&mut parser).unwrap();
     assert_eq!(
         decls[0].value,
-        CssValue::String("opacity, width, color".into())
+        CssValue::RawTokens("opacity, width, color".into())
     );
 }
 
@@ -145,7 +145,7 @@ fn parse_animation_name_single() {
     let mut pi = cssparser::ParserInput::new("fadeIn");
     let mut parser = cssparser::Parser::new(&mut pi);
     let decls = parse_animation_name(&mut parser).unwrap();
-    assert_eq!(decls[0].value, CssValue::String("fadeIn".into()));
+    assert_eq!(decls[0].value, CssValue::RawTokens("fadeIn".into()));
 }
 
 #[test]
@@ -153,7 +153,7 @@ fn parse_animation_name_none() {
     let mut pi = cssparser::ParserInput::new("none");
     let mut parser = cssparser::Parser::new(&mut pi);
     let decls = parse_animation_name(&mut parser).unwrap();
-    assert_eq!(decls[0].value, CssValue::String("none".into()));
+    assert_eq!(decls[0].value, CssValue::RawTokens("none".into()));
 }
 
 #[test]
@@ -161,7 +161,7 @@ fn parse_iteration_count_number() {
     let mut pi = cssparser::ParserInput::new("3");
     let mut parser = cssparser::Parser::new(&mut pi);
     let decls = parse_iteration_count(&mut parser).unwrap();
-    assert_eq!(decls[0].value, CssValue::String("3".into()));
+    assert_eq!(decls[0].value, CssValue::RawTokens("3".into()));
 }
 
 #[test]
@@ -169,7 +169,7 @@ fn parse_iteration_count_infinite() {
     let mut pi = cssparser::ParserInput::new("infinite");
     let mut parser = cssparser::Parser::new(&mut pi);
     let decls = parse_iteration_count(&mut parser).unwrap();
-    assert_eq!(decls[0].value, CssValue::String("infinite".into()));
+    assert_eq!(decls[0].value, CssValue::RawTokens("infinite".into()));
 }
 
 #[test]
@@ -177,7 +177,7 @@ fn parse_direction_keywords() {
     let mut pi = cssparser::ParserInput::new("alternate");
     let mut parser = cssparser::Parser::new(&mut pi);
     let decls = parse_animation_direction(&mut parser).unwrap();
-    assert_eq!(decls[0].value, CssValue::String("alternate".into()));
+    assert_eq!(decls[0].value, CssValue::RawTokens("alternate".into()));
 }
 
 #[test]
@@ -185,7 +185,7 @@ fn parse_fill_mode_both() {
     let mut pi = cssparser::ParserInput::new("both");
     let mut parser = cssparser::Parser::new(&mut pi);
     let decls = parse_animation_fill_mode(&mut parser).unwrap();
-    assert_eq!(decls[0].value, CssValue::String("both".into()));
+    assert_eq!(decls[0].value, CssValue::RawTokens("both".into()));
 }
 
 #[test]
@@ -193,7 +193,7 @@ fn parse_play_state_paused() {
     let mut pi = cssparser::ParserInput::new("paused");
     let mut parser = cssparser::Parser::new(&mut pi);
     let decls = parse_animation_play_state(&mut parser).unwrap();
-    assert_eq!(decls[0].value, CssValue::String("paused".into()));
+    assert_eq!(decls[0].value, CssValue::RawTokens("paused".into()));
 }
 
 #[test]
@@ -245,7 +245,7 @@ fn transition_shorthand_basic() {
     assert_eq!(decls.len(), 4);
     // property
     assert_eq!(decls[0].property, "transition-property");
-    assert_eq!(decls[0].value, CssValue::String("opacity".into()));
+    assert_eq!(decls[0].value, CssValue::RawTokens("opacity".into()));
     // duration
     assert_eq!(decls[1].property, "transition-duration");
     assert_eq!(decls[1].value, CssValue::Time(0.3));
@@ -284,7 +284,7 @@ fn transition_shorthand_multi_value() {
     assert_eq!(decls[0].property, "transition-property");
     assert_eq!(
         decls[0].value,
-        CssValue::String("opacity, transform".into())
+        CssValue::RawTokens("opacity, transform".into())
     );
 
     // transition-duration: list with 0.3s and 0.5s
@@ -303,7 +303,7 @@ fn transition_shorthand_multi_value() {
     // serialized as "cubic-bezier(0.42, 0, 1, 1)".
     assert_eq!(decls[2].property, "transition-timing-function");
     let tf_str = match &decls[2].value {
-        CssValue::String(s) => s.clone(),
+        CssValue::RawTokens(s) => s.clone(),
         other => panic!("expected String for timing-function, got {other:?}"),
     };
     // The string contains two entries: the default "ease" for the first

@@ -384,47 +384,11 @@ pub struct ColumnFlowSlice {
     pub atomic_repositions: Vec<(Entity, f32, f32, Point)>,
 }
 
-/// Inline style declarations on an element.
-///
-/// Properties are stored in an `IndexMap` to preserve insertion order
-/// (matching CSSOM `style.cssText` serialization order) while enforcing
-/// uniqueness (last declaration wins, matching CSS cascade behavior).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct InlineStyle {
-    properties: IndexMap<String, String>,
-}
-
-impl_string_map!(InlineStyle, properties, "style property");
-
-impl InlineStyle {
-    /// Returns the number of properties.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.properties.len()
-    }
-
-    /// Returns `true` if there are no properties.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.properties.is_empty()
-    }
-
-    /// Serialize all properties to a CSS text string.
-    #[must_use]
-    pub fn css_text(&self) -> String {
-        self.properties
-            .iter()
-            .map(|(k, v)| format!("{k}: {v}"))
-            .collect::<Vec<_>>()
-            .join("; ")
-    }
-
-    /// Get the property name at the given index (insertion order).
-    #[must_use]
-    pub fn property_at(&self, index: usize) -> Option<&str> {
-        self.properties.keys().nth(index).map(String::as_str)
-    }
-}
+// `InlineStyle` (the CSSOM inline-declaration block) lives in its own
+// submodule to keep this shared component-definition file under the
+// 1000-line limit; re-exported so `components::InlineStyle` still resolves.
+mod inline_style;
+pub use inline_style::InlineStyle;
 
 /// Marker component for pseudo-element entities (`::before`, `::after`).
 ///

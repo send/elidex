@@ -181,6 +181,49 @@ fn remove_attribute_node() {
     assert_eq!(ad.owner_element, None);
 }
 
+/// Codex #335 R5 F15 (attribute-node removal): removing a `style` Attr node
+/// must route through the `EcsDom::remove_attribute` chokepoint so a
+/// lazily-hydrated `InlineStyle` cache is invalidated. Mirrors the
+/// `removeAttribute` handler fix for the Attr-node path.
+#[test]
+fn remove_attribute_node_style_invalidates_inline_style_cache() {
+    let mut dom = EcsDom::new();
+    let mut attrs = Attributes::default();
+    attrs.set("style", "color: red");
+    let div = dom.create_element("div", attrs);
+    // Simulate a prior `el.style.*` read that hydrated the cache.
+    let mut style = elidex_ecs::InlineStyle::default();
+    style.set("color", "red");
+    dom.world_mut().insert_one(div, style).unwrap();
+
+    let attr = dom.create_attribute("style");
+    {
+        let mut ad = dom.world_mut().get::<&mut AttrData>(attr).unwrap();
+        ad.value = "color: red".into();
+        ad.owner_element = Some(div);
+    }
+    let mut session = SessionCore::new();
+    let attr_ref = session.get_or_create_wrapper(attr, ComponentKind::Element);
+
+    RemoveAttributeNode
+        .invoke(
+            div,
+            &[JsValue::ObjectRef(attr_ref.to_raw())],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap();
+
+    assert!(dom
+        .world()
+        .get::<&Attributes>(div)
+        .map_or(true, |a| !a.contains("style")));
+    assert!(
+        dom.world().get::<&elidex_ecs::InlineStyle>(div).is_err(),
+        "stale InlineStyle cache survived removeAttributeNode(style)"
+    );
+}
+
 #[test]
 fn attr_name() {
     let mut dom = EcsDom::new();
@@ -348,4 +391,60 @@ fn set_attribute_node_returns_null() {
         )
         .unwrap();
     assert_eq!(result, JsValue::Null);
+}
+
+/// Codex #335 R6 F20: when the receiver is not a live Element,
+/// `EcsDom::set_attribute` returns `false`; `setAttributeNode` must
+/// surface that as an error and NOT mark the Attr as owned by a dead
+/// receiver (mirrors `SetAttribute`'s `NotFoundError`).
+#[test]
+fn set_attribute_node_on_non_element_errors_without_owning() {
+    let mut dom = EcsDom::new();
+    // A Document node is a non-Element receiver: `set_attribute` short-
+    // circuits to `false` for it.
+    let doc = dom.create_document_root();
+    let attr = dom.create_attribute("id");
+    {
+        let mut ad = dom.world_mut().get::<&mut AttrData>(attr).unwrap();
+        ad.value = "x".into();
+    }
+    let mut session = SessionCore::new();
+    let attr_ref = session
+        .get_or_create_wrapper(attr, ComponentKind::Element)
+        .to_raw();
+
+    let result =
+        SetAttributeNode.invoke(doc, &[JsValue::ObjectRef(attr_ref)], &mut session, &mut dom);
+    assert!(result.is_err());
+    // Ownership must be untouched — no phantom success.
+    let ad = dom.world().get::<&AttrData>(attr).unwrap();
+    assert_eq!(ad.owner_element, None);
+}
+
+/// Codex #335 R9 F30: `removeAttributeNode` on a stale/non-Element receiver
+/// (the Attr still recording it as owner) must error BEFORE detaching the
+/// Attr from its owner — `remove_attribute` returns `()` and silently
+/// no-ops, so the up-front receiver-liveness guard surfaces the error and
+/// the recorded owner is left intact.
+#[test]
+fn remove_attribute_node_on_non_element_errors_without_detaching() {
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let attr = dom.create_attribute("id");
+    {
+        let mut ad = dom.world_mut().get::<&mut AttrData>(attr).unwrap();
+        ad.value = "x".into();
+        ad.owner_element = Some(doc);
+    }
+    let mut session = SessionCore::new();
+    let attr_ref = session
+        .get_or_create_wrapper(attr, ComponentKind::Element)
+        .to_raw();
+
+    let result =
+        RemoveAttributeNode.invoke(doc, &[JsValue::ObjectRef(attr_ref)], &mut session, &mut dom);
+    assert!(result.is_err());
+    // The Attr must NOT have been detached from its recorded owner.
+    let ad = dom.world().get::<&AttrData>(attr).unwrap();
+    assert_eq!(ad.owner_element, Some(doc));
 }

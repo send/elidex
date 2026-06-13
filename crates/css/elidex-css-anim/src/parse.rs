@@ -137,7 +137,9 @@ pub fn parse_transition_property(
     if props.len() > 1 && props.iter().any(|p| matches!(p, TransitionProperty::None)) {
         props = vec![TransitionProperty::None];
     }
-    // Serialize as a keyword list using CssValue::String for transport
+    // Serialize as a verbatim keyword list via `CssValue::RawTokens`
+    // (NOT `CssValue::String`, which `to_css_string` quotes as a CSS
+    // string — `transition-property: "opacity"` would not re-parse).
     let serialized = props
         .iter()
         .map(|p| match p {
@@ -149,7 +151,7 @@ pub fn parse_transition_property(
         .join(", ");
     Ok(vec![PropertyDeclaration::new(
         "transition-property",
-        CssValue::String(serialized),
+        CssValue::RawTokens(serialized),
     )])
 }
 
@@ -190,7 +192,7 @@ pub fn parse_timing_function_list(
         .join(", ");
     Ok(vec![PropertyDeclaration::new(
         name,
-        CssValue::String(serialized),
+        CssValue::RawTokens(serialized),
     )])
 }
 
@@ -210,7 +212,7 @@ pub fn parse_animation_name(
     let serialized = names.join(", ");
     Ok(vec![PropertyDeclaration::new(
         "animation-name",
-        CssValue::String(serialized),
+        CssValue::RawTokens(serialized),
     )])
 }
 
@@ -234,7 +236,7 @@ pub fn parse_iteration_count(
     let serialized = counts.join(", ");
     Ok(vec![PropertyDeclaration::new(
         "animation-iteration-count",
-        CssValue::String(serialized),
+        CssValue::RawTokens(serialized),
     )])
 }
 
@@ -285,7 +287,7 @@ fn parse_keyword_list(
     let serialized = values.join(", ");
     Ok(vec![PropertyDeclaration::new(
         name,
-        CssValue::String(serialized),
+        CssValue::RawTokens(serialized),
     )])
 }
 
@@ -692,7 +694,7 @@ pub fn parse_transition_shorthand(
     Ok(vec![
         PropertyDeclaration::new(
             "transition-property",
-            CssValue::String(properties.join(", ")),
+            CssValue::RawTokens(properties.join(", ")),
         ),
         PropertyDeclaration::new("transition-duration", crate::time_list_value(&durations)),
         PropertyDeclaration::new(

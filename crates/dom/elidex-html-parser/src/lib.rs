@@ -53,7 +53,7 @@ pub fn parse_html(html: &str) -> ParseResult {
 /// Wrapper over [`elidex_html_parser_strict::parse_strict`] that runs the
 /// canonical derived-component pass (`element_init`) on success, so the
 /// public strict entry point produces the same complete [`ParseResult`] —
-/// `CustomElementState` (HTML §4.13.3) / `InlineStyle` / `IframeData`
+/// `CustomElementState` (HTML §4.13.3) / `IframeData`
 /// (§4.8.5) attached — as [`parse_html`] and [`parse_progressive`]. The
 /// strict tree-builder crate itself stays DOM-semantics-free (no
 /// `elidex-custom-elements` dep); the derivation lives one layer up here.
@@ -138,7 +138,7 @@ pub fn parse_progressive(bytes: &[u8], charset_hint: Option<&str>) -> ParseResul
     // Tier-1 strict: the local `parse_strict` wrapper runs the derived-
     // component pass on success; the tolerant fallback derives inside
     // `convert_document`. Either way the returned tree carries the
-    // CustomElementState / InlineStyle / IframeData components.
+    // CustomElementState / IframeData components.
     let mut result = parse_strict(&decoded.text).unwrap_or_else(|_| parse_html(&decoded.text));
     result.encoding = Some(decoded.encoding);
     result
@@ -550,9 +550,11 @@ mod tests {
         // Codex #329 R1 (P2) regression: declarative-shadow content consumed
         // by `try_attach_declarative_shadow` is not tracked in any root list,
         // so a post-build walk over fragment roots never visited it and the
-        // shadow-tree elements lost CustomElementState / InlineStyle /
-        // IframeData. Per-node `attach_derived` in `convert_node` covers them
-        // (shadow content flows through `convert_node` like any other node).
+        // shadow-tree elements lost CustomElementState / IframeData. Per-node
+        // `attach_derived` in `convert_node` covers them (shadow content flows
+        // through `convert_node` like any other node). `InlineStyle` is no
+        // longer parser-derived — it materializes lazily on CSSOM access; the
+        // `style` attribute is preserved here.
         use elidex_ecs::{Attributes, EcsDom, InlineStyle, TagType};
 
         let mut dom = EcsDom::new();
@@ -584,9 +586,11 @@ mod tests {
             "declarative-shadow custom element must carry CustomElementState"
         );
         assert!(
-            dom.world().get::<&InlineStyle>(my_el).is_ok(),
-            "declarative-shadow element must carry InlineStyle"
+            dom.world().get::<&InlineStyle>(my_el).is_err(),
+            "InlineStyle is not parser-derived (lazy CSSOM materialization)"
         );
+        let attrs = dom.world().get::<&Attributes>(my_el).unwrap();
+        assert_eq!(attrs.get("style"), Some("color: red"));
     }
 
     #[test]

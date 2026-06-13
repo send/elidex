@@ -59,12 +59,13 @@ pub use class_list::{
     REL_LIST_CONTAINS, REL_LIST_ITEM, REL_LIST_LENGTH, REL_LIST_REMOVE, REL_LIST_REPLACE,
     REL_LIST_SUPPORTS, REL_LIST_TOGGLE, REL_LIST_VALUE_GET, REL_LIST_VALUE_SET,
 };
-pub use computed_style::{css_value_to_string, GetComputedStyle};
+pub use computed_style::GetComputedStyle;
 pub use css_namespace::{CssEscape, CssSupports};
 pub use cssom_sheet::{
     collect_stylesheet_owners, count_stylesheet_owners, link_has_loaded_sheet, link_sheet_href,
     CssRulesItemId, CssRulesLength, DeleteRule, InsertRule, RuleCssText, RuleSelectorText,
-    RuleStyleCssText, RuleStyleGetPropertyValue, RuleStyleItem, RuleStyleLength,
+    RuleStyleCssText, RuleStyleGetPropertyPriority, RuleStyleGetPropertyValue, RuleStyleItem,
+    RuleStyleLength,
 };
 pub use document::{
     query_selector_all, CreateElement, CreateTextNode, GetElementById, QuerySelector,
@@ -105,7 +106,9 @@ pub use range::{
 // consumer needs it, keeping the public API surface minimal until
 // then.
 pub use selection::{SelectionDirection, SelectionError, SelectionState, SelectionType};
-pub use style::{StyleGetPropertyValue, StyleRemoveProperty, StyleSetProperty};
+pub use style::{
+    StyleGetPropertyPriority, StyleGetPropertyValue, StyleRemoveProperty, StyleSetProperty,
+};
 pub use traversal::{
     NodeIterator, NodeIteratorAdjuster, NodeIteratorState, TreeWalker, SHOW_ALL, SHOW_COMMENT,
     SHOW_DOCUMENT, SHOW_ELEMENT, SHOW_TEXT,

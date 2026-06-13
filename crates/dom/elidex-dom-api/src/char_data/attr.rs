@@ -6,7 +6,9 @@ use elidex_script_session::{
     ComponentKind, DomApiError, DomApiErrorKind, DomApiHandler, JsObjectRef, SessionCore,
 };
 
-use crate::util::{not_found_error, require_object_ref_arg, require_string_arg};
+use crate::util::{
+    not_found_error, require_live_element, require_object_ref_arg, require_string_arg,
+};
 
 // ===========================================================================
 // Attr node handlers
@@ -146,14 +148,17 @@ impl DomApiHandler for SetAttributeNode {
         let value = ad.value.clone();
         drop(ad);
 
-        // Set attribute on element.
-        {
-            let mut attrs = dom
-                .world_mut()
-                .get::<&mut Attributes>(this)
-                .map_err(|_| not_found_error("element not found"))?;
-            attrs.set(&name, &value);
-        }
+        // A stale / non-Element receiver must error rather than report a
+        // phantom set + leave the Attr owned by a dead receiver (the prior
+        // `require_attrs_mut` borrow surfaced this). Guard before mutating.
+        require_live_element(dom, this)?;
+
+        // Set the attribute on the element via the canonical
+        // `EcsDom::set_attribute` chokepoint (InlineStyle cache
+        // invalidation + `rev_version` + `MutationEvent::AttributeChange`) —
+        // attaching a `style` Attr node otherwise leaves a stale hydrated
+        // `InlineStyle` cache. The receiver is a confirmed live Element.
+        dom.set_attribute(this, &name, &value);
 
         // Update owner.
         {
@@ -164,7 +169,6 @@ impl DomApiHandler for SetAttributeNode {
             ad.owner_element = Some(this);
         }
 
-        dom.rev_version(this);
         Ok(JsValue::Null)
     }
 }
@@ -203,14 +207,11 @@ impl DomApiHandler for RemoveAttributeNode {
         let name = ad.local_name.clone();
         drop(ad);
 
-        // Remove attribute from element.
-        {
-            let mut attrs = dom
-                .world_mut()
-                .get::<&mut Attributes>(this)
-                .map_err(|_| not_found_error("element not found"))?;
-            attrs.remove(&name);
-        }
+        // A stale / non-Element receiver (the Attr still pointing at a
+        // despawned element) must error BEFORE we detach the Attr from its
+        // recorded owner — `remove_attribute` returns `()` and silently
+        // no-ops, so it cannot report the dead receiver itself.
+        require_live_element(dom, this)?;
 
         // Clear owner.
         {
@@ -221,7 +222,12 @@ impl DomApiHandler for RemoveAttributeNode {
             ad.owner_element = None;
         }
 
-        dom.rev_version(this);
+        // Remove the attribute from the element via the canonical
+        // `EcsDom::remove_attribute` chokepoint (InlineStyle cache
+        // invalidation + `rev_version` + `MutationEvent::AttributeChange`) —
+        // removing the `style` Attr node otherwise leaks a stale hydrated
+        // `InlineStyle` cache.
+        dom.remove_attribute(this, &name);
         Ok(JsValue::ObjectRef(attr_ref))
     }
 }
@@ -298,17 +304,18 @@ impl DomApiHandler for SetAttrValue {
             ad.owner_element
         };
 
-        // Sync to owner element's Attributes.
+        // Sync to owner element's Attributes via the canonical
+        // `EcsDom::set_attribute` chokepoint (InlineStyle cache
+        // invalidation + `rev_version` + `MutationEvent::AttributeChange`) —
+        // writing through a `style` Attr node otherwise leaves a stale
+        // hydrated `InlineStyle` cache.
         if let Some(owner) = owner {
             let name = dom
                 .world()
                 .get::<&AttrData>(this)
                 .map(|ad| ad.local_name.clone())
                 .unwrap_or_default();
-            if let Ok(mut attrs) = dom.world_mut().get::<&mut Attributes>(owner) {
-                attrs.set(&name, &value);
-            }
-            dom.rev_version(owner);
+            dom.set_attribute(owner, &name, &value);
         }
 
         Ok(JsValue::Undefined)

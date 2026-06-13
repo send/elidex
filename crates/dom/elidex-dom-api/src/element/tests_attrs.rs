@@ -429,3 +429,128 @@ fn data_attr_to_camel_non_lowercase() {
     // Trailing dash should be preserved.
     assert_eq!(data_attr_to_camel("data-foo-"), "foo-");
 }
+
+// -----------------------------------------------------------------------
+// InlineStyle cache invalidation on attribute mutation (Codex #335 R5 F15)
+// -----------------------------------------------------------------------
+
+/// Seed a `style` attribute plus a hydrated `InlineStyle` cache, mimicking
+/// a prior `el.style.*` read that materialized the component.
+fn seed_hydrated_style(dom: &mut EcsDom, entity: Entity, css_decl: (&str, &str)) {
+    {
+        let mut attrs = dom.world_mut().get::<&mut Attributes>(entity).unwrap();
+        attrs.set("style", format!("{}: {}", css_decl.0, css_decl.1));
+    }
+    let mut style = elidex_ecs::InlineStyle::default();
+    style.set(css_decl.0, css_decl.1);
+    dom.world_mut().insert_one(entity, style).unwrap();
+    assert!(
+        dom.world().get::<&elidex_ecs::InlineStyle>(entity).is_ok(),
+        "precondition: InlineStyle cache present"
+    );
+}
+
+/// Codex #335 R5 F15: the `RemoveAttribute` handler must route through the
+/// `EcsDom::remove_attribute` chokepoint so removing the `style` attribute
+/// invalidates the lazily-hydrated `InlineStyle` cache — otherwise a prior
+/// read leaves a stale component that resurrects the removed declaration.
+/// This pins the engine-independent handler (the path boa's generic
+/// `removeAttribute` and the VM's reflected-attribute removals share).
+#[test]
+fn remove_attribute_style_invalidates_inline_style_cache() {
+    let (mut dom, parent, _, mut session) = setup();
+    seed_hydrated_style(&mut dom, parent, ("color", "red"));
+    RemoveAttribute
+        .invoke(
+            parent,
+            &[JsValue::String("style".into())],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap();
+    assert!(
+        dom.world()
+            .get::<&Attributes>(parent)
+            .map_or(true, |a| !a.contains("style")),
+        "style attribute should be removed"
+    );
+    assert!(
+        dom.world().get::<&elidex_ecs::InlineStyle>(parent).is_err(),
+        "stale InlineStyle cache survived removeAttribute('style')"
+    );
+}
+
+/// Codex #335 R6 F21: when the receiver is not a live Element,
+/// `EcsDom::set_attribute` returns `false`; `toggleAttribute` must surface
+/// that as an error rather than claim a phantom add (mirrors
+/// `SetAttribute`'s `NotFoundError`).
+#[test]
+fn toggle_attribute_on_non_element_errors() {
+    let mut dom = EcsDom::new();
+    // A Document node is a non-Element receiver: `set_attribute` returns
+    // `false` for it, so the add branch must error.
+    let doc = dom.create_document_root();
+    let mut session = SessionCore::new();
+    let result = ToggleAttribute.invoke(
+        doc,
+        &[JsValue::String("hidden".into())],
+        &mut session,
+        &mut dom,
+    );
+    assert!(result.is_err());
+    assert!(dom.world().get::<&Attributes>(doc).is_err());
+}
+
+/// Codex #335 R10 F32: `removeAttribute` on a stale/non-Element receiver
+/// must error, uniform with the rest of the Element attribute surface —
+/// `EcsDom::remove_attribute` silently short-circuits on such a receiver,
+/// so the up-front liveness guard surfaces the error. (A live Element with
+/// the attribute merely absent stays a correct no-op — not covered here.)
+#[test]
+fn remove_attribute_on_non_element_errors() {
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let mut session = SessionCore::new();
+    let result =
+        RemoveAttribute.invoke(doc, &[JsValue::String("id".into())], &mut session, &mut dom);
+    assert!(result.is_err());
+}
+
+/// Codex #335 R9 F29: `toggleAttribute(name, false)` (forced removal) on a
+/// stale/non-Element receiver must also error — the `has` probe collapses
+/// to false and the forced-removal branch reaches no chokepoint, so the
+/// up-front receiver-liveness guard is what surfaces the error.
+#[test]
+fn toggle_attribute_force_false_on_non_element_errors() {
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let mut session = SessionCore::new();
+    let result = ToggleAttribute.invoke(
+        doc,
+        &[JsValue::String("hidden".into()), JsValue::Bool(false)],
+        &mut session,
+        &mut dom,
+    );
+    assert!(result.is_err());
+}
+
+/// F15 audit: `toggleAttribute('style')` (removal branch) shares the same
+/// chokepoint-bypass class and must also invalidate the cache.
+#[test]
+fn toggle_attribute_style_off_invalidates_inline_style_cache() {
+    let (mut dom, parent, _, mut session) = setup();
+    seed_hydrated_style(&mut dom, parent, ("color", "red"));
+    let result = ToggleAttribute
+        .invoke(
+            parent,
+            &[JsValue::String("style".into()), JsValue::Bool(false)],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap();
+    assert_eq!(result, JsValue::Bool(false));
+    assert!(
+        dom.world().get::<&elidex_ecs::InlineStyle>(parent).is_err(),
+        "stale InlineStyle cache survived toggleAttribute('style', false)"
+    );
+}

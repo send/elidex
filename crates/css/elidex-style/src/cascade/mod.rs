@@ -340,6 +340,13 @@ fn collect_shadow_rules<'a>(
 }
 
 /// Retrieve inline style declarations from an element's `style` attribute.
+///
+/// Registry-aware: registry-backed properties (`transform`, `transition`,
+/// …) parse through the default registry so an inline
+/// `style="transform: rotate(45deg)"` reaches the cascade — matching the
+/// CSSOM `InlineStyle` materialization (`elidex_dom_api`), which uses the
+/// same default registry. Without this the cascade and `InlineStyle`
+/// would diverge on registry-backed inline declarations.
 pub(crate) fn get_inline_declarations(entity: Entity, dom: &EcsDom) -> Vec<Declaration> {
     let Ok(attrs) = dom.world().get::<&Attributes>(entity) else {
         return Vec::new();
@@ -347,7 +354,10 @@ pub(crate) fn get_inline_declarations(entity: Entity, dom: &EcsDom) -> Vec<Decla
     let Some(style_str) = attrs.get("style") else {
         return Vec::new();
     };
-    elidex_css::parse_declaration_block(style_str)
+    elidex_css::parse_declaration_block_with_registry(
+        style_str,
+        Some(crate::default_css_property_registry()),
+    )
 }
 
 #[cfg(test)]

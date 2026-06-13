@@ -65,8 +65,8 @@ pub use traits::{
     PropertyDeclaration, ResolveContext,
 };
 pub use values::{
-    AngleOrDirection, BackfaceVisibility, CalcExpr, CssColor, CssColorStop, CssValue,
-    GradientValue, LengthUnit, TransformFunction, TransformStyle,
+    escape_css_string, AngleOrDirection, BackfaceVisibility, CalcExpr, CssColor, CssColorStop,
+    CssValue, GradientValue, LengthUnit, TransformFunction, TransformStyle,
 };
 
 // ---------------------------------------------------------------------------

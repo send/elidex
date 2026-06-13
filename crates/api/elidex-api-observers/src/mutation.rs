@@ -239,8 +239,15 @@ impl MutationObserverRegistry {
                             }
                         }
                         MutationKind::CharacterData => init.character_data,
-                        // InlineStyle, CssRule, and future variants are not observed by MutationObserver.
-                        MutationKind::InlineStyle | MutationKind::CssRule | _ => false,
+                        // CssRule (and future variants) are not observed by
+                        // MutationObserver. `el.style.*` mutations write back
+                        // through `sync_to_attribute` → `EcsDom::set_attribute`
+                        // (CSSOM §6.6 "update style attribute for"), and will
+                        // surface as Attribute records once ECS
+                        // attribute-change events are translated into session
+                        // MutationRecords — today only session-level mutation
+                        // producers reach this registry.
+                        _ => false,
                     };
                     if !kind_matches {
                         continue;

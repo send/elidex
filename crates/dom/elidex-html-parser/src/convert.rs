@@ -191,8 +191,8 @@ fn try_attach_declarative_shadow(
 /// HTML-namespace guard in `element_init::attach_derived` (a `<svg><my-foo>`
 /// would wrongly receive `CustomElementState`).
 ///
-/// Derived components (InlineStyle / CustomElementState / IframeData) are
-/// attached by `element_init::attach_derived`, invoked per-node from
+/// Derived components (CustomElementState / IframeData) are attached by
+/// `element_init::attach_derived`, invoked per-node from
 /// [`convert_node`] at creation time (shared with the strict Tier-1 backend's
 /// derivation logic).
 fn build_element_data(handle: &Handle) -> Option<(String, Namespace, Attributes)> {
@@ -327,9 +327,16 @@ mod tests {
         let doc = result.document;
 
         let div = find_tag(dom, doc, "div").expect("div");
-        let style = dom.world().get::<&InlineStyle>(div).unwrap();
-        assert_eq!(style.get("color"), Some("red"));
-        assert_eq!(style.get("margin"), Some("10px"));
+        // The parser does NOT attach `InlineStyle` — the style attribute
+        // is preserved verbatim (the cascade reads it directly; the CSSOM
+        // `InlineStyle` component materializes lazily in elidex-dom-api on
+        // first `el.style.*` access).
+        assert!(
+            dom.world().get::<&InlineStyle>(div).is_err(),
+            "InlineStyle must not be attached at parse time"
+        );
+        let attrs = dom.world().get::<&Attributes>(div).unwrap();
+        assert_eq!(attrs.get("style"), Some("color: red; margin: 10px"));
     }
 
     #[test]
@@ -476,24 +483,25 @@ mod tests {
         let doc = result.document;
 
         let div = find_tag(dom, doc, "div").expect("div");
-        // style attribute preserved in Attributes
+        // style attribute preserved verbatim in Attributes; no eager
+        // `InlineStyle` component (lazy CSSOM materialization).
         let attrs = dom.world().get::<&Attributes>(div).unwrap();
         assert_eq!(attrs.get("style"), Some("color: red"));
-        // Also parsed into InlineStyle
-        let style = dom.world().get::<&InlineStyle>(div).unwrap();
-        assert_eq!(style.get("color"), Some("red"));
+        assert!(dom.world().get::<&InlineStyle>(div).is_err());
     }
 
     #[test]
     fn inline_style_preserved_on_img() {
-        // Inline style attributes are still parsed by the parser.
-        // Presentational hint override is handled by cascade priority in elidex-dom-compat.
+        // The inline style attribute is preserved verbatim; the cascade
+        // reads it (presentational-hint override is handled by cascade
+        // priority in elidex-dom-compat). No eager `InlineStyle`.
         let result = parse_html(r#"<img width="100" style="width: 200px">"#);
         let dom = &result.dom;
         let doc = result.document;
 
         let img = find_tag(dom, doc, "img").expect("img");
-        let style = dom.world().get::<&InlineStyle>(img).unwrap();
-        assert_eq!(style.get("width"), Some("200px"));
+        let attrs = dom.world().get::<&Attributes>(img).unwrap();
+        assert_eq!(attrs.get("style"), Some("width: 200px"));
+        assert!(dom.world().get::<&InlineStyle>(img).is_err());
     }
 }

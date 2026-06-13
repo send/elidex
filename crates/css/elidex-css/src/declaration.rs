@@ -20,6 +20,13 @@ mod grid;
 mod grid_shorthand;
 mod misc;
 
+// CSSOM-facing inline-style entry points live in a submodule so this
+// parser-dispatcher file stays under the 1000-line growth guard.
+mod cssom;
+pub use cssom::{
+    parse_inline_style, parse_value_for_property, serialize_declaration_value_for_storage,
+};
+
 #[cfg(test)]
 mod tests;
 
@@ -57,11 +64,25 @@ impl Declaration {
     }
 }
 
-/// Parse an inline style attribute string into declarations.
+/// Parse an inline style attribute string into declarations
+/// (registry-less; registry-backed properties such as `transform` drop).
+/// Most callers want [`parse_declaration_block_with_registry`].
 ///
 /// Shorthand properties are expanded into their longhand equivalents.
 #[must_use]
 pub fn parse_declaration_block(css: &str) -> Vec<Declaration> {
+    parse_declaration_block_with_registry(css, None)
+}
+
+/// Parse an inline style attribute string into declarations, resolving
+/// registry-backed properties (e.g. `transform`) through `registry`.
+///
+/// Shorthand properties are expanded into their longhand equivalents.
+#[must_use]
+pub fn parse_declaration_block_with_registry(
+    css: &str,
+    registry: Option<&CssPropertyRegistry>,
+) -> Vec<Declaration> {
     let mut pi = ParserInput::new(css);
     let mut input = Parser::new(&mut pi);
     let mut declarations = Vec::new();
@@ -83,12 +104,25 @@ pub fn parse_declaration_block(css: &str) -> Vec<Declaration> {
                 ident.as_ref().to_ascii_lowercase()
             };
             i.expect_colon().map_err(|_| ())?;
-            let mut decls = parse_property_value(&name, i, None);
+            let mut decls = parse_property_value(&name, i, registry);
             // Check for !important (browsers support this in inline styles).
             if i.try_parse(cssparser::parse_important).is_ok() {
                 for d in &mut decls {
                     d.important = true;
                 }
+            }
+            // CSS Syntax 3 §5.4.4: a declaration's value is everything up
+            // to the `;`. If tokens remain after the value (and the
+            // optional `!important`) before the next top-level `;`/EOF,
+            // the declaration is malformed and dropped whole — notably a
+            // bare top-level `!` that is not `!important` (excluded from
+            // `<declaration-value>`), so `--x: foo ! bar` does not leak
+            // `--x: foo` into the block.
+            if !i.is_exhausted()
+                && i.try_parse(|p| p.expect_semicolon().map_err(|_| ()))
+                    .is_err()
+            {
+                return Err(());
             }
             Ok(decls)
         });
@@ -138,9 +172,11 @@ pub(crate) fn parse_property_value(
     input: &mut Parser,
     registry: Option<&CssPropertyRegistry>,
 ) -> Vec<Declaration> {
-    // Custom properties (--*): store the entire value as raw tokens.
+    // Custom properties (--*): store the value as raw tokens —
+    // scoped to the <declaration-value> run so a following declaration
+    // or `!important` is not swallowed into the value.
     if name.starts_with("--") {
-        let raw = collect_remaining_tokens(input);
+        let raw = collect_declaration_value_tokens(input);
         if raw.is_empty() {
             return Vec::new();
         }
@@ -169,12 +205,13 @@ pub(crate) fn parse_property_value(
     }
 
     // CSS Variables Level 1 §3: If the value contains var() references mixed
-    // with other tokens, store the entire value as raw tokens for deferred
-    // substitution at computed-value time.
+    // with other tokens, store the value as raw tokens for deferred
+    // substitution at computed-value time — scoped to the
+    // <declaration-value> run (stop before a top-level `;`/`!`) so the
+    // block parser still sees a following declaration / `!important`,
+    // and the setProperty trailing-input injection guard still fires.
     if let Ok(raw) = input.try_parse(|i| -> Result<String, ()> {
-        let start = i.position();
-        while i.next().is_ok() {}
-        let raw = i.slice_from(start).trim().to_string();
+        let raw = collect_declaration_value_tokens(i);
         if raw.contains("var(") {
             Ok(raw)
         } else {
@@ -635,12 +672,55 @@ fn collect_remaining_tokens(input: &mut Parser) -> String {
     slice.trim().to_string()
 }
 
+/// Collect a `<declaration-value>` token run into a trimmed string:
+/// consumes tokens up to — but NOT including — a *top-level* `;` or `!`
+/// (nested blocks/functions are skipped whole, so `;`/`!` inside them
+/// are collected). Backs the custom-property and var()-carrying raw
+/// values inside a declaration block: an unscoped collector would
+/// swallow the following declaration (`--x: 1; color: red` losing
+/// `color`) or the `!important` suffix, and on the `setProperty` path
+/// would defeat the trailing-input injection guard.
+fn collect_declaration_value_tokens(input: &mut Parser) -> String {
+    let start = input.position();
+    loop {
+        let state = input.state();
+        let token = match input.next() {
+            Ok(t) => t.clone(),
+            Err(_) => break,
+        };
+        match token {
+            Token::Semicolon | Token::Delim('!') => {
+                input.reset(&state);
+                break;
+            }
+            // Eagerly consume a nested block: cssparser skips an
+            // unentered block only on the NEXT `next()` call, so a
+            // saved state taken after the opening token would point
+            // inside the block and a later `reset` would truncate the
+            // slice mid-block. `parse_nested_block` always positions
+            // the parser after the matching closer on return.
+            Token::Function(_)
+            | Token::ParenthesisBlock
+            | Token::SquareBracketBlock
+            | Token::CurlyBracketBlock => {
+                let _ = input.parse_nested_block(|_| Ok::<(), cssparser::ParseError<'_, ()>>(()));
+            }
+            _ => {}
+        }
+    }
+    input.slice_from(start).trim().to_string()
+}
+
 // --- Shorthand expansion helpers ---
 
-/// Expand a global keyword (inherit/initial/unset) for shorthand properties into
-/// their longhand equivalents. Longhand properties produce a single declaration.
-fn expand_global_keyword(name: &str, val: CssValue) -> Vec<Declaration> {
-    let longhands: Vec<String> = match name {
+/// The longhand properties a shorthand expands to, in canonical order
+/// (empty when `name` is not a shorthand). Single source for both the
+/// global-keyword expansion below and CSSOM §6.6.1 `removeProperty`
+/// step 2 ("If property is a shorthand property, for each longhand
+/// property longhand that property maps to…") in `elidex-dom-api`.
+#[must_use]
+pub fn shorthand_longhands(name: &str) -> Vec<String> {
+    match name {
         "margin" => box_model::SIDES
             .iter()
             .map(|s| format!("margin-{s}"))
@@ -728,9 +808,25 @@ fn expand_global_keyword(name: &str, val: CssValue) -> Vec<Declaration> {
             "column-rule-color".to_string(),
         ],
         "columns" => vec!["column-width".to_string(), "column-count".to_string()],
-        // Longhand properties: single declaration.
-        _ => return single_decl(name, val),
-    };
+        "overflow" => vec!["overflow-x".to_string(), "overflow-y".to_string()],
+        "border-radius" => vec![
+            "border-top-left-radius".to_string(),
+            "border-top-right-radius".to_string(),
+            "border-bottom-right-radius".to_string(),
+            "border-bottom-left-radius".to_string(),
+        ],
+        // Longhand properties: not a shorthand.
+        _ => Vec::new(),
+    }
+}
+
+/// Expand a global keyword (inherit/initial/unset) for shorthand properties into
+/// their longhand equivalents. Longhand properties produce a single declaration.
+fn expand_global_keyword(name: &str, val: CssValue) -> Vec<Declaration> {
+    let longhands = shorthand_longhands(name);
+    if longhands.is_empty() {
+        return single_decl(name, val);
+    }
     longhands
         .iter()
         .map(|p| Declaration::new(p.clone(), val.clone()))

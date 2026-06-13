@@ -133,8 +133,8 @@ const MAX_VALUE_DEPTH: usize = 32;
 
 /// Serialize a `CssValue` to its CSSOM resolved-value string.
 ///
-/// Follows CSSOM §6.7.2 (Serializing CSS Values) and CSS Color Level 4
-/// §15 (Serializing `<color>` Values):
+/// Follows CSSOM §6.7.2 (Serializing CSS Values) and CSS Color 4
+/// §16 (Serializing `<color>` Values):
 ///   - Opaque colors → `rgb(r, g, b)` (legacy comma syntax)
 ///   - Translucent colors → `rgba(r, g, b, a)` with alpha as `<number>` 0–1
 ///   - Lengths → `<number><unit>` (computed values are resolved to `px` by
@@ -147,9 +147,10 @@ fn css_value_to_string(value: &elidex_plugin::CssValue) -> String {
 fn css_value_to_string_inner(value: &elidex_plugin::CssValue, depth: usize) -> String {
     use elidex_plugin::CssValue;
     match value {
-        CssValue::Keyword(k) => k.clone(),
-        // CSS Color Level 4 §15 + CSSOM §6.7.2:
-        //   sRGB colors serialize as `rgb(r, g, b)` or `rgba(r, g, b, a)`.
+        // CSS Color 4 §16.2 (Serializing sRGB values) + CSSOM §6.7.2
+        //   *resolved-value* form:
+        //   sRGB colors serialize as `rgb(r, g, b)` or `rgba(r, g, b, a)`
+        //   (the canonical declaration-form serializer uses hex).
         //   Component values are integers 0–255; alpha is `<number>` 0–1.
         CssValue::Color(c) => {
             if c.a == 255 {
@@ -162,35 +163,17 @@ fn css_value_to_string_inner(value: &elidex_plugin::CssValue, depth: usize) -> S
                 format!("rgba({}, {}, {}, {alpha})", c.r, c.g, c.b)
             }
         }
-        // CSSOM §6.7.2: <length> serialized as `<number><unit>`.
-        CssValue::Length(v, unit) => {
-            let unit_str = match unit {
-                elidex_plugin::LengthUnit::Px => "px",
-                elidex_plugin::LengthUnit::Em => "em",
-                elidex_plugin::LengthUnit::Rem => "rem",
-                elidex_plugin::LengthUnit::Vw => "vw",
-                elidex_plugin::LengthUnit::Vh => "vh",
-                elidex_plugin::LengthUnit::Vmin => "vmin",
-                elidex_plugin::LengthUnit::Vmax => "vmax",
-                elidex_plugin::LengthUnit::Fr => "fr",
-                _ => "?",
-            };
-            format!("{v}{unit_str}")
-        }
-        CssValue::Percentage(p) => format!("{p}%"),
-        CssValue::Number(n) => format!("{n}"),
-        CssValue::String(s) => format!("\"{s}\""),
-        CssValue::Auto => "auto".to_string(),
-        CssValue::Inherit => "inherit".to_string(),
-        CssValue::Initial => "initial".to_string(),
-        CssValue::Unset => "unset".to_string(),
-        CssValue::RawTokens(t) => t.clone(),
+        // Resolved-value lists are space-joined (the declaration form is
+        // comma-joined), with a recursion cap for test robustness.
         CssValue::List(items) if depth < MAX_VALUE_DEPTH => items
             .iter()
             .map(|v| css_value_to_string_inner(v, depth + 1))
             .collect::<Vec<_>>()
             .join(" "),
-        _ => format!("{value:?}"),
+        // Everything else is byte-identical to the canonical
+        // declaration-form serializer — delegate so there is exactly one
+        // copy of those arms in the workspace.
+        _ => value.to_css_string(),
     }
 }
 

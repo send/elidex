@@ -1,12 +1,12 @@
 //! Attribute-related handlers: hasAttribute, toggleAttribute, getAttributeNames,
 //! className, id, dataset.
 
-use elidex_ecs::{EcsDom, Entity};
+use elidex_ecs::{Attributes, EcsDom, Entity};
 use elidex_plugin::JsValue;
 use elidex_script_session::{DomApiError, DomApiHandler, SessionCore};
 
 use super::tree::validate_attribute_name;
-use crate::util::{require_attrs, require_attrs_mut, require_string_arg};
+use crate::util::{require_attrs, require_attrs_mut, require_live_element, require_string_arg};
 
 // hasAttribute (§7i)
 // ---------------------------------------------------------------------------
@@ -60,40 +60,51 @@ impl DomApiHandler for ToggleAttribute {
             _ => None,
         };
 
-        let mut attrs = require_attrs_mut(this, dom)?;
-        let has = attrs.contains(&name);
+        // Preserve the "stale / non-Element receiver → NotFoundError"
+        // contract uniformly across every branch. The `has` probe below
+        // collapses both "live element, attribute absent" and "dead
+        // receiver" to `false`, and the forced-removal branch reaches no
+        // chokepoint that could report the dead receiver — so guard up
+        // front (the prior `require_attrs_mut` borrow surfaced this error).
+        require_live_element(dom, this)?;
 
-        let (changed, result) = match force {
+        let has = dom
+            .world()
+            .get::<&Attributes>(this)
+            .is_ok_and(|a| a.contains(&name));
+
+        // Route the set/remove through the canonical `EcsDom` chokepoints
+        // (`set_attribute` / `remove_attribute`) rather than mutating
+        // `Attributes` directly — so `toggleAttribute('style')` invalidates
+        // the lazily-hydrated `InlineStyle` cache and every toggle bumps
+        // `rev_version` + dispatches `MutationEvent::AttributeChange` (the
+        // prior direct path skipped both). Boolean attributes are stored
+        // with an empty value per the HTML serialization of a present
+        // boolean attribute. The receiver is a confirmed live Element, so
+        // the chokepoint calls always act.
+        let result = match force {
             Some(true) => {
-                if has {
-                    (false, true)
-                } else {
-                    attrs.set(&name, "");
-                    (true, true)
+                if !has {
+                    dom.set_attribute(this, &name, "");
                 }
+                true
             }
             Some(false) => {
                 if has {
-                    attrs.remove(&name);
-                    (true, false)
-                } else {
-                    (false, false)
+                    dom.remove_attribute(this, &name);
                 }
+                false
             }
             None => {
                 if has {
-                    attrs.remove(&name);
-                    (true, false)
+                    dom.remove_attribute(this, &name);
+                    false
                 } else {
-                    attrs.set(&name, "");
-                    (true, true)
+                    dom.set_attribute(this, &name, "");
+                    true
                 }
             }
         };
-        drop(attrs);
-        if changed {
-            dom.rev_version(this);
-        }
         Ok(JsValue::Bool(result))
     }
 }

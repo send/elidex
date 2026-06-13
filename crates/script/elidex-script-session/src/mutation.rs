@@ -1,6 +1,6 @@
 //! Buffered DOM mutations and their application to the ECS DOM.
 
-use elidex_ecs::{Attributes, EcsDom, Entity, InlineStyle, TextContent};
+use elidex_ecs::{Attributes, EcsDom, Entity, TextContent};
 
 /// Options controlling [`apply_set_inner_html`] fragment-parse semantics.
 ///
@@ -106,22 +106,6 @@ pub enum Mutation {
         /// HTML string to parse and insert.
         html: String,
     },
-    /// Set an inline style property.
-    SetInlineStyle {
-        /// Target entity.
-        entity: Entity,
-        /// CSS property name.
-        property: String,
-        /// CSS property value.
-        value: String,
-    },
-    /// Remove an inline style property.
-    RemoveInlineStyle {
-        /// Target entity.
-        entity: Entity,
-        /// CSS property name to remove.
-        property: String,
-    },
     /// Insert a CSS rule into a stylesheet (legacy variant, CSSOM uses bridge).
     InsertCssRule {
         /// Stylesheet entity.
@@ -150,8 +134,6 @@ pub enum MutationKind {
     Attribute,
     /// Text content was changed.
     CharacterData,
-    /// An inline style property was changed.
-    InlineStyle,
     /// A CSS rule was inserted or deleted.
     CssRule,
 }
@@ -207,14 +189,6 @@ pub fn apply_mutation(mutation: &Mutation, dom: &mut EcsDom) -> Option<MutationR
         } => apply_set_attribute(dom, *entity, name, value),
         Mutation::RemoveAttribute { entity, name } => apply_remove_attribute(dom, *entity, name),
         Mutation::SetTextContent { entity, text } => apply_set_text(dom, *entity, text),
-        Mutation::SetInlineStyle {
-            entity,
-            property,
-            value,
-        } => apply_set_inline_style(dom, *entity, property, value),
-        Mutation::RemoveInlineStyle { entity, property } => {
-            apply_remove_inline_style(dom, *entity, property)
-        }
         Mutation::SetInnerHtml { entity, html } => {
             apply_set_inner_html(dom, *entity, html, SetInnerHtmlOptions::default())
         }
@@ -330,6 +304,13 @@ fn apply_set_attribute(
     let old_value = attrs.get(&name).map(str::to_owned);
     attrs.set(name.clone(), value.to_owned());
     drop(attrs);
+    // This deferred-flush path mutates `Attributes` directly instead of
+    // entering `EcsDom::set_attribute`, so it must preserve that
+    // chokepoint's `InlineStyle` invalidation invariant: a buffered `style`
+    // write would otherwise leave a lazily-hydrated `InlineStyle` stale and
+    // a later CSSOM write could resurrect the old declarations (Codex
+    // #335 R10 F31).
+    dom.invalidate_inline_style_cache(entity, &name);
     dom.rev_version(entity);
     Some(MutationRecord {
         attribute_name: Some(name),
@@ -344,6 +325,10 @@ fn apply_remove_attribute(dom: &mut EcsDom, entity: Entity, name: &str) -> Optio
     let old_value = attrs.get(&name).map(str::to_owned);
     attrs.remove(&name);
     drop(attrs);
+    // Same `InlineStyle` invalidation invariant as `apply_set_attribute`
+    // (Codex #335 R10 F31) — a buffered `removeAttribute("style")` must
+    // drop the hydrated component too.
+    dom.invalidate_inline_style_cache(entity, &name);
     dom.rev_version(entity);
     Some(MutationRecord {
         attribute_name: Some(name),
@@ -365,36 +350,6 @@ fn apply_set_text(dom: &mut EcsDom, entity: Entity, text: &str) -> Option<Mutati
         old_value,
         ..empty_record(MutationKind::CharacterData, entity)
     })
-}
-
-fn apply_set_inline_style(
-    dom: &mut EcsDom,
-    entity: Entity,
-    property: &str,
-    value: &str,
-) -> Option<MutationRecord> {
-    // Insert InlineStyle component if missing.
-    if dom.world_mut().get::<&mut InlineStyle>(entity).is_err()
-        && dom
-            .world_mut()
-            .insert_one(entity, InlineStyle::default())
-            .is_err()
-    {
-        return None;
-    }
-    let mut style = dom.world_mut().get::<&mut InlineStyle>(entity).ok()?;
-    style.set(property.to_owned(), value.to_owned());
-    Some(empty_record(MutationKind::InlineStyle, entity))
-}
-
-fn apply_remove_inline_style(
-    dom: &mut EcsDom,
-    entity: Entity,
-    property: &str,
-) -> Option<MutationRecord> {
-    let mut style = dom.world_mut().get::<&mut InlineStyle>(entity).ok()?;
-    style.remove(property);
-    Some(empty_record(MutationKind::InlineStyle, entity))
 }
 
 /// Apply the `innerHTML` / `setHTMLUnsafe` setter algorithm: remove all
@@ -755,23 +710,6 @@ mod tests {
     }
 
     #[test]
-    fn apply_set_inline_style() {
-        let mut dom = EcsDom::new();
-        let e = elem(&mut dom, "div");
-
-        let m = Mutation::SetInlineStyle {
-            entity: e,
-            property: "color".into(),
-            value: "red".into(),
-        };
-        let record = apply_mutation(&m, &mut dom).expect("should succeed");
-        assert_eq!(record.kind, MutationKind::InlineStyle);
-
-        let style = dom.world().get::<&InlineStyle>(e).unwrap();
-        assert_eq!(style.get("color"), Some("red"));
-    }
-
-    #[test]
     fn apply_remove_child() {
         let mut dom = EcsDom::new();
         let parent = elem(&mut dom, "div");
@@ -809,31 +747,6 @@ mod tests {
         assert_eq!(record.removed_nodes, vec![old]);
         assert_eq!(dom.children(parent), vec![new]);
         assert_eq!(dom.get_parent(old), None);
-    }
-
-    #[test]
-    fn apply_remove_inline_style() {
-        let mut dom = EcsDom::new();
-        let e = elem(&mut dom, "div");
-
-        // First set a style property.
-        let set = Mutation::SetInlineStyle {
-            entity: e,
-            property: "color".into(),
-            value: "red".into(),
-        };
-        apply_mutation(&set, &mut dom);
-
-        // Now remove it.
-        let m = Mutation::RemoveInlineStyle {
-            entity: e,
-            property: "color".into(),
-        };
-        let record = apply_mutation(&m, &mut dom).expect("should succeed");
-        assert_eq!(record.kind, MutationKind::InlineStyle);
-
-        let style = dom.world().get::<&InlineStyle>(e).unwrap();
-        assert_eq!(style.get("color"), None);
     }
 
     #[test]
@@ -1226,5 +1139,50 @@ mod tests {
         let record = apply_mutation(&m, &mut dom).expect("remove should succeed");
         assert_ne!(record.previous_sibling, Some(shadow_root));
         assert_eq!(record.previous_sibling, None);
+    }
+
+    /// Codex #335 R10 F31: a buffered `style` attribute mutation applied via
+    /// the deferred flush (which bypasses `EcsDom::set_attribute`) must
+    /// still invalidate a lazily-hydrated `InlineStyle` cache, else a later
+    /// CSSOM read resurrects stale declarations.
+    #[test]
+    fn apply_style_attribute_invalidates_inline_style_cache() {
+        let mut dom = EcsDom::new();
+        let e = elem(&mut dom, "div");
+        {
+            let mut attrs = dom.world_mut().get::<&mut Attributes>(e).unwrap();
+            attrs.set("style", "color: red");
+        }
+        // Simulate a prior `el.style.*` read that hydrated the cache.
+        let mut style = elidex_ecs::InlineStyle::default();
+        style.set("color", "red");
+        dom.world_mut().insert_one(e, style).unwrap();
+        assert!(dom.world().get::<&elidex_ecs::InlineStyle>(e).is_ok());
+
+        // A buffered SetAttribute("style", …) must drop the stale cache.
+        let m = Mutation::SetAttribute {
+            entity: e,
+            name: "style".into(),
+            value: "color: blue".into(),
+        };
+        apply_mutation(&m, &mut dom).expect("should succeed");
+        assert!(
+            dom.world().get::<&elidex_ecs::InlineStyle>(e).is_err(),
+            "buffered SetAttribute('style') left a stale InlineStyle cache"
+        );
+
+        // Re-hydrate, then a buffered RemoveAttribute must also drop it.
+        let mut style = elidex_ecs::InlineStyle::default();
+        style.set("color", "blue");
+        dom.world_mut().insert_one(e, style).unwrap();
+        let m = Mutation::RemoveAttribute {
+            entity: e,
+            name: "style".into(),
+        };
+        apply_mutation(&m, &mut dom).expect("should succeed");
+        assert!(
+            dom.world().get::<&elidex_ecs::InlineStyle>(e).is_err(),
+            "buffered RemoveAttribute('style') left a stale InlineStyle cache"
+        );
     }
 }

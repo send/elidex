@@ -79,7 +79,7 @@ fn named_set_and_get() {
     let out = run("var d = document.createElement('div'); \
          d.style.color = 'red'; \
          d.style.color;");
-    assert_eq!(out, "red");
+    assert_eq!(out, "#ff0000");
 }
 
 /// CRIT-1 regression in JS: setting through `el.style.color` must
@@ -89,7 +89,7 @@ fn set_property_syncs_to_attrs_style() {
     let out = run("var d = document.createElement('div'); \
          d.style.color = 'red'; \
          d.getAttribute('style');");
-    assert_eq!(out, "color: red");
+    assert_eq!(out, "color: #ff0000");
 }
 
 #[test]
@@ -98,6 +98,274 @@ fn set_method_and_get_method() {
          d.style.setProperty('display', 'block'); \
          d.style.getPropertyValue('display');");
     assert_eq!(out, "block");
+}
+
+/// Codex R2: registry-backed properties (`transform`, parsed via the
+/// CSS property registry, not the built-in match) must round-trip
+/// through the CSSOM surface — the registry-aware lazy `InlineStyle`
+/// hydration keeps them instead of dropping registry-less. Covers both
+/// the setProperty path and the parse-from-attribute path.
+#[test]
+fn registry_backed_property_round_trips() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('transform', 'rotate(45deg)'); \
+         d.style.getPropertyValue('transform') + '|' + \
+         (d.getAttribute('style') || '');");
+    assert_eq!(out, "rotate(45deg)|transform: rotate(45deg)");
+}
+
+#[test]
+fn registry_backed_property_from_attribute_round_trips() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('style', 'transform: rotate(45deg)'); \
+         d.style.getPropertyValue('transform') + '/' + d.style.length;");
+    assert_eq!(out, "rotate(45deg)/1");
+}
+
+/// CSSOM §6.6.1 `setProperty` third argument + `getPropertyPriority`:
+/// the priority is stored, readable, excluded from `getPropertyValue`,
+/// and re-emitted into the style attribute (cascade-visible).
+#[test]
+fn set_property_important_priority_round_trip() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('color', 'red', 'important'); \
+         d.style.getPropertyPriority('color') + '/' + \
+         d.style.getPropertyValue('color') + '/' + \
+         d.getAttribute('style');");
+    assert_eq!(out, "important/#ff0000/color: #ff0000 !important");
+}
+
+/// CSSOM §6.6.1 `setProperty` step 4: a priority that is neither empty
+/// nor an ASCII-case-insensitive "important" returns without effect.
+#[test]
+fn set_property_invalid_priority_no_op() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('color', 'red', 'very-important'); \
+         d.style.getPropertyValue('color');");
+    assert_eq!(out, "");
+}
+
+/// Re-setting without a priority clears a prior `!important` flag.
+#[test]
+fn set_property_clears_priority_on_normal_set() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('color', 'red', 'IMPORTANT'); \
+         d.style.setProperty('color', 'blue'); \
+         d.style.getPropertyPriority('color');");
+    assert_eq!(out, "");
+}
+
+/// The named-exotic set path (`style.color = ...`) reaches the same
+/// `style.setProperty` handler with an empty priority, so it too must
+/// clear a prior `!important` flag (CSSOM §6.6.1).
+#[test]
+fn named_set_clears_priority() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('color', 'red', 'important'); \
+         d.style.color = 'blue'; \
+         d.style.getPropertyPriority('color');");
+    assert_eq!(out, "");
+}
+
+/// §6.6.1 steps 5–6: a value with trailing input — a smuggled
+/// `!important` or an injected `; other: decl` — is rejected whole, so
+/// the style attribute the cascade re-parses can't grow fabricated
+/// declarations or priority out of a value string.
+#[test]
+fn set_property_rejects_value_injection() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('color', 'red; background: url(//evil)'); \
+         d.style.setProperty('width', '10px !important'); \
+         '|' + d.style.cssText + '|' + (d.getAttribute('style') || '') + '|';");
+    assert_eq!(out, "|||");
+}
+
+/// Codex R7 F23: an invalid custom-property name (one carrying CSS
+/// delimiters) must be rejected by `setProperty` — otherwise the verbatim
+/// `css_text()` write-back lets the cascade re-parse split off an injected
+/// declaration (`--x;color: red` ⇒ applied `color: red`).
+#[test]
+fn set_property_rejects_invalid_custom_property_name_injection() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('--x;color', 'red'); \
+         '|' + d.style.cssText + '|' + (d.getAttribute('style') || '') + '|' + \
+         d.style.getPropertyValue('color') + '|';");
+    // No declaration stored, no attribute written, no injected color.
+    assert_eq!(out, "||||");
+}
+
+/// Codex R8 F24 / CSS Cascade 4 §6.3: an important inline declaration must
+/// survive a later unrelated `el.style.*` mutation. The hydration collapse
+/// must keep `color: red !important` over the normal `color: blue`
+/// duplicate, so the `css_text()` write-back preserves it.
+#[test]
+fn important_duplicate_survives_inline_style_mutation() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('style', 'color: red !important; color: blue'); \
+         d.style.setProperty('width', '5px'); \
+         d.getAttribute('style');");
+    assert_eq!(out, "color: #ff0000 !important; width: 5px");
+}
+
+/// Codex R8 F26: a registry-backed identifier-list transport value
+/// (`transition-property`, carried as `CssValue::RawTokens`) must
+/// round-trip through the inline path *unquoted* — `to_css_string` quotes
+/// `CssValue::String`, which would write `transition-property: "opacity"`
+/// and fail the cascade re-parse.
+#[test]
+fn transition_property_round_trips_unquoted() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('style', 'transition-property: opacity'); \
+         d.style.getPropertyValue('transition-property') + '|' + d.getAttribute('style');");
+    assert_eq!(out, "opacity|transition-property: opacity");
+}
+
+#[test]
+fn transition_property_set_property_round_trips_unquoted() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('transition-property', 'opacity, width'); \
+         d.style.getPropertyValue('transition-property') + '|' + d.getAttribute('style');");
+    assert_eq!(out, "opacity, width|transition-property: opacity, width");
+}
+
+/// §6.6.1 step 3: the empty string as value removes the declaration.
+#[test]
+fn set_property_empty_value_removes() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('display', 'block'); \
+         d.style.setProperty('display', ''); \
+         '|' + d.style.getPropertyValue('display') + '|' + d.style.length;");
+    assert_eq!(out, "||0");
+}
+
+/// Codex R4: CSSOM §6.6.1 getPropertyValue step 1.2 — a shorthand
+/// reconstructs from its longhands (the block stores expanded
+/// longhands). `el.style.margin='10px'; el.style.margin` → '10px'.
+#[test]
+fn get_property_value_reconstructs_shorthand() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('margin', '10px'); \
+         d.style.getPropertyValue('margin') + '|' + \
+         d.style.getPropertyValue('margin-top');");
+    // shorthand readback + longhand readback both work (block model).
+    assert_eq!(out, "10px|10px");
+}
+
+/// Non-uniform longhands serialize to the collapsed 1-4 value form.
+#[test]
+fn get_property_value_shorthand_collapse_form() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('margin', '1px 2px'); \
+         d.style.getPropertyValue('margin');");
+    assert_eq!(out, "1px 2px");
+}
+
+/// removeProperty returns the pre-removal shorthand value (§6.6.1).
+#[test]
+fn remove_property_returns_reconstructed_shorthand() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('margin', '10px'); \
+         d.style.removeProperty('margin') + '|' + d.style.length;");
+    assert_eq!(out, "10px|0");
+}
+
+/// §6.6.1 removeProperty on a shorthand removes each mapped longhand —
+/// the component's canonical key-space is longhand-expanded, so the
+/// shorthand key itself never exists.
+#[test]
+fn remove_property_shorthand_removes_longhands() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('margin', '10px'); \
+         var before = d.style.length; \
+         d.style.removeProperty('margin'); \
+         before + '/' + d.style.length;");
+    assert_eq!(out, "4/0");
+}
+
+/// CSSOM §6.6.1 getPropertyPriority step 1.2 — a shorthand reads
+/// "important" iff every mapped longhand does (Codex R1).
+#[test]
+fn get_property_priority_shorthand_all_longhands() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('margin', '10px', 'important'); \
+         var all = d.style.getPropertyPriority('margin'); \
+         d.style.setProperty('margin-top', '5px'); \
+         all + '/' + d.style.getPropertyPriority('margin');");
+    // After demoting one longhand, the shorthand no longer reads
+    // important.
+    assert_eq!(out, "important/");
+}
+
+/// CSSOM §6.6.1 getPropertyValue step 1.2.3/1.2.4 (Codex R5 F16): a
+/// shorthand `getPropertyValue` returns "" when its longhands do NOT all
+/// share the same important flag (uniformity, not absence). All-important
+/// still serializes; a mixed block (one longhand demoted to normal)
+/// yields "". `removeProperty` reuses the same reconstruction, so its
+/// pre-removal return value is also "" for the mixed block.
+#[test]
+fn get_property_value_shorthand_mixed_importance_is_empty() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('margin', '10px', 'important'); \
+         var allImp = d.style.getPropertyValue('margin'); \
+         d.style.setProperty('margin-top', '5px'); \
+         var mixedVal = d.style.getPropertyValue('margin'); \
+         var mixedRemove = d.style.removeProperty('margin'); \
+         '|' + allImp + '|' + mixedVal + '|' + mixedRemove + '|';");
+    // all-important → serializes "10px"; mixed → "" for both the getter
+    // and removeProperty's pre-removal value.
+    assert_eq!(out, "|10px|||");
+}
+
+/// Codex R6 F18: a space-separated list property must round-trip through
+/// the inline write-back. `text-decoration-line` parses to a
+/// `CssValue::List`, which `to_css_string` comma-joins; the comma form
+/// does not re-parse, so without the storage round-trip guard the
+/// declaration vanishes from both `getPropertyValue` and the
+/// cascade-visible `style` attribute.
+#[test]
+fn set_property_space_separated_list_round_trips() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('text-decoration-line', 'underline overline'); \
+         d.style.getPropertyValue('text-decoration-line') + '|' + \
+         d.getAttribute('style');");
+    assert_eq!(
+        out,
+        "underline overline|text-decoration-line: underline overline"
+    );
+}
+
+/// The same round-trip when the value arrives via `setAttribute('style')`
+/// (the `parse_inline_style` hydration path).
+#[test]
+fn set_attribute_space_separated_list_round_trips() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('style', 'text-decoration-line: underline overline'); \
+         d.style.getPropertyValue('text-decoration-line');");
+    assert_eq!(out, "underline overline");
+}
+
+/// §6.6.1 removeProperty step 6 — update the style attribute only when
+/// something was actually removed: an unsupported property with an
+/// empty value must not dirty `attrs("style")` (Codex R1).
+#[test]
+fn set_property_empty_unsupported_is_noop_on_attribute() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('style', 'color:red'); \
+         d.style.setProperty('not-a-property', ''); \
+         d.style.removeProperty('also-not-real'); \
+         d.getAttribute('style');");
+    // The attribute keeps its raw authored text — no canonical rewrite.
+    assert_eq!(out, "color:red");
+}
+
+/// Same via the §6.6.1 step-3 empty-value path.
+#[test]
+fn set_property_empty_value_removes_shorthand() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('margin', '10px'); \
+         d.style.setProperty('margin', ''); \
+         '' + d.style.length;");
+    assert_eq!(out, "0");
 }
 
 #[test]
@@ -119,7 +387,7 @@ fn remove_property_returns_old_value() {
     let out = run("var d = document.createElement('div'); \
          d.style.color = 'blue'; \
          d.style.removeProperty('color');");
-    assert_eq!(out, "blue");
+    assert_eq!(out, "#0000ff");
 }
 
 // --- length / item / indexed exotic --------------------------------
@@ -162,7 +430,8 @@ fn css_text_set_and_get() {
 fn css_text_get_serializes() {
     let out = run("var d = document.createElement('div'); \
          d.style.color = 'red'; \
-         d.style.cssText.indexOf('color: red') >= 0 ? 'yes' : 'no';");
+         d.style.cssText.indexOf('color: #ff0000') >= 0 ? 'yes' : 'no';");
+    // Canonical §6.6.1 value parse: `red` stores in hex form.
     assert_eq!(out, "yes");
 }
 
@@ -183,7 +452,7 @@ fn property_name_lowercased() {
     let out = run("var d = document.createElement('div'); \
          d.style.setProperty('Color', 'red'); \
          d.style.getPropertyValue('color');");
-    assert_eq!(out, "red");
+    assert_eq!(out, "#ff0000");
 }
 
 #[test]
@@ -332,7 +601,7 @@ fn indexed_delete_does_not_remove_property() {
          d.style.color = 'red'; \
          try { delete d.style[0] } catch (e) {} \
          d.style.length + ':' + d.style.color;");
-    assert_eq!(out, "1:red");
+    assert_eq!(out, "1:#ff0000");
 }
 
 // --- prototype chain -----------------------------------------------
@@ -352,19 +621,36 @@ fn style_prototype_chains_to_object_prototype() {
 
 // --- liveness / round-trip ----------------------------------------
 
-/// Read-side `attrs("style")` → `InlineStyle` hydration is deferred:
-/// `setAttribute("style", ...)` does not auto-populate `InlineStyle`,
-/// so a *pure read* like `el.style.getPropertyValue("color")` returns
-/// the empty string until the first mutation triggers
-/// `ensure_inline_style`'s seed-from-attrs hydration (Copilot R5 IMP-1
-/// fix).  Pinning the read-side divergence here keeps the eager-read-
-/// hydration follow-up traceable.
+/// Read-side `attrs("style")` → `InlineStyle` hydration: a *pure read*
+/// like `el.style.getPropertyValue("color")` hydrates `InlineStyle`
+/// lazily from the `style` attribute (registry-aware), so it reflects a
+/// prior `setAttribute("style", ...)` even with no intervening CSSOM
+/// mutation. `InlineStyle` is no longer eagerly attached at element
+/// creation — this lazy hydration is the single materialization point.
+/// Codex R2/R3: the lazy `InlineStyle` cache must be invalidated when
+/// the `style` attribute is changed directly. After a read materializes
+/// the component, a `setAttribute("style", ...)` (or removeAttribute)
+/// must not leave a stale cached value (slot
+/// `#11-derived-component-attr-maintenance` InlineStyle half).
 #[test]
-fn set_attribute_does_not_populate_inline_style_on_read() {
+fn set_attribute_invalidates_cached_inline_style() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('style', 'color: red'); \
+         var first = d.style.getPropertyValue('color'); \
+         d.setAttribute('style', 'color: blue'); \
+         var second = d.style.getPropertyValue('color'); \
+         d.removeAttribute('style'); \
+         var third = d.style.getPropertyValue('color'); \
+         first + '/' + second + '/|' + third + '|';");
+    assert_eq!(out, "#ff0000/#0000ff/||");
+}
+
+#[test]
+fn get_property_value_hydrates_from_style_attribute() {
     let out = run("var d = document.createElement('div'); \
          d.setAttribute('style', 'color: red'); \
          '|' + d.style.getPropertyValue('color') + '|';");
-    assert_eq!(out, "||");
+    assert_eq!(out, "|#ff0000|");
 }
 
 /// Copilot R5 IMP-1 regression: `setAttribute("style", ...)` followed

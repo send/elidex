@@ -10,10 +10,15 @@ pub mod page;
 mod parser;
 mod selector;
 mod serialize;
+mod shorthand;
 mod values;
 
 pub use color::parse_color;
-pub use declaration::{parse_declaration_block, parse_var_function, Declaration, Origin};
+pub use declaration::{
+    parse_declaration_block, parse_declaration_block_with_registry, parse_inline_style,
+    parse_value_for_property, parse_var_function, serialize_declaration_value_for_storage,
+    shorthand_longhands, Declaration, Origin,
+};
 pub use escape::escape_ident;
 pub use page::{parse_page_rule, parse_page_rules, parse_page_selectors, parse_page_size};
 pub use parser::{
@@ -24,6 +29,7 @@ pub use selector::{
     SelectorComponent, Specificity,
 };
 pub use serialize::serialize_stylesheet;
+pub use shorthand::serialize_shorthand_value;
 
 use cssparser::{Parser, ParserInput};
 use elidex_plugin::{CssValue, ParseError};

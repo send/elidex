@@ -48,10 +48,16 @@
 //!
 //! `style.color = "red"` ↔ `style.setProperty("color", "red")` and
 //! `style.color` ↔ `style.getPropertyValue("color")` (CSSOM §6.6.1 named
-//! getter / setter).  Per design review IMP-1/2: named-exotic [[Set]]
-//! routes to the raw `setProperty` handler bypassing
-//! `parse_declaration_block`, so unknown property names like
-//! `style.foo = "bar"` write verbatim (matches Chrome).
+//! getter / setter).  Named-exotic [[Set]] routes to the `setProperty`
+//! handler, which implements the full §6.6.1 algorithm — the value is
+//! parsed for the property and stored in canonical longhand-expanded
+//! form; an unsupported property name or unparseable value is a no-op
+//! (step 2.2 / 6), so `style.foo = "bar"` adds no declaration.
+//! (Supersedes the earlier IMP-1/2 verbatim-write reading: Chrome's
+//! `setProperty` also rejects unknown properties at step 2.2 — the
+//! `el.style.foo` readback Chrome exhibits is a JS expando on the
+//! wrapper object, not a CSS declaration, and our wrapper is
+//! non-extensible.)
 
 #![cfg(feature = "engine")]
 
@@ -395,15 +401,33 @@ fn native_style_get_property_value(
 fn native_style_get_property_priority(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
-    _args: &[JsValue],
+    args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // `getPropertyPriority` requires per-property `!important` tracking
-    // on `InlineStyle`.  Deferred to slot `#11-style-important-priority`
-    // (see plan §A-1).  PR-A returns the empty string for every property
-    // (CSSOM §6.6.1 — empty string ⇒ "not !important"), which keeps the
-    // method shape callable for framework feature-detect.
-    let _ = require_style_receiver(ctx, this, "getPropertyPriority")?;
-    Ok(JsValue::String(ctx.vm.well_known.empty))
+    let recv = require_style_receiver(ctx, this, "getPropertyPriority")?;
+    let sid = coerce_first_arg_to_string_id(ctx, args)?;
+    if ctx.host_if_bound().is_none() {
+        return Ok(JsValue::String(ctx.vm.well_known.empty));
+    }
+    match recv {
+        StyleReceiver::Inline(entity) => invoke_dom_api(
+            ctx,
+            "style.getPropertyPriority",
+            entity,
+            &[JsValue::String(sid)],
+        ),
+        // Computed source: resolved values never carry a priority
+        // (CSSOM §6.6.1 — empty string ⇒ "not !important").
+        StyleReceiver::Computed(_) => Ok(JsValue::String(ctx.vm.well_known.empty)),
+        StyleReceiver::Rule { sheet, rule_id } => invoke_dom_api(
+            ctx,
+            "rule.style.getPropertyPriority",
+            sheet,
+            &[
+                super::cssom_sheet::rule_id_to_js(rule_id),
+                JsValue::String(sid),
+            ],
+        ),
+    }
 }
 
 fn native_style_set_property(
@@ -415,16 +439,34 @@ fn native_style_set_property(
     let prop_sid = coerce_first_arg_to_string_id(ctx, args)?;
     let val_arg = args.get(1).copied().unwrap_or(JsValue::Undefined);
     let val_sid = super::super::coerce::to_string(ctx.vm, val_arg)?;
+    // Optional `priority` (WebIDL `optional [LegacyNullToEmptyString]
+    // CSSOMString priority = ""`): absent / undefined ⇒ default empty,
+    // null ⇒ empty (LegacyNullToEmptyString) — both omit the argument;
+    // otherwise coerce and forward — the handler applies the CSSOM
+    // §6.6.1 step-4 validity check.
+    let priority_sid = match args.get(2) {
+        None | Some(JsValue::Undefined | JsValue::Null) => None,
+        Some(v) => Some(super::super::coerce::to_string(ctx.vm, *v)?),
+    };
     if ctx.host_if_bound().is_none() {
         return Ok(JsValue::Undefined);
     }
     match recv {
-        StyleReceiver::Inline(entity) => invoke_dom_api(
-            ctx,
-            "style.setProperty",
-            entity,
-            &[JsValue::String(prop_sid), JsValue::String(val_sid)],
-        ),
+        StyleReceiver::Inline(entity) => {
+            // `JsValue` is `Copy` — a fixed array sliced to the live
+            // argument count avoids a per-call heap allocation.
+            let mut call_args = [
+                JsValue::String(prop_sid),
+                JsValue::String(val_sid),
+                JsValue::Undefined,
+            ];
+            let mut len = 2;
+            if let Some(p) = priority_sid {
+                call_args[2] = JsValue::String(p);
+                len = 3;
+            }
+            invoke_dom_api(ctx, "style.setProperty", entity, &call_args[..len])
+        }
         // Computed / Rule sources: silent no-op (read-only).
         StyleReceiver::Computed(_) | StyleReceiver::Rule { .. } => Ok(JsValue::Undefined),
     }
@@ -616,10 +658,10 @@ pub(crate) fn try_get(
 }
 
 /// `[[Set]]` trap (CSSOM §6.6.1 named setter).  Symbol keys fall through;
-/// string / numeric keys route to `setProperty`.  Per design review IMP-1/2:
-/// uses the **raw** `setProperty` handler — does NOT route through
-/// `parse_declaration_block`, so `style.foo = "bar"` writes verbatim
-/// (matches Chrome).  Computed source is a silent no-op (read-only block).
+/// string / numeric keys route to `setProperty`, which applies the full
+/// §6.6.1 algorithm (canonical value parse; unknown property /
+/// unparseable value ⇒ no-op).  Computed source is a silent no-op
+/// (read-only block).
 pub(crate) fn try_set(
     vm: &mut VmInner,
     id: ObjectId,

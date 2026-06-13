@@ -23,20 +23,25 @@ use crate::util::{
     normalize_property_name, normalize_property_name_owned, not_found_error, require_string_arg,
 };
 
-/// Ensure an `InlineStyle` component exists on the entity.  When the
-/// component is absent but `attrs("style")` already has content (from a
-/// prior `setAttribute("style", "...")`), parse the attribute string
-/// into declarations and seed the new `InlineStyle` so the next mutation
-/// via `style.setProperty` / `removeProperty` / `cssText` doesn't
-/// silently drop those declarations during the post-mutation
-/// `sync_to_attribute` round-trip.
-///
-/// This is the inverse of `sync_to_attribute`: the cascade reads
-/// declarations from `attrs("style")` so writes go style → attrs; this
-/// helper handles the symmetric attrs → style hydration on first
-/// mutation, closing the data-loss gap that arose when
-/// `setAttribute("style", "color: red"); el.style.setProperty("foo",
-/// "bar");` would land `attrs("style") = "foo: bar"` (color: red lost).
+/// The default CSS property registry, so the inline-style parse resolves
+/// registry-backed properties (`transform`, `transition`, …) — without
+/// it, `el.style.transform = 'rotate(45deg)'` would silently no-op.
+/// Same registry the cascade's `get_inline_declarations` uses, so the
+/// CSSOM `InlineStyle` and the cascade agree on registry-backed inline
+/// declarations.
+fn inline_style_registry() -> &'static elidex_plugin::CssPropertyRegistry {
+    elidex_style::default_css_property_registry()
+}
+
+/// Ensure an `InlineStyle` component exists on the entity, hydrating it
+/// from `attrs("style")` when absent (the canonical, registry-aware
+/// derivation). This is the single InlineStyle materialization point:
+/// the parser does NOT attach `InlineStyle` at element creation —
+/// the cascade reads `attrs("style")` directly, so the component is
+/// needed only for the CSSOM surface and is built lazily here on first
+/// access (read or write). Idempotent: a present component is left
+/// untouched (its declarations may already diverge from the attribute
+/// via prior CSSOM mutation — the write path keeps them synced).
 fn ensure_inline_style(entity: Entity, dom: &mut EcsDom) {
     if dom.world_mut().get::<&InlineStyle>(entity).is_ok() {
         return;
@@ -47,16 +52,52 @@ fn ensure_inline_style(entity: Entity, dom: &mut EcsDom) {
         .get::<&Attributes>(entity)
         .ok()
         .and_then(|a| a.get("style").map(str::to_owned));
-    let mut hydrated = InlineStyle::default();
-    if let Some(css) = attr_value {
-        for decl in elidex_css::parse_declaration_block(&css) {
-            hydrated.set(
-                decl.property,
-                crate::computed_style::css_value_to_string(&decl.value),
-            );
-        }
-    }
+    let hydrated = attr_value
+        .map(|css| elidex_css::parse_inline_style(&css, Some(inline_style_registry())))
+        .unwrap_or_default();
     let _ = dom.world_mut().insert_one(entity, hydrated);
+}
+
+/// CSSOM §6.6.1 `getPropertyValue(property)`: the serialized value of
+/// the named declaration. For a shorthand, reconstruct it from the
+/// component's longhands via the canonical
+/// [`elidex_css::serialize_shorthand_value`] (the same reconstruction the
+/// rule path uses); for a longhand, read it directly. Empty string when
+/// absent or not serializable. Assumes `InlineStyle` is already present
+/// (caller hydrates).
+fn inline_property_value(dom: &EcsDom, entity: Entity, property: &str) -> String {
+    let Ok(style) = dom.world().get::<&InlineStyle>(entity) else {
+        return String::new();
+    };
+    elidex_css::serialize_shorthand_value(property, |lh| {
+        style
+            .get(lh)
+            .map(|v| (v.to_owned(), style.is_important(lh)))
+    })
+    .or_else(|| style.get(property).map(str::to_owned))
+    .unwrap_or_default()
+}
+
+/// Remove `property`'s declaration(s) from the block — shorthand-aware
+/// per CSSOM §6.6.1 `removeProperty`: a shorthand removes each longhand
+/// it maps to (the component's canonical key-space is longhand-expanded,
+/// so the shorthand key itself never exists).
+///
+/// Returns the spec's `removed` flag: callers run the style-attribute
+/// write-back ONLY when it is true, so removing an absent (or
+/// unsupported) property is observably a no-op. The returned *value*
+/// (`getPropertyValue` before removal) is computed separately by the
+/// caller via [`inline_property_value`] so shorthands reconstruct.
+fn remove_declarations(style: &mut InlineStyle, property: &str) -> bool {
+    let longhands = elidex_css::shorthand_longhands(property);
+    if longhands.is_empty() {
+        return style.remove(property).is_some();
+    }
+    let mut removed = false;
+    for longhand in &longhands {
+        removed |= style.remove(longhand).is_some();
+    }
+    removed
 }
 
 /// Round-trip the current `InlineStyle` declarations into `attrs("style")`
@@ -76,18 +117,31 @@ fn ensure_inline_style(entity: Entity, dom: &mut EcsDom) {
 /// rather than removing it) — matches Chrome's behaviour for an
 /// inline-style block emptied via `removeProperty`.
 fn sync_to_attribute(entity: Entity, dom: &mut EcsDom) {
-    let css_text = match dom.world().get::<&InlineStyle>(entity) {
-        Ok(style) => style.css_text(),
-        Err(_) => return,
+    // Clone the component before the write: `EcsDom::set_attribute("style",
+    // …)` drops the cached `InlineStyle` (it treats the component as a
+    // memoized parse of the attribute, invalidated when the attribute
+    // changes externally). Here the write is derived FROM the component,
+    // so the cache is already consistent — re-insert it afterward to keep
+    // the CSSOM mutation path warm (no re-parse on the next read).
+    let style: InlineStyle = {
+        match dom.world().get::<&InlineStyle>(entity) {
+            Ok(s) => (*s).clone(),
+            Err(_) => return,
+        }
     };
+    let css_text = style.css_text();
     let _ = dom.set_attribute(entity, "style", &css_text);
+    let _ = dom.world_mut().insert_one(entity, style);
 }
 
 // ---------------------------------------------------------------------------
 // style.setProperty
 // ---------------------------------------------------------------------------
 
-/// `element.style.setProperty(property, value)` — sets an inline style.
+/// `element.style.setProperty(property, value, priority?)` — sets an
+/// inline style declaration per the CSSOM §6.6.1 algorithm (empty value
+/// ⇒ remove; unsupported property / unparseable value / invalid
+/// priority ⇒ no-op; value stored in canonical longhand-expanded form).
 pub struct StyleSetProperty;
 
 impl DomApiHandler for StyleSetProperty {
@@ -106,6 +160,54 @@ impl DomApiHandler for StyleSetProperty {
         let property = normalize_property_name_owned(property_raw);
         let value = require_string_arg(args, 1)?;
 
+        // Stale-wrapper guard: same contract as the sibling mutators
+        // (`removeProperty` / `cssText.set`), before any early return.
+        if !dom.world().contains(this) {
+            return Err(not_found_error("element not found"));
+        }
+
+        // §6.6.1 step 3: an empty value means removeProperty
+        // (shorthand-aware, like the real handler). Runs BEFORE the
+        // step-4 priority check per the spec's step order — an invalid
+        // priority does not rescue the declaration from removal.
+        if value.is_empty() {
+            ensure_inline_style(this, dom);
+            let removed = match dom.world_mut().get::<&mut InlineStyle>(this) {
+                Ok(mut style) => remove_declarations(&mut style, property.as_str()),
+                Err(_) => false,
+            };
+            // §6.6.1 removeProperty step 6: update the style attribute
+            // only "if removed is true" — an unsupported or absent
+            // property must not dirty `attrs("style")`.
+            if removed {
+                sync_to_attribute(this, dom);
+            }
+            return Ok(JsValue::Undefined);
+        }
+
+        // §6.6.1 step 4: empty / absent priority ⇒ normal,
+        // ASCII-case-insensitive "important" ⇒ important, anything else
+        // ⇒ return without effect.
+        let important = match args.get(2) {
+            None | Some(JsValue::Undefined) => false,
+            Some(JsValue::String(p)) if p.is_empty() => false,
+            Some(JsValue::String(p)) if p.eq_ignore_ascii_case("important") => true,
+            Some(_) => return Ok(JsValue::Undefined),
+        };
+
+        // §6.6.1 steps 2.2 / 5–6: parse the value for the property and
+        // store the canonical parsed form (longhand-expanded). An
+        // unsupported property, an unparseable value, or trailing input
+        // (including a smuggled `!important` or `; other: decl`) returns
+        // without effect — storing the raw string verbatim would let the
+        // cascade's re-parse of the written-back `style` attribute
+        // fabricate declarations / priority out of the value text.
+        let Some(decls) =
+            elidex_css::parse_value_for_property(&property, &value, Some(inline_style_registry()))
+        else {
+            return Ok(JsValue::Undefined);
+        };
+
         ensure_inline_style(this, dom);
 
         {
@@ -113,7 +215,18 @@ impl DomApiHandler for StyleSetProperty {
                 .world_mut()
                 .get::<&mut InlineStyle>(this)
                 .map_err(|_| not_found_error("element not found"))?;
-            style.set(property, value);
+            for decl in decls {
+                // Store a round-trip-safe serialization so the cascade's
+                // re-parse of the written-back `style` attribute reproduces
+                // this declaration (space-separated lists otherwise corrupt
+                // — see `serialize_declaration_value_for_storage`).
+                let stored = elidex_css::serialize_declaration_value_for_storage(
+                    &decl.property,
+                    &decl.value,
+                    Some(inline_style_registry()),
+                );
+                style.set_with_priority(decl.property, stored, important);
+            }
         }
         sync_to_attribute(this, dom);
         Ok(JsValue::Undefined)
@@ -149,13 +262,58 @@ impl DomApiHandler for StyleGetPropertyValue {
         if !dom.world().contains(this) {
             return Err(not_found_error("element not found"));
         }
-        match dom.world().get::<&InlineStyle>(this) {
-            Ok(style) => match style.get(property.as_ref()) {
-                Some(val) => Ok(JsValue::String(val.to_string())),
-                None => Ok(JsValue::String(String::new())),
-            },
-            Err(_) => Ok(JsValue::String(String::new())),
+        ensure_inline_style(this, dom);
+        Ok(JsValue::String(inline_property_value(
+            dom,
+            this,
+            property.as_ref(),
+        )))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// style.getPropertyPriority
+// ---------------------------------------------------------------------------
+
+/// `element.style.getPropertyPriority(property)` — returns `"important"`
+/// when the named inline declaration carries the `!important` flag, the
+/// empty string otherwise (CSSOM §6.6.1). Hydrates `InlineStyle` from
+/// `attrs("style")` on read like its sibling handlers.
+pub struct StyleGetPropertyPriority;
+
+impl DomApiHandler for StyleGetPropertyPriority {
+    fn method_name(&self) -> &str {
+        "style.getPropertyPriority"
+    }
+
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        _session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let property_raw = require_string_arg(args, 0)?;
+        let property = normalize_property_name(&property_raw);
+        // Stale-wrapper guard mirrors `StyleGetPropertyValue`.
+        if !dom.world().contains(this) {
+            return Err(not_found_error("element not found"));
         }
+        ensure_inline_style(this, dom);
+        // CSSOM §6.6.1 getPropertyPriority step 1.2: for a shorthand,
+        // return "important" iff every mapped longhand's priority is
+        // "important" (an absent longhand reads as "", failing the all).
+        let important = dom.world().get::<&InlineStyle>(this).is_ok_and(|style| {
+            let longhands = elidex_css::shorthand_longhands(property.as_ref());
+            if longhands.is_empty() {
+                style.is_important(property.as_ref())
+            } else {
+                longhands.iter().all(|lh| style.is_important(lh))
+            }
+        });
+        Ok(JsValue::String(
+            if important { "important" } else { "" }.to_string(),
+        ))
     }
 }
 
@@ -192,12 +350,20 @@ impl DomApiHandler for StyleRemoveProperty {
         // `StyleSetProperty`'s seed-on-first-mutation policy in
         // `ensure_inline_style`.
         ensure_inline_style(this, dom);
-        let old_value = match dom.world_mut().get::<&mut InlineStyle>(this) {
-            Ok(mut style) => style.remove(property.as_ref()).unwrap_or_default(),
+        // §6.6.1 removeProperty step 2: the return value is the
+        // pre-removal `getPropertyValue(property)` (reconstructed for a
+        // shorthand), captured before the longhands are dropped.
+        let returned = inline_property_value(dom, this, property.as_ref());
+        let removed = match dom.world_mut().get::<&mut InlineStyle>(this) {
+            Ok(mut style) => remove_declarations(&mut style, property.as_ref()),
             Err(_) => return Ok(JsValue::String(String::new())),
         };
-        sync_to_attribute(this, dom);
-        Ok(JsValue::String(old_value))
+        // §6.6.1 removeProperty step 6: write back only "if removed is
+        // true" — removing an absent property is observably a no-op.
+        if removed {
+            sync_to_attribute(this, dom);
+        }
+        Ok(JsValue::String(returned))
     }
 }
 
@@ -227,6 +393,7 @@ impl DomApiHandler for StyleLength {
         if !dom.world().contains(this) {
             return Err(not_found_error("element not found"));
         }
+        ensure_inline_style(this, dom);
         let len = dom.world().get::<&InlineStyle>(this).map_or(0, |s| s.len());
         #[allow(clippy::cast_precision_loss)]
         Ok(JsValue::Number(len as f64))
@@ -253,20 +420,20 @@ impl DomApiHandler for StyleItem {
         _session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
+        // CSSOM §6.6.1 `item(unsigned long index)` — WebIDL ToUint32
+        // coercion (NaN → 0), so `style.item(NaN)` reads index 0 rather
+        // than out-of-range.
         let idx_f = match args.first() {
             Some(JsValue::Number(n)) => *n,
             _ => 0.0,
         };
-        if !idx_f.is_finite() || idx_f < 0.0 {
-            return Ok(JsValue::String(String::new()));
-        }
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let idx = idx_f as usize;
+        let idx = crate::util::webidl_unsigned_long(idx_f);
         // Same stale-wrapper / missing-component split as
         // `StyleGetPropertyValue`.
         if !dom.world().contains(this) {
             return Err(not_found_error("element not found"));
         }
+        ensure_inline_style(this, dom);
         match dom.world().get::<&InlineStyle>(this) {
             Ok(style) => Ok(JsValue::String(
                 style.property_at(idx).unwrap_or("").to_string(),
@@ -302,6 +469,7 @@ impl DomApiHandler for StyleCssTextGet {
         if !dom.world().contains(this) {
             return Err(not_found_error("element not found"));
         }
+        ensure_inline_style(this, dom);
         let text = match dom.world().get::<&InlineStyle>(this) {
             Ok(style) => style.css_text(),
             Err(_) => String::new(),
@@ -311,13 +479,14 @@ impl DomApiHandler for StyleCssTextGet {
 }
 
 /// `element.style.cssText` setter — replaces the declaration block by
-/// re-parsing `value` through [`elidex_css::parse_declaration_block`]
-/// (which performs shorthand expansion).  All-or-nothing replacement:
-/// `parse_declaration_block` returns an empty `Vec` for empty / unparseable
-/// input, which clears the inline-style block.  This matches the spec
-/// "parse a CSS declaration block" algorithm and Chrome's behaviour for
-/// whole-block-invalid input (accepted divergence: Firefox preserves
-/// existing declarations on whole-block parse failure).
+/// re-parsing `value` through the canonical
+/// [`elidex_css::parse_inline_style`] (which performs shorthand
+/// expansion).  All-or-nothing replacement: it returns an empty
+/// `InlineStyle` for empty / unparseable input, which clears the
+/// inline-style block.  This matches the spec "parse a CSS declaration
+/// block" algorithm and Chrome's behaviour for whole-block-invalid input
+/// (accepted divergence: Firefox preserves existing declarations on
+/// whole-block parse failure).
 pub struct StyleCssTextSet;
 
 impl DomApiHandler for StyleCssTextSet {
@@ -333,7 +502,6 @@ impl DomApiHandler for StyleCssTextSet {
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let css = require_string_arg(args, 0)?;
-        let declarations = elidex_css::parse_declaration_block(&css);
 
         // Stale-wrapper guard: same shape as the read handlers + the
         // mutator handlers (`setProperty` / `removeProperty`).  Without
@@ -347,13 +515,7 @@ impl DomApiHandler for StyleCssTextSet {
         // All-or-nothing replace: drop any existing component and insert
         // a freshly-built one so insertion order matches the parsed
         // declarations exactly (no leftover keys from prior content).
-        let mut new_style = InlineStyle::default();
-        for decl in declarations {
-            new_style.set(
-                decl.property,
-                crate::computed_style::css_value_to_string(&decl.value),
-            );
-        }
+        let new_style = elidex_css::parse_inline_style(&css, Some(inline_style_registry()));
         dom.world_mut()
             .insert_one(this, new_style)
             .map_err(|_| not_found_error("element not found"))?;
@@ -364,405 +526,4 @@ impl DomApiHandler for StyleCssTextSet {
 
 #[cfg(test)]
 #[allow(unused_must_use)] // Test setup calls dom.append_child() etc. without checking return values
-mod tests {
-    use super::*;
-    use elidex_ecs::Attributes;
-
-    fn setup() -> (EcsDom, Entity, SessionCore) {
-        let mut dom = EcsDom::new();
-        let elem = dom.create_element("div", Attributes::default());
-        let session = SessionCore::new();
-        (dom, elem, session)
-    }
-
-    #[test]
-    fn set_and_get_property() {
-        let (mut dom, elem, mut session) = setup();
-        StyleSetProperty
-            .invoke(
-                elem,
-                &[
-                    JsValue::String("color".into()),
-                    JsValue::String("red".into()),
-                ],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-
-        let result = StyleGetPropertyValue
-            .invoke(
-                elem,
-                &[JsValue::String("color".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(result, JsValue::String("red".into()));
-    }
-
-    #[test]
-    fn get_nonexistent_property() {
-        let (mut dom, elem, mut session) = setup();
-        let result = StyleGetPropertyValue
-            .invoke(
-                elem,
-                &[JsValue::String("color".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(result, JsValue::String(String::new()));
-    }
-
-    #[test]
-    fn remove_property() {
-        let (mut dom, elem, mut session) = setup();
-        StyleSetProperty
-            .invoke(
-                elem,
-                &[
-                    JsValue::String("color".into()),
-                    JsValue::String("blue".into()),
-                ],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-
-        let result = StyleRemoveProperty
-            .invoke(
-                elem,
-                &[JsValue::String("color".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(result, JsValue::String("blue".into()));
-
-        // Verify it's gone.
-        let result = StyleGetPropertyValue
-            .invoke(
-                elem,
-                &[JsValue::String("color".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(result, JsValue::String(String::new()));
-    }
-
-    #[test]
-    fn auto_creates_inline_style_component() {
-        let (mut dom, elem, mut session) = setup();
-        // No InlineStyle component initially.
-        assert!(dom.world().get::<&InlineStyle>(elem).is_err());
-
-        StyleSetProperty
-            .invoke(
-                elem,
-                &[
-                    JsValue::String("display".into()),
-                    JsValue::String("none".into()),
-                ],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-
-        // InlineStyle component should now exist.
-        assert!(dom.world().get::<&InlineStyle>(elem).is_ok());
-    }
-
-    /// Copilot R7 regression: `sync_to_attribute` must route through
-    /// `EcsDom::set_attribute` so `rev_version` fires.  Without the
-    /// bump, LiveCollection / layout / mutation-observer caches keyed
-    /// on `inclusive_descendants_version` stay stale across
-    /// `el.style.*` mutations.
-    #[test]
-    fn set_property_bumps_subtree_version() {
-        let (mut dom, elem, mut session) = setup();
-        let before = dom.inclusive_descendants_version(elem);
-        StyleSetProperty
-            .invoke(
-                elem,
-                &[
-                    JsValue::String("color".into()),
-                    JsValue::String("red".into()),
-                ],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        let after = dom.inclusive_descendants_version(elem);
-        assert!(
-            after > before,
-            "subtree version must bump on style write (before={before}, after={after})"
-        );
-    }
-
-    /// CRIT-1 regression: setProperty must round-trip through
-    /// `attrs("style")` so the cascade observes the change.
-    #[test]
-    fn set_property_syncs_attrs_style() {
-        let (mut dom, elem, mut session) = setup();
-        StyleSetProperty
-            .invoke(
-                elem,
-                &[
-                    JsValue::String("color".into()),
-                    JsValue::String("red".into()),
-                ],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-
-        let attrs = dom.world().get::<&Attributes>(elem).unwrap();
-        assert_eq!(attrs.get("style").unwrap(), "color: red");
-    }
-
-    /// CRIT-1 regression: removeProperty must update `attrs("style")`.
-    #[test]
-    fn remove_property_syncs_attrs_style() {
-        let (mut dom, elem, mut session) = setup();
-        StyleSetProperty
-            .invoke(
-                elem,
-                &[
-                    JsValue::String("color".into()),
-                    JsValue::String("red".into()),
-                ],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        StyleSetProperty
-            .invoke(
-                elem,
-                &[
-                    JsValue::String("display".into()),
-                    JsValue::String("block".into()),
-                ],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        StyleRemoveProperty
-            .invoke(
-                elem,
-                &[JsValue::String("color".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-
-        let attrs = dom.world().get::<&Attributes>(elem).unwrap();
-        assert_eq!(attrs.get("style").unwrap(), "display: block");
-    }
-
-    /// IMP-3: ASCII-lowercase normalisation for non-custom property names.
-    #[test]
-    fn property_name_lowercased() {
-        let (mut dom, elem, mut session) = setup();
-        StyleSetProperty
-            .invoke(
-                elem,
-                &[
-                    JsValue::String("Color".into()),
-                    JsValue::String("red".into()),
-                ],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-
-        // Stored under "color" (lowercase).
-        let result = StyleGetPropertyValue
-            .invoke(
-                elem,
-                &[JsValue::String("color".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(result, JsValue::String("red".into()));
-
-        // Mixed-case lookup also lowercases.
-        let result = StyleGetPropertyValue
-            .invoke(
-                elem,
-                &[JsValue::String("CoLoR".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(result, JsValue::String("red".into()));
-    }
-
-    /// IMP-3: custom properties (`--*`) preserve case (CSS Variables L1 §2).
-    #[test]
-    fn custom_property_case_preserved() {
-        let (mut dom, elem, mut session) = setup();
-        StyleSetProperty
-            .invoke(
-                elem,
-                &[
-                    JsValue::String("--MyVar".into()),
-                    JsValue::String("42".into()),
-                ],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-
-        let result = StyleGetPropertyValue
-            .invoke(
-                elem,
-                &[JsValue::String("--MyVar".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(result, JsValue::String("42".into()));
-
-        // Different case = different property.
-        let result = StyleGetPropertyValue
-            .invoke(
-                elem,
-                &[JsValue::String("--myvar".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(result, JsValue::String(String::new()));
-    }
-
-    #[test]
-    fn length_and_item() {
-        let (mut dom, elem, mut session) = setup();
-        StyleSetProperty
-            .invoke(
-                elem,
-                &[
-                    JsValue::String("color".into()),
-                    JsValue::String("red".into()),
-                ],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        StyleSetProperty
-            .invoke(
-                elem,
-                &[
-                    JsValue::String("display".into()),
-                    JsValue::String("block".into()),
-                ],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-
-        let len = StyleLength
-            .invoke(elem, &[], &mut session, &mut dom)
-            .unwrap();
-        assert_eq!(len, JsValue::Number(2.0));
-
-        let item0 = StyleItem
-            .invoke(elem, &[JsValue::Number(0.0)], &mut session, &mut dom)
-            .unwrap();
-        assert_eq!(item0, JsValue::String("color".into()));
-
-        let item_oob = StyleItem
-            .invoke(elem, &[JsValue::Number(99.0)], &mut session, &mut dom)
-            .unwrap();
-        assert_eq!(item_oob, JsValue::String(String::new()));
-    }
-
-    #[test]
-    fn css_text_round_trip() {
-        let (mut dom, elem, mut session) = setup();
-        StyleCssTextSet
-            .invoke(
-                elem,
-                &[JsValue::String("color: red; display: block".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-
-        // `parse_declaration_block` parses `color: red` into
-        // `CssValue::Color(...)` which `css_value_to_string` then
-        // serializes via the color's `Display` impl (hex form).  The
-        // round-trip therefore produces `#ff0000` rather than the input
-        // `red` keyword — accepted divergence for PR-A; lossless
-        // colour-keyword round-trip is paired with the CSSOM serializer
-        // work in PR-B.
-        let result = StyleGetPropertyValue
-            .invoke(
-                elem,
-                &[JsValue::String("color".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        let JsValue::String(s) = result else {
-            panic!("expected string")
-        };
-        assert!(
-            !s.is_empty(),
-            "color round-trip should produce a non-empty value"
-        );
-
-        // `display: block` is a keyword — exact round-trip.
-        let display = StyleGetPropertyValue
-            .invoke(
-                elem,
-                &[JsValue::String("display".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(display, JsValue::String("block".into()));
-
-        // cssText getter serializes back.
-        let text = StyleCssTextGet
-            .invoke(elem, &[], &mut session, &mut dom)
-            .unwrap();
-        let JsValue::String(text_s) = text else {
-            panic!("expected string")
-        };
-        assert!(text_s.contains("display: block"));
-    }
-
-    /// IMP-8: cssText="garbage" clears the block (all-or-nothing semantics).
-    #[test]
-    fn css_text_invalid_clears() {
-        let (mut dom, elem, mut session) = setup();
-        StyleSetProperty
-            .invoke(
-                elem,
-                &[
-                    JsValue::String("color".into()),
-                    JsValue::String("red".into()),
-                ],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        StyleCssTextSet
-            .invoke(
-                elem,
-                &[JsValue::String("garbage }}}".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-
-        let len = StyleLength
-            .invoke(elem, &[], &mut session, &mut dom)
-            .unwrap();
-        assert_eq!(len, JsValue::Number(0.0));
-    }
-}
+mod tests;

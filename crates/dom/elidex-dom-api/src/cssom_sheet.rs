@@ -48,7 +48,6 @@ use elidex_script_session::{
     CssomSheetState, DomApiError, DomApiErrorKind, DomApiHandler, SessionCore,
 };
 
-use crate::computed_style::css_value_to_string;
 use crate::element::collect_text_content;
 use crate::node_methods::SetTextContentNodeKind;
 use crate::util::require_string_arg;
@@ -394,7 +393,7 @@ fn rule_id_arg(args: &[JsValue]) -> Option<u64> {
 fn push_declaration(out: &mut String, decl: &elidex_css::Declaration) {
     out.push_str(&decl.property);
     out.push_str(": ");
-    out.push_str(&css_value_to_string(&decl.value));
+    out.push_str(&decl.value.to_css_string());
     if decl.important {
         out.push_str(" !important");
     }
@@ -496,13 +495,68 @@ impl DomApiHandler for RuleStyleGetPropertyValue {
         let property = require_string_arg(args, 1)?;
         let normalized = crate::util::normalize_property_name(&property);
         let value = with_rule(this, args, session, dom, String::new(), |r| {
-            r.declarations
-                .iter()
-                .rev()
-                .find(|d| d.property == normalized)
-                .map_or_else(String::new, |d| css_value_to_string(&d.value))
+            // Last declaration wins (mirrors the cascade). A shorthand
+            // reconstructs from its longhands via the same canonical
+            // `elidex_css::serialize_shorthand_value` the inline path
+            // uses — rules are always parser-expanded, so a shorthand key
+            // never appears in `declarations` directly.
+            let last = |name: &str| {
+                r.declarations
+                    .iter()
+                    .rev()
+                    .find(|d| d.property == name)
+                    .map(|d| (d.value.to_css_string(), d.important))
+            };
+            elidex_css::serialize_shorthand_value(&normalized, |lh| last(lh))
+                .or_else(|| last(&normalized).map(|(value, _)| value))
+                .unwrap_or_default()
         });
         Ok(JsValue::String(value))
+    }
+}
+
+/// `CSSStyleRule.style.getPropertyPriority(name)` — returns `"important"`
+/// when the rule's declaration for the named property carries the
+/// `!important` flag, the empty string otherwise (CSSOM §6.6.1). The
+/// last matching declaration wins, mirroring `getPropertyValue`.
+pub struct RuleStyleGetPropertyPriority;
+
+impl DomApiHandler for RuleStyleGetPropertyPriority {
+    fn method_name(&self) -> &str {
+        "rule.style.getPropertyPriority"
+    }
+
+    fn invoke(
+        &self,
+        this: Entity,
+        args: &[JsValue],
+        session: &mut SessionCore,
+        dom: &mut EcsDom,
+    ) -> Result<JsValue, DomApiError> {
+        let property = require_string_arg(args, 1)?;
+        let normalized = crate::util::normalize_property_name(&property);
+        let important = with_rule(this, args, session, dom, false, |r| {
+            // §6.6.1 getPropertyPriority step 1.2: a shorthand reads
+            // "important" iff every mapped longhand does (the parser
+            // stores rules longhand-expanded, so the shorthand key
+            // itself never appears in `declarations`).
+            let last_is_important = |name: &str| {
+                r.declarations
+                    .iter()
+                    .rev()
+                    .find(|d| d.property == name)
+                    .is_some_and(|d| d.important)
+            };
+            let longhands = elidex_css::shorthand_longhands(&normalized);
+            if longhands.is_empty() {
+                last_is_important(&normalized)
+            } else {
+                longhands.iter().all(|lh| last_is_important(lh))
+            }
+        });
+        Ok(JsValue::String(
+            if important { "important" } else { "" }.to_string(),
+        ))
     }
 }
 
@@ -545,14 +599,13 @@ impl DomApiHandler for RuleStyleItem {
         session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        let JsValue::Number(idx_f) = args.get(1).cloned().unwrap_or(JsValue::Undefined) else {
-            return Ok(JsValue::String(String::new()));
+        // CSSOM §6.6.1 `item(unsigned long index)` — WebIDL ToUint32
+        // coercion (NaN → 0), matching the inline `StyleItem` path.
+        let idx_f = match args.get(1) {
+            Some(JsValue::Number(n)) => *n,
+            _ => 0.0,
         };
-        if !idx_f.is_finite() || idx_f < 0.0 {
-            return Ok(JsValue::String(String::new()));
-        }
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let idx = idx_f as usize;
+        let idx = crate::util::webidl_unsigned_long(idx_f);
         let name = with_rule(this, args, session, dom, String::new(), |r| {
             unique_properties_last_wins(&r.declarations)
                 .get(idx)

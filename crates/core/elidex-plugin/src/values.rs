@@ -2,6 +2,31 @@
 
 use std::fmt;
 
+/// Escape a string's contents per CSSOM "serialize a string" (the
+/// caller supplies the surrounding quotes): `"` and `\` get a backslash
+/// escape, U+0000 becomes U+FFFD, and other control characters become a
+/// hex escape. Without this, a string value containing CSS-significant
+/// characters would corrupt the declaration block on re-parse.
+#[must_use]
+pub fn escape_css_string(s: &str) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '\0' => out.push('\u{FFFD}'),
+            '\u{1}'..='\u{1f}' | '\u{7f}' => {
+                let _ = write!(out, "\\{:x} ", ch as u32);
+            }
+            '"' | '\\' => {
+                out.push('\\');
+                out.push(ch);
+            }
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 /// A parsed CSS value before resolution.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
@@ -48,7 +73,8 @@ pub enum CssValue {
     Angle(f32),
     /// A gradient value (linear, radial, or conic).
     Gradient(Box<GradientValue>),
-    /// A list of CSS transform functions (CSS Transforms L1 §5 / L2 §6).
+    /// A list of CSS transform functions (CSS Transforms L1 §7 / L2 §12,
+    /// "The Transform Functions").
     TransformList(Vec<TransformFunction>),
 }
 
@@ -108,7 +134,111 @@ pub enum AngleOrDirection {
     To(Vec<String>),
 }
 
-/// A single CSS transform function (CSS Transforms L1 §5, L2 §6).
+impl GradientValue {
+    /// Serialize this gradient back to its CSS function form
+    /// (`linear-gradient(...)` etc., CSS Images 3 §3 "Gradients"),
+    /// re-parseable by the gradient parser. Backs
+    /// [`CssValue::to_css_string`].
+    ///
+    /// This is the *specified-value* serializer (round-trips the parsed
+    /// AST). The *resolved-value* gradient serializers for
+    /// `getComputedStyle` live in `elidex-css-background` and consume the
+    /// resolved `background::*Gradient` types (normalized stop positions,
+    /// `rgb()` colors) — a genuinely separate spec concern, not a
+    /// duplicate of this method.
+    #[must_use]
+    pub fn to_css_string(&self) -> String {
+        fn stops_text(stops: &[CssColorStop]) -> String {
+            stops
+                .iter()
+                .map(|s| match &s.position {
+                    Some(p) => format!("{} {}", s.color.to_css_string(), p.to_css_string()),
+                    None => s.color.to_css_string(),
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        }
+        fn position_text(position: &[CssValue]) -> String {
+            position
+                .iter()
+                .map(CssValue::to_css_string)
+                .collect::<Vec<_>>()
+                .join(" ")
+        }
+        fn with_prelude(name: &str, prelude: &[String], stops: &str) -> String {
+            if prelude.is_empty() {
+                format!("{name}({stops})")
+            } else {
+                format!("{name}({}, {stops})", prelude.join(" "))
+            }
+        }
+        match self {
+            Self::Linear {
+                direction,
+                stops,
+                repeating,
+            } => {
+                let name = if *repeating {
+                    "repeating-linear-gradient"
+                } else {
+                    "linear-gradient"
+                };
+                let dir = match direction {
+                    AngleOrDirection::Angle(a) => format!("{a}deg"),
+                    AngleOrDirection::To(parts) => format!("to {}", parts.join(" ")),
+                };
+                with_prelude(name, &[dir], &stops_text(stops))
+            }
+            Self::Radial {
+                shape,
+                size,
+                position,
+                stops,
+                repeating,
+            } => {
+                let name = if *repeating {
+                    "repeating-radial-gradient"
+                } else {
+                    "radial-gradient"
+                };
+                let mut prelude: Vec<String> = Vec::new();
+                if let Some(s) = shape {
+                    prelude.push(s.clone());
+                }
+                if let Some(s) = size {
+                    prelude.push(s.clone());
+                }
+                if let Some(p) = position {
+                    prelude.push(format!("at {}", position_text(p)));
+                }
+                with_prelude(name, &prelude, &stops_text(stops))
+            }
+            Self::Conic {
+                from_angle,
+                position,
+                stops,
+                repeating,
+            } => {
+                let name = if *repeating {
+                    "repeating-conic-gradient"
+                } else {
+                    "conic-gradient"
+                };
+                let mut prelude: Vec<String> = Vec::new();
+                if let Some(a) = from_angle {
+                    prelude.push(format!("from {a}deg"));
+                }
+                if let Some(p) = position {
+                    prelude.push(format!("at {}", position_text(p)));
+                }
+                with_prelude(name, &prelude, &stops_text(stops))
+            }
+        }
+    }
+}
+
+/// A single CSS transform function (CSS Transforms L1 §7 / L2 §12,
+/// "The Transform Functions").
 #[derive(Clone, Debug, PartialEq)]
 pub enum TransformFunction {
     // --- Level 1 ---
@@ -155,6 +285,145 @@ pub enum TransformFunction {
     Matrix3d([f64; 16]),
     /// `perspective(<length>)` — transform function (not property)
     PerspectiveFunc(f32),
+}
+
+impl TransformFunction {
+    /// Serialize this transform function to its CSS string
+    /// representation (CSS Transforms L1 §7 / L2 §12 function forms).
+    ///
+    /// Non-finite values (NaN, Infinity) are replaced with 0 to ensure
+    /// valid CSS output.
+    #[must_use]
+    #[allow(clippy::too_many_lines)]
+    pub fn to_css_string(&self) -> String {
+        /// Replace NaN/Infinity with 0 to produce valid CSS.
+        fn sf(v: f32) -> f32 {
+            if v.is_finite() {
+                v
+            } else {
+                0.0
+            }
+        }
+        fn sf64(v: f64) -> f64 {
+            if v.is_finite() {
+                v
+            } else {
+                0.0
+            }
+        }
+
+        fn fmt_val(v: &CssValue) -> String {
+            match v {
+                CssValue::Length(n, unit) => {
+                    let n = sf(*n);
+                    format!("{n}{}", unit.as_str())
+                }
+                CssValue::Percentage(n) => {
+                    let n = sf(*n);
+                    format!("{n}%")
+                }
+                CssValue::Number(n) => {
+                    let n = sf(*n);
+                    format!("{n}")
+                }
+                // Non-numeric argument (e.g. `translate(calc(100% - 10px))`
+                // stores a `CssValue::Calc`): delegate to the canonical
+                // serializer — collapsing to a literal would corrupt the
+                // value on the attribute round-trip.
+                _ => v.to_css_string(),
+            }
+        }
+
+        match self {
+            Self::Translate(x, y) => format!("translate({}, {})", fmt_val(x), fmt_val(y)),
+            Self::TranslateX(x) => format!("translateX({})", fmt_val(x)),
+            Self::TranslateY(y) => format!("translateY({})", fmt_val(y)),
+            Self::Rotate(deg) => {
+                let deg = sf(*deg);
+                format!("rotate({deg}deg)")
+            }
+            Self::Scale(sx, sy) => {
+                let (sx, sy) = (sf(*sx), sf(*sy));
+                if (sx - sy).abs() < f32::EPSILON {
+                    format!("scale({sx})")
+                } else {
+                    format!("scale({sx}, {sy})")
+                }
+            }
+            Self::ScaleX(s) => {
+                let s = sf(*s);
+                format!("scaleX({s})")
+            }
+            Self::ScaleY(s) => {
+                let s = sf(*s);
+                format!("scaleY({s})")
+            }
+            Self::Skew(ax, ay) => {
+                let (ax, ay) = (sf(*ax), sf(*ay));
+                format!("skew({ax}deg, {ay}deg)")
+            }
+            Self::SkewX(a) => {
+                let a = sf(*a);
+                format!("skewX({a}deg)")
+            }
+            Self::SkewY(a) => {
+                let a = sf(*a);
+                format!("skewY({a}deg)")
+            }
+            Self::Matrix(m) => {
+                let m: Vec<f64> = m.iter().map(|v| sf64(*v)).collect();
+                format!(
+                    "matrix({}, {}, {}, {}, {}, {})",
+                    m[0], m[1], m[2], m[3], m[4], m[5]
+                )
+            }
+            Self::Translate3d(x, y, z) => {
+                format!(
+                    "translate3d({}, {}, {})",
+                    fmt_val(x),
+                    fmt_val(y),
+                    fmt_val(z)
+                )
+            }
+            Self::TranslateZ(z) => format!("translateZ({})", fmt_val(z)),
+            Self::Rotate3d(x, y, z, deg) => {
+                let (x, y, z, deg) = (sf64(*x), sf64(*y), sf64(*z), sf(*deg));
+                format!("rotate3d({x}, {y}, {z}, {deg}deg)")
+            }
+            Self::RotateX(deg) => {
+                let deg = sf(*deg);
+                format!("rotateX({deg}deg)")
+            }
+            Self::RotateY(deg) => {
+                let deg = sf(*deg);
+                format!("rotateY({deg}deg)")
+            }
+            Self::RotateZ(deg) => {
+                let deg = sf(*deg);
+                format!("rotateZ({deg}deg)")
+            }
+            Self::Scale3d(sx, sy, sz) => {
+                let (sx, sy, sz) = (sf(*sx), sf(*sy), sf(*sz));
+                format!("scale3d({sx}, {sy}, {sz})")
+            }
+            Self::ScaleZ(s) => {
+                let s = sf(*s);
+                format!("scaleZ({s})")
+            }
+            Self::Matrix3d(m) => {
+                let vals: Vec<String> = m.iter().map(|v| format!("{}", sf64(*v))).collect();
+                format!("matrix3d({})", vals.join(", "))
+            }
+            Self::PerspectiveFunc(d) => {
+                let d = sf(*d);
+                if d == 0.0 {
+                    "perspective(none)".to_string()
+                } else {
+                    format!("perspective({d}px)")
+                }
+            }
+        }
+    }
 }
 
 /// CSS `transform-style` property (CSS Transforms L2 §4).
@@ -207,6 +476,39 @@ impl CalcExpr {
             Self::Add(a, b) | Self::Sub(a, b) | Self::Mul(a, b) | Self::Div(a, b) => {
                 a.contains_percentage() || b.contains_percentage()
             }
+        }
+    }
+
+    /// Serialize this expression as the body of a `calc()` function (no
+    /// outer `calc(...)` wrapper — [`CssValue::to_css_string`] adds it).
+    ///
+    /// This is a grouping-preserving round-trip serializer, not the
+    /// canonicalizing css-values-4 "serialize a math function" (which
+    /// would simplify the tree) — accepted divergence: the output
+    /// re-parses to the same tree, which is all the declaration
+    /// round-trip needs.
+    ///
+    /// Compound operands are parenthesized so the re-parsed tree
+    /// preserves grouping (`a - (b + c)` must not flatten to
+    /// `a - b + c`); the `calc()` parser accepts nested parentheses.
+    #[must_use]
+    pub fn to_css_string(&self) -> String {
+        fn operand(e: &CalcExpr) -> String {
+            match e {
+                CalcExpr::Length(..) | CalcExpr::Percentage(_) | CalcExpr::Number(_) => {
+                    e.to_css_string()
+                }
+                _ => format!("({})", e.to_css_string()),
+            }
+        }
+        match self {
+            Self::Length(v, unit) => format!("{v}{}", unit.as_str()),
+            Self::Percentage(p) => format!("{p}%"),
+            Self::Number(n) => format!("{n}"),
+            Self::Add(a, b) => format!("{} + {}", operand(a), operand(b)),
+            Self::Sub(a, b) => format!("{} - {}", operand(a), operand(b)),
+            Self::Mul(a, b) => format!("{} * {}", operand(a), operand(b)),
+            Self::Div(a, b) => format!("{} / {}", operand(a), operand(b)),
         }
     }
 }
@@ -268,6 +570,70 @@ impl CssValue {
     pub fn is_global_keyword(&self) -> bool {
         matches!(self, Self::Initial | Self::Inherit | Self::Unset)
     }
+
+    /// Convert this value to its CSS string representation (CSSOM
+    /// "serialize a CSS value").
+    ///
+    /// This is the canonical value→text form backing `InlineStyle`
+    /// storage and CSSOM `cssText` round-trips: the serialized text is
+    /// written back into the `style` content attribute and re-parsed by
+    /// the cascade, so every arm must produce re-parseable CSS. The
+    /// match is exhaustive within the defining crate — adding a
+    /// `CssValue` variant forces a serializer arm at compile time
+    /// rather than silently corrupting the attribute round-trip.
+    #[must_use]
+    pub fn to_css_string(&self) -> String {
+        match self {
+            Self::Keyword(s) | Self::RawTokens(s) => s.clone(),
+            // CSSOM "serialize a string": quoted + escaped. Unquoted
+            // output would let CSS-significant characters inside the
+            // string (`;`, `:`) shred the declaration block when the
+            // serialized text is re-parsed (style-attribute write-back).
+            Self::String(s) => format!("\"{}\"", escape_css_string(s)),
+            Self::Length(n, unit) => format!("{n}{}", unit.as_str()),
+            Self::Color(c) => c.to_string(),
+            Self::Number(n) => format!("{n}"),
+            Self::Percentage(n) => format!("{n}%"),
+            Self::Auto => "auto".into(),
+            Self::Initial => "initial".into(),
+            Self::Inherit => "inherit".into(),
+            Self::Unset => "unset".into(),
+            // KNOWN GAP: `List` does not record its separator, so this
+            // comma-join is wrong for space-separated lists (grid track
+            // lists, `text-decoration-line`, `counter-reset`) — those
+            // values don't re-parse. Needs separator semantics on the
+            // type: slot `#11-cssvalue-list-separator-fidelity`.
+            Self::List(items) => items
+                .iter()
+                .map(Self::to_css_string)
+                .collect::<Vec<_>>()
+                .join(", "),
+            Self::Var(name, fallback) => match fallback {
+                Some(fb) => format!("var({name}, {})", fb.to_css_string()),
+                None => format!("var({name})"),
+            },
+            Self::Calc(expr) => format!("calc({})", expr.to_css_string()),
+            Self::Time(secs) => {
+                // CSS time values are stored in seconds; serialize to ms if
+                // it's a clean millisecond value, otherwise use seconds.
+                let ms = secs * 1000.0;
+                #[allow(clippy::cast_possible_truncation)]
+                if (ms - ms.round()).abs() < f32::EPSILON && ms >= 0.0 {
+                    format!("{}ms", ms.round() as i32)
+                } else {
+                    format!("{secs}s")
+                }
+            }
+            Self::Url(url) => format!("url(\"{}\")", escape_css_string(url)),
+            Self::Angle(deg) => format!("{deg}deg"),
+            Self::Gradient(g) => g.to_css_string(),
+            Self::TransformList(funcs) => funcs
+                .iter()
+                .map(TransformFunction::to_css_string)
+                .collect::<Vec<_>>()
+                .join(" "),
+        }
+    }
 }
 
 /// CSS length units.
@@ -290,6 +656,23 @@ pub enum LengthUnit {
     Vmax,
     /// Flexible fraction (`fr`) for CSS Grid.
     Fr,
+}
+
+impl LengthUnit {
+    /// The canonical CSS unit suffix (`px`, `em`, …).
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Px => "px",
+            Self::Em => "em",
+            Self::Rem => "rem",
+            Self::Vw => "vw",
+            Self::Vh => "vh",
+            Self::Vmin => "vmin",
+            Self::Vmax => "vmax",
+            Self::Fr => "fr",
+        }
+    }
 }
 
 /// An RGBA color value.
@@ -334,6 +717,14 @@ impl CssColor {
     pub const BLUE: Self = Self::rgb(0, 0, 255);
 }
 
+/// Serializes to the canonical hex form (`#rrggbb`, or legacy `rgba()`
+/// when translucent).
+///
+/// Load-bearing for the re-parseable declaration round-trip: this is the
+/// `CssValue::Color` arm of [`CssValue::to_css_string`], which backs
+/// `InlineStyle` storage and the `style`-attribute write-back. Changing
+/// the format here changes the canonical inline-style form across
+/// parser, CSSOM, and cascade paths at once.
 impl fmt::Display for CssColor {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.a == 255 {
@@ -352,185 +743,4 @@ impl fmt::Display for CssColor {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn css_value_keyword() {
-        let v = CssValue::Keyword("block".into());
-        assert_eq!(v, CssValue::Keyword("block".into()));
-    }
-
-    #[test]
-    fn css_value_length() {
-        let v = CssValue::Length(10.0, LengthUnit::Px);
-        assert_eq!(v, CssValue::Length(10.0, LengthUnit::Px));
-    }
-
-    #[test]
-    fn css_value_color() {
-        let v = CssValue::Color(CssColor::RED);
-        assert_eq!(v, CssValue::Color(CssColor::rgb(255, 0, 0)));
-    }
-
-    #[test]
-    fn css_value_number() {
-        let v = CssValue::Number(1.5);
-        assert_eq!(v, CssValue::Number(1.5));
-    }
-
-    #[test]
-    fn css_value_percentage() {
-        let v = CssValue::Percentage(50.0);
-        assert_eq!(v, CssValue::Percentage(50.0));
-    }
-
-    #[test]
-    fn css_value_string() {
-        let v = CssValue::String("hello".into());
-        assert_eq!(v, CssValue::String("hello".into()));
-    }
-
-    #[test]
-    fn css_value_global_keywords() {
-        assert_ne!(CssValue::Auto, CssValue::Initial);
-        assert_ne!(CssValue::Inherit, CssValue::Unset);
-    }
-
-    #[test]
-    fn css_color_new_and_rgb() {
-        let c = CssColor::new(10, 20, 30, 128);
-        assert_eq!(c.r, 10);
-        assert_eq!(c.a, 128);
-
-        let opaque = CssColor::rgb(10, 20, 30);
-        assert_eq!(opaque.a, 255);
-    }
-
-    #[test]
-    fn css_color_named_constants() {
-        assert_eq!(CssColor::BLACK, CssColor::rgb(0, 0, 0));
-        assert_eq!(CssColor::WHITE, CssColor::rgb(255, 255, 255));
-        assert_eq!(CssColor::RED, CssColor::rgb(255, 0, 0));
-        assert_eq!(CssColor::GREEN, CssColor::rgb(0, 128, 0));
-        assert_eq!(CssColor::BLUE, CssColor::rgb(0, 0, 255));
-        assert_eq!(CssColor::TRANSPARENT, CssColor::new(0, 0, 0, 0));
-    }
-
-    #[test]
-    fn css_color_display_opaque() {
-        assert_eq!(CssColor::RED.to_string(), "#ff0000");
-        assert_eq!(CssColor::BLACK.to_string(), "#000000");
-    }
-
-    #[test]
-    fn css_color_display_alpha() {
-        let c = CssColor::new(255, 0, 0, 128);
-        let s = c.to_string();
-        assert!(s.starts_with("rgba(255, 0, 0, "));
-    }
-
-    #[test]
-    fn css_color_default_is_transparent() {
-        assert_eq!(CssColor::default(), CssColor::new(0, 0, 0, 0));
-    }
-
-    #[test]
-    fn length_unit_clone_debug() {
-        let u = LengthUnit::Em;
-        let u2 = u;
-        assert_eq!(u, u2);
-        assert_eq!(format!("{u:?}"), "Em");
-    }
-
-    #[test]
-    fn length_unit_fr() {
-        let v = CssValue::Length(1.0, LengthUnit::Fr);
-        assert_eq!(v.as_length(), Some((1.0, LengthUnit::Fr)));
-    }
-
-    #[test]
-    fn css_value_list() {
-        let v = CssValue::List(vec![
-            CssValue::String("Arial".into()),
-            CssValue::Keyword("sans-serif".into()),
-        ]);
-        match &v {
-            CssValue::List(items) => assert_eq!(items.len(), 2),
-            _ => panic!("expected List"),
-        }
-    }
-
-    #[test]
-    fn css_value_as_keyword() {
-        let v = CssValue::Keyword("block".into());
-        assert_eq!(v.as_keyword(), Some("block"));
-        assert_eq!(CssValue::Auto.as_keyword(), None);
-    }
-
-    #[test]
-    fn css_value_as_color() {
-        let v = CssValue::Color(CssColor::RED);
-        assert_eq!(v.as_color(), Some(&CssColor::RED));
-        assert_eq!(CssValue::Auto.as_color(), None);
-    }
-
-    #[test]
-    fn css_value_as_number_accessor() {
-        let v = CssValue::Number(1.5);
-        assert_eq!(v.as_number(), Some(1.5));
-        assert_eq!(CssValue::Auto.as_number(), None);
-    }
-
-    #[test]
-    fn css_value_as_percentage_accessor() {
-        let v = CssValue::Percentage(50.0);
-        assert_eq!(v.as_percentage(), Some(50.0));
-        assert_eq!(CssValue::Auto.as_percentage(), None);
-    }
-
-    #[test]
-    fn css_value_is_auto() {
-        assert!(CssValue::Auto.is_auto());
-        assert!(!CssValue::Initial.is_auto());
-        assert!(!CssValue::Number(0.0).is_auto());
-    }
-
-    #[test]
-    fn css_value_is_global_keyword() {
-        assert!(CssValue::Initial.is_global_keyword());
-        assert!(CssValue::Inherit.is_global_keyword());
-        assert!(CssValue::Unset.is_global_keyword());
-        assert!(!CssValue::Auto.is_global_keyword());
-        assert!(!CssValue::Keyword("block".into()).is_global_keyword());
-    }
-
-    #[test]
-    fn css_value_as_length() {
-        let v = CssValue::Length(10.0, LengthUnit::Px);
-        assert_eq!(v.as_length(), Some((10.0, LengthUnit::Px)));
-        assert_eq!(CssValue::Auto.as_length(), None);
-    }
-
-    #[test]
-    fn calc_expr_add() {
-        let expr = CalcExpr::Add(
-            Box::new(CalcExpr::Length(10.0, LengthUnit::Px)),
-            Box::new(CalcExpr::Length(20.0, LengthUnit::Px)),
-        );
-        let val = CssValue::Calc(Box::new(expr));
-        assert!(matches!(val, CssValue::Calc(_)));
-    }
-
-    #[test]
-    fn calc_expr_nested() {
-        // (10px + 5px) * 2
-        let sum = CalcExpr::Add(
-            Box::new(CalcExpr::Length(10.0, LengthUnit::Px)),
-            Box::new(CalcExpr::Length(5.0, LengthUnit::Px)),
-        );
-        let expr = CalcExpr::Mul(Box::new(sum), Box::new(CalcExpr::Number(2.0)));
-        let val = CssValue::Calc(Box::new(expr));
-        assert!(matches!(val, CssValue::Calc(_)));
-    }
-}
+mod tests;
