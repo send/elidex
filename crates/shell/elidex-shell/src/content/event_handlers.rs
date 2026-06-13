@@ -50,6 +50,11 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
         return;
     }
 
+    // Focus moved to a top-level element — the parent document holds focus,
+    // so clear any iframe that previously captured key routing (else
+    // `try_route_key_to_iframe` would keep sending keystrokes into the stale
+    // iframe now that iframe focus is tracked via the FOCUS bit).
+    state.focused_iframe = None;
     // Update focus.
     set_focus(&mut state.pipeline, hit_entity);
 

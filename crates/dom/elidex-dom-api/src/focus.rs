@@ -154,11 +154,20 @@ pub fn current_focus(dom: &EcsDom, document: Entity) -> Option<Entity> {
         return None;
     }
     let mut cur = Some(focused);
+    let mut depth = 0;
     while let Some(c) = cur {
         if c == document {
             return Some(focused);
         }
+        // Defensive depth cap, matching the codebase's other ancestor walkers
+        // (`find_link_ancestor`, `build_propagation_path`): a malformed parent
+        // cycle must not hang this read, which now runs on hot UA paths
+        // (keydown / caret blink / IME / a11y rebuild).
+        if depth >= elidex_ecs::MAX_ANCESTOR_DEPTH {
+            break;
+        }
         cur = dom.get_parent(c);
+        depth += 1;
     }
     None
 }
