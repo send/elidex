@@ -51,11 +51,6 @@ fn parse_ordered_set(class_str: &str) -> Vec<&str> {
     seen
 }
 
-/// Normalize whitespace in a class string: collapse multiple spaces, trim.
-fn normalize_class_string(s: &str) -> String {
-    s.split_ascii_whitespace().collect::<Vec<_>>().join(" ")
-}
-
 /// Read the raw token string for a given attribute name (e.g. `"class"`,
 /// `"rel"`, `"sizes"`).  Generalised in slot `#11-tags-T2a-url-bearing` so
 /// the same DOMTokenList algorithms back `Element.classList`,
@@ -130,50 +125,60 @@ fn collect_string_args(args: &[JsValue]) -> Result<Vec<String>, DomApiError> {
         .collect()
 }
 
-/// Append each of `tokens` to the attribute's whitespace-separated list if not
-/// already present, then run the update steps **once** for the whole call.
-///
-/// DOM §7.1 `add(tokens…)` is variadic: it appends every token to the ordered
-/// set and runs the update steps a single time, so a call dispatches exactly
-/// one `AttributeChange` (and enqueues one `attributeChangedCallback`).
-/// Per-token routing through `EcsDom::set_attribute` would instead dispatch one
-/// event *per token*. `toggle` reuses this with a single-element slice.
+/// Parse the backing attribute into its **ordered token set** — the working
+/// unit of every DOMTokenList mutator (DOM §7.1: ordered-set parser, split on
+/// ASCII whitespace + dedup preserving order). Mutators operate on this `Vec`
+/// then serialize it back via [`run_update_steps`], so serialization +
+/// deduplication + the update-steps gate are correct by construction for every
+/// method (`add`/`remove`/`toggle`/`replace`) — no method manipulates the raw
+/// attribute string.
+fn token_set(entity: Entity, dom: &EcsDom, attr_name: &str) -> Result<Vec<String>, DomApiError> {
+    let current = get_token_string(entity, dom, attr_name)?;
+    Ok(parse_ordered_set(&current)
+        .into_iter()
+        .map(str::to_string)
+        .collect())
+}
+
+/// Serialize an ordered token set (DOM §7.1 ordered-set serializer — join with
+/// U+0020). The single canonical form every mutator writes through the update
+/// steps; the `value=` setter is the only path that writes a raw value.
+fn serialize_token_set(set: &[String]) -> String {
+    set.join(" ")
+}
+
+/// `add(tokens…)` — append each token to the ordered set if absent, then run
+/// the update steps **once** (DOM §7.1). Variadic: one `AttributeChange` for the
+/// whole call (per-token routing would fire one per token); the serialized set
+/// is written, never the raw attribute string. `toggle` reuses this with a
+/// single-element slice.
 fn add_tokens(
     entity: Entity,
     attr_name: &str,
     tokens: &[String],
     dom: &mut EcsDom,
 ) -> Result<(), DomApiError> {
-    let mut working = get_token_string(entity, dom, attr_name)?;
+    let mut set = token_set(entity, dom, attr_name)?;
     for token in tokens {
-        if !working.split_ascii_whitespace().any(|c| c == token) {
-            let normalized = normalize_class_string(&working);
-            working = if normalized.is_empty() {
-                token.clone()
-            } else {
-                format!("{normalized} {token}")
-            };
+        if !set.iter().any(|t| t == token) {
+            set.push(token.clone());
         }
     }
-    run_update_steps(entity, dom, attr_name, &working)
+    run_update_steps(entity, dom, attr_name, &serialize_token_set(&set))
 }
 
-/// Remove every token in `tokens` from the attribute's whitespace-separated
-/// list, then run the update steps **once** (DOM §7.1 `remove(tokens…)` — see
-/// [`add_tokens`] for why a single update). `toggle` reuses this with a
-/// single-element slice.
+/// `remove(tokens…)` — drop every token in `tokens` from the ordered set, then
+/// run the update steps **once** (DOM §7.1). See [`add_tokens`]. `toggle` reuses
+/// this with a single-element slice.
 fn remove_tokens(
     entity: Entity,
     attr_name: &str,
     tokens: &[String],
     dom: &mut EcsDom,
 ) -> Result<(), DomApiError> {
-    let current = get_token_string(entity, dom, attr_name)?;
-    let new_tokens: Vec<&str> = current
-        .split_ascii_whitespace()
-        .filter(|c| !tokens.iter().any(|t| t == c))
-        .collect();
-    run_update_steps(entity, dom, attr_name, &new_tokens.join(" "))
+    let mut set = token_set(entity, dom, attr_name)?;
+    set.retain(|t| !tokens.iter().any(|x| x == t));
+    run_update_steps(entity, dom, attr_name, &serialize_token_set(&set))
 }
 
 // ===========================================================================
@@ -300,25 +305,25 @@ impl DomApiHandler for TokenListHandler {
                 let new_token = require_string_arg(args, 1)?;
                 validate_token(&old_token)?;
                 validate_token(&new_token)?;
-                let current = get_token_string(this, dom, self.attr_name)?;
-                let tokens: Vec<&str> = current.split_ascii_whitespace().collect();
-                if !tokens.contains(&old_token.as_str()) {
+                let set = token_set(this, dom, self.attr_name)?;
+                if !set.iter().any(|t| t == &old_token) {
                     return Ok(JsValue::Bool(false));
                 }
-                // Infra ordered set "replace": replace first occurrence
-                // of `old_token` with `new_token`, then drop subsequent
-                // occurrences of `new_token` (dedup).
+                // DOM §7.1 ordered-set "replace": replace the (single) `old`
+                // with `new`, dropping any pre-existing `new` so the set stays
+                // deduped. The set is already an ordered set (`token_set`), so
+                // at most one `old` exists.
                 let mut replaced = false;
-                let mut result: Vec<&str> = Vec::with_capacity(tokens.len());
-                for t in &tokens {
-                    if !replaced && *t == old_token.as_str() {
-                        result.push(new_token.as_str());
+                let mut result: Vec<String> = Vec::with_capacity(set.len());
+                for t in set {
+                    if !replaced && t == old_token {
+                        result.push(new_token.clone());
                         replaced = true;
-                    } else if *t != new_token.as_str() {
+                    } else if t != new_token {
                         result.push(t);
                     }
                 }
-                run_update_steps(this, dom, self.attr_name, &result.join(" "))?;
+                run_update_steps(this, dom, self.attr_name, &serialize_token_set(&result))?;
                 Ok(JsValue::Bool(true))
             }
             TokenListOp::ValueGet => {
@@ -484,800 +489,6 @@ handler!(
     "for",
     Supports
 );
-
 #[cfg(test)]
-#[allow(unused_must_use)] // Test setup calls dom.append_child() etc. without checking return values
-mod tests {
-    use super::*;
-
-    fn setup() -> (EcsDom, Entity, SessionCore) {
-        let mut dom = EcsDom::new();
-        let mut attrs = Attributes::default();
-        attrs.set("class", "foo bar");
-        let elem = dom.create_element("div", attrs);
-        let session = SessionCore::new();
-        (dom, elem, session)
-    }
-
-    #[test]
-    fn validate_token_rejects_ascii_whitespace() {
-        // Spec scope: each of the 5 ASCII whitespace bytes must error.
-        for ws in ["\t", "\n", "\x0c", "\r", " "] {
-            let token = format!("foo{ws}bar");
-            let err = validate_token(&token).unwrap_err();
-            assert_eq!(err.kind, DomApiErrorKind::InvalidCharacterError);
-        }
-    }
-
-    #[test]
-    fn validate_token_accepts_non_ascii_whitespace() {
-        // PR178 R4 IMP regression — `char::is_whitespace` previously
-        // rejected non-ASCII whitespace such as U+00A0 (NBSP), which
-        // the spec considers a valid token character.
-        for ch in ["\u{00A0}", "\u{2003}", "\u{3000}"] {
-            let token = format!("foo{ch}bar");
-            assert!(
-                validate_token(&token).is_ok(),
-                "token containing {ch:?} should be accepted (non-ASCII whitespace)"
-            );
-        }
-    }
-
-    #[test]
-    fn add_then_contains_token_with_nbsp() {
-        // PR178 R5 IMP regression — every tokenisation site (parse_ordered_set,
-        // normalize_class_string, add_token, remove_token, Toggle / Contains /
-        // Replace / Length / Item) was using `split_whitespace` (Unicode-aware),
-        // which would break `contains`/`add` for tokens containing NBSP
-        // (U+00A0) and other non-ASCII whitespace.  Switched to
-        // `split_ascii_whitespace` so the membership check matches the
-        // ASCII-whitespace parser used at insertion time.
-        let (mut dom, elem, mut session) = setup();
-        let nbsp_token = "foo\u{00A0}bar";
-        CLASS_LIST_ADD
-            .invoke(
-                elem,
-                &[JsValue::String(nbsp_token.into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        let result = CLASS_LIST_CONTAINS
-            .invoke(
-                elem,
-                &[JsValue::String(nbsp_token.into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(
-            result,
-            JsValue::Bool(true),
-            "contains() must find an NBSP-containing token previously added"
-        );
-    }
-
-    #[test]
-    fn add_new_class() {
-        let (mut dom, elem, mut session) = setup();
-        CLASS_LIST_ADD
-            .invoke(
-                elem,
-                &[JsValue::String("baz".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        let attrs = dom.world().get::<&Attributes>(elem).unwrap();
-        let classes: Vec<&str> = attrs
-            .get("class")
-            .unwrap()
-            .split_ascii_whitespace()
-            .collect();
-        assert!(classes.contains(&"baz"));
-        assert!(classes.contains(&"foo"));
-    }
-
-    #[test]
-    fn add_existing_class_noop() {
-        let (mut dom, elem, mut session) = setup();
-        CLASS_LIST_ADD
-            .invoke(
-                elem,
-                &[JsValue::String("foo".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        let attrs = dom.world().get::<&Attributes>(elem).unwrap();
-        let count = attrs
-            .get("class")
-            .unwrap()
-            .split_ascii_whitespace()
-            .filter(|c| *c == "foo")
-            .count();
-        assert_eq!(count, 1);
-    }
-
-    #[test]
-    fn remove_class() {
-        let (mut dom, elem, mut session) = setup();
-        CLASS_LIST_REMOVE
-            .invoke(
-                elem,
-                &[JsValue::String("foo".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        let attrs = dom.world().get::<&Attributes>(elem).unwrap();
-        assert!(!attrs
-            .get("class")
-            .unwrap()
-            .split_ascii_whitespace()
-            .any(|c| c == "foo"));
-    }
-
-    #[test]
-    fn toggle_adds_when_absent() {
-        let (mut dom, elem, mut session) = setup();
-        let result = CLASS_LIST_TOGGLE
-            .invoke(
-                elem,
-                &[JsValue::String("baz".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(result, JsValue::Bool(true));
-    }
-
-    #[test]
-    fn toggle_removes_when_present() {
-        let (mut dom, elem, mut session) = setup();
-        let result = CLASS_LIST_TOGGLE
-            .invoke(
-                elem,
-                &[JsValue::String("foo".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(result, JsValue::Bool(false));
-    }
-
-    #[test]
-    fn contains_true() {
-        let (mut dom, elem, mut session) = setup();
-        let result = CLASS_LIST_CONTAINS
-            .invoke(
-                elem,
-                &[JsValue::String("foo".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(result, JsValue::Bool(true));
-    }
-
-    #[test]
-    fn contains_false() {
-        let (mut dom, elem, mut session) = setup();
-        let result = CLASS_LIST_CONTAINS
-            .invoke(
-                elem,
-                &[JsValue::String("missing".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(result, JsValue::Bool(false));
-    }
-
-    #[test]
-    fn add_rejects_empty_token() {
-        let (mut dom, elem, mut session) = setup();
-        let err = CLASS_LIST_ADD
-            .invoke(
-                elem,
-                &[JsValue::String(String::new())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap_err();
-        assert_eq!(err.kind, DomApiErrorKind::SyntaxError);
-    }
-
-    #[test]
-    fn add_rejects_whitespace_token() {
-        let (mut dom, elem, mut session) = setup();
-        let err = CLASS_LIST_ADD
-            .invoke(
-                elem,
-                &[JsValue::String("a b".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap_err();
-        assert_eq!(err.kind, DomApiErrorKind::InvalidCharacterError);
-    }
-
-    #[test]
-    fn add_normalizes_whitespace() {
-        let mut dom = EcsDom::new();
-        let mut attrs = Attributes::default();
-        attrs.set("class", "  foo  bar  ");
-        let elem = dom.create_element("div", attrs);
-        let mut session = SessionCore::new();
-        CLASS_LIST_ADD
-            .invoke(
-                elem,
-                &[JsValue::String("baz".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        let attrs = dom.world().get::<&Attributes>(elem).unwrap();
-        assert_eq!(attrs.get("class").unwrap(), "foo bar baz");
-    }
-
-    // -----------------------------------------------------------------------
-    // toggle with force parameter
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn toggle_force_true_adds() {
-        let (mut dom, elem, mut session) = setup();
-        let result = CLASS_LIST_TOGGLE
-            .invoke(
-                elem,
-                &[JsValue::String("baz".into()), JsValue::Bool(true)],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(result, JsValue::Bool(true));
-        let attrs = dom.world().get::<&Attributes>(elem).unwrap();
-        assert!(attrs
-            .get("class")
-            .unwrap()
-            .split_ascii_whitespace()
-            .any(|c| c == "baz"));
-    }
-
-    #[test]
-    fn toggle_force_true_keeps_existing() {
-        let (mut dom, elem, mut session) = setup();
-        let result = CLASS_LIST_TOGGLE
-            .invoke(
-                elem,
-                &[JsValue::String("foo".into()), JsValue::Bool(true)],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(result, JsValue::Bool(true));
-        let attrs = dom.world().get::<&Attributes>(elem).unwrap();
-        assert!(attrs
-            .get("class")
-            .unwrap()
-            .split_ascii_whitespace()
-            .any(|c| c == "foo"));
-    }
-
-    #[test]
-    fn toggle_force_false_removes() {
-        let (mut dom, elem, mut session) = setup();
-        let result = CLASS_LIST_TOGGLE
-            .invoke(
-                elem,
-                &[JsValue::String("foo".into()), JsValue::Bool(false)],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(result, JsValue::Bool(false));
-        let attrs = dom.world().get::<&Attributes>(elem).unwrap();
-        assert!(!attrs
-            .get("class")
-            .unwrap()
-            .split_ascii_whitespace()
-            .any(|c| c == "foo"));
-    }
-
-    #[test]
-    fn toggle_force_false_noop_when_absent() {
-        let (mut dom, elem, mut session) = setup();
-        let result = CLASS_LIST_TOGGLE
-            .invoke(
-                elem,
-                &[JsValue::String("baz".into()), JsValue::Bool(false)],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(result, JsValue::Bool(false));
-    }
-
-    // -----------------------------------------------------------------------
-    // classList.replace
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn replace_existing_class() {
-        let (mut dom, elem, mut session) = setup();
-        let result = CLASS_LIST_REPLACE
-            .invoke(
-                elem,
-                &[JsValue::String("foo".into()), JsValue::String("baz".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(result, JsValue::Bool(true));
-        let attrs = dom.world().get::<&Attributes>(elem).unwrap();
-        let classes: Vec<&str> = attrs
-            .get("class")
-            .unwrap()
-            .split_ascii_whitespace()
-            .collect();
-        // "baz" should be in the position of "foo" (first).
-        assert_eq!(classes, vec!["baz", "bar"]);
-    }
-
-    #[test]
-    fn replace_missing_class() {
-        let (mut dom, elem, mut session) = setup();
-        let result = CLASS_LIST_REPLACE
-            .invoke(
-                elem,
-                &[
-                    JsValue::String("missing".into()),
-                    JsValue::String("baz".into()),
-                ],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(result, JsValue::Bool(false));
-        // Class string unchanged.
-        let attrs = dom.world().get::<&Attributes>(elem).unwrap();
-        let classes: Vec<&str> = attrs
-            .get("class")
-            .unwrap()
-            .split_ascii_whitespace()
-            .collect();
-        assert!(classes.contains(&"foo"));
-        assert!(classes.contains(&"bar"));
-    }
-
-    #[test]
-    fn replace_rejects_invalid_token() {
-        let (mut dom, elem, mut session) = setup();
-        let err = CLASS_LIST_REPLACE
-            .invoke(
-                elem,
-                &[
-                    JsValue::String(String::new()),
-                    JsValue::String("baz".into()),
-                ],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap_err();
-        assert_eq!(err.kind, DomApiErrorKind::SyntaxError);
-    }
-
-    // -----------------------------------------------------------------------
-    // classList.value getter/setter
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn value_get() {
-        let (mut dom, elem, mut session) = setup();
-        let result = CLASS_LIST_VALUE_GET
-            .invoke(elem, &[], &mut session, &mut dom)
-            .unwrap();
-        assert_eq!(result, JsValue::String("foo bar".into()));
-    }
-
-    #[test]
-    fn value_set() {
-        let (mut dom, elem, mut session) = setup();
-        CLASS_LIST_VALUE_SET
-            .invoke(
-                elem,
-                &[JsValue::String("a b c".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        let result = CLASS_LIST_VALUE_GET
-            .invoke(elem, &[], &mut session, &mut dom)
-            .unwrap();
-        assert_eq!(result, JsValue::String("a b c".into()));
-    }
-
-    // -----------------------------------------------------------------------
-    // classList.length
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn length() {
-        let (mut dom, elem, mut session) = setup();
-        let result = CLASS_LIST_LENGTH
-            .invoke(elem, &[], &mut session, &mut dom)
-            .unwrap();
-        assert_eq!(result, JsValue::Number(2.0));
-    }
-
-    #[test]
-    fn length_empty() {
-        let mut dom = EcsDom::new();
-        let elem = dom.create_element("div", Attributes::default());
-        let mut session = SessionCore::new();
-        let result = CLASS_LIST_LENGTH
-            .invoke(elem, &[], &mut session, &mut dom)
-            .unwrap();
-        assert_eq!(result, JsValue::Number(0.0));
-    }
-
-    // -----------------------------------------------------------------------
-    // classList.item
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn item_valid_index() {
-        let (mut dom, elem, mut session) = setup();
-        let result = CLASS_LIST_ITEM
-            .invoke(elem, &[JsValue::Number(0.0)], &mut session, &mut dom)
-            .unwrap();
-        assert_eq!(result, JsValue::String("foo".into()));
-
-        let result = CLASS_LIST_ITEM
-            .invoke(elem, &[JsValue::Number(1.0)], &mut session, &mut dom)
-            .unwrap();
-        assert_eq!(result, JsValue::String("bar".into()));
-    }
-
-    #[test]
-    fn item_out_of_bounds() {
-        let (mut dom, elem, mut session) = setup();
-        let result = CLASS_LIST_ITEM
-            .invoke(elem, &[JsValue::Number(5.0)], &mut session, &mut dom)
-            .unwrap();
-        assert_eq!(result, JsValue::Null);
-    }
-
-    // -----------------------------------------------------------------------
-    // classList.supports
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn supports_throws() {
-        let (mut dom, elem, mut session) = setup();
-        let err = CLASS_LIST_SUPPORTS
-            .invoke(
-                elem,
-                &[JsValue::String("foo".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap_err();
-        assert_eq!(err.kind, DomApiErrorKind::TypeError);
-    }
-
-    // -----------------------------------------------------------------------
-    // Step 3 spec-compliance tests
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn validate_token_whitespace_is_invalid_character_error() {
-        let (mut dom, elem, mut session) = setup();
-        let err = CLASS_LIST_ADD
-            .invoke(
-                elem,
-                &[JsValue::String("a b".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap_err();
-        assert_eq!(err.kind, DomApiErrorKind::InvalidCharacterError);
-    }
-
-    #[test]
-    fn validate_token_empty_is_syntax_error() {
-        let (mut dom, elem, mut session) = setup();
-        let err = CLASS_LIST_ADD
-            .invoke(
-                elem,
-                &[JsValue::String(String::new())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap_err();
-        assert_eq!(err.kind, DomApiErrorKind::SyntaxError);
-    }
-
-    #[test]
-    fn contains_no_validate_empty() {
-        let (mut dom, elem, mut session) = setup();
-        let result = CLASS_LIST_CONTAINS
-            .invoke(
-                elem,
-                &[JsValue::String(String::new())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(result, JsValue::Bool(false));
-    }
-
-    #[test]
-    fn contains_no_validate_whitespace() {
-        let (mut dom, elem, mut session) = setup();
-        let result = CLASS_LIST_CONTAINS
-            .invoke(
-                elem,
-                &[JsValue::String("a b".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(result, JsValue::Bool(false));
-    }
-
-    #[test]
-    fn length_dedup() {
-        let mut dom = EcsDom::new();
-        let mut attrs = Attributes::default();
-        attrs.set("class", "foo bar foo");
-        let elem = dom.create_element("div", attrs);
-        let mut session = SessionCore::new();
-        let result = CLASS_LIST_LENGTH
-            .invoke(elem, &[], &mut session, &mut dom)
-            .unwrap();
-        assert_eq!(result, JsValue::Number(2.0)); // foo, bar (dedup)
-    }
-
-    #[test]
-    fn item_dedup() {
-        let mut dom = EcsDom::new();
-        let mut attrs = Attributes::default();
-        attrs.set("class", "foo bar foo");
-        let elem = dom.create_element("div", attrs);
-        let mut session = SessionCore::new();
-        let result = CLASS_LIST_ITEM
-            .invoke(elem, &[JsValue::Number(1.0)], &mut session, &mut dom)
-            .unwrap();
-        assert_eq!(result, JsValue::String("bar".into()));
-    }
-
-    #[test]
-    fn replace_existing_new_token() {
-        let mut dom = EcsDom::new();
-        let mut attrs = Attributes::default();
-        attrs.set("class", "foo bar baz");
-        let elem = dom.create_element("div", attrs);
-        let mut session = SessionCore::new();
-        // Replace "foo" with "bar" — Infra ordered set "replace":
-        // "foo" at index 0 becomes "bar", then existing "bar" at index 1 is removed.
-        let result = CLASS_LIST_REPLACE
-            .invoke(
-                elem,
-                &[JsValue::String("foo".into()), JsValue::String("bar".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(result, JsValue::Bool(true));
-        let attrs = dom.world().get::<&Attributes>(elem).unwrap();
-        let classes: Vec<&str> = attrs
-            .get("class")
-            .unwrap()
-            .split_ascii_whitespace()
-            .collect();
-        assert_eq!(classes, vec!["bar", "baz"]);
-    }
-
-    #[test]
-    fn replace_infra_ordered_set_position() {
-        let mut dom = EcsDom::new();
-        let mut attrs = Attributes::default();
-        attrs.set("class", "x foo y bar z");
-        let elem = dom.create_element("div", attrs);
-        let mut session = SessionCore::new();
-        // Infra "replace": foo→bar at position 1, remove existing bar at position 3.
-        let result = CLASS_LIST_REPLACE
-            .invoke(
-                elem,
-                &[JsValue::String("foo".into()), JsValue::String("bar".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(result, JsValue::Bool(true));
-        let attrs = dom.world().get::<&Attributes>(elem).unwrap();
-        let classes: Vec<&str> = attrs
-            .get("class")
-            .unwrap()
-            .split_ascii_whitespace()
-            .collect();
-        assert_eq!(classes, vec!["x", "bar", "y", "z"]);
-    }
-
-    #[test]
-    fn supports_throws_type_error() {
-        let (mut dom, elem, mut session) = setup();
-        let err = CLASS_LIST_SUPPORTS
-            .invoke(
-                elem,
-                &[JsValue::String("foo".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap_err();
-        assert_eq!(err.kind, DomApiErrorKind::TypeError);
-    }
-
-    /// DOMTokenList writes route through the `EcsDom::set_attribute`
-    /// chokepoint, so `classList.add` / `value=` dispatch
-    /// `MutationEvent::AttributeChange` (slot
-    /// `#11-attr-handler-chokepoint-mutationevent`). The prior `set_token_string`
-    /// wrote `Attributes` directly + bumped `rev_version`, dropping the event.
-    #[test]
-    fn classlist_add_and_value_set_dispatch_mutation_event() {
-        use crate::test_util::AttrChangeCounter;
-        let (mut dom, elem, mut session) = setup();
-        let hook = AttrChangeCounter::default();
-        let count = hook.count.clone();
-        dom.set_mutation_dispatcher(Box::new(hook));
-
-        // Adding a new token writes the `class` attribute → one record.
-        CLASS_LIST_ADD
-            .invoke(
-                elem,
-                &[JsValue::String("baz".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        // `classList.value = …` writes the attribute → one record.
-        CLASS_LIST_VALUE_SET
-            .invoke(
-                elem,
-                &[JsValue::String("a b".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(
-            *count.lock().unwrap(),
-            2,
-            "classList.add + classList.value= must each route through the chokepoint and dispatch one AttributeChange"
-        );
-    }
-
-    /// DOMTokenList update steps (DOM §7.1 `#concept-dtl-update`) step 1
-    /// (Codex PR341 R1): a method (`remove` is the reachable case) that nets no
-    /// change on an attribute-less element is a no-op — it must NOT create an
-    /// empty backing attribute or dispatch `AttributeChange`. Routing through
-    /// the chokepoint made the spurious record observable, which this guards.
-    #[test]
-    fn remove_on_absent_attribute_is_noop() {
-        use crate::test_util::AttrChangeCounter;
-
-        let mut dom = EcsDom::new();
-        let el = dom.create_element("div", Attributes::default());
-        let mut session = SessionCore::new();
-        let hook = AttrChangeCounter::default();
-        let count = hook.count.clone();
-        dom.set_mutation_dispatcher(Box::new(hook));
-
-        CLASS_LIST_REMOVE
-            .invoke(el, &[JsValue::String("x".into())], &mut session, &mut dom)
-            .unwrap();
-        assert!(
-            dom.world()
-                .get::<&Attributes>(el)
-                .unwrap()
-                .get("class")
-                .is_none(),
-            "remove on a class-less element must not create an empty class attribute"
-        );
-        assert_eq!(
-            *count.lock().unwrap(),
-            0,
-            "remove on an absent attribute must be a no-op (no AttributeChange)"
-        );
-
-        // Contrast: removing the last token from a *present* attribute still
-        // writes `class=\"\"` (step 1 only returns when the attribute is absent).
-        dom.set_attribute(el, "class", "x");
-        let baseline = *count.lock().unwrap();
-        CLASS_LIST_REMOVE
-            .invoke(el, &[JsValue::String("x".into())], &mut session, &mut dom)
-            .unwrap();
-        assert_eq!(
-            dom.world().get::<&Attributes>(el).unwrap().get("class"),
-            Some(""),
-            "removing the last token from a present attribute leaves class=\"\""
-        );
-        assert_eq!(
-            *count.lock().unwrap(),
-            baseline + 1,
-            "removing the last token from a present attribute still dispatches one AttributeChange"
-        );
-    }
-
-    /// DOM §7.1 `add(tokens…)` / `remove(tokens…)` are variadic and run the
-    /// update steps ONCE for the whole call (Codex PR341 R2): a multi-token
-    /// `classList.add("a", "b")` dispatches exactly one `AttributeChange`, not
-    /// one per token. The VM native forwards all tokens to this handler in a
-    /// single call; validation of all tokens precedes any mutation (atomic).
-    #[test]
-    fn variadic_add_remove_run_update_steps_once() {
-        use crate::test_util::AttrChangeCounter;
-
-        let mut dom = EcsDom::new();
-        let el = dom.create_element("div", Attributes::default());
-        let mut session = SessionCore::new();
-        let hook = AttrChangeCounter::default();
-        let count = hook.count.clone();
-        dom.set_mutation_dispatcher(Box::new(hook));
-
-        CLASS_LIST_ADD
-            .invoke(
-                el,
-                &[JsValue::String("a".into()), JsValue::String("b".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(
-            dom.world().get::<&Attributes>(el).unwrap().get("class"),
-            Some("a b"),
-            "both tokens appended in a single update"
-        );
-        assert_eq!(
-            *count.lock().unwrap(),
-            1,
-            "variadic add must dispatch exactly one AttributeChange"
-        );
-
-        CLASS_LIST_REMOVE
-            .invoke(
-                el,
-                &[JsValue::String("a".into()), JsValue::String("b".into())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap();
-        assert_eq!(
-            *count.lock().unwrap(),
-            2,
-            "variadic remove must dispatch exactly one more AttributeChange"
-        );
-
-        // Validate-all-before-mutate: an invalid token aborts the whole call
-        // (DOM §7.1 step 1 runs over every token first), leaving the attribute
-        // untouched — no partial write of the valid prefix.
-        let fresh = dom.create_element("div", Attributes::default());
-        CLASS_LIST_ADD
-            .invoke(
-                fresh,
-                &[JsValue::String("ok".into()), JsValue::String(String::new())],
-                &mut session,
-                &mut dom,
-            )
-            .unwrap_err();
-        assert!(
-            dom.world()
-                .get::<&Attributes>(fresh)
-                .unwrap()
-                .get("class")
-                .is_none(),
-            "an invalid token must abort the whole variadic add (no partial write)"
-        );
-    }
-}
+#[path = "class_list_tests.rs"]
+mod tests;
