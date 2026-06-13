@@ -1,7 +1,7 @@
 //! Attribute-related handlers: hasAttribute, toggleAttribute, getAttributeNames,
 //! className, id, dataset.
 
-use elidex_ecs::{EcsDom, Entity};
+use elidex_ecs::{Attributes, EcsDom, Entity};
 use elidex_plugin::JsValue;
 use elidex_script_session::{DomApiError, DomApiHandler, SessionCore};
 
@@ -60,40 +60,42 @@ impl DomApiHandler for ToggleAttribute {
             _ => None,
         };
 
-        let mut attrs = require_attrs_mut(this, dom)?;
-        let has = attrs.contains(&name);
+        let has = dom
+            .world()
+            .get::<&Attributes>(this)
+            .is_ok_and(|a| a.contains(&name));
 
-        let (changed, result) = match force {
+        // Route the set/remove through the canonical `EcsDom` chokepoints
+        // (`set_attribute` / `remove_attribute`) rather than mutating
+        // `Attributes` directly — so `toggleAttribute('style')` invalidates
+        // the lazily-hydrated `InlineStyle` cache and every toggle bumps
+        // `rev_version` + dispatches `MutationEvent::AttributeChange` (the
+        // prior direct path skipped both). Boolean attributes are stored
+        // with an empty value per the HTML serialization of a present
+        // boolean attribute.
+        let result = match force {
             Some(true) => {
-                if has {
-                    (false, true)
-                } else {
-                    attrs.set(&name, "");
-                    (true, true)
+                if !has {
+                    dom.set_attribute(this, &name, "");
                 }
+                true
             }
             Some(false) => {
                 if has {
-                    attrs.remove(&name);
-                    (true, false)
-                } else {
-                    (false, false)
+                    dom.remove_attribute(this, &name);
                 }
+                false
             }
             None => {
                 if has {
-                    attrs.remove(&name);
-                    (true, false)
+                    dom.remove_attribute(this, &name);
+                    false
                 } else {
-                    attrs.set(&name, "");
-                    (true, true)
+                    dom.set_attribute(this, &name, "");
+                    true
                 }
             }
         };
-        drop(attrs);
-        if changed {
-            dom.rev_version(this);
-        }
         Ok(JsValue::Bool(result))
     }
 }

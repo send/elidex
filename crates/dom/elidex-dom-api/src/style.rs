@@ -69,9 +69,13 @@ fn inline_property_value(dom: &EcsDom, entity: Entity, property: &str) -> String
     let Ok(style) = dom.world().get::<&InlineStyle>(entity) else {
         return String::new();
     };
-    elidex_css::serialize_shorthand_value(property, |lh| style.get(lh).map(str::to_owned))
-        .or_else(|| style.get(property).map(str::to_owned))
-        .unwrap_or_default()
+    elidex_css::serialize_shorthand_value(property, |lh| {
+        style
+            .get(lh)
+            .map(|v| (v.to_owned(), style.is_important(lh)))
+    })
+    .or_else(|| style.get(property).map(str::to_owned))
+    .unwrap_or_default()
 }
 
 /// Remove `property`'s declaration(s) from the block — shorthand-aware

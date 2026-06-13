@@ -239,6 +239,22 @@ fn rule_style_get_property_priority_shorthand() {
     assert_eq!(out, "important/");
 }
 
+/// CSSOM §6.6.1 getPropertyValue step 1.2.3/1.2.4 on rule declarations
+/// (Codex R5 F17): a shorthand whose longhands carry mixed important
+/// flags serializes to "" even though `getPropertyPriority` already
+/// reports the (absent) shared priority. `margin: 10px !important` then a
+/// normal `margin-top: 5px` longhand makes the block non-uniform.
+#[test]
+fn rule_style_get_property_value_shorthand_mixed_importance_is_empty() {
+    let out = run_with_css(
+        "div { margin: 10px !important; margin-top: 5px; }",
+        "var s = document.getElementsByTagName('style')[0]; \
+         '|' + s.sheet.cssRules[0].style.getPropertyValue('margin') + '|' + \
+         s.sheet.cssRules[0].style.getPropertyPriority('margin') + '|';",
+    );
+    assert_eq!(out, "|||");
+}
+
 #[test]
 fn rule_style_named_get() {
     let out = run_with_css(

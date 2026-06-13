@@ -248,6 +248,26 @@ fn get_property_priority_shorthand_all_longhands() {
     assert_eq!(out, "important/");
 }
 
+/// CSSOM §6.6.1 getPropertyValue step 1.2.3/1.2.4 (Codex R5 F16): a
+/// shorthand `getPropertyValue` returns "" when its longhands do NOT all
+/// share the same important flag (uniformity, not absence). All-important
+/// still serializes; a mixed block (one longhand demoted to normal)
+/// yields "". `removeProperty` reuses the same reconstruction, so its
+/// pre-removal return value is also "" for the mixed block.
+#[test]
+fn get_property_value_shorthand_mixed_importance_is_empty() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('margin', '10px', 'important'); \
+         var allImp = d.style.getPropertyValue('margin'); \
+         d.style.setProperty('margin-top', '5px'); \
+         var mixedVal = d.style.getPropertyValue('margin'); \
+         var mixedRemove = d.style.removeProperty('margin'); \
+         '|' + allImp + '|' + mixedVal + '|' + mixedRemove + '|';");
+    // all-important → serializes "10px"; mixed → "" for both the getter
+    // and removeProperty's pre-removal value.
+    assert_eq!(out, "|10px|||");
+}
+
 /// §6.6.1 removeProperty step 6 — update the style attribute only when
 /// something was actually removed: an unsupported property with an
 /// empty value must not dirty `attrs("style")` (Codex R1).

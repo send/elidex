@@ -23,28 +23,46 @@
 use crate::declaration::shorthand_longhands;
 
 /// Reconstruct the CSS shorthand value for `property` from its longhand
-/// values, looked up via `get` (longhand name → serialized value).
+/// declarations, looked up via `get` (longhand name → `(serialized
+/// value, important flag)`).
 ///
 /// Returns `None` when `property` is not a shorthand, when any mapped
-/// longhand is absent, or when the shorthand is not yet covered by the
-/// reconstruction (the caller treats `None` as the empty string —
+/// longhand is absent, when the mapped longhands do **not** all share the
+/// same `!important` flag, or when the shorthand is not yet covered by
+/// the reconstruction (the caller treats `None` as the empty string —
 /// CSSOM-valid). The longhand values are the canonical serialized forms
 /// already stored in the declaration block.
 #[must_use]
 pub fn serialize_shorthand_value(
     property: &str,
-    get: impl Fn(&str) -> Option<String>,
+    get: impl Fn(&str) -> Option<(String, bool)>,
 ) -> Option<String> {
     let longhands = shorthand_longhands(property);
     if longhands.is_empty() {
         return None; // not a shorthand — caller reads the property directly
     }
-    // All mapped longhands must be present (CSSOM step 1.2: a missing
-    // longhand makes the shorthand non-serializable).
-    let values: Vec<String> = longhands
+    // All mapped longhands must be present (CSSOM §6.6.1 getPropertyValue
+    // step 1.2.2.2: a missing longhand makes the shorthand
+    // non-serializable → "").
+    let decls: Vec<(String, bool)> = longhands
         .iter()
         .map(|lh| get(lh))
         .collect::<Option<Vec<_>>>()?;
+
+    // CSSOM §6.6.1 getPropertyValue step 1.2.3/1.2.4: the shorthand
+    // serializes only when the important flags of all longhand
+    // declarations in the list are the *same* (all-important OR
+    // all-normal); a mixed block yields "". Note this is uniformity, not
+    // "all important" — `getPropertyPriority` checks all-important (it
+    // reports the shared priority); the value getter checks all-equal.
+    let first_important = decls[0].1;
+    if !decls
+        .iter()
+        .all(|(_, important)| *important == first_important)
+    {
+        return None;
+    }
+    let values: Vec<String> = decls.into_iter().map(|(value, _)| value).collect();
 
     match property {
         // Rectangular 1–4 value families: top, right, bottom, left
@@ -96,8 +114,9 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    fn lookup<'a>(map: &'a HashMap<&str, &str>) -> impl Fn(&str) -> Option<String> + 'a {
-        move |name: &str| map.get(name).map(|s| (*s).to_string())
+    /// All longhands present with normal (non-important) priority.
+    fn lookup<'a>(map: &'a HashMap<&str, &str>) -> impl Fn(&str) -> Option<(String, bool)> + 'a {
+        move |name: &str| map.get(name).map(|s| ((*s).to_string(), false))
     }
 
     #[test]
@@ -180,8 +199,42 @@ mod tests {
             owned
                 .iter()
                 .find(|(k, _)| k == name)
-                .map(|(_, v)| (*v).to_string())
+                .map(|(_, v)| ((*v).to_string(), false))
         };
         assert_eq!(serialize_shorthand_value("flex", get), None);
+    }
+
+    #[test]
+    fn mixed_importance_is_none() {
+        // CSSOM §6.6.1 getPropertyValue step 1.2.3/1.2.4: a shorthand
+        // whose longhands carry *different* important flags is not
+        // serializable → "". Here `margin-top` is `!important` while the
+        // other three are normal.
+        let get = |name: &str| {
+            let important = name == "margin-top";
+            match name {
+                "margin-top" | "margin-right" | "margin-bottom" | "margin-left" => {
+                    Some(("10px".to_string(), important))
+                }
+                _ => None,
+            }
+        };
+        assert_eq!(serialize_shorthand_value("margin", get), None);
+    }
+
+    #[test]
+    fn uniform_importance_serializes() {
+        // All longhands `!important` (uniform) → serializes normally; the
+        // step-1.2.3 check is uniformity, not absence-of-importance.
+        let get = |name: &str| match name {
+            "margin-top" | "margin-right" | "margin-bottom" | "margin-left" => {
+                Some(("10px".to_string(), true))
+            }
+            _ => None,
+        };
+        assert_eq!(
+            serialize_shorthand_value("margin", get),
+            Some("10px".to_string())
+        );
     }
 }

@@ -181,6 +181,49 @@ fn remove_attribute_node() {
     assert_eq!(ad.owner_element, None);
 }
 
+/// Codex #335 R5 F15 (attribute-node removal): removing a `style` Attr node
+/// must route through the `EcsDom::remove_attribute` chokepoint so a
+/// lazily-hydrated `InlineStyle` cache is invalidated. Mirrors the
+/// `removeAttribute` handler fix for the Attr-node path.
+#[test]
+fn remove_attribute_node_style_invalidates_inline_style_cache() {
+    let mut dom = EcsDom::new();
+    let mut attrs = Attributes::default();
+    attrs.set("style", "color: red");
+    let div = dom.create_element("div", attrs);
+    // Simulate a prior `el.style.*` read that hydrated the cache.
+    let mut style = elidex_ecs::InlineStyle::default();
+    style.set("color", "red");
+    dom.world_mut().insert_one(div, style).unwrap();
+
+    let attr = dom.create_attribute("style");
+    {
+        let mut ad = dom.world_mut().get::<&mut AttrData>(attr).unwrap();
+        ad.value = "color: red".into();
+        ad.owner_element = Some(div);
+    }
+    let mut session = SessionCore::new();
+    let attr_ref = session.get_or_create_wrapper(attr, ComponentKind::Element);
+
+    RemoveAttributeNode
+        .invoke(
+            div,
+            &[JsValue::ObjectRef(attr_ref.to_raw())],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap();
+
+    assert!(dom
+        .world()
+        .get::<&Attributes>(div)
+        .map_or(true, |a| !a.contains("style")));
+    assert!(
+        dom.world().get::<&elidex_ecs::InlineStyle>(div).is_err(),
+        "stale InlineStyle cache survived removeAttributeNode(style)"
+    );
+}
+
 #[test]
 fn attr_name() {
     let mut dom = EcsDom::new();

@@ -505,10 +505,10 @@ impl DomApiHandler for RuleStyleGetPropertyValue {
                     .iter()
                     .rev()
                     .find(|d| d.property == name)
-                    .map(|d| d.value.to_css_string())
+                    .map(|d| (d.value.to_css_string(), d.important))
             };
             elidex_css::serialize_shorthand_value(&normalized, |lh| last(lh))
-                .or_else(|| last(&normalized))
+                .or_else(|| last(&normalized).map(|(value, _)| value))
                 .unwrap_or_default()
         });
         Ok(JsValue::String(value))
