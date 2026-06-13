@@ -55,8 +55,10 @@ Past elidex incidents that calibrate Step 2 severity (these survive single-pass;
 
 elidex's non-Claude diversity reviewer (Step 1 fetch filter / head-staleness / re-trigger):
 
-- `bot_login`: `chatgpt-codex-connector[bot]`
+- `bot_login`: `chatgpt-codex-connector[bot]` (REST form). **GraphQL `reviewThreads` author.login is the BARE `chatgpt-codex-connector`** (no `[bot]`) — Step 1 must normalize (strip `[bot]`) for GraphQL or it false-negatives every inline finding (`#316`/`#337`).
 - `name`: Codex (genuine OpenAI Codex Cloud, ChatGPT **Pro** — loop-affordable, no per-credit cost; *not* GitHub Copilot credits)
 - `trigger`: `@codex review` (or Codex auto-review, enabled at chatgpt.com/codex)
+- `assessed_commit_marker`: `Reviewed commit:` — in BOTH formal-review bodies AND the dry-verdict issue-comment, followed by `` `<sha>` ``; Step 1 reads the latest assessed commit from this marker across reviews + issue-comments.
+- `dry_verdict_match`: `Didn't find any major issues` — Codex's no-findings verdict, posted as a **plain PR issue-comment**, not a formal review. A dry-verdict comment on head = clean pass; keying the head check on `pulls/{n}/reviews` alone false-reports "stale review" (`#322`/`#337` — see `memory/feedback_codex-dry-verdict-is-issue-comment.md`).
 
 **Identity caveat**: only the `chatgpt-codex-connector[bot]` review is the genuine Pro Codex. A bare `@codex[agent]` mention instead routes to a GitHub-Copilot SWE agent (runs on `api.individual.githubcopilot.com`, billed as Copilot credits) — do **not** use it. The elidex review lenses reach Codex via `AGENTS.md` (`## Review guidelines` → `axes.md`). Quality validated on #295 (P1 GC-rooting + side-store/unbind panic + spec-accurate WebCrypto findings, catching gate-misses). Background → `memory/project_ai-review-setup.md`.

@@ -62,8 +62,10 @@ Historical **Copilot** R-loop incidents that calibrated the loop's defensive rul
 
 ## reviewer
 
-- `bot_login`: `chatgpt-codex-connector[bot]`
+- `bot_login`: `chatgpt-codex-connector[bot]` (REST form). **GraphQL `reviewThreads` author.login is the BARE `chatgpt-codex-connector`** (no `[bot]`) — the Step-1 fetch must normalize (strip `[bot]`) for GraphQL comparisons or it false-negatives every inline finding (`#316`/`#337`).
 - `name`: Codex (OpenAI Codex Cloud, ChatGPT **Pro** — loop-affordable, no per-credit cost)
 - `trigger`: `@codex review` (posted as a PR comment to re-trigger each round)
+- `assessed_commit_marker`: `Reviewed commit:` — appears in BOTH formal-review bodies AND Codex's dry-verdict issue-comment, followed by `` `<sha>` ``. Step 1 reads the reviewer's latest assessed commit from this marker across reviews + issue-comments (NOT the reviews API alone).
+- `dry_verdict_match`: `Didn't find any major issues` — Codex's no-findings verdict, posted as a **plain PR issue-comment** (`Codex Review: Didn't find any major issues`), **not** a formal review. A dry-verdict comment on the current head IS a dry round; keying head-staleness on `pulls/{n}/reviews` alone false-stalls every dry round (`#322`/`#337` — see `memory/feedback_codex-dry-verdict-is-issue-comment.md`).
 
 Lenses reach Codex via `AGENTS.md` (`## Review guidelines` → `axes.md`). The genuine Pro Codex is `chatgpt-codex-connector[bot]`; a bare `@codex[agent]` mention is a Copilot-billed impostor — do **not** use. Background → `memory/project_ai-review-setup.md`.
