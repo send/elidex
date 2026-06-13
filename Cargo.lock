@@ -2453,11 +2453,15 @@ dependencies = [
 name = "elidex-script-session"
 version = "0.1.0"
 dependencies = [
+ "elidex-api-sw",
  "elidex-css",
  "elidex-ecs",
  "elidex-html-parser",
+ "elidex-indexeddb",
+ "elidex-net",
  "elidex-plugin",
  "hecs",
+ "url",
 ]
 
 [[package]]

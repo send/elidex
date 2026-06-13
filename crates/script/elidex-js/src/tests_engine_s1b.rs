@@ -11,7 +11,7 @@
 
 use elidex_ecs::{EcsDom, Entity};
 use elidex_plugin::{IframeSandboxFlags, SecurityOrigin};
-use elidex_script_session::{ScriptContext, ScriptEngine, SessionCore};
+use elidex_script_session::{HostDriver, ScriptContext, ScriptEngine, SessionCore};
 use url::Url;
 
 use crate::engine::ElidexJsEngine;

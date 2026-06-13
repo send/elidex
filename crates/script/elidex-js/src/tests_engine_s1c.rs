@@ -11,7 +11,7 @@
 #![cfg(feature = "engine")]
 
 use elidex_ecs::{EcsDom, Entity};
-use elidex_script_session::{HistoryAction, ScriptContext, ScriptEngine, SessionCore};
+use elidex_script_session::{HistoryAction, HostDriver, ScriptContext, ScriptEngine, SessionCore};
 use url::Url;
 
 use crate::engine::ElidexJsEngine;

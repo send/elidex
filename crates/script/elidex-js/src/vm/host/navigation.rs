@@ -57,7 +57,8 @@ const MAX_PENDING_HISTORY_ACTIONS: usize = 1024;
 /// collapses to `50` the moment the shell drains.  The VM cannot depend on
 /// `elidex-navigation` (a shell crate) — this duplicate is the deliberate
 /// cross-layer estimate; the shell stays authoritative and reconciles the exact
-/// `(index, length)` via [`super::super::ElidexJsEngine::set_session_history`],
+/// `(index, length)` via
+/// [`HostDriver::set_session_history`](elidex_script_session::HostDriver::set_session_history),
 /// so a drift between the two constants only perturbs the within-turn estimate.
 const SESSION_HISTORY_CAP: usize = 50;
 
@@ -169,7 +170,7 @@ impl NavigationState {
     }
 
     /// Commit a navigation's URL — the shell calls this (via
-    /// [`ElidexJsEngine::set_current_url`](crate::ElidexJsEngine::set_current_url))
+    /// [`HostDriver::set_current_url`](elidex_script_session::HostDriver::set_current_url))
     /// after a load completes.  `None` resets to `about:blank` (the spec's "no
     /// active document" maps to the initial `about:blank`).
     pub(crate) fn set_current_url(&mut self, url: Option<Url>) {

@@ -1,29 +1,33 @@
-//! ScriptEngine trait implementation for the elidex-js VM.
+//! `ScriptEngine` + `HostDriver` trait implementations for the elidex-js VM.
 //!
-//! Enabled by the `engine` feature flag. Provides a thin delegation layer
-//! from the ScriptEngine trait to the VM's native API.
+//! Enabled by the `engine` feature flag. Provides a thin delegation layer from
+//! the engine-agnostic `elidex-script-session` contracts ([`ScriptEngine`] =
+//! "execute JS / dispatch an event"; [`HostDriver`] = "the shell pumps the loop
+//! + exchanges host effects across the host boundary") to the VM's native API.
+//! The contract docs live on the trait declarations; the impls here are thin
+//! forwarders to the verified `Vm` / `HostData` bodies.
 
 use std::time::Instant;
 
 use elidex_ecs::Entity;
 use elidex_script_session::{
-    DispatchEvent, EvalResult, HistoryAction, ListenerId, NavigationRequest, ScriptContext,
-    ScriptEngine,
+    DispatchEvent, EvalResult, HistoryAction, HostDriver, ListenerId, MutationRecord,
+    NavigationRequest, ScriptContext, ScriptEngine,
 };
 
 use crate::vm::host_data::HostData;
 use crate::vm::value::{JsValue, ObjectKind};
 use crate::vm::Vm;
 
-/// elidex-js VM backed `ScriptEngine` implementation.
+/// elidex-js VM backed [`ScriptEngine`] + [`HostDriver`] implementation.
 pub struct ElidexJsEngine {
     vm: Vm,
     /// Whether a batch bracket currently has the VM bound (BATCH-BIND model).
     ///
     /// `Vm::bind`/`unbind` are heavy browsing-context-cycle operations, so
     /// the shell brackets each engine-driving *batch* with one
-    /// [`bind`](Self::bind)/[`unbind`](Self::unbind); the trait methods
-    /// (`eval` / `drain_*`) run **assuming bound**. Tracked only to
+    /// [`bind`](HostDriver::bind)/[`unbind`](HostDriver::unbind); the per-turn
+    /// methods (`eval` / `drain_*`) run **assuming bound**. Tracked only to
     /// `debug_assert` the non-re-entrancy invariant (brackets must not nest).
     bound: bool,
 }
@@ -38,6 +42,10 @@ impl ElidexJsEngine {
     }
 
     /// Access the underlying VM (e.g., for setting globals from host).
+    ///
+    /// This is the one remaining concrete touchpoint into VM internals; the
+    /// per-turn drive surface is on the [`HostDriver`] trait. The S5 flip audits
+    /// the shell so no per-turn drive path reaches through here.
     pub fn vm(&mut self) -> &mut Vm {
         &mut self.vm
     }
@@ -51,180 +59,6 @@ impl ElidexJsEngine {
     /// valid before/outside a batch bracket.
     fn scripts_allowed(&mut self) -> bool {
         self.vm.host_data().is_none_or(|hd| hd.scripts_allowed())
-    }
-
-    // ---- Shell-facing security context (S1b boa→VM cutover) ----
-    //
-    // These mirror boa's `HostBridge` accessors (`set_origin`/`origin`,
-    // `forms_allowed`/`popups_allowed`, `sandbox_flags`,
-    // `iframe_depth`/`set_iframe_depth`).  The shell consumes them today on
-    // boa's `bridge()`; the S5 flip rewrites `runtime.bridge().X()` to
-    // `runtime.X()` against this engine.  Until then they are exercised by
-    // S1b's own tests (boa stays live).  Each None-defaults on an
-    // un-`HostData`-installed VM, exactly like `scripts_allowed` above.
-
-    /// Install the document's security origin (WHATWG HTML §7.1.1).  The
-    /// embedder's load path computes it (`SecurityOrigin::from_url`, or the
-    /// opaque sandbox origin via the shell's `apply_sandbox_origin_from_flags`)
-    /// and installs it before scripts run.  No-op without an installed
-    /// `HostData`.
-    pub fn set_origin(&mut self, origin: elidex_plugin::SecurityOrigin) {
-        if let Some(hd) = self.vm.host_data() {
-            hd.set_origin(origin);
-        }
-    }
-
-    /// The document's security origin — the resolved value (the installed
-    /// override, else derived from `current_url`).  Parity with boa's
-    /// `bridge().origin()`; the shell reads it to compute a child iframe's
-    /// origin from its parent (`iframe/lifecycle.rs`).
-    #[must_use]
-    pub fn origin(&self) -> elidex_plugin::SecurityOrigin {
-        self.vm.inner.document_origin()
-    }
-
-    /// Install the sandbox flags for this document's browsing context (the
-    /// shell's iframe load path parses `sandbox=""` → `IframeSandboxFlags` and
-    /// drives this).  No-op without an installed `HostData`.  (The underlying
-    /// `HostData::set_sandbox_flags` shipped with S1a's `scripts_allowed` gate;
-    /// this is the shell-facing forwarder.)
-    pub fn set_sandbox_flags(&mut self, flags: Option<elidex_plugin::IframeSandboxFlags>) {
-        if let Some(hd) = self.vm.host_data() {
-            hd.set_sandbox_flags(flags);
-        }
-    }
-
-    // The read accessors take `&self` (boa's `bridge()` getters are `&self`,
-    // so the S5 shell read-sites — `event_handlers.rs` popups / `form_input.rs`
-    // forms / `iframe/lifecycle.rs` depth — need only a shared borrow). They
-    // read `self.vm.inner.host_data` directly, like `origin()` above, rather
-    // than the `&mut`-returning `Vm::host_data()`.
-
-    /// The sandbox flags for this document's browsing context, if sandboxed.
-    #[must_use]
-    pub fn sandbox_flags(&self) -> Option<elidex_plugin::IframeSandboxFlags> {
-        self.vm
-            .inner
-            .host_data
-            .as_deref()
-            .and_then(HostData::sandbox_flags)
-    }
-
-    /// Whether form submission is allowed (sandbox `allow-forms`; §7.1.5).
-    /// `true` on an un-`HostData`-installed / unsandboxed VM.
-    #[must_use]
-    pub fn forms_allowed(&self) -> bool {
-        self.vm
-            .inner
-            .host_data
-            .as_deref()
-            .is_none_or(HostData::forms_allowed)
-    }
-
-    /// Whether popups are allowed (sandbox `allow-popups`; §7.1.5).
-    /// `true` on an un-`HostData`-installed / unsandboxed VM.
-    #[must_use]
-    pub fn popups_allowed(&self) -> bool {
-        self.vm
-            .inner
-            .host_data
-            .as_deref()
-            .is_none_or(HostData::popups_allowed)
-    }
-
-    /// The iframe nesting depth of this document (`0` = top-level).
-    #[must_use]
-    pub fn iframe_depth(&self) -> usize {
-        self.vm
-            .inner
-            .host_data
-            .as_deref()
-            .map_or(0, HostData::iframe_depth)
-    }
-
-    /// Set the iframe nesting depth (the shell's iframe load path drives it).
-    pub fn set_iframe_depth(&mut self, depth: usize) {
-        if let Some(hd) = self.vm.host_data() {
-            hd.set_iframe_depth(depth);
-        }
-    }
-
-    // ---- Shell-facing navigation back-channel (S1c boa→VM cutover) ----
-    //
-    // boa exposes these on its `HostBridge`/`JsRuntime`: the shell drains the
-    // engine's pending navigation/history intents after each script turn (the
-    // engine's `location`/`history` globals only *enqueue*) and pushes the
-    // committed URL + history length back.  Excluded from the `ScriptEngine`
-    // trait by design (engine-specific — `elidex-script-session/src/engine.rs`)
-    // → inherent here.  The S5 flip rewrites the shell's `runtime.X()` /
-    // `runtime.bridge().X()` against this engine; until then boa stays live and
-    // these are exercised by S1c's own tests.  The session history of record is
-    // the shell's `NavigationController` — the VM holds only a current-document
-    // view.
-
-    /// Commit the current document URL after a navigation load (WHATWG HTML
-    /// §7.4.2.2).  `None` resets to `about:blank` (the "no active document"
-    /// state).  Parity with boa's `bridge().set_current_url`.
-    ///
-    /// NB this commits **only** the URL — it does **not** resync the document
-    /// origin (boa's `set_current_url` also recomputes a cached origin for
-    /// storage keying).  An S5 integrator must call [`set_origin`](Self::set_origin)
-    /// alongside this after a content-thread navigation, so a cross-origin
-    /// navigation does not leave the S1b `document_origin` override stale →
-    /// slot `#11-vm-navigation-origin-resync`.
-    pub fn set_current_url(&mut self, url: Option<url::Url>) {
-        self.vm.inner.navigation.set_current_url(url);
-    }
-
-    /// The current document URL — always `Some` (the VM's browsing context
-    /// always has an active document, `about:blank` by default; unlike boa's
-    /// `None`-when-unset, the VM is spec-faithful here).  Parity with boa's
-    /// `bridge().current_url`.
-    #[must_use]
-    pub fn current_url(&self) -> Option<url::Url> {
-        Some(self.vm.inner.navigation.current_url.clone())
-    }
-
-    /// Drain the pending navigation request enqueued by `location.assign`/`href=`
-    /// /`replace`/`reload` (WHATWG HTML §7.4.2.2).  The shell runs the navigate
-    /// algorithm with it, then commits the result via `set_current_url`.
-    pub fn take_pending_navigation(&mut self) -> Option<NavigationRequest> {
-        self.vm.inner.navigation.pending_navigation.take()
-    }
-
-    /// Drain the pending history actions enqueued by `history.back`/`forward`/`go`
-    /// /`pushState`/`replaceState` (WHATWG HTML §7.2.5), in FIFO order.  The shell
-    /// applies each to its `NavigationController`.  Returns a `Vec` rather than a
-    /// single action because synchronous `pushState`/`replaceState` calls each
-    /// commit an independent session-history mutation, so a turn may enqueue
-    /// several that must all be applied in order (`pending_navigation`, async and
-    /// last-wins, stays a single slot).
-    pub fn take_pending_history(&mut self) -> Vec<HistoryAction> {
-        std::mem::take(&mut self.vm.inner.navigation.pending_history).into()
-    }
-
-    /// Push the authoritative session-history position — the current entry's
-    /// 0-based `index` and the total `length` — into the engine after a
-    /// navigation/traversal commit, so `history.length` reads correctly and the
-    /// synchronous `pushState` length update (`length = index + 1`) starts from
-    /// the right index.  The shell's `NavigationController` owns both; they are
-    /// pushed **together** so the index and length never desync (a `back` moves
-    /// the index without changing the length, so pushing only the length would
-    /// leave `pushState` over-counting).  The S5 flip wires this to
-    /// `NavigationController`'s index + len after each commit; boa pushed only the
-    /// length (`bridge().set_history_length`) and had no synchronous-length path
-    /// to keep consistent.
-    pub fn set_session_history(&mut self, index: usize, length: usize) {
-        self.vm.inner.navigation.current_index = index;
-        self.vm.inner.navigation.history_length = length;
-    }
-
-    /// `history.length` — the session-history entry count: shell-pushed (via
-    /// `set_session_history`) and advanced synchronously by `pushState`
-    /// (`current_index + 1`).
-    #[must_use]
-    pub fn history_length(&self) -> usize {
-        self.vm.inner.navigation.history_length
     }
 
     /// Settle the same-window task queue, then custom-element reactions — the
@@ -246,114 +80,6 @@ impl ElidexJsEngine {
     fn settle_tasks_and_reactions(&mut self) {
         self.vm.inner.drain_tasks();
         self.vm.inner.flush_ce_reactions();
-    }
-
-    /// Open a batch bracket: bind the VM to `ctx` for a run of engine calls
-    /// (BATCH-BIND model). The shell calls this **once** at the start of a
-    /// batch (script-exec / event dispatch / frame drain) and the paired
-    /// [`unbind`](Self::unbind) at the end; `eval` / `drain_*` in between
-    /// assume the VM is bound. Binding is **per-batch, never per-call** — the
-    /// VM `unbind` is heavy teardown (non-Node wrapper / live-collection / IDB
-    /// cleanup) that would corrupt cross-script identity if run between the
-    /// evals of one document.
-    ///
-    /// **Non-re-entrant**: batch brackets must not nest (`Vm::bind` installs a
-    /// single `ConsumerDispatcher`). The `bound` flag debug-asserts this with a
-    /// clear message ahead of the lower-level dispatcher assert.
-    ///
-    /// # Safety
-    ///
-    /// `ctx.session` / `ctx.dom` must stay valid and **unaliased** until the
-    /// paired [`unbind`](Self::unbind): while bound, the VM holds raw pointers
-    /// to them, so neither the caller nor any trait method may access
-    /// `ctx.session` / `ctx.dom` through a `&mut` (the trait methods do not
-    /// touch `ctx` — they use the bound pointers). The method is `unsafe`
-    /// because the type system cannot enforce this; `Vm::bind` is itself
-    /// `unsafe` for the same reason, and a safe wrapper would silently expose
-    /// that precondition to safe callers.
-    ///
-    /// **Known soundness gap — event dispatch (slot
-    /// `#11-bound-safe-dispatch-dom-aliasing`).** Driving event dispatch under
-    /// a batch bracket relies on the bound `*mut dom` and the `&mut ctx.dom`
-    /// reborrows inside the shared `script_dispatch_event`
-    /// (`elidex-script-session` — dispatch-path build, retarget, and `{once}`
-    /// removal between `call_listener` calls) referring to the same `EcsDom`.
-    /// That is a Stacked-Borrows aliasing violation — pre-existing in the VM
-    /// dispatch path since the dispatch-integration tests landed (`Vm::bind` +
-    /// `script_dispatch_event`), not introduced here. It does not miscompile
-    /// today but is unsound under strict aliasing. The principled fix is a
-    /// bound-safe dispatch API that does not reborrow the bound DOM, designed
-    /// when the shell wires dispatch bracketing (S5); until then, only `eval` /
-    /// `drain_*` bracketing — the assume-bound trait methods that never touch
-    /// `ctx` — is fully sound. Do not treat dispatch bracketing as settled by
-    /// this contract.
-    #[allow(unsafe_code)]
-    pub unsafe fn bind(&mut self, ctx: &mut ScriptContext<'_>) {
-        debug_assert!(
-            !self.bound,
-            "ElidexJsEngine::bind: already bound — batch brackets must not nest"
-        );
-        // SAFETY: the caller's contract (above) keeps `ctx.session`/`ctx.dom`
-        // valid + unaliased until `unbind`. `Vm::bind` no-ops without an
-        // installed `HostData`.
-        unsafe {
-            self.vm.bind(
-                std::ptr::from_mut(ctx.session),
-                std::ptr::from_mut(ctx.dom),
-                ctx.document,
-            );
-        }
-        self.bound = true;
-    }
-
-    /// Close the batch bracket opened by [`bind`](Self::bind), running the VM's
-    /// browsing-context-cycle teardown. Safe to call when not bound (the VM
-    /// no-ops), so it doubles as the `Drop`-guard hook in
-    /// [`with_bound`](Self::with_bound).
-    pub fn unbind(&mut self) {
-        self.vm.unbind();
-        self.bound = false;
-    }
-
-    /// RAII sugar over [`bind`](Self::bind)/[`unbind`](Self::unbind): binds,
-    /// runs `f`, then unbinds **even if `f` panics** (a `Drop` guard runs
-    /// `unbind` on unwind — the VM equivalent of boa's `UnbindGuard`).
-    ///
-    /// `f` receives the bound engine plus `ctx` (so it can satisfy the
-    /// `eval`/`drain_*` signatures — those ignore `ctx` under the assume-bound
-    /// model, so re-passing it does not disturb the bound raw pointers).
-    ///
-    /// # Safety
-    ///
-    /// Same contract as [`bind`](Self::bind), and `unsafe` for the same reason:
-    /// while bound, the VM holds raw pointers into `ctx.session`/`ctx.dom`, so
-    /// **`f` must NOT access `ctx.session`/`ctx.dom` directly** (only via the
-    /// bound engine) — reborrowing those fields while bound would invalidate
-    /// those pointers. The method hands the same `ctx` back to arbitrary
-    /// closure code, so the caller must uphold this for `f`. The shell's
-    /// interleaved eval+dispatch+drain batch uses the explicit `bind`/`unbind`
-    /// pair instead (`script_dispatch_event` takes `engine` and `ctx`
-    /// separately, outside any closure); `with_bound` serves tests and
-    /// single-closure batches.
-    #[allow(unsafe_code)]
-    pub unsafe fn with_bound<R>(
-        &mut self,
-        ctx: &mut ScriptContext<'_>,
-        f: impl FnOnce(&mut Self, &mut ScriptContext<'_>) -> R,
-    ) -> R {
-        // Declared before any statement to satisfy clippy::items_after_statements.
-        struct UnbindGuard<'a>(&'a mut ElidexJsEngine);
-        impl Drop for UnbindGuard<'_> {
-            fn drop(&mut self) {
-                self.0.unbind();
-            }
-        }
-        // SAFETY: forwarded to the caller via this method's own `# Safety`
-        // contract — `ctx` stays valid + unaliased for the bracket and `f`
-        // does not touch `ctx.session`/`ctx.dom` directly.
-        unsafe { self.bind(ctx) };
-        let guard = UnbindGuard(self);
-        f(&mut *guard.0, ctx)
     }
 }
 
@@ -534,5 +260,240 @@ impl ScriptEngine for ElidexJsEngine {
                 },
             })
             .collect()
+    }
+}
+
+impl HostDriver for ElidexJsEngine {
+    // ── batch lifecycle (BATCH-BIND; consolidated from the S1a inherent pair) ─
+
+    #[allow(unsafe_code)]
+    unsafe fn bind(&mut self, ctx: &mut ScriptContext<'_>) {
+        debug_assert!(
+            !self.bound,
+            "ElidexJsEngine::bind: already bound — batch brackets must not nest"
+        );
+        // SAFETY: the caller's contract (see `HostDriver::bind`) keeps
+        // `ctx.session`/`ctx.dom` valid + unaliased until `unbind`. `Vm::bind`
+        // no-ops without an installed `HostData`.
+        //
+        // Known soundness gap — event dispatch (slot
+        // `#11-bound-safe-dispatch-dom-aliasing`). Driving event dispatch under a
+        // batch bracket relies on the bound `*mut dom` and the `&mut ctx.dom`
+        // reborrows inside the shared `script_dispatch_event` referring to the
+        // same `EcsDom` — a Stacked-Borrows aliasing violation, pre-existing in
+        // the VM dispatch path (not introduced here). The principled fix is a
+        // bound-safe dispatch API designed when the shell wires dispatch
+        // bracketing (S5); until then only `eval` / `drain_*` bracketing — the
+        // assume-bound trait methods that never touch `ctx` — is fully sound.
+        unsafe {
+            self.vm.bind(
+                std::ptr::from_mut(ctx.session),
+                std::ptr::from_mut(ctx.dom),
+                ctx.document,
+            );
+        }
+        self.bound = true;
+    }
+
+    fn unbind(&mut self) {
+        self.vm.unbind();
+        self.bound = false;
+    }
+
+    #[allow(unsafe_code)]
+    unsafe fn with_bound<R>(
+        &mut self,
+        ctx: &mut ScriptContext<'_>,
+        f: impl FnOnce(&mut Self, &mut ScriptContext<'_>) -> R,
+    ) -> R {
+        // Declared before any statement to satisfy clippy::items_after_statements.
+        struct UnbindGuard<'a>(&'a mut ElidexJsEngine);
+        impl Drop for UnbindGuard<'_> {
+            fn drop(&mut self) {
+                self.0.unbind();
+            }
+        }
+        // SAFETY: forwarded to the caller via `HostDriver::with_bound`'s own
+        // `# Safety` contract — `ctx` stays valid + unaliased for the bracket
+        // and `f` does not touch `ctx.session`/`ctx.dom` directly.
+        unsafe { self.bind(ctx) };
+        let guard = UnbindGuard(self);
+        f(&mut *guard.0, ctx)
+    }
+
+    // ── host → engine deliver (per-turn) ──────────────────────────────────
+
+    fn deliver_mutation_records(&mut self, records: &[MutationRecord]) {
+        self.vm.deliver_mutation_records(records);
+    }
+
+    fn deliver_resize_observations(&mut self) {
+        self.vm.deliver_resize_observations();
+    }
+
+    fn deliver_intersection_observations(&mut self) {
+        self.vm.deliver_intersection_observations();
+    }
+
+    fn tick_network(&mut self) {
+        self.vm.tick_network();
+    }
+
+    fn sync_dirty_canvases(&mut self) {
+        self.vm.sync_dirty_canvases();
+    }
+
+    fn deliver_sw_client_update(&mut self, update: elidex_api_sw::SwClientUpdate) {
+        self.vm.deliver_sw_client_update(update);
+    }
+
+    fn seed_sw_client(
+        &mut self,
+        controller: Option<url::Url>,
+        registrations: &[(url::Url, elidex_api_sw::SwWorkerSnapshot)],
+    ) {
+        self.vm.seed_sw_client(controller, registrations);
+    }
+
+    // ── engine → host drain / read (per-turn) ─────────────────────────────
+
+    fn drain_worker_messages(&mut self) {
+        self.vm.drain_worker_messages();
+    }
+
+    fn drain_sw_client_requests(&mut self) -> Vec<elidex_api_sw::SwClientRequest> {
+        self.vm.drain_sw_client_requests()
+    }
+
+    fn next_timer_deadline(&self) -> Option<Instant> {
+        self.vm.inner.next_timer_deadline()
+    }
+
+    fn sw_controller_scope(&self) -> Option<url::Url> {
+        self.vm.inner.sw_controller_scope_url()
+    }
+
+    // ── navigation / history back-channel (consolidated from S1c inherent) ─
+    //
+    // The session history of record is the shell's `NavigationController`; the
+    // VM holds only a current-document view. `current_url` is always `Some`
+    // (the VM's browsing context always has an active document, `about:blank`
+    // by default — unlike boa's `None`-when-unset). `set_current_url` commits
+    // only the URL — an S5 integrator must call `set_origin` alongside it after
+    // a cross-origin navigation so the S1b `document_origin` override is not
+    // left stale (slot `#11-vm-navigation-origin-resync`).
+
+    fn set_current_url(&mut self, url: Option<url::Url>) {
+        self.vm.inner.navigation.set_current_url(url);
+    }
+
+    fn current_url(&self) -> Option<url::Url> {
+        Some(self.vm.inner.navigation.current_url.clone())
+    }
+
+    fn take_pending_navigation(&mut self) -> Option<NavigationRequest> {
+        self.vm.inner.navigation.pending_navigation.take()
+    }
+
+    fn take_pending_history(&mut self) -> Vec<HistoryAction> {
+        std::mem::take(&mut self.vm.inner.navigation.pending_history).into()
+    }
+
+    fn set_session_history(&mut self, index: usize, length: usize) {
+        // index + length pushed together so they never desync (a `back` moves
+        // the index without changing length, so pushing only length would leave
+        // synchronous `pushState`'s `length = index + 1` over-counting).
+        self.vm.inner.navigation.current_index = index;
+        self.vm.inner.navigation.history_length = length;
+    }
+
+    fn history_length(&self) -> usize {
+        self.vm.inner.navigation.history_length
+    }
+
+    fn set_navigation_referrer(&mut self, referrer: Option<url::Url>) {
+        self.vm.set_navigation_referrer(referrer);
+    }
+
+    // ── security context (consolidated from S1b inherent) ─────────────────
+    //
+    // The read accessors take `&self` and read `self.vm.inner.host_data`
+    // directly (like `origin`), rather than the `&mut`-returning
+    // `Vm::host_data()`, so the S5 shell read-sites need only a shared borrow.
+    // Each defaults permissive on an un-`HostData`-installed VM (so the absence
+    // of a security context never silently denies), exactly like
+    // `scripts_allowed`.
+
+    fn set_origin(&mut self, origin: elidex_plugin::SecurityOrigin) {
+        if let Some(hd) = self.vm.host_data() {
+            hd.set_origin(origin);
+        }
+    }
+
+    fn origin(&self) -> elidex_plugin::SecurityOrigin {
+        self.vm.inner.document_origin()
+    }
+
+    fn set_sandbox_flags(&mut self, flags: Option<elidex_plugin::IframeSandboxFlags>) {
+        if let Some(hd) = self.vm.host_data() {
+            hd.set_sandbox_flags(flags);
+        }
+    }
+
+    fn sandbox_flags(&self) -> Option<elidex_plugin::IframeSandboxFlags> {
+        self.vm
+            .inner
+            .host_data
+            .as_deref()
+            .and_then(HostData::sandbox_flags)
+    }
+
+    fn forms_allowed(&self) -> bool {
+        self.vm
+            .inner
+            .host_data
+            .as_deref()
+            .is_none_or(HostData::forms_allowed)
+    }
+
+    fn popups_allowed(&self) -> bool {
+        self.vm
+            .inner
+            .host_data
+            .as_deref()
+            .is_none_or(HostData::popups_allowed)
+    }
+
+    fn iframe_depth(&self) -> usize {
+        self.vm
+            .inner
+            .host_data
+            .as_deref()
+            .map_or(0, HostData::iframe_depth)
+    }
+
+    fn set_iframe_depth(&mut self, depth: usize) {
+        if let Some(hd) = self.vm.host_data() {
+            hd.set_iframe_depth(depth);
+        }
+    }
+
+    // ── host-resource install (construction-adjacent) ─────────────────────
+
+    fn install_network_handle(&mut self, handle: std::rc::Rc<elidex_net::broker::NetworkHandle>) {
+        self.vm.install_network_handle(handle);
+    }
+
+    fn install_idb_backend(&mut self, backend: std::rc::Rc<elidex_indexeddb::IdbBackend>) {
+        self.vm.install_idb_backend(backend);
+    }
+
+    fn install_cookie_jar(&mut self, jar: std::sync::Arc<elidex_net::CookieJar>) {
+        // The cookie jar lives on `HostData` (a shared cross-cutting host
+        // resource), so a host context must already be installed; a no-op
+        // otherwise, like the other `HostData`-backed setters above.
+        if let Some(hd) = self.vm.host_data() {
+            hd.install_cookie_jar(jar);
+        }
     }
 }

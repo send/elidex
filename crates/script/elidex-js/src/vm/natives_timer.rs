@@ -241,6 +241,29 @@ pub(super) fn native_clear_interval(
 // rustc flags it dead — allow explicitly for the no-feature lib build.
 #[allow(dead_code)]
 impl VmInner {
+    /// The earliest pending timer deadline, or `None` if no live timer is
+    /// scheduled — the event-loop scheduler's next-wake hint (WHATWG HTML §8.7),
+    /// exposed to the shell via `HostDriver::next_timer_deadline`.
+    ///
+    /// Scans the `timer_queue` heap for the minimum `deadline` among entries
+    /// that are **not** lazily cancelled. `cancel_timer`
+    /// (`clearTimeout`/`clearInterval`) removes the id from `active_timer_ids`
+    /// and records it in `cancelled_timers`, but leaves the heap entry until
+    /// [`Self::drain_timers`] physically pops it; a naive `timer_queue.peek()`
+    /// would therefore return a cancelled head's deadline and wake the host
+    /// scheduler spuriously early. Filtering out `cancelled_timers` (equivalently,
+    /// the `active_timer_ids` authoritative live-set — for a heap entry exactly
+    /// one of the two holds) yields the deadline of the next timer that will
+    /// *actually* fire. Read-only (`&self`): uses `cancelled_timers.contains`,
+    /// not `drain_timers`' `&mut` `.remove`.
+    pub(crate) fn next_timer_deadline(&self) -> Option<Instant> {
+        self.timer_queue
+            .iter()
+            .filter(|entry| !self.cancelled_timers.contains(&entry.id))
+            .map(|entry| entry.deadline)
+            .min()
+    }
+
     /// The post-fire checkpoint a single timer turn gets: a microtask
     /// checkpoint (HTML §8.1.7.3) plus the same-window task + CE-reaction drains
     /// an `eval` runs internally. Called after **every** JS-executing fire in

@@ -25,7 +25,7 @@ mod types;
 
 pub use cssom_api::CssomApiHandler;
 pub use dom_api::DomApiHandler;
-pub use engine::{EvalResult, ScriptContext, ScriptEngine};
+pub use engine::{EvalResult, HostDriver, ScriptContext, ScriptEngine};
 pub use event_dispatch::{
     apply_retarget, build_dispatch_plan, build_propagation_path, composed_path_for_js,
     dispatch_event, retarget, script_dispatch_event, script_dispatch_event_core, DispatchEvent,

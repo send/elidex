@@ -243,6 +243,26 @@ impl VmInner {
         }
         self.sw_controller_scope = controller;
     }
+
+    /// The `navigator.serviceWorker.controller`'s registration scope as a parsed
+    /// `Url`, or `None` when the page is uncontrolled (SW §3.4.1) — exposed to
+    /// the shell via `HostDriver::sw_controller_scope`.
+    ///
+    /// The scope is stored as `Option<String>` (the `sw_controller_scope` field)
+    /// because every write serializes a `url::Url` via `Url::as_str()`: the
+    /// runtime `controllerchange` (`deliver.rs::deliver_controller_set`, which
+    /// stores `s.as_str().to_owned()`) and the construction seed
+    /// ([`Self::seed_sw_client`], fed by `Vm::seed_sw_client`'s `as_str()` map).
+    /// Re-parsing that round-tripped serialization is therefore infallible — the
+    /// `expect` cannot fire. Returning the typed `Url` (rather than `String`)
+    /// matches the consumer `elidex_api_sw::matches_scope(&Url, &Url)`, so the
+    /// shell is not forced to re-parse parse-ready state.
+    #[cfg(feature = "engine")]
+    pub(crate) fn sw_controller_scope_url(&self) -> Option<url::Url> {
+        self.sw_controller_scope.as_deref().map(|s| {
+            url::Url::parse(s).expect("sw_controller_scope is stored as a Url::as_str() round-trip")
+        })
+    }
 }
 
 /// Install an `IllegalConstructor` interface object wired to `proto` and

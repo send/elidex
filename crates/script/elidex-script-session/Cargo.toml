@@ -16,7 +16,17 @@ elidex-plugin = { workspace = true }
 elidex-css = { workspace = true }
 elidex-ecs = { workspace = true }
 elidex-html-parser = { workspace = true }
+# Host-resource + service-worker types named by the `HostDriver` contract
+# (`install_network_handle` / `install_cookie_jar` / `install_idb_backend`,
+# `deliver_sw_client_update` / `seed_sw_client` / `drain_sw_client_requests`).
+# Engine-independent host crates — a clean downward dep (none reach back to
+# elidex-script-session, so no cycle); the contract that marshals these
+# resources legitimately names their types.
+elidex-api-sw = { workspace = true }
+elidex-net = { workspace = true }
+elidex-indexeddb = { workspace = true }
 hecs = { workspace = true }
+url = { workspace = true }
 
 [lints]
 workspace = true
