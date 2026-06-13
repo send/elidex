@@ -824,9 +824,16 @@ pub(super) fn native_document_has_focus(
 /// when no host context is installed.
 pub(super) fn native_document_get_hidden(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    // Brand-check the receiver (like `compatMode` / `cookie` / `referrer`):
+    // page visibility is a browsing-context fact of the *bound* document, so a
+    // non-bound / detached receiver (`get.call({})`) must not leak the bound
+    // tab's state — fall through to the default (visible).
+    if document_receiver(ctx, this, "hidden")?.is_none() {
+        return Ok(JsValue::Boolean(false));
+    }
     let hidden = ctx
         .vm
         .host_data
@@ -842,9 +849,14 @@ pub(super) fn native_document_get_hidden(
 /// so this mirrors `document.hidden`.
 pub(super) fn native_document_get_visibility_state(
     ctx: &mut NativeContext<'_>,
-    _this: JsValue,
+    this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
+    // Brand-check the receiver (see `native_document_get_hidden`): a non-bound
+    // receiver defaults to "visible" rather than leaking the bound tab's state.
+    if document_receiver(ctx, this, "visibilityState")?.is_none() {
+        return Ok(JsValue::String(ctx.vm.well_known.visible));
+    }
     let hidden = ctx
         .vm
         .host_data

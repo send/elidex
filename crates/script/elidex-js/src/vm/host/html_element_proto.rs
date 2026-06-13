@@ -295,20 +295,25 @@ fn native_html_element_get_dataset(
 /// `HTMLElement.prototype.blur()` (WHATWG HTML §6.6.6 Focus management
 /// APIs; the unfocusing steps are §6.6.4 Processing model).
 ///
-/// Clears the `ElementState::FOCUS` bit **only if** the receiver is the
-/// currently focused area (`current_focus`) — blurring an unfocused
-/// element is a no-op, matching browser behaviour. No `blur` / `focusout`
-/// event dispatch yet (deferred with `focus`; slot
-/// `#11-vm-host-synthetic-dom-event-dispatch`).
+/// Clears the `ElementState::FOCUS` bit **only if** the receiver holds it
+/// (`is_focused`, by identity — so a detached-but-focused receiver is still
+/// cleared) — blurring an unfocused element is a no-op, matching browser
+/// behaviour. No `blur` / `focusout` event dispatch yet (deferred with
+/// `focus`; slot `#11-vm-host-synthetic-dom-event-dispatch`).
 fn native_html_element_blur(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let entity = require_html_element_receiver(ctx, this, "blur")?;
-    let doc = ctx.host().document();
     let dom = ctx.host().dom();
-    if elidex_dom_api::focus::current_focus(dom, doc) == Some(entity) {
+    // Clear focus iff THIS element holds the FOCUS bit (by identity, via
+    // `is_focused` — NOT the connectedness-filtered `current_focus`): a
+    // detached-but-focused receiver (`d.focus(); d.remove(); d.blur()`) must
+    // still be cleared, else the stale bit resurrects `d` in `activeElement`
+    // on reattach.  Single-focus means at most one holder, so the sweep clears
+    // exactly `entity`.
+    if elidex_dom_api::focus::is_focused(dom, entity) {
         elidex_dom_api::focus::set_focus_bit(dom, None);
     }
     Ok(JsValue::Undefined)

@@ -256,6 +256,37 @@ fn focus_brand_check_rejects_plain_object() {
     assert_eq!(out, "ok");
 }
 
+#[test]
+fn blur_clears_detached_focused_element_no_resurrect() {
+    // Codex R1 F1: focus → remove → blur → reattach must NOT resurrect the
+    // element as activeElement. `blur()` clears the FOCUS bit by identity
+    // (`is_focused`), so the connectedness-filtered detach does not skip it.
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('tabindex', '0'); \
+         document.body.appendChild(d); \
+         d.focus(); \
+         d.remove(); \
+         d.blur(); \
+         document.body.appendChild(d); \
+         (document.activeElement === document.body) ? 'ok' \
+           : (document.activeElement === d ? 'fail-resurrected' : 'fail-other');");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn hidden_visibility_getters_brand_check_receiver() {
+    // Codex R1 F2: the page-visibility getters must not leak the bound tab's
+    // state to a non-Document receiver (`get.call({})`).
+    let out = run(
+        "var hg = Object.getOwnPropertyDescriptor(document, 'hidden').get; \
+         var vg = Object.getOwnPropertyDescriptor(document, 'visibilityState').get; \
+         (hg.call({}) === false && vg.call({}) === 'visible' \
+            && hg.call(document) === false && vg.call(document) === 'visible') \
+           ? 'ok' : ('fail:' + hg.call({}) + ',' + vg.call({}));",
+    );
+    assert_eq!(out, "ok");
+}
+
 // =========================================================================
 // IDL attrs — PR5b §C2
 // =========================================================================

@@ -103,6 +103,10 @@ pub fn tab_index_default_for(dom: &EcsDom, entity: Entity) -> i32 {
 /// `input` / `select` / `textarea` / `optgroup` / `option` / `fieldset`).
 ///
 /// Attribute-based by necessity (this crate has no `elidex-form` dependency).
+/// `contenteditable` is checked via [`EcsDom::is_contenteditable`], which honours
+/// **ancestor inheritance** (WHATWG HTML §6.8.1: the missing/invalid state
+/// inherits from the parent), so a descendant of an editing host
+/// (`<div contenteditable><span>…</span></div>`) is focusable.
 /// **Fieldset-inherited** disabled (a control nested in `<fieldset disabled>`)
 /// is *not* captured here — that lives in the form subsystem; the shell overlays
 /// `FormControlState` for it on its UA-input path, and slot
@@ -113,7 +117,25 @@ pub fn is_focusable(dom: &EcsDom, entity: Entity) -> bool {
     if is_actually_disabled(dom, entity) {
         return false;
     }
-    dom.has_attribute(entity, "tabindex") || tab_index_default_for(dom, entity) >= 0
+    dom.has_attribute(entity, "tabindex")
+        || dom.is_contenteditable(entity)
+        || tab_index_default_for(dom, entity) >= 0
+}
+
+/// Whether `entity` currently carries the [`ElementState::FOCUS`] bit — **by
+/// identity**, WITHOUT [`current_focus`]'s connectedness filter.
+///
+/// Use for `blur()`, which must clear a *detached-but-focused* receiver's stale
+/// bit (`d.focus(); d.remove(); d.blur(); reattach` must NOT leave the bit to
+/// resurrect `d` in `activeElement`). The connectedness-filtered `current_focus`
+/// would skip a disconnected holder; this preserves the old invalidate-by-identity
+/// semantics. Single-focus (held by [`set_focus_bit`]) means at most one holder,
+/// so a subsequent `set_focus_bit(None)` clears exactly this entity.
+#[must_use]
+pub fn is_focused(dom: &EcsDom, entity: Entity) -> bool {
+    dom.world()
+        .get::<&ElementState>(entity)
+        .is_ok_and(|s| s.contains(ElementState::FOCUS))
 }
 
 /// A disablable form element carrying a direct `disabled` content attribute.
@@ -292,6 +314,51 @@ mod tests {
         assert!(
             !is_focusable(&dom, disabled),
             "a disabled disablable element is not focusable"
+        );
+    }
+
+    #[test]
+    fn is_focusable_inherits_contenteditable() {
+        // Regression (Codex R1 F3): an editing-host descendant must stay
+        // focusable via ancestor-inherited `contenteditable` (WHATWG §6.8.1),
+        // not only a direct attribute — else clicking a child inside a
+        // `<div contenteditable>` blurs the editor.
+        let mut dom = EcsDom::new();
+        let editor = dom.create_element("div", Attributes::default());
+        dom.set_attribute(editor, "contenteditable", "");
+        let span = dom.create_element("span", Attributes::default());
+        let _ = dom.append_child(editor, span);
+        assert!(
+            is_focusable(&dom, span),
+            "an editing-host descendant inherits focusability"
+        );
+        // A <span> outside any editing host is not focusable.
+        let plain = dom.create_element("span", Attributes::default());
+        assert!(!is_focusable(&dom, plain));
+    }
+
+    #[test]
+    fn is_focused_is_by_identity_not_connectedness() {
+        // Regression (Codex R1 F1): `is_focused` must report a detached holder
+        // as focused (by identity) so `blur()` can clear it — unlike
+        // `current_focus`, which filters disconnected holders.
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let el = dom.create_element("div", Attributes::default());
+        let _ = dom.append_child(doc, el);
+        set_focus_bit(&mut dom, Some(el));
+        assert!(is_focused(&dom, el));
+        // Detach `el`: still alive + still holds the bit by identity, but
+        // `current_focus` (connectedness) no longer reports it.
+        let _ = dom.remove_child(doc, el);
+        assert!(
+            is_focused(&dom, el),
+            "detached holder is still focused by identity"
+        );
+        assert_eq!(
+            current_focus(&dom, doc),
+            None,
+            "but connectedness-filtered out"
         );
     }
 
