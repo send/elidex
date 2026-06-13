@@ -40,7 +40,7 @@ mod tests_fragment;
 #[cfg(test)]
 mod tests_html5lib_tree;
 
-use elidex_ecs::{Attributes, EcsDom, Entity, Namespace};
+use elidex_ecs::{EcsDom, Entity, Namespace};
 
 use crate::result::{ParseFragmentOptions, ParseResult, ParseTier};
 use crate::tokenizer::states::{State, Tokenizer};
@@ -167,32 +167,15 @@ impl TreeBuilder {
         context: Entity,
         opts: ParseFragmentOptions,
     ) -> (Result<Vec<Entity>, StrictParseError>, EcsDom) {
-        // The whole §13.4 build happens on a synthetic throwaway document, never
-        // the caller's connected tree, so suppress mutation dispatch for its
-        // duration: appending the synthetic root under a `Document` would
-        // otherwise fire insert/remove events (`is_connected` treats any
-        // `Document` root as connected), letting custom-element / observer /
-        // Range consumers react to internal fragment nodes the caller has not
-        // yet placed — and observe their teardown. The caller's own placement
-        // of the returned detached nodes fires the real events; restored below.
-        let saved_dispatcher = dom.take_mutation_dispatcher();
-        // §13.4 steps 2 + 11-13: a throwaway Document holding a single
-        // synthetic `<html>` root, which is the sole entry on the stack of
-        // open elements. The fragment's nodes are the root's children and are
-        // returned detached (step 20); the document + root are torn down. The
-        // Document (not the bare element) is the root's owner so that foreign
-        // (SVG / MathML) elements created during the parse get a valid owner
-        // document (§13.2.6.1) — `create_element_ns` requires a Document owner.
-        // A throwaway Document — created cache-free (`create_document_node`,
-        // NOT `create_document_root`) so it never clobbers the caller's
-        // persistent `document_root` cache, which it would then leave dangling
-        // when despawned.
-        let document = dom.create_document_node();
-        let root = dom.create_element("html", Attributes::default());
-        debug_assert!(
-            dom.append_child(document, root),
-            "appending a fresh root to a fresh document cannot fail"
-        );
+        // §13.4 steps 2 + 11-13: suppress mutation dispatch and set up a
+        // throwaway Document holding the single synthetic `<html>` root (the
+        // sole initial entry on the stack of open elements). The shared
+        // `begin_detached_fragment` prologue owns the rationale (dispatch
+        // suppression + cache-free Document owner for foreign elements); the
+        // tolerant backend uses the same one. Teardown is run below (Ok =
+        // `take_fragment_children` → `finish_detached_fragment`; Err = the
+        // partial-subtree despawn), then the dispatcher is restored.
+        let (document, root, saved_dispatcher) = dom.begin_detached_fragment();
         let mut state = ParseState::new();
         state.open_elements.push(root);
         // §13.4 step 16 substitution source (consumed by

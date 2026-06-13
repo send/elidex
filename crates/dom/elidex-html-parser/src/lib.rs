@@ -133,19 +133,10 @@ pub fn parse_html_fragment(
     };
 
     // Build the converted subtree under a synthetic throwaway document +
-    // `<html>` root (mirroring the strict backend), then return root's children
-    // detached via the shared teardown. Suppress mutation dispatch for the
-    // throwaway build: its synthetic Document root is `is_connected`, which
-    // would otherwise fire insert/remove events on internal fragment nodes
-    // before the caller has placed them; the caller's placement of the returned
-    // detached nodes fires the real events (restored below).
-    let saved = dom.take_mutation_dispatcher();
-    let document = dom.create_document_node();
-    let root = dom.create_element("html", elidex_ecs::Attributes::default());
-    debug_assert!(
-        dom.append_child(document, root),
-        "appending a fresh root to a fresh document cannot fail"
-    );
+    // `<html>` root (the shared prologue both backends use; mutation dispatch is
+    // suppressed for the throwaway build, restored after teardown), then return
+    // root's children detached via the shared teardown.
+    let (document, root, saved) = dom.begin_detached_fragment();
     // §13.4 fragment case (adjusted current node): while the stack holds only
     // the synthetic root — true for every *top-level* node — the adjusted
     // current node is the CONTEXT element, so a top-level
