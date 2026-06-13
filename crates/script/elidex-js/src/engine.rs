@@ -3,7 +3,7 @@
 //! Enabled by the `engine` feature flag. Provides a thin delegation layer from
 //! the engine-agnostic `elidex-script-session` contracts ([`ScriptEngine`] =
 //! "execute JS / dispatch an event"; [`HostDriver`] = "the shell pumps the loop
-//! + exchanges host effects across the host boundary") to the VM's native API.
+//! and exchanges host effects across the host boundary") to the VM's native API.
 //! The contract docs live on the trait declarations; the impls here are thin
 //! forwarders to the verified `Vm` / `HostData` bodies.
 

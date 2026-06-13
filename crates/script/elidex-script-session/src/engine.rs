@@ -104,8 +104,8 @@ pub trait ScriptEngine {
 /// Each method is a distinct host-boundary exchange the engine genuinely
 /// performs — the size is intrinsic to the contract, not a God-object grab-bag.
 /// The trait reflects the **engine-native** event-loop model, not any single
-/// engine's internal shape: `tick_network` is one fused step (fetch settlement
-/// + WebSocket/`EventSource` dispatch + microtask checkpoint), realtime/worker
+/// engine's internal shape: `tick_network` is one fused step (fetch settlement,
+/// WebSocket/`EventSource` dispatch, and a microtask checkpoint), realtime/worker
 /// shutdown is folded into [`unbind`](Self::unbind) rather than exposed as
 /// separate methods, and same-window `postMessage` is internalized — so this
 /// surface is *smaller* than a per-effect-drain contract in those places.
