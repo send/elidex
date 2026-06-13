@@ -392,3 +392,31 @@ fn set_attribute_node_returns_null() {
         .unwrap();
     assert_eq!(result, JsValue::Null);
 }
+
+/// Codex #335 R6 F20: when the receiver is not a live Element,
+/// `EcsDom::set_attribute` returns `false`; `setAttributeNode` must
+/// surface that as an error and NOT mark the Attr as owned by a dead
+/// receiver (mirrors `SetAttribute`'s `NotFoundError`).
+#[test]
+fn set_attribute_node_on_non_element_errors_without_owning() {
+    let mut dom = EcsDom::new();
+    // A Document node is a non-Element receiver: `set_attribute` short-
+    // circuits to `false` for it.
+    let doc = dom.create_document_root();
+    let attr = dom.create_attribute("id");
+    {
+        let mut ad = dom.world_mut().get::<&mut AttrData>(attr).unwrap();
+        ad.value = "x".into();
+    }
+    let mut session = SessionCore::new();
+    let attr_ref = session
+        .get_or_create_wrapper(attr, ComponentKind::Element)
+        .to_raw();
+
+    let result =
+        SetAttributeNode.invoke(doc, &[JsValue::ObjectRef(attr_ref)], &mut session, &mut dom);
+    assert!(result.is_err());
+    // Ownership must be untouched — no phantom success.
+    let ad = dom.world().get::<&AttrData>(attr).unwrap();
+    assert_eq!(ad.owner_element, None);
+}

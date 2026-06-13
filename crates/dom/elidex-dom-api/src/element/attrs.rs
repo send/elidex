@@ -6,7 +6,7 @@ use elidex_plugin::JsValue;
 use elidex_script_session::{DomApiError, DomApiHandler, SessionCore};
 
 use super::tree::validate_attribute_name;
-use crate::util::{require_attrs, require_attrs_mut, require_string_arg};
+use crate::util::{not_found_error, require_attrs, require_attrs_mut, require_string_arg};
 
 // hasAttribute (§7i)
 // ---------------------------------------------------------------------------
@@ -72,11 +72,15 @@ impl DomApiHandler for ToggleAttribute {
         // `rev_version` + dispatches `MutationEvent::AttributeChange` (the
         // prior direct path skipped both). Boolean attributes are stored
         // with an empty value per the HTML serialization of a present
-        // boolean attribute.
+        // boolean attribute. A `set_attribute` `false` return means the
+        // receiver is not a live Element (stale wrapper); surface it as
+        // `NotFoundError` rather than reporting a phantom add (mirrors
+        // `SetAttribute`). The remove branches only run when `has` is true,
+        // which already implies a live Element.
         let result = match force {
             Some(true) => {
-                if !has {
-                    dom.set_attribute(this, &name, "");
+                if !has && !dom.set_attribute(this, &name, "") {
+                    return Err(not_found_error("element not found"));
                 }
                 true
             }
@@ -91,7 +95,9 @@ impl DomApiHandler for ToggleAttribute {
                     dom.remove_attribute(this, &name);
                     false
                 } else {
-                    dom.set_attribute(this, &name, "");
+                    if !dom.set_attribute(this, &name, "") {
+                        return Err(not_found_error("element not found"));
+                    }
                     true
                 }
             }

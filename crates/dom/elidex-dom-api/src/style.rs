@@ -216,7 +216,16 @@ impl DomApiHandler for StyleSetProperty {
                 .get::<&mut InlineStyle>(this)
                 .map_err(|_| not_found_error("element not found"))?;
             for decl in decls {
-                style.set_with_priority(decl.property, decl.value.to_css_string(), important);
+                // Store a round-trip-safe serialization so the cascade's
+                // re-parse of the written-back `style` attribute reproduces
+                // this declaration (space-separated lists otherwise corrupt
+                // — see `serialize_declaration_value_for_storage`).
+                let stored = elidex_css::serialize_declaration_value_for_storage(
+                    &decl.property,
+                    &decl.value,
+                    Some(inline_style_registry()),
+                );
+                style.set_with_priority(decl.property, stored, important);
             }
         }
         sync_to_attribute(this, dom);
@@ -411,15 +420,14 @@ impl DomApiHandler for StyleItem {
         _session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
+        // CSSOM §6.6.1 `item(unsigned long index)` — WebIDL ToUint32
+        // coercion (NaN → 0), so `style.item(NaN)` reads index 0 rather
+        // than out-of-range.
         let idx_f = match args.first() {
             Some(JsValue::Number(n)) => *n,
             _ => 0.0,
         };
-        if !idx_f.is_finite() || idx_f < 0.0 {
-            return Ok(JsValue::String(String::new()));
-        }
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let idx = idx_f as usize;
+        let idx = crate::util::webidl_unsigned_long(idx_f);
         // Same stale-wrapper / missing-component split as
         // `StyleGetPropertyValue`.
         if !dom.world().contains(this) {

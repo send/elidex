@@ -150,8 +150,13 @@ impl DomApiHandler for SetAttributeNode {
         // `EcsDom::set_attribute` chokepoint (InlineStyle cache
         // invalidation + `rev_version` + `MutationEvent::AttributeChange`) —
         // attaching a `style` Attr node otherwise leaves a stale hydrated
-        // `InlineStyle` cache.
-        dom.set_attribute(this, &name, &value);
+        // `InlineStyle` cache. A `false` return means the receiver is not a
+        // live Element (stale wrapper); gate the owner update on success so
+        // the call can't report success while the Attr points at a dead
+        // owner (mirrors `SetAttribute`'s `NotFoundError` contract).
+        if !dom.set_attribute(this, &name, &value) {
+            return Err(not_found_error("element not found"));
+        }
 
         // Update owner.
         {

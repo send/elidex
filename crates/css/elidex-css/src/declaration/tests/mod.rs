@@ -144,6 +144,46 @@ fn value_for_property_rejects_trailing_input() {
     assert!(parse_value_for_property("color", "red !important", None).is_none());
 }
 
+// --- serialize_declaration_value_for_storage (Codex #335 R6 F18) ---
+
+#[test]
+fn storage_serialization_roundtrips_space_separated_list() {
+    // `text-decoration-line: underline overline` parses to a
+    // `CssValue::List`; `to_css_string` comma-joins it, and the comma form
+    // does NOT re-parse (the declaration would vanish from the cascade).
+    // The storage serializer must fall back to the space-joined,
+    // round-trip-safe form.
+    let decls =
+        parse_value_for_property("text-decoration-line", "underline overline", None).unwrap();
+    assert_eq!(decls.len(), 1);
+    let stored =
+        serialize_declaration_value_for_storage("text-decoration-line", &decls[0].value, None);
+    assert_eq!(stored, "underline overline");
+    // Round-trips: re-parsing the stored string yields the same value.
+    let reparsed = parse_value_for_property("text-decoration-line", &stored, None).unwrap();
+    assert_eq!(reparsed[0].value, decls[0].value);
+}
+
+#[test]
+fn storage_serialization_keeps_canonical_for_roundtrippable_value() {
+    // A non-list value keeps its canonical serialization (colour keyword
+    // → hex) — the space-fallback only triggers for a lossy list.
+    let decls = parse_value_for_property("color", "red", None).unwrap();
+    let stored = serialize_declaration_value_for_storage("color", &decls[0].value, None);
+    assert_eq!(stored, "#ff0000");
+}
+
+#[test]
+fn parse_inline_style_preserves_space_separated_list() {
+    // End-to-end: hydrating from a `style` attribute must not corrupt a
+    // space-separated list property on the round-trip into `InlineStyle`.
+    let style = parse_inline_style("text-decoration-line: underline overline", None);
+    assert_eq!(
+        style.get("text-decoration-line"),
+        Some("underline overline")
+    );
+}
+
 #[test]
 fn value_for_property_custom_property() {
     let decls = parse_value_for_property("--x", "calc(1px + 2px)", None).expect("raw tokens");

@@ -268,6 +268,34 @@ fn get_property_value_shorthand_mixed_importance_is_empty() {
     assert_eq!(out, "|10px|||");
 }
 
+/// Codex R6 F18: a space-separated list property must round-trip through
+/// the inline write-back. `text-decoration-line` parses to a
+/// `CssValue::List`, which `to_css_string` comma-joins; the comma form
+/// does not re-parse, so without the storage round-trip guard the
+/// declaration vanishes from both `getPropertyValue` and the
+/// cascade-visible `style` attribute.
+#[test]
+fn set_property_space_separated_list_round_trips() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('text-decoration-line', 'underline overline'); \
+         d.style.getPropertyValue('text-decoration-line') + '|' + \
+         d.getAttribute('style');");
+    assert_eq!(
+        out,
+        "underline overline|text-decoration-line: underline overline"
+    );
+}
+
+/// The same round-trip when the value arrives via `setAttribute('style')`
+/// (the `parse_inline_style` hydration path).
+#[test]
+fn set_attribute_space_separated_list_round_trips() {
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('style', 'text-decoration-line: underline overline'); \
+         d.style.getPropertyValue('text-decoration-line');");
+    assert_eq!(out, "underline overline");
+}
+
 /// §6.6.1 removeProperty step 6 — update the style attribute only when
 /// something was actually removed: an unsupported property with an
 /// empty value must not dirty `attrs("style")` (Codex R1).

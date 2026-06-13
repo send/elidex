@@ -480,6 +480,27 @@ fn remove_attribute_style_invalidates_inline_style_cache() {
     );
 }
 
+/// Codex #335 R6 F21: when the receiver is not a live Element,
+/// `EcsDom::set_attribute` returns `false`; `toggleAttribute` must surface
+/// that as an error rather than claim a phantom add (mirrors
+/// `SetAttribute`'s `NotFoundError`).
+#[test]
+fn toggle_attribute_on_non_element_errors() {
+    let mut dom = EcsDom::new();
+    // A Document node is a non-Element receiver: `set_attribute` returns
+    // `false` for it, so the add branch must error.
+    let doc = dom.create_document_root();
+    let mut session = SessionCore::new();
+    let result = ToggleAttribute.invoke(
+        doc,
+        &[JsValue::String("hidden".into())],
+        &mut session,
+        &mut dom,
+    );
+    assert!(result.is_err());
+    assert!(dom.world().get::<&Attributes>(doc).is_err());
+}
+
 /// F15 audit: `toggleAttribute('style')` (removal branch) shares the same
 /// chokepoint-bypass class and must also invalidate the cache.
 #[test]

@@ -449,6 +449,44 @@ fn length_and_item() {
     assert_eq!(item_oob, JsValue::String(String::new()));
 }
 
+/// Codex #335 R6 F19: `item(unsigned long index)` applies WebIDL
+/// ToUint32, so a non-finite argument maps to index 0 (not out-of-range).
+/// This exercises the engine-independent handler directly — the VM host
+/// pre-coerces (`to_uint32`), so only the handler-level coercion catches
+/// `NaN`/`Infinity` for callers (boa) that forward the raw number.
+#[test]
+fn style_item_webidl_coerces_non_finite_index() {
+    let (mut dom, elem, mut session) = setup();
+    StyleSetProperty
+        .invoke(
+            elem,
+            &[
+                JsValue::String("color".into()),
+                JsValue::String("red".into()),
+            ],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap();
+
+    // ToUint32(NaN) == 0 → first property.
+    let nan = StyleItem
+        .invoke(elem, &[JsValue::Number(f64::NAN)], &mut session, &mut dom)
+        .unwrap();
+    assert_eq!(nan, JsValue::String("color".into()));
+
+    // ToUint32(+Infinity) == 0 → first property.
+    let inf = StyleItem
+        .invoke(
+            elem,
+            &[JsValue::Number(f64::INFINITY)],
+            &mut session,
+            &mut dom,
+        )
+        .unwrap();
+    assert_eq!(inf, JsValue::String("color".into()));
+}
+
 #[test]
 fn css_text_round_trip() {
     let (mut dom, elem, mut session) = setup();

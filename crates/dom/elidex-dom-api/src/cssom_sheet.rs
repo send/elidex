@@ -599,14 +599,13 @@ impl DomApiHandler for RuleStyleItem {
         session: &mut SessionCore,
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
-        let JsValue::Number(idx_f) = args.get(1).cloned().unwrap_or(JsValue::Undefined) else {
-            return Ok(JsValue::String(String::new()));
+        // CSSOM §6.6.1 `item(unsigned long index)` — WebIDL ToUint32
+        // coercion (NaN → 0), matching the inline `StyleItem` path.
+        let idx_f = match args.get(1) {
+            Some(JsValue::Number(n)) => *n,
+            _ => 0.0,
         };
-        if !idx_f.is_finite() || idx_f < 0.0 {
-            return Ok(JsValue::String(String::new()));
-        }
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let idx = idx_f as usize;
+        let idx = crate::util::webidl_unsigned_long(idx_f);
         let name = with_rule(this, args, session, dom, String::new(), |r| {
             unique_properties_last_wins(&r.declarations)
                 .get(idx)

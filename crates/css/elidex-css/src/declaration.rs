@@ -89,7 +89,8 @@ impl Declaration {
 pub fn parse_inline_style(css: &str, registry: Option<&CssPropertyRegistry>) -> InlineStyle {
     let mut style = InlineStyle::default();
     for decl in parse_declaration_block_with_registry(css, registry) {
-        style.set_with_priority(decl.property, decl.value.to_css_string(), decl.important);
+        let stored = serialize_declaration_value_for_storage(&decl.property, &decl.value, registry);
+        style.set_with_priority(decl.property, stored, decl.important);
     }
     style
 }
@@ -142,6 +143,66 @@ pub fn parse_value_for_property(
         return None;
     }
     Some(decls)
+}
+
+/// Serialize a parsed declaration `value` for storage in [`InlineStyle`]
+/// such that it round-trips through the cascade's re-parse of
+/// `attrs("style")`.
+///
+/// The inline-style write-back stores the *serialized* value string (the
+/// CSSOM canonical form, so `el.style.color = "red"` reads back
+/// `#ff0000`). [`CssValue::to_css_string`] comma-joins every
+/// [`CssValue::List`] because the type does not record its separator
+/// (slot `#11-cssvalue-list-separator-fidelity`); for space-separated
+/// list properties (`text-decoration-line`, grid track lists) the
+/// comma-joined string does NOT re-parse, so the declaration silently
+/// vanishes from cascade-visible CSS. Before this single-derivation
+/// unification the inline path stored raw attribute substrings (which
+/// round-tripped by construction); this guard restores that guarantee on
+/// the canonical-serialization path.
+///
+/// Only [`CssValue::List`] can serialize to a non-round-tripping form, so
+/// every other value (colour / length / keyword / …) takes the canonical
+/// string with no re-parse. For a list whose canonical (comma) form does
+/// not re-parse, fall back to the space-joined form, then to the
+/// canonical form (no worse than before).
+#[must_use]
+pub fn serialize_declaration_value_for_storage(
+    property: &str,
+    value: &CssValue,
+    registry: Option<&CssPropertyRegistry>,
+) -> String {
+    let canonical = value.to_css_string();
+    let CssValue::List(items) = value else {
+        return canonical;
+    };
+    if reparses_to_same(property, &canonical, value, registry) {
+        return canonical;
+    }
+    let spaced = items
+        .iter()
+        .map(CssValue::to_css_string)
+        .collect::<Vec<_>>()
+        .join(" ");
+    if reparses_to_same(property, &spaced, value, registry) {
+        return spaced;
+    }
+    canonical
+}
+
+/// Does re-parsing `serialized` for `property` reproduce exactly `value`?
+/// Used by [`serialize_declaration_value_for_storage`] to detect a lossy
+/// canonical serialization.
+fn reparses_to_same(
+    property: &str,
+    serialized: &str,
+    value: &CssValue,
+    registry: Option<&CssPropertyRegistry>,
+) -> bool {
+    matches!(
+        parse_value_for_property(property, serialized, registry).as_deref(),
+        Some([decl]) if decl.property == property && &decl.value == value
+    )
 }
 
 /// Walk `input` checking the CSS Syntax 3 `<declaration-value>`
