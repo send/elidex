@@ -50,11 +50,21 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
         return;
     }
 
-    // Focus moved to a top-level element — the parent document holds focus,
-    // so clear any iframe that previously captured key routing (else
-    // `try_route_key_to_iframe` would keep sending keystrokes into the stale
-    // iframe now that iframe focus is tracked via the FOCUS bit).
-    state.focused_iframe = None;
+    // Focus moved to a top-level element — the parent document holds focus.
+    // Blur any iframe that previously held focus: its separate `EcsDom` is
+    // unreachable from the parent `set_focus` below, so without this its control
+    // keeps `:focus` / caret and the iframe's `activeElement` stays stale (the
+    // cross-frame counterpart of the parent blur in `try_route_click_to_iframe`).
+    // `take()` also clears key routing so `try_route_key_to_iframe` stops
+    // sending keystrokes into the now-unfocused iframe.
+    if let Some(prev) = state.focused_iframe.take() {
+        if let Some(super::iframe::IframeHandle::InProcess(iframe)) =
+            state.iframes.get_mut(prev).map(|entry| &mut entry.handle)
+        {
+            super::focus::blur_current(&mut iframe.pipeline);
+            iframe.needs_render = true;
+        }
+    }
     // Update focus.
     set_focus(&mut state.pipeline, hit_entity);
 
@@ -770,6 +780,17 @@ pub(super) fn try_route_click_to_iframe(
         button: click.button,
         mods: click.mods,
     };
+
+    // Focus is moving into the iframe's browsing context, so the parent
+    // document's focused area resets (WHATWG HTML §6.6): blur the parent's
+    // current focus — dispatching its focusout/blur + change-on-blur — before
+    // focusing inside the iframe. Each pipeline owns its own `EcsDom`, so the
+    // iframe-side `set_focus` below cannot reach the parent's `FOCUS` bit;
+    // without this the parent control keeps `:focus` / caret blink / the
+    // change-on-blur snapshot active even though key routing has moved to the
+    // iframe. Runs for both in-process and out-of-process iframes (focus leaves
+    // the parent either way) and is a no-op when the parent has no focus.
+    super::focus::blur_current(&mut state.pipeline);
 
     let Some(entry) = state.iframes.get_mut(hit_entity) else {
         return false;

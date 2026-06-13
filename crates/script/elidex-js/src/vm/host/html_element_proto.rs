@@ -270,8 +270,20 @@ fn native_html_element_focus(
     // TypeError (browsers say "Illegal invocation") rather than a
     // silent no-op.
     let entity = require_html_element_receiver(ctx, this, "focus")?;
+    let doc = ctx.host().document();
     let dom = ctx.host().dom();
-    if elidex_dom_api::focus::is_focusable(dom, entity) {
+    // Focus is the *active* document's focused area (WHATWG HTML §6.6): only an
+    // element in the bound document can take it. An element in a non-active
+    // document — e.g. a `document.cloneNode()` subtree, which `is_connected`
+    // reports connected because its root *is* a `Document` — must NOT steal the
+    // live document's focus: `set_focus_bit`'s world-wide sweep would clear the
+    // real holder and `blur()` could not restore it (`current_focus` is scoped
+    // to the bound document). The active-document gate (`is_in_document`) is
+    // engine-bound — which document is bound is the VM's fact — so it lives here
+    // rather than in the engine-independent `is_focusable`.
+    if elidex_dom_api::focus::is_focusable(dom, entity)
+        && elidex_dom_api::focus::is_in_document(dom, entity, doc)
+    {
         elidex_dom_api::focus::set_focus_bit(dom, Some(entity));
         // Seed the change-on-blur snapshot for text controls, just like the
         // shell `set_focus` reconciler — so a script `input.focus()` followed

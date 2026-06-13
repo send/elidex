@@ -169,6 +169,29 @@ fn focus_is_single_focus_clearing_prior_holder() {
     assert_eq!(out, "ok");
 }
 
+#[test]
+fn focus_on_element_in_non_bound_document_does_not_clobber_live_focus() {
+    // Codex R4 F1: `focus()` on an element in a *non-bound* document — a
+    // `document.cloneNode()` subtree, whose descendants are `is_connected`
+    // (root is a Document) but which is not the active document — must NOT move
+    // the live document's focus. Without the bound-document gate, the world-wide
+    // `set_focus_bit` sweep would clear `live`'s bit (and `blur()` could not
+    // restore it, since `current_focus` is scoped to the bound document), so
+    // the visible page would silently lose focus.
+    let out = run("var live = document.createElement('input'); \
+         document.body.appendChild(live); \
+         live.focus(); \
+         var liveActive = document.activeElement === live; \
+         var clone = document.cloneNode(false); \
+         var cloneInput = document.createElement('input'); \
+         clone.appendChild(cloneInput); \
+         cloneInput.focus(); \
+         var stillLive = document.activeElement === live; \
+         (liveActive && stillLive) ? 'ok' \
+           : ('fail:' + liveActive + ',' + stillLive);");
+    assert_eq!(out, "ok");
+}
+
 // --- document.activeElement fallback -----------------------------
 
 #[test]

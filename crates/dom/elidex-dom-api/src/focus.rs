@@ -118,10 +118,14 @@ pub fn tab_index_default_for(dom: &EcsDom, entity: Entity) -> i32 {
 /// reach) is slot `#11-focusable-area-being-rendered`.
 ///
 /// Attribute-based by necessity (this crate has no `elidex-form` dependency).
-/// `contenteditable` is checked via [`EcsDom::is_contenteditable`], which honours
-/// **ancestor inheritance** (WHATWG HTML §6.8.1: the missing/invalid state
-/// inherits from the parent), so a descendant of an editing host
-/// (`<div contenteditable><span>…</span></div>`) is focusable.
+/// `contenteditable` is checked via [`crate::element::is_content_editable`] —
+/// the canonical editable-state algorithm that also backs the `isContentEditable`
+/// IDL getter — so focusability does not diverge from it: it honours **ancestor
+/// inheritance** (WHATWG HTML §6.8.1: the missing/invalid state inherits from the
+/// parent) *and* the full value set (case-insensitive `true` / `plaintext-only` /
+/// empty), so a descendant of an editing host (`<div contenteditable="TRUE">` or
+/// `contenteditable="plaintext-only"`) is focusable. (The lower-level
+/// `EcsDom::is_contenteditable` matched only exact lowercase `"true"`/`""`.)
 /// **Fieldset-inherited** disabled (a control nested in `<fieldset disabled>`)
 /// is *not* captured here — that lives in the form subsystem; the shell overlays
 /// `FormControlState` for it on its UA-input path, and slot
@@ -142,7 +146,7 @@ pub fn is_focusable(dom: &EcsDom, entity: Entity) -> bool {
     // home: [`parse_tab_index_value`]).
     dom.with_attribute(entity, "tabindex", |v| {
         v.and_then(parse_tab_index_value).is_some()
-    }) || dom.is_contenteditable(entity)
+    }) || crate::element::is_content_editable(dom, entity)
         || tab_index_default_for(dom, entity) >= 0
 }
 
@@ -193,26 +197,44 @@ pub fn current_focus(dom: &EcsDom, document: Entity) -> Option<Entity> {
         .iter()
         .find(|(_, s)| s.contains(ElementState::FOCUS))
         .map(|(e, _)| e)?;
-    if !dom.contains(focused) {
-        return None;
-    }
-    let mut cur = Some(focused);
+    // The connectedness walk to `document` is the defensive guard (the bit is
+    // connected by construction) — and doubles as the document scoping that
+    // keeps this read reporting only the bound document's focused area, never a
+    // holder in some other document tree sharing this world (e.g. a
+    // `document.cloneNode()` subtree).
+    is_in_document(dom, focused, document).then_some(focused)
+}
+
+/// Whether `entity` is an inclusive descendant of `document` — its light-tree
+/// ancestor chain reaches `document`. The **active-document membership** test:
+/// focus is the active document's focused area (WHATWG HTML §6.6), so a focus
+/// *writer* must reject a target outside the bound document. [`is_connected`]
+/// alone is insufficient — a `document.cloneNode()` subtree reports connected
+/// (its root *is* a `Document`) yet is not the bound document, and the
+/// world-wide [`set_focus_bit`] sweep would otherwise clobber the live
+/// document's holder. Shares the bounded ancestor walk with [`current_focus`]
+/// (one home for the "is this entity in that document" question).
+///
+/// [`is_connected`]: EcsDom::is_connected
+#[must_use]
+pub fn is_in_document(dom: &EcsDom, entity: Entity, document: Entity) -> bool {
+    let mut cur = Some(entity);
     let mut depth = 0;
     while let Some(c) = cur {
         if c == document {
-            return Some(focused);
+            return true;
         }
         // Defensive depth cap, matching the codebase's other ancestor walkers
         // (`find_link_ancestor`, `build_propagation_path`): a malformed parent
-        // cycle must not hang this read, which now runs on hot UA paths
-        // (keydown / caret blink / IME / a11y rebuild).
+        // cycle must not hang this read, which runs on hot UA paths (keydown /
+        // caret blink / IME / a11y rebuild).
         if depth >= elidex_ecs::MAX_ANCESTOR_DEPTH {
-            break;
+            return false;
         }
         cur = dom.get_parent(c);
         depth += 1;
     }
-    None
+    false
 }
 
 /// Move focus to `new` (or clear it when `None`) — the single WRITE model
@@ -220,8 +242,16 @@ pub fn current_focus(dom: &EcsDom, document: Entity) -> Option<Entity> {
 /// holders in the world, then sets it on `new` if `Some`. The clear-all sweep
 /// makes the single-focus invariant hold *by construction* across every writer
 /// (shell UA input ∪ VM `focus()`), with no separate "previously focused"
-/// record to keep in sync — each pipeline owns one `EcsDom` per document, so
-/// the world-wide sweep is exactly the per-document single-focus reconcile.
+/// record to keep in sync.
+///
+/// The world-wide sweep is the per-document single-focus reconcile because
+/// every writer targets the *active* document only: a shell pipeline owns one
+/// `EcsDom` per rendered document, and although the VM may hold additional
+/// non-active documents in its world (e.g. a `document.cloneNode()` subtree),
+/// `HTMLElement.focus()` gates on bound-document membership ([`is_in_document`])
+/// so a non-active document's element is never passed here. A caller that can
+/// hold multiple live documents in one world MUST preserve that gate, else this
+/// sweep would clobber the active document's holder.
 ///
 /// Does **not** dispatch focus events (engine-bound; the focusing-steps §6.6.4
 /// `focusout`/`focusin`/`blur`/`focus` stay with the caller — the shell
@@ -395,6 +425,57 @@ mod tests {
         // A <span> outside any editing host is not focusable.
         let plain = connect_el(&mut dom, doc, "span");
         assert!(!is_focusable(&dom, plain));
+    }
+
+    #[test]
+    fn is_focusable_inherits_contenteditable_uppercase_and_plaintext_only() {
+        // Regression (Codex R4 F3): the lower-level `EcsDom::is_contenteditable`
+        // matched only exact lowercase `"true"`/`""`, so an editing host with
+        // `contenteditable="TRUE"` or `"plaintext-only"` left its descendants
+        // non-focusable — diverging from the canonical `is_content_editable`
+        // (the `isContentEditable` algorithm) that this predicate now shares.
+        for value in ["TRUE", "plaintext-only", "PLAINTEXT-ONLY"] {
+            let mut dom = EcsDom::new();
+            let doc = dom.create_document_root();
+            let editor = connect_el(&mut dom, doc, "div");
+            dom.set_attribute(editor, "contenteditable", value);
+            let span = dom.create_element("span", Attributes::default());
+            let _ = dom.append_child(editor, span);
+            assert!(
+                is_focusable(&dom, span),
+                "an editing-host descendant inherits focusability for contenteditable={value:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn is_in_document_scopes_to_the_named_document() {
+        // Two documents can share one world (e.g. `document.cloneNode()`):
+        // membership is scoped to the *named* document, not "any document root"
+        // (which `is_connected` reports). A clone-document descendant is
+        // connected yet NOT in the bound document — so a focus *writer* gated on
+        // `is_in_document` will not let it clobber the bound document's holder.
+        let mut dom = EcsDom::new();
+        let bound = dom.create_document_root();
+        let live = connect_el(&mut dom, bound, "input");
+        assert!(is_in_document(&dom, live, bound));
+
+        // A second Document-rooted tree standing in for a cloned/non-bound doc.
+        let clone = dom.create_document_root();
+        let clone_child = dom.create_element("input", Attributes::default());
+        let _ = dom.append_child(clone, clone_child);
+        assert!(
+            dom.is_connected(clone_child),
+            "a clone-document descendant is connected (its root is a Document)"
+        );
+        assert!(
+            !is_in_document(&dom, clone_child, bound),
+            "but it is NOT in the bound document"
+        );
+        assert!(
+            is_in_document(&dom, clone_child, clone),
+            "it IS in its own (clone) document"
+        );
     }
 
     #[test]
