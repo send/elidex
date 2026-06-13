@@ -914,11 +914,16 @@ impl IframeData {
     /// and the ecs cloner, which re-derives from the *cloned*
     /// attributes (clone-policy "derived re-derive", see
     /// `dom::tree_clone` — a verbatim copy would propagate a component
-    /// gone stale against its attributes).  Per-property eager
-    /// maintenance exists boa- and shell-side (iframe IDL setters /
-    /// iframe lifecycle), but a *generic* `setAttribute` →
-    /// `IframeData` re-derivation path does not — tracked as
-    /// `#11-derived-component-attr-maintenance`.
+    /// gone stale against its attributes).  A *generic* `setAttribute`
+    /// → `IframeData` re-derivation path now runs at the
+    /// `EcsDom::set_attribute` / mutation-flush reconcile seam
+    /// (`EcsDom::reconcile_attribute_derived_components`), which closed
+    /// the `IframeData` half of slot
+    /// `#11-derived-component-attr-maintenance` — the shell iframe
+    /// lifecycle re-derives through that seam too.  (Per-property eager
+    /// IDL-setter maintenance survives only boa-side, slated for
+    /// deletion in D-26 PR7 and consistent because each setter records
+    /// the corresponding attribute mutation.)
     #[must_use]
     pub fn from_attributes(attrs: &Attributes) -> Self {
         Self {

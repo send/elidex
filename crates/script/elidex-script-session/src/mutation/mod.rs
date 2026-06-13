@@ -297,12 +297,13 @@ fn apply_set_attribute(
     attrs.set(name.clone(), value.to_owned());
     drop(attrs);
     // This deferred-flush path mutates `Attributes` directly instead of
-    // entering `EcsDom::set_attribute`, so it must preserve that
-    // chokepoint's `InlineStyle` invalidation invariant: a buffered `style`
-    // write would otherwise leave a lazily-hydrated `InlineStyle` stale and
-    // a later CSSOM write could resurrect the old declarations (Codex
-    // #335 R10 F31).
-    dom.invalidate_inline_style_cache(entity, &name);
+    // entering `EcsDom::set_attribute`, so it must run that chokepoint's
+    // attribute-derived-component reconcile: drop a stale `InlineStyle` on a
+    // buffered `style` write (else a later CSSOM write could resurrect the old
+    // declarations — Codex #335 R10 F31) AND re-derive `IframeData` on a
+    // buffered iframe-attribute write (else a flushed `setAttribute("src", …)`
+    // would leave the component stale).
+    dom.reconcile_attribute_derived_components(entity, &name);
     dom.rev_version(entity);
     Some(MutationRecord {
         attribute_name: Some(name),
@@ -317,10 +318,11 @@ fn apply_remove_attribute(dom: &mut EcsDom, entity: Entity, name: &str) -> Optio
     let old_value = attrs.get(&name).map(str::to_owned);
     attrs.remove(&name);
     drop(attrs);
-    // Same `InlineStyle` invalidation invariant as `apply_set_attribute`
-    // (Codex #335 R10 F31) — a buffered `removeAttribute("style")` must
-    // drop the hydrated component too.
-    dom.invalidate_inline_style_cache(entity, &name);
+    // Same attribute-derived-component reconcile as `apply_set_attribute`
+    // (Codex #335 R10 F31) — a buffered `removeAttribute("style")` drops the
+    // hydrated `InlineStyle`, and a buffered iframe-attribute removal re-derives
+    // `IframeData`.
+    dom.reconcile_attribute_derived_components(entity, &name);
     dom.rev_version(entity);
     Some(MutationRecord {
         attribute_name: Some(name),

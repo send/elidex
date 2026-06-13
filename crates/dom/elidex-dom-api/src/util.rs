@@ -125,16 +125,6 @@ pub(crate) fn require_attrs(
         .map_err(|_| not_found_error("element not found"))
 }
 
-/// Get mutable `Attributes` for an entity, returning `NotFoundError` if missing.
-pub(crate) fn require_attrs_mut(
-    entity: Entity,
-    dom: &mut EcsDom,
-) -> Result<hecs::RefMut<'_, Attributes>, DomApiError> {
-    dom.world_mut()
-        .get::<&mut Attributes>(entity)
-        .map_err(|_| not_found_error("element not found"))
-}
-
 /// Escape HTML text content for serialization.
 pub fn escape_html(s: &str) -> String {
     let mut out = String::with_capacity(s.len());

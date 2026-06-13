@@ -6,7 +6,7 @@ use elidex_plugin::JsValue;
 use elidex_script_session::{DomApiError, DomApiHandler, SessionCore};
 
 use super::tree::validate_attribute_name;
-use crate::util::{require_attrs, require_attrs_mut, require_live_element, require_string_arg};
+use crate::util::{require_attrs, require_live_element, require_string_arg};
 
 // hasAttribute (§7i)
 // ---------------------------------------------------------------------------
@@ -177,10 +177,16 @@ impl DomApiHandler for SetClassName {
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let value = require_string_arg(args, 0)?;
-        let mut attrs = require_attrs_mut(this, dom)?;
-        attrs.set("class", value);
-        drop(attrs);
-        dom.rev_version(this);
+        // Route through the canonical `EcsDom::set_attribute` chokepoint (not a
+        // direct `Attributes` write) so the write bumps `rev_version` AND
+        // dispatches `MutationEvent::AttributeChange` (DOM §4.9 "handle
+        // attribute changes" → §4.3.2 queue a mutation record) — the prior
+        // direct path skipped the mutation event. `require_live_element`
+        // preserves the "stale / non-Element receiver → NotFoundError" contract
+        // the chokepoint's silent-`false` return would otherwise drop (mirrors
+        // `ToggleAttribute`).
+        require_live_element(dom, this)?;
+        dom.set_attribute(this, "class", &value);
         Ok(JsValue::Undefined)
     }
 }
@@ -225,10 +231,10 @@ impl DomApiHandler for SetId {
         dom: &mut EcsDom,
     ) -> Result<JsValue, DomApiError> {
         let value = require_string_arg(args, 0)?;
-        let mut attrs = require_attrs_mut(this, dom)?;
-        attrs.set("id", value);
-        drop(attrs);
-        dom.rev_version(this);
+        // Chokepoint-route (see `SetClassName`): fires `MutationEvent` + bumps
+        // `rev_version`; `require_live_element` keeps the dead-receiver error.
+        require_live_element(dom, this)?;
+        dom.set_attribute(this, "id", &value);
         Ok(JsValue::Undefined)
     }
 }
@@ -334,10 +340,10 @@ impl DomApiHandler for DatasetSet {
         let key = require_string_arg(args, 0)?;
         let value = require_string_arg(args, 1)?;
         let attr_name = camel_to_data_attr(&key);
-        let mut attrs = require_attrs_mut(this, dom)?;
-        attrs.set(attr_name, value);
-        drop(attrs);
-        dom.rev_version(this);
+        // Chokepoint-route (see `SetClassName`). `camel_to_data_attr` emits a
+        // lowercase `data-*` name, canonical for the case-preserving chokepoint.
+        require_live_element(dom, this)?;
+        dom.set_attribute(this, &attr_name, &value);
         Ok(JsValue::Undefined)
     }
 }
@@ -359,10 +365,11 @@ impl DomApiHandler for DatasetDelete {
     ) -> Result<JsValue, DomApiError> {
         let key = require_string_arg(args, 0)?;
         let attr_name = camel_to_data_attr(&key);
-        let mut attrs = require_attrs_mut(this, dom)?;
-        attrs.remove(&attr_name);
-        drop(attrs);
-        dom.rev_version(this);
+        // Chokepoint-route (see `SetClassName`): `remove_attribute` fires
+        // `MutationEvent` only when an attribute was actually present (DOM
+        // §4.9), bumps `rev_version`, and runs the reconcile seam.
+        require_live_element(dom, this)?;
+        dom.remove_attribute(this, &attr_name);
         Ok(JsValue::Undefined)
     }
 }
