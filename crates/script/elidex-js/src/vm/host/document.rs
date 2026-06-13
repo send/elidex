@@ -753,11 +753,11 @@ pub(super) fn native_document_get_images(
     Ok(JsValue::Object(id))
 }
 
-/// `document.activeElement` (WHATWG HTML §6.6.3).
+/// `document.activeElement` (WHATWG HTML §6.6.6 Focus management APIs).
 ///
 /// Returns the currently focused Element, or — when no element is
 /// focused (or the focused entity has since been detached) — the
-/// document's `<body>` per spec step 2.  If neither is available,
+/// document's `<body>` per the spec fallback.  If neither is available,
 /// returns `documentElement` (spec fallback for documents without a
 /// body, e.g. during parser construction of the HTML skeleton).
 pub(super) fn native_document_get_active_element(
@@ -796,13 +796,14 @@ pub(super) fn native_document_get_active_element(
 /// `document.hasFocus()` (WHATWG HTML §6.6.6 Focus management APIs; the
 /// has-focus steps are §6.6.4 Processing model).
 ///
-/// Phase 2 approximation: returns whether an element is currently
-/// focused **and** still connected to this document — read from the
-/// canonical `ElementState::FOCUS` bit via `current_focus`, whose
-/// connectedness filter makes the two APIs agree (`hasFocus() === true`
-/// ⇒ `activeElement !== body`).  A full spec implementation tracks
-/// system focus at the window level; same-origin Document vs top-level
-/// Window focus arbitration is deferred to the PR5d cross-window tranche.
+/// Returns whether an element is currently focused **and** still
+/// connected to this document — read from the canonical
+/// `ElementState::FOCUS` bit via `current_focus`, whose connectedness
+/// filter makes the two APIs agree (`hasFocus() === true` ⇒
+/// `activeElement !== body`).  A full spec implementation tracks system
+/// focus at the window level; same-origin Document vs top-level Window
+/// focus arbitration is a future cross-window concern (out of S2 scope —
+/// the VM has a single browsing context).
 pub(super) fn native_document_has_focus(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -1032,8 +1033,8 @@ const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
     ("forms", native_document_get_forms),
     ("images", native_document_get_images),
     ("links", native_document_get_links),
-    // PR5b §C1 — `activeElement` returns the focused Element (or
-    // `body` when no element is focused, per WHATWG §6.6.3 step 2).
+    // `activeElement` returns the focused Element (or `body` when no
+    // element is focused, per WHATWG HTML §6.6.6 Focus management APIs).
     ("activeElement", native_document_get_active_element),
     // WHATWG HTML §6.2 Page visibility — `document.hidden` /
     // `document.visibilityState`, backed by `HostData::tab_hidden`

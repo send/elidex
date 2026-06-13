@@ -216,3 +216,103 @@ fn update_state(dom: &mut EcsDom, entity: Entity, f: impl FnOnce(&mut ElementSta
     f(&mut state);
     let _ = dom.world_mut().insert_one(entity, state);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use elidex_ecs::Attributes;
+
+    #[test]
+    fn set_focus_bit_enforces_single_focus() {
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let a = dom.create_element("div", Attributes::default());
+        let b = dom.create_element("div", Attributes::default());
+        let _ = dom.append_child(doc, a);
+        let _ = dom.append_child(doc, b);
+
+        set_focus_bit(&mut dom, Some(a));
+        assert_eq!(current_focus(&dom, doc), Some(a));
+        // Focusing `b` sweeps `a`'s bit — single-focus by construction.
+        set_focus_bit(&mut dom, Some(b));
+        assert_eq!(current_focus(&dom, doc), Some(b));
+        // Confirm only one holder remains (no stale bit on `a`).
+        let holders = dom
+            .world()
+            .query::<(Entity, &ElementState)>()
+            .iter()
+            .filter(|(_, s)| s.contains(ElementState::FOCUS))
+            .count();
+        assert_eq!(holders, 1);
+
+        set_focus_bit(&mut dom, None);
+        assert_eq!(current_focus(&dom, doc), None);
+    }
+
+    #[test]
+    fn current_focus_filters_disconnected() {
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        // Focused but never connected to `doc` (e.g. createElement + .focus()).
+        let orphan = dom.create_element("div", Attributes::default());
+        set_focus_bit(&mut dom, Some(orphan));
+        assert_eq!(
+            current_focus(&dom, doc),
+            None,
+            "a disconnected focus holder is filtered out at read"
+        );
+    }
+
+    #[test]
+    fn is_focusable_attribute_based() {
+        let mut dom = EcsDom::new();
+        let plain = dom.create_element("div", Attributes::default());
+        assert!(!is_focusable(&dom, plain), "plain <div> is not focusable");
+
+        let with_tabindex = dom.create_element("div", Attributes::default());
+        dom.set_attribute(with_tabindex, "tabindex", "0");
+        assert!(
+            is_focusable(&dom, with_tabindex),
+            "tabindex makes it focusable"
+        );
+
+        let anchor = dom.create_element("a", Attributes::default());
+        assert!(
+            !is_focusable(&dom, anchor),
+            "<a> without href is not focusable"
+        );
+        dom.set_attribute(anchor, "href", "x");
+        assert!(is_focusable(&dom, anchor), "<a href> is focusable");
+
+        let input = dom.create_element("input", Attributes::default());
+        assert!(is_focusable(&dom, input), "<input> is focusable");
+
+        let disabled = dom.create_element("button", Attributes::default());
+        dom.set_attribute(disabled, "disabled", "");
+        assert!(
+            !is_focusable(&dom, disabled),
+            "a disabled disablable element is not focusable"
+        );
+    }
+
+    #[test]
+    fn tab_index_default_values() {
+        let mut dom = EcsDom::new();
+        let button = dom.create_element("button", Attributes::default());
+        assert_eq!(tab_index_default_for(&dom, button), 0);
+
+        let div = dom.create_element("div", Attributes::default());
+        assert_eq!(tab_index_default_for(&dom, div), -1);
+
+        let hidden_input = dom.create_element("input", Attributes::default());
+        dom.set_attribute(hidden_input, "type", "hidden");
+        assert_eq!(tab_index_default_for(&dom, hidden_input), -1);
+
+        // `tabIndex` reflects the default tab order independent of disabled
+        // state — a disabled <button> still defaults to 0 (focusability is
+        // `is_focusable`'s concern, not the tab-index default).
+        let disabled_button = dom.create_element("button", Attributes::default());
+        dom.set_attribute(disabled_button, "disabled", "");
+        assert_eq!(tab_index_default_for(&dom, disabled_button), 0);
+    }
+}

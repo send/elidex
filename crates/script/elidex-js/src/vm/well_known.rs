@@ -349,7 +349,7 @@ define_well_known_strings! {
         // Document RO / RW accessors (PR4f C6 / C7).
         css1_compat => "CSS1Compat",
         // Page visibility (WHATWG HTML §6.2): `document.visibilityState`
-        // (`hidden` is already interned above).
+        // (`hidden` is interned below; macro order is irrelevant to interning).
         visible => "visible",
         // DocumentType.prototype attrs (PR4f C7).
         public_id => "publicId",
