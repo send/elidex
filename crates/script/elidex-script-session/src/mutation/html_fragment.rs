@@ -306,6 +306,62 @@ mod tests {
     }
 
     #[test]
+    fn set_html_unsafe_dsd_on_context_preserves_shadow_and_excludes_it_from_removed() {
+        // PR337 Codex R2 (P2) FP guard: setHTMLUnsafe with a top-level
+        // declarative-shadow template attaches a shadow to the context during
+        // parse (DSD-on-context). `apply_set_inner_html` parses BEFORE snapshotting
+        // the children to remove, so the snapshot runs after the shadow is
+        // attached — but `EcsDom::children` excludes `ShadowRoot` entities, so the
+        // removal loop never detaches the shadow root and it never appears in
+        // `removed_nodes`. The host↔shadow-root invariant holds; only the
+        // pre-existing light children are removed.
+        let mut dom = EcsDom::new();
+        let root = dom.create_document_root();
+        let host = elem(&mut dom, "div");
+        let _ = dom.append_child(root, host);
+        // Pre-existing light children so the removal loop runs over a non-empty set.
+        let old1 = elem(&mut dom, "span");
+        let old2 = elem(&mut dom, "b");
+        let _ = dom.append_child(host, old1);
+        let _ = dom.append_child(host, old2);
+
+        let record = apply_set_inner_html(
+            &mut dom,
+            host,
+            r#"<template shadowrootmode="open"><p>x</p></template>"#,
+            SetInnerHtmlOptions {
+                allow_declarative_shadow: true,
+            },
+        )
+        .expect("record");
+
+        // Shadow attached to the context and survives intact.
+        let sr = dom
+            .get_shadow_root(host)
+            .expect("shadow root attached to host");
+        assert!(
+            dom.children(sr).iter().any(|c| dom
+                .world()
+                .get::<&elidex_ecs::TagType>(*c)
+                .is_ok_and(|t| t.0 == "p")),
+            "shadow tree holds the parsed <p>"
+        );
+        // The shadow root is NOT reported as removed (children() excludes it);
+        // exactly the pre-existing light children were removed.
+        assert!(
+            !record.removed_nodes.contains(&sr),
+            "shadow root must not appear in removed_nodes"
+        );
+        assert_eq!(
+            record.removed_nodes,
+            vec![old1, old2],
+            "only the pre-existing light children are removed"
+        );
+        // Host↔shadow-root invariant intact (round-trips).
+        assert_eq!(dom.get_shadow_root(host), Some(sr));
+    }
+
+    #[test]
     fn set_inner_html_allow_declarative_shadow_attaches_open_shadow_root() {
         // §13.4 fragment case + §13.2.6.4.4 step 9–10: a *top-level*
         // `<template shadowrootmode>` via setHTMLUnsafe attaches its declarative
