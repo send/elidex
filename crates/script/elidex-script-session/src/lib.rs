@@ -19,6 +19,7 @@ pub mod event_listener;
 pub mod event_queue;
 mod identity_map;
 mod mutation;
+mod navigation;
 mod session;
 mod types;
 
@@ -43,5 +44,6 @@ pub use mutation::{
     apply_mutation, apply_set_inner_html, apply_set_outer_html, Mutation, MutationKind,
     MutationRecord, OuterHtmlError, SetInnerHtmlOptions,
 };
+pub use navigation::{HistoryAction, NavigationRequest};
 pub use session::{CssomSheetState, SessionCore};
 pub use types::{ComponentKind, DomApiError, DomApiErrorKind, JsObjectRef, ReadyState};

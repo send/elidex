@@ -390,7 +390,7 @@ fn register_window_open(ctx: &mut Context, bridge: &HostBridge) {
                         bridge.queue_open_tab(url);
                     }
                     "_self" => {
-                        bridge.set_pending_navigation(elidex_navigation::NavigationRequest {
+                        bridge.set_pending_navigation(elidex_script_session::NavigationRequest {
                             url: url.to_string(),
                             replace: false,
                         });
@@ -401,7 +401,7 @@ fn register_window_open(ctx: &mut Context, bridge: &HostBridge) {
                         }) {
                             return Ok(JsValue::null());
                         }
-                        bridge.set_pending_navigation(elidex_navigation::NavigationRequest {
+                        bridge.set_pending_navigation(elidex_script_session::NavigationRequest {
                             url: url.to_string(),
                             replace: false,
                         });

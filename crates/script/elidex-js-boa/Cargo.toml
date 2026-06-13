@@ -16,7 +16,6 @@ elidex-ecs.workspace = true
 elidex-script-session.workspace = true
 elidex-dom-api.workspace = true
 elidex-net.workspace = true
-elidex-navigation.workspace = true
 elidex-web-canvas.workspace = true
 elidex-form.workspace = true
 elidex-api-observers.workspace = true

@@ -8,7 +8,7 @@ use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
 use boa_engine::{js_string, Context, JsResult, JsValue, NativeFunction};
 
-use elidex_navigation::HistoryAction;
+use elidex_script_session::HistoryAction;
 
 use crate::bridge::HostBridge;
 

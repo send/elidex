@@ -493,12 +493,12 @@ impl JsRuntime {
     }
 
     /// Take the pending navigation request (if any).
-    pub fn take_pending_navigation(&self) -> Option<elidex_navigation::NavigationRequest> {
+    pub fn take_pending_navigation(&self) -> Option<elidex_script_session::NavigationRequest> {
         self.bridge.take_pending_navigation()
     }
 
     /// Take the pending history action (if any).
-    pub fn take_pending_history(&self) -> Option<elidex_navigation::HistoryAction> {
+    pub fn take_pending_history(&self) -> Option<elidex_script_session::HistoryAction> {
         self.bridge.take_pending_history()
     }
 

@@ -1,80 +1,147 @@
 //! Navigation state — `Location` / `History` / `document.URL` / reload.
 //!
-//! The VM owns a single [`NavigationState`] per `Vm`, read and written
-//! by the `location` / `history` host globals (PR4b C6 / C7).  Until the
-//! shell integration lands (PR6), the state is purely VM-internal:
-//! assignments to `location.href` and `history.pushState` update the
-//! current URL and the history entry list in place, but do not trigger
-//! an actual browser navigation.  `history.back()` / `history.forward()`
-//! move within the in-memory stack.
+//! # Single session-history source of truth = the shell
 //!
-//! WHATWG HTML §7.4 "The History interface" uses a structured clone
-//! for `state`, but at this tier we store it as a bare [`JsValue`] so
-//! the getter round-trip is identity — structured-clone serialisation
-//! lands alongside the shell navigation bridge.
+//! A `Vm` is bound to one document and does not own the network/render
+//! pipeline, so it **cannot** navigate itself — navigation replaces the whole
+//! pipeline, which the shell owns. The session history of record is therefore
+//! the shell's `NavigationController`; the VM keeps only a **current-document
+//! view** ([`NavigationState`]) plus the **pending intent** buffers the shell
+//! drains after a script turn (S1c boa→VM cutover, the back-channel slice).
+//!
+//! - `location.assign`/`href=`/`replace`/`reload` and `history.back`/`forward`/
+//!   `go` are *enqueue-only* (WHATWG HTML §7.4.2.2 "Beginning navigation" /
+//!   §7.4.6 "Applying the history step" — async loads the shell performs): they
+//!   set [`NavigationState::pending_navigation`] / `pending_history` and do NOT
+//!   mutate `current_url` (it commits when the shell calls `set_current_url`
+//!   after the load — so `location.href = "/x"; location.href` reads the OLD URL,
+//!   matching browsers).
+//! - `history.pushState`/`replaceState` (HTML §7.2.5 "shared history push/replace
+//!   state steps" → the "URL and history update steps" (§7.4.4)) are *synchronous*: the
+//!   VM updates `current_url` + `current_state` in place (and `pushState` also
+//!   bumps `history_length`) AND enqueues a `HistoryAction::PushState/ReplaceState`
+//!   for the shell to persist.  Each one independently mutates the joint session
+//!   history, so the enqueue buffer is a **FIFO queue** (two same-turn pushStates
+//!   must both reach the shell), unlike the last-wins async `pending_navigation`.
+//! - `history.length` / `history.state` read `history_length` (shell-pushed, plus
+//!   the synchronous `pushState` bump the shell reconciles) / `current_state` (set
+//!   by `pushState`/`replaceState`; a traversal leaves it untouched — async, the
+//!   shell restores the target entry's state on commit).
 
 #![cfg(feature = "engine")]
 
+use std::collections::VecDeque;
+
+use elidex_script_session::{HistoryAction, NavigationRequest};
 use url::Url;
 
 use super::super::value::JsValue;
 
-/// Maximum number of session-history entries retained by the
-/// in-memory [`NavigationState`].  Matches Chrome / Firefox's
-/// approximate cap.  When `push_entry` would exceed the limit,
-/// the oldest entry is evicted and [`NavigationState::history_index`]
-/// shifts accordingly — this keeps pathological
-/// `for (;;) history.pushState(...)` loops from growing the `Vec`
-/// (and its GC-rooted `state: JsValue` slots) unbounded.
-pub(crate) const MAX_HISTORY_ENTRIES: usize = 50;
+/// Upper bound on the per-turn pending-history queue (memory safety).  A tight
+/// `while (true) history.pushState(...)` loop appends one `HistoryAction` per
+/// call, and the shell only drains + applies its `NavigationController` cap
+/// *after* the script turn — so without a VM-side bound a runaway loop could grow
+/// memory without limit before the controller ever evicts.  Beyond this many
+/// buffered actions the oldest is dropped (the session history keeps only its
+/// most-recent entries on drain regardless), keeping the queue — and the last
+/// entry, which matches the synchronously-updated `current_url` — bounded.  Set
+/// well above any legitimate per-turn history-mutation count.
+const MAX_PENDING_HISTORY_ACTIONS: usize = 1024;
 
-/// A single entry in [`NavigationState::history_entries`] (WHATWG HTML
-/// §7.4.1 "session history entry").
-#[derive(Clone, Debug)]
-pub(crate) struct HistoryEntry {
-    /// The URL the entry points at.  Held as [`Url`] so that
-    /// relative-URL resolution (`history.pushState(…, '/new')`) is
-    /// a WHATWG-conformant `base.join(input)` call.
-    pub(crate) url: Url,
-    /// The serialised state associated with the entry (`history.state`).
-    ///
-    /// Held as a bare [`JsValue`] — structured clone happens when the
-    /// shell navigation bridge is wired (PR6).  GC-roots this entry's
-    /// values are traced because `NavigationState` lives inside
-    /// `VmInner` and is iterated by the GC root set (see `gc.rs`
-    /// `NavigationState` visit when wired).
-    pub(crate) state: JsValue,
-}
+/// Upper bound on the session-history entry count the synchronous `pushState`
+/// view reports — a **best-effort estimate** that must track the shell's
+/// `NavigationController` cap (`elidex-navigation`'s `MAX_HISTORY_ENTRIES`, 50).
+/// The session history is bounded: over the cap the shell evicts the oldest
+/// entry (HTML §7.2.5 note — a FIFO eviction buffer), so a tight `pushState`
+/// loop must report the *capped* `history.length`, not an unbounded `5001` that
+/// collapses to `50` the moment the shell drains.  The VM cannot depend on
+/// `elidex-navigation` (a shell crate) — this duplicate is the deliberate
+/// cross-layer estimate; the shell stays authoritative and reconciles the exact
+/// `(index, length)` via [`super::super::ElidexJsEngine::set_session_history`],
+/// so a drift between the two constants only perturbs the within-turn estimate.
+const SESSION_HISTORY_CAP: usize = 50;
 
-/// Per-`Vm` navigation state.
+/// Per-`Vm` navigation state — the **current-document view** of the shell-owned
+/// session history (see the module docs). Not a session-history stack: the
+/// shell's `NavigationController` is the single source of truth.
 ///
-/// Phase 2 scope — the fields are read by the `location` / `history`
-/// host objects and written by their setters.  Shell navigation
-/// coupling (actual URL loads, popstate firing) is deferred to PR6 per
-/// the PR4b plan.
+/// These fields are a per-VM browsing-context interim. `current_url` /
+/// `history_length` / `current_index` / `current_state` are per-Document facts
+/// whose ECS-native ideal home is a per-entity component on the document entity
+/// (deferred slice `#11-browsing-context-state-ecs-components`); `pending_navigation` /
+/// `pending_history` are transient drain-once intent buffers that are per-VM by
+/// nature (a VM↔shell message channel, not per-entity state — boa stores the
+/// same intents on its `HostBridge`).
 #[derive(Debug)]
 pub(crate) struct NavigationState {
-    /// The current browsing-context URL.  Backs `location.href`,
-    /// `document.URL`, and `document.documentURI`.  Initialised to
-    /// `about:blank` per WHATWG HTML §7.3.3 "Creating documents".
-    /// Held as [`Url`] so location getters call the WHATWG parser
-    /// directly (scheme / host / port / path / query / fragment
-    /// accessors) and relative URL setters (`location.href = "foo"`)
-    /// use [`Url::join`] for base-relative resolution.
+    /// The current browsing-context URL.  Backs `location.*`, `document.URL`,
+    /// and `document.documentURI`.  Initialised to `about:blank` per WHATWG HTML
+    /// §3.1.1 "The Document object" (the "is initial about:blank" concept; a
+    /// browsing context always has an active document with a URL).  Held as
+    /// [`Url`] so location getters call the
+    /// WHATWG parser directly and relative setters use [`Url::join`].
+    ///
+    /// Committed by the shell's `set_current_url` after a navigation load, or
+    /// synchronously by `pushState`/`replaceState` (§7.4.4). NOT mutated by the
+    /// enqueue-only `assign`/`href=`/`replace`/`traverse` paths.
     pub(crate) current_url: Url,
-    /// The in-memory session history stack.
-    pub(crate) history_entries: Vec<HistoryEntry>,
-    /// The index of the current entry within [`Self::history_entries`].
-    /// Always a valid index (invariant: `history_entries` is non-empty
-    /// after construction).
-    pub(crate) history_index: usize,
-    /// URL of the previous Document, used to back
-    /// `document.referrer` (WHATWG HTML §3.1.5).  `None` when no
-    /// previous Document is recorded — the spec maps this to the
-    /// empty string at the JS surface (directly-loaded top-level
-    /// navigations, opened-without-opener windows, and reloads
-    /// where the referrer policy stripped the previous URL).
-    /// [`super::super::Vm::set_navigation_referrer`] is the only
+    /// `history.length` — the count of session-history entries.  The shell's
+    /// `NavigationController` owns the real count and pushes it (with the index,
+    /// atomically) via `set_session_history` after a navigation/traversal commit;
+    /// `pushState` also updates it synchronously to [`Self::current_index`] `+ 1`
+    /// (§7.4.4 — a new entry is appended at the end in the same script turn, so a
+    /// same-turn `history.length` read observes it).  Defaults to `1` (the
+    /// spec-minimum: the current entry always exists).
+    pub(crate) history_length: usize,
+    /// The 0-based index of the current entry within the session history.  Pushed
+    /// by the shell (with `history_length`, atomically) via `set_session_history`,
+    /// and incremented synchronously by `pushState` (which appends after the
+    /// current entry, discarding forward entries — so the new length is
+    /// `current_index + 1`, **not** `history_length + 1`; the latter would
+    /// over-count when the current entry is not the last, e.g. after a `back`).
+    /// `replaceState` and traversals leave it unchanged (traversals commit
+    /// async; the shell re-pushes both on commit).  Defaults to `0` (the single
+    /// current entry).  Not exposed to script — internal to the synchronous
+    /// length update.
+    pub(crate) current_index: usize,
+    /// `history.state` — the serialized state of the current session-history
+    /// entry.  Set synchronously by `pushState`/`replaceState` (HTML §7.4.4).  A
+    /// traversal (`back`/`forward`/`go`) leaves it **untouched**: the traversal
+    /// is async (the shell loads the target entry), so a same-turn read still
+    /// sees the current entry's state, and a no-op traversal (`back` at the first
+    /// entry, `go(0)`) keeps it unchanged.  The target entry's state restoration
+    /// on commit needs the shell back-channel (slot
+    /// `#11-history-state-traversal-popstate-fidelity`).
+    ///
+    /// Held as a bare [`JsValue`] — `StructuredSerializeForStorage` (§7.2.5
+    /// step 4) is part of the same deferred slot.  GC-rooted via the
+    /// `gc::roots` visit so a `pushState`'d object is not collected before a
+    /// later `history.state` read.
+    pub(crate) current_state: JsValue,
+    /// A pending navigation from `location.assign`/`href=`/`replace`/`reload`
+    /// (WHATWG HTML §7.4.2.2), drained once per script turn by the shell's
+    /// `take_pending_navigation`.  Single-slot last-wins (matches boa).
+    pub(crate) pending_navigation: Option<NavigationRequest>,
+    /// Pending history actions from `history.back`/`forward`/`go`/`pushState`/
+    /// `replaceState` (WHATWG HTML §7.2.5), drained once per script turn by the
+    /// shell's `take_pending_history`.  A **FIFO queue**, not a single slot:
+    /// `pushState`/`replaceState` are *synchronous* and each independently
+    /// mutates the joint session history (§7.4.4), so two in one turn
+    /// (`pushState('/a'); pushState('/b')`) must both reach the shell in order —
+    /// a last-wins slot would silently drop `/a`'s entry.  (Contrast
+    /// `pending_navigation`, single-slot last-wins: navigations are async and
+    /// supersede one another.)  Bounded at [`MAX_PENDING_HISTORY_ACTIONS`] so a
+    /// runaway `pushState` loop cannot grow memory unbounded before the shell
+    /// drains — but at the bound it evicts the oldest **`PushState`/`ReplaceState`**
+    /// (which the shell's session-history cap would drop anyway), **never a
+    /// traversal**, so a `back()` followed by a flood of pushes does not silently
+    /// lose the traversal and reorder the operation sequence the shell replays
+    /// (see [`Self::enqueue_history`]).
+    pub(crate) pending_history: VecDeque<HistoryAction>,
+    /// URL of the previous Document, used to back `document.referrer` (WHATWG
+    /// HTML §3.1.4 "Resource metadata management").  `None` when no previous
+    /// Document is recorded — the spec maps this to the empty string at the JS
+    /// surface.  [`super::super::Vm::set_navigation_referrer`] is the only
     /// writer; the VM never populates this field on its own.
     pub(crate) referrer: Option<Url>,
 }
@@ -86,37 +153,86 @@ fn parse_about_blank() -> Url {
 }
 
 impl NavigationState {
-    /// Create a fresh navigation state pointing at `about:blank`.
+    /// Create a fresh navigation state pointing at `about:blank`, with an empty
+    /// current-document view (history length 1 = the current entry, null state,
+    /// no pending intents).
     pub(crate) fn new() -> Self {
-        let initial_url = parse_about_blank();
         Self {
-            current_url: initial_url.clone(),
-            history_entries: vec![HistoryEntry {
-                url: initial_url,
-                state: JsValue::Null,
-            }],
-            history_index: 0,
+            current_url: parse_about_blank(),
+            history_length: 1,
+            current_index: 0,
+            current_state: JsValue::Null,
+            pending_navigation: None,
+            pending_history: VecDeque::new(),
             referrer: None,
         }
     }
 
-    /// Push a new entry (truncating any forward history) and apply
-    /// the [`MAX_HISTORY_ENTRIES`] cap by dropping the oldest entry
-    /// when the vec would otherwise exceed the limit.  Returns the
-    /// new index for convenience.
+    /// Commit a navigation's URL — the shell calls this (via
+    /// [`ElidexJsEngine::set_current_url`](crate::ElidexJsEngine::set_current_url))
+    /// after a load completes.  `None` resets to `about:blank` (the spec's "no
+    /// active document" maps to the initial `about:blank`).
+    pub(crate) fn set_current_url(&mut self, url: Option<Url>) {
+        self.current_url = url.unwrap_or_else(parse_about_blank);
+    }
+
+    /// Enqueue a navigation intent for the shell (last-wins single slot, matching
+    /// boa).  The enqueue-only `location` setters route through here so they
+    /// never mutate `current_url` in place (the navigation commits when the shell
+    /// loads the document and calls `set_current_url`).
+    pub(crate) fn enqueue_navigation(&mut self, request: NavigationRequest) {
+        self.pending_navigation = Some(request);
+    }
+
+    /// Enqueue a history action for the shell, appending to the FIFO queue (so a
+    /// turn's synchronous `pushState`/`replaceState` mutations all reach the shell
+    /// in order — see [`Self::pending_history`]).  Used by `back`/`forward`/`go`
+    /// (pure intent) and by `pushState`/`replaceState` (after their synchronous
+    /// URL+state update).  Bounded at [`MAX_PENDING_HISTORY_ACTIONS`]: a runaway
+    /// loop stays at the cap, and the newest action — matching the synchronously
+    /// updated `current_url` — is always retained.
     ///
-    /// Called by `location.assign` / `location.href=` / `history.pushState`.
-    pub(crate) fn push_entry(&mut self, url: Url, state: JsValue) -> usize {
-        self.history_entries.truncate(self.history_index + 1);
-        self.history_entries.push(HistoryEntry { url, state });
-        if self.history_entries.len() > MAX_HISTORY_ENTRIES {
-            // Drop the oldest; shift the index down to keep pointing
-            // at the just-pushed entry.  Worst case this is O(len),
-            // but `len == MAX_HISTORY_ENTRIES+1` so it's bounded.
-            self.history_entries.remove(0);
+    /// At the bound it evicts the oldest **evictable** action — a
+    /// `PushState`/`ReplaceState`, which the shell's session-history cap would
+    /// drop anyway, so the survivors are the same last-N the shell commits.  A
+    /// traversal (`Back`/`Forward`/`Go`) is **not** evictable: dropping it would
+    /// change the ordered operation sequence the shell replays (`back(); pushState
+    /// ×N` must still go back first), so it is preserved.  Only if every queued
+    /// action is a traversal — pathological — does eviction fall back to the front.
+    pub(crate) fn enqueue_history(&mut self, action: HistoryAction) {
+        if self.pending_history.len() >= MAX_PENDING_HISTORY_ACTIONS {
+            let evictable = self.pending_history.iter().position(|a| {
+                matches!(
+                    a,
+                    HistoryAction::PushState { .. } | HistoryAction::ReplaceState { .. }
+                )
+            });
+            match evictable {
+                Some(pos) => {
+                    self.pending_history.remove(pos);
+                }
+                None => {
+                    self.pending_history.pop_front();
+                }
+            }
         }
-        self.history_index = self.history_entries.len() - 1;
-        self.history_index
+        self.pending_history.push_back(action);
+    }
+
+    /// Advance the current-document view for a synchronous `pushState` append
+    /// (the "URL and history update steps", §7.4.4): move to the newly-appended
+    /// entry (`current_index += 1`) and recompute `history_length = index + 1`
+    /// (the new entry is now the last).  Saturates at [`SESSION_HISTORY_CAP`] — a
+    /// tight loop reports the capped count, matching what the shell commits after
+    /// eviction (HTML §7.2.5 note), not an unbounded value that collapses on
+    /// drain.  `replaceState` does NOT call this (it overwrites the current entry
+    /// in place, changing neither index nor length).
+    pub(crate) fn record_push_state(&mut self) {
+        self.current_index = self
+            .current_index
+            .saturating_add(1)
+            .min(SESSION_HISTORY_CAP - 1);
+        self.history_length = self.current_index + 1;
     }
 }
 
@@ -162,19 +278,12 @@ impl super::super::VmInner {
     /// regression) → slot `#11-iframe-origin-before-initial-scripts`.
     ///
     /// Relatedly, a *tuple* override installed at load is pinned for the
-    /// document's lifetime, so an in-VM `location` navigation (`set_location`
-    /// mutates `current_url` in place, with no new document) would leave the
-    /// migrated readers reporting the load-time origin. Inert today (the
-    /// pre-S1c stub mutates `current_url` without re-navigating; no S1b test
-    /// reads the origin after navigating) and resolved by S1c: `assign`/`href`/
-    /// `replace` route through the navigation back-channel → a real navigation
-    /// creates a new document with a freshly-derived origin (a sandboxed iframe
-    /// stays opaque). It is *not* a simple "ignore/clear the tuple override on
-    /// `current_url` change" fix: the tuple override is load-bearing for
-    /// `about:blank`/srcdoc origin inheritance (the inherited parent tuple,
-    /// while `current_url` is opaque), and fragment navigation must not change
-    /// the origin — both need real navigation semantics. → slot
-    /// `#11-vm-navigation-origin-resync`.
+    /// document's lifetime. S1c makes `location` navigation enqueue-only (no
+    /// in-place `current_url` mutation), so the in-VM origin-staleness root is
+    /// gone; the remaining work — the shell re-pushing `set_origin` alongside
+    /// `set_current_url` after a content-thread navigation (`content/navigation.rs`
+    /// commits the URL without re-deriving origin) — is shell-side at the S5 flip
+    /// → slot `#11-vm-navigation-origin-resync`.
     pub(crate) fn document_origin(&self) -> elidex_plugin::SecurityOrigin {
         let host_data = self.host_data.as_deref();
         if let Some(over) =

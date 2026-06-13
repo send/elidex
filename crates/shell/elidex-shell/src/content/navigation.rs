@@ -216,11 +216,12 @@ pub(super) fn process_pending_actions(state: &mut ContentState) -> bool {
 
 pub(super) fn handle_history_action(
     state: &mut ContentState,
-    action: &elidex_navigation::HistoryAction,
+    action: &elidex_script_session::HistoryAction,
 ) {
     match action {
-        elidex_navigation::HistoryAction::Back | elidex_navigation::HistoryAction::Forward => {
-            let url = if matches!(action, elidex_navigation::HistoryAction::Back) {
+        elidex_script_session::HistoryAction::Back
+        | elidex_script_session::HistoryAction::Forward => {
+            let url = if matches!(action, elidex_script_session::HistoryAction::Back) {
                 state.nav_controller.go_back().cloned()
             } else {
                 state.nav_controller.go_forward().cloned()
@@ -229,16 +230,16 @@ pub(super) fn handle_history_action(
                 handle_navigate(state, &url, true, None);
             }
         }
-        elidex_navigation::HistoryAction::Go(delta) => {
+        elidex_script_session::HistoryAction::Go(delta) => {
             if let Some(url) = state.nav_controller.go(*delta).cloned() {
                 handle_navigate(state, &url, true, None);
             }
         }
-        elidex_navigation::HistoryAction::PushState { url, .. }
-        | elidex_navigation::HistoryAction::ReplaceState { url, .. } => {
+        elidex_script_session::HistoryAction::PushState { url, .. }
+        | elidex_script_session::HistoryAction::ReplaceState { url, .. } => {
             let replace = matches!(
                 action,
-                elidex_navigation::HistoryAction::ReplaceState { .. }
+                elidex_script_session::HistoryAction::ReplaceState { .. }
             );
             apply_push_replace_state(state, url.as_deref(), replace);
         }

@@ -11,7 +11,7 @@ use boa_engine::object::ObjectInitializer;
 use boa_engine::property::Attribute;
 use boa_engine::{js_string, Context, JsNativeError, JsResult, JsValue, NativeFunction};
 
-use elidex_navigation::NavigationRequest;
+use elidex_script_session::NavigationRequest;
 
 use crate::bridge::HostBridge;
 

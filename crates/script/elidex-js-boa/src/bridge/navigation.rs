@@ -1,6 +1,6 @@
 //! Navigation state methods for `HostBridge`.
 
-use elidex_navigation::{HistoryAction, NavigationRequest};
+use elidex_script_session::{HistoryAction, NavigationRequest};
 
 use super::HostBridge;
 

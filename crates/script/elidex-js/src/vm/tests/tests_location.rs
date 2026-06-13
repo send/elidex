@@ -1,11 +1,13 @@
-//! PR4b C6: `location` host-global tests.
+//! `location` host-global tests — S1c enqueue-only navigation model.
 //!
-//! Covers initial state (`about:blank`), href round-trip via setter,
-//! component getters (protocol/host/…/origin), assign / replace /
-//! toString / reload stubs, and the history-entry bookkeeping that
-//! `assign` vs `replace` performs.
+//! Getters read `current_url` (committed by the shell's `set_current_url`); the
+//! setters (`href=`/`assign`/`replace`) and `reload()` are *enqueue-only*: they
+//! parse + validate the URL synchronously (throwing `SyntaxError` on a bad URL)
+//! then record a `NavigationRequest`, leaving `current_url` unchanged.
 
 #![cfg(feature = "engine")]
+
+use elidex_script_session::NavigationRequest;
 
 use super::super::value::JsValue;
 use super::super::Vm;
@@ -15,6 +17,23 @@ fn eval_string(vm: &mut Vm, source: &str) -> String {
         JsValue::String(id) => vm.get_string(id),
         other => panic!("expected string, got {other:?}"),
     }
+}
+
+/// Commit a base URL via the shell's `set_current_url` path (the enqueue-only
+/// setters no longer mutate `current_url`).
+fn set_base(vm: &mut Vm, url: &str) {
+    vm.inner
+        .navigation
+        .set_current_url(Some(url::Url::parse(url).unwrap()));
+}
+
+/// Drain the navigation request the last setter enqueued.
+fn take_nav(vm: &mut Vm) -> NavigationRequest {
+    vm.inner
+        .navigation
+        .pending_navigation
+        .take()
+        .expect("a navigation request was enqueued")
 }
 
 #[test]
@@ -30,22 +49,26 @@ fn location_href_defaults_to_about_blank() {
 }
 
 #[test]
-fn location_href_setter_updates_current_url() {
+fn location_href_setter_enqueues_and_leaves_url_unchanged() {
     let mut vm = Vm::new();
+    set_base(&mut vm, "https://example.com/");
+    // The setter enqueues but does NOT commit — a same-script read returns the
+    // OLD URL (spec-correct async navigation, matching browsers).
+    vm.eval("location.href = 'https://other.com/a?x=1#y';")
+        .unwrap();
     assert_eq!(
-        eval_string(
-            &mut vm,
-            "location.href = 'https://example.com/a?x=1#y'; location.href;"
-        ),
-        "https://example.com/a?x=1#y"
+        eval_string(&mut vm, "location.href;"),
+        "https://example.com/"
     );
+    let nav = take_nav(&mut vm);
+    assert_eq!(nav.url, "https://other.com/a?x=1#y");
+    assert!(!nav.replace);
 }
 
 #[test]
 fn location_component_getters() {
     let mut vm = Vm::new();
-    vm.eval("location.href = 'https://example.com:8443/a/b?x=1#y';")
-        .unwrap();
+    set_base(&mut vm, "https://example.com:8443/a/b?x=1#y");
     assert_eq!(eval_string(&mut vm, "location.protocol;"), "https:");
     assert_eq!(eval_string(&mut vm, "location.host;"), "example.com:8443");
     assert_eq!(eval_string(&mut vm, "location.hostname;"), "example.com");
@@ -62,7 +85,7 @@ fn location_component_getters() {
 #[test]
 fn location_component_getters_no_port_no_query() {
     let mut vm = Vm::new();
-    vm.eval("location.href = 'http://elidex.test/';").unwrap();
+    set_base(&mut vm, "http://elidex.test/");
     assert_eq!(eval_string(&mut vm, "location.host;"), "elidex.test");
     assert_eq!(eval_string(&mut vm, "location.port;"), "");
     assert_eq!(eval_string(&mut vm, "location.search;"), "");
@@ -71,22 +94,18 @@ fn location_component_getters_no_port_no_query() {
 
 #[test]
 fn location_pathname_defaults_to_slash_for_authority_urls() {
-    // WHATWG URL §4.4: absolute URLs with an authority but no
-    // explicit path have pathname `/`, not the empty string.
+    // WHATWG URL §4.4: absolute URLs with an authority but no explicit path have
+    // pathname `/`.
     let mut vm = Vm::new();
-    vm.eval("location.href = 'https://example.com';").unwrap();
+    set_base(&mut vm, "https://example.com");
     assert_eq!(eval_string(&mut vm, "location.pathname;"), "/");
     assert_eq!(eval_string(&mut vm, "location.host;"), "example.com");
 
-    // Same with port.
-    vm.eval("location.href = 'http://example.com:8080';")
-        .unwrap();
+    set_base(&mut vm, "http://example.com:8080");
     assert_eq!(eval_string(&mut vm, "location.pathname;"), "/");
     assert_eq!(eval_string(&mut vm, "location.port;"), "8080");
 
-    // Query + fragment after bare host still normalise pathname to "/".
-    vm.eval("location.href = 'https://example.com?q=1#f';")
-        .unwrap();
+    set_base(&mut vm, "https://example.com?q=1#f");
     assert_eq!(eval_string(&mut vm, "location.pathname;"), "/");
     assert_eq!(eval_string(&mut vm, "location.search;"), "?q=1");
     assert_eq!(eval_string(&mut vm, "location.hash;"), "#f");
@@ -102,14 +121,12 @@ fn location_origin_is_null_for_opaque_schemes() {
 #[test]
 fn location_to_string_matches_href() {
     let mut vm = Vm::new();
-    vm.eval("location.href = 'https://example.com/';").unwrap();
+    set_base(&mut vm, "https://example.com/");
     assert_eq!(
         eval_string(&mut vm, "location.toString();"),
         "https://example.com/"
     );
-    // §7.1.12 step 9 → §7.1.1.1 routes `'' + location` through the
-    // Location wrapper's `toString()`, so the concatenation now produces
-    // the href just like the explicit `.toString()` call above.
+    // `'' + location` routes through the Location wrapper's `toString()`.
     assert_eq!(
         eval_string(&mut vm, "'' + location;"),
         "https://example.com/"
@@ -117,74 +134,73 @@ fn location_to_string_matches_href() {
 }
 
 #[test]
-fn location_assign_pushes_new_history_entry() {
+fn location_assign_enqueues_navigation() {
     let mut vm = Vm::new();
-    // Start: about:blank (1 entry). `assign` adds one more each call.
-    // `history` global lands in C7; read via the internal nav state.
     vm.eval("location.assign('https://a/')").unwrap();
-    assert_eq!(vm.inner.navigation.history_entries.len(), 2);
-    vm.eval("location.assign('https://b/')").unwrap();
-    assert_eq!(vm.inner.navigation.history_entries.len(), 3);
-    assert_eq!(vm.inner.navigation.history_index, 2);
+    let nav = take_nav(&mut vm);
+    assert_eq!(nav.url, "https://a/");
+    assert!(!nav.replace);
 }
 
 #[test]
-fn location_replace_overwrites_current_entry() {
+fn location_replace_enqueues_replace_navigation() {
     let mut vm = Vm::new();
-    // `replace` overwrites in place — history length stays 1.
     vm.eval("location.replace('https://a/')").unwrap();
-    assert_eq!(vm.inner.navigation.history_entries.len(), 1);
-    vm.eval("location.replace('https://b/')").unwrap();
-    assert_eq!(vm.inner.navigation.history_entries.len(), 1);
-    assert_eq!(eval_string(&mut vm, "location.href;"), "https://b/");
-}
-
-#[test]
-fn location_reload_is_no_op_but_callable() {
-    let mut vm = Vm::new();
-    vm.eval("location.reload();").unwrap();
+    let nav = take_nav(&mut vm);
+    assert_eq!(nav.url, "https://a/");
+    assert!(nav.replace);
+    // Enqueue-only: `current_url` unchanged.
     assert_eq!(eval_string(&mut vm, "location.href;"), "about:blank");
 }
 
+#[test]
+fn location_reload_enqueues_replace_to_current_url() {
+    let mut vm = Vm::new();
+    set_base(&mut vm, "https://example.com/page");
+    vm.eval("location.reload();").unwrap();
+    let nav = take_nav(&mut vm);
+    assert_eq!(nav.url, "https://example.com/page");
+    assert!(nav.replace);
+    assert_eq!(
+        eval_string(&mut vm, "location.href;"),
+        "https://example.com/page"
+    );
+}
+
 // ---------------------------------------------------------------------------
-// WHATWG `url` crate canonicalisation
+// WHATWG `url` crate canonicalisation — asserted on the *enqueued* URL (the
+// setter parses + canonicalises before enqueueing).
 // ---------------------------------------------------------------------------
 
 #[test]
-fn location_href_canonicalises_host_case() {
+fn location_href_setter_canonicalises_host_case() {
     // WHATWG URL §4.4: host is lowercased at parse time.
     let mut vm = Vm::new();
     vm.eval("location.href = 'http://HOST.EXAMPLE/a';").unwrap();
-    assert_eq!(eval_string(&mut vm, "location.host;"), "host.example");
+    assert_eq!(take_nav(&mut vm).url, "http://host.example/a");
 }
 
 #[test]
-fn location_href_strips_default_port() {
-    // Default port for the scheme is stripped.
+fn location_href_setter_strips_default_port() {
     let mut vm = Vm::new();
     vm.eval("location.href = 'http://host:80/a';").unwrap();
-    assert_eq!(eval_string(&mut vm, "location.host;"), "host");
-    assert_eq!(eval_string(&mut vm, "location.port;"), "");
-    assert_eq!(eval_string(&mut vm, "location.href;"), "http://host/a");
+    assert_eq!(take_nav(&mut vm).url, "http://host/a");
 }
 
 #[test]
 fn location_href_setter_resolves_relative_against_base() {
-    // `location.href = 'bar'` against `https://site/foo/` lands at
-    // `https://site/foo/bar` via `Url::join` (WHATWG URL §4.5).
+    // `location.href = 'bar'` against `https://site/foo/` resolves to
+    // `https://site/foo/bar` via `Url::join` (WHATWG URL §4.4) before enqueue.
     let mut vm = Vm::new();
-    vm.eval("location.href = 'https://site/foo/';").unwrap();
+    set_base(&mut vm, "https://site/foo/");
     vm.eval("location.href = 'bar';").unwrap();
-    assert_eq!(
-        eval_string(&mut vm, "location.href;"),
-        "https://site/foo/bar"
-    );
+    assert_eq!(take_nav(&mut vm).url, "https://site/foo/bar");
 }
 
 #[test]
 fn location_href_setter_throws_dom_exception_on_invalid_url() {
-    // Unresolvable relative URL on `about:blank` base → SyntaxError
-    // DOMException throw path.
+    // Unresolvable relative URL on `about:blank` base → SyntaxError DOMException
+    // (the setter parses synchronously, before any enqueue).
     let mut vm = Vm::new();
     let check = vm
         .eval(
@@ -196,4 +212,25 @@ fn location_href_setter_throws_dom_exception_on_invalid_url() {
         )
         .unwrap();
     assert!(matches!(check, JsValue::Boolean(true)));
+    // Nothing enqueued on the throw path.
+    assert!(vm.inner.navigation.pending_navigation.is_none());
+}
+
+#[test]
+fn location_assign_throws_dom_exception_on_invalid_url() {
+    // `assign` shares the synchronous parse + SyntaxError path with `href=`, but
+    // is a distinct native fn with its own error message — assert it throws and
+    // enqueues nothing (the throw aborts before the enqueue).
+    let mut vm = Vm::new();
+    let check = vm
+        .eval(
+            "var thrown = null;\
+             try { location.assign('\\u0000'); } \
+             catch (e) { thrown = e; }\
+             thrown && thrown.name === 'SyntaxError' \
+             && thrown instanceof DOMException;",
+        )
+        .unwrap();
+    assert!(matches!(check, JsValue::Boolean(true)));
+    assert!(vm.inner.navigation.pending_navigation.is_none());
 }

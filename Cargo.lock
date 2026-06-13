@@ -2273,7 +2273,6 @@ dependencies = [
  "elidex-form",
  "elidex-html-parser",
  "elidex-indexeddb",
- "elidex-navigation",
  "elidex-net",
  "elidex-plugin",
  "elidex-script-session",
