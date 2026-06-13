@@ -9,7 +9,7 @@
 #![cfg(feature = "engine")]
 
 use elidex_ecs::{EcsDom, Entity};
-use elidex_script_session::{ScriptContext, ScriptEngine, SessionCore};
+use elidex_script_session::{HostDriver, ScriptContext, ScriptEngine, SessionCore};
 
 use crate::engine::ElidexJsEngine;
 use crate::vm::host_data::HostData;
