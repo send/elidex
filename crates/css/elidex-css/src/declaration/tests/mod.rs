@@ -185,6 +185,23 @@ fn parse_inline_style_preserves_space_separated_list() {
 }
 
 #[test]
+fn value_for_property_rejects_invalid_custom_property_name() {
+    // Codex #335 R7 F23: a name that merely starts with `--` but carries
+    // CSS delimiters is not a valid custom-property name (CSS Syntax 3 —
+    // a `--` dashed-ident is a single ident token). Accepting it would let
+    // `css_text()` write `--x;color: red`, which the cascade re-parse
+    // splits to inject `color: red`.
+    assert!(parse_value_for_property("--x;color", "red", None).is_none());
+    assert!(parse_value_for_property("--a:b", "red", None).is_none());
+    assert!(parse_value_for_property("--a b", "red", None).is_none());
+    // A plain dashed-ident is valid.
+    assert!(parse_value_for_property("--valid", "red", None).is_some());
+    // An escaped delimiter is a single ident token → valid (round-trips
+    // with the escape intact).
+    assert!(parse_value_for_property("--a\\;b", "red", None).is_some());
+}
+
+#[test]
 fn value_for_property_custom_property() {
     let decls = parse_value_for_property("--x", "calc(1px + 2px)", None).expect("raw tokens");
     assert_eq!(decls[0].property, "--x");

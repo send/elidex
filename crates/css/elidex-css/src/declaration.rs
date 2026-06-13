@@ -126,6 +126,16 @@ pub fn parse_value_for_property(
     let mut pi = ParserInput::new(value);
     let mut input = Parser::new(&mut pi);
     if property.starts_with("--") {
+        // CSSOM §6.6.1 setProperty proceeds only for a *valid* custom
+        // property name. A name carrying CSS delimiters (`--x;color`)
+        // would be written back verbatim by `InlineStyle::css_text()` and
+        // then split by the cascade's declaration-block re-parse,
+        // injecting a fabricated declaration (`--x;color: red` ⇒ applied
+        // `color: red`). Require a single `<ident-token>` spanning the
+        // whole name (CSS Syntax 3 dashed-ident).
+        if !is_valid_custom_property_name(property) {
+            return None;
+        }
         if !is_declaration_value(&mut input, true) {
             return None;
         }
@@ -143,6 +153,24 @@ pub fn parse_value_for_property(
         return None;
     }
     Some(decls)
+}
+
+/// Is `name` a valid CSS custom-property name (CSS Syntax 3 — a `--`
+/// dashed-ident, i.e. a single `<ident-token>` spanning the whole string)?
+///
+/// Rejects names that merely start with `--` but carry CSS delimiters
+/// (`;`, `:`, whitespace, …): those tokenize as multiple tokens, so a
+/// verbatim `css_text()` write-back would let the cascade's
+/// declaration-block re-parse split off an injected declaration. An
+/// escaped delimiter (`--a\;b`) is a single ident token and is accepted —
+/// it round-trips with the escape intact.
+fn is_valid_custom_property_name(name: &str) -> bool {
+    if !name.starts_with("--") {
+        return false;
+    }
+    let mut pi = ParserInput::new(name);
+    let mut parser = Parser::new(&mut pi);
+    parser.expect_ident().is_ok() && parser.is_exhausted()
 }
 
 /// Serialize a parsed declaration `value` for storage in [`InlineStyle`]

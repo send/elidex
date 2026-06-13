@@ -180,6 +180,20 @@ fn set_property_rejects_value_injection() {
     assert_eq!(out, "|||");
 }
 
+/// Codex R7 F23: an invalid custom-property name (one carrying CSS
+/// delimiters) must be rejected by `setProperty` — otherwise the verbatim
+/// `css_text()` write-back lets the cascade re-parse split off an injected
+/// declaration (`--x;color: red` ⇒ applied `color: red`).
+#[test]
+fn set_property_rejects_invalid_custom_property_name_injection() {
+    let out = run("var d = document.createElement('div'); \
+         d.style.setProperty('--x;color', 'red'); \
+         '|' + d.style.cssText + '|' + (d.getAttribute('style') || '') + '|' + \
+         d.style.getPropertyValue('color') + '|';");
+    // No declaration stored, no attribute written, no injected color.
+    assert_eq!(out, "||||");
+}
+
 /// §6.6.1 step 3: the empty string as value removes the declaration.
 #[test]
 fn set_property_empty_value_removes() {
