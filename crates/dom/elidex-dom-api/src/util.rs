@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 
-use elidex_ecs::{Attributes, EcsDom, Entity};
+use elidex_ecs::{Attributes, EcsDom, Entity, NodeKind};
 use elidex_plugin::JsValue;
 use elidex_script_session::{DomApiError, DomApiErrorKind};
 
@@ -86,6 +86,25 @@ pub(crate) fn webidl_unsigned_long(n: f64) -> usize {
     }
     // 2³². `rem_euclid` keeps the result in `[0, 2³²)` and integer-valued.
     (n.trunc().rem_euclid(4_294_967_296.0)) as usize
+}
+
+/// Ensure `entity` is a live Element receiver, returning `NotFoundError`
+/// otherwise.
+///
+/// Attribute-mutation handlers that route writes through the
+/// [`EcsDom::set_attribute`] / [`EcsDom::remove_attribute`] chokepoints
+/// use this to preserve the "stale / non-Element receiver → `NotFoundError`"
+/// contract that the prior direct `require_attrs_mut` borrow surfaced.
+/// `remove_attribute` returns `()` and silently no-ops on a dead receiver,
+/// so a remove-path handler cannot derive the error from its return value
+/// — this guards uniformly up front (the same `node_kind == Element`
+/// predicate the chokepoints apply internally).
+pub(crate) fn require_live_element(dom: &EcsDom, entity: Entity) -> Result<(), DomApiError> {
+    if matches!(dom.node_kind(entity), Some(NodeKind::Element)) {
+        Ok(())
+    } else {
+        Err(not_found_error("element not found"))
+    }
 }
 
 /// Create a `NotFoundError` with the given message.

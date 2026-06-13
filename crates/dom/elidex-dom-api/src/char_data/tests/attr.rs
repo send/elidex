@@ -420,3 +420,31 @@ fn set_attribute_node_on_non_element_errors_without_owning() {
     let ad = dom.world().get::<&AttrData>(attr).unwrap();
     assert_eq!(ad.owner_element, None);
 }
+
+/// Codex #335 R9 F30: `removeAttributeNode` on a stale/non-Element receiver
+/// (the Attr still recording it as owner) must error BEFORE detaching the
+/// Attr from its owner — `remove_attribute` returns `()` and silently
+/// no-ops, so the up-front receiver-liveness guard surfaces the error and
+/// the recorded owner is left intact.
+#[test]
+fn remove_attribute_node_on_non_element_errors_without_detaching() {
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let attr = dom.create_attribute("id");
+    {
+        let mut ad = dom.world_mut().get::<&mut AttrData>(attr).unwrap();
+        ad.value = "x".into();
+        ad.owner_element = Some(doc);
+    }
+    let mut session = SessionCore::new();
+    let attr_ref = session
+        .get_or_create_wrapper(attr, ComponentKind::Element)
+        .to_raw();
+
+    let result =
+        RemoveAttributeNode.invoke(doc, &[JsValue::ObjectRef(attr_ref)], &mut session, &mut dom);
+    assert!(result.is_err());
+    // The Attr must NOT have been detached from its recorded owner.
+    let ad = dom.world().get::<&AttrData>(attr).unwrap();
+    assert_eq!(ad.owner_element, Some(doc));
+}

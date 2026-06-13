@@ -6,7 +6,7 @@ use elidex_plugin::JsValue;
 use elidex_script_session::{DomApiError, DomApiHandler, SessionCore};
 
 use super::tree::validate_attribute_name;
-use crate::util::{not_found_error, require_attrs, require_attrs_mut, require_string_arg};
+use crate::util::{require_attrs, require_attrs_mut, require_live_element, require_string_arg};
 
 // hasAttribute (§7i)
 // ---------------------------------------------------------------------------
@@ -60,6 +60,14 @@ impl DomApiHandler for ToggleAttribute {
             _ => None,
         };
 
+        // Preserve the "stale / non-Element receiver → NotFoundError"
+        // contract uniformly across every branch. The `has` probe below
+        // collapses both "live element, attribute absent" and "dead
+        // receiver" to `false`, and the forced-removal branch reaches no
+        // chokepoint that could report the dead receiver — so guard up
+        // front (the prior `require_attrs_mut` borrow surfaced this error).
+        require_live_element(dom, this)?;
+
         let has = dom
             .world()
             .get::<&Attributes>(this)
@@ -72,15 +80,12 @@ impl DomApiHandler for ToggleAttribute {
         // `rev_version` + dispatches `MutationEvent::AttributeChange` (the
         // prior direct path skipped both). Boolean attributes are stored
         // with an empty value per the HTML serialization of a present
-        // boolean attribute. A `set_attribute` `false` return means the
-        // receiver is not a live Element (stale wrapper); surface it as
-        // `NotFoundError` rather than reporting a phantom add (mirrors
-        // `SetAttribute`). The remove branches only run when `has` is true,
-        // which already implies a live Element.
+        // boolean attribute. The receiver is a confirmed live Element, so
+        // the chokepoint calls always act.
         let result = match force {
             Some(true) => {
-                if !has && !dom.set_attribute(this, &name, "") {
-                    return Err(not_found_error("element not found"));
+                if !has {
+                    dom.set_attribute(this, &name, "");
                 }
                 true
             }
@@ -95,9 +100,7 @@ impl DomApiHandler for ToggleAttribute {
                     dom.remove_attribute(this, &name);
                     false
                 } else {
-                    if !dom.set_attribute(this, &name, "") {
-                        return Err(not_found_error("element not found"));
-                    }
+                    dom.set_attribute(this, &name, "");
                     true
                 }
             }

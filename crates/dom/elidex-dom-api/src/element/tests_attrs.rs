@@ -501,6 +501,24 @@ fn toggle_attribute_on_non_element_errors() {
     assert!(dom.world().get::<&Attributes>(doc).is_err());
 }
 
+/// Codex #335 R9 F29: `toggleAttribute(name, false)` (forced removal) on a
+/// stale/non-Element receiver must also error — the `has` probe collapses
+/// to false and the forced-removal branch reaches no chokepoint, so the
+/// up-front receiver-liveness guard is what surfaces the error.
+#[test]
+fn toggle_attribute_force_false_on_non_element_errors() {
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let mut session = SessionCore::new();
+    let result = ToggleAttribute.invoke(
+        doc,
+        &[JsValue::String("hidden".into()), JsValue::Bool(false)],
+        &mut session,
+        &mut dom,
+    );
+    assert!(result.is_err());
+}
+
 /// F15 audit: `toggleAttribute('style')` (removal branch) shares the same
 /// chokepoint-bypass class and must also invalidate the cache.
 #[test]
