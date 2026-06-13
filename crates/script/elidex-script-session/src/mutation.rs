@@ -907,7 +907,7 @@ mod tests {
     #[test]
     fn set_inner_html_case_insensitive_shadowrootmode() {
         // Top-level DSD-on-context — `shadowrootmode` is an
-        // ASCII-case-insensitive enumerated attribute (HTML §2.3.9).
+        // ASCII-case-insensitive enumerated attribute (HTML §2.3.3).
         let mut dom = EcsDom::new();
         let root = dom.create_document_root();
         let host = elem(&mut dom, "div");

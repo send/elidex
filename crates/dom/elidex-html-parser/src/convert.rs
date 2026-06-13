@@ -42,16 +42,19 @@ pub(crate) fn convert_document(rc_dom: RcDom) -> ParseResult {
     }
 }
 
-/// Convert an `RcDom` handle's children into the ECS DOM under `parent`.
+/// Convert an `RcDom` handle's children into the ECS DOM under `parent`,
+/// attaching each child to `parent` (the real element node).
 ///
-/// Shared by whole-document conversion ([`convert_document`]) and the
-/// tolerant fragment path ([`crate::parse_html_fragment`], which calls this
-/// with a synthetic `<html>` root as `parent` and then detaches root's
-/// children). A `<template shadowrootmode>` child attaches a declarative
-/// shadow to `parent` when `opts.allow_declarative_shadow` is set and `parent`
-/// is a valid shadow host (§13.2.6.4.4 step 9–10) — for a top-level fragment
-/// child `parent` is the `<html>` root, which is not a valid host, so the
-/// template stays plain (matching the spec's topmost-stack-element condition).
+/// Used by whole-document conversion ([`convert_document`], parent = the
+/// element being filled) and, for **nested** fragment children, by
+/// [`convert_node`] (parent = the converted element). A `<template
+/// shadowrootmode>` child attaches a declarative shadow to `parent` when
+/// `opts.allow_declarative_shadow` is set and `parent` is a valid shadow host
+/// (§13.2.6.4.4 step 9–10) — for nested content `parent` is the real
+/// (non-topmost) host, so it attaches there. The fragment **top level** is
+/// handled separately by [`convert_fragment_top_level`], which routes the
+/// declarative-shadow host to the context element per the §13.4
+/// adjusted-current-node rule.
 pub(crate) fn convert_children(
     rc_handle: &Handle,
     parent: Entity,
