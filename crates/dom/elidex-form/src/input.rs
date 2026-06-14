@@ -537,10 +537,9 @@ pub fn apply_step(state: &mut FormControlState, n: f64, direction: f64) -> Resul
 /// 1. **Checkable-state cleanup** (elidex normalization, beyond the
 ///    spec): if the old kind was `Checkbox` or `Radio` and the new
 ///    kind is neither, clear `checked` and `indeterminate`.  The HTML
-///    §4.10.5 type-change steps only sanitize `value`/rendering and
-///    never clear checkedness or indeterminateness (both merely become
-///    inert on non-checkable types); elidex clears them so
-///    `FormControlState` carries no stale checkable bits.
+///    §4.10.5 type-change steps leave checkedness and indeterminateness
+///    inert on non-checkable types rather than clearing them; elidex
+///    clears them so `FormControlState` carries no stale checkable bits.
 /// 2. **Number value sanitization**: if the new kind is `Number`
 ///    and the current value isn't a finite floating-point literal,
 ///    clear it (per HTML §4.10.5.1.12 number value-sanitization
