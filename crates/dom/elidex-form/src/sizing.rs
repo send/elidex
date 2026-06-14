@@ -84,6 +84,9 @@ pub fn form_intrinsic_size(state: &FormControlState) -> Size {
         | FormControlKind::Color
         | FormControlKind::Date
         | FormControlKind::DatetimeLocal
+        | FormControlKind::Time
+        | FormControlKind::Week
+        | FormControlKind::Month
         | FormControlKind::File
         | FormControlKind::Output
         | FormControlKind::Meter

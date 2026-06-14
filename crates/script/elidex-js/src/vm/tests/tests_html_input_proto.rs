@@ -340,11 +340,38 @@ fn input_set_range_text_replaces_selection() {
 }
 
 #[test]
-fn input_selection_throws_for_non_text_type() {
+fn input_set_selection_range_throws_for_non_text_type() {
+    // setSelectionRange / selectionStart / setRangeText do NOT apply to
+    // the number or date/time states → InvalidStateError (their
+    // apply-lists exclude those APIs, HTML §4.10.5.1.x).
     let out = run("var i = document.createElement('input'); \
          i.type = 'number'; \
-         try { i.select(); 'no-throw'; } \
+         try { i.setSelectionRange(0, 1); 'no-throw'; } \
          catch (e) { (e.name === 'InvalidStateError') ? 'ok' : 'other:' + e.name; }");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn input_select_method_applies_to_number_and_date_types() {
+    // select() applies to number and the date/time states and NEVER
+    // throws (HTML "select() method" step 1 — a no-op when inapplicable),
+    // unlike the selectionStart/setSelectionRange APIs.
+    let out = run("var i = document.createElement('input'); \
+         var ok = true; \
+         ['number','date','month','week','time','datetime-local'].forEach(function (t) { \
+           i.type = t; \
+           try { i.select(); } catch (e) { ok = false; } \
+         }); \
+         '' + ok;");
+    assert_eq!(out, "true");
+}
+
+#[test]
+fn input_select_method_is_noop_for_checkbox() {
+    // select() does not apply to checkbox → no-op, not an error.
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'checkbox'; \
+         try { i.select(); 'ok'; } catch (e) { 'threw:' + e.name; }");
     assert_eq!(out, "ok");
 }
 
@@ -378,6 +405,50 @@ fn input_step_down_decrements_number_value() {
          i.stepDown(2); \
          i.value;");
     assert_eq!(out, "8");
+}
+
+#[test]
+fn input_step_up_increments_date_value() {
+    // HTML §4.10.5.1.7: date stepUp advances by one day, serialized as
+    // a valid date string (string-exact, no float noise).
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'date'; \
+         i.value = '2025-01-15'; \
+         i.stepUp(); \
+         i.value;");
+    assert_eq!(out, "2025-01-16");
+}
+
+#[test]
+fn input_step_up_increments_month_value() {
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'month'; \
+         i.value = '2025-12'; \
+         i.stepUp(); \
+         i.value;");
+    assert_eq!(out, "2026-01");
+}
+
+#[test]
+fn input_step_up_increments_time_value() {
+    // Default step is 60 seconds.
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'time'; \
+         i.value = '12:30'; \
+         i.stepUp(); \
+         i.value;");
+    assert_eq!(out, "12:31");
+}
+
+#[test]
+fn input_step_up_increments_week_value() {
+    // 2020-W53 + 1 week crosses into week-year 2021 (≠ calendar year).
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'week'; \
+         i.value = '2020-W53'; \
+         i.stepUp(); \
+         i.value;");
+    assert_eq!(out, "2021-W01");
 }
 
 #[test]

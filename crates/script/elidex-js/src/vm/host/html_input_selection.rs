@@ -121,10 +121,17 @@ pub(super) fn native_input_select_method(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = input_check(ctx, this, "select")? else {
+    // `select()` applies to the text-like states plus number and the
+    // date/time states, and is a no-op (never an error) for other kinds —
+    // HTML "select() method", step 1.  So it gates on
+    // `select_method_applies` rather than the throwing `require_text_control`
+    // the selectionStart/setSelectionRange/setRangeText APIs use.
+    let Some(entity) = require_input_receiver(ctx, this, "select")? else {
         return Ok(JsValue::Undefined);
     };
-    super::selection_api::select_all(ctx, entity);
+    if super::selection_api::select_method_applies(ctx, entity) {
+        super::selection_api::select_all(ctx, entity);
+    }
     Ok(JsValue::Undefined)
 }
 
