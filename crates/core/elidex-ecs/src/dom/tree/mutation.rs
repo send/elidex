@@ -326,6 +326,17 @@ impl EcsDom {
         // tree — or a light child of a removed shadow root — is still reset.
         // Only the removal of a previously-connected node can disconnect the
         // (connected-by-construction) holder, so gate on `was_connected`.
+        //
+        // This INTENTIONALLY also clears focus on a same-document *move*
+        // (`append_child` / `insert_before` / `replace_child` of an already-
+        // parented node): DOM `insert` adopts the node, and `adopt` removes it
+        // from its old parent before the re-insert (DOM §"adopt" step 2), so
+        // these removing steps run on the transient detach. Only `Node.moveBefore()`'s
+        // separate *moving steps* preserve the focused area (HTML §2.1.4 defines
+        // them distinctly), and elidex does not implement `moveBefore`; focus
+        // loss across a plain reparent matches browsers (it is exactly what
+        // `moveBefore` was added to avoid). Pinned by the `move_clears_focus`
+        // dom-api test. (Codex S2 R6/R9 flagged this as a bug twice — it is not.)
         if was_connected {
             self.clear_focus_if_disconnected();
         }
