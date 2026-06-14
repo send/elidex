@@ -58,12 +58,7 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
     // `take()` also clears key routing so `try_route_key_to_iframe` stops
     // sending keystrokes into the now-unfocused iframe.
     if let Some(prev) = state.focused_iframe.take() {
-        if let Some(super::iframe::IframeHandle::InProcess(iframe)) =
-            state.iframes.get_mut(prev).map(|entry| &mut entry.handle)
-        {
-            super::focus::blur_current(&mut iframe.pipeline);
-            iframe.needs_render = true;
-        }
+        blur_iframe_focus(state, prev);
     }
     // Update focus.
     set_focus(&mut state.pipeline, hit_entity);
@@ -744,6 +739,21 @@ fn handle_clipboard(state: &mut ContentState, target: elidex_ecs::Entity, key: &
 // Iframe event routing
 // ---------------------------------------------------------------------------
 
+/// Blur the focus held inside in-process iframe `entity` (its separate `EcsDom`
+/// is unreachable from the parent and sibling-iframe focus writers). Called
+/// whenever focus leaves an iframe — to a top-level element ([`handle_click`])
+/// or to a sibling iframe ([`try_route_click_to_iframe`]) — so a frame the user
+/// has left does not keep its `activeElement` / `:focus` / caret live. No-op for
+/// an unknown or out-of-process iframe.
+fn blur_iframe_focus(state: &mut ContentState, entity: elidex_ecs::Entity) {
+    if let Some(super::iframe::IframeHandle::InProcess(iframe)) =
+        state.iframes.get_mut(entity).map(|entry| &mut entry.handle)
+    {
+        super::focus::blur_current(&mut iframe.pipeline);
+        iframe.needs_render = true;
+    }
+}
+
 /// Check if a hit-test result landed on an `<iframe>` element that has a loaded
 /// iframe context. Returns `true` if the event was routed to the iframe
 /// (caller should skip normal dispatch).
@@ -791,6 +801,17 @@ pub(super) fn try_route_click_to_iframe(
     // iframe. Runs for both in-process and out-of-process iframes (focus leaves
     // the parent either way) and is a no-op when the parent has no focus.
     super::focus::blur_current(&mut state.pipeline);
+    // ...and any *other* iframe that previously held focus — a sibling
+    // iframe-to-iframe click. Each frame owns a separate `EcsDom`, so the
+    // iframe-side `set_focus` below reaches none of the others; without this the
+    // old iframe keeps its `activeElement` / `:focus` / caret live, leaving two
+    // iframes focused at once. (Re-clicking the same iframe is `prev ==
+    // hit_entity` — nothing to blur.)
+    if let Some(prev) = state.focused_iframe {
+        if prev != hit_entity {
+            blur_iframe_focus(state, prev);
+        }
+    }
 
     let Some(entry) = state.iframes.get_mut(hit_entity) else {
         return false;

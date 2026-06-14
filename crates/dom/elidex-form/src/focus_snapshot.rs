@@ -17,8 +17,14 @@ use crate::FormControlState;
 pub struct FocusValueSnapshot(pub String);
 
 /// Record the focus-time value snapshot on `entity` **if** it is a text control,
-/// so a later blur can fire `change` when the value differs. No-op otherwise.
-/// Call whenever a control gains focus (shell `set_focus` or VM `focus()`).
+/// so a later blur can fire `change` when the value differs. Call whenever a
+/// control gains focus (shell `set_focus` or VM `focus()`).
+///
+/// When `entity` is **not** a text control, any pre-existing snapshot is
+/// *removed* rather than left in place: the bit can otherwise be cleared without
+/// the snapshot being taken (VM `blur()`, the silent §2.1.4 removal reset), so a
+/// stale text baseline from before a `type` change (e.g. text → checkbox) would
+/// survive and make a later blur fire a spurious `change`.
 pub fn record_focus_snapshot(dom: &mut EcsDom, entity: Entity) {
     let value = dom
         .world()
@@ -26,10 +32,15 @@ pub fn record_focus_snapshot(dom: &mut EcsDom, entity: Entity) {
         .ok()
         .filter(|fcs| fcs.kind.is_text_control())
         .map(|fcs| fcs.value().to_string());
-    if let Some(value) = value {
-        let _ = dom
-            .world_mut()
-            .insert_one(entity, FocusValueSnapshot(value));
+    match value {
+        Some(value) => {
+            let _ = dom
+                .world_mut()
+                .insert_one(entity, FocusValueSnapshot(value));
+        }
+        None => {
+            let _ = dom.world_mut().remove_one::<FocusValueSnapshot>(entity);
+        }
     }
 }
 
@@ -67,6 +78,41 @@ mod tests {
         );
         // Drained — a second take yields nothing.
         assert_eq!(take_focus_snapshot(&mut dom, input), None);
+    }
+
+    #[test]
+    fn record_clears_stale_snapshot_when_no_longer_text_control() {
+        // Codex R7 F4: a snapshot left from an earlier text focus must be removed
+        // when the control is re-recorded as a non-text control (e.g. `type`
+        // changed text → button), else a later blur consumes the stale text
+        // baseline and fires a spurious `change`.
+        let mut dom = EcsDom::new();
+        let input = dom.create_element("input", Attributes::default());
+        let _ = dom.world_mut().insert_one(
+            input,
+            FormControlState {
+                kind: FormControlKind::TextInput,
+                value: "typed".to_string(),
+                ..Default::default()
+            },
+        );
+        record_focus_snapshot(&mut dom, input);
+        assert_eq!(
+            take_focus_snapshot(&mut dom, input),
+            Some("typed".to_string())
+        );
+
+        // Re-seed then flip to a non-text control before re-recording.
+        record_focus_snapshot(&mut dom, input);
+        if let Ok(mut fcs) = dom.world_mut().get::<&mut FormControlState>(input) {
+            fcs.kind = FormControlKind::Button;
+        }
+        record_focus_snapshot(&mut dom, input);
+        assert_eq!(
+            take_focus_snapshot(&mut dom, input),
+            None,
+            "re-recording a non-text control clears the stale text snapshot"
+        );
     }
 
     #[test]

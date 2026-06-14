@@ -119,6 +119,42 @@ fn destroy_entity_clears_focus_on_orphaned_descendant_without_dispatcher() {
     );
 }
 
+#[test]
+fn destroy_entity_clears_focus_when_destroying_document_root() {
+    // Codex R7 F3: destroying the *document root* — a parentless entity, so
+    // fire_after_remove is skipped — must still clear a focused descendant's
+    // FOCUS bit. The clear is deferred to after despawn: before despawn the
+    // descendant is still "connected" through the live Document, so an in-place
+    // clear would miss it and reattaching would resurrect stale focus.
+    use crate::ElementState;
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let body = elem(&mut dom, "body");
+    let input = elem(&mut dom, "input");
+    dom.append_child(doc, body);
+    dom.append_child(body, input);
+    assert!(dom.is_connected(input));
+    let _ = dom
+        .world_mut()
+        .insert_one(input, ElementState(ElementState::FOCUS));
+
+    // Destroy the document root (this EcsDom has no dispatcher).
+    assert!(dom.destroy_entity(doc));
+
+    assert!(
+        dom.contains(input),
+        "the descendant survives (orphaned), only the root is despawned"
+    );
+    let still_focused = dom
+        .world()
+        .get::<&ElementState>(input)
+        .is_ok_and(|s| s.contains(ElementState::FOCUS));
+    assert!(
+        !still_focused,
+        "destroying the document root clears a focused descendant's bit"
+    );
+}
+
 // --- Destroy + Shadow DOM interaction ---
 
 #[test]

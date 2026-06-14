@@ -101,19 +101,22 @@ impl EcsDom {
         // descendant of `entity` would silently miss the
         // `(parent, removed_index)` collapse required by WHATWG §5.5
         // remove step 4 (Copilot PR186 R2 #3).
-        if let (Some(p), Some((idx, was_connected))) = (parent, fire) {
+        let defer_focus_clear = if let (Some(p), Some((idx, was_connected))) = (parent, fire) {
             self.fire_after_remove(entity, p, idx, was_connected);
+            false
         } else {
-            // No MutationDispatcher ⇒ `fire_after_remove` (and its silent §2.1.4
-            // focused-area reset) was skipped above. The reset must still run:
-            // destroying a connected ancestor *orphans* (does not despawn) its
-            // focused descendant, so without this its `FOCUS` bit survives
-            // disconnected and reattaching the descendant resurrects stale focus.
-            // `entity` is already detached, so the orphaned subtree is
-            // disconnected; the clear is independent of dispatch and idempotent
-            // (a no-op when the single FOCUS holder stays connected).
-            self.clear_focus_if_disconnected();
-        }
+            // No MutationDispatcher — OR `entity` is a parentless root (e.g. the
+            // Document, for which `index_in_parent` is `None`) — so
+            // `fire_after_remove` and its silent §2.1.4 focused-area reset were
+            // skipped. The reset must still run (destroying a connected ancestor
+            // *orphans*, not despawns, its focused descendant, so a surviving
+            // `FOCUS` bit would resurrect on reattach), but it is DEFERRED to
+            // after despawn below: a descendant is only genuinely disconnected
+            // once `entity` is gone and its children unlinked. Running it here
+            // would wrongly see a descendant of a not-yet-despawned Document root
+            // as still connected (its `is_connected` walk reaches the live root).
+            true
+        };
 
         // Orphan all children: clear their parent and sibling links so
         // they do not hold dangling references to the destroyed entity.
@@ -128,6 +131,15 @@ impl EcsDom {
         }
 
         let _ = self.world.despawn(entity);
+
+        // Deferred §2.1.4 focused-area reset (no-dispatcher / parentless-root
+        // path): with `entity` now despawned and its children orphaned, a focused
+        // descendant left dangling by this teardown is disconnected, so its stale
+        // `FOCUS` bit is cleared (idempotent — a no-op when the holder stays
+        // connected). The dispatcher path already reset focus in `fire_after_remove`.
+        if defer_focus_clear {
+            self.clear_focus_if_disconnected();
+        }
 
         // Bump version on parent after successful removal.
         if let Some(p) = parent {

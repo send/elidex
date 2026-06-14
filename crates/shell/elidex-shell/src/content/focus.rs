@@ -13,7 +13,7 @@
 
 use elidex_dom_api::focus::{current_focus, set_focus_bit};
 use elidex_ecs::Entity;
-use elidex_form::{record_focus_snapshot, take_focus_snapshot, FormControlKind, FormControlState};
+use elidex_form::{record_focus_snapshot, take_focus_snapshot, FormControlState};
 use elidex_plugin::{EventPayload, FocusEventInit};
 use elidex_script_session::DispatchEvent;
 
@@ -119,23 +119,73 @@ fn dispatch_change_on_blur(pipeline: &mut PipelineResult, entity: Entity) {
 
 /// Check if an element is focusable per HTML §6.6.2.
 ///
-/// Form controls use the authoritative `FormControlState` (which captures
-/// fieldset-inherited disabled — slot `#11-focusable-area-fieldset-inherited-disabled`
-/// tracks bringing that to the engine-indep predicate for the VM path);
-/// everything else delegates to the engine-independent focusable-area predicate.
+/// **One** focusable-area predicate: the engine-independent
+/// [`elidex_dom_api::focus::is_focusable`] (§6.6.2 connectedness + being-rendered
+/// [hidden input / hidden subtree] + the tabindex / intrinsic / contenteditable
+/// criteria), so the shell UA-input path and the VM `HTMLElement.focus()` writer
+/// never diverge. A form control ADDS only the form-subsystem overlay the dom-api
+/// layer cannot see — `FormControlState.disabled`, which captures
+/// fieldset-inherited disabled (slot `#11-focusable-area-fieldset-inherited-disabled`
+/// tracks bringing that to the engine-indep predicate for the VM path).
 pub(crate) fn is_focusable(dom: &elidex_ecs::EcsDom, entity: Entity) -> bool {
-    // Form controls (not disabled, not hidden) are focusable per HTML §6.6.2.
-    if let Ok(fcs) = dom.world().get::<&FormControlState>(entity) {
-        // §6.6.2: a focusable area must be connected ("being rendered"). Gate
-        // it HERE for the form-control branch; the non-form branch inherits the
-        // same gate from the dom-api `is_focusable` below — so both branches
-        // require connectedness without double-walking the connectedness chain
-        // on the non-form path (one-issue-one-way: the predicate must not
-        // diverge on connectedness across its branches).
-        return dom.is_connected(entity) && !fcs.disabled && fcs.kind != FormControlKind::Hidden;
+    if !elidex_dom_api::focus::is_focusable(dom, entity) {
+        return false;
     }
-    // Non-form-control: the engine-independent focusable-area predicate
-    // (connectedness + tabindex / contenteditable / `<a href>`), one home
-    // shared with the VM.
-    elidex_dom_api::focus::is_focusable(dom, entity)
+    // Form-subsystem overlay: also reject a control disabled via fieldset
+    // inheritance (the attribute-only `disabled` is already handled by the
+    // dom-api predicate above).
+    match dom.world().get::<&FormControlState>(entity) {
+        Ok(fcs) => !fcs.disabled,
+        Err(_) => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use elidex_ecs::{Attributes, EcsDom};
+
+    fn text_input(dom: &mut EcsDom, doc: Entity) -> Entity {
+        let input = dom.create_element("input", Attributes::default());
+        let _ = dom.append_child(doc, input);
+        // A default `<input>` becomes a text control via the form subsystem's own
+        // constructor (`FormControlState`'s fields are private to `elidex-form`).
+        assert!(elidex_form::create_form_control_state(dom, input));
+        input
+    }
+
+    #[test]
+    fn is_focusable_rejects_hidden_form_control() {
+        // Codex R7 F2: the form-control branch must honour the dom-api
+        // hidden-subtree gate (§6.6.2 being-rendered), so the shell UA-input path
+        // and the VM `focus()` path agree on hidden controls instead of diverging.
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let input = text_input(&mut dom, doc);
+        assert!(
+            is_focusable(&dom, input),
+            "a connected text input is focusable"
+        );
+        dom.set_attribute(input, "hidden", "");
+        assert!(
+            !is_focusable(&dom, input),
+            "a hidden form control is not focusable (matches the VM path)"
+        );
+    }
+
+    #[test]
+    fn is_focusable_honours_form_control_disabled_overlay() {
+        // The form-subsystem overlay (`FormControlState.disabled`, which captures
+        // fieldset-inherited disabled the dom-api layer can't see) still rejects.
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let input = text_input(&mut dom, doc);
+        if let Ok(mut fcs) = dom.world_mut().get::<&mut FormControlState>(input) {
+            fcs.disabled = true;
+        }
+        assert!(
+            !is_focusable(&dom, input),
+            "a disabled form control is not focusable"
+        );
+    }
 }
