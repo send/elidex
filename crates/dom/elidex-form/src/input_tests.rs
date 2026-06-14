@@ -481,6 +481,17 @@ fn apply_step_number_has_no_default_min_max() {
 }
 
 #[test]
+fn apply_step_large_magnitude_unaligned_still_snaps() {
+    // The step-alignment tolerance must stay far below ½ a step even
+    // for large ratios: `value=5e8+0.5` on a step-1 grid is off-grid and
+    // stepUp must snap to 500000001, not add a full step to 500000001.5.
+    // (Regression for an unbounded relative tolerance — Codex PR#344.)
+    let mut s = make_state(FormControlKind::Number, "500000000.5", Some("1"));
+    assert!(apply_step(&mut s, 1.0, 1.0).is_ok());
+    assert_eq!(s.value(), "500000001");
+}
+
+#[test]
 fn apply_step_non_finite_result_is_noop() {
     // f64 overflow guard: a pathologically large step with no maximum
     // makes step×n overflow to infinity; the value must NOT become

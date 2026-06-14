@@ -133,16 +133,31 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
     // pattern same-value short-circuit.
     if name == "value" {
         let raw = new_value.unwrap_or("");
-        // `defaultValue` reflects the `value` content attribute (HTML
-        // §4.10.5.4 — the IDL attribute "must reflect the value content
-        // attribute"), so `default_value` must track every `value`
-        // attribute mutation, INCLUDING while the dirty value flag
-        // suppresses the IDL `value` update.  Anything reading the step
-        // base off this field (`input.rs` `step_base`, §4.10.5.3.7)
-        // otherwise sees a stale base for a dirty input whose `value`
-        // attribute was later changed.
-        fcs.default_value.clear();
-        fcs.default_value.push_str(raw);
+        // For `<input>`, `defaultValue` reflects the `value` content
+        // attribute (HTML §4.10.5.4 — the IDL attribute "must reflect
+        // the value content attribute"), so `default_value` must track
+        // every `value` attribute mutation INCLUDING while the dirty
+        // value flag suppresses the IDL `value` update — otherwise
+        // anything reading the step base off this field (`input.rs`
+        // `step_base`, §4.10.5.3.7) sees a stale base for a dirty input
+        // whose `value` attribute was later changed.  `<textarea>` /
+        // `<select>` / `<output>` take their default value from child
+        // text content, NOT a `value` attribute, so their
+        // `default_value` must not be driven by it (the `!dirty_value`
+        // branch below preserves their pre-existing handling).
+        if !fcs.dirty_value
+            || !matches!(
+                fcs.kind,
+                FormControlKind::TextArea
+                    | FormControlKind::Select
+                    | FormControlKind::Output
+                    | FormControlKind::Meter
+                    | FormControlKind::Progress
+            )
+        {
+            fcs.default_value.clear();
+            fcs.default_value.push_str(raw);
+        }
         if !fcs.dirty_value {
             // HTML §4.10.5.1.18 (submit) / §4.10.5.1.19 (reset) default
             // button label substitution — matches the `from_input_element`
@@ -352,6 +367,27 @@ mod tests {
             // IDL value suppressed (dirty), but defaultValue reflects.
             assert_eq!(s.value, "user-typed");
             assert_eq!(s.default_value, "from-attr");
+        });
+    }
+
+    #[test]
+    fn e5f_value_attribute_write_does_not_corrupt_dirty_textarea_default() {
+        // A `<textarea>` takes its default value from child text content,
+        // NOT a `value` content attribute, so a `value` attribute write
+        // on a dirty textarea must not overwrite `default_value` (which
+        // form reset restores).  Guards the input-only scoping of the
+        // dirty-bypass defaultValue reflection.
+        let (mut dom, e) = setup("textarea", &[]);
+        {
+            let mut s = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
+            s.set_value_initial("orig".to_string());
+            s.set_value("typed".to_string());
+            assert!(s.dirty_value);
+        }
+        assert!(dom.set_attribute(e, "value", "x"));
+        with_fcs(&dom, e, |s| {
+            assert_eq!(s.value, "typed");
+            assert_eq!(s.default_value, "orig");
         });
     }
 

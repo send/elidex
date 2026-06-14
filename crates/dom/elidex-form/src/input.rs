@@ -148,12 +148,20 @@ pub enum StepError {
 }
 
 /// Relative tolerance for the "integral multiple of the allowed value
-/// step" test (HTML §4.10.5.4 step 7).  The spec is phrased in terms of
-/// exact real arithmetic; we approximate with `f64`, so a value is
-/// treated as step-aligned when `(value − base) / step` is within this
-/// relative tolerance of an integer.  Browsers use the same
-/// double-precision approximation in practice.
-const STEP_EPSILON: f64 = 1e-9;
+/// step" test (HTML §4.10.5.4 step 7).  The spec uses exact real
+/// arithmetic; we approximate with `f64`, treating a value as
+/// step-aligned when `(value − base) / step` is within this relative
+/// tolerance of an integer.
+///
+/// The tolerance is scaled by `f64::EPSILON` (≈ 2.2e-16) because the
+/// ratio carries only a few ULPs of representation error.  A fixed
+/// fudge factor (e.g. `1e-9`) must NOT be used: multiplied by a large
+/// ratio it grows without bound and, once it reaches ½, classifies
+/// *every* off-grid value as aligned (e.g. `step=1, value=5e8+0.5`
+/// would stop snapping).  128 ULP leaves generous headroom for
+/// accumulated rounding while staying far below ½ for any ratio f64 can
+/// represent with fractional precision.
+const STEP_ALIGN_TOLERANCE: f64 = 128.0 * f64::EPSILON;
 
 /// HTML "rules for parsing floating-point number values"
 /// (§2.3.4.3 "Floating-point numbers") — used as "convert a string to a
@@ -298,10 +306,11 @@ fn step_ratio(value: f64, base: f64, step: f64) -> f64 {
 }
 
 /// Whether `value`, when subtracted from `base`, is an integral
-/// multiple of `step` (HTML §4.10.5.4 step 7), within [`STEP_EPSILON`].
+/// multiple of `step` (HTML §4.10.5.4 step 7), within
+/// [`STEP_ALIGN_TOLERANCE`].
 fn is_step_aligned(value: f64, base: f64, step: f64) -> bool {
     let ratio = step_ratio(value, base, step);
-    (ratio - ratio.round()).abs() <= STEP_EPSILON * ratio.abs().max(1.0)
+    (ratio - ratio.round()).abs() <= STEP_ALIGN_TOLERANCE * ratio.abs().max(1.0)
 }
 
 /// Largest step-aligned value `≤ value` (`base + ⌊ratio⌋ · step`).
