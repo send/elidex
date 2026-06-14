@@ -158,6 +158,9 @@ pub(crate) fn form_control_role(kind: FormControlKind) -> Role {
         | FormControlKind::Color
         | FormControlKind::Date
         | FormControlKind::DatetimeLocal
+        | FormControlKind::Time
+        | FormControlKind::Week
+        | FormControlKind::Month
         | FormControlKind::File => Role::TextInput,
     }
 }

@@ -6,6 +6,7 @@
 
 pub mod ancestor_cache;
 mod clipboard;
+mod datetime;
 mod fieldset;
 mod init;
 mod input;
@@ -103,6 +104,12 @@ pub enum FormControlKind {
     Date,
     /// `<input type="datetime-local">`
     DatetimeLocal,
+    /// `<input type="time">`
+    Time,
+    /// `<input type="week">`
+    Week,
+    /// `<input type="month">`
+    Month,
     /// `<input type="file">`
     File,
     /// `<input type="hidden">` — not rendered, but participates in form data.
@@ -138,20 +145,40 @@ impl FormControlKind {
         self.is_text_control() && self != Self::TextArea
     }
 
-    /// Returns `true` if the control supports the selection API (HTML §4.10.5.2.10).
-    ///
-    /// Text/password/textarea and text-like input types (email/url/tel/search) support
-    /// `selectionStart`/`selectionEnd`/`setSelectionRange()`.
+    /// Returns `true` if the control supports the text-selection APIs
+    /// (`selectionStart`/`selectionEnd`/`selectionDirection`,
+    /// `setRangeText()`, `setSelectionRange()`).  Per the input-state
+    /// apply-lists (HTML §4.10.5.1.x) these apply only to the text-like
+    /// states (text/search/url/tel/password and `<textarea>`) — they do
+    /// **not** apply to number or the date/time states.
     #[must_use]
     pub fn supports_selection(self) -> bool {
         self.is_text_control()
     }
 
+    /// Returns `true` if the control has **selectable text** for the
+    /// `select()` method to act on — the text-like states plus the number
+    /// state, which elidex renders as editable text fields.
+    ///
+    /// `select()` applies to a broader set per the input-state apply-lists
+    /// (it also lists the date/time states), but HTML "select() method"
+    /// step 1 makes it a **no-op** for a control "that has no selectable
+    /// text".  elidex renders the date/time states as pickers
+    /// (`emit_button`), so they have no selectable text and `select()`
+    /// must not record a selection for them — otherwise a stale range is
+    /// observable via `selectionEnd` after a type change.  `select()`
+    /// itself never throws (the no-op branch covers every other kind).
+    #[must_use]
+    pub fn has_selectable_text(self) -> bool {
+        self.is_text_control() || matches!(self, Self::Number)
+    }
+
     /// Returns `true` if the `readonly` attribute applies to this kind
-    /// (HTML §4.10.5.1.4).  `readonly` is meaningful for text-editable
-    /// controls (`text`, `password`, `textarea`, `email`, `url`,
-    /// `tel`, `search`) and the type-specific input subtypes that
-    /// accept user editing (`number`, `date`, `datetime-local`).  For
+    /// (HTML §4.10.5.3.3 "The readonly attribute").  `readonly` is
+    /// meaningful for text-editable controls (`text`, `password`,
+    /// `textarea`, `email`, `url`, `tel`, `search`) and the
+    /// type-specific input subtypes that accept user editing (`number`,
+    /// `date`, `datetime-local`, `time`, `week`, `month`).  For
     /// non-applicable kinds (`checkbox`, `radio`, `range`, `color`,
     /// `file`, `hidden`, button-typed) the attribute exists but has
     /// no effect — including for the constraint-validation barring
@@ -170,10 +197,14 @@ impl FormControlKind {
                 | Self::Number
                 | Self::Date
                 | Self::DatetimeLocal
+                | Self::Time
+                | Self::Week
+                | Self::Month
         )
     }
 
-    /// Returns `true` if this kind participates in form submission (HTML §4.10.15.3).
+    /// Returns `true` if this kind participates in form submission
+    /// (submittable element — HTML §4.10.2 Categories).
     #[must_use]
     pub fn is_submittable(self) -> bool {
         matches!(
@@ -193,6 +224,9 @@ impl FormControlKind {
                 | Self::Color
                 | Self::Date
                 | Self::DatetimeLocal
+                | Self::Time
+                | Self::Week
+                | Self::Month
                 | Self::File
                 | Self::Hidden
         )
@@ -242,6 +276,9 @@ impl FormControlKind {
             "color" => Self::Color,
             "date" => Self::Date,
             "datetime-local" => Self::DatetimeLocal,
+            "time" => Self::Time,
+            "week" => Self::Week,
+            "month" => Self::Month,
             "file" => Self::File,
             "hidden" => Self::Hidden,
             "select-one" => Self::Select,
@@ -272,6 +309,9 @@ impl FormControlKind {
             Self::Color => "color",
             Self::Date => "date",
             Self::DatetimeLocal => "datetime-local",
+            Self::Time => "time",
+            Self::Week => "week",
+            Self::Month => "month",
             Self::File => "file",
             Self::Hidden => "hidden",
             Self::Output => "output",

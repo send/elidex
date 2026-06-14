@@ -135,12 +135,25 @@ pub fn validate_control(state: &FormControlState) -> ValidityState {
             check_number_range(&mut validity, state);
             check_step(&mut validity, state);
         }
+        FormControlKind::Date
+        | FormControlKind::DatetimeLocal
+        | FormControlKind::Time
+        | FormControlKind::Week
+        | FormControlKind::Month => {
+            // `required` applies to the date/time value-mode states, so an
+            // empty value with `required` set suffers from being missing
+            // (HTML §4.10.5.3.4).  The remaining date/time constraint
+            // validation (rangeUnderflow/Overflow/stepMismatch/badInput) is
+            // the separate `#11-input-date-validity` slot.
+            check_required(&mut validity, state);
+        }
         FormControlKind::SubmitButton
         | FormControlKind::ResetButton
         | FormControlKind::Button
+        // Color always has a value (default #000000), so it can never be
+        // value-missing; File's required check is over selected files, not
+        // the value string (deferred); the rest have no validity.
         | FormControlKind::Color
-        | FormControlKind::Date
-        | FormControlKind::DatetimeLocal
         | FormControlKind::File
         | FormControlKind::Hidden
         | FormControlKind::Output

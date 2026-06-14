@@ -3,7 +3,7 @@
 use elidex_ecs::{Attributes, EcsDom, Entity, TagType};
 
 use crate::util::{next_char_boundary, prev_char_boundary};
-use crate::{FormControlKind, FormControlState};
+use crate::{datetime, FormControlKind, FormControlState};
 
 /// Action returned from key input processing.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -139,7 +139,8 @@ fn navigate_cursor(state: &mut FormControlState, key: &str) -> KeyAction {
 /// steps 1 and 2); callers convert to the engine-bound exception type.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StepError {
-    /// `state.kind` is not `Number` or `Range` — `stepUp()`/`stepDown()`
+    /// `state.kind` is not a step-supporting input state (number, range,
+    /// date, month, week, time, datetime-local) — `stepUp()`/`stepDown()`
     /// do not apply (HTML §4.10.5.4 step 1).
     NotSupported,
     /// The element has no allowed value step (HTML §4.10.5.4 step 2),
@@ -315,68 +316,102 @@ fn parse_valid_floating_point(s: &str) -> Option<f64> {
     value.is_finite().then_some(value)
 }
 
-/// The default step / step scale factor for the number and range
-/// states are `1` / `1` (HTML §4.10.5.1.12 "Number state (type=number)"
-/// and §4.10.5.1.13 "Range state (type=range)"), so the absent /
-/// invalid-step fallback is `1.0` for both.
-const DEFAULT_STEP: f64 = 1.0;
+/// "Convert a string to a number" for the element's **stored value**
+/// (HTML §4.10.5.4 step 5).  The numeric states parse the sanitized
+/// value strictly (a valid floating-point number); the date/time states
+/// (date, month, week, time, datetime-local) use the per-type
+/// microsyntax conversion in [`datetime`].  Returns `None` for the
+/// spec's "results in an error" outcome.
+fn convert_value_to_number(state: &FormControlState) -> Option<f64> {
+    if datetime::is_date_time_kind(state.kind) {
+        datetime::convert_string_to_number(state.kind, state.value())
+    } else {
+        parse_valid_floating_point(state.value())
+    }
+}
 
-/// HTML "allowed value step" (§4.10.5.3.8 "The `step` attribute").
+/// "Convert a string to a number" for the `min` / `max` content
+/// attributes and the value-derived step base (HTML §4.10.5.3.7).  The
+/// numeric states use the permissive floating-point rules the spec
+/// specifies for those attributes; the date/time states use the
+/// per-type microsyntax conversion.
+fn convert_attr_to_number(kind: FormControlKind, s: &str) -> Option<f64> {
+    if datetime::is_date_time_kind(kind) {
+        datetime::convert_string_to_number(kind, s)
+    } else {
+        parse_floating_point(s)
+    }
+}
+
+/// HTML "allowed value step" (§4.10.5.3.8 "The `step` attribute") =
+/// the `step` attribute value (or the type's default step) multiplied
+/// by the type's step scale factor (§4.10.5.1.x).
+///
+/// The `step` attribute is **always** a valid floating-point number —
+/// even for the date/time states, where it counts days / months /
+/// weeks / seconds — so it is parsed with the floating-point rules and
+/// then scaled into the type's number space (ms, or month counts).
 ///
 /// Returns `None` when there is **no** allowed value step (the
 /// `step="any"` case, HTML §4.10.5.4 step 2 → `InvalidStateError`).
-/// For number/range, absent / unparseable / zero / negative all fall
-/// back to the default step (`1.0`).
+/// Absent / unparseable / zero / negative all fall back to the type's
+/// default step.  (For number/range the scale is `1` and the default
+/// step is `1`, so this reduces to the historical behavior.)
 fn allowed_value_step(state: &FormControlState) -> Option<f64> {
+    let scale = datetime::step_scale_factor(state.kind);
+    let default = datetime::type_default_step(state.kind) * scale;
     match state.step.as_deref() {
-        // Absent → default step × scale factor.
-        None => Some(DEFAULT_STEP),
+        None => Some(default),
         // "any" (ASCII case-insensitive) → no allowed value step.
         Some(s) if s.eq_ignore_ascii_case("any") => None,
         Some(s) => match parse_floating_point(s) {
-            // Error / zero / negative → default step.
-            Some(v) if v > 0.0 => Some(v),
-            _ => Some(DEFAULT_STEP),
+            Some(v) if v > 0.0 => Some(v * scale),
+            _ => Some(default),
         },
     }
 }
 
 /// HTML "step base" (§4.10.5.3.7 "The `min` and `max` attributes"):
 /// `min` content attribute → `value` content attribute
-/// (`default_value`) → type default step base → `0`.
+/// (`default_value`) → the type's default step base → `0`.
 ///
-/// Neither the number nor the range state defines a default step base,
-/// so both fall through to `0`.
+/// Only the week state defines a non-zero default step base
+/// (−259 200 000 ms, the Monday starting 1970-W01); every other state
+/// falls through to `0`.
 fn step_base(state: &FormControlState) -> f64 {
-    if let Some(v) = state.min.as_deref().and_then(parse_floating_point) {
+    if let Some(v) = state
+        .min
+        .as_deref()
+        .and_then(|s| convert_attr_to_number(state.kind, s))
+    {
         return v;
     }
-    if let Some(v) = parse_floating_point(&state.default_value) {
+    if let Some(v) = convert_attr_to_number(state.kind, &state.default_value) {
         return v;
     }
-    0.0
+    datetime::type_default_step_base(state.kind)
 }
 
-/// HTML "minimum" (§4.10.5.3.7).  The number state has no default
-/// minimum; the range state's default minimum is `0`.
+/// HTML "minimum" (§4.10.5.3.7).  The number and date/time states have
+/// no default minimum; the range state's default minimum is `0`.
 fn minimum(state: &FormControlState) -> Option<f64> {
     state
         .min
         .as_deref()
-        .and_then(parse_floating_point)
+        .and_then(|s| convert_attr_to_number(state.kind, s))
         .or(match state.kind {
             FormControlKind::Range => Some(0.0),
             _ => None,
         })
 }
 
-/// HTML "maximum" (§4.10.5.3.7).  The number state has no default
-/// maximum; the range state's default maximum is `100`.
+/// HTML "maximum" (§4.10.5.3.7).  The number and date/time states have
+/// no default maximum; the range state's default maximum is `100`.
 fn maximum(state: &FormControlState) -> Option<f64> {
     state
         .max
         .as_deref()
-        .and_then(parse_floating_point)
+        .and_then(|s| convert_attr_to_number(state.kind, s))
         .or(match state.kind {
             FormControlKind::Range => Some(100.0),
             _ => None,
@@ -439,7 +474,12 @@ fn aligned_above(value: f64, base: f64, step: f64) -> f64 {
 
 /// Apply a `stepUp(n)` / `stepDown(n)` adjustment to a form control
 /// state, implementing the HTML §4.10.5.4 "Common input element APIs"
-/// 12-step algorithm for the number and range states.
+/// 12-step algorithm for every step-supporting input state (number,
+/// range, date, month, week, time, datetime-local).  The algorithm body
+/// is type-agnostic; the per-type "convert a string to a number" /
+/// "convert a number to a string" / step scale / default step / default
+/// step base are supplied by the `datetime` adapter (date/time states)
+/// or floating-point parsing (numeric states).
 ///
 /// `direction` is `+1.0` for `stepUp` and `-1.0` for `stepDown`.
 /// Returns:
@@ -449,13 +489,13 @@ fn aligned_above(value: f64, base: f64, step: f64) -> f64 {
 ///   (steps 3, 4, 10);
 /// * `Ok(())` with the value updated — steps 11–12.
 pub fn apply_step(state: &mut FormControlState, n: f64, direction: f64) -> Result<(), StepError> {
-    // Step 1: stepUp()/stepDown() must apply to the type.  Only the
-    // number and range states are handled here — the date/time-family
-    // step-supporting states (date, datetime-local, time, week, month)
-    // need date-string "convert a/to string ↔ number" conversions, so
-    // they are deferred to slot `#11-input-step-date-types` and treated
-    // as not-supported for now.
-    if !matches!(state.kind, FormControlKind::Number | FormControlKind::Range) {
+    // Step 1: stepUp()/stepDown() must apply to the type.  The
+    // step-supporting states are the two numeric states plus the five
+    // date/time states; the per-type number conversion is dispatched
+    // through the helpers below.
+    if !matches!(state.kind, FormControlKind::Number | FormControlKind::Range)
+        && !datetime::is_date_time_kind(state.kind)
+    {
         return Err(StepError::NotSupported);
     }
     // Step 2: the element must have an allowed value step.
@@ -477,10 +517,10 @@ pub fn apply_step(state: &mut FormControlState, n: f64, direction: f64) -> Resul
     }
 
     // Step 5: convert the value to a number (error → 0).  The value is a
-    // sanitized number-state value (a valid floating-point number or
-    // empty, §4.10.5.1.12), so parse it strictly — `parse_valid_…`, not
-    // the permissive attribute parser.
-    let mut value = parse_valid_floating_point(state.value()).unwrap_or(0.0);
+    // sanitized value for the type (a valid floating-point number, or a
+    // valid date/time string, or empty), so it is parsed with the
+    // type's strict "convert a string to a number".
+    let mut value = convert_value_to_number(state).unwrap_or(0.0);
     // Step 6: snapshot for the reverse-direction guard.
     let value_before = value;
 
@@ -516,15 +556,27 @@ pub fn apply_step(state: &mut FormControlState, n: f64, direction: f64) -> Resul
 
     // The spec works in exact real arithmetic; with `f64` an extreme
     // `step × n` can overflow to a non-finite value (only reachable for
-    // a pathologically large `step` with an unbounded maximum).  A
-    // number/range value must be a valid floating-point number, so
-    // never write a non-finite string — leave the value unchanged.
+    // a pathologically large `step` with an unbounded maximum).  Every
+    // step-supporting value must serialize to a valid string, so never
+    // write a non-finite value — leave the value unchanged.
     if !value.is_finite() {
         return Ok(());
     }
 
-    // Steps 11–12: convert the number to a string and set the value.
-    state.set_value(value.to_string());
+    // Steps 11–12: convert the number to a string and set the value,
+    // using the type's "convert a number to a string".  For a date/time
+    // type whose number has no valid string representation (a year < 1,
+    // reached by stepping below 0001-…), there is nothing valid to
+    // write, so the step is a no-op.
+    let serialized = if datetime::is_date_time_kind(state.kind) {
+        match datetime::convert_number_to_string(state.kind, value) {
+            Some(s) => s,
+            None => return Ok(()),
+        }
+    } else {
+        value.to_string()
+    };
+    state.set_value(serialized);
     Ok(())
 }
 

@@ -121,10 +121,18 @@ pub(super) fn native_input_select_method(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = input_check(ctx, this, "select")? else {
+    // `select()` never throws (unlike the selectionStart/setSelectionRange/
+    // setRangeText APIs, which use `require_text_control`).  HTML "select()
+    // method" step 1 makes it a no-op for a control with no selectable text,
+    // so it records a selection only for the text-like and number states;
+    // the date/time states render as pickers (no selectable text) and other
+    // kinds simply do nothing.
+    let Some(entity) = require_input_receiver(ctx, this, "select")? else {
         return Ok(JsValue::Undefined);
     };
-    super::selection_api::select_all(ctx, entity);
+    if super::selection_api::has_selectable_text(ctx, entity) {
+        super::selection_api::select_all(ctx, entity);
+    }
     Ok(JsValue::Undefined)
 }
 

@@ -84,6 +84,21 @@ pub(super) fn require_text_control(
     Ok(())
 }
 
+/// Whether `entity`'s control has selectable text for `select()` to act
+/// on (HTML "select() method", step 1 — `select()` is a no-op for a
+/// control with no selectable text).  Unlike [`require_text_control`] this
+/// is **not** an error for other kinds — `select()` simply does nothing —
+/// so it returns a `bool` for the caller to gate the selection on rather
+/// than raising an `InvalidStateError`.
+pub(super) fn has_selectable_text(ctx: &mut NativeContext<'_>, entity: Entity) -> bool {
+    ctx.host()
+        .dom()
+        .world()
+        .get::<&FormControlState>(entity)
+        .map(|s| s.kind.has_selectable_text())
+        .unwrap_or(false)
+}
+
 // -------------------------------------------------------------------------
 // selectionStart / selectionEnd
 // -------------------------------------------------------------------------
