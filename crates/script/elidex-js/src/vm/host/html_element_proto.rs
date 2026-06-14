@@ -272,6 +272,16 @@ fn native_html_element_focus(
     let entity = require_html_element_receiver(ctx, this, "focus")?;
     let doc = ctx.host().document();
     let dom = ctx.host().dom();
+    // Already this document's focused element ⇒ no-op (WHATWG HTML §6.6: focusing
+    // the current focused area does nothing). Crucially this must return BEFORE
+    // re-seeding the change-on-blur snapshot below: a redundant `focus()` after
+    // the user has edited the control would otherwise refresh the snapshot
+    // baseline to the edited value, suppressing the later §4.10.5.5 `change`
+    // event. Mirrors the shell `set_focus` reconciler's `old == Some(entity)`
+    // early return.
+    if elidex_dom_api::focus::current_focus(dom, doc) == Some(entity) {
+        return Ok(JsValue::Undefined);
+    }
     // Focus is the *active* document's focused area (WHATWG HTML §6.6): only an
     // element in the bound document can take it. An element in a non-active
     // document — e.g. a `document.cloneNode()` subtree, which `is_connected`

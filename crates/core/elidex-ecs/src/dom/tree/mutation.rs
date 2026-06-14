@@ -345,8 +345,11 @@ impl EcsDom {
     /// a removed shadow host whose shadow tree held focus, and a removed shadow
     /// root's light children — none of which the light-tree event path reaches.
     /// Despawn-based removal needs no hook (hecs drops the component with the
-    /// entity); this covers detach-without-despawn.
-    fn clear_focus_if_disconnected(&mut self) {
+    /// entity); this covers detach-without-despawn — including
+    /// [`EcsDom::destroy_entity`]'s no-dispatcher path, which orphans (does not
+    /// despawn) descendants and skips [`Self::fire_after_remove`], so it calls
+    /// this directly.
+    pub(super) fn clear_focus_if_disconnected(&mut self) {
         let holder = self
             .world
             .query::<(Entity, &ElementState)>()

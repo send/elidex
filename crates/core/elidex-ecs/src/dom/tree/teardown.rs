@@ -103,6 +103,16 @@ impl EcsDom {
         // remove step 4 (Copilot PR186 R2 #3).
         if let (Some(p), Some((idx, was_connected))) = (parent, fire) {
             self.fire_after_remove(entity, p, idx, was_connected);
+        } else {
+            // No MutationDispatcher ⇒ `fire_after_remove` (and its silent §2.1.4
+            // focused-area reset) was skipped above. The reset must still run:
+            // destroying a connected ancestor *orphans* (does not despawn) its
+            // focused descendant, so without this its `FOCUS` bit survives
+            // disconnected and reattaching the descendant resurrects stale focus.
+            // `entity` is already detached, so the orphaned subtree is
+            // disconnected; the clear is independent of dispatch and idempotent
+            // (a no-op when the single FOCUS holder stays connected).
+            self.clear_focus_if_disconnected();
         }
 
         // Orphan all children: clear their parent and sibling links so

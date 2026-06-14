@@ -192,6 +192,49 @@ fn focus_on_element_in_non_bound_document_does_not_clobber_live_focus() {
     assert_eq!(out, "ok");
 }
 
+#[test]
+fn redundant_focus_does_not_reseed_change_snapshot() {
+    // Codex R5 F1: `input.focus()` while the input is already focused must be a
+    // no-op — in particular it must NOT re-seed the change-on-blur snapshot.
+    // Otherwise a redundant focus() after the user edits refreshes the baseline,
+    // so the later (shell) blur compares the edited value against itself and
+    // suppresses the §4.10.5.5 `change` event. Mirrors the shell `set_focus`
+    // reconciler's `old == Some(entity)` early return.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval(
+        "var i = document.createElement('input'); \
+         document.body.appendChild(i); \
+         i.value = 'V0'; \
+         i.focus(); \
+         i.value = 'V1'; \
+         i.focus();",
+    )
+    .unwrap();
+    vm.unbind();
+
+    // Exactly one element carries a FocusValueSnapshot (the input). Its value must
+    // be the focus-time 'V0', not the post-edit 'V1' that a re-seed would record.
+    let holder = dom
+        .world()
+        .query::<(elidex_ecs::Entity, &elidex_form::FocusValueSnapshot)>()
+        .iter()
+        .next()
+        .map(|(e, _)| e)
+        .expect("the focused text input carries a change-on-blur snapshot");
+    assert_eq!(
+        elidex_form::take_focus_snapshot(&mut dom, holder),
+        Some("V0".to_string()),
+        "redundant focus() must not refresh the snapshot baseline to the edited value"
+    );
+}
+
 // --- document.activeElement fallback -----------------------------
 
 #[test]

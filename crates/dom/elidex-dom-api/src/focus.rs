@@ -103,47 +103,66 @@ pub fn tab_index_default_for(dom: &EcsDom, entity: Entity) -> i32 {
     }
 }
 
-/// Whether `entity` is a focusable area (WHATWG HTML §6.6.2): an explicit
-/// `tabindex` content attribute OR a non-negative per-element default
-/// ([`tab_index_default_for`]), unless the element is an *actually disabled*
-/// disablable form element (a direct `disabled` attribute on `button` /
-/// `input` / `select` / `textarea` / `optgroup` / `option` / `fieldset`).
+/// Whether `entity` is a focusable area (WHATWG HTML §6.6.2 "Data model").
 ///
-/// A focusable area must also be **connected** — WHATWG HTML §6.6.2 requires it
-/// be "being rendered", which a disconnected element is not, so
-/// `createElement('input').focus()` on an unattached element is a no-op. This
-/// predicate enforces the *connectedness* half via [`EcsDom::is_connected`]; the
-/// remaining "being rendered" fidelity (display:none / visibility:hidden, which
-/// needs computed style / layout, a layer this attribute-based predicate cannot
-/// reach) is slot `#11-focusable-area-being-rendered`.
+/// §6.6.2 gives five criteria an Element must *all* meet to be a focusable area;
+/// this is the engine-independent, **attribute-based** evaluation of them (this
+/// crate has no `elidex-form` / computed-style dependency). Per-criterion
+/// coverage:
 ///
-/// Attribute-based by necessity (this crate has no `elidex-form` dependency).
-/// `contenteditable` is checked via [`crate::element::is_content_editable`] —
-/// the canonical editable-state algorithm that also backs the `isContentEditable`
-/// IDL getter — so focusability does not diverge from it: it honours **ancestor
-/// inheritance** (WHATWG HTML §6.8.1: the missing/invalid state inherits from the
-/// parent) *and* the full value set (case-insensitive `true` / `plaintext-only` /
-/// empty), so a descendant of an editing host (`<div contenteditable="TRUE">` or
-/// `contenteditable="plaintext-only"`) is focusable. (The lower-level
-/// `EcsDom::is_contenteditable` matched only exact lowercase `"true"`/`""`.)
-/// **Fieldset-inherited** disabled (a control nested in `<fieldset disabled>`)
-/// is *not* captured here — that lives in the form subsystem; the shell overlays
-/// `FormControlState` for it on its UA-input path, and slot
-/// `#11-focusable-area-fieldset-inherited-disabled` tracks bringing it to this
-/// predicate for the VM `focus()` path.
+/// **C1 — tabindex value non-null, OR UA-determined focusable** — *enforced*: a
+/// `tabindex` that parses as a valid integer (§6.6.3 "rules for parsing
+/// integers", via [`parse_tab_index_value`] — shared with the `tabIndex` IDL
+/// getter), an editing host ([`crate::element::is_content_editable`] — the
+/// `isContentEditable` algorithm, so case-insensitive `true`/`plaintext-only` +
+/// ancestor inheritance), or a non-negative per-element default
+/// ([`tab_index_default_for`]: `<a href>` / button / input(non-hidden) / select
+/// / textarea / iframe / object / embed). UA-list residue not yet modelled:
+/// `summary` as a `details`' first child; `draggable`.
+///
+/// **C2 — not a shadow host, or shadow root delegates-focus = false** — *not
+/// enforced here*: a delegates-focus host is not itself the focusable area (its
+/// first focusable shadow descendant is), which needs the shadow focus
+/// *delegation* algorithm, not a bare exclusion (excluding it would wrongly make
+/// `host.focus()` a no-op). Slot `#11-shadow-focus-delegation`.
+///
+/// **C3 — not actually disabled** — *enforced* (`is_actually_disabled`: a direct
+/// `disabled` on a disablable element). Fieldset-inherited `disabled` lives in
+/// the form subsystem (the shell overlays `FormControlState`); slot
+/// `#11-focusable-area-fieldset-inherited-disabled` brings it to this path.
+///
+/// **C4 — not inert** — `inert` is not modelled by the engine, so there is
+/// nothing to exclude (no gap today; revisit if `inert` lands).
+///
+/// **C5 — being rendered** — *partially enforced* from attributes: **connected**
+/// ([`EcsDom::is_connected`] — a disconnected element is not rendered, so
+/// `createElement('input').focus()` is a no-op) and **not `<input type=hidden>`**
+/// (`is_hidden_input` — a hidden input is never rendered, so it is not a focusable
+/// area even with a `tabindex`; §6.6.3 notes a tabindex cannot grant focusability
+/// that §6.6.2 withholds, and the shell rejects it via `FormControlKind::Hidden`
+/// — the two focus writers must agree). The CSS residue (`display:none` /
+/// `visibility:hidden`), which needs computed style, is slot
+/// `#11-focusable-area-being-rendered`.
 #[must_use]
 pub fn is_focusable(dom: &EcsDom, entity: Entity) -> bool {
+    // §6.6.2 criterion 5 (being rendered) — the attribute-reachable slice. Gate
+    // these BEFORE the criterion-1 tabindex short-circuit, else a `tabindex`
+    // would wrongly grant focusability to a non-rendered element.
     if !dom.is_connected(entity) {
         return false;
     }
+    if is_hidden_input(dom, entity) {
+        return false;
+    }
+    // §6.6.2 criterion 3 (not actually disabled).
     if is_actually_disabled(dom, entity) {
         return false;
     }
-    // The `tabindex` attribute participates only when it parses as a valid
-    // integer (WHATWG HTML §6.6.3 "rules for parsing integers"); an invalid
-    // value (`tabindex="foo"`) yields no tabindex and falls through to the
-    // per-element default — matching the `tabIndex` IDL getter (one parse, one
-    // home: [`parse_tab_index_value`]).
+    // §6.6.2 criterion 1 (tabindex value non-null, or UA-determined focusable):
+    // the `tabindex` attribute participates only when it parses as a valid
+    // integer (§6.6.3 "rules for parsing integers"); an invalid value
+    // (`tabindex="foo"`) yields a null tabindex and falls through to the
+    // per-element default — matching the `tabIndex` IDL getter.
     dom.with_attribute(entity, "tabindex", |v| {
         v.and_then(parse_tab_index_value).is_some()
     }) || crate::element::is_content_editable(dom, entity)
@@ -175,6 +194,19 @@ fn is_actually_disabled(dom: &EcsDom, entity: Entity) -> bool {
                     || s.eq_ignore_ascii_case("fieldset")
             })
         })
+}
+
+/// `<input type=hidden>` — a hidden input is never "being rendered" (WHATWG HTML
+/// §6.6.2 criterion 5), so it is not a focusable area even with a `tabindex`
+/// (§6.6.3: a tabindex cannot grant focusability §6.6.2 withholds). The
+/// attribute-based mirror of the shell's `FormControlKind::Hidden` rejection, so
+/// the VM `focus()` and shell UA-input writers agree.
+fn is_hidden_input(dom: &EcsDom, entity: Entity) -> bool {
+    dom.with_tag_name(entity, |t| {
+        t.is_some_and(|s| s.eq_ignore_ascii_case("input"))
+    }) && dom.with_attribute(entity, "type", |v| {
+        v.is_some_and(|s| s.eq_ignore_ascii_case("hidden"))
+    })
 }
 
 /// The currently focused element of `document`, if any (WHATWG HTML §6.6 — **the
@@ -446,6 +478,34 @@ mod tests {
                 "an editing-host descendant inherits focusability for contenteditable={value:?}"
             );
         }
+    }
+
+    #[test]
+    fn is_focusable_excludes_hidden_input_even_with_tabindex() {
+        // Regression (Codex R5 F2): §6.6.2 criterion 5 (being rendered) — an
+        // `<input type=hidden>` is never rendered, so it is not a focusable area
+        // even with a `tabindex` (§6.6.3: a tabindex cannot grant focusability
+        // §6.6.2 withholds). The VM `focus()` path must agree with the shell's
+        // `FormControlKind::Hidden` rejection, so the tabindex short-circuit must
+        // not bypass the hidden-input gate.
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let hidden = connect_el(&mut dom, doc, "input");
+        dom.set_attribute(hidden, "type", "hidden");
+        assert!(
+            !is_focusable(&dom, hidden),
+            "a hidden input is not focusable"
+        );
+        dom.set_attribute(hidden, "tabindex", "0");
+        assert!(
+            !is_focusable(&dom, hidden),
+            "a tabindex does not make a hidden input focusable"
+        );
+        // A non-hidden input with the same tabindex IS focusable — the gate is
+        // specific to the hidden type, not all inputs.
+        let text = connect_el(&mut dom, doc, "input");
+        dom.set_attribute(text, "tabindex", "0");
+        assert!(is_focusable(&dom, text), "a non-hidden input is focusable");
     }
 
     #[test]

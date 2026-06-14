@@ -83,6 +83,42 @@ fn destroy_entity_orphans_children() {
     assert_eq!(dom.get_prev_sibling(c), None);
 }
 
+#[test]
+fn destroy_entity_clears_focus_on_orphaned_descendant_without_dispatcher() {
+    // Codex R5: with no MutationDispatcher installed (plain EcsDom), destroy_entity
+    // skips fire_after_remove — and thus its §2.1.4 silent focused-area reset — but
+    // still *orphans* descendants. A focused descendant of the destroyed ancestor
+    // must have its FOCUS bit cleared, else reattaching it resurrects stale focus.
+    use crate::ElementState;
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let container = elem(&mut dom, "div");
+    let child = elem(&mut dom, "input");
+    dom.append_child(doc, container);
+    dom.append_child(container, child);
+    assert!(dom.is_connected(child));
+    let _ = dom
+        .world_mut()
+        .insert_one(child, ElementState(ElementState::FOCUS));
+
+    // Destroy the connected ancestor (this EcsDom has no dispatcher).
+    assert!(dom.destroy_entity(container));
+
+    // The orphaned child survives but must NOT keep a stale FOCUS bit.
+    assert!(
+        dom.contains(child),
+        "destroy_entity orphans (does not despawn) the descendant"
+    );
+    let still_focused = dom
+        .world()
+        .get::<&ElementState>(child)
+        .is_ok_and(|s| s.contains(ElementState::FOCUS));
+    assert!(
+        !still_focused,
+        "focus on an orphaned descendant is cleared even without a dispatcher"
+    );
+}
+
 // --- Destroy + Shadow DOM interaction ---
 
 #[test]
