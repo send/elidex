@@ -202,7 +202,13 @@ fn parse_month_component(input: &[u8], pos: &mut usize) -> Option<(i64, u32)> {
         return None;
     }
     let year = digits_to_i64(year_digits)?;
-    if !(1..=CIVIL_YEAR_LIMIT).contains(&year) {
+    // Spec constraint only (HTML §2.3.5.1: `year > 0`).  The
+    // `CIVIL_YEAR_LIMIT` guard belongs to the civil-arithmetic consumers
+    // (`parse_date_component` / `parse_week`); the month-count space
+    // `(year − 1970) × 12` never calls `days_from_civil` and is bounded by
+    // the checked arithmetic in `convert_string_to_number`, so the month-only
+    // path must not reject representable years at the civil limit.
+    if year < 1 {
         return None;
     }
     if input.get(*pos) != Some(&b'-') {
@@ -225,6 +231,11 @@ fn parse_month_component(input: &[u8], pos: &mut usize) -> Option<(i64, u32)> {
 /// `-DD` with `1 ≤ day ≤ days_in_month`.
 fn parse_date_component(input: &[u8], pos: &mut usize) -> Option<CivilDate> {
     let (year, month) = parse_month_component(input, pos)?;
+    // Civil-arithmetic guard: the date space runs through `days_from_civil`,
+    // so bound the year here (where the month-only path does not).
+    if year > CIVIL_YEAR_LIMIT {
+        return None;
+    }
     let maxday = days_in_month(year, month);
     if input.get(*pos) != Some(&b'-') {
         return None;

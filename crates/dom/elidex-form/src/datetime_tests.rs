@@ -155,6 +155,24 @@ fn large_years_honored_without_overflow() {
 }
 
 #[test]
+fn month_year_above_civil_limit_is_representable() {
+    // Codex #349 R2: the month-count space (year − 1970)·12 never uses
+    // civil-date arithmetic, so a month string a year above CIVIL_YEAR_LIMIT
+    // must parse and round-trip — the civil guard bounds only the date /
+    // datetime-local / week paths (which run through `days_from_civil`).
+    let s = "100000000001-06"; // CIVIL_YEAR_LIMIT + 1 year
+    let n = convert_string_to_number(Month, s).expect("month above civil limit is valid");
+    assert_eq!(convert_number_to_string(Month, n).as_deref(), Some(s));
+    // The civil-arithmetic paths keep the bound (the same year is rejected).
+    assert_eq!(convert_string_to_number(Date, "100000000001-06-15"), None);
+    assert_eq!(
+        convert_string_to_number(DatetimeLocal, "100000000001-06-15T00:00"),
+        None
+    );
+    assert_eq!(convert_string_to_number(Week, "100000000001-W06"), None);
+}
+
+#[test]
 fn date_invalid_strings_rejected() {
     for s in [
         "",

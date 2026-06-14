@@ -148,6 +148,14 @@ pub(crate) fn form_control_role(kind: FormControlKind) -> Role {
         FormControlKind::Output => Role::Status,
         FormControlKind::Meter => Role::Meter,
         FormControlKind::Progress => Role::ProgressIndicator,
+        // Date/time controls map to their specialized roles (HTML-AAM) so the
+        // platform adapters expose date/time-picker semantics, not a plain
+        // text field.
+        FormControlKind::Date => Role::DateInput,
+        FormControlKind::DatetimeLocal => Role::DateTimeInput,
+        FormControlKind::Time => Role::TimeInput,
+        FormControlKind::Week => Role::WeekInput,
+        FormControlKind::Month => Role::MonthInput,
         // All text-like inputs map to TextInput.
         FormControlKind::TextInput
         | FormControlKind::Password
@@ -156,11 +164,6 @@ pub(crate) fn form_control_role(kind: FormControlKind) -> Role {
         | FormControlKind::Tel
         | FormControlKind::Search
         | FormControlKind::Color
-        | FormControlKind::Date
-        | FormControlKind::DatetimeLocal
-        | FormControlKind::Time
-        | FormControlKind::Week
-        | FormControlKind::Month
         | FormControlKind::File => Role::TextInput,
     }
 }
@@ -278,6 +281,13 @@ mod tests {
             (FormControlKind::Output, Role::Status),
             (FormControlKind::Meter, Role::Meter),
             (FormControlKind::Progress, Role::ProgressIndicator),
+            // Date/time controls map to their specialized roles (Codex #349 R2),
+            // not the generic text-input arm.
+            (FormControlKind::Date, Role::DateInput),
+            (FormControlKind::DatetimeLocal, Role::DateTimeInput),
+            (FormControlKind::Time, Role::TimeInput),
+            (FormControlKind::Week, Role::WeekInput),
+            (FormControlKind::Month, Role::MonthInput),
         ];
         for (kind, expected) in cases {
             assert_eq!(form_control_role(kind), expected, "kind: {kind:?}");
