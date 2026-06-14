@@ -361,6 +361,28 @@ pub fn set_focus_bit(dom: &mut EcsDom, new: Option<Entity>) {
     }
 }
 
+/// Unfocus `entity` at the bit level (WHATWG HTML §6.6.4 unfocusing steps): if
+/// `entity` currently holds the canonical [`ElementState::FOCUS`] bit, clear it;
+/// otherwise a no-op (blurring an unfocused element does nothing).
+///
+/// Targets the **raw** bit holder (`raw_focus_holder`), NOT the
+/// [`current_focus`] derive-on-read view, because `blur()` is a WRITE on the
+/// focus SoT: it must clear the bit even when a same-turn mutation has already
+/// made the holder non-focusable. Were it gated on the filtered `current_focus`
+/// (which hides such a holder), the bit would linger until the frame
+/// [`reconcile_focus`] GC — and a same-turn un-hide before that GC would
+/// resurrect `document.activeElement` despite the `blur()`, e.g.
+/// `el.focus(); el.hidden = true; el.blur(); el.hidden = false` (Codex S2 R6).
+///
+/// Event dispatch (`blur` / `focusout`) is deferred with the rest of the
+/// VM-host synthetic events (slot `#11-vm-host-synthetic-dom-event-dispatch`),
+/// so this is a component-only mutation.
+pub fn blur(dom: &mut EcsDom, entity: Entity) {
+    if raw_focus_holder(dom) == Some(entity) {
+        set_focus_bit(dom, None);
+    }
+}
+
 /// Maintain the focus invariant **`current_focus(dom, document) ⟹ is_focusable`**:
 /// if the document's focused area is no longer a focusable area, silently clear
 /// the [`ElementState::FOCUS`] bit.
@@ -493,6 +515,53 @@ mod tests {
             None,
             "un-hiding after the GC does not resurrect focus"
         );
+    }
+
+    #[test]
+    fn blur_clears_raw_bit_of_same_turn_nonfocusable_holder() {
+        // Codex (S2 R6): `blur()` must target the raw FOCUS bit, not the
+        // filtered `current_focus` view — otherwise
+        // `el.focus(); el.hidden = true; el.blur(); el.hidden = false`
+        // resurrects `activeElement` because the same-turn `hidden` hid the
+        // holder from `current_focus` so the blur skipped clearing the bit.
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let el = focusable_div(&mut dom);
+        let _ = dom.append_child(doc, el);
+        set_focus_bit(&mut dom, Some(el));
+
+        // Same-turn: make it non-focusable WITHOUT the reconcile GC running.
+        dom.set_attribute(el, "hidden", "");
+        assert_eq!(current_focus(&dom, doc), None, "filtered read hides it");
+        assert_eq!(raw_focus_holder(&dom), Some(el), "raw bit lingers");
+
+        // `blur()` clears the raw holder even though `current_focus` hid it.
+        blur(&mut dom, el);
+        assert_eq!(raw_focus_holder(&dom), None, "blur cleared the raw bit");
+
+        // Un-hiding in the same turn no longer resurrects focus.
+        dom.remove_attribute(el, "hidden");
+        assert_eq!(
+            current_focus(&dom, doc),
+            None,
+            "blur honored across un-hide"
+        );
+    }
+
+    #[test]
+    fn blur_of_a_non_holder_is_a_noop() {
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let a = focusable_div(&mut dom);
+        let b = focusable_div(&mut dom);
+        let _ = dom.append_child(doc, a);
+        let _ = dom.append_child(doc, b);
+        set_focus_bit(&mut dom, Some(a));
+
+        // Blurring an element that is not the focus holder leaves focus intact.
+        blur(&mut dom, b);
+        assert_eq!(raw_focus_holder(&dom), Some(a));
+        assert_eq!(current_focus(&dom, doc), Some(a));
     }
 
     #[test]

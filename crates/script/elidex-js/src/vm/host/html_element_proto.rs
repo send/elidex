@@ -331,26 +331,25 @@ fn native_html_element_get_dataset(
 /// `HTMLElement.prototype.blur()` (WHATWG HTML §6.6.6 Focus management
 /// APIs; the unfocusing steps are §6.6.4 Processing model).
 ///
-/// Clears the `ElementState::FOCUS` bit **only if** the receiver is the
-/// document's currently focused element — read via the single
-/// [`elidex_dom_api::focus::current_focus`] model; blurring an unfocused
-/// element is a no-op (browser behaviour). A detached holder no longer needs a
-/// by-identity check: `EcsDom::fire_after_remove` clears the bit at removal
-/// (WHATWG HTML §2.1.4 removing steps), and `focus()` cannot set it on a
-/// disconnected element (`is_focusable` connectedness gate), so the `FOCUS`
-/// holder is connected by construction. No `blur` / `focusout` event dispatch
-/// yet (deferred with `focus`; slot `#11-vm-host-synthetic-dom-event-dispatch`).
+/// Delegates to the engine-independent [`elidex_dom_api::focus::blur`], which
+/// clears the `ElementState::FOCUS` bit iff the receiver is the **raw** focus
+/// holder (the focus SoT) — NOT the filtered [`current_focus`] view. Blurring an
+/// unfocused element is a no-op. Reading the raw holder (rather than
+/// `current_focus`) is what makes `el.focus(); el.hidden = true; el.blur()`
+/// actually unfocus `el`: the same-turn `hidden` hides it from `current_focus`
+/// (derive-on-read) but leaves the bit set until the frame GC, so a
+/// `current_focus`-gated blur would be a silent no-op and a later un-hide would
+/// resurrect `document.activeElement` (Codex S2 R6). No `blur` / `focusout`
+/// event dispatch yet (deferred with `focus`;
+/// slot `#11-vm-host-synthetic-dom-event-dispatch`).
 fn native_html_element_blur(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let entity = require_html_element_receiver(ctx, this, "blur")?;
-    let doc = ctx.host().document();
     let dom = ctx.host().dom();
-    if elidex_dom_api::focus::current_focus(dom, doc) == Some(entity) {
-        elidex_dom_api::focus::set_focus_bit(dom, None);
-    }
+    elidex_dom_api::focus::blur(dom, entity);
     Ok(JsValue::Undefined)
 }
 
