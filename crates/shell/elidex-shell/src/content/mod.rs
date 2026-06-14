@@ -192,6 +192,21 @@ impl ContentState {
             self.focusable_cache = None;
         }
 
+        // Maintain the focus invariant `current_focus ⟹ is_focusable` (WHATWG
+        // HTML §6.6.2): a DOM mutation this frame may have made the focused
+        // element non-focusable (its `hidden`/`disabled` landed, `<input type>`
+        // flipped to hidden, or it lost the `tabindex`/`contenteditable`/`href`
+        // that made it focusable) with focus still on it. Silently reset focus
+        // (no events, like the §2.1.4 removal reset). Gated on "any mutation
+        // occurred" rather than the focusable-cache attribute allow-list
+        // (`FOCUSABLE_ATTRIBUTES`, which omits `type`/`href`) so every
+        // focusability-affecting change is caught without a hand-maintained,
+        // drift-prone trigger list. Runs before observer delivery so a
+        // MutationObserver callback sees the reconciled `activeElement`.
+        if !mutation_records.is_empty() {
+            elidex_dom_api::focus::reconcile_focus(&mut self.pipeline.dom, self.pipeline.document);
+        }
+
         // Deliver observer callbacks after layout is complete.
         if !mutation_records.is_empty() {
             self.pipeline.runtime.deliver_mutation_records(

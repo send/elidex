@@ -178,13 +178,18 @@ pub fn is_focusable(dom: &EcsDom, entity: Entity) -> bool {
 }
 
 /// Parse a `tabindex` content attribute value (WHATWG HTML §6.6.3 "tabindex
-/// value" — the attribute is parsed using the rules for parsing integers; a
-/// failure yields a null tabindex). The engine-independent home shared by the
-/// focusable-area predicate ([`is_focusable`]) and the VM `tabIndex` IDL getter,
-/// so the two never diverge (one-issue-one-way).
+/// value" — the attribute is parsed using the §2.3.4.1 rules for parsing
+/// integers; a failure yields a null tabindex). Delegates to the shared
+/// `element::numeric_reflect::parse_integer` core so the focusable-area
+/// predicate ([`is_focusable`]) and the VM `tabIndex` IDL getter parse
+/// identically — and identically to every other `long` IDL reflect
+/// (one-issue-one-way). The §2.3.4.1 rules collect the leading ASCII-digit run
+/// and ignore trailing characters (`tabindex="1foo"` → `1`); the returned
+/// `Option` preserves the null-tabindex distinction `is_focusable` reads via
+/// `.is_some()`.
 #[must_use]
 pub fn parse_tab_index_value(raw: &str) -> Option<i32> {
-    raw.trim().parse::<i32>().ok()
+    crate::element::numeric_reflect::parse_integer(raw)
 }
 
 /// A disablable form element carrying a direct `disabled` content attribute.
@@ -343,6 +348,36 @@ pub fn set_focus_bit(dom: &mut EcsDom, new: Option<Entity>) {
     }
     if let Some(e) = new {
         update_state(dom, e, |s| s.insert(ElementState::FOCUS));
+    }
+}
+
+/// Maintain the focus invariant **`current_focus(dom, document) ⟹ is_focusable`**:
+/// if the document's focused area is no longer a focusable area, silently clear
+/// the [`ElementState::FOCUS`] bit.
+///
+/// The §6.6.2 focusable-area criteria are enforced as a focus-*time* gate on the
+/// writers ([`is_focusable`] at every `focus()` entry), but a connected,
+/// focusable element can *become* non-focusable while focus is still on it — its
+/// `hidden` attribute lands (on it or an ancestor), `<input type>` flips to
+/// `hidden`, `disabled` lands, or it loses the `tabindex` / `contenteditable` /
+/// `href` that made it focusable (WHATWG HTML §6.6.2 criteria 1/3/5). This is
+/// the catch-all that re-establishes the invariant after such a mutation — the
+/// attribute-transition counterpart to `EcsDom::fire_after_remove`'s eager
+/// connectedness reset (WHATWG HTML §2.1.4).
+///
+/// **Silent** (no `blur` / `focusout` / `change`): like the §2.1.4 removal
+/// reset, a passive loss of focusability runs none of the §6.6.4
+/// focusing/unfocusing steps (those fire only on UA-input / script
+/// `focus()` / `blur()`), so this is a component-only mutation with no
+/// dependency on the deferred engine-bound event dispatch. The shell drives it
+/// once per re-render, after the frame's DOM mutations are applied (gated on
+/// "any mutation occurred", so it sees every focusability-affecting attribute or
+/// tree change without a hand-maintained attribute allow-list).
+pub fn reconcile_focus(dom: &mut EcsDom, document: Entity) {
+    if let Some(focused) = current_focus(dom, document) {
+        if !is_focusable(dom, focused) {
+            set_focus_bit(dom, None);
+        }
     }
 }
 
@@ -717,5 +752,148 @@ mod tests {
         let disabled_button = dom.create_element("button", Attributes::default());
         dom.set_attribute(disabled_button, "disabled", "");
         assert_eq!(tab_index_default_for(&dom, disabled_button), 0);
+    }
+
+    #[test]
+    fn parse_tab_index_value_follows_rules_for_parsing_integers() {
+        // §2.3.4.1: skip leading whitespace, optional sign, collect the leading
+        // ASCII-digit run, ignore trailing characters; `None` only when no digit
+        // follows the optional sign.
+        assert_eq!(parse_tab_index_value("0"), Some(0));
+        assert_eq!(parse_tab_index_value("-1"), Some(-1));
+        assert_eq!(parse_tab_index_value("+5"), Some(5));
+        assert_eq!(parse_tab_index_value("  3  "), Some(3));
+        // Trailing non-digits are ignored (the prior `trim().parse::<i32>()`
+        // wrongly rejected these).
+        assert_eq!(parse_tab_index_value("1foo"), Some(1));
+        assert_eq!(parse_tab_index_value("-3px"), Some(-3));
+        // No leading digit ⇒ null tabindex.
+        assert_eq!(parse_tab_index_value("foo"), None);
+        assert_eq!(parse_tab_index_value(""), None);
+        assert_eq!(parse_tab_index_value("-"), None);
+        assert_eq!(parse_tab_index_value("   "), None);
+    }
+
+    #[test]
+    fn tabindex_with_trailing_junk_grants_focusability() {
+        // Regression (Codex R12 F2): `<div tabindex="1foo">` parses to 1 per
+        // §2.3.4.1, so the element IS focusable — the old `trim().parse::<i32>()`
+        // returned `None` and wrongly skipped it as non-focusable.
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let div = connect_el(&mut dom, doc, "div");
+        dom.set_attribute(div, "tabindex", "1foo");
+        assert!(
+            is_focusable(&dom, div),
+            "tabindex=\"1foo\" parses to 1 (§2.3.4.1) ⇒ focusable"
+        );
+    }
+
+    #[test]
+    fn reconcile_focus_clears_when_focused_element_stops_being_focusable() {
+        // Regression (Codex R12 F1): §6.6.2 is a focus-time gate; a focused
+        // element that LATER becomes non-focusable keeps the FOCUS bit until
+        // reconciled. `reconcile_focus` restores `current_focus ⟹ is_focusable`.
+        // Each arm: focus a focusable element, mutate it non-focusable, reconcile.
+        // hidden on the element itself:
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let el = connect_el(&mut dom, doc, "button");
+        set_focus_bit(&mut dom, Some(el));
+        assert_eq!(current_focus(&dom, doc), Some(el));
+        dom.set_attribute(el, "hidden", "");
+        reconcile_focus(&mut dom, doc);
+        assert_eq!(current_focus(&dom, doc), None, "hidden clears focus");
+
+        // hidden on an ancestor:
+        let section = connect_el(&mut dom, doc, "section");
+        let inner = dom.create_element("button", Attributes::default());
+        let _ = dom.append_child(section, inner);
+        set_focus_bit(&mut dom, Some(inner));
+        dom.set_attribute(section, "hidden", "");
+        reconcile_focus(&mut dom, doc);
+        assert_eq!(
+            current_focus(&dom, doc),
+            None,
+            "ancestor hidden clears focus"
+        );
+
+        // disabled lands:
+        let btn = connect_el(&mut dom, doc, "button");
+        set_focus_bit(&mut dom, Some(btn));
+        dom.set_attribute(btn, "disabled", "");
+        reconcile_focus(&mut dom, doc);
+        assert_eq!(current_focus(&dom, doc), None, "disabled clears focus");
+
+        // <input type> flips to hidden:
+        let input = connect_el(&mut dom, doc, "input");
+        set_focus_bit(&mut dom, Some(input));
+        dom.set_attribute(input, "type", "hidden");
+        reconcile_focus(&mut dom, doc);
+        assert_eq!(current_focus(&dom, doc), None, "type=hidden clears focus");
+
+        // <a> loses its href (focusable only via the href-gated Link default):
+        let a = connect_el(&mut dom, doc, "a");
+        dom.set_attribute(a, "href", "x");
+        set_focus_bit(&mut dom, Some(a));
+        assert_eq!(current_focus(&dom, doc), Some(a));
+        dom.remove_attribute(a, "href");
+        reconcile_focus(&mut dom, doc);
+        assert_eq!(current_focus(&dom, doc), None, "losing href clears focus");
+    }
+
+    #[test]
+    fn reconcile_focus_keeps_a_still_focusable_element() {
+        // The per-re-render reconcile must not blur a live focus: an unrelated
+        // attribute change leaves the element focusable, so focus is retained.
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let el = connect_el(&mut dom, doc, "button");
+        set_focus_bit(&mut dom, Some(el));
+        dom.set_attribute(el, "title", "hi");
+        reconcile_focus(&mut dom, doc);
+        assert_eq!(
+            current_focus(&dom, doc),
+            Some(el),
+            "a still-focusable element keeps focus across reconcile"
+        );
+    }
+
+    #[test]
+    fn removal_clears_focus_in_wide_dom_past_index_cap() {
+        // Regression (Codex R12 F3): the removal focus-clear rode inside
+        // `fire_after_remove`, which `remove_child` calls only when
+        // `index_in_parent` returns `Some`. `index_in_parent` returns `None` past
+        // `MAX_ANCESTOR_DEPTH` previous siblings (a wide-but-valid DOM), so the
+        // §2.1.4 reset was skipped and reattach resurrected `activeElement`. The
+        // clear is now run via the `else` fallback independent of the index.
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let parent = connect_el(&mut dom, doc, "div");
+        // MAX_ANCESTOR_DEPTH + 1 leading siblings so the focused child's
+        // `index_in_parent` walk exceeds the cap and returns `None`.
+        for _ in 0..=elidex_ecs::MAX_ANCESTOR_DEPTH {
+            let sib = dom.create_element("span", Attributes::default());
+            let _ = dom.append_child(parent, sib);
+        }
+        let focused = dom.create_element("input", Attributes::default());
+        let _ = dom.append_child(parent, focused);
+        assert_eq!(
+            dom.index_in_parent(focused),
+            None,
+            "the focused child is past the index cap (precondition for the bug)"
+        );
+        set_focus_bit(&mut dom, Some(focused));
+        assert_eq!(current_focus(&dom, doc), Some(focused));
+
+        let _ = dom.remove_child(parent, focused);
+        let still_set = dom
+            .world()
+            .get::<&ElementState>(focused)
+            .is_ok_and(|s| s.contains(ElementState::FOCUS));
+        assert!(
+            !still_set,
+            "wide-DOM removal clears the FOCUS bit even when index_in_parent is None"
+        );
     }
 }

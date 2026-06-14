@@ -71,6 +71,17 @@ impl EcsDom {
         self.rev_version(parent);
         if let Some(idx) = removed_index {
             self.fire_after_remove(child, parent, idx, was_connected);
+        } else if was_connected {
+            // `index_in_parent` capped out — a focused child with more than
+            // MAX_ANCESTOR_DEPTH previous siblings in a wide-but-valid DOM — so
+            // `fire_after_remove`, and the §2.1.4 focused-area reset it carries,
+            // were skipped. The reset must still run: removing the focused element
+            // has to clear `ElementState::FOCUS` regardless of sibling count, else
+            // reattaching the node resurrects `activeElement` + keyboard routing.
+            // The reset is connectedness-driven (needs no index); mirrors
+            // `destroy_entity`'s `defer_focus_clear`. (`clear_focus_if_disconnected`
+            // is idempotent — a no-op when the focus holder stays connected.)
+            self.clear_focus_if_disconnected();
         }
         true
     }
@@ -176,6 +187,10 @@ impl EcsDom {
 
         if let Some(idx) = old_index {
             self.fire_after_remove(old_child, parent, idx, old_child_was_connected);
+        } else if old_child_was_connected {
+            // index_in_parent capped out (wide DOM) → fire_after_remove skipped;
+            // run the §2.1.4 focused-area reset directly (see `remove_child`).
+            self.clear_focus_if_disconnected();
         }
 
         // Now link `new_child` into the slot `old_child` used to occupy.
@@ -430,6 +445,11 @@ impl EcsDom {
         }
         if let Some(idx) = old_index {
             self.fire_after_remove(child, old_parent, idx, was_connected);
+        } else if was_connected {
+            // index_in_parent capped out (wide DOM) → fire_after_remove skipped;
+            // run the §2.1.4 focused-area reset directly so a move of the focused
+            // element clears FOCUS regardless of sibling count (see `remove_child`).
+            self.clear_focus_if_disconnected();
         }
         true
     }
