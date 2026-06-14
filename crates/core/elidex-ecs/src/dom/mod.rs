@@ -74,6 +74,15 @@ pub struct EcsDom {
     /// version bump on the root's *external* parent — is applied once after the
     /// walk.
     version_propagation_suppressed: bool,
+    /// When set, [`destroy_entity`](Self::destroy_entity)'s no-dispatcher
+    /// §2.1.4 focused-area reset ([`clear_focus_if_disconnected`], a full
+    /// `ElementState` world query) is skipped. Scoped on by
+    /// [`despawn_subtree`](Self::despawn_subtree) for the same reason as
+    /// `version_propagation_suppressed`: that per-node global scan would turn a
+    /// complete teardown into an O(n·world) sweep. A despawned node loses its
+    /// `FOCUS` component with the entity, so the reset is run once after the
+    /// walk instead of per node.
+    focus_clear_suppressed: bool,
 }
 
 /// Panic-safe Drop guard for [`EcsDom::dispatch_event`]: restores the
@@ -120,6 +129,7 @@ impl EcsDom {
             dispatch_depth: 0,
             fragment_tree: crate::FragmentTree::default(),
             version_propagation_suppressed: false,
+            focus_clear_suppressed: false,
         }
     }
 

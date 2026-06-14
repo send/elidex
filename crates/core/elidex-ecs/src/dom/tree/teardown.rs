@@ -137,7 +137,7 @@ impl EcsDom {
         // descendant left dangling by this teardown is disconnected, so its stale
         // `FOCUS` bit is cleared (idempotent — a no-op when the holder stays
         // connected). The dispatcher path already reset focus in `fire_after_remove`.
-        if defer_focus_clear {
+        if defer_focus_clear && !self.focus_clear_suppressed {
             self.clear_focus_if_disconnected();
         }
 
@@ -210,13 +210,26 @@ impl EcsDom {
         // that is O(n²) for a maliciously deep subtree — the rollback path this
         // primitive is built for. Every such bump targets a doomed node anyway.
         self.version_propagation_suppressed = true;
+        // Likewise suppress the per-node §2.1.4 focused-area reset: every
+        // `destroy_entity` here takes the no-dispatcher branch (the dispatcher
+        // was taken out above), whose `clear_focus_if_disconnected` is a full
+        // `ElementState` world scan — per node that is the same O(n·world) sweep
+        // the version suppression avoids. Reset once after the walk instead.
+        self.focus_clear_suppressed = true;
         // Deepest-first: children precede their parents, so each
         // `destroy_entity` runs before its parent orphans it (cheaper, and the
         // collected set is already frozen against the link mutations).
         for &entity in nodes.iter().rev() {
             let _ = self.destroy_entity(entity);
         }
+        self.focus_clear_suppressed = false;
         self.version_propagation_suppressed = false;
+        // Run the deferred focused-area reset once now that the subtree is gone.
+        // A focused node *inside* the subtree was despawned (its `FOCUS`
+        // component left with the entity, so `current_focus` already reports
+        // nothing); this single sweep covers any holder that became disconnected
+        // by the teardown without re-scanning the world per node.
+        self.clear_focus_if_disconnected();
         // The single surviving version effect: the root's external parent.
         if let Some(parent) = root_parent {
             self.rev_version(parent);

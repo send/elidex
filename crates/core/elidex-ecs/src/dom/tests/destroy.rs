@@ -218,6 +218,43 @@ fn despawn_subtree_destroys_whole_light_tree() {
 }
 
 #[test]
+fn despawn_subtree_focus_reset_runs_once_and_preserves_outside_focus() {
+    // Codex (S2 round): `despawn_subtree` takes the dispatcher out, so every
+    // `destroy_entity` in the deepest-first loop took the no-dispatcher §2.1.4
+    // reset branch — a full `ElementState` world scan PER node. That per-node
+    // sweep is now suppressed during the walk and run once afterward (mirroring
+    // `version_propagation_suppressed`). This guards the correctness the
+    // once-after reset must preserve: focus on a node INSIDE the despawned
+    // subtree is gone (the node is despawned with its `FOCUS` component), and
+    // focus on a still-connected node OUTSIDE it is left intact (the single
+    // post-walk clear only clears *disconnected* holders).
+    use crate::ElementState;
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let gone = elem(&mut dom, "section");
+    let gone_child = elem(&mut dom, "input");
+    let kept = elem(&mut dom, "button");
+    dom.append_child(doc, gone);
+    dom.append_child(gone, gone_child);
+    dom.append_child(doc, kept);
+    // Focus a node OUTSIDE the doomed subtree.
+    let _ = dom
+        .world_mut()
+        .insert_one(kept, ElementState(ElementState::FOCUS));
+
+    assert!(dom.despawn_subtree(gone));
+
+    assert!(!dom.contains(gone_child), "the subtree is despawned");
+    assert!(
+        dom.world()
+            .get::<&ElementState>(kept)
+            .is_ok_and(|s| s.contains(ElementState::FOCUS)),
+        "focus on a still-connected node outside the despawned subtree is preserved \
+         (the once-after reset clears only disconnected holders)"
+    );
+}
+
+#[test]
 fn despawn_subtree_destroys_shadow_root_unlike_destroy_entity() {
     // Contrast with `destroy_shadow_host_orphans_shadow_root`: a single
     // `destroy_entity(host)` leaves the shadow root alive (orphaned), but

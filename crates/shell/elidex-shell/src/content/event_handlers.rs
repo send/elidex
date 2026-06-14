@@ -895,6 +895,19 @@ pub(super) fn try_route_key_to_iframe(
     let Some(iframe_entity) = state.focused_iframe else {
         return false;
     };
+    // Gate on the parent document's canonical `FOCUS` bit, not just this side
+    // field: a parent-side `HTMLElement.focus()` (e.g. from a timer / postMessage
+    // handler) can move the parent's focused area off the `<iframe>` element
+    // without touching `state.focused_iframe`, after which the key belongs to the
+    // now-focused parent control. `set_focus` keeps the parent `FOCUS` bit ON the
+    // `<iframe>` element while focus is inside it, so
+    // `current_focus(parent) != iframe_entity` means focus has left the frame —
+    // let the parent handle the key. The side field is left intact so the next
+    // top-level click's `focused_iframe.take()` + `blur_iframe_focus` still runs
+    // the iframe's deferred blur.
+    if current_focus(&state.pipeline.dom, state.pipeline.document) != Some(iframe_entity) {
+        return false;
+    }
     let Some(entry) = state.iframes.get_mut(iframe_entity) else {
         state.focused_iframe = None;
         return false;
