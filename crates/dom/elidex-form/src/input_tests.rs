@@ -503,14 +503,39 @@ fn apply_step_very_large_magnitude_unaligned_still_snaps() {
 }
 
 #[test]
-fn apply_step_quarter_step_offset_at_large_magnitude_snaps() {
-    // The relative tolerance is tight (4 ULP), so even a value only an
-    // eighth of a step off the grid at a large magnitude is unaligned
-    // and snaps to the next grid point instead of gaining a full step.
-    // (Codex PR#344 round 4 — a quarter-step cap alone accepted it.)
-    let mut s = make_state(FormControlKind::Number, "100000000000000.125", Some("1"));
+fn apply_step_aligned_value_with_min_and_small_step_cancellation() {
+    // Catastrophic cancellation in `value - base` must NOT make an
+    // aligned value look off-grid: `min=4 step=0.1 value=4.1` is on the
+    // grid, so stepUp ADVANCES one step (~4.2) — a ratio-only tolerance
+    // wrongly treated it as unaligned and snapped back to 4.1 (no-op).
+    // The serialized string carries f64 noise (`4.1 + 0.1` is not exactly
+    // 4.2); exact decimal output is the deferred number-to-string concern
+    // (slot `#11-input-number-decimal-precision`), so assert the numeric
+    // advance, not the exact string.
+    let mut s = make_state_mm(FormControlKind::Number, "4.1", Some("0.1"), Some("4"), None);
     assert!(apply_step(&mut s, 1.0, 1.0).is_ok());
-    assert_eq!(s.value(), "100000000000001");
+    let got: f64 = s.value().parse().unwrap();
+    assert!((got - 4.2).abs() < 1e-9, "expected ~4.2, got {}", s.value());
+}
+
+#[test]
+fn apply_step_aligned_value_with_large_base_small_step() {
+    // Worse cancellation (~5500 ULP): `min=16 step=0.001 value=16.001`
+    // is aligned, so stepUp advances ~one step to ~16.002 (not a no-op).
+    let mut s = make_state_mm(
+        FormControlKind::Number,
+        "16.001",
+        Some("0.001"),
+        Some("16"),
+        None,
+    );
+    assert!(apply_step(&mut s, 1.0, 1.0).is_ok());
+    let got: f64 = s.value().parse().unwrap();
+    assert!(
+        (got - 16.002).abs() < 1e-9,
+        "expected ~16.002, got {}",
+        s.value()
+    );
 }
 
 #[test]

@@ -147,31 +147,33 @@ pub enum StepError {
     NoAllowedValueStep,
 }
 
-/// Relative tolerance for the "integral multiple of the allowed value
-/// step" test (HTML §4.10.5.4 step 7).  The spec uses exact real
-/// arithmetic; we approximate with `f64`, treating a value as
-/// step-aligned when `(value − base) / step` is within this relative
-/// tolerance of an integer.
+/// Multiplier (in `f64::EPSILON` units) for the "integral multiple of
+/// the allowed value step" test (HTML §4.10.5.4 step 7).  The spec uses
+/// exact real arithmetic; we approximate with `f64` and treat a value as
+/// step-aligned when `(value − base) / step` is within a tolerance of an
+/// integer.
 ///
-/// The tolerance is scaled by `f64::EPSILON` (≈ 2.2e-16) — the ratio
-/// carries only a few ULPs of representation error, so the tolerance
-/// must track the ratio magnitude, not be a fixed fudge factor (a `1e-9`
-/// constant fails on small ratios and, multiplied up, on large ones).
-/// The factor is kept tight (4 ULP): a looser factor would, at large
-/// magnitudes, accept values several ULP off the grid as aligned
-/// (e.g. `step=1, value=1e14+0.125`, which f64 still represents with a
-/// fractional offset, must snap, not gain a full step) before the cap
-/// below even engages.
-const STEP_ALIGN_REL_TOLERANCE: f64 = 4.0 * f64::EPSILON;
+/// The tolerance must bound the *actual* `f64` error in computing that
+/// ratio, which is dominated by **catastrophic cancellation** in
+/// `value − base` when `|base|` ≫ `|value − base|` (a realistic input:
+/// `min=16 step=0.001 value=16.001` loses ~5500 ULP).  That error scales
+/// with `(|value| + |base|) / |step|`, NOT with `|ratio|` — a tolerance
+/// proportional to `|ratio|` alone (any fixed ULP multiple) wrongly
+/// rejects such aligned values, making `stepUp()` a no-op.  See
+/// [`is_step_aligned`].
+const STEP_ALIGN_TOLERANCE_ULPS: f64 = 4.0 * f64::EPSILON;
 
 /// Hard cap (in step units) on the alignment tolerance, strictly below
-/// ½ a step.  The relative term above is unbounded — past a large
-/// enough ratio it exceeds ½ and would classify *every* off-grid value
-/// (≈½ step off) as aligned.  Capping at a quarter-step keeps such
-/// values unaligned at any magnitude; the relative term governs the
-/// precision-error region at normal magnitudes (the cap only engages
-/// past ratio ≈ 2.8e14, where f64 can no longer represent offsets finer
-/// than the cap anyway).
+/// ½ a step, so a value ≈½ step off the grid always snaps regardless of
+/// magnitude.
+///
+/// At astronomical magnitudes the cancellation-aware tolerance exceeds a
+/// representable fractional offset (e.g. `step=1 value=2.8e14+0.125`),
+/// so f64 cannot decide alignment as exactly as the spec's real
+/// arithmetic — fully resolving that needs decimal arithmetic (à la
+/// Blink's `Decimal`), tracked at defer slot
+/// `#11-input-number-decimal-precision`.  The cap keeps the failure mode
+/// bounded (never accept a ≈½-step-off value) rather than unbounded.
 const STEP_ALIGN_MAX_TOLERANCE: f64 = 0.25;
 
 /// HTML "rules for parsing floating-point number values"
@@ -388,11 +390,20 @@ fn step_ratio(value: f64, base: f64, step: f64) -> f64 {
 }
 
 /// Whether `value`, when subtracted from `base`, is an integral
-/// multiple of `step` (HTML §4.10.5.4 step 7), within the relative
-/// [`STEP_ALIGN_REL_TOLERANCE`] capped by [`STEP_ALIGN_MAX_TOLERANCE`].
+/// multiple of `step` (HTML §4.10.5.4 step 7).
+///
+/// The tolerance bounds the `f64` error in `ratio = (value − base) /
+/// step`: the cancellation in `value − base` contributes
+/// `≈ ε·(|value| + |base|) / |step|` and the division/rounding add
+/// `≈ ε·|ratio|`.  Bounding only by `|ratio|` would reject aligned
+/// values that suffered cancellation (e.g. `min=16 step=0.001
+/// value=16.001`).  Capped by [`STEP_ALIGN_MAX_TOLERANCE`] below ½ step.
+/// `step` is always positive here (the no-allowed-value-step / non-
+/// positive cases are handled by [`allowed_value_step`]).
 fn is_step_aligned(value: f64, base: f64, step: f64) -> bool {
     let ratio = step_ratio(value, base, step);
-    let tolerance = (STEP_ALIGN_REL_TOLERANCE * ratio.abs().max(1.0)).min(STEP_ALIGN_MAX_TOLERANCE);
+    let error_magnitude = (value.abs() + base.abs()) / step.abs() + ratio.abs();
+    let tolerance = (STEP_ALIGN_TOLERANCE_ULPS * error_magnitude).min(STEP_ALIGN_MAX_TOLERANCE);
     (ratio - ratio.round()).abs() <= tolerance
 }
 
