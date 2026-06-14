@@ -334,13 +334,17 @@ fn step_apply(
     let Some(entity) = require_input_receiver(ctx, this, method)? else {
         return Ok(JsValue::Undefined);
     };
+    // WebIDL `stepUp(optional long n = 1)` — coerce as `long` (ToInt32),
+    // not raw ToNumber: this truncates fractions and maps NaN/±Infinity
+    // to 0, so a non-integer/non-finite argument can never corrupt the
+    // value (cf. `history.go(long delta)`).
     let n = if matches!(
         args.first().copied().unwrap_or(JsValue::Undefined),
         JsValue::Undefined
     ) {
-        1.0
+        1
     } else {
-        super::super::coerce::to_number(ctx.vm, args[0])?
+        super::super::coerce::to_int32(ctx.vm, args[0])?
     };
     // HTML §4.10.5.4 stepUp/stepDown algorithm hoisted to elidex-form
     // (slot #11-tags-T1-v2-drift-hoist D-2).  VM host/ retains brand
@@ -348,18 +352,23 @@ fn step_apply(
     // mutating the FormControlState is engine-independent.
     let dom = ctx.host().dom();
     let result = if let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(entity) {
-        elidex_form::apply_step(&mut state, n, direction)
+        elidex_form::apply_step(&mut state, f64::from(n), direction)
     } else {
         Ok(())
     };
-    if let Err(elidex_form::StepError::NotSupported) = result {
+    if let Err(err) = result {
+        // HTML §4.10.5.4 steps 1 & 2 both raise InvalidStateError; the
+        // detail message distinguishes the cause.
         let invalid_state_sid = ctx.vm.well_known.dom_exc_invalid_state_error;
+        let detail = match err {
+            elidex_form::StepError::NotSupported => "This input element does not have stepping",
+            elidex_form::StepError::NoAllowedValueStep => {
+                "This input element does not have an allowed value step"
+            }
+        };
         return Err(VmError::dom_exception(
             invalid_state_sid,
-            format!(
-                "Failed to execute '{method}' on 'HTMLInputElement': \
-                 This input element does not have stepping"
-            ),
+            format!("Failed to execute '{method}' on 'HTMLInputElement': {detail}"),
         ));
     }
     Ok(JsValue::Undefined)
