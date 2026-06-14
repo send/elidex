@@ -42,7 +42,7 @@ subtle.workspace = true
 [dev-dependencies]
 # Seeded deterministic CSPRNG for the RSA `generateKey` tests (reproducible
 # keys without an OS-entropy dependency in the test).
-rand_chacha = "0.3"
+rand_chacha = "0.9"
 
 [lints]
 workspace = true
