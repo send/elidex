@@ -47,12 +47,29 @@ fn input_check(
     Ok(Some(entity))
 }
 
+/// Receiver check for the selection *getters*.  Like [`input_check`] it
+/// brand-checks the `<input>` receiver, but a type whose selection IDL
+/// attributes do not apply resolves to `None` (→ the getter returns null)
+/// rather than an `InvalidStateError` — HTML §4.10.5.2.10 throws only from
+/// the setters / `setSelectionRange()` / `setRangeText()`, never the
+/// `selectionStart`/`selectionEnd`/`selectionDirection` getters.
+fn input_get_check(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    method: &str,
+) -> Result<Option<Entity>, VmError> {
+    let Some(entity) = require_input_receiver(ctx, this, method)? else {
+        return Ok(None);
+    };
+    Ok(super::selection_api::supports_selection(ctx, entity).then_some(entity))
+}
+
 pub(super) fn native_input_get_selection_start(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = input_check(ctx, this, "selectionStart")? else {
+    let Some(entity) = input_get_check(ctx, this, "selectionStart")? else {
         return Ok(JsValue::Null);
     };
     Ok(super::selection_api::get_selection_start(ctx, entity))
@@ -75,7 +92,7 @@ pub(super) fn native_input_get_selection_end(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = input_check(ctx, this, "selectionEnd")? else {
+    let Some(entity) = input_get_check(ctx, this, "selectionEnd")? else {
         return Ok(JsValue::Null);
     };
     Ok(super::selection_api::get_selection_end(ctx, entity))
@@ -98,7 +115,7 @@ pub(super) fn native_input_get_selection_direction(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = input_check(ctx, this, "selectionDirection")? else {
+    let Some(entity) = input_get_check(ctx, this, "selectionDirection")? else {
         return Ok(JsValue::Null);
     };
     Ok(super::selection_api::get_selection_direction(ctx, entity))
@@ -121,10 +138,18 @@ pub(super) fn native_input_select_method(
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let Some(entity) = input_check(ctx, this, "select")? else {
+    // `select()` never throws (unlike the selectionStart/setSelectionRange/
+    // setRangeText APIs, which use `require_text_control`).  HTML "select()
+    // method" step 1 makes it a no-op for a control with no selectable text,
+    // so it records a selection only for the text-like and number states;
+    // the date/time states render as pickers (no selectable text) and other
+    // kinds simply do nothing.
+    let Some(entity) = require_input_receiver(ctx, this, "select")? else {
         return Ok(JsValue::Undefined);
     };
-    super::selection_api::select_all(ctx, entity);
+    if super::selection_api::has_selectable_text(ctx, entity) {
+        super::selection_api::select_all(ctx, entity);
+    }
     Ok(JsValue::Undefined)
 }
 

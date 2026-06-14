@@ -340,11 +340,91 @@ fn input_set_range_text_replaces_selection() {
 }
 
 #[test]
-fn input_selection_throws_for_non_text_type() {
+fn input_set_selection_range_throws_for_non_text_type() {
+    // setSelectionRange / selectionStart / setRangeText do NOT apply to
+    // the number or date/time states → InvalidStateError (their
+    // apply-lists exclude those APIs, HTML §4.10.5.1.x).
     let out = run("var i = document.createElement('input'); \
          i.type = 'number'; \
-         try { i.select(); 'no-throw'; } \
+         try { i.setSelectionRange(0, 1); 'no-throw'; } \
          catch (e) { (e.name === 'InvalidStateError') ? 'ok' : 'other:' + e.name; }");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn input_selection_getters_return_null_for_non_text_types() {
+    // HTML §4.10.5.2.10: the selectionStart / selectionEnd / selectionDirection
+    // *getters* return null when the attribute does not apply — only the setters
+    // / setSelectionRange() / setRangeText() throw InvalidStateError.  Regression
+    // for Codex #349 R1: making time/week/month first-class (non-text) kinds must
+    // not route their getters through the throwing `require_text_control` path.
+    let out = run("var i = document.createElement('input'); \
+         var r = []; \
+         ['number','date','month','week','time','datetime-local','color'].forEach(function (t) { \
+           i.type = t; \
+           r.push(i.selectionStart === null && i.selectionEnd === null && i.selectionDirection === null); \
+         }); \
+         r.every(function (x) { return x === true; }) ? 'all-null' : 'leaked:' + r.join(',');");
+    assert_eq!(out, "all-null");
+}
+
+#[test]
+fn input_selection_setter_still_throws_for_non_text_type() {
+    // The setter side of the getter/setter split: assigning selectionStart on a
+    // non-text type still throws InvalidStateError (only the getter is null).
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'time'; \
+         try { i.selectionStart = 0; 'no-throw'; } \
+         catch (e) { (e.name === 'InvalidStateError') ? 'ok' : 'other:' + e.name; }");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn input_select_method_never_throws_for_number_or_date_types() {
+    // select() NEVER throws for number or the date/time states (HTML
+    // "select() method" step 1 — no-op, not InvalidStateError), unlike the
+    // selectionStart/setSelectionRange APIs.
+    let out = run("var i = document.createElement('input'); \
+         var ok = true; \
+         ['number','date','month','week','time','datetime-local'].forEach(function (t) { \
+           i.type = t; \
+           try { i.select(); } catch (e) { ok = false; } \
+         }); \
+         '' + ok;");
+    assert_eq!(out, "true");
+}
+
+#[test]
+fn input_select_method_is_noop_for_pickered_date_types() {
+    // Codex R5: the date/time states render as pickers (no selectable
+    // text), so select() must NOT record a selection.  Setting .value
+    // leaves a collapsed cursor at the end (§4.10.7.4); a no-op select()
+    // keeps it collapsed (start == end), whereas select_all would make it a
+    // 0..len range — observable via selectionStart/End after a type change.
+    let date = run("var i = document.createElement('input'); \
+         i.type = 'date'; i.value = '2025-01-15'; \
+         i.select(); \
+         i.type = 'text'; \
+         (i.selectionStart === i.selectionEnd) ? 'collapsed' : 'range:' + i.selectionStart + '-' + i.selectionEnd;");
+    assert_eq!(date, "collapsed", "date select() must not select a range");
+
+    // number HAS selectable text, so select() records the full range.
+    // (selectionStart/End don't apply to number directly — read after
+    // switching to text, the same way the date case does.)
+    let number = run("var i = document.createElement('input'); \
+         i.type = 'number'; i.value = '12345'; \
+         i.select(); \
+         i.type = 'text'; \
+         '' + i.selectionStart + '/' + i.selectionEnd;");
+    assert_eq!(number, "0/5", "number select() selects its text");
+}
+
+#[test]
+fn input_select_method_is_noop_for_checkbox() {
+    // select() does not apply to checkbox → no-op, not an error.
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'checkbox'; \
+         try { i.select(); 'ok'; } catch (e) { 'threw:' + e.name; }");
     assert_eq!(out, "ok");
 }
 
@@ -378,6 +458,50 @@ fn input_step_down_decrements_number_value() {
          i.stepDown(2); \
          i.value;");
     assert_eq!(out, "8");
+}
+
+#[test]
+fn input_step_up_increments_date_value() {
+    // HTML §4.10.5.1.7: date stepUp advances by one day, serialized as
+    // a valid date string (string-exact, no float noise).
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'date'; \
+         i.value = '2025-01-15'; \
+         i.stepUp(); \
+         i.value;");
+    assert_eq!(out, "2025-01-16");
+}
+
+#[test]
+fn input_step_up_increments_month_value() {
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'month'; \
+         i.value = '2025-12'; \
+         i.stepUp(); \
+         i.value;");
+    assert_eq!(out, "2026-01");
+}
+
+#[test]
+fn input_step_up_increments_time_value() {
+    // Default step is 60 seconds.
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'time'; \
+         i.value = '12:30'; \
+         i.stepUp(); \
+         i.value;");
+    assert_eq!(out, "12:31");
+}
+
+#[test]
+fn input_step_up_increments_week_value() {
+    // 2020-W53 + 1 week crosses into week-year 2021 (≠ calendar year).
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'week'; \
+         i.value = '2020-W53'; \
+         i.stepUp(); \
+         i.value;");
+    assert_eq!(out, "2021-W01");
 }
 
 #[test]
