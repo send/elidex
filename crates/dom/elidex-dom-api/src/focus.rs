@@ -248,8 +248,15 @@ pub fn parse_tab_index_value(raw: &str) -> Option<i32> {
 
 /// A disablable form element carrying a direct `disabled` content attribute.
 /// (Direct-attribute only; fieldset inheritance is the slot above.)
+///
+/// HTML-namespace only — `disabled` is an HTML form-control concept, so a
+/// foreign (SVG / MathML) element merely *named* like a control and carrying a
+/// `disabled` attribute is not "actually disabled". Mirrors
+/// [`tab_index_default_for`]'s namespace gate: a foreign element is focusable
+/// only via an explicit `tabindex`, which this exclusion must not suppress.
 fn is_actually_disabled(dom: &EcsDom, entity: Entity) -> bool {
-    dom.has_attribute(entity, "disabled")
+    dom.is_html_namespace(entity)
+        && dom.has_attribute(entity, "disabled")
         && dom.with_tag_name(entity, |t| {
             t.is_some_and(|s| {
                 s.eq_ignore_ascii_case("button")
@@ -268,12 +275,18 @@ fn is_actually_disabled(dom: &EcsDom, entity: Entity) -> bool {
 /// (§6.6.3: a tabindex cannot grant focusability §6.6.2 withholds). The
 /// attribute-based mirror of the shell's `FormControlKind::Hidden` rejection, so
 /// the VM `focus()` and shell UA-input writers agree.
+///
+/// HTML-namespace only — an SVG / MathML element with local name `input` is not
+/// an HTML hidden input, so this exclusion must not suppress its explicit-
+/// `tabindex` focusability (mirrors [`tab_index_default_for`]'s namespace gate).
 fn is_hidden_input(dom: &EcsDom, entity: Entity) -> bool {
-    dom.with_tag_name(entity, |t| {
-        t.is_some_and(|s| s.eq_ignore_ascii_case("input"))
-    }) && dom.with_attribute(entity, "type", |v| {
-        v.is_some_and(|s| s.eq_ignore_ascii_case("hidden"))
-    })
+    dom.is_html_namespace(entity)
+        && dom.with_tag_name(entity, |t| {
+            t.is_some_and(|s| s.eq_ignore_ascii_case("input"))
+        })
+        && dom.with_attribute(entity, "type", |v| {
+            v.is_some_and(|s| s.eq_ignore_ascii_case("hidden"))
+        })
 }
 
 /// Whether `entity` is in a `hidden`-attribute subtree — itself or a
@@ -828,6 +841,64 @@ mod tests {
             tab_index_default_for(&dom, svg_a),
             -1,
             "an SVG <a href> has no HTML link focus default"
+        );
+    }
+
+    #[test]
+    fn is_focusable_foreign_lookalike_ignores_html_exclusions() {
+        // The HTML form-control exclusions (`is_hidden_input`,
+        // `is_actually_disabled`) are HTML-namespace only (Codex S2): a foreign
+        // element merely *named* like a control must not be excluded by them, so
+        // an explicit `tabindex` still grants it focusability. The HTML versions
+        // stay excluded (a tabindex can't grant focusability §6.6.2 withholds).
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+
+        // SVG <input type=hidden tabindex=0>: the hidden-input exclusion is
+        // HTML-only, so the explicit tabindex grants focusability.
+        let svg_input = dom.create_element_ns(
+            "input",
+            elidex_ecs::Namespace::Svg,
+            Attributes::default(),
+            None,
+        );
+        let _ = dom.append_child(doc, svg_input);
+        dom.set_attribute(svg_input, "type", "hidden");
+        dom.set_attribute(svg_input, "tabindex", "0");
+        assert!(
+            is_focusable(&dom, svg_input),
+            "an SVG <input type=hidden tabindex=0> is focusable via explicit tabindex"
+        );
+        // The HTML <input type=hidden tabindex=0> stays excluded.
+        let html_input = connect_el(&mut dom, doc, "input");
+        dom.set_attribute(html_input, "type", "hidden");
+        dom.set_attribute(html_input, "tabindex", "0");
+        assert!(
+            !is_focusable(&dom, html_input),
+            "an HTML hidden input is not focusable even with a tabindex"
+        );
+
+        // SVG <button disabled tabindex=0>: the disabled exclusion is HTML-only.
+        let svg_button = dom.create_element_ns(
+            "button",
+            elidex_ecs::Namespace::Svg,
+            Attributes::default(),
+            None,
+        );
+        let _ = dom.append_child(doc, svg_button);
+        dom.set_attribute(svg_button, "disabled", "");
+        dom.set_attribute(svg_button, "tabindex", "0");
+        assert!(
+            is_focusable(&dom, svg_button),
+            "an SVG <button disabled tabindex=0> is focusable via explicit tabindex"
+        );
+        // The HTML <button disabled tabindex=0> stays excluded.
+        let html_button = connect_el(&mut dom, doc, "button");
+        dom.set_attribute(html_button, "disabled", "");
+        dom.set_attribute(html_button, "tabindex", "0");
+        assert!(
+            !is_focusable(&dom, html_button),
+            "an HTML disabled button is not focusable even with a tabindex"
         );
     }
 
