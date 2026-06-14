@@ -133,9 +133,8 @@ pub fn tab_index_default_for(dom: &EcsDom, entity: Entity) -> i32 {
 /// navigation with no author `tabindex`). A `<summary>` outside a `<details>`,
 /// or any but the first, is not UA-focusable. (This is the focusability half
 /// only; the activation behaviour — Enter/Space toggling `open` — is a separate
-/// default-action concern in the disclosure-widget family, adjacent to the
-/// existing toggle-event slot `#11-tags-T2d-details-toggle-event`, not modelled
-/// here.)
+/// disclosure-widget default-action concern (distinct from the `details.open`
+/// ToggleEvent, which is already handled), not modelled here.)
 ///
 /// HTML-namespace only on **all three** tag matches (summary self, `details`
 /// parent, and the first-`summary`-child scan) — mirroring `tab_index_default_for`
@@ -174,9 +173,10 @@ fn is_first_summary_of_details(dom: &EcsDom, summary: Entity) -> bool {
 /// coverage:
 ///
 /// **C1 — tabindex value non-null, OR UA-determined focusable** — *enforced*: a
-/// `tabindex` that parses as a valid integer (§6.6.3 "rules for parsing
-/// integers", via [`parse_tab_index_value`] — shared with the `tabIndex` IDL
-/// getter), or a non-negative per-element default ([`tab_index_default_for`]:
+/// `tabindex` that parses as a valid integer (the §2.3.4.1 "rules for parsing
+/// integers", which §6.6.3 applies to the tabindex value, via
+/// [`parse_tab_index_value`] — shared with the `tabIndex` IDL getter), or a
+/// non-negative per-element default ([`tab_index_default_for`]:
 /// `<a href>` / button / input(non-hidden) / select / textarea / iframe /
 /// object / embed, the **first `<summary>` child of a `<details>`** via
 /// `is_first_summary_of_details`, and an **editing host** — an element whose
@@ -244,9 +244,9 @@ pub fn is_focusable(dom: &EcsDom, entity: Entity) -> bool {
     }
     // §6.6.2 criterion 1 (tabindex value non-null, or UA-determined focusable):
     // the `tabindex` attribute participates only when it parses as a valid
-    // integer (§6.6.3 "rules for parsing integers"); an invalid value
-    // (`tabindex="foo"`) yields a null tabindex and falls through to the
-    // per-element default — matching the `tabIndex` IDL getter.
+    // integer (the §2.3.4.1 "rules for parsing integers", which §6.6.3 applies);
+    // an invalid value (`tabindex="foo"`) yields a null tabindex and falls
+    // through to the per-element default — matching the `tabIndex` IDL getter.
     dom.with_attribute(entity, "tabindex", |v| {
         v.and_then(parse_tab_index_value).is_some()
     }) || tab_index_default_for(dom, entity) >= 0

@@ -810,8 +810,8 @@ pub(super) fn native_document_get_active_element(
 ///
 /// The remaining gap — a *visible* context that lacks system focus because
 /// another window is focused — needs a window-level focus signal the VM does
-/// not model (single browsing context); deferred as a future cross-window
-/// concern.
+/// not model (single browsing context); deferred to slot
+/// `#11-system-window-focus-events` (the OS window focus/blur signal).
 pub(super) fn native_document_has_focus(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
