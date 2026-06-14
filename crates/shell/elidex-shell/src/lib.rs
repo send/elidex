@@ -706,6 +706,23 @@ pub(crate) fn re_render(result: &mut PipelineResult) -> Vec<elidex_script_sessio
         result.scroll_offset,
     );
 
+    // Maintain the focus invariant `current_focus ⟹ is_focusable` (WHATWG HTML
+    // §6.6.2): a DOM mutation this frame may have made the focused element
+    // non-focusable (its `hidden`/`disabled` landed, `<input type>` flipped to a
+    // non-focusable kind, or it lost the `tabindex`/`contenteditable`/`href` that
+    // made it focusable) with focus still on it. Silently reset focus (no events,
+    // like the §2.1.4 removal reset). Gated on "any mutation occurred" rather than
+    // a focusability-attribute allow-list so every focusability-affecting change is
+    // caught without a hand-maintained, drift-prone trigger list. Lives at this
+    // single `re_render` chokepoint so the parent document, in-process iframes
+    // (`content::iframe::render::re_render_all_iframes`) and OOP iframes
+    // (`content::iframe::thread::iframe_thread_main`) all reconcile — every
+    // pipeline funnels through this one function, before observer delivery so a
+    // `MutationObserver` callback sees the reconciled `activeElement`.
+    if !mutation_records.is_empty() {
+        elidex_dom_api::focus::reconcile_focus(&mut result.dom, result.document);
+    }
+
     mutation_records
 }
 

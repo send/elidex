@@ -53,6 +53,18 @@ pub fn take_focus_snapshot(dom: &mut EcsDom, entity: Entity) -> Option<String> {
         .map(|snapshot| snapshot.0)
 }
 
+/// Drop any change-on-blur snapshot from `entity` without reading it.
+///
+/// `record_focus_snapshot` only re-evaluates "is this still a text control?" at
+/// *focus* time, so a control whose `type` changes text → non-text *while
+/// focused* keeps the stale text baseline; the eventual blur would then consume
+/// it and fire a spurious `change`. The `FormControlReconciler` `type`-change arm
+/// calls this at the `set_attribute` chokepoint to clear it mid-focus (the
+/// counterpart to the non-text clear `record_focus_snapshot` does at focus time).
+pub fn clear_focus_snapshot(dom: &mut EcsDom, entity: Entity) {
+    let _ = dom.world_mut().remove_one::<FocusValueSnapshot>(entity);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

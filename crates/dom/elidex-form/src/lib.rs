@@ -25,7 +25,9 @@ pub use clipboard::{clipboard_copy, clipboard_cut, clipboard_paste};
 pub use fieldset::{
     first_legend_child, is_fieldset_disabled, is_in_first_legend, propagate_fieldset_disabled,
 };
-pub use focus_snapshot::{record_focus_snapshot, take_focus_snapshot, FocusValueSnapshot};
+pub use focus_snapshot::{
+    clear_focus_snapshot, record_focus_snapshot, take_focus_snapshot, FocusValueSnapshot,
+};
 pub use init::{create_form_control_state, find_autofocus_target, init_form_controls};
 pub use input::{
     apply_step, form_control_key_input, form_control_key_input_action, resolve_input_list,
