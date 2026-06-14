@@ -551,6 +551,24 @@ fn apply_step_invalid_value_string_treated_as_empty() {
 }
 
 #[test]
+fn apply_step_clamps_to_on_grid_max_under_float_noise() {
+    // The max clamp (step 9) must round to a `max` that is on the grid
+    // even when its f64 ratio computes as `0.9999…`: `min=0.2 max=0.3
+    // step=0.1`, a stepUp overshooting max clamps to 0.3, not 0.2 (a raw
+    // `floor()` under-clamped a whole step).  (Codex PR#344 round 6.)
+    let mut s = make_state_mm(
+        FormControlKind::Number,
+        "0.2",
+        Some("0.1"),
+        Some("0.2"),
+        Some("0.3"),
+    );
+    assert!(apply_step(&mut s, 5.0, 1.0).is_ok());
+    let got: f64 = s.value().parse().unwrap();
+    assert!((got - 0.3).abs() < 1e-9, "expected ~0.3, got {}", s.value());
+}
+
+#[test]
 fn apply_step_non_finite_result_is_noop() {
     // f64 overflow guard: a pathologically large step with no maximum
     // makes step×n overflow to infinity; the value must NOT become

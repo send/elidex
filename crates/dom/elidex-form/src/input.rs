@@ -389,32 +389,52 @@ fn step_ratio(value: f64, base: f64, step: f64) -> f64 {
     (value - base) / step
 }
 
-/// Whether `value`, when subtracted from `base`, is an integral
-/// multiple of `step` (HTML §4.10.5.4 step 7).
-///
-/// The tolerance bounds the `f64` error in `ratio = (value − base) /
-/// step`: the cancellation in `value − base` contributes
-/// `≈ ε·(|value| + |base|) / |step|` and the division/rounding add
-/// `≈ ε·|ratio|`.  Bounding only by `|ratio|` would reject aligned
-/// values that suffered cancellation (e.g. `min=16 step=0.001
-/// value=16.001`).  Capped by [`STEP_ALIGN_MAX_TOLERANCE`] below ½ step.
-/// `step` is always positive here (the no-allowed-value-step / non-
-/// positive cases are handled by [`allowed_value_step`]).
-fn is_step_aligned(value: f64, base: f64, step: f64) -> bool {
+/// Tolerance for the step-alignment test (HTML §4.10.5.4 step 7),
+/// bounding the `f64` error in `ratio = (value − base) / step`: the
+/// cancellation in `value − base` contributes `≈ ε·(|value| + |base|) /
+/// |step|` and the division/rounding add `≈ ε·|ratio|`.  Bounding only
+/// by `|ratio|` would reject aligned values that suffered cancellation
+/// (e.g. `min=16 step=0.001 value=16.001`).  Capped by
+/// [`STEP_ALIGN_MAX_TOLERANCE`] below ½ step.  `step` is always positive
+/// here (the no-allowed-value-step / non-positive cases are handled by
+/// [`allowed_value_step`]).
+fn align_tolerance(value: f64, base: f64, step: f64) -> f64 {
     let ratio = step_ratio(value, base, step);
     let error_magnitude = (value.abs() + base.abs()) / step.abs() + ratio.abs();
-    let tolerance = (STEP_ALIGN_TOLERANCE_ULPS * error_magnitude).min(STEP_ALIGN_MAX_TOLERANCE);
-    (ratio - ratio.round()).abs() <= tolerance
+    (STEP_ALIGN_TOLERANCE_ULPS * error_magnitude).min(STEP_ALIGN_MAX_TOLERANCE)
 }
 
-/// Largest step-aligned value `≤ value` (`base + ⌊ratio⌋ · step`).
+/// Whether `value`, when subtracted from `base`, is an integral
+/// multiple of `step` (HTML §4.10.5.4 step 7), within [`align_tolerance`].
+fn is_step_aligned(value: f64, base: f64, step: f64) -> bool {
+    let ratio = step_ratio(value, base, step);
+    (ratio - ratio.round()).abs() <= align_tolerance(value, base, step)
+}
+
+/// The step grid index of `value`, snapped to the nearest integer when
+/// `value` is itself on the grid (its ratio is within [`align_tolerance`]
+/// of an integer) so that float noise — e.g. a `max` that lies exactly
+/// on the grid but whose ratio computes as `0.9999…` — does not push
+/// `floor`/`ceil` a whole step the wrong way.  For a genuinely off-grid
+/// `value` the ratio is returned unsnapped for the caller to floor/ceil.
+fn grid_index(value: f64, base: f64, step: f64) -> f64 {
+    let ratio = step_ratio(value, base, step);
+    let nearest = ratio.round();
+    if (ratio - nearest).abs() <= align_tolerance(value, base, step) {
+        nearest
+    } else {
+        ratio
+    }
+}
+
+/// Largest step-aligned value `≤ value`.
 fn aligned_below(value: f64, base: f64, step: f64) -> f64 {
-    base + step_ratio(value, base, step).floor() * step
+    base + grid_index(value, base, step).floor() * step
 }
 
-/// Smallest step-aligned value `≥ value` (`base + ⌈ratio⌉ · step`).
+/// Smallest step-aligned value `≥ value`.
 fn aligned_above(value: f64, base: f64, step: f64) -> f64 {
-    base + step_ratio(value, base, step).ceil() * step
+    base + grid_index(value, base, step).ceil() * step
 }
 
 /// Apply a `stepUp(n)` / `stepDown(n)` adjustment to a form control
