@@ -136,13 +136,34 @@ pub fn tab_index_default_for(dom: &EcsDom, entity: Entity) -> i32 {
 /// default-action concern in the disclosure-widget family, adjacent to the
 /// existing toggle-event slot `#11-tags-T2d-details-toggle-event`, not modelled
 /// here.)
+///
+/// HTML-namespace only on **all three** tag matches (summary self, `details`
+/// parent, and the first-`summary`-child scan) — mirroring `tab_index_default_for`
+/// and the form-control exclusions: a foreign (SVG / MathML) `<details>` or
+/// `<summary>` is not the HTML disclosure widget, so neither an HTML `<summary>`
+/// under a foreign `<details>` nor a foreign `<summary>` preceding the HTML one
+/// perturbs the built-in tab default.
 fn is_first_summary_of_details(dom: &EcsDom, summary: Entity) -> bool {
+    if !dom.is_html_namespace(summary) {
+        return false;
+    }
     let Some(parent) = dom.get_parent(summary) else {
         return false;
     };
-    dom.with_tag_name(parent, |t| {
-        t.is_some_and(|s| s.eq_ignore_ascii_case("details"))
-    }) && dom.first_child_with_tag(parent, "summary") == Some(summary)
+    if !dom.is_html_namespace(parent)
+        || !dom.with_tag_name(parent, |t| {
+            t.is_some_and(|s| s.eq_ignore_ascii_case("details"))
+        })
+    {
+        return false;
+    }
+    // The control is the first HTML `<summary>` child — a foreign `<summary>`
+    // sibling does not count, so `first_child_with_tag` (namespace-blind) is not
+    // sufficient; scan children for the first HTML-namespaced summary.
+    dom.children(parent).into_iter().find(|&c| {
+        dom.is_html_namespace(c)
+            && dom.with_tag_name(c, |t| t.is_some_and(|s| s.eq_ignore_ascii_case("summary")))
+    }) == Some(summary)
 }
 
 /// Whether `entity` is a focusable area (WHATWG HTML §6.6.2 "Data model").
@@ -1143,6 +1164,57 @@ mod tests {
         // first arm) independent of the UA default.
         dom.set_attribute(orphan, "tabindex", "0");
         assert!(is_focusable(&dom, orphan));
+    }
+
+    #[test]
+    fn summary_details_disclosure_widget_is_html_namespace_only() {
+        // Codex S2: the disclosure-widget focus default requires an HTML
+        // <summary> that is the first HTML <summary> child of an HTML <details>.
+        // Foreign (SVG/MathML) look-alikes don't count, and a foreign <summary>
+        // sibling must not displace the first HTML <summary>.
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+
+        // HTML <summary> under a FOREIGN <details> → not the widget.
+        let svg_details = dom.create_element_ns(
+            "details",
+            elidex_ecs::Namespace::Svg,
+            Attributes::default(),
+            None,
+        );
+        let _ = dom.append_child(doc, svg_details);
+        let html_summary = dom.create_element("summary", Attributes::default());
+        let _ = dom.append_child(svg_details, html_summary);
+        assert_eq!(
+            tab_index_default_for(&dom, html_summary),
+            -1,
+            "an HTML <summary> under a foreign <details> is not the disclosure widget"
+        );
+
+        // FOREIGN <summary> under an HTML <details> → not the widget (foreign self).
+        let html_details = connect_el(&mut dom, doc, "details");
+        let svg_summary = dom.create_element_ns(
+            "summary",
+            elidex_ecs::Namespace::Svg,
+            Attributes::default(),
+            None,
+        );
+        let _ = dom.append_child(html_details, svg_summary);
+        assert_eq!(
+            tab_index_default_for(&dom, svg_summary),
+            -1,
+            "a foreign <summary> is not the disclosure widget"
+        );
+
+        // A foreign <summary> sibling preceding the HTML <summary> must not
+        // displace it: the HTML summary is still the first HTML summary child.
+        let real_summary = dom.create_element("summary", Attributes::default());
+        let _ = dom.append_child(html_details, real_summary);
+        assert_eq!(
+            tab_index_default_for(&dom, real_summary),
+            0,
+            "the first HTML <summary> is the widget even behind a foreign <summary> sibling"
+        );
     }
 
     #[test]
