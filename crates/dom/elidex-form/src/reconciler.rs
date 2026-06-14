@@ -98,9 +98,11 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
     // for `<button>`).  In-place kind update + `sanitize_for_type_
     // change` preserves user-input state (dirty `value`, `checked`,
     // selection, etc.) per the spec — value sanitization clears only
-    // non-numeric values on entry into `type=number`; checked/
-    // indeterminate clear only on checkable→non-checkable; everything
-    // else persists.  Full `from_element` re-derive would clobber
+    // non-numeric values on entry into `type=number`.  Clearing
+    // checked/indeterminate on a checkable→non-checkable switch is an
+    // elidex normalization beyond the spec type-change steps (the spec
+    // leaves them inert, not cleared); everything else persists.  Full
+    // `from_element` re-derive would clobber
     // user state (regresses
     // `elidex-js/src/vm/host/html_input_proto.rs::native_input_set_type`
     // contract preservation).
@@ -441,9 +443,11 @@ mod tests {
     #[test]
     fn e2b_type_change_checkable_to_text_clears_checked_via_sanitize() {
         // <input type="checkbox" checked> → switch type to "text"
-        // should clear FCS.checked per HTML §4.10.5 input type change
-        // steps sanitize → `sanitize_for_type_change` invoked by the
-        // reconciler's type-arm.
+        // should clear FCS.checked.  This is an elidex normalization
+        // (beyond the HTML §4.10.5 type-change steps, which leave
+        // checkedness inert rather than clearing it) applied by
+        // `sanitize_for_type_change`, invoked from the reconciler's
+        // type-arm.
         let (mut dom, e) = setup("input", &[("type", "checkbox"), ("checked", "")]);
         {
             let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();

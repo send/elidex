@@ -847,10 +847,11 @@ fn native_input_set_type(
     // Mirror the type into `FormControlState.kind` so subsequent
     // value / valueAsNumber / Selection-API behaviour reflects the
     // new type without requiring a re-attach (HTML §4.10.5.1.6).
-    // Then run the HTML §4.10.5.6 type-change sanitize step so the
-    // checked / indeterminate bits don't survive a checkable→non-
-    // checkable transition and a non-numeric value gets cleared on
-    // entry into `type=number`.  Algorithm lives in elidex-form.
+    // Then run the elidex type-change sanitize step: HTML §4.10.5 value
+    // sanitization on entry into `type=number` (non-numeric value → ""),
+    // plus an elidex normalization (beyond the spec type-change steps)
+    // that drops stale `checked` / `indeterminate` bits on a checkable→
+    // non-checkable transition.  Algorithm lives in elidex-form.
     use elidex_form::FormControlKind;
     let new_kind = FormControlKind::from_type_str(&s.to_ascii_lowercase());
     let dom = ctx.host().dom();

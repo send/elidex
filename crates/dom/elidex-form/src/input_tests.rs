@@ -228,7 +228,8 @@ fn supports_selection_types() {
 }
 
 // -------------------------------------------------------------------
-// sanitize_for_type_change (HTML §4.10.5.6)
+// sanitize_for_type_change: HTML §4.10.5 value sanitization (number etc.)
+// + elidex checkable-state normalization beyond the spec type-change steps
 // -------------------------------------------------------------------
 
 #[test]
