@@ -711,8 +711,12 @@ fn input_form_enctype_invalid_falls_back_to_empty_string() {
     assert_eq!(out, "");
 }
 
-// HTML §4.10.5 type-change sanitize step (B-7).  Concrete failures
-// reported in the followup-cleanup handoff that justify the slot.
+// type-change cleanup (B-7).  `clears_non_numeric_value` follows the HTML
+// §4.10.5 type-change steps (value sanitization); the checkbox/radio
+// `clears_checked` / `clears_indeterminate` cases are an elidex normalization
+// beyond those steps (the spec leaves checkedness/indeterminateness inert,
+// not cleared, on non-checkable types).  Concrete failures reported in the
+// followup-cleanup handoff that justify the slot.
 #[test]
 fn input_type_change_from_checkbox_to_text_clears_checked() {
     let out = run("var i = document.createElement('input'); \
