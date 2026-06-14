@@ -37,14 +37,16 @@ pub(crate) fn set_focus(pipeline: &mut PipelineResult, entity: Entity) {
         return;
     }
 
-    // UI Events §5.2.1 order: focusout → focusin → blur → focus.
-    // Per UI Events §5.2: relatedTarget is the element gaining/losing focus.
+    // WHATWG HTML §6.6.4 focus update steps: the OLD focused area's events fire,
+    // THEN the new area is designated (the `FOCUS` bit), THEN the NEW area's
+    // events fire. So `focus`/`focusin` run AFTER the bit is set, and a `focusin`
+    // / `focus` listener sees `document.activeElement` / `hasFocus` (which now
+    // read the bit via `current_focus`) already pointing at the NEW element. Per
+    // UI Events §3.3.2 "Focus Event Order", `focusin` follows `focus`.
+    // `relatedTarget` is the element on the other side of the transition;
     // `current_focus` already filtered connectedness, so `old` is connected.
     if let Some(old) = old {
         dispatch_focus_event_with_related(pipeline, "focusout", old, true, Some(entity));
-    }
-    dispatch_focus_event_with_related(pipeline, "focusin", entity, true, old);
-    if let Some(old) = old {
         // Clear the prior focus before the blur event so `activeElement`
         // reports `<body>` during blur (matching the prior field model).
         set_focus_bit(&mut pipeline.dom, None);
@@ -54,6 +56,7 @@ pub(crate) fn set_focus(pipeline: &mut PipelineResult, entity: Entity) {
     }
     set_focus_bit(&mut pipeline.dom, Some(entity));
     dispatch_focus_event_with_related(pipeline, "focus", entity, false, old);
+    dispatch_focus_event_with_related(pipeline, "focusin", entity, true, old);
 
     // Record the focus-time value for change-on-blur (the engine-indep
     // `elidex_form` helper, shared with the VM `focus()` path so a script
