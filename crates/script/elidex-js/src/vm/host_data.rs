@@ -142,20 +142,15 @@ mod engine_feature {
         /// [`WrapperKind::mark_agent`] / [`WrapperKind::retain`].  Cleared on
         /// `unbind` (per-VM, world_id-independent — see module docs).
         pub(crate) wrapper_store: HashMap<WrapperKey, ObjectId>,
-        /// Currently focused Element entity (WHATWG HTML §6.6.3).
-        ///
-        /// `None` when no Element is focused; `document.activeElement`
-        /// falls back to the `<body>` element in that case.  Phase 2
-        /// simplification: we track focus as a single Option (spec
-        /// models a focus chain, but single-frame VM covers the
-        /// primary use cases).
-        ///
-        /// Explicitly cleared by `HTMLElement.blur()` via
-        /// [`Self::invalidate_focus_if`].  Detached entities may
-        /// remain stored here internally; `document.activeElement`
-        /// and `document.hasFocus()` filter them out at read time
-        /// (connectedness walk via `get_parent`).
-        pub(crate) focused_entity: Option<Entity>,
+        /// Page-visibility state of this document's top-level browsing
+        /// context (WHATWG HTML §6.2): `true` when the tab/window is
+        /// hidden (background tab, minimized, occluded).  Drives
+        /// `document.hidden` / `document.visibilityState`.  A per-VM
+        /// browsing-context fact driven by the embedding shell — not a
+        /// per-entity DOM fact — so it lives on `HostData` (the shared
+        /// cross-cutting (b) exception in the side-store→component rule),
+        /// not as an ECS component.  Defaults visible.
+        pub(crate) tab_hidden: bool,
         /// Shared cookie storage owned by the embedding shell
         /// (PR6).  Populated via [`Self::install_cookie_jar`]
         /// (typically reached from the shell as
@@ -777,7 +772,7 @@ mod engine_feature {
                 bind_epoch: 0,
                 listener_store: HashMap::new(),
                 wrapper_store: HashMap::new(),
-                focused_entity: None,
+                tab_hidden: false,
                 cookie_jar: None,
                 sandbox_flags: None,
                 document_origin_override: None,
@@ -1075,26 +1070,16 @@ mod engine_feature {
             self.iframe_depth
         }
 
-        /// Set the focused Element (called from `HTMLElement.focus()`).
-        pub(crate) fn set_focused_entity(&mut self, entity: Entity) {
-            self.focused_entity = Some(entity);
+        /// Set the page-visibility state (WHATWG HTML §6.2), driven by the
+        /// embedding shell on tab show/hide.  `visible = false` ⇒ hidden.
+        pub(crate) fn set_visibility(&mut self, visible: bool) {
+            self.tab_hidden = !visible;
         }
 
-        /// Clear focus if the currently-focused entity equals `entity`.
-        /// Called from `HTMLElement.blur()`.  `Document.activeElement`
-        /// enforces the "live, connected" side of the invariant at
-        /// read time by walking `get_parent` back to the document
-        /// root, so detached elements fall back to `<body>` without
-        /// needing an ECS-level detach hook.
-        pub(crate) fn invalidate_focus_if(&mut self, entity: Entity) {
-            if self.focused_entity == Some(entity) {
-                self.focused_entity = None;
-            }
-        }
-
-        /// Return the currently focused Element, if any.
-        pub(crate) fn focused_entity(&self) -> Option<Entity> {
-            self.focused_entity
+        /// Whether this document's top-level browsing context is hidden
+        /// (WHATWG HTML §6.2) — backs `document.hidden`.
+        pub(crate) fn is_tab_hidden(&self) -> bool {
+            self.tab_hidden
         }
 
         /// # Panics

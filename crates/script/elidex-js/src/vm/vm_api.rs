@@ -1048,6 +1048,25 @@ impl Vm {
         self.inner.network_handle = Some(handle);
     }
 
+    /// Drain the pending script-requested scroll offset (CSSOM View §4),
+    /// set by `window.scrollTo` / `scrollBy`, for the shell to apply to the
+    /// real viewport. `None` when no script scroll is pending. Backs
+    /// [`HostDriver::take_pending_scroll`](elidex_script_session::HostDriver::take_pending_scroll).
+    #[cfg(feature = "engine")]
+    pub fn take_pending_scroll(&mut self) -> Option<(f64, f64)> {
+        self.inner.viewport.pending_scroll.take()
+    }
+
+    /// Push the viewport's current scroll offset into the engine (CSSOM View
+    /// §4) so `window.scrollX` / `scrollY` read the live value after a user
+    /// (wheel/keyboard) scroll the shell applied. Backs
+    /// [`HostDriver::set_scroll_offset`](elidex_script_session::HostDriver::set_scroll_offset).
+    #[cfg(feature = "engine")]
+    pub fn set_scroll_offset(&mut self, x: f64, y: f64) {
+        self.inner.viewport.scroll_x = x;
+        self.inner.viewport.scroll_y = y;
+    }
+
     /// Install the per-origin IndexedDB backend (slot `#11-indexed-db-vm`).
     ///
     /// The embedder / session layer constructs an [`elidex_indexeddb::IdbBackend`]

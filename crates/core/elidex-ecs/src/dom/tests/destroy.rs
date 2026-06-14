@@ -83,6 +83,78 @@ fn destroy_entity_orphans_children() {
     assert_eq!(dom.get_prev_sibling(c), None);
 }
 
+#[test]
+fn destroy_entity_clears_focus_on_orphaned_descendant_without_dispatcher() {
+    // Codex R5: with no MutationDispatcher installed (plain EcsDom), destroy_entity
+    // skips fire_after_remove — and thus its §2.1.4 silent focused-area reset — but
+    // still *orphans* descendants. A focused descendant of the destroyed ancestor
+    // must have its FOCUS bit cleared, else reattaching it resurrects stale focus.
+    use crate::ElementState;
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let container = elem(&mut dom, "div");
+    let child = elem(&mut dom, "input");
+    dom.append_child(doc, container);
+    dom.append_child(container, child);
+    assert!(dom.is_connected(child));
+    let _ = dom
+        .world_mut()
+        .insert_one(child, ElementState(ElementState::FOCUS));
+
+    // Destroy the connected ancestor (this EcsDom has no dispatcher).
+    assert!(dom.destroy_entity(container));
+
+    // The orphaned child survives but must NOT keep a stale FOCUS bit.
+    assert!(
+        dom.contains(child),
+        "destroy_entity orphans (does not despawn) the descendant"
+    );
+    let still_focused = dom
+        .world()
+        .get::<&ElementState>(child)
+        .is_ok_and(|s| s.contains(ElementState::FOCUS));
+    assert!(
+        !still_focused,
+        "focus on an orphaned descendant is cleared even without a dispatcher"
+    );
+}
+
+#[test]
+fn destroy_entity_clears_focus_when_destroying_document_root() {
+    // Codex R7 F3: destroying the *document root* — a parentless entity, so
+    // fire_after_remove is skipped — must still clear a focused descendant's
+    // FOCUS bit. The clear is deferred to after despawn: before despawn the
+    // descendant is still "connected" through the live Document, so an in-place
+    // clear would miss it and reattaching would resurrect stale focus.
+    use crate::ElementState;
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let body = elem(&mut dom, "body");
+    let input = elem(&mut dom, "input");
+    dom.append_child(doc, body);
+    dom.append_child(body, input);
+    assert!(dom.is_connected(input));
+    let _ = dom
+        .world_mut()
+        .insert_one(input, ElementState(ElementState::FOCUS));
+
+    // Destroy the document root (this EcsDom has no dispatcher).
+    assert!(dom.destroy_entity(doc));
+
+    assert!(
+        dom.contains(input),
+        "the descendant survives (orphaned), only the root is despawned"
+    );
+    let still_focused = dom
+        .world()
+        .get::<&ElementState>(input)
+        .is_ok_and(|s| s.contains(ElementState::FOCUS));
+    assert!(
+        !still_focused,
+        "destroying the document root clears a focused descendant's bit"
+    );
+}
+
 // --- Destroy + Shadow DOM interaction ---
 
 #[test]
@@ -142,6 +214,43 @@ fn despawn_subtree_destroys_whole_light_tree() {
     assert!(
         !dom.despawn_subtree(root),
         "returns false for a missing root"
+    );
+}
+
+#[test]
+fn despawn_subtree_focus_reset_runs_once_and_preserves_outside_focus() {
+    // Codex (S2 round): `despawn_subtree` takes the dispatcher out, so every
+    // `destroy_entity` in the deepest-first loop took the no-dispatcher §2.1.4
+    // reset branch — a full `ElementState` world scan PER node. That per-node
+    // sweep is now suppressed during the walk and run once afterward (mirroring
+    // `version_propagation_suppressed`). This guards the correctness the
+    // once-after reset must preserve: focus on a node INSIDE the despawned
+    // subtree is gone (the node is despawned with its `FOCUS` component), and
+    // focus on a still-connected node OUTSIDE it is left intact (the single
+    // post-walk clear only clears *disconnected* holders).
+    use crate::ElementState;
+    let mut dom = EcsDom::new();
+    let doc = dom.create_document_root();
+    let gone = elem(&mut dom, "section");
+    let gone_child = elem(&mut dom, "input");
+    let kept = elem(&mut dom, "button");
+    dom.append_child(doc, gone);
+    dom.append_child(gone, gone_child);
+    dom.append_child(doc, kept);
+    // Focus a node OUTSIDE the doomed subtree.
+    let _ = dom
+        .world_mut()
+        .insert_one(kept, ElementState(ElementState::FOCUS));
+
+    assert!(dom.despawn_subtree(gone));
+
+    assert!(!dom.contains(gone_child), "the subtree is despawned");
+    assert!(
+        dom.world()
+            .get::<&ElementState>(kept)
+            .is_ok_and(|s| s.contains(ElementState::FOCUS)),
+        "focus on a still-connected node outside the despawned subtree is preserved \
+         (the once-after reset clears only disconnected holders)"
     );
 }
 

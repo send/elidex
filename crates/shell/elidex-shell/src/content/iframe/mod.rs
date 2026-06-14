@@ -186,7 +186,6 @@ mod tests {
         let handle = IframeHandle::InProcess(Box::new(InProcessIframe {
             pipeline,
             nav_controller: NavigationController::new(),
-            focus_target: None,
             scroll_state: ScrollState::default(),
             needs_render: false,
             cached_display_list: None,

@@ -393,3 +393,56 @@ fn content_thread_viewport_resize_updates_scroll() {
     browser.send(BrowserToContent::Shutdown).unwrap();
     handle.join().unwrap();
 }
+
+#[test]
+fn focusable_cache_invalidates_on_all_focusability_attributes() {
+    // The shell's Tab-order `focusable_cache` must rebuild whenever a mutation
+    // touches any attribute that `is_focusable` reads. `href` (link default) and
+    // `type` (an `<input type=hidden>` flip) were previously missing, leaving a
+    // stale Tab order after a script changed them (Codex S2).
+    use elidex_script_session::{MutationKind, MutationRecord};
+
+    let mut dom = elidex_ecs::EcsDom::new();
+    let target = dom.create_element("a", elidex_ecs::Attributes::default());
+    let attr_record = |name: &str| MutationRecord {
+        kind: MutationKind::Attribute,
+        target,
+        added_nodes: vec![],
+        removed_nodes: vec![],
+        previous_sibling: None,
+        next_sibling: None,
+        attribute_name: Some(name.to_string()),
+        old_value: None,
+    };
+
+    for attr in [
+        "tabindex",
+        "disabled",
+        "contenteditable",
+        "hidden",
+        "href",
+        "type",
+    ] {
+        assert!(
+            should_invalidate_focusable_cache(&[attr_record(attr)]),
+            "a `{attr}` attribute mutation must invalidate the focusable cache"
+        );
+    }
+    // A focus-irrelevant attribute does not invalidate.
+    assert!(
+        !should_invalidate_focusable_cache(&[attr_record("class")]),
+        "a `class` mutation must not invalidate the focusable cache"
+    );
+    // A ChildList mutation always invalidates (elements added/removed).
+    let child_list = MutationRecord {
+        kind: MutationKind::ChildList,
+        target,
+        added_nodes: vec![],
+        removed_nodes: vec![],
+        previous_sibling: None,
+        next_sibling: None,
+        attribute_name: None,
+        old_value: None,
+    };
+    assert!(should_invalidate_focusable_cache(&[child_list]));
+}

@@ -21,7 +21,10 @@
 
 use elidex_ecs::{EcsDom, Entity, MutationEvent, TagType};
 
-use crate::{compile_pattern_regex, create_form_control_state, sanitize_for_type_change};
+use crate::{
+    clear_focus_snapshot, compile_pattern_regex, create_form_control_state,
+    sanitize_for_type_change,
+};
 use crate::{FormControlKind, FormControlState, SelectionDirection};
 
 /// [`MutationEvent`] consumer maintaining [`FormControlState`] derived
@@ -115,12 +118,23 @@ fn handle_attribute_change(node: Entity, name: &str, new_value: Option<&str>, do
             Err(_) => return,
         };
         // Immutable TagType borrow dropped at the `}` above.
-        let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(node) else {
-            return;
-        };
-        let old_kind = state.kind;
-        state.kind = new_kind;
-        sanitize_for_type_change(&mut state, old_kind);
+        {
+            let Ok(mut state) = dom.world_mut().get::<&mut FormControlState>(node) else {
+                return;
+            };
+            let old_kind = state.kind;
+            state.kind = new_kind;
+            sanitize_for_type_change(&mut state, old_kind);
+        }
+        // HTML §4.10.5.5 change-on-blur baseline: a `type` flip to a non-text
+        // kind while the control is focused must drop the focus-time text
+        // snapshot, else the eventual blur consumes the stale baseline and fires
+        // a spurious `change`. `record_focus_snapshot` only re-evaluates at focus
+        // time, so the mid-focus flip needs this clear at the `set_attribute`
+        // chokepoint (mirrors the non-text clear inside `record_focus_snapshot`).
+        if !new_kind.is_text_control() {
+            clear_focus_snapshot(dom, node);
+        }
         return;
     }
 
@@ -458,6 +472,51 @@ mod tests {
             assert_eq!(s.kind, FormControlKind::TextInput);
             assert!(!s.checked, "sanitize_for_type_change must clear checked");
         });
+    }
+
+    #[test]
+    fn e2c_type_flip_to_non_text_while_focused_clears_focus_snapshot() {
+        // Codex S2 F7: a focused text control whose `type` flips to a non-text
+        // kind (text → checkbox) must drop the focus-time change-on-blur
+        // snapshot at the `set_attribute` chokepoint, else a later blur consumes
+        // the stale text baseline and fires a spurious `change`.
+        // `record_focus_snapshot` only re-evaluates at focus time, so the
+        // reconciler's type arm clears it mid-focus.
+        use crate::{record_focus_snapshot, take_focus_snapshot};
+        let (mut dom, e) = setup("input", &[("type", "text")]);
+        {
+            let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
+            state.set_value("typed".to_string());
+        }
+        record_focus_snapshot(&mut dom, e);
+        assert!(dom.set_attribute(e, "type", "checkbox"));
+        with_fcs(&dom, e, |s| assert_eq!(s.kind, FormControlKind::Checkbox));
+        assert_eq!(
+            take_focus_snapshot(&mut dom, e),
+            None,
+            "type flip to a non-text kind must clear the stale focus snapshot"
+        );
+    }
+
+    #[test]
+    fn e2d_type_flip_between_text_kinds_preserves_focus_snapshot() {
+        // The complement of e2c: flipping between two text kinds (text → search)
+        // keeps the control a text control, so the focus-time baseline must
+        // survive — only a non-text destination clears it.
+        use crate::{record_focus_snapshot, take_focus_snapshot};
+        let (mut dom, e) = setup("input", &[("type", "text")]);
+        {
+            let mut state = dom.world_mut().get::<&mut FormControlState>(e).unwrap();
+            state.set_value("typed".to_string());
+        }
+        record_focus_snapshot(&mut dom, e);
+        assert!(dom.set_attribute(e, "type", "search"));
+        with_fcs(&dom, e, |s| assert_eq!(s.kind, FormControlKind::Search));
+        assert_eq!(
+            take_focus_snapshot(&mut dom, e),
+            Some("typed".to_string()),
+            "a text → text flip keeps the change-on-blur baseline"
+        );
     }
 
     #[test]

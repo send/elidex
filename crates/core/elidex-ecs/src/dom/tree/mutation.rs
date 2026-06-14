@@ -5,6 +5,7 @@
 
 use super::super::mutation_event::MutationEvent;
 use super::super::EcsDom;
+use crate::ElementState;
 use hecs::Entity;
 
 impl EcsDom {
@@ -70,6 +71,17 @@ impl EcsDom {
         self.rev_version(parent);
         if let Some(idx) = removed_index {
             self.fire_after_remove(child, parent, idx, was_connected);
+        } else if was_connected {
+            // `index_in_parent` capped out — a focused child with more than
+            // MAX_ANCESTOR_DEPTH previous siblings in a wide-but-valid DOM — so
+            // `fire_after_remove`, and the §2.1.4 focused-area reset it carries,
+            // were skipped. The reset must still run: removing the focused element
+            // has to clear `ElementState::FOCUS` regardless of sibling count, else
+            // reattaching the node resurrects `activeElement` + keyboard routing.
+            // The reset is connectedness-driven (needs no index); mirrors
+            // `destroy_entity`'s `defer_focus_clear`. (`clear_focus_if_disconnected`
+            // is idempotent — a no-op when the focus holder stays connected.)
+            self.clear_focus_if_disconnected();
         }
         true
     }
@@ -175,6 +187,10 @@ impl EcsDom {
 
         if let Some(idx) = old_index {
             self.fire_after_remove(old_child, parent, idx, old_child_was_connected);
+        } else if old_child_was_connected {
+            // index_in_parent capped out (wide DOM) → fire_after_remove skipped;
+            // run the §2.1.4 focused-area reset directly (see `remove_child`).
+            self.clear_focus_if_disconnected();
         }
 
         // Now link `new_child` into the slot `old_child` used to occupy.
@@ -296,6 +312,34 @@ impl EcsDom {
         removed_index: usize,
         was_connected: bool,
     ) {
+        // WHATWG HTML §2.1.4 "removing steps for the HTML Standard" step 2:
+        // when the document's focused area leaves the tree, reset it to the
+        // viewport — clear `ElementState::FOCUS`. The spec is explicit it
+        // "does not perform the unfocusing steps, focusing steps, or focus
+        // update steps, and thus no blur or change events are fired" (focusout
+        // / focusin too, as those only fire via the steps that don't run) — so
+        // this is a silent component mutation (the event-dispatching focusing
+        // steps stay engine-bound in the shell). Run it BEFORE the light-tree
+        // event suppression below
+        // and via the SHADOW-INCLUSIVE `is_connected` (not the light-tree
+        // `descendants` snapshot), so focus held inside a removed host's shadow
+        // tree — or a light child of a removed shadow root — is still reset.
+        // Only the removal of a previously-connected node can disconnect the
+        // (connected-by-construction) holder, so gate on `was_connected`.
+        //
+        // This INTENTIONALLY also clears focus on a same-document *move*
+        // (`append_child` / `insert_before` / `replace_child` of an already-
+        // parented node): DOM `insert` adopts the node, and `adopt` removes it
+        // from its old parent before the re-insert (DOM §"adopt" step 2), so
+        // these removing steps run on the transient detach. Only `Node.moveBefore()`'s
+        // separate *moving steps* preserve the focused area (HTML §2.1.4 defines
+        // them distinctly), and elidex does not implement `moveBefore`; focus
+        // loss across a plain reparent matches browsers (it is exactly what
+        // `moveBefore` was added to avoid). Pinned by the `move_clears_focus`
+        // dom-api test. (Codex S2 R6/R9 flagged this as a bug twice — it is not.)
+        if was_connected {
+            self.clear_focus_if_disconnected();
+        }
         if self.is_shadow_root(node) || self.is_shadow_root(parent) {
             return;
         }
@@ -317,6 +361,42 @@ impl EcsDom {
             was_connected,
         };
         self.dispatch_event(&event);
+    }
+
+    /// Clear [`ElementState::FOCUS`] if its (single) holder is no longer
+    /// connected (WHATWG HTML §2.1.4 removing steps step 2 — focused-area reset
+    /// on removal, *silent*: no events). Single-focus ⇒ at most one holder; the
+    /// `is_connected` check is **shadow-inclusive** (it walks the shadow-
+    /// including ancestor chain), so this uniformly covers light-tree removal,
+    /// a removed shadow host whose shadow tree held focus, and a removed shadow
+    /// root's light children — none of which the light-tree event path reaches.
+    /// Despawn-based removal needs no hook (hecs drops the component with the
+    /// entity); this covers detach-without-despawn — including
+    /// [`EcsDom::destroy_entity`]'s no-dispatcher path, which orphans (does not
+    /// despawn) descendants and skips [`Self::fire_after_remove`], so it calls
+    /// this directly.
+    pub(super) fn clear_focus_if_disconnected(&mut self) {
+        let holder = self
+            .world
+            .query::<(Entity, &ElementState)>()
+            .iter()
+            .find(|(_, state)| state.contains(ElementState::FOCUS))
+            .map(|(e, _)| e);
+        let Some(holder) = holder else { return };
+        if self.is_connected(holder) {
+            return;
+        }
+        let cleared = match self.world.get::<&ElementState>(holder) {
+            Ok(state) => {
+                let mut next = *state;
+                next.remove(ElementState::FOCUS);
+                Some(next)
+            }
+            Err(_) => None,
+        };
+        if let Some(next) = cleared {
+            let _ = self.world.insert_one(holder, next);
+        }
     }
 
     /// Light-tree inclusive-descendant walker — collects `node` plus
@@ -376,6 +456,11 @@ impl EcsDom {
         }
         if let Some(idx) = old_index {
             self.fire_after_remove(child, old_parent, idx, was_connected);
+        } else if was_connected {
+            // index_in_parent capped out (wide DOM) → fire_after_remove skipped;
+            // run the §2.1.4 focused-area reset directly so a move of the focused
+            // element clears FOCUS regardless of sibling count (see `remove_child`).
+            self.clear_focus_if_disconnected();
         }
         true
     }

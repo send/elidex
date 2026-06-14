@@ -60,7 +60,7 @@ pub(super) fn handle_label_click(
         return;
     };
 
-    set_focus(state, target);
+    set_focus(&mut state.pipeline, target);
 
     // Dispatch a synthetic click event on the target control.
     let mut synthetic_click = DispatchEvent::new_composed("click", target);

@@ -6,11 +6,14 @@
 //! 1. HTML-namespace element wrappers chain through
 //!    `HTMLElement.prototype` (spliced in between `HTMLIFrameElement`
 //!    and `Element.prototype` — confirms the PR5b chain rewrite).
-//! 2. `focus()` / `blur()` mutate `HostData::focused_entity` and are
-//!    observable via `document.activeElement`.
+//! 2. `focus()` / `blur()` reconcile the canonical `ElementState::FOCUS`
+//!    component (only a focusable area is focused) and are observable
+//!    via `document.activeElement` (single-focus: focusing a second
+//!    element clears the first).
 //! 3. `document.activeElement` falls back to `<body>` when no element
-//!    is focused (WHATWG §6.6.3 step 2).
-//! 4. `document.hasFocus()` tracks `HostData::focused_entity`.
+//!    is focused (WHATWG §6.6.6).
+//! 4. `document.hasFocus()` reads the `FOCUS` bit via the connectedness
+//!    filter (a detached focused element counts as not focused).
 
 #![cfg(feature = "engine")]
 
@@ -106,10 +109,25 @@ fn iframe_proto_chain_splices_html_element() {
 
 #[test]
 fn focus_marks_element_as_active_element() {
+    // `tabindex` makes the `<div>` a focusable area (WHATWG §6.6.2);
+    // `.focus()` on a non-focusable element is a no-op.
     let out = run("var d = document.createElement('div'); \
+         d.setAttribute('tabindex', '0'); \
          document.body.appendChild(d); \
          d.focus(); \
          (document.activeElement === d) ? 'ok' : 'fail';");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn focus_is_noop_on_non_focusable_element() {
+    // A plain `<div>` (no tabindex / contenteditable) is not a
+    // focusable area, so `.focus()` does not change `activeElement`
+    // (WHATWG §6.6.4 focusing steps gate on §6.6.2 focusable area).
+    let out = run("var d = document.createElement('div'); \
+         document.body.appendChild(d); \
+         d.focus(); \
+         (document.activeElement === document.body) ? 'ok' : 'fail';");
     assert_eq!(out, "ok");
 }
 
@@ -118,6 +136,7 @@ fn blur_clears_focused_only_when_receiver_matches() {
     // `blur()` on a non-focused element is a no-op.
     let out = run("var a = document.createElement('div'); \
          var b = document.createElement('div'); \
+         a.setAttribute('tabindex', '0'); \
          document.body.appendChild(a); \
          document.body.appendChild(b); \
          a.focus(); \
@@ -126,6 +145,94 @@ fn blur_clears_focused_only_when_receiver_matches() {
          else { a.blur(); \
                 (document.activeElement === document.body) ? 'ok' : 'fail-no-fallback'; }");
     assert_eq!(out, "ok");
+}
+
+#[test]
+fn focus_is_single_focus_clearing_prior_holder() {
+    // Single-focus invariant (WHATWG §6.6 — `set_focus_bit`'s
+    // clear-all-then-set sweep): focusing `b` must clear `a`'s FOCUS
+    // bit, so after `b.blur()` `activeElement` is `<body>` — NOT `a`
+    // (which would prove `a` kept a stale bit, i.e. no sweep).
+    let out = run("var a = document.createElement('div'); \
+         var b = document.createElement('div'); \
+         a.setAttribute('tabindex', '0'); \
+         b.setAttribute('tabindex', '0'); \
+         document.body.appendChild(a); \
+         document.body.appendChild(b); \
+         a.focus(); \
+         b.focus(); \
+         var bIsActive = document.activeElement === b; \
+         b.blur(); \
+         var bodyAfterBlur = document.activeElement === document.body; \
+         (bIsActive && bodyAfterBlur) ? 'ok' \
+           : ('fail:' + bIsActive + ',' + bodyAfterBlur);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn focus_on_element_in_non_bound_document_does_not_clobber_live_focus() {
+    // Codex R4 F1: `focus()` on an element in a *non-bound* document — a
+    // `document.cloneNode()` subtree, whose descendants are `is_connected`
+    // (root is a Document) but which is not the active document — must NOT move
+    // the live document's focus. Without the bound-document gate, the world-wide
+    // `set_focus_bit` sweep would clear `live`'s bit (and `blur()` could not
+    // restore it, since `current_focus` is scoped to the bound document), so
+    // the visible page would silently lose focus.
+    let out = run("var live = document.createElement('input'); \
+         document.body.appendChild(live); \
+         live.focus(); \
+         var liveActive = document.activeElement === live; \
+         var clone = document.cloneNode(false); \
+         var cloneInput = document.createElement('input'); \
+         clone.appendChild(cloneInput); \
+         cloneInput.focus(); \
+         var stillLive = document.activeElement === live; \
+         (liveActive && stillLive) ? 'ok' \
+           : ('fail:' + liveActive + ',' + stillLive);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn redundant_focus_does_not_reseed_change_snapshot() {
+    // Codex R5 F1: `input.focus()` while the input is already focused must be a
+    // no-op — in particular it must NOT re-seed the change-on-blur snapshot.
+    // Otherwise a redundant focus() after the user edits refreshes the baseline,
+    // so the later (shell) blur compares the edited value against itself and
+    // suppresses the §4.10.5.5 `change` event. Mirrors the shell `set_focus`
+    // reconciler's `old == Some(entity)` early return.
+    let mut vm = Vm::new();
+    let mut session = SessionCore::new();
+    let mut dom = EcsDom::new();
+    let doc = build_doc(&mut dom);
+    #[allow(unsafe_code)]
+    unsafe {
+        bind_vm(&mut vm, &mut session, &mut dom, doc);
+    }
+    vm.eval(
+        "var i = document.createElement('input'); \
+         document.body.appendChild(i); \
+         i.value = 'V0'; \
+         i.focus(); \
+         i.value = 'V1'; \
+         i.focus();",
+    )
+    .unwrap();
+    vm.unbind();
+
+    // Exactly one element carries a FocusValueSnapshot (the input). Its value must
+    // be the focus-time 'V0', not the post-edit 'V1' that a re-seed would record.
+    let holder = dom
+        .world()
+        .query::<(elidex_ecs::Entity, &elidex_form::FocusValueSnapshot)>()
+        .iter()
+        .next()
+        .map(|(e, _)| e)
+        .expect("the focused text input carries a change-on-blur snapshot");
+    assert_eq!(
+        elidex_form::take_focus_snapshot(&mut dom, holder),
+        Some("V0".to_string()),
+        "redundant focus() must not refresh the snapshot baseline to the edited value"
+    );
 }
 
 // --- document.activeElement fallback -----------------------------
@@ -139,18 +246,19 @@ fn active_element_falls_back_to_body_when_unfocused() {
 
 #[test]
 fn active_element_falls_back_to_body_when_focused_entity_detached() {
-    // Focus an element, then remove it from the tree.  The
-    // `focused_entity` cache still points at the detached entity,
-    // but `activeElement` must report `<body>` because the cached
-    // entity is no longer connected.
+    // Focus an element, then remove it from the tree.  Its
+    // `ElementState::FOCUS` bit may persist (detach does not clear
+    // it), but `activeElement` must report `<body>` because
+    // `current_focus`'s connectedness filter excludes the
+    // now-disconnected entity.
     //
-    // `native_document_get_active_element` walks `get_parent` back
-    // up to the document; if the chain does not terminate at the
-    // bound document (i.e. the entity was detached), the cached
-    // focus is ignored and the fallback path kicks in.  No ECS
-    // detach hook is required — the getter enforces the invariant
-    // on read.
+    // `current_focus` walks `get_parent` back up to the document; if
+    // the chain does not terminate at the bound document (i.e. the
+    // entity was detached), the focused entity is ignored and the
+    // fallback path kicks in.  No ECS detach hook is required — the
+    // read helper enforces the invariant on read.
     let out = run("var d = document.createElement('div'); \
+         d.setAttribute('tabindex', '0'); \
          document.body.appendChild(d); \
          d.focus(); \
          d.remove(); \
@@ -165,6 +273,7 @@ fn active_element_falls_back_to_body_when_focused_entity_detached() {
 fn has_focus_reflects_focused_entity_presence() {
     let out = run("var before = document.hasFocus(); \
          var d = document.createElement('div'); \
+         d.setAttribute('tabindex', '0'); \
          document.body.appendChild(d); \
          d.focus(); \
          var after = d.blur() || document.hasFocus(); \
@@ -180,12 +289,14 @@ fn has_focus_reflects_focused_entity_presence() {
 // Regression guard for Copilot R1 #1: `hasFocus()` must treat a
 // detached focused entity as "not focused", mirroring
 // `activeElement`'s connectedness filter.  Without the filter, the
-// stale `HostData::focused_entity` remained `Some(...)` after
-// `removeChild` and `hasFocus()` returned `true` while
-// `activeElement` correctly fell back to `<body>`.
+// stale `ElementState::FOCUS` bit persists after `removeChild` (detach
+// does not clear it) and `hasFocus()` would return `true` while
+// `activeElement` correctly fell back to `<body>` — `current_focus`'s
+// connectedness walk closes the gap for both.
 #[test]
 fn has_focus_returns_false_after_focused_element_detached() {
     let out = run("var d = document.createElement('div'); \
+         d.setAttribute('tabindex', '0'); \
          document.body.appendChild(d); \
          d.focus(); \
          var before = document.hasFocus(); \
@@ -207,6 +318,54 @@ fn focus_brand_check_rejects_plain_object() {
          try { focusFn.call({}); 'no-throw'; } \
          catch (e) { (e && e.message && e.message.indexOf('Illegal') >= 0) \
                         ? 'ok' : 'bad:' + (e && e.message); }",
+    );
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn removed_focused_element_does_not_resurrect_on_reattach() {
+    // focus → remove → blur → reattach must NOT resurrect the element as
+    // activeElement. The `FOCUS` bit is cleared at `d.remove()` itself
+    // (`EcsDom::fire_after_remove`, WHATWG HTML §2.1.4 removing steps — silent),
+    // so `d.blur()` is already a no-op and the reattach finds no stale bit.
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('tabindex', '0'); \
+         document.body.appendChild(d); \
+         d.focus(); \
+         d.remove(); \
+         d.blur(); \
+         document.body.appendChild(d); \
+         (document.activeElement === document.body) ? 'ok' \
+           : (document.activeElement === d ? 'fail-resurrected' : 'fail-other');");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn focus_on_disconnected_element_is_noop() {
+    // §6.6.2: a focusable area must be "being rendered" (⊇ connected), so
+    // `createElement().focus()` on an unattached element is a no-op — the
+    // `is_focusable` connectedness gate prevents the orphan from ever holding
+    // the FOCUS bit (the single read model needs no by-identity fallback).
+    let out = run("var d = document.createElement('div'); \
+         d.setAttribute('tabindex', '0'); \
+         d.focus(); \
+         var orphanActive = (document.activeElement === d); \
+         document.body.appendChild(d); \
+         (orphanActive === false && document.activeElement === document.body) \
+           ? 'ok' : ('fail:' + orphanActive);");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn hidden_visibility_getters_brand_check_receiver() {
+    // Codex R1 F2: the page-visibility getters must not leak the bound tab's
+    // state to a non-Document receiver (`get.call({})`).
+    let out = run(
+        "var hg = Object.getOwnPropertyDescriptor(document, 'hidden').get; \
+         var vg = Object.getOwnPropertyDescriptor(document, 'visibilityState').get; \
+         (hg.call({}) === false && vg.call({}) === 'visible' \
+            && hg.call(document) === false && vg.call(document) === 'visible') \
+           ? 'ok' : ('fail:' + hg.call({}) + ',' + vg.call({}));",
     );
     assert_eq!(out, "ok");
 }

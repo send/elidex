@@ -753,11 +753,11 @@ pub(super) fn native_document_get_images(
     Ok(JsValue::Object(id))
 }
 
-/// `document.activeElement` (WHATWG HTML §6.6.3).
+/// `document.activeElement` (WHATWG HTML §6.6.6 Focus management APIs).
 ///
 /// Returns the currently focused Element, or — when no element is
 /// focused (or the focused entity has since been detached) — the
-/// document's `<body>` per spec step 2.  If neither is available,
+/// document's `<body>` per the spec fallback.  If neither is available,
 /// returns `documentElement` (spec fallback for documents without a
 /// body, e.g. during parser construction of the HTML skeleton).
 pub(super) fn native_document_get_active_element(
@@ -768,31 +768,16 @@ pub(super) fn native_document_get_active_element(
     let Some(doc) = document_receiver(ctx, this, "activeElement")? else {
         return Ok(JsValue::Null);
     };
-    // Resolve the focus target: focused_entity if set and still
-    // attached, else <body>, else <html> root (spec fallback for
-    // documents without a body).  Mirror `body` / `documentElement`
-    // accessors so the fallback chain stays consistent.
-    let focused = super::html_element_proto::focused_entity(ctx);
+    // Resolve the focus target: the focused element (read from the
+    // canonical `ElementState::FOCUS` component via the engine-indep
+    // `current_focus`, which applies the connectedness filter — a
+    // detached element's stale bit does not leak), else <body>, else
+    // <html> root (spec fallback for documents without a body).  Mirror
+    // `body` / `documentElement` accessors so the fallback chain stays
+    // consistent.
     let target = {
         let dom = ctx.host().dom();
-        // A focused element counts only when it remains connected
-        // to the document — walking up via `get_parent` must reach
-        // `doc`.  Detached (removed) subtrees fall through to the
-        // body / root fallback so stale `focused_entity` from a
-        // prior `focus()` + `remove()` does not leak.
-        let focused_connected = focused.and_then(|e| {
-            if !dom.contains(e) {
-                return None;
-            }
-            let mut cur = Some(e);
-            while let Some(c) = cur {
-                if c == doc {
-                    return Some(e);
-                }
-                cur = dom.get_parent(c);
-            }
-            None
-        });
+        let focused_connected = elidex_dom_api::focus::current_focus(dom, doc);
         focused_connected.or_else(|| {
             let html = find_html_root_of(ctx, doc)?;
             // Spec fallback: first body-or-frameset child of `<html>`,
@@ -808,16 +793,25 @@ pub(super) fn native_document_get_active_element(
     Ok(wrap_entity_or_null(ctx.vm, target))
 }
 
-/// `document.hasFocus()` (WHATWG HTML §6.7).
+/// `document.hasFocus()` (WHATWG HTML §6.6.6 Focus management APIs; the
+/// has-focus steps are §6.6.4 Processing model).
 ///
-/// Phase 2 approximation: returns whether an element is currently
-/// focused **and** still connected to this document.  Detached
-/// focused entities do not count — this mirrors `activeElement`'s
-/// connectedness filter so the two APIs agree (`hasFocus() === true`
-/// ⇒ `activeElement !== body`).  A full spec implementation tracks
-/// system focus at the window level; same-origin Document vs
-/// top-level Window focus arbitration is deferred to the PR5d
-/// cross-window tranche.
+/// The has-focus steps are based on the top-level browsing context having
+/// **system focus**, not merely an element-level focused area. So:
+/// - A **hidden** top-level browsing context (background / minimized tab, driven
+///   by `HostData::set_visibility`) has no system focus → `hasFocus()` is
+///   `false` even while an element retains the focused area. `activeElement`
+///   still reports that retained element (focus is preserved across tab
+///   switches), which is why ONLY this read is visibility-gated, not
+///   `activeElement` (Codex S2 final pass).
+/// - Otherwise read the canonical `ElementState::FOCUS` bit via `current_focus`
+///   (its connectedness filter keeps `hasFocus() === true` ⇒ `activeElement
+///   !== body`).
+///
+/// The remaining gap — a *visible* context that lacks system focus because
+/// another window is focused — needs a window-level focus signal the VM does
+/// not model (single browsing context); deferred to slot
+/// `#11-system-window-focus-events` (the OS window focus/blur signal).
 pub(super) fn native_document_has_focus(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -826,21 +820,88 @@ pub(super) fn native_document_has_focus(
     let Some(doc) = document_receiver(ctx, this, "hasFocus")? else {
         return Ok(JsValue::Boolean(false));
     };
-    let Some(focused) = super::html_element_proto::focused_entity(ctx) else {
+    // A hidden top-level browsing context has no system focus.
+    if ctx
+        .vm
+        .host_data
+        .as_deref()
+        .is_some_and(super::super::host_data::HostData::is_tab_hidden)
+    {
+        return Ok(JsValue::Boolean(false));
+    }
+    let has = elidex_dom_api::focus::current_focus(ctx.host().dom(), doc).is_some();
+    Ok(JsValue::Boolean(has))
+}
+
+/// `document.hidden` (WHATWG HTML §6.2 `#dom-document-hidden`).
+///
+/// `true` when this document's top-level browsing context is hidden
+/// (background tab / minimized / occluded), driven by the embedding
+/// shell via `HostData::set_visibility`.  Defaults `false` (visible)
+/// when no host context is installed.
+pub(super) fn native_document_get_hidden(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    // Two-stage guard (matching `cookie` / `referrer` / `defaultView`): page
+    // visibility is a browsing-context fact of the *bound* document, so both a
+    // brand-bypass (`get.call({})`) AND a detached/cloned `Document` receiver
+    // must fall back to the default (visible) rather than leak the bound tab's
+    // state.
+    let Some(doc) = document_receiver(ctx, this, "hidden")? else {
         return Ok(JsValue::Boolean(false));
     };
-    let dom = ctx.host().dom();
-    if !dom.contains(focused) {
+    let bound_doc = ctx
+        .vm
+        .host_data
+        .as_deref()
+        .map(super::super::host_data::HostData::document);
+    if bound_doc != Some(doc) {
         return Ok(JsValue::Boolean(false));
     }
-    let mut cur = Some(focused);
-    while let Some(c) = cur {
-        if c == doc {
-            return Ok(JsValue::Boolean(true));
-        }
-        cur = dom.get_parent(c);
+    let hidden = ctx
+        .vm
+        .host_data
+        .as_deref()
+        .is_some_and(super::super::host_data::HostData::is_tab_hidden);
+    Ok(JsValue::Boolean(hidden))
+}
+
+/// `document.visibilityState` (WHATWG HTML §6.2 `#dom-document-visibilitystate`).
+///
+/// `"hidden"` when the page is hidden, else `"visible"`.  The spec
+/// `VisibilityState` enum is binary (the `prerender` state was removed),
+/// so this mirrors `document.hidden`.
+pub(super) fn native_document_get_visibility_state(
+    ctx: &mut NativeContext<'_>,
+    this: JsValue,
+    _args: &[JsValue],
+) -> Result<JsValue, VmError> {
+    // Two-stage guard (see `native_document_get_hidden`): a non-bound or
+    // detached/cloned `Document` receiver defaults to "visible".
+    let Some(doc) = document_receiver(ctx, this, "visibilityState")? else {
+        return Ok(JsValue::String(ctx.vm.well_known.visible));
+    };
+    let bound_doc = ctx
+        .vm
+        .host_data
+        .as_deref()
+        .map(super::super::host_data::HostData::document);
+    if bound_doc != Some(doc) {
+        return Ok(JsValue::String(ctx.vm.well_known.visible));
     }
-    Ok(JsValue::Boolean(false))
+    let hidden = ctx
+        .vm
+        .host_data
+        .as_deref()
+        .is_some_and(super::super::host_data::HostData::is_tab_hidden);
+    let sid = if hidden {
+        ctx.vm.well_known.hidden
+    } else {
+        ctx.vm.well_known.visible
+    };
+    Ok(JsValue::String(sid))
 }
 
 /// `document.links` — live `HTMLCollection` of every `<a>` /
@@ -973,11 +1034,12 @@ const DOCUMENT_METHODS: &[(&str, super::super::NativeFn)] = &[
         "createDocumentFragment",
         native_document_create_document_fragment,
     ),
-    // PR5b §C1: focus-management readers.  `hasFocus()` returns
-    // whether any element is currently focused (Phase 2: whether
-    // `HostData::focused_entity` is `Some`).  Spec §6.7 defines
-    // hasFocus in terms of the system focus — we approximate as
-    // "some element inside this Document has focus".
+    // Focus-management readers (WHATWG HTML §6.6.6).  `hasFocus()`
+    // returns whether some connected element in this Document carries
+    // the canonical `ElementState::FOCUS` bit (read via
+    // `elidex_dom_api::focus::current_focus`).  The spec defines
+    // hasFocus in terms of system focus — we approximate as "some
+    // element inside this Document has focus".
     ("hasFocus", native_document_has_focus),
     // Selection API §2: `getSelection()` on Document mirrors the
     // Window-side binding; both resolve to the same singleton
@@ -1017,9 +1079,14 @@ const DOCUMENT_RO_ACCESSORS: &[(&str, super::super::NativeFn)] = &[
     ("forms", native_document_get_forms),
     ("images", native_document_get_images),
     ("links", native_document_get_links),
-    // PR5b §C1 — `activeElement` returns the focused Element (or
-    // `body` when no element is focused, per WHATWG §6.6.3 step 2).
+    // `activeElement` returns the focused Element (or `body` when no
+    // element is focused, per WHATWG HTML §6.6.6 Focus management APIs).
     ("activeElement", native_document_get_active_element),
+    // WHATWG HTML §6.2 Page visibility — `document.hidden` /
+    // `document.visibilityState`, backed by `HostData::tab_hidden`
+    // (shell-driven via `HostDriver::set_visibility`).
+    ("hidden", native_document_get_hidden),
+    ("visibilityState", native_document_get_visibility_state),
     // CSSOM §6.8 — `document.styleSheets`.  Returns a fresh
     // `StyleSheetList` wrapper; not `[SameObject]` (matches Chrome).
     (

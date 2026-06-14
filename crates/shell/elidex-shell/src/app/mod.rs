@@ -155,7 +155,6 @@ pub(super) struct RenderState {
 pub(super) struct InteractiveState {
     pub(super) pipeline: crate::PipelineResult,
     pub(super) cursor_pos: Option<Point<f64>>,
-    pub(super) focus_target: Option<Entity>,
     pub(super) hover_chain: Vec<Entity>,
     pub(super) active_chain: Vec<Entity>,
     pub(super) modifiers: Modifiers,
@@ -323,7 +322,6 @@ impl App {
                 chrome: crate::chrome::ChromeState::new(None),
                 pipeline,
                 cursor_pos: None,
-                focus_target: None,
                 hover_chain: Vec::new(),
                 active_chain: Vec::new(),
                 modifiers: Modifiers::default(),
@@ -356,7 +354,6 @@ impl App {
                 chrome,
                 pipeline,
                 cursor_pos: None,
-                focus_target: None,
                 hover_chain: Vec::new(),
                 active_chain: Vec::new(),
                 modifiers: Modifiers::default(),

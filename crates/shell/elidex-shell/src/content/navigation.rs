@@ -129,7 +129,8 @@ pub(super) fn handle_navigate(
             let new_pipeline =
                 crate::build_pipeline_from_loaded(loaded, network_handle, font_db, cookie_jar);
             state.pipeline = new_pipeline;
-            state.focus_target = None;
+            // Focus lives in the new pipeline's `EcsDom` (empty by construction
+            // — a fresh document); no field to reset, no blur to dispatch.
             state.hover_chain.clear();
             state.active_chain.clear();
             state.focusable_cache = None;

@@ -23,6 +23,7 @@ pub mod css_namespace;
 pub mod cssom_sheet;
 pub mod document;
 pub mod element;
+pub mod focus;
 pub mod live_collection;
 pub mod node_methods;
 pub mod range;

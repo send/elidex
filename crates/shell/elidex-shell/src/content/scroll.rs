@@ -46,13 +46,34 @@ pub(super) fn handle_wheel(state: &mut ContentState, delta: Vector<f64>, point: 
     };
 
     if consumed {
-        // Fast path: patch scroll offset in existing display list.
-        // The display list structure (PushScrollOffset/PopScrollOffset pairs
-        // including fixed-element exclusion) is invariant for scroll-only changes.
-        state
-            .pipeline
-            .display_list
-            .update_scroll_offset(state.viewport_scroll.scroll_offset);
+        // Echo the committed offset to the JS-observable consumers
+        // (`window.scrollX`/`scrollY` + the document-root `ScrollState` that
+        // `getBoundingClientRect` reads) through the shared chokepoint — the
+        // same sink `re_render` uses. This fast path skips `re_render`, so
+        // without the echo `scrollX`/`scrollY` and `getBoundingClientRect`
+        // would stay stale after user wheel scrolling until an unrelated render.
+        state.echo_viewport_scroll();
+        let new_offset = state.viewport_scroll.scroll_offset;
+        // `build_display_list_with_scroll` only emits the
+        // `PushScrollOffset`/`PopScrollOffset` wrapper for a NON-zero offset, so
+        // the first scroll away from 0 (the display list was last built at offset
+        // 0) has no wrapper to patch — an in-place `update_scroll_offset` would be
+        // a no-op and nothing would move. Rebuild on that 0 → non-zero transition
+        // (mirrors the iframes_changed rebuild in `re_render`). Once a wrapper
+        // exists (the previous offset `so` was already non-zero) the in-place fast
+        // path patches it — invariant for scroll-only changes (fixed-element
+        // exclusion included).
+        let had_scroll_wrapper = so.x.abs() > f32::EPSILON || so.y.abs() > f32::EPSILON;
+        if had_scroll_wrapper {
+            state.pipeline.display_list.update_scroll_offset(new_offset);
+        } else {
+            state.pipeline.display_list = elidex_render::build_display_list_with_scroll(
+                &state.pipeline.dom,
+                &state.pipeline.font_db,
+                state.pipeline.caret_visible,
+                new_offset,
+            );
+        }
         state.send_display_list();
     }
 }

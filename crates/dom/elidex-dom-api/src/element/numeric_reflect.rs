@@ -62,29 +62,30 @@ const I32_MAX_AS_U64: u64 = i32::MAX as u64;
 /// [`I32_MAX_AS_U64`] (`2^31 - 1`) by exactly one.
 const I32_MIN_MAGNITUDE: u64 = I32_MAX_AS_U64 + 1;
 
-/// Parse a content-attribute value per HTML's "rules for parsing
-/// integers" (HTML §2.4.4.1) — the signed-`long` IDL counterpart to
-/// [`parse_unsigned_long`].  Used by `<ol>.start` (default `1`) and
-/// `<li>.value` (default `0`); both reflect a `long` IDL attribute
-/// that is implementation-clamped to the i32 range.
+/// Parse a string per HTML's "rules for parsing integers" (§2.3.4.1
+/// Signed integers), returning the signed value or `None` when no
+/// integer is present — the canonical `i32` core shared by the `long`
+/// IDL reflect ([`parse_long_or_default`]) and the focusable-area
+/// predicate / `tabIndex` getter
+/// (`elidex_dom_api::focus::parse_tab_index_value`).
 ///
-/// Algorithm:
-/// 1. `raw = None` → return `default` (missing-default for the IDL
-///    `long` reflect).
-/// 2. Skip ASCII whitespace.
-/// 3. Optional leading sign (`+` or `-`).
-/// 4. Take the maximal *leading* run of ASCII digits.  Trailing
-///    non-digit garbage is ignored (matching browser behaviour for
-///    `"100px"` style values, and consistent with `parse_unsigned_long`).
-/// 5. If no digits were collected, return `default`.
-/// 6. On overflow (`> i32::MAX` or `< i32::MIN`) saturate at the
-///    matching i32 bound (HTML §6.5.5 "limited to only non-negative
-///    numbers" applies to the unsigned-long variant; for the plain
-///    `long` reflect we mirror Chromium / Firefox saturation).
-pub fn parse_long_or_default(raw: Option<&str>, default: i32) -> i32 {
-    let Some(input) = raw else {
-        return default;
-    };
+/// Algorithm (§2.3.4.1):
+/// 1. Skip leading ASCII whitespace.
+/// 2. Optional leading sign (`+` or `-`).
+/// 3. Take the maximal *leading* run of ASCII digits — trailing
+///    non-digit characters are ignored (`"100px"` → `100`,
+///    `"1foo"` → `1`, matching browser behaviour).
+/// 4. If no digits follow the optional sign, return `None` (empty,
+///    sign-only, whitespace-only, or leading non-digit).
+/// 5. On magnitude overflow (`> i32::MAX` / `< i32::MIN`) saturate at the
+///    matching i32 bound (§2.3.4.1 yields an unbounded integer; the
+///    `long` IDL reflect is i32-clamped, mirroring Chromium / Firefox).
+///
+/// Returning `Option` (rather than substituting a default) preserves the
+/// null-vs-value distinction `parse_tab_index_value` needs for §6.6.3
+/// "tabindex value is non-null" — callers that want a default layer it
+/// on top.
+pub fn parse_integer(input: &str) -> Option<i32> {
     let trimmed = input.trim_start_matches(|c: char| c.is_ascii_whitespace());
     let (negative, after_sign) = if let Some(rest) = trimmed.strip_prefix('-') {
         (true, rest)
@@ -99,31 +100,44 @@ pub fn parse_long_or_default(raw: Option<&str>, default: i32) -> i32 {
         .map_or(after_sign.len(), |(idx, _)| idx);
     let digits = &after_sign[..digit_end];
     if digits.is_empty() {
-        return default;
+        return None;
     }
     // Parse magnitude as u64 to allow detecting overflow against
     // both i32 bounds without sign-flip-on-i32::MIN UB.
     let Ok(magnitude) = digits.parse::<u64>() else {
-        // Magnitude exceeds u64::MAX — saturate to the matching
-        // i32 bound.
-        return if negative { i32::MIN } else { i32::MAX };
+        // Magnitude exceeds u64::MAX — saturate to the matching i32 bound.
+        return Some(if negative { i32::MIN } else { i32::MAX });
     };
-    if negative {
+    let value = if negative {
         if magnitude >= I32_MIN_MAGNITUDE {
             i32::MIN
         } else {
             #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
             // Bounds-checked above: magnitude < 2^31, so the i64 → i32
             // cast is lossless and the negation does not overflow i32.
-            -(magnitude as i64 as i32)
+            let v = -(magnitude as i64 as i32);
+            v
         }
     } else if magnitude > I32_MAX_AS_U64 {
         i32::MAX
     } else {
         #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
         // Bounds-checked above: magnitude ≤ i32::MAX.
-        (magnitude as i32)
-    }
+        let v = magnitude as i32;
+        v
+    };
+    Some(value)
+}
+
+/// Parse a content-attribute value per HTML's "rules for parsing
+/// integers" (§2.3.4.1), substituting `default` when the attribute is
+/// absent or holds no integer — the signed-`long` IDL counterpart to
+/// [`parse_unsigned_long`].  Used by `<ol>.start` (default `1`) and
+/// `<li>.value` (default `0`); both reflect a `long` IDL attribute that
+/// is implementation-clamped to the i32 range.  Thin wrapper over the
+/// shared [`parse_integer`] core.
+pub fn parse_long_or_default(raw: Option<&str>, default: i32) -> i32 {
+    raw.and_then(parse_integer).unwrap_or(default)
 }
 
 /// Parse a content-attribute value per HTML's "rules for parsing
@@ -292,6 +306,37 @@ mod tests {
         // Trailing whitespace is not a digit, so digit collection
         // stops there; leading digits parse fine.
         assert_eq!(parse_unsigned_long("100   "), 100);
+    }
+
+    // -- parse_integer (the shared §2.3.4.1 Option core) --------------------
+
+    #[test]
+    fn parse_integer_option_contract() {
+        // Some(value) when a leading digit run is present (trailing junk
+        // ignored, signs honoured, magnitude saturated to the i32 bound).
+        assert_eq!(parse_integer("0"), Some(0));
+        assert_eq!(parse_integer("-1"), Some(-1));
+        assert_eq!(parse_integer("+5"), Some(5));
+        assert_eq!(parse_integer("  3 "), Some(3));
+        assert_eq!(parse_integer("1foo"), Some(1));
+        assert_eq!(parse_integer("100px"), Some(100));
+        assert_eq!(parse_integer("99999999999999"), Some(i32::MAX));
+        // None (NOT a default) when no digit follows the optional sign — the
+        // distinction `parse_tab_index_value` needs for §6.6.3 null-tabindex.
+        assert_eq!(parse_integer(""), None);
+        assert_eq!(parse_integer("garbage"), None);
+        assert_eq!(parse_integer("-"), None);
+        assert_eq!(parse_integer("   "), None);
+    }
+
+    #[test]
+    fn parse_long_or_default_delegates_to_parse_integer() {
+        // The default layer is `parse_integer(..).unwrap_or(default)`: present
+        // integer wins, `None` (missing attr or no digits) substitutes default.
+        assert_eq!(parse_long_or_default(Some("7"), 1), 7);
+        assert_eq!(parse_long_or_default(Some("7px"), 1), 7);
+        assert_eq!(parse_long_or_default(Some("nope"), 9), 9);
+        assert_eq!(parse_long_or_default(None, 9), 9);
     }
 
     // -- parse_long_or_default ----------------------------------------------

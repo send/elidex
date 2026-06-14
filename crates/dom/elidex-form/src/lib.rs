@@ -8,6 +8,7 @@ pub mod ancestor_cache;
 mod clipboard;
 mod datetime;
 mod fieldset;
+pub mod focus_snapshot;
 mod init;
 mod input;
 mod label;
@@ -24,6 +25,9 @@ pub use ancestor_cache::AncestorCache;
 pub use clipboard::{clipboard_copy, clipboard_cut, clipboard_paste};
 pub use fieldset::{
     first_legend_child, is_fieldset_disabled, is_in_first_legend, propagate_fieldset_disabled,
+};
+pub use focus_snapshot::{
+    clear_focus_snapshot, record_focus_snapshot, take_focus_snapshot, FocusValueSnapshot,
 };
 pub use init::{create_form_control_state, find_autofocus_target, init_form_controls};
 pub use input::{

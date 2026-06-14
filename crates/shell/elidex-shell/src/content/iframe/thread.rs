@@ -132,6 +132,12 @@ fn dispatch_click_in_pipeline(
     let Some(hit) = elidex_layout::hit_test_with_scroll(&pipeline.dom, &query) else {
         return;
     };
+    // Move focus to the clicked element before dispatching the mouse events,
+    // mirroring the parent `handle_click` order (a non-focusable target blurs the
+    // current focus inside `set_focus`). Without this an OOP iframe's
+    // `activeElement` / `:focus` never tracked clicks — focus routing was the
+    // parent's job, but the OOP iframe owns its own `EcsDom`.
+    crate::content::focus::set_focus(pipeline, hit.entity);
     let mouse_init = mouse_event_init_from_click(click);
     for &event_type in click_event_types(click.button) {
         let mut event = elidex_script_session::DispatchEvent::new_composed(event_type, hit.entity);
@@ -160,8 +166,13 @@ fn dispatch_key_in_pipeline(
         meta_key: mods.meta,
         shift_key: mods.shift,
     };
-    let mut event =
-        elidex_script_session::DispatchEvent::new_composed(event_type, pipeline.document);
+    // Route the key event to the focused element (fallback: the document) so a
+    // focused control in the OOP iframe receives keystrokes, instead of the event
+    // always hard-targeting the document root. `current_focus` applies its own
+    // connectedness filter, so a stale-detached holder never wins.
+    let target = elidex_dom_api::focus::current_focus(&pipeline.dom, pipeline.document)
+        .unwrap_or(pipeline.document);
+    let mut event = elidex_script_session::DispatchEvent::new_composed(event_type, target);
     event.payload = elidex_plugin::EventPayload::Keyboard(init);
     pipeline.dispatch_event(&mut event);
 }

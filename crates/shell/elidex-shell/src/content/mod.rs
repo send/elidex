@@ -47,9 +47,6 @@ struct ContentState {
     nav_controller: NavigationController,
     hover_chain: Vec<Entity>,
     active_chain: Vec<Entity>,
-    focus_target: Option<Entity>,
-    /// Value of the focused text control when it gained focus (for change event on blur).
-    focus_initial_value: Option<String>,
     /// Whether the caret is currently visible (toggles every 500ms).
     caret_visible: bool,
     /// Last time the caret toggled visibility.
@@ -116,8 +113,6 @@ impl ContentState {
             nav_controller,
             hover_chain: Vec::new(),
             active_chain: Vec::new(),
-            focus_target: None,
-            focus_initial_value: None,
             caret_visible: true,
             caret_last_toggle: Instant::now(),
             focusable_cache: None,
@@ -126,6 +121,34 @@ impl ContentState {
             iframes: iframe::IframeRegistry::new(),
             focused_iframe: None,
         }
+    }
+
+    /// Echo the committed viewport scroll offset to the two JS-observable
+    /// consumers: the document-root `ScrollState` component (read by
+    /// `getBoundingClientRect` via `accumulated_scroll_offset`, CSSOM View §5)
+    /// and the script bridge (`window.scrollX` / `scrollY`).
+    ///
+    /// Both viewport-scroll commit paths route through this single sink so they
+    /// cannot diverge: the `re_render` path (JS `scrollTo` / `scrollBy` applied
+    /// via `take_pending_scroll`) and the wheel fast path
+    /// (`scroll::handle_wheel`), which patches the display list in place without
+    /// re-rendering and would otherwise leave `scrollX` / `scrollY` and
+    /// `getBoundingClientRect` stale after user wheel scrolling until some
+    /// unrelated render happened.
+    fn echo_viewport_scroll(&mut self) {
+        // Store viewport scroll on the document root so getBoundingClientRect
+        // includes it via accumulated_scroll_offset (CSSOM View §5).
+        let _ = self
+            .pipeline
+            .dom
+            .world_mut()
+            .insert_one(self.pipeline.document, self.viewport_scroll.clone());
+        // Sync scroll offset to the script bridge so scrollX/scrollY reflect
+        // current state.
+        self.pipeline.runtime.bridge().set_scroll_offset(
+            self.viewport_scroll.scroll_offset.x,
+            self.viewport_scroll.scroll_offset.y,
+        );
     }
 
     /// Sync canvas pixels and `caret_visible` to the pipeline, then re-render.
@@ -146,37 +169,89 @@ impl ContentState {
             .sync_dirty_canvases(&mut self.pipeline.dom);
         self.pipeline.caret_visible = self.caret_visible;
 
-        // Apply any pending JS scroll (scrollTo/scrollBy) to viewport state.
-        if let Some((x, y)) = self.pipeline.runtime.bridge().take_pending_scroll() {
+        // Drain any pending JS scroll (scrollTo/scrollBy) and apply the requested
+        // offset so the display list builds toward it. The CLAMP is deferred to
+        // AFTER `crate::re_render` recomputes layout (below): a script that
+        // mutated layout and scrolled in the same turn — e.g. appended tall
+        // content then `scrollTo` its bottom — must clamp against the NEW content
+        // size, not the stale pre-layout one (Codex R6 "clamp script scrolls
+        // after layout is refreshed").
+        let pending_scroll = self.pipeline.runtime.bridge().take_pending_scroll();
+        if let Some((x, y)) = pending_scroll {
             self.viewport_scroll.scroll_offset = elidex_plugin::Vector::new(x, y);
-            // Clamp to valid range so JS cannot set out-of-bounds scroll positions.
-            scroll::update_viewport_scroll_dimensions(self);
         }
 
         // Sync viewport scroll offset to pipeline for display list building.
         self.pipeline.scroll_offset = self.viewport_scroll.scroll_offset;
-        // Store viewport scroll on document root so getBoundingClientRect
-        // includes it via accumulated_scroll_offset (CSSOM View §5).
-        let _ = self
-            .pipeline
-            .dom
-            .world_mut()
-            .insert_one(self.pipeline.document, self.viewport_scroll.clone());
-        // Sync scroll offset to JS bridge so scrollX/scrollY reflect current state.
-        self.pipeline.runtime.bridge().set_scroll_offset(
-            self.viewport_scroll.scroll_offset.x,
-            self.viewport_scroll.scroll_offset.y,
-        );
+        // Echo to the JS-observable consumers (scrollX/scrollY + the document-root
+        // ScrollState for getBoundingClientRect) through the shared chokepoint.
+        self.echo_viewport_scroll();
+        // Reconcile the focused-iframe side field against the parent's canonical
+        // FOCUS bit — pass 1 of 2, the SYNCHRONOUS case, BEFORE the iframe render
+        // pass below. A parent-side script `focus()` this turn may have moved the
+        // FOCUS bit off the `<iframe>` element without `handle_click`'s blur path,
+        // leaving a STILL-VISIBLE in-process child painting `:focus` / caret with
+        // a stale `activeElement`. `current_focus` reads the canonical bit the
+        // script already moved, so `reconcile_focused_iframe` blurs the child and
+        // flags it `needs_render` here, before `re_render_all_iframes` rebuilds
+        // the child display list — otherwise the visible iframe's blur lands a
+        // frame late (Codex S2 R5). The complementary ASYNCHRONOUS case (the
+        // iframe element made non-focusable by a *buffered* mutation, e.g.
+        // `iframe.hidden = true`) can only be reconciled after `crate::re_render`
+        // flushes + GCs the bit — see pass 2 below.
+        event_handlers::reconcile_focused_iframe(self);
+
         // Re-render in-process iframes before the parent so child display
         // lists are up-to-date when the parent composites them.
         iframe::re_render_all_iframes(self);
 
         let mutation_records = crate::re_render(&mut self.pipeline);
 
+        // Now that layout boxes reflect this turn's mutations, refresh the
+        // viewport scroll dimensions and clamp the offset against the fresh
+        // content size, then re-sync the (possibly clamped) offset to the display
+        // list + the JS-observable echo when it moved. Two paths need this:
+        //  - a script `scrollTo`/`scrollBy` applied pre-layout used the unclamped
+        //    request (the pre-layout echo above), so "scroll to the bottom of
+        //    just-added content" lands on the NEW max instead of the stale old
+        //    max and lost (Codex R6); and
+        //  - a resize / content shrink with no pending scroll can push the
+        //    existing offset past the new max, which must likewise re-clamp +
+        //    re-sync this frame rather than leaving the display list / bridge /
+        //    document-root `ScrollState` stale until some later render (F4).
+        // `clamp_scroll` only ever shrinks the offset, so the display list built
+        // in `crate::re_render` (with the pre-layout offset) already carries a
+        // `PushScrollOffset` wrapper to patch — no 0→non-zero rebuild needed here.
+        let pre_clamp_offset = self.viewport_scroll.scroll_offset;
+        scroll::update_viewport_scroll_dimensions(self);
+        let clamped_offset = self.viewport_scroll.scroll_offset;
+        if pending_scroll.is_some() || clamped_offset != pre_clamp_offset {
+            self.pipeline.scroll_offset = clamped_offset;
+            self.pipeline
+                .display_list
+                .update_scroll_offset(clamped_offset);
+            self.echo_viewport_scroll();
+        }
+
         // Invalidate focusable cache when DOM structure or focusability changes.
         if should_invalidate_focusable_cache(&mutation_records) {
             self.focusable_cache = None;
         }
+
+        // Reconcile the focused-iframe side field — pass 2 of 2, the ASYNCHRONOUS
+        // case, AFTER `crate::re_render`'s focusability GC. When a parent mutation
+        // makes the focused `<iframe>` non-focusable (e.g. `iframe.hidden = true`),
+        // that buffered attribute is only flushed + reconciled (the parent's
+        // `current_focus ⟹ is_focusable` GC, WHATWG HTML "update the rendering"
+        // step 17) INSIDE `crate::re_render` above — after pass 1 ran with the bit
+        // still set. By now the GC has cleared the bit, so `current_focus` no
+        // longer points at the `<iframe>` and this pass blurs the child, clearing
+        // its JS-observable `activeElement` and dropping `focused_iframe` so key
+        // routing stops. A non-focusable iframe is not composited, so its display
+        // list staleness is moot — `blur_iframe_focus` flags `needs_render` for a
+        // later un-hide (Codex S2 R8). (The parent / in-process / OOP focusability
+        // GC itself shares the one `crate::re_render` chokepoint — see there.)
+        event_handlers::reconcile_focused_iframe(self);
 
         // Deliver observer callbacks after layout is complete.
         if !mutation_records.is_empty() {
@@ -224,9 +299,6 @@ impl ContentState {
                 self.pipeline.scroll_offset,
             );
         }
-
-        // Update viewport scroll dimensions after layout completes.
-        scroll::update_viewport_scroll_dimensions(self);
     }
 
     /// Reset caret blink timer (call on key input to keep caret visible).
@@ -240,14 +312,16 @@ impl ContentState {
     /// Only blinks for editable text controls (not buttons/checkboxes/links)
     /// to avoid unnecessary 500ms re-render loops for non-text focus.
     fn update_caret_blink(&mut self) -> bool {
-        let is_text_focused = self.focus_target.is_some_and(|target| {
-            self.pipeline
-                .dom
-                .world()
-                .get::<&elidex_form::FormControlState>(target)
-                .ok()
-                .is_some_and(|fcs| fcs.kind.is_text_control() && !fcs.disabled)
-        });
+        let is_text_focused =
+            elidex_dom_api::focus::current_focus(&self.pipeline.dom, self.pipeline.document)
+                .is_some_and(|target| {
+                    self.pipeline
+                        .dom
+                        .world()
+                        .get::<&elidex_form::FormControlState>(target)
+                        .ok()
+                        .is_some_and(|fcs| fcs.kind.is_text_control() && !fcs.disabled)
+                });
         if !is_text_focused {
             return false;
         }
@@ -401,9 +475,23 @@ fn dispatch_media_query_changes(changed: &[(u64, bool)], state: &mut ContentStat
 
 /// Focusability-relevant attribute names.
 ///
-/// Changes to these attributes affect whether an element is focusable or
-/// its position in the sequential focus navigation order (HTML §6.6.3).
-const FOCUSABLE_ATTRIBUTES: &[&str] = &["tabindex", "disabled", "contenteditable", "hidden"];
+/// Changes to these attributes affect whether an element is focusable or its
+/// position in the sequential focus navigation order (HTML §6.6.3), so a
+/// mutation to any of them invalidates the shell's Tab-order `focusable_cache`.
+/// The complete set that `elidex_dom_api::focus::is_focusable` reads: `tabindex`
+/// (criterion 1 + order), `disabled` (criterion 3), `contenteditable` (editing
+/// host, criterion 1), `hidden` (criterion 5 subtree), `href` (the `<a>`/`<area>`
+/// link default), and `type` (an `<input>`'s `type=hidden` is never focusable).
+/// Missing `href`/`type` here previously left a stale Tab order after a script
+/// added/removed a link's `href` or flipped an input's `type` (Codex S2).
+const FOCUSABLE_ATTRIBUTES: &[&str] = &[
+    "tabindex",
+    "disabled",
+    "contenteditable",
+    "hidden",
+    "href",
+    "type",
+];
 
 /// Check whether any mutation record requires invalidating the focusable cache.
 ///

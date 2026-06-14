@@ -10,6 +10,8 @@ use crate::app::hover::{apply_hover_diff, collect_hover_chain, update_element_st
 use crate::app::navigation::resolve_nav_url;
 use crate::ipc::ModifierState;
 
+use elidex_dom_api::focus::current_focus;
+
 use super::focus::set_focus;
 use super::form_input::{
     dispatch_input_event, dispatch_input_event_typed, dispatch_state_change_events,
@@ -48,8 +50,18 @@ pub(super) fn handle_click(state: &mut ContentState, click: &crate::ipc::MouseCl
         return;
     }
 
+    // Focus moved to a top-level element — the parent document holds focus.
+    // Blur any iframe that previously held focus: its separate `EcsDom` is
+    // unreachable from the parent `set_focus` below, so without this its control
+    // keeps `:focus` / caret and the iframe's `activeElement` stays stale (the
+    // cross-frame counterpart of the parent blur in `try_route_click_to_iframe`).
+    // `take()` also clears key routing so `try_route_key_to_iframe` stops
+    // sending keystrokes into the now-unfocused iframe.
+    if let Some(prev) = state.focused_iframe.take() {
+        blur_iframe_focus(state, prev);
+    }
     // Update focus.
-    set_focus(state, hit_entity);
+    set_focus(&mut state.pipeline, hit_entity);
 
     // Set ACTIVE state on press. Per UI Events spec, :active applies from
     // mousedown to mouseup — cleared in handle_mouse_release().
@@ -301,13 +313,12 @@ pub(super) fn handle_key(
         return;
     }
 
-    let Some(target) = state.focus_target else {
+    // The focused element (from the canonical FOCUS bit); `current_focus`
+    // filters connectedness, so a despawned/detached prior target is
+    // naturally absent — no stale-target field to clear.
+    let Some(target) = current_focus(&state.pipeline.dom, state.pipeline.document) else {
         return;
     };
-    if !state.pipeline.dom.contains(target) {
-        state.focus_target = None;
-        return;
-    }
 
     let init = KeyboardEventInit {
         key: key.to_string(),
@@ -328,7 +339,19 @@ pub(super) fn handle_key(
     if event_type == "keydown" && !default_prevented && key == "Tab" {
         let forward = !mods.shift;
         if let Some(next) = find_next_focusable(state, forward) {
-            set_focus(state, next);
+            // When `next` is an in-process `<iframe>`, §6.6.3 sequential focus
+            // navigation should descend into the frame's own focus scope (the
+            // flattened tabindex-ordered navigation order treats the frame's
+            // focusable areas as part of this document's sequence): set
+            // `state.focused_iframe` + route focus into the child pipeline the
+            // way the click path does (`try_route_click_to_iframe`), and on the
+            // way out resume the parent sequence. The Tab handler only runs the
+            // parent `set_focus` today, so keyboard-only users cannot enter or traverse
+            // iframe content — deferred to slot
+            // `#11-cross-frame-sequential-focus-nav` (a discrete keyboard-nav
+            // feature: enter / traverse-within / exit the frame boundary; gated
+            // on the in-process-iframe test harness, `#11-iframe-focus-test-infra`).
+            set_focus(&mut state.pipeline, next);
         }
         state.re_render();
         state.send_display_list();
@@ -436,8 +459,7 @@ fn find_next_focusable(state: &mut ContentState, forward: bool) -> Option<elidex
         return None;
     }
 
-    let current_idx = state
-        .focus_target
+    let current_idx = current_focus(&state.pipeline.dom, state.pipeline.document)
         .and_then(|target| focusables.iter().position(|&e| e == target));
 
     match current_idx {
@@ -456,8 +478,11 @@ fn find_next_focusable(state: &mut ContentState, forward: bool) -> Option<elidex
 /// Recursively collect focusable entities in pre-order.
 ///
 /// Per HTML §6.6.3: elements with negative tabindex are focusable but not
-/// in the sequential focus navigation order (Tab key).
-/// Elements with `contenteditable` are also focusable.
+/// in the sequential focus navigation order (Tab key). Editing hosts (own
+/// `contenteditable` true/plaintext-only) are UA-focusable via
+/// [`elidex_dom_api::focus::is_focusable`]; their merely-editable descendants
+/// are not (§6.8.4 — only the editing host, not the inherited-editability
+/// children — so Tab lands on the host, not a child `<span>`).
 fn collect_focusable_entities(
     dom: &elidex_ecs::EcsDom,
     entity: elidex_ecs::Entity,
@@ -469,11 +494,20 @@ fn collect_focusable_entities(
     }
 
     if super::focus::is_focusable(dom, entity) {
+        // §6.6.3 "rules for parsing integers" via the shared tabindex parser, so
+        // the Tab-order collector agrees with `is_focusable` and the `tabIndex`
+        // getter instead of running a second `str::parse::<i32>()` path: a
+        // leading-integer value like `tabindex="2foo"` sorts as order 2, and
+        // `tabindex="-1foo"` is correctly excluded from Tab order. A null/absent
+        // value defaults to 0 (the per-element default already gated focusable).
         let tabindex = dom
             .world()
             .get::<&elidex_ecs::Attributes>(entity)
             .ok()
-            .and_then(|a| a.get("tabindex").and_then(|v| v.parse::<i32>().ok()))
+            .and_then(|a| {
+                a.get("tabindex")
+                    .and_then(elidex_dom_api::focus::parse_tab_index_value)
+            })
             .unwrap_or(0);
         // Negative tabindex: focusable but not in Tab order.
         if tabindex >= 0 {
@@ -636,7 +670,7 @@ fn toggle_radio_with_events(state: &mut ContentState, current: elidex_ecs::Entit
         forward,
         &mut state.pipeline.ancestor_cache,
     ) {
-        set_focus(state, next);
+        set_focus(&mut state.pipeline, next);
         if elidex_form::toggle_radio(
             &mut state.pipeline.dom,
             next,
@@ -729,6 +763,41 @@ fn handle_clipboard(state: &mut ContentState, target: elidex_ecs::Entity, key: &
 // Iframe event routing
 // ---------------------------------------------------------------------------
 
+/// Blur the focus held inside in-process iframe `entity` (its separate `EcsDom`
+/// is unreachable from the parent and sibling-iframe focus writers). Called
+/// whenever focus leaves an iframe — to a top-level element ([`handle_click`])
+/// or to a sibling iframe ([`try_route_click_to_iframe`]) — so a frame the user
+/// has left does not keep its `activeElement` / `:focus` / caret live. No-op for
+/// an unknown or out-of-process iframe.
+fn blur_iframe_focus(state: &mut ContentState, entity: elidex_ecs::Entity) {
+    if let Some(super::iframe::IframeHandle::InProcess(iframe)) =
+        state.iframes.get_mut(entity).map(|entry| &mut entry.handle)
+    {
+        super::focus::blur_current(&mut iframe.pipeline);
+        iframe.needs_render = true;
+    }
+}
+
+/// Reconcile the `focused_iframe` side field against the parent document's
+/// canonical `FOCUS` bit after a JS turn. A parent-side script `HTMLElement.
+/// focus()` (e.g. from a timer / `postMessage` handler) can move the parent's
+/// focused area off the `<iframe>` element WITHOUT going through `handle_click`'s
+/// `focused_iframe.take()` + `blur_iframe_focus`. When the canonical bit no
+/// longer points at the focused iframe element, focus has left the frame — blur
+/// the in-process child so it stops painting `:focus` / caret and clears its
+/// `activeElement`, then drop the side field so key routing stops. OOP frames
+/// need a cross-process blur message (slot `#11-oop-iframe-focus-lifecycle`;
+/// `blur_iframe_focus` is a no-op for them, so only the side field is dropped).
+pub(super) fn reconcile_focused_iframe(state: &mut ContentState) {
+    let Some(iframe_entity) = state.focused_iframe else {
+        return;
+    };
+    if current_focus(&state.pipeline.dom, state.pipeline.document) != Some(iframe_entity) {
+        blur_iframe_focus(state, iframe_entity);
+        state.focused_iframe = None;
+    }
+}
+
 /// Check if a hit-test result landed on an `<iframe>` element that has a loaded
 /// iframe context. Returns `true` if the event was routed to the iframe
 /// (caller should skip normal dispatch).
@@ -766,6 +835,32 @@ pub(super) fn try_route_click_to_iframe(
         mods: click.mods,
     };
 
+    // Focus is moving into the iframe's browsing context, so in the PARENT
+    // document the focused area becomes the `<iframe>` element itself (WHATWG
+    // HTML §6.6: a navigable container is the parent's focusable area / DOM
+    // anchor while focus is inside the nested context). Focus the `<iframe>`
+    // element (`hit_entity`) in the parent — `set_focus` first blurs+change-on-
+    // blurs the parent's previous focus, then designates the iframe element so
+    // parent scripts read `document.activeElement === iframeEl` and
+    // `hasFocus() === true` (both routed via `current_focus`) instead of falling
+    // back to `<body>`/false while keyboard focus is actually inside the frame.
+    // Each pipeline owns its own `EcsDom`, so the iframe-side `set_focus` below
+    // cannot reach the parent `FOCUS` bit. Runs for both in-process and OOP
+    // iframes (the `<iframe>` element is default-focusable as a navigable
+    // container).
+    super::focus::set_focus(&mut state.pipeline, hit_entity);
+    // ...and any *other* iframe that previously held focus — a sibling
+    // iframe-to-iframe click. Each frame owns a separate `EcsDom`, so the
+    // iframe-side `set_focus` below reaches none of the others; without this the
+    // old iframe keeps its `activeElement` / `:focus` / caret live, leaving two
+    // iframes focused at once. (Re-clicking the same iframe is `prev ==
+    // hit_entity` — nothing to blur.)
+    if let Some(prev) = state.focused_iframe {
+        if prev != hit_entity {
+            blur_iframe_focus(state, prev);
+        }
+    }
+
     let Some(entry) = state.iframes.get_mut(hit_entity) else {
         return false;
     };
@@ -779,6 +874,11 @@ pub(super) fn try_route_click_to_iframe(
             if let Some(iframe_hit) =
                 elidex_layout::hit_test_with_scroll(&iframe.pipeline.dom, &iframe_query)
             {
+                // Move focus within the iframe through the same reconciler the
+                // top-level document uses (operating on the iframe's own
+                // `PipelineResult`) — one focusing-steps path for every
+                // document, and the FOCUS bit `try_route_key_to_iframe` reads.
+                super::focus::set_focus(&mut iframe.pipeline, iframe_hit.entity);
                 // Shared helpers for MouseEventInit + event type selection (B3/B4 fix).
                 let mouse_init = mouse_event_init_from_click(&local_click);
                 for &event_type in click_event_types(local_click.button) {
@@ -818,6 +918,19 @@ pub(super) fn try_route_key_to_iframe(
     let Some(iframe_entity) = state.focused_iframe else {
         return false;
     };
+    // Gate on the parent document's canonical `FOCUS` bit, not just this side
+    // field: a parent-side `HTMLElement.focus()` (e.g. from a timer / postMessage
+    // handler) can move the parent's focused area off the `<iframe>` element
+    // without touching `state.focused_iframe`, after which the key belongs to the
+    // now-focused parent control. `set_focus` keeps the parent `FOCUS` bit ON the
+    // `<iframe>` element while focus is inside it, so
+    // `current_focus(parent) != iframe_entity` means focus has left the frame —
+    // let the parent handle the key. The side field is left intact so the next
+    // top-level click's `focused_iframe.take()` + `blur_iframe_focus` still runs
+    // the iframe's deferred blur.
+    if current_focus(&state.pipeline.dom, state.pipeline.document) != Some(iframe_entity) {
+        return false;
+    }
     let Some(entry) = state.iframes.get_mut(iframe_entity) else {
         state.focused_iframe = None;
         return false;
@@ -825,23 +938,23 @@ pub(super) fn try_route_key_to_iframe(
 
     match &mut entry.handle {
         IframeHandle::InProcess(iframe) => {
-            if let Some(target) = iframe.focus_target {
-                if iframe.pipeline.dom.contains(target) {
-                    let init = elidex_plugin::KeyboardEventInit {
-                        key: key.to_string(),
-                        code: code.to_string(),
-                        repeat,
-                        alt_key: mods.alt,
-                        ctrl_key: mods.ctrl,
-                        meta_key: mods.meta,
-                        shift_key: mods.shift,
-                    };
-                    let mut event =
-                        elidex_script_session::DispatchEvent::new_composed(event_type, target);
-                    event.payload = elidex_plugin::EventPayload::Keyboard(init);
-                    iframe.pipeline.dispatch_event(&mut event);
-                    iframe.needs_render = true;
-                }
+            // The iframe's focused element, read from the canonical FOCUS bit
+            // in its own `EcsDom` (connectedness-filtered by `current_focus`).
+            if let Some(target) = current_focus(&iframe.pipeline.dom, iframe.pipeline.document) {
+                let init = elidex_plugin::KeyboardEventInit {
+                    key: key.to_string(),
+                    code: code.to_string(),
+                    repeat,
+                    alt_key: mods.alt,
+                    ctrl_key: mods.ctrl,
+                    meta_key: mods.meta,
+                    shift_key: mods.shift,
+                };
+                let mut event =
+                    elidex_script_session::DispatchEvent::new_composed(event_type, target);
+                event.payload = elidex_plugin::EventPayload::Keyboard(init);
+                iframe.pipeline.dispatch_event(&mut event);
+                iframe.needs_render = true;
             }
         }
         IframeHandle::OutOfProcess(oop) => {

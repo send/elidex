@@ -1,12 +1,9 @@
 //! Mouse and keyboard event handling.
 
-use elidex_ecs::{
-    Attributes, ElementState as DomElementState, Entity, TagType, MAX_ANCESTOR_DEPTH,
-};
+use elidex_ecs::{Attributes, Entity, TagType, MAX_ANCESTOR_DEPTH};
 use elidex_plugin::{EventPayload, KeyboardEventInit, MouseEventInit};
 use elidex_script_session::DispatchEvent;
 
-use super::hover::update_element_state;
 use super::{winit_button_to_dom, App};
 
 impl App {
@@ -39,18 +36,12 @@ impl App {
             };
             let hit_entity = hit.entity;
 
-            // Update focus: remove FOCUS from old target, set on new.
-            if interactive.focus_target != Some(hit_entity) {
-                if let Some(old_focus) = interactive.focus_target {
-                    update_element_state(&mut pipeline.dom, old_focus, |s| {
-                        s.remove(DomElementState::FOCUS);
-                    });
-                }
-                update_element_state(&mut pipeline.dom, hit_entity, |s| {
-                    s.insert(DomElementState::FOCUS);
-                });
-                interactive.focus_target = Some(hit_entity);
-            }
+            // Update focus through the shared reconciler — the canonical
+            // `ElementState::FOCUS` bit is the single source of truth, so the
+            // legacy single-thread path runs the same focusing steps (incl.
+            // focus/blur event dispatch) as the content thread, not a separate
+            // inline bit-write.
+            crate::content::focus::set_focus(pipeline, hit_entity);
 
             let button_num = winit_button_to_dom(button);
 
@@ -121,15 +112,13 @@ impl App {
         let Some(interactive) = &mut self.interactive else {
             return;
         };
-        let Some(target) = interactive.focus_target else {
+        let pipeline = &mut interactive.pipeline;
+        // The focused element (canonical FOCUS bit); `current_focus` filters
+        // connectedness, subsuming the prior "still exists" check + reset.
+        let Some(target) = elidex_dom_api::focus::current_focus(&pipeline.dom, pipeline.document)
+        else {
             return;
         };
-
-        let pipeline = &mut interactive.pipeline;
-        if !pipeline.dom.contains(target) {
-            interactive.focus_target = None;
-            return;
-        }
 
         let mut event = DispatchEvent::new_composed(event_type, target);
         event.payload = EventPayload::Keyboard(init);

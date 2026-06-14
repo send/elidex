@@ -316,6 +316,29 @@ pub trait HostDriver {
     /// Set the iframe nesting depth (the embedder's iframe load path drives it).
     fn set_iframe_depth(&mut self, depth: usize);
 
+    // ── page visibility / scroll transport (per-window; S2) ────────────────
+    //
+    // Visibility is a per-browsing-context UA fact; scroll is per-window
+    // viewport geometry. Both are shell-driven transport (not per-entity DOM
+    // facts), so they live behind the engine boundary, exchanged here.
+
+    /// Set the page-visibility state (WHATWG HTML §6.2) — the shell drives this
+    /// on tab show/hide / window occlusion. `visible = false` ⇒ `document.hidden`
+    /// is `true` and `document.visibilityState` is `"hidden"`.
+    fn set_visibility(&mut self, visible: bool);
+
+    /// Drain the scroll offset a script requested via `window.scrollTo` /
+    /// `scrollBy` (CSSOM View §4) since the last turn, for the shell to apply to
+    /// the viewport and then echo back via [`set_scroll_offset`](Self::set_scroll_offset).
+    /// `None` when no script scroll is pending.
+    #[must_use]
+    fn take_pending_scroll(&mut self) -> Option<(f64, f64)>;
+
+    /// Push the viewport's current scroll offset into the engine (CSSOM View §4)
+    /// so `window.scrollX` / `scrollY` read the live value after a user
+    /// (wheel/keyboard) scroll the shell applied.
+    fn set_scroll_offset(&mut self, x: f64, y: f64);
+
     // ── host-resource install (construction-adjacent) ──────────────────────
 
     /// Install the `NetworkHandle` the `fetch()` host global uses. Without one,

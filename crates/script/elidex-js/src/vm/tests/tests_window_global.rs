@@ -193,6 +193,18 @@ fn window_scroll_to_updates_state() {
 }
 
 #[test]
+fn window_scroll_is_alias_of_scroll_to() {
+    // CSSOM View "Extensions to the Window Interface": `scroll(x, y)` runs the
+    // same steps as `scrollTo(x, y)`. Without the alias `window.scroll(...)` is
+    // a TypeError.
+    let mut vm = Vm::new();
+    vm.eval("window.scroll(50, 100);").unwrap();
+    assert_eq!(vm.inner.viewport.scroll_x, 50.0);
+    assert_eq!(vm.inner.viewport.scroll_y, 100.0);
+    assert_eq!(vm.inner.viewport.pending_scroll, Some((50.0, 100.0)));
+}
+
+#[test]
 fn window_scroll_by_adds_delta() {
     let mut vm = Vm::new();
     vm.eval(
@@ -202,6 +214,103 @@ fn window_scroll_by_adds_delta() {
     .unwrap();
     assert_eq!(vm.inner.viewport.scroll_x, 15.0);
     assert_eq!(vm.inner.viewport.scroll_y, 27.0);
+}
+
+#[test]
+fn window_scroll_to_accepts_options_object() {
+    // CSSOM-View §4 `scrollTo({ left, top })` one-argument overload — the
+    // boa→VM cutover dropped this, coercing the object to NaN→0. Both members
+    // present: behaves like the positional `scrollTo(50, 100)`.
+    let mut vm = Vm::new();
+    vm.eval("window.scrollTo({ left: 50, top: 100 });").unwrap();
+    assert_eq!(vm.inner.viewport.scroll_x, 50.0);
+    assert_eq!(vm.inner.viewport.scroll_y, 100.0);
+    assert_eq!(vm.inner.viewport.pending_scroll, Some((50.0, 100.0)));
+}
+
+#[test]
+fn window_scroll_to_options_absent_member_holds_current_axis() {
+    // CSSOM-View §4 step 1.2/1.3: an absent `left`/`top` dictionary member is
+    // the viewport's CURRENT offset on that axis, not 0 — so
+    // `scrollTo({ top: 100 })` must keep `scrollX` (the exact regression Codex
+    // flagged: "pages stop scrolling after the cutover").
+    let mut vm = Vm::new();
+    vm.eval(
+        "window.scrollTo(10, 20);
+         window.scrollTo({ top: 100 });",
+    )
+    .unwrap();
+    assert_eq!(
+        vm.inner.viewport.scroll_x, 10.0,
+        "absent left holds scrollX"
+    );
+    assert_eq!(vm.inner.viewport.scroll_y, 100.0);
+    assert_eq!(vm.inner.viewport.pending_scroll, Some((10.0, 100.0)));
+}
+
+#[test]
+fn window_scroll_to_lone_primitive_is_a_type_error() {
+    // A single non-object primitive resolves to the one-argument options
+    // overload; Web IDL §3.2.17 converts it to a `ScrollToOptions` dictionary,
+    // which throws a TypeError (it is not an object). `scrollTo(40)` is NOT a
+    // lenient positional `x` — matches browsers; the positional overload needs
+    // both `x` and `y`.
+    let mut vm = Vm::new();
+    assert!(
+        vm.eval("window.scrollTo(40);").is_err(),
+        "lone numeric scrollTo arg is a TypeError, not positional x"
+    );
+}
+
+#[test]
+fn window_scroll_to_validates_behavior_enum() {
+    // CSSOM-View §4 `ScrollToOptions.behavior` is a `ScrollBehavior` enum
+    // {auto, instant, smooth}; Web IDL rejects an invalid value with a TypeError
+    // even though this engine does not honour the hint (it scrolls instantly).
+    let mut vm = Vm::new();
+    assert!(
+        vm.eval("window.scrollTo({ top: 10, behavior: 'bogus' });")
+            .is_err(),
+        "invalid behavior enum is a TypeError"
+    );
+    // Valid enum values + an absent `behavior` are accepted.
+    assert!(vm
+        .eval("window.scrollTo({ top: 10, behavior: 'smooth' });")
+        .is_ok());
+    assert!(vm
+        .eval("window.scrollTo({ top: 10, behavior: 'instant' });")
+        .is_ok());
+    assert!(vm.eval("window.scrollTo({ top: 10 });").is_ok());
+}
+
+#[test]
+fn window_scroll_to_nullish_options_is_an_empty_dictionary() {
+    // Web IDL §3.2.17: `null` / `undefined` convert to an EMPTY ScrollToOptions
+    // dictionary, so `scrollTo(null)` holds the current offset (both members
+    // absent) — NOT a positional `x` of 0 that would scroll to the origin.
+    let mut vm = Vm::new();
+    vm.eval(
+        "window.scrollTo(10, 20);
+         window.scrollTo(null);
+         window.scrollTo(undefined);",
+    )
+    .unwrap();
+    assert_eq!(vm.inner.viewport.scroll_x, 10.0, "nullish holds scrollX");
+    assert_eq!(vm.inner.viewport.scroll_y, 20.0, "nullish holds scrollY");
+}
+
+#[test]
+fn window_scroll_by_accepts_options_object() {
+    // CSSOM-View §4 `scrollBy({ left, top })` — an absent member is a 0 delta
+    // on that axis (not the current offset, unlike `scrollTo`).
+    let mut vm = Vm::new();
+    vm.eval(
+        "window.scrollTo(10, 20);
+         window.scrollBy({ top: 5 });",
+    )
+    .unwrap();
+    assert_eq!(vm.inner.viewport.scroll_x, 10.0, "absent left is a 0 delta");
+    assert_eq!(vm.inner.viewport.scroll_y, 25.0);
 }
 
 #[test]

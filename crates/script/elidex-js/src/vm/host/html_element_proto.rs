@@ -25,10 +25,12 @@
 //!
 //! Members installed here (PR5b §C1 + §C2):
 //!
-//! - **Methods**: `focus()` / `blur()` — update
-//!   `HostData::focused_entity`.  Phase 2 simplification: no
-//!   `FocusEvent` dispatch, no focusable-area check.  `click()` (with
-//!   MouseEvent dispatch) lands with the PendingTask queue in PR5b §C6.
+//! - **Methods**: `focus()` / `blur()` — reconcile the canonical
+//!   `ElementState::FOCUS` component (the single focus source of truth)
+//!   via `elidex_dom_api::focus::{is_focusable, current_focus, set_focus_bit}`.
+//!   No `FocusEvent` dispatch yet (a VM host method cannot fire a DOM event
+//!   through the listener walk — slot `#11-vm-host-synthetic-dom-event-dispatch`,
+//!   shared with `click()`).
 //! - **Plain DOMString reflect**: `accessKey` / `lang` / `title` /
 //!   `nonce`.
 //! - **Enumerated (limited-to-known-values)**: `dir` (`ltr`/`rtl`/
@@ -241,17 +243,29 @@ impl VmInner {
     }
 }
 
-/// `HTMLElement.prototype.focus()` (WHATWG HTML §6.7.1).
+/// `HTMLElement.prototype.focus()` (WHATWG HTML §6.6.6 Focus management
+/// APIs; the focusing steps are §6.6.4 Processing model).
 ///
-/// Phase 2 simplification: sets `HostData::focused_entity` without
-/// running the "focusable area" algorithm (§6.6.3 step 3) or
-/// dispatching `focus` / `focusin` / `blur` / `focusout` events.
-/// Calling `.focus()` on a non-focusable element (disabled input,
-/// content `tabindex` of -1 with no interactive intent) still marks
-/// it as active — spec-polish land in a later tranche.
+/// Sets the canonical `ElementState::FOCUS` component (the single focus
+/// source of truth) on the receiver via the engine-independent
+/// `elidex_dom_api::focus::set_focus_bit`, which clears any prior holder
+/// so the single-focus invariant holds by construction across the VM and
+/// shell focus writers. Only a focusable area (§6.6.2, `is_focusable`)
+/// receives focus; `.focus()` on a non-focusable element is a no-op.
 ///
-/// The `options` parameter (`{preventScroll, focusVisible}`) is
-/// accepted and ignored; that too is spec polish.
+/// Focus EVENT dispatch (`focus` / `focusin`) is deferred: a VM host
+/// method cannot fire a DOM event through the 3-phase listener walk yet
+/// (the same primitive that blocks `el.click()` — slot
+/// `#11-vm-host-synthetic-dom-event-dispatch`). The same deferral covers the
+/// OLD focused area's unfocusing steps when this `focus()` moves focus off a
+/// previously-focused element: its `focusout` / `blur` and — for a user-edited
+/// text control — the §4.10.5.5 change-on-blur event are NOT fired here (the
+/// shell UA reconciler `content::focus::set_focus` dispatches those, but only
+/// on its own input paths). The old element's `FocusValueSnapshot` is
+/// deliberately left intact (not consumed) rather than discarded, so that once
+/// the slot lands the deferred dispatch can still observe the focus-time value
+/// and fire `change`. The `options` parameter (`{preventScroll, focusVisible}`)
+/// is accepted and ignored (spec polish).
 fn native_html_element_focus(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -264,8 +278,37 @@ fn native_html_element_focus(
     // TypeError (browsers say "Illegal invocation") rather than a
     // silent no-op.
     let entity = require_html_element_receiver(ctx, this, "focus")?;
-    if let Some(hd) = ctx.vm.host_data.as_deref_mut() {
-        hd.set_focused_entity(entity);
+    let doc = ctx.host().document();
+    let dom = ctx.host().dom();
+    // Already this document's focused element ⇒ no-op (WHATWG HTML §6.6: focusing
+    // the current focused area does nothing). Crucially this must return BEFORE
+    // re-seeding the change-on-blur snapshot below: a redundant `focus()` after
+    // the user has edited the control would otherwise refresh the snapshot
+    // baseline to the edited value, suppressing the later §4.10.5.5 `change`
+    // event. Mirrors the shell `set_focus` reconciler's `old == Some(entity)`
+    // early return.
+    if elidex_dom_api::focus::current_focus(dom, doc) == Some(entity) {
+        return Ok(JsValue::Undefined);
+    }
+    // Focus is the *active* document's focused area (WHATWG HTML §6.6): only an
+    // element in the bound document can take it. An element in a non-active
+    // document — e.g. a `document.cloneNode()` subtree, which `is_connected`
+    // reports connected because its root *is* a `Document` — must NOT steal the
+    // live document's focus: `set_focus_bit`'s world-wide sweep would clear the
+    // real holder and `blur()` could not restore it (`current_focus` is scoped
+    // to the bound document). The active-document gate (`is_in_document`) is
+    // engine-bound — which document is bound is the VM's fact — so it lives here
+    // rather than in the engine-independent `is_focusable`.
+    if elidex_dom_api::focus::is_focusable(dom, entity)
+        && elidex_dom_api::focus::is_in_document(dom, entity, doc)
+    {
+        elidex_dom_api::focus::set_focus_bit(dom, Some(entity));
+        // Seed the change-on-blur snapshot for text controls, just like the
+        // shell `set_focus` reconciler — so a script `input.focus()` followed
+        // by user editing + a user blur still fires the HTML §4.10.5.5 `change`
+        // event (the snapshot follows the canonical FOCUS bit, not only the UA
+        // path).
+        elidex_form::record_focus_snapshot(dom, entity);
     }
     Ok(JsValue::Undefined)
 }
@@ -285,21 +328,27 @@ fn native_html_element_get_dataset(
     Ok(JsValue::Object(id))
 }
 
-/// `HTMLElement.prototype.blur()` (WHATWG HTML §6.7.1).
+/// `HTMLElement.prototype.blur()` (WHATWG HTML §6.6.6 Focus management
+/// APIs; the unfocusing steps are §6.6.4 Processing model).
 ///
-/// Clears `HostData::focused_entity` **only if** the receiver is the
-/// currently focused entity — blurring an unfocused element is a
-/// no-op, matching browser behaviour.  No `blur` event dispatch in
-/// Phase 2 (see `focus` rationale above).
+/// Delegates to the engine-independent [`elidex_dom_api::focus::blur`], which
+/// clears the `ElementState::FOCUS` bit iff the receiver is the **raw** focus
+/// holder (the focus SoT). Blurring an unfocused element is a no-op. Operating on
+/// the raw holder makes `el.focus(); el.hidden = true; el.blur()` actually
+/// unfocus `el` even though the same-turn `hidden` only schedules the
+/// *asynchronous* render-time fixup (the bit lingers, so `el` is still the
+/// focused area when `blur()` runs); the explicit clear stops a later un-hide
+/// from resurrecting `document.activeElement` (Codex S2 R6). No `blur` /
+/// `focusout` event dispatch yet (deferred with `focus`;
+/// slot `#11-vm-host-synthetic-dom-event-dispatch`).
 fn native_html_element_blur(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
     _args: &[JsValue],
 ) -> Result<JsValue, VmError> {
     let entity = require_html_element_receiver(ctx, this, "blur")?;
-    if let Some(hd) = ctx.vm.host_data.as_deref_mut() {
-        hd.invalidate_focus_if(entity);
-    }
+    let dom = ctx.host().dom();
+    elidex_dom_api::focus::blur(dom, entity);
     Ok(JsValue::Undefined)
 }
 
@@ -327,14 +376,6 @@ fn require_html_element_receiver(
             "Failed to execute '{method}' on 'HTMLElement': Illegal invocation"
         ))
     })
-}
-
-/// Helper exposed to `document.rs` — read the currently focused
-/// entity from `HostData`.  Returns `None` when no element is
-/// focused **or** the focused entity has since been detached (the
-/// detach hook clears focus before the entity is removed).
-pub(super) fn focused_entity(ctx: &NativeContext<'_>) -> Option<elidex_ecs::Entity> {
-    ctx.vm.host_data.as_deref()?.focused_entity()
 }
 
 // =========================================================================
@@ -845,9 +886,9 @@ fn native_tab_index_get(
     let entity = require_html_element_receiver(ctx, this, "tabIndex")?;
     let dom = ctx.host().dom();
     let parsed = dom.with_attribute(entity, "tabindex", |raw| {
-        raw.and_then(parse_tab_index_value)
+        raw.and_then(elidex_dom_api::focus::parse_tab_index_value)
     });
-    let value = parsed.unwrap_or_else(|| tab_index_default_for(dom, entity));
+    let value = parsed.unwrap_or_else(|| elidex_dom_api::focus::tab_index_default_for(dom, entity));
     Ok(JsValue::Number(f64::from(value)))
 }
 fn native_tab_index_set(
@@ -864,74 +905,9 @@ fn native_tab_index_set(
     Ok(JsValue::Undefined)
 }
 
-/// Parse a `tabindex` attribute value per HTML §2.4.4.1
-/// (signed integers).  Returns `None` for values that fail the
-/// spec's "valid integer" grammar so the getter falls back to the
-/// per-element default, matching browser behaviour.
-fn parse_tab_index_value(raw: &str) -> Option<i32> {
-    let trimmed = raw.trim();
-    trimmed.parse::<i32>().ok()
-}
-
-/// Per-element `tabIndex` default (WHATWG §6.6.3 step 2).
-fn tab_index_default_for(dom: &elidex_ecs::EcsDom, entity: elidex_ecs::Entity) -> i32 {
-    // Tag-driven branch decisions read the borrowed tag directly so
-    // the lowercase comparison is zero-allocation; an explicit
-    // `Option<TagDefault>` enum lets the inner `dom.with_attribute`
-    // and `dom.has_attribute` calls run AFTER the tag borrow drops.
-    enum TagDefault {
-        // Definitely focus-zero (button / select / textarea / iframe /
-        // object / embed) — no further attribute lookup needed.
-        Zero,
-        // Link — focus-zero only when the element also carries `href`.
-        Link,
-        // `<input>` — focus-zero unless `type="hidden"`.
-        Input,
-        // Generic element — depends on `contenteditable`.
-        Generic,
-    }
-    let kind = dom.with_tag_name(entity, |t| match t {
-        None => None,
-        Some(s) => {
-            if s.eq_ignore_ascii_case("button")
-                || s.eq_ignore_ascii_case("select")
-                || s.eq_ignore_ascii_case("textarea")
-                || s.eq_ignore_ascii_case("iframe")
-                || s.eq_ignore_ascii_case("object")
-                || s.eq_ignore_ascii_case("embed")
-            {
-                Some(TagDefault::Zero)
-            } else if s.eq_ignore_ascii_case("a") || s.eq_ignore_ascii_case("area") {
-                Some(TagDefault::Link)
-            } else if s.eq_ignore_ascii_case("input") {
-                Some(TagDefault::Input)
-            } else {
-                Some(TagDefault::Generic)
-            }
-        }
-    });
-    let focusable = match kind {
-        None => false,
-        Some(TagDefault::Zero) => true,
-        Some(TagDefault::Link) => dom.has_attribute(entity, "href"),
-        Some(TagDefault::Input) => {
-            // `<input type="hidden">` is unfocusable; everything else
-            // participates in sequential focus navigation.
-            !dom.with_attribute(entity, "type", |t| {
-                t.is_some_and(|s| s.eq_ignore_ascii_case("hidden"))
-            })
-        }
-        Some(TagDefault::Generic) => dom.with_attribute(entity, "contenteditable", |v| {
-            v.is_some_and(|s| {
-                s.is_empty()
-                    || s.eq_ignore_ascii_case("true")
-                    || s.eq_ignore_ascii_case("plaintext-only")
-            })
-        }),
-    };
-    if focusable {
-        0
-    } else {
-        -1
-    }
-}
+// The `tabindex` attribute parse (WHATWG §6.6.3) and the per-element
+// `tabIndex` default now both live in the engine-independent
+// `elidex_dom_api::focus` (`parse_tab_index_value` / `tab_index_default_for`),
+// shared by the VM `tabIndex` getter, the dom-api `is_focusable` predicate, and
+// the shell's focus reconciler (one focusable-area algorithm, one home — the
+// Layering mandate; one tabindex parse, one home — one-issue-one-way).

@@ -34,7 +34,9 @@
 
 use super::super::coerce;
 use super::super::shape;
-use super::super::value::{JsValue, NativeContext, Object, ObjectKind, PropertyStorage, VmError};
+use super::super::value::{
+    JsValue, NativeContext, Object, ObjectId, ObjectKind, PropertyKey, PropertyStorage, VmError,
+};
 use super::super::VmInner;
 
 /// In-memory viewport state (size + scroll offset) backing the
@@ -57,6 +59,13 @@ pub(crate) struct ViewportState {
     pub(crate) scroll_x: f64,
     pub(crate) scroll_y: f64,
     pub(crate) device_pixel_ratio: f64,
+    /// Scroll offset a script requested via `scrollTo` / `scrollBy`
+    /// (CSSOM View §4) that the shell has not yet applied + echoed back.
+    /// Drained by [`Vm::take_pending_scroll`](crate::vm::Vm::take_pending_scroll);
+    /// `scroll_x`/`scroll_y` are updated eagerly alongside it so JS reads
+    /// stay self-consistent, while the shell clamps + echoes the applied
+    /// value back via [`Vm::set_scroll_offset`](crate::vm::Vm::set_scroll_offset).
+    pub(crate) pending_scroll: Option<(f64, f64)>,
 }
 
 impl ViewportState {
@@ -67,6 +76,7 @@ impl ViewportState {
             scroll_x: 0.0,
             scroll_y: 0.0,
             device_pixel_ratio: 1.0,
+            pending_scroll: None,
         }
     }
 }
@@ -81,10 +91,107 @@ impl ViewportState {
 // has no visible effect, but `scrollX` / `scrollY` read them back so
 // JS observes self-consistent state.
 
-fn to_f64_or_zero(ctx: &mut NativeContext<'_>, v: JsValue) -> Result<f64, VmError> {
-    match v {
-        JsValue::Undefined => Ok(0.0),
-        other => coerce::to_number(ctx.vm, other),
+/// Parse the CSSOM-View `scroll()` / `scrollBy()` argument overloads: the
+/// two-argument positional form `(x, y)` or a single `ScrollToOptions`
+/// dictionary `{ left, top }` (CSSOM-View §4 "Extensions to the Window
+/// Interface"). Returns `(left, top)` where an absent dictionary member is
+/// `None` so the caller substitutes the per-method default — the current offset
+/// for `scrollTo` (absolute), `0` for `scrollBy` (delta). The `behavior` member
+/// (`auto` / `instant` / `smooth`) is a UA hint this engine does not honour — it
+/// always scrolls instantly, which is conforming (the spec lets a UA realize the
+/// requested scroll behaviour at its own discretion); it is not a pending
+/// feature. It is still **validated** as a `ScrollBehavior` enum
+/// ([`validate_scroll_behavior`]) — Web IDL rejects an invalid value with a
+/// TypeError even when the value is unused.
+///
+/// Restores the options-object overload the boa→VM scroll cutover dropped: the
+/// replaced boa path parsed `{ left, top }`, so without this
+/// `window.scrollTo({ top: 100 })` would coerce the object to `NaN`→0 and
+/// silently scroll to the origin.
+fn parse_scroll_args(
+    ctx: &mut NativeContext<'_>,
+    args: &[JsValue],
+) -> Result<(Option<f64>, Option<f64>), VmError> {
+    // Two-argument positional overload: `x` and `y` are the arguments.
+    if args.len() >= 2 {
+        let x = coerce::to_number(ctx.vm, args[0])?;
+        let y = coerce::to_number(ctx.vm, args[1])?;
+        return Ok((Some(x), Some(y)));
+    }
+    // One-argument options overload.
+    if let Some(&first) = args.first() {
+        match first {
+            // `null` / `undefined` convert to an EMPTY `ScrollToOptions`
+            // dictionary (Web IDL §3.2.17), so `scrollTo(null)` holds the
+            // current offset (both members absent — a no-op) rather than
+            // scrolling to the origin.
+            JsValue::Null | JsValue::Undefined => Ok((None, None)),
+            // A `{ left, top }` dictionary. Web IDL converts dictionary members
+            // in lexicographic order — `behavior` before `left`/`top` — and
+            // `behavior` is a `ScrollBehavior` enum, so an invalid value must
+            // throw HERE, before any offset is queued (validated even though the
+            // hint is not honoured — see `validate_scroll_behavior`).
+            JsValue::Object(id) => {
+                validate_scroll_behavior(ctx, id)?;
+                let left = read_optional_scroll_member(ctx, id, "left")?;
+                let top = read_optional_scroll_member(ctx, id, "top")?;
+                Ok((left, top))
+            }
+            // A lone NON-object primitive (number / string / boolean) still
+            // resolves to the one-argument options overload — Web IDL §3.2.17
+            // converts it to a `ScrollToOptions` dictionary, which throws a
+            // TypeError because it is not an object. Matches browsers
+            // (`scrollTo(40)` is a TypeError, not a positional `x`); the
+            // two-argument positional overload requires BOTH `x` and `y`.
+            _ => Err(VmError::type_error(
+                "Failed to execute 'scrollTo'/'scrollBy': the provided value is not of type 'ScrollToOptions'.",
+            )),
+        }
+    } else {
+        // No arguments: an empty options dictionary — both members absent, so
+        // each method holds its current offset (a no-op scroll).
+        Ok((None, None))
+    }
+}
+
+/// Validate the `ScrollToOptions` `behavior` member as a `ScrollBehavior` enum
+/// (CSSOM-View §4 — `enum ScrollBehavior { "auto", "instant", "smooth" }`). Read
+/// via `[[Get]]`; an absent / `undefined` member is the `"auto"` default (a
+/// no-op), any other value is `ToString`-coerced and must match an enum member
+/// or Web IDL throws a TypeError before the scroll runs. The value is not
+/// otherwise used (this engine scrolls instantly regardless, see
+/// [`parse_scroll_args`]), but the conversion's rejection of an invalid value is
+/// script-observable, so it cannot be skipped (Codex S2 final pass).
+fn validate_scroll_behavior(ctx: &mut NativeContext<'_>, obj_id: ObjectId) -> Result<(), VmError> {
+    let key = PropertyKey::String(ctx.vm.strings.intern("behavior"));
+    let raw = ctx.get_property_value(obj_id, key)?;
+    if matches!(raw, JsValue::Undefined) {
+        return Ok(());
+    }
+    let sid = ctx.to_string_val(raw)?;
+    let s = ctx.get_utf8(sid);
+    if matches!(s.as_str(), "auto" | "instant" | "smooth") {
+        Ok(())
+    } else {
+        Err(VmError::type_error(format!(
+            "Failed to read the 'behavior' property from 'ScrollToOptions': the provided value \
+             '{s}' is not a valid enum value of type ScrollBehavior."
+        )))
+    }
+}
+
+/// Read a `ScrollToOptions` numeric member via `[[Get]]`, returning `None` when
+/// the member is absent / `undefined` so the caller applies the per-method
+/// default rather than `0`.
+fn read_optional_scroll_member(
+    ctx: &mut NativeContext<'_>,
+    obj_id: ObjectId,
+    name: &str,
+) -> Result<Option<f64>, VmError> {
+    let key = PropertyKey::String(ctx.vm.strings.intern(name));
+    match ctx.get_property_value(obj_id, key)? {
+        JsValue::Undefined => Ok(None),
+        v => Ok(Some(coerce::to_number(ctx.vm, v)?)),
     }
 }
 
@@ -93,15 +200,20 @@ pub(super) fn native_window_scroll_to(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    // §CSSOM-View: `scrollTo(x, y)` or `scrollTo({left, top})`.  We
-    // support only the positional form here — the options-object
-    // form lands with the full scroll-anchoring implementation in a
-    // later PR.
-    let x = to_f64_or_zero(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
-    let y = to_f64_or_zero(ctx, args.get(1).copied().unwrap_or(JsValue::Undefined))?;
-    // NaN → 0 per CSSOM-View "normalizing scroll amounts".
+    // CSSOM-View §4 `scrollTo(x, y)` / `scrollTo({ left, top })`. An absent
+    // dictionary member holds the current offset on that axis (step 1.2/1.3),
+    // not 0 — so `scrollTo({ top: 100 })` keeps `scrollX`.
+    let (left, top) = parse_scroll_args(ctx, args)?;
+    let x = left.unwrap_or(ctx.vm.viewport.scroll_x);
+    let y = top.unwrap_or(ctx.vm.viewport.scroll_y);
+    // Normalize non-finite values to 0 (CSSOM-View step 3).
     ctx.vm.viewport.scroll_x = if x.is_finite() { x } else { 0.0 };
     ctx.vm.viewport.scroll_y = if y.is_finite() { y } else { 0.0 };
+    // Record the request so the shell can apply it to the real viewport
+    // (drained via `Vm::take_pending_scroll`); the eager `scroll_x/y`
+    // update above keeps `scrollX`/`scrollY` self-consistent for JS reads
+    // until the shell clamps + echoes the applied value back.
+    ctx.vm.viewport.pending_scroll = Some((ctx.vm.viewport.scroll_x, ctx.vm.viewport.scroll_y));
     Ok(JsValue::Undefined)
 }
 
@@ -110,14 +222,18 @@ pub(super) fn native_window_scroll_by(
     _this: JsValue,
     args: &[JsValue],
 ) -> Result<JsValue, VmError> {
-    let dx = to_f64_or_zero(ctx, args.first().copied().unwrap_or(JsValue::Undefined))?;
-    let dy = to_f64_or_zero(ctx, args.get(1).copied().unwrap_or(JsValue::Undefined))?;
+    // CSSOM-View §4 `scrollBy(dx, dy)` / `scrollBy({ left, top })` — an absent
+    // dictionary member is a 0 delta on that axis.
+    let (left, top) = parse_scroll_args(ctx, args)?;
+    let dx = left.unwrap_or(0.0);
+    let dy = top.unwrap_or(0.0);
     if dx.is_finite() {
         ctx.vm.viewport.scroll_x += dx;
     }
     if dy.is_finite() {
         ctx.vm.viewport.scroll_y += dy;
     }
+    ctx.vm.viewport.pending_scroll = Some((ctx.vm.viewport.scroll_x, ctx.vm.viewport.scroll_y));
     Ok(JsValue::Undefined)
 }
 
@@ -352,6 +468,11 @@ impl VmInner {
 
 const WINDOW_METHODS: &[(&str, super::super::NativeFn)] = &[
     ("scrollTo", native_window_scroll_to),
+    // CSSOM View "Extensions to the Window Interface": `scroll(x, y)` /
+    // `scroll(options)` is defined to run the exact same steps as `scrollTo`,
+    // so it shares the native fn (without the alias, `window.scroll(...)` is a
+    // `TypeError`).
+    ("scroll", native_window_scroll_to),
     ("scrollBy", native_window_scroll_by),
     (
         "postMessage",
