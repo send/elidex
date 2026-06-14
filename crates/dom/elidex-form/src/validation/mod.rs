@@ -141,6 +141,11 @@ pub fn validate_control(state: &FormControlState) -> ValidityState {
         | FormControlKind::Color
         | FormControlKind::Date
         | FormControlKind::DatetimeLocal
+        // Date/time constraint validation (range/step/badInput) is the
+        // separate `#11-input-date-validity` slot; intentional no-op here.
+        | FormControlKind::Time
+        | FormControlKind::Week
+        | FormControlKind::Month
         | FormControlKind::File
         | FormControlKind::Hidden
         | FormControlKind::Output

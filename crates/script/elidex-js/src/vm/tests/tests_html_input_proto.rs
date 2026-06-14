@@ -381,6 +381,50 @@ fn input_step_down_decrements_number_value() {
 }
 
 #[test]
+fn input_step_up_increments_date_value() {
+    // HTML §4.10.5.1.7: date stepUp advances by one day, serialized as
+    // a valid date string (string-exact, no float noise).
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'date'; \
+         i.value = '2025-01-15'; \
+         i.stepUp(); \
+         i.value;");
+    assert_eq!(out, "2025-01-16");
+}
+
+#[test]
+fn input_step_up_increments_month_value() {
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'month'; \
+         i.value = '2025-12'; \
+         i.stepUp(); \
+         i.value;");
+    assert_eq!(out, "2026-01");
+}
+
+#[test]
+fn input_step_up_increments_time_value() {
+    // Default step is 60 seconds.
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'time'; \
+         i.value = '12:30'; \
+         i.stepUp(); \
+         i.value;");
+    assert_eq!(out, "12:31");
+}
+
+#[test]
+fn input_step_up_increments_week_value() {
+    // 2020-W53 + 1 week crosses into week-year 2021 (≠ calendar year).
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'week'; \
+         i.value = '2020-W53'; \
+         i.stepUp(); \
+         i.value;");
+    assert_eq!(out, "2021-W01");
+}
+
+#[test]
 fn input_step_up_throws_for_non_steppable_type() {
     let out = run("var i = document.createElement('input'); \
          try { i.stepUp(); 'no-throw'; } \
