@@ -251,32 +251,42 @@ fn is_in_hidden_subtree(dom: &EcsDom, entity: Entity) -> bool {
     false
 }
 
-/// The currently focused element of `document`, if any (WHATWG HTML §6.6 — **the
-/// single READ model** behind `document.activeElement` / `hasFocus` and every
-/// shell focus read site). Queries the canonical [`ElementState::FOCUS`] bit.
-///
-/// The `FOCUS` bit is maintained **connected by construction**: [`is_focusable`]
-/// (the write-side gate at every `focus()` entry) rejects disconnected targets,
-/// and `EcsDom::fire_after_remove` (WHATWG HTML §2.1.4 removing steps) clears the
-/// bit when its holder leaves the tree. So the trailing **connectedness walk** to
-/// `document` is a *defensive guard* for this UA-critical read — not the primary
-/// mechanism: it should never actually filter, but it keeps `activeElement`
-/// correct if any future writer bypasses the gate. (Its sole former rival, the
-/// by-identity `is_focused`, is gone — single read model.)
-#[must_use]
-pub fn current_focus(dom: &EcsDom, document: Entity) -> Option<Entity> {
-    let focused = dom
-        .world()
+/// The raw [`ElementState::FOCUS`]-bit holder, with NO connectedness or
+/// focusability filtering — the single canonical bit query shared by
+/// [`current_focus`] (which then *derives* the effective focused area) and
+/// [`reconcile_focus`] (which must see a connected-but-non-focusable holder in
+/// order to clear it, so it cannot route through the filtered `current_focus`).
+fn raw_focus_holder(dom: &EcsDom) -> Option<Entity> {
+    dom.world()
         .query::<(Entity, &ElementState)>()
         .iter()
         .find(|(_, s)| s.contains(ElementState::FOCUS))
-        .map(|(e, _)| e)?;
-    // The connectedness walk to `document` is the defensive guard (the bit is
-    // connected by construction) — and doubles as the document scoping that
-    // keeps this read reporting only the bound document's focused area, never a
-    // holder in some other document tree sharing this world (e.g. a
-    // `document.cloneNode()` subtree).
-    is_in_document(dom, focused, document).then_some(focused)
+        .map(|(e, _)| e)
+}
+
+/// The currently focused element of `document`, if any (WHATWG HTML §6.6 — **the
+/// single READ model** behind `document.activeElement` / `hasFocus` and every
+/// shell focus read site). **Derives** the effective focused area from the
+/// canonical [`ElementState::FOCUS`] bit: the holder counts only while it is
+/// BOTH in the bound document AND still a focusable area (§6.6.2).
+///
+/// - The **`is_in_document` walk** scopes the read to the bound document (never a
+///   `document.cloneNode()` subtree sharing the world) and guards connectedness
+///   (a removed holder's bit is cleared at §2.1.4 removal, so this rarely
+///   filters — but it keeps `activeElement` correct if a writer ever bypasses
+///   the gate).
+/// - The **`is_focusable` filter** makes the read consistent WITHIN a JS turn: a
+///   mutation that makes the focused element non-focusable (its `hidden` /
+///   `disabled` lands, `<input type>` flips, or it loses the `tabindex` /
+///   `contenteditable` / `href` that made it focusable) takes effect for
+///   `document.activeElement` / `hasFocus` / key routing *immediately* — not
+///   only after the frame's [`reconcile_focus`] GC clears the bit. The bit is
+///   still cleared at render so an un-hide / re-enable cannot resurrect focus
+///   the read path already hides.
+#[must_use]
+pub fn current_focus(dom: &EcsDom, document: Entity) -> Option<Entity> {
+    let focused = raw_focus_holder(dom)?;
+    (is_in_document(dom, focused, document) && is_focusable(dom, focused)).then_some(focused)
 }
 
 /// Whether `entity` is an inclusive descendant of `document` — its light-tree
@@ -374,8 +384,13 @@ pub fn set_focus_bit(dom: &mut EcsDom, new: Option<Entity>) {
 /// "any mutation occurred", so it sees every focusability-affecting attribute or
 /// tree change without a hand-maintained attribute allow-list).
 pub fn reconcile_focus(dom: &mut EcsDom, document: Entity) {
-    if let Some(focused) = current_focus(dom, document) {
-        if !is_focusable(dom, focused) {
+    // GC the raw `FOCUS` bit — NOT `current_focus`, which now filters
+    // `is_focusable` (derive-on-read) and would therefore never surface a
+    // non-focusable holder to clear. Clearing the bit left on a connected-but-
+    // non-focusable holder is what stops an un-hide / re-enable from resurrecting
+    // focus the read path (`current_focus`) already hides this same frame.
+    if let Some(focused) = raw_focus_holder(dom) {
+        if is_in_document(dom, focused, document) && !is_focusable(dom, focused) {
             set_focus_bit(dom, None);
         }
     }
@@ -399,12 +414,22 @@ mod tests {
     use super::*;
     use elidex_ecs::Attributes;
 
+    /// A `<div tabindex="0">` — a real focusable area, so `current_focus`
+    /// (which now derives connectedness AND focusability) reports it. Bit-
+    /// mechanism tests use this instead of a bare `<div>` (non-focusable, which
+    /// the derive-on-read read path correctly hides).
+    fn focusable_div(dom: &mut EcsDom) -> Entity {
+        let mut attrs = Attributes::default();
+        attrs.set("tabindex".to_string(), "0".to_string());
+        dom.create_element("div", attrs)
+    }
+
     #[test]
     fn set_focus_bit_enforces_single_focus() {
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
-        let a = dom.create_element("div", Attributes::default());
-        let b = dom.create_element("div", Attributes::default());
+        let a = focusable_div(&mut dom);
+        let b = focusable_div(&mut dom);
         let _ = dom.append_child(doc, a);
         let _ = dom.append_child(doc, b);
 
@@ -424,6 +449,50 @@ mod tests {
 
         set_focus_bit(&mut dom, None);
         assert_eq!(current_focus(&dom, doc), None);
+    }
+
+    #[test]
+    fn current_focus_hides_non_focusable_holder_same_turn() {
+        // Codex (S2): a same-turn mutation that makes the focused element
+        // non-focusable must take effect for `document.activeElement` /
+        // `hasFocus` / key routing IMMEDIATELY (derive-on-read) — not only after
+        // the frame's `reconcile_focus` GC clears the bit.
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+        let el = focusable_div(&mut dom);
+        let _ = dom.append_child(doc, el);
+        set_focus_bit(&mut dom, Some(el));
+        assert_eq!(
+            current_focus(&dom, doc),
+            Some(el),
+            "a focusable connected holder reads as focused"
+        );
+
+        // Same-turn: make it non-focusable (hidden) WITHOUT clearing the bit yet
+        // (a plain EcsDom has no dispatcher, so `set_attribute` does not run the
+        // reconciler — exactly the pre-render window the read path must cover).
+        dom.set_attribute(el, "hidden", "");
+        assert_eq!(
+            current_focus(&dom, doc),
+            None,
+            "the read path hides a now-non-focusable holder before reconcile runs"
+        );
+        assert_eq!(
+            raw_focus_holder(&dom),
+            Some(el),
+            "the raw `FOCUS` bit lingers until the frame GC"
+        );
+
+        // `reconcile_focus` (frame GC) clears the connected-non-focusable bit so
+        // an un-hide cannot resurrect focus the read path already hid.
+        reconcile_focus(&mut dom, doc);
+        assert_eq!(raw_focus_holder(&dom), None, "reconcile GCs the bit");
+        dom.remove_attribute(el, "hidden");
+        assert_eq!(
+            current_focus(&dom, doc),
+            None,
+            "un-hiding after the GC does not resurrect focus"
+        );
     }
 
     #[test]
@@ -661,7 +730,7 @@ mod tests {
         // never carries a stale bit, and reattaching does not resurrect focus.
         let mut dom = EcsDom::new();
         let doc = dom.create_document_root();
-        let el = dom.create_element("div", Attributes::default());
+        let el = focusable_div(&mut dom);
         let _ = dom.append_child(doc, el);
         set_focus_bit(&mut dom, Some(el));
         assert_eq!(current_focus(&dom, doc), Some(el));

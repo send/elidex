@@ -775,6 +775,26 @@ fn blur_iframe_focus(state: &mut ContentState, entity: elidex_ecs::Entity) {
     }
 }
 
+/// Reconcile the `focused_iframe` side field against the parent document's
+/// canonical `FOCUS` bit after a JS turn. A parent-side script `HTMLElement.
+/// focus()` (e.g. from a timer / `postMessage` handler) can move the parent's
+/// focused area off the `<iframe>` element WITHOUT going through `handle_click`'s
+/// `focused_iframe.take()` + `blur_iframe_focus`. When the canonical bit no
+/// longer points at the focused iframe element, focus has left the frame — blur
+/// the in-process child so it stops painting `:focus` / caret and clears its
+/// `activeElement`, then drop the side field so key routing stops. OOP frames
+/// need a cross-process blur message (slot `#11-oop-iframe-focus-lifecycle`;
+/// `blur_iframe_focus` is a no-op for them, so only the side field is dropped).
+pub(super) fn reconcile_focused_iframe(state: &mut ContentState) {
+    let Some(iframe_entity) = state.focused_iframe else {
+        return;
+    };
+    if current_focus(&state.pipeline.dom, state.pipeline.document) != Some(iframe_entity) {
+        blur_iframe_focus(state, iframe_entity);
+        state.focused_iframe = None;
+    }
+}
+
 /// Check if a hit-test result landed on an `<iframe>` element that has a loaded
 /// iframe context. Returns `true` if the event was routed to the iframe
 /// (caller should skip normal dispatch).

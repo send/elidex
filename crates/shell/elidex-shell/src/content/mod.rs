@@ -227,6 +227,12 @@ impl ContentState {
         // `crate::re_render` above, so the parent, in-process iframes and OOP
         // iframes all share one chokepoint — see the comment there.)
 
+        // Reconcile the focused-iframe side field against the parent's canonical
+        // FOCUS bit: a parent-side script `focus()` this turn may have moved
+        // focus off the `<iframe>` element without `handle_click`'s blur path, so
+        // an in-process child kept `:focus` / caret / a stale `activeElement`.
+        event_handlers::reconcile_focused_iframe(self);
+
         // Deliver observer callbacks after layout is complete.
         if !mutation_records.is_empty() {
             self.pipeline.runtime.deliver_mutation_records(
