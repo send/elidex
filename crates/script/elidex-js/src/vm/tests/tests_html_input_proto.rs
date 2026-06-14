@@ -388,6 +388,92 @@ fn input_step_up_throws_for_non_steppable_type() {
     assert_eq!(out, "ok");
 }
 
+#[test]
+fn input_step_up_throws_for_step_any() {
+    // HTML §4.10.5.4 step 2: an element with no allowed value step
+    // (step="any") throws InvalidStateError.
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'number'; \
+         i.step = 'any'; \
+         i.value = '5'; \
+         try { i.stepUp(); 'no-throw:' + i.value; } \
+         catch (e) { (e.name === 'InvalidStateError') ? 'ok' : 'other:' + e.name; }");
+    assert_eq!(out, "ok");
+}
+
+#[test]
+fn input_step_up_coerces_n_as_webidl_long() {
+    // stepUp(optional long n = 1): a fractional argument truncates
+    // toward zero (ToInt32), so stepUp(2.9) steps up by 2, not 2.9.
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'number'; \
+         i.value = '0'; \
+         i.stepUp(2.9); \
+         i.value;");
+    assert_eq!(out, "2");
+}
+
+#[test]
+fn input_step_up_non_finite_n_is_treated_as_zero() {
+    // ToInt32(NaN) === ToInt32(Infinity) === 0, so a non-finite step
+    // count leaves the value unchanged — never writes "NaN"/"Infinity".
+    for arg in ["NaN", "Infinity", "-Infinity"] {
+        let out = run(&format!(
+            "var i = document.createElement('input'); \
+             i.type = 'number'; \
+             i.value = '5'; \
+             i.stepUp({arg}); \
+             i.value;"
+        ));
+        assert_eq!(out, "5", "stepUp({arg})");
+    }
+}
+
+#[test]
+fn input_step_up_uses_fresh_value_attribute_as_step_base_when_dirty() {
+    // HTML §4.10.5.3.7 step base = the `value` content attribute (when
+    // no `min`).  After the input is dirty, a later `setAttribute(value)`
+    // must still update the step base: value 5 on a base-2 / step-10 grid
+    // ({2,12,22,…}) snaps up to 12, not 10 (which a stale base-0 grid
+    // would give).  Regression for Codex PR#344 P2.
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'number'; \
+         i.value = '5'; \
+         i.setAttribute('value', '2'); \
+         i.step = '10'; \
+         i.stepUp(); \
+         i.value;");
+    assert_eq!(out, "12");
+}
+
+#[test]
+fn input_step_up_treats_invalid_value_as_empty() {
+    // An invalid number value (e.g. "1e") is, per HTML §4.10.5.1.12
+    // value sanitization, not a valid floating-point number, so step 5
+    // of stepUp (§4.10.5.4) sees the empty/error case → 0 and stepUp
+    // yields 1, not 2 (the permissive parser would mis-read "1e" as 1).
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'number'; \
+         i.value = '1e'; \
+         i.stepUp(); \
+         i.value;");
+    assert_eq!(out, "1");
+}
+
+#[test]
+fn input_step_up_snaps_unaligned_value_to_grid() {
+    // HTML §4.10.5.4 step 7: value off the step grid snaps to the
+    // nearest aligned value in the step direction (5 on a step-10 grid
+    // → 10, not 15).
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'number'; \
+         i.step = '10'; \
+         i.value = '5'; \
+         i.stepUp(); \
+         i.value;");
+    assert_eq!(out, "10");
+}
+
 // ---------------------------------------------------------------------------
 // Stubs / form / labels
 // ---------------------------------------------------------------------------

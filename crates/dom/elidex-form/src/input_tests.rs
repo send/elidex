@@ -227,62 +227,6 @@ fn supports_selection_types() {
     assert!(!FormControlKind::Select.supports_selection());
 }
 
-// -- apply_step tests (D-2 hoist target) -----------------------
-
-fn make_state(kind: FormControlKind, value: &str, step: Option<&str>) -> FormControlState {
-    let mut s = FormControlState {
-        kind,
-        ..Default::default()
-    };
-    s.set_value(value.to_string());
-    s.step = step.map(String::from);
-    s
-}
-
-#[test]
-fn apply_step_number_default_step_one() {
-    let mut s = make_state(FormControlKind::Number, "5", None);
-    assert!(apply_step(&mut s, 1.0, 1.0).is_ok());
-    assert_eq!(s.value(), "6");
-}
-
-#[test]
-fn apply_step_range_descending() {
-    let mut s = make_state(FormControlKind::Range, "10", Some("2"));
-    assert!(apply_step(&mut s, 3.0, -1.0).is_ok());
-    assert_eq!(s.value(), "4");
-}
-
-#[test]
-fn apply_step_unsupported_kind_returns_not_supported() {
-    let mut s = make_state(FormControlKind::TextInput, "abc", None);
-    assert_eq!(apply_step(&mut s, 1.0, 1.0), Err(StepError::NotSupported));
-    // Value untouched.
-    assert_eq!(s.value(), "abc");
-}
-
-#[test]
-fn apply_step_invalid_step_falls_back_to_one() {
-    let mut s = make_state(FormControlKind::Number, "0", Some("not-a-number"));
-    assert!(apply_step(&mut s, 1.0, 1.0).is_ok());
-    assert_eq!(s.value(), "1");
-}
-
-#[test]
-fn apply_step_empty_value_treated_as_zero() {
-    let mut s = make_state(FormControlKind::Number, "", Some("2"));
-    assert!(apply_step(&mut s, 5.0, 1.0).is_ok());
-    assert_eq!(s.value(), "10");
-}
-
-#[test]
-fn apply_step_fractional_step() {
-    let mut s = make_state(FormControlKind::Number, "1", Some("0.5"));
-    assert!(apply_step(&mut s, 1.0, 1.0).is_ok());
-    // f64 1.5 prints as "1.5" via to_string.
-    assert_eq!(s.value(), "1.5");
-}
-
 // -------------------------------------------------------------------
 // sanitize_for_type_change (HTML §4.10.5.6)
 // -------------------------------------------------------------------
