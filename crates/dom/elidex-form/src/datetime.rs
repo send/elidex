@@ -184,10 +184,16 @@ struct CivilDate {
     day: u32,
 }
 
-/// A parsed time-of-day, held as milliseconds since midnight `[0, 86_400_000)`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// A parsed time-of-day, held as integer milliseconds since midnight
+/// `[0, 86_400_000)` plus a sub-millisecond remainder in `[0, 1)`.  The
+/// integer part keeps the date arithmetic on the `i64` checked-overflow path
+/// (huge `datetime-local` years); `frac_ms` carries the spec's full decimal
+/// seconds-fraction for the permissive `min`/`max` path (a "valid time string"
+/// value is ms-resolution, so its `frac_ms` is always zero).
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct TimeOfDay {
     ms: i64,
+    frac_ms: f64,
 }
 
 // ===================================================================
@@ -277,7 +283,7 @@ pub(crate) enum FracPrecision {
 /// `:SS[.sss]`, `0 ≤ hour ≤ 23`, `0 ≤ minute ≤ 59`, `0 ≤ second < 60`.
 /// The fractional part is constrained per `frac`: [`FracPrecision::ValidString`]
 /// rejects more than three digits, [`FracPrecision::Permissive`] accepts any
-/// number (truncated to milliseconds).  Returns milliseconds since midnight.
+/// number (the tail beyond three digits is kept as `TimeOfDay::frac_ms`).
 fn parse_time_component(input: &[u8], pos: &mut usize, frac: FracPrecision) -> Option<TimeOfDay> {
     let hour_digits = collect_digits(input, pos);
     if hour_digits.len() != 2 {
@@ -302,6 +308,7 @@ fn parse_time_component(input: &[u8], pos: &mut usize, frac: FracPrecision) -> O
 
     let mut second = 0_i64;
     let mut milli = 0_i64;
+    let mut frac_ms = 0.0_f64;
     if input.get(*pos) == Some(&b':') {
         *pos += 1;
         let sec_digits = collect_digits(input, pos);
@@ -321,23 +328,33 @@ fn parse_time_component(input: &[u8], pos: &mut usize, frac: FracPrecision) -> O
             }
             // A "valid time string" permits one, two, or three fractional
             // digits; a value with more is not a valid time string and so is
-            // the parse-error case for the strict (value) path.  The permissive
-            // "parse a time component" path accepts any number of digits and
-            // truncates to millisecond resolution — `.5` → 500, `.05` → 50,
-            // `.001` → 1, `.1239` → 123 (sub-millisecond digits dropped).
+            // the parse-error case for the strict (value) path.
             if frac == FracPrecision::ValidString && frac_digits.len() > 3 {
                 return None;
             }
+            // The first three digits give whole milliseconds (`.5` → 500,
+            // `.05` → 50, `.001` → 1); the permissive "parse a time component"
+            // path keeps the rest as a sub-millisecond remainder so a value
+            // such as `.1239` resolves to 123.9 ms, not 123 (HTML §2.3.5.4
+            // parses the seconds component as a full decimal number).
             let mut ms_digits = [b'0'; 3];
             for (slot, &d) in ms_digits.iter_mut().zip(frac_digits.iter()) {
                 *slot = d;
             }
             milli = digits_to_i64(&ms_digits)?;
+            if frac_digits.len() > 3 {
+                // Digit 4 onward is the sub-millisecond tail: digit 4 is
+                // 10⁻⁴ s = 0.1 ms, so reading "0.<tail>" yields the remainder
+                // directly in milliseconds (`"9"` → 0.9 ms, `"93"` → 0.93 ms).
+                let tail = std::str::from_utf8(&frac_digits[3..]).ok()?;
+                frac_ms = format!("0.{tail}").parse::<f64>().ok()?;
+            }
         }
     }
 
     Some(TimeOfDay {
         ms: ((hour * 60 + minute) * 60 + second) * MS_PER_SECOND + milli,
+        frac_ms,
     })
 }
 
@@ -521,14 +538,17 @@ fn convert_string_to_number_with(
         }
         FormControlKind::Time => {
             let t = parse_time(s, frac)?;
-            Some(t.ms as f64)
+            Some(t.ms as f64 + t.frac_ms)
         }
         FormControlKind::DatetimeLocal => {
             let (d, t) = parse_local_date_time(s, frac)?;
+            // Integer ms stays on the checked-`i64` path (huge years); the
+            // sub-millisecond remainder is added at the `f64` boundary.
             Some(
                 days_from_civil(d.year, d.month, d.day)
                     .checked_mul(MS_PER_DAY)?
-                    .checked_add(t.ms)? as f64,
+                    .checked_add(t.ms)? as f64
+                    + t.frac_ms,
             )
         }
         _ => None,
@@ -555,9 +575,11 @@ pub(crate) fn convert_number_to_string(kind: FormControlKind, n: f64) -> Option<
     if !n.is_finite() || n.abs() >= 9_223_372_036_854_775_808.0 {
         return None;
     }
-    // The number is an exact integer for every reachable in-range input
-    // (integer ms / month-count produced by the step algorithm), so the
-    // truncating cast is lossless.
+    // Truncate to whole milliseconds: the written value is always
+    // ms-resolution (a valid time string carries at most three fractional
+    // digits), so a sub-millisecond remainder — reachable only from a
+    // sub-ms `min`/`max` grid — is dropped here on serialization rather than
+    // emitting a non-conforming value.
     #[allow(clippy::cast_possible_truncation)]
     let n = n as i64;
     match kind {

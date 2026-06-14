@@ -295,20 +295,27 @@ fn time_invalid_strings_rejected() {
 }
 
 #[test]
-fn time_accepts_extra_fractional_digits_truncated_to_ms() {
-    // HTML §2.3.5.4 accepts any number of fractional-second digits; elidex
-    // keeps millisecond resolution, truncating beyond three (Codex R5).
-    // `.1234` → 123 ms (sub-ms dropped), serialized back as `.123`.
-    let n = convert_string_to_number(Time, "12:30:45.1234").expect("4 frac digits valid");
-    assert_eq!(
-        convert_number_to_string(Time, n).as_deref(),
-        Some("12:30:45.123")
+fn time_permissive_path_keeps_sub_millisecond_fraction() {
+    // HTML §2.3.5.4 parses the seconds component as a full decimal number, so
+    // the permissive (min/max attribute) path keeps digits beyond three as a
+    // sub-millisecond remainder (Codex #349 R3): `.1239` → 123.9 ms, not 123.
+    let n = convert_string_to_number(Time, "12:30:45.1239").expect("4 frac digits valid");
+    assert!(
+        (n - (45_045_123.0 + 0.9)).abs() < 1e-9,
+        "expected 45045123.9 ms, got {n}"
     );
-    // `.5009` → 500 ms (4th+ digits dropped) → `.5`.
+    // `.5009` → 500.9 ms (4th digit carried, not dropped).
     let n = convert_string_to_number(Time, "00:00:00.5009").unwrap();
+    assert!((n - 500.9).abs() < 1e-9, "expected 500.9 ms, got {n}");
+    // datetime-local carries the sub-ms remainder too (added at the f64
+    // boundary, after the checked-i64 day/time combine).
+    let n = convert_string_to_number(DatetimeLocal, "1970-01-01T00:00:00.0005").unwrap();
+    assert!((n - 0.5).abs() < 1e-9, "expected 0.5 ms, got {n}");
+    // The written value is still ms-resolution: convert-a-number-to-a-string
+    // serializes at ms granularity (a valid time string is at most 3 digits).
     assert_eq!(
-        convert_number_to_string(Time, n).as_deref(),
-        Some("00:00:00.5")
+        convert_number_to_string(Time, 45_045_123.9).as_deref(),
+        Some("12:30:45.123")
     );
 }
 
