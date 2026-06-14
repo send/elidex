@@ -10,13 +10,18 @@ import sys
 
 from .cache import NotFound
 from .commands.aoid import cmd_aoid
+from .commands.agent_brief import cmd_agent_brief
+from .commands.agent_policy import cmd_agent_policy
 from .commands.body import cmd_body
 from .commands.coverage_map import cmd_coverage_map
 from .commands.css import cmd_css
 from .commands.dfn import cmd_dfn
+from .commands.diff import cmd_diff
 from .commands.element import cmd_element
 from .commands.heading import cmd_heading
 from .commands.idl import cmd_idl
+from .commands.refresh import cmd_refresh
+from .commands.snapshot import cmd_snapshot
 from .commands.specs import cmd_specs
 
 COMMON_SHORTNAMES = """\
@@ -51,6 +56,11 @@ Examples:
   .claude/tools/webref specs canvas                          # shortname by keyword
   .claude/tools/webref coverage-map ecma262 15.7.14 html 4.13.4 ecma262 ClassDefinitionEvaluation
                                                              # plan-memo §3 skeleton
+  .claude/tools/webref snapshot html --output /tmp/html-old.json
+  .claude/tools/webref diff /tmp/html-old.json /tmp/html-new.json
+  .claude/tools/webref agent-policy
+  .claude/tools/webref agent-brief /tmp/html-old.json /tmp/html-new.json --paths docs crates
+  .claude/tools/webref refresh html
 
 Cache: HTTP responses are cached in ~/.cache/elidex-webref/ (or
        $XDG_CACHE_HOME/elidex-webref/ when XDG_CACHE_HOME is set) with
@@ -150,6 +160,86 @@ def build_parser() -> argparse.ArgumentParser:
         help="pairs of spec shortname + §number-or-AO-name (even count)",
     )
     cm.set_defaults(func=cmd_coverage_map)
+
+    snap = sub.add_parser(
+        "snapshot",
+        help="normalized semantic inventory JSON for diffing",
+        description=(
+            "Fetch webref / TC39 data and emit a normalized semantic inventory "
+            "snapshot. This stable layer records headings, dfns, and TC39 AO "
+            "links rather than raw HTTP cache bytes."
+        ),
+    )
+    snap.add_argument("shortname", help="e.g. html, dom, css-text-3, ecma262")
+    snap.add_argument(
+        "--output", "-o",
+        help="write JSON to a file instead of stdout",
+    )
+    snap.set_defaults(func=cmd_snapshot)
+
+    diff = sub.add_parser(
+        "diff",
+        help="compare two semantic inventory snapshots",
+        description=(
+            "Compare two JSON snapshots produced by `webref snapshot`. The "
+            "default text output is for humans; use `--format json` for Coding "
+            "Agent pipelines."
+        ),
+    )
+    diff.add_argument("old", help="old snapshot JSON path")
+    diff.add_argument("new", help="new snapshot JSON path")
+    diff.add_argument(
+        "--format", choices=("text", "json"), default="text",
+        help="output format (default: text)",
+    )
+    diff.set_defaults(func=cmd_diff)
+
+    policy = sub.add_parser(
+        "agent-policy",
+        help="print when Coding Agents should use webref drift tooling",
+    )
+    policy.set_defaults(func=cmd_agent_policy)
+
+    brief = sub.add_parser(
+        "agent-brief",
+        help="scan repo citations and emit an agent work queue for a snapshot diff",
+        description=(
+            "Compare two snapshots, scan selected repository paths for affected "
+            "anchors, section numbers, titles, dfns, and AO names, then emit a "
+            "Coding Agent-oriented impact queue."
+        ),
+    )
+    brief.add_argument("old", help="old snapshot JSON path")
+    brief.add_argument("new", help="new snapshot JSON path")
+    brief.add_argument(
+        "--repo-root", default=".",
+        help="repository root for path scanning (default: current directory)",
+    )
+    brief.add_argument(
+        "--paths", nargs="+", default=["docs", "crates", "CLAUDE.md"],
+        help="repo-relative files/directories to scan",
+    )
+    brief.add_argument(
+        "--format", choices=("markdown", "json"), default="markdown",
+        help="output format (default: markdown)",
+    )
+    brief.set_defaults(func=cmd_agent_brief)
+
+    refresh = sub.add_parser(
+        "refresh",
+        help="write a new snapshot and compare it with the previous saved snapshot",
+        description=(
+            "High-level drift workflow entrypoint. Stores snapshots under "
+            "~/.cache/elidex-webref/snapshots by default so routine refreshes "
+            "do not dirty the repository."
+        ),
+    )
+    refresh.add_argument("shortname", help="e.g. html, dom, css-text-3, ecma262")
+    refresh.add_argument(
+        "--snapshot-dir",
+        help="override snapshot storage directory",
+    )
+    refresh.set_defaults(func=cmd_refresh)
 
     return p
 
