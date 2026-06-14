@@ -134,15 +134,20 @@ pub fn tab_index_default_for(dom: &EcsDom, entity: Entity) -> i32 {
 /// **C4 — not inert** — `inert` is not modelled by the engine, so there is
 /// nothing to exclude (no gap today; revisit if `inert` lands).
 ///
-/// **C5 — being rendered** — *partially enforced* from attributes: **connected**
+/// **C5 — being rendered** — *partially enforced* from attributes. Three
+/// attribute-reachable non-rendered cases are excluded: **disconnected**
 /// ([`EcsDom::is_connected`] — a disconnected element is not rendered, so
-/// `createElement('input').focus()` is a no-op) and **not `<input type=hidden>`**
-/// (`is_hidden_input` — a hidden input is never rendered, so it is not a focusable
-/// area even with a `tabindex`; §6.6.3 notes a tabindex cannot grant focusability
-/// that §6.6.2 withholds, and the shell rejects it via `FormControlKind::Hidden`
-/// — the two focus writers must agree). The CSS residue (`display:none` /
-/// `visibility:hidden`), which needs computed style, is slot
-/// `#11-focusable-area-being-rendered`.
+/// `createElement('input').focus()` is a no-op); **`<input type=hidden>`**
+/// (`is_hidden_input` — never rendered, even with a `tabindex`; §6.6.3 notes a
+/// tabindex cannot grant focusability §6.6.2 withholds, and the shell rejects it
+/// via `FormControlKind::Hidden` — the two focus writers must agree); and the
+/// global **`hidden` attribute** (`is_in_hidden_subtree`, self or ancestor —
+/// §6.1: both the Hidden and Hidden-Until-Found states are "will not be
+/// rendered", and a `hidden` element hides its subtree). The CSS residue
+/// (`display:none` / `visibility:hidden`, and a `[hidden] { display: block }`
+/// author override), which needs computed style, is slot
+/// `#11-focusable-area-being-rendered`. (Elements never rendered by category —
+/// `<head>` metadata content — are a niche residual, not yet excluded.)
 #[must_use]
 pub fn is_focusable(dom: &EcsDom, entity: Entity) -> bool {
     // §6.6.2 criterion 5 (being rendered) — the attribute-reachable slice. Gate
@@ -152,6 +157,9 @@ pub fn is_focusable(dom: &EcsDom, entity: Entity) -> bool {
         return false;
     }
     if is_hidden_input(dom, entity) {
+        return false;
+    }
+    if is_in_hidden_subtree(dom, entity) {
         return false;
     }
     // §6.6.2 criterion 3 (not actually disabled).
@@ -207,6 +215,35 @@ fn is_hidden_input(dom: &EcsDom, entity: Entity) -> bool {
     }) && dom.with_attribute(entity, "type", |v| {
         v.is_some_and(|s| s.eq_ignore_ascii_case("hidden"))
     })
+}
+
+/// Whether `entity` is in a `hidden`-attribute subtree — itself or a
+/// shadow-including ancestor carries the global `hidden` content attribute
+/// (WHATWG HTML §6.1). Both the *Hidden* and *Hidden Until Found* states are
+/// "will not be rendered", and a hidden element hides its whole subtree, so an
+/// element anywhere under a `hidden` node is not "being rendered" (§6.6.2
+/// criterion 5) and hence not a focusable area — `<button hidden>` and a
+/// `<button>` inside `<div hidden>` alike. Walks via [`EcsDom::get_parent`]
+/// (shadow-inclusive, so a `hidden` host hides its shadow tree), bounded by
+/// [`MAX_ANCESTOR_DEPTH`]. Attribute-based: a `[hidden] { display: block }`
+/// author override (computed-style residue, slot
+/// `#11-focusable-area-being-rendered`) is not reflected here.
+///
+/// [`MAX_ANCESTOR_DEPTH`]: elidex_ecs::MAX_ANCESTOR_DEPTH
+fn is_in_hidden_subtree(dom: &EcsDom, entity: Entity) -> bool {
+    let mut cur = Some(entity);
+    let mut depth = 0;
+    while let Some(c) = cur {
+        if dom.has_attribute(c, "hidden") {
+            return true;
+        }
+        if depth >= elidex_ecs::MAX_ANCESTOR_DEPTH {
+            return false;
+        }
+        cur = dom.get_parent(c);
+        depth += 1;
+    }
+    false
 }
 
 /// The currently focused element of `document`, if any (WHATWG HTML §6.6 — **the
@@ -506,6 +543,49 @@ mod tests {
         let text = connect_el(&mut dom, doc, "input");
         dom.set_attribute(text, "tabindex", "0");
         assert!(is_focusable(&dom, text), "a non-hidden input is focusable");
+    }
+
+    #[test]
+    fn is_focusable_excludes_hidden_attribute_subtree() {
+        // Regression (Codex R6 F2): §6.6.2 criterion 5 (being rendered) — the
+        // global `hidden` attribute (§6.1) makes content non-rendered, so an
+        // element that is itself hidden, OR inside a hidden subtree, is not a
+        // focusable area even with a tabindex / intrinsic default.
+        let mut dom = EcsDom::new();
+        let doc = dom.create_document_root();
+
+        // Self-hidden: `<button hidden>` (intrinsic default tabindex 0).
+        let btn = connect_el(&mut dom, doc, "button");
+        assert!(is_focusable(&dom, btn), "a connected <button> is focusable");
+        dom.set_attribute(btn, "hidden", "");
+        assert!(!is_focusable(&dom, btn), "<button hidden> is not focusable");
+
+        // An explicit tabindex does not override `hidden`.
+        let div = connect_el(&mut dom, doc, "div");
+        dom.set_attribute(div, "tabindex", "0");
+        dom.set_attribute(div, "hidden", "hidden");
+        assert!(
+            !is_focusable(&dom, div),
+            "tabindex does not override hidden"
+        );
+
+        // Ancestor-hidden: a `<button>` inside `<section hidden>`.
+        let section = connect_el(&mut dom, doc, "section");
+        dom.set_attribute(section, "hidden", "");
+        let inner = dom.create_element("button", Attributes::default());
+        let _ = dom.append_child(section, inner);
+        assert!(
+            !is_focusable(&dom, inner),
+            "a control inside a hidden subtree is not focusable"
+        );
+
+        // `hidden="until-found"` is also "will not be rendered" (§6.1) ⇒ excluded.
+        let uf = connect_el(&mut dom, doc, "button");
+        dom.set_attribute(uf, "hidden", "until-found");
+        assert!(
+            !is_focusable(&dom, uf),
+            "hidden=until-found is not focusable"
+        );
     }
 
     #[test]
