@@ -97,10 +97,12 @@ impl ViewportState {
 /// Interface"). Returns `(left, top)` where an absent dictionary member is
 /// `None` so the caller substitutes the per-method default — the current offset
 /// for `scrollTo` (absolute), `0` for `scrollBy` (delta). The `behavior` member
-/// (`smooth` / `auto`) is a UA hint this engine does not honour — it always
-/// scrolls instantly, which is conforming (the spec lets a UA realize the
+/// (`auto` / `instant` / `smooth`) is a UA hint this engine does not honour — it
+/// always scrolls instantly, which is conforming (the spec lets a UA realize the
 /// requested scroll behaviour at its own discretion); it is not a pending
-/// feature.
+/// feature. It is still **validated** as a `ScrollBehavior` enum
+/// ([`validate_scroll_behavior`]) — Web IDL rejects an invalid value with a
+/// TypeError even when the value is unused.
 ///
 /// Restores the options-object overload the boa→VM scroll cutover dropped: the
 /// replaced boa path parsed `{ left, top }`, so without this
@@ -124,8 +126,13 @@ fn parse_scroll_args(
             // current offset (both members absent — a no-op) rather than
             // scrolling to the origin.
             JsValue::Null | JsValue::Undefined => Ok((None, None)),
-            // A `{ left, top }` dictionary.
+            // A `{ left, top }` dictionary. Web IDL converts dictionary members
+            // in lexicographic order — `behavior` before `left`/`top` — and
+            // `behavior` is a `ScrollBehavior` enum, so an invalid value must
+            // throw HERE, before any offset is queued (validated even though the
+            // hint is not honoured — see `validate_scroll_behavior`).
             JsValue::Object(id) => {
+                validate_scroll_behavior(ctx, id)?;
                 let left = read_optional_scroll_member(ctx, id, "left")?;
                 let top = read_optional_scroll_member(ctx, id, "top")?;
                 Ok((left, top))
@@ -144,6 +151,32 @@ fn parse_scroll_args(
         // No arguments: an empty options dictionary — both members absent, so
         // each method holds its current offset (a no-op scroll).
         Ok((None, None))
+    }
+}
+
+/// Validate the `ScrollToOptions` `behavior` member as a `ScrollBehavior` enum
+/// (CSSOM-View §4 — `enum ScrollBehavior { "auto", "instant", "smooth" }`). Read
+/// via `[[Get]]`; an absent / `undefined` member is the `"auto"` default (a
+/// no-op), any other value is `ToString`-coerced and must match an enum member
+/// or Web IDL throws a TypeError before the scroll runs. The value is not
+/// otherwise used (this engine scrolls instantly regardless, see
+/// [`parse_scroll_args`]), but the conversion's rejection of an invalid value is
+/// script-observable, so it cannot be skipped (Codex S2 final pass).
+fn validate_scroll_behavior(ctx: &mut NativeContext<'_>, obj_id: ObjectId) -> Result<(), VmError> {
+    let key = PropertyKey::String(ctx.vm.strings.intern("behavior"));
+    let raw = ctx.get_property_value(obj_id, key)?;
+    if matches!(raw, JsValue::Undefined) {
+        return Ok(());
+    }
+    let sid = ctx.to_string_val(raw)?;
+    let s = ctx.get_utf8(sid);
+    if matches!(s.as_str(), "auto" | "instant" | "smooth") {
+        Ok(())
+    } else {
+        Err(VmError::type_error(format!(
+            "Failed to read the 'behavior' property from 'ScrollToOptions': the provided value \
+             '{s}' is not a valid enum value of type ScrollBehavior."
+        )))
     }
 }
 

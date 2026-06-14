@@ -796,14 +796,22 @@ pub(super) fn native_document_get_active_element(
 /// `document.hasFocus()` (WHATWG HTML §6.6.6 Focus management APIs; the
 /// has-focus steps are §6.6.4 Processing model).
 ///
-/// Returns whether an element is currently focused **and** still
-/// connected to this document — read from the canonical
-/// `ElementState::FOCUS` bit via `current_focus`, whose connectedness
-/// filter makes the two APIs agree (`hasFocus() === true` ⇒
-/// `activeElement !== body`).  A full spec implementation tracks system
-/// focus at the window level; same-origin Document vs top-level Window
-/// focus arbitration is a future cross-window concern (out of S2 scope —
-/// the VM has a single browsing context).
+/// The has-focus steps are based on the top-level browsing context having
+/// **system focus**, not merely an element-level focused area. So:
+/// - A **hidden** top-level browsing context (background / minimized tab, driven
+///   by `HostData::set_visibility`) has no system focus → `hasFocus()` is
+///   `false` even while an element retains the focused area. `activeElement`
+///   still reports that retained element (focus is preserved across tab
+///   switches), which is why ONLY this read is visibility-gated, not
+///   `activeElement` (Codex S2 final pass).
+/// - Otherwise read the canonical `ElementState::FOCUS` bit via `current_focus`
+///   (its connectedness filter keeps `hasFocus() === true` ⇒ `activeElement
+///   !== body`).
+///
+/// The remaining gap — a *visible* context that lacks system focus because
+/// another window is focused — needs a window-level focus signal the VM does
+/// not model (single browsing context); deferred as a future cross-window
+/// concern.
 pub(super) fn native_document_has_focus(
     ctx: &mut NativeContext<'_>,
     this: JsValue,
@@ -812,6 +820,15 @@ pub(super) fn native_document_has_focus(
     let Some(doc) = document_receiver(ctx, this, "hasFocus")? else {
         return Ok(JsValue::Boolean(false));
     };
+    // A hidden top-level browsing context has no system focus.
+    if ctx
+        .vm
+        .host_data
+        .as_deref()
+        .is_some_and(super::super::host_data::HostData::is_tab_hidden)
+    {
+        return Ok(JsValue::Boolean(false));
+    }
     let has = elidex_dom_api::focus::current_focus(ctx.host().dom(), doc).is_some();
     Ok(JsValue::Boolean(has))
 }

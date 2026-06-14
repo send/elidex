@@ -263,6 +263,27 @@ fn window_scroll_to_lone_primitive_is_a_type_error() {
 }
 
 #[test]
+fn window_scroll_to_validates_behavior_enum() {
+    // CSSOM-View §4 `ScrollToOptions.behavior` is a `ScrollBehavior` enum
+    // {auto, instant, smooth}; Web IDL rejects an invalid value with a TypeError
+    // even though this engine does not honour the hint (it scrolls instantly).
+    let mut vm = Vm::new();
+    assert!(
+        vm.eval("window.scrollTo({ top: 10, behavior: 'bogus' });")
+            .is_err(),
+        "invalid behavior enum is a TypeError"
+    );
+    // Valid enum values + an absent `behavior` are accepted.
+    assert!(vm
+        .eval("window.scrollTo({ top: 10, behavior: 'smooth' });")
+        .is_ok());
+    assert!(vm
+        .eval("window.scrollTo({ top: 10, behavior: 'instant' });")
+        .is_ok());
+    assert!(vm.eval("window.scrollTo({ top: 10 });").is_ok());
+}
+
+#[test]
 fn window_scroll_to_nullish_options_is_an_empty_dictionary() {
     // Web IDL §3.2.17: `null` / `undefined` convert to an EMPTY ScrollToOptions
     // dictionary, so `scrollTo(null)` holds the current offset (both members

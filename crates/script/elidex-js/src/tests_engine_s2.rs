@@ -111,6 +111,41 @@ fn set_visibility_false_drives_hidden() {
 }
 
 #[test]
+fn has_focus_is_false_when_tab_hidden_but_active_element_retained() {
+    // Codex S2 final pass: `hasFocus()` is window-system-focus based — a hidden
+    // (background / minimized) tab has no system focus, so `hasFocus() === false`
+    // even while an element retains the focused area. `activeElement` still
+    // reports that element (focus is preserved across tab switches), so ONLY the
+    // hasFocus read is visibility-gated.
+    let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    engine.set_visibility(false);
+    let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
+    bind_engine(&mut engine, &mut ctx);
+    eval_ok(
+        &mut engine,
+        &mut ctx,
+        // The engine-contract harness builds only a Document root (no html/body),
+        // so append the focusable element directly as the document element to
+        // connect it.
+        "var d = document.createElement('div'); \
+         d.setAttribute('tabindex', '0'); \
+         document.appendChild(d); \
+         d.focus(); \
+         globalThis.hf = document.hasFocus(); \
+         globalThis.activeIsD = document.activeElement === d;",
+    );
+    engine.unbind();
+    assert!(
+        !global_bool(&mut engine, "hf"),
+        "hasFocus() is false in a hidden tab"
+    );
+    assert!(
+        global_bool(&mut engine, "activeIsD"),
+        "activeElement still reports the retained focused element when hidden"
+    );
+}
+
+#[test]
 fn visibility_getters_scope_to_bound_document() {
     // Codex R2 F2: page visibility is a fact of the *bound* document — a
     // cloned/non-bound `Document` receiver must NOT leak the bound tab's hidden
