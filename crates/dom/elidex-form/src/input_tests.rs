@@ -503,6 +503,29 @@ fn apply_step_very_large_magnitude_unaligned_still_snaps() {
 }
 
 #[test]
+fn apply_step_quarter_step_offset_at_large_magnitude_snaps() {
+    // The relative tolerance is tight (4 ULP), so even a value only an
+    // eighth of a step off the grid at a large magnitude is unaligned
+    // and snaps to the next grid point instead of gaining a full step.
+    // (Codex PR#344 round 4 — a quarter-step cap alone accepted it.)
+    let mut s = make_state(FormControlKind::Number, "100000000000000.125", Some("1"));
+    assert!(apply_step(&mut s, 1.0, 1.0).is_ok());
+    assert_eq!(s.value(), "100000000000001");
+}
+
+#[test]
+fn apply_step_invalid_value_string_treated_as_empty() {
+    // The number-state value is sanitized to a valid floating-point
+    // number or empty (HTML §4.10.5.1.12); a non-valid stored value
+    // (e.g. "1e", which the permissive attribute parser would read as 1)
+    // must be the error/empty case → 0, so stepUp yields 1, not 2.
+    // (Codex PR#344 round 4.)
+    let mut s = make_state(FormControlKind::Number, "1e", Some("1"));
+    assert!(apply_step(&mut s, 1.0, 1.0).is_ok());
+    assert_eq!(s.value(), "1");
+}
+
+#[test]
 fn apply_step_non_finite_result_is_noop() {
     // f64 overflow guard: a pathologically large step with no maximum
     // makes step×n overflow to infinity; the value must NOT become
@@ -554,6 +577,23 @@ fn parse_floating_point_accepts_spec_forms() {
 fn parse_floating_point_rejects_finite_overflow() {
     // A value that rounds to ±2^1024 is an error per the parse rules.
     assert_eq!(parse_floating_point("1e400"), None);
+}
+
+#[test]
+fn parse_valid_floating_point_strict_production() {
+    // Accepts the "valid floating-point number" production.
+    assert_eq!(parse_valid_floating_point("5"), Some(5.0));
+    assert_eq!(parse_valid_floating_point("-2.5"), Some(-2.5));
+    assert_eq!(parse_valid_floating_point(".5"), Some(0.5));
+    assert_eq!(parse_valid_floating_point("1.5e3"), Some(1500.0));
+    assert_eq!(parse_valid_floating_point("1e-3"), Some(0.001));
+    // Rejects everything the permissive parser would over-accept — these
+    // are exactly the strings number value sanitization clears to "".
+    for raw in [
+        "1e", "1.", "+5", " 5", "5 ", "12abc", ".", "", "inf", "nan", "1e400",
+    ] {
+        assert_eq!(parse_valid_floating_point(raw), None, "input={raw:?}");
+    }
 }
 
 // -------------------------------------------------------------------

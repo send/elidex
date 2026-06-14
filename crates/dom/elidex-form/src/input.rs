@@ -153,20 +153,25 @@ pub enum StepError {
 /// step-aligned when `(value − base) / step` is within this relative
 /// tolerance of an integer.
 ///
-/// The tolerance is scaled by `f64::EPSILON` (≈ 2.2e-16) because the
-/// ratio carries only a few ULPs of representation error; 128 ULP
-/// leaves generous headroom for accumulated rounding.  A fixed fudge
-/// factor (e.g. `1e-9`) must NOT be used here.
-const STEP_ALIGN_REL_TOLERANCE: f64 = 128.0 * f64::EPSILON;
+/// The tolerance is scaled by `f64::EPSILON` (≈ 2.2e-16) — the ratio
+/// carries only a few ULPs of representation error, so the tolerance
+/// must track the ratio magnitude, not be a fixed fudge factor (a `1e-9`
+/// constant fails on small ratios and, multiplied up, on large ones).
+/// The factor is kept tight (4 ULP): a looser factor would, at large
+/// magnitudes, accept values several ULP off the grid as aligned
+/// (e.g. `step=1, value=1e14+0.125`, which f64 still represents with a
+/// fractional offset, must snap, not gain a full step) before the cap
+/// below even engages.
+const STEP_ALIGN_REL_TOLERANCE: f64 = 4.0 * f64::EPSILON;
 
 /// Hard cap (in step units) on the alignment tolerance, strictly below
-/// ½ a step.  The relative term above is unbounded — at a large enough
-/// ratio it exceeds ½ and would classify *every* off-grid value as
-/// aligned (e.g. `step=1, value=1e14+0.5`, which f64 still represents
-/// with a fractional offset, must still snap, not gain a full step).
-/// Capping at a quarter-step keeps any value ≈½ step off the grid
-/// unaligned at every magnitude, while the relative term still governs
-/// the precision-error region at normal magnitudes.
+/// ½ a step.  The relative term above is unbounded — past a large
+/// enough ratio it exceeds ½ and would classify *every* off-grid value
+/// (≈½ step off) as aligned.  Capping at a quarter-step keeps such
+/// values unaligned at any magnitude; the relative term governs the
+/// precision-error region at normal magnitudes (the cap only engages
+/// past ratio ≈ 2.8e14, where f64 can no longer represent offsets finer
+/// than the cap anyway).
 const STEP_ALIGN_MAX_TOLERANCE: f64 = 0.25;
 
 /// HTML "rules for parsing floating-point number values"
@@ -234,6 +239,77 @@ fn parse_floating_point(s: &str) -> Option<f64> {
         }
     }
     let value: f64 = s[start..i].parse().ok()?;
+    value.is_finite().then_some(value)
+}
+
+/// HTML "valid floating-point number" (§2.3.4.3) — the STRICT production
+/// (whole string must match: optional `-`, digits and/or `.`digits,
+/// optional `e`/`E` sign digits; no leading whitespace, no leading `+`,
+/// no trailing content, no `"1."` / `"1e"`).
+///
+/// Used to read the number/range element's **value** in the stepUp /
+/// stepDown algorithm (HTML §4.10.5.4 step 5).  Although that step is
+/// phrased with the permissive "convert a string to a number", it
+/// operates on a value the number-state value sanitization algorithm
+/// (§4.10.5.1.12) has already reduced to a valid floating-point number
+/// or the empty string.  Parsing the stored value strictly enforces
+/// that invariant here, so a not-yet-sanitized invalid string (e.g.
+/// `"1e"`) is treated as the empty / error case rather than the
+/// permissive parser's partial result.  The author-provided
+/// `min`/`max`/`step` attributes keep using [`parse_floating_point`]
+/// (the permissive rules, as the spec specifies for those attributes).
+///
+/// Returns `None` (the error case) for any string that is not a valid
+/// floating-point number, or that overflows to a non-finite value.
+fn parse_valid_floating_point(s: &str) -> Option<f64> {
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    if bytes.first() == Some(&b'-') {
+        i += 1;
+    }
+    // Integer part (optional) and fraction part (`.` + 1+ digits,
+    // optional) — at least one of the two must be present.
+    let int_start = i;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    let has_int = i > int_start;
+    let mut has_frac = false;
+    if i < bytes.len() && bytes[i] == b'.' {
+        let frac_start = i + 1;
+        let mut j = frac_start;
+        while j < bytes.len() && bytes[j].is_ascii_digit() {
+            j += 1;
+        }
+        if j > frac_start {
+            has_frac = true;
+            i = j;
+        }
+        // A `.` with no following digit (`"1."`) leaves `i` at the `.`
+        // and fails the whole-string check below.
+    }
+    if !has_int && !has_frac {
+        return None;
+    }
+    // Exponent (optional): `e`/`E`, optional sign, 1+ digits.
+    if i < bytes.len() && (bytes[i] == b'e' || bytes[i] == b'E') {
+        let mut j = i + 1;
+        if j < bytes.len() && (bytes[j] == b'-' || bytes[j] == b'+') {
+            j += 1;
+        }
+        let exp_start = j;
+        while j < bytes.len() && bytes[j].is_ascii_digit() {
+            j += 1;
+        }
+        if j == exp_start {
+            return None; // `e` with no digits.
+        }
+        i = j;
+    }
+    if i != bytes.len() {
+        return None; // leading `+`/whitespace or trailing content.
+    }
+    let value: f64 = s.parse().ok()?;
     value.is_finite().then_some(value)
 }
 
@@ -369,8 +445,11 @@ pub fn apply_step(state: &mut FormControlState, n: f64, direction: f64) -> Resul
         }
     }
 
-    // Step 5: convert the value to a number (error → 0).
-    let mut value = parse_floating_point(state.value()).unwrap_or(0.0);
+    // Step 5: convert the value to a number (error → 0).  The value is a
+    // sanitized number-state value (a valid floating-point number or
+    // empty, §4.10.5.1.12), so parse it strictly — `parse_valid_…`, not
+    // the permissive attribute parser.
+    let mut value = parse_valid_floating_point(state.value()).unwrap_or(0.0);
     // Step 6: snapshot for the reverse-direction guard.
     let value_before = value;
 

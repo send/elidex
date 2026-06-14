@@ -447,6 +447,20 @@ fn input_step_up_uses_fresh_value_attribute_as_step_base_when_dirty() {
 }
 
 #[test]
+fn input_step_up_treats_invalid_value_as_empty() {
+    // An invalid number value (e.g. "1e") is, per HTML §4.10.5.1.12
+    // value sanitization, not a valid floating-point number, so step 5
+    // of stepUp (§4.10.5.4) sees the empty/error case → 0 and stepUp
+    // yields 1, not 2 (the permissive parser would mis-read "1e" as 1).
+    let out = run("var i = document.createElement('input'); \
+         i.type = 'number'; \
+         i.value = '1e'; \
+         i.stepUp(); \
+         i.value;");
+    assert_eq!(out, "1");
+}
+
+#[test]
 fn input_step_up_snaps_unaligned_value_to_grid() {
     // HTML §4.10.5.4 step 7: value off the step grid snaps to the
     // nearest aligned value in the step direction (5 on a step-10 grid
