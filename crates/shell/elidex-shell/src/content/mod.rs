@@ -169,11 +169,16 @@ impl ContentState {
             .sync_dirty_canvases(&mut self.pipeline.dom);
         self.pipeline.caret_visible = self.caret_visible;
 
-        // Apply any pending JS scroll (scrollTo/scrollBy) to viewport state.
-        if let Some((x, y)) = self.pipeline.runtime.bridge().take_pending_scroll() {
+        // Drain any pending JS scroll (scrollTo/scrollBy) and apply the requested
+        // offset so the display list builds toward it. The CLAMP is deferred to
+        // AFTER `crate::re_render` recomputes layout (below): a script that
+        // mutated layout and scrolled in the same turn — e.g. appended tall
+        // content then `scrollTo` its bottom — must clamp against the NEW content
+        // size, not the stale pre-layout one (Codex R6 "clamp script scrolls
+        // after layout is refreshed").
+        let pending_scroll = self.pipeline.runtime.bridge().take_pending_scroll();
+        if let Some((x, y)) = pending_scroll {
             self.viewport_scroll.scroll_offset = elidex_plugin::Vector::new(x, y);
-            // Clamp to valid range so JS cannot set out-of-bounds scroll positions.
-            scroll::update_viewport_scroll_dimensions(self);
         }
 
         // Sync viewport scroll offset to pipeline for display list building.
@@ -186,6 +191,21 @@ impl ContentState {
         iframe::re_render_all_iframes(self);
 
         let mutation_records = crate::re_render(&mut self.pipeline);
+
+        // Now that layout boxes reflect this turn's mutations, clamp a
+        // script-requested scroll against the fresh content size, then re-sync
+        // the (possibly clamped) offset to the display list + JS bridge. The
+        // pre-layout echo above used the unclamped request, so a "scroll to the
+        // bottom of just-added content" idiom lands on the NEW max instead of
+        // being clamped to the stale old max and lost (Codex R6).
+        if pending_scroll.is_some() {
+            scroll::update_viewport_scroll_dimensions(self);
+            self.pipeline.scroll_offset = self.viewport_scroll.scroll_offset;
+            self.pipeline
+                .display_list
+                .update_scroll_offset(self.viewport_scroll.scroll_offset);
+            self.echo_viewport_scroll();
+        }
 
         // Invalidate focusable cache when DOM structure or focusability changes.
         if should_invalidate_focusable_cache(&mutation_records) {
