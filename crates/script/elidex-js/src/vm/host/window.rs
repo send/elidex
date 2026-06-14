@@ -113,16 +113,24 @@ fn parse_scroll_args(
         let y = coerce::to_number(ctx.vm, args[1])?;
         return Ok((Some(x), Some(y)));
     }
-    // One-argument options overload: a `{ left, top }` dictionary.
+    // One-argument options overload.
     if let Some(&first) = args.first() {
-        if let JsValue::Object(id) = first {
-            let left = read_optional_scroll_member(ctx, id, "left")?;
-            let top = read_optional_scroll_member(ctx, id, "top")?;
-            return Ok((left, top));
+        match first {
+            // `null` / `undefined` convert to an EMPTY `ScrollToOptions`
+            // dictionary (Web IDL §3.2.17), NOT a positional `x`: both members
+            // absent, so `scrollTo(null)` holds the current offset (a no-op)
+            // rather than scrolling to the origin.
+            JsValue::Null | JsValue::Undefined => return Ok((None, None)),
+            // A `{ left, top }` dictionary.
+            JsValue::Object(id) => {
+                let left = read_optional_scroll_member(ctx, id, "left")?;
+                let top = read_optional_scroll_member(ctx, id, "top")?;
+                return Ok((left, top));
+            }
+            // A lone non-object primitive is the positional `x` (with `y`
+            // defaulting to 0) — preserves the boa path this cutover replaces.
+            _ => return Ok((Some(coerce::to_number(ctx.vm, first)?), Some(0.0))),
         }
-        // A lone non-object argument is the positional `x` (with `y` defaulting
-        // to 0) — preserves the behaviour of the boa path this cutover replaces.
-        return Ok((Some(coerce::to_number(ctx.vm, first)?), Some(0.0)));
     }
     // No arguments: an empty options dictionary — both members absent, so each
     // method holds its current offset (a no-op scroll).

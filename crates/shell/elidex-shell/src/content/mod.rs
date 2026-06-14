@@ -187,16 +187,18 @@ impl ContentState {
         // ScrollState for getBoundingClientRect) through the shared chokepoint.
         self.echo_viewport_scroll();
         // Reconcile the focused-iframe side field against the parent's canonical
-        // FOCUS bit BEFORE the iframe render pass below: a parent-side script
-        // `focus()` this turn may have moved focus off the `<iframe>` element
-        // without `handle_click`'s blur path, leaving an in-process child with
-        // `:focus` / caret / a stale `activeElement`. `reconcile_focused_iframe`
-        // blurs the child and flags it `needs_render`, so it must precede
-        // `re_render_all_iframes` — otherwise the child display list is rebuilt
-        // with the stale focus this frame and the blur only lands a frame late
-        // (Codex S2 R5). `current_focus` reads the canonical FOCUS bit, which the
-        // script's `focus()` already moved this turn, so it reflects the post-turn
-        // focus before `crate::re_render`'s reconcile fixup runs.
+        // FOCUS bit — pass 1 of 2, the SYNCHRONOUS case, BEFORE the iframe render
+        // pass below. A parent-side script `focus()` this turn may have moved the
+        // FOCUS bit off the `<iframe>` element without `handle_click`'s blur path,
+        // leaving a STILL-VISIBLE in-process child painting `:focus` / caret with
+        // a stale `activeElement`. `current_focus` reads the canonical bit the
+        // script already moved, so `reconcile_focused_iframe` blurs the child and
+        // flags it `needs_render` here, before `re_render_all_iframes` rebuilds
+        // the child display list — otherwise the visible iframe's blur lands a
+        // frame late (Codex S2 R5). The complementary ASYNCHRONOUS case (the
+        // iframe element made non-focusable by a *buffered* mutation, e.g.
+        // `iframe.hidden = true`) can only be reconciled after `crate::re_render`
+        // flushes + GCs the bit — see pass 2 below.
         event_handlers::reconcile_focused_iframe(self);
 
         // Re-render in-process iframes before the parent so child display
@@ -236,11 +238,20 @@ impl ContentState {
             self.focusable_cache = None;
         }
 
-        // (The `current_focus ⟹ is_focusable` reconciliation now lives inside
-        // `crate::re_render` above, so the parent, in-process iframes and OOP
-        // iframes all share one chokepoint — see the comment there. The
-        // focused-iframe side-field reconciliation runs BEFORE the iframe render
-        // pass above, not here — see `reconcile_focused_iframe`.)
+        // Reconcile the focused-iframe side field — pass 2 of 2, the ASYNCHRONOUS
+        // case, AFTER `crate::re_render`'s focusability GC. When a parent mutation
+        // makes the focused `<iframe>` non-focusable (e.g. `iframe.hidden = true`),
+        // that buffered attribute is only flushed + reconciled (the parent's
+        // `current_focus ⟹ is_focusable` GC, WHATWG HTML "update the rendering"
+        // step 17) INSIDE `crate::re_render` above — after pass 1 ran with the bit
+        // still set. By now the GC has cleared the bit, so `current_focus` no
+        // longer points at the `<iframe>` and this pass blurs the child, clearing
+        // its JS-observable `activeElement` and dropping `focused_iframe` so key
+        // routing stops. A non-focusable iframe is not composited, so its display
+        // list staleness is moot — `blur_iframe_focus` flags `needs_render` for a
+        // later un-hide (Codex S2 R8). (The parent / in-process / OOP focusability
+        // GC itself shares the one `crate::re_render` chokepoint — see there.)
+        event_handlers::reconcile_focused_iframe(self);
 
         // Deliver observer callbacks after layout is complete.
         if !mutation_records.is_empty() {

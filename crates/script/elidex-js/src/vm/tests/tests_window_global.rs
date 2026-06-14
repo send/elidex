@@ -249,6 +249,22 @@ fn window_scroll_to_options_absent_member_holds_current_axis() {
 }
 
 #[test]
+fn window_scroll_to_nullish_options_is_an_empty_dictionary() {
+    // Web IDL §3.2.17: `null` / `undefined` convert to an EMPTY ScrollToOptions
+    // dictionary, so `scrollTo(null)` holds the current offset (both members
+    // absent) — NOT a positional `x` of 0 that would scroll to the origin.
+    let mut vm = Vm::new();
+    vm.eval(
+        "window.scrollTo(10, 20);
+         window.scrollTo(null);
+         window.scrollTo(undefined);",
+    )
+    .unwrap();
+    assert_eq!(vm.inner.viewport.scroll_x, 10.0, "nullish holds scrollX");
+    assert_eq!(vm.inner.viewport.scroll_y, 20.0, "nullish holds scrollY");
+}
+
+#[test]
 fn window_scroll_by_accepts_options_object() {
     // CSSOM-View §6 `scrollBy({ left, top })` — an absent member is a 0 delta
     // on that axis (not the current offset, unlike `scrollTo`).
